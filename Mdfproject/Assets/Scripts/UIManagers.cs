@@ -1,0 +1,66 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.Numerics;
+using UnityEditor;
+using UnityEngine;
+
+public class UIManagers : MonoBehaviour
+{
+    public static UIManagers Instance = null;
+    // 인스펙터에서 UI 초기화 (UI 요소들은 리스트로 관리)
+    public List<GameObject> UILists;
+    // UI 요소를 이름으로 관리하기 위한 리스트 (각 UI 요소별로 풀을 관리)
+    private Dictionary<string, UIPool> uiPools;  // UI 풀 관리
+
+    private void Awake()
+    {
+        if (Instance == null)
+        {
+            Instance = this;
+            DontDestroyOnLoad(this.gameObject);
+        }
+        else
+        {
+            Destroy(this.gameObject);
+        }
+
+        uiPools = new Dictionary<string, UIPool>(); // 초기화
+
+        foreach (GameObject ui in UILists)
+        {
+            if (ui != null)
+            {
+                // UI 풀을 초기화하고 딕셔너리에 추가
+                uiPools.Add(ui.name, new UIPool(ui));
+            }
+        }
+    }
+
+    // UI 요소를 풀에서 꺼내기
+    public GameObject GetUIElement(string uiName)
+    {
+        if (uiPools.ContainsKey(uiName))
+        {
+            return uiPools[uiName].GetObject(uiName);
+        }
+        else
+        {
+            Debug.LogWarning($"UI element '{uiName}' is not found in the pool.");
+            return null;
+        }
+    }
+
+    // UI 요소를 풀에 반환하기
+    public void ReturnUIElement(string uiName)
+    {
+        if (uiPools.ContainsKey(uiName))
+        {
+            uiPools[uiName].ReturnObject(uiName);
+        }
+        else
+        {
+            Debug.LogWarning($"UI element '{uiName}' is not found in the pool.");
+        }
+    }
+
+}
