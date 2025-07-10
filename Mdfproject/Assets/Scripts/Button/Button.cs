@@ -21,4 +21,9 @@ public class Button : MonoBehaviour
         Debug.Log("Button clicked: " + gameObject.name);
     }
 
+    virtual public void BackButton()
+    {
+        // Override this method in derived classes to handle back button events
+        Debug.Log("Back button clicked: " + gameObject.name);
+    }
 }
