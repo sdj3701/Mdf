@@ -2,17 +2,16 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class SoundButton : Button
+public class VersionButton : Button
 {
     virtual public void OnClick()
     {
         uiManager.ReturnUIElement("OptionCanvas");
-        uiManager.GetUIElement("SoundCanvas");
+        uiManager.GetUIElement("VersionCanvas");
     }
-
     virtual public void BackButton()
     {
-        uiManager.ReturnUIElement("SoundCanvas");
+        uiManager.ReturnUIElement("VersionCanvas");
         uiManager.GetUIElement("OptionCanvas");
     }
 }
