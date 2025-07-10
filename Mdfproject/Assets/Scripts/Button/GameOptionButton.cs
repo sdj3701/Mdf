@@ -9,6 +9,6 @@ public class GameOptionButton : Button
     {
         // 부모 클래스 정의된 OnClick 메서드를 호출
         base.OnClick();
-        uiManager.GetUIElement("OptionCanvas");
+        uiManager.GetUIElement("Assets/Prefabs/OptionCanvas.prefab");
     }
 }

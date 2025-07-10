@@ -22,16 +22,14 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
-  - m_GUID: d9ac1f923b3d73c4aa4495a6b80e354b
+  - m_GUID: aca84c4064854254380d9f30928a03e8
     m_Address: Assets/Prefabs/SoundCanvas.prefab
     m_ReadOnly: 0
-    m_SerializedLabels:
-    - UI
-  - m_GUID: 0ae55d77568c1e04087276e513ac1925
+    m_SerializedLabels: []
+  - m_GUID: a17f345e706ce4a41bdce43cf81bb6c6
     m_Address: Assets/Prefabs/OptionCanvas.prefab
     m_ReadOnly: 0
-    m_SerializedLabels:
-    - UI
+    m_SerializedLabels: []
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

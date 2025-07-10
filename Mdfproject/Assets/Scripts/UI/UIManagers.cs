@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using UnityEditor;
 using UnityEngine;
+using System.Threading.Tasks;
 using static UnityEngine.GridBrushBase;
 
 public class UIManagers : MonoBehaviour
@@ -14,7 +15,7 @@ public class UIManagers : MonoBehaviour
     // UI 요소를 이름으로 관리하기 위한 리스트 (각 UI 요소별로 풀을 관리)
     private Dictionary<string, UIPool> uiPools;  // UI 풀 관리
 
-    private void Awake()
+    private async void Awake()
     {
         if (Instance == null)
         {
@@ -33,13 +34,13 @@ public class UIManagers : MonoBehaviour
             if (ui != null)
             {
                 // UI 풀을 초기화하고 딕셔너리에 추가
-                uiPools.Add(ui.name, new UIPool(ui));
+                uiPools.Add(gameObject.name, new UIPool(ui));
             }
         }
     }
 
     // UI 요소를 풀에서 꺼내기
-    public GameObject GetUIElement(string uiName)
+    public Task<GameObject> GetUIElement(string uiName)
     {
         if (uiPools.ContainsKey(uiName))
         {
