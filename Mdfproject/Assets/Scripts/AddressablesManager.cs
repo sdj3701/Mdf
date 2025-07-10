@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
@@ -22,39 +23,28 @@ public class AddressablesManager : MonoBehaviour
         yield return init;
     }
 
-    public GameObject LoadObject(string name)
+    public async Task<GameObject> LoadObject(string name)
     {
-        AsyncOperationHandle<GameObject> go = Addressables.LoadAssetAsync<GameObject>(name);
-        go.Completed += (handle) =>
+        var handle = Addressables.LoadAssetAsync<GameObject>(name);
+        await handle.Task;
+
+        if( handle.Status == AsyncOperationStatus.Succeeded)
         {
-            // 로드 성공 여부 확인
-            OnAssetLoaded(go, name);
-        };
-
-        GameObject loadObject = go.Result;
-        return loadObject;
-    }
-
-
-    private void OnAssetLoaded(AsyncOperationHandle<GameObject> handle, string name)
-    {
-        // 로드 성공 여부 확인
-        if (handle.Status == AsyncOperationStatus.Succeeded)
-        {
-            GameObject loadedObject = handle.Result;
-            Debug.Log($"{name} 비동기적으로 로드 성공!");
-            Instantiate(loadedObject, transform.position, Quaternion.identity);
+            return OnAssetLoaded(handle, name);
         }
         else
         {
             Debug.LogError($"{name} 비동기적으로 로드 실패: {handle.OperationException?.Message}");
+            return null;
         }
 
-        // 더 이상 필요 없는 경우 핸들 해제 (리소스 언로드)
-        // Addressables.Release(handle); // OnDestroy 등 적절한 시점에 호출
     }
 
 
-
-
+    private GameObject OnAssetLoaded(AsyncOperationHandle<GameObject> handle, string name)
+    {
+        GameObject loadedObject = handle.Result;
+        Instantiate(loadedObject); // 로드된 오브젝트를 인스턴스화
+        return loadedObject;
+    }
 }
