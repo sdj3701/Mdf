@@ -2,19 +2,34 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SearchService;
+using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 
 public class UIPool : MonoBehaviour
 {
-    private Dictionary<string, GameObject> pool;  // UI 오브젝트들을 관리하는 Dictionary
+    private AddressablesManager addressablesManager = new AddressablesManager(); // AddressablesManager 인스턴스 가져오기
+
+    private Dictionary<string, GameObject> pool = new Dictionary<string, GameObject>();  // UI 오브젝트들을 관리하는 Dictionary
     private GameObject prefab;
 
-    public UIPool(GameObject prefab)
+    public UIPool(GameObject prefab, string uiname = null)
     {
-        this.prefab = prefab;
-        string name = prefab.name;
+        if(prefab == null && uiname == null)
+        {
+            Debug.LogError("UIPool: prefab null and uiname nmull.");
+            return;
+        }
+        else if (prefab == null)
+        {
+            AddGetObject(uiname);
+        }
+        else
+        {
+            this.prefab = prefab;
+            string name = prefab.name;
 
-        pool = new Dictionary<string, GameObject>();
-        pool.Add(name, prefab);
+            pool.Add(name, this.prefab);
+        }
     }
 
     // UI 요소를 풀에서 꺼내기 (이름을 기준으로)
@@ -33,8 +48,9 @@ public class UIPool : MonoBehaviour
     }
 
     // UI 요소가 없으면 새로 생성하여 반환
-    public GameObject AddGetObject (string name)
+    public GameObject AddGetObject (string name, GameObject currentposition = null)
     {
+        Debug.Log("test1");
         // 혹시 있으면 그냥 풀에서 꺼내쓰고
         if (pool.ContainsKey(name))
         {
@@ -44,8 +60,12 @@ public class UIPool : MonoBehaviour
         }
         else
         {
+            Debug.Log("test2");
+
             // 없으면 Addressable로 불러오기
-            GameObject obj = Object.Instantiate(prefab);
+            // name으로 생성 그리고 currentposition의 자식으로 생성
+            GameObject obj = addressablesManager.LoadObject(name);
+            pool.Add(obj.name, obj);
             return obj;
         }
     }
