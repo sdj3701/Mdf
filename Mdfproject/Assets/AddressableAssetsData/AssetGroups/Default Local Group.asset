@@ -1,0 +1,40 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: Default Local Group
+  m_EditorClassIdentifier: 
+  m_GroupName: Default Local Group
+  m_Data:
+    m_SerializedData: []
+  m_GUID: a4027a8aaff00cb448c87552c4a5d3b6
+  m_SerializeEntries:
+  - m_GUID: c26b0a0b34743364daa13012be296e5a
+    m_Address: Assets/Prefabs/VersionCanvas.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+  - m_GUID: d9ac1f923b3d73c4aa4495a6b80e354b
+    m_Address: Assets/Prefabs/SoundCanvas.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+  - m_GUID: 0ae55d77568c1e04087276e513ac1925
+    m_Address: Assets/Prefabs/OptionCanvas.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: 683f6ded40e7c1746b4b7fe32298a1cb, type: 2}
+    - {fileID: 11400000, guid: a441fbc12c033ef4ab2e31e4aa715094, type: 2}

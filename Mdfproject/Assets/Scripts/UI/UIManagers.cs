@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Numerics;
 using UnityEditor;
 using UnityEngine;
+using static UnityEngine.GridBrushBase;
 
 public class UIManagers : MonoBehaviour
 {
     public static UIManagers Instance = null;
+
     // 인스펙터에서 UI 초기화 (UI 요소들은 리스트로 관리)
     public List<GameObject> UILists;
     // UI 요소를 이름으로 관리하기 위한 리스트 (각 UI 요소별로 풀을 관리)
@@ -46,7 +48,10 @@ public class UIManagers : MonoBehaviour
         else
         {
             Debug.LogWarning($"UI element '{uiName}' is not found in the pool and Addressable Load.");
-            return uiPools[uiName].AddGetObject(uiName);
+            // (이런 이름으로 생성, 여기 오브젝트 자식으로 생성)
+            // 우리에게는 UI 이름이 있으니 Addressable로 불러와서 생성 
+            UIPool ui = new UIPool(null, uiName);
+            return ui.GetObject(uiName);
         }
     }
 
