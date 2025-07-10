@@ -45,8 +45,8 @@ public class UIManagers : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"UI element '{uiName}' is not found in the pool.");
-            return null;
+            Debug.LogWarning($"UI element '{uiName}' is not found in the pool and Addressable Load.");
+            return uiPools[uiName].AddGetObject(uiName);
         }
     }
 
