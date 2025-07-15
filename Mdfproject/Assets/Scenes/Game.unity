@@ -122,6 +122,12 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &102972058 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 3341122327032133576, guid: a17f345e706ce4a41bdce43cf81bb6c6,
+    type: 3}
+  m_PrefabInstance: {fileID: 3132653461549297266}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &193237044
 GameObject:
   m_ObjectHideFlags: 0
@@ -354,27 +360,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_RenderShadows: 1
-  m_RequiresDepthTextureOption: 2
-  m_RequiresOpaqueTextureOption: 2
-  m_CameraType: 0
-  m_Cameras: []
-  m_RendererIndex: -1
-  m_VolumeLayerMask:
-    serializedVersion: 2
-    m_Bits: 1
-  m_VolumeTrigger: {fileID: 0}
-  m_VolumeFrameworkUpdateModeOption: 2
-  m_RenderPostProcessing: 1
-  m_Antialiasing: 0
-  m_AntialiasingQuality: 2
-  m_StopNaN: 0
-  m_Dithering: 0
-  m_ClearDepth: 1
-  m_AllowXRRendering: 1
-  m_RequiresDepthTexture: 0
-  m_RequiresColorTexture: 0
-  m_Version: 2
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
@@ -482,14 +467,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_Version: 1
-  m_UsePipelineSettings: 1
-  m_AdditionalLightsShadowResolutionTier: 2
-  m_LightLayerMask: 1
-  m_CustomShadowLayers: 0
-  m_ShadowLayerMask: 1
-  m_LightCookieSize: {x: 1, y: 1}
-  m_LightCookieOffset: {x: 0, y: 0}
 --- !u!1 &750859278
 GameObject:
   m_ObjectHideFlags: 0
@@ -605,6 +582,12 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0, y: 0}
+--- !u!1 &764612392 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 2234683307361231913, guid: aca84c4064854254380d9f30928a03e8,
+    type: 3}
+  m_PrefabInstance: {fileID: 180872428365449707}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &777637302
 GameObject:
   m_ObjectHideFlags: 0
@@ -928,11 +911,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 172515602e62fb746b5d573b38a5fe58, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  m_IsGlobal: 1
-  priority: 0
-  blendDistance: 0
-  weight: 1
-  sharedProfile: {fileID: 11400000, guid: a6560a915ef98420e9faacc1c7438823, type: 2}
 --- !u!4 &832575519
 Transform:
   m_ObjectHideFlags: 0
@@ -1289,7 +1267,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b0eb430ab86f8bf4896c4f428d7a9fd0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  UILists: []
+  UILists:
+  - {fileID: 750859278}
+  - {fileID: 102972058}
+  - {fileID: 764612392}
 --- !u!1 &1273307208
 GameObject:
   m_ObjectHideFlags: 0
