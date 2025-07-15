@@ -16,10 +16,6 @@ public class UIManagers : MonoBehaviour
     private Dictionary<string, UIPool> uiPools;  // UI Ǯ ����
 
     /*
-        1. 문제점
-        버그 지금 딕셔너리를 GameObject를 생성하는데 이름은 오브젝트 이름을 사용
-        하지만 지금 내가 어드레스에이블을 사용해서 문제가 
-        오브젝트 이름 != 어드레이스에이블 이름이 서로 다름
         2. 문제점
         오브젝트가 2개 생성됨 이유를 모르겠네? 인스턴트는 한개 뿐인데?
         왠지 1번 잡으면 문제 해결될듯
