@@ -8,9 +8,9 @@ using UnityEngine.SearchService;
 
 public class UIPool
 {
-    private AddressablesManager addressablesManager = new AddressablesManager(); // AddressablesManager ÀÎ½ºÅÏ½º °¡Á®¿À±â
+    private AddressablesManager addressablesManager = new AddressablesManager(); // AddressablesManager ï¿½Î½ï¿½ï¿½Ï½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
-    private Dictionary<string, GameObject> pool = new Dictionary<string, GameObject>();  // UI ¿ÀºêÁ§Æ®µéÀ» °ü¸®ÇÏ´Â Dictionary
+    private Dictionary<string, GameObject> pool = new Dictionary<string, GameObject>();  // UI ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ Dictionary
     private GameObject prefab;
 
     public UIPool(GameObject prefab, string uiname = null)
@@ -20,11 +20,7 @@ public class UIPool
             Debug.LogError("UIPool: prefab null and uiname nmull.");
             return;
         }
-        else if (prefab == null)
-        {
-            AddGetObject(uiname);
-        }
-        else
+        else if(uiname == null)
         {
             this.prefab = prefab;
             string name = prefab.name;
@@ -33,13 +29,13 @@ public class UIPool
         }
     }
 
-    // UI ¿ä¼Ò¸¦ Ç®¿¡¼­ ²¨³»±â (ÀÌ¸§À» ±âÁØÀ¸·Î)
+    // UI ï¿½ï¿½Ò¸ï¿½ Ç®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ (ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½)
     public Task<GameObject> GetObject(string name)
     {
         if (pool.ContainsKey(name))
         {
             GameObject obj = pool[name];
-            obj.SetActive(true);  // È°¼ºÈ­ »óÅÂ·Î ¹ÝÈ¯
+            obj.SetActive(true);  // È°ï¿½ï¿½È­ ï¿½ï¿½ï¿½Â·ï¿½ ï¿½ï¿½È¯
             return Task.FromResult(obj);
         }
         else
@@ -48,14 +44,14 @@ public class UIPool
         }
     }
 
-    // UI ¿ä¼Ò°¡ ¾øÀ¸¸é »õ·Î »ý¼ºÇÏ¿© ¹ÝÈ¯
+    // UI ï¿½ï¿½Ò°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï¿ï¿½ ï¿½ï¿½È¯
     public Task<GameObject> AddGetObject (string name, GameObject currentposition = null)
     {
-        // È¤½Ã ÀÖÀ¸¸é ±×³É Ç®¿¡¼­ ²¨³»¾²°í
+        // È¤ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½×³ï¿½ Ç®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         if (pool.ContainsKey(name))
         {
             GameObject obj = pool[name];
-            obj.SetActive(true);  // È°¼ºÈ­ »óÅÂ·Î ¹ÝÈ¯
+            obj.SetActive(true);  // È°ï¿½ï¿½È­ ï¿½ï¿½ï¿½Â·ï¿½ ï¿½ï¿½È¯
             return Task.FromResult(obj);
         }
         else
@@ -64,13 +60,13 @@ public class UIPool
         }
     }
 
-    // »ç¿ëÀÌ ³¡³­ UI ¿ä¼Ò¸¦ Ç®¿¡ ¹ÝÈ¯
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ UI ï¿½ï¿½Ò¸ï¿½ Ç®ï¿½ï¿½ ï¿½ï¿½È¯
     public void ReturnObject(string name)
     {
         if (pool.ContainsKey(name))
         {
             GameObject obj = pool[name];
-            obj.SetActive(false);  // ºñÈ°¼ºÈ­ »óÅÂ·Î ¹ÝÈ¯
+            obj.SetActive(false);  // ï¿½ï¿½È°ï¿½ï¿½È­ ï¿½ï¿½ï¿½Â·ï¿½ ï¿½ï¿½È¯
         }
         else
         {

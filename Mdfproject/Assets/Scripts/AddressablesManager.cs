@@ -7,24 +7,13 @@ using UnityEngine.ResourceManagement.AsyncOperations;
 
 public class AddressablesManager : MonoBehaviour
 {
-    // TODO : Áö¿öµµ µÉ °Å °°Àºµ¥? LoadObject ¿¡¼­ GameObject¸¦ »ý¼ºÇØ¼­ Á÷Á¢ ¹ÝÈ¯ÇØÁÖ¸é µÉ°Å °°Àºµ¥
+    // TODO : ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½? LoadObject ï¿½ï¿½ï¿½ï¿½ GameObjectï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ø¼ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯ï¿½ï¿½ï¿½Ö¸ï¿½ ï¿½É°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     [SerializeField]
     private AssetReferenceGameObject[] UIObject;
 
-    private void Start()
-    {
-        StartCoroutine(InitAddressable());
-    }
-
-    // TODO : À¯´ÏÅÂ½ºÅ©·Î º¯°æ ¿¹Á¤
-    IEnumerator InitAddressable()
-    {
-        var init = Addressables.InitializeAsync();
-        yield return init;
-    }
-
     public async Task<GameObject> LoadObject(string name)
     {
+
         var handle = Addressables.LoadAssetAsync<GameObject>(name);
         await handle.Task;
 
@@ -34,7 +23,7 @@ public class AddressablesManager : MonoBehaviour
         }
         else
         {
-            Debug.LogError($"{name} ºñµ¿±âÀûÀ¸·Î ·Îµå ½ÇÆÐ: {handle.OperationException?.Message}");
+            Debug.LogError($"{name} ï¿½ñµ¿±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ ï¿½ï¿½ï¿½ï¿½: {handle.OperationException?.Message}");
             return null;
         }
 
@@ -44,7 +33,7 @@ public class AddressablesManager : MonoBehaviour
     private GameObject OnAssetLoaded(AsyncOperationHandle<GameObject> handle, string name)
     {
         GameObject loadedObject = handle.Result;
-        Instantiate(loadedObject); // ·ÎµåµÈ ¿ÀºêÁ§Æ®¸¦ ÀÎ½ºÅÏ½ºÈ­
+        Instantiate(loadedObject); // ï¿½Îµï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½Î½ï¿½ï¿½Ï½ï¿½È­
         return loadedObject;
     }
 }
