@@ -45,18 +45,26 @@ public class UIPool
     }
 
     // UI ��Ұ� ������ ���� �����Ͽ� ��ȯ
-    public Task<GameObject> AddGetObject(string name, GameObject currentposition = null)
+    public async Task<GameObject> AddGetObject(string name, GameObject currentposition = null)
     {
         // Ȥ�� ������ �׳� Ǯ���� ��������
         if (pool.ContainsKey(name))
         {
             GameObject obj = pool[name];
-            obj.SetActive(true);  // Ȱ��ȭ ���·� ��ȯ
-            return Task.FromResult(obj);
+            obj.SetActive(true);  // Ȱ��ȭ ���·� ��ȯßß
+            return obj;
         }
         else
         {
-            return addressablesManager.LoadObject(name);
+            //return addressablesManager.LoadObject(name);
+            GameObject newInstance = await addressablesManager.LoadObject(name);
+            if (newInstance != null)
+            {
+                newInstance.name = name;
+                pool[name] = newInstance;
+                newInstance.SetActive(true);
+            }
+            return newInstance;
         }
     }
 
@@ -66,8 +74,28 @@ public class UIPool
         // UIManager에 는 있지만 uiPool에는 없다
         if (pool.ContainsKey(name))
         {
-            GameObject obj = pool[name];
-            obj.SetActive(false);  // ��Ȱ��ȭ ���·� ��ȯ
+            // GameObject obj = pool[name];
+            // obj.SetActive(false);  // ��Ȱ��ȭ ���·� ��ȯ
+            // Debug.Log("re : " + obj.name);
+            // ✅ Object.FindObjectsOfType은 정적 메서드이므로 사용 가능
+            GameObject[] allObjects = Object.FindObjectsOfType<GameObject>();
+            bool foundAny = false;
+            
+            foreach (GameObject obj in allObjects)
+            {
+                string cleanName = obj.name.Replace("(Clone)", "").Trim();
+                if (cleanName == name && obj.activeInHierarchy)
+                {
+                    obj.SetActive(false);
+                    Debug.Log($"✅ Instance 비활성화: {obj.name}");
+                    foundAny = true;
+                }
+            }
+            
+            if (!foundAny)
+            {
+                Debug.LogWarning($"⚠️ 활성화된 '{name}' Instance를 찾을 수 없음");
+            }
         }
         else
         {

@@ -32,10 +32,19 @@ public class AddressablesManager : MonoBehaviour
 
     private GameObject OnAssetLoaded(AsyncOperationHandle<GameObject> handle, string name)
     {
-        GameObject loadedObject = handle.Result;
-        Instantiate(loadedObject); // �ε�� ������Ʈ�� �ν��Ͻ�ȭ
-        // 생성하면 데이터 uipool에 추가
-        UIPool uipool = new UIPool(loadedObject);
-        return loadedObject;
+        // GameObject loadedObject = handle.Result;
+        // // 생성하면 데이터 uipool에 추가
+        // UIPool uipool = new UIPool(loadedObject);
+        // Instantiate(loadedObject); 
+        // loadedObject.SetActive(true);
+        // return loadedObject;
+        GameObject prefabAsset = handle.Result;  // Prefab Asset
+        UIPool uipool = new UIPool(prefabAsset);
+        // ✅ 인스턴스 생성하고 변수에 저장
+        GameObject instance = Instantiate(prefabAsset);
+        // ✅ 인스턴스에 SetActive 호출
+        instance.SetActive(true);
+        // ✅ 인스턴스 반환 (Prefab 아님!)
+        return instance;
     }
 }
