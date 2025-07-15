@@ -10,11 +10,20 @@ public class UIManagers : MonoBehaviour
 {
     public static UIManagers Instance = null;
 
-    // ÀÎ½ºÆåÅÍ¿¡¼­ UI ÃÊ±âÈ­ (UI ¿ä¼ÒµéÀº ¸®½ºÆ®·Î °ü¸®)
+    // ï¿½Î½ï¿½ï¿½ï¿½ï¿½Í¿ï¿½ï¿½ï¿½ UI ï¿½Ê±ï¿½È­ (UI ï¿½ï¿½Òµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
     public List<GameObject> UILists;
-    // UI ¿ä¼Ò¸¦ ÀÌ¸§À¸·Î °ü¸®ÇÏ±â À§ÇÑ ¸®½ºÆ® (°¢ UI ¿ä¼Òº°·Î Ç®À» °ü¸®)
-    private Dictionary<string, UIPool> uiPools;  // UI Ç® °ü¸®
+    // UI ï¿½ï¿½Ò¸ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ® (ï¿½ï¿½ UI ï¿½ï¿½Òºï¿½ï¿½ï¿½ Ç®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
+    private Dictionary<string, UIPool> uiPools;  // UI Ç® ï¿½ï¿½ï¿½ï¿½
 
+    /*
+        1. ë¬¸ì œì 
+        ë²„ê·¸ ì§€ê¸ˆ ë”•ì…”ë„ˆë¦¬ë¥¼ GameObjectë¥¼ ìƒì„±í•˜ëŠ”ë° ì´ë¦„ì€ ì˜¤ë¸Œì íŠ¸ ì´ë¦„ì„ ì‚¬ìš©
+        í•˜ì§€ë§Œ ì§€ê¸ˆ ë‚´ê°€ ì–´ë“œë ˆìŠ¤ì—ì´ë¸”ì„ ì‚¬ìš©í•´ì„œ ë¬¸ì œê°€ 
+        ì˜¤ë¸Œì íŠ¸ ì´ë¦„ != ì–´ë“œë ˆì´ìŠ¤ì—ì´ë¸” ì´ë¦„ì´ ì„œë¡œ ë‹¤ë¦„
+        2. ë¬¸ì œì 
+        ì˜¤ë¸Œì íŠ¸ê°€ 2ê°œ ìƒì„±ë¨ ì´ìœ ë¥¼ ëª¨ë¥´ê² ë„¤? ì¸ìŠ¤í„´íŠ¸ëŠ” í•œê°œ ë¿ì¸ë°?
+        ì™ ì§€ 1ë²ˆ ì¡ìœ¼ë©´ ë¬¸ì œ í•´ê²°ë ë“¯
+    */
     private async void Awake()
     {
         if (Instance == null)
@@ -27,19 +36,20 @@ public class UIManagers : MonoBehaviour
             Destroy(this.gameObject);
         }
 
-        uiPools = new Dictionary<string, UIPool>(); // ÃÊ±âÈ­
+        uiPools = new Dictionary<string, UIPool>(); // ï¿½Ê±ï¿½È­
 
+        // UI List use uiPools Dictionary Create
         foreach (GameObject ui in UILists)
         {
             if (ui != null)
             {
-                // UI Ç®À» ÃÊ±âÈ­ÇÏ°í µñ¼Å³Ê¸®¿¡ Ãß°¡
-                uiPools.Add(gameObject.name, new UIPool(ui));
+                // UI Ç®ï¿½ï¿½ ï¿½Ê±ï¿½È­ï¿½Ï°ï¿½ ï¿½ï¿½Å³Ê¸ï¿½ï¿½ï¿½ ï¿½ß°ï¿½
+                uiPools.Add(ui.name, new UIPool(ui));
             }
         }
     }
 
-    // UI ¿ä¼Ò¸¦ Ç®¿¡¼­ ²¨³»±â
+    // UI ï¿½ï¿½Ò¸ï¿½ Ç®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
     public Task<GameObject> GetUIElement(string uiName)
     {
         if (uiPools.ContainsKey(uiName))
@@ -49,14 +59,14 @@ public class UIManagers : MonoBehaviour
         else
         {
             Debug.LogWarning($"UI element '{uiName}' is not found in the pool and Addressable Load.");
-            // (ÀÌ·± ÀÌ¸§À¸·Î »ı¼º, ¿©±â ¿ÀºêÁ§Æ® ÀÚ½ÄÀ¸·Î »ı¼º)
-            // ¿ì¸®¿¡°Ô´Â UI ÀÌ¸§ÀÌ ÀÖÀ¸´Ï Addressable·Î ºÒ·¯¿Í¼­ »ı¼º 
+            // (ï¿½Ì·ï¿½ ï¿½Ì¸ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½Ú½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½)
+            // ï¿½ì¸®ï¿½ï¿½ï¿½Ô´ï¿½ UI ï¿½Ì¸ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Addressableï¿½ï¿½ ï¿½Ò·ï¿½ï¿½Í¼ï¿½ ï¿½ï¿½ï¿½ï¿½ 
             UIPool ui = new UIPool(null, uiName);
             return ui.GetObject(uiName);
-        }
+        }    
     }
 
-    // UI ¿ä¼Ò¸¦ Ç®¿¡ ¹İÈ¯ÇÏ±â
+    // UI ï¿½ï¿½Ò¸ï¿½ Ç®ï¿½ï¿½ ï¿½ï¿½È¯ï¿½Ï±ï¿½
     public void ReturnUIElement(string uiName)
     {
         if (uiPools.ContainsKey(uiName))

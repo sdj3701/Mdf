@@ -7,8 +7,8 @@ public class GameOptionButton : Button
 {
     virtual public void OnClick()
     {
-        // ºÎ¸ð Å¬·¡½º Á¤ÀÇµÈ OnClick ¸Þ¼­µå¸¦ È£Ãâ
+        // ï¿½Î¸ï¿½ Å¬ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Çµï¿½ OnClick ï¿½Þ¼ï¿½ï¿½å¸¦ È£ï¿½ï¿½
         base.OnClick();
-        uiManager.GetUIElement("Assets/Prefabs/OptionCanvas.prefab");
+        uiManager.GetUIElement("OptionCanvas");
     }
 }

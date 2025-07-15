@@ -6,13 +6,13 @@ public class SoundButton : Button
 {
     virtual public void OnClick()
     {
-        uiManager.ReturnUIElement("Assets/Prefabs/OptionCanvas.prefab");
-        uiManager.GetUIElement("Assets/Prefabs/SoundCanvas.prefab");
+        uiManager.ReturnUIElement("OptionCanvas");
+        uiManager.GetUIElement("SoundCanvas");
     }
 
     virtual public void BackButton()
     {
-        uiManager.ReturnUIElement("Assets/Prefabs/SoundCanvas.prefab");
-        uiManager.GetUIElement("Assets/Prefabs/OptionCanvas.prefab");
+        uiManager.ReturnUIElement("SoundCanvas");
+        uiManager.GetUIElement("OptionCanvas");
     }
 }

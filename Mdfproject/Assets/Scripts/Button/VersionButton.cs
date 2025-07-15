@@ -6,12 +6,12 @@ public class VersionButton : Button
 {
     virtual public void OnClick()
     {
-        uiManager.ReturnUIElement("Assets/Prefabs/OptionCanvas.prefab");
-        uiManager.GetUIElement("Assets/Prefabs/VersionCanvas.prefab");
+        uiManager.ReturnUIElement("OptionCanvas");
+        uiManager.GetUIElement("VersionCanvas");
     }
     virtual public void BackButton()
     {
-        uiManager.ReturnUIElement("Assets/Prefabs/VersionCanvas.prefab");
-        uiManager.GetUIElement("Assets/Prefabs/OptionCanvas.prefab");
+        uiManager.ReturnUIElement("VersionCanvas");
+        uiManager.GetUIElement("OptionCanvas");
     }
 }
