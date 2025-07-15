@@ -55,9 +55,9 @@ public class UIManagers : MonoBehaviour
         else
         {
             Debug.LogWarning($"UI element '{uiName}' is not found in the pool and Addressable Load.");
-            // (�̷� �̸����� ����, ���� ������Ʈ �ڽ����� ����)
-            // �츮���Դ� UI �̸��� ������ Addressable�� �ҷ��ͼ� ���� 
+            // 여기가 문제 없어서 만들면 풀에 넣어야 하는데 안넣음
             UIPool ui = new UIPool(null, uiName);
+            uiPools.Add(uiName, ui);
             return ui.GetObject(uiName);
         }    
     }

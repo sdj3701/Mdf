@@ -15,12 +15,12 @@ public class UIPool
 
     public UIPool(GameObject prefab, string uiname = null)
     {
-        if(prefab == null && uiname == null)
+        if (prefab == null && uiname == null)
         {
             Debug.LogError("UIPool: prefab null and uiname nmull.");
             return;
         }
-        else if(uiname == null)
+        else if (uiname == null)
         {
             this.prefab = prefab;
             string name = prefab.name;
@@ -45,7 +45,7 @@ public class UIPool
     }
 
     // UI ��Ұ� ������ ���� �����Ͽ� ��ȯ
-    public Task<GameObject> AddGetObject (string name, GameObject currentposition = null)
+    public Task<GameObject> AddGetObject(string name, GameObject currentposition = null)
     {
         // Ȥ�� ������ �׳� Ǯ���� ��������
         if (pool.ContainsKey(name))
@@ -63,6 +63,7 @@ public class UIPool
     // ����� ���� UI ��Ҹ� Ǯ�� ��ȯ
     public void ReturnObject(string name)
     {
+        // UIManager에 는 있지만 uiPool에는 없다
         if (pool.ContainsKey(name))
         {
             GameObject obj = pool[name];
@@ -72,5 +73,10 @@ public class UIPool
         {
             Debug.LogWarning($"UI element '{name}' not found in the pool.");
         }
+    }
+
+    public void AddUIPoolData(string name, GameObject gameObject)
+    {
+        pool.Add(name, gameObject);
     }
 }
