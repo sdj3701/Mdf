@@ -15,11 +15,6 @@ public class UIManagers : MonoBehaviour
     // UI ��Ҹ� �̸����� �����ϱ� ���� ����Ʈ (�� UI ��Һ��� Ǯ�� ����)
     private Dictionary<string, UIPool> uiPools;  // UI Ǯ ����
 
-    /*
-        2. 문제점
-        오브젝트가 2개 생성됨 이유를 모르겠네? 인스턴트는 한개 뿐인데?
-        왠지 1번 잡으면 문제 해결될듯
-    */
     private async void Awake()
     {
         if (Instance == null)
