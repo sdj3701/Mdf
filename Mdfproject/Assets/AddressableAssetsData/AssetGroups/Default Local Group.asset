@@ -18,16 +18,16 @@ MonoBehaviour:
   m_GUID: a4027a8aaff00cb448c87552c4a5d3b6
   m_SerializeEntries:
   - m_GUID: c26b0a0b34743364daa13012be296e5a
-    m_Address: Assets/Prefabs/VersionCanvas.prefab
+    m_Address: VersionCanvas
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
   - m_GUID: aca84c4064854254380d9f30928a03e8
-    m_Address: Assets/Prefabs/SoundCanvas.prefab
+    m_Address: SoundCanvas
     m_ReadOnly: 0
     m_SerializedLabels: []
   - m_GUID: a17f345e706ce4a41bdce43cf81bb6c6
-    m_Address: Assets/Prefabs/OptionCanvas.prefab
+    m_Address: OptionCanvas
     m_ReadOnly: 0
     m_SerializedLabels: []
   m_ReadOnly: 0
