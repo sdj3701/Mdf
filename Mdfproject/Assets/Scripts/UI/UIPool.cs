@@ -10,7 +10,7 @@ public class UIPool
 {
     private AddressablesManager addressablesManager = new AddressablesManager(); // AddressablesManager �ν��Ͻ� ��������
 
-    private Dictionary<string, GameObject> pool = new Dictionary<string, GameObject>();  // UI ������Ʈ���� �����ϴ� Dictionary
+    private static Dictionary<string, GameObject> pool = new Dictionary<string, GameObject>();  // UI ������Ʈ���� �����ϴ� Dictionary
     private GameObject prefab;
 
     public UIPool(GameObject prefab, string uiname = null)

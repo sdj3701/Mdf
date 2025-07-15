@@ -11,8 +11,6 @@ public class AddressablesManager : MonoBehaviour
     [SerializeField]
     private AssetReferenceGameObject[] UIObject;
 
-    private UIPool uIPool = new UIPool(null);
-
     public async Task<GameObject> LoadObject(string name)
     {
 
@@ -37,7 +35,7 @@ public class AddressablesManager : MonoBehaviour
         GameObject loadedObject = handle.Result;
         Instantiate(loadedObject); // �ε�� ������Ʈ�� �ν��Ͻ�ȭ
         // 생성하면 데이터 uipool에 추가
-        uIPool.AddUIPoolData(name, loadedObject);
+        UIPool uipool = new UIPool(loadedObject);
         return loadedObject;
     }
 }
