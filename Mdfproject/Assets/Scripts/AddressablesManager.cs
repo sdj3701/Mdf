@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using Cysharp.Threading.Tasks;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -11,7 +12,7 @@ public class AddressablesManager : MonoBehaviour
     [SerializeField]
     private AssetReferenceGameObject[] UIObject;
 
-    public async Task<GameObject> LoadObject(string name)
+    public async UniTask<GameObject> LoadObject(string name)
     {
 
         var handle = Addressables.LoadAssetAsync<GameObject>(name);

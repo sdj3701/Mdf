@@ -5,6 +5,7 @@ using UnityEditor;
 using UnityEngine;
 using System.Threading.Tasks;
 using static UnityEngine.GridBrushBase;
+using Cysharp.Threading.Tasks;
 
 public class UIManagers : MonoBehaviour
 {
@@ -41,7 +42,7 @@ public class UIManagers : MonoBehaviour
     }
 
     // UI ��Ҹ� Ǯ���� ������
-    public Task<GameObject> GetUIElement(string uiName)
+    public UniTask<GameObject> GetUIElement(string uiName)
     {
         if (uiPools.ContainsKey(uiName))
         {
