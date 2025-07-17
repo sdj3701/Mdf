@@ -5,7 +5,7 @@ using UnityEngine.UI;
 
 public class GameOptionButton : Button
 {
-    virtual public void OnClick()
+    override public void OnClick()
     {
         // �θ� Ŭ���� ���ǵ� OnClick �޼��带 ȣ��
         base.OnClick();
