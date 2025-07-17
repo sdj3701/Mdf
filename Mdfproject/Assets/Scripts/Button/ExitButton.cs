@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class ExitButton : Button
 {
-    virtual public void OnClick()
+    override public void OnClick()
     {
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;

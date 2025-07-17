@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -5,6 +6,8 @@ using UnityEngine;
 public class Button : MonoBehaviour
 {
     protected UIManagers uiManager;
+    protected GmaeManager gmaeManager;
+
 
     private void Start()
     {
@@ -12,7 +15,11 @@ public class Button : MonoBehaviour
         {
             uiManager = UIManagers.Instance;
         }
-        //GOBtn.onClick.AddListener(OnClick);
+        
+        if (gmaeManager == null)
+        {
+            gmaeManager = GmaeManager.Instance;
+        }
     }
 
     virtual public void OnClick()

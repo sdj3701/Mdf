@@ -4,12 +4,12 @@ using UnityEngine;
 
 public class VersionButton : Button
 {
-    virtual public void OnClick()
+    override public void OnClick()
     {
         uiManager.ReturnUIElement("OptionCanvas");
         uiManager.GetUIElement("VersionCanvas");
     }
-    virtual public void BackButton()
+    override public void BackButton()
     {
         uiManager.ReturnUIElement("VersionCanvas");
         uiManager.GetUIElement("OptionCanvas");
