@@ -1,10 +1,8 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.AsyncOperations;
-using UnityEngine.SearchService;
+
 
 public class UIPool
 {
@@ -30,13 +28,13 @@ public class UIPool
     }
 
     // UI ��Ҹ� Ǯ���� ������ (�̸��� ��������)
-    public Task<GameObject> GetObject(string name)
+    public UniTask<GameObject> GetObject(string name)
     {
         if (pool.ContainsKey(name))
         {
             GameObject obj = pool[name];
             obj.SetActive(true);  // Ȱ��ȭ ���·� ��ȯ
-            return Task.FromResult(obj);
+            return UniTask.FromResult(obj);
         }
         else
         {
@@ -45,7 +43,7 @@ public class UIPool
     }
 
     // UI ��Ұ� ������ ���� �����Ͽ� ��ȯ
-    public async Task<GameObject> AddGetObject(string name, GameObject currentposition = null)
+    public async UniTask<GameObject> AddGetObject(string name, GameObject currentposition = null)
     {
         // Ȥ�� ������ �׳� Ǯ���� ��������
         if (pool.ContainsKey(name))
