@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-public class GameOptionButton : Button
+public class GameOptionButton : BaseButton
 {
-    override public void OnClick()
+    public override void OnClick()
     {
         // �θ� Ŭ���� ���ǵ� OnClick �޼��带 ȣ��
         base.OnClick();

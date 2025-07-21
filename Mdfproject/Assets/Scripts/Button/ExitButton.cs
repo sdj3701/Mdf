@@ -2,9 +2,9 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class ExitButton : Button
+public class ExitButton : BaseButton
 {
-    override public void OnClick()
+    public override void OnClick()
     {
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;

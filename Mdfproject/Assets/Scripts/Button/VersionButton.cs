@@ -2,14 +2,14 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class VersionButton : Button
+public class VersionButton : BaseButton
 {
-    override public void OnClick()
+    public override void OnClick()
     {
         uiManager.ReturnUIElement("OptionCanvas");
         uiManager.GetUIElement("VersionCanvas");
     }
-    override public void BackButton()
+    public override void BackButton()
     {
         uiManager.ReturnUIElement("VersionCanvas");
         uiManager.GetUIElement("OptionCanvas");

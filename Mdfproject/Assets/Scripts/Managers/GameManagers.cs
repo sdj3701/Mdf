@@ -2,10 +2,11 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEditor.Build.Content;
 using UnityEngine;
+using System.Linq;
 
-public class GmaeManager : MonoBehaviour
+public class GameManagers : MonoBehaviour
 {
-    public static GmaeManager Instance = null;
+    public static GameManagers Instance = null;
     private Queue<string> characterselectdata = new Queue<string>();
     private int maxqueue = 3;
 
@@ -15,22 +16,27 @@ public class GmaeManager : MonoBehaviour
         if (Instance == null)
         {
             Instance = this;
-            DontDestroyOnLoad(gameObject); // 씬 전환시에도 유지
+            DontDestroyOnLoad(this.gameObject); // 씬 전환시에도 유지
         }
         else
         {
-            Destroy(gameObject);
+            Destroy(this.gameObject);
         }
     }
 
-    // TODO : resize 필요할 때
+    // TODO : resize 필요할 때 일단 사용 안함 하면 머리아픔
     public void SetMaxQueueSize(int count)
     {
         maxqueue = count;
     }
 
+    public int GetMaxSize()
+    {
+        return maxqueue;
+    }
+
     // input data
-    public void Enqueue(string name)
+    public void Pushqueue(string name)
     {
         if (characterselectdata.Count < maxqueue)
         {
@@ -43,6 +49,16 @@ public class GmaeManager : MonoBehaviour
             characterselectdata.Dequeue();
             characterselectdata.Enqueue(name);
         }
+    }
+
+    public string GetCharacterName(int count)
+    {
+        return  characterselectdata.ElementAt(count);
+    }
+
+    public int CurrentQueueSize()
+    {
+        return characterselectdata.Count;
     }
 
 }
