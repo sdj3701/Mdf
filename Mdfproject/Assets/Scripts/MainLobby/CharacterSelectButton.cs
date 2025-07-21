@@ -4,19 +4,30 @@ using TMPro;
 using Unity.VisualScripting.Dependencies.Sqlite;
 using UnityEngine;
 using UnityEngine.UI;
-using UnityEngine.UIElements;
 
-public class CharacterSelectButton : Button
+public class CharacterSelectButton : BaseButton
 {
-    
+    SelectCharacter selectCharacter;
+
+    protected override void Awake()
+    {
+        base.Awake();
+    }
+
+    void Start()
+    {
+        selectCharacter = new SelectCharacter();
+    }
+
     override public void OnClick()
     {
         Button button = this.gameObject.GetComponent<Button>();
         TMP_Text buttonText = button.GetComponentInChildren<TMP_Text>();
         if (buttonText != null)
         {
-            gmaeManager.Enqueue(buttonText.text);
             Debug.Log(buttonText.text);
+            gameManagers.Pushqueue(buttonText.text);
+            selectCharacter.UpdateSelectCharacter();
         }
         else
         {

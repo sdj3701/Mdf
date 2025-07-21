@@ -2,15 +2,15 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
-public class SoundButton : Button
+public class SoundButton : BaseButton
 {
-    override public void OnClick()
+    public override void OnClick()
     {
         uiManager.ReturnUIElement("OptionCanvas");
         uiManager.GetUIElement("SoundCanvas");
     }
 
-    override public void BackButton()
+    public override void BackButton()
     {
         uiManager.ReturnUIElement("SoundCanvas");
         uiManager.GetUIElement("OptionCanvas");
