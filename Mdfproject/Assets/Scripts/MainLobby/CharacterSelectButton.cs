@@ -28,6 +28,7 @@ public class CharacterSelectButton : BaseButton
             return;
         }
         // 2. TMP_Text 컴포넌트 가져오기
+        // TODO : 나중에 큐에서 링크드 리스트로 변경할 예정
         TMP_Text buttonText = button.GetComponentInChildren<TMP_Text>();
         if (buttonText != null)
         {
