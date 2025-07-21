@@ -7,16 +7,13 @@ using UnityEngine.UI;
 
 public class CharacterSelectButton : BaseButton
 {
-    SelectCharacter selectCharacter;
+    [SerializeField]
+    private SelectCharacter selectCharacter;
 
     protected override void Awake()
     {
         base.Awake();
-    }
-
-    void Start()
-    {
-        selectCharacter = new SelectCharacter();
+        Debug.Log("where not Inspector selectCharacter script");
     }
 
     override public void OnClick()
