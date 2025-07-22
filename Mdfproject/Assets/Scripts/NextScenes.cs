@@ -5,8 +5,6 @@ using UnityEngine.SceneManagement;
 
 public class NextScenes : BaseButton
 {
-    GameManagers gameManagers;
-
     public override void OnClick()
     {
         SceneManager.LoadScene("MainLobby");
