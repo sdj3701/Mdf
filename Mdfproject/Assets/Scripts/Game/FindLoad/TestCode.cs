@@ -65,8 +65,8 @@ public class TestCode : MonoBehaviour
         Debug.Log($"총 {wallCount}개의 벽이 인식되었습니다.");
 
         // 기존 pathfinding 로직...
-        StartNode = NodeArray[startPos.x - bottomLeft.x, startPos.y - bottomLeft.y];
-        TargetNode = NodeArray[targetPos.x - bottomLeft.x, targetPos.y - bottomLeft.y];
+        StartNode = NodeArray[startPos.x - Mathf.Abs(bottomLeft.x), startPos.y - Mathf.Abs(bottomLeft.y)];
+        TargetNode = NodeArray[targetPos.x - bottomLeft.x, targetPos.y - Mathf.Abs(bottomLeft.y)];
 
         OpenList = new List<Node>() { StartNode };
         ClosedList = new List<Node>();
