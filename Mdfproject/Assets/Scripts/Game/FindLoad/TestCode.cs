@@ -15,6 +15,7 @@ public class TestCode : MonoBehaviour
     Node[,] NodeArray;
     Node StartNode, TargetNode, CurNode;
     List<Node> OpenList, ClosedList;
+    // b-6, -4 t5,4 s 10,5 tar 1, 4
 
     public void PathFinding()
     {
@@ -31,30 +32,30 @@ public class TestCode : MonoBehaviour
             {
                 bool isWall = false;
                 Vector2 checkPos = new Vector2(i + bottomLeft.x, j + bottomLeft.y);
-                
+
                 // 모든 콜라이더 검사
                 Collider2D[] colliders = Physics2D.OverlapCircleAll(checkPos, detectionRadius);
-                
-                if (showDebugInfo && colliders.Length > 0)
-                {
-                    Debug.Log($"위치 ({checkPos.x}, {checkPos.y})에서 {colliders.Length}개의 콜라이더 발견:");
-                }
+
+                // if (showDebugInfo && colliders.Length > 0)
+                // {
+                //     Debug.Log($"위치 ({checkPos.x}, {checkPos.y})에서 {colliders.Length}개의 콜라이더 발견:");
+                // }
 
                 foreach (Collider2D col in colliders)
                 {
-                    if (showDebugInfo)
-                    {
-                        Debug.Log($"- 오브젝트: {col.gameObject.name}, 레이어: {LayerMask.LayerToName(col.gameObject.layer)}, 타입: {col.GetType().Name}");
-                    }
+                    // if (showDebugInfo)
+                    // {
+                    //     Debug.Log($"- 오브젝트: {col.gameObject.name}, 레이어: {LayerMask.LayerToName(col.gameObject.layer)}, 타입: {col.GetType().Name}");
+                    // }
 
                     if (col.gameObject.layer == LayerMask.NameToLayer("Wall"))
                     {
                         isWall = true;
                         wallCount++;
-                        if (showDebugInfo)
-                        {
-                            Debug.Log($"★ 벽 발견! 위치: ({checkPos.x}, {checkPos.y})");
-                        }
+                        // if (showDebugInfo)
+                        // {
+                        //     Debug.Log($"★ 벽 발견! 위치: ({checkPos.x}, {checkPos.y})");
+                        // }
                     }
                 }
 
@@ -62,11 +63,11 @@ public class TestCode : MonoBehaviour
             }
         }
 
-        Debug.Log($"총 {wallCount}개의 벽이 인식되었습니다.");
+        //Debug.Log($"총 {wallCount}개의 벽이 인식되었습니다.");
 
         // 인스펙터에서 시작 위치랑 
-        StartNode = NodeArray[startPos.x, startPos.y];
-        TargetNode = NodeArray[targetPos.x, targetPos.y];
+        StartNode = NodeArray[startPos.x - bottomLeft.x, startPos.y - bottomLeft.y];
+        TargetNode = NodeArray[targetPos.x - bottomLeft.x, targetPos.y - bottomLeft.y];
 
         OpenList = new List<Node>() { StartNode };
         ClosedList = new List<Node>();
@@ -76,7 +77,8 @@ public class TestCode : MonoBehaviour
         {
             CurNode = OpenList[0];
             for (int i = 1; i < OpenList.Count; i++)
-                if (OpenList[i].F <= CurNode.F && OpenList[i].H < CurNode.H) CurNode = OpenList[i];
+                if (OpenList[i].F <= CurNode.F && OpenList[i].H < CurNode.H)
+                    CurNode = OpenList[i];
 
             OpenList.Remove(CurNode);
             ClosedList.Add(CurNode);
@@ -142,26 +144,26 @@ public class TestCode : MonoBehaviour
         }
 
         // 감지 범위 그리기 (디버깅용)
-        if (showDebugInfo && NodeArray != null)
-        {
-            Gizmos.color = Color.yellow;
-            for (int i = 0; i < sizeX; i++)
-            {
-                for (int j = 0; j < sizeY; j++)
-                {
-                    Vector3 pos = new Vector3(i + bottomLeft.x, j + bottomLeft.y, 0);
-                    Gizmos.DrawWireSphere(pos, detectionRadius);
+        // if (showDebugInfo && NodeArray != null)
+        // {
+        //     Gizmos.color = Color.yellow;
+        //     for (int i = 0; i < sizeX; i++)
+        //     {
+        //         for (int j = 0; j < sizeY; j++)
+        //         {
+        //             Vector3 pos = new Vector3(i + bottomLeft.x, j + bottomLeft.y, 0);
+        //             Gizmos.DrawWireSphere(pos, detectionRadius);
                     
-                    // 벽인 경우 빨간색 사각형 그리기
-                    if (NodeArray[i, j].isWall)
-                    {
-                        Gizmos.color = Color.red;
-                        Gizmos.DrawWireCube(pos, Vector3.one * 0.8f);
-                        Gizmos.color = Color.yellow;
-                    }
-                }
-            }
-        }
+        //             // 벽인 경우 빨간색 사각형 그리기
+        //             if (NodeArray[i, j].isWall)
+        //             {
+        //                 Gizmos.color = Color.red;
+        //                 Gizmos.DrawWireCube(pos, Vector3.one * 0.8f);
+        //                 Gizmos.color = Color.yellow;
+        //             }
+        //         }
+        //     }
+        // }
     }
 
     // 나머지 함수들은 기존과 동일...
