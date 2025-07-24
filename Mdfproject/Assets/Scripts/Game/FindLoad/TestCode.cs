@@ -15,7 +15,8 @@ public class TestCode : MonoBehaviour
     Node[,] NodeArray;
     Node StartNode, TargetNode, CurNode;
     List<Node> OpenList, ClosedList;
-    // b-6, -4 t5,4 s 10,5 tar 1, 4
+    
+    public Monster testMonster;  // ✅ 테스트할 몬스터 연결
 
     public void PathFinding()
     {
@@ -94,7 +95,15 @@ public class TestCode : MonoBehaviour
                 FinalNodeList.Add(StartNode);
                 FinalNodeList.Reverse();
 
-                for (int i = 0; i < FinalNodeList.Count; i++) print(i + "번째는 " + FinalNodeList[i].x + ", " + FinalNodeList[i].y);
+                for (int i = 0; i < FinalNodeList.Count; i++)
+                    print(i + "번째는 " + FinalNodeList[i].x + ", " + FinalNodeList[i].y);
+
+                if (testMonster != null && FinalNodeList.Count > 0)
+                {
+                    Debug.Log("🎯 경로 계산 완료! 몬스터 자동 이동 시작");
+                    testMonster.StartFollowingPath(FinalNodeList);
+                }
+
                 return;
             }
 
