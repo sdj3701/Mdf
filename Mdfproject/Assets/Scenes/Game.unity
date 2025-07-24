@@ -2025,8 +2025,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   bottomLeft: {x: -6, y: -4}
   topRight: {x: 5, y: 4}
-  startPos: {x: 10, y: 5}
-  targetPos: {x: 1, y: 4}
+  startPos: {x: 5, y: 0}
+  targetPos: {x: -4, y: 0}
   FinalNodeList: []
   allowDiagonal: 0
   dontCrossCorner: 0
