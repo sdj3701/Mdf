@@ -122,6 +122,12 @@ public class Monster : MonoBehaviour
     {
         // 여기에 목표 도달 시 실행할 코드 작성
         Debug.Log("💀 몬스터가 목표에 도달했습니다!");
+        //일단 종료
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit(); // ���ø����̼� ����
+#endif
     }
 
     /// <summary>

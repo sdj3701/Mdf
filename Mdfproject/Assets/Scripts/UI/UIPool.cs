@@ -22,8 +22,16 @@ public class UIPool
         {
             this.prefab = prefab;
             string name = prefab.name;
-
-            pool.Add(name, this.prefab);
+            
+            if (!pool.ContainsKey(prefab.name))
+            {
+                pool.Add(prefab.name, prefab);
+            }
+            else
+            {
+                Debug.LogWarning($"⚠️ UI '{prefab.name}'가 이미 등록되어 있습니다. 덮어쓰기 합니다.");
+                pool[prefab.name] = prefab; // 덮어쓰기
+            }
         }
     }
 
