@@ -1,14 +1,19 @@
 using System.Collections;
 using System.Collections.Generic;
-using UnityEditor.Build.Content;
 using UnityEngine;
 using System.Linq;
+using UnityEngine.UI;
+using TMPro;
+using System.Numerics;
 
 public class GameManagers : MonoBehaviour
 {
     public static GameManagers Instance = null;
     private Queue<string> characterselectdata = new Queue<string>();
     private int maxqueue = 3;
+
+    public Button[] SelectCharacterButton;
+    private List<string> selectCharacterName = new List<string>();
 
     private void Awake()
     {
@@ -42,6 +47,7 @@ public class GameManagers : MonoBehaviour
         {
             Debug.Log("데이터 넣기");
             characterselectdata.Enqueue(name);
+            selectCharacterName.Add(name);
         }
         else
         {
@@ -53,12 +59,17 @@ public class GameManagers : MonoBehaviour
 
     public string GetCharacterName(int count)
     {
-        return  characterselectdata.ElementAt(count);
+        return characterselectdata.ElementAt(count);
     }
 
     public int CurrentQueueSize()
     {
         return characterselectdata.Count;
+    }
+
+    public string GetSelectCharacterName(int i)
+    {
+        return selectCharacterName[i];
     }
 
 }

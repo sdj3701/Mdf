@@ -1501,6 +1501,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1dc4269197ee346ffb1ee49d9022301a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  SelectCharacterButton: []
 --- !u!1 &739510118
 GameObject:
   m_ObjectHideFlags: 0
