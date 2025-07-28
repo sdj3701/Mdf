@@ -9,9 +9,9 @@ public class CharacterSelectButton : BaseButton
     [SerializeField]
     private SelectCharacter selectCharacter;
 
-    protected override void Awake()
+    protected override void Start()
     {
-        base.Awake();
+        base.Start();
         //Debug.Log("where not Inspector selectCharacter script");
     }
 

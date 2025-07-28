@@ -22,6 +22,10 @@ public interface IEnemy
 
 public class Monster : MonoBehaviour
 {
+    [Header("Test")]
+    private GameObject PlaneObject;
+    private GameObject EndUI;
+
     [Header("MonsterData")]
     public MonsterData md = new MonsterData(100, 1);
 
@@ -44,6 +48,8 @@ public class Monster : MonoBehaviour
     {
         pathfinder = FindObjectOfType<TestCode>();
         currentHP = maxHP;
+        PlaneObject = GameObject.Find("Plane");
+        EndUI = GameObject.Find("EndUI");
 
     }
 
@@ -74,6 +80,11 @@ public class Monster : MonoBehaviour
     /// </summary>
     public void StartFollowingPath(List<Node> path)
     {
+        if (!this.gameObject.activeInHierarchy)
+        {
+            this.gameObject.SetActive(true);
+        }
+
         if (path == null || path.Count == 0)
         {
             Debug.LogWarning("❌ 유효하지 않은 경로입니다!");
@@ -167,12 +178,9 @@ public class Monster : MonoBehaviour
     {
         // 여기에 목표 도달 시 실행할 코드 작성
         Debug.Log("💀 몬스터가 목표에 도달했습니다!");
-        //일단 종료
-#if UNITY_EDITOR
-        UnityEditor.EditorApplication.isPlaying = false;
-#else
-        Application.Quit(); // ���ø����̼� ����
-#endif
+
+        PlaneObject.SetActive(false);
+        EndUI.SetActive(true);
     }
 
     /// <summary>

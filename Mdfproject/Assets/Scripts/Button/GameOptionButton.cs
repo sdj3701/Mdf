@@ -5,10 +5,14 @@ using UnityEngine.UI;
 
 public class GameOptionButton : BaseButton
 {
+    protected override void Start()
+    {
+        base.Start();
+    }
+
+
     public override void OnClick()
     {
-        // �θ� Ŭ���� ���ǵ� OnClick �޼��带 ȣ��
-        base.OnClick();
         uiManager.GetUIElement("OptionCanvas");
     }
 }
