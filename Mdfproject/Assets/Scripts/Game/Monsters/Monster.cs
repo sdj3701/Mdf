@@ -2,8 +2,29 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+public struct MonsterData
+{
+    public int Hp;
+    public int Damage;
+
+    public MonsterData(int hp, int damage)
+    {
+        Hp = hp;
+        Damage = damage;
+    }
+};
+
+// 적 인터페이스 (선택사항)
+public interface IEnemy
+{
+    void TakeDamage(int damage);
+}
+
 public class Monster : MonoBehaviour
 {
+    [Header("MonsterData")]
+    public MonsterData md = new MonsterData(100, 1);
+
     [Header("이동 설정")]
     public float moveSpeed = 2f;              // 이동 속도
     public float arrivalThreshold = 0.1f;     // 도착 판정 거리
@@ -22,6 +43,30 @@ public class Monster : MonoBehaviour
     void Start()
     {
         pathfinder = FindObjectOfType<TestCode>();
+        currentHP = maxHP;
+
+    }
+
+
+    [Header("체력 설정")]
+    public int maxHP = 100;
+    public int currentHP;
+
+    public void TakeDamage(int damage)
+    {
+        currentHP -= damage;
+        Debug.Log($"{gameObject.name} HP: {currentHP}/{maxHP}");
+
+        if (currentHP <= 0)
+        {
+            Die();
+        }
+    }
+
+    void Die()
+    {
+        Debug.Log($"{gameObject.name}이(가) 죽었습니다!");
+        Destroy(gameObject);
     }
 
     /// <summary>
