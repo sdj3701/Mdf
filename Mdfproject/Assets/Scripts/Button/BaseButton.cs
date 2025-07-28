@@ -9,7 +9,7 @@ public class BaseButton : MonoBehaviour
     protected GameManagers gameManagers;
 
 
-    protected virtual void Awake()
+    protected virtual void Start()
     {
         if (uiManager == null)
         {

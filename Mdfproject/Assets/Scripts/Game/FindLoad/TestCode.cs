@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AddressableAssets;
 
 public class TestCode : MonoBehaviour
 {
@@ -15,8 +16,8 @@ public class TestCode : MonoBehaviour
     Node[,] NodeArray;
     Node StartNode, TargetNode, CurNode;
     List<Node> OpenList, ClosedList;
-    
-    public Monster testMonster;  // ✅ 테스트할 몬스터 연결
+
+    public GameObject monsterPrefab;  // ✅ 테스트할 몬스터 연결
 
     public void PathFinding()
     {
@@ -98,10 +99,16 @@ public class TestCode : MonoBehaviour
                 for (int i = 0; i < FinalNodeList.Count; i++)
                     print(i + "번째는 " + FinalNodeList[i].x + ", " + FinalNodeList[i].y);
 
-                if (testMonster != null && FinalNodeList.Count > 0)
+                if (monsterPrefab == null)
+                    monsterPrefab = GameObject.Find("Monster");
+
+
+                if (monsterPrefab != null && FinalNodeList.Count > 0)
                 {
                     Debug.Log("🎯 경로 계산 완료! 몬스터 자동 이동 시작");
-                    testMonster.StartFollowingPath(FinalNodeList);
+                    GameObject instance = Instantiate(monsterPrefab); // 인스턴스 생성
+                    Monster monster = instance.GetComponent<Monster>();
+                    monster.StartFollowingPath(FinalNodeList);
                 }
 
                 return;

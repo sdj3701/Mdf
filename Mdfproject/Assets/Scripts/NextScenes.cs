@@ -6,9 +6,9 @@ using UnityEngine.SceneManagement;
 
 public class NextScenes : BaseButton
 {
-    protected override void Awake()
+    protected override void Start()
     {
-        base.Awake();
+        base.Start();
         DontDestroyOnLoad(this.gameObject);
     }
 
@@ -44,7 +44,7 @@ public class NextScenes : BaseButton
             SceneManager.sceneLoaded -= OnGameSceneLoaded;
 
             // 잠깐 대기 후 실행
-            StartCoroutine(SetupGameUI());
+            //StartCoroutine(SetupGameUI());
         }
     }
 
