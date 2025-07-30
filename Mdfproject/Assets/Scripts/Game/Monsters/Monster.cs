@@ -24,7 +24,7 @@ public class Monster : MonoBehaviour
 {
     [Header("Test")]
     private GameObject PlaneObject;
-    private GameObject EndUI;
+    public GameObject EndUI;
 
     [Header("MonsterData")]
     public MonsterData md = new MonsterData(100, 1);
@@ -49,7 +49,7 @@ public class Monster : MonoBehaviour
         pathfinder = FindObjectOfType<TestCode>();
         currentHP = maxHP;
         PlaneObject = GameObject.Find("Plane");
-        EndUI = GameObject.Find("EndUI");
+        
 
     }
 
@@ -180,6 +180,10 @@ public class Monster : MonoBehaviour
         Debug.Log("💀 몬스터가 목표에 도달했습니다!");
 
         PlaneObject.SetActive(false);
+
+        if (EndUI == null)
+            EndUI = GameObject.Find("EndUI");
+
         EndUI.SetActive(true);
     }
 
