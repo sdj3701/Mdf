@@ -51,5 +51,6 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "Mdfproject.sln"
+    "dotnet.defaultSolution": "Mdfproject.sln",
+    "dotnet.preferCSharpExtension": true
 }
