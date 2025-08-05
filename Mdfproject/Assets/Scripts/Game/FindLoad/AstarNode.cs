@@ -6,20 +6,12 @@ using UnityEngine.Pool;
 [System.Serializable]
 public class AstarNode
 {
-    public bool walkable;
-    public int x;
-    public int y;
-    public int fCost { get { return gCost + hCost; } }
-    public int gCost;
-    public int hCost;
+    public AstarNode(bool _isWall, int _x, int _y) { isWall = _isWall; x = _x; y = _y; }
 
-    public AstarNode parent;
-    public AstarNode(bool walkable, int x, int y)
-    {
-        this.walkable = walkable;
-        this.x = x;
-        this.y = y;
-    }
+    public bool isWall;
+    public AstarNode ParentNode;
+    public int x, y, G, H;
+    public int F { get { return G + H; } }
 }
 /*
     G는 이동한 거리
