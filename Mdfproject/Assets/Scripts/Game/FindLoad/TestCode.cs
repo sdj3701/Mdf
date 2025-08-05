@@ -108,7 +108,7 @@ public class TestCode : MonoBehaviour
                     Debug.Log("🎯 경로 계산 완료! 몬스터 자동 이동 시작");
                     GameObject instance = Instantiate(monsterPrefab); // 인스턴스 생성
                     Monster monster = instance.GetComponent<Monster>();
-                    monster.StartFollowingPath(FinalNodeList);
+                    //monster.StartFollowingPath(FinalNodeList);
                 }
 
                 return;
