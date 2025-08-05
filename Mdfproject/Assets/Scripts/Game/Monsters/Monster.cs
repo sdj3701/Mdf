@@ -43,6 +43,7 @@ public class Monster : MonoBehaviour
     private Vector2 currentTarget;            // 현재 목표 좌표
     private bool isMoving = false;            // 이동 중인지 여부
     private AstarGrid pathfinder;              // PathFinding 스크립트 참조
+    private List<Vector2Int> wallsToBreak = new List<Vector2Int>();
 
     void Start()
     {
@@ -243,6 +244,24 @@ public class Monster : MonoBehaviour
             FindAndFollowPath(finalDestination);
         }
     }
+
+
+
+    #region 부수기 벽
+    public void SetWallsToBreak(List<Vector2Int> walls)
+    {
+        wallsToBreak = walls;
+        Debug.Log($"몬스터가 파괴할 벽 {walls.Count}개 설정됨");
+
+        foreach (Vector2Int wall in walls)
+        {
+            Debug.Log($"   - 파괴 대상 벽: ({wall.x}, {wall.y})");
+        }
+    }
+    #endregion
+
+
+
 
     void OnDrawGizmos()
     {
