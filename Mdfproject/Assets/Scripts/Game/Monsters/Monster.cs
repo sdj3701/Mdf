@@ -38,15 +38,16 @@ public class Monster : MonoBehaviour
     public bool showPath = true;              // 경로 표시
     public bool showCurrentTarget = true;     // 현재 목표점 표시
     
-    private List<Node> currentPath;           // 현재 따라가는 경로
+    private List<AstarNode> currentPath;           // 현재 따라가는 경로
     private int currentPathIndex = 0;         // 현재 목표하는 경로상의 인덱스
     private Vector2 currentTarget;            // 현재 목표 좌표
     private bool isMoving = false;            // 이동 중인지 여부
-    private TestCode pathfinder;              // PathFinding 스크립트 참조
+    private AstarGrid pathfinder;              // PathFinding 스크립트 참조
+    private List<Vector2Int> wallsToBreak = new List<Vector2Int>();
 
     void Start()
     {
-        pathfinder = FindObjectOfType<TestCode>();
+        pathfinder = FindObjectOfType<AstarGrid>();
         currentHP = maxHP;
         PlaneObject = GameObject.Find("Plane");
         
@@ -86,7 +87,7 @@ public class Monster : MonoBehaviour
     /// <summary>
     /// 새로운 경로로 이동 시작
     /// </summary>
-    public void StartFollowingPath(List<Node> path)
+    public void StartFollowingPath(List<AstarNode> path)
     {
         if (!this.gameObject.activeInHierarchy)
         {
@@ -99,7 +100,7 @@ public class Monster : MonoBehaviour
             return;
         }
 
-        currentPath = new List<Node>(path); // 복사본 생성
+        currentPath = new List<AstarNode>(path); // 복사본 생성
         currentPathIndex = 1; // 0번은 시작점이므로 1번부터 시작
         isMoving = true;
 
@@ -124,7 +125,7 @@ public class Monster : MonoBehaviour
             float journeyTime = journeyLength / moveSpeed;
             float elapsedTime = 0;
 
-            Debug.Log($"🏃 {currentPathIndex}번째 목표로 이동: ({currentTarget.x}, {currentTarget.y})");
+            //Debug.Log($"🏃 {currentPathIndex}번째 목표로 이동: ({currentTarget.x}, {currentTarget.y})");
 
             while (elapsedTime < journeyTime && isMoving)
             {
@@ -252,6 +253,24 @@ public class Monster : MonoBehaviour
         }
     }
 
+
+
+    #region 부수기 벽
+    public void SetWallsToBreak(List<Vector2Int> walls)
+    {
+        wallsToBreak = walls;
+        Debug.Log($"몬스터가 파괴할 벽 {walls.Count}개 설정됨");
+
+        foreach (Vector2Int wall in walls)
+        {
+            Debug.Log($"   - 파괴 대상 벽: ({wall.x}, {wall.y})");
+        }
+    }
+    #endregion
+
+
+
+
     void OnDrawGizmos()
     {
         if (!showPath || currentPath == null || currentPath.Count == 0) return;
@@ -267,7 +286,7 @@ public class Monster : MonoBehaviour
 
         // 경로상의 점들 그리기
         Gizmos.color = Color.yellow;
-        foreach (Node node in currentPath)
+        foreach (AstarNode node in currentPath)
         {
             Gizmos.DrawWireSphere(new Vector3(node.x, node.y, 0), 0.2f);
         }
