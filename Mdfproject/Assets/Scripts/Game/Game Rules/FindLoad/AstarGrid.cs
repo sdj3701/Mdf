@@ -11,15 +11,17 @@ public class AstarGrid : MonoBehaviour
     public Vector2Int bottomLeft, topRight, startPos, targetPos;
     public List<AstarNode> FinalNodeList;
     public bool allowDiagonal, dontCrossCorner;
+
     [Header("디버깅")]
     public bool showDebugInfo = true; // 디버그 정보 표시 여부
+    public bool detailedWallDebugging = false; // 벽 파괴 상세 디버깅
     public float detectionRadius = 0.4f; // 감지 반지름 조절 가능하게
 
     [Header("막힌 목적지 처리")]
     public bool allowWallBreaking = true; // 벽 파괴 허용
     public int maxWallsToBreak = 1; // 최대 파괴할 벽 개수
     public bool useSmartWallSelection = true; // 똑똑한 벽 선택
-    public LayerMask breakableWallLayer = -1; // 파괴 가능한 벽 레이어
+    public LayerMask wallLayers = -1; // 벽으로 인식할 레이어들 (Wall + BreakWall)
 
     int sizeX, sizeY;
     AstarNode[,] NodeArray;
@@ -30,9 +32,11 @@ public class AstarGrid : MonoBehaviour
     private List<Vector2Int> wallsToBreak = new List<Vector2Int>();
     private AstarNode[,] OriginalNodeArray; // 원본 그리드 백업
 
-
     public GameObject monsterPrefab;  // 테스트할 몬스터 연결
 
+    /// <summary>
+    /// 메인 패스파인딩 함수 - 그리드 초기화, 벽 파괴 체크, A* 알고리즘 실행을 순차적으로 처리
+    /// </summary>
     public void PathFinding()
     {
         // 1단계: 그리드 초기화
@@ -77,6 +81,9 @@ public class AstarGrid : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 그리드 초기화 - 지정된 범위의 각 셀에 대해 벽 여부를 체크하고 AstarNode 배열을 생성
+    /// </summary>
     private void InitializeGrid()
     {
         sizeX = topRight.x - bottomLeft.x + 1;
@@ -93,7 +100,8 @@ public class AstarGrid : MonoBehaviour
 
                 foreach (Collider2D col in colliders)
                 {
-                    if (col.gameObject.layer == LayerMask.NameToLayer("Wall"))
+                    // LayerMask를 사용해 지정된 레이어들을 벽으로 인식
+                    if ((wallLayers.value & (1 << col.gameObject.layer)) != 0)
                     {
                         isWall = true;
                         break;
@@ -105,6 +113,9 @@ public class AstarGrid : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 경로 가능 여부를 빠르게 체크 - 최대 50번 반복으로 제한하여 성능 최적화
+    /// </summary>
     private bool IsPathPossible()
     {
         ResetPathfinding();
@@ -132,18 +143,34 @@ public class AstarGrid : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// 벽 파괴 로직 - 시작점과 목적지를 잇는 직선상의 벽들을 찾아서 하나씩 파괴 시도
+    /// </summary>
     private bool FindAndBreakWalls()
     {
+        Debug.Log($"🔍 시작점: ({startPos.x}, {startPos.y}), 목적지: ({targetPos.x}, {targetPos.y})");
+
         BackupOriginalGrid();
 
         // 직선상의 벽 파괴 시도
         List<Vector2Int> wallsOnPath = GetWallsOnDirectPath(startPos, targetPos);
+
+        Debug.Log($"💣 직선상에서 파괴 가능한 벽 {wallsOnPath.Count}개 발견");
+
+        if (wallsOnPath.Count == 0)
+        {
+            Debug.LogWarning("⚠️ 직선상에 파괴 가능한 벽이 없습니다!");
+            return false;
+        }
 
         foreach (Vector2Int wall in wallsOnPath)
         {
             RestoreOriginalGrid();
             wallsToBreak.Clear();
             wallsToBreak.Add(wall);
+
+            if (detailedWallDebugging)
+                Debug.Log($"🔨 벽 ({wall.x}, {wall.y}) 파괴 시도...");
 
             if (CanBreakWall(wall))
             {
@@ -154,31 +181,71 @@ public class AstarGrid : MonoBehaviour
                     Debug.Log($"💥 벽 ({wall.x}, {wall.y}) 파괴로 경로 확보!");
                     return true;
                 }
+                else
+                {
+                    if (detailedWallDebugging)
+                        Debug.Log($"❌ 벽 ({wall.x}, {wall.y}) 파괴해도 경로 없음");
+                }
+            }
+            else
+            {
+                if (detailedWallDebugging)
+                    Debug.LogWarning($"⚠️ 벽 ({wall.x}, {wall.y})를 파괴할 수 없음");
             }
         }
 
+        Debug.LogError("❌ 모든 벽을 시도했지만 경로를 찾을 수 없음");
         return false;
     }
 
+    /// <summary>
+    /// 시작점과 목적지를 잇는 직선상에 위치한 모든 파괴 가능한 벽들을 찾아서 리스트로 반환
+    /// </summary>
     private List<Vector2Int> GetWallsOnDirectPath(Vector2Int start, Vector2Int end)
     {
         List<Vector2Int> wallsOnPath = new List<Vector2Int>();
         List<Vector2Int> linePoints = GetLinePoints(start, end);
+        // 디버깅: 직선상의 모든 점들을 출력
+        if (detailedWallDebugging)
+        {
+            Debug.Log($"🔍 직선상의 점들 ({linePoints.Count}개):");
+            foreach (Vector2Int point in linePoints)
+            {
+                Debug.Log($"  점: ({point.x}, {point.y}) - Valid: {IsValidPosition(point)}, Wall: {(IsValidPosition(point) ? IsWall(point) : false)}, CanBreak: {(IsValidPosition(point) && IsWall(point) ? CanBreakWall(point) : false)}");
+            }
+        }
 
         foreach (Vector2Int point in linePoints)
         {
             if (IsValidPosition(point) && IsWall(point) && CanBreakWall(point))
             {
                 wallsOnPath.Add(point);
+                if (detailedWallDebugging)
+                    Debug.Log($"✅ 파괴 가능한 벽 발견: ({point.x}, {point.y})");
             }
         }
-
         return wallsOnPath;
     }
 
+    /// <summary>
+    /// 브레젠햄 직선 알고리즘 - 두 점을 잇는 직선상의 모든 격자점들을 계산하여 반환
+    /// </summary>
+    /// <summary>
+    /// 브레젠햄 직선 알고리즘 - 두 점을 잇는 직선상의 모든 격자점들을 계산하여 반환
+    /// </summary>
     private List<Vector2Int> GetLinePoints(Vector2Int start, Vector2Int end)
     {
         List<Vector2Int> points = new List<Vector2Int>();
+
+        // 시작점과 끝점이 같은 경우 처리
+        if (start == end)
+        {
+            points.Add(start);
+            return points;
+        }
+
+        // 시작점을 먼저 추가
+        points.Add(start);
 
         int dx = Mathf.Abs(end.x - start.x);
         int dy = Mathf.Abs(end.y - start.y);
@@ -200,6 +267,7 @@ public class AstarGrid : MonoBehaviour
                     err += dx;
                 }
                 x += sx;
+                points.Add(new Vector2Int(x, y));
             }
         }
         else
@@ -215,6 +283,7 @@ public class AstarGrid : MonoBehaviour
                     err += dy;
                 }
                 y += sy;
+                points.Add(new Vector2Int(x, y));
             }
         }
 
@@ -222,23 +291,41 @@ public class AstarGrid : MonoBehaviour
         return points;
     }
 
+    /// <summary>
+    /// 해당 위치의 벽이 파괴 가능한지 확인 - wallLayers에 포함된 레이어이면서 DestructibleWall 컴포넌트가 있는지 체크
+    /// </summary>
     private bool CanBreakWall(Vector2Int pos)
     {
         Vector2 worldPos = new Vector2(pos.x, pos.y);
         Collider2D[] colliders = Physics2D.OverlapCircleAll(worldPos, detectionRadius);
-
         foreach (Collider2D col in colliders)
         {
-            if (col.gameObject.layer == LayerMask.NameToLayer("Wall"))
-            {
-                DestructibleWall destructible = col.GetComponent<DestructibleWall>();
-                return destructible != null;
-            }
+            // BreakWall 레이어인 경우에만 파괴 가능
+            if (col.gameObject.layer == LayerMask.NameToLayer("BreakWall"))
+                // wallLayers에 포함된 레이어인지 확인
+                if ((wallLayers.value & (1 << col.gameObject.layer)) != 0)
+                {
+                    // DestructibleWall 컴포넌트가 있으면 파괴 가능
+                    DestructibleWall destructible = col.GetComponent<DestructibleWall>();
+                    return destructible != null;
+                    // BreakWall 레이어인 경우에만 파괴 가능
+                    /*if (col.gameObject.layer == LayerMask.NameToLayer("BreakWall"))
+                    {
+                        // DestructibleWall 컴포넌트가 있으면 파괴 가능
+                        DestructibleWall destructible = col.GetComponent<DestructibleWall>();
+                        if (destructible != null)
+                            return true;
+                    }*/
+                }
         }
+
 
         return false;
     }
 
+    /// <summary>
+    /// 그리드에서 지정된 위치의 벽을 제거 - NodeArray의 isWall 속성을 false로 변경
+    /// </summary>
     private void BreakWallInGrid(Vector2Int pos)
     {
         if (IsValidPosition(pos))
@@ -249,6 +336,9 @@ public class AstarGrid : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 현재 그리드 상태를 백업 - 벽 파괴 시도 전 원본 상태 보존용
+    /// </summary>
     private void BackupOriginalGrid()
     {
         OriginalNodeArray = new AstarNode[sizeX, sizeY];
@@ -265,6 +355,9 @@ public class AstarGrid : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 백업된 원본 그리드로 복원 - 벽 파괴 시도 실패 시 원래 상태로 되돌리기
+    /// </summary>
     private void RestoreOriginalGrid()
     {
         if (OriginalNodeArray != null)
@@ -279,18 +372,27 @@ public class AstarGrid : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 주어진 위치가 그리드 범위 내에 있는지 확인
+    /// </summary>
     private bool IsValidPosition(Vector2Int pos)
     {
         return pos.x >= bottomLeft.x && pos.x <= topRight.x &&
                pos.y >= bottomLeft.y && pos.y <= topRight.y;
     }
 
+    /// <summary>
+    /// 해당 위치가 벽인지 확인 - 유효하지 않은 위치는 벽으로 처리
+    /// </summary>
     private bool IsWall(Vector2Int pos)
     {
         if (!IsValidPosition(pos)) return true;
         return NodeArray[pos.x - bottomLeft.x, pos.y - bottomLeft.y].isWall;
     }
 
+    /// <summary>
+    /// 패스파인딩을 위한 초기화 - 시작/목적지 노드 설정, OpenList/ClosedList 초기화
+    /// </summary>
     private void ResetPathfinding()
     {
         StartNode = NodeArray[startPos.x - bottomLeft.x, startPos.y - bottomLeft.y];
@@ -300,6 +402,9 @@ public class AstarGrid : MonoBehaviour
         FinalNodeList = new List<AstarNode>();
     }
 
+    /// <summary>
+    /// A* 알고리즘 실행 - F값이 가장 낮은 노드를 선택하며 목적지까지의 최적 경로 탐색
+    /// </summary>
     private bool ExecuteAStarAlgorithm()
     {
         while (OpenList.Count > 0)
@@ -325,6 +430,9 @@ public class AstarGrid : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// 목적지에서 시작점까지 역추적하여 최종 경로 구성 - ParentNode를 따라가며 경로 생성
+    /// </summary>
     private void BuildFinalPath()
     {
         AstarNode currentNode = TargetNode;
@@ -343,6 +451,9 @@ public class AstarGrid : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 몬스터 이동 시작 - 계산된 경로와 파괴할 벽 정보를 몬스터에게 전달하고 이동 시작
+    /// </summary>
     private void StartMonsterMovement()
     {
         if (monsterPrefab == null)
@@ -362,6 +473,9 @@ public class AstarGrid : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 현재 노드의 상하좌우 및 대각선 방향 인접 노드들을 탐색하여 OpenList에 추가
+    /// </summary>
     private void ExploreNeighbors()
     {
         if (allowDiagonal)
@@ -378,6 +492,9 @@ public class AstarGrid : MonoBehaviour
         OpenListAdd(CurNode.x - 1, CurNode.y);
     }
 
+    /// <summary>
+    /// 지정된 좌표의 노드를 OpenList에 추가 - 유효성 검사, 이동 비용 계산, G/H값 설정 포함
+    /// </summary>
     void OpenListAdd(int checkX, int checkY)
     {
         if (checkX >= bottomLeft.x && checkX < topRight.x + 1 && checkY >= bottomLeft.y && checkY < topRight.y + 1 &&
@@ -406,6 +523,9 @@ public class AstarGrid : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Scene 뷰에서 그리드, 경로, 파괴할 벽들을 시각적으로 표시하는 기즈모 그리기
+    /// </summary>
     void OnDrawGizmos()
     {
         if (NodeArray == null) return;
