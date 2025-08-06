@@ -331,8 +331,8 @@ public class AstarGrid : MonoBehaviour
         if (IsValidPosition(pos))
         {
             NodeArray[pos.x - bottomLeft.x, pos.y - bottomLeft.y].isWall = false;
-            if (showDebugInfo)
-                Debug.Log($"🔨 그리드에서 벽 제거: ({pos.x}, {pos.y})");
+            //if (showDebugInfo)
+                //Debug.Log($"🔨 그리드에서 벽 제거: ({pos.x}, {pos.y})");
         }
     }
 
@@ -444,11 +444,11 @@ public class AstarGrid : MonoBehaviour
         FinalNodeList.Add(StartNode);
         FinalNodeList.Reverse();
 
-        if (showDebugInfo)
+        /*if (showDebugInfo)
         {
             for (int i = 0; i < FinalNodeList.Count; i++)
                 Debug.Log($"{i}번째: ({FinalNodeList[i].x}, {FinalNodeList[i].y})");
-        }
+        }*/
     }
 
     /// <summary>

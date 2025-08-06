@@ -117,7 +117,7 @@ public class Monster : MonoBehaviour
             float journeyTime = journeyLength / moveSpeed;
             float elapsedTime = 0;
 
-            Debug.Log($"🏃 {currentPathIndex}번째 목표로 이동: ({currentTarget.x}, {currentTarget.y})");
+            //Debug.Log($"🏃 {currentPathIndex}번째 목표로 이동: ({currentTarget.x}, {currentTarget.y})");
 
             while (elapsedTime < journeyTime && isMoving)
             {
