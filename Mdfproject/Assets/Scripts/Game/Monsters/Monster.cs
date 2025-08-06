@@ -70,6 +70,14 @@ public class Monster : MonoBehaviour
         }
     }
 
+    public void ApplyBuff(float healthMultiplier, float speedMultiplier)
+    {
+        maxHP = (int)(maxHP * healthMultiplier);
+        currentHP = maxHP;
+        moveSpeed *= speedMultiplier;
+        Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {maxHP}, Speed: {moveSpeed}");
+    }
+
     void Die()
     {
         Debug.Log($"{gameObject.name}이(가) 죽었습니다!");
