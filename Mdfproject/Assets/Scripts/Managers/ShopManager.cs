@@ -1,56 +1,49 @@
+// Assets/Scripts/Managers/ShopManager.cs
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 
 public class ShopManager : MonoBehaviour
 {
-    public PlayerManager playerManager; // 플레이어 정보 (골드 등)
+    public PlayerManager playerManager;
     public List<UnitData> allUnitDatabase; // 구매 가능한 모든 유닛 데이터 목록
     public ShopSlot[] shopSlots; // 씬에 있는 5개의 ShopSlot UI
+    
+    private int rerollCost = 2;
 
     void Start()
     {
-        // 각 슬롯 초기화
         foreach (var slot in shopSlots)
         {
             slot.Initialize(this);
         }
-        Reroll(); // 게임 시작 시 한번 리롤
+        // 첫 라운드 리롤은 GameManager가 호출
     }
 
-    /// <summary>
-    /// 상점을 새로고침(리롤)하는 함수
-    /// </summary>
-    [ContextMenu("Test Reroll")] // 테스트를 위해 인스펙터에서 바로 실행 가능하게 함
     public void Reroll()
     {
-        // TODO: 리롤 비용 차감 로직
-        // playerManager.SpendGold(2);
+        // TODO: 리롤 비용 차감 로직 추가
+        // if (!playerManager.SpendGold(rerollCost)) return;
 
-        // 5개의 슬롯에 랜덤 유닛 표시
         for (int i = 0; i < shopSlots.Length; i++)
         {
-            // 데이터베이스에서 랜덤 유닛 선택 (실제로는 레벨별 확률 등 복잡한 로직 필요)
             UnitData randomUnit = allUnitDatabase[Random.Range(0, allUnitDatabase.Count)];
             shopSlots[i].DisplayUnit(randomUnit);
         }
+        Debug.Log($"Player {playerManager.playerId}의 상점이 리롤되었습니다.");
     }
 
-    /// <summary>
-    /// 유닛 구매를 시도하는 함수 (ShopSlot이 호출)
-    /// </summary>
-    public void TryBuyUnit(UnitData unitToBuy)
+    public void TryBuyUnit(UnitData unitToBuy, ShopSlot slot)
     {
-        // 플레이어가 돈이 충분한지 확인
         if (playerManager.SpendGold(unitToBuy.cost))
         {
-            // 구매 성공!
-            Debug.Log(unitToBuy.unitName + " 구매 성공!");
-            // TODO: 구매한 유닛을 플레이어의 벤치(대기석)에 추가하는 로직
+            Debug.Log($"{unitToBuy.unitName} 구매 성공!");
+            playerManager.AddUnit(unitToBuy); // 플레이어에게 유닛 추가
+            slot.SetPurchased(); // 슬롯을 구매 완료 상태로 변경
         }
         else
         {
-            // 구매 실패
-            Debug.Log("골드가 부족합니다!");
+            Debug.Log("골드가 부족하여 구매에 실패했습니다.");
         }
     }
 }
