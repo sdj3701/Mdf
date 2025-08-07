@@ -1,64 +1,71 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Numerics;
-using UnityEditor;
 using UnityEngine;
-using System.Threading.Tasks;
-using static UnityEngine.GridBrushBase;
 using Cysharp.Threading.Tasks;
 
 public class UIManagers : MonoBehaviour
 {
     public static UIManagers Instance = null;
 
-    // �ν����Ϳ��� UI �ʱ�ȭ (UI ��ҵ��� ����Ʈ�� ����)
+    // 인스펙터에서 미리 할당할 UI 프리팹 리스트
     public List<GameObject> UILists;
-    // UI ��Ҹ� �̸����� �����ϱ� ���� ����Ʈ (�� UI ��Һ��� Ǯ�� ����)
-    private Dictionary<string, UIPool> uiPools;  // UI Ǯ ����
+    // UI 이름을 키(Key)로, UI 풀을 값(Value)으로 가지는 딕셔너리
+    private Dictionary<string, UIPool> uiPools;
 
-    private async void Awake()
+    private void Awake()
     {
+        // 싱글톤 패턴 구현
         if (Instance == null)
         {
             Instance = this;
-            DontDestroyOnLoad(this.gameObject);
+            DontDestroyOnLoad(this.gameObject); // 씬이 바뀌어도 파괴되지 않음
         }
         else
         {
             Destroy(this.gameObject);
         }
 
-        uiPools = new Dictionary<string, UIPool>(); // �ʱ�ȭ
+        // 딕셔너리 초기화
+        uiPools = new Dictionary<string, UIPool>();
 
-        // UI List use uiPools Dictionary Create
+        // 인스펙터에 할당된 UI 리스트를 기반으로 UI 풀 딕셔너리 생성
         foreach (GameObject ui in UILists)
         {
             if (ui != null)
             {
-                // UI Ǯ�� �ʱ�ȭ�ϰ� ��ųʸ��� �߰�
+                // UI 풀을 생성하고 딕셔너리에 추가
                 uiPools.Add(ui.name, new UIPool(ui));
             }
         }
     }
 
-    // UI ��Ҹ� Ǯ���� ������
+    /// <summary>
+    /// 지정된 이름의 UI 요소를 풀에서 가져와 활성화합니다.
+    /// 풀에 없으면 Addressables를 통해 동적으로 로드합니다.
+    /// </summary>
+    /// <param name="uiName">가져올 UI의 이름</param>
+    /// <returns>활성화된 UI 게임 오브젝트</returns>
     public UniTask<GameObject> GetUIElement(string uiName)
     {
+        // 요청한 UI가 이미 풀에 등록되어 있는지 확인
         if (uiPools.ContainsKey(uiName))
         {
             return uiPools[uiName].GetObject(uiName);
         }
         else
         {
-            Debug.LogWarning($"UI element '{uiName}' is not found in the pool. Trying Addressables load and registering to pool.");
-            // Addressables로 동적 로드한 뒤 풀에 등록하도록 보장
-            UIPool ui = new UIPool(null, uiName);
-            uiPools.Add(uiName, ui);
+            // 풀에 없다면, Addressables를 통해 로드할 수 있다고 가정하고 새로운 풀을 생성
+            Debug.LogWarning($"UI 요소 '{uiName}'가 풀에 없습니다. Addressables를 통해 로드하고 새로 등록합니다.");
+            UIPool ui = new UIPool(null, uiName); // 동적 로드를 위한 UIPool 생성
+            uiPools.Add(uiName, ui); // 새로 만든 풀을 딕셔너리에 추가
             return ui.GetObject(uiName);
-        }    
+        }
     }
 
-    // UI ��Ҹ� Ǯ�� ��ȯ�ϱ�
+    /// <summary>
+    /// 사용이 끝난 UI 요소를 비활성화하여 풀에 반환합니다.
+    /// </summary>
+    /// <param name="uiName">반환할 UI의 이름</param>
     public void ReturnUIElement(string uiName)
     {
         if (uiPools.ContainsKey(uiName))
@@ -67,8 +74,7 @@ public class UIManagers : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"UI element '{uiName}' is not found in the pool.");
+            Debug.LogWarning($"UI 요소 '{uiName}'가 풀에 등록되어 있지 않습니다.");
         }
     }
-
 }
