@@ -8,12 +8,21 @@ using System.Numerics;
 
 public class GameManagers : MonoBehaviour
 {
+    public enum GameState { Prepare, Combat, Augment, GameOver }
     public static GameManagers Instance = null;
+
     private Queue<string> characterselectdata = new Queue<string>();
+
     private int maxqueue = 3;
 
     public Button[] SelectCharacterButton;
+
     private List<string> selectCharacterName = new List<string>();
+    public GameState CurrentState { get; private set; }
+    public int currentRound = 1;
+    // TODO: PlayerManager 클래스 생성 후 교체
+    // public PlayerManager player1;
+    // public PlayerManager player2;
 
     private void Awake()
     {
@@ -72,4 +81,10 @@ public class GameManagers : MonoBehaviour
         return selectCharacterName[i];
     }
 
+    public void ChangeState(GameState newState)
+    {
+        CurrentState = newState;
+        Debug.Log($"Game State Changed to: {newState}");
+        // TODO: 각 상태에 맞는 로직 실행 (예: Combat 상태 -> 몬스터 스폰)
+    }
 }
