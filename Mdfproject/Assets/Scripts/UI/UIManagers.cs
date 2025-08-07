@@ -1,3 +1,4 @@
+// Assets/Scripts/UI/UIManagers.cs
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -7,58 +8,65 @@ public class UIManagers : MonoBehaviour
 {
     public static UIManagers Instance = null;
 
-    // 인스펙터에서 미리 할당할 UI 프리팹 리스트
     public List<GameObject> UILists;
-    // UI 이름을 키(Key)로, UI 풀을 값(Value)으로 가지는 딕셔너리
     private Dictionary<string, UIPool> uiPools;
+
+    // ✅ [핵심 추가] 게임 씬의 메인 캔버스를 저장할 변수
+    private Canvas mainCanvas;
 
     private void Awake()
     {
-        // 싱글톤 패턴 구현
         if (Instance == null)
         {
             Instance = this;
-            DontDestroyOnLoad(this.gameObject); // 씬이 바뀌어도 파괴되지 않음
+            DontDestroyOnLoad(this.gameObject);
         }
         else
         {
             Destroy(this.gameObject);
         }
 
-        // 딕셔너리 초기화
         uiPools = new Dictionary<string, UIPool>();
 
-        // 인스펙터에 할당된 UI 리스트를 기반으로 UI 풀 딕셔너리 생성
         foreach (GameObject ui in UILists)
         {
             if (ui != null)
             {
-                // UI 풀을 생성하고 딕셔너리에 추가
                 uiPools.Add(ui.name, new UIPool(ui));
             }
         }
     }
 
     /// <summary>
-    /// 지정된 이름의 UI 요소를 풀에서 가져와 활성화합니다.
-    /// 풀에 없으면 Addressables를 통해 동적으로 로드합니다.
+    /// 지정된 이름의 UI 요소를 자동으로 찾은 MainCanvas 아래에 활성화합니다.
     /// </summary>
-    /// <param name="uiName">가져올 UI의 이름</param>
+    /// <param name="uiName">가져올 UI의 이름 (어드레서블 주소)</param>
     /// <returns>활성화된 UI 게임 오브젝트</returns>
     public UniTask<GameObject> GetUIElement(string uiName)
     {
-        // 요청한 UI가 이미 풀에 등록되어 있는지 확인
+        // ✅ [핵심 수정] MainCanvas를 찾거나 캐시된 값을 사용하는 로직
+        // 씬이 바뀌면 mainCanvas 참조가 사라지므로, null일 때마다 다시 찾습니다.
+        if (mainCanvas == null)
+        {
+            mainCanvas = FindObjectOfType<Canvas>();
+            if (mainCanvas == null)
+            {
+                Debug.LogError("MainCanvas를 찾을 수 없습니다! UI를 표시할 수 없습니다.");
+                return UniTask.FromResult<GameObject>(null); // 실패 시 null 반환
+            }
+        }
+
+        // 이제 찾은 mainCanvas.transform 정보를 내부적으로 사용합니다.
         if (uiPools.ContainsKey(uiName))
         {
-            return uiPools[uiName].GetObject(uiName);
+            return uiPools[uiName].GetObject(uiName, mainCanvas.transform);
         }
         else
         {
-            // 풀에 없다면, Addressables를 통해 로드할 수 있다고 가정하고 새로운 풀을 생성
             Debug.LogWarning($"UI 요소 '{uiName}'가 풀에 없습니다. Addressables를 통해 로드하고 새로 등록합니다.");
-            UIPool ui = new UIPool(null, uiName); // 동적 로드를 위한 UIPool 생성
-            uiPools.Add(uiName, ui); // 새로 만든 풀을 딕셔너리에 추가
-            return ui.GetObject(uiName);
+            UIPool ui = new UIPool(null, uiName);
+            uiPools.Add(uiName, ui);
+            return ui.GetObject(uiName, mainCanvas.transform);
         }
     }
 
