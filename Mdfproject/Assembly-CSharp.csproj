@@ -124,6 +124,13 @@
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\GameDataCenter.cs" />
+    <Compile Include="Assets\Scripts\Game\Monsters\MonsterSpawner.cs" />
+    <Compile Include="Assets\Scripts\UI\PhaseTimerUI.cs" />
+    <Compile Include="Assets\Scripts\Game\Units\Unit.cs" />
+    <Compile Include="Assets\Scripts\Button\ShopToggleButton.cs" />
+    <Compile Include="Assets\Scripts\Managers\AugmentManager.cs" />
+    <Compile Include="Assets\Scripts\UI\ShopUIController.cs" />
+    <Compile Include="Assets\Scripts\Managers\FieldManager.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
