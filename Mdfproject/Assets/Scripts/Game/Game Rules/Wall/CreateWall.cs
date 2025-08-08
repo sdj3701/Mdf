@@ -3,25 +3,13 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
-public class CreateWall : MonoBehaviour
+public class CreateWall : GameDataCenter
 {
-    [Header("타일맵 설정")]
-    public Tilemap tilemap;           // 타일을 배치할 타일맵
-    public TileBase tileToPlace;      // 배치할 타일
-    public Camera playerCamera;       // 메인 카메라
-
-    [Header("프리뷰 설정")]
-    public bool showPreview = true;   // 마우스 위치 프리뷰 표시 여부
-    public Color previewColor = Color.green;  // 프리뷰 색상
-
-    private GameObject previewObject; // 프리뷰용 오브젝트
-    private Vector3Int currentMouseGridPosition; // 현재 마우스의 그리드 좌표
-
     void Start()
     {
         // 컴포넌트 자동 할당
-        if (tilemap == null)
-            tilemap = FindObjectOfType<Tilemap>();
+        if (breakWalltilemap == null)
+            breakWalltilemap = FindObjectOfType<Tilemap>();
 
         if (playerCamera == null)
             playerCamera = Camera.main;
@@ -33,8 +21,9 @@ public class CreateWall : MonoBehaviour
 
     void Update()
     {
-        // 마우스 입력 처리
-        HandleMouseInput();
+        if(isWallPlacement)
+            // 마우스 입력 처리
+            HandleMouseInput();
 
         // 프리뷰 업데이트
         if (showPreview)
@@ -47,18 +36,30 @@ public class CreateWall : MonoBehaviour
         Vector3 mouseWorldPosition = GetMouseWorldPosition();
 
         // 월드 좌표를 그리드 좌표로 변환
-        currentMouseGridPosition = tilemap.WorldToCell(mouseWorldPosition);
+        currentMouseGridPosition = breakWalltilemap.WorldToCell(mouseWorldPosition);
 
         // 좌클릭: 타일 배치
         if (Input.GetMouseButtonDown(0))
         {
+            if(createWallCount <= 0)
+            {
+                Debug.LogWarning("더 이상 타일을 배치할 수 없습니다!");
+                return;
+            }
             PlaceTile();
+            createWallCount--; // 타일 배치 시 카운트 감소
         }
 
         // 우클릭: 타일 제거
         if (Input.GetMouseButtonDown(1))
         {
+            if(createWallCount >= 5)
+            {
+                Debug.LogWarning("타일을 제거할 수 없습니다! 최대 타일 개수에 도달했습니다.");
+                return;
+            }
             RemoveTile();
+            createWallCount++; // 타일 제거 시 카운트 증가
         }
 
         // 가운데 클릭: 타일 정보 확인
@@ -93,19 +94,26 @@ public class CreateWall : MonoBehaviour
     void PlaceTile()
     {
         // 배치할 타일이 설정되어 있는지 확인
-        if (tileToPlace == null)
+        if (breakWalltileToPlace == null)
         {
             Debug.LogWarning("배치할 타일이 설정되지 않았습니다!");
             return;
         }
 
+        // Ground 레이어 확인
+        if (!IsGroundLayer())
+        {
+            Debug.Log("Ground가 아닌 곳에는 벽을 설치할 수 없습니다!");
+            return;
+        }
+
         // 해당 위치에 이미 타일이 있는지 확인
-        TileBase existingTile = tilemap.GetTile(currentMouseGridPosition);
+        TileBase existingTile = breakWalltilemap.GetTile(currentMouseGridPosition);
 
         if (existingTile == null)
         {
             // 타일 배치
-            tilemap.SetTile(currentMouseGridPosition, tileToPlace);
+            breakWalltilemap.SetTile(currentMouseGridPosition, breakWalltileToPlace);
             Debug.Log($"타일 배치: {currentMouseGridPosition}");
         }
         else
@@ -117,12 +125,12 @@ public class CreateWall : MonoBehaviour
     void RemoveTile()
     {
         // 해당 위치의 타일 확인
-        TileBase existingTile = tilemap.GetTile(currentMouseGridPosition);
+        TileBase existingTile = breakWalltilemap.GetTile(currentMouseGridPosition);
 
         if (existingTile != null)
         {
             // 타일 제거 (null로 설정)
-            tilemap.SetTile(currentMouseGridPosition, null);
+            breakWalltilemap.SetTile(currentMouseGridPosition, null);
             Debug.Log($"타일 제거: {currentMouseGridPosition}");
         }
         else
@@ -131,11 +139,31 @@ public class CreateWall : MonoBehaviour
         }
     }
 
+    // Ground 레이어 확인 함수
+    bool IsGroundLayer()
+    {
+        // 마우스 위치에서 직접 레이캐스트
+        Ray ray = playerCamera.ScreenPointToRay(Input.mousePosition);
+
+        // Ground 레이어만 확인
+        LayerMask groundLayer = LayerMask.GetMask("Ground");
+
+        // 레이캐스트로 확인
+        if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, groundLayer))
+        {
+            Debug.Log($"Ground 감지: {hit.collider.name}");
+            return true;
+        }
+
+        Debug.Log("Ground 아님");
+        return false;
+    }
+
     void CheckTileInfo()
     {
         // 현재 위치의 타일 정보 출력
-        TileBase currentTile = tilemap.GetTile(currentMouseGridPosition);
-        Vector3 worldPosition = tilemap.CellToWorld(currentMouseGridPosition);
+        TileBase currentTile = breakWalltilemap.GetTile(currentMouseGridPosition);
+        Vector3 worldPosition = breakWalltilemap.CellToWorld(currentMouseGridPosition);
 
         if (currentTile != null)
         {
@@ -177,15 +205,15 @@ public class CreateWall : MonoBehaviour
         if (previewObject == null) return;
 
         // 프리뷰 오브젝트 위치 업데이트
-        Vector3 previewWorldPosition = tilemap.CellToWorld(currentMouseGridPosition);
+        Vector3 previewWorldPosition = breakWalltilemap.CellToWorld(currentMouseGridPosition);
 
         // 타일 중앙에 표시되도록 오프셋 추가
-        previewWorldPosition += tilemap.cellSize * 0.5f;
+        previewWorldPosition += breakWalltilemap.cellSize * 0.5f;
         previewObject.transform.position = previewWorldPosition;
 
         // 프리뷰 색상 변경 (타일이 있으면 빨간색, 없으면 초록색)
         SpriteRenderer spriteRenderer = previewObject.GetComponent<SpriteRenderer>();
-        TileBase existingTile = tilemap.GetTile(currentMouseGridPosition);
+        TileBase existingTile = breakWalltilemap.GetTile(currentMouseGridPosition);
 
         if (existingTile != null)
         {
@@ -203,11 +231,11 @@ public class CreateWall : MonoBehaviour
     // 에디터에서 디버그용 기즈모 그리기
     void OnDrawGizmos()
     {
-        if (tilemap == null) return;
+        if (breakWalltilemap == null) return;
 
         // 현재 마우스 위치의 그리드 셀을 노란색 와이어프레임으로 표시
-        Vector3 worldPosition = tilemap.CellToWorld(currentMouseGridPosition);
-        Vector3 cellSize = tilemap.cellSize;
+        Vector3 worldPosition = breakWalltilemap.CellToWorld(currentMouseGridPosition);
+        Vector3 cellSize = breakWalltilemap.cellSize;
 
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireCube(worldPosition + cellSize * 0.5f, cellSize);
@@ -220,7 +248,7 @@ public class CreateWall : MonoBehaviour
     /// </summary>
     public void SetTileType(TileBase newTile)
     {
-        tileToPlace = newTile;
+        breakWalltileToPlace = newTile;
         Debug.Log($"타일 타입 변경: {newTile?.name}");
     }
 
@@ -230,11 +258,11 @@ public class CreateWall : MonoBehaviour
     public void ClearAllTiles()
     {
         // 타일맵의 경계 가져오기
-        BoundsInt bounds = tilemap.cellBounds;
+        BoundsInt bounds = breakWalltilemap.cellBounds;
 
         // 모든 타일을 null로 설정하여 제거
         TileBase[] emptyTiles = new TileBase[bounds.size.x * bounds.size.y * bounds.size.z];
-        tilemap.SetTilesBlock(bounds, emptyTiles);
+        breakWalltilemap.SetTilesBlock(bounds, emptyTiles);
 
         Debug.Log("모든 타일이 제거되었습니다!");
     }
