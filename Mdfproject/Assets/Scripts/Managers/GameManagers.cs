@@ -1,90 +1,202 @@
+// Assets/Scripts/Managers/GameManagers.cs
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
-using TMPro;
-using System.Numerics;
 
 public class GameManagers : MonoBehaviour
 {
+    public static GameManagers Instance { get; private set; }
+
+    #region 인게임 관련 변수
     public enum GameState { Prepare, Combat, Augment, GameOver }
-    public static GameManagers Instance = null;
-
-    private Queue<string> characterselectdata = new Queue<string>();
-
-    private int maxqueue = 3;
-
-    public Button[] SelectCharacterButton;
-
-    private List<string> selectCharacterName = new List<string>();
-    public GameState CurrentState { get; private set; }
+    [Header("게임 상태")]
+    [SerializeField] private GameState currentState;
     public int currentRound = 1;
-    // TODO: PlayerManager 클래스 생성 후 교체
-    // public PlayerManager player1;
-    // public PlayerManager player2;
+    [Header("현재 페이즈 타이머 (읽기 전용)")]
+    [SerializeField] private float _currentPhaseTimer;
+    public float currentPhaseTimer => _currentPhaseTimer;
+    [Header("플레이어 관리 (자동 할당)")]
+    public PlayerManager player1;
+    public PlayerManager player2;
+    public PlayerManager localPlayer;
+    #endregion
+
+    #region 단계별 시간 및 보상
+    [Header("단계별 시간 설정 (초)")]
+    public float prepareTime = 20f;
+    public float combatTime = 60f;
+    public float augmentTime = 15f;
+    [Header("라운드 보상")]
+    public int baseGoldPerRound = 5;
+    #endregion
+
+    #region 로비 및 UI 관련 변수
+    [Header("로비 캐릭터 선택")]
+    public Button[] SelectCharacterButton;
+    private Queue<string> characterselectdata = new Queue<string>();
+    private List<string> selectCharacterName = new List<string>();
+    private int maxqueue = 3;
+    #endregion
 
     private void Awake()
     {
-        // 싱글톤 패턴
         if (Instance == null)
         {
             Instance = this;
-            DontDestroyOnLoad(this.gameObject); // 씬 전환시에도 유지
+            DontDestroyOnLoad(gameObject);
         }
         else
         {
-            Destroy(this.gameObject);
+            Destroy(gameObject);
         }
     }
 
-    // TODO : resize 필요할 때 일단 사용 안함 하면 머리아픔
-    public void SetMaxQueueSize(int count)
+    private void OnEnable()
     {
-        maxqueue = count;
+        SceneManager.sceneLoaded += OnSceneLoaded;
     }
 
-    public int GetMaxSize()
+    private void OnDisable()
     {
-        return maxqueue;
+        SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
-    // input data
-    public void Pushqueue(string name)
+    void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        if (characterselectdata.Count < maxqueue)
+        if (scene.name == "Game" || scene.name == "TestScene_GameManager")
         {
-            Debug.Log("데이터 넣기");
-            characterselectdata.Enqueue(name);
-            selectCharacterName.Add(name);
+            StartCoroutine(SetupGame());
+        }
+    }
+
+    public GameState GetGameState()
+    {
+        return currentState;
+    }
+
+    private IEnumerator SetupGame()
+    {
+        yield return null;
+        FindAndSetupPlayers();
+        if (player1 != null && player2 != null)
+        {
+            StopAllCoroutines();
+            StartCoroutine(GameLoop());
         }
         else
         {
-            Debug.Log("오버 또는 같으니까 하나를 삭제하고 데이터 넣기");
-            characterselectdata.Dequeue();
-            characterselectdata.Enqueue(name);
+            Debug.LogError("플레이어 설정 실패로 게임 루프를 시작할 수 없습니다.");
         }
     }
 
-    public string GetCharacterName(int count)
+    private void FindAndSetupPlayers()
     {
-        return characterselectdata.ElementAt(count);
+        PlayerManager[] players = FindObjectsOfType<PlayerManager>();
+        player1 = players.FirstOrDefault(p => p.playerId == 0);
+        player2 = players.FirstOrDefault(p => p.playerId == 1);
+        player1.opponentManager = player2;
+        player2.opponentManager = player1;
+        localPlayer = player1;
+        Debug.Log("플레이어 설정 완료. 로컬 플레이어는 Player " + localPlayer.playerId + " 입니다.");
     }
 
-    public int CurrentQueueSize()
+    private IEnumerator GameLoop()
     {
-        return characterselectdata.Count;
+        while (currentState != GameState.GameOver)
+        {
+            // --- 준비 단계 ---
+            ChangeState(GameState.Prepare);
+            player1.AddGold(baseGoldPerRound + GetInterest(player1.GetGold()));
+            player2.AddGold(baseGoldPerRound + GetInterest(player2.GetGold()));
+            player1.shopManager.Reroll(true);
+            player2.shopManager.Reroll(true);
+
+            // ✅ [핵심 수정] 준비 단계가 시작되면 상점 UI를 자동으로 엽니다.
+            if (UIManagers.Instance != null)
+            {
+                UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
+            }
+
+            yield return StartCoroutine(PhaseTimerCoroutine(prepareTime));
+
+            // 준비 단계가 끝나면, 열려있는 상점 UI를 강제로 닫습니다.
+            if (UIManagers.Instance != null)
+            {
+                UIManagers.Instance.ReturnUIElement("UI_Pnl_Shop");
+            }
+            
+            // --- 전투 단계 ---
+            ChangeState(GameState.Combat);
+            player1.monsterSpawner.SpawnWave(currentRound);
+            player2.monsterSpawner.SpawnWave(currentRound);
+            yield return StartCoroutine(PhaseTimerCoroutine(combatTime));
+
+            if (currentState == GameState.GameOver) break;
+
+            // --- 증강 단계 ---
+            ChangeState(GameState.Augment);
+            player1.augmentManager.PresentAugments();
+            player2.augmentManager.PresentAugments();
+            if (UIManagers.Instance != null)
+            {
+                UIManagers.Instance.GetUIElement("AugmentPanel");
+            }
+            yield return StartCoroutine(PhaseTimerCoroutine(augmentTime));
+            if (UIManagers.Instance != null)
+            {
+                UIManagers.Instance.ReturnUIElement("AugmentPanel");
+            }
+            
+            currentRound++;
+        }
     }
 
-    public string GetSelectCharacterName(int i)
+    private IEnumerator PhaseTimerCoroutine(float duration)
     {
-        return selectCharacterName[i];
+        _currentPhaseTimer = duration;
+        while (_currentPhaseTimer > 0)
+        {
+            _currentPhaseTimer -= Time.deltaTime;
+            yield return null;
+        }
+        _currentPhaseTimer = 0;
     }
 
     public void ChangeState(GameState newState)
     {
-        CurrentState = newState;
-        Debug.Log($"Game State Changed to: {newState}");
-        // TODO: 각 상태에 맞는 로직 실행 (예: Combat 상태 -> 몬스터 스폰)
+        currentState = newState;
+        Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 ---");
     }
+
+    public void GameOver(PlayerManager loser)
+    {
+        if (currentState == GameState.GameOver) return;
+        ChangeState(GameState.GameOver);
+        PlayerManager winner = (loser == player1) ? player2 : player1;
+        Debug.Log($"<color=red>게임 종료!</color> 승자: Player {winner.playerId}");
+        StopAllCoroutines();
+    }
+
+    private int GetInterest(int gold) => Mathf.Min(gold / 10, 5);
+    
+    #region 로비 관련 함수
+    public void SetMaxQueueSize(int count) => maxqueue = count;
+    public int GetMaxSize() => maxqueue;
+    public int CurrentQueueSize() => characterselectdata.Count;
+    public string GetCharacterName(int count) => characterselectdata.ElementAtOrDefault(count);
+    public string GetSelectCharacterName(int i) => selectCharacterName.ElementAtOrDefault(i);
+    public void Pushqueue(string name)
+    {
+        if (characterselectdata.Count >= maxqueue)
+        {
+            characterselectdata.Dequeue();
+            selectCharacterName.RemoveAt(0);
+        }
+        characterselectdata.Enqueue(name);
+        selectCharacterName.Add(name);
+    }
+    #endregion
 }
