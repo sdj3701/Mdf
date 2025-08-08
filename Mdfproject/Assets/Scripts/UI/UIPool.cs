@@ -1,116 +1,89 @@
+// Assets/Scripts/UI/UIPool.cs
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 
-
 public class UIPool
 {
-    private AddressablesManager addressablesManager = new AddressablesManager(); // AddressablesManager �ν��Ͻ� ��������
-
-    private static Dictionary<string, GameObject> pool = new Dictionary<string, GameObject>();  // UI ������Ʈ���� �����ϴ� Dictionary
+    private AddressablesManager addressablesManager = new AddressablesManager();
+    private static Dictionary<string, GameObject> pool = new Dictionary<string, GameObject>();
     private GameObject prefab;
 
     public UIPool(GameObject prefab, string uiname = null)
     {
-        if (prefab == null && uiname == null)
-        {
-            Debug.LogError("UIPool: prefab null and uiname nmull.");
-            return;
-        }
-        else if (uiname == null)
+        if (uiname == null && prefab != null)
         {
             this.prefab = prefab;
             string name = prefab.name;
-            
-            if (!pool.ContainsKey(prefab.name))
+            if (!pool.ContainsKey(name))
             {
-                pool.Add(prefab.name, prefab);
+                pool.Add(name, prefab);
             }
             else
             {
-                Debug.LogWarning($"⚠️ UI '{prefab.name}'가 이미 등록되어 있습니다. 덮어쓰기 합니다.");
-                pool[prefab.name] = prefab; // 덮어쓰기
+                pool[name] = prefab;
             }
         }
     }
 
-    // UI ��Ҹ� Ǯ���� ������ (�̸��� ��������)
-    public UniTask<GameObject> GetObject(string name)
+    /// <summary>
+    /// 풀에서 UI 객체를 가져옵니다. 없으면 새로 로드하여 지정된 부모 아래에 생성합니다.
+    /// </summary>
+    public UniTask<GameObject> GetObject(string name, Transform parent)
     {
-        if (pool.ContainsKey(name))
+        // 풀에 이미 인스턴스가 있는지 확인
+        if (pool.ContainsKey(name) && pool[name] != null)
         {
             GameObject obj = pool[name];
-            obj.SetActive(true);  // Ȱ��ȭ ���·� ��ȯ
+            // 부모를 설정하고 활성화합니다.
+            obj.transform.SetParent(parent, false); // worldPositionStays: false
+            obj.SetActive(true);
             return UniTask.FromResult(obj);
         }
+        // 풀에 없으면 Addressables로 로드
         else
         {
-            return AddGetObject(name);
+            return AddGetObject(name, parent);
         }
     }
 
-    // UI ��Ұ� ������ ���� �����Ͽ� ��ȯ
-    public async UniTask<GameObject> AddGetObject(string name, GameObject currentposition = null)
+    /// <summary>
+    /// Addressables를 통해 UI를 새로 로드하고 풀에 추가한 뒤 반환합니다.
+    /// </summary>
+    private async UniTask<GameObject> AddGetObject(string name, Transform parent)
     {
-        // Ȥ�� ������ �׳� Ǯ���� ��������
-        if (pool.ContainsKey(name))
+        GameObject newInstance = await addressablesManager.LoadObject(name, parent);
+        if (newInstance != null)
         {
-            GameObject obj = pool[name];
-            obj.SetActive(true);  // Ȱ��ȭ ���·� ��ȯßß
-            return obj;
+            // 나중에 재활용할 수 있도록 풀에 인스턴스를 저장합니다.
+            pool[name] = newInstance;
+            newInstance.SetActive(true);
         }
-        else
-        {
-            //return addressablesManager.LoadObject(name);
-            GameObject newInstance = await addressablesManager.LoadObject(name);
-            if (newInstance != null)
-            {
-                newInstance.name = name;
-                pool[name] = newInstance;
-                newInstance.SetActive(true);
-            }
-            return newInstance;
-        }
+        return newInstance;
     }
 
-    // ����� ���� UI ��Ҹ� Ǯ�� ��ȯ
+    /// <summary>
+    /// 사용이 끝난 UI 객체를 비활성화합니다.
+    /// </summary>
     public void ReturnObject(string name)
     {
-        // UIManager에 는 있지만 uiPool에는 없다
-        if (pool.ContainsKey(name))
+        if (pool.ContainsKey(name) && pool[name] != null)
         {
-            // GameObject obj = pool[name];
-            // obj.SetActive(false);  // ��Ȱ��ȭ ���·� ��ȯ
-            // Debug.Log("re : " + obj.name);
-            // ✅ Object.FindObjectsOfType은 정적 메서드이므로 사용 가능
-            GameObject[] allObjects = Object.FindObjectsOfType<GameObject>();
-            bool foundAny = false;
-            
-            foreach (GameObject obj in allObjects)
-            {
-                string cleanName = obj.name.Replace("(Clone)", "").Trim();
-                if (cleanName == name && obj.activeInHierarchy)
-                {
-                    obj.SetActive(false);
-                    Debug.Log($"✅ Instance 비활성화: {obj.name}");
-                    foundAny = true;
-                }
-            }
-            
-            if (!foundAny)
-            {
-                Debug.LogWarning($"⚠️ 활성화된 '{name}' Instance를 찾을 수 없음");
-            }
+            pool[name].SetActive(false);
         }
         else
         {
-            Debug.LogWarning($"UI element '{name}' not found in the pool.");
+            // 씬에 직접 생성된 경우를 대비해 이름을 기반으로 찾아봅니다.
+            // 이 로직은 백업용이며, 풀을 통해 관리하는 것이 가장 이상적입니다.
+            GameObject objInScene = GameObject.Find(name + "(Clone)");
+            if (objInScene != null)
+            {
+                objInScene.SetActive(false);
+            }
+            else
+            {
+                 Debug.LogWarning($"⚠️ 반환할 '{name}' 인스턴스를 찾을 수 없음");
+            }
         }
-    }
-
-    public void AddUIPoolData(string name, GameObject gameObject)
-    {
-        pool.Add(name, gameObject);
     }
 }

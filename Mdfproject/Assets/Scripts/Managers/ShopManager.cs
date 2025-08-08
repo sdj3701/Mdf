@@ -1,56 +1,88 @@
+// Assets/Scripts/Managers/ShopManager.cs
 using UnityEngine;
 using System.Collections.Generic;
+using System.Linq;
 
 public class ShopManager : MonoBehaviour
 {
-    public PlayerManager playerManager; // 플레이어 정보 (골드 등)
-    public List<UnitData> allUnitDatabase; // 구매 가능한 모든 유닛 데이터 목록
-    public ShopSlot[] shopSlots; // 씬에 있는 5개의 ShopSlot UI
+    public PlayerManager playerManager;
+    private List<UnitData> allUnitDatabase = new List<UnitData>();
+    [SerializeField] private int rerollCost = 2;
+    private List<UnitData> currentShopItems = new List<UnitData>();
+    private bool isDatabaseLoaded = false;
 
-    void Start()
+    void Awake()
     {
-        // 각 슬롯 초기화
-        foreach (var slot in shopSlots)
-        {
-            slot.Initialize(this);
-        }
-        Reroll(); // 게임 시작 시 한번 리롤
+        LoadAllUnitsFromAddressables();
     }
 
-    /// <summary>
-    /// 상점을 새로고침(리롤)하는 함수
-    /// </summary>
-    [ContextMenu("Test Reroll")] // 테스트를 위해 인스펙터에서 바로 실행 가능하게 함
-    public void Reroll()
+    private async void LoadAllUnitsFromAddressables()
     {
-        // TODO: 리롤 비용 차감 로직
-        // playerManager.SpendGold(2);
+        var handle = UnityEngine.AddressableAssets.Addressables.LoadAssetsAsync<UnitData>("Unit", null);
+        await handle.Task;
 
-        // 5개의 슬롯에 랜덤 유닛 표시
-        for (int i = 0; i < shopSlots.Length; i++)
+        if (handle.Status == UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationStatus.Succeeded)
         {
-            // 데이터베이스에서 랜덤 유닛 선택 (실제로는 레벨별 확률 등 복잡한 로직 필요)
-            UnitData randomUnit = allUnitDatabase[Random.Range(0, allUnitDatabase.Count)];
-            shopSlots[i].DisplayUnit(randomUnit);
-        }
-    }
-
-    /// <summary>
-    /// 유닛 구매를 시도하는 함수 (ShopSlot이 호출)
-    /// </summary>
-    public void TryBuyUnit(UnitData unitToBuy)
-    {
-        // 플레이어가 돈이 충분한지 확인
-        if (playerManager.SpendGold(unitToBuy.cost))
-        {
-            // 구매 성공!
-            Debug.Log(unitToBuy.unitName + " 구매 성공!");
-            // TODO: 구매한 유닛을 플레이어의 벤치(대기석)에 추가하는 로직
+            allUnitDatabase = handle.Result.ToList();
+            isDatabaseLoaded = true;
+            Debug.Log($"Player {playerManager.playerId}: {allUnitDatabase.Count}개의 유닛 데이터를 성공적으로 로드했습니다.");
         }
         else
         {
-            // 구매 실패
-            Debug.Log("골드가 부족합니다!");
+            Debug.LogError($"어드레서블에서 유닛 데이터 로딩 실패: {handle.OperationException}");
+        }
+    }
+
+    public List<UnitData> GetCurrentShopItems() => currentShopItems;
+    public int GetRerollCost() => rerollCost;
+
+    public void Reroll(bool isFree = false)
+    {
+        if (!isDatabaseLoaded)
+        {
+            Debug.LogWarning("유닛 데이터베이스가 아직 로드되지 않아 리롤할 수 없습니다.");
+            return;
+        }
+
+        if (!isFree)
+        {
+            if (!playerManager.SpendGold(rerollCost))
+            {
+                Debug.Log($"Player {playerManager.playerId}: 골드가 부족하여 리롤할 수 없습니다.");
+                return;
+            }
+        }
+
+        currentShopItems.Clear();
+        for (int i = 0; i < 5; i++)
+        {
+            if (allUnitDatabase.Count > 0)
+            {
+                UnitData randomUnit = allUnitDatabase[Random.Range(0, allUnitDatabase.Count)];
+                currentShopItems.Add(randomUnit);
+            }
+        }
+        Debug.Log($"Player {playerManager.playerId}의 상점이 리롤되었습니다. (무료: {isFree})");
+    }
+
+    public void TryBuyUnit(UnitData unitToBuy, ShopSlot slot)
+    {
+        // ✅ [핵심 추가] 현재 게임 상태가 '준비' 단계일 때만 구매가 가능하도록 제한합니다.
+        if (GameManagers.Instance != null && GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare)
+        {
+            Debug.LogWarning("준비 단계에서만 유닛을 구매할 수 있습니다.");
+            return;
+        }
+
+        if (playerManager.SpendGold(unitToBuy.cost))
+        {
+            Debug.Log($"{unitToBuy.unitName} 구매 성공!");
+            playerManager.AddUnit(unitToBuy);
+            slot.SetPurchased();
+        }
+        else
+        {
+            Debug.Log("골드가 부족하여 구매에 실패했습니다.");
         }
     }
 }

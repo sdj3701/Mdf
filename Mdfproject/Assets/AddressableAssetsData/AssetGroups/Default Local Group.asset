@@ -25,11 +25,78 @@ MonoBehaviour:
   - m_GUID: aca84c4064854254380d9f30928a03e8
     m_Address: SoundCanvas
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - UI
   - m_GUID: a17f345e706ce4a41bdce43cf81bb6c6
     m_Address: OptionCanvas
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - UI
+  - m_GUID: fa09f65ec30e6a242bb5aecaefdad846
+    m_Address: Aug_Util_Gold_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+  - m_GUID: 9b35a58cbdefd5444ab3d66967b548f7
+    m_Address: Aug_Enemy_MoveSpeed_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+  - m_GUID: fa5d09ee3e1a94540bfc3e0a01fd0191
+    m_Address: Aug_Player_Atk_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+  - m_GUID: 363ac357fe5bca04a93ca8fef2ed3b57
+    m_Address: Aug_Player_AtkSpeed_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+  - m_GUID: e8fd9aa80b32e444dbf990bef5eee6c3
+    m_Address: Aug_Enemy_Health_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+  - m_GUID: 18e65b521fc35fa4f9dbdb1d3461950b
+    m_Address: UI_Pnl_ShopSlot
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+  - m_GUID: ff4a21ca690cb8946904ef398f458322
+    m_Address: Warrior_1
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - Unit
+  - m_GUID: b294db2481416c64fb9edd6bc0222d6e
+    m_Address: Warrior_3
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - Unit
+  - m_GUID: af161e66696ca4742b05891ba27598fd
+    m_Address: Warrior_2
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - Unit
+  - m_GUID: afdb119d7f8d3394dade8a6d18888eee
+    m_Address: Archer_1
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - Unit
+  - m_GUID: 4e7855d10fe859147b90840b76fc592a
+    m_Address: Archer_1
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - Unit
+  - m_GUID: f6bbfc7e5c73ea14f8d03e940134dc1a
+    m_Address: UI_Pnl_Shop
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:
