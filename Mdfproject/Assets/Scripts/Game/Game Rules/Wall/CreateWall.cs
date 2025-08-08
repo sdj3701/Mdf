@@ -154,30 +154,18 @@ public class CreateWall : GameDataCenter
     // Ground 레이어 확인 함수 
     bool IsGroundLayer()
     {
-        // Ground 타일맵이 null인지 확인
-        if (Groundtilemap == null)
-        {
-            Debug.LogWarning("Ground 타일맵이 설정되지 않았습니다!");
-            return false;
-        }
+        // Tilemap 자체가 Ground 레이어에 있는지 확인
+        bool isGroundTilemap = Groundtilemap.gameObject.layer == LayerMask.NameToLayer("Ground");
 
-        // 마우스 위치를 그리드 좌표로 변환
         Vector3 mouseWorldPos = GetMouseWorldPosition();
         Vector3Int gridPosition = Groundtilemap.WorldToCell(mouseWorldPos);
 
-        // 해당 위치에 그라운드 타일이 있는지 확인
-        TileBase groundTile = Groundtilemap.GetTile(gridPosition);
+        // 해당 위치에 타일이 있는지 확인
+        TileBase tile = Groundtilemap.GetTile(gridPosition);
+        bool hasTile = tile != null;
 
-        if (groundTile != null)
-        {
-            Debug.Log($"✅ Ground 타일 발견: {groundTile.name} at {gridPosition}");
-            return true;
-        }
-        else
-        {
-            Debug.Log($"❌ Ground 타일 없음 at {gridPosition} (월드 위치: {mouseWorldPos})");
-            return false;
-        }
+        // 둘 다 만족하면 Ground 타일
+        return isGroundTilemap && hasTile;
     }
 
     void CheckTileInfo()
