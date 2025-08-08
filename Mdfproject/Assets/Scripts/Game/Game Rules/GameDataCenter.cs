@@ -11,22 +11,23 @@ public class GameDataCenter : MonoBehaviour
     public TMP_Text wallCountText;      // 벽 개수 표시 UI 텍스트
 
     [Header("게임룰 설정")]
-    public bool UsUnitPlacement = false;    // 유닛 배치 여부
-    public static bool isWallPlacement = false;    // 벽 배치 여부
-    public float placementTime = 10.0f;     // 배치 시간 제한
-    public static int createWallCount = 5;         // 생성된 벽의 개수
+    public bool IsUnitPlacement = false;    // 유닛 배치 여부
+    public static bool IsWallPlacement = false;    // 벽 배치 여부
+    public float PlacementTime = 10.0f;     // 배치 시간 제한
+    public static int CreateWallCount = 5;         // 생성된 벽의 개수
 
     [Header("벽 타일맵 설정")]
-    public Tilemap breakWalltilemap;            // 타일을 배치할 타일맵
-    public TileBase breakWalltileToPlace;       // 배치할 타일
-    public Camera playerCamera;                 // 메인 카메라
+    public Tilemap Groundtilemap;            // 타일을 배치할 타일맵
+    public Tilemap BreakWalltilemap;            // 타일을 배치할 타일맵
+    public TileBase BreakWalltileToPlace;       // 배치할 타일
+    public Camera PlayerCamera;                 // 메인 카메라
 
     [Header("프리뷰 설정")]
-    public bool showPreview = true;   // 마우스 위치 프리뷰 표시 여부
-    public Color previewColor = Color.green;  // 프리뷰 색상
+    public bool ShowPreview = true;   // 마우스 위치 프리뷰 표시 여부
+    public Color PreviewColor = Color.green;  // 프리뷰 색상
 
-    protected GameObject previewObject; // 프리뷰용 오브젝트
-    protected Vector3Int currentMouseGridPosition; // 현재 마우스의 그리드 좌표
+    protected GameObject PreviewObject; // 프리뷰용 오브젝트
+    protected Vector3Int CurrentMouseGridPosition; // 현재 마우스의 그리드 좌표
 
     // 이벤트 시스템으로 자식 정보를 관리
     public static event System.Action<bool> OnWallModeChanged;
@@ -50,7 +51,7 @@ public class GameDataCenter : MonoBehaviour
          */
 
         // 벽 개수 UI 업데이트
-        wallCountText.text = createWallCount.ToString();
+        wallCountText.text = CreateWallCount.ToString();
     }
 
     // 자식의 기능을 활성화 할지 않할지 판단하는 함수
@@ -58,7 +59,7 @@ public class GameDataCenter : MonoBehaviour
     {
         // 시간과 벽 배치 버튼을 눌렀는지 확인
         bool isCreateWall;
-        if (placementTime > 0.0f && isWallPlacement)
+        if (PlacementTime > 0.0f && IsWallPlacement)
             // 벽 배치가 활성화되어 있고, 배치 시간이 남아있는 경우
             isCreateWall = true;
         else
@@ -71,6 +72,6 @@ public class GameDataCenter : MonoBehaviour
     // 버튼 눌러서 벽 배치 활성화/비활성화
     public void IsCreateButtonActive()
     {
-        isWallPlacement = !isWallPlacement;
+        IsWallPlacement = !IsWallPlacement;
     }
 }

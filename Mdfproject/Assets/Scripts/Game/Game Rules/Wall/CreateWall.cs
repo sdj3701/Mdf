@@ -1,277 +1,328 @@
-using System.Collections;
+ï»¿using System.Collections;
 using System.Collections.Generic;
+using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
 public class CreateWall : GameDataCenter
 {
+    private bool CheckCreateWall = true;
     void Start()
     {
-        // ÄÄÆ÷³ÍÆ® ÀÚµ¿ ÇÒ´ç
-        if (breakWalltilemap == null)
-            breakWalltilemap = FindObjectOfType<Tilemap>();
+        // ì»´í¬ë„ŒíŠ¸ ìë™ í• ë‹¹
+        if (BreakWalltilemap == null)
+            BreakWalltilemap = FindObjectOfType<Tilemap>();
 
-        if (playerCamera == null)
-            playerCamera = Camera.main;
+        if (PlayerCamera == null)
+            PlayerCamera = Camera.main;
 
-        // ÇÁ¸®ºä ¿ÀºêÁ§Æ® »ı¼º
-        if (showPreview)
+        // í”„ë¦¬ë·° ì˜¤ë¸Œì íŠ¸ ìƒì„±
+        if (ShowPreview)
             CreatePreviewObject();
     }
 
     void Update()
     {
-        if(isWallPlacement)
-            // ¸¶¿ì½º ÀÔ·Â Ã³¸®
+        if (IsWallPlacement)
+            // ë§ˆìš°ìŠ¤ ì…ë ¥ ì²˜ë¦¬
             HandleMouseInput();
 
-        // ÇÁ¸®ºä ¾÷µ¥ÀÌÆ®
-        if (showPreview)
+        // í”„ë¦¬ë·° ì—…ë°ì´íŠ¸
+        if (ShowPreview)
             UpdatePreview();
     }
 
     void HandleMouseInput()
     {
-        // ¸¶¿ì½º À§Ä¡¸¦ ¿ùµå ÁÂÇ¥·Î º¯È¯
+        // ë§ˆìš°ìŠ¤ ìœ„ì¹˜ë¥¼ ì›”ë“œ ì¢Œí‘œë¡œ ë³€í™˜
         Vector3 mouseWorldPosition = GetMouseWorldPosition();
 
-        // ¿ùµå ÁÂÇ¥¸¦ ±×¸®µå ÁÂÇ¥·Î º¯È¯
-        currentMouseGridPosition = breakWalltilemap.WorldToCell(mouseWorldPosition);
+        // ì›”ë“œ ì¢Œí‘œë¥¼ ê·¸ë¦¬ë“œ ì¢Œí‘œë¡œ ë³€í™˜
+        CurrentMouseGridPosition = BreakWalltilemap.WorldToCell(mouseWorldPosition);
 
-        // ÁÂÅ¬¸¯: Å¸ÀÏ ¹èÄ¡
+        // ì¢Œí´ë¦­: íƒ€ì¼ ë°°ì¹˜
         if (Input.GetMouseButtonDown(0))
         {
-            if(createWallCount <= 0)
+            if (CreateWallCount <= 0)
             {
-                Debug.LogWarning("´õ ÀÌ»ó Å¸ÀÏÀ» ¹èÄ¡ÇÒ ¼ö ¾ø½À´Ï´Ù!");
+                Debug.LogWarning("ë” ì´ìƒ íƒ€ì¼ì„ ë°°ì¹˜í•  ìˆ˜ ì—†ìŠµë‹ˆë‹¤!");
                 return;
             }
             PlaceTile();
-            createWallCount--; // Å¸ÀÏ ¹èÄ¡ ½Ã Ä«¿îÆ® °¨¼Ò
+            if(CheckCreateWall)
+                CreateWallCount--; // íƒ€ì¼ ë°°ì¹˜ ì‹œ ì¹´ìš´íŠ¸ ê°ì†Œ
         }
 
-        // ¿ìÅ¬¸¯: Å¸ÀÏ Á¦°Å
+        // ìš°í´ë¦­: íƒ€ì¼ ì œê±°
         if (Input.GetMouseButtonDown(1))
         {
-            if(createWallCount >= 5)
+            if (CreateWallCount >= 5)
             {
-                Debug.LogWarning("Å¸ÀÏÀ» Á¦°ÅÇÒ ¼ö ¾ø½À´Ï´Ù! ÃÖ´ë Å¸ÀÏ °³¼ö¿¡ µµ´ŞÇß½À´Ï´Ù.");
+                Debug.LogWarning("íƒ€ì¼ì„ ì œê±°í•  ìˆ˜ ì—†ìŠµë‹ˆë‹¤! ìµœëŒ€ íƒ€ì¼ ê°œìˆ˜ì— ë„ë‹¬í–ˆìŠµë‹ˆë‹¤.");
                 return;
             }
             RemoveTile();
-            createWallCount++; // Å¸ÀÏ Á¦°Å ½Ã Ä«¿îÆ® Áõ°¡
+            CreateWallCount++; // íƒ€ì¼ ì œê±° ì‹œ ì¹´ìš´íŠ¸ ì¦ê°€
         }
 
-        // °¡¿îµ¥ Å¬¸¯: Å¸ÀÏ Á¤º¸ È®ÀÎ
+        // ê°€ìš´ë° í´ë¦­: íƒ€ì¼ ì •ë³´ í™•ì¸
         if (Input.GetMouseButtonDown(2))
         {
             CheckTileInfo();
+            CheckGroundTileInfo(); // ì¶”ê°€: Ground íƒ€ì¼ ì •ë³´ë„ í™•ì¸
         }
     }
 
     Vector3 GetMouseWorldPosition()
     {
-        // ¸¶¿ì½º ½ºÅ©¸° ÁÂÇ¥ °¡Á®¿À±â
+        // ë§ˆìš°ìŠ¤ ìŠ¤í¬ë¦° ì¢Œí‘œ ê°€ì ¸ì˜¤ê¸°
         Vector3 mouseScreenPosition = Input.mousePosition;
 
-        // 2D °ÔÀÓ¿ë (Á÷±³ Ä«¸Ş¶ó)
-        if (playerCamera.orthographic)
+        // 2D ê²Œì„ìš© (ì§êµ ì¹´ë©”ë¼)
+        if (PlayerCamera.orthographic)
         {
-            mouseScreenPosition.z = playerCamera.nearClipPlane;
-            return playerCamera.ScreenToWorldPoint(mouseScreenPosition);
+            mouseScreenPosition.z = PlayerCamera.nearClipPlane;
+            return PlayerCamera.ScreenToWorldPoint(mouseScreenPosition);
         }
-        // 3D °ÔÀÓ¿ë (¿ø±Ù Ä«¸Ş¶ó) - ·¹ÀÌÄ³½ºÆ® »ç¿ë
+        // 3D ê²Œì„ìš© (ì›ê·¼ ì¹´ë©”ë¼) - ë ˆì´ìºìŠ¤íŠ¸ ì‚¬ìš©
         else
         {
-            Ray ray = playerCamera.ScreenPointToRay(mouseScreenPosition);
+            Ray ray = PlayerCamera.ScreenPointToRay(mouseScreenPosition);
 
-            // Z=0 Æò¸é¿¡ Åõ»ç (2D Å¸ÀÏ¸Ê¿ë)
-            float distance = -playerCamera.transform.position.z / ray.direction.z;
+            // Z=0 í‰ë©´ì— íˆ¬ì‚¬ (2D íƒ€ì¼ë§µìš©)
+            float distance = -PlayerCamera.transform.position.z / ray.direction.z;
             return ray.origin + ray.direction * distance;
         }
     }
 
     void PlaceTile()
     {
-        // ¹èÄ¡ÇÒ Å¸ÀÏÀÌ ¼³Á¤µÇ¾î ÀÖ´ÂÁö È®ÀÎ
-        if (breakWalltileToPlace == null)
+        // ë°°ì¹˜í•  íƒ€ì¼ì´ ì„¤ì •ë˜ì–´ ìˆëŠ”ì§€ í™•ì¸
+        if (BreakWalltileToPlace == null)
         {
-            Debug.LogWarning("¹èÄ¡ÇÒ Å¸ÀÏÀÌ ¼³Á¤µÇÁö ¾Ê¾Ò½À´Ï´Ù!");
+            Debug.LogWarning("ë°°ì¹˜í•  íƒ€ì¼ì´ ì„¤ì •ë˜ì§€ ì•Šì•˜ìŠµë‹ˆë‹¤!");
+            CheckCreateWall = false;
             return;
         }
 
-        // Ground ·¹ÀÌ¾î È®ÀÎ
-        if (!IsGroundLayer())
+        // í˜„ì¬ ë§ˆìš°ìŠ¤ ìœ„ì¹˜ ì •ë³´ ì¶œë ¥
+        Vector3 mouseWorldPos = GetMouseWorldPosition();
+        // Ground ë ˆì´ì–´ í™•ì¸
+        bool isGroundLayer = IsGroundLayer();
+
+        if (!isGroundLayer)
         {
-            Debug.Log("Ground°¡ ¾Æ´Ñ °÷¿¡´Â º®À» ¼³Ä¡ÇÒ ¼ö ¾ø½À´Ï´Ù!");
+            Debug.LogError("âŒ Groundê°€ ì•„ë‹Œ ê³³ì—ëŠ” ë²½ì„ ì„¤ì¹˜í•  ìˆ˜ ì—†ìŠµë‹ˆë‹¤!");
+            CheckCreateWall = false;
             return;
         }
 
-        // ÇØ´ç À§Ä¡¿¡ ÀÌ¹Ì Å¸ÀÏÀÌ ÀÖ´ÂÁö È®ÀÎ
-        TileBase existingTile = breakWalltilemap.GetTile(currentMouseGridPosition);
+        // í•´ë‹¹ ìœ„ì¹˜ì— ì´ë¯¸ íƒ€ì¼ì´ ìˆëŠ”ì§€ í™•ì¸
+        TileBase existingTile = BreakWalltilemap.GetTile(CurrentMouseGridPosition);
 
         if (existingTile == null)
         {
-            // Å¸ÀÏ ¹èÄ¡
-            breakWalltilemap.SetTile(currentMouseGridPosition, breakWalltileToPlace);
-            Debug.Log($"Å¸ÀÏ ¹èÄ¡: {currentMouseGridPosition}");
+            // íƒ€ì¼ ë°°ì¹˜
+            BreakWalltilemap.SetTile(CurrentMouseGridPosition, BreakWalltileToPlace);
+            CheckCreateWall = true;
+            Debug.Log($"âœ… íƒ€ì¼ ë°°ì¹˜ ì„±ê³µ: {CurrentMouseGridPosition}");
         }
         else
         {
-            Debug.Log($"ÀÌ¹Ì Å¸ÀÏÀÌ Á¸ÀçÇÕ´Ï´Ù: {currentMouseGridPosition}");
+            Debug.LogWarning($"âš ï¸ ì´ë¯¸ íƒ€ì¼ì´ ì¡´ì¬í•©ë‹ˆë‹¤: {CurrentMouseGridPosition}");
+            CheckCreateWall = false;
         }
     }
 
     void RemoveTile()
     {
-        // ÇØ´ç À§Ä¡ÀÇ Å¸ÀÏ È®ÀÎ
-        TileBase existingTile = breakWalltilemap.GetTile(currentMouseGridPosition);
+        // í•´ë‹¹ ìœ„ì¹˜ì˜ íƒ€ì¼ í™•ì¸
+        TileBase existingTile = BreakWalltilemap.GetTile(CurrentMouseGridPosition);
 
         if (existingTile != null)
         {
-            // Å¸ÀÏ Á¦°Å (null·Î ¼³Á¤)
-            breakWalltilemap.SetTile(currentMouseGridPosition, null);
-            Debug.Log($"Å¸ÀÏ Á¦°Å: {currentMouseGridPosition}");
+            // íƒ€ì¼ ì œê±° (nullë¡œ ì„¤ì •)
+            BreakWalltilemap.SetTile(CurrentMouseGridPosition, null);
+            Debug.Log($"íƒ€ì¼ ì œê±°: {CurrentMouseGridPosition}");
         }
         else
         {
-            Debug.Log($"Á¦°ÅÇÒ Å¸ÀÏÀÌ ¾ø½À´Ï´Ù: {currentMouseGridPosition}");
+            Debug.Log($"ì œê±°í•  íƒ€ì¼ì´ ì—†ìŠµë‹ˆë‹¤: {CurrentMouseGridPosition}");
         }
     }
 
-    // Ground ·¹ÀÌ¾î È®ÀÎ ÇÔ¼ö
+    // Ground ë ˆì´ì–´ í™•ì¸ í•¨ìˆ˜ 
     bool IsGroundLayer()
     {
-        // ¸¶¿ì½º À§Ä¡¿¡¼­ Á÷Á¢ ·¹ÀÌÄ³½ºÆ®
-        Ray ray = playerCamera.ScreenPointToRay(Input.mousePosition);
-
-        // Ground ·¹ÀÌ¾î¸¸ È®ÀÎ
-        LayerMask groundLayer = LayerMask.GetMask("Ground");
-
-        // ·¹ÀÌÄ³½ºÆ®·Î È®ÀÎ
-        if (Physics.Raycast(ray, out RaycastHit hit, Mathf.Infinity, groundLayer))
+        // Ground íƒ€ì¼ë§µì´ nullì¸ì§€ í™•ì¸
+        if (Groundtilemap == null)
         {
-            Debug.Log($"Ground °¨Áö: {hit.collider.name}");
-            return true;
+            Debug.LogWarning("Ground íƒ€ì¼ë§µì´ ì„¤ì •ë˜ì§€ ì•Šì•˜ìŠµë‹ˆë‹¤!");
+            return false;
         }
 
-        Debug.Log("Ground ¾Æ´Ô");
-        return false;
+        // ë§ˆìš°ìŠ¤ ìœ„ì¹˜ë¥¼ ê·¸ë¦¬ë“œ ì¢Œí‘œë¡œ ë³€í™˜
+        Vector3 mouseWorldPos = GetMouseWorldPosition();
+        Vector3Int gridPosition = Groundtilemap.WorldToCell(mouseWorldPos);
+
+        // í•´ë‹¹ ìœ„ì¹˜ì— ê·¸ë¼ìš´ë“œ íƒ€ì¼ì´ ìˆëŠ”ì§€ í™•ì¸
+        TileBase groundTile = Groundtilemap.GetTile(gridPosition);
+
+        if (groundTile != null)
+        {
+            Debug.Log($"âœ… Ground íƒ€ì¼ ë°œê²¬: {groundTile.name} at {gridPosition}");
+            return true;
+        }
+        else
+        {
+            Debug.Log($"âŒ Ground íƒ€ì¼ ì—†ìŒ at {gridPosition} (ì›”ë“œ ìœ„ì¹˜: {mouseWorldPos})");
+            return false;
+        }
     }
 
     void CheckTileInfo()
     {
-        // ÇöÀç À§Ä¡ÀÇ Å¸ÀÏ Á¤º¸ Ãâ·Â
-        TileBase currentTile = breakWalltilemap.GetTile(currentMouseGridPosition);
-        Vector3 worldPosition = breakWalltilemap.CellToWorld(currentMouseGridPosition);
+        // í˜„ì¬ ìœ„ì¹˜ì˜ íƒ€ì¼ ì •ë³´ ì¶œë ¥
+        TileBase currentTile = BreakWalltilemap.GetTile(CurrentMouseGridPosition);
+        Vector3 worldPosition = BreakWalltilemap.CellToWorld(CurrentMouseGridPosition);
 
         if (currentTile != null)
         {
-            Debug.Log($"Å¸ÀÏ Á¤º¸ - ±×¸®µå: {currentMouseGridPosition}, ¿ùµå: {worldPosition}, Å¸ÀÏ¸í: {currentTile.name}");
+            Debug.Log($"ğŸ§± ë²½ íƒ€ì¼ ì •ë³´ - ê·¸ë¦¬ë“œ: {CurrentMouseGridPosition}, ì›”ë“œ: {worldPosition}, íƒ€ì¼ëª…: {currentTile.name}");
         }
         else
         {
-            Debug.Log($"ºó °ø°£ - ±×¸®µå: {currentMouseGridPosition}, ¿ùµå: {worldPosition}");
+            Debug.Log($"â¬œ ë¹ˆ ê³µê°„ (ë²½ ì—†ìŒ) - ê·¸ë¦¬ë“œ: {CurrentMouseGridPosition}, ì›”ë“œ: {worldPosition}");
+        }
+    }
+
+    void CheckGroundTileInfo()
+    {
+        if (Groundtilemap == null)
+        {
+            Debug.LogError("âŒ Ground íƒ€ì¼ë§µì´ nullì…ë‹ˆë‹¤!");
+            return;
+        }
+
+        Vector3 mouseWorldPos = GetMouseWorldPosition();
+        Vector3Int gridPosition = Groundtilemap.WorldToCell(mouseWorldPos);
+        TileBase groundTile = Groundtilemap.GetTile(gridPosition);
+        Vector3 worldPosition = Groundtilemap.CellToWorld(gridPosition);
+
+        Debug.Log($"ğŸ—ºï¸ Ground íƒ€ì¼ë§µ ì •ë³´:");
+        Debug.Log($"   - íƒ€ì¼ë§µ ì´ë¦„: {Groundtilemap.gameObject.name}");
+        Debug.Log($"   - íƒ€ì¼ë§µ ë ˆì´ì–´: {LayerMask.LayerToName(Groundtilemap.gameObject.layer)}");
+        Debug.Log($"   - ë§ˆìš°ìŠ¤ ì›”ë“œ ìœ„ì¹˜: {mouseWorldPos}");
+        Debug.Log($"   - ê·¸ë¦¬ë“œ ìœ„ì¹˜: {gridPosition}");
+        Debug.Log($"   - ì…€ ì›”ë“œ ìœ„ì¹˜: {worldPosition}");
+
+        if (groundTile != null)
+        {
+            Debug.Log($"âœ… Ground íƒ€ì¼ ì¡´ì¬: {groundTile.name}");
+        }
+        else
+        {
+            Debug.Log($"âŒ Ground íƒ€ì¼ ì—†ìŒ");
         }
     }
 
     void CreatePreviewObject()
     {
-        // ÇÁ¸®ºä¿ë ¿ÀºêÁ§Æ® »ı¼º
-        previewObject = new GameObject("TilePreview");
+        // í”„ë¦¬ë·°ìš© ì˜¤ë¸Œì íŠ¸ ìƒì„±
+        PreviewObject = new GameObject("TilePreview");
 
-        // ½ºÇÁ¶óÀÌÆ® ·»´õ·¯ Ãß°¡
-        SpriteRenderer spriteRenderer = previewObject.AddComponent<SpriteRenderer>();
+        // ìŠ¤í”„ë¼ì´íŠ¸ ë Œë”ëŸ¬ ì¶”ê°€
+        SpriteRenderer spriteRenderer = PreviewObject.AddComponent<SpriteRenderer>();
 
-        // °£´ÜÇÑ »ç°¢Çü ½ºÇÁ¶óÀÌÆ® »ı¼º
+        // ê°„ë‹¨í•œ ì‚¬ê°í˜• ìŠ¤í”„ë¼ì´íŠ¸ ìƒì„±
         Texture2D texture = new Texture2D(1, 1);
         texture.SetPixel(0, 0, Color.white);
         texture.Apply();
 
-        // ½ºÇÁ¶óÀÌÆ® »ı¼º ¹× ¼³Á¤
+        // ìŠ¤í”„ë¼ì´íŠ¸ ìƒì„± ë° ì„¤ì •
         Sprite previewSprite = Sprite.Create(texture, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1);
         spriteRenderer.sprite = previewSprite;
-        spriteRenderer.color = previewColor;
+        spriteRenderer.color = PreviewColor;
 
-        // Å¸ÀÏ¸Êº¸´Ù À§¿¡ Ç¥½ÃµÇµµ·Ï ¼³Á¤
+        // íƒ€ì¼ë§µë³´ë‹¤ ìœ„ì— í‘œì‹œë˜ë„ë¡ ì„¤ì •
         spriteRenderer.sortingOrder = 10;
 
-        // Ã³À½¿¡´Â ºñÈ°¼ºÈ­
-        previewObject.SetActive(false);
+        // ì²˜ìŒì—ëŠ” ë¹„í™œì„±í™”
+        PreviewObject.SetActive(false);
     }
 
     void UpdatePreview()
     {
-        if (previewObject == null) return;
+        if (PreviewObject == null) return;
 
-        // ÇÁ¸®ºä ¿ÀºêÁ§Æ® À§Ä¡ ¾÷µ¥ÀÌÆ®
-        Vector3 previewWorldPosition = breakWalltilemap.CellToWorld(currentMouseGridPosition);
+        // í”„ë¦¬ë·° ì˜¤ë¸Œì íŠ¸ ìœ„ì¹˜ ì—…ë°ì´íŠ¸
+        Vector3 previewWorldPosition = BreakWalltilemap.CellToWorld(CurrentMouseGridPosition);
 
-        // Å¸ÀÏ Áß¾Ó¿¡ Ç¥½ÃµÇµµ·Ï ¿ÀÇÁ¼Â Ãß°¡
-        previewWorldPosition += breakWalltilemap.cellSize * 0.5f;
-        previewObject.transform.position = previewWorldPosition;
+        // íƒ€ì¼ ì¤‘ì•™ì— í‘œì‹œë˜ë„ë¡ ì˜¤í”„ì…‹ ì¶”ê°€
+        previewWorldPosition += BreakWalltilemap.cellSize * 0.5f;
+        PreviewObject.transform.position = previewWorldPosition;
 
-        // ÇÁ¸®ºä »ö»ó º¯°æ (Å¸ÀÏÀÌ ÀÖÀ¸¸é »¡°£»ö, ¾øÀ¸¸é ÃÊ·Ï»ö)
-        SpriteRenderer spriteRenderer = previewObject.GetComponent<SpriteRenderer>();
-        TileBase existingTile = breakWalltilemap.GetTile(currentMouseGridPosition);
+        // í”„ë¦¬ë·° ìƒ‰ìƒ ë³€ê²½ (íƒ€ì¼ì´ ìˆìœ¼ë©´ ë¹¨ê°„ìƒ‰, ì—†ìœ¼ë©´ ì´ˆë¡ìƒ‰)
+        SpriteRenderer spriteRenderer = PreviewObject.GetComponent<SpriteRenderer>();
+        TileBase existingTile = BreakWalltilemap.GetTile(CurrentMouseGridPosition);
 
         if (existingTile != null)
         {
-            spriteRenderer.color = Color.red;  // ÀÌ¹Ì Å¸ÀÏÀÌ ÀÖÀ¸¸é »¡°£»ö
+            spriteRenderer.color = Color.red;  // ì´ë¯¸ íƒ€ì¼ì´ ìˆìœ¼ë©´ ë¹¨ê°„ìƒ‰
         }
         else
         {
-            spriteRenderer.color = previewColor;  // ºó °ø°£ÀÌ¸é ÃÊ·Ï»ö
+            spriteRenderer.color = PreviewColor;  // ë¹ˆ ê³µê°„ì´ë©´ ì´ˆë¡ìƒ‰
         }
 
-        // ÇÁ¸®ºä È°¼ºÈ­
-        previewObject.SetActive(true);
+        // í”„ë¦¬ë·° í™œì„±í™”
+        PreviewObject.SetActive(true);
     }
 
-    // ¿¡µğÅÍ¿¡¼­ µğ¹ö±×¿ë ±âÁî¸ğ ±×¸®±â
+    // ì—ë””í„°ì—ì„œ ë””ë²„ê·¸ìš© ê¸°ì¦ˆëª¨ ê·¸ë¦¬ê¸°
     void OnDrawGizmos()
     {
-        if (breakWalltilemap == null) return;
+        if (BreakWalltilemap == null) return;
 
-        // ÇöÀç ¸¶¿ì½º À§Ä¡ÀÇ ±×¸®µå ¼¿À» ³ë¶õ»ö ¿ÍÀÌ¾îÇÁ·¹ÀÓÀ¸·Î Ç¥½Ã
-        Vector3 worldPosition = breakWalltilemap.CellToWorld(currentMouseGridPosition);
-        Vector3 cellSize = breakWalltilemap.cellSize;
+        // í˜„ì¬ ë§ˆìš°ìŠ¤ ìœ„ì¹˜ì˜ ê·¸ë¦¬ë“œ ì…€ì„ ë…¸ë€ìƒ‰ ì™€ì´ì–´í”„ë ˆì„ìœ¼ë¡œ í‘œì‹œ
+        Vector3 worldPosition = BreakWalltilemap.CellToWorld(CurrentMouseGridPosition);
+        Vector3 cellSize = BreakWalltilemap.cellSize;
 
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireCube(worldPosition + cellSize * 0.5f, cellSize);
     }
 
-    // ¿ÜºÎ¿¡¼­ È£ÃâÇÒ ¼ö ÀÖ´Â À¯¿ëÇÑ ÇÔ¼öµé
+    // ì™¸ë¶€ì—ì„œ í˜¸ì¶œí•  ìˆ˜ ìˆëŠ” ìœ ìš©í•œ í•¨ìˆ˜ë“¤
 
     /// <summary>
-    /// »ç¿ëÇÒ Å¸ÀÏ º¯°æ
+    /// ì‚¬ìš©í•  íƒ€ì¼ ë³€ê²½
     /// </summary>
     public void SetTileType(TileBase newTile)
     {
-        breakWalltileToPlace = newTile;
-        Debug.Log($"Å¸ÀÏ Å¸ÀÔ º¯°æ: {newTile?.name}");
+        BreakWalltileToPlace = newTile;
+        Debug.Log($"íƒ€ì¼ íƒ€ì… ë³€ê²½: {newTile?.name}");
     }
 
     /// <summary>
-    /// ÀüÃ¼ Å¸ÀÏ¸Ê Áö¿ì±â
+    /// ì „ì²´ íƒ€ì¼ë§µ ì´ˆê¸°í™”
     /// </summary>
     public void ClearAllTiles()
     {
-        // Å¸ÀÏ¸ÊÀÇ °æ°è °¡Á®¿À±â
-        BoundsInt bounds = breakWalltilemap.cellBounds;
+        // íƒ€ì¼ë§µì˜ ê²½ê³„ ê°€ì ¸ì˜¤ê¸°
+        BoundsInt bounds = BreakWalltilemap.cellBounds;
 
-        // ¸ğµç Å¸ÀÏÀ» null·Î ¼³Á¤ÇÏ¿© Á¦°Å
+        // ëª¨ë“  íƒ€ì¼ì„ nullë¡œ ì„¤ì •í•˜ì—¬ ì œê±°
         TileBase[] emptyTiles = new TileBase[bounds.size.x * bounds.size.y * bounds.size.z];
-        breakWalltilemap.SetTilesBlock(bounds, emptyTiles);
+        BreakWalltilemap.SetTilesBlock(bounds, emptyTiles);
 
-        Debug.Log("¸ğµç Å¸ÀÏÀÌ Á¦°ÅµÇ¾ú½À´Ï´Ù!");
+        Debug.Log("ëª¨ë“  íƒ€ì¼ì´ ì œê±°ë˜ì—ˆìŠµë‹ˆë‹¤!");
     }
 
     /// <summary>
-    /// ÇöÀç ¸¶¿ì½º À§Ä¡ÀÇ ±×¸®µå ÁÂÇ¥ ¹İÈ¯
+    /// í˜„ì¬ ë§ˆìš°ìŠ¤ ìœ„ì¹˜ì˜ ê·¸ë¦¬ë“œ ì¢Œí‘œ ë°˜í™˜
     /// </summary>
     public Vector3Int GetCurrentMouseGridPosition()
     {
-        return currentMouseGridPosition;
+        return CurrentMouseGridPosition;
     }
 }

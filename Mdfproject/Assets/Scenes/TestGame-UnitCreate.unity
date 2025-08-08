@@ -445,7 +445,7 @@ GameObject:
   - component: {fileID: 226818725}
   - component: {fileID: 226818727}
   - component: {fileID: 226818726}
-  m_Layer: 6
+  m_Layer: 11
   m_Name: End Tilemap
   m_TagString: End Map
   m_Icon: {fileID: 0}
@@ -1215,13 +1215,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   CreateWall: {fileID: 1978032818}
   wallCountText: {fileID: 1319966508}
-  UsUnitPlacement: 0
-  placementTime: 10
-  breakWalltilemap: {fileID: 0}
-  breakWalltileToPlace: {fileID: 0}
-  playerCamera: {fileID: 330585545}
-  showPreview: 1
-  previewColor: {r: 0, g: 1, b: 0, a: 1}
+  IsUnitPlacement: 0
+  PlacementTime: 10
+  Groundtilemap: {fileID: 780557275}
+  BreakWalltilemap: {fileID: 41498336}
+  BreakWalltileToPlace: {fileID: 11400000, guid: 677b8480bf63037499a7e15aa29695ec,
+    type: 2}
+  PlayerCamera: {fileID: 330585545}
+  ShowPreview: 1
+  PreviewColor: {r: 0, g: 1, b: 0, a: 1}
 --- !u!4 &719850084
 Transform:
   m_ObjectHideFlags: 0
@@ -2567,11 +2569,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4899e616a48886d42b4696e3f88fd470, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  UIObject:
-  - m_AssetGUID: c26b0a0b34743364daa13012be296e5a
-    m_SubObjectName: 
-    m_SubObjectType: 
-    m_EditorAssetChanged: 0
 --- !u!4 &1329380063
 Transform:
   m_ObjectHideFlags: 0
@@ -3042,7 +3039,7 @@ GameObject:
   - component: {fileID: 1851926774}
   - component: {fileID: 1851926776}
   - component: {fileID: 1851926775}
-  m_Layer: 6
+  m_Layer: 10
   m_Name: Start Tilemap
   m_TagString: Start Map
   m_Icon: {fileID: 0}
@@ -3229,11 +3226,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1dc4269197ee346ffb1ee49d9022301a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  currentState: 0
+  currentRound: 1
+  _currentPhaseTimer: 0
+  player1: {fileID: 0}
+  player2: {fileID: 0}
+  localPlayer: {fileID: 0}
+  prepareTime: 20
+  combatTime: 60
+  augmentTime: 15
+  baseGoldPerRound: 5
   SelectCharacterButton:
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
-  currentRound: 1
 --- !u!1 &1978032818
 GameObject:
   m_ObjectHideFlags: 0
@@ -3265,14 +3271,15 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   CreateWall: {fileID: 1978032818}
   wallCountText: {fileID: 1319966508}
-  UsUnitPlacement: 0
-  placementTime: 10
-  breakWalltilemap: {fileID: 41498336}
-  breakWalltileToPlace: {fileID: 11400000, guid: 677b8480bf63037499a7e15aa29695ec,
+  IsUnitPlacement: 0
+  PlacementTime: 10
+  Groundtilemap: {fileID: 780557275}
+  BreakWalltilemap: {fileID: 41498336}
+  BreakWalltileToPlace: {fileID: 11400000, guid: 677b8480bf63037499a7e15aa29695ec,
     type: 2}
-  playerCamera: {fileID: 330585545}
-  showPreview: 1
-  previewColor: {r: 0, g: 1, b: 0, a: 1}
+  PlayerCamera: {fileID: 330585545}
+  ShowPreview: 1
+  PreviewColor: {r: 0, g: 1, b: 0, a: 1}
 --- !u!4 &1978032820
 Transform:
   m_ObjectHideFlags: 0
