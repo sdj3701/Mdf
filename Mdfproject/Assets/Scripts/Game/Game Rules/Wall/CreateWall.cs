@@ -24,22 +24,37 @@ public class CreateWall : GameDataCenter
     void Update()
     {
         if (IsWallPlacement)
+        {
+            // 마우스 위치 업데이트
+            UpdateMousePosition();
+
             // 마우스 입력 처리
             HandleMouseInput();
 
-        // 프리뷰 업데이트
-        if (ShowPreview)
-            UpdatePreview();
+            // 프리뷰 업데이트 (벽 배치 모드일 때만)
+            if (ShowPreview)
+                UpdatePreview();
+        }
+        else
+        {
+            // 벽 배치 모드가 아닐 때는 프리뷰 비활성화
+            if (ShowPreview && PreviewObject != null)
+                PreviewObject.SetActive(false);
+        }
     }
 
-    void HandleMouseInput()
+    // 마우스 위치 업데이트를 별도 함수로 분리
+    void UpdateMousePosition()
     {
         // 마우스 위치를 월드 좌표로 변환
         Vector3 mouseWorldPosition = GetMouseWorldPosition();
 
         // 월드 좌표를 그리드 좌표로 변환
         CurrentMouseGridPosition = BreakWalltilemap.WorldToCell(mouseWorldPosition);
+    }
 
+    void HandleMouseInput()
+    {
         // 좌클릭: 타일 배치
         if (Input.GetMouseButtonDown(0))
         {
