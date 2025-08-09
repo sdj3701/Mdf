@@ -60,10 +60,13 @@
   <ItemGroup>
     <Compile Include="Assets\Scripts\Game\Players\AttackPlayer.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SkewTextExample.cs" />
+    <Compile Include="Assets\Scripts\Game\Units\Unit.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SimpleScript.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\Wall\CreateWall.cs" />
     <Compile Include="Assets\Scripts\Button\SoundButton.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark01_UGUI.cs" />
+    <Compile Include="Assets\Scripts\Managers\AugmentManager.cs" />
+    <Compile Include="Assets\Scripts\Game\Game Rules\GameDataCenter.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextSelector_A.cs" />
     <Compile Include="Assets\Scripts\MainLobby\CharacterSelectButton.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexShakeA.cs" />
@@ -71,6 +74,7 @@
     <Compile Include="Assets\Scripts\MainLobby\SelectCharacter.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ChatController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextMeshProFloatingText.cs" />
+    <Compile Include="Assets\Scripts\Managers\FieldManager.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexShakeB.cs" />
     <Compile Include="Assets\Scripts\UI\UIManagers.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\EnvMapAnimator.cs" />
@@ -78,6 +82,7 @@
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarNode.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\CameraController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMPro_InstructionOverlay.cs" />
+    <Compile Include="Assets\Scripts\Button\ShopToggleButton.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_ExampleScript_01.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextConsoleSimulator.cs" />
     <Compile Include="Assets\Scripts\Button\VersionButton.cs" />
@@ -90,6 +95,7 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextEventCheck.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ShaderPropAnimator.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\WarpTextExample.cs" />
+    <Compile Include="Assets\Scripts\UI\ShopUIController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_DigitValidator.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\CreateCharacter\TileAndCharacterGenerator.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\Monster.cs" />
@@ -103,9 +109,11 @@
     <Compile Include="Assets\Scripts\UI\ShopSlot.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark03.cs" />
     <Compile Include="Assets\Scripts\Managers\SceneManagers.cs" />
+    <Compile Include="Assets\Scripts\Game\Monsters\MonsterSpawner.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\Astar.cs" />
     <Compile Include="Assets\Scripts\Game\Players\Player.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_FrameRateCounter.cs" />
+    <Compile Include="Assets\Scripts\UI\PhaseTimerUI.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexJitter.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextEventHandler.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextSelector_B.cs" />
@@ -123,14 +131,6 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark01.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Scripts\Game\Game Rules\GameDataCenter.cs" />
-    <Compile Include="Assets\Scripts\Game\Monsters\MonsterSpawner.cs" />
-    <Compile Include="Assets\Scripts\UI\PhaseTimerUI.cs" />
-    <Compile Include="Assets\Scripts\Game\Units\Unit.cs" />
-    <Compile Include="Assets\Scripts\Button\ShopToggleButton.cs" />
-    <Compile Include="Assets\Scripts\Managers\AugmentManager.cs" />
-    <Compile Include="Assets\Scripts\UI\ShopUIController.cs" />
-    <Compile Include="Assets\Scripts\Managers\FieldManager.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

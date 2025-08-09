@@ -1,451 +1,349 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using UnityEngine.Tilemaps;
 using System.Collections.Generic;
 
-[System.Serializable]
-public class CharacterData
+public class TileAndCharacterGenerator : GameDataCenter
 {
-    [Header("Ä³¸¯ÅÍ ±âº» Á¤º¸")]
-    public string characterName;        // Ä³¸¯ÅÍ ÀÌ¸§
-    public GameObject characterPrefab;  // »ı¼ºÇÒ Ä³¸¯ÅÍ ÇÁ¸®ÆÕ
-    public KeyCode hotkey;             // ´ÜÃàÅ°
-
-    [Header("»ı¼º Á¶°Ç")]
-    public SpawnCondition spawnCondition;  // »ı¼º Á¶°Ç
-    public List<TileBase> allowedTiles;    // »ı¼º °¡´ÉÇÑ Å¸ÀÏµé
-    public bool canSpawnOnEmpty = false;   // ºó °ø°£¿¡µµ »ı¼º °¡´ÉÇÑÁö
-
-    [Header("½Ã°¢Àû ¼³Á¤")]
-    public Color previewColor = Color.blue; // ÇÁ¸®ºä »ö»ó
-}
-
-public enum SpawnCondition
-{
-    OnGroundOnly,      // Ground Å¸ÀÏ¿¡¼­¸¸
-    OnBreakWallOnly,   // BreakWall Å¸ÀÏ¿¡¼­¸¸
-    OnAnyTile,         // ¸ğµç Å¸ÀÏ¿¡¼­
-    OnSpecificTiles    // ÁöÁ¤µÈ Å¸ÀÏ¿¡¼­¸¸
-}
-
-public class TileAndCharacterGenerator : MonoBehaviour
-{
-    [Header("Å¸ÀÏ¸Ê ¼³Á¤")]
-    public Tilemap groundTilemap;      // ¹Ù´Ú Å¸ÀÏ¸Ê
-    public Tilemap wallTilemap;        // º® Å¸ÀÏ¸Ê (breakWall¿ë)
-    public Camera playerCamera;        // ¸ŞÀÎ Ä«¸Ş¶ó
-
-    [Header("Å¸ÀÏ ¼³Á¤")]
-    public TileBase groundTile;        // ¹Ù´Ú Å¸ÀÏ
-    public TileBase breakWallTile;     // ºÎ¼ú ¼ö ÀÖ´Â º® Å¸ÀÏ
-    public TileBase normalWallTile;    // ÀÏ¹İ º® Å¸ÀÏ
-
-    [Header("Ä³¸¯ÅÍ ¼³Á¤")]
-    public List<CharacterData> availableCharacters; // »ı¼º °¡´ÉÇÑ Ä³¸¯ÅÍµé
-
-    [Header("¸ğµå ¼³Á¤")]
-    public bool isTileMode = true;     // true: Å¸ÀÏ ¸ğµå, false: Ä³¸¯ÅÍ ¸ğµå
-    public bool showPreview = true;    // ÇÁ¸®ºä Ç¥½Ã ¿©ºÎ
-
-    // ÇöÀç ¼±ÅÃµÈ °Íµé
-    private int currentTileIndex = 0;      // ÇöÀç Å¸ÀÏ ÀÎµ¦½º (0: ground, 1: breakWall, 2: normalWall)
-    private int currentCharacterIndex = 0; // ÇöÀç Ä³¸¯ÅÍ ÀÎµ¦½º
-
-    // ÇÁ¸®ºä ¹× À§Ä¡
-    private GameObject previewObject;
-    private Vector3Int currentMouseGridPosition;
-
-    // »ı¼ºµÈ Ä³¸¯ÅÍ ÃßÀû
-    private Dictionary<Vector3Int, GameObject> spawnedCharacters = new Dictionary<Vector3Int, GameObject>();
+    private bool CheckCreateCharacter = true;
 
     void Start()
     {
-        InitializeComponents();
-        CreatePreviewObject();
-    }
+        // ì»´í¬ë„ŒíŠ¸ ìë™ í• ë‹¹
+        if (BreakWalltilemap == null)
+            BreakWalltilemap = FindObjectOfType<Tilemap>();
 
-    void InitializeComponents()
-    {
-        // ÄÄÆ÷³ÍÆ® ÀÚµ¿ ÇÒ´ç
-        if (playerCamera == null)
-            playerCamera = Camera.main;
+        if (PlayerCamera == null)
+            PlayerCamera = Camera.main;
 
-        if (groundTilemap == null)
-            groundTilemap = GameObject.Find("Ground")?.GetComponent<Tilemap>();
-
-        if (wallTilemap == null)
-            wallTilemap = GameObject.Find("Wall")?.GetComponent<Tilemap>();
+        // í”„ë¦¬ë·° ì˜¤ë¸Œì íŠ¸ ìƒì„±
+        if (ShowPreview)
+            CreatePreviewObject();
     }
 
     void Update()
     {
-        HandleInput();
-        UpdateMousePosition();
-        UpdatePreview();
+        if (IsUnitPlacement)
+        {
+            // ë§ˆìš°ìŠ¤ ìœ„ì¹˜ ì—…ë°ì´íŠ¸
+            UpdateMousePosition();
+
+            // ë§ˆìš°ìŠ¤ ì…ë ¥ ì²˜ë¦¬
+            HandleMouseInput();
+
+            // í”„ë¦¬ë·° ì—…ë°ì´íŠ¸ (ìœ ë‹› ë°°ì¹˜ ëª¨ë“œì¼ ë•Œë§Œ)
+            if (ShowPreview)
+                UpdatePreview();
+        }
+        else
+        {
+            // ìœ ë‹› ë°°ì¹˜ ëª¨ë“œê°€ ì•„ë‹ ë•ŒëŠ” í”„ë¦¬ë·° ë¹„í™œì„±í™”
+            if (ShowPreview && PreviewObject != null)
+                PreviewObject.SetActive(false);
+        }
     }
 
-    void HandleInput()
+    void CreatePreviewObject()
     {
-        // ¸ğµå ÀüÈ¯ (T: Å¸ÀÏ ¸ğµå, C: Ä³¸¯ÅÍ ¸ğµå)
-        if (Input.GetKeyDown(KeyCode.T))
+        // í”„ë¦¬ë·°ìš© ì˜¤ë¸Œì íŠ¸ ìƒì„±
+        PreviewObject = new GameObject("CharacterPreview");
+
+        // ìŠ¤í”„ë¼ì´íŠ¸ ë Œë”ëŸ¬ ì¶”ê°€
+        SpriteRenderer spriteRenderer = PreviewObject.AddComponent<SpriteRenderer>();
+
+        // ìºë¦­í„° ìŠ¤í”„ë¼ì´íŠ¸ê°€ ì„¤ì •ë˜ì–´ ìˆìœ¼ë©´ ì‚¬ìš©, ì—†ìœ¼ë©´ ê¸°ë³¸ ì‚¬ê°í˜•
+        if (CharacterSprite != null)
         {
-            isTileMode = true;
-            Debug.Log("Å¸ÀÏ ¹èÄ¡ ¸ğµå");
+            spriteRenderer.sprite = CharacterSprite;
+            spriteRenderer.color = new Color(1f, 1f, 1f, 0.5f); // ë°˜íˆ¬ëª…í•˜ê²Œ
+        }
+        else
+        {
+            // ê°„ë‹¨í•œ ì‚¬ê°í˜• ìŠ¤í”„ë¼ì´íŠ¸ ìƒì„±
+            Texture2D texture = new Texture2D(1, 1);
+            texture.SetPixel(0, 0, Color.white);
+            texture.Apply();
+
+            Sprite previewSprite = Sprite.Create(texture, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1);
+            spriteRenderer.sprite = previewSprite;
+            spriteRenderer.color = PreviewColor;
         }
 
-        if (Input.GetKeyDown(KeyCode.C))
-        {
-            isTileMode = false;
-            Debug.Log("Ä³¸¯ÅÍ »ı¼º ¸ğµå");
-        }
+        // ìºë¦­í„°ë³´ë‹¤ ìœ„ì— í‘œì‹œë˜ë„ë¡ ì„¤ì •
+        spriteRenderer.sortingOrder = (int)CharacterSortingOrder + 1;
 
-        // Å¸ÀÏ/Ä³¸¯ÅÍ Å¸ÀÔ º¯°æ (¸¶¿ì½º ÈÙ)
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
-        if (scroll > 0f)
-            ChangeType(1);  // ´ÙÀ½ Å¸ÀÔ
-        else if (scroll < 0f)
-            ChangeType(-1); // ÀÌÀü Å¸ÀÔ
-
-        // Ä³¸¯ÅÍ ´ÜÃàÅ° Ã³¸®
-        if (!isTileMode)
-        {
-            for (int i = 0; i < availableCharacters.Count; i++)
-            {
-                if (Input.GetKeyDown(availableCharacters[i].hotkey))
-                {
-                    currentCharacterIndex = i;
-                    Debug.Log($"Ä³¸¯ÅÍ ¼±ÅÃ: {availableCharacters[i].characterName}");
-                }
-            }
-        }
-
-        // ¸¶¿ì½º Å¬¸¯ Ã³¸®
-        if (Input.GetMouseButtonDown(0))
-        {
-            if (isTileMode)
-                PlaceTile();
-            else
-                SpawnCharacter();
-        }
-
-        // ¿ìÅ¬¸¯À¸·Î Á¦°Å
-        if (Input.GetMouseButtonDown(1))
-        {
-            if (isTileMode)
-                RemoveTile();
-            else
-                RemoveCharacter();
-        }
+        // ì²˜ìŒì—ëŠ” ë¹„í™œì„±í™”
+        PreviewObject.SetActive(false);
     }
 
     void UpdateMousePosition()
     {
         Vector3 mouseWorldPosition = GetMouseWorldPosition();
-        currentMouseGridPosition = groundTilemap.WorldToCell(mouseWorldPosition);
+        CurrentMouseGridPosition = BreakWalltilemap.WorldToCell(mouseWorldPosition);
     }
 
     Vector3 GetMouseWorldPosition()
     {
         Vector3 mouseScreenPosition = Input.mousePosition;
 
-        if (playerCamera.orthographic)
+        if (PlayerCamera.orthographic)
         {
-            mouseScreenPosition.z = playerCamera.nearClipPlane;
-            return playerCamera.ScreenToWorldPoint(mouseScreenPosition);
+            mouseScreenPosition.z = PlayerCamera.nearClipPlane;
+            return PlayerCamera.ScreenToWorldPoint(mouseScreenPosition);
         }
         else
         {
-            Ray ray = playerCamera.ScreenPointToRay(mouseScreenPosition);
-            float distance = -playerCamera.transform.position.z / ray.direction.z;
+            Ray ray = PlayerCamera.ScreenPointToRay(mouseScreenPosition);
+            float distance = -PlayerCamera.transform.position.z / ray.direction.z;
             return ray.origin + ray.direction * distance;
         }
     }
 
-    void ChangeType(int direction)
+    void HandleMouseInput()
     {
-        if (isTileMode)
+        // ì¢Œí´ë¦­: ìºë¦­í„° ìƒì„±
+        if (Input.GetMouseButtonDown(0))
         {
-            // Å¸ÀÏ Å¸ÀÔ º¯°æ (0: ground, 1: breakWall, 2: normalWall)
-            currentTileIndex = (currentTileIndex + direction + 3) % 3;
-            string[] tileNames = { "¹Ù´Ú", "ºÎ¼ú ¼ö ÀÖ´Â º®", "ÀÏ¹İ º®" };
-            Debug.Log($"¼±ÅÃµÈ Å¸ÀÏ: {tileNames[currentTileIndex]}");
+            CreateCharacter();
+        }
+
+        // ìš°í´ë¦­: ìºë¦­í„° ì œê±°
+        if (Input.GetMouseButtonDown(1))
+        {
+            RemoveCharacter();
+        }
+
+        // ê°€ìš´ë° í´ë¦­: ìºë¦­í„° ì •ë³´ í™•ì¸
+        if (Input.GetMouseButtonDown(2))
+        {
+            CheckCharacterInfo();
+            CheckGroundTileInfo();
+        }
+    }
+
+    void CreateCharacter()
+    {
+        // Ground ë ˆì´ì–´ í™•ì¸
+        bool isGroundLayer = IsGroundLayer();
+
+        if (!isGroundLayer)
+        {
+            Debug.LogError("âŒ Groundê°€ ì•„ë‹Œ ê³³ì—ëŠ” ìºë¦­í„°ë¥¼ ë°°ì¹˜í•  ìˆ˜ ì—†ìŠµë‹ˆë‹¤!");
+            CheckCreateCharacter = false;
+            return;
+        }
+
+        // BreakWall íƒ€ì¼ì´ ìˆëŠ”ì§€ í™•ì¸ (ë²½ì´ ìˆìœ¼ë©´ ìºë¦­í„° ë°°ì¹˜ ë¶ˆê°€)
+        TileBase existingWallTile = BreakWalltilemap.GetTile(CurrentMouseGridPosition);
+        if (existingWallTile != null)
+        {
+            Debug.LogError("âŒ ë²½ì´ ìˆëŠ” ê³³ì—ëŠ” ìºë¦­í„°ë¥¼ ë°°ì¹˜í•  ìˆ˜ ì—†ìŠµë‹ˆë‹¤!");
+            CheckCreateCharacter = false;
+            return;
+        }
+
+        // í•´ë‹¹ ìœ„ì¹˜ì— ì´ë¯¸ ìºë¦­í„°ê°€ ìˆëŠ”ì§€ í™•ì¸
+        if (SpawnedCharacters.ContainsKey(CurrentMouseGridPosition))
+        {
+            Debug.LogWarning($"âš ï¸ ì´ë¯¸ ìºë¦­í„°ê°€ ì¡´ì¬í•©ë‹ˆë‹¤: {CurrentMouseGridPosition}");
+            CheckCreateCharacter = false;
+            return;
+        }
+
+        GameObject newCharacter = null;
+
+        // í”„ë¦¬íŒ¹ì´ ì„¤ì •ë˜ì–´ ìˆìœ¼ë©´ í”„ë¦¬íŒ¹ ì‚¬ìš©, ì—†ìœ¼ë©´ ìŠ¤í”„ë¼ì´íŠ¸ë¡œ ìƒì„±
+        if (CharacterPrefab != null)
+        {
+            // í”„ë¦¬íŒ¹ìœ¼ë¡œ ìºë¦­í„° ìƒì„±
+            Vector3 worldPosition = BreakWalltilemap.CellToWorld(CurrentMouseGridPosition);
+            worldPosition += BreakWalltilemap.cellSize * 0.5f; // íƒ€ì¼ ì¤‘ì•™ì— ë°°ì¹˜
+
+            newCharacter = Instantiate(CharacterPrefab, worldPosition, Quaternion.identity);
+        }
+        else if (CharacterSprite != null)
+        {
+            // ìŠ¤í”„ë¼ì´íŠ¸ë¡œ ìºë¦­í„° ìƒì„±
+            newCharacter = new GameObject($"Character_{CurrentMouseGridPosition}");
+
+            // ìœ„ì¹˜ ì„¤ì •
+            Vector3 worldPosition = BreakWalltilemap.CellToWorld(CurrentMouseGridPosition);
+            worldPosition += BreakWalltilemap.cellSize * 0.5f; // íƒ€ì¼ ì¤‘ì•™ì— ë°°ì¹˜
+            newCharacter.transform.position = worldPosition;
+
+            // ìŠ¤í”„ë¼ì´íŠ¸ ë Œë”ëŸ¬ ì¶”ê°€ ë° ì„¤ì •
+            SpriteRenderer spriteRenderer = newCharacter.AddComponent<SpriteRenderer>();
+            spriteRenderer.sprite = CharacterSprite;
+            spriteRenderer.sortingOrder = (int)CharacterSortingOrder;
+
+            // ì„ íƒì : ì½œë¼ì´ë” ì¶”ê°€ (ìºë¦­í„° í´ë¦­ ê°ì§€ìš©)
+            BoxCollider2D collider = newCharacter.AddComponent<BoxCollider2D>();
+            collider.size = CharacterSprite.bounds.size;
         }
         else
         {
-            // Ä³¸¯ÅÍ Å¸ÀÔ º¯°æ
-            if (availableCharacters.Count > 0)
-            {
-                currentCharacterIndex = (currentCharacterIndex + direction + availableCharacters.Count) % availableCharacters.Count;
-                Debug.Log($"¼±ÅÃµÈ Ä³¸¯ÅÍ: {availableCharacters[currentCharacterIndex].characterName}");
-            }
-        }
-    }
-
-    void PlaceTile()
-    {
-        TileBase tileToPlace = GetCurrentTile();
-        Tilemap targetTilemap = GetTargetTilemap();
-
-        if (tileToPlace == null || targetTilemap == null)
-        {
-            Debug.LogWarning("Å¸ÀÏ ¶Ç´Â Å¸ÀÏ¸ÊÀÌ ¼³Á¤µÇÁö ¾Ê¾Ò½À´Ï´Ù!");
+            Debug.LogError("âŒ ìºë¦­í„° ìŠ¤í”„ë¼ì´íŠ¸ë‚˜ í”„ë¦¬íŒ¹ì´ ì„¤ì •ë˜ì§€ ì•Šì•˜ìŠµë‹ˆë‹¤!");
+            CheckCreateCharacter = false;
             return;
         }
 
-        // ÇØ´ç À§Ä¡¿¡ Å¸ÀÏÀÌ ÀÖ´ÂÁö È®ÀÎ
-        TileBase existingTile = targetTilemap.GetTile(currentMouseGridPosition);
-
-        if (existingTile == null)
+        if (newCharacter != null)
         {
-            targetTilemap.SetTile(currentMouseGridPosition, tileToPlace);
-            Debug.Log($"Å¸ÀÏ ¹èÄ¡: {tileToPlace.name} at {currentMouseGridPosition}");
+            // ìƒì„±ëœ ìºë¦­í„°ë¥¼ ë”•ì…”ë„ˆë¦¬ì— ì €ì¥
+            SpawnedCharacters[CurrentMouseGridPosition] = newCharacter;
+
+            // ìºë¦­í„°ì— ìœ„ì¹˜ ì •ë³´ íƒœê·¸ ì¶”ê°€ (ì„ íƒì‚¬í•­)
+            newCharacter.name = $"Character_{CurrentMouseGridPosition.x}_{CurrentMouseGridPosition.y}";
+
+            CheckCreateCharacter = true;
+            Debug.Log($"âœ… ìºë¦­í„° ìƒì„± ì„±ê³µ: {CurrentMouseGridPosition}");
         }
-        else
-        {
-            Debug.Log("ÀÌ¹Ì Å¸ÀÏÀÌ Á¸ÀçÇÕ´Ï´Ù!");
-        }
-    }
-
-    void RemoveTile()
-    {
-        // Ground Å¸ÀÏ¸Ê¿¡¼­ ¸ÕÀú È®ÀÎ
-        TileBase groundTileAtPos = groundTilemap.GetTile(currentMouseGridPosition);
-        if (groundTileAtPos != null)
-        {
-            groundTilemap.SetTile(currentMouseGridPosition, null);
-            Debug.Log($"¹Ù´Ú Å¸ÀÏ Á¦°Å: {currentMouseGridPosition}");
-            return;
-        }
-
-        // Wall Å¸ÀÏ¸Ê¿¡¼­ È®ÀÎ
-        if (wallTilemap != null)
-        {
-            TileBase wallTileAtPos = wallTilemap.GetTile(currentMouseGridPosition);
-            if (wallTileAtPos != null)
-            {
-                wallTilemap.SetTile(currentMouseGridPosition, null);
-                Debug.Log($"º® Å¸ÀÏ Á¦°Å: {currentMouseGridPosition}");
-                return;
-            }
-        }
-
-        Debug.Log("Á¦°ÅÇÒ Å¸ÀÏÀÌ ¾ø½À´Ï´Ù!");
-    }
-
-    void SpawnCharacter()
-    {
-        if (availableCharacters.Count == 0 || currentCharacterIndex >= availableCharacters.Count)
-        {
-            Debug.LogWarning("»ı¼ºÇÒ Ä³¸¯ÅÍ°¡ ¾ø½À´Ï´Ù!");
-            return;
-        }
-
-        CharacterData characterData = availableCharacters[currentCharacterIndex];
-
-        // ÀÌ¹Ì Ä³¸¯ÅÍ°¡ ÀÖ´ÂÁö È®ÀÎ
-        if (spawnedCharacters.ContainsKey(currentMouseGridPosition))
-        {
-            Debug.Log("ÀÌ¹Ì Ä³¸¯ÅÍ°¡ Á¸ÀçÇÕ´Ï´Ù!");
-            return;
-        }
-
-        // »ı¼º Á¶°Ç È®ÀÎ
-        if (!CanSpawnCharacterAt(currentMouseGridPosition, characterData))
-        {
-            Debug.Log($"{characterData.characterName}À»(¸¦) ÀÌ À§Ä¡¿¡ »ı¼ºÇÒ ¼ö ¾ø½À´Ï´Ù!");
-            return;
-        }
-
-        // Ä³¸¯ÅÍ »ı¼º
-        Vector3 worldPosition = groundTilemap.CellToWorld(currentMouseGridPosition);
-        worldPosition += new Vector3(groundTilemap.cellSize.x * 0.5f, groundTilemap.cellSize.y * 0.5f, 0); // Áß¾Ó ¹èÄ¡
-
-        GameObject newCharacter = Instantiate(characterData.characterPrefab, worldPosition, Quaternion.identity);
-        newCharacter.name = $"{characterData.characterName}_{currentMouseGridPosition}";
-
-        // Ä³¸¯ÅÍ ÃßÀû¿¡ Ãß°¡
-        spawnedCharacters[currentMouseGridPosition] = newCharacter;
-
-        Debug.Log($"{characterData.characterName} »ı¼º: {currentMouseGridPosition}");
     }
 
     void RemoveCharacter()
     {
-        if (spawnedCharacters.ContainsKey(currentMouseGridPosition))
+        // í•´ë‹¹ ìœ„ì¹˜ì— ìºë¦­í„°ê°€ ìˆëŠ”ì§€ í™•ì¸
+        if (SpawnedCharacters.ContainsKey(CurrentMouseGridPosition))
         {
-            GameObject characterToRemove = spawnedCharacters[currentMouseGridPosition];
-            spawnedCharacters.Remove(currentMouseGridPosition);
-            Destroy(characterToRemove);
-            Debug.Log($"Ä³¸¯ÅÍ Á¦°Å: {currentMouseGridPosition}");
+            GameObject characterToRemove = SpawnedCharacters[CurrentMouseGridPosition];
+
+            if (characterToRemove != null)
+            {
+                Destroy(characterToRemove);
+            }
+
+            SpawnedCharacters.Remove(CurrentMouseGridPosition);
+            Debug.Log($"ğŸ—‘ï¸ ìºë¦­í„° ì œê±°: {CurrentMouseGridPosition}");
         }
         else
         {
-            Debug.Log("Á¦°ÅÇÒ Ä³¸¯ÅÍ°¡ ¾ø½À´Ï´Ù!");
+            Debug.Log($"âŒ ì œê±°í•  ìºë¦­í„°ê°€ ì—†ìŠµë‹ˆë‹¤: {CurrentMouseGridPosition}");
         }
     }
 
-    bool CanSpawnCharacterAt(Vector3Int position, CharacterData characterData)
+    void CheckCharacterInfo()
     {
-        TileBase groundTileAtPos = groundTilemap.GetTile(position);
-        TileBase wallTileAtPos = wallTilemap?.GetTile(position);
-
-        switch (characterData.spawnCondition)
+        if (SpawnedCharacters.ContainsKey(CurrentMouseGridPosition))
         {
-            case SpawnCondition.OnGroundOnly:
-                // ¹Ù´Ú Å¸ÀÏ(Ground)¿¡¼­¸¸ »ı¼º °¡´É
-                return groundTileAtPos == groundTile;
+            GameObject character = SpawnedCharacters[CurrentMouseGridPosition];
+            Vector3 worldPosition = BreakWalltilemap.CellToWorld(CurrentMouseGridPosition);
 
-            case SpawnCondition.OnBreakWallOnly:
-                // ºÎ¼ú ¼ö ÀÖ´Â º®¿¡¼­¸¸ »ı¼º °¡´É
-                return wallTileAtPos == breakWallTile;
-
-            case SpawnCondition.OnAnyTile:
-                // ¾î¶² Å¸ÀÏÀÌµç ÀÖÀ¸¸é »ı¼º °¡´É
-                return groundTileAtPos != null || wallTileAtPos != null;
-
-            case SpawnCondition.OnSpecificTiles:
-                // ÁöÁ¤µÈ Å¸ÀÏ¿¡¼­¸¸ »ı¼º °¡´É
-                foreach (TileBase allowedTile in characterData.allowedTiles)
-                {
-                    if (groundTileAtPos == allowedTile || wallTileAtPos == allowedTile)
-                        return true;
-                }
-                return false;
-
-            default:
-                return characterData.canSpawnOnEmpty || groundTileAtPos != null || wallTileAtPos != null;
+            Debug.Log($"ğŸ‘¤ ìºë¦­í„° ì •ë³´:");
+            Debug.Log($"   - ì´ë¦„: {character.name}");
+            Debug.Log($"   - ê·¸ë¦¬ë“œ ìœ„ì¹˜: {CurrentMouseGridPosition}");
+            Debug.Log($"   - ì›”ë“œ ìœ„ì¹˜: {worldPosition}");
+            Debug.Log($"   - ì‹¤ì œ ìœ„ì¹˜: {character.transform.position}");
         }
-    }
-
-    TileBase GetCurrentTile()
-    {
-        switch (currentTileIndex)
+        else
         {
-            case 0: return groundTile;
-            case 1: return breakWallTile;
-            case 2: return normalWallTile;
-            default: return groundTile;
+            Debug.Log($"âŒ ìºë¦­í„° ì—†ìŒ - ê·¸ë¦¬ë“œ: {CurrentMouseGridPosition}");
         }
     }
 
-    Tilemap GetTargetTilemap()
+    bool IsGroundLayer()
     {
-        switch (currentTileIndex)
+        bool isGroundTilemap = Groundtilemap.gameObject.layer == LayerMask.NameToLayer("Ground");
+
+        Vector3 mouseWorldPos = GetMouseWorldPosition();
+        Vector3Int gridPosition = Groundtilemap.WorldToCell(mouseWorldPos);
+
+        TileBase tile = Groundtilemap.GetTile(gridPosition);
+        bool hasTile = tile != null;
+
+        return isGroundTilemap && hasTile;
+    }
+
+    void CheckGroundTileInfo()
+    {
+        if (Groundtilemap == null)
         {
-            case 0: return groundTilemap;      // ¹Ù´ÚÀº Ground Å¸ÀÏ¸Ê¿¡
-            case 1: return wallTilemap;        // ºÎ¼ú ¼ö ÀÖ´Â º®Àº Wall Å¸ÀÏ¸Ê¿¡
-            case 2: return wallTilemap;        // ÀÏ¹İ º®µµ Wall Å¸ÀÏ¸Ê¿¡
-            default: return groundTilemap;
+            Debug.LogError("âŒ Ground íƒ€ì¼ë§µì´ nullì…ë‹ˆë‹¤!");
+            return;
         }
-    }
 
-    void CreatePreviewObject()
-    {
-        if (!showPreview) return;
+        Vector3 mouseWorldPos = GetMouseWorldPosition();
+        Vector3Int gridPosition = Groundtilemap.WorldToCell(mouseWorldPos);
+        TileBase groundTile = Groundtilemap.GetTile(gridPosition);
+        Vector3 worldPosition = Groundtilemap.CellToWorld(gridPosition);
 
-        previewObject = new GameObject("Preview");
-        SpriteRenderer spriteRenderer = previewObject.AddComponent<SpriteRenderer>();
+        Debug.Log($"ğŸ—ºï¸ Ground íƒ€ì¼ë§µ ì •ë³´:");
+        Debug.Log($"   - íƒ€ì¼ë§µ ì´ë¦„: {Groundtilemap.gameObject.name}");
+        Debug.Log($"   - íƒ€ì¼ë§µ ë ˆì´ì–´: {LayerMask.LayerToName(Groundtilemap.gameObject.layer)}");
+        Debug.Log($"   - ë§ˆìš°ìŠ¤ ì›”ë“œ ìœ„ì¹˜: {mouseWorldPos}");
+        Debug.Log($"   - ê·¸ë¦¬ë“œ ìœ„ì¹˜: {gridPosition}");
+        Debug.Log($"   - ì…€ ì›”ë“œ ìœ„ì¹˜: {worldPosition}");
 
-        // °£´ÜÇÑ ÇÁ¸®ºä ½ºÇÁ¶óÀÌÆ® »ı¼º
-        Texture2D texture = new Texture2D(1, 1);
-        texture.SetPixel(0, 0, Color.white);
-        texture.Apply();
-
-        Sprite previewSprite = Sprite.Create(texture, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1);
-        spriteRenderer.sprite = previewSprite;
-        spriteRenderer.sortingOrder = 100;
-
-        previewObject.SetActive(false);
+        if (groundTile != null)
+        {
+            Debug.Log($"âœ… Ground íƒ€ì¼ ì¡´ì¬: {groundTile.name}");
+        }
+        else
+        {
+            Debug.Log($"âŒ Ground íƒ€ì¼ ì—†ìŒ");
+        }
     }
 
     void UpdatePreview()
     {
-        if (!showPreview || previewObject == null) return;
+        if (PreviewObject == null) return;
 
-        // ÇÁ¸®ºä À§Ä¡ ¾÷µ¥ÀÌÆ®
-        Vector3 previewWorldPosition = groundTilemap.CellToWorld(currentMouseGridPosition);
-        previewWorldPosition += groundTilemap.cellSize * 0.5f;
-        previewObject.transform.position = previewWorldPosition;
+        // í”„ë¦¬ë·° ì˜¤ë¸Œì íŠ¸ ìœ„ì¹˜ ì—…ë°ì´íŠ¸
+        Vector3 previewWorldPosition = BreakWalltilemap.CellToWorld(CurrentMouseGridPosition);
+        previewWorldPosition += BreakWalltilemap.cellSize * 0.5f;
+        PreviewObject.transform.position = previewWorldPosition;
 
-        SpriteRenderer spriteRenderer = previewObject.GetComponent<SpriteRenderer>();
+        // í”„ë¦¬ë·° ìƒ‰ìƒ ë³€ê²½
+        SpriteRenderer spriteRenderer = PreviewObject.GetComponent<SpriteRenderer>();
 
-        if (isTileMode)
+        // ì´ë¯¸ ìºë¦­í„°ê°€ ìˆëŠ” ê²½ìš°
+        if (SpawnedCharacters.ContainsKey(CurrentMouseGridPosition))
         {
-            // Å¸ÀÏ ¸ğµå ÇÁ¸®ºä
-            bool canPlace = GetTargetTilemap().GetTile(currentMouseGridPosition) == null;
-            spriteRenderer.color = canPlace ? Color.green : Color.red;
+            spriteRenderer.color = new Color(1f, 0f, 0f, 0.5f);  // ë¹¨ê°„ìƒ‰ ë°˜íˆ¬ëª…
         }
+        // ë²½ì´ ìˆëŠ” ê²½ìš° (ìƒˆë¡œ ì¶”ê°€)
+        else if (BreakWalltilemap.GetTile(CurrentMouseGridPosition) != null)
+        {
+            spriteRenderer.color = new Color(0.5f, 0f, 0.5f, 0.5f);  // ë³´ë¼ìƒ‰ ë°˜íˆ¬ëª… (ë²½ì´ ìˆìŒ)
+        }
+        // Ground íƒ€ì¼ì´ ìˆê³  ë°°ì¹˜ ê°€ëŠ¥í•œ ê²½ìš°
+        else if (IsGroundLayer())
+        {
+            spriteRenderer.color = new Color(0f, 1f, 0f, 0.5f);  // ì´ˆë¡ìƒ‰ ë°˜íˆ¬ëª…
+        }
+        // ë°°ì¹˜ ë¶ˆê°€ëŠ¥í•œ ê²½ìš° (Ground íƒ€ì¼ì´ ì—†ìŒ)
         else
         {
-            // Ä³¸¯ÅÍ ¸ğµå ÇÁ¸®ºä
-            if (availableCharacters.Count > 0 && currentCharacterIndex < availableCharacters.Count)
-            {
-                CharacterData currentCharacter = availableCharacters[currentCharacterIndex];
-                bool canSpawn = !spawnedCharacters.ContainsKey(currentMouseGridPosition) &&
-                               CanSpawnCharacterAt(currentMouseGridPosition, currentCharacter);
-
-                spriteRenderer.color = canSpawn ? currentCharacter.previewColor : Color.red;
-            }
+            spriteRenderer.color = new Color(1f, 1f, 0f, 0.5f);  // ë…¸ë€ìƒ‰ ë°˜íˆ¬ëª…
         }
 
-        previewObject.SetActive(true);
+        // í”„ë¦¬ë·° í™œì„±í™”
+        PreviewObject.SetActive(true);
     }
 
-    // UI¿¡ Ç¥½ÃÇÒ Á¤º¸ °¡Á®¿À±â
-    public string GetCurrentModeInfo()
+    // ì™¸ë¶€ì—ì„œ í˜¸ì¶œí•  ìˆ˜ ìˆëŠ” ìœ ìš©í•œ í•¨ìˆ˜ë“¤
+
+    /// <summary>
+    /// íŠ¹ì • ìœ„ì¹˜ì˜ ìºë¦­í„° ê°€ì ¸ì˜¤ê¸°
+    /// </summary>
+    public GameObject GetCharacterAt(Vector3Int gridPosition)
     {
-        if (isTileMode)
-        {
-            string[] tileNames = { "¹Ù´Ú", "ºÎ¼ú ¼ö ÀÖ´Â º®", "ÀÏ¹İ º®" };
-            return $"Å¸ÀÏ ¸ğµå - {tileNames[currentTileIndex]}";
-        }
-        else
-        {
-            if (availableCharacters.Count > 0 && currentCharacterIndex < availableCharacters.Count)
-            {
-                return $"Ä³¸¯ÅÍ ¸ğµå - {availableCharacters[currentCharacterIndex].characterName}";
-            }
-            return "Ä³¸¯ÅÍ ¸ğµå - Ä³¸¯ÅÍ ¾øÀ½";
-        }
+        return SpawnedCharacters.ContainsKey(gridPosition) ? SpawnedCharacters[gridPosition] : null;
     }
 
-    // µğ¹ö±×¿ë ±âÁî¸ğ
-    void OnDrawGizmos()
+    /// <summary>
+    /// ëª¨ë“  ìºë¦­í„° ìœ„ì¹˜ ê°€ì ¸ì˜¤ê¸°
+    /// </summary>
+    public Vector3Int[] GetAllCharacterPositions()
     {
-        if (groundTilemap == null) return;
-
-        Vector3 worldPosition = groundTilemap.CellToWorld(currentMouseGridPosition);
-        Vector3 cellSize = groundTilemap.cellSize;
-
-        Gizmos.color = isTileMode ? Color.yellow : Color.cyan;
-        Gizmos.DrawWireCube(worldPosition + cellSize * 0.5f, cellSize);
+        Vector3Int[] positions = new Vector3Int[SpawnedCharacters.Count];
+        SpawnedCharacters.Keys.CopyTo(positions, 0);
+        return positions;
     }
 
-    // ÀüÃ¼ Á¤¸®
-    public void ClearAll()
+    /// <summary>
+    /// ìƒì„±ëœ ìºë¦­í„° ìˆ˜ ë°˜í™˜
+    /// </summary>
+    public int GetCharacterCount()
     {
-        // ¸ğµç Ä³¸¯ÅÍ Á¦°Å
-        foreach (var character in spawnedCharacters.Values)
-        {
-            if (character != null)
-                Destroy(character);
-        }
-        spawnedCharacters.Clear();
-
-        // ¸ğµç Å¸ÀÏ Á¦°Å
-        if (groundTilemap != null)
-        {
-            BoundsInt bounds = groundTilemap.cellBounds;
-            TileBase[] emptyTiles = new TileBase[bounds.size.x * bounds.size.y * bounds.size.z];
-            groundTilemap.SetTilesBlock(bounds, emptyTiles);
-        }
-
-        if (wallTilemap != null)
-        {
-            BoundsInt bounds = wallTilemap.cellBounds;
-            TileBase[] emptyTiles = new TileBase[bounds.size.x * bounds.size.y * bounds.size.z];
-            wallTilemap.SetTilesBlock(bounds, emptyTiles);
-        }
-
-        Debug.Log("¸ğµç Å¸ÀÏ°ú Ä³¸¯ÅÍ°¡ Á¦°ÅµÇ¾ú½À´Ï´Ù!");
+        return SpawnedCharacters.Count;
     }
 }
