@@ -1319,64 +1319,6 @@ RectTransform:
     type: 3}
   m_PrefabInstance: {fileID: 641353396}
   m_PrefabAsset: {fileID: 0}
---- !u!1 &719850082
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 719850084}
-  - component: {fileID: 719850083}
-  m_Layer: 0
-  m_Name: GameCenter
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &719850083
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 719850082}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0fbc1a147b446fd4084ca8879abebfaf, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  CreateWall: {fileID: 1978032818}
-  wallCountText: {fileID: 1319966508}
-  PlacementTime: 10
-  Groundtilemap: {fileID: 780557275}
-  BreakWalltilemap: {fileID: 41498336}
-  BreakWalltileToPlace: {fileID: 11400000, guid: 677b8480bf63037499a7e15aa29695ec,
-    type: 2}
-  PlayerCamera: {fileID: 330585545}
-  CharacterSprite: {fileID: 21300000, guid: 619dde12077e168499d7ebc380344c79, type: 3}
-  CharacterPrefab: {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205,
-    type: 3}
-  CharacterSortingOrder: 5
-  ShowPreview: 1
-  PreviewColor: {r: 0, g: 1, b: 0, a: 1}
---- !u!4 &719850084
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 719850082}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.42783004, y: -0.8006999, z: 2.2142098}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_RootOrder: 13
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &775858014
 GameObject:
   m_ObjectHideFlags: 0
@@ -2444,9 +2386,9 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 719850083}
-        m_TargetAssemblyTypeName: GameDataCenter, Assembly-CSharp
-        m_MethodName: IsCreateButtonActive
+      - m_Target: {fileID: 1369327686}
+        m_TargetAssemblyTypeName: PlacementManager, Assembly-CSharp
+        m_MethodName: ToggleWallPlacement
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
@@ -2722,6 +2664,89 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 4
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1369327681
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1369327683}
+  - component: {fileID: 1369327686}
+  - component: {fileID: 1369327685}
+  - component: {fileID: 1369327684}
+  m_Layer: 0
+  m_Name: PlacementManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1369327683
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1369327681}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -1.6252645, y: -0.4683502, z: 14.3637905}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 11
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1369327684
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1369327681}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d45835a23590e2f49bc409d731c66ede, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &1369327685
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1369327681}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 99c6a12bc753b11429cc1074a1872780, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+--- !u!114 &1369327686
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1369327681}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d1dbf1efe359760498ccb8a4ef18f96b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  wallCountText: {fileID: 1319966508}
+  PlacementTime: 10
+  Groundtilemap: {fileID: 780557275}
+  BreakWalltilemap: {fileID: 41498336}
+  BreakWalltileToPlace: {fileID: 11400000, guid: 677b8480bf63037499a7e15aa29695ec,
+    type: 2}
+  PlayerCamera: {fileID: 330585545}
+  CharacterSprite: {fileID: 21300000, guid: 619dde12077e168499d7ebc380344c79, type: 3}
+  CharacterPrefab: {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205,
+    type: 3}
+  CharacterSortingOrder: 5
+  ShowPreview: 1
+  PreviewColor: {r: 0, g: 1, b: 0, a: 1}
 --- !u!1 &1384442848
 GameObject:
   m_ObjectHideFlags: 0
@@ -3106,64 +3131,6 @@ Canvas:
   m_SortingLayerID: 0
   m_SortingOrder: 0
   m_TargetDisplay: 0
---- !u!1 &1769095768
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1769095770}
-  - component: {fileID: 1769095769}
-  m_Layer: 0
-  m_Name: Unit
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &1769095769
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1769095768}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8ce6ddba13b349947a863c981f7c3b23, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  CreateWall: {fileID: 1978032818}
-  wallCountText: {fileID: 1319966508}
-  PlacementTime: 10
-  Groundtilemap: {fileID: 780557275}
-  BreakWalltilemap: {fileID: 41498336}
-  BreakWalltileToPlace: {fileID: 11400000, guid: 677b8480bf63037499a7e15aa29695ec,
-    type: 2}
-  PlayerCamera: {fileID: 330585545}
-  CharacterSprite: {fileID: 21300000, guid: 619dde12077e168499d7ebc380344c79, type: 3}
-  CharacterPrefab: {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205,
-    type: 3}
-  CharacterSortingOrder: 5
-  ShowPreview: 1
-  PreviewColor: {r: 0, g: 1, b: 0, a: 1}
---- !u!4 &1769095770
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1769095768}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.42783004, y: -0.8006999, z: 2.2142098}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_RootOrder: 12
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1851926773
 GameObject:
   m_ObjectHideFlags: 0
@@ -3376,63 +3343,6 @@ MonoBehaviour:
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
---- !u!1 &1978032818
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1978032820}
-  - component: {fileID: 1978032819}
-  m_Layer: 0
-  m_Name: CreateWall
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &1978032819
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1978032818}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 93239e5fc055fb148b84977557059ac3, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  CreateWall: {fileID: 1978032818}
-  wallCountText: {fileID: 1319966508}
-  PlacementTime: 10
-  Groundtilemap: {fileID: 780557275}
-  BreakWalltilemap: {fileID: 41498336}
-  BreakWalltileToPlace: {fileID: 11400000, guid: 677b8480bf63037499a7e15aa29695ec,
-    type: 2}
-  PlayerCamera: {fileID: 330585545}
-  CharacterSprite: {fileID: 0}
-  CharacterPrefab: {fileID: 0}
-  CharacterSortingOrder: 5
-  ShowPreview: 1
-  PreviewColor: {r: 0, g: 1, b: 0, a: 1}
---- !u!4 &1978032820
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1978032818}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.42783004, y: -0.8006999, z: 2.2142098}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_RootOrder: 11
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &2022889685 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 1137746741065607854, guid: 1c3ab47bb8c28fe4f9589b1349892d82,
@@ -4287,9 +4197,9 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 1769095769}
-        m_TargetAssemblyTypeName: GameDataCenter, Assembly-CSharp
-        m_MethodName: IsCreateUnitButtonActive
+      - m_Target: {fileID: 1369327686}
+        m_TargetAssemblyTypeName: PlacementManager, Assembly-CSharp
+        m_MethodName: ToggleCharacterPlacement
         m_Mode: 1
         m_Arguments:
           m_ObjectArgument: {fileID: 0}
