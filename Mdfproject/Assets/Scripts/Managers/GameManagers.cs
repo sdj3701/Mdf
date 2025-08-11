@@ -1,9 +1,11 @@
 // Assets/Scripts/Managers/GameManagers.cs
 using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
 using System.Linq;
+using TMPro;
+using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.Tilemaps;
 using UnityEngine.UI;
 
 public class GameManagers : MonoBehaviour
@@ -54,6 +56,7 @@ public class GameManagers : MonoBehaviour
         }
     }
 
+    #region 남주가 만들어둔 로직
     private void OnEnable()
     {
         SceneManager.sceneLoaded += OnSceneLoaded;
@@ -181,7 +184,9 @@ public class GameManagers : MonoBehaviour
     }
 
     private int GetInterest(int gold) => Mathf.Min(gold / 10, 5);
-    
+
+    #endregion
+
     #region 로비 관련 함수
     public void SetMaxQueueSize(int count) => maxqueue = count;
     public int GetMaxSize() => maxqueue;
