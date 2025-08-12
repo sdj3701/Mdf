@@ -1,16 +1,18 @@
+// Assets/Scripts/Managers/AugmentManager.cs
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using UnityEngine.AddressableAssets; // 어드레서블 사용을 위해 필수
-using UnityEngine.ResourceManagement.AsyncOperations; // 비동기 작업을 위해 필수
+using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 
 public class AugmentManager : MonoBehaviour
 {
     public PlayerManager playerManager;
 
-    // 어드레서블에서 불러온 모든 증강 데이터를 저장할 private 리스트입니다.
-    // 더 이상 인스펙터에서 수동으로 채울 필요가 없습니다.
-    private List<AugmentData> allAugments = new List<AugmentData>();
+    // 어드레서블에서 불러온 증강 데이터를 등급별로 나누어 저장합니다.
+    private List<AugmentData> silverAugments = new List<AugmentData>();
+    private List<AugmentData> goldAugments = new List<AugmentData>();
+    private List<AugmentData> prismaticAugments = new List<AugmentData>();
     
     // 데이터 로딩이 완료되었는지 확인하는 상태 변수입니다.
     private bool isDataLoaded = false;
@@ -25,77 +27,97 @@ public class AugmentManager : MonoBehaviour
     }
 
     /// <summary>
-    /// "Augment" 레이블을 가진 모든 증강 데이터를 어드레서블에서 비동기적으로 불러옵니다.
+    /// "Augment" 레이블을 가진 모든 증강 데이터를 어드레서블에서 비동기적으로 불러와 등급별로 분류합니다.
     /// </summary>
     private async void LoadAllAugmentsFromAddressables()
     {
         Debug.Log($"Player {playerManager.playerId}: 어드레서블에서 증강 데이터 로딩을 시작합니다...");
         
-        // "Augment" 레이블을 가진 모든 AugmentData 타입의 애셋을 로드하라는 핸들을 생성합니다.
         AsyncOperationHandle<IList<AugmentData>> handle = Addressables.LoadAssetsAsync<AugmentData>("Augment", null);
-
-        // 비동기 작업이 끝날 때까지 여기서 기다립니다.
         await handle.Task;
 
-        // 작업의 성공 여부를 확인합니다.
         if (handle.Status == AsyncOperationStatus.Succeeded)
         {
-            // 성공했다면, 결과를 리스트에 저장하고 로딩 완료 상태로 변경합니다.
-            allAugments = handle.Result.ToList();
+            // 로드 성공 시, 각 증강을 등급에 맞는 리스트에 추가합니다.
+            foreach (var augment in handle.Result)
+            {
+                switch (augment.tier)
+                {
+                    case AugmentTier.Silver:
+                        silverAugments.Add(augment);
+                        break;
+                    case AugmentTier.Gold:
+                        goldAugments.Add(augment);
+                        break;
+                    case AugmentTier.Prismatic:
+                        prismaticAugments.Add(augment);
+                        break;
+                }
+            }
             isDataLoaded = true;
-            Debug.Log($"<color=cyan>Player {playerManager.playerId}: {allAugments.Count}개의 증강 데이터를 성공적으로 로드했습니다.</color>");
+            Debug.Log($"<color=cyan>Player {playerManager.playerId}: 증강 데이터 로드 완료. " +
+                      $"실버: {silverAugments.Count}개, 골드: {goldAugments.Count}개, 프리즘: {prismaticAugments.Count}개</color>");
         }
         else
         {
-            // 실패했다면, 에러 로그를 남깁니다.
             Debug.LogError($"어드레서블에서 증강 데이터 로딩 실패: {handle.OperationException}");
         }
     }
 
     /// <summary>
-    /// 플레이어에게 3개의 랜덤한 증강을 제시합니다.
+    /// 정해진 확률에 따라 등급을 결정하고, 해당 등급의 증강 3개를 무작위로 제시합니다.
     /// </summary>
     public void PresentAugments()
     {
-        // 방어 코드: 데이터가 아직 로드되지 않았다면, 함수를 실행하지 않고 경고를 남깁니다.
         if (!isDataLoaded)
         {
-            Debug.LogWarning("증강 데이터가 아직 로드되지 않았습니다. 잠시 후 다시 시도됩니다.");
+            Debug.LogWarning("증강 데이터가 아직 로드되지 않았습니다.");
             return;
         }
 
         presentedAugments.Clear();
         
-        if (allAugments == null || allAugments.Count == 0)
+        // 1. 확률에 따라 제시할 증강의 등급과 리스트를 결정합니다.
+        float roll = Random.value; // 0.0 ~ 1.0 사이의 난수 생성
+        List<AugmentData> sourceList;
+        string tierName;
+
+        if (roll < 0.10f && prismaticAugments.Count >= 3) // 10% 확률 (프리즘)
         {
-            Debug.LogWarning($"Player {playerManager.playerId}의 AugmentManager에 로드할 증강 데이터가 없습니다! 'Augment' 레이블이 붙은 어드레서블 애셋이 있는지 확인하세요.");
+            sourceList = prismaticAugments;
+            tierName = "프리즘";
+        }
+        else if (roll < 0.40f && goldAugments.Count >= 3) // 30% 확률 (골드)
+        {
+            sourceList = goldAugments;
+            tierName = "골드";
+        }
+        else // 60% 확률 (실버) 또는 상위 등급 증강 개수가 부족할 경우
+        {
+            sourceList = silverAugments;
+            tierName = "실버";
+        }
+        
+        // 뽑아야 할 증강 리스트가 비어있거나 부족할 경우에 대한 방어 코드
+        if (sourceList == null || sourceList.Count == 0)
+        {
+            Debug.LogError($"제시할 {tierName} 등급의 증강이 부족하거나 없습니다! 'Augment' 레이블과 등급 설정을 확인하세요.");
             return;
         }
 
-        // TODO: 이미 선택한 증강은 제외하는 로직 추가
+        // 2. 해당 등급 리스트에서 3개를 무작위로 선택합니다.
+        int countToTake = Mathf.Min(sourceList.Count, 3);
+        presentedAugments = sourceList.OrderBy(x => Random.value).Take(countToTake).ToList();
 
-        // DB에 있는 증강이 3개 미만일 경우를 대비해, 뽑을 개수를 안전하게 계산합니다.
-        int countToTake = Mathf.Min(allAugments.Count, 3);
-        
-        var randomAugments = allAugments.OrderBy(x => Random.value).Take(countToTake).ToList();
-        presentedAugments = randomAugments;
+        // 3. 결과를 로그로 출력하고 UI에 표시할 준비를 합니다.
+        string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
+        Debug.Log($"Player {playerManager.playerId}에게 <color=yellow>{tierName} 등급</color> 증강 제시: {presentedNames}");
 
-        // 뽑힌 증강이 있을 경우에만 로그를 안전하게 출력합니다.
-        if (presentedAugments.Count > 0)
-        {
-            string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
-            Debug.Log($"Player {playerManager.playerId}에게 증강 제시: {presentedNames}");
-        }
-        else
-        {
-            Debug.LogWarning($"Player {playerManager.playerId}에게 제시할 증강을 찾을 수 없습니다.");
-        }
-
-        // TODO: UI에 3개의 증강 정보를 표시하고, 버튼에 SelectAndApplyAugment(0), (1), (2)를 연결하는 로직 필요
+        // TODO: AugmentSelectionUIController가 이 정보를 UI에 표시하도록 연동
     }
 
     /// <summary>
-    /// 플레이어가 선택한 증강의 효과를 적용합니다. UI 버튼에서 호출됩니다.
+    /// 플레이어가 선택한 증강의 효과를 적용합니다. UI 버튼 클릭 시 호출됩니다.
     /// </summary>
     /// <param name="choiceIndex">선택한 증강의 인덱스 (0, 1, 2)</param>
     public void SelectAndApplyAugment(int choiceIndex)
@@ -111,10 +133,14 @@ public class AugmentManager : MonoBehaviour
         
         Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강 선택!");
 
+        // 효과를 적용할 대상을 결정합니다 (나 또는 상대방).
         PlayerManager target = (chosenAugment.targetType == TargetType.Player) ? playerManager : playerManager.opponentManager;
         ApplyEffect(target, chosenAugment);
         
-        // TODO: 증강 선택 UI를 숨기는 로직 필요
+        // 증강 선택 후에는 더 이상 선택할 수 없도록 리스트를 비웁니다.
+        presentedAugments.Clear();
+        
+        // TODO: 증강 선택 UI를 숨기는 로직 호출 (UIManagers.Instance.ReturnUIElement(...))
     }
 
     /// <summary>
@@ -124,7 +150,7 @@ public class AugmentManager : MonoBehaviour
     {
         if (target == null)
         {
-            Debug.LogError("증강 효과를 적용할 대상(Target)이 없습니다!");
+            Debug.LogError($"증강 효과를 적용할 대상(Target)이 없습니다! (Augment: {augment.augmentName})");
             return;
         }
 
@@ -135,23 +161,22 @@ public class AugmentManager : MonoBehaviour
                 break;
 
             case EffectType.IncreaseMyUnitAttack:
-                // 실제 적용은 유닛 생성 시 또는 버프 목록을 확인하여 처리해야 합니다.
-                Debug.Log($"{target.playerId}의 모든 유닛 공격력 {augment.value * 100}% 증가 효과가 추가되었습니다.");
+            case EffectType.IncreaseMyUnitAttackSpeed:
+                // 이 효과들은 PlayerManager의 버프 목록에 추가되고, 유닛이 생성되거나 공격할 때 이 버프를 참조하여 적용됩니다.
+                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 효과가 추가되었습니다.");
                 break;
                 
             case EffectType.SpawnBossOnEnemyField:
-                if (augment.prefabToSpawn != null)
+                if (augment.prefabToSpawn != null && target.monsterSpawner != null)
                 {
-                    if(target.monsterSpawner != null)
-                        target.monsterSpawner.SpawnSpecificMonster(augment.prefabToSpawn);
-                    else
-                        Debug.LogError("대상의 MonsterSpawner가 없습니다!");
+                    target.monsterSpawner.SpawnSpecificMonster(augment.prefabToSpawn);
                 }
                 break;
             
             case EffectType.IncreaseEnemyHealth:
-                 // 실제 적용은 몬스터 생성 시 처리됩니다.
-                 Debug.Log($"{target.playerId}의 다음 라운드 몬스터 체력 {augment.value * 100}% 증가 효과가 추가되었습니다.");
+            case EffectType.IncreaseEnemyMoveSpeed:
+                 // 이 효과들은 상대방 PlayerManager의 디버프 목록에 추가되고, 몬스터가 생성될 때 이 효과를 참조하여 적용됩니다.
+                 Debug.Log($"{target.playerId}의 다음 라운드 몬스터에게 '{augment.augmentName}' 효과가 추가되었습니다.");
                  break;
             
             // ... 다른 증강 효과들 추가 ...

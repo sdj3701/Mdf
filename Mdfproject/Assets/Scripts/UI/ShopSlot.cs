@@ -14,6 +14,9 @@ public class ShopSlot : MonoBehaviour
     private UnitData currentUnitData;
     private ShopManager shopManager;
 
+    // ✅ [추가] 슬롯의 구매 상태를 기억하는 변수
+    private bool isPurchased = false;
+
     public void Initialize(ShopManager manager)
     {
         this.shopManager = manager;
@@ -26,6 +29,9 @@ public class ShopSlot : MonoBehaviour
         
         if (unitData != null)
         {
+            // ✅ [추가] 새로운 유닛이 표시되면 구매 상태를 초기화합니다.
+            isPurchased = false;
+
             unitIcon.sprite = unitData.unitIcon;
             unitNameText.text = unitData.unitName;
             unitCostText.text = $"G {unitData.cost}";
@@ -49,7 +55,17 @@ public class ShopSlot : MonoBehaviour
 
     public void SetPurchased()
     {
+        // ✅ [추가] 구매되었음을 변수에 기록합니다.
+        isPurchased = true;
         buyButton.interactable = false;
         if(purchasedOverlay) purchasedOverlay.SetActive(true);
+    }
+
+    /// <summary>
+    /// ✅ [추가] 이 슬롯이 현재 구매된 상태인지 여부를 반환하는 함수입니다.
+    /// </summary>
+    public bool IsPurchased()
+    {
+        return isPurchased;
     }
 }
