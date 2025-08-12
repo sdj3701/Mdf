@@ -35,21 +35,27 @@ public class ShopUIController : MonoBehaviour
 
     void OnEnable()
     {
+        // 초기 설정(리스너 추가 등)은 여전히 한 번만 실행합니다.
         if (!isContentLoaded)
         {
             if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null)
             {
-                // ✅ [수정] PlayerManager 참조를 더 이상 저장하지 않습니다.
                 localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
-                SetupUI();
+                SetupUI(); // 버튼 리스너 추가 등 초기 설정
                 isContentLoaded = true;
             }
             else
             {
                 Debug.LogError("로컬 플레이어를 찾을 수 없어 상점 UI를 초기화할 수 없습니다!");
                 gameObject.SetActive(false);
+                return; // 에러 시 즉시 중단
             }
         }
+
+        // ✅ [핵심 해결 코드]
+        // UI가 활성화될 때마다 슬롯의 내용을 항상 최신 데이터로 업데이트합니다.
+        UpdateShopSlots();
+        UpdateInfoText();
     }
 
     private void SetupUI()

@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   unitName: Archer_1
   unitPrefab: {fileID: 0}
-  unitIcon: {fileID: 0}
+  unitIcon: {fileID: 21300000, guid: 619dde12077e168499d7ebc380344c79, type: 3}
   cost: 2
   unitType: 1
   baseHealth: 10
