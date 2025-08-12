@@ -97,6 +97,16 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
+  - m_GUID: 38de0903e4316454d8cc0bdb41b363b2
+    m_Address: UI_Pnl_Augment
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+  - m_GUID: 6eaa42a01ce5cac4bb0de7380bb59d26
+    m_Address: UI_Pnl_AugmentSlot
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

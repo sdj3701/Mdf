@@ -12,7 +12,7 @@ public class GameManagers : MonoBehaviour
     public static GameManagers Instance { get; private set; }
 
     #region 인게임 관련 변수
-    public enum GameState { Setup, Augment, Prepare, Combat, GameOver }
+    public enum GameState { Setup, Prepare, Combat, GameOver }
     [Header("게임 상태")]
     [SerializeField] private GameState currentState;
     public int currentRound = 1;
@@ -27,8 +27,7 @@ public class GameManagers : MonoBehaviour
 
     #region 단계별 시간 및 보상
     [Header("단계별 시간 설정 (초)")]
-    public float augmentTime = 15f;
-    public float prepareTime = 30f;
+    public float preparePhaseTime = 45f;
     public float combatTime = 60f;
 
     [Header("라운드 보상")]
@@ -36,7 +35,7 @@ public class GameManagers : MonoBehaviour
     public int maxInterest = 5;
     #endregion
 
-    #region 로비 및 UI 관련 변수 (기존 코드 유지)
+    #region 로비 및 UI 관련 변수
     [Header("로비 캐릭터 선택")]
     public Button[] SelectCharacterButton;
     private Queue<string> characterselectdata = new Queue<string>();
@@ -45,8 +44,8 @@ public class GameManagers : MonoBehaviour
     #endregion
 
     private ShopUIController localPlayerShopUI;
+    private GameObject localPlayerShopUIGameObject;
     private AugmentUIController augmentSelectionUI;
-
 
     private void Awake()
     {
@@ -68,7 +67,14 @@ public class GameManagers : MonoBehaviour
 
     private void OnDisable()
     {
-        SceneManager.sceneLoaded -= OnSceneLoaded;
+        if (player1 != null && player1.augmentManager != null)
+        {
+            player1.augmentManager.OnAugmentChosen -= HandleAugmentChosen;
+        }
+        if (player2 != null && player2.augmentManager != null)
+        {
+            player2.augmentManager.OnAugmentChosen -= HandleAugmentChosen;
+        }
     }
 
     void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -94,11 +100,30 @@ public class GameManagers : MonoBehaviour
 
         if (player1 != null && player2 != null)
         {
+            if (player1.augmentManager != null) player1.augmentManager.OnAugmentChosen -= HandleAugmentChosen;
+            if (player2 != null && player2.augmentManager != null) player2.augmentManager.OnAugmentChosen -= HandleAugmentChosen;
+            
+            if (player1.augmentManager != null) player1.augmentManager.OnAugmentChosen += HandleAugmentChosen;
+            if (player2 != null && player2.augmentManager != null) player2.augmentManager.OnAugmentChosen += HandleAugmentChosen;
+
             SetupGameUI().Forget();
         }
         else
         {
-            Debug.LogError("플레이어 설정 실패! 게임 루프를 시작할 수 없습니다.");
+            Debug.LogError("플레이어 설정 실패! 게임 루프를 시작할 수 없습니다. 씬에 PlayerManager 오브젝트가 있는지 확인하세요.");
+        }
+    }
+    
+    private void HandleAugmentChosen()
+    {
+        UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+        if (localPlayerShopUIGameObject != null)
+        {
+            localPlayerShopUIGameObject.SetActive(true);
+            localPlayerShopUI.SetContentVisibility(true);
+
+            // ✅ [핵심 해결 코드] 상점 UI를 켰으니, 최신 데이터로 슬롯을 다시 그리라고 명령!
+            localPlayerShopUI.UpdateShopSlots(); 
         }
     }
 
@@ -123,14 +148,13 @@ public class GameManagers : MonoBehaviour
         {
             var shopPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
             var augmentPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
-
-            // ✅ [수정] 튜플 분해(Deconstruction) 문법으로 결과를 각각의 변수에 바로 할당합니다.
-            // 이렇게 하면 코드가 더 깔끔하고 직관적입니다.
+            
             var (shopPanelInstance, augmentPanelInstance) = await UniTask.WhenAll(shopPanelTask, augmentPanelTask);
 
             if (shopPanelInstance != null)
             {
                 localPlayerShopUI = shopPanelInstance.GetComponent<ShopUIController>();
+                localPlayerShopUIGameObject = shopPanelInstance;
                 localPlayerShopUI.SetContentVisibility(false);
             }
 
@@ -152,44 +176,48 @@ public class GameManagers : MonoBehaviour
     {
         while (currentState != GameState.GameOver)
         {
-            if (currentRound > 1)
+            ChangeState(GameState.Prepare);
+            
+            player1.AddGold(baseGoldPerRound + GetInterest(player1.GetGold()));
+            player2.AddGold(baseGoldPerRound + GetInterest(player2.GetGold()));
+            player1.shopManager.Reroll(true);
+            player2.shopManager.Reroll(true);
+            if(localPlayerShopUI != null) localPlayerShopUI.UpdateShopSlots();
+
+            if (currentRound >= 1)
             {
-                ChangeState(GameState.Augment);
                 player1.augmentManager.PresentAugments();
                 // player2.augmentManager.PresentAugments();
 
                 if(augmentSelectionUI != null)
                 {
-                    // TODO: AugmentManager에서 제시된 증강 목록을 가져와 UI에 설정하는 로직 필요
-                    // 예시: augmentSelectionUI.SetAugmentChoices(localPlayer.augmentManager.GetPresentedAugments());
+                    // ✅ [수정] 누락되었던 코드를 추가합니다.
+                    augmentSelectionUI.SetAugmentChoices(localPlayer.augmentManager.GetPresentedAugments());
+
+                    if (localPlayerShopUIGameObject != null)
+                    {
+                        localPlayerShopUIGameObject.SetActive(false);
+                    }
                     UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
                 }
-
-                yield return StartCoroutine(PhaseTimerCoroutine(augmentTime));
-                UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+            }
+            else
+            {
+                if (localPlayerShopUI != null)
+                {
+                    localPlayerShopUI.SetContentVisibility(true);
+                }
             }
 
-            if (currentState == GameState.GameOver) break;
-
-            ChangeState(GameState.Prepare);
-            player1.AddGold(baseGoldPerRound + GetInterest(player1.GetGold()));
-            player2.AddGold(baseGoldPerRound + GetInterest(player2.GetGold()));
-            player1.shopManager.Reroll(true);
-            player2.shopManager.Reroll(true);
-
-            if (localPlayerShopUI != null)
+            yield return StartCoroutine(PhaseTimerCoroutine(preparePhaseTime));
+            
+            UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+            if (localPlayerShopUIGameObject != null)
             {
-                localPlayerShopUI.UpdateShopSlots();
-                localPlayerShopUI.SetContentVisibility(true);
-            }
-
-            yield return StartCoroutine(PhaseTimerCoroutine(prepareTime));
-
-            if (localPlayerShopUI != null)
-            {
+                localPlayerShopUIGameObject.SetActive(true);
                 localPlayerShopUI.SetContentVisibility(false);
             }
-
+            
             if (currentState == GameState.GameOver) break;
 
             ChangeState(GameState.Combat);
@@ -236,7 +264,7 @@ public class GameManagers : MonoBehaviour
 
     private int GetInterest(int gold) => Mathf.Min(gold / 10, maxInterest);
 
-    #region 로비 관련 함수 (기존 코드 유지)
+    #region 로비 관련 함수
     public void SetMaxQueueSize(int count) => maxqueue = count;
     public int GetMaxSize() => maxqueue;
     public int CurrentQueueSize() => characterselectdata.Count;

@@ -57,43 +57,50 @@ public class AugmentUIController : MonoBehaviour
     /// <summary>
     /// AugmentManager에서 직접 호출하여 슬롯을 설정하는 함수입니다.
     /// </summary>
+    // Assets/Scripts/UI/AugmentUIController.cs
+
     public void SetAugmentChoices(List<AugmentData> choices)
     {
         for (int i = 0; i < augmentSlots.Length; i++)
         {
             if (i < choices.Count)
             {
-                // 슬롯에 증강 정보를 표시합니다.
                 augmentSlots[i].Display(choices[i]);
 
-                // 버튼 리스너 설정 (중복 방지를 위해 항상 제거 후 추가)
+                // 리스너가 중복으로 추가되는 것을 막기 위해 항상 먼저 제거합니다.
                 augmentSlots[i].selectButton.onClick.RemoveAllListeners();
                 
-                // 루프 변수를 캡처해야 올바른 인덱스가 전달됩니다.
+                // 루프 변수 'i'를 새로운 지역 변수에 복사해야 합니다.
                 int choiceIndex = i; 
+                
+                // ✅ [디버깅 포인트 1] 이 로그가 콘솔에 3번 출력되는지 확인하세요.
+                Debug.Log($"슬롯 {choiceIndex}번 버튼에 리스너를 등록합니다.");
+
                 augmentSlots[i].selectButton.onClick.AddListener(() => OnAugmentSelected(choiceIndex));
             }
             else
             {
-                // 데이터가 부족하면 슬롯을 숨깁니다.
                 augmentSlots[i].Display(null);
             }
         }
     }
-
     /// <summary>
     /// 플레이어가 증강 버튼을 클릭했을 때 호출됩니다.
     /// </summary>
     private void OnAugmentSelected(int index)
     {
-        if(localPlayerAugmentManager == null) return;
+        // ✅ [디버깅 포인트 2] 버튼 클릭 시 이 로그가 출력되는지 확인하세요.
+        Debug.Log($"<color=cyan>OnAugmentSelected 함수 호출됨! 선택된 인덱스: {index}</color>");
 
-        Debug.Log($"플레이어가 {index}번 증강을 선택했습니다.");
+        if(localPlayerAugmentManager == null) 
+        {
+            // ✅ [디버깅 포인트 3] 만약 위 로그는 뜨는데 아래 로그가 뜬다면, 매니저 참조가 문제입니다.
+            Debug.LogError("localPlayerAugmentManager가 null이라서 증강을 적용할 수 없습니다!");
+            return;
+        }
         
-        // AugmentManager에 선택 결과를 알립니다.
         localPlayerAugmentManager.SelectAndApplyAugment(index);
 
-        // 선택 후 패널을 비활성화합니다.
         if (UIManagers.Instance != null)
         {
             UIManagers.Instance.ReturnUIElement(this.gameObject.name);
