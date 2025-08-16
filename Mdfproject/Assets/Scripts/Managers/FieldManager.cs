@@ -1,34 +1,173 @@
 // Assets/Scripts/Managers/FieldManager.cs
+using UnityEngine;
+using UnityEngine.Tilemaps;
 using System.Collections.Generic;
 using System.Linq;
-using UnityEngine;
 
+[RequireComponent(typeof(PlacementController))]
 public class FieldManager : MonoBehaviour
 {
+    [Header("관리 대상 플레이어")]
     public PlayerManager playerManager;
-    private List<Unit> placedUnits = new List<Unit>();
 
-    // TODO: 타일 데이터 및 그리드 시스템 구현 필요
+    [Header("내부 참조")]
+    private PlacementController placementController;
+    public Tilemap obstacleTilemap;
 
-    public bool TryPlaceUnit(Unit unit, Vector3Int gridPosition)
+    private Dictionary<Vector3Int, GameObject> placedUnits = new Dictionary<Vector3Int, GameObject>();
+
+    // --- 유닛 드래그 앤 드롭을 위한 변수들 ---
+    private GameObject selectedUnit;
+    private Vector3Int originalUnitPosition;
+    private Vector3 offset;
+
+    void Awake()
     {
-        // TODO: 배치 유효성 검사 (타일 속성, 다른 유닛 유무 등)
-        // if (!IsValidPlacement(gridPosition)) return false;
+        placementController = GetComponent<PlacementController>();
+ 
+        if (obstacleTilemap == null)
+            Debug.LogError("FieldManager의 자식 오브젝트에 Tilemap이 없습니다!", gameObject);
+        
+        // FIX: obstacleTilemap을 세 번째 인자로 전달합니다.
+        placementController.Initialize(playerManager, placedUnits, obstacleTilemap);
+    }
 
-        unit.transform.position = gridPosition; // 예시 위치
-        placedUnits.Add(unit);
-        playerManager.ownedUnits.Remove(unit); // 벤치 -> 필드로 이동 개념
+    void Update()
+    {
+        // FIX: GetCurrentMode() 메서드를 호출하여 현재 상태를 가져옵니다.
+        if (placementController.GetCurrentMode() == PlacementMode.None)
+        {
+            HandleUnitDragAndDrop();
+        }
+    }
 
-        // 배치 후 즉시 조합 검사
-        CheckForCombination();
-        return true;
+    #region Public API
+    
+    public void EnterWallPlacementMode()
+    {
+        placementController.StartPlacementMode(PlacementMode.Wall);
+    }
+
+    // FIX: UI 테스트를 위한 EnterUnitPlacementMode 메서드 추가
+    public void EnterUnitPlacementMode(GameObject unitPrefab)
+    {
+        placementController.StartPlacementMode(PlacementMode.Unit, unitPrefab);
+    }
+
+    // FIX: 메서드 이름 수정
+    public void CancelAllModes()
+    {
+        placementController.StopPlacementMode();
+    }
+
+    public void CreateAndPlaceUnitOnField(GameObject unitPrefab)
+    {
+        Vector3Int? emptySlot = FindFirstEmptySlot();
+
+        if (emptySlot.HasValue)
+        {
+            Vector3 worldPos = obstacleTilemap.CellToWorld(emptySlot.Value) + (obstacleTilemap.cellSize * 0.5f);
+            GameObject newUnitGO = Instantiate(unitPrefab, worldPos, Quaternion.identity);
+            
+            placedUnits.Add(emptySlot.Value, newUnitGO);
+            CheckForCombination();
+        }
+        else
+        {
+            Debug.LogWarning("필드에 빈 공간이 없어 유닛을 배치할 수 없습니다!");
+            playerManager.AddGold(unitPrefab.GetComponent<Unit>().unitData.cost);
+        }
+    }
+    
+    public void UnitDied(GameObject deadUnit)
+    {
+        if (placedUnits.ContainsValue(deadUnit))
+        {
+            var item = placedUnits.First(kvp => kvp.Value == deadUnit);
+            placedUnits.Remove(item.Key);
+        }
+    }
+
+    #endregion
+
+    #region 유닛 드래그 앤 드롭 로직
+
+    private void HandleUnitDragAndDrop()
+    {
+        if (GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare) return;
+        
+        Vector3 mouseWorldPos = GetMouseWorldPosition();
+        Vector3Int gridPos = obstacleTilemap.WorldToCell(mouseWorldPos);
+
+        if (Input.GetMouseButtonDown(0))
+        {
+            if (placedUnits.ContainsKey(gridPos))
+            {
+                selectedUnit = placedUnits[gridPos];
+                originalUnitPosition = gridPos;
+                offset = selectedUnit.transform.position - mouseWorldPos;
+                placedUnits.Remove(gridPos);
+            }
+        }
+
+        if (Input.GetMouseButton(0) && selectedUnit != null)
+        {
+            selectedUnit.transform.position = mouseWorldPos + offset;
+        }
+
+        if (Input.GetMouseButtonUp(0) && selectedUnit != null)
+        {
+            // FIX: public으로 변경된 IsPositionValidForPlacement를 호출합니다.
+            if (placementController.IsPositionValidForPlacement(gridPos))
+            {
+                Vector3 finalWorldPos = obstacleTilemap.CellToWorld(gridPos) + (obstacleTilemap.cellSize * 0.5f);
+                selectedUnit.transform.position = finalWorldPos;
+                placedUnits.Add(gridPos, selectedUnit);
+                CheckForCombination();
+            }
+            else
+            {
+                Vector3 originalWorldPos = obstacleTilemap.CellToWorld(originalUnitPosition) + (obstacleTilemap.cellSize * 0.5f);
+                selectedUnit.transform.position = originalWorldPos;
+                placedUnits.Add(originalUnitPosition, selectedUnit);
+            }
+            selectedUnit = null;
+        }
+    }
+    
+    private Vector3 GetMouseWorldPosition()
+    {
+        return Camera.main.ScreenToWorldPoint(Input.mousePosition);
+    }
+
+    #endregion
+
+    #region 유닛 조합 및 필드 관리
+
+    private Vector3Int? FindFirstEmptySlot()
+    {
+        BoundsInt bounds = obstacleTilemap.cellBounds;
+        for (int y = bounds.yMin; y < bounds.yMax; y++)
+        {
+            for (int x = bounds.xMin; x < bounds.xMax; x++)
+            {
+                Vector3Int pos = new Vector3Int(x, y, 0);
+                // FIX: public으로 변경된 IsPositionValidForPlacement를 호출합니다.
+                if (placementController.IsPositionValidForPlacement(pos))
+                {
+                    return pos;
+                }
+            }
+        }
+        return null;
     }
 
     public void CheckForCombination()
     {
-        var combinableGroup = placedUnits
-            .Where(u => u.starLevel < 3) // 3성 미만 유닛만
-            .GroupBy(u => u.unitData.unitName + "_" + u.starLevel) // "유닛이름_성급" 으로 그룹화
+        var combinableGroup = placedUnits.Values
+            .Select(go => go.GetComponent<Unit>())
+            .Where(u => u != null && u.starLevel < 3)
+            .GroupBy(u => $"{u.unitData.unitName}_{u.starLevel}")
             .Where(g => g.Count() >= 3)
             .FirstOrDefault();
 
@@ -36,25 +175,16 @@ public class FieldManager : MonoBehaviour
         {
             List<Unit> unitsToCombine = combinableGroup.Take(3).ToList();
             
-            UnitData unitData = unitsToCombine[0].unitData;
-            int currentStarLevel = unitsToCombine[0].starLevel;
-
-            Debug.Log($"<color=cyan>조합 발생!</color> {unitData.unitName} {currentStarLevel}성 3개 -> {currentStarLevel + 1}성 1개");
-
-            // 2개는 파괴, 1개는 업그레이드
             for (int i = 0; i < 2; i++)
             {
-                placedUnits.Remove(unitsToCombine[i]);
+                UnitDied(unitsToCombine[i].gameObject);
                 Destroy(unitsToCombine[i].gameObject);
             }
             
-            Unit upgradedUnit = unitsToCombine[2];
-            upgradedUnit.Upgrade();
-            
-            // TODO: 업그레이드된 유닛 재배치 또는 이펙트 처리
-            
-            // 연쇄 조합을 위해 다시 검사
+            unitsToCombine[2].Upgrade();
             CheckForCombination();
         }
     }
+
+    #endregion
 }
