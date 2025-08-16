@@ -6,6 +6,23 @@ using UnityEngine.ResourceManagement.AsyncOperations;
 
 public class AddressablesManager : MonoBehaviour
 {
+    // ✅ 싱글톤 인스턴스 추가
+    public static AddressablesManager Instance { get; private set; }
+
+    private void Awake()
+    {
+        // ✅ 싱글톤 초기화 로직 추가
+        if (Instance == null)
+        {
+            Instance = this;
+            DontDestroyOnLoad(gameObject); // 씬이 바뀌어도 파괴되지 않도록 설정
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
+    }
+
     /// <summary>
     /// 어드레서블 에셋을 로드하고 지정된 부모 아래에 인스턴스화합니다.
     /// </summary>
@@ -34,14 +51,7 @@ public class AddressablesManager : MonoBehaviour
     private GameObject OnAssetLoaded(AsyncOperationHandle<GameObject> handle, string name, Transform parent)
     {
         GameObject prefabAsset = handle.Result;
-
-        // Instantiate 시에 parent를 지정하여 인스턴스를 생성합니다.
-        // parent가 null이면 씬 최상단에 생성됩니다.
         GameObject instance = Instantiate(prefabAsset, parent);
-
-        //SetActive(true)는 호출하는 쪽에서 관리하므로 여기서는 생략해도 좋습니다.
-        //instance.SetActive(true); 
-
         return instance;
     }
 }

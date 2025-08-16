@@ -2,6 +2,7 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
+using Cysharp.Threading.Tasks; // UniTask 사용을 위해 추가
 
 public class ShopManager : MonoBehaviour
 {
@@ -9,7 +10,10 @@ public class ShopManager : MonoBehaviour
     private List<UnitData> allUnitDatabase = new List<UnitData>();
     [SerializeField] private int rerollCost = 2;
     private List<UnitData> currentShopItems = new List<UnitData>();
-    private bool isDatabaseLoaded = false;
+    
+    // ✅ 데이터 로딩 완료 여부를 외부에서 확인할 수 있도록 public으로 변경
+    public bool IsDatabaseLoaded { get; private set; } = false;
+    private UniTaskCompletionSource<bool> databaseLoadTask = new UniTaskCompletionSource<bool>();
 
     void Awake()
     {
@@ -24,13 +28,21 @@ public class ShopManager : MonoBehaviour
         if (handle.Status == UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationStatus.Succeeded)
         {
             allUnitDatabase = handle.Result.ToList();
-            isDatabaseLoaded = true;
+            IsDatabaseLoaded = true; // ✅ isDatabaseLoaded -> IsDatabaseLoaded
+            databaseLoadTask.TrySetResult(true); // ✅ 로딩이 완료되었음을 알림
             Debug.Log($"Player {playerManager.playerId}: {allUnitDatabase.Count}개의 유닛 데이터를 성공적으로 로드했습니다.");
         }
         else
         {
+            databaseLoadTask.TrySetException(handle.OperationException); // ✅ 실패 시 에러 전파
             Debug.LogError($"어드레서블에서 유닛 데이터 로딩 실패: {handle.OperationException}");
         }
+    }
+
+    // ✅ 데이터 로딩이 끝날 때까지 기다리는 함수 추가
+    public UniTask WaitUntilDatabaseLoaded()
+    {
+        return databaseLoadTask.Task.AsUniTask();
     }
 
     public List<UnitData> GetCurrentShopItems() => currentShopItems;
@@ -38,7 +50,8 @@ public class ShopManager : MonoBehaviour
 
     public void Reroll(bool isFree = false)
     {
-        if (!isDatabaseLoaded)
+        // ✅ isDatabaseLoaded -> IsDatabaseLoaded
+        if (!IsDatabaseLoaded)
         {
             Debug.LogWarning("유닛 데이터베이스가 아직 로드되지 않아 리롤할 수 없습니다.");
             return;
@@ -67,7 +80,6 @@ public class ShopManager : MonoBehaviour
 
     public void TryBuyUnit(UnitData unitToBuy, ShopSlot slot)
     {
-        // ✅ [핵심 추가] 현재 게임 상태가 '준비' 단계일 때만 구매가 가능하도록 제한합니다.
         if (GameManagers.Instance != null && GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare)
         {
             Debug.LogWarning("준비 단계에서만 유닛을 구매할 수 있습니다.");
