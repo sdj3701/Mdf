@@ -11,7 +11,6 @@ public class ShopUIController : MonoBehaviour
     public Button rerollButton;
     public Button closeButton;
     public TextMeshProUGUI rerollCostText;
-    // ✅ [제거] public TextMeshProUGUI goldText;
 
     [Header("내부 콘텐츠 토글 설정")]
     public GameObject slotsContainer;
@@ -41,21 +40,15 @@ public class ShopUIController : MonoBehaviour
             if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null)
             {
                 localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
-                SetupUI(); // 버튼 리스너 추가 등 초기 설정
+                SetupUI();
                 isContentLoaded = true;
             }
             else
             {
                 Debug.LogError("로컬 플레이어를 찾을 수 없어 상점 UI를 초기화할 수 없습니다!");
                 gameObject.SetActive(false);
-                return; // 에러 시 즉시 중단
             }
         }
-
-        // ✅ [핵심 해결 코드]
-        // UI가 활성화될 때마다 슬롯의 내용을 항상 최신 데이터로 업데이트합니다.
-        UpdateShopSlots();
-        UpdateInfoText();
     }
 
     private void SetupUI()
@@ -69,14 +62,14 @@ public class ShopUIController : MonoBehaviour
         {
             slot.Initialize(localPlayerShopManager);
         }
-
-        UpdateShopSlots();
+        
         UpdateInfoText();
     }
     
     void Update()
     {
         if (!isContentLoaded) return;
+        if (GameManagers.Instance == null) return; // GameManager가 없을 때 에러 방지
 
         bool isPreparePhase = (GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare);
         rerollButton.interactable = isPreparePhase;
@@ -85,19 +78,12 @@ public class ShopUIController : MonoBehaviour
 
         foreach (var slot in shopSlots)
         {
+            // 슬롯이 구매되지 않았고, 준비 단계일 때만 구매 버튼 활성화
             if (!slot.IsPurchased())
             {
                 slot.buyButton.interactable = isPreparePhase;
             }
         }
-
-        // ✅ [제거] 골드 텍스트를 업데이트하는 로직을 완전히 제거합니다.
-        /*
-        if (localPlayerManager != null)
-        {
-            goldText.text = $"<color=yellow>{localPlayerManager.GetGold()}</color> G";
-        }
-        */
     }
 
     public void ToggleContent()
@@ -112,14 +98,34 @@ public class ShopUIController : MonoBehaviour
         if (rerollButtonObject != null) rerollButtonObject.SetActive(isVisible);
     }
 
+    // ✅ [수정된 부분 1] 기존 함수는 내부에서만 사용하도록 변경
     public void UpdateShopSlots()
     {
         if (localPlayerShopManager == null) return;
         List<UnitData> currentItems = localPlayerShopManager.GetCurrentShopItems();
+        DisplayShopItems(currentItems); // 아래의 새 함수를 호출
+    }
+
+    // ✅ [수정된 부분 2] 데이터를 직접 받아서 화면을 그리는, 더 안정적인 public 함수 추가
+    public void DisplayShopItems(List<UnitData> items)
+    {
+        if (items == null)
+        {
+            Debug.LogError("표시할 아이템 리스트가 null입니다!");
+            return;
+        }
+
+        Debug.Log($"[ShopUIController] DisplayShopItems 호출됨. 아이템 {items.Count}개로 화면 갱신 시도.");
         for (int i = 0; i < shopSlots.Length; i++)
         {
-            if (i < currentItems.Count) shopSlots[i].DisplayUnit(currentItems[i]);
-            else shopSlots[i].DisplayUnit(null);
+            if (i < items.Count)
+            {
+                shopSlots[i].DisplayUnit(items[i]);
+            }
+            else
+            {
+                shopSlots[i].DisplayUnit(null);
+            }
         }
     }
     
