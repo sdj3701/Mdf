@@ -152,7 +152,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &2347538413243772341
 RectTransform:
   m_ObjectHideFlags: 0
@@ -260,7 +260,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &7608531590166192341
 RectTransform:
   m_ObjectHideFlags: 0
@@ -394,7 +394,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &6676499223151732611
 RectTransform:
   m_ObjectHideFlags: 0
@@ -445,11 +445,11 @@ MonoBehaviour:
   - {fileID: 2291790037958534375}
   - {fileID: 1647748270174831885}
   rerollButton: {fileID: 3453449872492597822}
-  closeButton: {fileID: 6433996034630332052}
   rerollCostText: {fileID: 3785201107235726767}
+  toggleButton: {fileID: 6433996034630332052}
+  toggleButtonText: {fileID: 6627483054856993217}
   slotsContainer: {fileID: 3196368108515444536}
   rerollButtonObject: {fileID: 3314891036811301707}
-  openToggleButton: {fileID: 6433996034630332052}
 --- !u!1 &7404265042918514443
 GameObject:
   m_ObjectHideFlags: 0

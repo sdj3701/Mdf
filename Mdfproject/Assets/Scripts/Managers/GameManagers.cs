@@ -209,32 +209,46 @@ public class GameManagers : MonoBehaviour
             player1.shopManager.Reroll(true);
             player2.shopManager.Reroll(true);
 
+            // --- 수정된 UI 흐름 제어 로직 ---
+
+            // 1. 준비 단계가 시작되면 상점 UI를 명확하게 먼저 비활성화합니다.
+            if (localPlayerShopUIGameObject != null)
+            {
+                localPlayerShopUIGameObject.SetActive(false);
+            }
+
+            // 2. 증강이 제시되는 라운드인지 확인합니다. (기획에 따라 1라운드부터 증강이 나온다고 가정)
+            //    (주석: 만약 2, 5, 8 라운드에만 증강이 나온다면 if (currentRound == 2 || currentRound == 5 ...) 와 같이 조건을 변경할 수 있습니다.)
             if (currentRound >= 1)
             {
+                // 증강 제시 로직은 그대로 유지
                 player1.augmentManager.PresentAugments();
-                if(augmentSelectionUI != null)
+                if (augmentSelectionUI != null)
                 {
                     augmentSelectionUI.SetAugmentChoices(localPlayer.augmentManager.GetPresentedAugments());
-                    if (localPlayerShopUIGameObject != null)
-                    {
-                        localPlayerShopUIGameObject.SetActive(false);
-                    }
+                    // 증강 UI만 활성화합니다. 상점은 HandleAugmentChosen 이벤트에서 켜집니다.
                     UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
                 }
             }
-            else
+            else // 증강이 없는 라운드일 경우 (예: 게임 시작 직후 첫 라운드를 0으로 시작하는 경우)
             {
-                if (localPlayerShopUI != null)
+                // 상점 UI를 바로 활성화합니다.
+                if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
                 {
                     localPlayerShopUIGameObject.SetActive(true);
                     localPlayerShopUI.SetContentVisibility(true);
+                    // 상점 아이템 목록을 업데이트하고 표시합니다.
                     localPlayerShopUI.UpdateShopSlots();
                 }
             }
 
+            // --- 수정 끝 ---
+
             yield return StartCoroutine(PhaseTimerCoroutine(preparePhaseTime));
             
+            // 증강 UI가 혹시나 남아있을 경우를 대비해 닫아줍니다.
             UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+            // 전투 시작 전 상점 UI의 내용물을 비활성화합니다.
             if (localPlayerShopUIGameObject != null)
             {
                 localPlayerShopUI.SetContentVisibility(false);
