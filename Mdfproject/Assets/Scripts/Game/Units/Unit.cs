@@ -1,31 +1,40 @@
 // Assets/Scripts/Game/Units/Unit.cs
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic; // List<T>를 사용하기 위해 추가
 using System.Linq;
 
 public class Unit : MonoBehaviour
 {
     [Header("참조 데이터")]
-    public UnitData unitData; // 유닛의 모든 원본 데이터를 담고 있는 ScriptableObject
-
+    [SerializeField] // SerializeField는 유지하여 디버깅 시 인스펙터에서 확인은 가능하게 합니다.
+    private UnitData unitData; // 유닛의 모든 원본 데이터를 담고 있는 ScriptableObject
+    public UnitData Data => unitData;
+    
     [Header("현재 상태 (인게임 변수)")]
     public int starLevel = 1;
     private float currentHP;
     private float currentAttackDamage;
     private float currentAttackSpeed;
     private float currentAttackRange;
-    private int currentBlockCount; // 현재 저지하고 있는 적의 수
-    
+
+    // 저지하고 있는 몬스터를 추적하기 위한 리스트
+    private List<Monster> blockedMonsters = new List<Monster>();
+
     [Header("공격 대상 설정")]
     public LayerMask enemyLayerMask;
     private Transform targetEnemy;
     private Coroutine attackCoroutine;
 
-    void Start()
+    /// <summary>
+    /// 외부에서 UnitData를 주입받아 모든 초기화를 수행하는 public 메서드.
+    /// 이 함수는 유닛이 생성된 직후 FieldManager에 의해 단 한번 호출됩니다.
+    /// </summary>
+    public void Initialize(UnitData data)
     {
+        this.unitData = data;
         InitializeStats();
-        // 공격 로직은 게임 상태(e.g., 전투 페이즈)에 따라 활성화/비활성화 되어야 함
-        // 여기서는 예시로 바로 시작하지만, 실제로는 GameManager가 제어해야 함
+        // 실제 게임에서는 GameManager가 전투 상태일 때만 공격을 시작하도록 제어해야 합니다.
         StartAttackLoop();
     }
 
@@ -47,8 +56,6 @@ public class Unit : MonoBehaviour
         currentAttackDamage = unitData.baseAttackDamage * starMultiplier;
         currentAttackSpeed = unitData.attackSpeed;
         currentAttackRange = unitData.attackRange;
-        // 저지 가능 수는 UnitData에서 가져옴 (업그레이드 시 변경될 수 있음)
-        // currentBlockCount = unitData.blockCount; 
 
         Debug.Log($"{unitData.unitName} ({starLevel}성) 스탯 초기화 완료. HP: {currentHP}, DMG: {currentAttackDamage}");
     }
@@ -67,7 +74,7 @@ public class Unit : MonoBehaviour
         }
     }
 
-    #region 공격 로직 (AttackPlayer 기능 통합)
+    #region 공격 로직
 
     public void StartAttackLoop()
     {
@@ -94,7 +101,6 @@ public class Unit : MonoBehaviour
 
             if (targetEnemy != null)
             {
-                // 공격 로직 실행
                 Attack();
             }
 
@@ -105,17 +111,25 @@ public class Unit : MonoBehaviour
 
     private void FindNearestEnemy()
     {
-        // AttackPlayer의 OverlapSphere 방식을 사용하여 범위 내 모든 적을 감지
-        Collider[] enemiesInRange = Physics.OverlapSphere(transform.position, currentAttackRange, enemyLayerMask);
+        Collider2D[] enemiesInRange = Physics2D.OverlapCircleAll(transform.position, currentAttackRange, enemyLayerMask);
         
         float closestDistanceSqr = float.MaxValue;
         Transform nearestEnemy = null;
 
         foreach (var enemyCollider in enemiesInRange)
         {
-            // 기획 추가: 유닛 타입(지상/원거리)에 따라 타겟팅할 수 있는 몬스터(지상/공중)를 필터링하는 로직
-            // Monster monster = enemyCollider.GetComponent<Monster>();
-            // if (unitData.unitType == UnitType.Melee && monster.isFlying) continue; // 근접 유닛은 공중 공격 불가
+            Monster monster = enemyCollider.GetComponent<Monster>();
+
+            // --- [수정] 공격 대상 필터링 로직 ---
+            // 1. 몬스터 컴포넌트가 없으면 건너뛰기
+            if (monster == null) continue;
+
+            // 2. 이 유닛이 '근접(Melee)' 타입이고, 발견한 몬스터가 '공중(Flying)' 타입이라면 공격할 수 없으므로 건너뛰기
+            if (unitData.unitType == UnitType.Melee && monster.monsterType == MonsterType.Flying)
+            {
+                continue;
+            }
+            // --- 수정 끝 ---
 
             float distanceSqr = (transform.position - enemyCollider.transform.position).sqrMagnitude;
             if (distanceSqr < closestDistanceSqr)
@@ -131,8 +145,7 @@ public class Unit : MonoBehaviour
     {
         if (targetEnemy == null) return;
 
-        // 대상이 여전히 사거리 내에 있는지 한 번 더 확인
-        if (Vector3.Distance(transform.position, targetEnemy.position) > currentAttackRange)
+        if (Vector2.Distance(transform.position, targetEnemy.position) > currentAttackRange)
         {
             targetEnemy = null;
             return;
@@ -142,10 +155,6 @@ public class Unit : MonoBehaviour
         if (monster != null)
         {
             monster.TakeDamage((int)currentAttackDamage);
-            
-            // 기획 추가: 원거리 유닛일 경우 발사체 생성, 근접 유닛일 경우 공격 이펙트 표시
-            // if(unitData.unitType == UnitType.Ranged) { /* 발사체 로직 */ }
-            
             Debug.Log($"{unitData.unitName}이(가) {monster.name}을(를) 공격! (데미지: {currentAttackDamage})");
         }
     }
@@ -165,25 +174,64 @@ public class Unit : MonoBehaviour
 
     private void Die()
     {
-        // TODO: 유닛 사망 처리 (풀링 시스템에 반환, 필드에서 제거 등)
         Debug.Log($"{unitData.unitName} 사망.");
-        // FieldManager에 사망 사실을 알려서 placedUnits 딕셔너리에서 제거하도록 해야 함
-        // FindObjectOfType<FieldManager>().UnitDied(this); 
         Destroy(gameObject);
+    }
+
+    #endregion
+
+    #region 저지 시스템
+
+    /// <summary>
+    /// 몬스터가 유닛의 저지 범위(Trigger)에 들어왔을 때 호출됩니다.
+    /// </summary>
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        if (unitData.blockCount <= 0) return;
+        if (blockedMonsters.Count >= unitData.blockCount) return;
+
+        Monster monster = other.GetComponent<Monster>();
+
+        if (monster == null || monster.monsterType == MonsterType.Flying || monster.IsBlocked())
+        {
+            return;
+        }
+
+        blockedMonsters.Add(monster);
+        monster.Block(this);
+    }
+
+    /// <summary>
+    /// 저지하던 몬스터가 죽었을 때, 해당 몬스터가 이 함수를 호출하여 저지 목록에서 제외시킵니다.
+    /// </summary>
+    public void ReleaseBlockedMonster(Monster monster)
+    {
+        if (blockedMonsters.Contains(monster))
+        {
+            blockedMonsters.Remove(monster);
+        }
     }
 
     #endregion
 
     void OnDrawGizmosSelected()
     {
-        // 공격 범위를 시각적으로 표시하여 디버깅에 용이하게 함
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, currentAttackRange);
     }
     
     private void OnDestroy()
     {
-        // 오브젝트 파괴 시 코루틴이 남아있지 않도록 확실히 정리
         StopAttackLoop();
+        
+        // 유닛이 파괴될 때, 막고 있던 모든 몬스터를 풀어줍니다.
+        foreach (var monster in blockedMonsters)
+        {
+            if (monster != null) // 몬스터가 이미 파괴되었을 수 있으므로 null 체크
+            {
+                monster.Unblock();
+            }
+        }
+        blockedMonsters.Clear();
     }
 }

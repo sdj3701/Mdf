@@ -14,7 +14,8 @@ public struct MonsterData
     }
 };
 
-// 적 인터페이스 (선택사항)
+public enum MonsterType { Ground, Flying }
+
 public interface IEnemy
 {
     void TakeDamage(int damage);
@@ -24,36 +25,48 @@ public class Monster : MonoBehaviour
 {
     [Header("Test")]
     private GameObject PlaneObject;
-    public GameObject EndUI;
 
     [Header("MonsterData")]
     public MonsterData md = new MonsterData(100, 1);
+    public MonsterType monsterType;
 
     [Header("이동 설정")]
-    public float moveSpeed = 2f;              // 이동 속도
-    public float arrivalThreshold = 0.1f;     // 도착 판정 거리
-    public bool smoothMovement = true;        // 부드러운 이동 여부
-    
+    public float moveSpeed = 2f;
+    public float arrivalThreshold = 0.1f;
+    public bool smoothMovement = true;
+
     [Header("디버깅")]
-    public bool showPath = true;              // 경로 표시
-    public bool showCurrentTarget = true;     // 현재 목표점 표시
-    
-    private List<AstarNode> currentPath;           // 현재 따라가는 경로
-    private int currentPathIndex = 0;         // 현재 목표하는 경로상의 인덱스
-    private Vector2 currentTarget;            // 현재 목표 좌표
-    private bool isMoving = false;            // 이동 중인지 여부
-    private AstarGrid pathfinder;              // PathFinding 스크립트 참조
+    public bool showPath = true;
+    public bool showCurrentTarget = true;
+
+    // --- 내부 상태 변수 ---
+    private Transform goalTransform;
+    private List<AstarNode> currentPath;
+    private int currentPathIndex = 0;
+    private Vector2 currentTarget;
+    private bool isMoving = false;
+    private AstarGrid pathfinder;
     private List<Vector2Int> wallsToBreak = new List<Vector2Int>();
+    private bool isBlocked = false;
+    private Unit blockingUnit;
+    private PlayerManager ownerPlayer;
 
     void Start()
     {
         pathfinder = FindObjectOfType<AstarGrid>();
         currentHP = maxHP;
         PlaneObject = GameObject.Find("Plane");
-        
-
     }
 
+    /// <summary>
+    /// 몬스터 생성 시 주인(PlayerManager)과 목표 지점(Transform)을 주입받습니다.
+    /// 이 함수는 MonsterSpawner에 의해 호출됩니다.
+    /// </summary>
+    public void Initialize(PlayerManager owner, Transform goal)
+    {
+        this.ownerPlayer = owner;
+        this.goalTransform = goal;
+    }
 
     [Header("체력 설정")]
     public int maxHP = 100;
@@ -81,17 +94,28 @@ public class Monster : MonoBehaviour
     void Die()
     {
         Debug.Log($"{gameObject.name}이(가) 죽었습니다!");
+
+        if (isBlocked && blockingUnit != null)
+        {
+            blockingUnit.ReleaseBlockedMonster(this);
+        }
+
         Destroy(gameObject);
     }
 
-    /// <summary>
-    /// 새로운 경로로 이동 시작
-    /// </summary>
     public void StartFollowingPath(List<AstarNode> path)
     {
         if (!this.gameObject.activeInHierarchy)
         {
             this.gameObject.SetActive(true);
+        }
+
+        if (monsterType == MonsterType.Flying)
+        {
+            isMoving = true;
+            Debug.Log($"🎯 공중 몬스터 이동 시작! 목표: {goalTransform.name}");
+            StartCoroutine(FlyDirectlyCoroutine());
+            return;
         }
 
         if (path == null || path.Count == 0)
@@ -100,11 +124,11 @@ public class Monster : MonoBehaviour
             return;
         }
 
-        currentPath = new List<AstarNode>(path); // 복사본 생성
-        currentPathIndex = 1; // 0번은 시작점이므로 1번부터 시작
+        currentPath = new List<AstarNode>(path);
+        currentPathIndex = 1;
         isMoving = true;
 
-        Debug.Log($"🎯 몬스터 이동 시작! 총 {currentPath.Count}개 지점");
+        Debug.Log($"🎯 지상 몬스터 이동 시작! 총 {currentPath.Count}개 지점");
 
         if (smoothMovement)
             StartCoroutine(SmoothMoveCoroutine());
@@ -112,51 +136,70 @@ public class Monster : MonoBehaviour
             StartCoroutine(InstantMoveCoroutine());
     }
 
-    /// <summary>
-    /// 부드러운 이동 (Lerp 사용)
-    /// </summary>
+    private IEnumerator FlyDirectlyCoroutine()
+    {
+        if (goalTransform == null)
+        {
+            Debug.LogError("공중 몬스터의 목표(Goal)가 설정되지 않았습니다!");
+            yield break;
+        }
+
+        Vector2 targetPosition = goalTransform.position;
+        while (Vector2.Distance(transform.position, targetPosition) > arrivalThreshold && isMoving)
+        {
+            transform.position = Vector2.MoveTowards(transform.position, targetPosition, moveSpeed * Time.deltaTime);
+            yield return null;
+        }
+
+        OnPathCompleted();
+    }
+
     private IEnumerator SmoothMoveCoroutine()
     {
         while (currentPathIndex < currentPath.Count && isMoving)
         {
+            while (isBlocked)
+            {
+                yield return null;
+            }
+
             currentTarget = new Vector2(currentPath[currentPathIndex].x, currentPath[currentPathIndex].y);
             Vector2 startPos = transform.position;
             float journeyLength = Vector2.Distance(startPos, currentTarget);
             float journeyTime = journeyLength / moveSpeed;
             float elapsedTime = 0;
 
-            //Debug.Log($"🏃 {currentPathIndex}번째 목표로 이동: ({currentTarget.x}, {currentTarget.y})");
-
             while (elapsedTime < journeyTime && isMoving)
             {
+                if (isBlocked) continue;
                 elapsedTime += Time.deltaTime;
                 float fractionOfJourney = elapsedTime / journeyTime;
                 transform.position = Vector2.Lerp(startPos, currentTarget, fractionOfJourney);
                 yield return null;
             }
 
-            // 목표점에 정확히 도착
             transform.position = currentTarget;
             currentPathIndex++;
-
-            // 잠깐 대기 (선택사항)
             yield return new WaitForSeconds(0.1f);
         }
 
         OnPathCompleted();
     }
 
-    /// <summary>
-    /// 즉시 이동 (MoveTowards 사용)
-    /// </summary>
     private IEnumerator InstantMoveCoroutine()
     {
         while (currentPathIndex < currentPath.Count && isMoving)
         {
+            while (isBlocked)
+            {
+                yield return null;
+            }
+
             currentTarget = new Vector2(currentPath[currentPathIndex].x, currentPath[currentPathIndex].y);
 
             while (Vector2.Distance(transform.position, currentTarget) > arrivalThreshold && isMoving)
             {
+                if (isBlocked) continue;
                 transform.position = Vector2.MoveTowards(transform.position, currentTarget, moveSpeed * Time.deltaTime);
                 yield return null;
             }
@@ -168,37 +211,25 @@ public class Monster : MonoBehaviour
         OnPathCompleted();
     }
 
-    /// <summary>
-    /// 경로 완주 시 호출
-    /// </summary>
     private void OnPathCompleted()
     {
         isMoving = false;
         Debug.Log("🏆 목표 지점에 도착했습니다!");
-        
-        // 도착 후 처리 (예: 플레이어 공격, 아이템 획득 등)
         OnReachedDestination();
     }
 
-    /// <summary>
-    /// 목표 도달 시 실행할 로직
-    /// </summary>
     private void OnReachedDestination()
     {
-        // 여기에 목표 도달 시 실행할 코드 작성
         Debug.Log("💀 몬스터가 목표에 도달했습니다!");
 
-        PlaneObject.SetActive(false);
+        if (GameManagers.Instance != null && ownerPlayer != null)
+        {
+            GameManagers.Instance.OnMonsterReachedGoal(ownerPlayer);
+        }
 
-        if (EndUI == null)
-            EndUI = GameObject.Find("EndUI");
-
-        EndUI.SetActive(true);
+        Destroy(gameObject);
     }
 
-    /// <summary>
-    /// 이동 중단
-    /// </summary>
     public void StopMovement()
     {
         isMoving = false;
@@ -206,22 +237,14 @@ public class Monster : MonoBehaviour
         Debug.Log("⏹️ 몬스터 이동이 중단되었습니다.");
     }
 
-    /// <summary>
-    /// 새로운 경로 계산 및 이동 시작
-    /// </summary>
     public void FindAndFollowPath(Vector2Int targetPosition)
     {
-        StopMovement(); // 기존 이동 중단
-        
-        // 현재 위치를 시작점으로 설정
+        StopMovement();
         Vector2Int currentPos = new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y));
         pathfinder.startPos = currentPos;
         pathfinder.targetPos = targetPosition;
-        
-        // 경로 계산
         pathfinder.PathFinding();
-        
-        // 계산된 경로로 이동 시작
+
         if (pathfinder.FinalNodeList != null && pathfinder.FinalNodeList.Count > 0)
         {
             StartFollowingPath(pathfinder.FinalNodeList);
@@ -232,19 +255,11 @@ public class Monster : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// 경로상의 장애물 감지 시 재계산
-    /// </summary>
     public void RecalculatePathIfBlocked()
     {
         if (!isMoving || currentPath == null) return;
-
-        // 현재 목표점이 막혔는지 확인
         Vector2Int checkPos = new Vector2Int(currentPath[currentPathIndex].x, currentPath[currentPathIndex].y);
-        
-        // 장애물 감지 로직 (예시)
         Collider2D obstacle = Physics2D.OverlapCircle(new Vector2(checkPos.x, checkPos.y), 0.4f, LayerMask.GetMask("Wall"));
-        
         if (obstacle != null)
         {
             Debug.LogWarning("⚠️ 경로상에 새로운 장애물 발견! 경로 재계산 중...");
@@ -253,14 +268,17 @@ public class Monster : MonoBehaviour
         }
     }
 
-
+    #region 저지 시스템 관련 메서드
+    public bool IsBlocked() { return isBlocked; }
+    public void Block(Unit unit) { isBlocked = true; blockingUnit = unit; Debug.Log($"{gameObject.name}이(가) {unit.name}에 의해 저지됨!"); }
+    public void Unblock() { isBlocked = false; blockingUnit = null; Debug.Log($"{gameObject.name} 저지 해제!"); }
+    #endregion
 
     #region 부수기 벽
     public void SetWallsToBreak(List<Vector2Int> walls)
     {
         wallsToBreak = walls;
         Debug.Log($"몬스터가 파괴할 벽 {walls.Count}개 설정됨");
-
         foreach (Vector2Int wall in walls)
         {
             Debug.Log($"   - 파괴 대상 벽: ({wall.x}, {wall.y})");
@@ -268,14 +286,10 @@ public class Monster : MonoBehaviour
     }
     #endregion
 
-
-
-
     void OnDrawGizmos()
     {
         if (!showPath || currentPath == null || currentPath.Count == 0) return;
 
-        // 경로 선 그리기
         Gizmos.color = Color.green;
         for (int i = 0; i < currentPath.Count - 1; i++)
         {
@@ -284,14 +298,12 @@ public class Monster : MonoBehaviour
             Gizmos.DrawLine(from, to);
         }
 
-        // 경로상의 점들 그리기
         Gizmos.color = Color.yellow;
         foreach (AstarNode node in currentPath)
         {
             Gizmos.DrawWireSphere(new Vector3(node.x, node.y, 0), 0.2f);
         }
 
-        // 현재 목표점 강조
         if (showCurrentTarget && isMoving && currentPathIndex < currentPath.Count)
         {
             Gizmos.color = Color.red;
