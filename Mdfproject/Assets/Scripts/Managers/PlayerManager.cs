@@ -88,7 +88,8 @@ public class PlayerManager : MonoBehaviour
         // 실제 유닛 생성 및 배치는 FieldManager가 담당
         if(fieldManager != null)
         {
-            fieldManager.CreateAndPlaceUnitOnField(unitData.unitPrefab);
+            // ✅ [수정] unitData 자체를 FieldManager에게 전달합니다.
+            fieldManager.CreateAndPlaceUnitOnField(unitData);
         }
     }
 

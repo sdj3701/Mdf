@@ -209,46 +209,32 @@ public class GameManagers : MonoBehaviour
             player1.shopManager.Reroll(true);
             player2.shopManager.Reroll(true);
 
-            // --- 수정된 UI 흐름 제어 로직 ---
-
-            // 1. 준비 단계가 시작되면 상점 UI를 명확하게 먼저 비활성화합니다.
-            if (localPlayerShopUIGameObject != null)
-            {
-                localPlayerShopUIGameObject.SetActive(false);
-            }
-
-            // 2. 증강이 제시되는 라운드인지 확인합니다. (기획에 따라 1라운드부터 증강이 나온다고 가정)
-            //    (주석: 만약 2, 5, 8 라운드에만 증강이 나온다면 if (currentRound == 2 || currentRound == 5 ...) 와 같이 조건을 변경할 수 있습니다.)
             if (currentRound >= 1)
             {
-                // 증강 제시 로직은 그대로 유지
                 player1.augmentManager.PresentAugments();
-                if (augmentSelectionUI != null)
+                if(augmentSelectionUI != null)
                 {
                     augmentSelectionUI.SetAugmentChoices(localPlayer.augmentManager.GetPresentedAugments());
-                    // 증강 UI만 활성화합니다. 상점은 HandleAugmentChosen 이벤트에서 켜집니다.
+                    if (localPlayerShopUIGameObject != null)
+                    {
+                        localPlayerShopUIGameObject.SetActive(false);
+                    }
                     UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
                 }
             }
-            else // 증강이 없는 라운드일 경우 (예: 게임 시작 직후 첫 라운드를 0으로 시작하는 경우)
+            else
             {
-                // 상점 UI를 바로 활성화합니다.
-                if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
+                if (localPlayerShopUI != null)
                 {
                     localPlayerShopUIGameObject.SetActive(true);
                     localPlayerShopUI.SetContentVisibility(true);
-                    // 상점 아이템 목록을 업데이트하고 표시합니다.
                     localPlayerShopUI.UpdateShopSlots();
                 }
             }
 
-            // --- 수정 끝 ---
-
             yield return StartCoroutine(PhaseTimerCoroutine(preparePhaseTime));
             
-            // 증강 UI가 혹시나 남아있을 경우를 대비해 닫아줍니다.
             UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
-            // 전투 시작 전 상점 UI의 내용물을 비활성화합니다.
             if (localPlayerShopUIGameObject != null)
             {
                 localPlayerShopUI.SetContentVisibility(false);
@@ -289,12 +275,39 @@ public class GameManagers : MonoBehaviour
         Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 ---");
     }
 
+    /// <summary>
+    /// [추가] 몬스터가 목표 지점에 도달했을 때 Monster.cs에 의해 호출되는 중앙 처리 함수입니다.
+    /// </summary>
+    /// <param name="failedPlayer">수비에 실패한 플레이어</param>
+    public void OnMonsterReachedGoal(PlayerManager failedPlayer)
+    {
+        // 게임이 이미 끝난 상태라면 아무것도 처리하지 않습니다.
+        if (currentState == GameState.GameOver) return;
+
+        Debug.Log($"Player {failedPlayer.playerId}가 몬스터를 놓쳤습니다!");
+
+        // 몬스터를 놓쳤을 때의 피해량을 여기에 정의합니다. (예: 1의 데미지)
+        int damageOnLeak = 1;
+        
+        // 해당 플레이어에게 데미지를 적용합니다.
+        // PlayerManager.TakeDamage() 내부에서 체력이 0이 되면 GameOver()를 호출할 것입니다.
+        failedPlayer.TakeDamage(damageOnLeak);
+    }
+
+    /// <summary>
+    /// [수정] 이제 이 함수는 PlayerManager에 의해서만 호출되며, 게임 오버 UI를 띄우는 최종 책임을 가집니다.
+    /// </summary>
     public void GameOver(PlayerManager loser)
     {
         if (currentState == GameState.GameOver) return;
         ChangeState(GameState.GameOver);
         PlayerManager winner = (loser == player1) ? player2 : player1;
         Debug.Log($"<color=red>게임 종료!</color> 승자: Player {winner.playerId}");
+
+        // --- [역할 이전] 게임 오버 UI를 띄우는 로직을 이곳에서 중앙 관리합니다. ---
+        // 예시: UIManagers.Instance.GetUIElement("UI_Pnl_GameOver");
+        // 이 UI에는 승자와 패자 정보를 표시하는 텍스트가 포함될 수 있습니다.
+
         StopAllCoroutines();
     }
 

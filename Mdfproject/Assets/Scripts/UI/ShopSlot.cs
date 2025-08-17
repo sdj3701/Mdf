@@ -39,7 +39,7 @@ public class ShopSlot : MonoBehaviour
 
             unitIcon.sprite = unitData.unitIcon;
             unitNameText.text = unitData.unitName;
-            unitCostText.text = $"G {unitData.cost}";
+            unitCostText.text = $"{unitData.cost}";
             buyButton.interactable = true;
             if(purchasedOverlay) purchasedOverlay.SetActive(false);
             gameObject.SetActive(true);

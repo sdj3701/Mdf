@@ -18,4 +18,8 @@ public class UnitData : ScriptableObject
     public float baseAttackDamage;
     public float attackSpeed; // 초당 공격 횟수
     public float attackRange;
+    
+    // --- [수정] 저지 가능 수 변수 추가 ---
+    [Tooltip("이 유닛이 동시에 막을 수 있는 지상 몬스터의 수. 원거리 유닛은 0으로 설정하세요.")]
+    public int blockCount; 
 }
