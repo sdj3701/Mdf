@@ -14,7 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   augmentName: "\uACE8\uB4DC \uCD94\uAC00"
   description: "\uACE8\uB4DC\uB97C \uD68D\uB4DD\uD569\uB2C8\uB2E4."
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: 65dbd69fe392da54baae96f1e9535149, type: 3}
+  tier: 0
   targetType: 0
   effectType: 2
   value: 10
