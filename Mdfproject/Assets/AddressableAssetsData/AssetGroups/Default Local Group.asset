@@ -97,6 +97,21 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
+  - m_GUID: 677b8480bf63037499a7e15aa29695ec
+    m_Address: BreakWall
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - TileBase
+  - m_GUID: 619dde12077e168499d7ebc380344c79
+    m_Address: HeroSprite
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterSprite
+  - m_GUID: 4c6372d922041704baa139ba979b9205
+    m_Address: Hero
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

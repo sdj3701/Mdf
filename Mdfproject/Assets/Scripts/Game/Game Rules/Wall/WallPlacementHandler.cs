@@ -67,13 +67,12 @@ public class WallPlacementHandler : MonoBehaviour, IPlacementHandler
         }
 
         Vector3Int currentPos = placementManager.CurrentMouseGridPosition;
-        TileBase existingTile = placementManager.BreakWalltilemap.GetTile(currentPos);
+        TileBase existingTile = GameAssets.TileMaps.BreakWallTilemap.GetTile(currentPos);
 
         if (existingTile == null)
         {
-            placementManager.BreakWalltilemap.SetTile(currentPos, placementManager.BreakWalltileToPlace);
+            GameAssets.TileMaps.BreakWallTilemap.SetTile(currentPos, GameAssets.Tiles.BreakWall);
             PlacementManager.CreateWallCount--;
-            Debug.Log($"✅ 벽 배치 성공: {currentPos}");
         }
         else
         {
@@ -90,13 +89,12 @@ public class WallPlacementHandler : MonoBehaviour, IPlacementHandler
         }
 
         Vector3Int currentPos = placementManager.CurrentMouseGridPosition;
-        TileBase existingTile = placementManager.BreakWalltilemap.GetTile(currentPos);
+        TileBase existingTile = GameAssets.TileMaps.BreakWallTilemap.GetTile(currentPos);
 
         if (existingTile != null)
         {
-            placementManager.BreakWalltilemap.SetTile(currentPos, null);
+            GameAssets.TileMaps.BreakWallTilemap.SetTile(currentPos, null);
             PlacementManager.CreateWallCount++;
-            Debug.Log($"벽 제거: {currentPos}");
         }
         else
         {
@@ -107,8 +105,8 @@ public class WallPlacementHandler : MonoBehaviour, IPlacementHandler
     private void CheckWallInfo()
     {
         Vector3Int currentPos = placementManager.CurrentMouseGridPosition;
-        TileBase currentTile = placementManager.BreakWalltilemap.GetTile(currentPos);
-        Vector3 worldPosition = placementManager.BreakWalltilemap.CellToWorld(currentPos);
+        TileBase currentTile = GameAssets.TileMaps.BreakWallTilemap.GetTile(currentPos);
+        Vector3 worldPosition = GameAssets.TileMaps.BreakWallTilemap.CellToWorld(currentPos);
 
         if (currentTile != null)
         {
@@ -143,12 +141,12 @@ public class WallPlacementHandler : MonoBehaviour, IPlacementHandler
         if (previewObject == null) return;
 
         Vector3Int currentPos = placementManager.CurrentMouseGridPosition;
-        Vector3 previewWorldPosition = placementManager.BreakWalltilemap.CellToWorld(currentPos);
-        previewWorldPosition += placementManager.BreakWalltilemap.cellSize * 0.5f;
+        Vector3 previewWorldPosition = GameAssets.TileMaps.BreakWallTilemap.CellToWorld(currentPos);
+        previewWorldPosition += GameAssets.TileMaps.BreakWallTilemap.cellSize * 0.5f;
         previewObject.transform.position = previewWorldPosition;
 
         SpriteRenderer spriteRenderer = previewObject.GetComponent<SpriteRenderer>();
-        TileBase existingTile = placementManager.BreakWalltilemap.GetTile(currentPos);
+        TileBase existingTile = GameAssets.TileMaps.BreakWallTilemap.GetTile(currentPos);
 
         if (existingTile != null)
         {

@@ -82,7 +82,8 @@ public class CharacterPlacementHandler : MonoBehaviour, IPlacementHandler
             return;
         }
 
-        TileBase existingWallTile = placementManager.BreakWalltilemap.GetTile(currentPos);
+        TileBase existingWallTile = GameAssets.TileMaps.BreakWallTilemap.GetTile(currentPos);
+
         if (existingWallTile != null)
         {
             Debug.LogError("❌ 벽이 있는 곳에는 캐릭터를 배치할 수 없습니다!");
@@ -107,26 +108,26 @@ public class CharacterPlacementHandler : MonoBehaviour, IPlacementHandler
 
     private GameObject CreateCharacterObject(Vector3Int gridPosition)
     {
-        Vector3 worldPosition = placementManager.BreakWalltilemap.CellToWorld(gridPosition);
-        worldPosition += placementManager.BreakWalltilemap.cellSize * 0.5f;
+        Vector3 worldPosition = GameAssets.TileMaps.BreakWallTilemap.CellToWorld(gridPosition);
+        worldPosition += GameAssets.TileMaps.BreakWallTilemap.cellSize * 0.5f;
 
         GameObject newCharacter = null;
 
-        if (placementManager.CharacterPrefab != null)
+        if (placementManager.GetCharacterPrefab() != null)
         {
-            newCharacter = Instantiate(placementManager.CharacterPrefab, worldPosition, Quaternion.identity);
+            newCharacter = Instantiate(placementManager.GetCharacterPrefab(), worldPosition, Quaternion.identity);
         }
-        else if (placementManager.CharacterSprite != null)
+        else if (GameAssets.Sprites.HeroSprite != null)
         {
             newCharacter = new GameObject($"Character_{gridPosition}");
             newCharacter.transform.position = worldPosition;
 
             SpriteRenderer spriteRenderer = newCharacter.AddComponent<SpriteRenderer>();
-            spriteRenderer.sprite = placementManager.CharacterSprite;
+            spriteRenderer.sprite = GameAssets.Sprites.HeroSprite;
             spriteRenderer.sortingOrder = (int)placementManager.CharacterSortingOrder;
 
             BoxCollider2D collider = newCharacter.AddComponent<BoxCollider2D>();
-            collider.size = placementManager.CharacterSprite.bounds.size;
+            collider.size = GameAssets.Sprites.HeroSprite.bounds.size;
         }
         else
         {
@@ -165,7 +166,7 @@ public class CharacterPlacementHandler : MonoBehaviour, IPlacementHandler
         if (PlacementManager.SpawnedCharacters.ContainsKey(currentPos))
         {
             GameObject character = PlacementManager.SpawnedCharacters[currentPos];
-            Vector3 worldPosition = placementManager.BreakWalltilemap.CellToWorld(currentPos);
+            Vector3 worldPosition = GameAssets.TileMaps.BreakWallTilemap.CellToWorld(currentPos);
 
             Debug.Log($"👤 캐릭터 정보:");
             Debug.Log($"   - 이름: {character.name}");
@@ -185,9 +186,9 @@ public class CharacterPlacementHandler : MonoBehaviour, IPlacementHandler
 
         SpriteRenderer spriteRenderer = previewObject.AddComponent<SpriteRenderer>();
 
-        if (placementManager.CharacterSprite != null)
+        if (GameAssets.Sprites.HeroSprite != null)
         {
-            spriteRenderer.sprite = placementManager.CharacterSprite;
+            spriteRenderer.sprite = GameAssets.Sprites.HeroSprite;
             spriteRenderer.color = new Color(1f, 1f, 1f, 0.5f);
         }
         else
@@ -210,8 +211,8 @@ public class CharacterPlacementHandler : MonoBehaviour, IPlacementHandler
         if (previewObject == null) return;
 
         Vector3Int currentPos = placementManager.CurrentMouseGridPosition;
-        Vector3 previewWorldPosition = placementManager.BreakWalltilemap.CellToWorld(currentPos);
-        previewWorldPosition += placementManager.BreakWalltilemap.cellSize * 0.5f;
+        Vector3 previewWorldPosition = GameAssets.TileMaps.BreakWallTilemap.CellToWorld(currentPos);
+        previewWorldPosition += GameAssets.TileMaps.BreakWallTilemap.cellSize * 0.5f;
         previewObject.transform.position = previewWorldPosition;
 
         SpriteRenderer spriteRenderer = previewObject.GetComponent<SpriteRenderer>();
@@ -220,7 +221,7 @@ public class CharacterPlacementHandler : MonoBehaviour, IPlacementHandler
         {
             spriteRenderer.color = new Color(1f, 0f, 0f, 0.5f);  // 빨간색 (이미 캐릭터 있음)
         }
-        else if (placementManager.BreakWalltilemap.GetTile(currentPos) != null)
+        else if (GameAssets.TileMaps.BreakWallTilemap.GetTile(currentPos) != null)
         {
             spriteRenderer.color = new Color(0.5f, 0f, 0.5f, 0.5f);  // 보라색 (벽이 있음)
         }

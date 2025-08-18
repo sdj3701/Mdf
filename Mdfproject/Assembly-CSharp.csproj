@@ -60,6 +60,7 @@
   <ItemGroup>
     <Compile Include="Assets\Scripts\Game\Players\AttackPlayer.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SkewTextExample.cs" />
+    <Compile Include="Assets\Scripts\ComponentRegistrySystem\StaticAssets\AddressableAssetLoader.cs" />
     <Compile Include="Assets\Scripts\Game\Units\Unit.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SimpleScript.cs" />
     <Compile Include="Assets\Scripts\Button\SoundButton.cs" />
@@ -72,12 +73,16 @@
     <Compile Include="Assets\Scripts\MainLobby\SelectCharacter.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ChatController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextMeshProFloatingText.cs" />
+    <Compile Include="Assets\Scripts\ComponentRegistrySystem\StaticAssets\AssetRegistry.cs" />
+    <Compile Include="Assets\Scripts\Managers\PlacementManager.cs" />
     <Compile Include="Assets\Scripts\Managers\FieldManager.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexShakeB.cs" />
     <Compile Include="Assets\Scripts\UI\UIManagers.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\EnvMapAnimator.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_UiFrameRateCounter.cs" />
+    <Compile Include="Assets\Scripts\Managers\GameManagers_Updated.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarNode.cs" />
+    <Compile Include="Assets\Scripts\Game\Game Rules\Interface\IPlacementHandler.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\CameraController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMPro_InstructionOverlay.cs" />
     <Compile Include="Assets\Scripts\Button\ShopToggleButton.cs" />
@@ -93,6 +98,7 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextEventCheck.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ShaderPropAnimator.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\WarpTextExample.cs" />
+    <Compile Include="Assets\Scripts\ComponentRegistrySystem\ComponentAutoRegister.cs" />
     <Compile Include="Assets\Scripts\UI\ShopUIController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_DigitValidator.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\Monster.cs" />
@@ -101,14 +107,18 @@
     <Compile Include="Assets\Scripts\Managers\ShopManager.cs" />
     <Compile Include="Assets\Scripts\Button\SceneLobbyButton.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextMeshSpawner.cs" />
+    <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\TilemapController.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Readme.cs" />
     <Compile Include="Assets\Scripts\Game\Units\UnitData.cs" />
     <Compile Include="Assets\Scripts\UI\ShopSlot.cs" />
+    <Compile Include="Assets\Scripts\UI\UIManagers_Updated.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark03.cs" />
     <Compile Include="Assets\Scripts\Managers\SceneManagers.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\MonsterSpawner.cs" />
+    <Compile Include="Assets\Scripts\Enums\GameEnums.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\Astar.cs" />
     <Compile Include="Assets\Scripts\Game\Players\Player.cs" />
+    <Compile Include="Assets\Scripts\Game\Game Rules\CreateCharacter\CharacterPlacementHandler.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_FrameRateCounter.cs" />
     <Compile Include="Assets\Scripts\UI\PhaseTimerUI.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexJitter.cs" />
@@ -124,15 +134,14 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexColorCycler.cs" />
     <Compile Include="Assets\Scripts\Managers\GameManagers.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TeleType.cs" />
+    <Compile Include="Assets\Scripts\Game\Game Rules\Wall\WallPlacementHandler.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexZoom.cs" />
+    <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\RegisteredComponent.cs" />
+    <Compile Include="Assets\Scripts\ComponentRegistrySystem\GameAssets.cs" />
+    <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\ComponentRegistry.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark01.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Scripts\Game\Game Rules\Interface\IPlacementHandler.cs" />
-    <Compile Include="Assets\Scripts\Game\Game Rules\Wall\WallPlacementHandler.cs" />
-    <Compile Include="Assets\Scripts\Game\Game Rules\CreateCharacter\CharacterPlacementHandler.cs" />
-    <Compile Include="Assets\Scripts\Managers\PlacementManager.cs" />
-    <Compile Include="Assets\Scripts\Enums\GameEnums.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
