@@ -30,6 +30,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 6740020199651390622}
+  - {fileID: 4576231692935334371}
   m_Father: {fileID: 6740020199858137443}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -47,8 +48,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   playerManager: {fileID: 6740020199858137440}
   spawnPoint: {fileID: 6740020199651390622}
+  goalTransform: {fileID: 4576231692935334371}
   monsterPrefab: {fileID: 2020015458557610380, guid: 4ae077da17a50f048a4009c3a41f2705,
     type: 3}
+  pathfinder: {fileID: 425473495781712264}
 --- !u!1 &6740020198538101693
 GameObject:
   m_ObjectHideFlags: 0
@@ -59,6 +62,8 @@ GameObject:
   m_Component:
   - component: {fileID: 6740020198538101690}
   - component: {fileID: 6740020198538101691}
+  - component: {fileID: 4379164922035000959}
+  - component: {fileID: 425473495781712264}
   m_Layer: 0
   m_Name: FieldManager
   m_TagString: Untagged
@@ -93,7 +98,54 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 79af24853b6a04c40b8077c316553c78, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  playerManager: {fileID: 0}
+  playerManager: {fileID: 6740020199858137440}
+  obstacleTilemap: {fileID: 0}
+--- !u!114 &4379164922035000959
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6740020198538101693}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: edc6e52a685073e4aa1c48c49cd84a47, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  groundTilemap: {fileID: 0}
+  playerCamera: {fileID: 0}
+  wallTileToPlace: {fileID: 11400000, guid: 677b8480bf63037499a7e15aa29695ec, type: 2}
+  showPreview: 1
+  validPreviewColor: {r: 0, g: 1, b: 0, a: 0.5}
+  invalidPreviewColor: {r: 1, g: 0, b: 0, a: 0.5}
+--- !u!114 &425473495781712264
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6740020198538101693}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 13af32c410712468aa7f2b47ae1f3fbd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  bottomLeft: {x: -6, y: -4}
+  topRight: {x: 5, y: 4}
+  startPos: {x: 4, y: 0}
+  targetPos: {x: -5, y: 0}
+  FinalNodeList: []
+  allowDiagonal: 0
+  dontCrossCorner: 0
+  showDebugInfo: 1
+  detailedWallDebugging: 0
+  detectionRadius: 0.4
+  allowWallBreaking: 1
+  maxWallsToBreak: 999
+  useSmartWallSelection: 1
+  wallLayers:
+    serializedVersion: 2
+    m_Bits: 32896
 --- !u!1 &6740020198993675126
 GameObject:
   m_ObjectHideFlags: 0
@@ -164,7 +216,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 6740020199651390609}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 3.98, y: 0, z: 0}
+  m_LocalPosition: {x: 4.5, y: 0.51, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -267,6 +319,7 @@ MonoBehaviour:
   playerId: 0
   health: 100
   gold: 10
+  wallCount: 5
   ownedUnits: []
   chosenAugments: []
   fieldManager: {fileID: 0}
@@ -274,3 +327,34 @@ MonoBehaviour:
   monsterSpawner: {fileID: 0}
   augmentManager: {fileID: 0}
   opponentManager: {fileID: 0}
+--- !u!1 &8627276128709758922
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4576231692935334371}
+  m_Layer: 0
+  m_Name: GoalPoint
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4576231692935334371
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8627276128709758922}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -4.49, y: 0.51, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 6740020198399753468}
+  m_RootOrder: 1
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}

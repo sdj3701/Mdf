@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class UIPool
 {
-    private AddressablesManager addressablesManager = new AddressablesManager();
+    // ✅ 'new' 키워드 제거!
     private static Dictionary<string, GameObject> pool = new Dictionary<string, GameObject>();
     private GameObject prefab;
 
@@ -26,45 +26,31 @@ public class UIPool
         }
     }
 
-    /// <summary>
-    /// 풀에서 UI 객체를 가져옵니다. 없으면 새로 로드하여 지정된 부모 아래에 생성합니다.
-    /// </summary>
-    public UniTask<GameObject> GetObject(string name, Transform parent)
+    public async UniTask<GameObject> GetObject(string name, Transform parent)
     {
-        // 풀에 이미 인스턴스가 있는지 확인
         if (pool.ContainsKey(name) && pool[name] != null)
         {
             GameObject obj = pool[name];
-            // 부모를 설정하고 활성화합니다.
-            obj.transform.SetParent(parent, false); // worldPositionStays: false
+            obj.transform.SetParent(parent, false);
             obj.SetActive(true);
-            return UniTask.FromResult(obj);
+            return obj;
         }
-        // 풀에 없으면 Addressables로 로드
         else
         {
-            return AddGetObject(name, parent);
+            // ✅ 싱글톤 인스턴스를 통해 LoadObject 호출
+            GameObject newInstance = await AddressablesManager.Instance.LoadObject(name, parent);
+            if (newInstance != null)
+            {
+                pool[name] = newInstance;
+                newInstance.SetActive(true);
+            }
+            return newInstance;
         }
     }
+    
+    // AddGetObject 함수는 GetObject에 통합되었으므로 제거해도 됩니다.
+    // private async UniTask<GameObject> AddGetObject(...)
 
-    /// <summary>
-    /// Addressables를 통해 UI를 새로 로드하고 풀에 추가한 뒤 반환합니다.
-    /// </summary>
-    private async UniTask<GameObject> AddGetObject(string name, Transform parent)
-    {
-        GameObject newInstance = await addressablesManager.LoadObject(name, parent);
-        if (newInstance != null)
-        {
-            // 나중에 재활용할 수 있도록 풀에 인스턴스를 저장합니다.
-            pool[name] = newInstance;
-            newInstance.SetActive(true);
-        }
-        return newInstance;
-    }
-
-    /// <summary>
-    /// 사용이 끝난 UI 객체를 비활성화합니다.
-    /// </summary>
     public void ReturnObject(string name)
     {
         if (pool.ContainsKey(name) && pool[name] != null)
@@ -73,8 +59,6 @@ public class UIPool
         }
         else
         {
-            // 씬에 직접 생성된 경우를 대비해 이름을 기반으로 찾아봅니다.
-            // 이 로직은 백업용이며, 풀을 통해 관리하는 것이 가장 이상적입니다.
             GameObject objInScene = GameObject.Find(name + "(Clone)");
             if (objInScene != null)
             {

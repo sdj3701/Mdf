@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+<<<<<<<< HEAD:Mdfproject/Assets/Scripts/UI/AugmentSlot.cs.meta
+guid: 4c0748dcfd531ad4e856c126db8cff16
+========
+guid: d45835a23590e2f49bc409d731c66ede
+>>>>>>>> origin/develop:Mdfproject/Assets/Scripts/Game/Game Rules/WallPlacementHandler.cs.meta
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

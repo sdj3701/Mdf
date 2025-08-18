@@ -1,29 +1,41 @@
 // Assets/Scripts/Game/Units/Unit.cs
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic; // List<T>를 사용하기 위해 추가
 using System.Linq;
 
 public class Unit : MonoBehaviour
 {
     [Header("참조 데이터")]
-    public UnitData unitData;
+    [SerializeField] // SerializeField는 유지하여 디버깅 시 인스펙터에서 확인은 가능하게 합니다.
+    private UnitData unitData; // 유닛의 모든 원본 데이터를 담고 있는 ScriptableObject
 
-    [Header("현재 상태")]
+    public UnitData Data => unitData;
+
+    [Header("현재 상태 (인게임 변수)")]
     public int starLevel = 1;
     private float currentHP;
     private float currentAttackDamage;
     private float currentAttackSpeed;
     private float currentAttackRange;
 
+    // 저지하고 있는 몬스터를 추적하기 위한 리스트
+    private List<Monster> blockedMonsters = new List<Monster>();
+
     [Header("공격 대상 설정")]
     public LayerMask enemyLayerMask;
     private Transform targetEnemy;
     private Coroutine attackCoroutine;
 
-    void Start()
+    /// <summary>
+    /// 외부에서 UnitData를 주입받아 모든 초기화를 수행하는 public 메서드.
+    /// 이 함수는 유닛이 생성된 직후 FieldManager에 의해 단 한번 호출됩니다.
+    /// </summary>
+    public void Initialize(UnitData data)
     {
+        this.unitData = data;
         InitializeStats();
-        attackCoroutine = StartCoroutine(AttackLoop());
+        StartAttackLoop();
     }
 
     /// <summary>
@@ -31,12 +43,17 @@ public class Unit : MonoBehaviour
     /// </summary>
     public void InitializeStats()
     {
-        // 성급에 따라 스탯 강화 (예: 2배씩)
+        if (unitData == null)
+        {
+            Debug.LogError($"{gameObject.name}에 UnitData가 할당되지 않았습니다!");
+            return;
+        }
+
         float starMultiplier = Mathf.Pow(2, starLevel - 1);
 
         currentHP = unitData.baseHealth * starMultiplier;
         currentAttackDamage = unitData.baseAttackDamage * starMultiplier;
-        currentAttackSpeed = unitData.attackSpeed; // 공속은 다른 방식으로 적용 가능
+        currentAttackSpeed = unitData.attackSpeed;
         currentAttackRange = unitData.attackRange;
 
         Debug.Log($"{unitData.unitName} ({starLevel}성) 스탯 초기화 완료. HP: {currentHP}, DMG: {currentAttackDamage}");
@@ -51,8 +68,26 @@ public class Unit : MonoBehaviour
         {
             starLevel++;
             InitializeStats();
-            // TODO: 외형 변경 등 시각적 효과 추가
             Debug.Log($"{unitData.unitName}이(가) {starLevel}성으로 업그레이드되었습니다!");
+        }
+    }
+
+    #region 공격 로직
+
+    public void StartAttackLoop()
+    {
+        if (attackCoroutine == null)
+        {
+            attackCoroutine = StartCoroutine(AttackLoop());
+        }
+    }
+
+    public void StopAttackLoop()
+    {
+        if (attackCoroutine != null)
+        {
+            StopCoroutine(attackCoroutine);
+            attackCoroutine = null;
         }
     }
 
@@ -64,28 +99,35 @@ public class Unit : MonoBehaviour
 
             if (targetEnemy != null)
             {
-                // 공격 로직 실행
                 Attack();
             }
 
-            // 공격 속도에 맞춰 대기
             yield return new WaitForSeconds(1f / currentAttackSpeed);
         }
     }
 
     private void FindNearestEnemy()
     {
-        Collider[] enemies = Physics.OverlapSphere(transform.position, currentAttackRange, enemyLayerMask);
+        Collider2D[] enemiesInRange = Physics2D.OverlapCircleAll(transform.position, currentAttackRange, enemyLayerMask);
         
-        float closestDistance = float.MaxValue;
+        float closestDistanceSqr = float.MaxValue;
         Transform nearestEnemy = null;
 
-        foreach (var enemyCollider in enemies)
+        foreach (var enemyCollider in enemiesInRange)
         {
-            float distance = Vector3.Distance(transform.position, enemyCollider.transform.position);
-            if (distance < closestDistance)
+            Monster monster = enemyCollider.GetComponent<Monster>();
+
+            if (monster == null) continue;
+
+            if (unitData.unitType == UnitType.Melee && monster.monsterType == MonsterType.Flying)
             {
-                closestDistance = distance;
+                continue;
+            }
+
+            float distanceSqr = (transform.position - enemyCollider.transform.position).sqrMagnitude;
+            if (distanceSqr < closestDistanceSqr)
+            {
+                closestDistanceSqr = distanceSqr;
                 nearestEnemy = enemyCollider.transform;
             }
         }
@@ -96,14 +138,23 @@ public class Unit : MonoBehaviour
     {
         if (targetEnemy == null) return;
 
+        if (Vector2.Distance(transform.position, targetEnemy.position) > currentAttackRange)
+        {
+            targetEnemy = null;
+            return;
+        }
+
         Monster monster = targetEnemy.GetComponent<Monster>();
         if (monster != null)
         {
             monster.TakeDamage((int)currentAttackDamage);
-            // TODO: 발사체 생성 또는 공격 이펙트 표시
             Debug.Log($"{unitData.unitName}이(가) {monster.name}을(를) 공격! (데미지: {currentAttackDamage})");
         }
     }
+
+    #endregion
+
+    #region 체력 및 생존 관련
 
     public void TakeDamage(int damage)
     {
@@ -116,13 +167,70 @@ public class Unit : MonoBehaviour
 
     private void Die()
     {
-        // TODO: 유닛 사망 처리 (풀링 시스템에 반환 등)
+        Debug.Log($"{unitData.unitName} 사망.");
         Destroy(gameObject);
     }
 
+    #endregion
+
+    #region 저지 시스템
+
+    /// <summary>
+    /// 몬스터가 유닛의 저지 범위(Trigger)에 들어왔을 때 호출됩니다.
+    /// </summary>
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        Monster monster = other.GetComponent<Monster>();
+
+        // 몬스터가 아니거나, 이미 내가 저지하고 있는 몬스터라면 즉시 반환
+        if (monster == null || blockedMonsters.Contains(monster))
+        {
+            return;
+        }
+
+        if (Data.blockCount <= 0) return;
+        if (blockedMonsters.Count >= Data.blockCount) return;
+
+        if (monster.monsterType == MonsterType.Flying || monster.IsBlocked())
+        {
+            return;
+        }
+
+        blockedMonsters.Add(monster);
+        monster.Block(this);
+    }
+
+    /// <summary>
+    /// 저지하던 몬스터가 죽었을 때, 해당 몬스터가 이 함수를 호출하여 저지 목록에서 제외시킵니다.
+    /// </summary>
+    public void ReleaseBlockedMonster(Monster monster)
+    {
+        if (blockedMonsters.Contains(monster))
+        {
+            blockedMonsters.Remove(monster);
+        }
+    }
+
+    #endregion
+
     void OnDrawGizmosSelected()
     {
-        Gizmos.color = Color.cyan;
-        Gizmos.DrawWireSphere(transform.position, unitData != null ? unitData.attackRange : currentAttackRange);
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, currentAttackRange);
+    }
+    
+    private void OnDestroy()
+    {
+        StopAttackLoop();
+        
+        // 유닛이 파괴될 때, 막고 있던 모든 몬스터를 풀어줍니다.
+        foreach (var monster in blockedMonsters)
+        {
+            if (monster != null)
+            {
+                monster.Unblock();
+            }
+        }
+        blockedMonsters.Clear();
     }
 }
