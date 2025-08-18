@@ -4505,6 +4505,26 @@ PrefabInstance:
   m_Modification:
     m_TransformParent: {fileID: 1791549582}
     m_Modifications:
+    - target: {fileID: 425473495781712264, guid: 1831533972272eb408da1971d3a1e504,
+        type: 3}
+      propertyPath: startPos.y
+      value: -10
+      objectReference: {fileID: 0}
+    - target: {fileID: 425473495781712264, guid: 1831533972272eb408da1971d3a1e504,
+        type: 3}
+      propertyPath: topRight.y
+      value: -6
+      objectReference: {fileID: 0}
+    - target: {fileID: 425473495781712264, guid: 1831533972272eb408da1971d3a1e504,
+        type: 3}
+      propertyPath: targetPos.y
+      value: -10
+      objectReference: {fileID: 0}
+    - target: {fileID: 425473495781712264, guid: 1831533972272eb408da1971d3a1e504,
+        type: 3}
+      propertyPath: bottomLeft.y
+      value: -14
+      objectReference: {fileID: 0}
     - target: {fileID: 4379164922035000959, guid: 1831533972272eb408da1971d3a1e504,
         type: 3}
       propertyPath: playerCamera
@@ -4539,6 +4559,11 @@ PrefabInstance:
         type: 3}
       propertyPath: m_Name
       value: Player2_Root
+      objectReference: {fileID: 0}
+    - target: {fileID: 6740020199858137442, guid: 1831533972272eb408da1971d3a1e504,
+        type: 3}
+      propertyPath: m_IsActive
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6740020199858137443, guid: 1831533972272eb408da1971d3a1e504,
         type: 3}

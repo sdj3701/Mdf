@@ -9,8 +9,9 @@ public class Unit : MonoBehaviour
     [Header("참조 데이터")]
     [SerializeField] // SerializeField는 유지하여 디버깅 시 인스펙터에서 확인은 가능하게 합니다.
     private UnitData unitData; // 유닛의 모든 원본 데이터를 담고 있는 ScriptableObject
+
     public UnitData Data => unitData;
-    
+
     [Header("현재 상태 (인게임 변수)")]
     public int starLevel = 1;
     private float currentHP;
@@ -34,7 +35,6 @@ public class Unit : MonoBehaviour
     {
         this.unitData = data;
         InitializeStats();
-        // 실제 게임에서는 GameManager가 전투 상태일 때만 공격을 시작하도록 제어해야 합니다.
         StartAttackLoop();
     }
 
@@ -49,7 +49,6 @@ public class Unit : MonoBehaviour
             return;
         }
 
-        // 성급에 따른 스탯 강화 (예: 2배씩)
         float starMultiplier = Mathf.Pow(2, starLevel - 1);
 
         currentHP = unitData.baseHealth * starMultiplier;
@@ -69,7 +68,6 @@ public class Unit : MonoBehaviour
         {
             starLevel++;
             InitializeStats();
-            // TODO: 외형 변경 등 시각적 효과 추가
             Debug.Log($"{unitData.unitName}이(가) {starLevel}성으로 업그레이드되었습니다!");
         }
     }
@@ -104,7 +102,6 @@ public class Unit : MonoBehaviour
                 Attack();
             }
 
-            // 공격 속도에 맞춰 대기
             yield return new WaitForSeconds(1f / currentAttackSpeed);
         }
     }
@@ -120,16 +117,12 @@ public class Unit : MonoBehaviour
         {
             Monster monster = enemyCollider.GetComponent<Monster>();
 
-            // --- [수정] 공격 대상 필터링 로직 ---
-            // 1. 몬스터 컴포넌트가 없으면 건너뛰기
             if (monster == null) continue;
 
-            // 2. 이 유닛이 '근접(Melee)' 타입이고, 발견한 몬스터가 '공중(Flying)' 타입이라면 공격할 수 없으므로 건너뛰기
             if (unitData.unitType == UnitType.Melee && monster.monsterType == MonsterType.Flying)
             {
                 continue;
             }
-            // --- 수정 끝 ---
 
             float distanceSqr = (transform.position - enemyCollider.transform.position).sqrMagnitude;
             if (distanceSqr < closestDistanceSqr)
@@ -187,12 +180,18 @@ public class Unit : MonoBehaviour
     /// </summary>
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (unitData.blockCount <= 0) return;
-        if (blockedMonsters.Count >= unitData.blockCount) return;
-
         Monster monster = other.GetComponent<Monster>();
 
-        if (monster == null || monster.monsterType == MonsterType.Flying || monster.IsBlocked())
+        // 몬스터가 아니거나, 이미 내가 저지하고 있는 몬스터라면 즉시 반환
+        if (monster == null || blockedMonsters.Contains(monster))
+        {
+            return;
+        }
+
+        if (Data.blockCount <= 0) return;
+        if (blockedMonsters.Count >= Data.blockCount) return;
+
+        if (monster.monsterType == MonsterType.Flying || monster.IsBlocked())
         {
             return;
         }
@@ -227,7 +226,7 @@ public class Unit : MonoBehaviour
         // 유닛이 파괴될 때, 막고 있던 모든 몬스터를 풀어줍니다.
         foreach (var monster in blockedMonsters)
         {
-            if (monster != null) // 몬스터가 이미 파괴되었을 수 있으므로 null 체크
+            if (monster != null)
             {
                 monster.Unblock();
             }

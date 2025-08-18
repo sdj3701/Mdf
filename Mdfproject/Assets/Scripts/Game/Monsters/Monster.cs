@@ -1,3 +1,4 @@
+// Assets/Scripts/Game/Monsters/Monster.cs
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -50,6 +51,15 @@ public class Monster : MonoBehaviour
     private bool isBlocked = false;
     private Unit blockingUnit;
     private PlayerManager ownerPlayer;
+    private Coroutine movementCoroutine;
+
+    private static bool isQuitting = false; // ✅ [수정] 게임 종료 상태를 저장할 static 변수
+
+    // ✅ [수정] 게임이 종료될 때 isQuitting을 true로 설정하는 이벤트 함수
+    void OnApplicationQuit()
+    {
+        isQuitting = true;
+    }
 
     void Start()
     {
@@ -110,11 +120,16 @@ public class Monster : MonoBehaviour
             this.gameObject.SetActive(true);
         }
 
+        if (movementCoroutine != null)
+        {
+            StopCoroutine(movementCoroutine);
+        }
+
         if (monsterType == MonsterType.Flying)
         {
             isMoving = true;
             Debug.Log($"🎯 공중 몬스터 이동 시작! 목표: {goalTransform.name}");
-            StartCoroutine(FlyDirectlyCoroutine());
+            movementCoroutine = StartCoroutine(FlyDirectlyCoroutine());
             return;
         }
 
@@ -131,9 +146,9 @@ public class Monster : MonoBehaviour
         Debug.Log($"🎯 지상 몬스터 이동 시작! 총 {currentPath.Count}개 지점");
 
         if (smoothMovement)
-            StartCoroutine(SmoothMoveCoroutine());
+            movementCoroutine = StartCoroutine(SmoothMoveCoroutine());
         else
-            StartCoroutine(InstantMoveCoroutine());
+            movementCoroutine = StartCoroutine(InstantMoveCoroutine());
     }
 
     private IEnumerator FlyDirectlyCoroutine()
@@ -158,11 +173,6 @@ public class Monster : MonoBehaviour
     {
         while (currentPathIndex < currentPath.Count && isMoving)
         {
-            while (isBlocked)
-            {
-                yield return null;
-            }
-
             currentTarget = new Vector2(currentPath[currentPathIndex].x, currentPath[currentPathIndex].y);
             Vector2 startPos = transform.position;
             float journeyLength = Vector2.Distance(startPos, currentTarget);
@@ -171,7 +181,6 @@ public class Monster : MonoBehaviour
 
             while (elapsedTime < journeyTime && isMoving)
             {
-                if (isBlocked) continue;
                 elapsedTime += Time.deltaTime;
                 float fractionOfJourney = elapsedTime / journeyTime;
                 transform.position = Vector2.Lerp(startPos, currentTarget, fractionOfJourney);
@@ -190,16 +199,10 @@ public class Monster : MonoBehaviour
     {
         while (currentPathIndex < currentPath.Count && isMoving)
         {
-            while (isBlocked)
-            {
-                yield return null;
-            }
-
             currentTarget = new Vector2(currentPath[currentPathIndex].x, currentPath[currentPathIndex].y);
 
             while (Vector2.Distance(transform.position, currentTarget) > arrivalThreshold && isMoving)
             {
-                if (isBlocked) continue;
                 transform.position = Vector2.MoveTowards(transform.position, currentTarget, moveSpeed * Time.deltaTime);
                 yield return null;
             }
@@ -270,8 +273,48 @@ public class Monster : MonoBehaviour
 
     #region 저지 시스템 관련 메서드
     public bool IsBlocked() { return isBlocked; }
-    public void Block(Unit unit) { isBlocked = true; blockingUnit = unit; Debug.Log($"{gameObject.name}이(가) {unit.name}에 의해 저지됨!"); }
-    public void Unblock() { isBlocked = false; blockingUnit = null; Debug.Log($"{gameObject.name} 저지 해제!"); }
+
+    public void Block(Unit unit) 
+    { 
+        if (isBlocked) return;
+
+        isBlocked = true; 
+        blockingUnit = unit; 
+        
+        if (movementCoroutine != null)
+        {
+            StopCoroutine(movementCoroutine);
+            movementCoroutine = null;
+        }
+        isMoving = false;
+
+        Debug.Log($"{gameObject.name}이(가) {unit.name}에 의해 저지됨!"); 
+    }
+
+    public void Unblock() 
+    { 
+        // ✅ [수정] 게임이 종료되는 중이라면 아무 작업도 수행하지 않고 즉시 함수를 빠져나갑니다.
+        if (isQuitting) return;
+
+        if (!isBlocked) return;
+
+        isBlocked = false; 
+        blockingUnit = null; 
+        Debug.Log($"{gameObject.name} 저지 해제! 경로 탐색 재시작."); 
+        
+        Vector2Int currentGridPos = new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y));
+        Vector2Int targetGridPos = new Vector2Int(Mathf.RoundToInt(goalTransform.position.x), Mathf.RoundToInt(goalTransform.position.y));
+        
+        List<AstarNode> newPath = pathfinder.FindPath(currentGridPos, targetGridPos);
+        if (newPath != null && newPath.Count > 0)
+        {
+            StartFollowingPath(newPath);
+        }
+        else
+        {
+            Debug.LogError($"{gameObject.name} 저지 해제 후 경로를 찾을 수 없습니다!");
+        }
+    }
     #endregion
 
     #region 부수기 벽
