@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Mdfproject/Assets/Scripts/UI/AugmentUIController.cs.meta
 guid: 84b46fdb7c2e2c74f837a59f4c88aa19
+========
+guid: df34188c6f319694aa06a577149fe647
+>>>>>>>> origin/develop:Mdfproject/Assets/Scripts/Managers/GameManagers_Updated.cs.meta
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2
