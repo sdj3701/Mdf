@@ -33,9 +33,6 @@ public class AstarGrid : MonoBehaviour
     private List<Vector2Int> wallsToBreak = new List<Vector2Int>();
     private AstarNode[,] OriginalNodeArray;
 
-    // 역할 분리를 위해 몬스터 생성 관련 코드(monsterPrefab, StartMonsterMovement)를 모두 제거했습니다.
-    // 이 클래스는 이제 순수하게 경로 계산만 담당합니다.
-
     /// <summary>
     /// [핵심 메서드] 지정된 시작점과 끝점 사이의 경로를 계산하여 노드 리스트로 반환합니다.
     /// MonsterSpawner 등 외부 클래스에서 이 함수를 호출하여 사용합니다.
@@ -45,6 +42,13 @@ public class AstarGrid : MonoBehaviour
     /// <returns>계산된 경로 리스트. 경로를 찾지 못하면 null을 반환합니다.</returns>
     public List<AstarNode> FindPath(Vector2Int start, Vector2Int end)
     {
+        // ✅ [수정] 경로 탐색 시작 전, 시작점과 끝점이 그리드 범위 내에 있는지 확인합니다.
+        if (!IsValidPosition(start) || !IsValidPosition(end))
+        {
+            Debug.LogError($"[FindPath] 시작점({start}) 또는 끝점({end})이 그리드 범위를 벗어났습니다. AstarGrid의 BottomLeft/TopRight 설정을 확인하세요.");
+            return null; // 유효하지 않은 요청이므로 즉시 null 반환
+        }
+        
         // 1. 이 길찾기를 위한 전용 변수 설정
         startPos = start;
         targetPos = end;
@@ -93,7 +97,6 @@ public class AstarGrid : MonoBehaviour
             for (int j = 0; j < sizeY; j++)
             {
                 bool isWall = false;
-                // ✅ [수정] 타일 중앙에서 충돌을 감지하도록 0.5f씩 더해줍니다.
                 Vector2 checkPos = new Vector2(i + bottomLeft.x + 0.5f, j + bottomLeft.y + 0.5f);
                 Collider2D[] colliders = Physics2D.OverlapCircleAll(checkPos, detectionRadius);
 
@@ -324,7 +327,6 @@ public class AstarGrid : MonoBehaviour
             if (CurNode == TargetNode)
             {
                 BuildFinalPath();
-                // StartMonsterMovement() 호출을 제거하여 몬스터 생성 책임을 분리.
                 return true;
             }
 
@@ -394,12 +396,10 @@ public class AstarGrid : MonoBehaviour
     {
         if (NodeArray == null) return;
 
-        // 그리드 노드 그리기
         for (int i = 0; i < sizeX; i++)
         {
             for (int j = 0; j < sizeY; j++)
             {
-                // ✅ [수정] 기즈모도 타일 중앙에 그려지도록 0.5f씩 더해줍니다.
                 Vector3 pos = new Vector3(i + bottomLeft.x + 0.5f, j + bottomLeft.y + 0.5f, 0);
                 Vector2Int gridPos = new Vector2Int(i + bottomLeft.x, j + bottomLeft.y);
 
@@ -421,22 +421,18 @@ public class AstarGrid : MonoBehaviour
             }
         }
 
-        // 최종 경로 그리기
         if (FinalNodeList != null && FinalNodeList.Count > 0)
         {
             Gizmos.color = Color.green;
             for (int i = 0; i < FinalNodeList.Count - 1; i++)
             {
-                // ✅ [수정] 경로 라인도 타일 중앙을 지나도록 0.5f씩 더해줍니다.
                 Vector3 from = new Vector3(FinalNodeList[i].x + 0.5f, FinalNodeList[i].y + 0.5f, 0);
                 Vector3 to = new Vector3(FinalNodeList[i + 1].x + 0.5f, FinalNodeList[i + 1].y + 0.5f, 0);
                 Gizmos.DrawLine(from, to);
             }
         }
 
-        // 시작점과 도착점 그리기
         Gizmos.color = Color.blue;
-        // ✅ [수정] 시작/도착점 구체도 타일 중앙에 그려지도록 0.5f씩 더해줍니다.
         Gizmos.DrawSphere(new Vector3(startPos.x + 0.5f, startPos.y + 0.5f, 0), 0.5f);
         Gizmos.color = Color.yellow;
         Gizmos.DrawSphere(new Vector3(targetPos.x + 0.5f, targetPos.y + 0.5f, 0), 0.5f);

@@ -22,4 +22,4 @@ MonoBehaviour:
   baseAttackDamage: 10
   attackSpeed: 10
   attackRange: 10
-  blockCount: 0
+  blockCount: 2
