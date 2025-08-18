@@ -13,6 +13,18 @@ namespace GameCore.Enums
         Wall,
         Character
     }
+
+    /// <summary>
+    /// 타일맵 종류 종류
+    /// </summary>
+    public enum TilemapType
+    {
+        Ground,
+        Wall,
+        BreakWall,
+        Start,
+        End,
+    }
 }
 
 
