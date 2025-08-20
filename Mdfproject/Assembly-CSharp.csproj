@@ -85,7 +85,7 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\EnvMapAnimator.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_UiFrameRateCounter.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarNode.cs" />
-    <Compile Include="Assets\Scripts\Game\Game Rules\Interface\IPlacementHandler.cs" />
+    <Compile Include="Assets\Scripts\Game\Interfaces\IPlacementHandler.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\CameraController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMPro_InstructionOverlay.cs" />
     <Compile Include="Assets\Scripts\Button\ShopToggleButton.cs" />
@@ -116,7 +116,6 @@
     <Compile Include="Assets\Scripts\UI\AugmentUIController.cs" />
     <Compile Include="Assets\Scripts\Game\Units\UnitData.cs" />
     <Compile Include="Assets\Scripts\UI\ShopSlot.cs" />
-    <Compile Include="Assets\Scripts\UI\UIManagers_Updated.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark03.cs" />
     <Compile Include="Assets\Scripts\Managers\SceneManagers.cs" />
     <Compile Include="Assets\Scripts\Button\PlacementButtonsUI.cs" />
@@ -146,6 +145,17 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark01.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
+    <Compile Include="Assets\Scripts\Game\Monsters\MonsterData.cs" />
+    <Compile Include="Assets\Scripts\Enums\DamageType.cs" />
+    <Compile Include="Assets\Scripts\Game\Game Rules\DamageCalculator.cs" />
+    <Compile Include="Assets\Scripts\Enums\MonsterType.cs" />
+    <Compile Include="Assets\Scripts\Enums\MonsterRank.cs" />
+    <Compile Include="Assets\Scripts\Game\Skills\SkillData.cs" />
+    <Compile Include="Assets\Scripts\Game\Interfaces\ISkill.cs" />
+    <Compile Include="Assets\Scripts\Enums\SkillActivationType.cs" />
+    <Compile Include="Assets\Scripts\Game\Game Rules\ManaController.cs" />
+    <Compile Include="Assets\Scripts\Game\Skills\AreaDamageSkill.cs" />
+    <Compile Include="Assets\Scripts\Game\Interfaces\IEnemy.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
