@@ -10,34 +10,23 @@ public class MonsterSpawner : MonoBehaviour
     [Header("스폰 설정")]
     public Transform spawnPoint;
     public Transform goalTransform;
-    public GameObject monsterPrefab;
+    [Tooltip("스폰할 몬스터의 프리팹입니다. 이 프리팹에는 Monster 컴포넌트와 MonsterData 에셋이 연결되어 있어야 합니다.")]
+    public GameObject monsterPrefab; // 기본 웨이브용 몬스터 프리팹
 
     [Header("정리용 부모 오브젝트")]
-    [Tooltip("생성된 몬스터들이 이 오브젝트의 자식으로 들어갑니다. 비워두면 '[Monsters]' 이름으로 자동 생성됩니다.")]
+    [Tooltip("생성된 몬스터들이 이 오브젝트의 자식으로 들어갑니다.")]
     public Transform monsterParent;
 
     [Header("참조")]
     public AstarGrid pathfinder;
 
-    // ✅ [추가] Awake 메서드에서 부모 오브젝트 자동 생성/설정
     void Awake()
     {
         if (monsterParent == null)
         {
-            // 이 스포너와 같은 레벨에 있는 [Monsters] 오브젝트를 먼저 찾아봅니다.
-            Transform foundParent = transform.parent.Find("[Monsters]");
-            if (foundParent != null)
-            {
-                monsterParent = foundParent;
-            }
-            else
-            {
-                // 찾지 못하면 새로 생성합니다.
-                GameObject parentObject = new GameObject("[Monsters]");
-                // 생성된 부모 오브젝트도 이 스포너와 같은 부모 아래에 두어 정리합니다.
-                parentObject.transform.SetParent(transform.parent);
-                monsterParent = parentObject.transform;
-            }
+            GameObject parentObject = new GameObject($"[{playerManager.name} Monsters]");
+            parentObject.transform.SetParent(transform.parent);
+            monsterParent = parentObject.transform;
         }
     }
 
@@ -49,11 +38,20 @@ public class MonsterSpawner : MonoBehaviour
 
     IEnumerator SpawnMonsterCoroutine(int count)
     {
-        if (pathfinder == null)
+        if (pathfinder == null || monsterPrefab == null)
         {
-            Debug.LogError("MonsterSpawner에 AstarGrid가 연결되지 않았습니다!", this);
+            Debug.LogError("MonsterSpawner에 AstarGrid 또는 monsterPrefab이 연결되지 않았습니다!", this);
             yield break;
         }
+
+        // ✅ [수정] 프리팹에서 MonsterData를 미리 한 번만 가져옵니다.
+        Monster monsterComponentInPrefab = monsterPrefab.GetComponent<Monster>();
+        if (monsterComponentInPrefab == null || monsterComponentInPrefab.monsterData == null)
+        {
+            Debug.LogError($"'{monsterPrefab.name}' 프리팹에 Monster 컴포넌트나 MonsterData가 없습니다!", monsterPrefab);
+            yield break;
+        }
+        MonsterData dataToSpawn = monsterComponentInPrefab.monsterData;
         
         for (int i = 0; i < count; i++)
         {
@@ -68,7 +66,8 @@ public class MonsterSpawner : MonoBehaviour
 
             if (monster != null)
             {
-                monster.Initialize(this.playerManager, this.goalTransform);
+                // ✅ [수정] 세 번째 인자로 MonsterData를 전달합니다.
+                monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn);
                 ApplyOpponentDebuffs(monster);
 
                 Vector2Int startPos = new Vector2Int(Mathf.RoundToInt(spawnPoint.position.x), Mathf.RoundToInt(spawnPoint.position.y));
@@ -120,26 +119,30 @@ public class MonsterSpawner : MonoBehaviour
     
     public void SpawnSpecificMonster(GameObject monsterPrefabToSpawn)
     {
-        if (pathfinder == null)
+        if (pathfinder == null || monsterPrefabToSpawn == null)
         {
-            Debug.LogError("MonsterSpawner에 AstarGrid가 연결되지 않았습니다!", this);
+            Debug.LogError("MonsterSpawner에 AstarGrid 또는 특정 몬스터 프리팹이 없습니다!", this);
             return;
         }
-
-        if (spawnPoint == null || goalTransform == null)
-        {
-             Debug.LogError("스폰 포인트 또는 목표 지점이 할당되지 않았습니다!", this);
-             return;
-        }
         
-        Debug.Log($"<color=red>보스 몬스터 소환!</color> {monsterPrefabToSpawn.name} at Player {playerManager.playerId}'s field");
+        // ✅ [수정] 특정 몬스터 프리팹에서도 MonsterData를 가져옵니다.
+        Monster monsterComponentInPrefab = monsterPrefabToSpawn.GetComponent<Monster>();
+        if (monsterComponentInPrefab == null || monsterComponentInPrefab.monsterData == null)
+        {
+            Debug.LogError($"'{monsterPrefabToSpawn.name}' 프리팹에 Monster 컴포넌트나 MonsterData가 없습니다!", monsterPrefabToSpawn);
+            return;
+        }
+        MonsterData dataToSpawn = monsterComponentInPrefab.monsterData;
+
+        Debug.Log($"<color=red>보스 몬스터 소환!</color> {dataToSpawn.monsterName} at Player {playerManager.playerId}'s field");
         
         GameObject monsterGO = Instantiate(monsterPrefabToSpawn, spawnPoint.position, Quaternion.identity, monsterParent);
         Monster monster = monsterGO.GetComponent<Monster>();
 
         if (monster != null)
         {
-            monster.Initialize(this.playerManager, this.goalTransform);
+            // ✅ [수정] 세 번째 인자로 MonsterData를 전달합니다.
+            monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn);
             
             Vector2Int startPos = new Vector2Int(Mathf.RoundToInt(spawnPoint.position.x), Mathf.RoundToInt(spawnPoint.position.y));
             Vector2Int endPos = new Vector2Int(Mathf.RoundToInt(goalTransform.position.x), Mathf.RoundToInt(goalTransform.position.y));

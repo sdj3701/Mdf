@@ -1,18 +1,19 @@
+// Assets/Scripts/Button/SoundButton.cs
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
 public class SoundButton : BaseButton
 {
-    public override void OnClick()
+    public async override void OnClick()
     {
         uiManager.ReturnUIElement("OptionCanvas");
-        uiManager.GetUIElement("SoundCanvas");
+        await uiManager.GetUIElement("SoundCanvas");
     }
 
-    public override void BackButton()
+    public async override void BackButton()
     {
         uiManager.ReturnUIElement("SoundCanvas");
-        uiManager.GetUIElement("OptionCanvas");
+        await uiManager.GetUIElement("OptionCanvas");
     }
 }
