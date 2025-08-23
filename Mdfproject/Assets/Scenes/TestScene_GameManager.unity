@@ -477,9 +477,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d3d5f0a454fded40972a205f228f082, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  destructionTime: 1
-  destructionEffect: {fileID: 0}
-  destructionSound: {fileID: 0}
+  maxHealth: 200
+  defense: 10
+  magicResistance: 0
 --- !u!114 &41498339
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2892,7 +2892,7 @@ PrefabInstance:
     - target: {fileID: 4576231692935334371, guid: 1831533972272eb408da1971d3a1e504,
         type: 3}
       propertyPath: m_LocalPosition.y
-      value: -9.33
+      value: -10
       objectReference: {fileID: 0}
     - target: {fileID: 6740020198538101691, guid: 1831533972272eb408da1971d3a1e504,
         type: 3}
@@ -2902,7 +2902,7 @@ PrefabInstance:
     - target: {fileID: 6740020199651390622, guid: 1831533972272eb408da1971d3a1e504,
         type: 3}
       propertyPath: m_LocalPosition.y
-      value: -9.38
+      value: -10
       objectReference: {fileID: 0}
     - target: {fileID: 6740020199858137440, guid: 1831533972272eb408da1971d3a1e504,
         type: 3}
@@ -3057,9 +3057,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d3d5f0a454fded40972a205f228f082, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  destructionTime: 1
-  destructionEffect: {fileID: 0}
-  destructionSound: {fileID: 0}
+  maxHealth: 200
+  defense: 10
+  magicResistance: 0
 --- !u!19719996 &1797826367
 TilemapCollider2D:
   m_ObjectHideFlags: 0
@@ -5037,6 +5037,11 @@ PrefabInstance:
       propertyPath: groundTilemap
       value: 
       objectReference: {fileID: 780557275}
+    - target: {fileID: 4576231692935334371, guid: 1831533972272eb408da1971d3a1e504,
+        type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 6740020198538101691, guid: 1831533972272eb408da1971d3a1e504,
         type: 3}
       propertyPath: m_Enabled
@@ -5047,6 +5052,11 @@ PrefabInstance:
       propertyPath: obstacleTilemap
       value: 
       objectReference: {fileID: 41498336}
+    - target: {fileID: 6740020199651390622, guid: 1831533972272eb408da1971d3a1e504,
+        type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 6740020199858137442, guid: 1831533972272eb408da1971d3a1e504,
         type: 3}
       propertyPath: m_Name

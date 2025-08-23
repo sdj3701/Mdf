@@ -21,13 +21,13 @@ public class ShopToggleButton : MonoBehaviour
         }
     }
 
-    private void OpenShopPanel()
+    private async void OpenShopPanel()
     {
         // UIManagers를 통해 "ShopPanel"을 켭니다.
         // UIManagers가 MainCanvas를 알아서 찾아 그 아래에 생성해 줄 것입니다.
         if (UIManagers.Instance != null)
         {
-            UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
+            await UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
         }
     }
 }

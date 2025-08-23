@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: -4950746016226421887}
   - component: {fileID: 2958327059153163017}
   - component: {fileID: -4012169777175890260}
+  - component: {fileID: 7600661703355144067}
   m_Layer: 0
   m_Name: Hero
   m_TagString: Untagged
@@ -114,10 +115,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   unitData: {fileID: 0}
+  skillButtonPrefab: {fileID: 0}
+  worldSpaceCanvas: {fileID: 0}
   starLevel: 1
+  currentHP: 0
+  currentAttackDamage: 0
+  currentAttackSpeed: 0
+  currentAttackRange: 0
+  currentDefense: 0
+  currentMagicResistance: 0
+  blockedMonsters: []
   enemyLayerMask:
     serializedVersion: 2
-    m_Bits: 0
+    m_Bits: 8192
 --- !u!61 &2958327059153163017
 BoxCollider2D:
   m_ObjectHideFlags: 0
@@ -165,3 +175,15 @@ Rigidbody2D:
   m_SleepingMode: 1
   m_CollisionDetection: 0
   m_Constraints: 0
+--- !u!114 &7600661703355144067
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4670276977646022270}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d2618c7a27fc7b449baf0693c04e7b8b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
