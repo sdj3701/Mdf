@@ -80,7 +80,7 @@ public class GameManagers : MonoBehaviour
 
     void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        if (scene.name == "Game" || scene.name == "TestScene_GameManager")
+        if (scene.name == "Game" || FindObjectOfType<GameSceneInitializer>() != null)
         {
             StopAllCoroutines();
             StartCoroutine(GameFlow()); // ✅ 게임 전체 흐름을 관리하는 새 코루틴 호출
