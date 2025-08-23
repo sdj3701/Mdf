@@ -12,8 +12,8 @@ public class ShopUIController : MonoBehaviour
     public TextMeshProUGUI rerollCostText;
 
     [Header("상점 토글 버튼 설정")]
-    public Button toggleButton; // 'Close'와 'Open' 역할을 할 단일 버튼
-    public TextMeshProUGUI toggleButtonText; // 토글 버튼의 텍스트
+    public Button toggleButton;
+    public TextMeshProUGUI toggleButtonText;
 
     [Header("내부 콘텐츠 토글 설정")]
     public GameObject slotsContainer;
@@ -23,7 +23,6 @@ public class ShopUIController : MonoBehaviour
 
     void Awake()
     {
-        // 토글 버튼에 리스너를 연결합니다.
         if (toggleButton != null)
         {
             toggleButton.onClick.AddListener(ToggleContent);
@@ -32,13 +31,10 @@ public class ShopUIController : MonoBehaviour
 
     void OnEnable()
     {
-        // UI가 활성화될 때마다 항상 로컬 플레이어 매니저를 찾고 UI를 설정합니다.
         if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null)
         {
             localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
             SetupUI();
-            
-            // 상점이 켜질 때 기본적으로 내용을 표시하도록 설정합니다.
             SetContentVisibility(true);
         }
         else
@@ -69,11 +65,9 @@ public class ShopUIController : MonoBehaviour
 
         bool isPreparePhase = (GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare);
         
-        // 준비 단계일 때만 리롤 버튼과 토글 버튼이 활성화됩니다.
         rerollButton.interactable = isPreparePhase;
         if (toggleButton != null) toggleButton.interactable = isPreparePhase;
 
-        // 구매 버튼 활성화 로직은 그대로 유지
         foreach (var slot in shopSlots)
         {
             if (!slot.IsPurchased())
@@ -83,31 +77,19 @@ public class ShopUIController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// 토글 버튼을 누를 때 호출되어 상점 내용의 표시 여부를 전환합니다.
-    /// </summary>
     public void ToggleContent()
     {
-        // 현재 슬롯 컨테이너의 활성화 상태를 뒤집습니다.
         bool newVisibility = !slotsContainer.activeSelf;
         SetContentVisibility(newVisibility);
     }
 
-    /// <summary>
-    /// 상점 내용(슬롯, 리롤 버튼)의 표시 여부를 설정하고 버튼 텍스트를 업데이트합니다.
-    /// </summary>
     public void SetContentVisibility(bool isVisible)
     {
         if (slotsContainer != null) slotsContainer.SetActive(isVisible);
         if (rerollButtonObject != null) rerollButtonObject.SetActive(isVisible);
-
-        // 내용의 표시 여부에 따라 버튼 텍스트를 업데이트합니다.
         UpdateButtonText();
     }
     
-    /// <summary>
-    /// 현재 상점 상태에 맞춰 토글 버튼의 텍스트를 "Open" 또는 "Close"로 변경합니다.
-    /// </summary>
     private void UpdateButtonText()
     {
         if (toggleButtonText == null) return;
@@ -122,14 +104,23 @@ public class ShopUIController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 상점 슬롯의 내용을 최신 정보로 업데이트합니다.
+    /// </summary>
     public void UpdateShopSlots()
     {
         if (localPlayerShopManager == null) return;
-        List<UnitData> currentItems = localPlayerShopManager.GetCurrentShopItems();
+
+        // --- [수정된 부분] ---
+        // ShopManager로부터 List<ShopItem>을 받도록 변수 타입을 수정합니다.
+        List<ShopItem> currentItems = localPlayerShopManager.GetCurrentShopItems();
         DisplayShopItems(currentItems);
     }
 
-    public void DisplayShopItems(List<UnitData> items)
+    /// <summary>
+    /// ShopItem 리스트를 받아 각 슬롯에 표시합니다.
+    /// </summary>
+    public void DisplayShopItems(List<ShopItem> items)
     {
         if (items == null)
         {
@@ -137,7 +128,6 @@ public class ShopUIController : MonoBehaviour
             return;
         }
 
-        Debug.Log($"[ShopUIController] DisplayShopItems 호출됨. 아이템 {items.Count}개로 화면 갱신 시도.");
         for (int i = 0; i < shopSlots.Length; i++)
         {
             if (i < items.Count)
@@ -146,7 +136,8 @@ public class ShopUIController : MonoBehaviour
             }
             else
             {
-                shopSlots[i].DisplayUnit(null);
+                // 빈 슬롯은 비어있는 ShopItem으로 초기화하여 비활성화합니다.
+                shopSlots[i].DisplayUnit(new ShopItem());
             }
         }
     }
@@ -158,9 +149,7 @@ public class ShopUIController : MonoBehaviour
             rerollCostText.text = $"{localPlayerShopManager.GetRerollCost()} G";
         }
     }
-
-
-
+    
     private void OnRerollButtonClick()
     {
         if (localPlayerShopManager != null)

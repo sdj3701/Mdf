@@ -1,94 +1,168 @@
 // Assets/Scripts/Game/Units/Unit.cs
 using UnityEngine;
+using UnityEngine.UI;
 using System.Collections;
-using System.Collections.Generic; // List<T>를 사용하기 위해 추가
-using System.Linq;
+using System.Collections.Generic;
 
-public class Unit : MonoBehaviour
+[RequireComponent(typeof(ManaController))]
+public class Unit : MonoBehaviour, IEnemy
 {
     [Header("참조 데이터")]
-    [SerializeField] // SerializeField는 유지하여 디버깅 시 인스펙터에서 확인은 가능하게 합니다.
-    private UnitData unitData; // 유닛의 모든 원본 데이터를 담고 있는 ScriptableObject
-
+    [SerializeField] private UnitData unitData;
     public UnitData Data => unitData;
 
-    [Header("현재 상태 (인게임 변수)")]
-    public int starLevel = 1;
-    private float currentHP;
-    private float currentAttackDamage;
-    private float currentAttackSpeed;
-    private float currentAttackRange;
+    [Header("원거리 유닛 참조")]
+    [Tooltip("투사체가 생성될 위치입니다. 유닛 프리팹의 자식 오브젝트를 이 곳에 연결하세요.")]
+    public Transform firePoint;
 
-    // 저지하고 있는 몬스터를 추적하기 위한 리스트
-    private List<Monster> blockedMonsters = new List<Monster>();
+    [Header("수동 스킬 UI")]
+    public GameObject skillButtonPrefab;
+    public Canvas worldSpaceCanvas; // 월드 스페이스 캔버스 참조
 
-    [Header("공격 대상 설정")]
-    public LayerMask enemyLayerMask;
-    private Transform targetEnemy;
+    // --- 현재 상태 및 시스템 컴포넌트 ---
+    public int starLevel { get; private set; } = 1;
+
+    [Header("현재 스탯 (읽기 전용)")]
+    [SerializeField] private float currentHP;
+    [SerializeField] private float currentAttackDamage;
+    [SerializeField] private float currentAttackSpeed;
+    [SerializeField] private float currentAttackRange;
+    [SerializeField] private float currentDefense;
+    [SerializeField] private float currentMagicResistance;
+
+    private ManaController manaController;
+    private ISkill skillInstance;
+    private GameObject skillButtonInstance;
+
     private Coroutine attackCoroutine;
+    [SerializeField] private List<Monster> blockedMonsters = new List<Monster>();
+    public LayerMask enemyLayerMask;
+    private IEnemy targetEnemy;
+    private Transform targetTransform;
 
     /// <summary>
-    /// 외부에서 UnitData를 주입받아 모든 초기화를 수행하는 public 메서드.
-    /// 이 함수는 유닛이 생성된 직후 FieldManager에 의해 단 한번 호출됩니다.
+    /// 유닛이 처음 생성될 때 FieldManager에 의해 호출됩니다.
     /// </summary>
     public void Initialize(UnitData data)
     {
         this.unitData = data;
+        this.starLevel = 1; // 처음 생성 시 항상 1성
+
+        manaController = GetComponent<ManaController>();
+        manaController.Initialize(unitData.maxMana);
+
         InitializeStats();
+        InitializeSkill();
+
         StartAttackLoop();
     }
 
     /// <summary>
-    /// UnitData와 성급에 따라 스탯을 초기화합니다.
+    /// 현재 starLevel에 따라 스탯을 계산하고 적용합니다.
     /// </summary>
     public void InitializeStats()
     {
-        if (unitData == null)
-        {
-            Debug.LogError($"{gameObject.name}에 UnitData가 할당되지 않았습니다!");
-            return;
-        }
+        if (unitData == null) return;
+        // 1.8의 (성급-1) 제곱만큼 스탯을 강화합니다. (1성: 1배, 2성: 1.8배, 3성: 3.24배)
+        float statMultiplier = Mathf.Pow(1.8f, starLevel - 1);
 
-        float starMultiplier = Mathf.Pow(2, starLevel - 1);
-
-        currentHP = unitData.baseHealth * starMultiplier;
-        currentAttackDamage = unitData.baseAttackDamage * starMultiplier;
+        currentHP = unitData.baseHealth * statMultiplier;
+        currentAttackDamage = unitData.baseAttackDamage * statMultiplier;
         currentAttackSpeed = unitData.attackSpeed;
         currentAttackRange = unitData.attackRange;
+        currentDefense = unitData.defense;
+        currentMagicResistance = unitData.magicResistance;
+    }
 
-        Debug.Log($"{unitData.unitName} ({starLevel}성) 스탯 초기화 완료. HP: {currentHP}, DMG: {currentAttackDamage}");
+
+    private void InitializeSkill()
+    {
+        if (skillInstance != null)
+        {
+            manaController.OnManaFull -= HandleManaFull;
+            Destroy((skillInstance as MonoBehaviour).gameObject);
+            skillInstance = null;
+        }
+
+        if (unitData.skillsByStarLevel != null && unitData.skillsByStarLevel.Length >= starLevel)
+        {
+            SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
+            if (currentSkillData != null && currentSkillData.skillLogicPrefab != null)
+            {
+                GameObject skillObject = Instantiate(currentSkillData.skillLogicPrefab, transform);
+                skillInstance = skillObject.GetComponent<ISkill>();
+                manaController.OnManaFull += HandleManaFull;
+            }
+        }
+    }
+
+
+    /// <summary>
+    /// 현재 starLevel에 맞는 스킬을 UnitData에서 가져와 설정합니다.
+    /// </summary>
+    public void Initialize(UnitData data, int initialStarLevel)
+    {
+        this.unitData = data;
+        this.starLevel = initialStarLevel; // [변경됨] 1로 고정하지 않고, 받은 값으로 설정
+
+        manaController = GetComponent<ManaController>();
+        manaController.Initialize(unitData.maxMana);
+
+        InitializeStats();
+        InitializeSkill();
+
+        StartAttackLoop();
     }
 
     /// <summary>
-    /// 유닛을 한 단계 업그레이드합니다.
+    /// FieldManager에 의해 호출되어 유닛을 업그레이드합니다.
     /// </summary>
     public void Upgrade()
     {
         if (starLevel < 3)
         {
             starLevel++;
-            InitializeStats();
-            Debug.Log($"{unitData.unitName}이(가) {starLevel}성으로 업그레이드되었습니다!");
+            InitializeStats(); // 새로운 성급에 맞게 스탯 재계산
+            InitializeSkill(); // 새로운 성급에 맞는 스킬로 교체
+
+            Debug.Log($"<color=cyan>{unitData.unitName}이(가) {starLevel}성으로 업그레이드되었습니다!</color>");
+            // 참고: 실제 외형(프리팹) 교체는 이 유닛을 관리하는 FieldManager에서 담당해야 합니다.
         }
     }
 
-    #region 공격 로직
+    private void HandleManaFull()
+    {
+        // UnitData의 배열에서 현재 성급에 맞는 스킬 데이터를 가져옵니다.
+        SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
+        if (currentSkillData == null) return;
 
+        if (currentSkillData.activationType == SkillActivationType.Automatic)
+        {
+            ActivateSkill();
+        }
+        else
+        {
+            ShowSkillButton();
+        }
+    }
+
+    public void ActivateSkill()
+    {
+        SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
+        if (skillInstance == null || !manaController.IsManaFull || currentSkillData == null) return;
+
+        if (manaController.UseMana(currentSkillData.manaCost))
+        {
+            skillInstance.Activate(this.gameObject);
+            HideSkillButton();
+        }
+    }
+
+    #region 공격 로직 (수정됨)
     public void StartAttackLoop()
     {
-        if (attackCoroutine == null)
-        {
-            attackCoroutine = StartCoroutine(AttackLoop());
-        }
-    }
-
-    public void StopAttackLoop()
-    {
-        if (attackCoroutine != null)
-        {
-            StopCoroutine(attackCoroutine);
-            attackCoroutine = null;
-        }
+        if (attackCoroutine != null) StopCoroutine(attackCoroutine);
+        attackCoroutine = StartCoroutine(AttackLoop());
     }
 
     private IEnumerator AttackLoop()
@@ -96,113 +170,125 @@ public class Unit : MonoBehaviour
         while (true)
         {
             FindNearestEnemy();
-
             if (targetEnemy != null)
             {
                 Attack();
             }
-
             yield return new WaitForSeconds(1f / currentAttackSpeed);
         }
     }
 
     private void FindNearestEnemy()
     {
+        // (기존 코드와 동일)
         Collider2D[] enemiesInRange = Physics2D.OverlapCircleAll(transform.position, currentAttackRange, enemyLayerMask);
-        
         float closestDistanceSqr = float.MaxValue;
-        Transform nearestEnemy = null;
-
+        IEnemy nearestEnemy = null;
+        Transform nearestTransform = null;
         foreach (var enemyCollider in enemiesInRange)
         {
-            Monster monster = enemyCollider.GetComponent<Monster>();
-
-            if (monster == null) continue;
-
-            if (unitData.unitType == UnitType.Melee && monster.monsterType == MonsterType.Flying)
+            if (enemyCollider.TryGetComponent<IEnemy>(out var enemy) && enemyCollider.TryGetComponent<Monster>(out var monster))
             {
-                continue;
-            }
-
-            float distanceSqr = (transform.position - enemyCollider.transform.position).sqrMagnitude;
-            if (distanceSqr < closestDistanceSqr)
-            {
-                closestDistanceSqr = distanceSqr;
-                nearestEnemy = enemyCollider.transform;
+                if (unitData.unitType == UnitType.Melee && monster.monsterData.monsterType == MonsterType.Flying)
+                {
+                    continue;
+                }
+                float distanceSqr = (transform.position - enemyCollider.transform.position).sqrMagnitude;
+                if (distanceSqr < closestDistanceSqr)
+                {
+                    closestDistanceSqr = distanceSqr;
+                    nearestEnemy = enemy;
+                    nearestTransform = enemyCollider.transform;
+                }
             }
         }
         targetEnemy = nearestEnemy;
+        targetTransform = nearestTransform;
     }
 
+    /// <summary>
+    /// 유닛 타입(근접/원거리)에 따라 다른 방식으로 공격합니다.
+    /// </summary>
     private void Attack()
     {
-        if (targetEnemy == null) return;
-
-        if (Vector2.Distance(transform.position, targetEnemy.position) > currentAttackRange)
+        if (targetEnemy == null || targetTransform == null || Vector2.Distance(transform.position, targetTransform.position) > currentAttackRange)
         {
             targetEnemy = null;
             return;
         }
 
-        Monster monster = targetEnemy.GetComponent<Monster>();
-        if (monster != null)
+        // 유닛 타입에 따라 공격 방식 분기
+        if (unitData.unitType == UnitType.Melee)
         {
-            monster.TakeDamage((int)currentAttackDamage);
-            Debug.Log($"{unitData.unitName}이(가) {monster.name}을(를) 공격! (데미지: {currentAttackDamage})");
+            // 근접 유닛: 즉시 데미지 적용
+            targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+        }
+        else if (unitData.unitType == UnitType.Ranged)
+        {
+            // 원거리 유닛: 투사체 발사
+            // UnitData의 projectilePrefabsByStarLevel 배열이 유효한지 확인
+            if (unitData.projectilePrefabsByStarLevel != null && unitData.projectilePrefabsByStarLevel.Length >= starLevel)
+            {
+                // 현재 성급에 맞는 투사체 프리팹을 가져옴
+                GameObject projectilePrefab = unitData.projectilePrefabsByStarLevel[starLevel - 1];
+
+                if (projectilePrefab != null && firePoint != null)
+                {
+                    // 투사체 생성
+                    GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
+                    
+                    // TODO: 생성된 투사체 스크립트에 목표(targetTransform)와 데미지(currentAttackDamage) 정보를 전달해야 합니다.
+                    // 예: projectileGO.GetComponent<Projectile>().Initialize(targetTransform, currentAttackDamage, unitData.damageType);
+                }
+            }
+        }
+
+        // 공격 시 마나 획득
+        if (skillInstance != null)
+        {
+            manaController.GainMana(15);
+        }
+    }
+    #endregion
+
+    #region 저지, 스킬 UI, IEnemy 구현 등 (기존 코드와 대부분 동일)
+
+    // ... (ShowSkillButton, HideSkillButton 메서드는 기존 코드와 동일) ...
+    private void ShowSkillButton()
+    {
+        if (skillButtonPrefab == null || worldSpaceCanvas == null) return;
+        if (skillButtonInstance == null)
+        {
+            skillButtonInstance = Instantiate(skillButtonPrefab, worldSpaceCanvas.transform);
+            skillButtonInstance.GetComponent<Button>().onClick.AddListener(ActivateSkill);
+        }
+        skillButtonInstance.transform.position = transform.position + Vector3.up * 1.5f;
+        skillButtonInstance.SetActive(true);
+    }
+    private void HideSkillButton()
+    {
+        if (skillButtonInstance != null)
+        {
+            skillButtonInstance.SetActive(false);
         }
     }
 
-    #endregion
 
-    #region 체력 및 생존 관련
-
-    public void TakeDamage(int damage)
-    {
-        currentHP -= damage;
-        if (currentHP <= 0)
-        {
-            Die();
-        }
-    }
-
-    private void Die()
-    {
-        Debug.Log($"{unitData.unitName} 사망.");
-        Destroy(gameObject);
-    }
-
-    #endregion
-
-    #region 저지 시스템
-
-    /// <summary>
-    /// 몬스터가 유닛의 저지 범위(Trigger)에 들어왔을 때 호출됩니다.
-    /// </summary>
+    // ... (OnTriggerEnter2D, ReleaseBlockedMonster 메서드는 기존 코드와 동일) ...
     private void OnTriggerEnter2D(Collider2D other)
     {
-        Monster monster = other.GetComponent<Monster>();
-
-        // 몬스터가 아니거나, 이미 내가 저지하고 있는 몬스터라면 즉시 반환
-        if (monster == null || blockedMonsters.Contains(monster))
+        if (other.TryGetComponent<Monster>(out var monster))
         {
-            return;
+            if (blockedMonsters.Contains(monster) || monster.IsBlocked() || 
+                monster.monsterData.monsterType == MonsterType.Flying || Data.blockCount <= 0 || 
+                blockedMonsters.Count >= Data.blockCount)
+            {
+                return;
+            }
+            blockedMonsters.Add(monster);
+            monster.Block(this);
         }
-
-        if (Data.blockCount <= 0) return;
-        if (blockedMonsters.Count >= Data.blockCount) return;
-
-        if (monster.monsterType == MonsterType.Flying || monster.IsBlocked())
-        {
-            return;
-        }
-
-        blockedMonsters.Add(monster);
-        monster.Block(this);
     }
-
-    /// <summary>
-    /// 저지하던 몬스터가 죽었을 때, 해당 몬스터가 이 함수를 호출하여 저지 목록에서 제외시킵니다.
-    /// </summary>
     public void ReleaseBlockedMonster(Monster monster)
     {
         if (blockedMonsters.Contains(monster))
@@ -211,19 +297,26 @@ public class Unit : MonoBehaviour
         }
     }
 
-    #endregion
-
-    void OnDrawGizmosSelected()
-    {
-        Gizmos.color = Color.red;
-        Gizmos.DrawWireSphere(transform.position, currentAttackRange);
-    }
-    
+    // ... (OnDestroy 메서드는 기존 코드와 동일) ...
     private void OnDestroy()
     {
-        StopAttackLoop();
-        
-        // 유닛이 파괴될 때, 막고 있던 모든 몬스터를 풀어줍니다.
+        if (manaController != null) manaController.OnManaFull -= HandleManaFull;
+        if (skillButtonInstance != null) Destroy(skillButtonInstance);
+    }
+
+    // ... (IEnemy 인터페이스 구현부: TakeDamage, Die 메서드는 기존 코드와 동일) ...
+    public void TakeDamage(float baseDamage, DamageType damageType)
+    {
+        if (unitData == null) return;
+        int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, currentDefense, currentMagicResistance);
+        currentHP -= finalDamage;
+        if (currentHP <= 0)
+        {
+            Die();
+        }
+    }
+    private void Die()
+    {
         foreach (var monster in blockedMonsters)
         {
             if (monster != null)
@@ -232,5 +325,10 @@ public class Unit : MonoBehaviour
             }
         }
         blockedMonsters.Clear();
+        // TODO: FieldManager에게 유닛이 죽었음을 알려서 관리 목록에서 제거하도록 해야 합니다.
+        // 예: FindObjectOfType<FieldManager>().UnitDied(this.gameObject);
+        Destroy(gameObject);
     }
+
+    #endregion
 }
