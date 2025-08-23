@@ -217,33 +217,32 @@ public class Unit : MonoBehaviour, IEnemy
             return;
         }
 
-        // 유닛 타입에 따라 공격 방식 분기
         if (unitData.unitType == UnitType.Melee)
         {
-            // 근접 유닛: 즉시 데미지 적용
             targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
         }
         else if (unitData.unitType == UnitType.Ranged)
         {
-            // 원거리 유닛: 투사체 발사
-            // UnitData의 projectilePrefabsByStarLevel 배열이 유효한지 확인
             if (unitData.projectilePrefabsByStarLevel != null && unitData.projectilePrefabsByStarLevel.Length >= starLevel)
             {
-                // 현재 성급에 맞는 투사체 프리팹을 가져옴
                 GameObject projectilePrefab = unitData.projectilePrefabsByStarLevel[starLevel - 1];
-
                 if (projectilePrefab != null && firePoint != null)
                 {
-                    // 투사체 생성
                     GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
-                    
-                    // TODO: 생성된 투사체 스크립트에 목표(targetTransform)와 데미지(currentAttackDamage) 정보를 전달해야 합니다.
-                    // 예: projectileGO.GetComponent<Projectile>().Initialize(targetTransform, currentAttackDamage, unitData.damageType);
+
+                    // --- [수정된 부분] ---
+                    // 생성된 투사체에서 Projectile 스크립트를 가져와 Initialize 메서드를 호출합니다.
+                    Projectile projectileScript = projectileGO.GetComponent<Projectile>();
+                    if (projectileScript != null)
+                    {
+                        // 투사체에게 목표, 데미지, 데미지 타입을 알려주며 임무를 부여합니다.
+                        projectileScript.Initialize(targetTransform, currentAttackDamage, unitData.damageType);
+                    }
+                    // --- [여기까지] ---
                 }
             }
         }
 
-        // 공격 시 마나 획득
         if (skillInstance != null)
         {
             manaController.GainMana(15);

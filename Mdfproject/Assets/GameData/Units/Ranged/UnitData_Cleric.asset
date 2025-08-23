@@ -19,7 +19,7 @@ MonoBehaviour:
   baseHealth: 10
   baseAttackDamage: 2
   attackSpeed: 2
-  attackRange: 2
+  attackRange: 2.5
   damageType: 1
   defense: 0
   magicResistance: 0
@@ -34,6 +34,6 @@ MonoBehaviour:
   - {fileID: 0}
   - {fileID: 0}
   projectilePrefabsByStarLevel:
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - {fileID: 3645011495362617231, guid: 8c44b94147ea3c0408ae6c0565bd5e5c, type: 3}
+  - {fileID: 3645011495362617231, guid: 8c44b94147ea3c0408ae6c0565bd5e5c, type: 3}
+  - {fileID: 3645011495362617231, guid: 8c44b94147ea3c0408ae6c0565bd5e5c, type: 3}
