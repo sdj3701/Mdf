@@ -51,6 +51,7 @@ MonoBehaviour:
   goalTransform: {fileID: 4576231692935334371}
   monsterPrefab: {fileID: 2020015458557610380, guid: 4ae077da17a50f048a4009c3a41f2705,
     type: 3}
+  monsterParent: {fileID: 0}
   pathfinder: {fileID: 425473495781712264}
 --- !u!1 &6740020198538101693
 GameObject:
@@ -62,8 +63,8 @@ GameObject:
   m_Component:
   - component: {fileID: 6740020198538101690}
   - component: {fileID: 6740020198538101691}
-  - component: {fileID: 4379164922035000959}
   - component: {fileID: 425473495781712264}
+  - component: {fileID: 2878773992709929025}
   m_Layer: 0
   m_Name: FieldManager
   m_TagString: Untagged
@@ -99,25 +100,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   playerManager: {fileID: 6740020199858137440}
-  obstacleTilemap: {fileID: 0}
---- !u!114 &4379164922035000959
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 6740020198538101693}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: edc6e52a685073e4aa1c48c49cd84a47, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  groundTilemap: {fileID: 0}
-  playerCamera: {fileID: 0}
-  wallTileToPlace: {fileID: 11400000, guid: 677b8480bf63037499a7e15aa29695ec, type: 2}
-  showPreview: 1
-  validPreviewColor: {r: 0, g: 1, b: 0, a: 0.5}
-  invalidPreviewColor: {r: 1, g: 0, b: 0, a: 0.5}
+  unitParent: {fileID: 0}
 --- !u!114 &425473495781712264
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -146,6 +129,21 @@ MonoBehaviour:
   wallLayers:
     serializedVersion: 2
     m_Bits: 32896
+--- !u!114 &2878773992709929025
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6740020198538101693}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d1dbf1efe359760498ccb8a4ef18f96b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  showPreview: 1
+  validPreviewColor: {r: 0, g: 1, b: 0, a: 0.5}
+  invalidPreviewColor: {r: 1, g: 0, b: 0, a: 0.5}
 --- !u!1 &6740020198993675126
 GameObject:
   m_ObjectHideFlags: 0

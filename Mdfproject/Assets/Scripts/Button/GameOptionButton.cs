@@ -10,9 +10,8 @@ public class GameOptionButton : BaseButton
         base.Start();
     }
 
-
-    public override void OnClick()
+    public async override void OnClick()
     {
-        uiManager.GetUIElement("OptionCanvas");
+        await uiManager.GetUIElement("OptionCanvas");
     }
 }

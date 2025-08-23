@@ -5,69 +5,71 @@ using UnityEngine;
 
 public class UIPool
 {
-    // ✅ 'new' 키워드 제거!
-    private static Dictionary<string, GameObject> pool = new Dictionary<string, GameObject>();
     private GameObject prefab;
+    private string addressableKey;
+    private Transform poolParent;
 
-    public UIPool(GameObject prefab, string uiname = null)
-    {
-        if (uiname == null && prefab != null)
-        {
-            this.prefab = prefab;
-            string name = prefab.name;
-            if (!pool.ContainsKey(name))
-            {
-                pool.Add(name, prefab);
-            }
-            else
-            {
-                pool[name] = prefab;
-            }
-        }
-    }
+    // [개선] 이제 static이 아닌, 각 풀 인스턴스에 속한 큐(Queue)를 사용합니다.
+    private Queue<GameObject> availableObjects = new Queue<GameObject>();
+    // [개선] 현재 활성화된 오브젝트를 추적합니다.
+    private GameObject activeObject = null;
 
-    public async UniTask<GameObject> GetObject(string name, Transform parent)
+    public UIPool(GameObject prefab, string key = null)
     {
-        if (pool.ContainsKey(name) && pool[name] != null)
-        {
-            GameObject obj = pool[name];
-            obj.transform.SetParent(parent, false);
-            obj.SetActive(true);
-            return obj;
-        }
-        else
-        {
-            // ✅ 싱글톤 인스턴스를 통해 LoadObject 호출
-            GameObject newInstance = await AddressablesManager.Instance.LoadObject(name, parent);
-            if (newInstance != null)
-            {
-                pool[name] = newInstance;
-                newInstance.SetActive(true);
-            }
-            return newInstance;
-        }
+        this.prefab = prefab;
+        this.addressableKey = key ?? (prefab != null ? prefab.name : string.Empty);
     }
     
-    // AddGetObject 함수는 GetObject에 통합되었으므로 제거해도 됩니다.
-    // private async UniTask<GameObject> AddGetObject(...)
-
-    public void ReturnObject(string name)
+    public async UniTask<GameObject> GetObject(Transform parent)
     {
-        if (pool.ContainsKey(name) && pool[name] != null)
+        if (activeObject != null)
         {
-            pool[name].SetActive(false);
+            activeObject.transform.SetParent(parent, false);
+            activeObject.SetActive(true);
+            return activeObject;
         }
-        else
+
+        if (availableObjects.Count > 0)
         {
-            GameObject objInScene = GameObject.Find(name + "(Clone)");
-            if (objInScene != null)
-            {
-                objInScene.SetActive(false);
-            }
-            else
-            {
-                 Debug.LogWarning($"⚠️ 반환할 '{name}' 인스턴스를 찾을 수 없음");
-            }
+            activeObject = availableObjects.Dequeue();
+            activeObject.transform.SetParent(parent, false);
+            activeObject.SetActive(true);
+            return activeObject;
+        }
+
+        return await CreateNewObject(parent);
+    }
+
+    private async UniTask<GameObject> CreateNewObject(Transform parent)
+    {
+        GameObject newInstance = null;
+        if (prefab != null)
+        {
+            newInstance = Object.Instantiate(prefab, parent);
+        }
+        else if (!string.IsNullOrEmpty(addressableKey))
+        {
+            newInstance = await AddressablesManager.Instance.LoadObject(addressableKey, parent);
+        }
+
+        if (newInstance != null)
+        {
+            newInstance.name = addressableKey; // (Clone) 접미사 제거
+            activeObject = newInstance;
+            activeObject.SetActive(true);
+        }
+        return newInstance;
+    }
+
+    public void ReturnObject()
+    {
+        if (activeObject != null)
+        {
+            activeObject.SetActive(false);
+            // 필요하다면 풀의 부모 오브젝트 아래로 이동시켜 정리할 수 있습니다.
+            // activeObject.transform.SetParent(poolParent);
+            availableObjects.Enqueue(activeObject);
+            activeObject = null;
         }
     }
 }

@@ -1,273 +1,246 @@
-﻿using GameCore;
-using GameCore.Enums;
-using System.Collections.Generic;
-using TMPro;
+﻿// Assets/Scripts/Managers/PlacementManager.cs
 using UnityEngine;
+using UnityEngine.Tilemaps;
+using System.Collections.Generic;
 
-public partial class PlacementManager : RegisteredComponent
+public enum PlacementMode
 {
-    public static PlacementManager Instance { get; private set; }
+    None,
+    Unit,
+    Wall
+}
 
-    [Header("게임로직 설정")]
-    public float PlacementTime = 10.0f;
-    public static int CreateWallCount = 5;
-    public float CharacterSortingOrder = 10f;
-
+[RequireComponent(typeof(FieldManager))]
+public class PlacementManager : MonoBehaviour
+{
     [Header("프리뷰 설정")]
-    public bool ShowPreview = true;
-    public Color PreviewColor = Color.green;
+    [SerializeField] private bool showPreview = true;
+    [SerializeField] private Color validPreviewColor = new Color(0f, 1f, 0f, 0.5f);
+    [SerializeField] private Color invalidPreviewColor = new Color(1f, 0f, 0f, 0.5f);
 
-    // 현재 마우스 위치
-    public Vector3Int CurrentMouseGridPosition { get; private set; }
+    private PlacementMode currentMode = PlacementMode.None;
+    private GameObject unitPrefabToPlace;
+    private GameObject previewObject;
+    private SpriteRenderer previewRenderer;
+    private Vector3Int currentMouseGridPosition;
 
-    // 현재 배치 모드
-    public PlacementMode CurrentPlacementMode { get; private set; } = PlacementMode.None;
+    // --- [수정된 부분] ---
+    private PlayerManager playerManager;
+    private FieldManager fieldManager; // FieldManager를 직접 참조하여 유닛 위치 정보를 얻습니다.
 
-    // 생성된 캐릭터 관리
-    public static Dictionary<Vector3Int, GameObject> SpawnedCharacters = new Dictionary<Vector3Int, GameObject>();
+    private Tilemap groundTilemap => GameAssets.TileMaps.GroundTilemap;
+    private Tilemap obstacleTilemap => GameAssets.TileMaps.BreakWallTilemap;
+    private Camera playerCamera => GameAssets.Cameras.MainCamera;
+    private TileBase wallTileToPlace => GameAssets.Tiles.BreakWall;
 
-    // 배치 핸들러들
-    private List<IPlacementHandler> placementHandlers = new List<IPlacementHandler>();
+    private readonly Plane gamePlane = new Plane(Vector3.forward, 0);
 
-    // 이벤트 시스템
-    public System.Action<Vector3Int> OnMousePositionChanged;
-    public System.Action<PlacementMode> OnPlacementModeChanged;
-
-
-
-    [Header("타일맵 타입")]
-    [SerializeField] private TilemapType tilemapType;
-
-    protected override void Awake()
+    // [수정됨] Awake에서 필요한 컴포넌트들을 참조합니다.
+    void Awake()
     {
-        if (Instance == null)
+        fieldManager = GetComponent<FieldManager>();
+        if (fieldManager == null)
         {
-            Instance = this;
-            DontDestroyOnLoad(gameObject);
-        }
-        else
-        {
-            Destroy(gameObject);
-        }
-
-        componentId = "PlacementManager";
-        base.Awake();
-    }
-
-    protected override void RegisterSelf()
-    {
-        ComponentRegistry.Register("PlacementManager", this);
-    }
-
-    protected override void UnregisterSelf()
-    {
-        ComponentRegistry.Unregister<PlacementManager>("PlacementManager");
-    }
-
-#if UNITY_EDITOR
-    private void OnValidate()
-    {
-        if (!string.IsNullOrEmpty(componentId))
-        {
-            componentId = tilemapType.ToString() + "Tilemap";
+            Debug.LogError("PlacementManager가 FieldManager를 찾을 수 없습니다!", gameObject);
+            this.enabled = false;
         }
     }
-#endif
-
-    private void Start()
+    
+    // [수정됨] Initialize 메서드는 이제 PlayerManager만 받습니다.
+    public void Initialize(PlayerManager pm)
     {
-        // 간단한 초기화
-        RegisterPlacementHandlers();
+        playerManager = pm;
+        if (playerManager == null)
+        {
+            Debug.LogError("PlacementManager 초기화 실패: PlayerManager 참조가 null입니다!", gameObject);
+            this.enabled = false;
+        }
     }
 
-    private void Update()
+    void Update()
     {
-        // 게임 상태 확인
-        if (GameManagers.Instance != null &&
-            GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare)
+        if (currentMode == PlacementMode.None)
         {
+            if (previewObject != null && previewObject.activeSelf)
+                previewObject.SetActive(false);
+            return;
+        }
+        
+        if (obstacleTilemap == null || playerCamera == null) return;
+
+        UpdateMousePosition();
+        HandleMouseInput();
+        if (showPreview)
+            UpdatePreviewDisplay();
+    }
+
+    #region Public Methods (FieldManager가 호출)
+
+    public PlacementMode GetCurrentMode()
+    {
+        return currentMode;
+    }
+
+    public void StartPlacementMode(PlacementMode mode, GameObject unitPrefab = null)
+    {
+        if (GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare)
+        {
+            Debug.LogWarning("준비 단계에서만 배치할 수 있습니다.");
             return;
         }
 
-        UpdateMousePosition();
-        UpdateWallCountUI();
-        HandleCurrentModeInput();
+        currentMode = mode;
+        unitPrefabToPlace = unitPrefab;
+        SetupPreviewObject();
     }
 
-    private void RegisterPlacementHandlers()
+    public void StopPlacementMode()
     {
-
-        placementHandlers.Clear();
-
-        var wallHandler = GetComponent<WallPlacementHandler>();
-        if (wallHandler != null)
+        currentMode = PlacementMode.None;
+    }
+    
+    /// <summary>
+    /// 지정된 그리드 위치에 유닛이나 벽을 배치할 수 있는지 확인합니다.
+    /// </summary>
+    public bool IsPositionValidForPlacement(Vector3Int gridPosition)
+    {
+        if (groundTilemap == null || obstacleTilemap == null || fieldManager == null)
         {
-            placementHandlers.Add(wallHandler);
+            Debug.LogWarning("[PlacementManager] 타일맵 또는 FieldManager 참조를 찾을 수 없습니다.");
+            return false;
         }
 
-        var characterHandler = GetComponent<CharacterPlacementHandler>();
-        if (characterHandler != null)
+        bool hasGroundTile = groundTilemap.GetTile(gridPosition) != null;
+        bool hasObstacle = obstacleTilemap.GetTile(gridPosition) != null;
+        // [수정됨] FieldManager에게 해당 위치에 유닛이 있는지 직접 물어봅니다.
+        bool hasUnit = fieldManager.IsUnitAt(gridPosition);
+
+        return hasGroundTile && !hasObstacle && !hasUnit;
+    }
+
+    #endregion
+
+    #region Input & Placement Logic
+
+    private void HandleMouseInput()
+    {
+        if (Input.GetMouseButtonDown(0))
         {
-            placementHandlers.Add(characterHandler);
+            TryPlace();
         }
-
-        Debug.Log($"🔧 총 {placementHandlers.Count}개 핸들러 등록");
-    }
-
-    private void UpdateMousePosition()
-    {
-        var playerCamera = GameAssets.Cameras.MainCamera;
-        if (GameAssets.TileMaps.BreakWallTilemap == null || playerCamera == null) return;
-
-        Vector3 mouseWorldPosition = GetMouseWorldPosition();
-        Vector3Int newGridPosition = GameAssets.TileMaps.BreakWallTilemap.WorldToCell(mouseWorldPosition);
-
-        if (newGridPosition != CurrentMouseGridPosition)
+        if (Input.GetMouseButtonDown(1))
         {
-            CurrentMouseGridPosition = newGridPosition;
-            OnMousePositionChanged?.Invoke(CurrentMouseGridPosition);
-        }
-    }
-
-    private void UpdateWallCountUI()
-    {
-        // GameAssets를 통해 접근
-        var wallCountText = GameAssets.UI.CurrentBreakWall;
-        if (wallCountText != null)
-            wallCountText.text = CreateWallCount.ToString();
-    }
-
-    private void HandleCurrentModeInput()
-    {
-        if (CurrentPlacementMode == PlacementMode.None) return;
-
-        foreach (var handler in placementHandlers)
-        {
-            if (handler.CanHandle(CurrentPlacementMode))
+            if (!TryRemoveWall())
             {
-                handler.HandleInput();
-                break;
+                // 벽 제거에 실패했다면(제거할 벽이 없다면) 배치 모드를 취소합니다.
+                StopPlacementMode();
             }
         }
     }
 
-    // ===== Public 메서드들 =====
-
-    public Vector3 GetMouseWorldPosition()
+    private void TryPlace()
     {
-        var camera = GameAssets.Cameras.MainCamera;
-        if (camera == null) return Vector3.zero;
-
-        Vector3 mouseScreenPosition = Input.mousePosition;
-
-        if (camera.orthographic)
+        if (!IsPositionValidForPlacement(currentMouseGridPosition))
         {
-            mouseScreenPosition.z = camera.nearClipPlane;
-            return camera.ScreenToWorldPoint(mouseScreenPosition);
+            return;
         }
-        else
+
+        switch (currentMode)
         {
-            Ray ray = camera.ScreenPointToRay(mouseScreenPosition);
-            float distance = -camera.transform.position.z / ray.direction.z;
-            return ray.origin + ray.direction * distance;
+            case PlacementMode.Unit:
+                if (unitPrefabToPlace != null)
+                {
+                    // FieldManager에게 유닛 생성을 요청합니다.
+                    fieldManager.CreateAndPlaceUnitFromPlacement(unitPrefabToPlace, currentMouseGridPosition);
+                    StopPlacementMode(); // 유닛은 한 번만 배치합니다.
+                }
+                break;
+            case PlacementMode.Wall:
+                if (playerManager.TryUseWall())
+                {
+                    obstacleTilemap.SetTile(currentMouseGridPosition, wallTileToPlace);
+                    // 벽은 여러 개를 연속으로 배치할 수 있으므로 StopPlacementMode()를 호출하지 않습니다.
+                }
+                break;
         }
-    }
-
-    public bool IsGroundLayer(Vector3Int? gridPosition = null)
-    {
-        if (GameAssets.TileMaps.GroundTilemap == null) return false;
-
-        Vector3Int checkPosition = gridPosition ?? CurrentMouseGridPosition;
-
-        bool isGroundTilemap = GameAssets.TileMaps.GroundTilemap.gameObject.layer == LayerMask.NameToLayer("Ground");
-        var tile = GameAssets.TileMaps.GroundTilemap.GetTile(checkPosition);
-        bool hasTile = tile != null;
-
-        return isGroundTilemap && hasTile;
-    }
-
-    public void SetPlacementMode(PlacementMode mode)
-    {
-        if (CurrentPlacementMode != mode)
-        {
-            Debug.Log($"🔄 모드 변경: {CurrentPlacementMode} → {mode}");
-            CurrentPlacementMode = mode;
-            OnPlacementModeChanged?.Invoke(mode);
-        }
-    }
-
-    public void ToggleWallPlacement()
-    {
-        Debug.Log("🧱 ToggleWallPlacement 호출");
-        SetPlacementMode(CurrentPlacementMode == PlacementMode.Wall ? PlacementMode.None : PlacementMode.Wall);
-    }
-
-    public void ToggleCharacterPlacement()
-    {
-        Debug.Log("👤 ToggleCharacterPlacement 호출");
-        SetPlacementMode(CurrentPlacementMode == PlacementMode.Character ? PlacementMode.None : PlacementMode.Character);
-    }
-
-    public static void ClearAllCharacters()
-    {
-        foreach (var character in SpawnedCharacters.Values)
-        {
-            if (character != null)
-                DestroyImmediate(character);
-        }
-        SpawnedCharacters.Clear();
-        Debug.Log("모든 캐릭터가 제거되었습니다!");
-    }
-
-    // ===== AssetRegistry 접근 메서드들 =====
-
-    /// <summary>
-    /// 캐릭터 스프라이트를 AssetRegistry에서 가져옵니다.
-    /// </summary>
-    public Sprite GetCharacterSprite()
-    {
-        return AssetRegistry.GetSprite("DefaultCharacter");
     }
 
     /// <summary>
-    /// 캐릭터 프리팹을 AssetRegistry에서 가져옵니다.
+    /// 현재 마우스 위치의 벽을 제거하려고 시도합니다.
     /// </summary>
-    public GameObject GetCharacterPrefab()
+    /// <returns>벽 제거에 성공했으면 true, 아니면 false를 반환합니다.</returns>
+    private bool TryRemoveWall()
     {
-        return AssetRegistry.GetPrefab("CharacterPrefab");
+        // 벽 배치 모드일 때만 벽을 제거할 수 있습니다.
+        if (currentMode == PlacementMode.Wall && obstacleTilemap.GetTile(currentMouseGridPosition) != null)
+        {
+            obstacleTilemap.SetTile(currentMouseGridPosition, null);
+            playerManager.ReturnWall();
+            return true;
+        }
+        
+        return false;
     }
 
-    // ===== 디버그 메서드들 =====
+    #endregion
 
-    [ContextMenu("현재 상태 출력")]
-    public void PrintCurrentState()
+    #region Coordinate & Preview Logic
+
+    private void UpdateMousePosition()
     {
-        Debug.Log("=== PlacementManager 현재 상태 ===");
-        Debug.Log($"Ground Tilemap: {GameAssets.TileMaps.GroundTilemap?.name ?? "null"}");
-        Debug.Log($"BreakWall Tilemap: {GameAssets.TileMaps.BreakWallTilemap?.name ?? "null"}");
-        Debug.Log($"Main Camera: {GameAssets.Cameras.MainCamera?.name ?? "null"}");
-        //Debug.Log($"Wall Count Text: {GameAssets.UI.WallCountText?.name ?? "null"}");
-        Debug.Log($"현재 배치 모드: {CurrentPlacementMode}");
-        Debug.Log($"등록된 핸들러 수: {placementHandlers.Count}");
-
-
-        // AssetRegistry 상태도 출력
-        Debug.Log("=== AssetRegistry 상태 ===");
-        AssetRegistry.PrintAssetStats();
+        Vector3 mouseWorldPos = GetMouseWorldPosition();
+        currentMouseGridPosition = obstacleTilemap.WorldToCell(mouseWorldPos);
     }
 
-    [ContextMenu("AssetRegistry 에셋 확인")]
-    public void CheckAssetRegistryAssets()
+    private Vector3 GetMouseWorldPosition()
     {
-        Debug.Log("=== AssetRegistry 에셋 확인 ===");
-
-        var breakWall = AssetRegistry.GetTile("BreakWall");
-        Debug.Log($"BreakWall 타일: {(breakWall != null ? "✅ 로드됨" : "❌ 없음")}");
-
-        var characterSprite = AssetRegistry.GetSprite("DefaultCharacter");
-        Debug.Log($"캐릭터 스프라이트: {(characterSprite != null ? "✅ 로드됨" : "❌ 없음")}");
-
-        var characterPrefab = AssetRegistry.GetPrefab("CharacterPrefab");
-        Debug.Log($"캐릭터 프리팹: {(characterPrefab != null ? "✅ 로드됨" : "❌ 없음")}");
+        Ray cameraRay = playerCamera.ScreenPointToRay(Input.mousePosition);
+        if (gamePlane.Raycast(cameraRay, out float enter))
+        {
+            return cameraRay.GetPoint(enter);
+        }
+        return Vector3.zero;
     }
+
+    private void SetupPreviewObject()
+    {
+        if (previewObject == null)
+        {
+            previewObject = new GameObject("PlacementPreview");
+            previewRenderer = previewObject.AddComponent<SpriteRenderer>();
+            previewRenderer.sortingOrder = 10; // 다른 스프라이트보다 위에 보이도록 설정
+        }
+
+        Sprite previewSprite = null;
+        if (currentMode == PlacementMode.Unit && unitPrefabToPlace != null)
+        {
+            // 유닛 프리팹의 자식에서 SpriteRenderer를 찾아 이미지를 가져옵니다.
+            previewSprite = unitPrefabToPlace.GetComponentInChildren<SpriteRenderer>()?.sprite;
+        }
+        else if (currentMode == PlacementMode.Wall)
+        {
+            // 벽 타일(TileBase)을 실제 타일(Tile)로 변환하여 스프라이트를 가져옵니다.
+            if (wallTileToPlace is Tile tileWithSprite)
+            {
+                previewSprite = tileWithSprite.sprite;
+            }
+        }
+        
+        previewRenderer.sprite = previewSprite;
+        previewObject.SetActive(previewSprite != null);
+    }
+
+    private void UpdatePreviewDisplay()
+    {
+        if (previewObject == null || !previewObject.activeSelf) return;
+
+        // 프리뷰 오브젝트를 마우스의 그리드 위치에 맞게 이동시킵니다.
+        Vector3 worldPos = obstacleTilemap.CellToWorld(currentMouseGridPosition) + (obstacleTilemap.cellSize * 0.5f);
+        previewObject.transform.position = worldPos;
+
+        // 배치 가능 여부에 따라 프리뷰 색상을 변경합니다.
+        previewRenderer.color = IsPositionValidForPlacement(currentMouseGridPosition) ? validPreviewColor : invalidPreviewColor;
+    }
+
+    #endregion
 }

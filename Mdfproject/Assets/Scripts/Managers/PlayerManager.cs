@@ -82,14 +82,13 @@ public class PlayerManager : MonoBehaviour
         }
     }
 
-    public void AddUnit(UnitData unitData)
+    public void AddUnit(UnitData unitData, int starLevel)
     {
-        Debug.Log($"Player {playerId}가 {unitData.unitName} 유닛을 획득했습니다.");
-        // 실제 유닛 생성 및 배치는 FieldManager가 담당
+        Debug.Log($"Player {playerId}가 {starLevel}성 {unitData.unitName} 유닛을 획득했습니다.");
         if(fieldManager != null)
         {
-            // ✅ [수정] unitData 자체를 FieldManager에게 전달합니다.
-            fieldManager.CreateAndPlaceUnitOnField(unitData);
+            // FieldManager의 새 메서드 호출
+            fieldManager.CreateAndPlaceUnitOnField(unitData, starLevel);
         }
     }
 
