@@ -67,6 +67,7 @@
     <Compile Include="Assets\Scripts\Game\Units\Unit.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SimpleScript.cs" />
     <Compile Include="Assets\Scripts\Button\SoundButton.cs" />
+    <Compile Include="Assets\Scripts\UI\ShopItem.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\AreaDamageSkill.cs" />
     <Compile Include="Assets\Scripts\Enums\MonsterRank.cs" />
     <Compile Include="Assets\Scripts\UI\AugmentSlot.cs" />
@@ -150,14 +151,14 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\RegisteredComponent.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\GameAssets.cs" />
     <Compile Include="Assets\Scripts\Enums\SkillActivationType.cs" />
+    <Compile Include="Assets\Scripts\Game\Projectile.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\MonsterData.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\ComponentRegistry.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark01.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\Game\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Scripts\UI\ShopItem.cs" />
-    <Compile Include="Assets\Scripts\Game\Projectile.cs" />
+    <Compile Include="Assets\Scripts\Game\GameSceneInitializer.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
