@@ -2,7 +2,6 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-// Assets/Scripts/UI/ShopSlot.cs
 
 public class ShopSlot : MonoBehaviour
 {
@@ -11,8 +10,9 @@ public class ShopSlot : MonoBehaviour
     public TextMeshProUGUI unitCostText;
     public Button buyButton;
     public GameObject purchasedOverlay;
+    public TextMeshProUGUI starLevelText; // [추가됨] 성급을 표시할 텍스트
 
-    private UnitData currentUnitData;
+    private ShopItem currentShopItem; // [변경됨] UnitData -> ShopItem
     private ShopManager shopManager;
     
     private bool isPurchased = false;
@@ -20,26 +20,25 @@ public class ShopSlot : MonoBehaviour
     public void Initialize(ShopManager manager)
     {
         this.shopManager = manager;
-        // --- 수정된 부분 ---
-        // 리스너를 추가하기 전에 항상 기존의 모든 리스너를 제거합니다.
-        // 이렇게 하면 이 함수가 여러 번 호출되어도 안전합니다.
         buyButton.onClick.RemoveAllListeners(); 
         buyButton.onClick.AddListener(OnBuyButtonClick);
-        // --- 수정 끝 ---
     }
 
-    // ... (이하 코드는 그대로)
-    public void DisplayUnit(UnitData unitData)
+    // [변경됨] 매개변수가 ShopItem으로 변경되고, UI 표시 로직이 수정됩니다.
+    public void DisplayUnit(ShopItem shopItem)
     {
-        this.currentUnitData = unitData;
+        this.currentShopItem = shopItem;
         
-        if (unitData != null)
+        // UnitData가 null이 아닌 유효한 ShopItem인지 확인
+        if (shopItem.UnitData != null)
         {
             isPurchased = false;
 
-            unitIcon.sprite = unitData.unitIcon;
-            unitNameText.text = unitData.unitName;
-            unitCostText.text = $"{unitData.cost}";
+            unitIcon.sprite = shopItem.UnitData.unitIcon;
+            unitNameText.text = shopItem.UnitData.unitName;
+            unitCostText.text = $"{shopItem.CalculatedCost}"; // 계산된 가격 표시
+            starLevelText.text = $"{shopItem.StarLevel}성"; // 성급 표시
+            
             buyButton.interactable = true;
             if(purchasedOverlay) purchasedOverlay.SetActive(false);
             gameObject.SetActive(true);
@@ -52,9 +51,10 @@ public class ShopSlot : MonoBehaviour
 
     private void OnBuyButtonClick()
     {
-        if (currentUnitData != null && shopManager != null)
+        if (currentShopItem.UnitData != null && shopManager != null)
         {
-            shopManager.TryBuyUnit(currentUnitData, this);
+            // [변경됨] currentShopItem 전체를 전달합니다.
+            shopManager.TryBuyUnit(currentShopItem, this);
         }
     }
 
@@ -65,8 +65,5 @@ public class ShopSlot : MonoBehaviour
         if(purchasedOverlay) purchasedOverlay.SetActive(true);
     }
     
-    public bool IsPurchased()
-    {
-        return isPurchased;
-    }
+    public bool IsPurchased() => isPurchased;
 }

@@ -48,31 +48,31 @@ MonoBehaviour:
     m_SerializedLabels:
     - UI
   - m_GUID: ff4a21ca690cb8946904ef398f458322
-    m_Address: Warrior_1
+    m_Address: UnitData_Mage
     m_ReadOnly: 0
     m_SerializedLabels:
     - UnitData
     - Unit
   - m_GUID: b294db2481416c64fb9edd6bc0222d6e
-    m_Address: Warrior_3
+    m_Address: UnitData_Assassin
     m_ReadOnly: 0
     m_SerializedLabels:
     - UnitData
     - Unit
   - m_GUID: af161e66696ca4742b05891ba27598fd
-    m_Address: Warrior_2
+    m_Address: UnitData_Guardian
     m_ReadOnly: 0
     m_SerializedLabels:
     - UnitData
     - Unit
   - m_GUID: afdb119d7f8d3394dade8a6d18888eee
-    m_Address: Archer_1
+    m_Address: UnitData_Archer
     m_ReadOnly: 0
     m_SerializedLabels:
     - UnitData
     - Unit
   - m_GUID: 4e7855d10fe859147b90840b76fc592a
-    m_Address: Archer_1
+    m_Address: UnitData_Pyromancer
     m_ReadOnly: 0
     m_SerializedLabels:
     - UnitData
@@ -102,6 +102,21 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
+  - m_GUID: ae8a69e0ccd88974d8e8035798f0c066
+    m_Address: MonData_Goblin
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+  - m_GUID: bbcf86331f675644ab2af799f5503f6e
+    m_Address: UnitData_Warrior
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Unit
+  - m_GUID: d5f8bf124e30c3944b07bb8b13a7c0c2
+    m_Address: UnitData_Cleric
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Unit
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

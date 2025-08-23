@@ -219,7 +219,7 @@ public class GameManagers : MonoBehaviour
                     {
                         localPlayerShopUIGameObject.SetActive(false);
                     }
-                    UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
+                    yield return UIManagers.Instance.GetUIElement("UI_Pnl_Augment").ToCoroutine();
                 }
             }
             else

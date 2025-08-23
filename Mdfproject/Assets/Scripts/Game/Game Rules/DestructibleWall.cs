@@ -1,39 +1,63 @@
-using System.Collections;
-using System.Collections.Generic;
+// Assets/Scripts/Game/Game Rules/DestructibleWall.cs
 using UnityEngine;
+using UnityEngine.Tilemaps;
 
-// 파괴 가능한 벽을 구분하기 위한 컴포넌트
-[System.Serializable]
-public class DestructibleWall : MonoBehaviour
+// [RequireComponent(typeof(TilemapCollider2D))] // ??? ?? ??? ???? ??
+public class DestructibleWall : MonoBehaviour, IEnemy
 {
-    [Header("벽 파괴 설정")]
-    public float destructionTime = 1.0f; // 파괴 시간
-    public GameObject destructionEffect; // 파괴 이펙트
-    public AudioClip destructionSound; // 파괴 사운드
+    [Header("? ??")]
+    [SerializeField] private int maxHealth = 200;
+    private int currentHealth;
 
-    public void DestroyWall()
+    // TODO: ?? ???/?????? ??? ? ????.
+    [SerializeField] private float defense = 10f;
+    [SerializeField] private float magicResistance = 0f;
+
+    private Tilemap wallTilemap;
+    private Vector3Int wallGridPosition;
+
+    void Start()
     {
-        StartCoroutine(DestroyWallCoroutine());
+        currentHealth = maxHealth;
+        // ? ????? ???? ???? ??? ??? ????.
+        wallTilemap = GetComponentInParent<Tilemap>();
+        if (wallTilemap != null)
+        {
+            wallGridPosition = wallTilemap.WorldToCell(transform.position);
+        }
     }
 
-    private IEnumerator DestroyWallCoroutine()
+    /// <summary>
+    /// IEnemy ?????? ??? ??? ?? TakeDamage ??? ??
+    /// </summary>
+    public void TakeDamage(float baseDamage, DamageType damageType)
     {
-        // 파괴 이펙트 재생
-        if (destructionEffect != null)
+        // ?? ??? ???? ?? ?? ??? ??? ??? ??????.
+        int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, defense, magicResistance);
+        
+        currentHealth -= finalDamage;
+        Debug.Log($"?? {finalDamage}? ??? ?????! (?? ??: {currentHealth}/{maxHealth})");
+
+        if (currentHealth <= 0)
         {
-            Instantiate(destructionEffect, transform.position, transform.rotation);
+            DestroyWall();
         }
+    }
 
-        // 파괴 사운드 재생
-        if (destructionSound != null)
+    private void DestroyWall()
+    {
+        Debug.Log("?? ???????!");
+        
+        // ????? ?? ??? ?????.
+        if (wallTilemap != null)
         {
-            AudioSource.PlayClipAtPoint(destructionSound, transform.position);
+            wallTilemap.SetTile(wallGridPosition, null);
         }
+        
+        // ?? ???? ???? ??? ? ????.
+        // Instantiate(destructionEffect, transform.position, Quaternion.identity);
 
-        // 잠시 대기 후 파괴
-        yield return new WaitForSeconds(destructionTime);
-
-        // 실제 오브젝트 파괴
+        // ? ??????? ? ?? ?? ???? ?????.
         Destroy(gameObject);
     }
 }

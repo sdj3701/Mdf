@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 720977558703827357}
   - component: {fileID: 4765336491927612634}
   - component: {fileID: -2641668697671614674}
+  - component: {fileID: 3270167375977648020}
   m_Layer: 13
   m_Name: Monster
   m_TagString: Enemy
@@ -47,13 +48,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9915cbddb82ab42b692c9af7fd694cc2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  monsterType: 0
-  moveSpeed: 2
-  arrivalThreshold: 0.1
-  smoothMovement: 1
-  showPath: 1
-  showCurrentTarget: 1
-  maxHP: 100
+  monsterData: {fileID: 11400000, guid: ae8a69e0ccd88974d8e8035798f0c066, type: 2}
   currentHP: 0
 --- !u!212 &720977558703827357
 SpriteRenderer:
@@ -154,3 +149,15 @@ Rigidbody2D:
   m_SleepingMode: 1
   m_CollisionDetection: 0
   m_Constraints: 0
+--- !u!114 &3270167375977648020
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2020015458557610380}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d2618c7a27fc7b449baf0693c04e7b8b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
