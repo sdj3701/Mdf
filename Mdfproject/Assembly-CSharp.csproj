@@ -78,6 +78,7 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexShakeA.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark04.cs" />
     <Compile Include="Assets\Scripts\MainLobby\SelectCharacter.cs" />
+    <Compile Include="Assets\Scripts\Game\GameSceneInitializer.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\DamageCalculator.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ChatController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextMeshProFloatingText.cs" />
@@ -158,7 +159,8 @@
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\Game\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Scripts\Game\GameSceneInitializer.cs" />
+    <Compile Include="Assets\Scripts\UI\PlayerRankSlot.cs" />
+    <Compile Include="Assets\Scripts\UI\RankingUIController.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
