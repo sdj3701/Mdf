@@ -3,36 +3,41 @@ using UnityEngine;
 
 public class PlacementButtonsUI : MonoBehaviour
 {
-    [Header("참조")]
-    [Tooltip("플레이어의 FieldManager를 연결하세요.")]
-    public FieldManager playerFieldManager;
+    // [제거됨] 더 이상 FieldManager를 직접 참조하지 않습니다.
+    // public FieldManager playerFieldManager;
 
+    [Header("참조")]
     [Tooltip("임시로 배치 테스트할 유닛 프리팹")]
     public GameObject testUnitPrefab;
 
+    /// <summary>
+    /// '벽 배치' 버튼을 클릭했을 때 호출됩니다.
+    /// </summary>
     public void OnPlaceWallButtonClicked()
     {
-        if (playerFieldManager != null)
-        {
-            playerFieldManager.EnterWallPlacementMode();
-        }
+        // [수정됨] FieldManager의 메서드를 직접 호출하는 대신,
+        // "벽 배치 모드로 들어가고 싶다"는 요청 이벤트를 시스템 전체에 알립니다.
+        GameEvents.TriggerPlacementModeEnterRequested(PlacementMode.Wall);
     }
 
+    /// <summary>
+    /// '유닛 테스트' 버튼을 클릭했을 때 호출됩니다.
+    /// </summary>
     public void OnPlaceUnitTestButtonClicked()
     {
-        if (playerFieldManager != null && testUnitPrefab != null)
+        if (testUnitPrefab != null)
         {
-            // FIX: FieldManager에 추가된 EnterUnitPlacementMode 메서드를 호출합니다.
-            playerFieldManager.EnterUnitPlacementMode(testUnitPrefab);
+            // [수정됨] "유닛 배치 모드로 들어가고 싶다"는 요청 이벤트를 알립니다.
+            GameEvents.TriggerPlacementModeEnterRequested(PlacementMode.Unit, testUnitPrefab);
         }
     }
 
+    /// <summary>
+    /// '배치 취소' 버튼을 클릭했을 때 호출됩니다.
+    /// </summary>
     public void OnCancelPlacementButtonClicked()
     {
-        if(playerFieldManager != null)
-        {
-            // FIX: 변경된 메서드 이름인 CancelAllModes를 호출합니다.
-            playerFieldManager.CancelAllModes();
-        }
+        // [수정됨] "배치 모드를 끝내고 싶다"는 요청 이벤트를 알립니다.
+        GameEvents.TriggerPlacementModeExitRequested();
     }
 }
