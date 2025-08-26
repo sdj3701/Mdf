@@ -9,7 +9,6 @@ using System;
 public class AugmentManager : MonoBehaviour
 {
     public PlayerManager playerManager;
-    public event Action OnAugmentChosen;
 
     private List<AugmentData> silverAugments = new List<AugmentData>();
     private List<AugmentData> goldAugments = new List<AugmentData>();
@@ -17,7 +16,6 @@ public class AugmentManager : MonoBehaviour
     private bool isDataLoaded = false;
     private List<AugmentData> presentedAugments = new List<AugmentData>();
 
-    // ✅ [추가] GameManager가 제시된 증강 목록을 가져갈 수 있도록 public 함수를 만듭니다.
     public List<AugmentData> GetPresentedAugments()
     {
         return presentedAugments;
@@ -26,6 +24,35 @@ public class AugmentManager : MonoBehaviour
     void Start()
     {
         LoadAllAugmentsFromAddressables();
+    }
+    
+    void OnEnable()
+    {
+        // 전역 증강 선택 이벤트를 구독합니다.
+        GameEvents.OnAugmentSelected += HandleAugmentSelection;
+    }
+
+    void OnDisable()
+    {
+        // 구독을 해지합니다.
+        GameEvents.OnAugmentSelected -= HandleAugmentSelection;
+    }
+
+    /// <summary>
+    /// OnAugmentSelected 이벤트가 발생했을 때 호출되는 핸들러입니다.
+    /// </summary>
+    private void HandleAugmentSelection(PlayerManager selectingPlayer, AugmentData chosenAugment)
+    {
+        // 이 이벤트가 자신의 플레이어에게 해당하는지 확인합니다.
+        if (selectingPlayer != this.playerManager) return;
+
+        playerManager.chosenAugments.Add(chosenAugment);
+        Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강 선택! (이벤트 수신)");
+
+        PlayerManager target = (chosenAugment.targetType == TargetType.Player) ? playerManager : playerManager.opponentManager;
+        ApplyEffect(target, chosenAugment);
+        
+        presentedAugments.Clear();
     }
 
     private async void LoadAllAugmentsFromAddressables()
@@ -103,27 +130,6 @@ public class AugmentManager : MonoBehaviour
 
         string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
         Debug.Log($"Player {playerManager.playerId}에게 <color=yellow>{tierName} 등급</color> 증강 제시: {presentedNames}");
-    }
-
-    public void SelectAndApplyAugment(int choiceIndex)
-    {
-        if (choiceIndex < 0 || choiceIndex >= presentedAugments.Count)
-        {
-            Debug.LogError($"잘못된 증강 인덱스({choiceIndex})입니다.");
-            return;
-        }
-
-        AugmentData chosenAugment = presentedAugments[choiceIndex];
-        playerManager.chosenAugments.Add(chosenAugment);
-        
-        Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강 선택!");
-
-        PlayerManager target = (chosenAugment.targetType == TargetType.Player) ? playerManager : playerManager.opponentManager;
-        ApplyEffect(target, chosenAugment);
-        
-        presentedAugments.Clear();
-        
-        OnAugmentChosen?.Invoke();
     }
 
     private void ApplyEffect(PlayerManager target, AugmentData augment)
