@@ -31,16 +31,54 @@ public class ShopUIController : MonoBehaviour
 
     void OnEnable()
     {
+        // 패널이 활성화될 때 로컬 플레이어 정보를 찾아 UI를 설정합니다.
         if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null)
         {
             localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
             SetupUI();
-            SetContentVisibility(true);
+            
+            // 현재 게임 상태에 맞춰 UI를 즉시 갱신합니다.
+            HandleGameStateChange(GameManagers.Instance.GetGameState());
         }
         else
         {
             Debug.LogError("로컬 플레이어를 찾을 수 없어 상점 UI를 초기화할 수 없습니다!");
             gameObject.SetActive(false);
+        }
+
+        // 게임 상태 변경 이벤트를 구독합니다.
+        GameEvents.OnGameStateChanged += HandleGameStateChange;
+    }
+
+    void OnDisable()
+    {
+        // 패널이 비활성화될 때 이벤트 구독을 해지하여 메모리 누수를 방지합니다.
+        GameEvents.OnGameStateChanged -= HandleGameStateChange;
+    }
+
+    /// <summary>
+    /// 게임 상태 변경 이벤트가 발생했을 때 호출되는 핸들러입니다.
+    /// </summary>
+    private void HandleGameStateChange(GameManagers.GameState newState)
+    {
+        bool isPreparePhase = (newState == GameManagers.GameState.Prepare);
+        
+        // 버튼들의 상호작용 여부를 게임 상태에 따라 결정합니다.
+        rerollButton.interactable = isPreparePhase;
+        if (toggleButton != null) toggleButton.interactable = isPreparePhase;
+
+        foreach (var slot in shopSlots)
+        {
+            if (!slot.IsPurchased())
+            {
+                slot.buyButton.interactable = isPreparePhase;
+            }
+        }
+
+        // 전투 페이즈가 되면 상점 내용을 자동으로 숨깁니다.
+        if (!isPreparePhase)
+        {
+            SetContentVisibility(false);
         }
     }
 
@@ -59,21 +97,49 @@ public class ShopUIController : MonoBehaviour
         UpdateInfoText();
     }
 
-    void Update()
+    private void OnRerollButtonClick()
     {
-        if (GameManagers.Instance == null || localPlayerShopManager == null) return;
-
-        bool isPreparePhase = (GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare);
-        
-        rerollButton.interactable = isPreparePhase;
-        if (toggleButton != null) toggleButton.interactable = isPreparePhase;
-
-        foreach (var slot in shopSlots)
+        if (localPlayerShopManager != null)
         {
-            if (!slot.IsPurchased())
+            localPlayerShopManager.Reroll();
+            UpdateShopSlots();
+            UpdateInfoText();
+        }
+    }
+
+    public void UpdateShopSlots()
+    {
+        if (localPlayerShopManager == null) return;
+        List<ShopItem> currentItems = localPlayerShopManager.GetCurrentShopItems();
+        DisplayShopItems(currentItems);
+    }
+
+    public void DisplayShopItems(List<ShopItem> items)
+    {
+        if (items == null)
+        {
+            Debug.LogError("표시할 아이템 리스트가 null입니다!");
+            return;
+        }
+
+        for (int i = 0; i < shopSlots.Length; i++)
+        {
+            if (i < items.Count)
             {
-                slot.buyButton.interactable = isPreparePhase;
+                shopSlots[i].DisplayUnit(items[i]);
             }
+            else
+            {
+                shopSlots[i].DisplayUnit(new ShopItem());
+            }
+        }
+    }
+
+    public void UpdateInfoText()
+    {
+        if (localPlayerShopManager != null)
+        {
+            rerollCostText.text = $"{localPlayerShopManager.GetRerollCost()} G";
         }
     }
 
@@ -101,62 +167,6 @@ public class ShopUIController : MonoBehaviour
         else
         {
             toggleButtonText.text = "Open";
-        }
-    }
-
-    /// <summary>
-    /// 상점 슬롯의 내용을 최신 정보로 업데이트합니다.
-    /// </summary>
-    public void UpdateShopSlots()
-    {
-        if (localPlayerShopManager == null) return;
-
-        // --- [수정된 부분] ---
-        // ShopManager로부터 List<ShopItem>을 받도록 변수 타입을 수정합니다.
-        List<ShopItem> currentItems = localPlayerShopManager.GetCurrentShopItems();
-        DisplayShopItems(currentItems);
-    }
-
-    /// <summary>
-    /// ShopItem 리스트를 받아 각 슬롯에 표시합니다.
-    /// </summary>
-    public void DisplayShopItems(List<ShopItem> items)
-    {
-        if (items == null)
-        {
-            Debug.LogError("표시할 아이템 리스트가 null입니다!");
-            return;
-        }
-
-        for (int i = 0; i < shopSlots.Length; i++)
-        {
-            if (i < items.Count)
-            {
-                shopSlots[i].DisplayUnit(items[i]);
-            }
-            else
-            {
-                // 빈 슬롯은 비어있는 ShopItem으로 초기화하여 비활성화합니다.
-                shopSlots[i].DisplayUnit(new ShopItem());
-            }
-        }
-    }
-
-    public void UpdateInfoText()
-    {
-        if (localPlayerShopManager != null)
-        {
-            rerollCostText.text = $"{localPlayerShopManager.GetRerollCost()} G";
-        }
-    }
-    
-    private void OnRerollButtonClick()
-    {
-        if (localPlayerShopManager != null)
-        {
-            localPlayerShopManager.Reroll();
-            UpdateShopSlots();
-            UpdateInfoText();
         }
     }
 }
