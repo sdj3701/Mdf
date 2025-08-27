@@ -70,10 +70,13 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark01_UGUI.cs" />
     <Compile Include="Assets\Scripts\Managers\AugmentManager.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextSelector_A.cs" />
+    <Compile Include="Assets\Scripts\UI\RankingUIController.cs" />
+    <Compile Include="Assets\Scripts\UI\PlayerRankSlot.cs" />
     <Compile Include="Assets\Scripts\MainLobby\CharacterSelectButton.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexShakeA.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark04.cs" />
     <Compile Include="Assets\Scripts\MainLobby\SelectCharacter.cs" />
+    <Compile Include="Assets\Scripts\Game\GameSceneInitializer.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\DamageCalculator.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ChatController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextMeshProFloatingText.cs" />
@@ -106,6 +109,7 @@
     <Compile Include="Assets\Scripts\UI\ShopUIController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_DigitValidator.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\SkillData.cs" />
+    <Compile Include="Assets\Scripts\Managers\GameEvents.cs" />
     <Compile Include="Assets\Scripts\UI\PlayerHUDController.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\Monster.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark02.cs" />
