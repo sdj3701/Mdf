@@ -8,7 +8,6 @@ public class PlayerManager : MonoBehaviour
     public int playerId;
 
     [Header("핵심 능력치 (읽기 전용)")]
-    // 이 값들은 이제 GameManagers가 게임 시작 시 설정해줍니다.
     [SerializeField] private int health;
     [SerializeField] private int gold;
     [SerializeField] private int wallCount = 5;
@@ -27,54 +26,68 @@ public class PlayerManager : MonoBehaviour
     [HideInInspector]
     public PlayerManager opponentManager;
     
-    /// <summary>
-    /// 이 플레이어의 필드에 몬스터가 남아있어 실제 교전 중인지 여부를 나타냅니다.
-    /// </summary>
     public bool IsActivelyFighting { get; private set; }
 
     void Awake()
     {
-        // 자신의 하위에 있는 매니저들을 자동으로 찾아 할당합니다.
         fieldManager = GetComponentInChildren<FieldManager>();
         shopManager = GetComponentInChildren<ShopManager>();
         monsterSpawner = GetComponentInChildren<MonsterSpawner>();
         augmentManager = GetComponentInChildren<AugmentManager>();
 
-        // 각 하위 매니저에게 자신(PlayerManager)의 참조를 넘겨줍니다.
         if (fieldManager) fieldManager.playerManager = this;
-        else Debug.LogError($"Player {playerId}에서 FieldManager를 찾을 수 없습니다!", gameObject);
-
         if (shopManager) shopManager.playerManager = this;
-        else Debug.LogError($"Player {playerId}에서 ShopManager를 찾을 수 없습니다!", gameObject);
-
         if (monsterSpawner) monsterSpawner.playerManager = this;
-        else Debug.LogError($"Player {playerId}에서 MonsterSpawner를 찾을 수 없습니다!", gameObject);
-
         if (augmentManager) augmentManager.playerManager = this;
-        else Debug.LogError($"Player {playerId}에서 AugmentManager를 찾을 수 없습니다!", gameObject);
         
-        // 게임 시작 시 전투 상태를 false로 초기화합니다.
         IsActivelyFighting = false;
+    }
+    
+    void OnEnable()
+    {
+        // 유닛 구매 요청 이벤트를 구독합니다.
+        GameEvents.OnUnitPurchased += HandleUnitPurchaseRequest;
+    }
+
+    void OnDisable()
+    {
+        // 오브젝트가 비활성화될 때 구독을 해지합니다.
+        GameEvents.OnUnitPurchased -= HandleUnitPurchaseRequest;
     }
 
     /// <summary>
-    /// GameManagers가 호출하여 이 플레이어의 초기 스탯을 설정하는 메서드입니다.
+    /// OnUnitPurchased 이벤트가 발생했을 때 호출되는 핸들러입니다.
     /// </summary>
+    private void HandleUnitPurchaseRequest(PlayerManager purchasingPlayer, UnitData unitData, int starLevel)
+    {
+        // 이 이벤트가 자신에게 해당하는 것인지 확인합니다.
+        if (purchasingPlayer.playerId != this.playerId) return;
+
+        ShopItem item = new ShopItem(unitData, starLevel);
+    
+        if (SpendGold(item.CalculatedCost))
+        {
+            AddUnit(unitData, starLevel);
+        }
+        else
+        {
+            Debug.Log($"Player {playerId}: 골드가 부족하여 {unitData.unitName} 구매에 실패했습니다.");
+            // 참고: 구매 실패 시 ShopSlot의 구매됨 상태를 다시 원상복구 시키는 이벤트를 여기서 발생시킬 수도 있습니다.
+        }
+    }
+
     public void InitializeStats(int startHealth, int startGold)
     {
         this.health = startHealth;
         this.gold = startGold;
     }
 
-    /// <summary>
-    /// MonsterSpawner가 호출하여 이 플레이어의 실제 전투 상태를 갱신합니다.
-    /// </summary>
     public void SetFightingState(bool isFighting)
     {
         this.IsActivelyFighting = isFighting;
     }
     
-    #region Public Getters & Setters
+    #region Public Getters & Stat Modifiers
 
     public int GetHealth() => health;
     public int GetGold() => gold;
@@ -85,7 +98,8 @@ public class PlayerManager : MonoBehaviour
         if (gold >= amount)
         {
             gold -= amount;
-            // TODO: 골드 변경 시 UI 업데이트 이벤트 호출
+            // [핵심 변경점] 골드가 변경되었음을 시스템 전체에 알립니다.
+            GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
             return true;
         }
         return false;
@@ -95,7 +109,8 @@ public class PlayerManager : MonoBehaviour
     {
         if (amount <= 0) return;
         gold += amount;
-        // TODO: 골드 변경 시 UI 업데이트 이벤트 호출
+        // [핵심 변경점] 골드가 변경되었음을 시스템 전체에 알립니다.
+        GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
     }
 
     public void TakeDamage(int damage)
@@ -111,7 +126,8 @@ public class PlayerManager : MonoBehaviour
                 GameManagers.Instance.GameOver(this);
             }
         }
-        // TODO: 체력 변경 시 UI 업데이트 이벤트 호출
+        // [핵심 변경점] 체력이 변경되었음을 시스템 전체에 알립니다.
+        GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
     }
 
     public void AddUnit(UnitData unitData, int starLevel)
@@ -128,8 +144,8 @@ public class PlayerManager : MonoBehaviour
         if (wallCount > 0)
         {
             wallCount--;
-            Debug.Log($"벽 사용. 남은 개수: {wallCount}");
-            // TODO: 벽 개수 변경 시 UI 업데이트 이벤트 호출
+            // [핵심 변경점] 벽 개수가 변경되었음을 시스템 전체에 알립니다.
+            GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
             return true;
         }
         Debug.LogWarning("벽이 부족하여 사용할 수 없습니다.");
@@ -141,8 +157,8 @@ public class PlayerManager : MonoBehaviour
         if (wallCount < MAX_WALL_COUNT)
         {
             wallCount++;
-            Debug.Log($"벽 반환. 현재 개수: {wallCount}");
-            // TODO: 벽 개수 변경 시 UI 업데이트 이벤트 호출
+            // [핵심 변경점] 벽 개수가 변경되었음을 시스템 전체에 알립니다.
+            GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
         }
     }
 
