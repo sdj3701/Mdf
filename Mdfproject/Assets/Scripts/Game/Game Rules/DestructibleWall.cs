@@ -2,62 +2,35 @@
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
-// [RequireComponent(typeof(TilemapCollider2D))] // ??? ?? ??? ???? ??
 public class DestructibleWall : MonoBehaviour, IEnemy
 {
-    [Header("? ??")]
+    [Header("벽 스탯")]
     [SerializeField] private int maxHealth = 200;
     private int currentHealth;
 
-    // TODO: ?? ???/?????? ??? ? ????.
     [SerializeField] private float defense = 10f;
     [SerializeField] private float magicResistance = 0f;
-
-    private Tilemap wallTilemap;
+    
     private Vector3Int wallGridPosition;
+    private FieldManager fieldManager;
 
-    void Start()
+    // [추가됨] FieldManager가 이 벽을 초기화할 때 호출해 줄 메소드
+    public void Initialize(FieldManager manager, Vector3Int gridPosition)
     {
-        currentHealth = maxHealth;
-        // ? ????? ???? ???? ??? ??? ????.
-        wallTilemap = GetComponentInParent<Tilemap>();
-        if (wallTilemap != null)
-        {
-            wallGridPosition = wallTilemap.WorldToCell(transform.position);
-        }
+        this.fieldManager = manager;
+        this.wallGridPosition = gridPosition;
+        this.currentHealth = maxHealth;
     }
 
-    /// <summary>
-    /// IEnemy ?????? ??? ??? ?? TakeDamage ??? ??
-    /// </summary>
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
-        // ?? ??? ???? ?? ?? ??? ??? ??? ??????.
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, defense, magicResistance);
-        
         currentHealth -= finalDamage;
-        Debug.Log($"?? {finalDamage}? ??? ?????! (?? ??: {currentHealth}/{maxHealth})");
 
         if (currentHealth <= 0)
         {
-            DestroyWall();
+            // [수정됨] FieldManager에게 자신의 파괴를 알립니다.
+            fieldManager.RemoveWallAt(wallGridPosition);
         }
-    }
-
-    private void DestroyWall()
-    {
-        Debug.Log("?? ???????!");
-        
-        // ????? ?? ??? ?????.
-        if (wallTilemap != null)
-        {
-            wallTilemap.SetTile(wallGridPosition, null);
-        }
-        
-        // ?? ???? ???? ??? ? ????.
-        // Instantiate(destructionEffect, transform.position, Quaternion.identity);
-
-        // ? ??????? ? ?? ?? ???? ?????.
-        Destroy(gameObject);
     }
 }

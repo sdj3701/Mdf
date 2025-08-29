@@ -13,9 +13,13 @@ public class FieldManager : MonoBehaviour
     [Header("정리용 부모 오브젝트")]
     [Tooltip("생성된 유닛들이 이 오브젝트의 자식으로 들어갑니다.")]
     public Transform unitParent;
+    [Tooltip("생성된 벽들이 이 오브젝트의 자식으로 들어갑니다.")]
+    public Transform wallParent;
     
     private PlacementManager placementManager;
     private Dictionary<Vector3Int, Unit> placedUnits = new Dictionary<Vector3Int, Unit>();
+    private Dictionary<Vector3Int, DestructibleWall> placedWalls = new Dictionary<Vector3Int, DestructibleWall>();
+
 
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
@@ -32,6 +36,13 @@ public class FieldManager : MonoBehaviour
             parentObject.transform.SetParent(transform.parent);
             unitParent = parentObject.transform;
         }
+        
+        if (wallParent == null)
+        {
+            GameObject parentObject = new GameObject($"[{playerManager.name} Walls]");
+            parentObject.transform.SetParent(transform.parent);
+            wallParent = parentObject.transform;
+        }
 
         placementManager = GetComponent<PlacementManager>();
     }
@@ -40,12 +51,14 @@ public class FieldManager : MonoBehaviour
     {
         GameEvents.OnPlacementModeEnterRequested += HandlePlacementModeEnterRequest;
         GameEvents.OnPlacementModeExitRequested += HandlePlacementModeExitRequest;
+        GameEvents.OnGameStateChanged += HandleGameStateChange;
     }
 
     void OnDisable()
     {
         GameEvents.OnPlacementModeEnterRequested -= HandlePlacementModeEnterRequest;
         GameEvents.OnPlacementModeExitRequested -= HandlePlacementModeExitRequest;
+        GameEvents.OnGameStateChanged -= HandleGameStateChange;
     }
 
     void Update()
@@ -57,24 +70,24 @@ public class FieldManager : MonoBehaviour
     }
 
     #region Event Handlers
+    
+    private void HandleGameStateChange(GameManagers.GameState newState)
+    {
+        if (newState == GameManagers.GameState.Prepare)
+        {
+            RespawnAllUnits();
+        }
+    }
 
-    /// <summary>
-    /// 배치 모드 진입 요청 이벤트를 처리합니다.
-    /// </summary>
     private void HandlePlacementModeEnterRequest(PlacementMode mode, GameObject unitPrefab)
     {
-        // [핵심 수정] 이 FieldManager가 로컬 플레이어의 것이 아닐 경우, 이벤트를 무시합니다.
         if (this.playerManager != GameManagers.Instance.localPlayer) return;
         
         placementManager.StartPlacementMode(mode, unitPrefab);
     }
 
-    /// <summary>
-    /// 배치 모드 종료 요청 이벤트를 처리합니다.
-    /// </summary>
     private void HandlePlacementModeExitRequest()
     {
-        // [핵심 수정] 이 FieldManager가 로컬 플레이어의 것이 아닐 경우, 이벤트를 무시합니다.
         if (this.playerManager != GameManagers.Instance.localPlayer) return;
 
         placementManager.StopPlacementMode();
@@ -82,7 +95,61 @@ public class FieldManager : MonoBehaviour
 
     #endregion
 
+    #region 벽 생성 및 관리
+
+    public void CreateWallAt(GameObject wallPrefab, Vector3Int gridPosition)
+    {
+        if (wallPrefab == null || placedWalls.ContainsKey(gridPosition)) return;
+
+        Vector3 worldPos = obstacleTilemap.CellToWorld(gridPosition) + (obstacleTilemap.cellSize * 0.5f);
+        GameObject wallGO = Instantiate(wallPrefab, worldPos, Quaternion.identity, wallParent);
+        DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
+
+        if (wallComponent != null)
+        {
+            wallComponent.Initialize(this, gridPosition);
+            placedWalls.Add(gridPosition, wallComponent);
+        }
+        else
+        {
+            Debug.LogError($"{wallPrefab.name} 프리팹에 DestructibleWall 컴포넌트가 없습니다!", wallGO);
+            Destroy(wallGO);
+        }
+    }
+
+    public void RemoveWallAt(Vector3Int gridPosition)
+    {
+        if (placedWalls.TryGetValue(gridPosition, out DestructibleWall wall))
+        {
+            // 벽 위에 유닛이 있는지 확인
+            Unit unitOnTop = GetUnitAt(gridPosition);
+            if (unitOnTop != null)
+            {
+                Debug.Log($"<color=orange>벽이 파괴되어 위에 있던 {unitOnTop.Data.unitName}이(가) 함께 파괴됩니다!</color>");
+                // TakeDamage(99999, ...)를 호출하여 Unit의 Die() 메소드를 실행시킵니다.
+                unitOnTop.TakeDamage(99999, DamageType.Physical); 
+            }
+
+            Destroy(wall.gameObject);
+            placedWalls.Remove(gridPosition);
+        }
+    }
+
+    public DestructibleWall GetWallAt(Vector3Int gridPosition)
+    {
+        placedWalls.TryGetValue(gridPosition, out DestructibleWall wall);
+        return wall;
+    }
+
+    #endregion
+    
     #region 유닛 생성 및 관리
+    
+    public Unit GetUnitAt(Vector3Int gridPosition)
+    {
+        placedUnits.TryGetValue(gridPosition, out Unit unit);
+        return unit;
+    }
     
     public bool IsUnitAt(Vector3Int gridPosition)
     {
@@ -91,7 +158,7 @@ public class FieldManager : MonoBehaviour
     
     public void CreateAndPlaceUnitOnField(UnitData unitData, int starLevel)
     {
-        Vector3Int? emptySlot = FindFirstEmptySlot();
+        Vector3Int? emptySlot = FindFirstEmptySlot(unitData);
         if (emptySlot.HasValue)
         {
             CreateUnitAt(unitData, emptySlot.Value, starLevel);
@@ -147,7 +214,18 @@ public class FieldManager : MonoBehaviour
         }
     }
 
-    private Vector3Int? FindFirstEmptySlot()
+    private void RespawnAllUnits()
+    {
+        foreach (Unit unit in placedUnits.Values)
+        {
+            if (unit != null && unit.IsDead)
+            {
+                unit.Respawn();
+            }
+        }
+    }
+
+    private Vector3Int? FindFirstEmptySlot(UnitData unitData)
     {
         if (obstacleTilemap == null) return null;
         BoundsInt bounds = obstacleTilemap.cellBounds;
@@ -156,7 +234,7 @@ public class FieldManager : MonoBehaviour
             for (int x = bounds.xMin; x < bounds.xMax; x++)
             {
                 Vector3Int pos = new Vector3Int(x, y, 0);
-                if (placementManager.IsPositionValidForPlacement(pos))
+                if (placementManager.IsPositionValidForPlacement(pos, unitData))
                 {
                     return pos;
                 }
@@ -227,7 +305,7 @@ public class FieldManager : MonoBehaviour
 
         if (Input.GetMouseButtonUp(0) && selectedUnit != null)
         {
-            if (placementManager.IsPositionValidForPlacement(gridPos))
+            if (placementManager.IsPositionValidForPlacement(gridPos, selectedUnit.Data))
             {
                 Vector3 finalWorldPos = obstacleTilemap.CellToWorld(gridPos) + (obstacleTilemap.cellSize * 0.5f);
                 selectedUnit.transform.position = finalWorldPos;
@@ -243,6 +321,5 @@ public class FieldManager : MonoBehaviour
             selectedUnit = null;
         }
     }
-
     #endregion
 }
