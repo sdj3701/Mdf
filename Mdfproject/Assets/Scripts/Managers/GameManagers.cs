@@ -19,11 +19,29 @@ public class GameManagers : MonoBehaviour
     [Header("현재 페이즈 타이머 (읽기 전용)")]
     [SerializeField] private float _currentPhaseTimer;
     public float currentPhaseTimer => _currentPhaseTimer;
-    [Header("플레이어 관리 (자동 할당)")]
-    public PlayerManager player1;
-    public PlayerManager player2;
-    public PlayerManager localPlayer;
+    
+    [HideInInspector] public PlayerManager player1;
+    [HideInInspector] public PlayerManager player2;
+    [HideInInspector] public PlayerManager localPlayer;
     #endregion
+
+    [Header("생성할 프리팹")]
+    public GameObject playerManagerPrefab;
+    public GameObject gridPrefab;
+
+    // ✅ [수정] 수동 스폰 포인트 대신 자동 배치를 위한 변수들
+    [Header("자동 생성 위치 설정")]
+    [Tooltip("플레이어 1의 필드가 생성될 기준 위치입니다.")]
+    public Vector3 player1BasePosition = new Vector3(0, 0, 0);
+    [Tooltip("플레이어 간 필드를 얼마나 떨어뜨려 놓을지에 대한 값입니다.")]
+    public Vector3 playerOffset = new Vector3(0, 10, 0);
+
+    // ✅ [제거] 더 이상 사용하지 않는 스폰 포인트 변수들
+    // public Transform player1SpawnPoint;
+    // public Transform grid1SpawnPoint;
+    // public Transform player2SpawnPoint;
+    // public Transform grid2SpawnPoint;
+
 
     #region 단계별 시간 및 보상
     [Header("단계별 시간 설정 (초)")]
@@ -46,6 +64,8 @@ public class GameManagers : MonoBehaviour
     private ShopUIController localPlayerShopUI;
     private GameObject localPlayerShopUIGameObject;
     private AugmentUIController augmentSelectionUI;
+    
+    private bool hasCombatBeenShortened = false;
 
     private void Awake()
     {
@@ -89,7 +109,7 @@ public class GameManagers : MonoBehaviour
     private IEnumerator GameFlow()
     {
         ChangeState(GameState.Setup);
-        FindAndSetupPlayers();
+        SetupPlayersAndGrids();
         yield return null;
 
         yield return SetupGameUI().ToCoroutine();
@@ -99,24 +119,34 @@ public class GameManagers : MonoBehaviour
 
         StartCoroutine(GameLoop());
     }
-
-    private void FindAndSetupPlayers()
+    
+    // ✅ [수정된 핵심 로직]
+    private void SetupPlayersAndGrids()
     {
-        PlayerManager[] players = FindObjectsOfType<PlayerManager>();
-        player1 = players.FirstOrDefault(p => p.playerId == 0);
-        player2 = players.FirstOrDefault(p => p.playerId == 1);
+        // Player 1 생성 및 초기화
+        GameObject player1GO = Instantiate(playerManagerPrefab, player1BasePosition, Quaternion.identity);
+        player1GO.name = "Player 1";
+        player1 = player1GO.GetComponent<PlayerManager>();
+        GameObject grid1GO = Instantiate(gridPrefab, player1BasePosition, Quaternion.identity);
+        grid1GO.name = "Grid 1";
+        player1.InitializePlayer(0, grid1GO);
 
-        if (player1 != null && player2 != null)
-        {
-            player1.opponentManager = player2;
-            player2.opponentManager = player1;
-            localPlayer = player1;
-            Debug.Log("플레이어 설정 완료. 로컬 플레이어는 Player " + localPlayer.playerId + " 입니다.");
-        }
-        else
-        {
-            Debug.LogError("플레이어 설정 실패! 게임을 시작할 수 없습니다.");
-        }
+        // Player 2 생성 및 초기화 (오프셋 적용)
+        Vector3 player2Position = player1BasePosition + playerOffset;
+        GameObject player2GO = Instantiate(playerManagerPrefab, player2Position, Quaternion.identity);
+        player2GO.name = "Player 2";
+        player2 = player2GO.GetComponent<PlayerManager>();
+        GameObject grid2GO = Instantiate(gridPrefab, player2Position, Quaternion.identity);
+        grid2GO.name = "Grid 2";
+        player2.InitializePlayer(1, grid2GO);
+
+        // 상대방 정보 설정
+        player1.opponentManager = player2;
+        player2.opponentManager = player1;
+
+        // 로컬 플레이어 설정
+        localPlayer = player1;
+        Debug.Log("플레이어와 그리드 자동 생성 및 설정 완료. 로컬 플레이어는 Player " + localPlayer.playerId + " 입니다.");
     }
     
     private async UniTask SetupGameUI()
@@ -163,6 +193,7 @@ public class GameManagers : MonoBehaviour
         Debug.Log("모든 데이터 로딩 완료. 게임 루프를 시작합니다.");
     }
 
+    // ... (이하 GameLoop, PhaseTimerCoroutine, ChangeState 등 나머지 코드는 이전과 동일) ...
     private void HandleAugmentChosen(PlayerManager selectingPlayer, AugmentData chosenAugment)
     {
         if (selectingPlayer != localPlayer) return;
@@ -196,15 +227,12 @@ public class GameManagers : MonoBehaviour
                 player1.augmentManager.PresentAugments();
                 if(augmentSelectionUI != null)
                 {
-                    // [핵심 변경점] 순서 변경
-                    // 1. 먼저 UI를 활성화시켜서 AugmentUIController가 이벤트를 들을 준비를 하게 만듭니다.
                     if (localPlayerShopUIGameObject != null)
                     {
                         localPlayerShopUIGameObject.SetActive(false);
                     }
                     yield return UIManagers.Instance.GetUIElement("UI_Pnl_Augment").ToCoroutine();
-
-                    // 2. UI가 활성화된 후, 이벤트를 발생시켜 UI가 내용을 채우도록 합니다.
+                    
                     GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
                 }
             }
@@ -248,6 +276,19 @@ public class GameManagers : MonoBehaviour
         while (_currentPhaseTimer > 0)
         {
             _currentPhaseTimer -= Time.deltaTime;
+
+            if (currentState == GameState.Combat && !hasCombatBeenShortened &&
+                player1 != null && !player1.IsActivelyFighting &&
+                player2 != null && !player2.IsActivelyFighting)
+            {
+                if (_currentPhaseTimer > 3f)
+                {
+                    _currentPhaseTimer = 3f;
+                    hasCombatBeenShortened = true;
+                    Debug.Log("<color=cyan>모든 전투 종료! 남은 시간을 3초로 단축합니다.</color>");
+                }
+            }
+
             if (currentState == GameState.GameOver) yield break;
             yield return null;
         }
@@ -259,6 +300,11 @@ public class GameManagers : MonoBehaviour
         if (currentState == newState) return;
         currentState = newState;
         Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 ---");
+
+        if (newState == GameState.Combat)
+        {
+            hasCombatBeenShortened = false;
+        }
 
         GameEvents.TriggerGameStateChanged(newState);
     }

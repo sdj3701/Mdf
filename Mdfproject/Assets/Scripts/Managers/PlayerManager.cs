@@ -1,6 +1,8 @@
 // Assets/Scripts/Managers/PlayerManager.cs
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Tilemaps;
+using System.Linq; // ✅ [추가] FirstOrDefault를 사용하기 위해 반드시 필요합니다.
 
 public class PlayerManager : MonoBehaviour
 {
@@ -8,8 +10,8 @@ public class PlayerManager : MonoBehaviour
     public int playerId;
 
     [Header("핵심 능력치 (읽기 전용)")]
-    [SerializeField] private int health;
-    [SerializeField] private int gold;
+    [SerializeField] private int health = 100;
+    [SerializeField] private int gold = 10;
     [SerializeField] private int wallCount = 5;
     private const int MAX_WALL_COUNT = 5;
 
@@ -34,33 +36,37 @@ public class PlayerManager : MonoBehaviour
         shopManager = GetComponentInChildren<ShopManager>();
         monsterSpawner = GetComponentInChildren<MonsterSpawner>();
         augmentManager = GetComponentInChildren<AugmentManager>();
+    }
+    
+    public void InitializePlayer(int id, GameObject gridInstance)
+    {
+        this.playerId = id;
 
-        if (fieldManager) fieldManager.playerManager = this;
+        var allTilemaps = gridInstance.GetComponentsInChildren<Tilemap>();
+        Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
+        Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
+        AstarGrid astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
+
+        if (fieldManager) fieldManager.Initialize(this, groundTilemap, obstacleTilemap);
         if (shopManager) shopManager.playerManager = this;
-        if (monsterSpawner) monsterSpawner.playerManager = this;
+        if (monsterSpawner) monsterSpawner.Initialize(this, astarGrid);
         if (augmentManager) augmentManager.playerManager = this;
         
         IsActivelyFighting = false;
     }
-    
+
     void OnEnable()
     {
-        // 유닛 구매 요청 이벤트를 구독합니다.
         GameEvents.OnUnitPurchased += HandleUnitPurchaseRequest;
     }
 
     void OnDisable()
     {
-        // 오브젝트가 비활성화될 때 구독을 해지합니다.
         GameEvents.OnUnitPurchased -= HandleUnitPurchaseRequest;
     }
 
-    /// <summary>
-    /// OnUnitPurchased 이벤트가 발생했을 때 호출되는 핸들러입니다.
-    /// </summary>
     private void HandleUnitPurchaseRequest(PlayerManager purchasingPlayer, UnitData unitData, int starLevel)
     {
-        // 이 이벤트가 자신에게 해당하는 것인지 확인합니다.
         if (purchasingPlayer.playerId != this.playerId) return;
 
         ShopItem item = new ShopItem(unitData, starLevel);
@@ -72,14 +78,7 @@ public class PlayerManager : MonoBehaviour
         else
         {
             Debug.Log($"Player {playerId}: 골드가 부족하여 {unitData.unitName} 구매에 실패했습니다.");
-            // 참고: 구매 실패 시 ShopSlot의 구매됨 상태를 다시 원상복구 시키는 이벤트를 여기서 발생시킬 수도 있습니다.
         }
-    }
-
-    public void InitializeStats(int startHealth, int startGold)
-    {
-        this.health = startHealth;
-        this.gold = startGold;
     }
 
     public void SetFightingState(bool isFighting)
@@ -98,7 +97,6 @@ public class PlayerManager : MonoBehaviour
         if (gold >= amount)
         {
             gold -= amount;
-            // [핵심 변경점] 골드가 변경되었음을 시스템 전체에 알립니다.
             GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
             return true;
         }
@@ -109,7 +107,6 @@ public class PlayerManager : MonoBehaviour
     {
         if (amount <= 0) return;
         gold += amount;
-        // [핵심 변경점] 골드가 변경되었음을 시스템 전체에 알립니다.
         GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
     }
 
@@ -126,7 +123,6 @@ public class PlayerManager : MonoBehaviour
                 GameManagers.Instance.GameOver(this);
             }
         }
-        // [핵심 변경점] 체력이 변경되었음을 시스템 전체에 알립니다.
         GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
     }
 
@@ -144,7 +140,6 @@ public class PlayerManager : MonoBehaviour
         if (wallCount > 0)
         {
             wallCount--;
-            // [핵심 변경점] 벽 개수가 변경되었음을 시스템 전체에 알립니다.
             GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
             return true;
         }
@@ -157,7 +152,6 @@ public class PlayerManager : MonoBehaviour
         if (wallCount < MAX_WALL_COUNT)
         {
             wallCount++;
-            // [핵심 변경점] 벽 개수가 변경되었음을 시스템 전체에 알립니다.
             GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
         }
     }
