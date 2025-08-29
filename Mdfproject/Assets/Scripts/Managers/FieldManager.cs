@@ -7,29 +7,38 @@ using System.Linq;
 [RequireComponent(typeof(PlacementManager))]
 public class FieldManager : MonoBehaviour
 {
-    [Header("관리 대상 플레이어")]
+    // ✅ [수정] public 필드 제거, 이제 PlayerManager로부터 주입받음
     public PlayerManager playerManager;
 
     [Header("정리용 부모 오브젝트")]
-    [Tooltip("생성된 유닛들이 이 오브젝트의 자식으로 들어갑니다.")]
     public Transform unitParent;
-    [Tooltip("생성된 벽들이 이 오브젝트의 자식으로 들어갑니다.")]
     public Transform wallParent;
-    
+
+    public Tilemap ObstacleTilemap { get; private set; }
+    public Tilemap GroundTilemap { get; private set; }
+
     private PlacementManager placementManager;
     private Dictionary<Vector3Int, Unit> placedUnits = new Dictionary<Vector3Int, Unit>();
     private Dictionary<Vector3Int, DestructibleWall> placedWalls = new Dictionary<Vector3Int, DestructibleWall>();
-
 
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
     private Vector3 offset;
     
-    private Tilemap obstacleTilemap => GameAssets.TileMaps.BreakWallTilemap;
     private Camera playerCamera => GameAssets.Cameras.MainCamera;
 
     void Awake()
     {
+        placementManager = GetComponent<PlacementManager>();
+    }
+    
+    // ✅ [추가된 핵심 로직] PlayerManager가 호출하여 초기화
+    public void Initialize(PlayerManager owner, Tilemap ground, Tilemap obstacle)
+    {
+        this.playerManager = owner;
+        this.GroundTilemap = ground;
+        this.ObstacleTilemap = obstacle;
+
         if (unitParent == null)
         {
             GameObject parentObject = new GameObject($"[{playerManager.name} Units]");
@@ -43,10 +52,10 @@ public class FieldManager : MonoBehaviour
             parentObject.transform.SetParent(transform.parent);
             wallParent = parentObject.transform;
         }
-
-        placementManager = GetComponent<PlacementManager>();
     }
-
+    
+    // ... (이하 나머지 코드는 이전과 동일) ...
+    // OnEnable, OnDisable, Update, Event Handlers, 벽/유닛 관리, 드래그앤드롭 로직 등
     void OnEnable()
     {
         GameEvents.OnPlacementModeEnterRequested += HandlePlacementModeEnterRequest;
@@ -100,8 +109,13 @@ public class FieldManager : MonoBehaviour
     public void CreateWallAt(GameObject wallPrefab, Vector3Int gridPosition)
     {
         if (wallPrefab == null || placedWalls.ContainsKey(gridPosition)) return;
+        if (ObstacleTilemap == null)
+        {
+            Debug.LogError("FieldManager에 ObstacleTilemap 참조가 없습니다!");
+            return;
+        }
 
-        Vector3 worldPos = obstacleTilemap.CellToWorld(gridPosition) + (obstacleTilemap.cellSize * 0.5f);
+        Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
         GameObject wallGO = Instantiate(wallPrefab, worldPos, Quaternion.identity, wallParent);
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
 
@@ -121,17 +135,20 @@ public class FieldManager : MonoBehaviour
     {
         if (placedWalls.TryGetValue(gridPosition, out DestructibleWall wall))
         {
-            // 벽 위에 유닛이 있는지 확인
             Unit unitOnTop = GetUnitAt(gridPosition);
             if (unitOnTop != null)
             {
                 Debug.Log($"<color=orange>벽이 파괴되어 위에 있던 {unitOnTop.Data.unitName}이(가) 함께 파괴됩니다!</color>");
-                // TakeDamage(99999, ...)를 호출하여 Unit의 Die() 메소드를 실행시킵니다.
                 unitOnTop.TakeDamage(99999, DamageType.Physical); 
             }
 
             Destroy(wall.gameObject);
             placedWalls.Remove(gridPosition);
+
+            if (ObstacleTilemap != null)
+            {
+                ObstacleTilemap.SetTile(gridPosition, null);
+            }
         }
     }
 
@@ -183,13 +200,19 @@ public class FieldManager : MonoBehaviour
 
     private void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel)
     {
+        if (ObstacleTilemap == null)
+        {
+            Debug.LogError("FieldManager에 ObstacleTilemap 참조가 없습니다!");
+            return;
+        }
+
         GameObject prefabToCreate = data.prefabsByStarLevel[starLevel - 1];
         if (prefabToCreate == null)
         {
             Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹이 UnitData에 설정되지 않았습니다!");
             return;
         }
-        Vector3 worldPos = obstacleTilemap.CellToWorld(gridPosition) + (obstacleTilemap.cellSize * 0.5f);
+        Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
         GameObject newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
         Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
 
@@ -227,8 +250,9 @@ public class FieldManager : MonoBehaviour
 
     private Vector3Int? FindFirstEmptySlot(UnitData unitData)
     {
-        if (obstacleTilemap == null) return null;
-        BoundsInt bounds = obstacleTilemap.cellBounds;
+        if (GroundTilemap == null) return null;
+
+        BoundsInt bounds = GroundTilemap.cellBounds;
         for (int y = bounds.yMin; y < bounds.yMax; y++)
         {
             for (int x = bounds.xMin; x < bounds.xMax; x++)
@@ -282,10 +306,10 @@ public class FieldManager : MonoBehaviour
     private void HandleUnitDragAndDrop()
     {
         if (GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare) return;
-        if (playerCamera == null || obstacleTilemap == null) return;
+        if (playerCamera == null || ObstacleTilemap == null) return;
         
         Vector3 mouseWorldPos = playerCamera.ScreenToWorldPoint(Input.mousePosition);
-        Vector3Int gridPos = obstacleTilemap.WorldToCell(mouseWorldPos);
+        Vector3Int gridPos = ObstacleTilemap.WorldToCell(mouseWorldPos);
 
         if (Input.GetMouseButtonDown(0))
         {
@@ -307,14 +331,14 @@ public class FieldManager : MonoBehaviour
         {
             if (placementManager.IsPositionValidForPlacement(gridPos, selectedUnit.Data))
             {
-                Vector3 finalWorldPos = obstacleTilemap.CellToWorld(gridPos) + (obstacleTilemap.cellSize * 0.5f);
+                Vector3 finalWorldPos = ObstacleTilemap.CellToWorld(gridPos) + (ObstacleTilemap.cellSize * 0.5f);
                 selectedUnit.transform.position = finalWorldPos;
                 placedUnits.Add(gridPos, selectedUnit);
                 CheckForCombination();
             }
             else
             {
-                Vector3 originalWorldPos = obstacleTilemap.CellToWorld(originalUnitPosition) + (obstacleTilemap.cellSize * 0.5f);
+                Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
                 selectedUnit.transform.position = originalWorldPos;
                 placedUnits.Add(originalUnitPosition, selectedUnit);
             }

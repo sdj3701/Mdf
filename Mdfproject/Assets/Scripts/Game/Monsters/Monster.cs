@@ -99,34 +99,26 @@ public class Monster : MonoBehaviour, IEnemy
     }
 
     #region 공격 로직
-    /// <summary>
-    /// 특정 대상을 계속 공격하는 코루틴을 시작합니다.
-    /// </summary>
     private void StartAttacking(IEnemy target)
     {
         if (target == null) return;
-        StopAllCoroutines(); // 이동 및 다른 공격 코루틴 모두 중지
+        StopAllCoroutines();
         isMoving = false;
         attackCoroutine = StartCoroutine(AttackLoop(target));
     }
 
     private IEnumerator AttackLoop(IEnemy target)
     {
-        // target이 null이 아니고, 파괴되지 않은 상태일 동안 계속 공격
         while (target != null && (target as MonoBehaviour) != null)
         {
-            // 몬스터의 공격 속도에 맞춰 대기
             yield return new WaitForSeconds(1f / monsterData.attackSpeed);
-
-            // 공격
             target.TakeDamage(monsterData.attackDamage, monsterData.damageType);
             Debug.Log($"{monsterData.monsterName}이(가) {(target as MonoBehaviour).name}을(를) 공격!");
         }
-
-        // 공격 대상이 사라지면(죽거나 파괴되면) 다시 경로 탐색 시도
+        
         Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
         attackCoroutine = null;
-        Unblock(); // Unblock 로직을 재활용하여 경로 재탐색
+        Unblock();
     }
     #endregion
 
@@ -147,8 +139,7 @@ public class Monster : MonoBehaviour, IEnemy
         else
         {
             isMoving = false;
-            // TODO: 경로가 없을 때의 처리 (예: 벽 공격)
-            // AstarGrid에서 이 경우를 감지하고 OnPathBlocked를 호출해줘야 함
+            OnPathBlocked(null); // 경로가 없으면 OnPathBlocked 호출
         }
     }
     private IEnumerator FlyDirectlyCoroutine()
@@ -198,11 +189,11 @@ public class Monster : MonoBehaviour, IEnemy
         StartAttacking(unit.GetComponent<IEnemy>());
     }
 
-    /// <summary>
-    /// A* 길찾기에서 경로를 찾지 못했을 때 호출됩니다.
-    /// </summary>
     public void OnPathBlocked(GameObject obstacle)
     {
+        // 이 부분은 새로운 AstarGrid 로직으로 인해 호출될 가능성이 낮아졌습니다.
+        // A*가 벽을 부수는 경로를 찾아주기 때문입니다.
+        // 하지만 만약을 위해 남겨둡니다.
         if (obstacle != null && obstacle.TryGetComponent<IEnemy>(out var enemyWall))
         {
             Debug.Log($"{monsterData.monsterName}의 경로가 {obstacle.name}에 의해 막혔습니다. 공격을 시작합니다.");
@@ -218,8 +209,6 @@ public class Monster : MonoBehaviour, IEnemy
     {
         if (isQuitting || !isBlocked) return;
         
-        // Unblock은 공격이 끝났거나 유닛이 사라졌을 때 호출됨
-        // isBlocked 상태를 해제하고 다시 경로를 찾음
         isBlocked = false;
         blockingUnit = null;
         
@@ -231,8 +220,19 @@ public class Monster : MonoBehaviour, IEnemy
 
         Vector2Int currentGridPos = new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.y));
         Vector2Int targetGridPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.y));
-        List<AstarNode> newPath = pathfinder.FindPath(currentGridPos, targetGridPos);
-        StartFollowingPath(newPath);
+        
+        // ✅ [수정] AstarGrid.FindPath 호출 방식 변경
+        if (pathfinder.FindPath(currentGridPos, targetGridPos))
+        {
+            List<AstarNode> newPath = pathfinder.FinalPath; // 성공 시 경로를 가져옴
+            StartFollowingPath(newPath);
+        }
+        else
+        {
+             Debug.LogWarning($"{monsterData.monsterName}이(가) Unblock 후 경로를 찾지 못했습니다.");
+             // 경로를 못찾으면 파괴
+             Destroy(gameObject);
+        }
     }
     #endregion
 }
