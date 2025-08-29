@@ -101,6 +101,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   playerManager: {fileID: 6740020199858137440}
   unitParent: {fileID: 0}
+  wallParent: {fileID: 0}
 --- !u!114 &425473495781712264
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -141,6 +142,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d1dbf1efe359760498ccb8a4ef18f96b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  destructibleWallPrefab: {fileID: 7586660566649568007, guid: 0336ce3939b88d84baa6095048c203eb,
+    type: 3}
   showPreview: 1
   validPreviewColor: {r: 0, g: 1, b: 0, a: 0.5}
   invalidPreviewColor: {r: 1, g: 0, b: 0, a: 0.5}
