@@ -1,36 +1,5 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!1 &5614185706011686352
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 5614185706011686353}
-  m_Layer: 0
-  m_Name: GoalPoint
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &5614185706011686353
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5614185706011686352}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -4.49, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 5614185706056964677}
-  m_RootOrder: 1
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5614185706056964676
 GameObject:
   m_ObjectHideFlags: 0
@@ -59,9 +28,7 @@ Transform:
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 5614185706068059065}
-  - {fileID: 5614185706011686353}
+  m_Children: []
   m_Father: {fileID: 5614185706799511485}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -77,44 +44,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 66aaf19f0669ce74089be945dec1b126, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  playerManager: {fileID: 5614185706351617983}
-  spawnPoint: {fileID: 5614185706068059065}
-  goalTransform: {fileID: 5614185706011686353}
+  spawnPoint: {fileID: 0}
+  goalTransform: {fileID: 0}
   monsterPrefab: {fileID: 2020015458557610380, guid: 4ae077da17a50f048a4009c3a41f2705,
     type: 3}
   monsterParent: {fileID: 0}
-  pathfinder: {fileID: 5614185707629608619}
---- !u!1 &5614185706068059064
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 5614185706068059065}
-  m_Layer: 0
-  m_Name: SpawnPoint
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &5614185706068059065
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5614185706068059064}
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 4.5, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 5614185706056964677}
-  m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5614185706311207960
 GameObject:
   m_ObjectHideFlags: 0
@@ -275,7 +209,6 @@ GameObject:
   m_Component:
   - component: {fileID: 5614185707629608622}
   - component: {fileID: 5614185707629608621}
-  - component: {fileID: 5614185707629608619}
   - component: {fileID: 5614185707629608620}
   m_Layer: 0
   m_Name: FieldManager
@@ -314,32 +247,6 @@ MonoBehaviour:
   playerManager: {fileID: 5614185706351617983}
   unitParent: {fileID: 0}
   wallParent: {fileID: 0}
-  obstacleTilemap: {fileID: 0}
-  groundTilemap: {fileID: 0}
---- !u!114 &5614185707629608619
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5614185707629608618}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 13af32c410712468aa7f2b47ae1f3fbd, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  bottomLeft: {x: -6, y: -4}
-  topRight: {x: 5, y: 4}
-  wallLayers:
-    serializedVersion: 2
-    m_Bits: 32896
-  detectionRadius: 0.4
-  allowDiagonal: 0
-  dontCrossCorner: 0
-  wallBreakCost: 10000
-  showDebugInfo: 1
-  debugStartPos: {x: 0, y: 0}
-  debugTargetPos: {x: 0, y: 0}
 --- !u!114 &5614185707629608620
 MonoBehaviour:
   m_ObjectHideFlags: 0
