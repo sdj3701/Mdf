@@ -28,21 +28,13 @@ public class GameManagers : MonoBehaviour
     [Header("생성할 프리팹")]
     public GameObject playerManagerPrefab;
     public GameObject gridPrefab;
+    public GameObject defaultMonsterPrefab;
 
-    // ✅ [수정] 수동 스폰 포인트 대신 자동 배치를 위한 변수들
     [Header("자동 생성 위치 설정")]
-    [Tooltip("플레이어 1의 필드가 생성될 기준 위치입니다.")]
     public Vector3 player1BasePosition = new Vector3(0, 0, 0);
-    [Tooltip("플레이어 간 필드를 얼마나 떨어뜨려 놓을지에 대한 값입니다.")]
     public Vector3 playerOffset = new Vector3(0, 10, 0);
 
-    // ✅ [제거] 더 이상 사용하지 않는 스폰 포인트 변수들
-    // public Transform player1SpawnPoint;
-    // public Transform grid1SpawnPoint;
-    // public Transform player2SpawnPoint;
-    // public Transform grid2SpawnPoint;
-
-
+    // ... (나머지 변수들은 동일) ...
     #region 단계별 시간 및 보상
     [Header("단계별 시간 설정 (초)")]
     public float preparePhaseTime = 45f;
@@ -120,7 +112,6 @@ public class GameManagers : MonoBehaviour
         StartCoroutine(GameLoop());
     }
     
-    // ✅ [수정된 핵심 로직]
     private void SetupPlayersAndGrids()
     {
         // Player 1 생성 및 초기화
@@ -129,26 +120,25 @@ public class GameManagers : MonoBehaviour
         player1 = player1GO.GetComponent<PlayerManager>();
         GameObject grid1GO = Instantiate(gridPrefab, player1BasePosition, Quaternion.identity);
         grid1GO.name = "Grid 1";
-        player1.InitializePlayer(0, grid1GO);
+        player1.InitializePlayer(0, grid1GO, defaultMonsterPrefab);
 
-        // Player 2 생성 및 초기화 (오프셋 적용)
+        // Player 2 생성 및 초기화
         Vector3 player2Position = player1BasePosition + playerOffset;
         GameObject player2GO = Instantiate(playerManagerPrefab, player2Position, Quaternion.identity);
         player2GO.name = "Player 2";
         player2 = player2GO.GetComponent<PlayerManager>();
         GameObject grid2GO = Instantiate(gridPrefab, player2Position, Quaternion.identity);
         grid2GO.name = "Grid 2";
-        player2.InitializePlayer(1, grid2GO);
+        player2.InitializePlayer(1, grid2GO, defaultMonsterPrefab);
 
-        // 상대방 정보 설정
         player1.opponentManager = player2;
         player2.opponentManager = player1;
-
-        // 로컬 플레이어 설정
+        
         localPlayer = player1;
         Debug.Log("플레이어와 그리드 자동 생성 및 설정 완료. 로컬 플레이어는 Player " + localPlayer.playerId + " 입니다.");
     }
     
+    // ... (이하 나머지 코드는 이전과 동일) ...
     private async UniTask SetupGameUI()
     {
         try
@@ -192,8 +182,6 @@ public class GameManagers : MonoBehaviour
         ).ToCoroutine();
         Debug.Log("모든 데이터 로딩 완료. 게임 루프를 시작합니다.");
     }
-
-    // ... (이하 GameLoop, PhaseTimerCoroutine, ChangeState 등 나머지 코드는 이전과 동일) ...
     private void HandleAugmentChosen(PlayerManager selectingPlayer, AugmentData chosenAugment)
     {
         if (selectingPlayer != localPlayer) return;

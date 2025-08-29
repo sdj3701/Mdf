@@ -2,10 +2,11 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
-using System.Linq; // ✅ [추가] FirstOrDefault를 사용하기 위해 반드시 필요합니다.
+using System.Linq;
 
 public class PlayerManager : MonoBehaviour
 {
+    // ... (변수 선언은 동일) ...
     [Header("플레이어 식별 정보")]
     public int playerId;
 
@@ -30,31 +31,61 @@ public class PlayerManager : MonoBehaviour
     
     public bool IsActivelyFighting { get; private set; }
 
-    void Awake()
+     void Awake()
     {
         fieldManager = GetComponentInChildren<FieldManager>();
         shopManager = GetComponentInChildren<ShopManager>();
         monsterSpawner = GetComponentInChildren<MonsterSpawner>();
         augmentManager = GetComponentInChildren<AugmentManager>();
+
+        // ✅ [진단 코드] Awake에서 MonsterSpawner를 찾았는지 확인
+        if (monsterSpawner == null)
+        {
+            Debug.LogError($"PlayerManager '{gameObject.name}'의 자식에서 MonsterSpawner를 찾지 못했습니다!", gameObject);
+        }
     }
     
-    public void InitializePlayer(int id, GameObject gridInstance)
+    public void InitializePlayer(int id, GameObject gridInstance, GameObject monsterPrefab)
     {
         this.playerId = id;
+        Debug.Log($"--- Player {id} 초기화 시작 ---");
+
+        // ✅ [진단 코드] 전달받은 참조들이 null이 아닌지 하나씩 확인
+        if (gridInstance == null) Debug.LogError($"Player {id}: 전달받은 gridInstance가 null입니다!");
+        if (monsterPrefab == null) Debug.LogError($"Player {id}: 전달받은 monsterPrefab이 null입니다!");
 
         var allTilemaps = gridInstance.GetComponentsInChildren<Tilemap>();
         Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
         Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
         AstarGrid astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
+        Transform spawnPoint = gridInstance.transform.Find("SpawnPoint");
+        Transform goalTransform = gridInstance.transform.Find("Goal");
+
+        // ✅ [진단 코드] Grid 프리팹 내부에서 컴포넌트를 제대로 찾았는지 확인
+        if (astarGrid == null) Debug.LogError($"Player {id}: Grid 프리팹에서 AstarGrid 컴포넌트를 찾지 못했습니다!");
+        if (spawnPoint == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'SpawnPoint' 자식 오브젝트를 찾지 못했습니다!");
+        if (goalTransform == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'Goal' 자식 오브젝트를 찾지 못했습니다!");
 
         if (fieldManager) fieldManager.Initialize(this, groundTilemap, obstacleTilemap);
         if (shopManager) shopManager.playerManager = this;
-        if (monsterSpawner) monsterSpawner.Initialize(this, astarGrid);
+        
+        if (monsterSpawner)
+        {
+            Debug.Log($"Player {id}: MonsterSpawner에게 참조 전달 시도...");
+            monsterSpawner.Initialize(this, astarGrid, monsterPrefab, spawnPoint, goalTransform);
+        }
+        else
+        {
+            Debug.LogError($"Player {id}: monsterSpawner 참조가 null이라서 Initialize를 호출할 수 없습니다!");
+        }
+
         if (augmentManager) augmentManager.playerManager = this;
         
         IsActivelyFighting = false;
+        Debug.Log($"--- Player {id} 초기화 완료 ---");
     }
 
+    // ... (이하 나머지 코드는 이전과 동일) ...
     void OnEnable()
     {
         GameEvents.OnUnitPurchased += HandleUnitPurchaseRequest;

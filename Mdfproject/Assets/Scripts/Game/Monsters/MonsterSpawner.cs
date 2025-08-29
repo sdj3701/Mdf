@@ -5,27 +5,36 @@ using UnityEngine;
 
 public class MonsterSpawner : MonoBehaviour
 {
-    // ✅ [수정] public 필드 제거, 이제 PlayerManager로부터 주입받음
     private PlayerManager playerManager;
     private AstarGrid pathfinder;
 
-    [Header("스폰 설정")]
-    public Transform spawnPoint;
-    public Transform goalTransform;
-    [Tooltip("스폰할 몬스터의 프리팹입니다. 이 프리팹에는 Monster 컴포넌트와 MonsterData 에셋이 연결되어 있어야 합니다.")]
-    public GameObject monsterPrefab;
+    // ✅ [수정] 모든 public 참조를 private으로 변경
+    [Header("스폰 설정 (자동 할당됨)")]
+    [SerializeField] private Transform spawnPoint;
+    [SerializeField] private Transform goalTransform;
+    [SerializeField] private GameObject monsterPrefab;
 
     [Header("정리용 부모 오브젝트")]
-    [Tooltip("생성된 몬스터들이 이 오브젝트의 자식으로 들어갑니다.")]
     public Transform monsterParent;
     
     private bool isSpawningWave = false;
     
-    // ✅ [추가된 핵심 로직] PlayerManager가 호출하여 초기화합니다.
-    public void Initialize(PlayerManager owner, AstarGrid grid)
+    // ✅ [수정된 최종 로직] 필요한 모든 참조를 전달받습니다.
+   public void Initialize(PlayerManager owner, AstarGrid grid, GameObject monsterPrefab, Transform spawnPoint, Transform goalTransform)
     {
         this.playerManager = owner;
         this.pathfinder = grid;
+        this.monsterPrefab = monsterPrefab;
+        this.spawnPoint = spawnPoint;
+        this.goalTransform = goalTransform;
+
+        // ✅ [진단 코드] 최종적으로 할당된 참조들이 null인지 확인
+        string ownerName = owner != null ? owner.name : "NULL";
+        Debug.Log($"MonsterSpawner for '{ownerName}' 초기화 완료. " +
+                  $"AstarGrid: {(grid != null)}, " +
+                  $"monsterPrefab: {(monsterPrefab != null)}, " +
+                  $"spawnPoint: {(spawnPoint != null)}, " +
+                  $"goalTransform: {(goalTransform != null)}");
 
         if (monsterParent == null)
         {
@@ -35,6 +44,7 @@ public class MonsterSpawner : MonoBehaviour
         }
     }
 
+    // ... (이하 나머지 코드는 이전과 동일) ...
     void Update()
     {
         if (playerManager == null || GameManagers.Instance == null) return;

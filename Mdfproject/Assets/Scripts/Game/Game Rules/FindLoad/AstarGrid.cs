@@ -4,17 +4,20 @@ using UnityEngine;
 
 public class AstarGrid : MonoBehaviour
 {
-    [Header("그리드 설정")]
+    [Header("그리드 설정 (로컬 오프셋)")]
+    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 왼쪽 아래 경계입니다.")]
     public Vector2Int bottomLeft;
+    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 오른쪽 위 경계입니다.")]
     public Vector2Int topRight;
+    
+    [Header("레이어 및 비용 설정")]
     public LayerMask wallLayers = -1;
     public float detectionRadius = 0.4f;
+    public int wallBreakCost = 10000;
 
     [Header("경로 탐색 옵션")]
     public bool allowDiagonal = true;
     public bool dontCrossCorner = false;
-    [Tooltip("부술 수 있는 벽을 통과할 때 추가되는 비용. 일반적인 이동 비용(10 또는 14)보다 훨씬 높아야 합니다.")]
-    public int wallBreakCost = 10000;
 
     [Header("디버깅")]
     public bool showDebugInfo = true;
@@ -25,10 +28,24 @@ public class AstarGrid : MonoBehaviour
 
     private int sizeX, sizeY;
     private AstarNode[,] NodeArray;
+    
+    // ✅ [추가된 핵심 로직] 런타임에 계산될 실제 월드 좌표 경계
+    private Vector2Int worldBottomLeft;
+    private Vector2Int worldTopRight;
 
     private void Awake()
     {
-        // 게임 시작 시 그리드를 한 번 생성하여 NodeArray를 초기화합니다.
+        // ✅ [추가된 핵심 로직]
+        // 이 컴포넌트가 깨어날 때, 자신의 월드 위치를 기준으로 실제 경계를 계산합니다.
+        // 이렇게 하면 GameManagers가 이 그리드를 어디에 생성하든 항상 올바른 경계를 갖게 됩니다.
+        Vector2Int gridOrigin = new Vector2Int(
+            Mathf.RoundToInt(transform.position.x),
+            Mathf.RoundToInt(transform.position.y)
+        );
+        worldBottomLeft = gridOrigin + bottomLeft;
+        worldTopRight = gridOrigin + topRight;
+        
+        // 그리드 노드 배열을 처음 생성합니다.
         InitializeGrid();
     }
 
@@ -39,7 +56,7 @@ public class AstarGrid : MonoBehaviour
 
         if (!IsValidPosition(start) || !IsValidPosition(end))
         {
-            Debug.LogError($"[AstarGrid] 시작점({start}) 또는 끝점({end})이 그리드 범위를 벗어났습니다.");
+            Debug.LogError($"[AstarGrid] 시작점({start}) 또는 끝점({end})이 그리드 범위를 벗어났습니다. 그리드 경계: {worldBottomLeft} ~ {worldTopRight}");
             return false;
         }
 
@@ -49,7 +66,6 @@ public class AstarGrid : MonoBehaviour
         List<AstarNode> OpenList = new List<AstarNode>();
         HashSet<AstarNode> ClosedList = new HashSet<AstarNode>();
         
-        // G-cost 및 부모 노드 초기화
         for (int i = 0; i < sizeX; i++)
         {
             for (int j = 0; j < sizeY; j++)
@@ -92,25 +108,24 @@ public class AstarGrid : MonoBehaviour
         return false;
     }
 
-    // 그리드 노드 배열을 처음 생성합니다.
     private void InitializeGrid()
     {
-        sizeX = topRight.x - bottomLeft.x + 1;
-        sizeY = topRight.y - bottomLeft.y + 1;
+        // ✅ [수정] 월드 좌표 경계를 기준으로 크기를 계산합니다.
+        sizeX = worldTopRight.x - worldBottomLeft.x + 1;
+        sizeY = worldTopRight.y - worldBottomLeft.y + 1;
         NodeArray = new AstarNode[sizeX, sizeY];
 
         for (int i = 0; i < sizeX; i++)
         {
             for (int j = 0; j < sizeY; j++)
             {
-                int x = i + bottomLeft.x;
-                int y = j + bottomLeft.y;
+                int x = i + worldBottomLeft.x;
+                int y = j + worldBottomLeft.y;
                 NodeArray[i, j] = new AstarNode(false, x, y);
             }
         }
     }
 
-    // 경로 탐색 직전에 호출되어, 현재 씬의 벽 상태를 그리드에 업데이트합니다.
     private void UpdateGridWallStatus()
     {
         if (NodeArray == null) InitializeGrid();
@@ -137,7 +152,6 @@ public class AstarGrid : MonoBehaviour
         return false;
     }
 
-    // ✅ [수정된 최종 로직] 이웃 노드를 탐색하고 비용을 정확하게 계산하여 업데이트합니다.
     private void ExploreNeighbors(AstarNode CurNode, AstarNode TargetNode, List<AstarNode> OpenList, HashSet<AstarNode> ClosedList)
     {
         for (int x = -1; x <= 1; x++)
@@ -153,35 +167,28 @@ public class AstarGrid : MonoBehaviour
                 AstarNode NeighborNode = GetNode(neighborPos);
                 if (ClosedList.Contains(NeighborNode)) continue;
 
-                // 부술 수 없는 벽이면 완전히 무시합니다.
                 if (NeighborNode.isWall && !NeighborNode.isBreakable) continue;
 
-                // 코너를 가로지르는 것을 방지하는 로직
                 if (dontCrossCorner && x != 0 && y != 0)
                 {
                     if (GetNode(new Vector2Int(CurNode.x + x, CurNode.y)).isWall || GetNode(new Vector2Int(CurNode.x, CurNode.y + y)).isWall)
                         continue;
                 }
 
-                // 1. 현재 노드를 거쳐 이웃 노드로 가는 G-cost를 계산합니다.
                 int distanceCost = (x == 0 || y == 0) ? 10 : 14;
                 int tentativeGCost = CurNode.G + distanceCost;
                 
-                // 만약 이웃이 부숴야 하는 벽이라면, 막대한 패널티 비용을 추가합니다.
                 if (NeighborNode.isWall)
                 {
                     tentativeGCost += wallBreakCost;
                 }
 
-                // 2. 이 경로가 기존에 알려진 경로보다 더 효율적인지 확인합니다.
                 if (tentativeGCost < NeighborNode.G)
                 {
-                    // 3. 더 효율적이라면, 이웃 노드의 정보를 업데이트합니다.
                     NeighborNode.ParentNode = CurNode;
                     NeighborNode.G = tentativeGCost;
                     NeighborNode.H = GetManhattanDistance(new Vector2Int(NeighborNode.x, NeighborNode.y), new Vector2Int(TargetNode.x, TargetNode.y));
 
-                    // 4. 이웃 노드가 OpenList에 없다면 추가합니다.
                     if (!OpenList.Contains(NeighborNode))
                     {
                         OpenList.Add(NeighborNode);
@@ -220,19 +227,23 @@ public class AstarGrid : MonoBehaviour
     #region 유틸리티 메서드
     private bool IsValidPosition(Vector2Int pos)
     {
-        return pos.x >= bottomLeft.x && pos.x <= topRight.x &&
-               pos.y >= bottomLeft.y && pos.y <= topRight.y;
+        // ✅ [수정] 월드 좌표 경계와 비교합니다.
+        return pos.x >= worldBottomLeft.x && pos.x <= worldTopRight.x &&
+               pos.y >= worldBottomLeft.y && pos.y <= worldTopRight.y;
     }
 
     private AstarNode GetNode(Vector2Int pos)
     {
         if (!IsValidPosition(pos)) return null;
-        return NodeArray[pos.x - bottomLeft.x, pos.y - bottomLeft.y];
+        // ✅ [수정] 월드 좌표를 배열 인덱스로 변환합니다.
+        return NodeArray[pos.x - worldBottomLeft.x, pos.y - worldBottomLeft.y];
     }
     
     [ContextMenu("디버그 경로 탐색 실행")]
     private void PathFindingForDebug()
     {
+        // 디버깅 시에는 Awake가 호출된 후의 월드 좌표를 사용해야 합니다.
+        if (NodeArray == null) Awake(); // 에디터에서 바로 실행 시 Awake 호출
         FindPath(debugStartPos, debugTargetPos);
     }
 
@@ -240,9 +251,13 @@ public class AstarGrid : MonoBehaviour
     {
         if (!showDebugInfo) return;
         
+        // ✅ [수정] 월드 좌표 경계를 기준으로 기즈모를 그립니다.
+        Vector2Int bottomLeftGizmo = Application.isPlaying ? worldBottomLeft : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + bottomLeft;
+        Vector2Int topRightGizmo = Application.isPlaying ? worldTopRight : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + topRight;
+
         Gizmos.color = Color.cyan;
-        Vector3 center = new Vector3(bottomLeft.x + (topRight.x - bottomLeft.x) / 2f + 0.5f, bottomLeft.y + (topRight.y - bottomLeft.y) / 2f + 0.5f, 0);
-        Vector3 size = new Vector3(topRight.x - bottomLeft.x + 1, topRight.y - bottomLeft.y + 1, 0);
+        Vector3 center = new Vector3(bottomLeftGizmo.x + (topRightGizmo.x - bottomLeftGizmo.x) / 2f + 0.5f, bottomLeftGizmo.y + (topRightGizmo.y - bottomLeftGizmo.y) / 2f + 0.5f, 0);
+        Vector3 size = new Vector3(topRightGizmo.x - bottomLeftGizmo.x + 1, topRightGizmo.y - bottomLeftGizmo.y + 1, 0);
         Gizmos.DrawWireCube(center, size);
 
         if (NodeArray == null) return;
@@ -253,7 +268,7 @@ public class AstarGrid : MonoBehaviour
             {
                 if (NodeArray[i, j].isWall)
                 {
-                    Vector3 pos = new Vector3(i + bottomLeft.x + 0.5f, j + bottomLeft.y + 0.5f, 0);
+                    Vector3 pos = new Vector3(NodeArray[i,j].x + 0.5f, NodeArray[i,j].y + 0.5f, 0);
                     Gizmos.color = NodeArray[i, j].isBreakable ? new Color(1f, 0.5f, 0f, 0.7f) : new Color(1f, 0f, 0f, 0.7f); 
                     Gizmos.DrawCube(pos, Vector3.one * 0.8f);
                 }
