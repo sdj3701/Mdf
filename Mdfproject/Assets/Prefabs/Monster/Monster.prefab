@@ -49,6 +49,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   monsterData: {fileID: 11400000, guid: ae8a69e0ccd88974d8e8035798f0c066, type: 2}
+  wallLayerMask:
+    serializedVersion: 2
+    m_Bits: 32768
   currentHP: 0
 --- !u!212 &720977558703827357
 SpriteRenderer:

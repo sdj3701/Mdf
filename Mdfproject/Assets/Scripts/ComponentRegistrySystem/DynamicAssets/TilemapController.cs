@@ -19,7 +19,12 @@ public class TilemapController : RegisteredComponent
         // Tilemap 컴포넌트 자동 할당
         if (tilemap == null) tilemap = GetComponent<Tilemap>();
         if (tilemapRenderer == null) tilemapRenderer = GetComponent<TilemapRenderer>();
-        tilemapType = this.gameObject.name; // 기본적으로 게임 오브젝트 이름을 타입으로 사용
+        
+        // tilemapType이 인스펙터에서 설정되지 않은 경우에만 게임 오브젝트 이름을 기본값으로 사용
+        if (string.IsNullOrEmpty(tilemapType))
+        {
+            tilemapType = this.gameObject.name;
+        }
 
         // ID를 타입 이름으로 설정
         if (string.IsNullOrEmpty(componentId))
@@ -30,7 +35,7 @@ public class TilemapController : RegisteredComponent
         base.Awake();
     }
 
-    protected override void RegisterSelf()
+    public override void RegisterSelf()
     {
         // TilemapController 자체 등록
         ComponentRegistry.Register<TilemapController>(componentId, this);
@@ -48,7 +53,7 @@ public class TilemapController : RegisteredComponent
         }
     }
 
-    protected override void UnregisterSelf()
+    public override void UnregisterSelf()
     {
         ComponentRegistry.Unregister<TilemapController>(componentId);
         ComponentRegistry.Unregister<Tilemap>(componentId);

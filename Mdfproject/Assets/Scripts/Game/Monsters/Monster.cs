@@ -4,13 +4,21 @@ using System.Collections;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(ManaController))]
-public class Monster : MonoBehaviour, IEnemy
+public class Monster : MonoBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
     public MonsterData monsterData;
 
+    [Tooltip("공격하거나 파괴할 수 있는 벽의 레이어를 설정해야 합니다.")]
+    public LayerMask wallLayerMask;
+
     [Header("현재 상태")]
-    public int currentHP;
+    public float currentHP;
+    private float currentMaxHP;
+
+    public float CurrentHealth => currentHP;
+    public float MaxHealth => currentMaxHP;
+    public event System.Action<float, float> OnHealthChanged;
 
     // --- 시스템 컴포넌트 ---
     private ManaController manaController;
@@ -29,15 +37,20 @@ public class Monster : MonoBehaviour, IEnemy
 
     void OnApplicationQuit() { isQuitting = true; }
 
-    public void Initialize(PlayerManager owner, Transform goal, MonsterData data)
+    public void Initialize(PlayerManager owner, Transform goal, MonsterData data, AstarGrid pathfinder)
     {
         this.ownerPlayer = owner;
         this.goalTransform = goal;
         this.monsterData = data;
+        this.pathfinder = pathfinder; // [수정] 외부에서 올바른 AstarGrid를 주입받습니다.
         this.name = monsterData.monsterName;
+
+        // AstarGrid와 동일한 레이어 마스크를 사용하도록 보장하여 탐지 불일치 문제를 해결합니다.
+        this.wallLayerMask = pathfinder.wallLayers;
         
-        currentHP = monsterData.maxHealth;
-        pathfinder = FindObjectOfType<AstarGrid>();
+        currentMaxHP = monsterData.maxHealth;
+        currentHP = currentMaxHP;
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         
         manaController = GetComponent<ManaController>();
         manaController.Initialize(monsterData.maxMana);
@@ -72,15 +85,18 @@ public class Monster : MonoBehaviour, IEnemy
         if (monsterData == null) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, monsterData.defense, monsterData.magicResistance);
         currentHP -= finalDamage;
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         if (currentHP <= 0) Die();
     }
 
     public void ApplyBuff(float healthMultiplier, float speedMultiplier)
     {
-        int newMaxHP = (int)(monsterData.maxHealth * healthMultiplier);
-        currentHP = (int)((float)currentHP / monsterData.maxHealth * newMaxHP);
+        float healthPercentage = currentHP / currentMaxHP;
+        currentMaxHP = monsterData.maxHealth * healthMultiplier;
+        currentHP = currentMaxHP * healthPercentage;
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         // TODO: 이동 속도 버프 적용
-        Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {currentHP}/{newMaxHP}");
+        Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {currentHP}/{currentMaxHP}");
     }
 
     private void Die()
@@ -99,38 +115,60 @@ public class Monster : MonoBehaviour, IEnemy
     }
 
     #region 공격 로직
-    /// <summary>
-    /// 특정 대상을 계속 공격하는 코루틴을 시작합니다.
-    /// </summary>
     private void StartAttacking(IEnemy target)
     {
         if (target == null) return;
-        StopAllCoroutines(); // 이동 및 다른 공격 코루틴 모두 중지
+        StopAllCoroutines();
         isMoving = false;
         attackCoroutine = StartCoroutine(AttackLoop(target));
     }
 
     private IEnumerator AttackLoop(IEnemy target)
     {
-        // target이 null이 아니고, 파괴되지 않은 상태일 동안 계속 공격
         while (target != null && (target as MonoBehaviour) != null)
         {
-            // 몬스터의 공격 속도에 맞춰 대기
             yield return new WaitForSeconds(1f / monsterData.attackSpeed);
 
-            // 공격
-            target.TakeDamage(monsterData.attackDamage, monsterData.damageType);
-            Debug.Log($"{monsterData.monsterName}이(가) {(target as MonoBehaviour).name}을(를) 공격!");
-        }
+            // 코루틴이 재개된 후 목표가 여전히 유효한지 확인합니다. (다른 몬스터에 의해 파괴되었을 수 있음)
+            if ((target as MonoBehaviour) == null) break;
 
-        // 공격 대상이 사라지면(죽거나 파괴되면) 다시 경로 탐색 시도
+            // [수정] TakeDamage 호출 후 대상이 파괴될 수 있으므로, 예외 발생을 막기 위해 이름을 미리 저장합니다.
+            string targetName = (target as MonoBehaviour).name;
+            target.TakeDamage(monsterData.attackDamage, monsterData.damageType);
+            Debug.Log($"{monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+        }
+        
         Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
         attackCoroutine = null;
-        Unblock(); // Unblock 로직을 재활용하여 경로 재탐색
+        
+        // [수정] Unblock() 대신, 경로를 다시 찾는 로직을 직접 호출하여 멈춤 현상을 해결합니다.
+        FindNewPathToGoal();
     }
     #endregion
 
     #region 이동 및 경로탐색 로직
+
+    /// <summary>
+    /// [새로 추가된 메서드] 현재 위치에서 목표 지점까지의 새로운 경로를 탐색하고 이동을 시작합니다.
+    /// </summary>
+    private void FindNewPathToGoal()
+    {
+        // [수정] 좌표 계산 시 FloorToInt 대신 RoundToInt를 사용하여 정확도를 높입니다.
+        Vector2Int currentGridPos = new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y));
+        Vector2Int targetGridPos = new Vector2Int(Mathf.RoundToInt(goalTransform.position.x), Mathf.RoundToInt(goalTransform.position.y));
+        
+        if (pathfinder.FindPath(currentGridPos, targetGridPos))
+        {
+            List<AstarNode> newPath = pathfinder.FinalPath;
+            StartFollowingPath(newPath);
+        }
+        else
+        {
+             Debug.LogWarning($"{monsterData.monsterName}이(가) 경로를 찾지 못했습니다. 소멸합니다.");
+             Destroy(gameObject);
+        }
+    }
+
     public void StartFollowingPath(List<AstarNode> path)
     {
         StopAllCoroutines();
@@ -147,8 +185,7 @@ public class Monster : MonoBehaviour, IEnemy
         else
         {
             isMoving = false;
-            // TODO: 경로가 없을 때의 처리 (예: 벽 공격)
-            // AstarGrid에서 이 경우를 감지하고 OnPathBlocked를 호출해줘야 함
+            OnPathBlocked(null); // 경로가 없으면 OnPathBlocked 호출
         }
     }
     private IEnumerator FlyDirectlyCoroutine()
@@ -166,7 +203,37 @@ public class Monster : MonoBehaviour, IEnemy
         int currentPathIndex = 1;
         while (currentPathIndex < path.Count && isMoving)
         {
-            Vector2 currentTarget = new Vector2(path[currentPathIndex].x + 0.5f, path[currentPathIndex].y + 0.5f);
+            AstarNode targetNode = path[currentPathIndex];
+            Vector2 currentTarget = new Vector2(targetNode.x + 0.5f, targetNode.y + 0.5f);
+
+            // [수정된 핵심 로직] 다음 목표가 벽인지 확인합니다.
+            if (targetNode.isWall)
+            {
+                // 해당 위치의 벽 오브젝트를 찾습니다.
+                // ✅ [수정] AstarGrid의 탐지 반경(0.4f)과 일치시켜 탐지 오류를 해결합니다.
+                // ✅ [수정] OverlapCircleAll을 사용하여 여러 콜라이더가 있을 경우에도 DestructibleWall을 확실히 찾도록 수정합니다.
+                Collider2D[] wallColliders = Physics2D.OverlapCircleAll(currentTarget, 0.4f, wallLayerMask);
+                DestructibleWall wall = null;
+                foreach (var col in wallColliders)
+                {
+                    if (col.TryGetComponent(out wall)) break;
+                }
+
+                if (wall != null)
+                {
+                    // 벽을 찾았다면, 이동을 멈추고 공격을 시작합니다.
+                    StartAttacking(wall);
+                    yield break; // 이동 코루틴을 완전히 종료합니다.
+                }
+                else
+                {
+                    // 게임 시작 시 모든 벽 타일에 DestructibleWall 오브젝트가 생성되므로, 이 경고는 발생하면 안 됩니다.
+                    // 만약 이 메시지가 보인다면, A* 경로와 실제 월드의 벽 상태가 일치하지 않는 것입니다.
+                    Debug.LogWarning($"경로상에 벽({currentTarget})이 있지만, 실제 벽 오브젝트를 찾을 수 없습니다. 경로를 계속 진행합니다.");
+                }
+            }
+            
+            // 기존 이동 로직
             while (Vector2.Distance(transform.position, currentTarget) > 0.1f && isMoving)
             {
                 transform.position = Vector2.MoveTowards(transform.position, currentTarget, monsterData.moveSpeed * Time.deltaTime);
@@ -198,11 +265,11 @@ public class Monster : MonoBehaviour, IEnemy
         StartAttacking(unit.GetComponent<IEnemy>());
     }
 
-    /// <summary>
-    /// A* 길찾기에서 경로를 찾지 못했을 때 호출됩니다.
-    /// </summary>
     public void OnPathBlocked(GameObject obstacle)
     {
+        // 이 부분은 새로운 AstarGrid 로직으로 인해 호출될 가능성이 낮아졌습니다.
+        // A*가 벽을 부수는 경로를 찾아주기 때문입니다.
+        // 하지만 만약을 위해 남겨둡니다.
         if (obstacle != null && obstacle.TryGetComponent<IEnemy>(out var enemyWall))
         {
             Debug.Log($"{monsterData.monsterName}의 경로가 {obstacle.name}에 의해 막혔습니다. 공격을 시작합니다.");
@@ -218,8 +285,6 @@ public class Monster : MonoBehaviour, IEnemy
     {
         if (isQuitting || !isBlocked) return;
         
-        // Unblock은 공격이 끝났거나 유닛이 사라졌을 때 호출됨
-        // isBlocked 상태를 해제하고 다시 경로를 찾음
         isBlocked = false;
         blockingUnit = null;
         
@@ -229,10 +294,8 @@ public class Monster : MonoBehaviour, IEnemy
             attackCoroutine = null;
         }
 
-        Vector2Int currentGridPos = new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.y));
-        Vector2Int targetGridPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.y));
-        List<AstarNode> newPath = pathfinder.FindPath(currentGridPos, targetGridPos);
-        StartFollowingPath(newPath);
+        // [수정] 경로 탐색 로직을 새 메서드로 분리하여 호출합니다.
+        FindNewPathToGoal();
     }
     #endregion
 }

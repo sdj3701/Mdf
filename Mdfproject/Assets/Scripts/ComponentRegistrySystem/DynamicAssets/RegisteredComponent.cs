@@ -1,12 +1,12 @@
 using UnityEngine;
 
 /// <summary>
-/// ÀÚµ¿ µî·ÏÀ» À§ÇÑ º£ÀÌ½º Å¬·¡½º
+/// ìë™ ë“±ë¡ì„ ìœ„í•œ ë² ì´ìŠ¤ í´ë˜ìŠ¤
 /// </summary>
 public abstract class RegisteredComponent : MonoBehaviour
 {
-    [Header("ÀÚµ¿ µî·Ï ¼³Á¤")]
-    [SerializeField] protected string componentId;
+    [Header("ìë™ ë“±ë¡ ì„¤ì •")]
+    [SerializeField] public string componentId;
     [SerializeField] protected bool autoRegister = true;
 
     protected virtual void Awake()
@@ -29,8 +29,8 @@ public abstract class RegisteredComponent : MonoBehaviour
         }
     }
 
-    protected abstract void RegisterSelf();
-    protected abstract void UnregisterSelf();
+    public abstract void RegisterSelf();
+    public abstract void UnregisterSelf();
 
     protected virtual string GenerateDefaultId()
     {
