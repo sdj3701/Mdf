@@ -39,7 +39,8 @@ public class DestructibleWall : MonoBehaviour, IEnemy
                 // FieldManager가 할당되지 않은 비정상적인 경우, 게임 오브젝트만이라도 제거합니다.
                 // 이 경우 사용자가 겪는 문제처럼 타일맵의 스프라이트는 그대로 남게 됩니다.
                 Debug.LogError("DestructibleWall에 FieldManager가 할당되지 않아 타일맵을 수정할 수 없습니다! 이 벽이 FieldManager를 통해 생성되었는지 확인하세요.", this);
-                Destroy(gameObject);
+                // Tilemap과 같은 중요 오브젝트가 실수로 파괴되는 것을 방지하기 위해 아래 코드를 주석 처리합니다.
+                // Destroy(gameObject);
             }
         }
     }

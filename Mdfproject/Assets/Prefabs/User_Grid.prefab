@@ -912,7 +912,7 @@ MonoBehaviour:
   autoRegister: 1
   tilemap: {fileID: 0}
   tilemapRenderer: {fileID: 0}
-  tilemapType: 
+  tilemapType: Wall
 --- !u!1 &7721388087237072535
 GameObject:
   m_ObjectHideFlags: 0
@@ -1642,7 +1642,7 @@ MonoBehaviour:
   autoRegister: 1
   tilemap: {fileID: 0}
   tilemapRenderer: {fileID: 0}
-  tilemapType: 
+  tilemapType: Ground
 --- !u!1 &7721388087672272711
 GameObject:
   m_ObjectHideFlags: 0
@@ -1713,9 +1713,9 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 32896
   detectionRadius: 0.4
+  wallBreakCost: 10000
   allowDiagonal: 0
   dontCrossCorner: 0
-  wallBreakCost: 10000
   showDebugInfo: 1
   debugStartPos: {x: 0, y: 0}
   debugTargetPos: {x: 0, y: 0}
@@ -1907,7 +1907,6 @@ GameObject:
   - component: {fileID: 7721388087968644015}
   - component: {fileID: 7721388087968643984}
   - component: {fileID: 7721388087968644014}
-  - component: {fileID: 7721388087968644013}
   - component: {fileID: 7721388087968644012}
   m_Layer: 15
   m_Name: BreakWall Tilemap
@@ -2238,21 +2237,6 @@ TilemapCollider2D:
   m_Offset: {x: 0, y: 0}
   m_MaximumTileChangeCount: 1000
   m_ExtrusionFactor: 0
---- !u!114 &7721388087968644013
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 7721388087968643986}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 9d3d5f0a454fded40972a205f228f082, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  maxHealth: 200
-  defense: 10
-  magicResistance: 0
 --- !u!114 &7721388087968644012
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2269,4 +2253,4 @@ MonoBehaviour:
   autoRegister: 1
   tilemap: {fileID: 0}
   tilemapRenderer: {fileID: 0}
-  tilemapType: 
+  tilemapType: BreakWall

@@ -6,7 +6,7 @@ using UnityEngine;
 public abstract class RegisteredComponent : MonoBehaviour
 {
     [Header("자동 등록 설정")]
-    [SerializeField] protected string componentId;
+    [SerializeField] public string componentId;
     [SerializeField] protected bool autoRegister = true;
 
     protected virtual void Awake()
@@ -29,8 +29,8 @@ public abstract class RegisteredComponent : MonoBehaviour
         }
     }
 
-    protected abstract void RegisterSelf();
-    protected abstract void UnregisterSelf();
+    public abstract void RegisterSelf();
+    public abstract void UnregisterSelf();
 
     protected virtual string GenerateDefaultId()
     {
