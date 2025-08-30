@@ -10,6 +10,8 @@ public class ShopUIController : MonoBehaviour
     public ShopSlot[] shopSlots;
     public Button rerollButton;
     public TextMeshProUGUI rerollCostText;
+    [Tooltip("준비 단계에서만 활성화되는 벽 생성 버튼입니다.")]
+    public GameObject wallPlacementButton;
 
     [Header("상점 토글 버튼 설정")]
     public Button toggleButton;
@@ -63,9 +65,18 @@ public class ShopUIController : MonoBehaviour
     {
         bool isPreparePhase = (newState == GameManagers.GameState.Prepare);
         
+        // [수정] 게임 상태에 따라 벽 생성 버튼과 상점 토글 버튼의 가시성을 제어합니다.
+        if (wallPlacementButton != null)
+        {
+            wallPlacementButton.SetActive(isPreparePhase);
+        }
+        if (toggleButton != null)
+        {
+            toggleButton.gameObject.SetActive(isPreparePhase);
+        }
+        
         // 버튼들의 상호작용 여부를 게임 상태에 따라 결정합니다.
         rerollButton.interactable = isPreparePhase;
-        if (toggleButton != null) toggleButton.interactable = isPreparePhase;
 
         foreach (var slot in shopSlots)
         {

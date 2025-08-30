@@ -92,6 +92,19 @@ public class FieldManager : MonoBehaviour
         {
             RespawnAllUnits();
         }
+        // [추가] 게임 상태가 전투로 변경될 때, 진행 중이던 유닛 드래그를 취소합니다.
+        else if (selectedUnit != null)
+        {
+            // 유닛을 원래 위치로 되돌립니다.
+            Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+            selectedUnit.transform.position = originalWorldPos;
+            placedUnits.Add(originalUnitPosition, selectedUnit);
+
+            Debug.Log($"<color=orange>게임 상태 변경으로 인해 {selectedUnit.Data.unitName}의 배치가 취소되고 원위치로 돌아갑니다.</color>");
+            
+            // 드래그 상태를 초기화합니다.
+            selectedUnit = null;
+        }
     }
 
     private void HandlePlacementModeEnterRequest(PlacementMode mode, GameObject unitPrefab)
