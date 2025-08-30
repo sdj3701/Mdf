@@ -98,13 +98,25 @@ public class PlacementManager : MonoBehaviour
         bool hasObstacle = fieldManager.GetWallAt(gridPosition) != null;
         bool hasUnit = fieldManager.IsUnitAt(gridPosition);
 
+        // 기본 조건: 유닛이 이미 있거나, 땅 타일이 없으면 배치 불가
         if (hasUnit || !hasGroundTile) return false;
         
-        if (hasObstacle)
+        // 배치하려는 것이 유닛일 경우, 유닛 타입에 따른 규칙을 적용
+        if (unitData != null)
         {
-            return unitData != null && unitData.unitType == UnitType.Ranged;
+            // 근접 유닛은 장애물(언덕) 위에 배치할 수 없습니다.
+            if (unitData.unitType == UnitType.Melee && hasObstacle)
+            {
+                return false;
+            }
+        }
+        // 배치하려는 것이 유닛이 아닐 경우 (예: 벽), 장애물 위에 놓을 수 없습니다.
+        else if (hasObstacle)
+        {
+            return false;
         }
         
+        // 위의 모든 금지 조건에 해당하지 않으면 배치 가능
         return true;
     }
     

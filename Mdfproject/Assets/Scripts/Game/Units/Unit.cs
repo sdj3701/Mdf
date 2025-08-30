@@ -20,7 +20,11 @@ public class Unit : MonoBehaviour, IEnemy
     public Canvas worldSpaceCanvas; // 월드 스페이스 캔버스 참조
 
     // --- 현재 상태 및 시스템 컴포넌트 ---
-    public int starLevel { get; private set; } = 1;
+    [Header("현재 상태 (읽기 전용)")]
+    [Tooltip("유닛의 현재 성급입니다. (1~3성)")]
+    [SerializeField]
+    private int m_starLevel = 1;
+    public int starLevel { get { return m_starLevel; } private set { m_starLevel = value; } }
     
     // [추가됨] 유닛의 생사 상태를 추적하기 위한 플래그입니다.
     public bool IsDead { get; private set; } = false;
