@@ -50,6 +50,17 @@ public class PlayerManager : MonoBehaviour
         this.playerId = id;
         Debug.Log($"--- Player {id} 초기화 시작 ---");
 
+        // ✅ [핵심 수정] Grid 내의 TilemapController들이 고유 ID를 갖도록 재등록합니다.
+        // 이렇게 하면 "중복 등록" 경고가 해결됩니다.
+        var allTilemapControllers = gridInstance.GetComponentsInChildren<TilemapController>();
+        foreach (var controller in allTilemapControllers)
+        {
+            controller.UnregisterSelf(); // Awake에서 등록된 기본 ID를 해제합니다.
+            // 플레이어 ID와 TilemapController의 Type을 조합하여 고유 ID를 새로 만듭니다. (예: "Player0_Ground")
+            controller.componentId = $"Player{this.playerId}_{controller.Type}";
+            controller.RegisterSelf(); // 새로운 고유 ID로 다시 등록합니다.
+        }
+
         // ✅ [진단 코드] 전달받은 참조들이 null이 아닌지 하나씩 확인
         if (gridInstance == null) Debug.LogError($"Player {id}: 전달받은 gridInstance가 null입니다!");
         if (monsterPrefab == null) Debug.LogError($"Player {id}: 전달받은 monsterPrefab이 null입니다!");
