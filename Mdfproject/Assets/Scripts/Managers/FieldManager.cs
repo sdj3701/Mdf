@@ -17,6 +17,7 @@ public class FieldManager : MonoBehaviour
     [Header("생성할 프리팹")]
     [Tooltip("몬스터가 공격하거나 플레이어가 설치할 때 사용되는 파괴 가능한 벽 프리팹입니다.")]
     public GameObject destructibleWallPrefab;
+    public GameObject statusBarPrefab;
 
     public Tilemap ObstacleTilemap { get; private set; }
     public Tilemap GroundTilemap { get; private set; }
@@ -136,6 +137,10 @@ public class FieldManager : MonoBehaviour
 
         Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
         GameObject wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
+        if (statusBarPrefab != null)
+        {
+            Instantiate(statusBarPrefab, wallGO.transform);
+        }
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
 
         if (wallComponent != null)
@@ -257,6 +262,10 @@ public class FieldManager : MonoBehaviour
         }
         Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
         GameObject newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+        if (statusBarPrefab != null)
+        {
+            Instantiate(statusBarPrefab, newUnitGO.transform);
+        }
         Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
 
         if (newUnitComponent != null)

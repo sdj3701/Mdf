@@ -2,11 +2,15 @@
 using UnityEngine;
 using UnityEngine.Tilemaps;
 
-public class DestructibleWall : MonoBehaviour, IEnemy
+public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
 {
     [Header("벽 스탯")]
-    [SerializeField] private int maxHealth = 200;
-    private int currentHealth;
+    [SerializeField] private float maxHealth = 200f;
+    private float currentHealth;
+
+    public float CurrentHealth => currentHealth;
+    public float MaxHealth => maxHealth;
+    public event System.Action<float, float> OnHealthChanged;
 
     [SerializeField] private float defense = 10f;
     [SerializeField] private float magicResistance = 0f;
@@ -20,12 +24,14 @@ public class DestructibleWall : MonoBehaviour, IEnemy
         this.fieldManager = manager;
         this.wallGridPosition = gridPosition;
         this.currentHealth = maxHealth;
+        OnHealthChanged?.Invoke(currentHealth, maxHealth);
     }
 
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, defense, magicResistance);
         currentHealth -= finalDamage;
+        OnHealthChanged?.Invoke(currentHealth, maxHealth);
 
         if (currentHealth <= 0)
         {

@@ -48,6 +48,8 @@ MonoBehaviour:
   goalTransform: {fileID: 0}
   monsterPrefab: {fileID: 2020015458557610380, guid: 4ae077da17a50f048a4009c3a41f2705,
     type: 3}
+  statusBarPrefab: {fileID: 523785727660799067, guid: 1ce31d6300e00da47a20857d35fa5332,
+    type: 3}
   monsterParent: {fileID: 0}
 --- !u!1 &5614185706311207960
 GameObject:
@@ -248,6 +250,8 @@ MonoBehaviour:
   unitParent: {fileID: 0}
   wallParent: {fileID: 0}
   destructibleWallPrefab: {fileID: 7586660566649568007, guid: 0336ce3939b88d84baa6095048c203eb,
+    type: 3}
+  statusBarPrefab: {fileID: 523785727660799067, guid: 1ce31d6300e00da47a20857d35fa5332,
     type: 3}
 --- !u!114 &5614185707629608620
 MonoBehaviour:
