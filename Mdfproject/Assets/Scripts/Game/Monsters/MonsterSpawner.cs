@@ -13,6 +13,7 @@ public class MonsterSpawner : MonoBehaviour
     [SerializeField] private Transform spawnPoint;
     [SerializeField] private Transform goalTransform;
     [SerializeField] private GameObject monsterPrefab;
+    public GameObject statusBarPrefab;
 
     [Header("정리용 부모 오브젝트")]
     public Transform monsterParent;
@@ -105,6 +106,10 @@ public class MonsterSpawner : MonoBehaviour
             }
             
             GameObject monsterGO = Instantiate(monsterPrefab, spawnPoint.position, Quaternion.identity, monsterParent);
+            if (statusBarPrefab != null)
+            {
+                Instantiate(statusBarPrefab, monsterGO.transform);
+            }
             Monster monster = monsterGO.GetComponent<Monster>();
 
             if (monster != null)
@@ -182,6 +187,10 @@ public class MonsterSpawner : MonoBehaviour
         Debug.Log($"<color=red>보스 몬스터 소환!</color> {dataToSpawn.monsterName} at Player {playerManager.playerId}'s field");
         
         GameObject monsterGO = Instantiate(monsterPrefabToSpawn, spawnPoint.position, Quaternion.identity, monsterParent);
+        if (statusBarPrefab != null)
+        {
+            Instantiate(statusBarPrefab, monsterGO.transform);
+        }
         Monster monster = monsterGO.GetComponent<Monster>();
 
         if (monster != null)

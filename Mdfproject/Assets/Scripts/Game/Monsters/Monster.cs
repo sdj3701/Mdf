@@ -4,7 +4,7 @@ using System.Collections;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(ManaController))]
-public class Monster : MonoBehaviour, IEnemy
+public class Monster : MonoBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
     public MonsterData monsterData;
@@ -13,7 +13,12 @@ public class Monster : MonoBehaviour, IEnemy
     public LayerMask wallLayerMask;
 
     [Header("현재 상태")]
-    public int currentHP;
+    public float currentHP;
+    private float currentMaxHP;
+
+    public float CurrentHealth => currentHP;
+    public float MaxHealth => currentMaxHP;
+    public event System.Action<float, float> OnHealthChanged;
 
     // --- 시스템 컴포넌트 ---
     private ManaController manaController;
@@ -43,7 +48,9 @@ public class Monster : MonoBehaviour, IEnemy
         // AstarGrid와 동일한 레이어 마스크를 사용하도록 보장하여 탐지 불일치 문제를 해결합니다.
         this.wallLayerMask = pathfinder.wallLayers;
         
-        currentHP = monsterData.maxHealth;
+        currentMaxHP = monsterData.maxHealth;
+        currentHP = currentMaxHP;
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         
         manaController = GetComponent<ManaController>();
         manaController.Initialize(monsterData.maxMana);
@@ -78,15 +85,18 @@ public class Monster : MonoBehaviour, IEnemy
         if (monsterData == null) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, monsterData.defense, monsterData.magicResistance);
         currentHP -= finalDamage;
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         if (currentHP <= 0) Die();
     }
 
     public void ApplyBuff(float healthMultiplier, float speedMultiplier)
     {
-        int newMaxHP = (int)(monsterData.maxHealth * healthMultiplier);
-        currentHP = (int)((float)currentHP / monsterData.maxHealth * newMaxHP);
+        float healthPercentage = currentHP / currentMaxHP;
+        currentMaxHP = monsterData.maxHealth * healthMultiplier;
+        currentHP = currentMaxHP * healthPercentage;
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         // TODO: 이동 속도 버프 적용
-        Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {currentHP}/{newMaxHP}");
+        Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {currentHP}/{currentMaxHP}");
     }
 
     private void Die()

@@ -5,7 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(ManaController))]
-public class Unit : MonoBehaviour, IEnemy
+public class Unit : MonoBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
     [SerializeField] private UnitData unitData;
@@ -29,9 +29,14 @@ public class Unit : MonoBehaviour, IEnemy
     // [추가됨] 유닛의 생사 상태를 추적하기 위한 플래그입니다.
     public bool IsDead { get; private set; } = false;
 
+    public float CurrentHealth => currentHP;
+    public float MaxHealth => maxHP;
+    public event System.Action<float, float> OnHealthChanged;
+
 
     [Header("현재 스탯 (읽기 전용)")]
     [SerializeField] private float currentHP;
+    private float maxHP;
     [SerializeField] private float currentAttackDamage;
     [SerializeField] private float currentAttackSpeed;
     [SerializeField] private float currentAttackRange;
@@ -74,7 +79,9 @@ public class Unit : MonoBehaviour, IEnemy
         // 1.8의 (성급-1) 제곱만큼 스탯을 강화합니다. (1성: 1배, 2성: 1.8배, 3성: 3.24배)
         float statMultiplier = Mathf.Pow(1.8f, starLevel - 1);
 
-        currentHP = unitData.baseHealth * statMultiplier;
+        maxHP = unitData.baseHealth * statMultiplier;
+        currentHP = maxHP;
+        OnHealthChanged?.Invoke(currentHP, maxHP);
         currentAttackDamage = unitData.baseAttackDamage * statMultiplier;
         currentAttackSpeed = unitData.attackSpeed;
         currentAttackRange = unitData.attackRange;
@@ -331,6 +338,7 @@ public class Unit : MonoBehaviour, IEnemy
         if (unitData == null || IsDead) return; // [수정됨] 죽은 상태에서는 데미지를 받지 않습니다.
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, currentDefense, currentMagicResistance);
         currentHP -= finalDamage;
+        OnHealthChanged?.Invoke(currentHP, maxHP);
         if (currentHP <= 0)
         {
             Die();
