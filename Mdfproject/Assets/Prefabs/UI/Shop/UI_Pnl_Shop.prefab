@@ -595,6 +595,7 @@ MonoBehaviour:
   - {fileID: 1647748270174831885}
   rerollButton: {fileID: 3453449872492597822}
   rerollCostText: {fileID: 3785201107235726767}
+  wallPlacementButton: {fileID: 1663517470613405279}
   toggleButton: {fileID: 6433996034630332052}
   toggleButtonText: {fileID: 6627483054856993217}
   slotsContainer: {fileID: 3196368108515444536}

@@ -1,440 +1,294 @@
 // Assets/Scripts/Game/Game Rules/FindLoad/AstarGrid.cs
-
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
-using UnityEditor.Experimental.GraphView;
 using UnityEngine;
-using UnityEngine.Tilemaps;
-using UnityEngine.XR;
 
 public class AstarGrid : MonoBehaviour
 {
-    public Vector2Int bottomLeft, topRight, startPos, targetPos;
-    public List<AstarNode> FinalNodeList;
-    public bool allowDiagonal, dontCrossCorner;
+    [Header("그리드 설정 (로컬 오프셋)")]
+    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 왼쪽 아래 경계입니다.")]
+    public Vector2Int bottomLeft;
+    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 오른쪽 위 경계입니다.")]
+    public Vector2Int topRight;
+    
+    [Header("레이어 및 비용 설정")]
+    public LayerMask wallLayers = -1;
+    [Tooltip("파괴 가능한 벽 오브젝트들이 속한 레이어를 지정합니다. (예: BreakWall 레이어)")]
+    public LayerMask breakableWallLayer;
+    public float detectionRadius = 0.4f;
+    public int wallBreakCost = 10000;
+
+    [Header("경로 탐색 옵션")]
+    public bool allowDiagonal = true;
+    public bool dontCrossCorner = false;
 
     [Header("디버깅")]
     public bool showDebugInfo = true;
-    public bool detailedWallDebugging = false;
-    public float detectionRadius = 0.4f;
+    [SerializeField] private Vector2Int debugStartPos, debugTargetPos;
 
-    [Header("막힌 목적지 처리")]
-    public bool allowWallBreaking = true;
-    public int maxWallsToBreak = 1;
-    public bool useSmartWallSelection = true;
-    public LayerMask wallLayers = -1;
+    public List<AstarNode> FinalPath { get; private set; }
+    public List<Vector2Int> WallsToBreakInPath { get; private set; }
 
-    int sizeX, sizeY;
-    AstarNode[,] NodeArray;
-    AstarNode StartNode, TargetNode, CurNode;
-    List<AstarNode> OpenList, ClosedList;
+    private int sizeX, sizeY;
+    private AstarNode[,] NodeArray;
+    
+    // ✅ [추가된 핵심 로직] 런타임에 계산될 실제 월드 좌표 경계
+    private Vector2Int worldBottomLeft;
+    private Vector2Int worldTopRight;
 
-    private List<Vector2Int> wallsToBreak = new List<Vector2Int>();
-    private AstarNode[,] OriginalNodeArray;
-
-    /// <summary>
-    /// [핵심 메서드] 지정된 시작점과 끝점 사이의 경로를 계산하여 노드 리스트로 반환합니다.
-    /// MonsterSpawner 등 외부 클래스에서 이 함수를 호출하여 사용합니다.
-    /// </summary>
-    /// <param name="start">경로 탐색을 시작할 좌표</param>
-    /// <param name="end">경로 탐색의 목표 좌표</param>
-    /// <returns>계산된 경로 리스트. 경로를 찾지 못하면 null을 반환합니다.</returns>
-    public List<AstarNode> FindPath(Vector2Int start, Vector2Int end)
+    private void Awake()
     {
-        // ✅ [수정] 경로 탐색 시작 전, 시작점과 끝점이 그리드 범위 내에 있는지 확인합니다.
+        // ✅ [추가된 핵심 로직]
+        // 이 컴포넌트가 깨어날 때, 자신의 월드 위치를 기준으로 실제 경계를 계산합니다.
+        // 이렇게 하면 GameManagers가 이 그리드를 어디에 생성하든 항상 올바른 경계를 갖게 됩니다.
+        Vector2Int gridOrigin = new Vector2Int(
+            Mathf.RoundToInt(transform.position.x),
+            Mathf.RoundToInt(transform.position.y)
+        );
+        worldBottomLeft = gridOrigin + bottomLeft;
+        worldTopRight = gridOrigin + topRight;
+        
+        // 그리드 노드 배열을 처음 생성합니다.
+        InitializeGrid();
+    }
+
+    public bool FindPath(Vector2Int start, Vector2Int end)
+    {
+        // 런타임에 벽 정보가 바뀔 수 있으므로, 경로 탐색 시마다 벽 상태를 다시 확인합니다.
+        UpdateGridWallStatus();
+
         if (!IsValidPosition(start) || !IsValidPosition(end))
         {
-            Debug.LogError($"[FindPath] 시작점({start}) 또는 끝점({end})이 그리드 범위를 벗어났습니다. AstarGrid의 BottomLeft/TopRight 설정을 확인하세요.");
-            return null; // 유효하지 않은 요청이므로 즉시 null 반환
+            Debug.LogError($"[AstarGrid] 시작점({start}) 또는 끝점({end})이 그리드 범위를 벗어났습니다. 그리드 경계: {worldBottomLeft} ~ {worldTopRight}");
+            return false;
         }
+
+        AstarNode StartNode = GetNode(start);
+        AstarNode TargetNode = GetNode(end);
+
+        List<AstarNode> OpenList = new List<AstarNode>();
+        HashSet<AstarNode> ClosedList = new HashSet<AstarNode>();
         
-        // 1. 이 길찾기를 위한 전용 변수 설정
-        startPos = start;
-        targetPos = end;
-        wallsToBreak.Clear(); // 새로운 경로 탐색을 위해 파괴할 벽 리스트 초기화
-
-        // 2. 그리드 초기화 및 경로 탐색
-        InitializeGrid();
-
-        // 3. 벽 파괴 필요성 체크 및 실행
-        if (allowWallBreaking && !IsPathPossible())
+        for (int i = 0; i < sizeX; i++)
         {
-            if (!FindAndBreakWalls())
+            for (int j = 0; j < sizeY; j++)
             {
-                Debug.LogError($"[FindPath] 벽 파괴 시도 후에도 경로를 찾을 수 없습니다: {start} -> {end}");
-                return null; // 경로 찾기 실패
+                NodeArray[i, j].G = int.MaxValue;
+                NodeArray[i, j].ParentNode = null;
             }
         }
-
-        // 4. 최종 A* 알고리즘 실행
-        ResetPathfinding();
-        if (ExecuteAStarAlgorithm())
+        
+        StartNode.G = 0;
+        StartNode.H = GetManhattanDistance(start, end);
+        OpenList.Add(StartNode);
+        
+        while (OpenList.Count > 0)
         {
-            return FinalNodeList; // 성공 시 계산된 경로 반환
+            AstarNode CurNode = OpenList[0];
+            for (int i = 1; i < OpenList.Count; i++)
+            {
+                if (OpenList[i].F < CurNode.F || (OpenList[i].F == CurNode.F && OpenList[i].H < CurNode.H))
+                {
+                    CurNode = OpenList[i];
+                }
+            }
+
+            OpenList.Remove(CurNode);
+            ClosedList.Add(CurNode);
+
+            if (CurNode == TargetNode)
+            {
+                BuildFinalPath(StartNode, TargetNode);
+                return true;
+            }
+            
+            ExploreNeighbors(CurNode, TargetNode, OpenList, ClosedList);
         }
 
-        Debug.LogError($"[FindPath] 최종 경로를 찾을 수 없습니다: {start} -> {end}");
-        return null; // 최종 실패
+        Debug.LogWarning($"[AstarGrid] 경로를 찾을 수 없습니다: {start} -> {end}");
+        FinalPath = null;
+        WallsToBreakInPath = null;
+        return false;
     }
-    
-    /// <summary>
-    /// 인스펙터의 startPos, targetPos를 이용해 길찾기를 테스트하기 위한 레거시 함수입니다.
-    /// </summary>
-    public void PathFinding()
-    {
-        FindPath(startPos, targetPos);
-    }
-    
+
     private void InitializeGrid()
     {
-        sizeX = topRight.x - bottomLeft.x + 1;
-        sizeY = topRight.y - bottomLeft.y + 1;
+        // ✅ [수정] 월드 좌표 경계를 기준으로 크기를 계산합니다.
+        sizeX = worldTopRight.x - worldBottomLeft.x + 1;
+        sizeY = worldTopRight.y - worldBottomLeft.y + 1;
         NodeArray = new AstarNode[sizeX, sizeY];
 
         for (int i = 0; i < sizeX; i++)
         {
             for (int j = 0; j < sizeY; j++)
             {
-                bool isWall = false;
-                Vector2 checkPos = new Vector2(i + bottomLeft.x + 0.5f, j + bottomLeft.y + 0.5f);
-                Collider2D[] colliders = Physics2D.OverlapCircleAll(checkPos, detectionRadius);
-
-                foreach (Collider2D col in colliders)
-                {
-                    if ((wallLayers.value & (1 << col.gameObject.layer)) != 0)
-                    {
-                        isWall = true;
-                        break;
-                    }
-                }
-
-                NodeArray[i, j] = new AstarNode(isWall, i + bottomLeft.x, j + bottomLeft.y);
+                int x = i + worldBottomLeft.x;
+                int y = j + worldBottomLeft.y;
+                NodeArray[i, j] = new AstarNode(false, x, y);
             }
         }
     }
-    
-    private bool IsPathPossible()
+
+    private void UpdateGridWallStatus()
     {
-        ResetPathfinding();
+        if (NodeArray == null) InitializeGrid();
 
-        int maxIterations = 50;
-        int iterations = 0;
-
-        while (OpenList.Count > 0 && iterations < maxIterations)
-        {
-            CurNode = OpenList[0];
-            for (int i = 1; i < OpenList.Count; i++)
-                if (OpenList[i].F <= CurNode.F && OpenList[i].H < CurNode.H)
-                    CurNode = OpenList[i];
-
-            OpenList.Remove(CurNode);
-            ClosedList.Add(CurNode);
-
-            if (CurNode == TargetNode)
-                return true;
-
-            ExploreNeighbors();
-            iterations++;
-        }
-
-        return false;
-    }
-    
-    private bool FindAndBreakWalls()
-    {
-        BackupOriginalGrid();
-        
-        List<Vector2Int> wallsOnPath = GetWallsOnDirectPath(startPos, targetPos);
-
-        if (wallsOnPath.Count == 0)
-        {
-            return false;
-        }
-
-        foreach (Vector2Int wall in wallsOnPath)
-        {
-            RestoreOriginalGrid();
-            wallsToBreak.Clear();
-            wallsToBreak.Add(wall);
-
-            if (CanBreakWall(wall))
-            {
-                BreakWallInGrid(wall);
-                if (IsPathPossible())
-                {
-                    return true;
-                }
-            }
-        }
-        
-        return false;
-    }
-    
-    private List<Vector2Int> GetWallsOnDirectPath(Vector2Int start, Vector2Int end)
-    {
-        List<Vector2Int> wallsOnPath = new List<Vector2Int>();
-        List<Vector2Int> linePoints = GetLinePoints(start, end);
-
-        foreach (Vector2Int point in linePoints)
-        {
-            if (IsValidPosition(point) && IsWall(point) && CanBreakWall(point))
-            {
-                wallsOnPath.Add(point);
-            }
-        }
-        return wallsOnPath;
-    }
-    
-    private List<Vector2Int> GetLinePoints(Vector2Int start, Vector2Int end)
-    {
-        List<Vector2Int> points = new List<Vector2Int>();
-        if (start == end)
-        {
-            points.Add(start);
-            return points;
-        }
-        points.Add(start);
-        int dx = Mathf.Abs(end.x - start.x);
-        int dy = Mathf.Abs(end.y - start.y);
-        int x = start.x;
-        int y = start.y;
-        int sx = start.x < end.x ? 1 : -1;
-        int sy = start.y < end.y ? 1 : -1;
-        if (dx > dy)
-        {
-            int err = dx / 2;
-            while (x != end.x)
-            {
-                points.Add(new Vector2Int(x, y));
-                err -= dy;
-                if (err < 0)
-                {
-                    y += sy;
-                    err += dx;
-                }
-                x += sx;
-                points.Add(new Vector2Int(x, y));
-            }
-        }
-        else
-        {
-            int err = dy / 2;
-            while (y != end.y)
-            {
-                points.Add(new Vector2Int(x, y));
-                err -= dx;
-                if (err < 0)
-                {
-                    x += sx;
-                    err += dy;
-                }
-                y += sy;
-                points.Add(new Vector2Int(x, y));
-            }
-        }
-        points.Add(end);
-        return points;
-    }
-    
-    private bool CanBreakWall(Vector2Int pos)
-    {
-        Vector2 worldPos = new Vector2(pos.x, pos.y);
-        Collider2D[] colliders = Physics2D.OverlapCircleAll(worldPos, detectionRadius);
-        foreach (Collider2D col in colliders)
-        {
-            if (col.gameObject.layer == LayerMask.NameToLayer("BreakWall"))
-                if ((wallLayers.value & (1 << col.gameObject.layer)) != 0)
-                {
-                    DestructibleWall destructible = col.GetComponent<DestructibleWall>();
-                    return destructible != null;
-                }
-        }
-        return false;
-    }
-    
-    private void BreakWallInGrid(Vector2Int pos)
-    {
-        if (IsValidPosition(pos))
-        {
-            NodeArray[pos.x - bottomLeft.x, pos.y - bottomLeft.y].isWall = false;
-        }
-    }
-    
-    private void BackupOriginalGrid()
-    {
-        OriginalNodeArray = new AstarNode[sizeX, sizeY];
         for (int i = 0; i < sizeX; i++)
         {
             for (int j = 0; j < sizeY; j++)
             {
-                OriginalNodeArray[i, j] = new AstarNode(
-                    NodeArray[i, j].isWall,
-                    NodeArray[i, j].x,
-                    NodeArray[i, j].y
-                );
-            }
-        }
-    }
-    
-    private void RestoreOriginalGrid()
-    {
-        if (OriginalNodeArray != null)
-        {
-            for (int i = 0; i < sizeX; i++)
-            {
-                for (int j = 0; j < sizeY; j++)
+                Vector2 checkWorldPos = new Vector2(NodeArray[i, j].x + 0.5f, NodeArray[i, j].y + 0.5f);
+                bool isWall = Physics2D.OverlapCircle(checkWorldPos, detectionRadius, wallLayers);
+                NodeArray[i, j].isWall = isWall;
+
+                if (isWall)
                 {
-                    NodeArray[i, j].isWall = OriginalNodeArray[i, j].isWall;
+                    // [수정] 벽 중에서, breakableWallLayer에 속한 것만 파괴 가능으로 설정합니다.
+                    // 이렇게 하면 'Wall' 레이어는 파괴 불가능 장애물로, 'BreakWall' 레이어는 파괴 가능 장애물로 정확히 구분됩니다.
+                    bool isBreakable = Physics2D.OverlapCircle(checkWorldPos, detectionRadius, breakableWallLayer);
+                    NodeArray[i, j].isBreakable = isBreakable;
+                }
+                else
+                {
+                    NodeArray[i, j].isBreakable = false;
                 }
             }
         }
     }
-    
-    private bool IsValidPosition(Vector2Int pos)
+
+
+    private void ExploreNeighbors(AstarNode CurNode, AstarNode TargetNode, List<AstarNode> OpenList, HashSet<AstarNode> ClosedList)
     {
-        return pos.x >= bottomLeft.x && pos.x <= topRight.x &&
-               pos.y >= bottomLeft.y && pos.y <= topRight.y;
-    }
-    
-    private bool IsWall(Vector2Int pos)
-    {
-        if (!IsValidPosition(pos)) return true;
-        return NodeArray[pos.x - bottomLeft.x, pos.y - bottomLeft.y].isWall;
-    }
-    
-    private void ResetPathfinding()
-    {
-        StartNode = NodeArray[startPos.x - bottomLeft.x, startPos.y - bottomLeft.y];
-        TargetNode = NodeArray[targetPos.x - bottomLeft.x, targetPos.y - bottomLeft.y];
-        OpenList = new List<AstarNode>() { StartNode };
-        ClosedList = new List<AstarNode>();
-        FinalNodeList = new List<AstarNode>();
-    }
-    
-    private bool ExecuteAStarAlgorithm()
-    {
-        while (OpenList.Count > 0)
+        for (int x = -1; x <= 1; x++)
         {
-            CurNode = OpenList[0];
-            for (int i = 1; i < OpenList.Count; i++)
-                if (OpenList[i].F <= CurNode.F && OpenList[i].H < CurNode.H)
-                    CurNode = OpenList[i];
-
-            OpenList.Remove(CurNode);
-            ClosedList.Add(CurNode);
-
-            if (CurNode == TargetNode)
+            for (int y = -1; y <= 1; y++)
             {
-                BuildFinalPath();
-                return true;
+                if (x == 0 && y == 0) continue;
+                if (!allowDiagonal && x != 0 && y != 0) continue;
+
+                Vector2Int neighborPos = new Vector2Int(CurNode.x + x, CurNode.y + y);
+                if (!IsValidPosition(neighborPos)) continue;
+
+                AstarNode NeighborNode = GetNode(neighborPos);
+                if (ClosedList.Contains(NeighborNode)) continue;
+
+                if (NeighborNode.isWall && !NeighborNode.isBreakable) continue;
+
+                if (dontCrossCorner && x != 0 && y != 0)
+                {
+                    if (GetNode(new Vector2Int(CurNode.x + x, CurNode.y)).isWall || GetNode(new Vector2Int(CurNode.x, CurNode.y + y)).isWall)
+                        continue;
+                }
+
+                int distanceCost = (x == 0 || y == 0) ? 10 : 14;
+                int tentativeGCost = CurNode.G + distanceCost;
+                
+                if (NeighborNode.isWall)
+                {
+                    tentativeGCost += wallBreakCost;
+                }
+
+                if (tentativeGCost < NeighborNode.G)
+                {
+                    NeighborNode.ParentNode = CurNode;
+                    NeighborNode.G = tentativeGCost;
+                    NeighborNode.H = GetManhattanDistance(new Vector2Int(NeighborNode.x, NeighborNode.y), new Vector2Int(TargetNode.x, TargetNode.y));
+
+                    if (!OpenList.Contains(NeighborNode))
+                    {
+                        OpenList.Add(NeighborNode);
+                    }
+                }
             }
-
-            ExploreNeighbors();
         }
-
-        return false;
     }
-    
-    private void BuildFinalPath()
+
+    private void BuildFinalPath(AstarNode startNode, AstarNode endNode)
     {
-        AstarNode currentNode = TargetNode;
-        while (currentNode != StartNode)
+        FinalPath = new List<AstarNode>();
+        WallsToBreakInPath = new List<Vector2Int>();
+        AstarNode currentNode = endNode;
+
+        while (currentNode != startNode)
         {
-            FinalNodeList.Add(currentNode);
+            FinalPath.Add(currentNode);
+            if (currentNode.isWall)
+            {
+                WallsToBreakInPath.Add(new Vector2Int(currentNode.x, currentNode.y));
+            }
             currentNode = currentNode.ParentNode;
         }
-        FinalNodeList.Add(StartNode);
-        FinalNodeList.Reverse();
+        FinalPath.Add(startNode);
+        
+        FinalPath.Reverse();
+        WallsToBreakInPath.Reverse();
     }
-    
-    private void ExploreNeighbors()
+
+    private int GetManhattanDistance(Vector2Int a, Vector2Int b)
     {
-        if (allowDiagonal)
-        {
-            OpenListAdd(CurNode.x + 1, CurNode.y + 1);
-            OpenListAdd(CurNode.x - 1, CurNode.y + 1);
-            OpenListAdd(CurNode.x - 1, CurNode.y - 1);
-            OpenListAdd(CurNode.x + 1, CurNode.y - 1);
-        }
-
-        OpenListAdd(CurNode.x, CurNode.y + 1);
-        OpenListAdd(CurNode.x + 1, CurNode.y);
-        OpenListAdd(CurNode.x, CurNode.y - 1);
-        OpenListAdd(CurNode.x - 1, CurNode.y);
+        return (Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y)) * 10;
     }
-    
-    void OpenListAdd(int checkX, int checkY)
+
+    #region 유틸리티 메서드
+    private bool IsValidPosition(Vector2Int pos)
     {
-        if (checkX >= bottomLeft.x && checkX < topRight.x + 1 && checkY >= bottomLeft.y && checkY < topRight.y + 1 &&
-            !NodeArray[checkX - bottomLeft.x, checkY - bottomLeft.y].isWall &&
-            !ClosedList.Contains(NodeArray[checkX - bottomLeft.x, checkY - bottomLeft.y]))
-        {
-            if (allowDiagonal)
-                if (NodeArray[CurNode.x - bottomLeft.x, checkY - bottomLeft.y].isWall &&
-                    NodeArray[checkX - bottomLeft.x, CurNode.y - bottomLeft.y].isWall) return;
+        // ✅ [수정] 월드 좌표 경계와 비교합니다.
+        return pos.x >= worldBottomLeft.x && pos.x <= worldTopRight.x &&
+               pos.y >= worldBottomLeft.y && pos.y <= worldTopRight.y;
+    }
 
-            if (dontCrossCorner)
-                if (NodeArray[CurNode.x - bottomLeft.x, checkY - bottomLeft.y].isWall ||
-                    NodeArray[checkX - bottomLeft.x, CurNode.y - bottomLeft.y].isWall) return;
-
-            AstarNode NeighborNode = NodeArray[checkX - bottomLeft.x, checkY - bottomLeft.y];
-            int MoveCost = CurNode.G + (CurNode.x - checkX == 0 || CurNode.y - checkY == 0 ? 10 : 14);
-
-            if (MoveCost < NeighborNode.G || !OpenList.Contains(NeighborNode))
-            {
-                NeighborNode.G = MoveCost;
-                NeighborNode.H = (Mathf.Abs(NeighborNode.x - TargetNode.x) + Mathf.Abs(NeighborNode.y - TargetNode.y)) * 10;
-                NeighborNode.ParentNode = CurNode;
-
-                OpenList.Add(NeighborNode);
-            }
-        }
+    private AstarNode GetNode(Vector2Int pos)
+    {
+        if (!IsValidPosition(pos)) return null;
+        // ✅ [수정] 월드 좌표를 배열 인덱스로 변환합니다.
+        return NodeArray[pos.x - worldBottomLeft.x, pos.y - worldBottomLeft.y];
     }
     
+    [ContextMenu("디버그 경로 탐색 실행")]
+    private void PathFindingForDebug()
+    {
+        // 디버깅 시에는 Awake가 호출된 후의 월드 좌표를 사용해야 합니다.
+        if (NodeArray == null) Awake(); // 에디터에서 바로 실행 시 Awake 호출
+        FindPath(debugStartPos, debugTargetPos);
+    }
+
     void OnDrawGizmos()
     {
+        if (!showDebugInfo) return;
+        
+        // ✅ [수정] 월드 좌표 경계를 기준으로 기즈모를 그립니다.
+        Vector2Int bottomLeftGizmo = Application.isPlaying ? worldBottomLeft : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + bottomLeft;
+        Vector2Int topRightGizmo = Application.isPlaying ? worldTopRight : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + topRight;
+
+        Gizmos.color = Color.cyan;
+        Vector3 center = new Vector3(bottomLeftGizmo.x + (topRightGizmo.x - bottomLeftGizmo.x) / 2f + 0.5f, bottomLeftGizmo.y + (topRightGizmo.y - bottomLeftGizmo.y) / 2f + 0.5f, 0);
+        Vector3 size = new Vector3(topRightGizmo.x - bottomLeftGizmo.x + 1, topRightGizmo.y - bottomLeftGizmo.y + 1, 0);
+        Gizmos.DrawWireCube(center, size);
+
         if (NodeArray == null) return;
 
         for (int i = 0; i < sizeX; i++)
         {
             for (int j = 0; j < sizeY; j++)
             {
-                Vector3 pos = new Vector3(i + bottomLeft.x + 0.5f, j + bottomLeft.y + 0.5f, 0);
-                Vector2Int gridPos = new Vector2Int(i + bottomLeft.x, j + bottomLeft.y);
-
-                if (wallsToBreak.Contains(gridPos))
+                if (NodeArray[i, j].isWall)
                 {
-                    Gizmos.color = Color.black;
-                    Gizmos.DrawCube(pos, Vector3.one * 0.9f);
-                }
-                else if (NodeArray[i, j].isWall)
-                {
-                    Gizmos.color = Color.red;
+                    Vector3 pos = new Vector3(NodeArray[i,j].x + 0.5f, NodeArray[i,j].y + 0.5f, 0);
+                    Gizmos.color = NodeArray[i, j].isBreakable ? new Color(1f, 0.5f, 0f, 0.7f) : new Color(1f, 0f, 0f, 0.7f); 
                     Gizmos.DrawCube(pos, Vector3.one * 0.8f);
-                }
-                else
-                {
-                    Gizmos.color = Color.white;
-                    Gizmos.DrawWireCube(pos, Vector3.one);
                 }
             }
         }
 
-        if (FinalNodeList != null && FinalNodeList.Count > 0)
+        if (FinalPath != null && FinalPath.Count > 0)
         {
             Gizmos.color = Color.green;
-            for (int i = 0; i < FinalNodeList.Count - 1; i++)
+            for (int i = 0; i < FinalPath.Count - 1; i++)
             {
-                Vector3 from = new Vector3(FinalNodeList[i].x + 0.5f, FinalNodeList[i].y + 0.5f, 0);
-                Vector3 to = new Vector3(FinalNodeList[i + 1].x + 0.5f, FinalNodeList[i + 1].y + 0.5f, 0);
+                Vector3 from = new Vector3(FinalPath[i].x + 0.5f, FinalPath[i].y + 0.5f, 0);
+                Vector3 to = new Vector3(FinalPath[i + 1].x + 0.5f, FinalPath[i + 1].y + 0.5f, 0);
                 Gizmos.DrawLine(from, to);
             }
         }
-
-        Gizmos.color = Color.blue;
-        Gizmos.DrawSphere(new Vector3(startPos.x + 0.5f, startPos.y + 0.5f, 0), 0.5f);
-        Gizmos.color = Color.yellow;
-        Gizmos.DrawSphere(new Vector3(targetPos.x + 0.5f, targetPos.y + 0.5f, 0), 0.5f);
     }
+    #endregion
 }

@@ -1,11 +1,11 @@
-
+ï»¿
 /// <summary>
-/// °ÔÀÓ ³» ¸ğµç ¿­°ÅÇü Á¤ÀÇ
+/// ê²Œì„ ë‚´ ëª¨ë“  ì—´ê±°í˜• ì •ì˜
 /// </summary>
 namespace GameCore.Enums
 {
     /// <summary>
-    /// ¹èÄ¡ ¸ğµå Á¾·ù
+    /// ë°°ì¹˜ ëª¨ë“œ ì¢…ë¥˜
     /// </summary>
     public enum PlacementMode
     {
@@ -15,7 +15,7 @@ namespace GameCore.Enums
     }
 
     /// <summary>
-    /// Å¸ÀÏ¸Ê Á¾·ù Á¾·ù
+    /// íƒ€ì¼ë§µ ì¢…ë¥˜ ì¢…ë¥˜
     /// </summary>
     public enum TilemapType
     {

@@ -1,15 +1,18 @@
 // Assets/Scripts/Managers/PlayerManager.cs
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Tilemaps;
+using System.Linq;
 
 public class PlayerManager : MonoBehaviour
 {
+    // ... (변수 선언은 동일) ...
     [Header("플레이어 식별 정보")]
     public int playerId;
 
     [Header("핵심 능력치 (읽기 전용)")]
-    [SerializeField] private int health;
-    [SerializeField] private int gold;
+    [SerializeField] private int health = 100;
+    [SerializeField] private int gold = 10;
     [SerializeField] private int wallCount = 5;
     private const int MAX_WALL_COUNT = 5;
 
@@ -28,39 +31,84 @@ public class PlayerManager : MonoBehaviour
     
     public bool IsActivelyFighting { get; private set; }
 
-    void Awake()
+     void Awake()
     {
         fieldManager = GetComponentInChildren<FieldManager>();
         shopManager = GetComponentInChildren<ShopManager>();
         monsterSpawner = GetComponentInChildren<MonsterSpawner>();
         augmentManager = GetComponentInChildren<AugmentManager>();
 
-        if (fieldManager) fieldManager.playerManager = this;
+        // ✅ [진단 코드] Awake에서 MonsterSpawner를 찾았는지 확인
+        if (monsterSpawner == null)
+        {
+            Debug.LogError($"PlayerManager '{gameObject.name}'의 자식에서 MonsterSpawner를 찾지 못했습니다!", gameObject);
+        }
+    }
+    
+    public void InitializePlayer(int id, GameObject gridInstance, GameObject monsterPrefab)
+    {
+        this.playerId = id;
+        Debug.Log($"--- Player {id} 초기화 시작 ---");
+
+        // ✅ [핵심 수정] Grid 내의 TilemapController들이 고유 ID를 갖도록 재등록합니다.
+        // 이렇게 하면 "중복 등록" 경고가 해결됩니다.
+        var allTilemapControllers = gridInstance.GetComponentsInChildren<TilemapController>();
+        foreach (var controller in allTilemapControllers)
+        {
+            controller.UnregisterSelf(); // Awake에서 등록된 기본 ID를 해제합니다.
+            // 플레이어 ID와 TilemapController의 Type을 조합하여 고유 ID를 새로 만듭니다. (예: "Player0_Ground")
+            controller.componentId = $"Player{this.playerId}_{controller.Type}";
+            controller.RegisterSelf(); // 새로운 고유 ID로 다시 등록합니다.
+        }
+
+        // ✅ [진단 코드] 전달받은 참조들이 null이 아닌지 하나씩 확인
+        if (gridInstance == null) Debug.LogError($"Player {id}: 전달받은 gridInstance가 null입니다!");
+        if (monsterPrefab == null) Debug.LogError($"Player {id}: 전달받은 monsterPrefab이 null입니다!");
+
+        var allTilemaps = gridInstance.GetComponentsInChildren<Tilemap>();
+        Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
+        Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
+        AstarGrid astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
+        Transform spawnPoint = gridInstance.transform.Find("SpawnPoint");
+        Transform goalTransform = gridInstance.transform.Find("Goal");
+
+        // ✅ [진단 코드] Grid 프리팹 내부에서 컴포넌트를 제대로 찾았는지 확인
+        if (astarGrid == null) Debug.LogError($"Player {id}: Grid 프리팹에서 AstarGrid 컴포넌트를 찾지 못했습니다!");
+        if (spawnPoint == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'SpawnPoint' 자식 오브젝트를 찾지 못했습니다!");
+        if (goalTransform == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'Goal' 자식 오브젝트를 찾지 못했습니다!");
+
+        if (fieldManager) fieldManager.Initialize(this, groundTilemap, obstacleTilemap);
         if (shopManager) shopManager.playerManager = this;
-        if (monsterSpawner) monsterSpawner.playerManager = this;
+        
+        if (monsterSpawner)
+        {
+            Debug.Log($"Player {id}: MonsterSpawner에게 참조 전달 시도...");
+            monsterSpawner.Initialize(this, astarGrid, monsterPrefab, spawnPoint, goalTransform);
+        }
+        else
+        {
+            Debug.LogError($"Player {id}: monsterSpawner 참조가 null이라서 Initialize를 호출할 수 없습니다!");
+        }
+
         if (augmentManager) augmentManager.playerManager = this;
         
         IsActivelyFighting = false;
+        Debug.Log($"--- Player {id} 초기화 완료 ---");
     }
-    
+
+    // ... (이하 나머지 코드는 이전과 동일) ...
     void OnEnable()
     {
-        // 유닛 구매 요청 이벤트를 구독합니다.
         GameEvents.OnUnitPurchased += HandleUnitPurchaseRequest;
     }
 
     void OnDisable()
     {
-        // 오브젝트가 비활성화될 때 구독을 해지합니다.
         GameEvents.OnUnitPurchased -= HandleUnitPurchaseRequest;
     }
 
-    /// <summary>
-    /// OnUnitPurchased 이벤트가 발생했을 때 호출되는 핸들러입니다.
-    /// </summary>
     private void HandleUnitPurchaseRequest(PlayerManager purchasingPlayer, UnitData unitData, int starLevel)
     {
-        // 이 이벤트가 자신에게 해당하는 것인지 확인합니다.
         if (purchasingPlayer.playerId != this.playerId) return;
 
         ShopItem item = new ShopItem(unitData, starLevel);
@@ -72,14 +120,7 @@ public class PlayerManager : MonoBehaviour
         else
         {
             Debug.Log($"Player {playerId}: 골드가 부족하여 {unitData.unitName} 구매에 실패했습니다.");
-            // 참고: 구매 실패 시 ShopSlot의 구매됨 상태를 다시 원상복구 시키는 이벤트를 여기서 발생시킬 수도 있습니다.
         }
-    }
-
-    public void InitializeStats(int startHealth, int startGold)
-    {
-        this.health = startHealth;
-        this.gold = startGold;
     }
 
     public void SetFightingState(bool isFighting)
@@ -98,7 +139,6 @@ public class PlayerManager : MonoBehaviour
         if (gold >= amount)
         {
             gold -= amount;
-            // [핵심 변경점] 골드가 변경되었음을 시스템 전체에 알립니다.
             GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
             return true;
         }
@@ -109,7 +149,6 @@ public class PlayerManager : MonoBehaviour
     {
         if (amount <= 0) return;
         gold += amount;
-        // [핵심 변경점] 골드가 변경되었음을 시스템 전체에 알립니다.
         GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
     }
 
@@ -126,7 +165,6 @@ public class PlayerManager : MonoBehaviour
                 GameManagers.Instance.GameOver(this);
             }
         }
-        // [핵심 변경점] 체력이 변경되었음을 시스템 전체에 알립니다.
         GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
     }
 
@@ -144,7 +182,6 @@ public class PlayerManager : MonoBehaviour
         if (wallCount > 0)
         {
             wallCount--;
-            // [핵심 변경점] 벽 개수가 변경되었음을 시스템 전체에 알립니다.
             GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
             return true;
         }
@@ -157,7 +194,6 @@ public class PlayerManager : MonoBehaviour
         if (wallCount < MAX_WALL_COUNT)
         {
             wallCount++;
-            // [핵심 변경점] 벽 개수가 변경되었음을 시스템 전체에 알립니다.
             GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
         }
     }
