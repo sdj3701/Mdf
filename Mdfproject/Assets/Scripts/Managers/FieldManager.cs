@@ -14,6 +14,10 @@ public class FieldManager : MonoBehaviour
     public Transform unitParent;
     public Transform wallParent;
 
+    [Header("생성할 프리팹")]
+    [Tooltip("몬스터가 공격하거나 플레이어가 설치할 때 사용되는 파괴 가능한 벽 프리팹입니다.")]
+    public GameObject destructibleWallPrefab;
+
     public Tilemap ObstacleTilemap { get; private set; }
     public Tilemap GroundTilemap { get; private set; }
 
@@ -52,6 +56,8 @@ public class FieldManager : MonoBehaviour
             parentObject.transform.SetParent(transform.parent);
             wallParent = parentObject.transform;
         }
+        
+        PrepopulateWallsFromTilemap();
     }
     
     // ... (이하 나머지 코드는 이전과 동일) ...
@@ -106,9 +112,9 @@ public class FieldManager : MonoBehaviour
 
     #region 벽 생성 및 관리
 
-    public void CreateWallAt(GameObject wallPrefab, Vector3Int gridPosition)
+    public void CreateWallAt(Vector3Int gridPosition)
     {
-        if (wallPrefab == null || placedWalls.ContainsKey(gridPosition)) return;
+        if (destructibleWallPrefab == null || placedWalls.ContainsKey(gridPosition)) return;
         if (ObstacleTilemap == null)
         {
             Debug.LogError("FieldManager에 ObstacleTilemap 참조가 없습니다!");
@@ -116,7 +122,7 @@ public class FieldManager : MonoBehaviour
         }
 
         Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
-        GameObject wallGO = Instantiate(wallPrefab, worldPos, Quaternion.identity, wallParent);
+        GameObject wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
 
         if (wallComponent != null)
@@ -126,7 +132,7 @@ public class FieldManager : MonoBehaviour
         }
         else
         {
-            Debug.LogError($"{wallPrefab.name} 프리팹에 DestructibleWall 컴포넌트가 없습니다!", wallGO);
+            Debug.LogError($"{destructibleWallPrefab.name} 프리팹에 DestructibleWall 컴포넌트가 없습니다!", wallGO);
             Destroy(wallGO);
         }
     }
@@ -156,6 +162,30 @@ public class FieldManager : MonoBehaviour
     {
         placedWalls.TryGetValue(gridPosition, out DestructibleWall wall);
         return wall;
+    }
+
+    /// <summary>
+    /// 게임 시작 시 타일맵을 스캔하여 'BreakWall' 타일이 있는 모든 위치에
+    /// DestructibleWall 프리팹을 미리 생성합니다.
+    /// </summary>
+    private void PrepopulateWallsFromTilemap()
+    {
+        if (ObstacleTilemap == null) return;
+
+        BoundsInt bounds = ObstacleTilemap.cellBounds;
+        for (int y = bounds.yMin; y < bounds.yMax; y++)
+        {
+            for (int x = bounds.xMin; x < bounds.xMax; x++)
+            {
+                Vector3Int pos = new Vector3Int(x, y, 0);
+                if (ObstacleTilemap.GetTile(pos) != null)
+                {
+                    // CreateWallAt 내부에서 중복 생성을 방지하므로 여기서 별도 확인은 필요 없습니다.
+                    CreateWallAt(pos);
+                }
+            }
+        }
+        Debug.Log($"[{playerManager.name}] 타일맵으로부터 {placedWalls.Count}개의 벽 오브젝트를 사전 생성했습니다.");
     }
 
     #endregion

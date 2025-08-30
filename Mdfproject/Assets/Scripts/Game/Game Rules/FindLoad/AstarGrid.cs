@@ -12,6 +12,8 @@ public class AstarGrid : MonoBehaviour
     
     [Header("레이어 및 비용 설정")]
     public LayerMask wallLayers = -1;
+    [Tooltip("파괴 가능한 벽 오브젝트들이 속한 레이어를 지정합니다. (예: BreakWall 레이어)")]
+    public LayerMask breakableWallLayer;
     public float detectionRadius = 0.4f;
     public int wallBreakCost = 10000;
 
@@ -137,20 +139,22 @@ public class AstarGrid : MonoBehaviour
                 Vector2 checkWorldPos = new Vector2(NodeArray[i, j].x + 0.5f, NodeArray[i, j].y + 0.5f);
                 bool isWall = Physics2D.OverlapCircle(checkWorldPos, detectionRadius, wallLayers);
                 NodeArray[i, j].isWall = isWall;
-                NodeArray[i, j].isBreakable = isWall && IsBreakableWall(checkWorldPos);
+
+                if (isWall)
+                {
+                    // [수정] 벽 중에서, breakableWallLayer에 속한 것만 파괴 가능으로 설정합니다.
+                    // 이렇게 하면 'Wall' 레이어는 파괴 불가능 장애물로, 'BreakWall' 레이어는 파괴 가능 장애물로 정확히 구분됩니다.
+                    bool isBreakable = Physics2D.OverlapCircle(checkWorldPos, detectionRadius, breakableWallLayer);
+                    NodeArray[i, j].isBreakable = isBreakable;
+                }
+                else
+                {
+                    NodeArray[i, j].isBreakable = false;
+                }
             }
         }
     }
 
-    private bool IsBreakableWall(Vector2 worldPos)
-    {
-        Collider2D[] colliders = Physics2D.OverlapCircleAll(worldPos, detectionRadius, wallLayers);
-        foreach (var col in colliders)
-        {
-            if (col.GetComponent<DestructibleWall>() != null) return true;
-        }
-        return false;
-    }
 
     private void ExploreNeighbors(AstarNode CurNode, AstarNode TargetNode, List<AstarNode> OpenList, HashSet<AstarNode> ClosedList)
     {

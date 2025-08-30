@@ -211,14 +211,15 @@ public class Monster : MonoBehaviour, IEnemy
 
                 if (wall != null)
                 {
-                    // 벽을 찾았다면 이동을 멈추고 공격을 시작합니다.
+                    // 벽을 찾았다면, 이동을 멈추고 공격을 시작합니다.
                     StartAttacking(wall);
                     yield break; // 이동 코루틴을 완전히 종료합니다.
                 }
                 else
                 {
-                    // 경로상에는 벽이 있다고 나오지만 실제 오브젝트를 못찾는 경우, 경로를 그냥 진행합니다.
-                    Debug.LogWarning($"경로상에 벽({currentTarget})이 있지만 DestructibleWall 컴포넌트를 찾지 못했습니다.");
+                    // 게임 시작 시 모든 벽 타일에 DestructibleWall 오브젝트가 생성되므로, 이 경고는 발생하면 안 됩니다.
+                    // 만약 이 메시지가 보인다면, A* 경로와 실제 월드의 벽 상태가 일치하지 않는 것입니다.
+                    Debug.LogWarning($"경로상에 벽({currentTarget})이 있지만, 실제 벽 오브젝트를 찾을 수 없습니다. 경로를 계속 진행합니다.");
                 }
             }
             

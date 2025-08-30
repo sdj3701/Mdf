@@ -12,7 +12,6 @@ public enum PlacementMode
 public class PlacementManager : MonoBehaviour
 {
     [Header("배치 프리팹 및 타일")]
-    public GameObject destructibleWallPrefab;
     public TileBase wallTileToPlace;
 
     [Header("프리뷰 설정")]
@@ -142,7 +141,7 @@ public class PlacementManager : MonoBehaviour
             case PlacementMode.Wall:
                 if (playerManager.TryUseWall())
                 {
-                    fieldManager.CreateWallAt(destructibleWallPrefab, currentMouseGridPosition);
+                    fieldManager.CreateWallAt(currentMouseGridPosition);
                     if (obstacleTilemap != null && wallTileToPlace != null)
                     {
                         obstacleTilemap.SetTile(currentMouseGridPosition, wallTileToPlace);
@@ -203,9 +202,9 @@ public class PlacementManager : MonoBehaviour
         {
             previewSprite = unitPrefabToPlace.GetComponentInChildren<SpriteRenderer>()?.sprite;
         }
-        else if (currentMode == PlacementMode.Wall && destructibleWallPrefab != null)
+        else if (currentMode == PlacementMode.Wall && fieldManager.destructibleWallPrefab != null)
         {
-            previewSprite = destructibleWallPrefab.GetComponent<SpriteRenderer>()?.sprite;
+            previewSprite = fieldManager.destructibleWallPrefab.GetComponent<SpriteRenderer>()?.sprite;
         }
         
         previewRenderer.sprite = previewSprite;

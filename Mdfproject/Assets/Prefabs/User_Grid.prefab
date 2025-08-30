@@ -1712,6 +1712,9 @@ MonoBehaviour:
   wallLayers:
     serializedVersion: 2
     m_Bits: 32896
+  breakableWallLayer:
+    serializedVersion: 2
+    m_Bits: 32768
   detectionRadius: 0.4
   wallBreakCost: 10000
   allowDiagonal: 0
