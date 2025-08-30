@@ -28,7 +28,7 @@ MonoBehaviour:
   prefabsByStarLevel:
   - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
   - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
-  - {fileID: 0}
+  - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
   skillsByStarLevel:
   - {fileID: 0}
   - {fileID: 0}

@@ -538,7 +538,7 @@ MonoBehaviour:
     type: 3}
   player1BasePosition: {x: 0, y: 0, z: 0}
   playerOffset: {x: 0, y: 10, z: 0}
-  preparePhaseTime: 10
+  preparePhaseTime: 15
   combatTime: 20
   baseGoldPerRound: 5
   maxInterest: 5
