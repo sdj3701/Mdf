@@ -1,11 +1,11 @@
 using UnityEngine;
 
 /// <summary>
-/// ÀÚµ¿ µî·ÏÀ» À§ÇÑ º£ÀÌ½º Å¬·¡½º
+/// ìë™ ë“±ë¡ì„ ìœ„í•œ ë² ì´ìŠ¤ í´ë˜ìŠ¤
 /// </summary>
 public abstract class RegisteredComponent : MonoBehaviour
 {
-    [Header("ÀÚµ¿ µî·Ï ¼³Á¤")]
+    [Header("ìë™ ë“±ë¡ ì„¤ì •")]
     [SerializeField] protected string componentId;
     [SerializeField] protected bool autoRegister = true;
 
