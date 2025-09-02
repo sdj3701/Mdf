@@ -9,8 +9,7 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>10.0.20506</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <RootNamespace>
-    </RootNamespace>
+    <RootNamespace></RootNamespace>
     <ProjectGuid>{C401FE4A-F729-4444-965F-242D62700149}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
@@ -89,7 +88,7 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\EnvMapAnimator.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_UiFrameRateCounter.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarNode.cs" />
-    <Compile Include="Assets\Scripts\Game\Interfaces\IPlacementHandler.cs" />
+    <Compile Include="Assets\Scripts\Interfaces\IPlacementHandler.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\CameraController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMPro_InstructionOverlay.cs" />
     <Compile Include="Assets\Scripts\Button\ShopToggleButton.cs" />
@@ -140,7 +139,7 @@
     <Compile Include="Assets\Scripts\Button\ExitButton.cs" />
     <Compile Include="Assets\Scripts\Managers\PlayerManager.cs" />
     <Compile Include="Assets\Scripts\NextScenes.cs" />
-    <Compile Include="Assets\Scripts\Game\Interfaces\ISkill.cs" />
+    <Compile Include="Assets\Scripts\Interfaces\ISkill.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\ManaController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\DropdownSample.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_PhoneNumberValidator.cs" />
@@ -157,8 +156,17 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\ComponentRegistry.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark01.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
-    <Compile Include="Assets\Scripts\Game\Interfaces\IEnemy.cs" />
+    <Compile Include="Assets\Scripts\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
+    <Compile Include="Assets\Scripts\Interfaces\IMana.cs" />
+    <Compile Include="Assets\Scripts\Interfaces\IHealth.cs" />
+    <Compile Include="Assets\Scripts\UI\StatusBarUI.cs" />
+    <Compile Include="Assets\Scripts\Network\NetworkManager.cs" />
+    <Compile Include="Assets\Scripts\UI\LobbyChat.cs" />
+    <Compile Include="Assets\Scripts\UI\RoomItem.cs" />
+    <Compile Include="Assets\Scripts\Network\NetworkSettings.cs" />
+    <Compile Include="Assets\Scripts\Network\NetworkPlayer.cs" />
+    <Compile Include="Assets\Scripts\UI\LobbyUI.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
