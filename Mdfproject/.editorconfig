@@ -1,0 +1,14 @@
+# .editorconfig
+
+root = true
+
+[*]
+# 기존 utf-8 대신 utf-8-bom으로 설정
+charset = utf-8-bom
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true```
+
+#### Visual Studio에서 수동 저장 시
+
+파일을 '인코딩하여 저장'할 때는 **`유니코드(UTF-8 서명 포함) - 코드 페이지 65001`**을 선택하시면 됩니다. 이것이 바로 'UTF-8 with BOM'입니다.

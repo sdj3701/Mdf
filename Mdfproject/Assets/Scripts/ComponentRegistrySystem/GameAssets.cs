@@ -1,4 +1,4 @@
-// Assets/Scripts/ComponentRegistrySystem/GameAssets.cs
+ï»¿// Assets/Scripts/ComponentRegistrySystem/GameAssets.cs
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;
@@ -6,17 +6,17 @@ using UnityEngine;
 using UnityEngine.Tilemaps;
 
 /// <summary>
-/// °ÔÀÓ ³» ¿¡¼Âµé¿¡ ´ëÇÑ Á¤Àû Á¢±ÙÀ» Á¦°øÇÏ´Â Áß¾Ó Å¬·¡½ºÀÔ´Ï´Ù.
-/// ÀÌ¸§ ±â¹İÀ¸·Î ¿¡¼Â°ú ÄÄÆ÷³ÍÆ®¸¦ °¡Á®¿É´Ï´Ù.
+/// ê²Œì„ ë‚´ ì—ì…‹ë“¤ì— ëŒ€í•œ ì •ì  ì ‘ê·¼ì„ ì œê³µí•˜ëŠ” ì¤‘ì•™ í´ë˜ìŠ¤ì…ë‹ˆë‹¤.
+/// ì´ë¦„ ê¸°ë°˜ìœ¼ë¡œ ì—ì…‹ê³¼ ì»´í¬ë„ŒíŠ¸ë¥¼ ê°€ì ¸ì˜µë‹ˆë‹¤.
 /// </summary>
 public static class GameAssets
 {
-    #region StaticAssets(TileBases, Sounds, Prefabs) µî..
-    #region Å¸ÀÏ ¿¡¼Âµé
+    #region StaticAssets(TileBases, Sounds, Prefabs) ë“±..
+    #region íƒ€ì¼ ì—ì…‹ë“¤
     public static class Tiles
     {
         public static TileBase BreakWall => AssetRegistry.GetTile("BreakWall");
-        // ÇÊ¿ä½Ã Ä³½Ì ¿¹Á¦
+        // í•„ìš”ì‹œ ìºì‹± ì˜ˆì œ
         private static TileBase _cachedBreakWall;
         public static TileBase BreakWallCached
         {
@@ -36,11 +36,11 @@ public static class GameAssets
     #endregion
     #endregion
 
-    #region DynamicAssets(GameObject, TileMap, Camera) µî..
+    #region DynamicAssets(GameObject, TileMap, Camera) ë“±..
     #region TileMaps
     public static class TileMaps
     {
-        // [°³¼±] Ä³½Ì ¹× null Ã¼Å© ·ÎÁ÷ Ãß°¡
+        // [ê°œì„ ] ìºì‹± ë° null ì²´í¬ ë¡œì§ ì¶”ê°€
         private static Tilemap _breakWallTilemap;
         private static Tilemap _groundTilemap;
 
@@ -48,14 +48,14 @@ public static class GameAssets
         {
             get
             {
-                // Ä³½ÃµÈ °ªÀÌ ¾ø°Å³ª ÆÄ±«µÇ¾ú´Ù¸é ´Ù½Ã Ã£½À´Ï´Ù.
+                // ìºì‹œëœ ê°’ì´ ì—†ê±°ë‚˜ íŒŒê´´ë˜ì—ˆë‹¤ë©´ ë‹¤ì‹œ ì°¾ìŠµë‹ˆë‹¤.
                 if (_breakWallTilemap == null)
                 {
                     _breakWallTilemap = ComponentRegistry.Get<Tilemap>("BreakWall Tilemap");
                     if (_breakWallTilemap == null)
                     {
-                        // Å¸ÀÏ¸ÊÀ» Ã£Áö ¸øÇÏ¸é ¿©±â¼­ Áï½Ã ¿¡·¯¸¦ Ãâ·ÂÇÏ¿© ¹®Á¦ ÆÄ¾ÇÀ» ½±°Ô ÇÕ´Ï´Ù.
-                        Debug.LogError("[GameAssets] 'BreakWall Tilemap'À» Ã£À» ¼ö ¾ø½À´Ï´Ù! ¾ÀÀÇ Å¸ÀÏ¸Ê ¿ÀºêÁ§Æ® ÀÌ¸§°ú TilemapController.cs ½ºÅ©¸³Æ® ºÎÂø ¿©ºÎ¸¦ È®ÀÎÇÏ¼¼¿ä.");
+                        // íƒ€ì¼ë§µì„ ì°¾ì§€ ëª»í•˜ë©´ ì—¬ê¸°ì„œ ì¦‰ì‹œ ì—ëŸ¬ë¥¼ ì¶œë ¥í•˜ì—¬ ë¬¸ì œ íŒŒì•…ì„ ì‰½ê²Œ í•©ë‹ˆë‹¤.
+                        Debug.LogError("[GameAssets] 'BreakWall Tilemap'ì„ ì°¾ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤! ì”¬ì˜ íƒ€ì¼ë§µ ì˜¤ë¸Œì íŠ¸ ì´ë¦„ê³¼ TilemapController.cs ìŠ¤í¬ë¦½íŠ¸ ë¶€ì°© ì—¬ë¶€ë¥¼ í™•ì¸í•˜ì„¸ìš”.");
                     }
                 }
                 return _breakWallTilemap;
@@ -66,14 +66,14 @@ public static class GameAssets
         {
             get
             {
-                // Ä³½ÃµÈ °ªÀÌ ¾ø°Å³ª ÆÄ±«µÇ¾ú´Ù¸é ´Ù½Ã Ã£½À´Ï´Ù.
+                // ìºì‹œëœ ê°’ì´ ì—†ê±°ë‚˜ íŒŒê´´ë˜ì—ˆë‹¤ë©´ ë‹¤ì‹œ ì°¾ìŠµë‹ˆë‹¤.
                 if (_groundTilemap == null)
                 {
                     _groundTilemap = ComponentRegistry.Get<Tilemap>("Ground Tilemap");
                     if (_groundTilemap == null)
                     {
-                        // Å¸ÀÏ¸ÊÀ» Ã£Áö ¸øÇÏ¸é ¿©±â¼­ Áï½Ã ¿¡·¯¸¦ Ãâ·ÂÇÏ¿© ¹®Á¦ ÆÄ¾ÇÀ» ½±°Ô ÇÕ´Ï´Ù.
-                        Debug.LogError("[GameAssets] 'Ground Tilemap'À» Ã£À» ¼ö ¾ø½À´Ï´Ù! ¾ÀÀÇ Å¸ÀÏ¸Ê ¿ÀºêÁ§Æ® ÀÌ¸§°ú TilemapController.cs ½ºÅ©¸³Æ® ºÎÂø ¿©ºÎ¸¦ È®ÀÎÇÏ¼¼¿ä.");
+                        // íƒ€ì¼ë§µì„ ì°¾ì§€ ëª»í•˜ë©´ ì—¬ê¸°ì„œ ì¦‰ì‹œ ì—ëŸ¬ë¥¼ ì¶œë ¥í•˜ì—¬ ë¬¸ì œ íŒŒì•…ì„ ì‰½ê²Œ í•©ë‹ˆë‹¤.
+                        Debug.LogError("[GameAssets] 'Ground Tilemap'ì„ ì°¾ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤! ì”¬ì˜ íƒ€ì¼ë§µ ì˜¤ë¸Œì íŠ¸ ì´ë¦„ê³¼ TilemapController.cs ìŠ¤í¬ë¦½íŠ¸ ë¶€ì°© ì—¬ë¶€ë¥¼ í™•ì¸í•˜ì„¸ìš”.");
                     }
                 }
                 return _groundTilemap;

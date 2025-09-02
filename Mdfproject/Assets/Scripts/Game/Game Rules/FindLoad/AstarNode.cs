@@ -9,6 +9,7 @@ public class AstarNode
     public AstarNode(bool _isWall, int _x, int _y) { isWall = _isWall; x = _x; y = _y; }
 
     public bool isWall;
+    public bool isBreakable; // ✅ [추가] 부술 수 있는 벽인지 여부
     public AstarNode ParentNode;
     public int x, y, G, H;
     public int F { get { return G + H; } }

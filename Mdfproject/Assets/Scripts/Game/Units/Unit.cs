@@ -5,7 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 
 [RequireComponent(typeof(ManaController))]
-public class Unit : MonoBehaviour, IEnemy
+public class Unit : MonoBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
     [SerializeField] private UnitData unitData;
@@ -20,10 +20,23 @@ public class Unit : MonoBehaviour, IEnemy
     public Canvas worldSpaceCanvas; // 월드 스페이스 캔버스 참조
 
     // --- 현재 상태 및 시스템 컴포넌트 ---
-    public int starLevel { get; private set; } = 1;
+    [Header("현재 상태 (읽기 전용)")]
+    [Tooltip("유닛의 현재 성급입니다. (1~3성)")]
+    [SerializeField]
+    private int m_starLevel = 1;
+    public int starLevel { get { return m_starLevel; } private set { m_starLevel = value; } }
+    
+    // [추가됨] 유닛의 생사 상태를 추적하기 위한 플래그입니다.
+    public bool IsDead { get; private set; } = false;
+
+    public float CurrentHealth => currentHP;
+    public float MaxHealth => maxHP;
+    public event System.Action<float, float> OnHealthChanged;
+
 
     [Header("현재 스탯 (읽기 전용)")]
     [SerializeField] private float currentHP;
+    private float maxHP;
     [SerializeField] private float currentAttackDamage;
     [SerializeField] private float currentAttackSpeed;
     [SerializeField] private float currentAttackRange;
@@ -66,7 +79,9 @@ public class Unit : MonoBehaviour, IEnemy
         // 1.8의 (성급-1) 제곱만큼 스탯을 강화합니다. (1성: 1배, 2성: 1.8배, 3성: 3.24배)
         float statMultiplier = Mathf.Pow(1.8f, starLevel - 1);
 
-        currentHP = unitData.baseHealth * statMultiplier;
+        maxHP = unitData.baseHealth * statMultiplier;
+        currentHP = maxHP;
+        OnHealthChanged?.Invoke(currentHP, maxHP);
         currentAttackDamage = unitData.baseAttackDamage * statMultiplier;
         currentAttackSpeed = unitData.attackSpeed;
         currentAttackRange = unitData.attackRange;
@@ -129,6 +144,20 @@ public class Unit : MonoBehaviour, IEnemy
             // 참고: 실제 외형(프리팹) 교체는 이 유닛을 관리하는 FieldManager에서 담당해야 합니다.
         }
     }
+    
+    // [추가됨] 준비 단계가 시작될 때 FieldManager가 호출할 부활 메소드입니다.
+    public void Respawn()
+    {
+        if (!IsDead) return;
+
+        IsDead = false;
+        InitializeStats(); // 체력을 포함한 모든 스탯을 최신 상태로 다시 초기화합니다.
+        gameObject.SetActive(true); // 유닛을 다시 보이게 합니다.
+        StartAttackLoop(); // 공격 로직을 다시 시작합니다.
+        
+        Debug.Log($"<color=green>{unitData.unitName}이(가) 부활했습니다!</color>");
+    }
+
 
     private void HandleManaFull()
     {
@@ -306,9 +335,10 @@ public class Unit : MonoBehaviour, IEnemy
     // ... (IEnemy 인터페이스 구현부: TakeDamage, Die 메서드는 기존 코드와 동일) ...
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
-        if (unitData == null) return;
+        if (unitData == null || IsDead) return; // [수정됨] 죽은 상태에서는 데미지를 받지 않습니다.
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, currentDefense, currentMagicResistance);
         currentHP -= finalDamage;
+        OnHealthChanged?.Invoke(currentHP, maxHP);
         if (currentHP <= 0)
         {
             Die();
@@ -316,6 +346,12 @@ public class Unit : MonoBehaviour, IEnemy
     }
     private void Die()
     {
+        // [수정됨] Die 메소드의 전체 로직이 변경되었습니다.
+        if (IsDead) return; // 이미 죽음 처리가 진행 중이면 중복 실행을 방지합니다.
+
+        IsDead = true; // 사망 상태로 전환합니다.
+        
+        // 저지하고 있던 몬스터들을 모두 풀어줍니다.
         foreach (var monster in blockedMonsters)
         {
             if (monster != null)
@@ -324,9 +360,17 @@ public class Unit : MonoBehaviour, IEnemy
             }
         }
         blockedMonsters.Clear();
-        // TODO: FieldManager에게 유닛이 죽었음을 알려서 관리 목록에서 제거하도록 해야 합니다.
-        // 예: FindObjectOfType<FieldManager>().UnitDied(this.gameObject);
-        Destroy(gameObject);
+        
+        // 공격 코루틴을 중지합니다.
+        if(attackCoroutine != null)
+        {
+            StopCoroutine(attackCoroutine);
+            attackCoroutine = null;
+        }
+
+        // 유닛을 파괴하는 대신 비활성화하여 다음 라운드에 재사용할 수 있도록 합니다.
+        gameObject.SetActive(false);
+        Debug.Log($"<color=red>{unitData.unitName}이(가) 전투에서 쓰러졌습니다.</color>");
     }
 
     #endregion
