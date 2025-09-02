@@ -88,7 +88,7 @@ MonoBehaviour:
     m_SerializedLabels:
     - TileBase
   - m_GUID: 619dde12077e168499d7ebc380344c79
-    m_Address: HeroSprite
+    m_Address: Spr_Port_Warrior
     m_ReadOnly: 0
     m_SerializedLabels:
     - CharacterSprite
@@ -122,6 +122,21 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
+  - m_GUID: a311745136f3110429e1f14b2e628a0e
+    m_Address: Spr_Port_Archer
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterSprite
+  - m_GUID: d795ac710a26b664498d445586629318
+    m_Address: Archer
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
+  - m_GUID: 0336ce3939b88d84baa6095048c203eb
+    m_Address: DestructibleWallPrefab
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - WallPrefab
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

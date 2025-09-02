@@ -70,7 +70,7 @@ public class AddressableAssetLoader : MonoBehaviour
             await AssetRegistry.LoadAndRegisterTile("BreakWall");
 
             // TODO : sprites, prefabs, sounds 나중에 로드 추가
-            await AssetRegistry.LoadAndRegisterSprite("HeroSprite");
+            await AssetRegistry.LoadAndRegisterSprite("Spr_Port_Warrior");
 
             if (logProgress)
                 Debug.Log("[AddressableAssetLoader] ✅ 모든 에셋 로딩 완료");

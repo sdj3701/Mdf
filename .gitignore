@@ -97,4 +97,5 @@ Mdfproject/Library
 Mdfproject/Temp
 Mdfproject/obj/Debug/Assembly-CSharp-Editor.csproj.AssemblyReference.cache
 Mdfproject/UserSettings/Layouts/default-2021.dwlt
+.aider*
 Mdfproject/Assets/Photon
