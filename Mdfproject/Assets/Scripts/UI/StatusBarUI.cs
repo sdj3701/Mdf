@@ -1,4 +1,5 @@
 // Assets/Scripts/UI/StatusBarUI.cs
+
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -34,6 +35,9 @@ public class StatusBarUI : MonoBehaviour
 
     private bool isUnit = false;
     private bool isCombatPhase = false;
+    
+    private IHealth healthComponent;
+    private IMana manaComponent;
 
     private void OnEnable()
     {
@@ -43,9 +47,11 @@ public class StatusBarUI : MonoBehaviour
     private void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+        
+        if (healthComponent != null) healthComponent.OnHealthChanged -= UpdateHealth;
+        if (manaComponent != null) manaComponent.OnManaChanged -= UpdateMana;
     }
 
-    // ✅ [핵심 수정] 실행 순서 문제를 해결하기 위해 모든 로직을 Awake()에서 Start()로 옮겼습니다.
     private void Start()
     {
         isUnit = GetComponentInParent<Unit>() != null;
@@ -56,7 +62,7 @@ public class StatusBarUI : MonoBehaviour
         }
 
         // 체력 바 설정
-        IHealth healthComponent = GetComponentInParent<IHealth>();
+        healthComponent = GetComponentInParent<IHealth>();
         if (healthComponent != null)
         {
             if (healthBarImage != null)
@@ -64,31 +70,19 @@ public class StatusBarUI : MonoBehaviour
                 if (isUnit) healthBarImage.color = unitHealthColor;
                 else if (GetComponentInParent<Monster>() != null) healthBarImage.color = monsterHealthColor;
             }
-            
             healthComponent.OnHealthChanged += UpdateHealth;
-            UpdateHealth(healthComponent.CurrentHealth, healthComponent.MaxHealth);
         }
 
-        // 마나 바 설정 (이제 Unit이 maxMana를 정확히 설정한 후에 실행됩니다)
-        IMana manaComponent = GetComponentInParent<IMana>();
-        if (manaBarImage != null && manaComponent != null && manaComponent.MaxMana > 0)
+        // 마나 바 설정
+        manaComponent = GetComponentInParent<IMana>();
+        if (manaComponent != null)
         {
-            manaBarImage.gameObject.SetActive(true);
-            if (manaBarBackgroundImage != null)
-            {
-                manaBarBackgroundImage.gameObject.SetActive(true);
-            }
-
+            // [핵심 변경] MaxMana 값과 상관없이 우선 이벤트를 구독합니다.
             manaComponent.OnManaChanged += UpdateMana;
-            UpdateMana(manaComponent.CurrentMana, manaComponent.MaxMana);
         }
-        else if (manaBarImage != null)
+        else
         {
-            manaBarImage.gameObject.SetActive(false);
-            if (manaBarBackgroundImage != null)
-            {
-                manaBarBackgroundImage.gameObject.SetActive(false);
-            }
+            SetManaBarVisibility(false);
         }
 
         // 캔버스 및 위치/스케일 설정
@@ -108,19 +102,43 @@ public class StatusBarUI : MonoBehaviour
             transform.localPosition += monsterPositionOffset;
             transform.localScale = monsterScale;
         }
+        
+        UpdateAllUIVisibility();
     }
     
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
         isCombatPhase = (newState == GameManagers.GameState.Combat);
-        if (isUnit)
+        UpdateAllUIVisibility();
+    }
+    
+    private void UpdateAllUIVisibility()
+    {
+        if (healthComponent != null)
         {
-            IHealth healthComponent = GetComponentInParent<IHealth>();
-            if (healthComponent != null)
-            {
-                UpdateHealth(healthComponent.CurrentHealth, healthComponent.MaxHealth);
-            }
+            UpdateHealth(healthComponent.CurrentHealth, healthComponent.MaxHealth);
         }
+        if (manaComponent != null)
+        {
+            UpdateMana(manaComponent.CurrentMana, manaComponent.MaxMana);
+        }
+        else
+        {
+            // manaComponent가 아예 없는 경우 (예: DestructibleWall) 확실하게 꺼줍니다.
+            SetManaBarVisibility(false);
+        }
+    }
+    
+    private void SetHealthBarVisibility(bool visible)
+    {
+        if (healthBarImage != null) healthBarImage.gameObject.SetActive(visible);
+        if (healthBarBackgroundImage != null) healthBarBackgroundImage.gameObject.SetActive(visible);
+    }
+    
+    private void SetManaBarVisibility(bool visible)
+    {
+        if (manaBarImage != null) manaBarImage.gameObject.SetActive(visible);
+        if (manaBarBackgroundImage != null) manaBarBackgroundImage.gameObject.SetActive(visible);
     }
 
     private void UpdateHealth(float current, float max)
@@ -137,11 +155,7 @@ public class StatusBarUI : MonoBehaviour
             shouldShow = isCombatPhase && (current > 0 && current < max);
         }
 
-        healthBarImage.gameObject.SetActive(shouldShow);
-        if (healthBarBackgroundImage != null)
-        {
-            healthBarBackgroundImage.gameObject.SetActive(shouldShow);
-        }
+        SetHealthBarVisibility(shouldShow);
 
         if (shouldShow)
         {
@@ -153,15 +167,13 @@ public class StatusBarUI : MonoBehaviour
     {
         if (manaBarImage == null) return;
         
-        bool shouldShow = isUnit || (isCombatPhase && !isUnit);
+        // [핵심 변경] 이제 마나 UI를 보여줄지 여부를 여기서 최종 결정합니다.
+        // 조건: 유닛이어야 하고, 전투 중이어야 하며, MaxMana가 0보다 커야 합니다 (즉, 스킬이 있어야 함).
+        bool shouldShow = isUnit && isCombatPhase && max > 0;
         
-        manaBarImage.gameObject.SetActive(shouldShow);
-        if (manaBarBackgroundImage != null)
-        {
-            manaBarBackgroundImage.gameObject.SetActive(shouldShow);
-        }
+        SetManaBarVisibility(shouldShow);
         
-        if (shouldShow && max > 0)
+        if (shouldShow)
         {
             manaBarImage.fillAmount = current / max;
         }
