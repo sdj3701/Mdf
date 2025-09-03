@@ -23,6 +23,7 @@ public class MonsterData : ScriptableObject
     public float moveSpeed = 2f;    // 이동 속도
 
     [Header("마나 & 스킬")]
-    public int maxMana;
+    // ✅ [수정] 불필요해진 maxMana 필드를 완전히 삭제했습니다.
+    // public int maxMana; 
     public SkillData skillData; 
 }

@@ -1,60 +1,55 @@
-// Assets/Scripts/Game/ManaController.cs
+// Assets/Scripts/Game/Game Rules/ManaController.cs (수정된 전체 코드)
 using UnityEngine;
-using System; // event 사용을 위해 추가
+using System;
 
 public class ManaController : MonoBehaviour, IMana
 {
-    public float CurrentMana { get; private set; }
-    public float MaxMana { get; private set; }
-    public bool IsManaFull => CurrentMana >= MaxMana;
+    // [수정] [SerializeField]를 추가하여 인스펙터에서 private 변수를 볼 수 있도록 함
+    [SerializeField]
+    private float currentMana;
+    [SerializeField]
+    private float maxMana;
 
-    // 마나가 가득 찼을 때 외부 클래스에 알려주기 위한 이벤트
+    public float CurrentMana => currentMana;
+    public float MaxMana => maxMana;
+    public bool IsManaFull => currentMana >= maxMana;
+
     public event Action OnManaFull;
     public event Action<float, float> OnManaChanged;
 
     public void Initialize(float maxMana)
     {
-        this.MaxMana = maxMana;
-        this.CurrentMana = 0;
-        OnManaChanged?.Invoke(CurrentMana, MaxMana);
+        this.maxMana = maxMana;
+        this.currentMana = 0;
+        OnManaChanged?.Invoke(currentMana, this.maxMana);
     }
 
-    /// <summary>
-    /// 매 프레임 호출되어 서서히 마나를 채웁니다.
-    /// </summary>
     public void GainManaOverTime(float amountPerSecond)
     {
         if (IsManaFull) return;
         GainMana(amountPerSecond * Time.deltaTime);
     }
 
-    /// <summary>
-    /// 지정된 양만큼 마나를 획득합니다.
-    /// </summary>
     public void GainMana(float amount)
     {
         if (IsManaFull || amount <= 0) return;
 
         bool wasManaFullBefore = IsManaFull;
-        CurrentMana = Mathf.Min(CurrentMana + amount, MaxMana);
-        OnManaChanged?.Invoke(CurrentMana, MaxMana);
+        currentMana = Mathf.Min(currentMana + amount, maxMana);
+        OnManaChanged?.Invoke(currentMana, maxMana);
 
-        // 마나가 가득 차지 않은 상태였다가 이번에 가득 찼다면 이벤트를 호출
         if (!wasManaFullBefore && IsManaFull)
         {
             OnManaFull?.Invoke();
         }
     }
 
-    /// <summary>
-    /// 지정된 양만큼 마나를 소모합니다.
-    /// </summary>
     public bool UseMana(float amount)
     {
         if (CurrentMana >= amount)
         {
-            CurrentMana -= amount;
-            OnManaChanged?.Invoke(CurrentMana, MaxMana);
+            currentMana = 0; 
+            OnManaChanged?.Invoke(currentMana, maxMana);
             return true;
         }
         return false;
