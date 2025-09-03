@@ -1,10 +1,19 @@
 // Assets/Scripts/Game/Units/UnitData.cs
+
 using UnityEngine;
 
 /// <summary>
 /// 유닛의 타입을 정의합니다 (근접/원거리).
 /// </summary>
 public enum UnitType { Melee, Ranged }
+
+// [추가됨] 유닛의 마나 회복 방식을 정의하는 열거형입니다.
+public enum ManaRegenType 
+{
+    OnAttack, // 공격 시 일정량 회복
+    Passive   // 매초 일정량 자연 회복
+}
+
 
 /// <summary>
 /// 유닛의 모든 정적 데이터(정보)를 담고 있는 ScriptableObject입니다.
@@ -51,10 +60,18 @@ public class UnitData : ScriptableObject
     [Header("특수 능력")]
     [Tooltip("이 유닛이 동시에 저지할 수 있는 지상 몬스터의 수입니다. 원거리 유닛은 0으로 설정하세요.")]
     public int blockCount;
-    
-    // ✅ [수정] 불필요해진 maxMana 필드를 완전히 삭제했습니다.
-    // public int maxMana;
 
+    // [추가됨] 마나 회복 관련 설정
+    [Header("마나 & 스킬")]
+    [Tooltip("유닛의 마나 회복 방식을 선택합니다.")]
+    public ManaRegenType manaRegenType = ManaRegenType.OnAttack;
+
+    [Tooltip("마나 회복 방식이 'OnAttack'일 때, 공격마다 회복하는 마나의 양입니다.")]
+    public float manaOnAttack = 15f;
+
+    [Tooltip("마나 회복 방식이 'Passive'일 때, 초당 회복하는 마나의 양입니다.")]
+    public float manaPerSecond = 5f;
+    
     [Header("성급별 변화 요소")]
     [Tooltip("유닛의 외형을 결정하는 프리팹입니다. Element 0은 1성, 1은 2성, 2는 3성에 해당합니다.")]
     public GameObject[] prefabsByStarLevel = new GameObject[3];

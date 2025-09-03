@@ -1,4 +1,5 @@
 // Assets/Scripts/Game/Units/Unit.cs
+
 using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
@@ -46,15 +47,66 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     public LayerMask enemyLayerMask;
     private IEnemy targetEnemy;
     private Transform targetTransform;
+    
+    private bool isCombatPhase = false;
+
+    void OnEnable()
+    {
+        GameEvents.OnGameStateChanged += HandleGameStateChanged;
+    }
+
+    void OnDisable()
+    {
+        GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+    }
 
     public void Initialize(UnitData data, int initialStarLevel)
     {
         this.unitData = data;
         this.starLevel = initialStarLevel;
         manaController = GetComponent<ManaController>();
+
+        // [핵심 변경] manaController 참조가 할당된 직후에 이벤트를 구독합니다.
+        // 중복 구독을 방지하기 위해 항상 먼저 구독을 해지합니다.
+        if (manaController != null)
+        {
+            manaController.OnManaFull -= HandleManaFull; // 이전 구독 제거
+            manaController.OnManaFull += HandleManaFull; // 신규 구독
+        }
+        
         InitializeStats();
-        manaController.OnManaFull += HandleManaFull;
-        StartAttackLoop();
+    }
+
+    void Update()
+    {
+        if (!isCombatPhase || !DoesHaveSkill() || unitData.manaRegenType != ManaRegenType.Passive)
+        {
+            return;
+        }
+
+        if (manaController != null)
+        {
+            manaController.GainManaOverTime(unitData.manaPerSecond);
+        }
+    }
+    
+    private void HandleGameStateChanged(GameManagers.GameState newState)
+    {
+        isCombatPhase = (newState == GameManagers.GameState.Combat);
+
+        if (isCombatPhase)
+        {
+            StartAttackLoop();
+        }
+        else
+        {
+            if (attackCoroutine != null)
+            {
+                StopCoroutine(attackCoroutine);
+                attackCoroutine = null;
+            }
+            HideSkillButton();
+        }
     }
 
     public void InitializeStats()
@@ -72,13 +124,9 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         currentMagicResistance = unitData.magicResistance;
 
         int newMaxMana = 0;
-        if (unitData.skillsByStarLevel != null && unitData.skillsByStarLevel.Length >= starLevel)
+        if (DoesHaveSkill())
         {
-            SkillData currentSkill = unitData.skillsByStarLevel[starLevel - 1];
-            if (currentSkill != null)
-            {
-                newMaxMana = currentSkill.manaCost;
-            }
+            newMaxMana = unitData.skillsByStarLevel[starLevel - 1].manaCost;
         }
         manaController.Initialize(newMaxMana);
     }
@@ -99,13 +147,13 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         IsDead = false;
         InitializeStats();
         gameObject.SetActive(true);
-        StartAttackLoop();
         Debug.Log($"<color=green>{unitData.unitName}이(가) 부활했습니다!</color>");
     }
 
     private void HandleManaFull()
     {
-        if (unitData.skillsByStarLevel.Length < starLevel) return;
+        if (!isCombatPhase || !DoesHaveSkill()) return;
+        
         SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
         if (currentSkillData == null) return;
 
@@ -121,7 +169,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     public void ActivateSkill()
     {
-        if (unitData.skillsByStarLevel.Length < starLevel) return;
+        if (!isCombatPhase || !DoesHaveSkill()) return;
+        
         SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
 
         if (currentSkillData == null || currentSkillData.targetingStrategy == null || currentSkillData.effects.Count == 0)
@@ -171,13 +220,16 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 else
                 {
                     Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
-                    // ✅ [수정] 컴파일 오류를 유발하던 아래 코드를 완전히 삭제했습니다.
-                    // GameManagers.Instance.RegisterActiveVFX(vfxInstance); 
                 }
             }
 
             HideSkillButton();
         }
+    }
+    
+    private bool DoesHaveSkill()
+    {
+        return unitData.skillsByStarLevel.Length >= starLevel && unitData.skillsByStarLevel[starLevel - 1] != null;
     }
 
     #region 공격 로직 (이하 동일)
@@ -189,11 +241,10 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private IEnumerator AttackLoop()
     {
-        while (true)
+        while (isCombatPhase)
         {
             if (currentAttackSpeed <= 0)
             {
-                Debug.LogWarning($"{gameObject.name}의 공격 속도가 0 이하여서 공격할 수 없습니다. AttackSpeed 값을 확인해주세요.");
                 yield return new WaitForSeconds(1f);
                 continue;
             }
@@ -285,15 +336,15 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 Destroy(projectileGO);
             }
         }
-
-        if (unitData.skillsByStarLevel.Length >= starLevel && unitData.skillsByStarLevel[starLevel - 1] != null)
+        
+        if (DoesHaveSkill() && unitData.manaRegenType == ManaRegenType.OnAttack)
         {
-            manaController.GainMana(15);
+            manaController.GainMana(unitData.manaOnAttack);
         }
     }
     #endregion
 
-    #region 저지, 스킬 UI, IEnemy 구현 등
+    #region 저지, 스킬 UI, IEnemy 구현 등 (이하 동일)
     private void ShowSkillButton()
     {
         if (skillButtonPrefab == null || worldSpaceCanvas == null) return;
@@ -337,7 +388,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private void OnDestroy()
     {
-        if (manaController != null) manaController.OnManaFull -= HandleManaFull;
+        // [수정됨] 오브젝트 파괴 시 이벤트 구독을 확실히 해제합니다.
+        if (manaController != null)
+        {
+            manaController.OnManaFull -= HandleManaFull;
+        }
         if (skillButtonInstance != null) Destroy(skillButtonInstance);
     }
 
