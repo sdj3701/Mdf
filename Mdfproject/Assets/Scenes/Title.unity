@@ -428,7 +428,7 @@ GameObject:
   - component: {fileID: 490482444}
   - component: {fileID: 490482448}
   m_Layer: 5
-  m_Name: Canvas
+  m_Name: LoginUI
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1463,8 +1463,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f12e954eddeca274a9a982b1b5ed40b9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _runnerPrefab: {fileID: 0}
   _maxPlayers: 2
+  _networkPlayerPrefab: {fileID: 0}
 --- !u!1 &1542998650
 GameObject:
   m_ObjectHideFlags: 0
