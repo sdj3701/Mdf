@@ -86,6 +86,7 @@ public class ShopManager : MonoBehaviour
             }
         }
         Debug.Log($"Player {playerManager.playerId}의 상점이 리롤되었습니다. (무료: {isFree})");
+        GameEvents.TriggerShopRefreshed(playerManager);
     }
 
     // [변경됨] 매개변수가 UnitData에서 ShopItem으로 변경되었습니다.
