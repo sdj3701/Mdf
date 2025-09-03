@@ -3,8 +3,9 @@ using UnityEngine;
 using UnityEngine.UI;
 using System.Collections;
 using System.Collections.Generic;
+// using Fusion; // 네트워크 모드에서 주석 해제
 
-[RequireComponent(typeof(ManaController))]
+// public class Unit : NetworkBehaviour, IEnemy, IHealth // 네트워크 모드에서 NetworkBehaviour로 변경
 public class Unit : MonoBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
@@ -26,7 +27,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private int m_starLevel = 1;
     public int starLevel { get { return m_starLevel; } private set { m_starLevel = value; } }
     
-    // [추가됨] 유닛의 생사 상태를 추적하기 위한 플래그입니다.
     public bool IsDead { get; private set; } = false;
 
     public float CurrentHealth => currentHP;
@@ -44,7 +44,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     [SerializeField] private float currentMagicResistance;
 
     private ManaController manaController;
-    private ISkill skillInstance;
+    // [제거됨] private ISkill skillInstance;
     private GameObject skillButtonInstance;
 
     private Coroutine attackCoroutine;
@@ -53,30 +53,25 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private IEnemy targetEnemy;
     private Transform targetTransform;
 
-    /// <summary>
-    /// 유닛이 처음 생성될 때 FieldManager에 의해 호출됩니다.
-    /// </summary>
-    public void Initialize(UnitData data)
+    public void Initialize(UnitData data, int initialStarLevel)
     {
         this.unitData = data;
-        this.starLevel = 1; // 처음 생성 시 항상 1성
+        this.starLevel = initialStarLevel;
 
         manaController = GetComponent<ManaController>();
         manaController.Initialize(unitData.maxMana);
 
         InitializeStats();
-        InitializeSkill();
+        // [변경됨] 스킬 인스턴스 생성 로직이 필요 없어졌으므로 InitializeSkill() 호출 제거
+        // 대신 마나 이벤트 핸들러를 직접 연결합니다.
+        manaController.OnManaFull += HandleManaFull;
 
         StartAttackLoop();
     }
 
-    /// <summary>
-    /// 현재 starLevel에 따라 스탯을 계산하고 적용합니다.
-    /// </summary>
     public void InitializeStats()
     {
         if (unitData == null) return;
-        // 1.8의 (성급-1) 제곱만큼 스탯을 강화합니다. (1성: 1배, 2성: 1.8배, 3성: 3.24배)
         float statMultiplier = Mathf.Pow(1.8f, starLevel - 1);
 
         maxHP = unitData.baseHealth * statMultiplier;
@@ -89,71 +84,26 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         currentMagicResistance = unitData.magicResistance;
     }
 
-
-    private void InitializeSkill()
-    {
-        if (skillInstance != null)
-        {
-            manaController.OnManaFull -= HandleManaFull;
-            Destroy((skillInstance as MonoBehaviour).gameObject);
-            skillInstance = null;
-        }
-
-        if (unitData.skillsByStarLevel != null && unitData.skillsByStarLevel.Length >= starLevel)
-        {
-            SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
-            if (currentSkillData != null && currentSkillData.skillLogicPrefab != null)
-            {
-                GameObject skillObject = Instantiate(currentSkillData.skillLogicPrefab, transform);
-                skillInstance = skillObject.GetComponent<ISkill>();
-                manaController.OnManaFull += HandleManaFull;
-            }
-        }
-    }
-
-
-    /// <summary>
-    /// 현재 starLevel에 맞는 스킬을 UnitData에서 가져와 설정합니다.
-    /// </summary>
-    public void Initialize(UnitData data, int initialStarLevel)
-    {
-        this.unitData = data;
-        this.starLevel = initialStarLevel; // [변경됨] 1로 고정하지 않고, 받은 값으로 설정
-
-        manaController = GetComponent<ManaController>();
-        manaController.Initialize(unitData.maxMana);
-
-        InitializeStats();
-        InitializeSkill();
-
-        StartAttackLoop();
-    }
-
-    /// <summary>
-    /// FieldManager에 의해 호출되어 유닛을 업그레이드합니다.
-    /// </summary>
     public void Upgrade()
     {
         if (starLevel < 3)
         {
             starLevel++;
-            InitializeStats(); // 새로운 성급에 맞게 스탯 재계산
-            InitializeSkill(); // 새로운 성급에 맞는 스킬로 교체
-
+            InitializeStats();
+            // [참고] 성급이 오르면 스킬 데이터가 바뀌므로 별도의 초기화는 필요 없습니다.
+            // ActivateSkill()이 호출될 때마다 올바른 성급의 SkillData를 참조하게 됩니다.
             Debug.Log($"<color=cyan>{unitData.unitName}이(가) {starLevel}성으로 업그레이드되었습니다!</color>");
-            // 참고: 실제 외형(프리팹) 교체는 이 유닛을 관리하는 FieldManager에서 담당해야 합니다.
         }
     }
     
-    // [추가됨] 준비 단계가 시작될 때 FieldManager가 호출할 부활 메소드입니다.
     public void Respawn()
     {
         if (!IsDead) return;
 
         IsDead = false;
-        InitializeStats(); // 체력을 포함한 모든 스탯을 최신 상태로 다시 초기화합니다.
-        gameObject.SetActive(true); // 유닛을 다시 보이게 합니다.
-        StartAttackLoop(); // 공격 로직을 다시 시작합니다.
+        InitializeStats();
+        gameObject.SetActive(true);
+        StartAttackLoop();
         
         Debug.Log($"<color=green>{unitData.unitName}이(가) 부활했습니다!</color>");
     }
@@ -161,7 +111,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private void HandleManaFull()
     {
-        // UnitData의 배열에서 현재 성급에 맞는 스킬 데이터를 가져옵니다.
+        if (unitData.skillsByStarLevel.Length < starLevel) return;
         SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
         if (currentSkillData == null) return;
 
@@ -174,20 +124,79 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             ShowSkillButton();
         }
     }
+    public void Heal(float amount)
+    {
+        if (IsDead || amount <= 0) return; // 죽은 유닛은 회복 불가
 
+        currentHP = Mathf.Min(currentHP + amount, maxHP); // 최대 체력을 넘지 않도록
+        OnHealthChanged?.Invoke(currentHP, maxHP);
+    }
+    /// <summary>
+    /// [핵심 수정] 새로운 스킬 시스템을 사용하여 스킬을 발동합니다.
+    /// </summary>
     public void ActivateSkill()
     {
+        // [네트워크] 스킬 로직은 서버(StateAuthority)에서만 실행되어야 합니다.
+        // if (!Object.HasStateAuthority) return;
+
+        if (unitData.skillsByStarLevel.Length < starLevel) return;
         SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
-        if (skillInstance == null || !manaController.IsManaFull || currentSkillData == null) return;
+
+        // 스킬 데이터, 타겟팅 전략, 효과가 모두 설정되어 있는지 확인합니다.
+        if (currentSkillData == null || currentSkillData.targetingStrategy == null || currentSkillData.effects.Count == 0)
+        {
+            Debug.LogError($"{unitData.unitName} ({starLevel}성)의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
+            return;
+        }
+        
+        if (!manaController.IsManaFull) return;
 
         if (manaController.UseMana(currentSkillData.manaCost))
         {
-            skillInstance.Activate(this.gameObject);
+            Debug.Log($"<color=yellow>{unitData.unitName} 스킬 발동: {currentSkillData.skillName}</color>");
+
+            // 1. 타겟팅 전략을 사용해 대상들을 찾습니다.
+            List<GameObject> targets = currentSkillData.targetingStrategy.FindTargets(this.gameObject, transform.position);
+
+            // 2. SkillData에 등록된 모든 효과를 순차적으로 적용합니다.
+            foreach (var effect in currentSkillData.effects)
+            {
+                if (effect != null)
+                {
+                    // effect.ApplyEffect(Runner, this.gameObject, targets); // 네트워크 모드
+                    effect.ApplyEffect(null, this.gameObject, targets); // 비-네트워크 모드
+                }
+            }
+            
+            // 3. (선택) RPC를 통해 모든 클라이언트에게 시각 효과를 재생하라고 명령합니다.
+            if (currentSkillData.vfxPrefab != null)
+            {
+                // RPC_PlaySkillVFX(currentSkillData.vfxPrefab.name, transform.position); // 네트워크 모드
+                
+                // 비-네트워크 모드에서는 즉시 생성합니다.
+                Instantiate(currentSkillData.vfxPrefab, transform.position, Quaternion.identity);
+            }
+
             HideSkillButton();
         }
     }
+    
+    /*
+    // [네트워크] 스킬 시각 효과(VFX)를 모든 클라이언트에서 재생하기 위한 RPC
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_PlaySkillVFX(string vfxPrefabName, Vector3 position)
+    {
+        // AssetRegistry나 Addressables를 통해 vfxPrefabName에 해당하는 프리팹을 로드하고 생성합니다.
+        // 이 이펙트는 네트워크 동기화되지 않는 순수 시각 효과여야 합니다.
+        GameObject vfxPrefab = AssetRegistry.GetPrefab(vfxPrefabName); // AssetRegistry 사용 예시
+        if (vfxPrefab != null)
+        {
+            Instantiate(vfxPrefab, position, Quaternion.identity);
+        }
+    }
+    */
 
-    #region 공격 로직 (수정됨)
+    #region 공격 로직 (기존과 동일)
     public void StartAttackLoop()
     {
         if (attackCoroutine != null) StopCoroutine(attackCoroutine);
@@ -209,7 +218,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private void FindNearestEnemy()
     {
-        // (기존 코드와 동일)
         Collider2D[] enemiesInRange = Physics2D.OverlapCircleAll(transform.position, currentAttackRange, enemyLayerMask);
         float closestDistanceSqr = float.MaxValue;
         IEnemy nearestEnemy = null;
@@ -235,9 +243,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         targetTransform = nearestTransform;
     }
 
-    /// <summary>
-    /// 유닛 타입(근접/원거리)에 따라 다른 방식으로 공격합니다.
-    /// </summary>
     private void Attack()
     {
         if (targetEnemy == null || targetTransform == null || Vector2.Distance(transform.position, targetTransform.position) > currentAttackRange)
@@ -258,30 +263,25 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 if (projectilePrefab != null && firePoint != null)
                 {
                     GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
-
-                    // --- [수정된 부분] ---
-                    // 생성된 투사체에서 Projectile 스크립트를 가져와 Initialize 메서드를 호출합니다.
                     Projectile projectileScript = projectileGO.GetComponent<Projectile>();
                     if (projectileScript != null)
                     {
-                        // 투사체에게 목표, 데미지, 데미지 타입을 알려주며 임무를 부여합니다.
                         projectileScript.Initialize(targetTransform, currentAttackDamage, unitData.damageType);
                     }
-                    // --- [여기까지] ---
                 }
             }
         }
 
-        if (skillInstance != null)
+        // 공격 시 마나 획득
+        if (unitData.skillsByStarLevel.Length >= starLevel && unitData.skillsByStarLevel[starLevel - 1] != null)
         {
             manaController.GainMana(15);
         }
     }
     #endregion
 
-    #region 저지, 스킬 UI, IEnemy 구현 등 (기존 코드와 대부분 동일)
+    #region 저지, 스킬 UI, IEnemy 구현 등 (기존과 동일)
 
-    // ... (ShowSkillButton, HideSkillButton 메서드는 기존 코드와 동일) ...
     private void ShowSkillButton()
     {
         if (skillButtonPrefab == null || worldSpaceCanvas == null) return;
@@ -301,8 +301,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         }
     }
 
-
-    // ... (OnTriggerEnter2D, ReleaseBlockedMonster 메서드는 기존 코드와 동일) ...
     private void OnTriggerEnter2D(Collider2D other)
     {
         if (other.TryGetComponent<Monster>(out var monster))
@@ -325,17 +323,15 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         }
     }
 
-    // ... (OnDestroy 메서드는 기존 코드와 동일) ...
     private void OnDestroy()
     {
         if (manaController != null) manaController.OnManaFull -= HandleManaFull;
         if (skillButtonInstance != null) Destroy(skillButtonInstance);
     }
 
-    // ... (IEnemy 인터페이스 구현부: TakeDamage, Die 메서드는 기존 코드와 동일) ...
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
-        if (unitData == null || IsDead) return; // [수정됨] 죽은 상태에서는 데미지를 받지 않습니다.
+        if (unitData == null || IsDead) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, currentDefense, currentMagicResistance);
         currentHP -= finalDamage;
         OnHealthChanged?.Invoke(currentHP, maxHP);
@@ -346,12 +342,10 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     }
     private void Die()
     {
-        // [수정됨] Die 메소드의 전체 로직이 변경되었습니다.
-        if (IsDead) return; // 이미 죽음 처리가 진행 중이면 중복 실행을 방지합니다.
+        if (IsDead) return;
 
-        IsDead = true; // 사망 상태로 전환합니다.
+        IsDead = true; 
         
-        // 저지하고 있던 몬스터들을 모두 풀어줍니다.
         foreach (var monster in blockedMonsters)
         {
             if (monster != null)
@@ -361,14 +355,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         }
         blockedMonsters.Clear();
         
-        // 공격 코루틴을 중지합니다.
         if(attackCoroutine != null)
         {
             StopCoroutine(attackCoroutine);
             attackCoroutine = null;
         }
 
-        // 유닛을 파괴하는 대신 비활성화하여 다음 라운드에 재사용할 수 있도록 합니다.
         gameObject.SetActive(false);
         Debug.Log($"<color=red>{unitData.unitName}이(가) 전투에서 쓰러졌습니다.</color>");
     }

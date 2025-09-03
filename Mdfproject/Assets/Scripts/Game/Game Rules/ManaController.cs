@@ -53,7 +53,10 @@ public class ManaController : MonoBehaviour, IMana
     {
         if (CurrentMana >= amount)
         {
-            CurrentMana -= amount;
+            // [기존 코드] CurrentMana -= amount;
+            // [수정된 코드] 스킬을 사용하면 마나를 완전히 소모시킵니다.
+            CurrentMana = 0; 
+            
             OnManaChanged?.Invoke(CurrentMana, MaxMana);
             return true;
         }
