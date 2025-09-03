@@ -8,6 +8,7 @@ using UnityEngine;
 using Fusion;
 using Fusion.Sockets;
 using UnityEngine.SceneManagement;
+using System.IO;
 
 public struct NetworkInputData : INetworkInput
 {
@@ -24,16 +25,19 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private NetworkRunner _runner;
     private NetworkRunner _lobbyRunner;
+    
+    // ★★★ 언로드할 이전 씬의 이름을 저장하기 위한 변수 추가
+    private string _previousSceneToUnload;
 
+    // (Awake, OnDestroy, InitializeRunner 등 다른 함수들은 기존과 동일합니다)
+    #region 기존 함수들 (변경 없음)
     private Dictionary<string, SessionInfo> _roomList = new Dictionary<string, SessionInfo>();
     
-    // Player Information
     private string _playerNickname;
     private string _playerPassword;
     private bool _isConnectedToServer = false;
     private string _currentRoomName;
 
-    // Events
     public event Action<List<SessionInfo>> OnRoomListUpdated;
     public event Action<bool> OnConnectionStatusChanged;
     public event Action<string> OnErrorOccurred;
@@ -87,13 +91,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         runnerGo.transform.SetParent(transform);
 
         _lobbyRunner = runnerGo.AddComponent<NetworkRunner>();
-        
-        // ✅ [핵심 수정] LobbyRunner도 입력을 제공한다고 명시적으로 설정합니다.
-        // 이것이 IndexOutOfRangeException을 근본적으로 해결합니다.
         _lobbyRunner.ProvideInput = true; 
-        
         _lobbyRunner.AddCallbacks(this);
-        _lobbyRunner.name = "LobbyRunner (Temp)"; // 이름 재설정
+        _lobbyRunner.name = "LobbyRunner (Temp)";
     }
     
     public async Task<bool> ConnectToServer(string nickname, string password)
@@ -134,18 +134,42 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return false;
         }
     }
-
+    #endregion
+    
     public async Task<bool> CreateRoom(string roomName, string sceneName = "JoinLobby")
     {
         InitializeRunner();
-        
+
+        int sceneIndex = -1;
+        for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
+        {
+            string path = SceneUtility.GetScenePathByBuildIndex(i);
+            string nameInBuild = Path.GetFileNameWithoutExtension(path);
+            if (nameInBuild.Equals(sceneName))
+            {
+                sceneIndex = i;
+                break;
+            }
+        }
+
+        if (sceneIndex < 0)
+        {
+            string errorMsg = $"씬 '{sceneName}'을(를) 빌드 설정에서 찾을 수 없습니다.";
+            Debug.LogError(errorMsg);
+            OnErrorOccurred?.Invoke(errorMsg);
+            return false;
+        }
+
         var sceneManager = _runner.gameObject.AddComponent<NetworkSceneManagerDefault>();
+
+        // ★★★ StartGame 호출 전에 현재 씬 이름을 저장합니다.
+        _previousSceneToUnload = SceneManager.GetActiveScene().name;
 
         var result = await _runner.StartGame(new StartGameArgs
         {
             GameMode = GameMode.Host,
             SessionName = roomName,
-            Scene = SceneRef.FromIndex(SceneManager.GetSceneByName(sceneName).buildIndex),
+            Scene = SceneRef.FromIndex(sceneIndex),
             SceneManager = sceneManager,
             PlayerCount = _maxPlayers,
             CustomLobbyName = "GameRooms"
@@ -160,23 +184,49 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
         else
         {
+            // ★★★ 실패 시, 저장했던 씬 이름을 초기화합니다.
+            _previousSceneToUnload = null;
             Debug.LogError($"Failed to create room: {result.ShutdownReason}");
             OnErrorOccurred?.Invoke($"Failed to create room: {result.ShutdownReason}");
             return false;
         }
     }
-
+    
+    // (JoinRoom 함수도 동일하게 수정합니다)
     public async Task<bool> JoinRoom(string roomName, string sceneName = "JoinLobby")
     {
         InitializeRunner();
+
+        int sceneIndex = -1;
+        for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
+        {
+            string path = SceneUtility.GetScenePathByBuildIndex(i);
+            string nameInBuild = Path.GetFileNameWithoutExtension(path);
+            if (nameInBuild.Equals(sceneName))
+            {
+                sceneIndex = i;
+                break;
+            }
+        }
+
+        if (sceneIndex < 0)
+        {
+            string errorMsg = $"씬 '{sceneName}'을(를) 빌드 설정에서 찾을 수 없습니다.";
+            Debug.LogError(errorMsg);
+            OnErrorOccurred?.Invoke(errorMsg);
+            return false;
+        }
         
         var sceneManager = _runner.gameObject.AddComponent<NetworkSceneManagerDefault>();
+
+        // ★★★ StartGame 호출 전에 현재 씬 이름을 저장합니다.
+        _previousSceneToUnload = SceneManager.GetActiveScene().name;
 
         var result = await _runner.StartGame(new StartGameArgs
         {
             GameMode = GameMode.Client,
             SessionName = roomName,
-            Scene = SceneRef.FromIndex(SceneManager.GetSceneByName(sceneName).buildIndex),
+            Scene = SceneRef.FromIndex(sceneIndex),
             SceneManager = sceneManager,
             PlayerCount = _maxPlayers,
             CustomLobbyName = "GameRooms"
@@ -191,12 +241,15 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
         else
         {
+            // ★★★ 실패 시, 저장했던 씬 이름을 초기화합니다.
+            _previousSceneToUnload = null;
             Debug.LogError($"Failed to join room: {result.ShutdownReason}");
             OnErrorOccurred?.Invoke($"Failed to join room: {result.ShutdownReason}");
             return false;
         }
     }
 
+    #region 나머지 기존 함수들 (변경 없음)
     public async Task RefreshRoomList()
     {
         if (_isRefreshingList) return;
@@ -264,12 +317,13 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public int MaxPlayerCount => _maxPlayers;
     public string PlayerNickname => _playerNickname;
     public string CurrentRoomName => _currentRoomName;
+    #endregion
 
     // --- INetworkRunnerCallbacks 구현 ---
 
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
-        if (runner == _runner) // 게임 Runner에만 해당
+        if (runner == _runner)
         {
             Debug.Log($"플레이어 {player.PlayerId} 참여");
             if (runner.IsServer)
@@ -283,7 +337,6 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
     
-    // ✅ [핵심 수정] Runner를 구분하지 않고 항상 빈 데이터를 제공하여 오류를 원천 차단합니다.
     public void OnInput(NetworkRunner runner, NetworkInput input)
     {
         input.Set(new NetworkInputData());
@@ -311,10 +364,27 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             var filteredList = sessionList.Where(s => s.IsValid && s.IsOpen).ToList();
             OnRoomListUpdated?.Invoke(filteredList);
             
-            runner.Shutdown(); // 목록을 받았으므로 즉시 종료
+            runner.Shutdown();
         }
     }
     
+    // ★★★ OnSceneLoadDone 콜백 함수를 구현합니다.
+    public void OnSceneLoadDone(NetworkRunner runner) 
+    {
+        // 언로드해야 할 이전 씬의 이름이 저장되어 있는지 확인합니다.
+        if (!string.IsNullOrEmpty(_previousSceneToUnload))
+        {
+            Debug.Log($"새 씬 로드 완료. 이전 씬 '{_previousSceneToUnload}'을(를) 언로드합니다.");
+            
+            // 이전 씬을 비동기적으로 언로드합니다.
+            SceneManager.UnloadSceneAsync(_previousSceneToUnload);
+            
+            // 변수를 초기화하여 중복 실행을 방지합니다.
+            _previousSceneToUnload = null;
+        }
+    }
+
+    #region 나머지 콜백 함수들 (변경 없음)
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) 
     {
         if(runner == _runner) OnRoomPlayerCountChanged?.Invoke(runner.SessionInfo.PlayerCount);
@@ -332,7 +402,6 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ArraySegment<byte> data) { }
-    public void OnSceneLoadDone(NetworkRunner runner) { }
     public void OnSceneLoadStart(NetworkRunner runner) { }
 
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player)
@@ -359,4 +428,5 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         throw new NotImplementedException();
     }
+    #endregion
 }

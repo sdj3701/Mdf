@@ -3,6 +3,8 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Fusion;
+using UnityEngine.SceneManagement; // << 파일 상단에 이 using 구문이 없으면 추가해주세요.
+using System.IO; // << 파일 상단에 이 using 구문이 없으면 추가해주세요.
 using System.Threading.Tasks;
 
 public class LobbyUI : MonoBehaviour
@@ -148,7 +150,7 @@ public class LobbyUI : MonoBehaviour
         {
             _networkManager.Disconnect();
         }
-        UnityEngine.SceneManagement.SceneManager.LoadScene("Title");
+        SceneManager.LoadScene("Title");
     }
 
     private async void CreateRoom()
@@ -178,13 +180,30 @@ public class LobbyUI : MonoBehaviour
 
         bool success = await _networkManager.CreateRoom(roomName, "JoinLobby");
 
+        if (success)
+        {
+            // 방 생성이 성공하면 (씬 전환이 시작되면)
+            // 로딩 패널을 계속 활성화하고 메시지를 변경합니다.
+            ShowStatus("방 생성 완료. JoinLobby로 이동합니다...", false);
+            // LobbyUI의 모든 상호작용을 막습니다.
+            // 예를 들어, 패널 자체를 비활성화할 수 있습니다.
+            // _roomListPanel.SetActive(false); 
+            // _createRoomPanel.SetActive(false);
+            // 또는 버튼만 비활성화 할 수도 있습니다.
+            _confirmCreateButton.interactable = false;
+            _cancelCreateButton.interactable = false;
+
+            // 이제 NetworkSceneManagerDefault가 씬을 로드할 때까지 기다리기만 하면 됩니다.
+            // 이 함수에서는 더 이상 할 일이 없습니다.
+        }
+        else
+        {
+            // 기존 실패 로직은 그대로 유지합니다.
+            ShowStatus("방 생성 실패", true);
+            ShowRoomListPanel(); // 실패 시 다시 방 목록으로 돌아갑니다.
+        }
         ShowLoading(false);
 
-        if (!success)
-        {
-            ShowStatus("방 생성 실패", true);
-            ShowRoomListPanel();
-        }
     }
 
     private async void JoinRoom(string roomName)
