@@ -17,6 +17,7 @@ public class FieldManager : MonoBehaviour
     [Header("생성할 프리팹")]
     [Tooltip("몬스터가 공격하거나 플레이어가 설치할 때 사용되는 파괴 가능한 벽 프리팹입니다.")]
     public GameObject destructibleWallPrefab;
+    public TileBase wallTileToPlace;
     public GameObject statusBarPrefab;
 
     public Tilemap ObstacleTilemap { get; private set; }
@@ -134,6 +135,11 @@ public class FieldManager : MonoBehaviour
             Debug.LogError("FieldManager에 ObstacleTilemap 참조가 없습니다!");
             return;
         }
+        
+        if (wallTileToPlace != null)
+        {
+            ObstacleTilemap.SetTile(gridPosition, wallTileToPlace);
+        }
 
         Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
         GameObject wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
@@ -218,6 +224,13 @@ public class FieldManager : MonoBehaviour
     
     public bool IsUnitAt(Vector3Int gridPosition)
     {
+        // 유닛을 드래그하는 중이고, 그 유닛의 원래 위치를 확인하는 경우
+        // 배치 목적상 해당 위치는 비어있는 것으로 간주합니다.
+        // 이렇게 하면 유닛을 원래 위치에 다시 놓을 수 있습니다.
+        if (selectedUnit != null && originalUnitPosition == gridPosition)
+        {
+            return false;
+        }
         return placedUnits.ContainsKey(gridPosition);
     }
     
@@ -237,16 +250,7 @@ public class FieldManager : MonoBehaviour
         }
     }
     
-    public void CreateAndPlaceUnitFromPlacement(GameObject unitPrefab, Vector3Int gridPosition)
-    {
-        Unit unitComponent = unitPrefab.GetComponent<Unit>();
-        if (unitComponent != null)
-        {
-            CreateUnitAt(unitComponent.Data, gridPosition, 1);
-        }
-    }
-
-    private void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel)
+    public void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel)
     {
         if (ObstacleTilemap == null)
         {
@@ -286,6 +290,22 @@ public class FieldManager : MonoBehaviour
         {
             var item = placedUnits.First(kvp => kvp.Value == deadUnit);
             placedUnits.Remove(item.Key);
+        }
+    }
+
+    public void MoveUnit(Vector3Int from, Vector3Int to)
+    {
+        if (placedUnits.TryGetValue(from, out Unit unit))
+        {
+            placedUnits.Remove(from);
+            Vector3 finalWorldPos = ObstacleTilemap.CellToWorld(to) + (ObstacleTilemap.cellSize * 0.5f);
+            unit.transform.position = finalWorldPos;
+            placedUnits.Add(to, unit);
+            CheckForCombination();
+        }
+        else
+        {
+            Debug.LogWarning($"[FieldManager] MoveUnit: '{from}' 위치에서 유닛을 찾을 수 없습니다.");
         }
     }
 
@@ -370,7 +390,6 @@ public class FieldManager : MonoBehaviour
                 selectedUnit = placedUnits[gridPos];
                 originalUnitPosition = gridPos;
                 offset = selectedUnit.transform.position - mouseWorldPos;
-                placedUnits.Remove(gridPos);
             }
         }
 
@@ -383,16 +402,15 @@ public class FieldManager : MonoBehaviour
         {
             if (placementManager.IsPositionValidForPlacement(gridPos, selectedUnit.Data))
             {
-                Vector3 finalWorldPos = ObstacleTilemap.CellToWorld(gridPos) + (ObstacleTilemap.cellSize * 0.5f);
-                selectedUnit.transform.position = finalWorldPos;
-                placedUnits.Add(gridPos, selectedUnit);
-                CheckForCombination();
+                // 실제 이동은 PlayerManager의 이벤트 핸들러가 처리하도록 요청만 보냅니다.
+                GameEvents.TriggerUnitMoveRequested(playerManager, originalUnitPosition, gridPos);
             }
             else
             {
+                // 잘못된 위치이므로, 로컬에서 즉시 원위치로 되돌립니다.
                 Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
                 selectedUnit.transform.position = originalWorldPos;
-                placedUnits.Add(originalUnitPosition, selectedUnit);
+                // 유닛이 목록에서 제거된 적이 없으므로 다시 추가할 필요가 없습니다.
             }
             selectedUnit = null;
         }

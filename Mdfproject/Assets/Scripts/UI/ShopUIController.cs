@@ -50,12 +50,14 @@ public class ShopUIController : MonoBehaviour
 
         // 게임 상태 변경 이벤트를 구독합니다.
         GameEvents.OnGameStateChanged += HandleGameStateChange;
+        GameEvents.OnShopRefreshed += HandleShopRefreshed;
     }
 
     void OnDisable()
     {
         // 패널이 비활성화될 때 이벤트 구독을 해지하여 메모리 누수를 방지합니다.
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
+        GameEvents.OnShopRefreshed -= HandleShopRefreshed;
     }
 
     /// <summary>
@@ -112,7 +114,14 @@ public class ShopUIController : MonoBehaviour
     {
         if (localPlayerShopManager != null)
         {
-            localPlayerShopManager.Reroll();
+            GameEvents.TriggerShopRerollRequested(localPlayerShopManager.playerManager);
+        }
+    }
+
+    private void HandleShopRefreshed(PlayerManager refreshedPlayer)
+    {
+        if (localPlayerShopManager != null && refreshedPlayer == localPlayerShopManager.playerManager)
+        {
             UpdateShopSlots();
             UpdateInfoText();
         }

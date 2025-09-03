@@ -11,9 +11,6 @@ public enum PlacementMode
 [RequireComponent(typeof(FieldManager))]
 public class PlacementManager : MonoBehaviour
 {
-    [Header("배치 프리팹 및 타일")]
-    public TileBase wallTileToPlace;
-
     [Header("프리뷰 설정")]
     [SerializeField] private bool showPreview = true;
     [SerializeField] private Color validPreviewColor = new Color(0f, 1f, 0f, 0.5f);
@@ -146,20 +143,12 @@ public class PlacementManager : MonoBehaviour
             case PlacementMode.Unit:
                 if (unitPrefabToPlace != null)
                 {
-                    fieldManager.CreateAndPlaceUnitFromPlacement(unitPrefabToPlace, currentMouseGridPosition);
+                    GameEvents.TriggerUnitPlacementRequested(playerManager, dataToPlace, currentMouseGridPosition);
                     StopPlacementMode();
                 }
                 break;
             case PlacementMode.Wall:
-                if (playerManager.TryUseWall())
-                {
-                    fieldManager.CreateWallAt(currentMouseGridPosition);
-                    if (obstacleTilemap != null && wallTileToPlace != null)
-                    {
-                        obstacleTilemap.SetTile(currentMouseGridPosition, wallTileToPlace);
-                    }
-                    GameEvents.TriggerWallPlaced(playerManager.playerId, currentMouseGridPosition);
-                }
+                GameEvents.TriggerWallPlacementRequested(playerManager, currentMouseGridPosition);
                 break;
         }
     }
@@ -168,14 +157,9 @@ public class PlacementManager : MonoBehaviour
     {
         if (currentMode == PlacementMode.Wall)
         {
-            DestructibleWall wallToRemove = fieldManager.GetWallAt(currentMouseGridPosition);
-            if (wallToRemove != null)
-            {
-                fieldManager.RemoveWallAt(currentMouseGridPosition);
-                playerManager.ReturnWall();
-                GameEvents.TriggerWallRemoved(playerManager.playerId, currentMouseGridPosition);
-                return true;
-            }
+            // 실제 벽이 있는지 여부는 PlayerManager에서 확인하므로, 여기서는 요청만 보냅니다.
+            GameEvents.TriggerWallRemovalRequested(playerManager, currentMouseGridPosition);
+            return true; // 요청을 보냈으므로 true를 반환하여 StopPlacementMode()가 호출되지 않도록 합니다.
         }
         return false;
     }
