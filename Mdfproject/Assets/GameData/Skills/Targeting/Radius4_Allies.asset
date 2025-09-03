@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: eb83f68c30072d34590a14f0f2f26e34, type: 3}
   m_Name: Radius4_Allies
   m_EditorClassIdentifier: 
-  radius: 3
+  radius: 4

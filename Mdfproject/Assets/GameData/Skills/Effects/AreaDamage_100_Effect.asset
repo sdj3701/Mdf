@@ -12,5 +12,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4dcfc6a8c57731e458773197a2cab832, type: 3}
   m_Name: AreaDamage_100_Effect
   m_EditorClassIdentifier: 
-  damageAmount: 0
+  damageAmount: 100
   damageType: 0

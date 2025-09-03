@@ -12,11 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1ce8c3f4810fbf84eb609f7a2c04e854, type: 3}
   m_Name: Skill_RepairWall
   m_EditorClassIdentifier: 
-  skillName: 
-  description: 
+  skillName: Skill_RepairWall
+  description: "\uC8FC\uBCC0 5 \uBC94\uC704 \uB0B4\uC758 \uBCBD\uC744 \uC218\uB9AC\uD569\uB2C8\uB2E4"
   icon: {fileID: 0}
-  manaCost: 0
+  manaCost: 50
   activationType: 0
-  targetingStrategy: {fileID: 0}
-  effects: []
-  vfxPrefab: {fileID: 0}
+  targetingStrategy: {fileID: 11400000, guid: b9b4f0ac3aff01640b07bb9aab644c49, type: 2}
+  effects:
+  - {fileID: 11400000, guid: c1e794da53825bb4a987f2ee17b9eb23, type: 2}
+  vfxPrefab: {fileID: 3178614178979242518, guid: 89f2776e47e86d44ea455ef0ac412247,
+    type: 3}

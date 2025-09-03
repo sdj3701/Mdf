@@ -12,11 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1ce8c3f4810fbf84eb609f7a2c04e854, type: 3}
   m_Name: InspiringShout_Skill
   m_EditorClassIdentifier: 
-  skillName: 
-  description: 
+  skillName: InspiringShout_Skill
+  description: "\uC8FC\uBCC0 \uC544\uAD70\uC720\uB2DB\uC758 \uACF5\uACA9\uC18D\uB3C4\uB97C
+    5\uCD08\uAC04 \uC99D\uAC00"
   icon: {fileID: 0}
-  manaCost: 0
+  manaCost: 50
   activationType: 0
-  targetingStrategy: {fileID: 0}
-  effects: []
-  vfxPrefab: {fileID: 0}
+  targetingStrategy: {fileID: 11400000, guid: 0a5a8f83e0e70bc418527186dff4b1f1, type: 2}
+  effects:
+  - {fileID: 11400000, guid: 5d6027c2bef9b484d965bb8c818e5d12, type: 2}
+  vfxPrefab: {fileID: 3178614178979242518, guid: 89f2776e47e86d44ea455ef0ac412247,
+    type: 3}

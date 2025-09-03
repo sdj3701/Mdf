@@ -2,9 +2,8 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
-// using Fusion; // 네트워크 모드에서 주석 해제
+using System.Linq;
 
-// public class Monster : NetworkBehaviour, IEnemy, IHealth // 네트워크 모드에서 NetworkBehaviour로 변경
 public class Monster : MonoBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
@@ -21,11 +20,8 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     public float MaxHealth => currentMaxHP;
     public event System.Action<float, float> OnHealthChanged;
 
-    // --- 시스템 컴포넌트 ---
     private ManaController manaController;
-    // [제거됨] private ISkill skillInstance;
     
-    // --- 내부 시스템 변수 ---
     private Transform goalTransform;
     private PlayerManager ownerPlayer;
     private AstarGrid pathfinder;
@@ -45,7 +41,6 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         this.monsterData = data;
         this.pathfinder = pathfinder;
         this.name = monsterData.monsterName;
-
         this.wallLayerMask = pathfinder.wallLayers;
         
         currentMaxHP = monsterData.maxHealth;
@@ -53,35 +48,28 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         
         manaController = GetComponent<ManaController>();
-        manaController.Initialize(monsterData.maxMana);
-
-        // [변경됨] 스킬 데이터가 있는 경우에만 마나 이벤트 핸들러를 연결합니다.
+        
+        int maxMana = 0;
         if (monsterData.skillData != null)
         {
+            maxMana = monsterData.skillData.manaCost;
             manaController.OnManaFull += ActivateSkill;
         }
+        manaController.Initialize(maxMana);
     }
 
     void Update()
     {
-        // 몬스터가 스킬을 가지고 있을 때만 마나를 채웁니다.
         if (monsterData != null && monsterData.skillData != null)
         {
             manaController.GainManaOverTime(10f);
         }
     }
 
-    /// <summary>
-    /// [핵심 수정] 새로운 스킬 시스템을 사용하여 스킬을 발동합니다.
-    /// </summary>
     private void ActivateSkill()
     {
-        // [네트워크] 스킬 로직은 서버(StateAuthority)에서만 실행되어야 합니다.
-        // if (!Object.HasStateAuthority) return;
-
         SkillData skillData = monsterData.skillData;
 
-        // 스킬 데이터, 타겟팅 전략, 효과가 모두 설정되어 있는지 확인합니다.
         if (skillData == null || skillData.targetingStrategy == null || skillData.effects.Count == 0)
         {
             Debug.LogError($"{monsterData.monsterName}의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
@@ -94,45 +82,54 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         {
             Debug.Log($"<color=magenta>{monsterData.monsterName} 스킬 발동: {skillData.skillName}</color>");
 
-            // 1. 타겟팅 전략을 사용해 대상들을 찾습니다.
             List<GameObject> targets = skillData.targetingStrategy.FindTargets(this.gameObject, transform.position);
 
-            // 2. SkillData에 등록된 모든 효과를 순차적으로 적용합니다.
             foreach (var effect in skillData.effects)
             {
                 if (effect != null)
                 {
-                    // effect.ApplyEffect(Runner, this.gameObject, targets); // 네트워크 모드
-                    effect.ApplyEffect(null, this.gameObject, targets); // 비-네트워크 모드
+                    effect.ApplyEffect(null, this.gameObject, targets);
                 }
             }
             
-            // 3. (선택) 시각 효과 재생
             if (skillData.vfxPrefab != null)
             {
-                // RPC_PlaySkillVFX(skillData.vfxPrefab.name, transform.position); // 네트워크 모드
-                Instantiate(skillData.vfxPrefab, transform.position, Quaternion.identity); // 비-네트워크 모드
+                GameObject vfxInstance = Instantiate(skillData.vfxPrefab, transform.position, Quaternion.identity);
+                
+                float maxDuration = 0f;
+                foreach (var effect in skillData.effects)
+                {
+                    if (effect is IDurationEffect durationEffect)
+                    {
+                        if (durationEffect.Duration > maxDuration)
+                        {
+                            maxDuration = durationEffect.Duration;
+                        }
+                    }
+                }
+
+                float vfxLifetime = (maxDuration > 0) ? maxDuration : 2f;
+
+                if (vfxInstance.TryGetComponent<VFXAutoDestroy>(out var autoDestroy))
+                {
+                    autoDestroy.Initialize(vfxLifetime);
+                }
+                else
+                {
+                    Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
+                    // ✅ [수정] 컴파일 오류를 유발하던 아래 코드를 완전히 삭제했습니다.
+                    // GameManagers.Instance.RegisterActiveVFX(vfxInstance);
+                }
             }
         }
     }
     
-    
     public void Heal(float amount)
     {
-        if (currentHP <= 0 || amount <= 0) return; // 이미 죽었으면 회복 불가
-
-        currentHP = Mathf.Min(currentHP + amount, currentMaxHP); // 최대 체력을 넘지 않도록
+        if (currentHP <= 0 || amount <= 0) return;
+        currentHP = Mathf.Min(currentHP + amount, currentMaxHP);
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
     }
-
-    /*
-    // [네트워크] 스킬 시각 효과(VFX)를 모든 클라이언트에서 재생하기 위한 RPC
-    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    private void RPC_PlaySkillVFX(string vfxPrefabName, Vector3 position)
-    {
-        // ... Unit.cs와 동일한 로직 ...
-    }
-    */
 
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
@@ -149,7 +146,6 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         currentMaxHP = monsterData.maxHealth * healthMultiplier;
         currentHP = currentMaxHP * healthPercentage;
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-        // TODO: 이동 속도 버프 적용
         Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {currentHP}/{currentMaxHP}");
     }
 
@@ -168,7 +164,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         if (manaController != null) manaController.OnManaFull -= ActivateSkill;
     }
 
-    #region 공격 로직 (기존과 동일)
+    #region 공격 로직 (이하 동일)
     private void StartAttacking(IEnemy target)
     {
         if (target == null) return;
@@ -197,7 +193,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     }
     #endregion
 
-    #region 이동 및 경로탐색 로직 (기존과 동일)
+    #region 이동 및 경로탐색 로직 (이하 동일)
 
     private void FindNewPathToGoal()
     {
@@ -293,7 +289,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     }
     #endregion
 
-    #region 저지 및 경로 막힘 처리 (기존과 동일)
+    #region 저지 및 경로 막힘 처리 (이하 동일)
     public bool IsBlocked() { return isBlocked; }
 
     public void Block(Unit unit)

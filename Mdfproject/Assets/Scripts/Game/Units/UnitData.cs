@@ -51,9 +51,9 @@ public class UnitData : ScriptableObject
     [Header("특수 능력")]
     [Tooltip("이 유닛이 동시에 저지할 수 있는 지상 몬스터의 수입니다. 원거리 유닛은 0으로 설정하세요.")]
     public int blockCount;
-
-    [Tooltip("스킬을 사용하는 데 필요한 최대 마나량입니다.")]
-    public int maxMana;
+    
+    // ✅ [수정] 불필요해진 maxMana 필드를 완전히 삭제했습니다.
+    // public int maxMana;
 
     [Header("성급별 변화 요소")]
     [Tooltip("유닛의 외형을 결정하는 프리팹입니다. Element 0은 1성, 1은 2성, 2는 3성에 해당합니다.")]

@@ -15,4 +15,4 @@ MonoBehaviour:
   statToBuff: 1
   value: 1
   isPercentage: 1
-  duration: 5
+  duration: 3

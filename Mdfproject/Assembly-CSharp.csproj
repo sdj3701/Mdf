@@ -176,6 +176,8 @@
     <Compile Include="Assets\Scripts\Game\Targeting\AlliesInRadius.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\HealEffect.cs" />
     <Compile Include="Assets\Scripts\Game\Targeting\SpecificLayersInRadius.cs" />
+    <Compile Include="Assets\Scripts\Interfaces\IDurationEffect.cs" />
+    <Compile Include="Assets\Scripts\VFX\VFXAutoDestroy.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

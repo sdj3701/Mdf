@@ -117,16 +117,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   unitData: {fileID: 0}
-  firePoint: {fileID: 0}
+  firePoint: {fileID: 4670276977646022269}
   skillButtonPrefab: {fileID: 0}
   worldSpaceCanvas: {fileID: 0}
   m_starLevel: 1
   currentHP: 0
-  currentAttackDamage: 0
-  currentAttackSpeed: 0
-  currentAttackRange: 0
-  currentDefense: 0
-  currentMagicResistance: 0
   blockedMonsters: []
   enemyLayerMask:
     serializedVersion: 2
@@ -190,6 +185,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d2618c7a27fc7b449baf0693c04e7b8b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  currentMana: 0
+  maxMana: 0
 --- !u!114 &25415035275296506
 MonoBehaviour:
   m_ObjectHideFlags: 0
