@@ -2,8 +2,9 @@
 using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
+// using Fusion; // 네트워크 모드에서 주석 해제
 
-[RequireComponent(typeof(ManaController))]
+// public class Monster : NetworkBehaviour, IEnemy, IHealth // 네트워크 모드에서 NetworkBehaviour로 변경
 public class Monster : MonoBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
@@ -22,7 +23,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
     // --- 시스템 컴포넌트 ---
     private ManaController manaController;
-    private ISkill skillInstance;
+    // [제거됨] private ISkill skillInstance;
     
     // --- 내부 시스템 변수 ---
     private Transform goalTransform;
@@ -31,7 +32,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     private bool isBlocked = false;
     private Unit blockingUnit;
     private Coroutine movementCoroutine;
-    private Coroutine attackCoroutine; // 공격 전용 코루틴
+    private Coroutine attackCoroutine;
     private static bool isQuitting = false;
     private bool isMoving = false;
 
@@ -42,10 +43,9 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         this.ownerPlayer = owner;
         this.goalTransform = goal;
         this.monsterData = data;
-        this.pathfinder = pathfinder; // [수정] 외부에서 올바른 AstarGrid를 주입받습니다.
+        this.pathfinder = pathfinder;
         this.name = monsterData.monsterName;
 
-        // AstarGrid와 동일한 레이어 마스크를 사용하도록 보장하여 탐지 불일치 문제를 해결합니다.
         this.wallLayerMask = pathfinder.wallLayers;
         
         currentMaxHP = monsterData.maxHealth;
@@ -55,31 +55,85 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         manaController = GetComponent<ManaController>();
         manaController.Initialize(monsterData.maxMana);
 
-        if (monsterData.skillData != null && monsterData.skillData.skillLogicPrefab != null)
+        // [변경됨] 스킬 데이터가 있는 경우에만 마나 이벤트 핸들러를 연결합니다.
+        if (monsterData.skillData != null)
         {
-            GameObject skillObject = Instantiate(monsterData.skillData.skillLogicPrefab, transform);
-            skillInstance = skillObject.GetComponent<ISkill>();
             manaController.OnManaFull += ActivateSkill;
         }
     }
 
     void Update()
     {
-        if (skillInstance != null)
+        // 몬스터가 스킬을 가지고 있을 때만 마나를 채웁니다.
+        if (monsterData != null && monsterData.skillData != null)
         {
             manaController.GainManaOverTime(10f);
         }
     }
 
+    /// <summary>
+    /// [핵심 수정] 새로운 스킬 시스템을 사용하여 스킬을 발동합니다.
+    /// </summary>
     private void ActivateSkill()
     {
-        if (skillInstance == null || !manaController.IsManaFull) return;
-        if (manaController.UseMana(monsterData.skillData.manaCost))
+        // [네트워크] 스킬 로직은 서버(StateAuthority)에서만 실행되어야 합니다.
+        // if (!Object.HasStateAuthority) return;
+
+        SkillData skillData = monsterData.skillData;
+
+        // 스킬 데이터, 타겟팅 전략, 효과가 모두 설정되어 있는지 확인합니다.
+        if (skillData == null || skillData.targetingStrategy == null || skillData.effects.Count == 0)
         {
-            skillInstance.Activate(this.gameObject);
+            Debug.LogError($"{monsterData.monsterName}의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
+            return;
+        }
+        
+        if (!manaController.IsManaFull) return;
+
+        if (manaController.UseMana(skillData.manaCost))
+        {
+            Debug.Log($"<color=magenta>{monsterData.monsterName} 스킬 발동: {skillData.skillName}</color>");
+
+            // 1. 타겟팅 전략을 사용해 대상들을 찾습니다.
+            List<GameObject> targets = skillData.targetingStrategy.FindTargets(this.gameObject, transform.position);
+
+            // 2. SkillData에 등록된 모든 효과를 순차적으로 적용합니다.
+            foreach (var effect in skillData.effects)
+            {
+                if (effect != null)
+                {
+                    // effect.ApplyEffect(Runner, this.gameObject, targets); // 네트워크 모드
+                    effect.ApplyEffect(null, this.gameObject, targets); // 비-네트워크 모드
+                }
+            }
+            
+            // 3. (선택) 시각 효과 재생
+            if (skillData.vfxPrefab != null)
+            {
+                // RPC_PlaySkillVFX(skillData.vfxPrefab.name, transform.position); // 네트워크 모드
+                Instantiate(skillData.vfxPrefab, transform.position, Quaternion.identity); // 비-네트워크 모드
+            }
         }
     }
     
+    
+    public void Heal(float amount)
+    {
+        if (currentHP <= 0 || amount <= 0) return; // 이미 죽었으면 회복 불가
+
+        currentHP = Mathf.Min(currentHP + amount, currentMaxHP); // 최대 체력을 넘지 않도록
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+    }
+
+    /*
+    // [네트워크] 스킬 시각 효과(VFX)를 모든 클라이언트에서 재생하기 위한 RPC
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_PlaySkillVFX(string vfxPrefabName, Vector3 position)
+    {
+        // ... Unit.cs와 동일한 로직 ...
+    }
+    */
+
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
         if (monsterData == null) return;
@@ -114,7 +168,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         if (manaController != null) manaController.OnManaFull -= ActivateSkill;
     }
 
-    #region 공격 로직
+    #region 공격 로직 (기존과 동일)
     private void StartAttacking(IEnemy target)
     {
         if (target == null) return;
@@ -129,10 +183,8 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         {
             yield return new WaitForSeconds(1f / monsterData.attackSpeed);
 
-            // 코루틴이 재개된 후 목표가 여전히 유효한지 확인합니다. (다른 몬스터에 의해 파괴되었을 수 있음)
             if ((target as MonoBehaviour) == null) break;
 
-            // [수정] TakeDamage 호출 후 대상이 파괴될 수 있으므로, 예외 발생을 막기 위해 이름을 미리 저장합니다.
             string targetName = (target as MonoBehaviour).name;
             target.TakeDamage(monsterData.attackDamage, monsterData.damageType);
             Debug.Log($"{monsterData.monsterName}이(가) {targetName}을(를) 공격!");
@@ -141,19 +193,14 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
         attackCoroutine = null;
         
-        // [수정] Unblock() 대신, 경로를 다시 찾는 로직을 직접 호출하여 멈춤 현상을 해결합니다.
         FindNewPathToGoal();
     }
     #endregion
 
-    #region 이동 및 경로탐색 로직
+    #region 이동 및 경로탐색 로직 (기존과 동일)
 
-    /// <summary>
-    /// [새로 추가된 메서드] 현재 위치에서 목표 지점까지의 새로운 경로를 탐색하고 이동을 시작합니다.
-    /// </summary>
     private void FindNewPathToGoal()
     {
-        // [수정] 좌표 계산 시 FloorToInt 대신 RoundToInt를 사용하여 정확도를 높입니다.
         Vector2Int currentGridPos = new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y));
         Vector2Int targetGridPos = new Vector2Int(Mathf.RoundToInt(goalTransform.position.x), Mathf.RoundToInt(goalTransform.position.y));
         
@@ -185,7 +232,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         else
         {
             isMoving = false;
-            OnPathBlocked(null); // 경로가 없으면 OnPathBlocked 호출
+            OnPathBlocked(null);
         }
     }
     private IEnumerator FlyDirectlyCoroutine()
@@ -206,12 +253,8 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             AstarNode targetNode = path[currentPathIndex];
             Vector2 currentTarget = new Vector2(targetNode.x + 0.5f, targetNode.y + 0.5f);
 
-            // [수정된 핵심 로직] 다음 목표가 벽인지 확인합니다.
             if (targetNode.isWall)
             {
-                // 해당 위치의 벽 오브젝트를 찾습니다.
-                // ✅ [수정] AstarGrid의 탐지 반경(0.4f)과 일치시켜 탐지 오류를 해결합니다.
-                // ✅ [수정] OverlapCircleAll을 사용하여 여러 콜라이더가 있을 경우에도 DestructibleWall을 확실히 찾도록 수정합니다.
                 Collider2D[] wallColliders = Physics2D.OverlapCircleAll(currentTarget, 0.4f, wallLayerMask);
                 DestructibleWall wall = null;
                 foreach (var col in wallColliders)
@@ -221,19 +264,15 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
                 if (wall != null)
                 {
-                    // 벽을 찾았다면, 이동을 멈추고 공격을 시작합니다.
                     StartAttacking(wall);
-                    yield break; // 이동 코루틴을 완전히 종료합니다.
+                    yield break;
                 }
                 else
                 {
-                    // 게임 시작 시 모든 벽 타일에 DestructibleWall 오브젝트가 생성되므로, 이 경고는 발생하면 안 됩니다.
-                    // 만약 이 메시지가 보인다면, A* 경로와 실제 월드의 벽 상태가 일치하지 않는 것입니다.
                     Debug.LogWarning($"경로상에 벽({currentTarget})이 있지만, 실제 벽 오브젝트를 찾을 수 없습니다. 경로를 계속 진행합니다.");
                 }
             }
             
-            // 기존 이동 로직
             while (Vector2.Distance(transform.position, currentTarget) > 0.1f && isMoving)
             {
                 transform.position = Vector2.MoveTowards(transform.position, currentTarget, monsterData.moveSpeed * Time.deltaTime);
@@ -254,7 +293,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     }
     #endregion
 
-    #region 저지 및 경로 막힘 처리
+    #region 저지 및 경로 막힘 처리 (기존과 동일)
     public bool IsBlocked() { return isBlocked; }
 
     public void Block(Unit unit)
@@ -267,9 +306,6 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
     public void OnPathBlocked(GameObject obstacle)
     {
-        // 이 부분은 새로운 AstarGrid 로직으로 인해 호출될 가능성이 낮아졌습니다.
-        // A*가 벽을 부수는 경로를 찾아주기 때문입니다.
-        // 하지만 만약을 위해 남겨둡니다.
         if (obstacle != null && obstacle.TryGetComponent<IEnemy>(out var enemyWall))
         {
             Debug.Log($"{monsterData.monsterName}의 경로가 {obstacle.name}에 의해 막혔습니다. 공격을 시작합니다.");
@@ -294,7 +330,6 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             attackCoroutine = null;
         }
 
-        // [수정] 경로 탐색 로직을 새 메서드로 분리하여 호출합니다.
         FindNewPathToGoal();
     }
     #endregion
