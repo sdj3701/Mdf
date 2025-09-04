@@ -188,7 +188,7 @@ MonoBehaviour:
   _playerCountText: {fileID: 5046617657934347545}
   _joinButton: {fileID: 5046617658382458712}
   _roomStatusImage: {fileID: 5046617658580771464}
-  _fullIndicator: {fileID: 0}
+  _fullIndicator: {fileID: 5046617659245329616}
   _availableColor: {r: 0.2, g: 0.8, b: 0.2, a: 1}
   _fullColor: {r: 0.8, g: 0.2, b: 0.2, a: 1}
   _waitingColor: {r: 0.8, g: 0.8, b: 0.2, a: 1}

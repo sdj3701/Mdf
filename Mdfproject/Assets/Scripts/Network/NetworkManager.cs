@@ -1,5 +1,4 @@
 ﻿// Assets/Scripts/Network/NetworkManager.cs
-
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -9,10 +8,10 @@ using Fusion;
 using Fusion.Sockets;
 using UnityEngine.SceneManagement;
 using System.IO;
+using Fusion.Photon.Realtime;
 
 public struct NetworkInputData : INetworkInput
 {
-    // 입력 데이터가 필요할 경우 여기에 변수를 추가합니다.
 }
 
 public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
@@ -22,15 +21,16 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     [Header("Network Settings")]
     [SerializeField] private int _maxPlayers = 2;
     [SerializeField] private GameObject _networkPlayerPrefab;
+    
+    // Custom Lobby Name은 계속해서 모든 StartGameArgs에서 사용합니다.
+    private const string GameLobbyName = "MySuperUniqueGameLobby";
 
     private NetworkRunner _runner;
     private NetworkRunner _lobbyRunner;
     
-    // ★★★ 언로드할 이전 씬의 이름을 저장하기 위한 변수 추가
     private string _previousSceneToUnload;
 
-    // (Awake, OnDestroy, InitializeRunner 등 다른 함수들은 기존과 동일합니다)
-    #region 기존 함수들 (변경 없음)
+    #region 기본 함수
     private Dictionary<string, SessionInfo> _roomList = new Dictionary<string, SessionInfo>();
     
     private string _playerNickname;
@@ -53,12 +53,46 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             Instance = this;
             DontDestroyOnLoad(gameObject);
             gameObject.name = "NetworkManager (Singleton)";
+            
+            // [핵심 수정] 모든 클라이언트가 동일한 네트워크 설정을 사용하도록 강제합니다.
+            EnsurePhotonSettings();
         }
         else if (Instance != this)
         {
             Destroy(gameObject);
         }
     }
+    
+    // [핵심 수정] 이 메서드를 통해 AppVersion과 Region을 강제로 설정하여 네트워크 불일치 문제를 해결합니다.
+    private void EnsurePhotonSettings()
+    {
+        try
+        {
+            // [수정됨] Resources 폴더에 있는 Photon 설정 파일을 불러옵니다. 이 방식이 ScriptableObject를 로드하는 올바른 방법입니다.
+            var appSettings = Resources.Load<Fusion.Photon.Realtime.PhotonAppSettings>("PhotonAppSettings");
+            if (appSettings == null)
+            {
+                Debug.LogError("Resources 폴더에서 'PhotonAppSettings' 파일을 찾을 수 없습니다! Photon Fusion Hub를 통해 설정 파일을 생성하고 Resources 폴더로 옮겼는지 확인해주세요. 포톤 설정이 올바르지 않을 수 있습니다.");
+                return;
+            }
+
+            // 모든 클라이언트가 동일한 채널에 접속하도록 값을 강제로 고정합니다.
+            // 이 값이 다르면 서로 다른 로비에 접속하게 되어 방을 찾을 수 없습니다.
+            appSettings.AppSettings.AppVersion = "1.0";
+            appSettings.AppSettings.FixedRegion = "kr";
+
+            Debug.Log($"<color=cyan>==================== 포톤 설정 강제 적용 ====================</color>");
+            Debug.Log($"<color=cyan>App ID: {appSettings.AppSettings.AppIdFusion}</color>");
+            Debug.Log($"<color=cyan>App Version: {appSettings.AppSettings.AppVersion} (이 값이 모든 클라이언트에서 동일해야 합니다)</color>");
+            Debug.Log($"<color=cyan>Fixed Region: {appSettings.AppSettings.FixedRegion} (이 값이 모든 클라이언트에서 동일해야 합니다)</color>");
+            Debug.Log($"<color=cyan>===========================================================</color>");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Photon AppSettings를 강제 설정하는 데 실패했습니다: {e.Message}");
+        }
+    }
+
 
     private void OnDestroy()
     {
@@ -75,8 +109,6 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (_runner != null) Destroy(_runner.gameObject);
 
         GameObject runnerGo = new GameObject("GameRunner (Host/Client)");
-        runnerGo.transform.SetParent(transform);
-        
         _runner = runnerGo.AddComponent<NetworkRunner>();
         _runner.ProvideInput = true;
         _runner.AddCallbacks(this);
@@ -88,8 +120,6 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (_lobbyRunner != null) Destroy(_lobbyRunner.gameObject);
 
         GameObject runnerGo = new GameObject("LobbyRunner (Temp)");
-        runnerGo.transform.SetParent(transform);
-
         _lobbyRunner = runnerGo.AddComponent<NetworkRunner>();
         _lobbyRunner.ProvideInput = true; 
         _lobbyRunner.AddCallbacks(this);
@@ -161,30 +191,32 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         var sceneManager = _runner.gameObject.AddComponent<NetworkSceneManagerDefault>();
-
-        // ★★★ StartGame 호출 전에 현재 씬 이름을 저장합니다.
         _previousSceneToUnload = SceneManager.GetActiveScene().name;
 
-        var result = await _runner.StartGame(new StartGameArgs
+        var args = new StartGameArgs
         {
             GameMode = GameMode.Host,
             SessionName = roomName,
             Scene = SceneRef.FromIndex(sceneIndex),
             SceneManager = sceneManager,
             PlayerCount = _maxPlayers,
-            CustomLobbyName = "GameRooms"
-        });
+            CustomLobbyName = GameLobbyName 
+            // [오류 수정] AppVersion, Region 속성을 제거하여 중앙 설정(PhotonAppSettings)을 따르도록 합니다.
+        };
+
+        Debug.Log($"[NetworkManager] 방 '{roomName}'을(를) CustomLobby '{args.CustomLobbyName}'에 생성 시도...");
+
+        var result = await _runner.StartGame(args);
 
         if (result.Ok)
         {
             _currentRoomName = roomName;
-            Debug.Log($"방 '{roomName}' 생성 성공 (호스트)");
+            Debug.Log($"<color=green>방 '{roomName}' 생성 성공 (호스트)</color>");
             OnConnectionStatusChanged?.Invoke(true);
             return true;
         }
         else
         {
-            // ★★★ 실패 시, 저장했던 씬 이름을 초기화합니다.
             _previousSceneToUnload = null;
             Debug.LogError($"Failed to create room: {result.ShutdownReason}");
             OnErrorOccurred?.Invoke($"Failed to create room: {result.ShutdownReason}");
@@ -192,7 +224,6 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
     
-    // (JoinRoom 함수도 동일하게 수정합니다)
     public async Task<bool> JoinRoom(string roomName, string sceneName = "JoinLobby")
     {
         InitializeRunner();
@@ -218,8 +249,6 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
         
         var sceneManager = _runner.gameObject.AddComponent<NetworkSceneManagerDefault>();
-
-        // ★★★ StartGame 호출 전에 현재 씬 이름을 저장합니다.
         _previousSceneToUnload = SceneManager.GetActiveScene().name;
 
         var result = await _runner.StartGame(new StartGameArgs
@@ -229,7 +258,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             Scene = SceneRef.FromIndex(sceneIndex),
             SceneManager = sceneManager,
             PlayerCount = _maxPlayers,
-            CustomLobbyName = "GameRooms"
+            CustomLobbyName = GameLobbyName
+            // [오류 수정] AppVersion, Region 속성을 제거하여 중앙 설정(PhotonAppSettings)을 따르도록 합니다.
         });
 
         if (result.Ok)
@@ -241,7 +271,6 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
         else
         {
-            // ★★★ 실패 시, 저장했던 씬 이름을 초기화합니다.
             _previousSceneToUnload = null;
             Debug.LogError($"Failed to join room: {result.ShutdownReason}");
             OnErrorOccurred?.Invoke($"Failed to join room: {result.ShutdownReason}");
@@ -249,7 +278,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    #region 나머지 기존 함수들 (변경 없음)
+    #region 나머지 함수
     public async Task RefreshRoomList()
     {
         if (_isRefreshingList) return;
@@ -258,30 +287,37 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         try
         {
             InitializeLobbyRunner();
-
-            if (!_lobbyRunner.IsRunning)
+            
+            if (_lobbyRunner.IsRunning)
             {
-                var result = await _lobbyRunner.StartGame(new StartGameArgs
-                {
-                    GameMode = GameMode.Shared,
-                    SessionName = "LobbySession",
-                    CustomLobbyName = "GameRooms",
-                });
+                Debug.LogWarning("LobbyRunner가 이미 실행 중입니다. 새로고침 요청을 무시합니다.");
+                _isRefreshingList = false;
+                return;
+            }
+            
+            var args = new StartGameArgs
+            {
+                GameMode = GameMode.Shared,
+                SessionName = $"LobbyClient_{Guid.NewGuid()}",
+                CustomLobbyName = GameLobbyName
+                // [오류 수정] AppVersion, Region 속성을 제거하여 중앙 설정(PhotonAppSettings)을 따르도록 합니다.
+            };
+            
+            Debug.Log($"[NetworkManager] CustomLobby '{args.CustomLobbyName}'의 방 목록 새로고침 시작...");
 
-                if (!result.Ok)
-                {
-                    Debug.LogError($"로비 접속 실패: {result.ShutdownReason}");
-                    OnErrorOccurred?.Invoke("방 목록을 가져올 수 없습니다.");
-                }
+            var result = await _lobbyRunner.StartGame(args);
+
+            if (!result.Ok)
+            {
+                Debug.LogError($"로비 접속 실패: {result.ShutdownReason}");
+                OnErrorOccurred?.Invoke("방 목록을 가져올 수 없습니다.");
+                _isRefreshingList = false;
             }
         }
         catch (Exception e)
         {
             Debug.LogError($"방 목록 조회 오류: {e.Message}");
             OnErrorOccurred?.Invoke($"방 목록 조회 오류: {e.Message}");
-        }
-        finally
-        {
             _isRefreshingList = false;
         }
     }
@@ -319,13 +355,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public string CurrentRoomName => _currentRoomName;
     #endregion
 
-    // --- INetworkRunnerCallbacks 구현 ---
-
+    #region 콜백 함수
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
         if (runner == _runner)
         {
-            Debug.Log($"플레이어 {player.PlayerId} 참여");
+            Debug.Log($"<color=yellow>[NetworkManager] 플레이어 {player.PlayerId} 참여. 현재 인원: {runner.SessionInfo.PlayerCount}/{runner.SessionInfo.MaxPlayers}</color>");
             if (runner.IsServer)
             {
                 if (_networkPlayerPrefab != null)
@@ -361,36 +396,42 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (runner == _lobbyRunner)
         {
+            Debug.Log($"<color=lime>[NetworkManager] 서버로부터 {sessionList.Count}개의 방 정보 수신.</color>");
+            foreach (var session in sessionList)
+            {
+                Debug.Log($"<color=lime>  -> 방: [{session.Name}], 인원: [{session.PlayerCount}/{session.MaxPlayers}]</color>");
+            }
+
             var filteredList = sessionList.Where(s => s.IsValid && s.IsOpen).ToList();
+            
             OnRoomListUpdated?.Invoke(filteredList);
             
-            runner.Shutdown();
+            if(runner.IsRunning) runner.Shutdown();
+            _isRefreshingList = false;
         }
     }
     
-    // ★★★ OnSceneLoadDone 콜백 함수를 구현합니다.
     public void OnSceneLoadDone(NetworkRunner runner) 
     {
-        // 언로드해야 할 이전 씬의 이름이 저장되어 있는지 확인합니다.
         if (!string.IsNullOrEmpty(_previousSceneToUnload))
         {
             Debug.Log($"새 씬 로드 완료. 이전 씬 '{_previousSceneToUnload}'을(를) 언로드합니다.");
-            
-            // 이전 씬을 비동기적으로 언로드합니다.
             SceneManager.UnloadSceneAsync(_previousSceneToUnload);
-            
-            // 변수를 초기화하여 중복 실행을 방지합니다.
             _previousSceneToUnload = null;
         }
     }
-
-    #region 나머지 콜백 함수들 (변경 없음)
+    
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) 
     {
         if(runner == _runner) OnRoomPlayerCountChanged?.Invoke(runner.SessionInfo.PlayerCount);
     }
     public void OnConnectedToServer(NetworkRunner runner) { }
-    public void OnDisconnectedFromServer(NetworkRunner runner) { }
+    
+    public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason)
+    {
+        Debug.LogWarning($"Disconnected from server. Reason: {reason}");
+    }
+    
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) 
     {
         if (runner.SessionInfo.PlayerCount >= _maxPlayers) request.Refuse();
@@ -401,32 +442,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
-    public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ArraySegment<byte> data) { }
+    public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
+    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
     public void OnSceneLoadStart(NetworkRunner runner) { }
 
-    public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player)
-    {
-        throw new NotImplementedException();
-    }
-
-    public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player)
-    {
-        throw new NotImplementedException();
-    }
-
-    public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason)
-    {
-        throw new NotImplementedException();
-    }
-
-    public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data)
-    {
-        throw new NotImplementedException();
-    }
-
-    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress)
-    {
-        throw new NotImplementedException();
-    }
+    public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
+    public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
     #endregion
 }

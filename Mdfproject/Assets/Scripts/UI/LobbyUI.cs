@@ -1,11 +1,14 @@
-﻿using System.Collections.Generic;
+﻿// Assets/Scripts/UI/LobbyUI.cs
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Fusion;
-using UnityEngine.SceneManagement; // << 파일 상단에 이 using 구문이 없으면 추가해주세요.
-using System.IO; // << 파일 상단에 이 using 구문이 없으면 추가해주세요.
-using System.Threading.Tasks;
+using UnityEngine.SceneManagement;
+using Cysharp.Threading.Tasks; // UniTask 사용을 위해 추가
 
 public class LobbyUI : MonoBehaviour
 {
@@ -34,29 +37,35 @@ public class LobbyUI : MonoBehaviour
     [Header("Status")]
     [SerializeField] private TMP_Text _statusText;
     [SerializeField] private GameObject _loadingPanel;
+    
+    [Header("Settings")]
+    [SerializeField] private float _refreshInterval = 5f; // 5초마다 새로고침
 
     private NetworkManager _networkManager;
     private List<GameObject> _roomListItems = new List<GameObject>();
-    private float _refreshInterval = 3f;
-    private float _lastRefreshTime;
+    private bool _isRefreshing = false;
 
     private void Start()
     {
-        // ✅ [수정] GetOrCreateInstance() 대신 Instance 프로퍼티를 사용하여 싱글톤에 접근합니다.
         _networkManager = NetworkManager.Instance;
         
         if (_networkManager == null)
         {
             Debug.LogError("NetworkManager를 찾을 수 없습니다! Title 씬으로 이동합니다.");
-            UnityEngine.SceneManagement.SceneManager.LoadScene("Title");
+            SceneManager.LoadScene("Title");
             return;
         }
     
         if (!_networkManager.IsConnectedToServer)
         {
             Debug.LogError("로그인되지 않았습니다. Title 씬으로 이동합니다.");
-            UnityEngine.SceneManagement.SceneManager.LoadScene("Title");
+            SceneManager.LoadScene("Title");
             return;
+        }
+
+        if (_roomItemPrefab == null)
+        {
+            Debug.LogError("<color=red>[LobbyUI] Room Item Prefab이 Inspector에 할당되지 않았습니다! UI를 생성할 수 없습니다.</color>", this.gameObject);
         }
     
         InitializeUI();
@@ -69,13 +78,23 @@ public class LobbyUI : MonoBehaviour
         
         ShowRoomListPanel();
         
-        StartCoroutine(DelayedRefresh());
+        PeriodicRefreshRoutine().Forget();
     }
     
-    private System.Collections.IEnumerator DelayedRefresh()
+    private async UniTaskVoid PeriodicRefreshRoutine()
     {
-        yield return new WaitForSeconds(0.5f);
-        RefreshRoomList();
+        var cancellationToken = this.GetCancellationTokenOnDestroy();
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            // [수정] 방 생성 패널이 비활성화 상태이고, 새로고침 중이 아닐 때만 자동 새로고침 실행
+            if (_roomListPanel != null && _roomListPanel.activeSelf && !_isRefreshing)
+            {
+                await RefreshRoomList();
+            }
+            
+            await UniTask.Delay(TimeSpan.FromSeconds(_refreshInterval), cancellationToken: cancellationToken);
+        }
     }
 
     private void InitializeUI()
@@ -84,7 +103,7 @@ public class LobbyUI : MonoBehaviour
             _createRoomButton.onClick.AddListener(ShowCreateRoomPanel);
 
         if (_refreshButton != null)
-            _refreshButton.onClick.AddListener(RefreshRoomList);
+            _refreshButton.onClick.AddListener(async () => await RefreshRoomList());
 
         if (_backToTitleButton != null)
             _backToTitleButton.onClick.AddListener(BackToTitle);
@@ -98,6 +117,7 @@ public class LobbyUI : MonoBehaviour
 
     private void SubscribeToEvents()
     {
+        if (_networkManager == null) return;
         _networkManager.OnRoomListUpdated += OnRoomListUpdated;
         _networkManager.OnConnectionStatusChanged += OnConnectionStatusChanged;
         _networkManager.OnErrorOccurred += OnErrorOccurred;
@@ -113,15 +133,6 @@ public class LobbyUI : MonoBehaviour
         }
     }
 
-    private void Update()
-    {
-        if (Time.time - _lastRefreshTime > _refreshInterval && _roomListPanel.activeSelf)
-        {
-            RefreshRoomList();
-            _lastRefreshTime = Time.time;
-        }
-    }
-
     private void ShowCreateRoomPanel()
     {
         _roomListPanel.SetActive(false);
@@ -129,11 +140,11 @@ public class LobbyUI : MonoBehaviour
 
         if (_roomNameInput != null)
         {
-            _roomNameInput.text = $"Room_{Random.Range(1000, 9999)}";
+            _roomNameInput.text = $"Room_{UnityEngine.Random.Range(1000, 9999)}";
         }
     }
 
-    private void ShowRoomListPanel()
+    private async void ShowRoomListPanel()
     {
         if (_roomListPanel != null)
             _roomListPanel.SetActive(true);
@@ -141,7 +152,7 @@ public class LobbyUI : MonoBehaviour
         if (_createRoomPanel != null)
             _createRoomPanel.SetActive(false);
 
-        RefreshRoomList();
+        await RefreshRoomList();
     }
 
     private void BackToTitle()
@@ -182,28 +193,17 @@ public class LobbyUI : MonoBehaviour
 
         if (success)
         {
-            // 방 생성이 성공하면 (씬 전환이 시작되면)
-            // 로딩 패널을 계속 활성화하고 메시지를 변경합니다.
             ShowStatus("방 생성 완료. JoinLobby로 이동합니다...", false);
-            // LobbyUI의 모든 상호작용을 막습니다.
-            // 예를 들어, 패널 자체를 비활성화할 수 있습니다.
-            // _roomListPanel.SetActive(false); 
-            // _createRoomPanel.SetActive(false);
-            // 또는 버튼만 비활성화 할 수도 있습니다.
             _confirmCreateButton.interactable = false;
             _cancelCreateButton.interactable = false;
-
-            // 이제 NetworkSceneManagerDefault가 씬을 로드할 때까지 기다리기만 하면 됩니다.
-            // 이 함수에서는 더 이상 할 일이 없습니다.
         }
         else
         {
-            // 기존 실패 로직은 그대로 유지합니다.
-            ShowStatus("방 생성 실패", true);
-            ShowRoomListPanel(); // 실패 시 다시 방 목록으로 돌아갑니다.
+            ShowLoading(false);
+            // [수정] 실패 메시지를 조금 더 구체적으로 변경
+            ShowStatus("방 생성에 실패했습니다. 방 이름이 중복되거나 서버에 문제가 있을 수 있습니다.", true);
+            ShowRoomListPanel();
         }
-        ShowLoading(false);
-
     }
 
     private async void JoinRoom(string roomName)
@@ -213,58 +213,99 @@ public class LobbyUI : MonoBehaviour
 
         bool success = await _networkManager.JoinRoom(roomName, "JoinLobby");
 
-        ShowLoading(false);
-
         if (!success)
         {
+            ShowLoading(false);
             ShowStatus($"'{roomName}' 방 참여 실패", true);
         }
     }
 
-    private async void RefreshRoomList()
+    private async Task RefreshRoomList()
     {
+        // [수정] 이미 새로고침이 진행 중이면, 추가 요청을 무시합니다.
+        if (_isRefreshing) 
+        {
+            Debug.Log("[LobbyUI] 이미 새로고침이 진행 중입니다. 요청을 건너뜁니다.");
+            return;
+        }
+        _isRefreshing = true;
+
         if (_networkManager == null)
         {
             ShowStatus("NetworkManager를 찾을 수 없습니다.", true);
+            _isRefreshing = false;
             return;
         }
     
         if (!_networkManager.IsConnectedToServer)
         {
             ShowStatus("로그인이 필요합니다.", true);
-            UnityEngine.SceneManagement.SceneManager.LoadScene("Title");
+            _isRefreshing = false;
+            SceneManager.LoadScene("Title");
             return;
         }
         
         ShowStatus("방 목록 새로고침 중...", false);
         await _networkManager.RefreshRoomList();
+        
+        // [수정] OnRoomListUpdated 콜백이 호출된 후 _isRefreshing이 false가 되도록 NetworkManager에서 제어하므로,
+        // 여기서는 바로 false로 만들지 않고 OnRoomListUpdated에서 처리하도록 기다립니다.
     }
 
     private void OnRoomListUpdated(List<SessionInfo> rooms)
     {
+        Debug.Log($"<color=cyan>[LobbyUI] UI가 {rooms.Count}개의 방 정보를 전달받아 화면 업데이트를 시작합니다.</color>");
+
         foreach (var item in _roomListItems)
         {
             if (item != null)
                 Destroy(item);
         }
         _roomListItems.Clear();
-    
-        if (rooms == null || rooms.Count == 0)
+        
+        if (_roomItemPrefab == null)
         {
+            string criticalError = "치명적 오류: LobbyUI의 RoomItem Prefab이 Inspector에 할당되지 않았습니다!";
+            Debug.LogError(criticalError, this.gameObject);
+            ShowStatus(criticalError, true);
             if (_noRoomsText != null)
+            {
+                _noRoomsText.text = criticalError;
                 _noRoomsText.gameObject.SetActive(true);
-            ShowStatus("생성된 방이 없습니다.", false);
+            }
+            _isRefreshing = false; // [추가] 오류 발생 시에도 새로고침 상태를 해제
             return;
         }
 
-        if (_noRoomsText != null)
-            _noRoomsText.gameObject.SetActive(false);
-        ShowStatus($"{rooms.Count}개의 방을 찾았습니다.", false);
+        if (rooms == null || rooms.Count == 0)
+        {
+            if (_noRoomsText != null)
+            {
+                _noRoomsText.text = "현재 생성된 방이 없습니다.";
+                _noRoomsText.gameObject.SetActive(true);
+            }
+            ShowStatus("생성된 방이 없습니다.", false);
+        }
+        else
+        {
+            if (_noRoomsText != null)
+                _noRoomsText.gameObject.SetActive(false);
+            ShowStatus($"{rooms.Count}개의 방을 찾았습니다.", false);
+        }
+
+
+        Debug.Log($"<color=yellow>[LobbyUI] 총 {rooms.Count}개의 RoomItem 프리팹 생성을 시작합니다. Parent: {_roomListContent.name}</color>");
 
         foreach (var room in rooms)
         {
             GameObject roomItem = Instantiate(_roomItemPrefab, _roomListContent);
             _roomListItems.Add(roomItem);
+
+            if(roomItem == null)
+            {
+                Debug.LogError($"<color=red>[LobbyUI] Instantiate 결과가 NULL입니다! _roomItemPrefab에 문제가 있을 수 있습니다.</color>");
+                continue;
+            }
 
             RoomItem roomItemComponent = roomItem.GetComponent<RoomItem>();
             if (roomItemComponent != null)
@@ -272,6 +313,8 @@ public class LobbyUI : MonoBehaviour
                 roomItemComponent.Setup(room.Name, room.PlayerCount, room.MaxPlayers, () => JoinRoom(room.Name));
             }
         }
+        
+        _isRefreshing = false; // [추가] 방 목록 업데이트가 완료되면 새로고침 상태를 해제
     }
 
     private void OnConnectionStatusChanged(bool connected)
@@ -279,6 +322,7 @@ public class LobbyUI : MonoBehaviour
         if (!connected)
         {
             ShowStatus("서버 연결이 끊어졌습니다.", true);
+            _isRefreshing = false; // [추가] 연결이 끊어져도 새로고침 상태를 해제
         }
     }
 
@@ -286,6 +330,7 @@ public class LobbyUI : MonoBehaviour
     {
         ShowStatus(error, true);
         ShowLoading(false);
+        _isRefreshing = false; // [추가] 오류 발생 시에도 새로고침 상태를 해제
     }
 
     private void ShowStatus(string message, bool isError)
@@ -298,8 +343,6 @@ public class LobbyUI : MonoBehaviour
 
         Debug.Log($"[LobbyUI] {message}");
     }
-
-
 
     private void ShowLoading(bool show)
     {

@@ -19,16 +19,22 @@ public class NextScenes : BaseButton
     
     private NetworkManager _networkManager;
     
+    // [제거] NetworkManager 프리팹 변수를 제거합니다.
+    // [Header("Network Prefab")]
+    // [SerializeField] private GameObject _networkManagerPrefab;
+    
     protected override void Start()
     {
         base.Start();
         
-        // ✅ [수정] GetOrCreateInstance() 대신 Instance 프로퍼티를 사용하여 싱글톤에 접근합니다.
+        // [핵심 수정] 씬에 이미 존재하는 NetworkManager 인스턴스를 찾습니다.
         _networkManager = NetworkManager.Instance;
-        
         if (_networkManager == null)
         {
-            Debug.LogError("NetworkManager 인스턴스를 찾을 수 없습니다! Title 씬에 NetworkManager가 배치되어 있는지 확인하세요.");
+            Debug.LogError("<color=red>씬에 NetworkManager 인스턴스가 존재하지 않습니다! Title 씬의 Hierarchy를 확인하여 NetworkManager 프리팹이 배치되어 있는지 확인해주세요.</color>");
+            // 중요한 시스템이 없으므로 더 이상 진행하지 않도록 버튼을 비활성화합니다.
+            if(_connectButton != null) _connectButton.interactable = false;
+            return;
         }
         
         // Title 씬인 경우 로그인 UI 설정
@@ -43,7 +49,6 @@ public class NextScenes : BaseButton
     /// </summary>
     private void SetupTitleUI()
     {
-        // 저장된 정보가 있으면 자동으로 채우기
         if (_nicknameInput != null)
         {
             string savedNickname = PlayerPrefs.GetString("PlayerNickname", "");
@@ -62,14 +67,12 @@ public class NextScenes : BaseButton
             }
         }
         
-        // Connect 버튼 이벤트 연결
         if (_connectButton != null)
         {
             _connectButton.onClick.RemoveAllListeners();
             _connectButton.onClick.AddListener(ConnectToServer);
         }
         
-        // 이벤트 구독
         if (_networkManager != null)
         {
             _networkManager.OnServerConnected += OnServerConnected;
@@ -77,9 +80,6 @@ public class NextScenes : BaseButton
         }
     }
     
-    /// <summary>
-    /// 서버 연결 (Title 씬에서 호출)
-    /// </summary>
     private async void ConnectToServer()
     {
         if (_nicknameInput == null || _passwordInput == null)
@@ -91,7 +91,6 @@ public class NextScenes : BaseButton
         string nickname = _nicknameInput.text.Trim();
         string password = _passwordInput.text;
         
-        // 유효성 검사
         if (string.IsNullOrEmpty(nickname))
         {
             ShowStatus("닉네임을 입력해주세요.", true);
@@ -116,29 +115,22 @@ public class NextScenes : BaseButton
             return;
         }
         
-        // UI 비활성화
         if (_connectButton != null)
             _connectButton.interactable = false;
         
         ShowLoading(true);
         ShowStatus("서버에 연결 중...", false);
         
-        // NetworkManager를 통해 서버 연결
         bool success = await _networkManager.ConnectToServer(nickname, password);
         
         if (!success)
         {
-            // 실패 시 UI 다시 활성화
             if (_connectButton != null)
                 _connectButton.interactable = true;
             ShowLoading(false);
         }
-        // 성공 시 NetworkManager가 자동으로 MatchingLobby 씬으로 이동시킴
     }
     
-    /// <summary>
-    /// 서버 연결 성공 콜백
-    /// </summary>
     private void OnServerConnected(bool connected)
     {
         if (connected)
@@ -155,9 +147,6 @@ public class NextScenes : BaseButton
         ShowLoading(false);
     }
     
-    /// <summary>
-    /// 에러 발생 콜백
-    /// </summary>
     private void OnErrorOccurred(string error)
     {
         ShowStatus(error, true);
@@ -166,9 +155,6 @@ public class NextScenes : BaseButton
             _connectButton.interactable = true;
     }
     
-    /// <summary>
-    /// 상태 메시지 표시
-    /// </summary>
     private void ShowStatus(string message, bool isError)
     {
         if (_statusText != null)
@@ -179,9 +165,6 @@ public class NextScenes : BaseButton
         Debug.Log($"[Title] {message}");
     }
     
-    /// <summary>
-    /// 로딩 패널 표시/숨김
-    /// </summary>
     private void ShowLoading(bool show)
     {
         if (_loadingPanel != null)
@@ -197,8 +180,6 @@ public class NextScenes : BaseButton
 
     public override void OnClick()
     {
-        // 이 메서드는 다른 버튼에서 사용될 수 있음
-        // Title 씬에서는 ConnectToServer를 사용
         if (SceneManager.GetActiveScene().name != "Title")
         {
             SceneManager.LoadScene("MainLobby");
@@ -229,7 +210,6 @@ public class NextScenes : BaseButton
     
     private void OnDestroy()
     {
-        // 이벤트 구독 해제
         if (_networkManager != null)
         {
             _networkManager.OnServerConnected -= OnServerConnected;
