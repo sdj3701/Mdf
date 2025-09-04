@@ -34,7 +34,6 @@ public class GameManagers : MonoBehaviour
     public Vector3 player1BasePosition = new Vector3(0, 0, 0);
     public Vector3 playerOffset = new Vector3(0, 10, 0);
 
-    // ... (나머지 변수들은 동일) ...
     #region 단계별 시간 및 보상
     [Header("단계별 시간 설정 (초)")]
     public float preparePhaseTime = 45f;
@@ -44,6 +43,7 @@ public class GameManagers : MonoBehaviour
     public int baseGoldPerRound = 5;
     public int maxInterest = 5;
     #endregion
+
 
     #region 로비 및 UI 관련 변수
     [Header("로비 캐릭터 선택")]
@@ -97,6 +97,9 @@ public class GameManagers : MonoBehaviour
     {
         return currentState;
     }
+    
+
+
 
     private IEnumerator GameFlow()
     {
@@ -114,7 +117,6 @@ public class GameManagers : MonoBehaviour
     
     private void SetupPlayersAndGrids()
     {
-        // Player 1 생성 및 초기화
         GameObject player1GO = Instantiate(playerManagerPrefab, player1BasePosition, Quaternion.identity);
         player1GO.name = "Player 1";
         player1 = player1GO.GetComponent<PlayerManager>();
@@ -122,7 +124,6 @@ public class GameManagers : MonoBehaviour
         grid1GO.name = "Grid 1";
         player1.InitializePlayer(0, grid1GO, defaultMonsterPrefab);
 
-        // Player 2 생성 및 초기화
         Vector3 player2Position = player1BasePosition + playerOffset;
         GameObject player2GO = Instantiate(playerManagerPrefab, player2Position, Quaternion.identity);
         player2GO.name = "Player 2";
@@ -138,7 +139,6 @@ public class GameManagers : MonoBehaviour
         Debug.Log("플레이어와 그리드 자동 생성 및 설정 완료. 로컬 플레이어는 Player " + localPlayer.playerId + " 입니다.");
     }
     
-    // ... (이하 나머지 코드는 이전과 동일) ...
     private async UniTask SetupGameUI()
     {
         try
@@ -293,7 +293,7 @@ public class GameManagers : MonoBehaviour
         {
             hasCombatBeenShortened = false;
         }
-
+  
         GameEvents.TriggerGameStateChanged(newState);
     }
 

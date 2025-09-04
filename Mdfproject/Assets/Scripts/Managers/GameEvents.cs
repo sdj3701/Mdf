@@ -33,11 +33,30 @@ public static class GameEvents
     public static event Action<PlayerManager, UnitData, int> OnUnitPurchased;
     public static void TriggerUnitPurchased(PlayerManager localPlayer, UnitData unitData, int starLevel) => OnUnitPurchased?.Invoke(localPlayer, unitData, starLevel);
 
+    public static event Action<PlayerManager> OnShopRefreshed;
+    public static void TriggerShopRefreshed(PlayerManager owner) => OnShopRefreshed?.Invoke(owner);
+
     public static event Action<int, Vector3Int> OnWallPlaced;
     public static void TriggerWallPlaced(int playerID, Vector3Int gridPosition) => OnWallPlaced?.Invoke(playerID, gridPosition);
 
     public static event Action<int, Vector3Int> OnWallRemoved;
     public static void TriggerWallRemoved(int playerID, Vector3Int gridPosition) => OnWallRemoved?.Invoke(playerID, gridPosition);
+
+    // --- 액션 요청 이벤트 (멀티플레이어 동기화용) ---
+    public static event Action<PlayerManager> OnShopRerollRequested;
+    public static void TriggerShopRerollRequested(PlayerManager requester) => OnShopRerollRequested?.Invoke(requester);
+    
+    public static event Action<PlayerManager, UnitData, Vector3Int> OnUnitPlacementRequested;
+    public static void TriggerUnitPlacementRequested(PlayerManager requester, UnitData unitData, Vector3Int position) => OnUnitPlacementRequested?.Invoke(requester, unitData, position);
+    
+    public static event Action<PlayerManager, Vector3Int, Vector3Int> OnUnitMoveRequested;
+    public static void TriggerUnitMoveRequested(PlayerManager requester, Vector3Int from, Vector3Int to) => OnUnitMoveRequested?.Invoke(requester, from, to);
+
+    public static event Action<PlayerManager, Vector3Int> OnWallPlacementRequested;
+    public static void TriggerWallPlacementRequested(PlayerManager requester, Vector3Int position) => OnWallPlacementRequested?.Invoke(requester, position);
+
+    public static event Action<PlayerManager, Vector3Int> OnWallRemovalRequested;
+    public static void TriggerWallRemovalRequested(PlayerManager requester, Vector3Int position) => OnWallRemovalRequested?.Invoke(requester, position);
     
     // --- [신규] 배치 모드 요청 이벤트 ---
 
