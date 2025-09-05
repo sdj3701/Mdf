@@ -8,7 +8,7 @@ using UnityEngine.UI;
 using TMPro;
 using Fusion;
 using UnityEngine.SceneManagement;
-using Cysharp.Threading.Tasks; // UniTask 사용을 위해 추가
+using Cysharp.Threading.Tasks;
 
 public class LobbyUI : MonoBehaviour
 {
@@ -39,7 +39,7 @@ public class LobbyUI : MonoBehaviour
     [SerializeField] private GameObject _loadingPanel;
     
     [Header("Settings")]
-    [SerializeField] private float _refreshInterval = 5f; // 5초마다 새로고침
+    [SerializeField] private float _refreshInterval = 3f; // 3초마다 새로고침으로 단축
 
     private NetworkManager _networkManager;
     private List<GameObject> _roomListItems = new List<GameObject>();
@@ -85,15 +85,18 @@ public class LobbyUI : MonoBehaviour
     {
         var cancellationToken = this.GetCancellationTokenOnDestroy();
 
+        // [수정] 첫 시작할 때 즉시 한번 새로고침
+        await UniTask.Delay(500, cancellationToken: cancellationToken);
+        await RefreshRoomList();
+
         while (!cancellationToken.IsCancellationRequested)
         {
-            // [수정] 방 생성 패널이 비활성화 상태이고, 새로고침 중이 아닐 때만 자동 새로고침 실행
+            await UniTask.Delay(TimeSpan.FromSeconds(_refreshInterval), cancellationToken: cancellationToken);
+            
             if (_roomListPanel != null && _roomListPanel.activeSelf && !_isRefreshing)
             {
                 await RefreshRoomList();
             }
-            
-            await UniTask.Delay(TimeSpan.FromSeconds(_refreshInterval), cancellationToken: cancellationToken);
         }
     }
 
@@ -194,13 +197,16 @@ public class LobbyUI : MonoBehaviour
         if (success)
         {
             ShowStatus("방 생성 완료. JoinLobby로 이동합니다...", false);
-            _confirmCreateButton.interactable = false;
-            _cancelCreateButton.interactable = false;
+            
+            // [수정] Null 체크 추가 - 씬 전환으로 컴포넌트가 파괴될 수 있음
+            if (_confirmCreateButton != null)
+                _confirmCreateButton.interactable = false;
+            if (_cancelCreateButton != null)
+                _cancelCreateButton.interactable = false;
         }
         else
         {
             ShowLoading(false);
-            // [수정] 실패 메시지를 조금 더 구체적으로 변경
             ShowStatus("방 생성에 실패했습니다. 방 이름이 중복되거나 서버에 문제가 있을 수 있습니다.", true);
             ShowRoomListPanel();
         }
@@ -220,9 +226,9 @@ public class LobbyUI : MonoBehaviour
         }
     }
 
+    // Assets/Scripts/UI/LobbyUI.cs의 RefreshRoomList 메서드만 수정
     private async Task RefreshRoomList()
     {
-        // [수정] 이미 새로고침이 진행 중이면, 추가 요청을 무시합니다.
         if (_isRefreshing) 
         {
             Debug.Log("[LobbyUI] 이미 새로고침이 진행 중입니다. 요청을 건너뜁니다.");
@@ -236,7 +242,7 @@ public class LobbyUI : MonoBehaviour
             _isRefreshing = false;
             return;
         }
-    
+
         if (!_networkManager.IsConnectedToServer)
         {
             ShowStatus("로그인이 필요합니다.", true);
@@ -246,11 +252,26 @@ public class LobbyUI : MonoBehaviour
         }
         
         ShowStatus("방 목록 새로고침 중...", false);
-        await _networkManager.RefreshRoomList();
         
-        // [수정] OnRoomListUpdated 콜백이 호출된 후 _isRefreshing이 false가 되도록 NetworkManager에서 제어하므로,
-        // 여기서는 바로 false로 만들지 않고 OnRoomListUpdated에서 처리하도록 기다립니다.
-    }
+        try
+        {
+            await _networkManager.RefreshRoomList();
+            // [수정] 타임아웃을 20초로 늘림
+            await Task.Delay(20000);
+            if (_isRefreshing)
+            {
+                Debug.LogWarning("[LobbyUI] 방 목록 새로고침 타임아웃");
+                _isRefreshing = false;
+                ShowStatus("방 목록 새로고침 실패", true);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"방 목록 새로고침 오류: {e.Message}");
+            _isRefreshing = false;
+            ShowStatus("방 목록 새로고침 실패", true);
+        }
+}
 
     private void OnRoomListUpdated(List<SessionInfo> rooms)
     {
@@ -273,7 +294,7 @@ public class LobbyUI : MonoBehaviour
                 _noRoomsText.text = criticalError;
                 _noRoomsText.gameObject.SetActive(true);
             }
-            _isRefreshing = false; // [추가] 오류 발생 시에도 새로고침 상태를 해제
+            _isRefreshing = false;
             return;
         }
 
@@ -292,7 +313,6 @@ public class LobbyUI : MonoBehaviour
                 _noRoomsText.gameObject.SetActive(false);
             ShowStatus($"{rooms.Count}개의 방을 찾았습니다.", false);
         }
-
 
         Debug.Log($"<color=yellow>[LobbyUI] 총 {rooms.Count}개의 RoomItem 프리팹 생성을 시작합니다. Parent: {_roomListContent.name}</color>");
 
@@ -314,7 +334,7 @@ public class LobbyUI : MonoBehaviour
             }
         }
         
-        _isRefreshing = false; // [추가] 방 목록 업데이트가 완료되면 새로고침 상태를 해제
+        _isRefreshing = false;
     }
 
     private void OnConnectionStatusChanged(bool connected)
@@ -322,7 +342,7 @@ public class LobbyUI : MonoBehaviour
         if (!connected)
         {
             ShowStatus("서버 연결이 끊어졌습니다.", true);
-            _isRefreshing = false; // [추가] 연결이 끊어져도 새로고침 상태를 해제
+            _isRefreshing = false;
         }
     }
 
@@ -330,7 +350,7 @@ public class LobbyUI : MonoBehaviour
     {
         ShowStatus(error, true);
         ShowLoading(false);
-        _isRefreshing = false; // [추가] 오류 발생 시에도 새로고침 상태를 해제
+        _isRefreshing = false;
     }
 
     private void ShowStatus(string message, bool isError)
