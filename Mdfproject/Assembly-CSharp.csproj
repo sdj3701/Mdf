@@ -67,10 +67,12 @@
     <Compile Include="Assets\Scripts\Game\Units\Unit.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SimpleScript.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IHealth.cs" />
+    <Compile Include="Assets\Scripts\Game\Skills\AreaDamageEffect.cs" />
     <Compile Include="Assets\Scripts\Button\SoundButton.cs" />
     <Compile Include="Assets\Scripts\UI\ShopItem.cs" />
     <Compile Include="Assets\Scripts\Enums\MonsterRank.cs" />
     <Compile Include="Assets\Scripts\UI\StatusBarUI.cs" />
+    <Compile Include="Assets\Scripts\Game\Game Rules\Allegiance.cs" />
     <Compile Include="Assets\Scripts\UI\AugmentSlot.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark01_UGUI.cs" />
     <Compile Include="Assets\Scripts\Managers\AugmentManager.cs" />
@@ -79,18 +81,22 @@
     <Compile Include="Assets\Scripts\UI\PlayerRankSlot.cs" />
     <Compile Include="Assets\Scripts\MainLobby\CharacterSelectButton.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IMana.cs" />
+    <Compile Include="Assets\Scripts\VFX\VFXAutoDestroy.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexShakeA.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark04.cs" />
     <Compile Include="Assets\Scripts\MainLobby\SelectCharacter.cs" />
     <Compile Include="Assets\Scripts\Game\GameSceneInitializer.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\DamageCalculator.cs" />
+    <Compile Include="Assets\Scripts\Enums\StatType.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ChatController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextMeshProFloatingText.cs" />
+    <Compile Include="Assets\Scripts\Game\Skills\SlowDebuffEffect.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\StaticAssets\AssetRegistry.cs" />
     <Compile Include="Assets\Scripts\Managers\PlacementManager.cs" />
     <Compile Include="Assets\Scripts\Managers\FieldManager.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexShakeB.cs" />
     <Compile Include="Assets\Scripts\UI\UIManagers.cs" />
+    <Compile Include="Assets\Scripts\Game\Targeting\SpecificLayersInRadius.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\EnvMapAnimator.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_UiFrameRateCounter.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarNode.cs" />
@@ -110,9 +116,11 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextEventCheck.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ShaderPropAnimator.cs" />
     <Compile Include="Assets\Scripts\Enums\DamageType.cs" />
+    <Compile Include="Assets\Scripts\Game\Skills\HealEffect.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\WarpTextExample.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\ComponentAutoRegister.cs" />
     <Compile Include="Assets\Scripts\UI\ShopUIController.cs" />
+    <Compile Include="Assets\Scripts\Button\SpectateButton.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_DigitValidator.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\SkillData.cs" />
     <Compile Include="Assets\Scripts\Managers\GameEvents.cs" />
@@ -133,15 +141,20 @@
     <Compile Include="Assets\Scripts\Button\PlacementButtonsUI.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\MonsterSpawner.cs" />
     <Compile Include="Assets\Scripts\Enums\GameEnums.cs" />
+    <Compile Include="Assets\Scripts\Game\Targeting\SelfTarget.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\Astar.cs" />
     <Compile Include="Assets\Scripts\Game\Players\Player.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_FrameRateCounter.cs" />
     <Compile Include="Assets\Scripts\UI\PhaseTimerUI.cs" />
     <Compile Include="Assets\Scripts\Enums\MonsterType.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexJitter.cs" />
+    <Compile Include="Assets\Scripts\Game\Skills\SkillEffect.cs" />
+    <Compile Include="Assets\Scripts\Interfaces\IDurationEffect.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextEventHandler.cs" />
+    <Compile Include="Assets\Scripts\Game\Targeting\TargetingStrategy.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextSelector_B.cs" />
     <Compile Include="Assets\Scripts\Button\BaseButton.cs" />
+    <Compile Include="Assets\Scripts\Game\Skills\BuffStatEffect.cs" />
     <Compile Include="Assets\Scripts\Button\ExitButton.cs" />
     <Compile Include="Assets\Scripts\Managers\PlayerManager.cs" />
     <Compile Include="Assets\Scripts\NextScenes.cs" />
@@ -152,6 +165,8 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexColorCycler.cs" />
     <Compile Include="Assets\Scripts\Managers\GameManagers.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TeleType.cs" />
+    <Compile Include="Assets\Scripts\Game\Targeting\EnemiesInRadius.cs" />
+    <Compile Include="Assets\Scripts\Game\Targeting\AlliesInRadius.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexZoom.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\RegisteredComponent.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\GameAssets.cs" />
@@ -163,21 +178,7 @@
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Scripts\Game\Skills\SkillEffect.cs" />
-    <Compile Include="Assets\Scripts\Game\Skills\AreaDamageEffect.cs" />
-    <Compile Include="Assets\Scripts\Enums\StatType.cs" />
-    <Compile Include="Assets\Scripts\Game\Skills\BuffStatEffect.cs" />
-    <Compile Include="Assets\Scripts\Game\Skills\SlowDebuffEffect.cs" />
-    <Compile Include="Assets\Scripts\Game\Targeting\TargetingStrategy.cs" />
-    <Compile Include="Assets\Scripts\Game\Targeting\SelfTarget.cs" />
-    <Compile Include="Assets\Scripts\Game\Targeting\EnemiesInRadius.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffManager.cs" />
-    <Compile Include="Assets\Scripts\Game\Game Rules\Allegiance.cs" />
-    <Compile Include="Assets\Scripts\Game\Targeting\AlliesInRadius.cs" />
-    <Compile Include="Assets\Scripts\Game\Skills\HealEffect.cs" />
-    <Compile Include="Assets\Scripts\Game\Targeting\SpecificLayersInRadius.cs" />
-    <Compile Include="Assets\Scripts\Interfaces\IDurationEffect.cs" />
-    <Compile Include="Assets\Scripts\VFX\VFXAutoDestroy.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
@@ -558,14 +559,6 @@
       <HintPath>E:\Unity\Hub\Editor\2021.3.45f1\Editor\Data\Managed\UnityEngine\UnityEditor.UnityConnectModule.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Unity.VisualScripting.Antlr3.Runtime">
-      <HintPath>Library\PackageCache\com.unity.visualscripting@1.9.4\Runtime\VisualScripting.Flow\Dependencies\NCalc\Unity.VisualScripting.Antlr3.Runtime.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Mono.Cecil">
-      <HintPath>Library\PackageCache\com.unity.nuget.mono-cecil@1.10.2\Mono.Cecil.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="NanoSockets">
       <HintPath>Assets\Photon\Fusion\Plugins\NanoSockets\NanoSockets\Dynamic\NanoSockets.dll</HintPath>
       <Private>False</Private>
@@ -596,6 +589,14 @@
     </Reference>
     <Reference Include="Fusion.Runtime">
       <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Runtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.VisualScripting.Antlr3.Runtime">
+      <HintPath>Library\PackageCache\com.unity.visualscripting@1.9.4\Runtime\VisualScripting.Flow\Dependencies\NCalc\Unity.VisualScripting.Antlr3.Runtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Mono.Cecil">
+      <HintPath>Library\PackageCache\com.unity.nuget.mono-cecil@1.10.2\Mono.Cecil.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.Android.Types">
