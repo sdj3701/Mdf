@@ -9,7 +9,9 @@ public class NextScenes : BaseButton
     protected override void Start()
     {
         base.Start();
-        DontDestroyOnLoad(this.gameObject);
+        // DontDestroyOnLoad는 반드시 최상위(root) 게임 오브젝트에만 사용해야 합니다.
+        // this.transform.root.gameObject는 이 컴포넌트가 속한 계층의 최상위 오브젝트를 가리킵니다.
+        DontDestroyOnLoad(this.transform.root.gameObject);
     }
 
     public override void OnClick()

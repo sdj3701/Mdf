@@ -305,13 +305,24 @@ public class GameManagers : MonoBehaviour
         failedPlayer.TakeDamage(damageOnLeak);
     }
 
-    public void GameOver(PlayerManager loser)
+    public async void GameOver(PlayerManager loser)
     {
         if (currentState == GameState.GameOver) return;
         ChangeState(GameState.GameOver);
         PlayerManager winner = (loser == player1) ? player2 : player1;
         Debug.Log($"<color=red>게임 종료!</color> 승자: Player {winner.playerId}");
         StopAllCoroutines();
+
+        if (localPlayer == loser)
+        {
+            // 패배 UI 표시
+            await UIManagers.Instance.GetUIElement("UI_Pnl_Defeat");
+        }
+        else if (localPlayer == winner)
+        {
+            // 승리 UI 표시
+            await UIManagers.Instance.GetUIElement("UI_Pnl_Victory");
+        }
     }
 
     private int GetInterest(int gold) => Mathf.Min(gold / 10, maxInterest);

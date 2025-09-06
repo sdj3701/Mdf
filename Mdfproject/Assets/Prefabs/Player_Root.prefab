@@ -191,7 +191,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   playerId: 0
-  health: 30
+  health: 5
   gold: 20
   wallCount: 10
   ownedUnits: []
@@ -251,6 +251,7 @@ MonoBehaviour:
   wallParent: {fileID: 0}
   destructibleWallPrefab: {fileID: 7586660566649568007, guid: 0336ce3939b88d84baa6095048c203eb,
     type: 3}
+  wallTileToPlace: {fileID: 0}
   statusBarPrefab: {fileID: 523785727660799067, guid: 1ce31d6300e00da47a20857d35fa5332,
     type: 3}
 --- !u!114 &5614185707629608620
@@ -265,7 +266,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d1dbf1efe359760498ccb8a4ef18f96b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  wallTileToPlace: {fileID: 0}
   showPreview: 1
   validPreviewColor: {r: 0, g: 1, b: 0, a: 0.5}
   invalidPreviewColor: {r: 1, g: 0, b: 0, a: 0.5}
