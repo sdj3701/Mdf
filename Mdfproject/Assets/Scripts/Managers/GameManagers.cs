@@ -327,6 +327,17 @@ public class GameManagers : MonoBehaviour
 
     private int GetInterest(int gold) => Mathf.Min(gold / 10, maxInterest);
 
+    public List<PlayerManager> GetRankedPlayers()
+    {
+        var players = new List<PlayerManager>();
+        if (player1 != null) players.Add(player1);
+        if (player2 != null) players.Add(player2);
+
+        return players.OrderByDescending(p => p.GetHealth())
+                      .ThenBy(p => p.gameObject.name)
+                      .ToList();
+    }
+
     #region 로비 관련 함수
     public void SetMaxQueueSize(int count) => maxqueue = count;
     public int GetMaxSize() => maxqueue;
