@@ -45,12 +45,14 @@ public class StatusBarUI : MonoBehaviour
     private IHealth healthComponent;
     private IMana manaComponent;
     private Unit unitComponent;
+    private GraphicRaycaster graphicRaycaster;
 
     private void Awake()
     {
         // Start보다 먼저 호출되므로, Unit.cs에서 참조를 사용할 때 null이 되는 것을 방지합니다.
         unitComponent = GetComponentInParent<Unit>();
         isUnit = unitComponent != null;
+        graphicRaycaster = GetComponent<GraphicRaycaster>();
     }
 
     private void OnEnable()
@@ -237,6 +239,8 @@ public class StatusBarUI : MonoBehaviour
 
         if (currentSkill != null && currentSkill.activationType == SkillActivationType.Manual)
         {
+            if (graphicRaycaster != null) graphicRaycaster.enabled = true;
+            
             if (skillIconImage != null && currentSkill.icon != null)
             {
                 skillIconImage.sprite = currentSkill.icon;
@@ -245,6 +249,7 @@ public class StatusBarUI : MonoBehaviour
         }
         else
         {
+            if (graphicRaycaster != null) graphicRaycaster.enabled = false;
             skillButton.gameObject.SetActive(false);
         }
     }
