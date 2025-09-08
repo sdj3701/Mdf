@@ -41,7 +41,7 @@ public class StatusBarUI : MonoBehaviour
 
     private bool isUnit = false;
     private bool isCombatPhase = false;
-    
+
     private IHealth healthComponent;
     private IMana manaComponent;
     private Unit unitComponent;
@@ -61,7 +61,7 @@ public class StatusBarUI : MonoBehaviour
     private void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
-        
+
         if (healthComponent != null) healthComponent.OnHealthChanged -= UpdateHealth;
         if (manaComponent != null) manaComponent.OnManaChanged -= UpdateMana;
     }
@@ -123,16 +123,16 @@ public class StatusBarUI : MonoBehaviour
             transform.localPosition += monsterPositionOffset;
             transform.localScale = monsterScale;
         }
-        
+
         UpdateAllUIVisibility();
     }
-    
+
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
         isCombatPhase = (newState == GameManagers.GameState.Combat);
         UpdateAllUIVisibility();
     }
-    
+
     private void UpdateAllUIVisibility()
     {
         if (healthComponent != null)
@@ -149,13 +149,13 @@ public class StatusBarUI : MonoBehaviour
             SetManaBarVisibility(false);
         }
     }
-    
+
     private void SetHealthBarVisibility(bool visible)
     {
         if (healthBarImage != null) healthBarImage.gameObject.SetActive(visible);
         if (healthBarBackgroundImage != null) healthBarBackgroundImage.gameObject.SetActive(visible);
     }
-    
+
     private void SetManaBarVisibility(bool visible)
     {
         if (manaBarImage != null) manaBarImage.gameObject.SetActive(visible);
@@ -223,11 +223,17 @@ public class StatusBarUI : MonoBehaviour
             return;
         }
 
+        // [수정] owner를 내부 unitComponent 참조에도 할당하여 일관성을 보장합니다.
+        // 이렇게 하면 UpdateMana에서도 항상 정확한 Unit 인스턴스를 사용하게 됩니다.
+        this.unitComponent = owner;
+
         SkillData currentSkill = null;
         if (owner.Data != null && owner.Data.skillsByStarLevel.Length >= owner.starLevel)
         {
             currentSkill = owner.Data.skillsByStarLevel[owner.starLevel - 1];
         }
+
+
 
         if (currentSkill != null && currentSkill.activationType == SkillActivationType.Manual)
         {
@@ -235,10 +241,7 @@ public class StatusBarUI : MonoBehaviour
             {
                 skillIconImage.sprite = currentSkill.icon;
             }
-            skillButton.onClick.RemoveAllListeners();
-            // [중요] 코드에서 OnClick 이벤트를 직접 등록하므로, 인스펙터에서 설정할 필요가 없습니다.
             skillButton.onClick.AddListener(owner.ActivateSkill);
-            skillButton.gameObject.SetActive(false);
         }
         else
         {
