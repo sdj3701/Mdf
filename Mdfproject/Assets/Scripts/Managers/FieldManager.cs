@@ -36,6 +36,7 @@ public class FieldManager : MonoBehaviour
     private const float dragDelay = 0.2f; // 0.2초 이상 누르면 드래그 시작
     private bool isDragStarted = false;
     private GameObject unitDetailPanelInstance;
+    private Unit unitDisplayedInPanel;
     
     private Camera playerCamera => GameAssets.Cameras.MainCamera;
 
@@ -395,23 +396,36 @@ public class FieldManager : MonoBehaviour
         // 마우스 버튼을 눌렀을 때
         if (Input.GetMouseButtonDown(0))
         {
-            // 유닛 위에서 클릭했는지 확인
-            if (placedUnits.ContainsKey(gridPos))
+            Unit clickedUnit = placedUnits.ContainsKey(gridPos) ? placedUnits[gridPos] : null;
+
+            // 패널이 열려있는 상태에서
+            if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
             {
-                // 드래그가 아닌 클릭일 수 있으므로, 일단 유닛 정보만 저장하고 타이머 시작
-                selectedUnit = placedUnits[gridPos];
-                mouseDownTimer = 0f;
-                isDragStarted = false;
-            }
-            // 유닛이 아닌 다른 곳을 클릭했고, 패널이 열려 있다면 패널을 닫음
-            else if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
-            {
-                // UI 위를 클릭한 경우는 예외처리 (예: 상점 버튼 등)
+                // 표시된 유닛을 다시 클릭한 경우 -> 패널 닫고 아무것도 안 함
+                if (clickedUnit != null && clickedUnit == unitDisplayedInPanel)
+                {
+                    UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
+                    unitDetailPanelInstance = null;
+                    unitDisplayedInPanel = null;
+                    selectedUnit = null; // 모든 상태 초기화
+                    return;
+                }
+                
+                // UI가 아닌 다른 곳을 클릭한 경우 -> 패널 닫고 클릭한 대상에 대한 처리 계속
                 if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
                 {
                     UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                     unitDetailPanelInstance = null;
+                    unitDisplayedInPanel = null;
                 }
+            }
+
+            // 이제 클릭한 대상에 대한 처리 (드래그 시작 또는 새 패널 열기 준비)
+            if (clickedUnit != null)
+            {
+                selectedUnit = clickedUnit;
+                mouseDownTimer = 0f;
+                isDragStarted = false;
             }
         }
 
@@ -431,6 +445,7 @@ public class FieldManager : MonoBehaviour
                 {
                     UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                     unitDetailPanelInstance = null;
+                    unitDisplayedInPanel = null;
                 }
             }
         }
@@ -486,6 +501,7 @@ public class FieldManager : MonoBehaviour
                 controller.DisplayUnitInfo(unit);
                 // 패널의 위치는 프리팹/씬에 설정된 고정 위치를 사용하므로, 여기서 위치를 변경하지 않습니다.
                 unitDetailPanelInstance.SetActive(true);
+                unitDisplayedInPanel = unit;
             }
         }
     }
