@@ -101,18 +101,27 @@ public class FieldManager : MonoBehaviour
         {
             RespawnAllUnits();
         }
-        // [추가] 게임 상태가 전투로 변경될 때, 진행 중이던 유닛 드래그를 취소합니다.
-        else if (selectedUnit != null)
+        // [수정] 게임 상태가 전투로 변경될 때의 처리
+        else if (newState == GameManagers.GameState.Combat)
         {
-            // 유닛을 원래 위치로 되돌립니다.
-            Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
-            selectedUnit.transform.position = originalWorldPos;
-            placedUnits.Add(originalUnitPosition, selectedUnit);
+            // 활성화된 배치 모드(유닛, 벽 등)가 있다면 강제로 종료합니다.
+            if (placementManager.GetCurrentMode() != PlacementMode.None)
+            {
+                placementManager.StopPlacementMode();
+            }
 
-            Debug.Log($"<color=orange>게임 상태 변경으로 인해 {selectedUnit.Data.unitName}의 배치가 취소되고 원위치로 돌아갑니다.</color>");
-            
-            // 드래그 상태를 초기화합니다.
-            selectedUnit = null;
+            // 유닛을 드래그하는 중이었다면 취소하고 원위치시킵니다.
+            if (selectedUnit != null)
+            {
+                Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                selectedUnit.transform.position = originalWorldPos;
+                // 드래그 중에는 placedUnits에서 제거되지 않으므로, 다시 Add할 필요가 없습니다.
+
+                Debug.Log($"<color=orange>전투 시작으로 인해 {selectedUnit.Data.unitName}의 배치가 취소되고 원위치로 돌아갑니다.</color>");
+
+                // 드래그 상태를 초기화합니다.
+                selectedUnit = null;
+            }
         }
     }
 
@@ -387,7 +396,9 @@ public class FieldManager : MonoBehaviour
     
     private void HandleUnitDragAndDrop()
     {
-        if (GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare) return;
+        var gameState = GameManagers.Instance.GetGameState();
+        if (gameState != GameManagers.GameState.Prepare && gameState != GameManagers.GameState.Combat) return;
+
         if (playerCamera == null || ObstacleTilemap == null) return;
         
         Vector3 mouseWorldPos = playerCamera.ScreenToWorldPoint(Input.mousePosition);
@@ -433,7 +444,8 @@ public class FieldManager : MonoBehaviour
         if (Input.GetMouseButton(0) && selectedUnit != null && !isDragStarted)
         {
             mouseDownTimer += Time.deltaTime;
-            if (mouseDownTimer >= dragDelay)
+            // 준비 단계일 때만 드래그를 시작할 수 있습니다.
+            if (mouseDownTimer >= dragDelay && gameState == GameManagers.GameState.Prepare)
             {
                 // 드래그 시작
                 isDragStarted = true;
