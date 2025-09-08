@@ -30,6 +30,7 @@ public class FieldManager : MonoBehaviour
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
     private Vector3 offset;
+    private Vector3 mouseDownWorldPos;
 
     // 유닛 클릭/드래그 및 상세 정보 패널 관련 변수
     private float mouseDownTimer;
@@ -437,6 +438,7 @@ public class FieldManager : MonoBehaviour
                 selectedUnit = clickedUnit;
                 mouseDownTimer = 0f;
                 isDragStarted = false;
+                mouseDownWorldPos = mouseWorldPos;
             }
         }
 
@@ -450,7 +452,7 @@ public class FieldManager : MonoBehaviour
                 // 드래그 시작
                 isDragStarted = true;
                 originalUnitPosition = ObstacleTilemap.WorldToCell(selectedUnit.transform.position); // 드래그 시작 시점의 위치를 저장
-                offset = selectedUnit.transform.position - mouseWorldPos;
+                offset = selectedUnit.transform.position - mouseDownWorldPos;
                 
                 // 드래그가 시작되면 열려있던 상세 정보 패널을 닫음
                 if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
