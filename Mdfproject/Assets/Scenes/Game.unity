@@ -674,9 +674,26 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2218765290447644182, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
+      propertyPath: UILists.Array.size
+      value: 11
+      objectReference: {fileID: 0}
+    - target: {fileID: 2218765290447644182, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
       propertyPath: UILists.Array.data[7]
       value: 
       objectReference: {fileID: 7631567705358455578, guid: d44bf1b716187744f92159c5eae0ad15,
+        type: 3}
+    - target: {fileID: 2218765290447644182, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: UILists.Array.data[9]
+      value: 
+      objectReference: {fileID: 523785727660799067, guid: 1ce31d6300e00da47a20857d35fa5332,
+        type: 3}
+    - target: {fileID: 2218765290447644182, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: UILists.Array.data[10]
+      value: 
+      objectReference: {fileID: 8567712813786591603, guid: 5e83db60ddfc8454aaf327f483dcdb80,
         type: 3}
     - target: {fileID: 2218765290447644183, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
