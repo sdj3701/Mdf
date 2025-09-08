@@ -15,10 +15,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     [Header("원거리 유닛 참조")]
     public Transform firePoint;
 
-    [Header("수동 스킬 UI")]
-    public GameObject skillButtonPrefab;
-    public Canvas worldSpaceCanvas;
-
     [Header("현재 상태 (읽기 전용)")]
     [SerializeField]
     private int m_starLevel = 1;
@@ -41,7 +37,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     public float currentMagicResistance { get; private set; }
 
     private ManaController manaController;
-    private GameObject skillButtonInstance;
+    private StatusBarUI statusBarUI;
     private Coroutine attackCoroutine;
     [SerializeField] private List<Monster> blockedMonsters = new List<Monster>();
     public LayerMask enemyLayerMask;
@@ -49,6 +45,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private Transform targetTransform;
     
     private bool isCombatPhase = false;
+
+    void Awake()
+    {
+        // 자식 오브젝트에서 StatusBarUI 컴포넌트를 미리 찾아둡니다.
+        statusBarUI = GetComponentInChildren<StatusBarUI>();
+    }
 
     void OnEnable()
     {
@@ -105,7 +107,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 StopCoroutine(attackCoroutine);
                 attackCoroutine = null;
             }
-            HideSkillButton();
         }
     }
 
@@ -129,6 +130,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             newMaxMana = unitData.skillsByStarLevel[starLevel - 1].manaCost;
         }
         manaController.Initialize(newMaxMana);
+        
+        // 스탯 초기화가 완료되었으니, StatusBarUI에게 스킬 버튼을 초기화하라고 알립니다.
+        if (statusBarUI != null)
+        {
+            statusBarUI.InitializeSkillButton();
+        }
     }
 
     public void Upgrade()
@@ -160,10 +167,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         if (currentSkillData.activationType == SkillActivationType.Automatic)
         {
             ActivateSkill();
-        }
-        else
-        {
-            ShowSkillButton();
         }
     }
 
@@ -222,8 +225,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                     Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
                 }
             }
-
-            HideSkillButton();
         }
     }
     
@@ -345,25 +346,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     #endregion
 
     #region 저지, 스킬 UI, IEnemy 구현 등 (이하 동일)
-    private void ShowSkillButton()
-    {
-        if (skillButtonPrefab == null || worldSpaceCanvas == null) return;
-        if (skillButtonInstance == null)
-        {
-            skillButtonInstance = Instantiate(skillButtonPrefab, worldSpaceCanvas.transform);
-            skillButtonInstance.GetComponent<Button>().onClick.AddListener(ActivateSkill);
-        }
-        skillButtonInstance.transform.position = transform.position + Vector3.up * 1.5f;
-        skillButtonInstance.SetActive(true);
-    }
-    private void HideSkillButton()
-    {
-        if (skillButtonInstance != null)
-        {
-            skillButtonInstance.SetActive(false);
-        }
-    }
-
     private void OnTriggerEnter2D(Collider2D other)
     {
         if (other.TryGetComponent<Monster>(out var monster))
@@ -393,7 +375,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         {
             manaController.OnManaFull -= HandleManaFull;
         }
-        if (skillButtonInstance != null) Destroy(skillButtonInstance);
     }
 
     public void TakeDamage(float baseDamage, DamageType damageType)
