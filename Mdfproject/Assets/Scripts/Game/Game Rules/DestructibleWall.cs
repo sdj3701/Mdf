@@ -17,6 +17,12 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
     
     private Vector3Int wallGridPosition;
     private FieldManager fieldManager;
+    private StatusBarUI statusBarUI;
+
+    public void SetStatusBar(StatusBarUI ui)
+    {
+        this.statusBarUI = ui;
+    }
 
     public void Initialize(FieldManager manager, Vector3Int gridPosition)
     {

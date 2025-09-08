@@ -46,12 +46,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     
     private bool isCombatPhase = false;
 
-    void Awake()
-    {
-        // 자식 오브젝트에서 StatusBarUI 컴포넌트를 미리 찾아둡니다.
-        statusBarUI = GetComponentInChildren<StatusBarUI>();
-    }
-
     void OnEnable()
     {
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
@@ -60,6 +54,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+    }
+
+    public void SetStatusBar(StatusBarUI ui)
+    {
+        this.statusBarUI = ui;
     }
 
     public void Initialize(UnitData data, int initialStarLevel)
@@ -130,11 +129,17 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             newMaxMana = unitData.skillsByStarLevel[starLevel - 1].manaCost;
         }
         manaController.Initialize(newMaxMana);
-        
+
         // 스탯 초기화가 완료되었으니, StatusBarUI에게 스킬 버튼을 초기화하라고 알립니다.
+        // 이제 StatusBarUI는 외부(FieldManager)에서 주입해줍니다.
         if (statusBarUI != null)
         {
-            statusBarUI.InitializeSkillButton();
+            statusBarUI.InitializeSkillButton(this);
+        }
+        else
+        {
+            // StatusBarUI가 주입되지 않은 경우 경고를 출력합니다.
+            Debug.LogWarning($"[Unit] {gameObject.name}에 StatusBarUI가 주입되지 않았습니다.", this.gameObject);
         }
     }
 

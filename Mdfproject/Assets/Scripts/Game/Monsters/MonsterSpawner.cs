@@ -106,14 +106,16 @@ public class MonsterSpawner : MonoBehaviour
             }
             
             GameObject monsterGO = Instantiate(monsterPrefab, spawnPoint.position, Quaternion.identity, monsterParent);
-            if (statusBarPrefab != null)
-            {
-                Instantiate(statusBarPrefab, monsterGO.transform);
-            }
             Monster monster = monsterGO.GetComponent<Monster>();
 
             if (monster != null)
             {
+                if (statusBarPrefab != null)
+                {
+                    GameObject statusBarGO = Instantiate(statusBarPrefab, monsterGO.transform);
+                    monster.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
+                }
+
                 // [수정] 몬스터에게 올바른 AstarGrid 인스턴스를 직접 전달합니다.
                 monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
                 ApplyOpponentDebuffs(monster);
@@ -187,14 +189,15 @@ public class MonsterSpawner : MonoBehaviour
         Debug.Log($"<color=red>보스 몬스터 소환!</color> {dataToSpawn.monsterName} at Player {playerManager.playerId}'s field");
         
         GameObject monsterGO = Instantiate(monsterPrefabToSpawn, spawnPoint.position, Quaternion.identity, monsterParent);
-        if (statusBarPrefab != null)
-        {
-            Instantiate(statusBarPrefab, monsterGO.transform);
-        }
         Monster monster = monsterGO.GetComponent<Monster>();
 
         if (monster != null)
         {
+            if (statusBarPrefab != null)
+            {
+                GameObject statusBarGO = Instantiate(statusBarPrefab, monsterGO.transform);
+                monster.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
+            }
             // [수정] 몬스터에게 올바른 AstarGrid 인스턴스를 직접 전달합니다.
             monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
             
