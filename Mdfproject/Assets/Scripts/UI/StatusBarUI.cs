@@ -214,18 +214,19 @@ public class StatusBarUI : MonoBehaviour
         }
     }
 
-    public void InitializeSkillButton()
+    public void InitializeSkillButton(Unit owner)
     {
-        if (unitComponent == null || skillButton == null)
+        // Unit에서 직접 owner를 전달받아 실행 순서에 대한 의존성을 제거합니다.
+        if (owner == null || skillButton == null)
         {
             if (skillButton != null) skillButton.gameObject.SetActive(false);
             return;
         }
 
         SkillData currentSkill = null;
-        if (unitComponent.Data != null && unitComponent.Data.skillsByStarLevel.Length >= unitComponent.starLevel)
+        if (owner.Data != null && owner.Data.skillsByStarLevel.Length >= owner.starLevel)
         {
-            currentSkill = unitComponent.Data.skillsByStarLevel[unitComponent.starLevel - 1];
+            currentSkill = owner.Data.skillsByStarLevel[owner.starLevel - 1];
         }
 
         if (currentSkill != null && currentSkill.activationType == SkillActivationType.Manual)
@@ -236,7 +237,7 @@ public class StatusBarUI : MonoBehaviour
             }
             skillButton.onClick.RemoveAllListeners();
             // [중요] 코드에서 OnClick 이벤트를 직접 등록하므로, 인스펙터에서 설정할 필요가 없습니다.
-            skillButton.onClick.AddListener(unitComponent.ActivateSkill);
+            skillButton.onClick.AddListener(owner.ActivateSkill);
             skillButton.gameObject.SetActive(false);
         }
         else

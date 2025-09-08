@@ -143,14 +143,15 @@ public class FieldManager : MonoBehaviour
 
         Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
         GameObject wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
-        if (statusBarPrefab != null)
-        {
-            Instantiate(statusBarPrefab, wallGO.transform);
-        }
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
 
         if (wallComponent != null)
         {
+            if (statusBarPrefab != null)
+            {
+                GameObject statusBarGO = Instantiate(statusBarPrefab, wallGO.transform);
+                wallComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
+            }
             wallComponent.Initialize(this, gridPosition);
             placedWalls.Add(gridPosition, wallComponent);
         }
@@ -266,14 +267,15 @@ public class FieldManager : MonoBehaviour
         }
         Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
         GameObject newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
-        if (statusBarPrefab != null)
-        {
-            Instantiate(statusBarPrefab, newUnitGO.transform);
-        }
         Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
 
         if (newUnitComponent != null)
         {
+            if (statusBarPrefab != null)
+            {
+                GameObject statusBarGO = Instantiate(statusBarPrefab, newUnitGO.transform);
+                newUnitComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
+            }
             newUnitComponent.Initialize(data, starLevel);
             placedUnits.Add(gridPosition, newUnitComponent);
         }

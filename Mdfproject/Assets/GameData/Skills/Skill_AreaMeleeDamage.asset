@@ -12,11 +12,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1ce8c3f4810fbf84eb609f7a2c04e854, type: 3}
   m_Name: Skill_AreaMeleeDamage
   m_EditorClassIdentifier: 
-  skillName: 
+  skillName: Skill_AreaMeleeDamage
   description: 
-  icon: {fileID: 0}
-  manaCost: 0
-  activationType: 0
-  targetingStrategy: {fileID: 0}
-  effects: []
-  vfxPrefab: {fileID: 0}
+  icon: {fileID: 21300000, guid: 0e97acda7beceb24fb3452611ca45e84, type: 3}
+  manaCost: 30
+  activationType: 1
+  targetingStrategy: {fileID: 11400000, guid: ac91b01935cc0cb41ace8ebc9f3b1d08, type: 2}
+  effects:
+  - {fileID: 11400000, guid: 0ca81da5f66186c4f9ae167b32892cb5, type: 2}
+  vfxPrefab: {fileID: 3178614178979242518, guid: 89f2776e47e86d44ea455ef0ac412247,
+    type: 3}
