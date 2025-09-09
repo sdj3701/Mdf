@@ -191,7 +191,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   playerId: 0
-  health: 5
+  health: 15
   gold: 20
   wallCount: 10
   ownedUnits: []
