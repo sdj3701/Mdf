@@ -137,6 +137,26 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - WallPrefab
+  - m_GUID: d44bf1b716187744f92159c5eae0ad15
+    m_Address: UI_Pnl_Defeat
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+  - m_GUID: 199addd7be097b24aa0651281483b48e
+    m_Address: UI_Pnl_Victory
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+  - m_GUID: 5e83db60ddfc8454aaf327f483dcdb80
+    m_Address: UI_Pnl_UnitDetail
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+  - m_GUID: 1ce31d6300e00da47a20857d35fa5332
+    m_Address: UI_Can_StatusBar
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:
