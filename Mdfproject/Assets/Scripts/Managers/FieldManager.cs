@@ -20,6 +20,12 @@ public class FieldManager : MonoBehaviour
     public TileBase wallTileToPlace;
     public GameObject statusBarPrefab;
 
+    [Header("범위 표시")]
+    public GameObject attackRangeIndicatorPrefab;
+    public GameObject skillRangeIndicatorPrefab;
+    private GameObject attackRangeIndicatorInstance;
+    private GameObject skillRangeIndicatorInstance;
+
     public Tilemap ObstacleTilemap { get; private set; }
     public Tilemap GroundTilemap { get; private set; }
 
@@ -521,5 +527,97 @@ public class FieldManager : MonoBehaviour
             }
         }
     }
+    #endregion
+
+    #region 범위 표시
+    
+    /// <summary>
+    /// 지정된 유닛의 공격 및 스킬 범위를 원형으로 표시하고, 겹치는 경우 렌더링 순서를 조정합니다.
+    /// </summary>
+    public void ShowRanges(Unit unit)
+    {
+        if (unit == null) return;
+
+        ClearRanges();
+
+        // 1. 각 범위 값 가져오기
+        float attackRange = unit.currentAttackRange;
+        float skillRange = 0f;
+
+        if (skillRangeIndicatorPrefab != null && unit.Data.skillsByStarLevel.Length >= unit.starLevel &&
+            unit.Data.skillsByStarLevel[unit.starLevel - 1] != null)
+        {
+            SkillData currentSkill = unit.Data.skillsByStarLevel[unit.starLevel - 1];
+            // [중요] 아래 코드는 SkillData 스크립트에 'public float range;' 변수가 있다고 가정합니다.
+            // 만약 변수 이름이 다르다면 이 부분을 실제 변수 이름으로 수정해야 합니다.
+            skillRange = currentSkill.range; 
+        }
+
+        bool showAttack = attackRangeIndicatorPrefab != null && attackRange > 0;
+        bool showSkill = skillRangeIndicatorPrefab != null && skillRange > 0;
+
+        if (!showAttack && !showSkill) return;
+
+        // 2. 범위가 동일할 경우 시각적 조정을 위해 공격 범위 약간 축소
+        float attackDiameter = attackRange * 2f;
+        float skillDiameter = skillRange * 2f;
+
+        if (showAttack && showSkill && Mathf.Approximately(attackRange, skillRange))
+        {
+            attackDiameter *= 0.95f; // 공격 범위를 약간 줄여서 둘 다 보이게 함
+        }
+        
+        // 3. 범위 인디케이터 생성 및 크기 설정
+        if (showAttack)
+        {
+            attackRangeIndicatorInstance = Instantiate(attackRangeIndicatorPrefab, unit.transform.position, Quaternion.identity, transform);
+            attackRangeIndicatorInstance.transform.localScale = new Vector3(attackDiameter, attackDiameter, 1f);
+        }
+        if (showSkill)
+        {
+            skillRangeIndicatorInstance = Instantiate(skillRangeIndicatorPrefab, unit.transform.position, Quaternion.identity, transform);
+            skillRangeIndicatorInstance.transform.localScale = new Vector3(skillDiameter, skillDiameter, 1f);
+        }
+
+        // 4. 두 범위가 모두 표시될 때 렌더링 순서(Sorting Order) 조정
+        if (showAttack && showSkill)
+        {
+            SpriteRenderer attackRenderer = attackRangeIndicatorInstance.GetComponent<SpriteRenderer>();
+            SpriteRenderer skillRenderer = skillRangeIndicatorInstance.GetComponent<SpriteRenderer>();
+
+            if (attackRenderer != null && skillRenderer != null)
+            {
+                // 더 큰 범위를 뒤에(sortingOrder = 0), 작은 범위를 앞에(sortingOrder = 1) 렌더링
+                if (attackDiameter > skillDiameter)
+                {
+                    attackRenderer.sortingOrder = 0; // 뒤
+                    skillRenderer.sortingOrder = 1;  // 앞
+                }
+                else
+                {
+                    skillRenderer.sortingOrder = 0;  // 뒤
+                    attackRenderer.sortingOrder = 1; // 앞
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 표시된 모든 범위를 제거합니다.
+    /// </summary>
+    public void ClearRanges()
+    {
+        if (attackRangeIndicatorInstance != null)
+        {
+            Destroy(attackRangeIndicatorInstance);
+            attackRangeIndicatorInstance = null;
+        }
+        if (skillRangeIndicatorInstance != null)
+        {
+            Destroy(skillRangeIndicatorInstance);
+            skillRangeIndicatorInstance = null;
+        }
+    }
+
     #endregion
 }

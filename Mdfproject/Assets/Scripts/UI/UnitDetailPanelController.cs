@@ -49,6 +49,21 @@ public class UnitDetailPanelController : MonoBehaviour
         
         // 스킬 정보 업데이트
         UpdateSkillDescription(unit);
+
+        // 필드에 유닛의 공격 및 스킬 범위 표시 요청
+        if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null && GameManagers.Instance.localPlayer.fieldManager != null)
+        {
+            GameManagers.Instance.localPlayer.fieldManager.ShowRanges(unit);
+        }
+    }
+
+    private void OnDisable()
+    {
+        // 패널이 비활성화될 때 범위 표시를 지웁니다.
+        if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null && GameManagers.Instance.localPlayer.fieldManager != null)
+        {
+            GameManagers.Instance.localPlayer.fieldManager.ClearRanges();
+        }
     }
 
     private void UpdateSkillDescription(Unit unit)
