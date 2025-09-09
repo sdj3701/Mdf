@@ -13,6 +13,9 @@ public class ShopSlot : MonoBehaviour
     public GameObject purchasedOverlay;
     public TextMeshProUGUI starLevelText;
 
+    [Header("코스트별 테두리 이미지")]
+    public Sprite[] costBorders = new Sprite[5]; // 1~5 코스트
+
     private ShopItem currentShopItem;
     private ShopManager shopManager; // PlayerManager 참조를 얻기 위해 유지합니다.
     
@@ -45,6 +48,16 @@ public class ShopSlot : MonoBehaviour
             unitCostText.text = $"{shopItem.CalculatedCost}";
             starLevelText.text = $"{shopItem.StarLevel}성";
             
+            Image borderImage = buyButton.GetComponent<Image>();
+            if (borderImage != null && costBorders != null)
+            {
+                int cost = shopItem.CalculatedCost;
+                if (cost >= 1 && cost <= costBorders.Length)
+                {
+                    borderImage.sprite = costBorders[cost - 1];
+                }
+            }
+
             buyButton.interactable = true;
             if(purchasedOverlay) purchasedOverlay.SetActive(false);
             gameObject.SetActive(true);

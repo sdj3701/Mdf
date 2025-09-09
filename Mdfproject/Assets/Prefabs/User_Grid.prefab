@@ -1911,7 +1911,7 @@ GameObject:
   - component: {fileID: 7721388087968643984}
   - component: {fileID: 7721388087968644014}
   - component: {fileID: 7721388087968644012}
-  m_Layer: 15
+  m_Layer: 9
   m_Name: BreakWall Tilemap
   m_TagString: Untagged
   m_Icon: {fileID: 0}

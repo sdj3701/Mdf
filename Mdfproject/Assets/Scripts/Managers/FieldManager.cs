@@ -20,6 +20,12 @@ public class FieldManager : MonoBehaviour
     public TileBase wallTileToPlace;
     public GameObject statusBarPrefab;
 
+    [Header("범위 표시")]
+    public GameObject attackRangeIndicatorPrefab;
+    public GameObject skillRangeIndicatorPrefab;
+    private GameObject attackRangeIndicatorInstance;
+    private GameObject skillRangeIndicatorInstance;
+
     public Tilemap ObstacleTilemap { get; private set; }
     public Tilemap GroundTilemap { get; private set; }
 
@@ -30,6 +36,13 @@ public class FieldManager : MonoBehaviour
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
     private Vector3 offset;
+
+    // 유닛 클릭/드래그 및 상세 정보 패널 관련 변수
+    private float mouseDownTimer;
+    private const float dragDelay = 0.2f; // 0.2초 이상 누르면 드래그 시작
+    private bool isDragStarted = false;
+    private GameObject unitDetailPanelInstance;
+    private Unit unitDisplayedInPanel;
     
     private Camera playerCamera => GameAssets.Cameras.MainCamera;
 
@@ -94,18 +107,27 @@ public class FieldManager : MonoBehaviour
         {
             RespawnAllUnits();
         }
-        // [추가] 게임 상태가 전투로 변경될 때, 진행 중이던 유닛 드래그를 취소합니다.
-        else if (selectedUnit != null)
+        // [수정] 게임 상태가 전투로 변경될 때의 처리
+        else if (newState == GameManagers.GameState.Combat)
         {
-            // 유닛을 원래 위치로 되돌립니다.
-            Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
-            selectedUnit.transform.position = originalWorldPos;
-            placedUnits.Add(originalUnitPosition, selectedUnit);
+            // 활성화된 배치 모드(유닛, 벽 등)가 있다면 강제로 종료합니다.
+            if (placementManager.GetCurrentMode() != PlacementMode.None)
+            {
+                placementManager.StopPlacementMode();
+            }
 
-            Debug.Log($"<color=orange>게임 상태 변경으로 인해 {selectedUnit.Data.unitName}의 배치가 취소되고 원위치로 돌아갑니다.</color>");
-            
-            // 드래그 상태를 초기화합니다.
-            selectedUnit = null;
+            // 유닛을 드래그하는 중이었다면 취소하고 원위치시킵니다.
+            if (selectedUnit != null)
+            {
+                Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                selectedUnit.transform.position = originalWorldPos;
+                // 드래그 중에는 placedUnits에서 제거되지 않으므로, 다시 Add할 필요가 없습니다.
+
+                Debug.Log($"<color=orange>전투 시작으로 인해 {selectedUnit.Data.unitName}의 배치가 취소되고 원위치로 돌아갑니다.</color>");
+
+                // 드래그 상태를 초기화합니다.
+                selectedUnit = null;
+            }
         }
     }
 
@@ -143,14 +165,15 @@ public class FieldManager : MonoBehaviour
 
         Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
         GameObject wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
-        if (statusBarPrefab != null)
-        {
-            Instantiate(statusBarPrefab, wallGO.transform);
-        }
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
 
         if (wallComponent != null)
         {
+            if (statusBarPrefab != null)
+            {
+                GameObject statusBarGO = Instantiate(statusBarPrefab, wallGO.transform);
+                wallComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
+            }
             wallComponent.Initialize(this, gridPosition);
             placedWalls.Add(gridPosition, wallComponent);
         }
@@ -266,14 +289,15 @@ public class FieldManager : MonoBehaviour
         }
         Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
         GameObject newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
-        if (statusBarPrefab != null)
-        {
-            Instantiate(statusBarPrefab, newUnitGO.transform);
-        }
         Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
 
         if (newUnitComponent != null)
         {
+            if (statusBarPrefab != null)
+            {
+                GameObject statusBarGO = Instantiate(statusBarPrefab, newUnitGO.transform);
+                newUnitComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
+            }
             newUnitComponent.Initialize(data, starLevel);
             placedUnits.Add(gridPosition, newUnitComponent);
         }
@@ -374,46 +398,226 @@ public class FieldManager : MonoBehaviour
 
     #endregion
 
-    #region 유닛 드래그 앤 드롭 로직
+    #region 유닛 상세 정보 패널 및 드래그 앤 드롭
+    
     private void HandleUnitDragAndDrop()
     {
-        if (GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare) return;
+        var gameState = GameManagers.Instance.GetGameState();
+        if (gameState != GameManagers.GameState.Prepare && gameState != GameManagers.GameState.Combat) return;
+
         if (playerCamera == null || ObstacleTilemap == null) return;
         
         Vector3 mouseWorldPos = playerCamera.ScreenToWorldPoint(Input.mousePosition);
         Vector3Int gridPos = ObstacleTilemap.WorldToCell(mouseWorldPos);
 
+        // 마우스 버튼을 눌렀을 때
         if (Input.GetMouseButtonDown(0))
         {
-            if (placedUnits.ContainsKey(gridPos))
+            Unit clickedUnit = placedUnits.ContainsKey(gridPos) ? placedUnits[gridPos] : null;
+
+            // 패널이 열려있는 상태에서
+            if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
             {
-                selectedUnit = placedUnits[gridPos];
-                originalUnitPosition = gridPos;
+                // 표시된 유닛을 다시 클릭한 경우 -> 패널 닫고 아무것도 안 함
+                if (clickedUnit != null && clickedUnit == unitDisplayedInPanel)
+                {
+                    UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
+                    unitDetailPanelInstance = null;
+                    unitDisplayedInPanel = null;
+                    selectedUnit = null; // 모든 상태 초기화
+                    return;
+                }
+                
+                // UI가 아닌 다른 곳을 클릭한 경우 -> 패널 닫고 클릭한 대상에 대한 처리 계속
+                if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+                {
+                    UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
+                    unitDetailPanelInstance = null;
+                    unitDisplayedInPanel = null;
+                }
+            }
+
+            // 이제 클릭한 대상에 대한 처리 (드래그 시작 또는 새 패널 열기 준비)
+            if (clickedUnit != null)
+            {
+                selectedUnit = clickedUnit;
+                mouseDownTimer = 0f;
+                isDragStarted = false;
+                originalUnitPosition = ObstacleTilemap.WorldToCell(selectedUnit.transform.position);
                 offset = selectedUnit.transform.position - mouseWorldPos;
             }
         }
 
+        // 마우스 버튼을 누르고 있을 때
         if (Input.GetMouseButton(0) && selectedUnit != null)
         {
+            // 드래그 상태와 관계없이 유닛 미리보기 위치를 부드럽게 업데이트합니다.
             selectedUnit.transform.position = new Vector3(mouseWorldPos.x + offset.x, mouseWorldPos.y + offset.y, selectedUnit.transform.position.z);
+
+            // 아직 드래그가 시작되지 않았다면, 타이머를 확인하여 드래그 상태로 전환할지 결정합니다.
+            if (!isDragStarted)
+            {
+                mouseDownTimer += Time.deltaTime;
+                // 준비 단계일 때만 드래그를 시작할 수 있습니다.
+                if (mouseDownTimer >= dragDelay && gameState == GameManagers.GameState.Prepare)
+                {
+                    // 드래그 시작
+                    isDragStarted = true;
+                    // offset과 originalUnitPosition은 이미 GetMouseButtonDown에서 설정되었습니다.
+                    
+                    // 드래그가 시작되면 열려있던 상세 정보 패널을 닫음
+                    if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
+                    {
+                        UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
+                        unitDetailPanelInstance = null;
+                        unitDisplayedInPanel = null;
+                    }
+                }
+            }
         }
 
+        // 마우스 버튼을 뗐을 때
         if (Input.GetMouseButtonUp(0) && selectedUnit != null)
         {
-            if (placementManager.IsPositionValidForPlacement(gridPos, selectedUnit.Data))
+            if (isDragStarted)
             {
-                // 실제 이동은 PlayerManager의 이벤트 핸들러가 처리하도록 요청만 보냅니다.
-                GameEvents.TriggerUnitMoveRequested(playerManager, originalUnitPosition, gridPos);
+                // 드래그 종료 로직 (기존과 동일)
+                if (placementManager.IsPositionValidForPlacement(gridPos, selectedUnit.Data))
+                {
+                    GameEvents.TriggerUnitMoveRequested(playerManager, originalUnitPosition, gridPos);
+                }
+                else
+                {
+                    Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                    selectedUnit.transform.position = originalWorldPos;
+                }
             }
             else
             {
-                // 잘못된 위치이므로, 로컬에서 즉시 원위치로 되돌립니다.
+                // 짧은 클릭이었으므로, 유닛을 원래 위치로 되돌리고 상세 정보 패널을 엽니다.
                 Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
                 selectedUnit.transform.position = originalWorldPos;
-                // 유닛이 목록에서 제거된 적이 없으므로 다시 추가할 필요가 없습니다.
+                ShowUnitDetailPanel(selectedUnit);
             }
+            
+            // 상태 초기화
             selectedUnit = null;
+            isDragStarted = false;
         }
     }
+
+    private async void ShowUnitDetailPanel(Unit unit)
+    {
+        // 패널 인스턴스가 없으면 UIManagers를 통해 가져옵니다.
+        // 이는 씬에 미리 배치된 패널을 찾거나, 없을 경우 새로 생성하는 역할을 합니다.
+        if (unitDetailPanelInstance == null)
+        {
+            unitDetailPanelInstance = await UIManagers.Instance.GetUIElement("UI_Pnl_UnitDetail");
+        }
+
+        if (unitDetailPanelInstance != null)
+        {
+            var controller = unitDetailPanelInstance.GetComponent<UnitDetailPanelController>();
+            if (controller != null)
+            {
+                controller.DisplayUnitInfo(unit);
+                // 패널의 위치는 프리팹/씬에 설정된 고정 위치를 사용하므로, 여기서 위치를 변경하지 않습니다.
+                unitDetailPanelInstance.SetActive(true);
+                unitDisplayedInPanel = unit;
+            }
+        }
+    }
+    #endregion
+
+    #region 범위 표시
+    
+    /// <summary>
+    /// 지정된 유닛의 공격 및 스킬 범위를 원형으로 표시하고, 겹치는 경우 렌더링 순서를 조정합니다.
+    /// </summary>
+    public void ShowRanges(Unit unit)
+    {
+        if (unit == null) return;
+
+        ClearRanges();
+
+        // 1. 각 범위 값 가져오기
+        float attackRange = unit.currentAttackRange;
+        float skillRange = 0f;
+
+        if (skillRangeIndicatorPrefab != null && unit.Data.skillsByStarLevel.Length >= unit.starLevel &&
+            unit.Data.skillsByStarLevel[unit.starLevel - 1] != null)
+        {
+            SkillData currentSkill = unit.Data.skillsByStarLevel[unit.starLevel - 1];
+            // [중요] 아래 코드는 SkillData 스크립트에 'public float range;' 변수가 있다고 가정합니다.
+            // 만약 변수 이름이 다르다면 이 부분을 실제 변수 이름으로 수정해야 합니다.
+            skillRange = currentSkill.range; 
+        }
+
+        bool showAttack = attackRangeIndicatorPrefab != null && attackRange > 0;
+        bool showSkill = skillRangeIndicatorPrefab != null && skillRange > 0;
+
+        if (!showAttack && !showSkill) return;
+
+        // 2. 범위가 동일할 경우 시각적 조정을 위해 공격 범위 약간 축소
+        float attackDiameter = attackRange * 2f;
+        float skillDiameter = skillRange * 2f;
+
+        if (showAttack && showSkill && Mathf.Approximately(attackRange, skillRange))
+        {
+            attackDiameter *= 0.95f; // 공격 범위를 약간 줄여서 둘 다 보이게 함
+        }
+        
+        // 3. 범위 인디케이터 생성 및 크기 설정
+        if (showAttack)
+        {
+            attackRangeIndicatorInstance = Instantiate(attackRangeIndicatorPrefab, unit.transform.position, Quaternion.identity, transform);
+            attackRangeIndicatorInstance.transform.localScale = new Vector3(attackDiameter, attackDiameter, 1f);
+        }
+        if (showSkill)
+        {
+            skillRangeIndicatorInstance = Instantiate(skillRangeIndicatorPrefab, unit.transform.position, Quaternion.identity, transform);
+            skillRangeIndicatorInstance.transform.localScale = new Vector3(skillDiameter, skillDiameter, 1f);
+        }
+
+        // 4. 두 범위가 모두 표시될 때 렌더링 순서(Sorting Order) 조정
+        if (showAttack && showSkill)
+        {
+            SpriteRenderer attackRenderer = attackRangeIndicatorInstance.GetComponent<SpriteRenderer>();
+            SpriteRenderer skillRenderer = skillRangeIndicatorInstance.GetComponent<SpriteRenderer>();
+
+            if (attackRenderer != null && skillRenderer != null)
+            {
+                // 더 큰 범위를 뒤에(sortingOrder = 0), 작은 범위를 앞에(sortingOrder = 1) 렌더링
+                if (attackDiameter > skillDiameter)
+                {
+                    attackRenderer.sortingOrder = 0; // 뒤
+                    skillRenderer.sortingOrder = 1;  // 앞
+                }
+                else
+                {
+                    skillRenderer.sortingOrder = 0;  // 뒤
+                    attackRenderer.sortingOrder = 1; // 앞
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 표시된 모든 범위를 제거합니다.
+    /// </summary>
+    public void ClearRanges()
+    {
+        if (attackRangeIndicatorInstance != null)
+        {
+            Destroy(attackRangeIndicatorInstance);
+            attackRangeIndicatorInstance = null;
+        }
+        if (skillRangeIndicatorInstance != null)
+        {
+            Destroy(skillRangeIndicatorInstance);
+            skillRangeIndicatorInstance = null;
+        }
+    }
+
     #endregion
 }
