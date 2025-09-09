@@ -35,6 +35,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     public float currentAttackRange { get; private set; }
     public float currentDefense { get; private set; }
     public float currentMagicResistance { get; private set; }
+    
+    public SkillActivationType currentSkillActivationType { get; set; }
 
     private ManaController manaController;
     private StatusBarUI statusBarUI;
@@ -126,7 +128,9 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         int newMaxMana = 0;
         if (DoesHaveSkill())
         {
-            newMaxMana = unitData.skillsByStarLevel[starLevel - 1].manaCost;
+            SkillData currentSkill = unitData.skillsByStarLevel[starLevel - 1];
+            newMaxMana = currentSkill.manaCost;
+            currentSkillActivationType = currentSkill.activationType;
         }
         manaController.Initialize(newMaxMana);
 
@@ -169,7 +173,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
         if (currentSkillData == null) return;
 
-        if (currentSkillData.activationType == SkillActivationType.Automatic)
+        if (currentSkillActivationType == SkillActivationType.Automatic)
         {
             ActivateSkill();
         }

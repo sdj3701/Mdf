@@ -10,17 +10,17 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1ce8c3f4810fbf84eb609f7a2c04e854, type: 3}
-  m_Name: Skill_Heal
+  m_Name: Skill_AreaMagicDamage
   m_EditorClassIdentifier: 
-  skillName: Skill_Heal
-  description: "\uC8FC\uBCC0 5\uBC94\uC704\uC758 \uC544\uAD70\uB4E4\uC758 \uCCB4\uB825\uC744
-    100 \uD68C\uBCF5\uD569\uB2C8\uB2E4."
-  icon: {fileID: 21300000, guid: 4db3a0d22236b7542a789ac2ecbffcad, type: 3}
+  skillName: Skill_AreaMagicDamage
+  description: "\uC8FC\uBCC0 1\uBC94\uC704\uC758 \uC801\uB4E4\uC5D0\uAC8C \uB9C8\uBC95
+    \uD53C\uD574\uB97C \uC785\uD799\uB2C8\uB2E4."
+  icon: {fileID: 21300000, guid: 1a488ad75fed8cf47aeff44454147552, type: 3}
   manaCost: 30
   range: 5
   activationType: 1
-  targetingStrategy: {fileID: 11400000, guid: 0a5a8f83e0e70bc418527186dff4b1f1, type: 2}
+  targetingStrategy: {fileID: 11400000, guid: ac91b01935cc0cb41ace8ebc9f3b1d08, type: 2}
   effects:
-  - {fileID: 11400000, guid: c1e794da53825bb4a987f2ee17b9eb23, type: 2}
+  - {fileID: 11400000, guid: 741ed1b9007a94f4687fdd7251993847, type: 2}
   vfxPrefab: {fileID: 3178614178979242518, guid: 89f2776e47e86d44ea455ef0ac412247,
     type: 3}

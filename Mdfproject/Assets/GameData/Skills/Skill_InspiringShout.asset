@@ -15,10 +15,10 @@ MonoBehaviour:
   skillName: InspiringShout_Skill
   description: "\uC8FC\uBCC0 \uC544\uAD70\uC720\uB2DB\uC758 \uACF5\uACA9\uC18D\uB3C4\uB97C
     5\uCD08\uAC04 \uC99D\uAC00"
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: df0ff31fb10285a40a309a00dc3a5fc9, type: 3}
   manaCost: 50
   range: 4
-  activationType: 0
+  activationType: 1
   targetingStrategy: {fileID: 11400000, guid: 0a5a8f83e0e70bc418527186dff4b1f1, type: 2}
   effects:
   - {fileID: 11400000, guid: 5d6027c2bef9b484d965bb8c818e5d12, type: 2}

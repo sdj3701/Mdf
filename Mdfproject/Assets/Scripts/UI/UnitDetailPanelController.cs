@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 
 /// <summary>
@@ -19,6 +20,9 @@ public class UnitDetailPanelController : MonoBehaviour
     [SerializeField] private TextMeshProUGUI blockCountText;
     [SerializeField] private TextMeshProUGUI manaRegenText;
     [SerializeField] private TextMeshProUGUI skillDescriptionText;
+    [SerializeField] private Toggle skillActivationToggle;
+
+    private Unit currentUnit;
 
     /// <summary>
     /// 전달받은 유닛의 정보로 UI 패널의 내용을 채웁니다.
@@ -32,6 +36,8 @@ public class UnitDetailPanelController : MonoBehaviour
             gameObject.SetActive(false);
             return;
         }
+
+        currentUnit = unit;
 
         // 기본 스탯 정보 업데이트
         unitNameText.text = unit.Data.unitName;
@@ -49,6 +55,7 @@ public class UnitDetailPanelController : MonoBehaviour
         
         // 스킬 정보 업데이트
         UpdateSkillDescription(unit);
+        UpdateSkillToggle(unit);
 
         // 필드에 유닛의 공격 및 스킬 범위 표시 요청
         if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null && GameManagers.Instance.localPlayer.fieldManager != null)
@@ -63,6 +70,39 @@ public class UnitDetailPanelController : MonoBehaviour
         if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null && GameManagers.Instance.localPlayer.fieldManager != null)
         {
             GameManagers.Instance.localPlayer.fieldManager.ClearRanges();
+        }
+
+        if (skillActivationToggle != null)
+        {
+            skillActivationToggle.onValueChanged.RemoveAllListeners();
+        }
+        currentUnit = null;
+    }
+
+    private void UpdateSkillToggle(Unit unit)
+    {
+        if (skillActivationToggle == null) return;
+
+        skillActivationToggle.onValueChanged.RemoveAllListeners();
+
+        if (unit.Data.skillsByStarLevel.Length >= unit.starLevel &&
+            unit.Data.skillsByStarLevel[unit.starLevel - 1] != null)
+        {
+            skillActivationToggle.gameObject.SetActive(true);
+            skillActivationToggle.isOn = (unit.currentSkillActivationType == SkillActivationType.Automatic);
+            skillActivationToggle.onValueChanged.AddListener(OnSkillActivationToggleChanged);
+        }
+        else
+        {
+            skillActivationToggle.gameObject.SetActive(false);
+        }
+    }
+
+    private void OnSkillActivationToggleChanged(bool isAutomatic)
+    {
+        if (currentUnit != null)
+        {
+            currentUnit.currentSkillActivationType = isAutomatic ? SkillActivationType.Automatic : SkillActivationType.Manual;
         }
     }
 
