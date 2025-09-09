@@ -10,10 +10,15 @@ using UnityEngine.SceneManagement;
 using System.IO;
 using Fusion.Photon.Realtime;
 
+// Fusion 2와 호환되는 빈 입력 구조체
 public struct NetworkInputData : INetworkInput
 {
 }
 
+/// <summary>
+/// Photon Fusion 2 네트워크 연결, 세션 관리(방 생성/참여/목록), 씬 전환을 담당하는 핵심 클래스입니다.
+/// INetworkRunnerCallbacks 인터페이스를 구현하여 네트워크 이벤트를 처리합니다.
+/// </summary>
 public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 {
     public static NetworkManager Instance { get; private set; }
@@ -21,75 +26,111 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     [Header("Network Settings")]
     [SerializeField] private int _maxPlayers = 2;
     [SerializeField] private GameObject _networkPlayerPrefab;
+    
+    [Header("Debug")]
+    [Tooltip("활성화하면 화면 좌측 상단에 네트워크 연결 및 플레이어 수 정보가 표시됩니다.")]
+    [SerializeField] private bool _showDebugInfo = true;
 
+    // 게임 플레이를 위한 메인 NetworkRunner
     private NetworkRunner _runner;
+    // 로비 연결 및 방 목록 조회를 위한 별도의 NetworkRunner
     private NetworkRunner _lobbyRunner;
     
+    // 씬 전환 시 언로드할 이전 씬의 이름을 저장
     private string _previousSceneToUnload;
-
-    #region 기본 함수
+    
+    // 로컬에 캐시된 방 목록
     private Dictionary<string, SessionInfo> _roomList = new Dictionary<string, SessionInfo>();
     
+    // 플레이어 정보
     private string _playerNickname;
     private string _playerPassword;
-    private bool _isConnectedToServer = false;
     private string _currentRoomName;
-
+    
+    // 네트워크 상태 관련 이벤트
+    private bool _isConnectedToServer = false;
     public event Action<List<SessionInfo>> OnRoomListUpdated;
     public event Action<bool> OnConnectionStatusChanged;
     public event Action<string> OnErrorOccurred;
     public event Action<bool> OnServerConnected;
     public event Action<int> OnRoomPlayerCountChanged;
 
-    private const string FIXED_APP_VERSION = "1.0";
-    private const string FIXED_REGION = "kr";
+    // 모든 빌드와 에디터에서 동일하게 유지되어야 하는 고정 값
+    private const string FIXED_APP_VERSION = "MDF_1.0";
+    private const string FIXED_REGION = "asia";
+    private const string FIXED_LOBBY_NAME = "MainLobby";
 
     private bool _isRefreshingList = false;
 
+    #region Unity Lifecycle & Initialization
+
     private void Awake()
     {
+        // 싱글톤 패턴 구현
         if (Instance == null)
         {
             Instance = this;
+            // [수정] DontDestroyOnload -> DontDestroyOnLoad (대소문자 수정)
             DontDestroyOnLoad(gameObject);
             gameObject.name = "NetworkManager (Singleton)";
-            EnsurePhotonSettings();
+            EnsurePhotonSettings(); // Photon 설정이 올바른지 확인 및 강제 적용
         }
         else if (Instance != this)
         {
             Destroy(gameObject);
         }
     }
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
+        {
+            DisconnectCompletely(); // 오브젝트 파괴 시 모든 연결 종료
+            Instance = null;
+        }
+    }
     
+    /// <summary>
+    /// PhotonAppSettings 에셋을 찾아 올바른 값(앱 버전, 지역 등)이 설정되었는지 확인하고 강제로 업데이트합니다.
+    /// 이를 통해 빌드와 에디터 간의 버전 불일치 문제를 예방합니다.
+    /// </summary>
     private void EnsurePhotonSettings()
     {
         try
         {
-            var allSettings = Resources.LoadAll<Fusion.Photon.Realtime.PhotonAppSettings>("");
-            Fusion.Photon.Realtime.PhotonAppSettings appSettings = null;
-            
-            appSettings = Resources.Load<Fusion.Photon.Realtime.PhotonAppSettings>("PhotonFusionSettings");
-            
-            if (appSettings == null)
-            {
-                string[] possibleNames = { "PhotonAppSettings", "FusionAppSettings", "AppSettings" };
-                foreach (string name in possibleNames)
-                {
-                    appSettings = Resources.Load<Fusion.Photon.Realtime.PhotonAppSettings>(name);
-                    if (appSettings != null) break;
-                }
-            }
-            
-            if (appSettings == null && allSettings.Length > 0)
-            {
-                appSettings = allSettings[0];
-            }
+            var appSettings = Resources.Load<Fusion.Photon.Realtime.PhotonAppSettings>("PhotonAppSettings");
             
             if (appSettings != null)
             {
-                appSettings.AppSettings.AppVersion = FIXED_APP_VERSION;
-                appSettings.AppSettings.FixedRegion = FIXED_REGION;
-                Debug.Log($"<color=green>[NetworkManager] PhotonAppSettings 설정 완료! Version: {FIXED_APP_VERSION}, Region: {FIXED_REGION}</color>");
+                bool needsSave = false;
+                
+                if (appSettings.AppSettings.AppVersion != FIXED_APP_VERSION)
+                {
+                    appSettings.AppSettings.AppVersion = FIXED_APP_VERSION;
+                    needsSave = true;
+                }
+                
+                if (appSettings.AppSettings.FixedRegion != FIXED_REGION)
+                {
+                    appSettings.AppSettings.FixedRegion = FIXED_REGION;
+                    needsSave = true;
+                }
+                
+                if (!appSettings.AppSettings.EnableLobbyStatistics)
+                {
+                    appSettings.AppSettings.EnableLobbyStatistics = true;
+                    needsSave = true;
+                }
+
+#if UNITY_EDITOR
+                if (needsSave)
+                {
+                    UnityEditor.EditorUtility.SetDirty(appSettings);
+                    UnityEditor.AssetDatabase.SaveAssets();
+                    Debug.Log("<color=green>[NetworkManager] PhotonAppSettings가 업데이트되고 저장되었습니다.</color>");
+                }
+#endif
+                Debug.Log($"<color=green>[NetworkManager] PhotonAppSettings 확인 완료. AppVersion: {appSettings.AppSettings.AppVersion}, Region: {appSettings.AppSettings.FixedRegion}</color>");
             }
             else
             {
@@ -98,19 +139,13 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
         catch (Exception e)
         {
-            Debug.LogError($"[NetworkManager] PhotonAppSettings 설정 실패: {e.Message}");
+            Debug.LogError($"[NetworkManager] PhotonAppSettings 설정 중 오류 발생: {e.Message}");
         }
     }
 
-    private void OnDestroy()
-    {
-        if (Instance == this)
-        {
-            Disconnect();
-            Instance = null;
-        }
-    }
-
+    /// <summary>
+    /// 게임 플레이에 사용할 NetworkRunner를 초기화합니다.
+    /// </summary>
     private void InitializeRunner()
     {
         if (_runner != null && _runner.IsRunning) return;
@@ -120,174 +155,119 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _runner = runnerGo.AddComponent<NetworkRunner>();
         _runner.ProvideInput = true;
         _runner.AddCallbacks(this);
-        
-        Debug.Log($"<color=blue>[NetworkManager] 게임 러너 초기화 완료</color>");
     }
-
+    
+    /// <summary>
+    /// 로비 연결 및 방 목록 조회에 사용할 NetworkRunner를 초기화합니다.
+    /// </summary>
     private void InitializeLobbyRunner()
     {
         if (_lobbyRunner != null)
         {
-            if (_lobbyRunner.IsRunning)
-            {
-                _lobbyRunner.Shutdown();
-            }
+            if (_lobbyRunner.IsRunning) _lobbyRunner.Shutdown();
             Destroy(_lobbyRunner.gameObject);
-            _lobbyRunner = null;
         }
 
-        GameObject runnerGo = new GameObject("LobbyRunner (Temp)");
+        GameObject runnerGo = new GameObject("LobbyRunner (Persistent)");
         _lobbyRunner = runnerGo.AddComponent<NetworkRunner>();
-        _lobbyRunner.ProvideInput = true; 
         _lobbyRunner.AddCallbacks(this);
-        _lobbyRunner.name = "LobbyRunner (Temp)";
-        
-        Debug.Log($"<color=blue>[NetworkManager] 로비 러너 초기화 완료</color>");
     }
     
+    #endregion
+
+    #region Core Network Functions (Connect, Create, Join)
+
+    /// <summary>
+    /// Photon Fusion 서버 및 메인 로비에 연결합니다.
+    /// </summary>
     public async Task<bool> ConnectToServer(string nickname, string password)
     {
-        try
-        {
-            if (string.IsNullOrEmpty(nickname) || nickname.Length < 2 || nickname.Length > 20)
-            {
-                OnErrorOccurred?.Invoke("닉네임은 2-20자 사이여야 합니다.");
-                return false;
-            }
-            if (string.IsNullOrEmpty(password) || password.Length < 4)
-            {
-                OnErrorOccurred?.Invoke("패스워드는 최소 4자 이상이어야 합니다.");
-                return false;
-            }
-
-            _playerNickname = nickname;
-            _playerPassword = password;
-
-            PlayerPrefs.SetString("PlayerNickname", nickname);
-            PlayerPrefs.SetString("PlayerPassword", password);
-            PlayerPrefs.Save();
-
-            _isConnectedToServer = true;
-            Debug.Log($"[NetworkManager] 로그인 성공! 닉네임: {nickname}");
-            OnServerConnected?.Invoke(true);
-
-            await Task.Delay(100);
-            SceneManager.LoadScene("MatchingLobby");
-            return true;
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"[NetworkManager] 로그인 오류: {e.Message}");
-            OnErrorOccurred?.Invoke($"로그인 오류: {e.Message}");
-            OnServerConnected?.Invoke(false);
-            return false;
-        }
-    }
-    #endregion
-    
-    public async Task<bool> CreateRoom(string roomName, string sceneName = "JoinLobby")
-    {
-        Debug.Log($"<color=yellow>[NetworkManager] === 방 생성 시작 ===</color>");
-        Debug.Log($"<color=yellow>[NetworkManager] 방 이름: '{roomName}', 씬: '{sceneName}'</color>");
+        _playerNickname = nickname;
+        _playerPassword = password;
+        PlayerPrefs.SetString("PlayerNickname", nickname);
+        PlayerPrefs.SetString("PlayerPassword", password);
+        PlayerPrefs.Save();
         
-        InitializeRunner();
-
-        int sceneIndex = -1;
-        for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
-        {
-            string path = SceneUtility.GetScenePathByBuildIndex(i);
-            string nameInBuild = Path.GetFileNameWithoutExtension(path);
-            if (nameInBuild.Equals(sceneName))
-            {
-                sceneIndex = i;
-                break;
-            }
-        }
-
-        if (sceneIndex < 0)
-        {
-            string errorMsg = $"씬 '{sceneName}'을(를) 빌드 설정에서 찾을 수 없습니다.";
-            Debug.LogError($"[NetworkManager] {errorMsg}");
-            OnErrorOccurred?.Invoke(errorMsg);
-            return false;
-        }
-
-        Debug.Log($"<color=yellow>[NetworkManager] 씬 인덱스 찾음: {sceneIndex}</color>");
-
-        var sceneManager = _runner.gameObject.AddComponent<NetworkSceneManagerDefault>();
-        _previousSceneToUnload = SceneManager.GetActiveScene().name;
-
+        InitializeLobbyRunner();
+        
         var args = new StartGameArgs
         {
-            GameMode = GameMode.Host,
-            SessionName = roomName,
-            Scene = SceneRef.FromIndex(sceneIndex),
-            SceneManager = sceneManager,
-            PlayerCount = _maxPlayers
+            GameMode = GameMode.Shared,
+            SessionName = $"LobbyBrowser_{Guid.NewGuid().ToString().Substring(0, 6)}",
+            CustomLobbyName = FIXED_LOBBY_NAME,
+            PlayerCount = 1
         };
-
-        Debug.Log($"<color=yellow>[NetworkManager] StartGame 호출 시작...</color>");
-        Debug.Log($"<color=yellow>[NetworkManager] GameMode: {args.GameMode}, SessionName: {args.SessionName}, PlayerCount: {args.PlayerCount}</color>");
-
-        var result = await _runner.StartGame(args);
-
-        Debug.Log($"<color=yellow>[NetworkManager] StartGame 결과: Ok={result.Ok}, ShutdownReason={result.ShutdownReason}</color>");
-
+        
+        var result = await _lobbyRunner.StartGame(args);
+        
         if (result.Ok)
         {
-            _currentRoomName = roomName;
-            Debug.Log($"<color=green>[NetworkManager] ✅ 방 '{roomName}' 생성 성공!</color>");
-            Debug.Log($"<color=green>[NetworkManager] 러너 상태: IsServer={_runner.IsServer}, IsRunning={_runner.IsRunning}</color>");
-            
-            if (_runner.SessionInfo != null)
-            {
-                Debug.Log($"<color=green>[NetworkManager] 세션 정보: Name={_runner.SessionInfo.Name}, IsOpen={_runner.SessionInfo.IsOpen}, IsVisible={_runner.SessionInfo.IsVisible}, PlayerCount={_runner.SessionInfo.PlayerCount}</color>");
-            }
-            
-            OnConnectionStatusChanged?.Invoke(true);
-            
-            await Task.Delay(2000);
-            
-            Debug.Log($"<color=green>[NetworkManager] === 방 생성 완료 ===</color>");
+            _isConnectedToServer = true;
+            OnServerConnected?.Invoke(true);
+            SceneManager.LoadScene("MatchingLobby");
             return true;
         }
         else
         {
-            _previousSceneToUnload = null;
-            Debug.LogError($"<color=red>[NetworkManager] ❌ 방 생성 실패: {result.ShutdownReason}</color>");
+            OnErrorOccurred?.Invoke($"서버 연결 실패: {result.ShutdownReason}");
+            OnServerConnected?.Invoke(false);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 새로운 방을 생성합니다. (호스트 역할)
+    /// </summary>
+    public async Task<bool> CreateRoom(string roomName, string sceneName = "JoinLobby")
+    {
+        InitializeRunner();
+
+        int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
+        if (sceneIndex < 0)
+        {
+            OnErrorOccurred?.Invoke($"씬 '{sceneName}'을(를) 빌드 설정에서 찾을 수 없습니다.");
+            return false;
+        }
+
+        _previousSceneToUnload = SceneManager.GetActiveScene().name;
+
+        var result = await _runner.StartGame(new StartGameArgs
+        {
+            GameMode = GameMode.Host,
+            SessionName = roomName,
+            Scene = SceneRef.FromIndex(sceneIndex),
+            SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
+            PlayerCount = _maxPlayers,
+            CustomLobbyName = FIXED_LOBBY_NAME
+        });
+
+        if (result.Ok)
+        {
+            _currentRoomName = roomName;
+            OnConnectionStatusChanged?.Invoke(true);
+            return true;
+        }
+        else
+        {
             OnErrorOccurred?.Invoke($"방 생성 실패: {result.ShutdownReason}");
             return false;
         }
     }
     
+    /// <summary>
+    /// 기존 방에 참여합니다. (클라이언트 역할)
+    /// </summary>
     public async Task<bool> JoinRoom(string roomName, string sceneName = "JoinLobby")
     {
-        Debug.Log($"<color=cyan>[NetworkManager] === 방 참여 시작 ===</color>");
-        Debug.Log($"<color=cyan>[NetworkManager] 방 이름: '{roomName}', 씬: '{sceneName}'</color>");
-        
         InitializeRunner();
 
-        int sceneIndex = -1;
-        for (int i = 0; i < SceneManager.sceneCountInBuildSettings; i++)
-        {
-            string path = SceneUtility.GetScenePathByBuildIndex(i);
-            string nameInBuild = Path.GetFileNameWithoutExtension(path);
-            if (nameInBuild.Equals(sceneName))
-            {
-                sceneIndex = i;
-                break;
-            }
-        }
-
+        int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
         if (sceneIndex < 0)
         {
-            string errorMsg = $"씬 '{sceneName}'을(를) 빌드 설정에서 찾을 수 없습니다.";
-            Debug.LogError($"[NetworkManager] {errorMsg}");
-            OnErrorOccurred?.Invoke(errorMsg);
+            OnErrorOccurred?.Invoke($"씬 '{sceneName}'을(를) 빌드 설정에서 찾을 수 없습니다.");
             return false;
         }
-        
-        var sceneManager = _runner.gameObject.AddComponent<NetworkSceneManagerDefault>();
+
         _previousSceneToUnload = SceneManager.GetActiveScene().name;
 
         var result = await _runner.StartGame(new StartGameArgs
@@ -295,137 +275,166 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             GameMode = GameMode.Client,
             SessionName = roomName,
             Scene = SceneRef.FromIndex(sceneIndex),
-            SceneManager = sceneManager,
-            PlayerCount = _maxPlayers
+            SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
+            CustomLobbyName = FIXED_LOBBY_NAME
         });
 
         if (result.Ok)
         {
             _currentRoomName = roomName;
-            Debug.Log($"<color=cyan>[NetworkManager] ✅ 방 '{roomName}' 참여 성공!</color>");
             OnConnectionStatusChanged?.Invoke(true);
             return true;
         }
         else
         {
-            _previousSceneToUnload = null;
-            Debug.LogError($"<color=red>[NetworkManager] ❌ 방 참여 실패: {result.ShutdownReason}</color>");
             OnErrorOccurred?.Invoke($"방 참여 실패: {result.ShutdownReason}");
             return false;
         }
     }
-
-#region 방 목록 조회 (올바른 Shared Mode 사용)
+    
+    /// <summary>
+    /// 로비의 방 목록을 새로고침합니다.
+    /// </summary>
     public async Task RefreshRoomList()
     {
-        if (_isRefreshingList) 
-        {
-            Debug.Log("[NetworkManager] 이미 새로고침 진행 중. 스킵.");
-            return;
-        }
+        if (_isRefreshingList || _lobbyRunner == null || !_lobbyRunner.IsRunning) return;
+        
         _isRefreshingList = true;
-
-        Debug.Log($"<color=magenta>[NetworkManager] === 방 목록 새로고침 시작 (Shared 모드) ===</color>");
-
+        Debug.Log($"<color=magenta>[NetworkManager] 방 목록 새로고침 시작...</color>");
+        
         try
         {
-            InitializeLobbyRunner();
+            // OnSessionListUpdated 콜백이 호출될 때까지 잠시 대기합니다.
+            // Fusion 2에서는 명시적인 새로고침 함수가 없으며, 로비에 연결되어 있으면 자동으로 목록이 업데이트됩니다.
+            // 이 Task.Delay는 콜백이 수신될 시간을 주는 역할을 합니다.
+            await Task.Delay(1000); 
             
-            // [수정] 다시 Shared 모드 사용 - 방 목록 조회는 Shared에서만 가능
-            string sessionName = $"LobbyBrowser_{Guid.NewGuid().ToString().Substring(0, 8)}";
-            var args = new StartGameArgs
-            {
-                GameMode = GameMode.Shared,  // Client -> Shared로 변경
-                SessionName = sessionName
-            };
-            
-            Debug.Log($"<color=magenta>[NetworkManager] Shared 모드로 방 목록 조회: {sessionName}</color>");
-
-            var result = await _lobbyRunner.StartGame(args);
-
-            if (!result.Ok)
-            {
-                Debug.LogError($"<color=red>[NetworkManager] ❌ 로비 접속 실패: {result.ShutdownReason}</color>");
-                OnErrorOccurred?.Invoke("방 목록을 가져올 수 없습니다.");
-                _isRefreshingList = false;
-            }
-            else
-            {
-                Debug.Log($"<color=magenta>[NetworkManager] ✅ Shared 모드 로비 접속 성공!</color>");
-                
-                // [추가] 연결 직후 대기 시간을 늘려서 OnSessionListUpdated 호출 대기
-                await Task.Delay(2000); // 2초 대기
-                
-                // OnSessionListUpdated가 호출될 때까지 최대 15초 대기
-                for (int i = 0; i < 15; i++)
-                {
-                    if (!_isRefreshingList) // OnSessionListUpdated에서 false로 변경됨
-                        break;
-                        
-                    await Task.Delay(1000);
-                    Debug.Log($"<color=magenta>[NetworkManager] OnSessionListUpdated 대기 중... ({i+1}/15초)</color>");
-                }
-                
-                if (_isRefreshingList) // 여전히 true라면 타임아웃
-                {
-                    Debug.LogWarning("<color=orange>[NetworkManager] ⚠️ 방 목록 조회 타임아웃 (Shared Mode)</color>");
-                    _lobbyRunner.Shutdown();
-                    _isRefreshingList = false;
-                    OnRoomListUpdated?.Invoke(new List<SessionInfo>());
-                }
-            }
+            // 현재 캐시된 목록을 기반으로 UI를 업데이트합니다.
+            var validRooms = _roomList.Values.Where(r => IsValidRoom(r)).ToList();
+            OnRoomListUpdated?.Invoke(validRooms);
         }
         catch (Exception e)
         {
-            Debug.LogError($"<color=red>[NetworkManager] 방 목록 조회 오류: {e.Message}</color>");
             OnErrorOccurred?.Invoke($"방 목록 조회 오류: {e.Message}");
+        }
+        finally
+        {
             _isRefreshingList = false;
         }
     }
-    #endregion
-
-    public void Disconnect()
+    
+    /// <summary>
+    /// 특정 이름의 방이 존재하는지 확인합니다.
+    /// </summary>
+    public async Task<bool> CheckRoomExists(string roomName)
     {
-        Debug.Log($"<color=gray>[NetworkManager] 연결 해제 시작...</color>");
-        if (_runner != null && _runner.IsRunning)
+        // 3번 재시도하여 방 목록을 확인
+        for (int i = 0; i < 3; i++)
         {
-            _runner.Shutdown();
+            await RefreshRoomList();
+            if (_roomList.ContainsKey(roomName))
+            {
+                return true;
+            }
+            await Task.Delay(1000); // 1초 대기 후 재시도
         }
-        if (_lobbyRunner != null && _lobbyRunner.IsRunning)
-        {
-            _lobbyRunner.Shutdown();
-        }
+        return false;
     }
 
+    /// <summary>
+    /// 게임을 시작합니다. 호스트만 호출할 수 있습니다.
+    /// </summary>
     public void StartGame()
     {
         if (IsHost && CurrentPlayerCount == _maxPlayers)
         {
-            Debug.Log($"<color=purple>[NetworkManager] 게임 시작!</color>");
             _runner.LoadScene("Game");
         }
         else
         {
-            Debug.LogError($"<color=red>[NetworkManager] 게임 시작 조건 미충족: IsHost={IsHost}, PlayerCount={CurrentPlayerCount}/{_maxPlayers}</color>");
+            Debug.LogError($"게임 시작 조건 미충족: IsHost={IsHost}, PlayerCount={CurrentPlayerCount}/{_maxPlayers}");
         }
     }
+
+    /// <summary>
+    /// 현재 게임 세션에서 연결을 끊습니다. (로비 연결은 유지)
+    /// </summary>
+    public void Disconnect()
+    {
+        if (_runner != null && _runner.IsRunning)
+        {
+            _runner.Shutdown();
+        }
+    }
+
+    /// <summary>
+    /// 모든 네트워크 연결(게임, 로비)을 완전히 종료합니다.
+    /// </summary>
+    public void DisconnectCompletely()
+    {
+        if (_runner != null && _runner.IsRunning) _runner.Shutdown();
+        if (_lobbyRunner != null && _lobbyRunner.IsRunning) _lobbyRunner.Shutdown();
+        _isConnectedToServer = false;
+    }
+
+    #endregion
     
+    #region Helper Functions & Properties
+    
+    private bool IsValidRoom(SessionInfo session)
+    {
+        if (session == null || !session.IsValid || !session.IsOpen || !session.IsVisible) return false;
+        if (string.IsNullOrEmpty(session.Name)) return false;
+        if (session.Name.StartsWith("LobbyBrowser_")) return false; // 임시 로비 세션 제외
+        return true;
+    }
+
     public bool IsHost => _runner != null && _runner.IsServer;
     public bool IsConnected => _runner != null && _runner.IsRunning;
-    public bool IsConnectedToServer => _isConnectedToServer;
-    public int CurrentPlayerCount => _runner != null ? _runner.SessionInfo.PlayerCount : 0;
+    public bool IsConnectedToServer => _isConnectedToServer && _lobbyRunner != null && _lobbyRunner.IsRunning;
+    public int CurrentPlayerCount => _runner != null && _runner.SessionInfo != null ? _runner.SessionInfo.PlayerCount : 0;
     public int MaxPlayerCount => _maxPlayers;
     public string PlayerNickname => _playerNickname;
     public string CurrentRoomName => _currentRoomName;
 
-    #region 콜백 함수
+    private void OnGUI()
+    {
+        if (!_showDebugInfo) return;
+
+        GUI.Box(new Rect(10, 10, 350, 140), "");
+        GUILayout.BeginArea(new Rect(15, 15, 340, 130));
+        GUILayout.Label($"AppVer: {FIXED_APP_VERSION} | Region: {FIXED_REGION}");
+        GUILayout.Label($"Lobby: {(_lobbyRunner != null && _lobbyRunner.IsRunning ? "Connected" : "Disconnected")}");
+        GUILayout.Label($"LobbyName: {FIXED_LOBBY_NAME}");
+        
+        if (_runner == null || !_runner.IsRunning)
+        {
+            GUILayout.Label("Game: Disconnected");
+        }
+        else
+        {
+            GUILayout.Label($"Game: Connected ({_runner.GameMode})");
+            if (_runner.SessionInfo != null)
+            {
+                GUILayout.Label($"Room: {_runner.SessionInfo.Name}");
+                GUILayout.Label($"Players: {_runner.SessionInfo.PlayerCount} / {_runner.SessionInfo.MaxPlayers}");
+            }
+        }
+        GUILayout.EndArea();
+    }
+
+    #endregion
+
+    #region INetworkRunnerCallbacks Implementation (Fusion 2)
+
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
-        if (runner == _runner)
+        if (runner == _runner) // 게임 러너에 플레이어가 참여했을 때만 처리
         {
-            Debug.Log($"<color=yellow>[NetworkManager] 🎮 플레이어 {player.PlayerId} 참여. 현재 인원: {runner.SessionInfo.PlayerCount}/{runner.SessionInfo.MaxPlayers}</color>");
+            Debug.Log($"[NetworkManager] 플레이어 참여: {player.PlayerId}. 현재 인원: {runner.SessionInfo.PlayerCount}/{_maxPlayers}");
             if (runner.IsServer)
             {
+                // 호스트는 새로 참여한 플레이어에 대한 네트워크 플레이어 객체를 생성
                 if (_networkPlayerPrefab != null)
                 {
                     runner.Spawn(_networkPlayerPrefab, Vector3.zero, Quaternion.identity, player);
@@ -434,146 +443,131 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             OnRoomPlayerCountChanged?.Invoke(runner.SessionInfo.PlayerCount);
         }
     }
-    
-    public void OnInput(NetworkRunner runner, NetworkInput input)
-    {
-        input.Set(new NetworkInputData());
-    }
 
-    public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
+    public void OnPlayerLeft(NetworkRunner runner, PlayerRef player)
     {
-        Debug.Log($"<color=gray>[NetworkManager] Runner Shutdown: {runner.name}, Reason: {shutdownReason}</color>");
-        
-        if(runner == _runner) OnConnectionStatusChanged?.Invoke(false);
-
-        if (runner.gameObject != null)
+        if (runner == _runner && runner.SessionInfo != null)
         {
-            Destroy(runner.gameObject);
-        }
-        
-        if (runner == _runner) _runner = null;
-        if (runner == _lobbyRunner) 
-        {
-            _lobbyRunner = null;
-            _isRefreshingList = false;
+            Debug.Log($"[NetworkManager] 플레이어 떠남: {player.PlayerId}. 현재 인원: {runner.SessionInfo.PlayerCount}/{_maxPlayers}");
+            OnRoomPlayerCountChanged?.Invoke(runner.SessionInfo.PlayerCount);
         }
     }
 
     public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList)
     {
-        // [추가] 강화된 디버깅
-        Debug.Log($"<color=red>🚨 OnSessionListUpdated 호출됨!</color>");
-        Debug.Log($"<color=red>🚨 Runner 이름: {runner.name}</color>");
-        Debug.Log($"<color=red>🚨 LobbyRunner와 같은가?: {runner == _lobbyRunner}</color>");
-        Debug.Log($"<color=red>🚨 Runner 상태: IsRunning={runner.IsRunning}, GameMode={runner.GameMode}</color>");
-        
+        // 로비 러너로부터 받은 세션 목록만 처리
         if (runner == _lobbyRunner)
         {
-            Debug.Log($"<color=lime>[NetworkManager] 🔍 OnSessionListUpdated 호출됨! (Shared Mode)</color>");
-            Debug.Log($"<color=lime>[NetworkManager] 📊 서버로부터 총 {sessionList.Count}개의 세션 수신</color>");
-            
-            if (sessionList.Count == 0)
+            Debug.Log($"[NetworkManager] 세션 목록 업데이트 수신: {sessionList.Count}개");
+            // 기존 목록을 지우고 새로 받은 목록으로 갱신
+            _roomList.Clear();
+            foreach (var session in sessionList)
             {
-                Debug.Log($"<color=orange>[NetworkManager] ⚠️ 받은 세션 리스트가 비어있습니다!</color>");
-            }
-            else
-            {
-                Debug.Log($"<color=lime>[NetworkManager] === 받은 세션 상세 정보 ===</color>");
-                for (int i = 0; i < sessionList.Count; i++)
+                if (IsValidRoom(session))
                 {
-                    var session = sessionList[i];
-                    Debug.Log($"<color=lime>[NetworkManager] [{i}] 이름: '{session.Name}' | 플레이어: {session.PlayerCount}/{session.MaxPlayers} | 유효: {session.IsValid} | 열림: {session.IsOpen} | 보이기: {session.IsVisible}</color>");
-                }
-                Debug.Log($"<color=lime>[NetworkManager] === 세션 정보 끝 ===</color>");
-            }
-
-            var filteredList = sessionList.Where(s => 
-                s.IsValid && 
-                s.IsOpen && 
-                s.IsVisible && 
-                !string.IsNullOrEmpty(s.Name)
-            ).ToList();
-            
-            Debug.Log($"<color=cyan>[NetworkManager] 📋 필터링 후 {filteredList.Count}개의 방이 유효합니다.</color>");
-            
-            if (filteredList.Count > 0)
-            {
-                Debug.Log($"<color=cyan>[NetworkManager] 유효한 방 목록:</color>");
-                foreach (var room in filteredList)
-                {
-                    Debug.Log($"<color=cyan>[NetworkManager] - '{room.Name}' ({room.PlayerCount}/{room.MaxPlayers})</color>");
+                    _roomList[session.Name] = session;
                 }
             }
-            
-            OnRoomListUpdated?.Invoke(filteredList);
-            
-            // [수정] 콜백이 호출되었으므로 새로고침 상태 해제
-            _isRefreshingList = false;
-            
-            Task.Run(async () =>
-            {
-                await Task.Delay(1000);
-                if (_lobbyRunner != null && _lobbyRunner.IsRunning)
-                {
-                    Debug.Log($"<color=magenta>[NetworkManager] 로비러너 정리 중...</color>");
-                    _lobbyRunner.Shutdown();
-                }
-            });
-        }
-        else
-        {
-            Debug.Log($"<color=red>🚨 Runner 불일치! 현재 러너: {runner.name}, 로비러너: {_lobbyRunner?.name ?? "null"}</color>");
+            // UI 업데이트 이벤트 호출
+            OnRoomListUpdated?.Invoke(_roomList.Values.ToList());
         }
     }
     
-    public void OnSceneLoadDone(NetworkRunner runner) 
+    public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
-        Debug.Log($"<color=blue>[NetworkManager] 씬 로드 완료: {runner.name}</color>");
+        Debug.Log($"[NetworkManager] Runner Shutdown: {runner.name}, Reason: {shutdownReason}");
+        
+        // 게임 러너가 종료되면 연결 상태 변경 이벤트를 호출
+        if(runner == _runner) OnConnectionStatusChanged?.Invoke(false);
+
+        if (runner != null && runner.gameObject != null)
+        {
+            Destroy(runner.gameObject);
+        }
+        
+        if (runner == _runner) _runner = null;
+        if (runner == _lobbyRunner)
+        {
+            _lobbyRunner = null;
+            _isConnectedToServer = false;
+        }
+    }
+
+    public void OnSceneLoadDone(NetworkRunner runner)
+    {
+        // [수정] 현재 활성화된 씬의 이름을 가져오는 방식으로 변경
+        Debug.Log($"[NetworkManager] 씬 로드 완료: {SceneManager.GetActiveScene().name}");
         if (!string.IsNullOrEmpty(_previousSceneToUnload))
         {
-            Debug.Log($"[NetworkManager] 이전 씬 '{_previousSceneToUnload}' 언로드");
             SceneManager.UnloadSceneAsync(_previousSceneToUnload);
             _previousSceneToUnload = null;
         }
     }
     
-    public void OnPlayerLeft(NetworkRunner runner, PlayerRef player) 
+    public void OnConnectedToServer(NetworkRunner runner)
     {
-        if(runner == _runner) 
-        {
-            Debug.Log($"<color=yellow>[NetworkManager] 🚪 플레이어 {player.PlayerId} 떠남</color>");
-            OnRoomPlayerCountChanged?.Invoke(runner.SessionInfo.PlayerCount);
-        }
+        Debug.Log($"[NetworkManager] 서버에 연결되었습니다: {runner.name}");
     }
-    
-    public void OnConnectedToServer(NetworkRunner runner) 
-    { 
-        Debug.Log($"<color=green>[NetworkManager] 🌐 서버 연결됨: {runner.name}</color>");
-    }
-    
+
+    /// <summary>
+    /// [Fusion 2 변경점] OnDisconnectedFromServer 콜백의 시그니처가 변경되었습니다.
+    /// </summary>
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason)
     {
-        Debug.LogWarning($"<color=orange>[NetworkManager] ⚠️ 서버 연결 끊김: {reason}</color>");
+        Debug.LogWarning($"[NetworkManager] 서버로부터 연결이 끊겼습니다: {reason}");
+        // 연결 종료에 대한 전체적인 처리는 OnShutdown에서 담당합니다.
     }
     
-    public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) 
+    public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token)
     {
-        bool shouldAccept = runner.SessionInfo.PlayerCount < _maxPlayers;
-        Debug.Log($"<color=blue>[NetworkManager] 연결 요청: 수락={shouldAccept} (현재 {runner.SessionInfo.PlayerCount}/{_maxPlayers})</color>");
-        
-        if (shouldAccept) request.Accept();
-        else request.Refuse();
+        // 방이 가득 차지 않았고, 열려있는 경우에만 연결을 수락
+        if (runner.SessionInfo != null && runner.SessionInfo.IsOpen && runner.SessionInfo.PlayerCount < _maxPlayers)
+        {
+            request.Accept();
+        }
+        else
+        {
+            request.Refuse();
+        }
     }
-    public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason) { }
+
+    public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason)
+    {
+        Debug.LogError($"[NetworkManager] 연결에 실패했습니다: {reason}");
+    }
+
+    // --- 이하 콜백들은 현재 프로젝트에서 사용하지 않지만, 인터페이스 구현을 위해 필요합니다. ---
+    
+    public void OnInput(NetworkRunner runner, NetworkInput input) { }
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
-    public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
-    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
     public void OnSceneLoadStart(NetworkRunner runner) { }
-
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
     public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
+    
+    /// <summary>
+    /// [Fusion 2 변경점] OnReliableDataReceived 콜백의 시그니처가 변경되었습니다.
+    /// </summary>
+    public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ArraySegment<byte> data) { }
+
+    /// <summary>
+    /// [Fusion 2 변경점] OnReliableDataProgress 콜백의 시그니처가 변경되었습니다.
+    /// </summary>
+    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, float progress) { }
+
+    public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data)
+    {
+        throw new NotImplementedException();
+    }
+
+
+
+    public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress)
+    {
+        throw new NotImplementedException();
+    }
+
     #endregion
 }

@@ -339,6 +339,7 @@ public class JoinLobbyUI : MonoBehaviour
         
         if (_networkManager != null)
         {
+            // ✅ [수정] 방에서 나갈 때는 게임 러너만 종료, 로비 연결은 유지
             _networkManager.Disconnect();
         }
         

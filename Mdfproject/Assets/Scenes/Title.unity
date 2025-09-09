@@ -428,7 +428,7 @@ GameObject:
   - component: {fileID: 490482444}
   - component: {fileID: 490482448}
   m_Layer: 5
-  m_Name: LoginUI
+  m_Name: UI
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -567,6 +567,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _maxPlayers: 2
   _networkPlayerPrefab: {fileID: 0}
+  _showDebugInfo: 1
 --- !u!4 &529547260
 Transform:
   m_ObjectHideFlags: 0
@@ -640,7 +641,9 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Button
+  m_text: 'Connet
+
+'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 9e1b99d6ccc96bf4cbda19a0d93f4879, type: 2}
   m_sharedMaterial: {fileID: -4605728146157214406, guid: 9e1b99d6ccc96bf4cbda19a0d93f4879,
@@ -731,7 +734,7 @@ GameObject:
   - component: {fileID: 745870231}
   - component: {fileID: 745870230}
   m_Layer: 5
-  m_Name: Button
+  m_Name: Connet Button
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -936,7 +939,7 @@ GameObject:
   - component: {fileID: 923475953}
   - component: {fileID: 923475952}
   m_Layer: 5
-  m_Name: Image
+  m_Name: LoginUI
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
