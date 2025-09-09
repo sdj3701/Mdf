@@ -13,6 +13,7 @@ public class SkillData : ScriptableObject
 
     [Header("사용 방식")]
     public int manaCost;
+    public float range; // 스킬의 유효 사거리
     public SkillActivationType activationType;
 
     // [변경됨] skillLogicPrefab 대신 아래 두 개로 대체

@@ -88,7 +88,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         {
             Debug.Log($"<color=magenta>{monsterData.monsterName} 스킬 발동: {skillData.skillName}</color>");
 
-            List<GameObject> targets = skillData.targetingStrategy.FindTargets(this.gameObject, transform.position);
+            List<GameObject> targets = skillData.targetingStrategy.FindTargets(this.gameObject, transform.position, skillData.range);
 
             foreach (var effect in skillData.effects)
             {

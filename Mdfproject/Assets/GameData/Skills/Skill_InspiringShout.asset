@@ -17,6 +17,7 @@ MonoBehaviour:
     5\uCD08\uAC04 \uC99D\uAC00"
   icon: {fileID: 0}
   manaCost: 50
+  range: 4
   activationType: 0
   targetingStrategy: {fileID: 11400000, guid: 0a5a8f83e0e70bc418527186dff4b1f1, type: 2}
   effects:

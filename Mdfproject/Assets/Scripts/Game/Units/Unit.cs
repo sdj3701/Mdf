@@ -193,7 +193,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         {
             Debug.Log($"<color=yellow>{unitData.unitName} 스킬 발동: {currentSkillData.skillName}</color>");
 
-            List<GameObject> targets = currentSkillData.targetingStrategy.FindTargets(this.gameObject, transform.position);
+            List<GameObject> targets = currentSkillData.targetingStrategy.FindTargets(this.gameObject, transform.position, currentSkillData.range);
 
             foreach (var effect in currentSkillData.effects)
             {

@@ -13,10 +13,11 @@ MonoBehaviour:
   m_Name: Skill_AreaMeleeDamage
   m_EditorClassIdentifier: 
   skillName: Skill_AreaMeleeDamage
-  description: "\uC8FC\uBCC0 5\uBC94\uC704\uC758 \uC801\uB4E4\uC5D0\uAC8C \uBB3C\uB9AC
+  description: "\uC8FC\uBCC0 1\uBC94\uC704\uC758 \uC801\uB4E4\uC5D0\uAC8C \uBB3C\uB9AC
     \uD53C\uD574\uB97C \uC785\uD799\uB2C8\uB2E4."
   icon: {fileID: 21300000, guid: 318c134ef724d59428832871a38bb35d, type: 3}
   manaCost: 30
+  range: 1
   activationType: 1
   targetingStrategy: {fileID: 11400000, guid: ac91b01935cc0cb41ace8ebc9f3b1d08, type: 2}
   effects:
