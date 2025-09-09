@@ -30,7 +30,6 @@ public class FieldManager : MonoBehaviour
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
     private Vector3 offset;
-    private Vector3 mouseDownWorldPos;
 
     // 유닛 클릭/드래그 및 상세 정보 패널 관련 변수
     private float mouseDownTimer;
@@ -438,36 +437,37 @@ public class FieldManager : MonoBehaviour
                 selectedUnit = clickedUnit;
                 mouseDownTimer = 0f;
                 isDragStarted = false;
-                mouseDownWorldPos = mouseWorldPos;
+                originalUnitPosition = ObstacleTilemap.WorldToCell(selectedUnit.transform.position);
+                offset = selectedUnit.transform.position - mouseWorldPos;
             }
         }
 
-        // 마우스 버튼을 누르고 있을 때 (드래그 시작 감지)
-        if (Input.GetMouseButton(0) && selectedUnit != null && !isDragStarted)
+        // 마우스 버튼을 누르고 있을 때
+        if (Input.GetMouseButton(0) && selectedUnit != null)
         {
-            mouseDownTimer += Time.deltaTime;
-            // 준비 단계일 때만 드래그를 시작할 수 있습니다.
-            if (mouseDownTimer >= dragDelay && gameState == GameManagers.GameState.Prepare)
+            // 드래그 상태와 관계없이 유닛 미리보기 위치를 부드럽게 업데이트합니다.
+            selectedUnit.transform.position = new Vector3(mouseWorldPos.x + offset.x, mouseWorldPos.y + offset.y, selectedUnit.transform.position.z);
+
+            // 아직 드래그가 시작되지 않았다면, 타이머를 확인하여 드래그 상태로 전환할지 결정합니다.
+            if (!isDragStarted)
             {
-                // 드래그 시작
-                isDragStarted = true;
-                originalUnitPosition = ObstacleTilemap.WorldToCell(selectedUnit.transform.position); // 드래그 시작 시점의 위치를 저장
-                offset = selectedUnit.transform.position - mouseDownWorldPos;
-                
-                // 드래그가 시작되면 열려있던 상세 정보 패널을 닫음
-                if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
+                mouseDownTimer += Time.deltaTime;
+                // 준비 단계일 때만 드래그를 시작할 수 있습니다.
+                if (mouseDownTimer >= dragDelay && gameState == GameManagers.GameState.Prepare)
                 {
-                    UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
-                    unitDetailPanelInstance = null;
-                    unitDisplayedInPanel = null;
+                    // 드래그 시작
+                    isDragStarted = true;
+                    // offset과 originalUnitPosition은 이미 GetMouseButtonDown에서 설정되었습니다.
+                    
+                    // 드래그가 시작되면 열려있던 상세 정보 패널을 닫음
+                    if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
+                    {
+                        UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
+                        unitDetailPanelInstance = null;
+                        unitDisplayedInPanel = null;
+                    }
                 }
             }
-        }
-        
-        // 드래그가 시작되었다면 유닛을 마우스 따라 이동
-        if (isDragStarted && selectedUnit != null)
-        {
-            selectedUnit.transform.position = new Vector3(mouseWorldPos.x + offset.x, mouseWorldPos.y + offset.y, selectedUnit.transform.position.z);
         }
 
         // 마우스 버튼을 뗐을 때
@@ -488,7 +488,9 @@ public class FieldManager : MonoBehaviour
             }
             else
             {
-                // 짧은 클릭이었으므로 상세 정보 패널을 염
+                // 짧은 클릭이었으므로, 유닛을 원래 위치로 되돌리고 상세 정보 패널을 엽니다.
+                Vector3 originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                selectedUnit.transform.position = originalWorldPos;
                 ShowUnitDetailPanel(selectedUnit);
             }
             
