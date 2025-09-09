@@ -102,6 +102,12 @@ MonoBehaviour:
   buyButton: {fileID: 6522918597611531027}
   purchasedOverlay: {fileID: 4325109842688670134}
   starLevelText: {fileID: 239453988722890005}
+  costBorders:
+  - {fileID: 21300000, guid: e92700a15c3cbf14caa7a22b0252ba33, type: 3}
+  - {fileID: 21300000, guid: 3791f64c32ca2c44c9e158cefb12a9b1, type: 3}
+  - {fileID: 21300000, guid: 93b97824a226aa642962af23863abb6b, type: 3}
+  - {fileID: 21300000, guid: 765be8daac9c04344b1a094daeafcf15, type: 3}
+  - {fileID: 21300000, guid: 375a6a7f78ca3754580b29a494ea5e47, type: 3}
 --- !u!1 &37613086710126716
 GameObject:
   m_ObjectHideFlags: 0

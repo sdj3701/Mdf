@@ -99,6 +99,7 @@
     <Compile Include="Assets\Scripts\Game\Targeting\SpecificLayersInRadius.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\EnvMapAnimator.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_UiFrameRateCounter.cs" />
+    <Compile Include="Assets\Scripts\UI\UnitDetailPanelController.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarNode.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IPlacementHandler.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\CameraController.cs" />
@@ -179,7 +180,6 @@
     <Compile Include="Assets\Scripts\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffManager.cs" />
-    <Compile Include="Assets\Scripts\UI\UnitDetailPanelController.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
