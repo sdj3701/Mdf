@@ -9,10 +9,10 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4a9d9873bdb3ae0408ff22a8455b98cb, type: 3}
-  m_Name: AtkSpeed_30Percent_Buff
+  m_Script: {fileID: 11500000, guid: 9d46c9320cd7700468a892dfa634c3a0, type: 3}
+  m_Name: Targeting_Walls
   m_EditorClassIdentifier: 
-  statToBuff: 1
-  value: 1
-  isPercentage: 1
-  duration: 3
+  targetLayers:
+    serializedVersion: 2
+    m_Bits: 32768
+  radius: 5

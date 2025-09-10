@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9d46c9320cd7700468a892dfa634c3a0, type: 3}
-  m_Name: Radius5_Unit_Wall
+  m_Name: Targeting_Unit_Wall
   m_EditorClassIdentifier: 
   targetLayers:
     serializedVersion: 2
