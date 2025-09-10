@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:405516769212:android:3382d5a3f233d24cdfbdb9",
+        "mobilesdk_app_id": "1:405516769212:android:5de5d29463fd710ddfbdb9",
         "android_client_info": {
-          "package_name": "com.dolpungds.mdf"
+          "package_name": "com.dolpungdn.mdf"
         }
       },
       "oauth_client": [],

@@ -158,8 +158,8 @@ PlayerSettings:
   androidSupportedAspectRatio: 1
   androidMaxAspectRatio: 2.1
   applicationIdentifier:
-    Android: com.dolpungds.mdf
-    Standalone: com.dolpungds.mdf
+    Android: com.dolpungdn.mdf
+    Standalone: com.dolpungdn.mdf
     iPhone: com.Unity-Technologies.com.unity.template.urp-blank
   buildNumber:
     Standalone: 0
