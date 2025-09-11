@@ -4,11 +4,84 @@ root = true
 
 [*]
 # 기존 utf-8 대신 utf-8-bom으로 설정
-charset = utf-8-bom
+charset = utf-8
 end_of_line = lf
 insert_final_newline = true
-trim_trailing_whitespace = true```
+trim_trailing_whitespace = true
 
-#### Visual Studio에서 수동 저장 시
 
-파일을 '인코딩하여 저장'할 때는 **`유니코드(UTF-8 서명 포함) - 코드 페이지 65001`**을 선택하시면 됩니다. 이것이 바로 'UTF-8 with BOM'입니다.
+[*.cs]
+# C# Naming Rules
+
+# 1. 심볼 그룹 정의 (어떤 종류의 코드에 적용할지 정의)
+# ----------------------------------------------------------------
+
+# private 또는 protected 필드
+dotnet_naming_symbols.private_protected_fields.applicable_kinds = field
+dotnet_naming_symbols.private_protected_fields.applicable_accessibilities = private, protected
+
+# public 필드
+dotnet_naming_symbols.public_fields.applicable_kinds = field
+dotnet_naming_symbols.public_fields.applicable_accessibilities = public
+
+# 상수 및 static readonly 필드
+dotnet_naming_symbols.constants_and_static_readonly.applicable_kinds = field
+dotnet_naming_symbols.constants_and_static_readonly.required_modifiers = const, static, readonly
+
+# 모든 메서드 (public, private, protected)
+dotnet_naming_symbols.all_methods.applicable_kinds = method
+
+# public 프로퍼티
+dotnet_naming_symbols.public_properties.applicable_kinds = property
+dotnet_naming_symbols.public_properties.applicable_accessibilities = public
+
+# 지역 변수 및 매개변수
+dotnet_naming_symbols.locals_and_parameters.applicable_kinds = local, parameter
+
+
+# 2. 스타일 그룹 정의 (어떤 스타일을 적용할지 정의)
+# ----------------------------------------------------------------
+
+# _camelCase 스타일 (앞에 _가 붙고 소문자로 시작)
+dotnet_naming_style.starts_with_underscore.required_prefix = _
+dotnet_naming_style.starts_with_underscore.capitalization = camel_case
+
+# PascalCase 스타일 (대문자로 시작)
+dotnet_naming_style.pascal_case_style.capitalization = pascal_case
+
+# camelCase 스타일 (소문자로 시작)
+dotnet_naming_style.camel_case_style.capitalization = camel_case
+
+
+# 3. 규칙 적용 (정의된 심볼과 스타일을 연결)
+# ----------------------------------------------------------------
+
+# 규칙: private/protected 필드는 _camelCase를 사용해야 함
+dotnet_naming_rule.private_protected_fields_should_have_underscore.symbols = private_protected_fields
+dotnet_naming_rule.private_protected_fields_should_have_underscore.style = starts_with_underscore
+dotnet_naming_rule.private_protected_fields_should_have_underscore.severity = suggestion
+
+# 규칙: public 필드는 PascalCase를 사용해야 함
+dotnet_naming_rule.public_fields_should_be_pascal_case.symbols = public_fields
+dotnet_naming_rule.public_fields_should_be_pascal_case.style = pascal_case_style
+dotnet_naming_rule.public_fields_should_be_pascal_case.severity = suggestion
+
+# 규칙: 상수 및 static readonly 필드는 PascalCase를 사용해야 함
+dotnet_naming_rule.constants_should_be_pascal_case.symbols = constants_and_static_readonly
+dotnet_naming_rule.constants_should_be_pascal_case.style = pascal_case_style
+dotnet_naming_rule.constants_should_be_pascal_case.severity = suggestion
+
+# 규칙: 모든 메서드는 PascalCase를 사용해야 함
+dotnet_naming_rule.all_methods_should_be_pascal_case.symbols = all_methods
+dotnet_naming_rule.all_methods_should_be_pascal_case.style = pascal_case_style
+dotnet_naming_rule.all_methods_should_be_pascal_case.severity = suggestion
+
+# 규칙: public 프로퍼티는 PascalCase를 사용해야 함
+dotnet_naming_rule.public_properties_should_be_pascal_case.symbols = public_properties
+dotnet_naming_rule.public_properties_should_be_pascal_case.style = pascal_case_style
+dotnet_naming_rule.public_properties_should_be_pascal_case.severity = suggestion
+
+# 규칙: 지역 변수 및 매개변수는 camelCase를 사용해야 함
+dotnet_naming_rule.locals_and_parameters_should_be_camel_case.symbols = locals_and_parameters
+dotnet_naming_rule.locals_and_parameters_should_be_camel_case.style = camel_case_style
+dotnet_naming_rule.locals_and_parameters_should_be_camel_case.severity = suggestion

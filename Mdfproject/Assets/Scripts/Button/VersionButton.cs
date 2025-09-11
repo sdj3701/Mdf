@@ -6,13 +6,13 @@ public class VersionButton : BaseButton
 {
     public async override void OnClick()
     {
-        uiManager.ReturnUIElement("OptionCanvas");
-        await uiManager.GetUIElement("VersionCanvas");
+        _uiManager.ReturnUIElement("OptionCanvas");
+        await _uiManager.GetUIElement("VersionCanvas");
     }
     
     public async override void BackButton()
     {
-        uiManager.ReturnUIElement("VersionCanvas");
-        await uiManager.GetUIElement("OptionCanvas");
+        _uiManager.ReturnUIElement("VersionCanvas");
+        await _uiManager.GetUIElement("OptionCanvas");
     }
 }

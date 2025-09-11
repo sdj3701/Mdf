@@ -1,4 +1,4 @@
-﻿// Assets/Scripts/Managers/PlacementManager.cs
+// Assets/Scripts/Managers/PlacementManager.cs
 using UnityEngine;
 using UnityEngine.Tilemaps;
 using System.Collections.Generic;

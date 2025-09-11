@@ -21,10 +21,10 @@ public class NextScenes : BaseButton
 
     public void GameStartScene()
     {
-        if (gameManagers == null)
-            gameManagers = FindObjectOfType<GameManagers>();
+        if (_gameManagers == null)
+            _gameManagers = FindObjectOfType<GameManagers>();
 
-        if (gameManagers.CurrentQueueSize() == gameManagers.GetMaxSize())
+        if (_gameManagers.CurrentQueueSize() == _gameManagers.GetMaxSize())
         {
             SceneManager.sceneLoaded += OnGameSceneLoaded;
             SceneManager.LoadScene("Game");
@@ -35,7 +35,7 @@ public class NextScenes : BaseButton
             // }
         }
         else
-            Debug.Log($"{gameManagers.GetMaxSize()} 최대 캐릭터 갯수를 충족하지 못했습니다.");
+            Debug.Log($"{_gameManagers.GetMaxSize()} 최대 캐릭터 갯수를 충족하지 못했습니다.");
     }
 
     void OnGameSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -53,18 +53,18 @@ public class NextScenes : BaseButton
     System.Collections.IEnumerator SetupGameUI()
     {
         yield return new WaitForSeconds(0.1f); // UI 초기화 대기
-        
+
         // GameManagers 재참조 (새 씬에서)
-        if (gameManagers == null)
-            gameManagers = FindObjectOfType<GameManagers>();
-        
+        if (_gameManagers == null)
+            _gameManagers = FindObjectOfType<GameManagers>();
+
         // 원래 하려던 작업 실행
         for (int i = 0; i < 3; i++)
         {
-            TMP_Text text = gameManagers.SelectCharacterButton[i].GetComponentInChildren<TMP_Text>();
-            text.text = gameManagers.GetCharacterName(i);
+            TMP_Text text = _gameManagers.SelectCharacterButton[i].GetComponentInChildren<TMP_Text>();
+            text.text = _gameManagers.GetCharacterName(i);
         }
-        
+
         Debug.Log("✅ 캐릭터 버튼 설정 완료!");
     }
 
