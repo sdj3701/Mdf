@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-
+using Cysharp.Threading.Tasks;
 /// <summary>
 /// 유닛 상세 정보 패널의 UI 요소들을 관리하고,
 /// 선택된 유닛의 데이터를 받아와 텍스트를 업데이트하는 클래스입니다.
@@ -28,7 +28,7 @@ public class UnitDetailPanelController : MonoBehaviour
     /// 전달받은 유닛의 정보로 UI 패널의 내용을 채웁니다.
     /// </summary>
     /// <param name="unit">정보를 표시할 유닛</param>
-    public void DisplayUnitInfo(Unit unit)
+    public async void DisplayUnitInfo(Unit unit)
     {
         if (unit == null || unit.Data == null)
         {
@@ -54,7 +54,7 @@ public class UnitDetailPanelController : MonoBehaviour
         manaRegenText.text = ConvertManaRegenTypeToString(unit.Data.manaRegenType);
         
         // 스킬 정보 업데이트
-        UpdateSkillDescription(unit);
+        await UpdateSkillDescription(unit);
         UpdateSkillToggle(unit);
 
         // 필드에 유닛의 공격 및 스킬 범위 표시 요청
@@ -106,14 +106,23 @@ public class UnitDetailPanelController : MonoBehaviour
         }
     }
 
-    private void UpdateSkillDescription(Unit unit)
+    private async UniTask UpdateSkillDescription(Unit unit)
     {
-        // Unit.cs의 DoesHaveSkill() 로직을 참고하여 스킬 존재 여부를 확인합니다.
-        if (unit.Data.skillsByStarLevel.Length >= unit.starLevel && 
-            unit.Data.skillsByStarLevel[unit.starLevel - 1] != null)
+        if (unit.Data.skillsByStarLevel.Length >= unit.starLevel)
         {
-            SkillData currentSkill = unit.Data.skillsByStarLevel[unit.starLevel - 1];
-            skillDescriptionText.text = currentSkill.description;
+            // --- [핵심 수정 부분] ---
+            string skillKey = unit.Data.skillsByStarLevel[unit.starLevel - 1];
+            SkillData currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+            // --- [수정 끝] ---
+
+            if (currentSkill != null)
+            {
+                skillDescriptionText.text = currentSkill.description;
+            }
+            else
+            {
+                skillDescriptionText.text = "특별한 능력이 없습니다.";
+            }
         }
         else
         {

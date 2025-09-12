@@ -2,7 +2,7 @@
 
 using UnityEngine;
 using UnityEngine.UI;
-
+using Cysharp.Threading.Tasks;
 public class StatusBarUI : MonoBehaviour
 {
     [Header("컴포넌트")]
@@ -200,14 +200,14 @@ public class StatusBarUI : MonoBehaviour
         }
 
         // 스킬 버튼 처리
-        if (skillButton != null && unitComponent != null && unitComponent.Data != null)
+        if (skillButton != null && unitComponent != null)
         {
-            SkillData currentSkill = (unitComponent.Data.skillsByStarLevel.Length >= unitComponent.starLevel)
-                ? unitComponent.Data.skillsByStarLevel[unitComponent.starLevel - 1]
-                : null;
-
+            // Unit이 이미 로드하고 저장해 둔 'currentSkillActivationType' 값을 직접 사용합니다.
+            // 이렇게 하면 비동기 로드가 필요 없어집니다.
+            bool isManualSkill = unitComponent.currentSkillActivationType == SkillActivationType.Manual;
+            
             bool shouldShowButton = false;
-            if (currentSkill != null && currentSkill.activationType == SkillActivationType.Manual)
+            if (isManualSkill)
             {
                 bool isManaFull = max > 0 && current >= max;
                 shouldShowButton = isCombatPhase && isManaFull;
@@ -216,26 +216,24 @@ public class StatusBarUI : MonoBehaviour
         }
     }
 
-    public void InitializeSkillButton(Unit owner)
+    public async UniTask InitializeSkillButton(Unit owner)
     {
-        // Unit에서 직접 owner를 전달받아 실행 순서에 대한 의존성을 제거합니다.
         if (owner == null || skillButton == null)
         {
             if (skillButton != null) skillButton.gameObject.SetActive(false);
             return;
         }
 
-        // [수정] owner를 내부 unitComponent 참조에도 할당하여 일관성을 보장합니다.
-        // 이렇게 하면 UpdateMana에서도 항상 정확한 Unit 인스턴스를 사용하게 됩니다.
         this.unitComponent = owner;
 
         SkillData currentSkill = null;
         if (owner.Data != null && owner.Data.skillsByStarLevel.Length >= owner.starLevel)
         {
-            currentSkill = owner.Data.skillsByStarLevel[owner.starLevel - 1];
+            // --- [핵심 수정 부분] ---
+            string skillKey = owner.Data.skillsByStarLevel[owner.starLevel - 1];
+            currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+            // --- [수정 끝] ---
         }
-
-
 
         if (currentSkill != null && currentSkill.activationType == SkillActivationType.Manual)
         {
@@ -245,6 +243,7 @@ public class StatusBarUI : MonoBehaviour
             {
                 skillIconImage.sprite = currentSkill.icon;
             }
+            skillButton.onClick.RemoveAllListeners(); // 중복 방지
             skillButton.onClick.AddListener(owner.ActivateSkill);
         }
         else

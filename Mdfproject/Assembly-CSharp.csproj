@@ -180,6 +180,10 @@
     <Compile Include="Assets\Scripts\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffManager.cs" />
+    <Compile Include="Assets\Scripts\DB\GoogleSheetDataImporter.cs" />
+    <Compile Include="Assets\Scripts\DB\MiniJSON.cs" />
+    <Compile Include="Assets\Scripts\DB\DataExporter.cs" />
+    <Compile Include="Assets\Scripts\Managers\AssetLoader.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
