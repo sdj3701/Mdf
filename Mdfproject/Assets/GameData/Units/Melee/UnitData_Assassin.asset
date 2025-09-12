@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: UnitData_Assassin
   m_EditorClassIdentifier: 
   unitName: Assassin
-  unitIcon: {fileID: 21300000, guid: 619dde12077e168499d7ebc380344c79, type: 3}
+  unitIcon: Spr_Port_Warrior
   cost: 3
   unitType: 0
   baseHealth: 50
@@ -28,14 +28,14 @@ MonoBehaviour:
   manaOnAttack: 5
   manaPerSecond: 5
   prefabsByStarLevel:
-  - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
-  - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
-  - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
+  - Hero
+  - Hero
+  - Hero
   skillsByStarLevel:
-  - {fileID: 11400000, guid: ca84a7d6f1a660a49981c877b0f1088d, type: 2}
-  - {fileID: 11400000, guid: ca84a7d6f1a660a49981c877b0f1088d, type: 2}
-  - {fileID: 11400000, guid: ca84a7d6f1a660a49981c877b0f1088d, type: 2}
+  - Skill_AreaMeleeDamage
+  - Skill_AreaMeleeDamage
+  - Skill_AreaMeleeDamage
   projectilePrefabsByStarLevel:
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - 
+  - 
+  - 

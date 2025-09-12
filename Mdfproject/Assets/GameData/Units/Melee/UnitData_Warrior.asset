@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: UnitData_Warrior
   m_EditorClassIdentifier: 
   unitName: Warrior
-  unitIcon: {fileID: 21300000, guid: 619dde12077e168499d7ebc380344c79, type: 3}
+  unitIcon: Spr_Port_Warrior
   cost: 1
   unitType: 0
   baseHealth: 50
@@ -24,16 +24,18 @@ MonoBehaviour:
   defense: 1
   magicResistance: 0
   blockCount: 2
-  maxMana: 50
+  manaRegenType: 0
+  manaOnAttack: 15
+  manaPerSecond: 5
   prefabsByStarLevel:
-  - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
-  - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
-  - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
+  - Hero
+  - Hero
+  - Hero
   skillsByStarLevel:
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - 
+  - 
+  - 
   projectilePrefabsByStarLevel:
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - 
+  - 
+  - 

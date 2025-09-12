@@ -157,6 +157,30 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
+  - m_GUID: fae8375475871144ea793fc075d03e0a
+    m_Address: Skill_AreaMagicDamage
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: ca84a7d6f1a660a49981c877b0f1088d
+    m_Address: Skill_AreaMeleeDamage
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: c86b32dee351d464a873ec0751fc605a
+    m_Address: Skill_Heal
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: 014e133d695076147845920e4bd732f6
+    m_Address: Skill_HeallAndRepair
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: 9204bb12c5b8bc744a6bbbea1c0cf25d
+    m_Address: Skill_InspiringShout
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: cd44bd901be4fd84da1ff54674cfe741
+    m_Address: Skill_RepairWall
+    m_ReadOnly: 0
+    m_SerializedLabels: []
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

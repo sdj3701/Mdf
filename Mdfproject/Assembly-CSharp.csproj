@@ -63,6 +63,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SkewTextExample.cs" />
+    <Compile Include="Assets\Scripts\DB\GoogleSheetDataImporter.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\StaticAssets\AddressableAssetLoader.cs" />
     <Compile Include="Assets\Scripts\Game\Units\Unit.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SimpleScript.cs" />
@@ -70,6 +71,7 @@
     <Compile Include="Assets\Scripts\Game\Skills\AreaDamageEffect.cs" />
     <Compile Include="Assets\Scripts\Button\SoundButton.cs" />
     <Compile Include="Assets\Scripts\UI\ShopItem.cs" />
+    <Compile Include="Assets\Scripts\DB\DataExporter.cs" />
     <Compile Include="Assets\Scripts\Enums\MonsterRank.cs" />
     <Compile Include="Assets\Scripts\UI\StatusBarUI.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\Allegiance.cs" />
@@ -78,6 +80,7 @@
     <Compile Include="Assets\Scripts\Managers\AugmentManager.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextSelector_A.cs" />
     <Compile Include="Assets\Scripts\UI\RankingUIController.cs" />
+    <Compile Include="Assets\Scripts\DB\MiniJSON.cs" />
     <Compile Include="Assets\Scripts\UI\PlayerRankSlot.cs" />
     <Compile Include="Assets\Scripts\MainLobby\CharacterSelectButton.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IMana.cs" />
@@ -135,6 +138,7 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\TilemapController.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Readme.cs" />
     <Compile Include="Assets\Scripts\UI\AugmentUIController.cs" />
+    <Compile Include="Assets\Scripts\Managers\AssetLoader.cs" />
     <Compile Include="Assets\Scripts\Game\Units\UnitData.cs" />
     <Compile Include="Assets\Scripts\UI\ShopSlot.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark03.cs" />
@@ -180,10 +184,9 @@
     <Compile Include="Assets\Scripts\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffManager.cs" />
-    <Compile Include="Assets\Scripts\DB\GoogleSheetDataImporter.cs" />
-    <Compile Include="Assets\Scripts\DB\MiniJSON.cs" />
-    <Compile Include="Assets\Scripts\DB\DataExporter.cs" />
-    <Compile Include="Assets\Scripts\Managers\AssetLoader.cs" />
+    <Compile Include="Assets\Scripts\DB\AddressableKeyAttribute.cs" />
+    <Compile Include="Assets\Scripts\DB\AddressableKeyDrawer.cs" />
+    <Compile Include="Assets\Scripts\DB\AssetKeys.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
