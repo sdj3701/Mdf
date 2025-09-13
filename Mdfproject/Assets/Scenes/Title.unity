@@ -566,7 +566,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _maxPlayers: 2
-  _networkPlayerPrefab: {fileID: 0}
+  _networkPlayerPrefab: {fileID: 6744845991138815052, guid: e104cbb8e4f07a44daf11544c69872ad,
+    type: 3}
   _showDebugInfo: 1
 --- !u!4 &529547260
 Transform:

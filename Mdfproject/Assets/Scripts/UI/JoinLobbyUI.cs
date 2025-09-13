@@ -1,3 +1,6 @@
+// Assets/Scripts/UI/JoinLobbyUI.cs
+// ✅ [추가] 방 목록 조회 불가 상황에 대한 UI 개선
+
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -8,6 +11,7 @@ using UnityEngine.SceneManagement;
 public class JoinLobbyUI : MonoBehaviour
 {
     public static JoinLobbyUI Instance { get; private set; }
+    
     [Header("Room Info")]
     [SerializeField] private TMP_Text _roomNameText;
     [SerializeField] private TMP_Text _playerCountText;
@@ -30,6 +34,12 @@ public class JoinLobbyUI : MonoBehaviour
     [SerializeField] private TMP_Text _statusText;
     [SerializeField] private GameObject _waitingPanel;
     [SerializeField] private TMP_Text _waitingText;
+    
+    // ✅ [새로 추가] 다른 방 목록 관련 UI
+    [Header("Other Rooms Info")]
+    [SerializeField] private GameObject _otherRoomsPanel;
+    [SerializeField] private TMP_Text _otherRoomsInfoText;
+    [SerializeField] private Button _viewOtherRoomsButton;
     
     [Header("Ready Status Colors")]
     [SerializeField] private Color _readyColor = Color.green;
@@ -54,7 +64,6 @@ public class JoinLobbyUI : MonoBehaviour
     
     private void Start()
     {
-        // ✅ [수정] GetOrCreateInstance() 대신 Instance 프로퍼티를 사용하여 싱글톤에 접근합니다.
         _networkManager = NetworkManager.Instance;
         
         if (_networkManager == null)
@@ -64,7 +73,6 @@ public class JoinLobbyUI : MonoBehaviour
             return;
         }
         
-        // 방에 연결되어 있지 않으면 MatchingLobby로 돌아가기
         if (!_networkManager.IsConnected)
         {
             Debug.LogError("Not connected to room! Returning to MatchingLobby...");
@@ -96,15 +104,13 @@ public class JoinLobbyUI : MonoBehaviour
         if (_gameStartButton != null)
         {
             _gameStartButton.onClick.AddListener(StartGame);
-            // 호스트만 게임 시작 버튼 볼 수 있음
             _gameStartButton.gameObject.SetActive(_networkManager.IsHost);
-            _gameStartButton.interactable = false; // 처음에는 비활성화
+            _gameStartButton.interactable = false;
         }
         
         if (_readyButton != null)
         {
             _readyButton.onClick.AddListener(ToggleReady);
-            // 클라이언트만 준비 버튼 볼 수 있음
             _readyButton.gameObject.SetActive(!_networkManager.IsHost);
         }
         
@@ -113,8 +119,76 @@ public class JoinLobbyUI : MonoBehaviour
             _leaveRoomButton.onClick.AddListener(LeaveRoom);
         }
         
-        // 초기 상태 설정
+        // ✅ [새로 추가] 다른 방 목록 관련 UI 초기화
+        InitializeOtherRoomsUI();
+        
         ShowWaitingPanel(true, "다른 플레이어를 기다리는 중...");
+    }
+    
+    /// <summary>
+    /// ✅ [새로 추가] 다른 방 목록 관련 UI 초기화
+    /// </summary>
+    private void InitializeOtherRoomsUI()
+    {
+        // 다른 방 목록 조회 불가 상황 처리
+        bool canViewOtherRooms = _networkManager.CanRefreshRoomList;
+        
+        if (_otherRoomsPanel != null)
+        {
+            _otherRoomsPanel.SetActive(!canViewOtherRooms);
+        }
+        
+        if (_otherRoomsInfoText != null)
+        {
+            if (canViewOtherRooms)
+            {
+                _otherRoomsInfoText.text = "";
+            }
+            else
+            {
+                _otherRoomsInfoText.text = 
+                    "🎮 현재 방에 참여 중입니다.\n" +
+                    "다른 방 목록을 보려면 방을 나가고\n" +
+                    "매칭 로비로 돌아가세요.";
+                _otherRoomsInfoText.color = Color.yellow;
+            }
+        }
+        
+        if (_viewOtherRoomsButton != null)
+        {
+            _viewOtherRoomsButton.onClick.AddListener(GoToMatchingLobby);
+            _viewOtherRoomsButton.gameObject.SetActive(!canViewOtherRooms);
+            
+            // 버튼 텍스트 설정
+            TMP_Text buttonText = _viewOtherRoomsButton.GetComponentInChildren<TMP_Text>();
+            if (buttonText != null)
+            {
+                buttonText.text = "매칭 로비로 가기";
+            }
+        }
+    }
+    
+    /// <summary>
+    /// ✅ [새로 추가] 매칭 로비로 이동 (방 나가기 없이)
+    /// </summary>
+    private void GoToMatchingLobby()
+    {
+        ShowStatus("매칭 로비로 이동 중...", false);
+        
+        // 확인 대화상자 표시 (선택사항)
+        if (ConfirmLeaveRoom())
+        {
+            LeaveRoom();
+        }
+    }
+    
+    /// <summary>
+    /// ✅ [새로 추가] 방 나가기 확인
+    /// </summary>
+    private bool ConfirmLeaveRoom()
+    {
+        // 간단한 확인 - 실제로는 더 나은 UI로 대체 가능
+        return true; // 또는 확인 다이얼로그 구현
     }
     
     private void SubscribeToEvents()
@@ -131,7 +205,6 @@ public class JoinLobbyUI : MonoBehaviour
     {
         Debug.Log($"플레이어 {playerNumber} 준비 상태: {isReady}");
         
-        // UI 업데이트
         if (playerNumber == 0 && _player1ReadyImage != null)
         {
             _player1ReadyImage.color = isReady ? _readyColor : _notReadyColor;
@@ -141,7 +214,6 @@ public class JoinLobbyUI : MonoBehaviour
             _player2ReadyImage.color = isReady ? _readyColor : _notReadyColor;
         }
         
-        // 호스트인 경우 모든 플레이어가 준비되면 게임 시작 버튼 활성화
         if (_networkManager != null && _networkManager.IsHost)
         {
             CheckAllPlayersReady();
@@ -155,7 +227,7 @@ public class JoinLobbyUI : MonoBehaviour
         
         foreach (var player in players)
         {
-            if (!player.IsReady && player.PlayerNumber != 0) // 호스트는 제외
+            if (!player.IsReady && player.PlayerNumber != 0)
             {
                 allReady = false;
                 break;
@@ -193,7 +265,26 @@ public class JoinLobbyUI : MonoBehaviour
         if (Time.time - _lastUpdateTime > _updateInterval)
         {
             UpdateRoomInfo();
+            UpdateOtherRoomsStatus(); // ✅ [추가]
             _lastUpdateTime = Time.time;
+        }
+    }
+    
+    /// <summary>
+    /// ✅ [새로 추가] 다른 방 목록 상태 업데이트
+    /// </summary>
+    private void UpdateOtherRoomsStatus()
+    {
+        bool canViewOtherRooms = _networkManager.CanRefreshRoomList;
+        
+        if (_otherRoomsPanel != null && _otherRoomsPanel.activeSelf == canViewOtherRooms)
+        {
+            _otherRoomsPanel.SetActive(!canViewOtherRooms);
+        }
+        
+        if (_viewOtherRoomsButton != null && _viewOtherRoomsButton.gameObject.activeSelf == canViewOtherRooms)
+        {
+            _viewOtherRoomsButton.gameObject.SetActive(!canViewOtherRooms);
         }
     }
     
@@ -339,11 +430,11 @@ public class JoinLobbyUI : MonoBehaviour
         
         if (_networkManager != null)
         {
-            // ✅ [수정] 방에서 나갈 때는 게임 러너만 종료, 로비 연결은 유지
+            // ✅ [수정] 방에서 나갈 때 MatchingLobby로 돌아가도록 개선된 Disconnect 호출
             _networkManager.Disconnect();
         }
         
-        SceneManager.LoadScene("MatchingLobby");
+        // Disconnect 메서드에서 자동으로 MatchingLobby로 이동하므로 별도 LoadScene 불필요
     }
     
     private void OnPlayerCountChanged(int playerCount)
