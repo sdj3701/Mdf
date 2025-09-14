@@ -10,27 +10,27 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fd7f31528da94fb448b3d76147381cf6, type: 3}
-  m_Name: UnitData_Pyromancer
+  m_Name: UnitData_Warrior
   m_EditorClassIdentifier: 
-  unitName: Pyromancer
-  unitIcon: Spr_Port_Archer
-  cost: 4
-  unitType: 1
-  baseHealth: 10
-  baseAttackDamage: 10
+  unitName: Warrior
+  unitIcon: Spr_Port_Warrior
+  cost: 1
+  unitType: 0
+  baseHealth: 60
+  baseAttackDamage: 5
   attackSpeed: 2
-  attackRange: 2.5
-  damageType: 1
-  defense: 0
+  attackRange: 1
+  damageType: 0
+  defense: 1
   magicResistance: 0
-  blockCount: 1
-  manaRegenType: 1
+  blockCount: 2
+  manaRegenType: 0
   manaOnAttack: 15
   manaPerSecond: 5
   prefabsByStarLevel:
-  - Archer
-  - Archer
-  - Archer
+  - Hero
+  - Hero
+  - Hero
   skillsByStarLevel:
   - 
   - 

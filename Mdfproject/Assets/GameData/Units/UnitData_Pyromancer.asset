@@ -10,14 +10,14 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fd7f31528da94fb448b3d76147381cf6, type: 3}
-  m_Name: UnitData_Cleric
+  m_Name: UnitData_Pyromancer
   m_EditorClassIdentifier: 
-  unitName: Cleric
+  unitName: Pyromancer
   unitIcon: Spr_Port_Archer
-  cost: 2
+  cost: 4
   unitType: 1
   baseHealth: 10
-  baseAttackDamage: 2
+  baseAttackDamage: 10
   attackSpeed: 2
   attackRange: 2.5
   damageType: 1
@@ -25,17 +25,17 @@ MonoBehaviour:
   magicResistance: 0
   blockCount: 1
   manaRegenType: 1
-  manaOnAttack: 0
+  manaOnAttack: 15
   manaPerSecond: 5
   prefabsByStarLevel:
   - Archer
   - Archer
   - Archer
   skillsByStarLevel:
-  - Skill_Heal
-  - Skill_Heal
-  - Skill_Heal
+  - 
+  - 
+  - 
   projectilePrefabsByStarLevel:
-  - 
-  - 
-  - 
+  - BaseProjectile
+  - BaseProjectile
+  - BaseProjectile

@@ -111,6 +111,7 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_ExampleScript_01.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextConsoleSimulator.cs" />
     <Compile Include="Assets\Scripts\Button\VersionButton.cs" />
+    <Compile Include="Assets\Scripts\DB\AssetKeys.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ObjectSpin.cs" />
     <Compile Include="Assets\Scripts\Button\GameOptionButton.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\DestructibleWall.cs" />
@@ -127,6 +128,7 @@
     <Compile Include="Assets\Scripts\Button\SpectateButton.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_DigitValidator.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\SkillData.cs" />
+    <Compile Include="Assets\Scripts\DB\AddressableKeyAttribute.cs" />
     <Compile Include="Assets\Scripts\Managers\GameEvents.cs" />
     <Compile Include="Assets\Scripts\UI\PlayerHUDController.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\Monster.cs" />
@@ -149,6 +151,7 @@
     <Compile Include="Assets\Scripts\Game\Targeting\SelfTarget.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\Astar.cs" />
     <Compile Include="Assets\Scripts\Game\Players\Player.cs" />
+    <Compile Include="Assets\Scripts\DB\AddressableKeyDrawer.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_FrameRateCounter.cs" />
     <Compile Include="Assets\Scripts\UI\PhaseTimerUI.cs" />
     <Compile Include="Assets\Scripts\Enums\MonsterType.cs" />
@@ -184,9 +187,6 @@
     <Compile Include="Assets\Scripts\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffManager.cs" />
-    <Compile Include="Assets\Scripts\DB\AddressableKeyAttribute.cs" />
-    <Compile Include="Assets\Scripts\DB\AddressableKeyDrawer.cs" />
-    <Compile Include="Assets\Scripts\DB\AssetKeys.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

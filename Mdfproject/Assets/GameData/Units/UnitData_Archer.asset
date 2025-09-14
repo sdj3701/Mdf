@@ -32,10 +32,10 @@ MonoBehaviour:
   - Archer
   - Archer
   skillsByStarLevel:
-  - 
-  - 
-  - 
+  - Skill_InspiringShout
+  - Skill_InspiringShout
+  - Skill_InspiringShout
   projectilePrefabsByStarLevel:
-  - 
-  - 
-  - 
+  - BaseProjectile
+  - BaseProjectile
+  - BaseProjectile

@@ -22,7 +22,7 @@ public class GoogleSheetDataImporter
             
             // 문자열 (String)
             so.unitName = GetString(item, "unitName");
-            so.unitIcon = GetString(item, "unitIconAddress"); // 필드 이름을 unitIconAddress로 바꿨다고 가정
+            so.unitIcon = GetString(item, "unitIcon");
 
             // 숫자 (Number)
             so.cost = GetInt(item, "cost");
