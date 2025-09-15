@@ -19,8 +19,18 @@ public class AIPlayerController : MonoBehaviour
         _playerManager = playerManager;
         _commandProcessor = commandProcessor;
         BuildBehaviorTrees();
+        
+        ComponentRegistry.Register(playerManager.playerId.ToString(), this);
     }
-    
+
+    private void OnDestroy()
+    {
+        if (_playerManager != null)
+        {
+            ComponentRegistry.Unregister<AIPlayerController>(_playerManager.playerId.ToString());
+        }
+    }
+
     void Update()
     {
         if (_playerManager == null) return;
