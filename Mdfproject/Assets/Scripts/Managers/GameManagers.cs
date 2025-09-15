@@ -134,11 +134,15 @@ public class GameManagers : MonoBehaviour
 
         Vector3 player2Position = player1BasePosition + playerOffset;
         GameObject player2GO = Instantiate(playerManagerPrefab, player2Position, Quaternion.identity);
-        player2GO.name = "Player 2";
+        player2GO.name = "Player 2 (AI)";
         player2 = player2GO.GetComponent<PlayerManager>();
         GameObject grid2GO = Instantiate(gridPrefab, player2Position, Quaternion.identity);
         grid2GO.name = "Grid 2";
         player2.InitializePlayer(1, grid2GO, defaultMonsterPrefab);
+
+        // AI 컨트롤러 추가 및 초기화
+        var aiController = player2GO.AddComponent<AIPlayerController>();
+        aiController.Initialize(player2, this.CommandProcessor);
 
         player1.opponentManager = player2;
         player2.opponentManager = player1;

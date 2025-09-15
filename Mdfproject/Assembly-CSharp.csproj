@@ -191,6 +191,9 @@
     <Compile Include="Assets\Scripts\Commands\PlayerActions\RerollShopCommand.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\MoveUnitCommand.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\RemoveWallCommand.cs" />
+    <Compile Include="Assets\Scripts\Commands\PlayerActions\SelectAugmentCommand.cs" />
+    <Compile Include="Assets\Scripts\Commands\AI\AIPlayerController.cs" />
+    <Compile Include="Assets\Scripts\Commands\PlayerActions\BuyUnitCommand.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
