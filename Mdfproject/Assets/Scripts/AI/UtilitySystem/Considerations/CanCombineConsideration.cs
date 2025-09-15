@@ -19,9 +19,9 @@ namespace AI.UtilitySystem.Considerations
                 }
             }
 
-            if (unitsOnField >= 2) return 1.0f; // 2개 있으면 조합 가능
-            if (unitsOnField == 1) return 0.5f; // 1개 있으면 페어
-            return 0.0f;
+            if (unitsOnField >= 2) return 1.0f; // 2개 있으면 조합 가능성이 매우 높음 (최고 점수)
+            if (unitsOnField == 1) return 0.5f; // 1개 있으면 페어를 만들 수 있음 (중간 점수)
+            return 0.25f; // 필드에 없는 새로운 유닛이라도 기본적인 가치를 부여 (낮은 점수)
         }
     }
 }

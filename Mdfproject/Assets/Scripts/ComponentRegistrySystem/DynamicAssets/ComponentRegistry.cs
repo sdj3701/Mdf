@@ -77,7 +77,7 @@ public static class ComponentRegistry
     /// <summary>
     /// 컴포넌트 검색 (O(1) 성능)
     /// </summary>
-    public static T Get<T>(string id) where T : Component
+    public static T Get<T>(string id, bool logWarningIfNotFound = true) where T : Component
     {
         totalLookups++;
 
@@ -113,7 +113,10 @@ public static class ComponentRegistry
             }
         }
 
-        Debug.LogWarning($"⚠️ 컴포넌트를 찾을 수 없음: {id} ({type.Name})");
+        if (logWarningIfNotFound)
+        {
+            Debug.LogWarning($"⚠️ 컴포넌트를 찾을 수 없음: {id} ({type.Name})");
+        }
         return null;
     }
 
@@ -122,7 +125,7 @@ public static class ComponentRegistry
     /// </summary>
     public static bool Has<T>(string id) where T : Component
     {
-        return Get<T>(id) != null;
+        return Get<T>(id, false) != null;
     }
 
     /// <summary>
