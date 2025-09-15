@@ -79,15 +79,11 @@ public class FieldManager : MonoBehaviour
     // OnEnable, OnDisable, Update, Event Handlers, 벽/유닛 관리, 드래그앤드롭 로직 등
     void OnEnable()
     {
-        GameEvents.OnPlacementModeEnterRequested += HandlePlacementModeEnterRequest;
-        GameEvents.OnPlacementModeExitRequested += HandlePlacementModeExitRequest;
         GameEvents.OnGameStateChanged += HandleGameStateChange;
     }
 
     void OnDisable()
     {
-        GameEvents.OnPlacementModeEnterRequested -= HandlePlacementModeEnterRequest;
-        GameEvents.OnPlacementModeExitRequested -= HandlePlacementModeExitRequest;
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
     }
 
@@ -98,6 +94,20 @@ public class FieldManager : MonoBehaviour
             HandleUnitDragAndDrop();
         }
     }
+
+    #region Public Methods for UI
+
+    public void StartPlacementMode(PlacementMode mode, GameObject unitPrefab = null)
+    {
+        placementManager.StartPlacementMode(mode, unitPrefab);
+    }
+
+    public void StopPlacementMode()
+    {
+        placementManager.StopPlacementMode();
+    }
+    
+    #endregion
 
     #region Event Handlers
     
@@ -129,20 +139,6 @@ public class FieldManager : MonoBehaviour
                 selectedUnit = null;
             }
         }
-    }
-
-    private void HandlePlacementModeEnterRequest(PlacementMode mode, GameObject unitPrefab)
-    {
-        if (this.playerManager != GameManagers.Instance.localPlayer) return;
-        
-        placementManager.StartPlacementMode(mode, unitPrefab);
-    }
-
-    private void HandlePlacementModeExitRequest()
-    {
-        if (this.playerManager != GameManagers.Instance.localPlayer) return;
-
-        placementManager.StopPlacementMode();
     }
 
     #endregion
@@ -490,7 +486,8 @@ public class FieldManager : MonoBehaviour
                 // 드래그 종료 로직 (기존과 동일)
                 if (placementManager.IsPositionValidForPlacement(gridPos, selectedUnit.Data))
                 {
-                    GameEvents.TriggerUnitMoveRequested(playerManager, originalUnitPosition, gridPos);
+                    var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, gridPos);
+                    GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
                 }
                 else
                 {

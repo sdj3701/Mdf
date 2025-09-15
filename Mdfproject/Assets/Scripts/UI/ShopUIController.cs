@@ -114,7 +114,8 @@ public class ShopUIController : MonoBehaviour
     {
         if (localPlayerShopManager != null)
         {
-            GameEvents.TriggerShopRerollRequested(localPlayerShopManager.playerManager);
+            var command = new RerollShopCommand(localPlayerShopManager.playerManager.playerId);
+            GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
         }
     }
 

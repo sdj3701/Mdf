@@ -41,36 +41,4 @@ public static class GameEvents
 
     public static event Action<int, Vector3Int> OnWallRemoved;
     public static void TriggerWallRemoved(int playerID, Vector3Int gridPosition) => OnWallRemoved?.Invoke(playerID, gridPosition);
-
-    // --- 액션 요청 이벤트 (멀티플레이어 동기화용) ---
-    public static event Action<PlayerManager> OnShopRerollRequested;
-    public static void TriggerShopRerollRequested(PlayerManager requester) => OnShopRerollRequested?.Invoke(requester);
-    
-    public static event Action<PlayerManager, UnitData, Vector3Int> OnUnitPlacementRequested;
-    public static void TriggerUnitPlacementRequested(PlayerManager requester, UnitData unitData, Vector3Int position) => OnUnitPlacementRequested?.Invoke(requester, unitData, position);
-    
-    public static event Action<PlayerManager, Vector3Int, Vector3Int> OnUnitMoveRequested;
-    public static void TriggerUnitMoveRequested(PlayerManager requester, Vector3Int from, Vector3Int to) => OnUnitMoveRequested?.Invoke(requester, from, to);
-
-    public static event Action<PlayerManager, Vector3Int> OnWallPlacementRequested;
-    public static void TriggerWallPlacementRequested(PlayerManager requester, Vector3Int position) => OnWallPlacementRequested?.Invoke(requester, position);
-
-    public static event Action<PlayerManager, Vector3Int> OnWallRemovalRequested;
-    public static void TriggerWallRemovalRequested(PlayerManager requester, Vector3Int position) => OnWallRemovalRequested?.Invoke(requester, position);
-    
-    // --- [신규] 배치 모드 요청 이벤트 ---
-
-    /// <summary>
-    /// UI 등에서 특정 배치 모드(유닛, 벽)로 진입을 요청할 때 발생합니다.
-    /// </summary>
-    /// <param name="mode">요청하는 배치 모드</param>
-    /// <param name="unitPrefab">유닛 배치일 경우, 배치할 유닛의 프리팹</param>
-    public static event Action<PlacementMode, GameObject> OnPlacementModeEnterRequested;
-    public static void TriggerPlacementModeEnterRequested(PlacementMode mode, GameObject unitPrefab = null) => OnPlacementModeEnterRequested?.Invoke(mode, unitPrefab);
-
-    /// <summary>
-    /// UI 등에서 모든 배치 모드를 취소(종료)할 것을 요청할 때 발생합니다.
-    /// </summary>
-    public static event Action OnPlacementModeExitRequested;
-    public static void TriggerPlacementModeExitRequested() => OnPlacementModeExitRequested?.Invoke();
 }

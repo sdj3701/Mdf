@@ -184,6 +184,13 @@
     <Compile Include="Assets\Scripts\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffManager.cs" />
+    <Compile Include="Assets\Scripts\Commands\Core\CommandProcessor.cs" />
+    <Compile Include="Assets\Scripts\Commands\Core\ICommand.cs" />
+    <Compile Include="Assets\Scripts\Commands\PlayerActions\PlaceUnitCommand.cs" />
+    <Compile Include="Assets\Scripts\Commands\PlayerActions\PlaceWallCommand.cs" />
+    <Compile Include="Assets\Scripts\Commands\PlayerActions\RerollShopCommand.cs" />
+    <Compile Include="Assets\Scripts\Commands\PlayerActions\MoveUnitCommand.cs" />
+    <Compile Include="Assets\Scripts\Commands\PlayerActions\RemoveWallCommand.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

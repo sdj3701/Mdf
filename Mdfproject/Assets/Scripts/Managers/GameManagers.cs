@@ -10,6 +10,7 @@ using Cysharp.Threading.Tasks;
 public class GameManagers : MonoBehaviour
 {
     public static GameManagers Instance { get; private set; }
+    public CommandProcessor CommandProcessor { get; private set; }
 
     #region 인게임 관련 변수
     public enum GameState { Setup, DataLoading, Prepare, Combat, GameOver }
@@ -64,6 +65,7 @@ public class GameManagers : MonoBehaviour
         if (Instance == null)
         {
             Instance = this;
+            CommandProcessor = new CommandProcessor();
             DontDestroyOnLoad(gameObject);
         }
         else
@@ -98,7 +100,13 @@ public class GameManagers : MonoBehaviour
         return currentState;
     }
     
-
+    public PlayerManager GetPlayer(int id)
+    {
+        if (player1 != null && player1.playerId == id) return player1;
+        if (player2 != null && player2.playerId == id) return player2;
+        Debug.LogWarning($"GameManagers: ID '{id}'에 해당하는 플레이어를 찾을 수 없습니다.");
+        return null;
+    }
 
 
     private IEnumerator GameFlow()
