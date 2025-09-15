@@ -194,6 +194,22 @@
     <Compile Include="Assets\Scripts\Commands\PlayerActions\SelectAugmentCommand.cs" />
     <Compile Include="Assets\Scripts\Commands\AI\AIPlayerController.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\BuyUnitCommand.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\CompositeNode.cs" />
+    <Compile Include="Assets\Scripts\AI\UtilitySystem\Consideration.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\SequenceNode.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\BuyBestUnitAction.cs" />
+    <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\CanCombineConsideration.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\ChooseBestAugmentAction.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\BehaviorTree.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Conditions\IsAugmentPhaseCondition.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\NodeStatus.cs" />
+    <Compile Include="Assets\Scripts\AI\UtilitySystem\AIContext.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Node.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\RerollShopAction.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\DecoratorNode.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\ActionNode.cs" />
+    <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\GoldRemainingConsideration.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\SelectorNode.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
