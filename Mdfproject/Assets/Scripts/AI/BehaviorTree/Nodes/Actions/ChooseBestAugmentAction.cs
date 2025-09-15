@@ -20,9 +20,9 @@ namespace AI.BehaviorTree.Nodes.Actions
                 // TODO: 유틸리티 시스템으로 최고의 증강을 선택하는 로직
                 int bestAugmentIndex = 0; // 임시: 무조건 첫 번째 선택
                 _commandProcessor.ExecuteCommand(new SelectAugmentCommand(_playerManager.playerId, bestAugmentIndex));
-                return NodeStatus.Success;
+                return status = NodeStatus.Success;
             }
-            return NodeStatus.Failure;
+            return status = NodeStatus.Failure;
         }
     }
 }

@@ -12,14 +12,17 @@ namespace AI.BehaviorTree.Nodes
                 switch (child.Tick())
                 {
                     case NodeStatus.Success:
-                        return NodeStatus.Success;
+                        status = NodeStatus.Success;
+                        return status;
                     case NodeStatus.Running:
-                        return NodeStatus.Running;
+                        status = NodeStatus.Running;
+                        return status;
                     case NodeStatus.Failure:
                         continue;
                 }
             }
-            return NodeStatus.Failure;
+            status = NodeStatus.Failure;
+            return status;
         }
     }
 }

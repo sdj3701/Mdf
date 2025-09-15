@@ -10,5 +10,10 @@ namespace AI.BehaviorTree.Nodes
         {
             children.AddRange(childNodes);
         }
+
+        public List<Node> GetChildren()
+        {
+            return children;
+        }
     }
 }

@@ -68,4 +68,21 @@ public class AIPlayerController : MonoBehaviour
             )
         );
     }
+
+    // 뷰어가 호출할 수 있도록 public으로 변경하고, BehaviorTree를 반환합니다.
+    public BehaviorTree GetActiveTree()
+    {
+        if (GameManagers.Instance == null) return null;
+
+        var gameState = GameManagers.Instance.GetGameState();
+        switch (gameState)
+        {
+            case GameManagers.GameState.Prepare:
+                return _preparePhaseBT;
+            case GameManagers.GameState.Combat:
+                return _combatPhaseBT;
+            default:
+                return null;
+        }
+    }
 }

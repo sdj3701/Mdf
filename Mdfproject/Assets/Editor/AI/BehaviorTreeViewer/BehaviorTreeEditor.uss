@@ -1,0 +1,38 @@
+/* 노드 공통 스타일 */
+Node {
+    width: 150px;
+    padding: 5px;
+    border-radius: 8px;
+}
+
+#title-container {
+    -unity-font-style: bold;
+    font-size: 12px;
+    padding-left: 5px;
+    padding-right: 5px;
+}
+
+/* 노드 타입별 기본 색상 */
+.composite #title-container {
+    background-color: #383838;
+}
+.decorator #title-container {
+    background-color: #1E475E;
+}
+.action #title-container {
+    background-color: #5E1E1E;
+}
+
+/* 상태별 배경색 정의 (더 높은 우선순위를 가짐) */
+.running #title-container {
+    background-color: rgb(238, 210, 2); /* 노란색 */
+    color: black;
+}
+
+.success #title-container {
+    background-color: rgb(79, 138, 16); /* 초록색 */
+}
+
+.failure #title-container {
+    background-color: rgb(216, 0, 12); /* 빨간색 */
+}

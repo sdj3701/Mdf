@@ -13,5 +13,10 @@ namespace AI.BehaviorTree
         {
             return _root.Tick();
         }
+
+        public Node GetRootNode()
+        {
+            return _root;
+        }
     }
 }

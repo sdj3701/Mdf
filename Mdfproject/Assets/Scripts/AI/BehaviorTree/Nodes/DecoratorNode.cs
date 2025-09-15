@@ -9,5 +9,10 @@ namespace AI.BehaviorTree.Nodes
         {
             child = childNode;
         }
+
+        public Node GetChild()
+        {
+            return child;
+        }
     }
 }

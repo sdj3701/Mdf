@@ -15,9 +15,11 @@ namespace AI.BehaviorTree.Nodes.Conditions
         {
             if (_playerManager.augmentManager.GetPresentedAugments().Count > 0)
             {
-                return child.Tick(); // 조건 만족 시 자식 노드 실행
+                status = child.Tick(); // 조건 만족 시 자식 노드 실행
+                return status;
             }
-            return NodeStatus.Failure; // 조건 불만족
+            status = NodeStatus.Failure;
+            return status; // 조건 불만족
         }
     }
 }

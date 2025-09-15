@@ -52,10 +52,10 @@ namespace AI.BehaviorTree.Nodes.Actions
             if (bestSlotIndex != -1 && highestScore > 0.2f)
             {
                 _commandProcessor.ExecuteCommand(new BuyUnitCommand(_playerManager.playerId, bestSlotIndex));
-                return NodeStatus.Success;
+                return status = NodeStatus.Success;
             }
 
-            return NodeStatus.Failure;
+            return status = NodeStatus.Failure;
         }
 
         private float CalculateScore(AIContext context, List<Consideration> considerations)
