@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 
 public class AIPlayerController : MonoBehaviour
 {
@@ -12,6 +13,7 @@ public class AIPlayerController : MonoBehaviour
         _playerManager = playerManager;
         _commandProcessor = commandProcessor;
     }
+
 
     void Update()
     {
@@ -65,12 +67,21 @@ public class AIPlayerController : MonoBehaviour
 
     private int DecideWhichUnitToBuy()
     {
-        // 예시: 그냥 돈이 되면 첫 번째 슬롯 구매
-        var shopItems = _playerManager.shopManager.GetCurrentShopItems();
-        if (shopItems.Count > 0 && _playerManager.GetGold() >= shopItems[0].CalculatedCost)
+        // 상점 매니저로부터 구매 가능한 아이템 목록을 가져옵니다.
+        var availableItems = _playerManager.shopManager.GetAvailableShopItems();
+
+        // 구매 가능한 아이템 중에서 첫 번째로 살 수 있는 것을 선택합니다.
+        foreach (var itemPair in availableItems)
         {
-            return 0;
+            int slotIndex = itemPair.Key;
+            var item = itemPair.Value;
+            
+            if (_playerManager.GetGold() >= item.CalculatedCost)
+            {
+                return slotIndex; // 구매할 슬롯 인덱스를 반환합니다.
+            }
         }
-        return -1; // -1은 구매 안 함
+        
+        return -1; // 구매할 유닛이 없으면 -1을 반환합니다.
     }
 }

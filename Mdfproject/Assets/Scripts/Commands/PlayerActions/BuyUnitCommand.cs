@@ -25,6 +25,9 @@ public class BuyUnitCommand : ICommand
         if (player.SpendGold(itemToBuy.CalculatedCost))
         {
             player.AddUnit(itemToBuy.UnitData, itemToBuy.StarLevel);
+
+            // 상점의 상태를 갱신합니다.
+            player.shopManager.MarkSlotAsPurchased(_shopSlotIndex);
             
             // UI 갱신을 위해 성공 이벤트를 발생시킵니다.
             GameEvents.TriggerUnitPurchaseSuccess(PlayerId, _shopSlotIndex);

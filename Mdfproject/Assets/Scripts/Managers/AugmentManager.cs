@@ -26,34 +26,6 @@ public class AugmentManager : MonoBehaviour
         LoadAllAugmentsFromAddressables();
     }
     
-    void OnEnable()
-    {
-        // 전역 증강 선택 이벤트를 구독합니다.
-        GameEvents.OnAugmentSelected += HandleAugmentSelection;
-    }
-
-    void OnDisable()
-    {
-        // 구독을 해지합니다.
-        GameEvents.OnAugmentSelected -= HandleAugmentSelection;
-    }
-
-    /// <summary>
-    /// OnAugmentSelected 이벤트가 발생했을 때 호출되는 핸들러입니다.
-    /// </summary>
-    private void HandleAugmentSelection(PlayerManager selectingPlayer, AugmentData chosenAugment)
-    {
-        // 이 이벤트가 자신의 플레이어에게 해당하는지 확인합니다.
-        if (selectingPlayer != this.playerManager) return;
-
-        playerManager.chosenAugments.Add(chosenAugment);
-        Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강 선택! (이벤트 수신)");
-
-        PlayerManager target = (chosenAugment.targetType == TargetType.Player) ? playerManager : playerManager.opponentManager;
-        ApplyEffect(target, chosenAugment);
-        
-        presentedAugments.Clear();
-    }
 
     private async void LoadAllAugmentsFromAddressables()
     {
@@ -130,6 +102,20 @@ public class AugmentManager : MonoBehaviour
 
         string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
         Debug.Log($"Player {playerManager.playerId}에게 <color=yellow>{tierName} 등급</color> 증강 제시: {presentedNames}");
+    }
+
+    public void SelectAndApplyAugment(AugmentData chosenAugment)
+    {
+        playerManager.chosenAugments.Add(chosenAugment);
+        Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강을 선택했습니다.");
+
+        PlayerManager target = (chosenAugment.targetType == TargetType.Player) ? playerManager : playerManager.opponentManager;
+        ApplyEffect(target, chosenAugment);
+        
+        presentedAugments.Clear();
+
+        // 다른 시스템(UI 등)에 상태 변경을 알립니다.
+        GameEvents.TriggerAugmentSelected(this.playerManager, chosenAugment);
     }
 
     private void ApplyEffect(PlayerManager target, AugmentData augment)
