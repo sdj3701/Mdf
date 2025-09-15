@@ -78,6 +78,7 @@
     <Compile Include="Assets\Scripts\Managers\AugmentManager.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextSelector_A.cs" />
     <Compile Include="Assets\Scripts\UI\RankingUIController.cs" />
+    <Compile Include="Assets\Scripts\DB\MiniJSON.cs" />
     <Compile Include="Assets\Scripts\UI\PlayerRankSlot.cs" />
     <Compile Include="Assets\Scripts\MainLobby\CharacterSelectButton.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IMana.cs" />
@@ -108,6 +109,7 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_ExampleScript_01.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextConsoleSimulator.cs" />
     <Compile Include="Assets\Scripts\Button\VersionButton.cs" />
+    <Compile Include="Assets\Scripts\DB\AssetKeys.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ObjectSpin.cs" />
     <Compile Include="Assets\Scripts\Button\GameOptionButton.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\DestructibleWall.cs" />
@@ -124,6 +126,7 @@
     <Compile Include="Assets\Scripts\Button\SpectateButton.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_DigitValidator.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\SkillData.cs" />
+    <Compile Include="Assets\Scripts\DB\AddressableKeyAttribute.cs" />
     <Compile Include="Assets\Scripts\Managers\GameEvents.cs" />
     <Compile Include="Assets\Scripts\UI\PlayerHUDController.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\Monster.cs" />
@@ -135,6 +138,7 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\TilemapController.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Readme.cs" />
     <Compile Include="Assets\Scripts\UI\AugmentUIController.cs" />
+    <Compile Include="Assets\Scripts\Managers\AssetLoader.cs" />
     <Compile Include="Assets\Scripts\Game\Units\UnitData.cs" />
     <Compile Include="Assets\Scripts\UI\ShopSlot.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark03.cs" />
@@ -185,18 +189,29 @@
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
     <None Include="Assets\Photon\PhotonLibs\netstandard2.0\Photon3Unity3D.xml" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_SDF-Mobile Overlay.shader" />
+    <None Include="Assets\Firebase\Plugins\x86_64\FirebaseCppFirestore.dll" />
+    <None Include="Assets\Firebase\Plugins\Firebase.Analytics.dll" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_Bitmap.shader" />
+    <None Include="Assets\Firebase\Plugins\iOS\Firebase.Analytics.dll" />
     <None Include="Assets\TextMesh Pro\Examples &amp; Extras\Fonts\Oswald-Bold - OFL.txt" />
+    <None Include="Assets\Firebase\Plugins\Firebase.App.dll" />
     <None Include="Assets\TextMesh Pro\Examples &amp; Extras\Fonts\Anton OFL.txt" />
     <None Include="Assets\TextMesh Pro\Shaders\TMPro_Mobile.cginc" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_SDF SSD.shader" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Log.dll" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Common.dll" />
+    <None Include="Assets\Firebase\m2repository\com\google\firebase\firebase-firestore-unity\maven-metadata.xml" />
+    <None Include="Assets\Firebase\Plugins\x86_64\FirebaseCppAnalytics.dll" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Runtime.xml" />
     <None Include="Assets\Photon\Fusion\Plugins\NanoSockets\NanoSockets\Static\NanoSockets.dll" />
+    <None Include="Assets\Firebase\Plugins\x86_64\FirebaseCppAuth.dll" />
+    <None Include="Assets\Firebase\Plugins\iOS\Firebase.Firestore.dll" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_SDF-Surface-Mobile.shader" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Sockets.dll" />
+    <None Include="Assets\Firebase\Plugins\Firebase.TaskExtension.dll" />
+    <None Include="Assets\Firebase\m2repository\com\google\firebase\firebase-app-unity\maven-metadata.xml" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Log.xml" />
+    <None Include="Assets\Firebase\Plugins\Firebase.Auth.dll" />
     <None Include="Assets\Photon\Fusion\release_history.txt" />
     <None Include="Assets\Photon\Fusion\Plugins\NanoSockets\NanoSockets\Dynamic\NanoSockets.dll" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Runtime.dll" />
@@ -208,25 +223,36 @@
     <None Include="Assets\TextMesh Pro\Shaders\TMP_SDF-Mobile SSD.shader" />
     <None Include="Assets\Photon\PhotonLibs\changes-library.txt" />
     <None Include="Assets\TextMesh Pro\Resources\LineBreaking Leading Characters.txt" />
+    <None Include="Assets\Firebase\Plugins\x86_64\FirebaseCppApp-13_2_0.dll" />
+    <None Include="Assets\Firebase\m2repository\com\google\firebase\firebase-analytics-unity\maven-metadata.xml" />
     <None Include="Assets\TextMesh Pro\Shaders\TMPro_Properties.cginc" />
+    <None Include="Assets\Firebase\m2repository\com\google\firebase\firebase-auth-unity\maven-metadata.xml" />
     <None Include="Assets\Photon\Fusion\Plugins\NanoSockets\Metro\x64\libnanosockets.dll" />
     <None Include="Assets\TextMesh Pro\Shaders\TMPro_Surface.cginc" />
+    <None Include="Assets\Firebase\Plugins\iOS\Firebase.Auth.dll" />
     <None Include="Assets\Photon\Fusion\Plugins\NanoSockets\Metro\x86\libnanosockets.dll" />
+    <None Include="Assets\Firebase\Plugins\Firebase.Crashlytics.dll" />
     <None Include="Assets\Photon\PhotonLibs\netstandard2.0\Photon3Unity3D.dll" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Realtime.xml" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Common.xml" />
     <None Include="Assets\TextMesh Pro\Resources\LineBreaking Following Characters.txt" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Sockets.xml" />
     <None Include="Assets\Photon\Fusion\Plugins\NanoSockets\Windows\nanosockets.dll" />
+    <None Include="Assets\Firebase\Plugins\Firebase.Firestore.dll" />
+    <None Include="Assets\Firebase\Plugins\iOS\Firebase.Crashlytics.dll" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_SDF-Mobile Masking.shader" />
     <None Include="Assets\Photon\Fusion\build_info.txt" />
     <None Include="Assets\Photon\Fusion\Assemblies\Fusion.Realtime.dll" />
     <None Include="Assets\Photon\Fusion\Plugins\NanoSockets\Metro\ARM64\libnanosockets.dll" />
+    <None Include="Assets\Firebase\Plugins\Firebase.Platform.dll" />
     <None Include="Assets\Photon\Fusion\Plugins\NanoSockets\WebGL\NanoSockets.dll" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_SDF Overlay.shader" />
+    <None Include="Assets\Firebase\m2repository\com\google\firebase\firebase-crashlytics-unity\maven-metadata.xml" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_Bitmap-Mobile.shader" />
+    <None Include="Assets\Firebase\Plugins\Google.MiniJson.dll" />
     <None Include="Assets\TextMesh Pro\Fonts\LiberationSans - OFL.txt" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_SDF-Mobile.shader" />
+    <None Include="Assets\Firebase\Plugins\iOS\Firebase.App.dll" />
     <None Include="Assets\Photon\Fusion\Plugins\NanoSockets\Metro\ARM\libnanosockets.dll" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_Sprite.shader" />
     <None Include="Assets\TextMesh Pro\Examples &amp; Extras\Fonts\Bangers - OFL.txt" />
@@ -564,32 +590,32 @@
       <HintPath>Assets\Photon\Fusion\Plugins\NanoSockets\NanoSockets\Dynamic\NanoSockets.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Fusion.Log">
-      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Log.dll</HintPath>
+    <Reference Include="Firebase.Crashlytics">
+      <HintPath>Assets\Firebase\Plugins\Firebase.Crashlytics.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Photon3Unity3D">
       <HintPath>Assets\Photon\PhotonLibs\netstandard2.0\Photon3Unity3D.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="websocket-sharp">
-      <HintPath>Assets\Photon\PhotonLibs\WebSocket\websocket-sharp.dll</HintPath>
+    <Reference Include="Firebase.App">
+      <HintPath>Assets\Firebase\Plugins\Firebase.App.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Fusion.Common">
-      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Common.dll</HintPath>
+    <Reference Include="Firebase.Firestore">
+      <HintPath>Assets\Firebase\Plugins\Firebase.Firestore.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="websocket-sharp">
+      <HintPath>Assets\Photon\PhotonLibs\WebSocket\websocket-sharp.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Fusion.Sockets">
       <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Sockets.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Fusion.Realtime">
-      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Realtime.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Fusion.Runtime">
-      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Runtime.dll</HintPath>
+    <Reference Include="Firebase.TaskExtension">
+      <HintPath>Assets\Firebase\Plugins\Firebase.TaskExtension.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.VisualScripting.Antlr3.Runtime">
@@ -598,6 +624,38 @@
     </Reference>
     <Reference Include="Mono.Cecil">
       <HintPath>Library\PackageCache\com.unity.nuget.mono-cecil@1.10.2\Mono.Cecil.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Fusion.Log">
+      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Log.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Firebase.Analytics">
+      <HintPath>Assets\Firebase\Plugins\Firebase.Analytics.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Fusion.Common">
+      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Common.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Fusion.Realtime">
+      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Realtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Google.MiniJson">
+      <HintPath>Assets\Firebase\Plugins\Google.MiniJson.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Fusion.Runtime">
+      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Runtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Firebase.Platform">
+      <HintPath>Assets\Firebase\Plugins\Firebase.Platform.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Firebase.Auth">
+      <HintPath>Assets\Firebase\Plugins\Firebase.Auth.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.Android.Types">

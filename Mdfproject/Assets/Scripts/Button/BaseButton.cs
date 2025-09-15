@@ -5,20 +5,20 @@ using UnityEngine;
 
 public class BaseButton : MonoBehaviour
 {
-    protected UIManagers uiManager;
-    protected GameManagers gameManagers;
+    protected UIManagers _uiManager;
+    protected GameManagers _gameManagers;
 
 
     protected virtual void Start()
     {
-        if (uiManager == null)
+        if (_uiManager == null)
         {
-            uiManager = UIManagers.Instance;
+            _uiManager = UIManagers.Instance;
         }
-        
-        if (gameManagers == null)
+
+        if (_gameManagers == null)
         {
-            gameManagers = GameManagers.Instance;
+            _gameManagers = GameManagers.Instance;
         }
     }
 
@@ -33,5 +33,5 @@ public class BaseButton : MonoBehaviour
         // Override this method in derived classes to handle back button events
         Debug.Log("Back button clicked: " + gameObject.name);
     }
-    
+
 }

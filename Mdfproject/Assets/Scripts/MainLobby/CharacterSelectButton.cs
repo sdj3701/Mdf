@@ -18,8 +18,8 @@ public class CharacterSelectButton : BaseButton
     override public void OnClick()
     {
         // 매번 체크
-        if (gameManagers == null)
-            gameManagers = FindObjectOfType<GameManagers>();
+        if (_gameManagers == null)
+            _gameManagers = FindObjectOfType<GameManagers>();
 
         Button button = this.gameObject.GetComponent<Button>();
         if (button == null)
@@ -33,18 +33,18 @@ public class CharacterSelectButton : BaseButton
         if (buttonText != null)
         {
             Debug.Log($"버튼 텍스트: {buttonText.text}");
-            
+
             // 3. gameManagers null 체크
-            if (gameManagers != null)
+            if (_gameManagers != null)
             {
-                gameManagers.Pushqueue(buttonText.text);
+                _gameManagers.Pushqueue(buttonText.text);
             }
             else
             {
                 Debug.LogError("gameManagers가 null입니다!");
                 return;
             }
-            
+
             // 4. selectCharacter null 체크
             if (selectCharacter != null)
             {
@@ -60,12 +60,12 @@ public class CharacterSelectButton : BaseButton
         {
             // 🚨 원본 버그: buttonText가 null인데 .text 접근
             // string name = buttonText.text; ← 이게 NullReferenceException 원인!
-            
+
             // ✅ 수정: null인 경우 게임오브젝트 이름 사용
             string name = gameObject.name;
             Debug.LogWarning($"'{name}' 버튼에서 TMP_Text 컴포넌트를 찾을 수 없습니다!");
         }
 
 
-    }   
+    }
 }

@@ -26,8 +26,8 @@ public class UnitData : ScriptableObject
     [Tooltip("UI와 게임 내에서 표시될 유닛의 이름입니다.")]
     public string unitName;
 
-    [Tooltip("상점과 UI 등에서 사용될 유닛의 아이콘입니다.")]
-    public Sprite unitIcon;
+    [Tooltip("상점과 UI 등에서 사용될 유닛의 아이콘입니다.")] [AddressableKey(typeof(Sprite))]
+    public string unitIcon;
 
     [Tooltip("상점에서 이 유닛을 구매하는 데 필요한 골드입니다.")]
     public int cost;
@@ -71,15 +71,18 @@ public class UnitData : ScriptableObject
 
     [Tooltip("마나 회복 방식이 'Passive'일 때, 초당 회복하는 마나의 양입니다.")]
     public float manaPerSecond = 5f;
-    
+
     [Header("성급별 변화 요소")]
     [Tooltip("유닛의 외형을 결정하는 프리팹입니다. Element 0은 1성, 1은 2성, 2는 3성에 해당합니다.")]
-    public GameObject[] prefabsByStarLevel = new GameObject[3];
+    [AddressableKey(typeof(GameObject))]
+    public string[] prefabsByStarLevel = new string[3];
 
     [Tooltip("유닛이 사용하는 스킬입니다. Element 0은 1성, 1은 2성, 2는 3성에 해당합니다. 성급이 올라도 스킬이 같다면 같은 스킬 데이터를 넣어주세요.")]
-    public SkillData[] skillsByStarLevel = new SkillData[3];
+    [AddressableKey(typeof(SkillData))]
+    public string[] skillsByStarLevel = new string[3];
 
     [Header("원거리 유닛 설정")]
     [Tooltip("원거리 유닛이 발사할 투사체 프리팹입니다. Element 0은 1성, 1은 2성, 2는 3성에 해당합니다. 투사체가 같다면 같은 프리팹을 넣어주세요.")]
-    public GameObject[] projectilePrefabsByStarLevel = new GameObject[3];
+    [AddressableKey(typeof(GameObject))]
+    public string[] projectilePrefabsByStarLevel = new string[3];
 }

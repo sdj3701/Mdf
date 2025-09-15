@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.Tilemaps;
 using System.Collections.Generic;
 using System.Linq;
-
+using Cysharp.Threading.Tasks;
 [RequireComponent(typeof(PlacementManager))]
 public class FieldManager : MonoBehaviour
 {
@@ -273,7 +273,7 @@ public class FieldManager : MonoBehaviour
         }
     }
     
-    public void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel)
+     public async void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel)
     {
         if (ObstacleTilemap == null)
         {
@@ -281,10 +281,14 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
-        GameObject prefabToCreate = data.prefabsByStarLevel[starLevel - 1];
+        // --- [핵심 수정 부분] ---
+        string prefabKey = data.prefabsByStarLevel[starLevel - 1];
+        GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+        // --- [수정 끝] ---
+
         if (prefabToCreate == null)
         {
-            Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹이 UnitData에 설정되지 않았습니다!");
+            Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹({prefabKey})을 로드할 수 없습니다!");
             return;
         }
         Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
@@ -298,7 +302,8 @@ public class FieldManager : MonoBehaviour
                 GameObject statusBarGO = Instantiate(statusBarPrefab, newUnitGO.transform);
                 newUnitComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
             }
-            newUnitComponent.Initialize(data, starLevel);
+            // Initialize가 비동기가 되었으므로 async void로 호출합니다. (await 불필요)
+            newUnitComponent.Initialize(data, starLevel); 
             placedUnits.Add(gridPosition, newUnitComponent);
         }
         else
@@ -363,7 +368,7 @@ public class FieldManager : MonoBehaviour
         return null;
     }
     
-    public void CheckForCombination()
+    public async void CheckForCombination()
     {
         var combinableGroup = placedUnits.Values
             .Where(u => u != null && u.starLevel < 3)
@@ -380,7 +385,7 @@ public class FieldManager : MonoBehaviour
                 Destroy(unitsToCombine[i].gameObject);
             }
             Unit baseUnit = unitsToCombine[2];
-            baseUnit.Upgrade();
+            await baseUnit.Upgrade();
             ReplaceUnitPrefab(baseUnit);
             CheckForCombination();
         }
@@ -393,6 +398,7 @@ public class FieldManager : MonoBehaviour
         int newStarLevel = unitToReplace.starLevel;
         UnitDied(unitToReplace);
         Destroy(unitToReplace.gameObject);
+        // CreateUnitAt을 호출합니다. (await 불필요)
         CreateUnitAt(unitData, currentPos, newStarLevel);
     }
 
@@ -534,27 +540,36 @@ public class FieldManager : MonoBehaviour
     /// <summary>
     /// 지정된 유닛의 공격 및 스킬 범위를 원형으로 표시하고, 겹치는 경우 렌더링 순서를 조정합니다.
     /// </summary>
-    public void ShowRanges(Unit unit)
+    public async void ShowRanges(Unit unit)
     {
         if (unit == null) return;
 
         ClearRanges();
 
-        // 1. 각 범위 값 가져오기
+        // 1. 공격 범위 값은 그대로 가져옵니다.
         float attackRange = unit.currentAttackRange;
         float skillRange = 0f;
 
-        if (skillRangeIndicatorPrefab != null && unit.Data.skillsByStarLevel.Length >= unit.starLevel &&
-            unit.Data.skillsByStarLevel[unit.starLevel - 1] != null)
+        // --- [핵심 수정 부분] ---
+        // 2. 스킬 데이터의 주소가 있는지 확인하고, AssetLoader를 통해 실제 SkillData를 로드합니다.
+        if (unit.Data.skillsByStarLevel.Length >= unit.starLevel)
         {
-            SkillData currentSkill = unit.Data.skillsByStarLevel[unit.starLevel - 1];
-            // [중요] 아래 코드는 SkillData 스크립트에 'public float range;' 변수가 있다고 가정합니다.
-            // 만약 변수 이름이 다르다면 이 부분을 실제 변수 이름으로 수정해야 합니다.
-            skillRange = currentSkill.range; 
+            string skillKey = unit.Data.skillsByStarLevel[unit.starLevel - 1];
+            if (!string.IsNullOrEmpty(skillKey))
+            {
+                SkillData currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+                if (currentSkill != null)
+                {
+                    skillRange = currentSkill.range;
+                }
+            }
         }
+        // --- [수정 끝] ---
 
         bool showAttack = attackRangeIndicatorPrefab != null && attackRange > 0;
         bool showSkill = skillRangeIndicatorPrefab != null && skillRange > 0;
+
+        if (!showAttack && !showSkill) return;
 
         if (!showAttack && !showSkill) return;
 

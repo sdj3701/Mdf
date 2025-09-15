@@ -3,12 +3,53 @@
 root = true
 
 [*]
-# 기존 utf-8 대신 utf-8-bom으로 설정
-charset = utf-8-bom
+charset = utf-8
 end_of_line = lf
 insert_final_newline = true
-trim_trailing_whitespace = true```
+trim_trailing_whitespace = true
 
-#### Visual Studio에서 수동 저장 시
+[*.cs]
+# C# Naming Rules
 
-파일을 '인코딩하여 저장'할 때는 **`유니코드(UTF-8 서명 포함) - 코드 페이지 65001`**을 선택하시면 됩니다. 이것이 바로 'UTF-8 with BOM'입니다.
+# ... (심볼 및 스타일 정의는 동일) ...
+
+# 1. 심볼 그룹 정의 (어떤 종류의 코드에 적용할지 정의)
+# ----------------------------------------------------------------
+# ... (이전과 동일) ...
+
+# 2. 스타일 그룹 정의 (어떤 스타일을 적용할지 정의)
+# ----------------------------------------------------------------
+# ... (이전과 동일) ...
+
+# 3. 규칙 적용 (정의된 심볼과 스타일을 연결) - SEVERITY 변경됨
+# ----------------------------------------------------------------
+
+# 규칙: private/protected 필드는 _camelCase를 사용해야 함
+dotnet_naming_rule.private_protected_fields_should_have_underscore.symbols = private_protected_fields
+dotnet_naming_rule.private_protected_fields_should_have_underscore.style = starts_with_underscore
+dotnet_naming_rule.private_protected_fields_should_have_underscore.severity = warning
+
+# 규칙: public 필드는 PascalCase를 사용해야 함
+dotnet_naming_rule.public_fields_should_be_pascal_case.symbols = public_fields
+dotnet_naming_rule.public_fields_should_be_pascal_case.style = pascal_case_style
+dotnet_naming_rule.public_fields_should_be_pascal_case.severity = warning
+
+# 규칙: 상수 및 static readonly 필드는 PascalCase를 사용해야 함
+dotnet_naming_rule.constants_should_be_pascal_case.symbols = constants_and_static_readonly
+dotnet_naming_rule.constants_should_be_pascal_case.style = pascal_case_style
+dotnet_naming_rule.constants_should_be_pascal_case.severity = warning
+
+# 규칙: 모든 메서드는 PascalCase를 사용해야 함
+dotnet_naming_rule.all_methods_should_be_pascal_case.symbols = all_methods
+dotnet_naming_rule.all_methods_should_be_pascal_case.style = pascal_case_style
+dotnet_naming_rule.all_methods_should_be_pascal_case.severity = warning
+
+# 규칙: public 프로퍼티는 PascalCase를 사용해야 함
+dotnet_naming_rule.public_properties_should_be_pascal_case.symbols = public_properties
+dotnet_naming_rule.public_properties_should_be_pascal_case.style = pascal_case_style
+dotnet_naming_rule.public_properties_should_be_pascal_case.severity = warning
+
+# 규칙: 지역 변수 및 매개변수는 camelCase를 사용해야 함
+dotnet_naming_rule.locals_and_parameters_should_be_camel_case.symbols = locals_and_parameters
+dotnet_naming_rule.locals_and_parameters_should_be_camel_case.style = camel_case_style
+dotnet_naming_rule.locals_and_parameters_should_be_camel_case.severity = warning

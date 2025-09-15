@@ -24,7 +24,7 @@ public class ShopManager : MonoBehaviour
     // (Addressables 로딩 코드는 기존과 동일)
     private async void LoadAllUnitsFromAddressables()
     {
-        var handle = UnityEngine.AddressableAssets.Addressables.LoadAssetsAsync<UnitData>("Unit", null);
+        var handle = UnityEngine.AddressableAssets.Addressables.LoadAssetsAsync<UnitData>("UnitData", null);
         await handle.Task;
 
         if (handle.Status == UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationStatus.Succeeded)
