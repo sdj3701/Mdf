@@ -77,13 +77,13 @@ public class GameManagers : MonoBehaviour
     private void OnEnable()
     {
         SceneManager.sceneLoaded += OnSceneLoaded;
-        GameEvents.OnAugmentSelected += HandleAugmentChosen;
+        GameEvents.OnAugmentApplied += HandleAugmentChosen;
     }
 
     private void OnDisable()
     {
         SceneManager.sceneLoaded -= OnSceneLoaded;
-        GameEvents.OnAugmentSelected -= HandleAugmentChosen;
+        GameEvents.OnAugmentApplied -= HandleAugmentChosen;
     }
 
     void OnSceneLoaded(Scene scene, LoadSceneMode mode)

@@ -21,7 +21,7 @@ public class PlaceWallCommand : ICommand
             if (player.fieldManager != null)
             {
                 player.fieldManager.CreateWallAt(_position);
-                GameEvents.TriggerWallPlaced(player.playerId, _position);
+                GameEvents.TriggerWallPlacementSucceeded(player.playerId, _position);
             }
         }
     }

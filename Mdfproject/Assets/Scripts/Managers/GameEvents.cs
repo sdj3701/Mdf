@@ -26,19 +26,23 @@ public static class GameEvents
     public static event Action<PlayerManager, List<AugmentData>> OnAugmentPhaseStart;
     public static void TriggerAugmentPhaseStart(PlayerManager localPlayer, List<AugmentData> augments) => OnAugmentPhaseStart?.Invoke(localPlayer, augments);
 
-    public static event Action<PlayerManager, AugmentData> OnAugmentSelected;
-    public static void TriggerAugmentSelected(PlayerManager localPlayer, AugmentData chosenAugment) => OnAugmentSelected?.Invoke(localPlayer, chosenAugment);
+    public static event Action<PlayerManager, AugmentData> OnAugmentApplied;
+    public static void TriggerAugmentApplied(PlayerManager localPlayer, AugmentData chosenAugment) => OnAugmentApplied?.Invoke(localPlayer, chosenAugment);
 
     // --- 상점 및 배치 이벤트 ---
-    public static event Action<int, int> OnUnitPurchaseSuccess; // playerID, slotIndex
-    public static void TriggerUnitPurchaseSuccess(int playerID, int slotIndex) => OnUnitPurchaseSuccess?.Invoke(playerID, slotIndex);
+    // [수정됨] 구매 '요청'이 아닌 '성공 결과'를 알리는 이벤트. UI 업데이트 등 후처리에 사용됩니다.
+    public static event Action<int, ShopItem, int> OnUnitPurchaseSucceeded; // playerID, 구매한 아이템, 상점 슬롯 인덱스
+    public static void TriggerUnitPurchaseSucceeded(int playerID, ShopItem item, int slotIndex) => OnUnitPurchaseSucceeded?.Invoke(playerID, item, slotIndex);
+
+    public static event Action<int, string> OnPurchaseFailed; // playerID, 실패 사유
+    public static void TriggerPurchaseFailed(int playerID, string reason) => OnPurchaseFailed?.Invoke(playerID, reason);
 
     public static event Action<PlayerManager> OnShopRefreshed;
     public static void TriggerShopRefreshed(PlayerManager owner) => OnShopRefreshed?.Invoke(owner);
 
-    public static event Action<int, Vector3Int> OnWallPlaced;
-    public static void TriggerWallPlaced(int playerID, Vector3Int gridPosition) => OnWallPlaced?.Invoke(playerID, gridPosition);
+    public static event Action<int, Vector3Int> OnWallPlacementSucceeded;
+    public static void TriggerWallPlacementSucceeded(int playerID, Vector3Int gridPosition) => OnWallPlacementSucceeded?.Invoke(playerID, gridPosition);
 
-    public static event Action<int, Vector3Int> OnWallRemoved;
-    public static void TriggerWallRemoved(int playerID, Vector3Int gridPosition) => OnWallRemoved?.Invoke(playerID, gridPosition);
+    public static event Action<int, Vector3Int> OnWallRemovalSucceeded;
+    public static void TriggerWallRemovalSucceeded(int playerID, Vector3Int gridPosition) => OnWallRemovalSucceeded?.Invoke(playerID, gridPosition);
 }

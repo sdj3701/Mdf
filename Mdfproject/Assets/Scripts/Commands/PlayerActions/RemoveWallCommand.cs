@@ -20,7 +20,7 @@ public class RemoveWallCommand : ICommand
         {
             player.fieldManager.RemoveWallAt(_position);
             player.ReturnWall();
-            GameEvents.TriggerWallRemoved(player.playerId, _position);
+            GameEvents.TriggerWallRemovalSucceeded(player.playerId, _position);
         }
     }
 }

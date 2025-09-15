@@ -115,7 +115,7 @@ public class AugmentManager : MonoBehaviour
         presentedAugments.Clear();
 
         // 다른 시스템(UI 등)에 상태 변경을 알립니다.
-        GameEvents.TriggerAugmentSelected(this.playerManager, chosenAugment);
+        GameEvents.TriggerAugmentApplied(this.playerManager, chosenAugment);
     }
 
     private void ApplyEffect(PlayerManager target, AugmentData augment)

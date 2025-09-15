@@ -29,12 +29,14 @@ public class BuyUnitCommand : ICommand
             // 상점의 상태를 갱신합니다.
             player.shopManager.MarkSlotAsPurchased(_shopSlotIndex);
             
-            // UI 갱신을 위해 성공 이벤트를 발생시킵니다.
-            GameEvents.TriggerUnitPurchaseSuccess(PlayerId, _shopSlotIndex);
+            // ⭐ 핵심: 여기서 "결과" 이벤트를 발생시킵니다!
+            GameEvents.TriggerUnitPurchaseSucceeded(PlayerId, itemToBuy, _shopSlotIndex);
         }
         else
         {
             Debug.Log($"Player {PlayerId}: 골드가 부족하여 구매에 실패했습니다.");
+            // (선택적) 골드 부족 이벤트 발생
+            GameEvents.TriggerPurchaseFailed(PlayerId, "골드 부족");
         }
     }
 }
