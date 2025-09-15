@@ -99,28 +99,10 @@ public class PlayerManager : MonoBehaviour
     // ... (이하 나머지 코드는 이전과 동일) ...
     void OnEnable()
     {
-        GameEvents.OnUnitPurchased += HandleUnitPurchaseRequest;
     }
 
     void OnDisable()
     {
-        GameEvents.OnUnitPurchased -= HandleUnitPurchaseRequest;
-    }
-
-    private void HandleUnitPurchaseRequest(PlayerManager purchasingPlayer, UnitData unitData, int starLevel)
-    {
-        if (purchasingPlayer.playerId != this.playerId) return;
-
-        ShopItem item = new ShopItem(unitData, starLevel);
-    
-        if (SpendGold(item.CalculatedCost))
-        {
-            AddUnit(unitData, starLevel);
-        }
-        else
-        {
-            Debug.Log($"Player {playerId}: 골드가 부족하여 {unitData.unitName} 구매에 실패했습니다.");
-        }
     }
 
     public void SetFightingState(bool isFighting)

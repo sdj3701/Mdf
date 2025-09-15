@@ -51,6 +51,7 @@ public class ShopUIController : MonoBehaviour
         // 게임 상태 변경 이벤트를 구독합니다.
         GameEvents.OnGameStateChanged += HandleGameStateChange;
         GameEvents.OnShopRefreshed += HandleShopRefreshed;
+        GameEvents.OnUnitPurchaseSuccess += HandleUnitPurchaseSuccess;
     }
 
     void OnDisable()
@@ -58,6 +59,7 @@ public class ShopUIController : MonoBehaviour
         // 패널이 비활성화될 때 이벤트 구독을 해지하여 메모리 누수를 방지합니다.
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
         GameEvents.OnShopRefreshed -= HandleShopRefreshed;
+        GameEvents.OnUnitPurchaseSuccess -= HandleUnitPurchaseSuccess;
     }
 
     /// <summary>
@@ -102,9 +104,9 @@ public class ShopUIController : MonoBehaviour
         rerollButton.onClick.RemoveAllListeners();
         rerollButton.onClick.AddListener(OnRerollButtonClick);
 
-        foreach (var slot in shopSlots)
+        for (int i = 0; i < shopSlots.Length; i++)
         {
-            slot.Initialize(localPlayerShopManager);
+            shopSlots[i].Initialize(localPlayerShopManager, i); // 슬롯에 인덱스 전달
         }
 
         UpdateInfoText();
@@ -125,6 +127,17 @@ public class ShopUIController : MonoBehaviour
         {
             UpdateShopSlots();
             UpdateInfoText();
+        }
+    }
+
+    private void HandleUnitPurchaseSuccess(int playerID, int slotIndex)
+    {
+        if (localPlayerShopManager != null && playerID == localPlayerShopManager.playerManager.playerId)
+        {
+            if (slotIndex >= 0 && slotIndex < shopSlots.Length)
+            {
+                shopSlots[slotIndex].SetPurchased();
+            }
         }
     }
 

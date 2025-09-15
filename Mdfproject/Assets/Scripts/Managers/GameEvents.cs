@@ -30,8 +30,8 @@ public static class GameEvents
     public static void TriggerAugmentSelected(PlayerManager localPlayer, AugmentData chosenAugment) => OnAugmentSelected?.Invoke(localPlayer, chosenAugment);
 
     // --- 상점 및 배치 이벤트 ---
-    public static event Action<PlayerManager, UnitData, int> OnUnitPurchased;
-    public static void TriggerUnitPurchased(PlayerManager localPlayer, UnitData unitData, int starLevel) => OnUnitPurchased?.Invoke(localPlayer, unitData, starLevel);
+    public static event Action<int, int> OnUnitPurchaseSuccess; // playerID, slotIndex
+    public static void TriggerUnitPurchaseSuccess(int playerID, int slotIndex) => OnUnitPurchaseSuccess?.Invoke(playerID, slotIndex);
 
     public static event Action<PlayerManager> OnShopRefreshed;
     public static void TriggerShopRefreshed(PlayerManager owner) => OnShopRefreshed?.Invoke(owner);
