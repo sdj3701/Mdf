@@ -51,10 +51,14 @@ public class AstarGrid : MonoBehaviour
         InitializeGrid();
     }
 
-    public bool FindPath(Vector2Int start, Vector2Int end)
+    public bool FindPath(Vector2Int start, Vector2Int end, bool ignoreWalls = false)
     {
         // 런타임에 벽 정보가 바뀔 수 있으므로, 경로 탐색 시마다 벽 상태를 다시 확인합니다.
-        UpdateGridWallStatus();
+        // 벽을 무시하는 경우, 이 업데이트를 건너뛰어 성능을 최적화하고 그리드를 '깨끗한' 상태로 둡니다.
+        if (!ignoreWalls)
+        {
+            UpdateGridWallStatus();
+        }
 
         if (!IsValidPosition(start) || !IsValidPosition(end))
         {
@@ -101,7 +105,7 @@ public class AstarGrid : MonoBehaviour
                 return true;
             }
             
-            ExploreNeighbors(CurNode, TargetNode, OpenList, ClosedList);
+            ExploreNeighbors(CurNode, TargetNode, OpenList, ClosedList, ignoreWalls);
         }
 
         Debug.LogWarning($"[AstarGrid] 경로를 찾을 수 없습니다: {start} -> {end}");
@@ -156,7 +160,7 @@ public class AstarGrid : MonoBehaviour
     }
 
 
-    private void ExploreNeighbors(AstarNode CurNode, AstarNode TargetNode, List<AstarNode> OpenList, HashSet<AstarNode> ClosedList)
+    private void ExploreNeighbors(AstarNode CurNode, AstarNode TargetNode, List<AstarNode> OpenList, HashSet<AstarNode> ClosedList, bool ignoreWalls)
     {
         for (int x = -1; x <= 1; x++)
         {
@@ -171,9 +175,9 @@ public class AstarGrid : MonoBehaviour
                 AstarNode NeighborNode = GetNode(neighborPos);
                 if (ClosedList.Contains(NeighborNode)) continue;
 
-                if (NeighborNode.isWall && !NeighborNode.isBreakable) continue;
+                if (!ignoreWalls && NeighborNode.isWall && !NeighborNode.isBreakable) continue;
 
-                if (dontCrossCorner && x != 0 && y != 0)
+                if (!ignoreWalls && dontCrossCorner && x != 0 && y != 0)
                 {
                     if (GetNode(new Vector2Int(CurNode.x + x, CurNode.y)).isWall || GetNode(new Vector2Int(CurNode.x, CurNode.y + y)).isWall)
                         continue;
@@ -182,7 +186,7 @@ public class AstarGrid : MonoBehaviour
                 int distanceCost = (x == 0 || y == 0) ? 10 : 14;
                 int tentativeGCost = CurNode.G + distanceCost;
                 
-                if (NeighborNode.isWall)
+                if (!ignoreWalls && NeighborNode.isWall)
                 {
                     tentativeGCost += wallBreakCost;
                 }
@@ -248,7 +252,7 @@ public class AstarGrid : MonoBehaviour
     {
         // 디버깅 시에는 Awake가 호출된 후의 월드 좌표를 사용해야 합니다.
         if (NodeArray == null) Awake(); // 에디터에서 바로 실행 시 Awake 호출
-        FindPath(debugStartPos, debugTargetPos);
+        FindPath(debugStartPos, debugTargetPos, false);
     }
 
     void OnDrawGizmos()

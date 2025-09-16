@@ -39,7 +39,7 @@ public class RearrangeUnitsCommand : ICommand
         {
             // 이제 fieldManager.GetAlliedUnitsOnField()는 재배치된 유닛 목록을 동적으로 반환하므로
             // FindBestSpotForAI가 항상 최신 상태를 기반으로 최적의 위치를 계산할 수 있습니다.
-            Vector3Int? bestPos = fieldManager.FindBestSpotForAI(unit.Data);
+            Vector3Int? bestPos = fieldManager.FindBestSpotForAI(unit.Data, player.astarGrid.FinalPath);
             
             if (bestPos.HasValue)
             {

@@ -13,6 +13,7 @@ namespace AI.UtilitySystem
         public UnitData UnitToPlace { get; private set; }
         public Vector3Int PlacementPosition { get; private set; }
         public List<Unit> AlliedUnitsOnField { get; private set; }
+        public List<AstarNode> MonsterPath { get; private set; }
         // ------------------------------------
 
         public AIContext(PlayerManager player)
@@ -27,12 +28,13 @@ namespace AI.UtilitySystem
         }
         
         // --- 배치용 생성자 ---
-        public AIContext(PlayerManager player, UnitData unitToPlace, Vector3Int position, List<Unit> allies)
+        public AIContext(PlayerManager player, UnitData unitToPlace, Vector3Int position, List<Unit> allies, List<AstarNode> path)
         {
             this.Player = player;
             this.UnitToPlace = unitToPlace;
             this.PlacementPosition = position;
             this.AlliedUnitsOnField = allies;
+            this.MonsterPath = path;
         }
         // ----------------------
     }

@@ -15,6 +15,7 @@ namespace AI.BehaviorTree.Nodes.Actions
 
         // 재배치 진행 상태를 저장하기 위한 상태 변수
         private List<Unit> _rearrangedUnits;
+        private List<AstarNode> _idealMonsterPath;
 
         public RearrangeAllUnitsAction(PlayerManager playerManager, CommandProcessor commandProcessor)
         {
@@ -34,6 +35,11 @@ namespace AI.BehaviorTree.Nodes.Actions
                 
                 _rearrangedUnits = new List<Unit>();
                 RecalculateMonsterPath(); // 재배치 시작 시 몬스터 경로를 한 번 계산합니다.
+                
+                // 경로가 다른 시스템에 의해 변경되지 않도록 현재 경로를 복사하여 사용합니다.
+                _idealMonsterPath = _playerManager.astarGrid.FinalPath != null 
+                    ? new List<AstarNode>(_playerManager.astarGrid.FinalPath) 
+                    : new List<AstarNode>();
             }
 
             var allUnitsOnField = _playerManager.fieldManager.GetAlliedUnitsOnField();
@@ -70,8 +76,8 @@ namespace AI.BehaviorTree.Nodes.Actions
             }
             Vector3Int originalPos = originalPosNullable.Value;
 
-            // 현재 위치를 고려하여 최적의 새 위치를 찾습니다.
-            Vector3Int? bestPos = _playerManager.fieldManager.FindBestSpotForAI(nextUnitToMove.Data, null, null, originalPos);
+            // 현재 위치를 고려하여 최적의 새 위치를 찾습니다. (복사해 둔 '이상적인 경로'를 전달)
+            Vector3Int? bestPos = _playerManager.fieldManager.FindBestSpotForAI(nextUnitToMove.Data, _idealMonsterPath, null, null, originalPos);
 
             if (bestPos.HasValue && bestPos.Value != originalPos)
             {
@@ -94,8 +100,30 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (grid == null || start == null || goal == null) return;
 
+            // 재배치 계획을 위해 현재 필드에 있는 모든 유닛의 콜라이더를 일시적으로 비활성화합니다.
+            var allUnits = _playerManager.fieldManager.GetAlliedUnitsOnField();
+            List<Collider2D> colliders = new List<Collider2D>();
+            foreach (var unit in allUnits)
+            {
+                var collider = unit.GetComponent<Collider2D>();
+                if (collider != null)
+                {
+                    colliders.Add(collider);
+                    collider.enabled = false;
+                }
+            }
+
             Vector2Int startPos = new Vector2Int(Mathf.RoundToInt(start.position.x), Mathf.RoundToInt(start.position.y));
             Vector2Int goalPos = new Vector2Int(Mathf.RoundToInt(goal.position.x), Mathf.RoundToInt(goal.position.y));
+            
+            // 유닛이 없는 상태에서, 벽을 정상적으로 고려한 실제 몬스터 이동 경로를 계산합니다.
+            grid.FindPath(startPos, goalPos, false);
+
+            // 경로 계산이 끝난 후, 모든 유닛의 콜라이더를 다시 활성화합니다.
+            foreach (var collider in colliders)
+            {
+                if (collider != null) collider.enabled = true;
+            }
         }
     }
 }

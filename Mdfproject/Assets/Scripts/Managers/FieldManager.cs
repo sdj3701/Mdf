@@ -41,9 +41,9 @@ public class FieldManager : MonoBehaviour
 
     private readonly List<Consideration> _placementConsiderations = new List<Consideration>
     {
-        // --- 근접 유닛 우선순위 ---
-        new OnMonsterPathConsideration { weight = 3.0f },       // 1. 몬스터 경로 위 (가장 중요)
-        new MeleePlacementConsideration { weight = 2.5f },      // 0. Ground 타일 (거의 필수)
+        // --- 근접 유닛 우선순위 (요청사항에 따라 가중치 조정) ---
+        new MeleePlacementConsideration { weight = 3.0f },      // 0. Ground 타일 (가장 중요)
+        new OnMonsterPathConsideration { weight = 2.5f },       // 1. 몬스터 경로 위
         new MeleeProtectsRangedConsideration { weight = 1.6f }, // 2. 경로 위에서 원거리 유닛 보호
         
         // --- 공통 / 원거리 유닛 우선순위 ---
@@ -529,7 +529,7 @@ public class FieldManager : MonoBehaviour
 
     #region AI 배치 Helper
 
-    public Vector3Int? FindBestSpotForAI(UnitData unitData, List<Unit> alliedUnitsContext = null, HashSet<Vector3Int> occupiedTiles = null, Vector3Int? movingUnitOriginalPos = null)
+    public Vector3Int? FindBestSpotForAI(UnitData unitData, List<AstarNode> monsterPathContext, List<Unit> alliedUnitsContext = null, HashSet<Vector3Int> occupiedTiles = null, Vector3Int? movingUnitOriginalPos = null)
     {
         var validTiles = GetValidPlacementTiles(unitData.unitType);
         if (validTiles == null || validTiles.Count == 0)
@@ -559,7 +559,7 @@ public class FieldManager : MonoBehaviour
                 }
             }
 
-            var context = new AIContext(playerManager, unitData, tilePos, alliedUnits);
+            var context = new AIContext(playerManager, unitData, tilePos, alliedUnits, monsterPathContext);
             float currentScore = CalculateScore(context, _placementConsiderations);
 
             if (currentScore > highestScore)

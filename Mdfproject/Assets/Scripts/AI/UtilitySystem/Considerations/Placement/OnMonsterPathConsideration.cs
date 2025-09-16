@@ -16,20 +16,13 @@ namespace AI.UtilitySystem.Considerations.Placement
                 return 0.5f; // 근접 유닛이 아니면 중립 점수 반환
             }
             
-            var astarGrid = context.Player.astarGrid;
-            if (astarGrid == null)
-            {
-                // 경로 정보를 알 수 없으면 이 평가를 무시합니다.
-                return 0.5f;
-            }
-            
-            var monsterPath = astarGrid.FinalPath;
+            var monsterPath = context.MonsterPath;
 
-            // 경로가 없거나 계산되지 않은 경우 (예: 준비 단계 시작 직후)
+            // 경로가 없거나 계산되지 않은 경우 (예: 유닛에 의해 길이 막힘)
             if (monsterPath == null || monsterPath.Count == 0)
             {
-                // 경로가 없으면 다른 요소(뭉치기, 범위 등)로 위치를 결정하도록 중립 점수를 줍니다.
-                return 0.5f;
+                // 경로를 찾지 못했다면, 이 고려사항은 최저 점수를 반환하여 다른 고려사항으로 결정되도록 합니다.
+                return 0.0f;
             }
 
             Vector3Int placementPos = context.PlacementPosition;
