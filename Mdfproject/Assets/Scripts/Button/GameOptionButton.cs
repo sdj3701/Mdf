@@ -12,6 +12,6 @@ public class GameOptionButton : BaseButton
 
     public async override void OnClick()
     {
-        await uiManager.GetUIElement("OptionCanvas");
+        await _uiManager.GetUIElement("OptionCanvas");
     }
 }

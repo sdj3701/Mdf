@@ -1,4 +1,4 @@
-﻿// Assets/Scripts/ComponentRegistrySystem/GameAssets.cs
+// Assets/Scripts/ComponentRegistrySystem/GameAssets.cs
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;

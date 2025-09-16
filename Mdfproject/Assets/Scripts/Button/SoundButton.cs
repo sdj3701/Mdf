@@ -7,13 +7,13 @@ public class SoundButton : BaseButton
 {
     public async override void OnClick()
     {
-        uiManager.ReturnUIElement("OptionCanvas");
-        await uiManager.GetUIElement("SoundCanvas");
+        _uiManager.ReturnUIElement("OptionCanvas");
+        await _uiManager.GetUIElement("SoundCanvas");
     }
 
     public async override void BackButton()
     {
-        uiManager.ReturnUIElement("SoundCanvas");
-        await uiManager.GetUIElement("OptionCanvas");
+        _uiManager.ReturnUIElement("SoundCanvas");
+        await _uiManager.GetUIElement("OptionCanvas");
     }
 }

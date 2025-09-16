@@ -6,9 +6,7 @@ using System.Linq;
 [CreateAssetMenu(fileName = "New AlliesInRadius", menuName = "Game/Skills/Targeting/Allies in Radius")]
 public class AlliesInRadius : TargetingStrategy
 {
-    public float radius = 3f;
-
-    public override List<GameObject> FindTargets(GameObject caster, Vector3 targetPosition)
+    public override List<GameObject> FindTargets(GameObject caster, Vector3 targetPosition, float range)
     {
         var allegiance = caster.GetComponent<Allegiance>();
         if (allegiance == null)
@@ -18,7 +16,7 @@ public class AlliesInRadius : TargetingStrategy
         }
 
         // Allegiance 컴포넌트의 'AllyLayer'를 사용합니다.
-        var colliders = Physics2D.OverlapCircleAll(targetPosition, radius, allegiance.AllyLayer);
+        var colliders = Physics2D.OverlapCircleAll(targetPosition, range, allegiance.AllyLayer);
         
         // 자기 자신을 포함한 아군을 반환합니다.
         return colliders.Select(col => col.gameObject).ToList();

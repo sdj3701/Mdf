@@ -2,7 +2,7 @@
 
 using UnityEngine;
 using UnityEngine.UI;
-
+using Cysharp.Threading.Tasks;
 public class StatusBarUI : MonoBehaviour
 {
     [Header("컴포넌트")]
@@ -14,6 +14,12 @@ public class StatusBarUI : MonoBehaviour
     public Image manaBarImage;
     [Tooltip("마나 바의 배경 이미지")]
     public Image manaBarBackgroundImage;
+
+    [Header("스킬 버튼 UI")]
+    [Tooltip("스킬 사용 버튼")]
+    public Button skillButton;
+    [Tooltip("스킬 아이콘을 표시할 이미지")]
+    public Image skillIconImage;
 
     [Header("색상 설정")]
     [Tooltip("플레이어 유닛의 체력 바 색상")]
@@ -35,9 +41,19 @@ public class StatusBarUI : MonoBehaviour
 
     private bool isUnit = false;
     private bool isCombatPhase = false;
-    
+
     private IHealth healthComponent;
     private IMana manaComponent;
+    private Unit unitComponent;
+    private GraphicRaycaster graphicRaycaster;
+
+    private void Awake()
+    {
+        // Start보다 먼저 호출되므로, Unit.cs에서 참조를 사용할 때 null이 되는 것을 방지합니다.
+        unitComponent = GetComponentInParent<Unit>();
+        isUnit = unitComponent != null;
+        graphicRaycaster = GetComponent<GraphicRaycaster>();
+    }
 
     private void OnEnable()
     {
@@ -47,15 +63,13 @@ public class StatusBarUI : MonoBehaviour
     private void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
-        
+
         if (healthComponent != null) healthComponent.OnHealthChanged -= UpdateHealth;
         if (manaComponent != null) manaComponent.OnManaChanged -= UpdateMana;
     }
 
     private void Start()
     {
-        isUnit = GetComponentInParent<Unit>() != null;
-
         if (GameManagers.Instance != null)
         {
             isCombatPhase = GameManagers.Instance.GetGameState() == GameManagers.GameState.Combat;
@@ -85,6 +99,15 @@ public class StatusBarUI : MonoBehaviour
             SetManaBarVisibility(false);
         }
 
+        // 유닛이 아닌 경우 (몬스터, 벽 등) 스킬 버튼을 확실히 비활성화합니다.
+        if (!isUnit && skillButton != null)
+        {
+            skillButton.gameObject.SetActive(false);
+        }
+
+        // [변경] Unit.cs에서 스탯 초기화 후 직접 호출하도록 변경되었으므로 Start에서 호출하지 않습니다.
+        //InitializeSkillButton();
+
         // 캔버스 및 위치/스케일 설정
         Canvas canvas = GetComponent<Canvas>();
         if (canvas != null && canvas.renderMode == RenderMode.WorldSpace && canvas.worldCamera == null)
@@ -102,16 +125,16 @@ public class StatusBarUI : MonoBehaviour
             transform.localPosition += monsterPositionOffset;
             transform.localScale = monsterScale;
         }
-        
+
         UpdateAllUIVisibility();
     }
-    
+
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
         isCombatPhase = (newState == GameManagers.GameState.Combat);
         UpdateAllUIVisibility();
     }
-    
+
     private void UpdateAllUIVisibility()
     {
         if (healthComponent != null)
@@ -128,13 +151,13 @@ public class StatusBarUI : MonoBehaviour
             SetManaBarVisibility(false);
         }
     }
-    
+
     private void SetHealthBarVisibility(bool visible)
     {
         if (healthBarImage != null) healthBarImage.gameObject.SetActive(visible);
         if (healthBarBackgroundImage != null) healthBarBackgroundImage.gameObject.SetActive(visible);
     }
-    
+
     private void SetManaBarVisibility(bool visible)
     {
         if (manaBarImage != null) manaBarImage.gameObject.SetActive(visible);
@@ -165,17 +188,68 @@ public class StatusBarUI : MonoBehaviour
 
     private void UpdateMana(float current, float max)
     {
-        if (manaBarImage == null) return;
-        
-        // [핵심 변경] 이제 마나 UI를 보여줄지 여부를 여기서 최종 결정합니다.
-        // 조건: 유닛이어야 하고, 전투 중이어야 하며, MaxMana가 0보다 커야 합니다 (즉, 스킬이 있어야 함).
-        bool shouldShow = isUnit && isCombatPhase && max > 0;
-        
-        SetManaBarVisibility(shouldShow);
-        
-        if (shouldShow)
+        // 마나 바 처리
+        if (manaBarImage != null)
         {
-            manaBarImage.fillAmount = current / max;
+            bool shouldShowManaBar = isUnit && isCombatPhase && max > 0;
+            SetManaBarVisibility(shouldShowManaBar);
+            if (shouldShowManaBar)
+            {
+                manaBarImage.fillAmount = current / max;
+            }
+        }
+
+        // 스킬 버튼 처리
+        if (skillButton != null && unitComponent != null)
+        {
+            // Unit이 이미 로드하고 저장해 둔 'currentSkillActivationType' 값을 직접 사용합니다.
+            // 이렇게 하면 비동기 로드가 필요 없어집니다.
+            bool isManualSkill = unitComponent.currentSkillActivationType == SkillActivationType.Manual;
+            
+            bool shouldShowButton = false;
+            if (isManualSkill)
+            {
+                bool isManaFull = max > 0 && current >= max;
+                shouldShowButton = isCombatPhase && isManaFull;
+            }
+            skillButton.gameObject.SetActive(shouldShowButton);
+        }
+    }
+
+    public async UniTask InitializeSkillButton(Unit owner)
+    {
+        if (owner == null || skillButton == null)
+        {
+            if (skillButton != null) skillButton.gameObject.SetActive(false);
+            return;
+        }
+
+        this.unitComponent = owner;
+
+        SkillData currentSkill = null;
+        if (owner.Data != null && owner.Data.skillsByStarLevel.Length >= owner.starLevel)
+        {
+            // --- [핵심 수정 부분] ---
+            string skillKey = owner.Data.skillsByStarLevel[owner.starLevel - 1];
+            currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+            // --- [수정 끝] ---
+        }
+
+        if (currentSkill != null && currentSkill.activationType == SkillActivationType.Manual)
+        {
+            if (graphicRaycaster != null) graphicRaycaster.enabled = true;
+            
+            if (skillIconImage != null && currentSkill.icon != null)
+            {
+                skillIconImage.sprite = currentSkill.icon;
+            }
+            skillButton.onClick.RemoveAllListeners(); // 중복 방지
+            skillButton.onClick.AddListener(owner.ActivateSkill);
+        }
+        else
+        {
+            if (graphicRaycaster != null) graphicRaycaster.enabled = false;
+            skillButton.gameObject.SetActive(false);
         }
     }
 }

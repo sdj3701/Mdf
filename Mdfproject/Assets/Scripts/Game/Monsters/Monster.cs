@@ -27,12 +27,18 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     private AstarGrid pathfinder;
     private bool isBlocked = false;
     private Unit blockingUnit;
+    private StatusBarUI statusBarUI;
     private Coroutine movementCoroutine;
     private Coroutine attackCoroutine;
     private static bool isQuitting = false;
     private bool isMoving = false;
 
     void OnApplicationQuit() { isQuitting = true; }
+
+    public void SetStatusBar(StatusBarUI ui)
+    {
+        this.statusBarUI = ui;
+    }
 
     public void Initialize(PlayerManager owner, Transform goal, MonsterData data, AstarGrid pathfinder)
     {
@@ -82,7 +88,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         {
             Debug.Log($"<color=magenta>{monsterData.monsterName} 스킬 발동: {skillData.skillName}</color>");
 
-            List<GameObject> targets = skillData.targetingStrategy.FindTargets(this.gameObject, transform.position);
+            List<GameObject> targets = skillData.targetingStrategy.FindTargets(this.gameObject, transform.position, skillData.range);
 
             foreach (var effect in skillData.effects)
             {

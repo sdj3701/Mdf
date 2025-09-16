@@ -24,15 +24,17 @@ MonoBehaviour:
   defense: 0
   magicResistance: 0
   blockCount: 2
-  maxMana: 50
+  manaRegenType: 0
+  manaOnAttack: 5
+  manaPerSecond: 5
   prefabsByStarLevel:
   - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
   - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
   - {fileID: 4670276977646022270, guid: 4c6372d922041704baa139ba979b9205, type: 3}
   skillsByStarLevel:
-  - {fileID: 0}
-  - {fileID: 0}
-  - {fileID: 0}
+  - {fileID: 11400000, guid: ca84a7d6f1a660a49981c877b0f1088d, type: 2}
+  - {fileID: 11400000, guid: ca84a7d6f1a660a49981c877b0f1088d, type: 2}
+  - {fileID: 11400000, guid: ca84a7d6f1a660a49981c877b0f1088d, type: 2}
   projectilePrefabsByStarLevel:
   - {fileID: 0}
   - {fileID: 0}

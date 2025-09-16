@@ -5,7 +5,8 @@ using UnityEngine.UI;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-
+using Cysharp.Threading.Tasks;
+using System.Threading.Tasks;
 public class Unit : MonoBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
@@ -14,10 +15,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     [Header("원거리 유닛 참조")]
     public Transform firePoint;
-
-    [Header("수동 스킬 UI")]
-    public GameObject skillButtonPrefab;
-    public Canvas worldSpaceCanvas;
 
     [Header("현재 상태 (읽기 전용)")]
     [SerializeField]
@@ -39,9 +36,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     public float currentAttackRange { get; private set; }
     public float currentDefense { get; private set; }
     public float currentMagicResistance { get; private set; }
-
+    
+    public SkillActivationType currentSkillActivationType { get; set; }
+    private SkillData _loadedSkillData;
     private ManaController manaController;
-    private GameObject skillButtonInstance;
+    private StatusBarUI statusBarUI;
     private Coroutine attackCoroutine;
     [SerializeField] private List<Monster> blockedMonsters = new List<Monster>();
     public LayerMask enemyLayerMask;
@@ -60,21 +59,26 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
     }
 
-    public void Initialize(UnitData data, int initialStarLevel)
+    public void SetStatusBar(StatusBarUI ui)
+    {
+        this.statusBarUI = ui;
+    }
+
+   public async void Initialize(UnitData data, int initialStarLevel)
     {
         this.unitData = data;
         this.starLevel = initialStarLevel;
         manaController = GetComponent<ManaController>();
 
-        // [핵심 변경] manaController 참조가 할당된 직후에 이벤트를 구독합니다.
-        // 중복 구독을 방지하기 위해 항상 먼저 구독을 해지합니다.
+        // 이벤트 구독/해지는 그대로 둡니다.
         if (manaController != null)
         {
-            manaController.OnManaFull -= HandleManaFull; // 이전 구독 제거
-            manaController.OnManaFull += HandleManaFull; // 신규 구독
+            manaController.OnManaFull -= HandleManaFull;
+            manaController.OnManaFull += HandleManaFull;
         }
         
-        InitializeStats();
+        // InitializeStats가 비동기 함수가 되었으므로 await로 호출을 기다립니다.
+        await InitializeStats();
     }
 
     void Update()
@@ -105,11 +109,10 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 StopCoroutine(attackCoroutine);
                 attackCoroutine = null;
             }
-            HideSkillButton();
         }
     }
 
-    public void InitializeStats()
+    public async UniTask InitializeStats()
     {
         if (unitData == null) return;
         float statMultiplier = Mathf.Pow(1.8f, starLevel - 1);
@@ -124,28 +127,54 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         currentMagicResistance = unitData.magicResistance;
 
         int newMaxMana = 0;
+        
+        // --- [핵심 수정 부분] ---
         if (DoesHaveSkill())
         {
-            newMaxMana = unitData.skillsByStarLevel[starLevel - 1].manaCost;
-        }
-        manaController.Initialize(newMaxMana);
-    }
+            // 주소(string)를 사용해 AssetLoader로 실제 SkillData를 로드합니다.
+            string skillKey = unitData.skillsByStarLevel[starLevel - 1];
+            _loadedSkillData = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
 
-    public void Upgrade()
+            if (_loadedSkillData != null)
+            {
+                newMaxMana = _loadedSkillData.manaCost;
+                currentSkillActivationType = _loadedSkillData.activationType;
+            }
+        }
+        else
+        {
+            _loadedSkillData = null;
+        }
+        // --- [수정 끝] ---
+
+        manaController.Initialize(newMaxMana);
+
+        if (statusBarUI != null)
+        {
+            // InitializeSkillButton도 비동기가 되었으므로 await로 호출합니다.
+            await statusBarUI.InitializeSkillButton(this);
+        }
+        else
+        {
+            Debug.LogWarning($"[Unit] {gameObject.name}에 StatusBarUI가 주입되지 않았습니다.", this.gameObject);
+        }
+    }
+    
+    public async Task Upgrade()
     {
         if (starLevel < 3)
         {
             starLevel++;
-            InitializeStats();
+            await InitializeStats();
             Debug.Log($"<color=cyan>{unitData.unitName}이(가) {starLevel}성으로 업그레이드되었습니다!</color>");
         }
     }
     
-    public void Respawn()
+    public async void Respawn()
     {
         if (!IsDead) return;
         IsDead = false;
-        InitializeStats();
+        await InitializeStats();
         gameObject.SetActive(true);
         Debug.Log($"<color=green>{unitData.unitName}이(가) 부활했습니다!</color>");
     }
@@ -154,26 +183,34 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
         
-        SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
-        if (currentSkillData == null) return;
-
-        if (currentSkillData.activationType == SkillActivationType.Automatic)
+        // --- [핵심 수정 부분] ---
+        // 더 이상 SkillData를 직접 접근하거나 로드할 필요가 없습니다.
+        // InitializeStats에서 미리 저장해 둔 currentSkillActivationType 값을 사용합니다.
+        if (currentSkillActivationType == SkillActivationType.Automatic)
         {
+            // ActivateSkill()은 내부적으로 로드된 _loadedSkillData를 사용하므로
+            // 여기서 별도로 데이터를 넘겨줄 필요가 없습니다.
             ActivateSkill();
         }
-        else
-        {
-            ShowSkillButton();
-        }
+        // --- [수정 끝] ---
     }
 
-    public void ActivateSkill()
+    public async void ActivateSkill()
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
         
-        SkillData currentSkillData = unitData.skillsByStarLevel[starLevel - 1];
+        // 스킬 데이터가 로드되었는지 다시 한번 확인합니다.
+        if (_loadedSkillData == null)
+        {
+            // 만약 로드가 안됐다면, 이 시점에서 다시 로드를 시도할 수도 있습니다.
+            string skillKey = unitData.skillsByStarLevel[starLevel - 1];
+            _loadedSkillData = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+            if (_loadedSkillData == null) return; // 그래도 없으면 종료
+        }
+        
+        SkillData currentSkillData = _loadedSkillData; // 로드된 데이터를 사용합니다.
 
-        if (currentSkillData == null || currentSkillData.targetingStrategy == null || currentSkillData.effects.Count == 0)
+        if (currentSkillData.targetingStrategy == null || currentSkillData.effects.Count == 0)
         {
             Debug.LogError($"{unitData.unitName} ({starLevel}성)의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
             return;
@@ -185,7 +222,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         {
             Debug.Log($"<color=yellow>{unitData.unitName} 스킬 발동: {currentSkillData.skillName}</color>");
 
-            List<GameObject> targets = currentSkillData.targetingStrategy.FindTargets(this.gameObject, transform.position);
+            List<GameObject> targets = currentSkillData.targetingStrategy.FindTargets(this.gameObject, transform.position, currentSkillData.range);
 
             foreach (var effect in currentSkillData.effects)
             {
@@ -222,8 +259,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                     Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
                 }
             }
-
-            HideSkillButton();
         }
     }
     
@@ -291,7 +326,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         targetTransform = nearestTransform;
     }
 
-    private void Attack()
+    private async void Attack()
     {
         if (targetEnemy == null || targetTransform == null || Vector2.Distance(transform.position, targetTransform.position) > currentAttackRange)
         {
@@ -311,10 +346,14 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 return;
             }
 
-            GameObject projectilePrefab = unitData.projectilePrefabsByStarLevel[starLevel - 1];
+            // --- [핵심 수정 부분] ---
+            string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
+            GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
+            // --- [수정 끝] ---
+
             if (projectilePrefab == null)
             {
-                Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 {starLevel}성 투사체 프리팹이 할당되지 않았습니다!", unitData);
+                Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 {starLevel}성 투사체 프리팹({projectileKey})이 할당되지 않았거나 로드에 실패했습니다!", unitData);
                 return;
             }
 
@@ -345,25 +384,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     #endregion
 
     #region 저지, 스킬 UI, IEnemy 구현 등 (이하 동일)
-    private void ShowSkillButton()
-    {
-        if (skillButtonPrefab == null || worldSpaceCanvas == null) return;
-        if (skillButtonInstance == null)
-        {
-            skillButtonInstance = Instantiate(skillButtonPrefab, worldSpaceCanvas.transform);
-            skillButtonInstance.GetComponent<Button>().onClick.AddListener(ActivateSkill);
-        }
-        skillButtonInstance.transform.position = transform.position + Vector3.up * 1.5f;
-        skillButtonInstance.SetActive(true);
-    }
-    private void HideSkillButton()
-    {
-        if (skillButtonInstance != null)
-        {
-            skillButtonInstance.SetActive(false);
-        }
-    }
-
     private void OnTriggerEnter2D(Collider2D other)
     {
         if (other.TryGetComponent<Monster>(out var monster))
@@ -393,7 +413,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         {
             manaController.OnManaFull -= HandleManaFull;
         }
-        if (skillButtonInstance != null) Destroy(skillButtonInstance);
     }
 
     public void TakeDamage(float baseDamage, DamageType damageType)
