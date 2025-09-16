@@ -26,6 +26,7 @@ public class AstarGrid : MonoBehaviour
     [SerializeField] private Vector2Int debugStartPos, debugTargetPos;
 
     public List<AstarNode> FinalPath { get; private set; }
+    public List<AstarNode> IdealPathForAIDebug { get; set; } // AI 디버깅용 경로
     public List<Vector2Int> WallsToBreakInPath { get; private set; }
 
     private int sizeX, sizeY;
@@ -35,14 +36,14 @@ public class AstarGrid : MonoBehaviour
     private Vector2Int worldBottomLeft;
     private Vector2Int worldTopRight;
 
-    private void Awake()
+    // ✅ [수정] Awake에서 public Initialize로 변경
+    public void Initialize()
     {
-        // ✅ [추가된 핵심 로직]
         // 이 컴포넌트가 깨어날 때, 자신의 월드 위치를 기준으로 실제 경계를 계산합니다.
         // 이렇게 하면 GameManagers가 이 그리드를 어디에 생성하든 항상 올바른 경계를 갖게 됩니다.
         Vector2Int gridOrigin = new Vector2Int(
-            Mathf.RoundToInt(transform.position.x),
-            Mathf.RoundToInt(transform.position.y)
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y)
         );
         worldBottomLeft = gridOrigin + bottomLeft;
         worldTopRight = gridOrigin + topRight;
@@ -191,13 +192,15 @@ public class AstarGrid : MonoBehaviour
                     tentativeGCost += wallBreakCost;
                 }
 
-                if (tentativeGCost < NeighborNode.G)
+                // 이웃 노드까지의 새로운 G 비용이 기존보다 저렴하거나, OpenList에 아직 없다면 정보를 갱신합니다.
+                bool inOpenList = OpenList.Contains(NeighborNode);
+                if (tentativeGCost < NeighborNode.G || !inOpenList)
                 {
                     NeighborNode.ParentNode = CurNode;
                     NeighborNode.G = tentativeGCost;
                     NeighborNode.H = GetManhattanDistance(new Vector2Int(NeighborNode.x, NeighborNode.y), new Vector2Int(TargetNode.x, TargetNode.y));
 
-                    if (!OpenList.Contains(NeighborNode))
+                    if (!inOpenList)
                     {
                         OpenList.Add(NeighborNode);
                     }
@@ -251,7 +254,7 @@ public class AstarGrid : MonoBehaviour
     private void PathFindingForDebug()
     {
         // 디버깅 시에는 Awake가 호출된 후의 월드 좌표를 사용해야 합니다.
-        if (NodeArray == null) Awake(); // 에디터에서 바로 실행 시 Awake 호출
+        if (NodeArray == null) Initialize(); // 에디터에서 바로 실행 시 Initialize 호출
         FindPath(debugStartPos, debugTargetPos, false);
     }
 
@@ -285,11 +288,23 @@ public class AstarGrid : MonoBehaviour
 
         if (FinalPath != null && FinalPath.Count > 0)
         {
-            Gizmos.color = Color.green;
+            Gizmos.color = Color.green; // 몬스터의 현재 실제 경로
             for (int i = 0; i < FinalPath.Count - 1; i++)
             {
                 Vector3 from = new Vector3(FinalPath[i].x + 0.5f, FinalPath[i].y + 0.5f, 0);
                 Vector3 to = new Vector3(FinalPath[i + 1].x + 0.5f, FinalPath[i + 1].y + 0.5f, 0);
+                Gizmos.DrawLine(from, to);
+            }
+        }
+
+        // AI가 계획 중인 이상적인 경로를 별도의 색상으로 표시합니다.
+        if (IdealPathForAIDebug != null && IdealPathForAIDebug.Count > 0)
+        {
+            Gizmos.color = Color.magenta; // AI가 참고하는 이상적인 경로
+            for (int i = 0; i < IdealPathForAIDebug.Count - 1; i++)
+            {
+                Vector3 from = new Vector3(IdealPathForAIDebug[i].x + 0.5f, IdealPathForAIDebug[i].y + 0.5f, 0);
+                Vector3 to = new Vector3(IdealPathForAIDebug[i + 1].x + 0.5f, IdealPathForAIDebug[i + 1].y + 0.5f, 0);
                 Gizmos.DrawLine(from, to);
             }
         }

@@ -40,6 +40,9 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _idealMonsterPath = _playerManager.astarGrid.FinalPath != null 
                     ? new List<AstarNode>(_playerManager.astarGrid.FinalPath) 
                     : new List<AstarNode>();
+                
+                // 디버깅을 위해 AI가 사용하는 경로를 AstarGrid에 별도로 저장합니다.
+                _playerManager.astarGrid.IdealPathForAIDebug = _idealMonsterPath;
             }
 
             var allUnitsOnField = _playerManager.fieldManager.GetAlliedUnitsOnField();
@@ -48,6 +51,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             if (_rearrangedUnits.Count >= allUnitsOnField.Count)
             {
                 _rearrangedUnits = null; // 다음 사이클을 위해 상태를 리셋합니다.
+                if (_playerManager.astarGrid != null) _playerManager.astarGrid.IdealPathForAIDebug = null; // 디버그 경로 정리
                 _playerManager.fieldManager.CheckForCombination(); // 모든 이동 후 조합을 확인합니다.
                 Debug.Log("[AI] 유닛 재배치를 완료했습니다.");
                 return status = NodeStatus.Success;
@@ -113,8 +117,8 @@ namespace AI.BehaviorTree.Nodes.Actions
                 }
             }
 
-            Vector2Int startPos = new Vector2Int(Mathf.RoundToInt(start.position.x), Mathf.RoundToInt(start.position.y));
-            Vector2Int goalPos = new Vector2Int(Mathf.RoundToInt(goal.position.x), Mathf.RoundToInt(goal.position.y));
+            Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(start.position.x), Mathf.FloorToInt(start.position.y));
+            Vector2Int goalPos = new Vector2Int(Mathf.FloorToInt(goal.position.x), Mathf.FloorToInt(goal.position.y));
             
             // 유닛이 없는 상태에서, 벽을 정상적으로 고려한 실제 몬스터 이동 경로를 계산합니다.
             grid.FindPath(startPos, goalPos, false);

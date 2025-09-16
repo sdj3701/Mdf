@@ -72,6 +72,10 @@ public class PlayerManager : MonoBehaviour
         Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
         Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
+        if (this.astarGrid != null)
+        {
+            this.astarGrid.Initialize(); // 그리드의 월드 좌표를 현재 위치 기준으로 설정합니다.
+        }
         this.spawnPoint = gridInstance.transform.Find("SpawnPoint");
         this.goalTransform = gridInstance.transform.Find("Goal");
 

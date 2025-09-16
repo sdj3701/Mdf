@@ -69,8 +69,8 @@ public class RearrangeUnitsCommand : ICommand
 
         if (grid == null || start == null || goal == null) return;
 
-        Vector2Int startPos = new Vector2Int(Mathf.RoundToInt(start.position.x), Mathf.RoundToInt(start.position.y));
-        Vector2Int goalPos = new Vector2Int(Mathf.RoundToInt(goal.position.x), Mathf.RoundToInt(goal.position.y));
+        Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(start.position.x), Mathf.FloorToInt(start.position.y));
+        Vector2Int goalPos = new Vector2Int(Mathf.FloorToInt(goal.position.x), Mathf.FloorToInt(goal.position.y));
         
         grid.FindPath(startPos, goalPos);
     }

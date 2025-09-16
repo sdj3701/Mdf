@@ -120,8 +120,8 @@ public class MonsterSpawner : MonoBehaviour
                 monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
                 ApplyOpponentDebuffs(monster);
 
-                Vector2Int startPos = new Vector2Int(Mathf.RoundToInt(spawnPoint.position.x), Mathf.RoundToInt(spawnPoint.position.y));
-                Vector2Int endPos = new Vector2Int(Mathf.RoundToInt(goalTransform.position.x), Mathf.RoundToInt(goalTransform.position.y));
+                Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.y));
+                Vector2Int endPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.y));
                 
                 if (pathfinder.FindPath(startPos, endPos))
                 {
@@ -202,8 +202,8 @@ public class MonsterSpawner : MonoBehaviour
             monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
             
             // [수정] startPos의 y좌표가 goalTransform을 잘못 참조하던 버그를 수정합니다.
-            Vector2Int startPos = new Vector2Int(Mathf.RoundToInt(spawnPoint.position.x), Mathf.RoundToInt(spawnPoint.position.y));
-            Vector2Int endPos = new Vector2Int(Mathf.RoundToInt(goalTransform.position.x), Mathf.RoundToInt(goalTransform.position.y));
+            Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.y));
+            Vector2Int endPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.y));
 
             if (pathfinder.FindPath(startPos, endPos))
             {
