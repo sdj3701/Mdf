@@ -399,6 +399,82 @@ public class FieldManager : MonoBehaviour
         return null;
     }
 
+    #region AI-specific Public Methods
+
+    /// <summary>
+    /// AI가 맵의 경계를 인지할 수 있도록 전체 맵의 범위를 반환합니다.
+    /// GroundTilemap을 기준으로 계산합니다.
+    /// </summary>
+    public BoundsInt GetMapBounds()
+    {
+        if (GroundTilemap != null)
+        {
+            return GroundTilemap.cellBounds;
+        }
+        // GroundTilemap이 없는 비정상적인 경우, 빈 BoundsInt를 반환합니다.
+        return new BoundsInt(0, 0, 0, 0, 0, 0);
+    }
+
+    /// <summary>
+    /// 현재 필드에 배치된 모든 아군 유닛의 리스트를 반환합니다.
+    /// </summary>
+    public List<Unit> GetAlliedUnitsOnField()
+    {
+        // placedUnits 딕셔너리의 값들(Unit)을 리스트로 변환하여 반환합니다.
+        return placedUnits.Values.ToList();
+    }
+
+    /// <summary>
+    /// 유닛 타입에 따라 AI가 배치할 수 있는 모든 유효한 타일 위치 목록을 반환합니다.
+    /// 이 메서드는 타일의 존재 여부와 타입만 확인하며, 해당 위치에 다른 유닛이 있는지는 확인하지 않습니다.
+    /// </summary>
+    public List<Vector3Int> GetValidPlacementTiles(UnitType unitType)
+    {
+        var validTiles = new List<Vector3Int>();
+        
+        if (unitType == UnitType.Melee)
+        {
+            // 근접 유닛은 GroundTilemap 위에 배치 가능합니다.
+            if (GroundTilemap == null) return validTiles;
+            
+            BoundsInt bounds = GroundTilemap.cellBounds;
+            for (int y = bounds.yMin; y < bounds.yMax; y++)
+            {
+                for (int x = bounds.xMin; x < bounds.xMax; x++)
+                {
+                    Vector3Int pos = new Vector3Int(x, y, 0);
+                    if (GroundTilemap.GetTile(pos) != null) // 타일이 있는 곳만
+                    {
+                        validTiles.Add(pos);
+                    }
+                }
+            }
+        }
+        else // Ranged
+        {
+            // 원거리 유닛은 ObstacleTilemap 위(벽 위)에만 배치 가능합니다.
+            if (ObstacleTilemap == null) return validTiles;
+
+            BoundsInt bounds = ObstacleTilemap.cellBounds;
+            for (int y = bounds.yMin; y < bounds.yMax; y++)
+            {
+                for (int x = bounds.xMin; x < bounds.xMax; x++)
+                {
+                    Vector3Int pos = new Vector3Int(x, y, 0);
+                    // ObstacleTilemap에 타일이 있다는 것은 'breakWall'이 있다는 것을 의미합니다.
+                    if (ObstacleTilemap.GetTile(pos) != null)
+                    {
+                        validTiles.Add(pos);
+                    }
+                }
+            }
+        }
+
+        return validTiles;
+    }
+
+    #endregion
+
     #region AI 배치 Helper
     
     /// <summary>

@@ -1,5 +1,5 @@
 using UnityEngine;
-
+using AI.BehaviorTree.Nodes.Actions;
 public class BuyUnitCommand : ICommand
 {
     public int PlayerId { get; set; }
@@ -25,6 +25,12 @@ public class BuyUnitCommand : ICommand
         if (player.SpendGold(itemToBuy.CalculatedCost))
         {
             player.AddUnit(itemToBuy.UnitData, itemToBuy.StarLevel);
+
+            // AI 플레이어인 경우, 배치할 유닛 목록에 추가 (임시)
+            if (ComponentRegistry.Has<AIPlayerController>(PlayerId.ToString()))
+            {
+                PlaceBestUnitAction.AddTempUnplacedUnit(itemToBuy.UnitData);
+            }
 
             // 상점의 상태를 갱신합니다.
             player.shopManager.MarkSlotAsPurchased(_shopSlotIndex);

@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using UnityEngine;
+
 namespace AI.UtilitySystem
 {
     // AI가 결정을 내릴 때 필요한 모든 정보(맥락)를 담는 클래스
@@ -5,6 +8,12 @@ namespace AI.UtilitySystem
     {
         public PlayerManager Player { get; }
         public ShopItem CurrentShopItem { get; private set; }
+
+        // --- 배치 결정을 위한 추가 정보 ---
+        public UnitData UnitToPlace { get; private set; }
+        public Vector3Int PlacementPosition { get; private set; }
+        public List<Unit> AlliedUnitsOnField { get; private set; }
+        // ------------------------------------
 
         public AIContext(PlayerManager player)
         {
@@ -16,5 +25,15 @@ namespace AI.UtilitySystem
             this.Player = player;
             this.CurrentShopItem = shopItem;
         }
+        
+        // --- 배치용 생성자 ---
+        public AIContext(PlayerManager player, UnitData unitToPlace, Vector3Int position, List<Unit> allies)
+        {
+            this.Player = player;
+            this.UnitToPlace = unitToPlace;
+            this.PlacementPosition = position;
+            this.AlliedUnitsOnField = allies;
+        }
+        // ----------------------
     }
 }
