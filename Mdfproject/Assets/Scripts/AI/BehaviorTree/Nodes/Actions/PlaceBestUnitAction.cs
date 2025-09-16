@@ -118,7 +118,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(start.position.x), Mathf.FloorToInt(start.position.y));
             Vector2Int goalPos = new Vector2Int(Mathf.FloorToInt(goal.position.x), Mathf.FloorToInt(goal.position.y));
 
-            Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - Start: {start.position} -> {startPos}, Goal: {goal.position} -> {goalPos}");
+            // Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - Start: {start.position} -> {startPos}, Goal: {goal.position} -> {goalPos}");
 
             // 유닛이 없는 상태에서, 벽을 정상적으로 고려한 실제 몬스터 이동 경로를 계산합니다.
             bool pathFound = grid.FindPath(startPos, goalPos, false);
@@ -152,7 +152,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                         // 오프셋 계산: 필드 중심 - 경로 중심
                         int yOffset = Mathf.RoundToInt(fieldCenterY - pathCenterY);
 
-                        Debug.Log($"[AI Path Transform] 필드 중심 Y: {fieldCenterY}, 경로 중심 Y: {pathCenterY}, 오프셋: {yOffset}");
+                        // Debug.Log($"[AI Path Transform] 필드 중심 Y: {fieldCenterY}, 경로 중심 Y: {pathCenterY}, 오프셋: {yOffset}");
 
                         // 경로의 모든 노드를 AI 필드 좌표계로 변환
                         for (int i = 0; i < _idealMonsterPath.Count; i++)
@@ -161,7 +161,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                             _idealMonsterPath[i] = new AstarNode(node.isWall, node.x, node.y + yOffset);
                         }
 
-                        Debug.Log($"[AI Path Transform] 변환 후 첫 번째 노드: ({_idealMonsterPath[0].x}, {_idealMonsterPath[0].y}), 마지막 노드: ({_idealMonsterPath[_idealMonsterPath.Count-1].x}, {_idealMonsterPath[_idealMonsterPath.Count-1].y})");
+                        // Debug.Log($"[AI Path Transform] 변환 후 첫 번째 노드: ({_idealMonsterPath[0].x}, {_idealMonsterPath[0].y}), 마지막 노드: ({_idealMonsterPath[_idealMonsterPath.Count-1].x}, {_idealMonsterPath[_idealMonsterPath.Count-1].y})");
                     }
                 }
 

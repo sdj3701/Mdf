@@ -565,12 +565,12 @@ public class FieldManager : MonoBehaviour
         // [핵심 수정] 근접 유닛의 경우, 배치 후보지를 몬스터 경로 위로 먼저 한정합니다.
         if (unitData.unitType == UnitType.Melee && monsterPathContext != null && monsterPathContext.Count > 0)
         {
-            // 디버그: AI 필드 타일 범위와 몬스터 경로 범위 확인
-            var fieldTileRange = $"필드 타일 범위: ({allValidTiles.Min(t => t.x)}, {allValidTiles.Min(t => t.y)}) ~ ({allValidTiles.Max(t => t.x)}, {allValidTiles.Max(t => t.y)})";
-            var pathRange = $"받은 몬스터 경로 범위: ({monsterPathContext.Min(n => n.x)}, {monsterPathContext.Min(n => n.y)}) ~ ({monsterPathContext.Max(n => n.x)}, {monsterPathContext.Max(n => n.y)})";
-            Debug.Log($"[AI Placement Debug] {fieldTileRange}");
-            Debug.Log($"[AI Placement Debug] {pathRange}");
-            Debug.Log($"[AI Placement Debug] 받은 경로 첫 번째 노드: ({monsterPathContext[0].x}, {monsterPathContext[0].y}), 마지막 노드: ({monsterPathContext[monsterPathContext.Count-1].x}, {monsterPathContext[monsterPathContext.Count-1].y})");
+            // 디버그: AI 필드 타일 범위와 몬스터 경로 범위 확인 (필요시 주석 해제)
+            // var fieldTileRange = $"필드 타일 범위: ({allValidTiles.Min(t => t.x)}, {allValidTiles.Min(t => t.y)}) ~ ({allValidTiles.Max(t => t.x)}, {allValidTiles.Max(t => t.y)})";
+            // var pathRange = $"받은 몬스터 경로 범위: ({monsterPathContext.Min(n => n.x)}, {monsterPathContext.Min(n => n.y)}) ~ ({monsterPathContext.Max(n => n.x)}, {monsterPathContext.Max(n => n.y)})";
+            // Debug.Log($"[AI Placement Debug] {fieldTileRange}");
+            // Debug.Log($"[AI Placement Debug] {pathRange}");
+            // Debug.Log($"[AI Placement Debug] 받은 경로 첫 번째 노드: ({monsterPathContext[0].x}, {monsterPathContext[0].y}), 마지막 노드: ({monsterPathContext[monsterPathContext.Count-1].x}, {monsterPathContext[monsterPathContext.Count-1].y})");
 
             var pathTilePositions = new HashSet<Vector3Int>(monsterPathContext.Select(node => new Vector3Int(node.x, node.y, 0)));
             var onPathTiles = allValidTiles.Where(tile => pathTilePositions.Contains(tile)).ToList();
@@ -579,11 +579,11 @@ public class FieldManager : MonoBehaviour
             if (onPathTiles.Count > 0)
             {
                 candidateTiles = onPathTiles;
-                Debug.Log($"[AI Placement] 근접 유닛 {unitData.unitName} 배치: 몬스터 경로 위 {onPathTiles.Count}개 타일로 후보지 제한");
+                // Debug.Log($"[AI Placement] 근접 유닛 {unitData.unitName} 배치: 몬스터 경로 위 {onPathTiles.Count}개 타일로 후보지 제한");
             }
             else
             {
-                Debug.Log($"[AI Placement] 근접 유닛 {unitData.unitName} 배치: 몬스터 경로 위에 배치 가능한 타일이 없어 전체 {allValidTiles.Count}개 타일 대상");
+                // Debug.Log($"[AI Placement] 근접 유닛 {unitData.unitName} 배치: 몬스터 경로 위에 배치 가능한 타일이 없어 전체 {allValidTiles.Count}개 타일 대상");
             }
             // 경로 위에 배치할 곳이 없다면, 원래의 모든 유효 타일을 대상으로 점수를 계산합니다(폴백).
         }
@@ -625,7 +625,7 @@ public class FieldManager : MonoBehaviour
 
         if (highestScore > -1f)
         {
-            Debug.Log($"[AI Placement] {unitData.unitName}을(를) {bestPosition}에 배치 (점수: {highestScore:F2})");
+            // Debug.Log($"[AI Placement] {unitData.unitName}을(를) {bestPosition}에 배치 (점수: {highestScore:F2})");
 
             // 3초 후 디버그 표시 끄기
             Invoke(nameof(ClearDebugScores), 3.0f);

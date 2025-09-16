@@ -21,7 +21,6 @@ namespace AI.UtilitySystem.Considerations.Placement
             // 경로가 없거나 계산되지 않은 경우 (예: 유닛에 의해 길이 막힘)
             if (monsterPath == null || monsterPath.Count == 0)
             {
-                Debug.Log($"[OnMonsterPath] 몬스터 경로가 null이거나 비어있음: {monsterPath?.Count ?? -1}");
                 return 0.0f;
             }
 

@@ -25,20 +25,35 @@ namespace AI.UtilitySystem.Considerations.Placement
             }
 
             int rangedAlliesNearby = 0;
+            int totalRangedUnits = 0;
             foreach (var ally in context.AlliedUnitsOnField)
             {
                 if (ally.Data != null && ally.Data.unitType == UnitType.Ranged)
                 {
-                    float distance = Vector3Int.Distance(context.PlacementPosition, ally.transform.position.ToVector3Int());
+                    totalRangedUnits++;
+                    Vector3Int originalAllyPos = ally.transform.position.ToVector3Int();
+
+                    // 원거리 유닛의 좌표를 AI 필드 좌표계로 변환
+                    // 원거리 유닛이 y=-10 영역에 있다면 +10 오프셋 적용
+                    Vector3Int allyPos = originalAllyPos;
+                    if (originalAllyPos.y <= -5) // y=-10 영역에 있는 경우
+                    {
+                        allyPos = new Vector3Int(originalAllyPos.x, originalAllyPos.y + 10, originalAllyPos.z);
+                    }
+
+                    float distance = Vector3Int.Distance(context.PlacementPosition, allyPos);
+
                     if (distance <= PROTECT_RADIUS)
                     {
                         rangedAlliesNearby++;
                     }
                 }
             }
-            
+
+            float score = Mathf.Clamp01(rangedAlliesNearby / NORMALIZATION_FACTOR);
+
             // 주변 원거리 유닛 수에 따라 점수를 계산하고 정규화합니다.
-            return Mathf.Clamp01(rangedAlliesNearby / NORMALIZATION_FACTOR);
+            return score;
         }
     }
 }
