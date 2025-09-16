@@ -41,11 +41,15 @@ public class FieldManager : MonoBehaviour
 
     private readonly List<Consideration> _placementConsiderations = new List<Consideration>
     {
-        new MeleePlacementConsideration { weight = 2.0f }, // 근접 유닛은 Ground 선호 (매우 중요)
-        new MeleeProtectsRangedConsideration { weight = 1.4f }, // 근접 유닛은 원거리 유닛 보호 위치 선호
-        new ProximityToAlliesConsideration { weight = 1.2f },
-        new AttackRangeCoverageConsideration { weight = 1.0f },
-        new RangedUnitSynergyConsideration { weight = 1.5f },
+        // --- 근접 유닛 우선순위 ---
+        new OnMonsterPathConsideration { weight = 3.0f },       // 1. 몬스터 경로 위 (가장 중요)
+        new MeleePlacementConsideration { weight = 2.5f },      // 0. Ground 타일 (거의 필수)
+        new MeleeProtectsRangedConsideration { weight = 1.6f }, // 2. 경로 위에서 원거리 유닛 보호
+        
+        // --- 공통 / 원거리 유닛 우선순위 ---
+        new ProximityToAlliesConsideration { weight = 1.2f },   // 유닛끼리 뭉치기
+        new AttackRangeCoverageConsideration { weight = 1.0f }, // 공격 범위 효율
+        new RangedUnitSynergyConsideration { weight = 1.5f },   // 원거리 유닛이 근접 유닛 근처에
     };
 
     // 유닛 클릭/드래그 및 상세 정보 패널 관련 변수

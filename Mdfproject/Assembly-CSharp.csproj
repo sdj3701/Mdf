@@ -216,6 +216,7 @@
     <Compile Include="Assets\Scripts\Game\Skills\BuffManager.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\MeleePlacementConsideration.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\MeleeProtectsRangedConsideration.cs" />
+    <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\OnMonsterPathConsideration.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

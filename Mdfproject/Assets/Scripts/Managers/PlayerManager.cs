@@ -25,6 +25,7 @@ public class PlayerManager : MonoBehaviour
     public ShopManager shopManager;
     public MonsterSpawner monsterSpawner;
     public AugmentManager augmentManager;
+    public AstarGrid astarGrid;
     
     [HideInInspector]
     public PlayerManager opponentManager;
@@ -68,12 +69,12 @@ public class PlayerManager : MonoBehaviour
         var allTilemaps = gridInstance.GetComponentsInChildren<Tilemap>();
         Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
         Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
-        AstarGrid astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
+        this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
         Transform spawnPoint = gridInstance.transform.Find("SpawnPoint");
         Transform goalTransform = gridInstance.transform.Find("Goal");
 
         // ✅ [진단 코드] Grid 프리팹 내부에서 컴포넌트를 제대로 찾았는지 확인
-        if (astarGrid == null) Debug.LogError($"Player {id}: Grid 프리팹에서 AstarGrid 컴포넌트를 찾지 못했습니다!");
+        if (this.astarGrid == null) Debug.LogError($"Player {id}: Grid 프리팹에서 AstarGrid 컴по넌트를 찾지 못했습니다!");
         if (spawnPoint == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'SpawnPoint' 자식 오브젝트를 찾지 못했습니다!");
         if (goalTransform == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'Goal' 자식 오브젝트를 찾지 못했습니다!");
 
@@ -83,7 +84,7 @@ public class PlayerManager : MonoBehaviour
         if (monsterSpawner)
         {
             Debug.Log($"Player {id}: MonsterSpawner에게 참조 전달 시도...");
-            monsterSpawner.Initialize(this, astarGrid, monsterPrefab, spawnPoint, goalTransform);
+            monsterSpawner.Initialize(this, this.astarGrid, monsterPrefab, spawnPoint, goalTransform);
         }
         else
         {
