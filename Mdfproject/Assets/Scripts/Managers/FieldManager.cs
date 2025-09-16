@@ -292,11 +292,11 @@ public class FieldManager : MonoBehaviour
     }
     
     /// <summary>
-    /// [AI용] 유틸리티 시스템을 사용하여 최적의 위치를 찾아 유닛을 생성하고 배치합니다.
+    /// [AI용] 유닛 타입에 따라 첫 번째 빈 공간에 유닛을 생성하고 배치합니다. (초기 'Dumb' 배치)
     /// </summary>
     public void CreateAndPlaceUnitOnFieldForAI(UnitData unitData, int starLevel)
     {
-        Vector3Int? placementPos = FindBestSpotForAI(unitData);
+        Vector3Int? placementPos = FindFirstEmptySlot(unitData);
 
         if (placementPos.HasValue)
         {
@@ -387,7 +387,7 @@ public class FieldManager : MonoBehaviour
         }
     }
 
-    private Vector3Int? FindFirstEmptySlot(UnitData unitData)
+    public Vector3Int? FindFirstEmptySlot(UnitData unitData)
     {
         if (GroundTilemap == null) return null;
 
@@ -492,9 +492,31 @@ public class FieldManager : MonoBehaviour
 
     #endregion
 
+    #region AI-specific Public Methods
+
+    /// <summary>
+    /// 재배치를 위해 필드에 있는 모든 유닛의 등록을 해제합니다. (오브젝트는 파괴하지 않음)
+    /// </summary>
+    public void UnregisterAllUnits()
+    {
+        placedUnits.Clear();
+    }
+
+    /// <summary>
+    /// 이미 존재하는 유닛 게임 오브젝트를 특정 위치에 등록하고 위치를 이동시킵니다.
+    /// </summary>
+    public void RegisterUnitAt(Unit unit, Vector3Int gridPosition)
+    {
+        Vector3 worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
+        unit.transform.position = worldPos;
+        placedUnits.Add(gridPosition, unit);
+    }
+    
+    #endregion
+
     #region AI 배치 Helper
 
-    private Vector3Int? FindBestSpotForAI(UnitData unitData)
+    public Vector3Int? FindBestSpotForAI(UnitData unitData, List<Unit> alliedUnitsContext = null, HashSet<Vector3Int> occupiedTiles = null)
     {
         var validTiles = GetValidPlacementTiles(unitData.unitType);
         if (validTiles == null || validTiles.Count == 0)
@@ -503,16 +525,20 @@ public class FieldManager : MonoBehaviour
             return null;
         }
 
-        var alliedUnits = GetAlliedUnitsOnField();
+        var alliedUnits = alliedUnitsContext ?? GetAlliedUnitsOnField();
 
         Vector3Int bestPosition = Vector3Int.zero;
         float highestScore = -1f;
 
         foreach (var tilePos in validTiles)
         {
-            if (IsUnitAt(tilePos))
+            if (occupiedTiles != null)
             {
-                continue;
+                if (occupiedTiles.Contains(tilePos)) continue;
+            }
+            else
+            {
+                if (IsUnitAt(tilePos)) continue;
             }
 
             var context = new AIContext(playerManager, unitData, tilePos, alliedUnits);

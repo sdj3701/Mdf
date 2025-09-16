@@ -61,13 +61,13 @@ public class AIPlayerController : MonoBehaviour
                     new ChooseBestAugmentAction(_playerManager, _commandProcessor)
                 ),
                 
-                // 2. 유닛 배치 (구매한 유닛이 있다면)
-                new PlaceBestUnitAction(_playerManager, _commandProcessor),
-
-                // 3. 유닛 구매
+                // 2. 유닛 구매
                 new BuyBestUnitAction(_playerManager, _commandProcessor),
                 
-                // 4. 리롤 (위의 모든 행동을 할 수 없을 때 마지막으로 고려)
+                // 3. 유닛 재배치 (구매할 것이 없을 때 시도)
+                new RearrangeAllUnitsAction(_playerManager, _commandProcessor),
+                
+                // 4. 리롤 (구매와 재배치 모두 할 것이 없을 때 마지막으로 고려)
                 new RerollShopAction(_playerManager, _commandProcessor)
             )
         );

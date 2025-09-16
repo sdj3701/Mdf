@@ -26,6 +26,8 @@ public class PlayerManager : MonoBehaviour
     public MonsterSpawner monsterSpawner;
     public AugmentManager augmentManager;
     public AstarGrid astarGrid;
+    public Transform spawnPoint { get; private set; }
+    public Transform goalTransform { get; private set; }
     
     [HideInInspector]
     public PlayerManager opponentManager;
@@ -70,13 +72,13 @@ public class PlayerManager : MonoBehaviour
         Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
         Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
-        Transform spawnPoint = gridInstance.transform.Find("SpawnPoint");
-        Transform goalTransform = gridInstance.transform.Find("Goal");
+        this.spawnPoint = gridInstance.transform.Find("SpawnPoint");
+        this.goalTransform = gridInstance.transform.Find("Goal");
 
         // ✅ [진단 코드] Grid 프리팹 내부에서 컴포넌트를 제대로 찾았는지 확인
         if (this.astarGrid == null) Debug.LogError($"Player {id}: Grid 프리팹에서 AstarGrid 컴по넌트를 찾지 못했습니다!");
-        if (spawnPoint == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'SpawnPoint' 자식 오브젝트를 찾지 못했습니다!");
-        if (goalTransform == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'Goal' 자식 오브젝트를 찾지 못했습니다!");
+        if (this.spawnPoint == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'SpawnPoint' 자식 오브젝트를 찾지 못했습니다!");
+        if (this.goalTransform == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'Goal' 자식 오브젝트를 찾지 못했습니다!");
 
         if (fieldManager) fieldManager.Initialize(this, groundTilemap, obstacleTilemap);
         if (shopManager) shopManager.playerManager = this;
@@ -84,7 +86,7 @@ public class PlayerManager : MonoBehaviour
         if (monsterSpawner)
         {
             Debug.Log($"Player {id}: MonsterSpawner에게 참조 전달 시도...");
-            monsterSpawner.Initialize(this, this.astarGrid, monsterPrefab, spawnPoint, goalTransform);
+            monsterSpawner.Initialize(this, this.astarGrid, monsterPrefab, this.spawnPoint, this.goalTransform);
         }
         else
         {
@@ -154,6 +156,7 @@ public class PlayerManager : MonoBehaviour
     public void AddUnit(UnitData unitData, int starLevel)
     {
         Debug.Log($"Player {playerId}가 {starLevel}성 {unitData.unitName} 유닛을 획득했습니다.");
+
         if(fieldManager != null)
         {
             fieldManager.CreateAndPlaceUnitOnField(unitData, starLevel);
