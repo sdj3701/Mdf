@@ -432,6 +432,19 @@ public class FieldManager : MonoBehaviour
     }
 
     /// <summary>
+    /// AI 재배치 로직을 위해 특정 유닛의 현재 그리드 위치를 반환합니다.
+    /// </summary>
+    public Vector3Int? GetUnitPosition(Unit unit)
+    {
+        var entry = placedUnits.FirstOrDefault(kvp => kvp.Value == unit);
+        if (entry.Value != null) // 유닛을 찾았는지 확인합니다.
+        {
+            return entry.Key;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// 유닛 타입에 따라 AI가 배치할 수 있는 모든 유효한 타일 위치 목록을 반환합니다.
     /// 이 메서드는 타일의 존재 여부와 타입만 확인하며, 해당 위치에 다른 유닛이 있는지는 확인하지 않습니다.
     /// </summary>
@@ -516,7 +529,7 @@ public class FieldManager : MonoBehaviour
 
     #region AI 배치 Helper
 
-    public Vector3Int? FindBestSpotForAI(UnitData unitData, List<Unit> alliedUnitsContext = null, HashSet<Vector3Int> occupiedTiles = null)
+    public Vector3Int? FindBestSpotForAI(UnitData unitData, List<Unit> alliedUnitsContext = null, HashSet<Vector3Int> occupiedTiles = null, Vector3Int? movingUnitOriginalPos = null)
     {
         var validTiles = GetValidPlacementTiles(unitData.unitType);
         if (validTiles == null || validTiles.Count == 0)
@@ -538,7 +551,12 @@ public class FieldManager : MonoBehaviour
             }
             else
             {
-                if (IsUnitAt(tilePos)) continue;
+                // 현재 이동시키려는 유닛의 원래 위치가 아니라면, 점유된 타일은 건너뜁니다.
+                bool isSpotOfMovingUnit = movingUnitOriginalPos.HasValue && tilePos == movingUnitOriginalPos.Value;
+                if (IsUnitAt(tilePos) && !isSpotOfMovingUnit)
+                {
+                    continue;
+                }
             }
 
             var context = new AIContext(playerManager, unitData, tilePos, alliedUnits);
