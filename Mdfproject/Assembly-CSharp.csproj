@@ -69,6 +69,7 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SimpleScript.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\CanCombineConsideration.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IHealth.cs" />
+    <Compile Include="Assets\Scripts\Commands\PlayerActions\RearrangeUnitsCommand.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\AreaDamageEffect.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\RerollShopAction.cs" />
     <Compile Include="Assets\Scripts\Button\SoundButton.cs" />
@@ -96,6 +97,7 @@
     <Compile Include="Assets\Scripts\MainLobby\SelectCharacter.cs" />
     <Compile Include="Assets\Scripts\Commands\Core\ICommand.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\SelectorNode.cs" />
+    <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\MeleeProtectsRangedConsideration.cs" />
     <Compile Include="Assets\Scripts\Game\GameSceneInitializer.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\NodeStatus.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\DamageCalculator.cs" />
@@ -149,6 +151,7 @@
     <Compile Include="Assets\Scripts\UI\PlayerHUDController.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Node.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\Monster.cs" />
+    <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\MeleePlacementConsideration.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark02.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarGrid.cs" />
     <Compile Include="Assets\Scripts\Managers\ShopManager.cs" />
@@ -193,6 +196,7 @@
     <Compile Include="Assets\Scripts\Managers\PlayerManager.cs" />
     <Compile Include="Assets\Scripts\NextScenes.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\ManaController.cs" />
+    <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\OnMonsterPathConsideration.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\DropdownSample.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_PhoneNumberValidator.cs" />
     <Compile Include="Assets\Scripts\Managers\AddressablesManager.cs" />
@@ -214,10 +218,6 @@
     <Compile Include="Assets\Scripts\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffManager.cs" />
-    <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\MeleePlacementConsideration.cs" />
-    <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\MeleeProtectsRangedConsideration.cs" />
-    <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\OnMonsterPathConsideration.cs" />
-    <Compile Include="Assets\Scripts\Commands\PlayerActions\RearrangeUnitsCommand.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

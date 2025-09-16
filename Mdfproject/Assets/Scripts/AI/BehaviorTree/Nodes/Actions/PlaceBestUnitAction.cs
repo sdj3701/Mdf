@@ -32,15 +32,13 @@ namespace AI.BehaviorTree.Nodes.Actions
                 {
                     return status = NodeStatus.Success; // 재배치할 유닛이 없으면 즉시 성공
                 }
-                
+
                 _rearrangedUnits = new List<Unit>();
-                RecalculateMonsterPath(); // 재배치 시작 시 몬스터 경로를 한 번 계산합니다.
-                
-                // 경로가 다른 시스템에 의해 변경되지 않도록 현재 경로를 복사하여 사용합니다.
-                _idealMonsterPath = _playerManager.astarGrid.FinalPath != null 
-                    ? new List<AstarNode>(_playerManager.astarGrid.FinalPath) 
-                    : new List<AstarNode>();
-                
+                RecalculateMonsterPath(); // 재배치 시작 시 몬스터 경로를 한 번 계산하고 변환합니다.
+
+                // RecalculateMonsterPath()에서 이미 변환된 _idealMonsterPath를 사용하므로
+                // 여기서 다시 원본 경로로 덮어쓰지 않습니다.
+
                 // 디버깅을 위해 AI가 사용하는 경로를 AstarGrid에 별도로 저장합니다.
                 _playerManager.astarGrid.IdealPathForAIDebug = _idealMonsterPath;
             }
@@ -80,7 +78,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             }
             Vector3Int originalPos = originalPosNullable.Value;
 
-            // 현재 위치를 고려하여 최적의 새 위치를 찾습니다. (복사해 둔 '이상적인 경로'를 전달)
+            // 현재 위치를 고려하여 최적의 새 위치를 찾습니다. (변환된 '이상적인 경로'를 전달)
             Vector3Int? bestPos = _playerManager.fieldManager.FindBestSpotForAI(nextUnitToMove.Data, _idealMonsterPath, null, null, originalPos);
 
             if (bestPos.HasValue && bestPos.Value != originalPos)
@@ -119,14 +117,60 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(start.position.x), Mathf.FloorToInt(start.position.y));
             Vector2Int goalPos = new Vector2Int(Mathf.FloorToInt(goal.position.x), Mathf.FloorToInt(goal.position.y));
-            
+
+            Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - Start: {start.position} -> {startPos}, Goal: {goal.position} -> {goalPos}");
+
             // 유닛이 없는 상태에서, 벽을 정상적으로 고려한 실제 몬스터 이동 경로를 계산합니다.
-            grid.FindPath(startPos, goalPos, false);
+            bool pathFound = grid.FindPath(startPos, goalPos, false);
 
             // 경로 계산이 끝난 후, 모든 유닛의 콜라이더를 다시 활성화합니다.
             foreach (var collider in colliders)
             {
                 if (collider != null) collider.enabled = true;
+            }
+
+            // 경로 처리 및 좌표계 변환
+            if (pathFound && grid.FinalPath != null && grid.FinalPath.Count > 0)
+            {
+                // 이상적인 경로를 복사하여 저장합니다. (재배치 중에 경로가 변경되지 않도록)
+                _idealMonsterPath = new List<AstarNode>(grid.FinalPath);
+
+                // AI 필드 좌표계로 변환
+                var fieldManager = _playerManager.fieldManager;
+                if (fieldManager != null)
+                {
+                    // AI 필드의 실제 타일 범위 확인
+                    var allValidTiles = fieldManager.GetValidPlacementTiles(UnitType.Melee);
+                    if (allValidTiles != null && allValidTiles.Count > 0)
+                    {
+                        // AI 필드의 y좌표 중심값 계산
+                        float fieldCenterY = (allValidTiles.Min(t => t.y) + allValidTiles.Max(t => t.y)) / 2.0f;
+
+                        // 몬스터 경로의 y좌표 중심값 계산
+                        float pathCenterY = (_idealMonsterPath.Min(n => n.y) + _idealMonsterPath.Max(n => n.y)) / 2.0f;
+
+                        // 오프셋 계산: 필드 중심 - 경로 중심
+                        int yOffset = Mathf.RoundToInt(fieldCenterY - pathCenterY);
+
+                        Debug.Log($"[AI Path Transform] 필드 중심 Y: {fieldCenterY}, 경로 중심 Y: {pathCenterY}, 오프셋: {yOffset}");
+
+                        // 경로의 모든 노드를 AI 필드 좌표계로 변환
+                        for (int i = 0; i < _idealMonsterPath.Count; i++)
+                        {
+                            var node = _idealMonsterPath[i];
+                            _idealMonsterPath[i] = new AstarNode(node.isWall, node.x, node.y + yOffset);
+                        }
+
+                        Debug.Log($"[AI Path Transform] 변환 후 첫 번째 노드: ({_idealMonsterPath[0].x}, {_idealMonsterPath[0].y}), 마지막 노드: ({_idealMonsterPath[_idealMonsterPath.Count-1].x}, {_idealMonsterPath[_idealMonsterPath.Count-1].y})");
+                    }
+                }
+
+                grid.IdealPathForAIDebug = _idealMonsterPath; // 디버그용 경로 저장
+            }
+            else
+            {
+                Debug.LogWarning("[AI] 몬스터 경로를 찾을 수 없습니다. 재배치를 건너뜁니다.");
+                _idealMonsterPath = new List<AstarNode>();
             }
         }
     }

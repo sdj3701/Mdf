@@ -43,9 +43,9 @@ public class FieldManager : MonoBehaviour
     {
         // --- 근접 유닛 우선순위 (요청사항에 따라 가중치 조정) ---
         new MeleePlacementConsideration { weight = 3.0f },      // 0. Ground 타일 (가장 중요)
-        new OnMonsterPathConsideration { weight = 2.5f },       // 1. 몬스터 경로 위
+        new OnMonsterPathConsideration { weight = 10.0f },      // 1. 몬스터 경로 위 (최우선)
         new MeleeProtectsRangedConsideration { weight = 1.6f }, // 2. 경로 위에서 원거리 유닛 보호
-        
+
         // --- 공통 / 원거리 유닛 우선순위 ---
         new ProximityToAlliesConsideration { weight = 1.2f },   // 유닛끼리 뭉치기
         new AttackRangeCoverageConsideration { weight = 1.0f }, // 공격 범위 효율
@@ -55,17 +55,32 @@ public class FieldManager : MonoBehaviour
     // 유닛 클릭/드래그 및 상세 정보 패널 관련 변수
     private float mouseDownTimer;
     private const float dragDelay = 0.2f; // 0.2초 이상 누르면 드래그 시작
+
+    // AI 배치 디버그용 변수들
+    private Dictionary<Vector3Int, float> _debugTileScores = new Dictionary<Vector3Int, float>();
+    private Dictionary<Vector3Int, DebugScoreBreakdown> _debugScoreBreakdowns = new Dictionary<Vector3Int, DebugScoreBreakdown>();
+    private bool _showDebugScores = false;
+    private UnitData _debugUnitData;
+
+    // 디버그용 점수 세부사항 구조체
+    public struct DebugScoreBreakdown
+    {
+        public float groundScore;
+        public float pathScore;
+        public float allyScore;
+        public float totalScore;
+    }
     private bool isDragStarted = false;
     private GameObject unitDetailPanelInstance;
     private Unit unitDisplayedInPanel;
-    
+
     private Camera playerCamera => GameAssets.Cameras.MainCamera;
 
     void Awake()
     {
         placementManager = GetComponent<PlacementManager>();
     }
-    
+
     // ✅ [추가된 핵심 로직] PlayerManager가 호출하여 초기화
     public void Initialize(PlayerManager owner, Tilemap ground, Tilemap obstacle)
     {
@@ -79,17 +94,17 @@ public class FieldManager : MonoBehaviour
             parentObject.transform.SetParent(transform.parent);
             unitParent = parentObject.transform;
         }
-        
+
         if (wallParent == null)
         {
             GameObject parentObject = new GameObject($"[{playerManager.name} Walls]");
             parentObject.transform.SetParent(transform.parent);
             wallParent = parentObject.transform;
         }
-        
+
         PrepopulateWallsFromTilemap();
     }
-    
+
     // ... (이하 나머지 코드는 이전과 동일) ...
     // OnEnable, OnDisable, Update, Event Handlers, 벽/유닛 관리, 드래그앤드롭 로직 등
     void OnEnable()
@@ -121,11 +136,11 @@ public class FieldManager : MonoBehaviour
     {
         placementManager.StopPlacementMode();
     }
-    
+
     #endregion
 
     #region Event Handlers
-    
+
     private void HandleGameStateChange(GameManagers.GameState newState)
     {
         if (newState == GameManagers.GameState.Prepare)
@@ -168,7 +183,7 @@ public class FieldManager : MonoBehaviour
             Debug.LogError("FieldManager에 ObstacleTilemap 참조가 없습니다!");
             return;
         }
-        
+
         if (wallTileToPlace != null)
         {
             ObstacleTilemap.SetTile(gridPosition, wallTileToPlace);
@@ -203,7 +218,7 @@ public class FieldManager : MonoBehaviour
             if (unitOnTop != null)
             {
                 Debug.Log($"<color=orange>벽이 파괴되어 위에 있던 {unitOnTop.Data.unitName}이(가) 함께 파괴됩니다!</color>");
-                unitOnTop.TakeDamage(99999, DamageType.Physical); 
+                unitOnTop.TakeDamage(99999, DamageType.Physical);
             }
 
             Destroy(wall.gameObject);
@@ -247,15 +262,15 @@ public class FieldManager : MonoBehaviour
     }
 
     #endregion
-    
+
     #region 유닛 생성 및 관리
-    
+
     public Unit GetUnitAt(Vector3Int gridPosition)
     {
         placedUnits.TryGetValue(gridPosition, out Unit unit);
         return unit;
     }
-    
+
     public bool IsUnitAt(Vector3Int gridPosition)
     {
         // 유닛을 드래그하는 중이고, 그 유닛의 원래 위치를 확인하는 경우
@@ -267,7 +282,7 @@ public class FieldManager : MonoBehaviour
         }
         return placedUnits.ContainsKey(gridPosition);
     }
-    
+
     public void CreateAndPlaceUnitOnField(UnitData unitData, int starLevel)
     {
         // AI 플레이어인지 ComponentRegistry를 통해 확인합니다. AIPlayerController가 자신의 ID로 등록한다고 가정합니다.
@@ -276,7 +291,7 @@ public class FieldManager : MonoBehaviour
             CreateAndPlaceUnitOnFieldForAI(unitData, starLevel);
             return; // AI 로직을 수행했으면 여기서 종료
         }
-        
+
         Vector3Int? emptySlot = FindFirstEmptySlot(unitData);
         if (emptySlot.HasValue)
         {
@@ -290,7 +305,7 @@ public class FieldManager : MonoBehaviour
             playerManager.AddGold(refundCost);
         }
     }
-    
+
     /// <summary>
     /// [AI용] 유닛 타입에 따라 첫 번째 빈 공간에 유닛을 생성하고 배치합니다. (초기 'Dumb' 배치)
     /// </summary>
@@ -310,7 +325,7 @@ public class FieldManager : MonoBehaviour
             playerManager.AddGold(refundCost);
         }
     }
-    
+
      public async void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel)
     {
         if (ObstacleTilemap == null)
@@ -341,7 +356,7 @@ public class FieldManager : MonoBehaviour
                 newUnitComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
             }
             // Initialize가 비동기가 되었으므로 async void로 호출합니다. (await 불필요)
-            newUnitComponent.Initialize(data, starLevel); 
+            newUnitComponent.Initialize(data, starLevel);
             placedUnits.Add(gridPosition, newUnitComponent);
         }
         else
@@ -350,7 +365,7 @@ public class FieldManager : MonoBehaviour
             Destroy(newUnitGO);
         }
     }
-    
+
     public void UnitDied(Unit deadUnit)
     {
         if (placedUnits.ContainsValue(deadUnit))
@@ -451,7 +466,7 @@ public class FieldManager : MonoBehaviour
     public List<Vector3Int> GetValidPlacementTiles(UnitType unitType)
     {
         var validTiles = new List<Vector3Int>();
-        
+
         if (unitType == UnitType.Melee)
         {
             // 근접 유닛은 Ground와 Obstacle(벽) 모두에 배치될 수 있습니다. (점수 계산으로 선호도 조절)
@@ -524,18 +539,53 @@ public class FieldManager : MonoBehaviour
         unit.transform.position = worldPos;
         placedUnits.Add(gridPosition, unit);
     }
-    
+
     #endregion
 
     #region AI 배치 Helper
 
     public Vector3Int? FindBestSpotForAI(UnitData unitData, List<AstarNode> monsterPathContext, List<Unit> alliedUnitsContext = null, HashSet<Vector3Int> occupiedTiles = null, Vector3Int? movingUnitOriginalPos = null)
     {
-        var validTiles = GetValidPlacementTiles(unitData.unitType);
-        if (validTiles == null || validTiles.Count == 0)
+
+        // 디버그 정보 초기화
+        _debugTileScores.Clear();
+        _debugScoreBreakdowns.Clear();
+        _showDebugScores = true;
+        _debugUnitData = unitData;
+
+        var allValidTiles = GetValidPlacementTiles(unitData.unitType);
+        if (allValidTiles == null || allValidTiles.Count == 0)
         {
             Debug.LogWarning($"AI가 {unitData.unitType} 타입의 유닛을 배치할 유효한 타일을 찾지 못했습니다.");
             return null;
+        }
+
+        List<Vector3Int> candidateTiles = allValidTiles;
+
+        // [핵심 수정] 근접 유닛의 경우, 배치 후보지를 몬스터 경로 위로 먼저 한정합니다.
+        if (unitData.unitType == UnitType.Melee && monsterPathContext != null && monsterPathContext.Count > 0)
+        {
+            // 디버그: AI 필드 타일 범위와 몬스터 경로 범위 확인
+            var fieldTileRange = $"필드 타일 범위: ({allValidTiles.Min(t => t.x)}, {allValidTiles.Min(t => t.y)}) ~ ({allValidTiles.Max(t => t.x)}, {allValidTiles.Max(t => t.y)})";
+            var pathRange = $"받은 몬스터 경로 범위: ({monsterPathContext.Min(n => n.x)}, {monsterPathContext.Min(n => n.y)}) ~ ({monsterPathContext.Max(n => n.x)}, {monsterPathContext.Max(n => n.y)})";
+            Debug.Log($"[AI Placement Debug] {fieldTileRange}");
+            Debug.Log($"[AI Placement Debug] {pathRange}");
+            Debug.Log($"[AI Placement Debug] 받은 경로 첫 번째 노드: ({monsterPathContext[0].x}, {monsterPathContext[0].y}), 마지막 노드: ({monsterPathContext[monsterPathContext.Count-1].x}, {monsterPathContext[monsterPathContext.Count-1].y})");
+
+            var pathTilePositions = new HashSet<Vector3Int>(monsterPathContext.Select(node => new Vector3Int(node.x, node.y, 0)));
+            var onPathTiles = allValidTiles.Where(tile => pathTilePositions.Contains(tile)).ToList();
+
+            // 경로 위에 배치 가능한 타일이 있다면, 후보지를 그 타일들로 제한합니다.
+            if (onPathTiles.Count > 0)
+            {
+                candidateTiles = onPathTiles;
+                Debug.Log($"[AI Placement] 근접 유닛 {unitData.unitName} 배치: 몬스터 경로 위 {onPathTiles.Count}개 타일로 후보지 제한");
+            }
+            else
+            {
+                Debug.Log($"[AI Placement] 근접 유닛 {unitData.unitName} 배치: 몬스터 경로 위에 배치 가능한 타일이 없어 전체 {allValidTiles.Count}개 타일 대상");
+            }
+            // 경로 위에 배치할 곳이 없다면, 원래의 모든 유효 타일을 대상으로 점수를 계산합니다(폴백).
         }
 
         var alliedUnits = alliedUnitsContext ?? GetAlliedUnitsOnField();
@@ -543,7 +593,8 @@ public class FieldManager : MonoBehaviour
         Vector3Int bestPosition = Vector3Int.zero;
         float highestScore = -1f;
 
-        foreach (var tilePos in validTiles)
+        // 후보 타일들('candidateTiles')을 순회하며 최고 점수 위치를 찾습니다.
+        foreach (var tilePos in candidateTiles)
         {
             if (occupiedTiles != null)
             {
@@ -560,7 +611,10 @@ public class FieldManager : MonoBehaviour
             }
 
             var context = new AIContext(playerManager, unitData, tilePos, alliedUnits, monsterPathContext);
-            float currentScore = CalculateScore(context, _placementConsiderations);
+            float currentScore = CalculateScore(context, _placementConsiderations, tilePos);
+
+            // 디버그용 점수 저장
+            _debugTileScores[tilePos] = currentScore;
 
             if (currentScore > highestScore)
             {
@@ -572,27 +626,61 @@ public class FieldManager : MonoBehaviour
         if (highestScore > -1f)
         {
             Debug.Log($"[AI Placement] {unitData.unitName}을(를) {bestPosition}에 배치 (점수: {highestScore:F2})");
+
+            // 3초 후 디버그 표시 끄기
+            Invoke(nameof(ClearDebugScores), 3.0f);
+
             return bestPosition;
         }
 
         // 점수 계산에 실패했더라도, 배치 가능한 첫 번째 위치라도 반환합니다.
+        ClearDebugScores();
         return FindFirstEmptySlot(unitData);
     }
-    
-    private float CalculateScore(AIContext context, List<Consideration> considerations)
+
+    private float CalculateScore(AIContext context, List<Consideration> considerations, Vector3Int tilePos)
     {
         float totalScore = 0;
         float weightSum = 0;
+
+        // 디버그용 세부 점수 저장
+        var breakdown = new DebugScoreBreakdown();
+
         foreach (var consideration in considerations)
         {
-            totalScore += consideration.Score(context) * consideration.weight;
+            float score = consideration.Score(context);
+            float weightedScore = score * consideration.weight;
+            totalScore += weightedScore;
             weightSum += consideration.weight;
+
+            // 주요 고려사항들의 점수를 별도로 저장
+            if (consideration is MeleePlacementConsideration)
+            {
+                breakdown.groundScore = score;
+            }
+            else if (consideration is OnMonsterPathConsideration)
+            {
+                breakdown.pathScore = score;
+            }
+            else if (consideration is MeleeProtectsRangedConsideration)
+            {
+                breakdown.allyScore = score;
+            }
         }
-        return (weightSum > 0) ? totalScore / weightSum : 0;
+
+        float finalScore = (weightSum > 0) ? totalScore / weightSum : 0;
+        breakdown.totalScore = finalScore;
+
+        // 디버그 정보 저장
+        _debugScoreBreakdowns[tilePos] = breakdown;
+
+
+
+        return finalScore;
     }
 
     #endregion
-    
+
     public async void CheckForCombination()
     {
         var combinableGroup = placedUnits.Values
@@ -630,14 +718,14 @@ public class FieldManager : MonoBehaviour
     #endregion
 
     #region 유닛 상세 정보 패널 및 드래그 앤 드롭
-    
+
     private void HandleUnitDragAndDrop()
     {
         var gameState = GameManagers.Instance.GetGameState();
         if (gameState != GameManagers.GameState.Prepare && gameState != GameManagers.GameState.Combat) return;
 
         if (playerCamera == null || ObstacleTilemap == null) return;
-        
+
         Vector3 mouseWorldPos = playerCamera.ScreenToWorldPoint(Input.mousePosition);
         Vector3Int gridPos = ObstacleTilemap.WorldToCell(mouseWorldPos);
 
@@ -658,7 +746,7 @@ public class FieldManager : MonoBehaviour
                     selectedUnit = null; // 모든 상태 초기화
                     return;
                 }
-                
+
                 // UI가 아닌 다른 곳을 클릭한 경우 -> 패널 닫고 클릭한 대상에 대한 처리 계속
                 if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
                 {
@@ -695,7 +783,7 @@ public class FieldManager : MonoBehaviour
                     // 드래그 시작
                     isDragStarted = true;
                     // offset과 originalUnitPosition은 이미 GetMouseButtonDown에서 설정되었습니다.
-                    
+
                     // 드래그가 시작되면 열려있던 상세 정보 패널을 닫음
                     if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
                     {
@@ -731,7 +819,7 @@ public class FieldManager : MonoBehaviour
                 selectedUnit.transform.position = originalWorldPos;
                 ShowUnitDetailPanel(selectedUnit);
             }
-            
+
             // 상태 초기화
             selectedUnit = null;
             isDragStarted = false;
@@ -762,7 +850,7 @@ public class FieldManager : MonoBehaviour
     #endregion
 
     #region 범위 표시
-    
+
     /// <summary>
     /// 지정된 유닛의 공격 및 스킬 범위를 원형으로 표시하고, 겹치는 경우 렌더링 순서를 조정합니다.
     /// </summary>
@@ -807,7 +895,7 @@ public class FieldManager : MonoBehaviour
         {
             attackDiameter *= 0.95f; // 공격 범위를 약간 줄여서 둘 다 보이게 함
         }
-        
+
         // 3. 범위 인디케이터 생성 및 크기 설정
         if (showAttack)
         {
@@ -858,6 +946,75 @@ public class FieldManager : MonoBehaviour
             Destroy(skillRangeIndicatorInstance);
             skillRangeIndicatorInstance = null;
         }
+    }
+
+    #endregion
+
+    #region AI 디버그 시각화
+
+    void OnGUI()
+    {
+        // AI 플레이어가 아니면 디버그 표시하지 않음
+        bool isAIPlayer = ComponentRegistry.Has<AIPlayerController>(playerManager.playerId.ToString());
+        if (!isAIPlayer) return;
+
+        if (!_showDebugScores || _debugScoreBreakdowns.Count == 0) return;
+
+        // 카메라가 없으면 표시하지 않음
+        if (Camera.main == null) return;
+
+        foreach (var kvp in _debugScoreBreakdowns)
+        {
+            Vector3Int tilePos = kvp.Key;
+            var breakdown = kvp.Value;
+
+            // AI 필드의 실제 월드 좌표 계산 (FieldManager의 GroundTilemap 기준)
+            Vector3 worldPos;
+            if (GroundTilemap != null)
+            {
+                // GroundTilemap의 월드 좌표를 기준으로 타일 위치 계산
+                Vector3 tilemapWorldPos = GroundTilemap.transform.position;
+                worldPos = new Vector3(tilemapWorldPos.x + tilePos.x + 0.5f, tilemapWorldPos.y + tilePos.y + 0.5f, 0);
+
+
+            }
+            else
+            {
+                // 폴백: 기본 월드 좌표
+                worldPos = new Vector3(tilePos.x + 0.5f, tilePos.y + 0.5f, 0);
+            }
+
+            Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPos);
+
+            if (screenPos.z > 0) // 카메라 앞에 있는 경우만 표시
+            {
+                screenPos.y = Screen.height - screenPos.y; // Unity GUI 좌표계 변환
+
+                // P점수/A점수를 한 줄로 표시 (Path/Ally)
+                GUI.color = Color.white;
+                GUI.Label(new Rect(screenPos.x - 25, screenPos.y - 10, 50, 20), $"{breakdown.pathScore:F1}/{breakdown.allyScore:F1}");
+            }
+        }
+
+        GUI.color = Color.white; // 색상 리셋
+
+        // 디버그 정보 표시
+        if (_debugUnitData != null)
+        {
+            GUI.color = Color.white;
+            GUI.Label(new Rect(10, 10, 300, 20), $"Player {playerManager.playerId} AI 배치 디버그: {_debugUnitData.unitName} ({_debugUnitData.unitType})");
+            GUI.Label(new Rect(10, 30, 300, 20), $"후보 타일 수: {_debugScoreBreakdowns.Count}");
+            GUI.Label(new Rect(10, 50, 300, 20), "형식: Path점수/Ally점수");
+        }
+    }
+
+    // 디버그 표시를 끄는 메서드 (배치 완료 후 호출)
+    public void ClearDebugScores()
+    {
+        _showDebugScores = false;
+        _debugTileScores.Clear();
+        _debugScoreBreakdowns.Clear();
+        _debugUnitData = null;
     }
 
     #endregion

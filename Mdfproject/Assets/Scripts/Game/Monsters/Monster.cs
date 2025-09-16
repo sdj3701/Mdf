@@ -21,7 +21,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     public event System.Action<float, float> OnHealthChanged;
 
     private ManaController manaController;
-    
+
     private Transform goalTransform;
     private PlayerManager ownerPlayer;
     private AstarGrid pathfinder;
@@ -48,13 +48,13 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         this.pathfinder = pathfinder;
         this.name = monsterData.monsterName;
         this.wallLayerMask = pathfinder.wallLayers;
-        
+
         currentMaxHP = monsterData.maxHealth;
         currentHP = currentMaxHP;
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-        
+
         manaController = GetComponent<ManaController>();
-        
+
         int maxMana = 0;
         if (monsterData.skillData != null)
         {
@@ -81,7 +81,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             Debug.LogError($"{monsterData.monsterName}의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
             return;
         }
-        
+
         if (!manaController.IsManaFull) return;
 
         if (manaController.UseMana(skillData.manaCost))
@@ -97,11 +97,11 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
                     effect.ApplyEffect(null, this.gameObject, targets);
                 }
             }
-            
+
             if (skillData.vfxPrefab != null)
             {
                 GameObject vfxInstance = Instantiate(skillData.vfxPrefab, transform.position, Quaternion.identity);
-                
+
                 float maxDuration = 0f;
                 foreach (var effect in skillData.effects)
                 {
@@ -129,7 +129,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             }
         }
     }
-    
+
     public void Heal(float amount)
     {
         if (currentHP <= 0 || amount <= 0) return;
@@ -164,7 +164,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         }
         Destroy(gameObject);
     }
-    
+
     private void OnDestroy()
     {
         if (manaController != null) manaController.OnManaFull -= ActivateSkill;
@@ -191,10 +191,10 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             target.TakeDamage(monsterData.attackDamage, monsterData.damageType);
             Debug.Log($"{monsterData.monsterName}이(가) {targetName}을(를) 공격!");
         }
-        
+
         Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
         attackCoroutine = null;
-        
+
         FindNewPathToGoal();
     }
     #endregion
@@ -203,9 +203,11 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
     private void FindNewPathToGoal()
     {
-        Vector2Int currentGridPos = new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y));
-        Vector2Int targetGridPos = new Vector2Int(Mathf.RoundToInt(goalTransform.position.x), Mathf.RoundToInt(goalTransform.position.y));
-        
+        Vector2Int currentGridPos = new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.y));
+        Vector2Int targetGridPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.y));
+
+
+
         if (pathfinder.FindPath(currentGridPos, targetGridPos))
         {
             List<AstarNode> newPath = pathfinder.FinalPath;
@@ -221,7 +223,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     public void StartFollowingPath(List<AstarNode> path)
     {
         StopAllCoroutines();
-        
+
         isMoving = true;
         if (monsterData.monsterType == MonsterType.Flying)
         {
@@ -274,7 +276,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
                     Debug.LogWarning($"경로상에 벽({currentTarget})이 있지만, 실제 벽 오브젝트를 찾을 수 없습니다. 경로를 계속 진행합니다.");
                 }
             }
-            
+
             while (Vector2.Distance(transform.position, currentTarget) > 0.1f && isMoving)
             {
                 transform.position = Vector2.MoveTowards(transform.position, currentTarget, monsterData.moveSpeed * Time.deltaTime);
@@ -318,14 +320,14 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             Debug.LogWarning($"{monsterData.monsterName}의 경로가 막혔지만, 대상을 공격할 수 없습니다.");
         }
     }
-    
+
     public void Unblock()
     {
         if (isQuitting || !isBlocked) return;
-        
+
         isBlocked = false;
         blockingUnit = null;
-        
+
         if (attackCoroutine != null)
         {
             StopCoroutine(attackCoroutine);

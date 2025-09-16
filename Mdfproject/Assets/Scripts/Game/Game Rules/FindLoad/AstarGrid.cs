@@ -9,7 +9,7 @@ public class AstarGrid : MonoBehaviour
     public Vector2Int bottomLeft;
     [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 오른쪽 위 경계입니다.")]
     public Vector2Int topRight;
-    
+
     [Header("레이어 및 비용 설정")]
     public LayerMask wallLayers = -1;
     [Tooltip("파괴 가능한 벽 오브젝트들이 속한 레이어를 지정합니다. (예: BreakWall 레이어)")]
@@ -31,7 +31,7 @@ public class AstarGrid : MonoBehaviour
 
     private int sizeX, sizeY;
     private AstarNode[,] NodeArray;
-    
+
     // ✅ [추가된 핵심 로직] 런타임에 계산될 실제 월드 좌표 경계
     private Vector2Int worldBottomLeft;
     private Vector2Int worldTopRight;
@@ -47,7 +47,7 @@ public class AstarGrid : MonoBehaviour
         );
         worldBottomLeft = gridOrigin + bottomLeft;
         worldTopRight = gridOrigin + topRight;
-        
+
         // 그리드 노드 배열을 처음 생성합니다.
         InitializeGrid();
     }
@@ -72,7 +72,7 @@ public class AstarGrid : MonoBehaviour
 
         List<AstarNode> OpenList = new List<AstarNode>();
         HashSet<AstarNode> ClosedList = new HashSet<AstarNode>();
-        
+
         for (int i = 0; i < sizeX; i++)
         {
             for (int j = 0; j < sizeY; j++)
@@ -81,11 +81,11 @@ public class AstarGrid : MonoBehaviour
                 NodeArray[i, j].ParentNode = null;
             }
         }
-        
+
         StartNode.G = 0;
         StartNode.H = GetManhattanDistance(start, end);
         OpenList.Add(StartNode);
-        
+
         while (OpenList.Count > 0)
         {
             AstarNode CurNode = OpenList[0];
@@ -105,7 +105,7 @@ public class AstarGrid : MonoBehaviour
                 BuildFinalPath(StartNode, TargetNode);
                 return true;
             }
-            
+
             ExploreNeighbors(CurNode, TargetNode, OpenList, ClosedList, ignoreWalls);
         }
 
@@ -186,7 +186,7 @@ public class AstarGrid : MonoBehaviour
 
                 int distanceCost = (x == 0 || y == 0) ? 10 : 14;
                 int tentativeGCost = CurNode.G + distanceCost;
-                
+
                 if (!ignoreWalls && NeighborNode.isWall)
                 {
                     tentativeGCost += wallBreakCost;
@@ -225,7 +225,7 @@ public class AstarGrid : MonoBehaviour
             currentNode = currentNode.ParentNode;
         }
         FinalPath.Add(startNode);
-        
+
         FinalPath.Reverse();
         WallsToBreakInPath.Reverse();
     }
@@ -249,7 +249,7 @@ public class AstarGrid : MonoBehaviour
         // ✅ [수정] 월드 좌표를 배열 인덱스로 변환합니다.
         return NodeArray[pos.x - worldBottomLeft.x, pos.y - worldBottomLeft.y];
     }
-    
+
     [ContextMenu("디버그 경로 탐색 실행")]
     private void PathFindingForDebug()
     {
@@ -261,7 +261,7 @@ public class AstarGrid : MonoBehaviour
     void OnDrawGizmos()
     {
         if (!showDebugInfo) return;
-        
+
         // ✅ [수정] 월드 좌표 경계를 기준으로 기즈모를 그립니다.
         Vector2Int bottomLeftGizmo = Application.isPlaying ? worldBottomLeft : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + bottomLeft;
         Vector2Int topRightGizmo = Application.isPlaying ? worldTopRight : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + topRight;
@@ -280,7 +280,7 @@ public class AstarGrid : MonoBehaviour
                 if (NodeArray[i, j].isWall)
                 {
                     Vector3 pos = new Vector3(NodeArray[i,j].x + 0.5f, NodeArray[i,j].y + 0.5f, 0);
-                    Gizmos.color = NodeArray[i, j].isBreakable ? new Color(1f, 0.5f, 0f, 0.7f) : new Color(1f, 0f, 0f, 0.7f); 
+                    Gizmos.color = NodeArray[i, j].isBreakable ? new Color(1f, 0.5f, 0f, 0.7f) : new Color(1f, 0f, 0f, 0.7f);
                     Gizmos.DrawCube(pos, Vector3.one * 0.8f);
                 }
             }
@@ -309,5 +309,7 @@ public class AstarGrid : MonoBehaviour
             }
         }
     }
+
+
     #endregion
 }
