@@ -71,12 +71,12 @@ public class AugmentUIController : MonoBehaviour
     private void OnAugmentButtonClicked(int index)
     {
         // [핵심 변경점]
-        // 이제 AugmentManager를 직접 호출하지 않고, "증강이 선택되었다"는 이벤트를 발생시킵니다.
-        // AugmentManager와 GameManagers가 이 이벤트를 듣고 각자의 역할을 수행할 것입니다.
+        // 이제 이벤트를 직접 발생시키는 대신, SelectAugmentCommand를 생성하여 실행합니다.
+        // 이를 통해 플레이어의 행동과 AI의 행동이 동일한 로직을 타게 됩니다.
         if (localPlayer != null && currentChoices != null && index < currentChoices.Count)
         {
-            AugmentData selectedAugment = currentChoices[index];
-            GameEvents.TriggerAugmentSelected(localPlayer, selectedAugment);
+            var command = new SelectAugmentCommand(localPlayer.playerId, index);
+            GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
         }
         else
         {

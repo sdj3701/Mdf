@@ -20,6 +20,7 @@ public class ShopSlot : MonoBehaviour
     private ShopItem currentShopItem;
     private ShopManager shopManager;
     private bool isPurchased = false;
+    private int slotIndex;
 
     // 아이콘을 비동기 로드할 때 메모리 관리를 위해 로딩 핸들을 저장합니다.
     private AsyncOperationHandle<Sprite> iconLoadHandle;
@@ -27,9 +28,10 @@ public class ShopSlot : MonoBehaviour
     /// <summary>
     /// ShopUIController에 의해 호출되어 슬롯을 초기화합니다.
     /// </summary>
-    public void Initialize(ShopManager manager)
+    public void Initialize(ShopManager manager, int index)
     {
         this.shopManager = manager;
+        this.slotIndex = index; // 인덱스 저장
         buyButton.onClick.RemoveAllListeners(); 
         buyButton.onClick.AddListener(OnBuyButtonClick);
     }
@@ -105,8 +107,10 @@ public class ShopSlot : MonoBehaviour
     {
         if (currentShopItem.UnitData != null && shopManager != null && !isPurchased)
         {
-            GameEvents.TriggerUnitPurchased(shopManager.playerManager, currentShopItem.UnitData, currentShopItem.StarLevel);
-            SetPurchased();
+            // 기존: GameEvents.TriggerUnitPurchased(...)
+            // 변경: BuyUnitCommand 생성 및 실행
+            var command = new BuyUnitCommand(shopManager.playerManager.playerId, this.slotIndex);
+            GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
         }
     }
 

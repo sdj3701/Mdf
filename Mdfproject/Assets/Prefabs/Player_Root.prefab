@@ -152,6 +152,7 @@ GameObject:
   m_Component:
   - component: {fileID: 5614185706799511485}
   - component: {fileID: 5614185706351617983}
+  - component: {fileID: -7495182607667504553}
   m_Layer: 0
   m_Name: Player_Root
   m_TagString: Untagged
@@ -201,6 +202,26 @@ MonoBehaviour:
   monsterSpawner: {fileID: 0}
   augmentManager: {fileID: 0}
   opponentManager: {fileID: 0}
+--- !u!114 &-7495182607667504553
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5614185707068383334}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6d419cb65f7f0454ca4f79902b501392, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  customId: 
+  autoDetectComponents: 1
+  registerCamera: 0
+  registerAudioSource: 0
+  registerLight: 0
+  registerTMPText: 0
+  registerButton: 0
+  registerImage: 0
 --- !u!1 &5614185707629608618
 GameObject:
   m_ObjectHideFlags: 0

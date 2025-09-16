@@ -62,10 +62,13 @@
     <Analyzer Include="C:\Users\k05n1\.vscode\extensions\visualstudiotoolsforunity.vstuc-1.1.3\Analyzers\Microsoft.Unity.Analyzers.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\NodeView.cs" />
     <Compile Include="Assets\Scripts\Editor\GoogleSheetDataImporter.cs" />
     <Compile Include="Assets\Scripts\Editor\DataExporter.cs" />
+    <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeViewer.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Editor\ReadmeEditor.cs" />
     <Compile Include="Assets\Scripts\Editor\AddressableKeyDrawer.cs" />
+    <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeView.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Firebase\Editor\FirebaseCrashlytics_version-13.2.0_manifest.txt" />
@@ -77,6 +80,7 @@
     <None Include="Assets\ExternalDependencyManager\Editor\1.2.186\Google.VersionHandlerImpl.dll" />
     <None Include="Assets\Firebase\Editor\FirebaseFirestore_version-13.2.0_manifest.txt" />
     <None Include="Assets\ExternalDependencyManager\Editor\external-dependency-manager_version-1.2.186_manifest.txt" />
+    <None Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeEditor.uss" />
     <None Include="Assets\Firebase\Editor\FirebaseAnalytics_version-13.2.0_manifest.txt" />
     <None Include="Assets\ExternalDependencyManager\Editor\1.2.186\Google.JarResolver.dll" />
     <None Include="Assets\Firebase\Editor\AuthDependencies.xml" />
@@ -517,6 +521,10 @@
     </Reference>
     <Reference Include="unityplastic">
       <HintPath>Library\PackageCache\com.unity.collab-proxy@2.5.2\Lib\Editor\PlasticSCM\unityplastic.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Firebase.Editor">
+      <HintPath>Assets\Firebase\Editor\Firebase.Editor.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Firebase.Analytics">

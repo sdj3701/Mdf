@@ -99,38 +99,10 @@ public class PlayerManager : MonoBehaviour
     // ... (이하 나머지 코드는 이전과 동일) ...
     void OnEnable()
     {
-        GameEvents.OnUnitPurchased += HandleUnitPurchaseRequest;
-        GameEvents.OnShopRerollRequested += HandleShopRerollRequest;
-        GameEvents.OnUnitPlacementRequested += HandleUnitPlacementRequest;
-        GameEvents.OnUnitMoveRequested += HandleUnitMoveRequest;
-        GameEvents.OnWallPlacementRequested += HandleWallPlacementRequest;
-        GameEvents.OnWallRemovalRequested += HandleWallRemovalRequest;
     }
 
     void OnDisable()
     {
-        GameEvents.OnUnitPurchased -= HandleUnitPurchaseRequest;
-        GameEvents.OnShopRerollRequested -= HandleShopRerollRequest;
-        GameEvents.OnUnitPlacementRequested -= HandleUnitPlacementRequest;
-        GameEvents.OnUnitMoveRequested -= HandleUnitMoveRequest;
-        GameEvents.OnWallPlacementRequested -= HandleWallPlacementRequest;
-        GameEvents.OnWallRemovalRequested -= HandleWallRemovalRequest;
-    }
-
-    private void HandleUnitPurchaseRequest(PlayerManager purchasingPlayer, UnitData unitData, int starLevel)
-    {
-        if (purchasingPlayer.playerId != this.playerId) return;
-
-        ShopItem item = new ShopItem(unitData, starLevel);
-    
-        if (SpendGold(item.CalculatedCost))
-        {
-            AddUnit(unitData, starLevel);
-        }
-        else
-        {
-            Debug.Log($"Player {playerId}: 골드가 부족하여 {unitData.unitName} 구매에 실패했습니다.");
-        }
     }
 
     public void SetFightingState(bool isFighting)
@@ -205,63 +177,6 @@ public class PlayerManager : MonoBehaviour
         {
             wallCount++;
             GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
-        }
-    }
-
-    #endregion
-    
-    #region Action Event Handlers (for multiplayer)
-
-    private void HandleShopRerollRequest(PlayerManager requester)
-    {
-        if (requester.playerId != this.playerId) return;
-        shopManager.Reroll();
-    }
-
-    private void HandleUnitPlacementRequest(PlayerManager requester, UnitData unitData, Vector3Int position)
-    {
-        if (requester.playerId != this.playerId) return;
-        
-        // FieldManager의 유닛 생성 로직을 직접 호출합니다.
-        if (fieldManager != null)
-        {
-            fieldManager.CreateUnitAt(unitData, position, 1);
-            fieldManager.CheckForCombination();
-        }
-    }
-    
-    private void HandleUnitMoveRequest(PlayerManager requester, Vector3Int from, Vector3Int to)
-    {
-        if (requester.playerId != this.playerId) return;
-        if (fieldManager != null)
-        {
-            fieldManager.MoveUnit(from, to);
-        }
-    }
-
-    private void HandleWallPlacementRequest(PlayerManager requester, Vector3Int position)
-    {
-        if (requester.playerId != this.playerId) return;
-        
-        if (TryUseWall())
-        {
-            if (fieldManager != null)
-            {
-                fieldManager.CreateWallAt(position);
-                GameEvents.TriggerWallPlaced(this.playerId, position);
-            }
-        }
-    }
-
-    private void HandleWallRemovalRequest(PlayerManager requester, Vector3Int position)
-    {
-        if (requester.playerId != this.playerId) return;
-        
-        if (fieldManager != null && fieldManager.GetWallAt(position) != null)
-        {
-            fieldManager.RemoveWallAt(position);
-            ReturnWall();
-            GameEvents.TriggerWallRemoved(this.playerId, position);
         }
     }
 

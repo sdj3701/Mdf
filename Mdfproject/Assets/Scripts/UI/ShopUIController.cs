@@ -51,6 +51,7 @@ public class ShopUIController : MonoBehaviour
         // 게임 상태 변경 이벤트를 구독합니다.
         GameEvents.OnGameStateChanged += HandleGameStateChange;
         GameEvents.OnShopRefreshed += HandleShopRefreshed;
+        GameEvents.OnUnitPurchaseSucceeded += HandleUnitPurchaseSucceeded;
     }
 
     void OnDisable()
@@ -58,6 +59,7 @@ public class ShopUIController : MonoBehaviour
         // 패널이 비활성화될 때 이벤트 구독을 해지하여 메모리 누수를 방지합니다.
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
         GameEvents.OnShopRefreshed -= HandleShopRefreshed;
+        GameEvents.OnUnitPurchaseSucceeded -= HandleUnitPurchaseSucceeded;
     }
 
     /// <summary>
@@ -102,9 +104,9 @@ public class ShopUIController : MonoBehaviour
         rerollButton.onClick.RemoveAllListeners();
         rerollButton.onClick.AddListener(OnRerollButtonClick);
 
-        foreach (var slot in shopSlots)
+        for (int i = 0; i < shopSlots.Length; i++)
         {
-            slot.Initialize(localPlayerShopManager);
+            shopSlots[i].Initialize(localPlayerShopManager, i); // 슬롯에 인덱스 전달
         }
 
         UpdateInfoText();
@@ -114,7 +116,8 @@ public class ShopUIController : MonoBehaviour
     {
         if (localPlayerShopManager != null)
         {
-            GameEvents.TriggerShopRerollRequested(localPlayerShopManager.playerManager);
+            var command = new RerollShopCommand(localPlayerShopManager.playerManager.playerId);
+            GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
         }
     }
 
@@ -124,6 +127,19 @@ public class ShopUIController : MonoBehaviour
         {
             UpdateShopSlots();
             UpdateInfoText();
+        }
+    }
+
+    private void HandleUnitPurchaseSucceeded(int playerID, ShopItem purchasedItem, int slotIndex)
+    {
+        // 이 이벤트가 로컬 플레이어의 상점에 해당하는지 확인
+        if (localPlayerShopManager != null && localPlayerShopManager.playerManager.playerId == playerID)
+        {
+            // 해당 슬롯을 '구매 완료' 상태로 변경
+            if (slotIndex >= 0 && slotIndex < shopSlots.Length)
+            {
+                shopSlots[slotIndex].SetPurchased();
+            }
         }
     }
 

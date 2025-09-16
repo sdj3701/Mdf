@@ -79,15 +79,11 @@ public class FieldManager : MonoBehaviour
     // OnEnable, OnDisable, Update, Event Handlers, 벽/유닛 관리, 드래그앤드롭 로직 등
     void OnEnable()
     {
-        GameEvents.OnPlacementModeEnterRequested += HandlePlacementModeEnterRequest;
-        GameEvents.OnPlacementModeExitRequested += HandlePlacementModeExitRequest;
         GameEvents.OnGameStateChanged += HandleGameStateChange;
     }
 
     void OnDisable()
     {
-        GameEvents.OnPlacementModeEnterRequested -= HandlePlacementModeEnterRequest;
-        GameEvents.OnPlacementModeExitRequested -= HandlePlacementModeExitRequest;
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
     }
 
@@ -98,6 +94,20 @@ public class FieldManager : MonoBehaviour
             HandleUnitDragAndDrop();
         }
     }
+
+    #region Public Methods for UI
+
+    public void StartPlacementMode(PlacementMode mode, GameObject unitPrefab = null)
+    {
+        placementManager.StartPlacementMode(mode, unitPrefab);
+    }
+
+    public void StopPlacementMode()
+    {
+        placementManager.StopPlacementMode();
+    }
+    
+    #endregion
 
     #region Event Handlers
     
@@ -129,20 +139,6 @@ public class FieldManager : MonoBehaviour
                 selectedUnit = null;
             }
         }
-    }
-
-    private void HandlePlacementModeEnterRequest(PlacementMode mode, GameObject unitPrefab)
-    {
-        if (this.playerManager != GameManagers.Instance.localPlayer) return;
-        
-        placementManager.StartPlacementMode(mode, unitPrefab);
-    }
-
-    private void HandlePlacementModeExitRequest()
-    {
-        if (this.playerManager != GameManagers.Instance.localPlayer) return;
-
-        placementManager.StopPlacementMode();
     }
 
     #endregion
@@ -259,6 +255,13 @@ public class FieldManager : MonoBehaviour
     
     public void CreateAndPlaceUnitOnField(UnitData unitData, int starLevel)
     {
+        // AI 플레이어인지 ComponentRegistry를 통해 확인합니다. AIPlayerController가 자신의 ID로 등록한다고 가정합니다.
+        if (ComponentRegistry.Has<AIPlayerController>(playerManager.playerId.ToString()))
+        {
+            CreateAndPlaceUnitOnFieldForAI(unitData, starLevel);
+            return; // AI 로직을 수행했으면 여기서 종료
+        }
+        
         Vector3Int? emptySlot = FindFirstEmptySlot(unitData);
         if (emptySlot.HasValue)
         {
@@ -268,6 +271,34 @@ public class FieldManager : MonoBehaviour
         else
         {
             Debug.LogWarning("[FieldManager] 필드에 빈 공간이 없어 유닛을 배치할 수 없습니다! 골드를 환불합니다.");
+            int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
+            playerManager.AddGold(refundCost);
+        }
+    }
+    
+    /// <summary>
+    /// [AI용] 유닛 타입에 따라 최적의 위치를 찾아 유닛을 생성하고 배치합니다.
+    /// </summary>
+    public void CreateAndPlaceUnitOnFieldForAI(UnitData unitData, int starLevel)
+    {
+        Vector3Int? placementPos = null;
+        if (unitData.unitType == UnitType.Melee)
+        {
+            placementPos = FindBestSpotForMelee(unitData);
+        }
+        else // Ranged
+        {
+            placementPos = FindBestSpotForRanged(unitData);
+        }
+
+        if (placementPos.HasValue)
+        {
+            CreateUnitAt(unitData, placementPos.Value, starLevel);
+            CheckForCombination();
+        }
+        else
+        {
+            Debug.LogWarning($"[FieldManager (AI)] {unitData.unitName}을(를) 배치할 유효한 위치를 찾지 못했습니다. 골드를 환불합니다.");
             int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
             playerManager.AddGold(refundCost);
         }
@@ -367,6 +398,74 @@ public class FieldManager : MonoBehaviour
         }
         return null;
     }
+
+    #region AI 배치 Helper
+    
+    /// <summary>
+    /// AI가 근접 유닛을 배치할 최적의 위치를 찾습니다. 일반적으로 앞쪽부터 탐색합니다.
+    /// </summary>
+    public Vector3Int? FindBestSpotForMelee(UnitData unitData)
+    {
+        if (GroundTilemap == null) return null;
+
+        BoundsInt bounds = GroundTilemap.cellBounds;
+        for (int y = bounds.yMin; y < bounds.yMax; y++)
+        {
+            for (int x = bounds.xMin; x < bounds.xMax; x++)
+            {
+                Vector3Int pos = new Vector3Int(x, y, 0);
+                if (placementManager.IsPositionValidForPlacement(pos, unitData))
+                {
+                    return pos;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// AI가 원거리 유닛을 배치할 최적의 위치를 찾습니다. 벽 위(고지대)를 우선적으로 탐색하고, 후방 배치를 선호합니다.
+    /// </summary>
+    public Vector3Int? FindBestSpotForRanged(UnitData unitData)
+    {
+        // 1. 벽 위(고지대)를 후방부터 탐색
+        if (ObstacleTilemap != null)
+        {
+            BoundsInt bounds = ObstacleTilemap.cellBounds;
+            for (int y = bounds.yMax - 1; y >= bounds.yMin; y--)
+            {
+                for (int x = bounds.xMin; x < bounds.xMax; x++)
+                {
+                    Vector3Int pos = new Vector3Int(x, y, 0);
+                    if (ObstacleTilemap.GetTile(pos) != null && placementManager.IsPositionValidForPlacement(pos, unitData))
+                    {
+                        return pos;
+                    }
+                }
+            }
+        }
+
+        // 2. 고지대에 자리가 없다면 지상을 후방부터 탐색
+        if (GroundTilemap != null)
+        {
+            BoundsInt bounds = GroundTilemap.cellBounds;
+            for (int y = bounds.yMax - 1; y >= bounds.yMin; y--)
+            {
+                for (int x = bounds.xMin; x < bounds.xMax; x++)
+                {
+                    Vector3Int pos = new Vector3Int(x, y, 0);
+                    if (placementManager.IsPositionValidForPlacement(pos, unitData))
+                    {
+                        return pos;
+                    }
+                }
+            }
+        }
+    
+        return null;
+    }
+
+    #endregion
     
     public async void CheckForCombination()
     {
@@ -490,7 +589,8 @@ public class FieldManager : MonoBehaviour
                 // 드래그 종료 로직 (기존과 동일)
                 if (placementManager.IsPositionValidForPlacement(gridPos, selectedUnit.Data))
                 {
-                    GameEvents.TriggerUnitMoveRequested(playerManager, originalUnitPosition, gridPos);
+                    var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, gridPos);
+                    GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
                 }
                 else
                 {

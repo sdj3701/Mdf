@@ -10,6 +10,7 @@ using Cysharp.Threading.Tasks;
 public class GameManagers : MonoBehaviour
 {
     public static GameManagers Instance { get; private set; }
+    public CommandProcessor CommandProcessor { get; private set; }
 
     #region 인게임 관련 변수
     public enum GameState { Setup, DataLoading, Prepare, Combat, GameOver }
@@ -64,6 +65,7 @@ public class GameManagers : MonoBehaviour
         if (Instance == null)
         {
             Instance = this;
+            CommandProcessor = new CommandProcessor();
             DontDestroyOnLoad(gameObject);
         }
         else
@@ -75,13 +77,13 @@ public class GameManagers : MonoBehaviour
     private void OnEnable()
     {
         SceneManager.sceneLoaded += OnSceneLoaded;
-        GameEvents.OnAugmentSelected += HandleAugmentChosen;
+        GameEvents.OnAugmentApplied += HandleAugmentChosen;
     }
 
     private void OnDisable()
     {
         SceneManager.sceneLoaded -= OnSceneLoaded;
-        GameEvents.OnAugmentSelected -= HandleAugmentChosen;
+        GameEvents.OnAugmentApplied -= HandleAugmentChosen;
     }
 
     void OnSceneLoaded(Scene scene, LoadSceneMode mode)
@@ -98,7 +100,13 @@ public class GameManagers : MonoBehaviour
         return currentState;
     }
     
-
+    public PlayerManager GetPlayer(int id)
+    {
+        if (player1 != null && player1.playerId == id) return player1;
+        if (player2 != null && player2.playerId == id) return player2;
+        Debug.LogWarning($"GameManagers: ID '{id}'에 해당하는 플레이어를 찾을 수 없습니다.");
+        return null;
+    }
 
 
     private IEnumerator GameFlow()
@@ -126,11 +134,15 @@ public class GameManagers : MonoBehaviour
 
         Vector3 player2Position = player1BasePosition + playerOffset;
         GameObject player2GO = Instantiate(playerManagerPrefab, player2Position, Quaternion.identity);
-        player2GO.name = "Player 2";
+        player2GO.name = "Player 2 (AI)";
         player2 = player2GO.GetComponent<PlayerManager>();
         GameObject grid2GO = Instantiate(gridPrefab, player2Position, Quaternion.identity);
         grid2GO.name = "Grid 2";
         player2.InitializePlayer(1, grid2GO, defaultMonsterPrefab);
+
+        // AI 컨트롤러 추가 및 초기화
+        var aiController = player2GO.AddComponent<AIPlayerController>();
+        aiController.Initialize(player2, this.CommandProcessor);
 
         player1.opponentManager = player2;
         player2.opponentManager = player1;

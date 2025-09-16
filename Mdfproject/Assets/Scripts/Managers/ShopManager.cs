@@ -12,6 +12,7 @@ public class ShopManager : MonoBehaviour
 
     // [변경됨] 이제 UnitData가 아닌 ShopItem 리스트를 관리합니다.
     private List<ShopItem> currentShopItems = new List<ShopItem>();
+    private bool[] _isSlotSold = new bool[5];
     
     public bool IsDatabaseLoaded { get; private set; } = false;
     private UniTaskCompletionSource<bool> databaseLoadTask = new UniTaskCompletionSource<bool>();
@@ -61,6 +62,11 @@ public class ShopManager : MonoBehaviour
         }
 
         currentShopItems.Clear();
+        for (int i = 0; i < _isSlotSold.Length; i++)
+        {
+            _isSlotSold[i] = false;
+        }
+
         for (int i = 0; i < 5; i++) // 5개의 슬롯을 채웁니다.
         {
             if (allUnitDatabase.Count > 0)
@@ -89,25 +95,24 @@ public class ShopManager : MonoBehaviour
         GameEvents.TriggerShopRefreshed(playerManager);
     }
 
-    // [변경됨] 매개변수가 UnitData에서 ShopItem으로 변경되었습니다.
-    public void TryBuyUnit(ShopItem itemToBuy, ShopSlot slot)
+    public void MarkSlotAsPurchased(int slotIndex)
     {
-        if (GameManagers.Instance != null && GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare)
+        if (slotIndex >= 0 && slotIndex < _isSlotSold.Length)
         {
-            Debug.LogWarning("준비 단계에서만 유닛을 구매할 수 있습니다.");
-            return;
+            _isSlotSold[slotIndex] = true;
         }
+    }
 
-        // [변경됨] 가격을 itemToBuy.CalculatedCost에서 가져옵니다.
-        if (playerManager.SpendGold(itemToBuy.CalculatedCost))
+    public Dictionary<int, ShopItem> GetAvailableShopItems()
+    {
+        var availableItems = new Dictionary<int, ShopItem>();
+        for (int i = 0; i < currentShopItems.Count; i++)
         {
-            // [변경됨] PlayerManager에게 UnitData와 StarLevel을 모두 전달합니다.
-            playerManager.AddUnit(itemToBuy.UnitData, itemToBuy.StarLevel);
-            slot.SetPurchased();
+            if (!_isSlotSold[i])
+            {
+                availableItems.Add(i, currentShopItems[i]);
+            }
         }
-        else
-        {
-            Debug.Log("골드가 부족하여 구매에 실패했습니다.");
-        }
+        return availableItems;
     }
 }

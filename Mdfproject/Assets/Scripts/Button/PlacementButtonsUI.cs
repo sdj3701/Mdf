@@ -17,7 +17,10 @@ public class PlacementButtonsUI : MonoBehaviour
     {
         // [수정됨] FieldManager의 메서드를 직접 호출하는 대신,
         // "벽 배치 모드로 들어가고 싶다"는 요청 이벤트를 시스템 전체에 알립니다.
-        GameEvents.TriggerPlacementModeEnterRequested(PlacementMode.Wall);
+        if (GameManagers.Instance.localPlayer != null)
+        {
+            GameManagers.Instance.localPlayer.fieldManager.StartPlacementMode(PlacementMode.Wall);
+        }
     }
 
     /// <summary>
@@ -25,10 +28,10 @@ public class PlacementButtonsUI : MonoBehaviour
     /// </summary>
     public void OnPlaceUnitTestButtonClicked()
     {
-        if (testUnitPrefab != null)
+        if (testUnitPrefab != null && GameManagers.Instance.localPlayer != null)
         {
             // [수정됨] "유닛 배치 모드로 들어가고 싶다"는 요청 이벤트를 알립니다.
-            GameEvents.TriggerPlacementModeEnterRequested(PlacementMode.Unit, testUnitPrefab);
+            GameManagers.Instance.localPlayer.fieldManager.StartPlacementMode(PlacementMode.Unit, testUnitPrefab);
         }
     }
 
@@ -38,6 +41,9 @@ public class PlacementButtonsUI : MonoBehaviour
     public void OnCancelPlacementButtonClicked()
     {
         // [수정됨] "배치 모드를 끝내고 싶다"는 요청 이벤트를 알립니다.
-        GameEvents.TriggerPlacementModeExitRequested();
+        if (GameManagers.Instance.localPlayer != null)
+        {
+            GameManagers.Instance.localPlayer.fieldManager.StopPlacementMode();
+        }
     }
 }

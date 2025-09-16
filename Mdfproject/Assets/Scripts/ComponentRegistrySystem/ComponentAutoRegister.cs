@@ -202,7 +202,7 @@ public class ComponentAutoRegister : MonoBehaviour
 
     private void CheckComponent<T>(string typeName) where T : Component
     {
-        var component = ComponentRegistry.Get<T>(registrationId);
+        var component = ComponentRegistry.Get<T>(registrationId, false);
         Debug.Log($"{typeName}: {(component != null ? "✅ 등록됨" : "❌ 없음")}");
     }
 #endif
