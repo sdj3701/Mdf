@@ -41,6 +41,7 @@ public class FieldManager : MonoBehaviour
 
     private readonly List<Consideration> _placementConsiderations = new List<Consideration>
     {
+        new MeleePlacementConsideration { weight = 2.0f }, // 근접 유닛은 Ground 선호 (매우 중요)
         new ProximityToAlliesConsideration { weight = 1.2f },
         new AttackRangeCoverageConsideration { weight = 1.0f },
         new RangedUnitSynergyConsideration { weight = 1.5f },
@@ -435,18 +436,28 @@ public class FieldManager : MonoBehaviour
         
         if (unitType == UnitType.Melee)
         {
-            // 근접 유닛은 GroundTilemap 위에 배치 가능합니다.
-            if (GroundTilemap == null) return validTiles;
-            
-            BoundsInt bounds = GroundTilemap.cellBounds;
-            for (int y = bounds.yMin; y < bounds.yMax; y++)
+            // 근접 유닛은 Ground와 Obstacle(벽) 모두에 배치될 수 있습니다. (점수 계산으로 선호도 조절)
+            if (GroundTilemap != null)
             {
-                for (int x = bounds.xMin; x < bounds.xMax; x++)
+                BoundsInt bounds = GroundTilemap.cellBounds;
+                for (int y = bounds.yMin; y < bounds.yMax; y++)
                 {
-                    Vector3Int pos = new Vector3Int(x, y, 0);
-                    if (GroundTilemap.GetTile(pos) != null) // 타일이 있는 곳만
+                    for (int x = bounds.xMin; x < bounds.xMax; x++)
                     {
-                        validTiles.Add(pos);
+                        Vector3Int pos = new Vector3Int(x, y, 0);
+                        if (GroundTilemap.GetTile(pos) != null) validTiles.Add(pos);
+                    }
+                }
+            }
+            if (ObstacleTilemap != null)
+            {
+                BoundsInt bounds = ObstacleTilemap.cellBounds;
+                for (int y = bounds.yMin; y < bounds.yMax; y++)
+                {
+                    for (int x = bounds.xMin; x < bounds.xMax; x++)
+                    {
+                        Vector3Int pos = new Vector3Int(x, y, 0);
+                        if (ObstacleTilemap.GetTile(pos) != null) validTiles.Add(pos);
                     }
                 }
             }
