@@ -42,6 +42,7 @@ public class FieldManager : MonoBehaviour
     private readonly List<Consideration> _placementConsiderations = new List<Consideration>
     {
         new MeleePlacementConsideration { weight = 2.0f }, // 근접 유닛은 Ground 선호 (매우 중요)
+        new MeleeProtectsRangedConsideration { weight = 1.4f }, // 근접 유닛은 원거리 유닛 보호 위치 선호
         new ProximityToAlliesConsideration { weight = 1.2f },
         new AttackRangeCoverageConsideration { weight = 1.0f },
         new RangedUnitSynergyConsideration { weight = 1.5f },
