@@ -4,6 +4,8 @@ using UnityEngine.Tilemaps;
 using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
+using AI.UtilitySystem;
+using AI.UtilitySystem.Considerations.Placement;
 [RequireComponent(typeof(PlacementManager))]
 public class FieldManager : MonoBehaviour
 {
@@ -36,6 +38,13 @@ public class FieldManager : MonoBehaviour
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
     private Vector3 offset;
+
+    private readonly List<Consideration> _placementConsiderations = new List<Consideration>
+    {
+        new ProximityToAlliesConsideration { weight = 1.2f },
+        new AttackRangeCoverageConsideration { weight = 1.0f },
+        new RangedUnitSynergyConsideration { weight = 1.5f },
+    };
 
     // 유닛 클릭/드래그 및 상세 정보 패널 관련 변수
     private float mouseDownTimer;
@@ -277,19 +286,11 @@ public class FieldManager : MonoBehaviour
     }
     
     /// <summary>
-    /// [AI용] 유닛 타입에 따라 최적의 위치를 찾아 유닛을 생성하고 배치합니다.
+    /// [AI용] 유틸리티 시스템을 사용하여 최적의 위치를 찾아 유닛을 생성하고 배치합니다.
     /// </summary>
     public void CreateAndPlaceUnitOnFieldForAI(UnitData unitData, int starLevel)
     {
-        Vector3Int? placementPos = null;
-        if (unitData.unitType == UnitType.Melee)
-        {
-            placementPos = FindBestSpotForMelee(unitData);
-        }
-        else // Ranged
-        {
-            placementPos = FindBestSpotForRanged(unitData);
-        }
+        Vector3Int? placementPos = FindBestSpotForAI(unitData);
 
         if (placementPos.HasValue)
         {
@@ -476,69 +477,58 @@ public class FieldManager : MonoBehaviour
     #endregion
 
     #region AI 배치 Helper
-    
-    /// <summary>
-    /// AI가 근접 유닛을 배치할 최적의 위치를 찾습니다. 일반적으로 앞쪽부터 탐색합니다.
-    /// </summary>
-    public Vector3Int? FindBestSpotForMelee(UnitData unitData)
-    {
-        if (GroundTilemap == null) return null;
 
-        BoundsInt bounds = GroundTilemap.cellBounds;
-        for (int y = bounds.yMin; y < bounds.yMax; y++)
+    private Vector3Int? FindBestSpotForAI(UnitData unitData)
+    {
+        var validTiles = GetValidPlacementTiles(unitData.unitType);
+        if (validTiles == null || validTiles.Count == 0)
         {
-            for (int x = bounds.xMin; x < bounds.xMax; x++)
+            Debug.LogWarning($"AI가 {unitData.unitType} 타입의 유닛을 배치할 유효한 타일을 찾지 못했습니다.");
+            return null;
+        }
+
+        var alliedUnits = GetAlliedUnitsOnField();
+
+        Vector3Int bestPosition = Vector3Int.zero;
+        float highestScore = -1f;
+
+        foreach (var tilePos in validTiles)
+        {
+            if (IsUnitAt(tilePos))
             {
-                Vector3Int pos = new Vector3Int(x, y, 0);
-                if (placementManager.IsPositionValidForPlacement(pos, unitData))
-                {
-                    return pos;
-                }
+                continue;
+            }
+
+            var context = new AIContext(playerManager, unitData, tilePos, alliedUnits);
+            float currentScore = CalculateScore(context, _placementConsiderations);
+
+            if (currentScore > highestScore)
+            {
+                highestScore = currentScore;
+                bestPosition = tilePos;
             }
         }
-        return null;
+
+        if (highestScore > -1f)
+        {
+            Debug.Log($"[AI Placement] {unitData.unitName}을(를) {bestPosition}에 배치 (점수: {highestScore:F2})");
+            return bestPosition;
+        }
+
+        // 점수 계산에 실패했더라도, 배치 가능한 첫 번째 위치라도 반환합니다.
+        return FindFirstEmptySlot(unitData);
     }
-
-    /// <summary>
-    /// AI가 원거리 유닛을 배치할 최적의 위치를 찾습니다. 벽 위(고지대)를 우선적으로 탐색하고, 후방 배치를 선호합니다.
-    /// </summary>
-    public Vector3Int? FindBestSpotForRanged(UnitData unitData)
-    {
-        // 1. 벽 위(고지대)를 후방부터 탐색
-        if (ObstacleTilemap != null)
-        {
-            BoundsInt bounds = ObstacleTilemap.cellBounds;
-            for (int y = bounds.yMax - 1; y >= bounds.yMin; y--)
-            {
-                for (int x = bounds.xMin; x < bounds.xMax; x++)
-                {
-                    Vector3Int pos = new Vector3Int(x, y, 0);
-                    if (ObstacleTilemap.GetTile(pos) != null && placementManager.IsPositionValidForPlacement(pos, unitData))
-                    {
-                        return pos;
-                    }
-                }
-            }
-        }
-
-        // 2. 고지대에 자리가 없다면 지상을 후방부터 탐색
-        if (GroundTilemap != null)
-        {
-            BoundsInt bounds = GroundTilemap.cellBounds;
-            for (int y = bounds.yMax - 1; y >= bounds.yMin; y--)
-            {
-                for (int x = bounds.xMin; x < bounds.xMax; x++)
-                {
-                    Vector3Int pos = new Vector3Int(x, y, 0);
-                    if (placementManager.IsPositionValidForPlacement(pos, unitData))
-                    {
-                        return pos;
-                    }
-                }
-            }
-        }
     
-        return null;
+    private float CalculateScore(AIContext context, List<Consideration> considerations)
+    {
+        float totalScore = 0;
+        float weightSum = 0;
+        foreach (var consideration in considerations)
+        {
+            totalScore += consideration.Score(context) * consideration.weight;
+            weightSum += consideration.weight;
+        }
+        return (weightSum > 0) ? totalScore / weightSum : 0;
     }
 
     #endregion
