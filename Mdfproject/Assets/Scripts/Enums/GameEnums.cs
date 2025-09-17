@@ -25,6 +25,12 @@ namespace GameCore.Enums
         Start,
         End,
     }
+    public enum ConnectionState
+    {
+        Disconnected,
+        InLobby,
+        InGame
+    }
 }
 
 

@@ -1,4 +1,6 @@
 // Assets/Scripts/UI/LobbyUI.cs
+// ✅ Fusion 2.X 완전 최적화 버전
+
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -7,7 +9,6 @@ using UnityEngine.UI;
 using TMPro;
 using Fusion;
 using UnityEngine.SceneManagement;
-using Cysharp.Threading.Tasks;
 
 public class LobbyUI : MonoBehaviour
 {
@@ -23,209 +24,113 @@ public class LobbyUI : MonoBehaviour
     [SerializeField] private Transform _roomListContent;
     [SerializeField] private GameObject _roomItemPrefab;
     [SerializeField] private TMP_Text _noRoomsText;
-    [SerializeField] private TMP_Text _playerNicknameText;
-    [SerializeField] private TMP_Text _statusText;
-    [SerializeField] private GameObject _loadingPanel;
-    
-    private NetworkManager _networkManager;
-    private List<GameObject> _roomListItems = new List<GameObject>();
-    private bool _isRefreshing = false;
-    private bool _isCreatingRoom = false;
+
+    private FusionLobbyManager _networkManager;
 
     private void Start()
     {
-        _networkManager = NetworkManager.Instance;
-        
+        _networkManager = FusionLobbyManager.Instance;
+
         if (_networkManager == null)
         {
+            Debug.LogError("[LobbyUI] NetworkManager가 없습니다. Title 화면으로 돌아갑니다.");
             SceneManager.LoadScene("Title");
             return;
         }
-    
-        // ✅ [수정] LobbyUI에서는 LobbyRunner의 연결 상태를 확인해야 합니다.
-        if (!_networkManager.IsConnectedToServer)
+        ALLButtonListener();
+        // 로비에 처음 들어왔을 때 방 목록을 한번 갱신합니다.
+        UpdateRoomListUI();
+
+    }
+
+    private void ALLButtonListener()
+    {
+        // Panel 활성화 비활성화
+        _createRoomButton.onClick.AddListener(() =>
         {
-            SceneManager.LoadScene("Title");
+            _createRoomPanel.SetActive(true);
+            _roomListPanel.SetActive(false);
+        });
+        // 방 생성 및 연결?
+        _confirmCreateButton.onClick.AddListener(() =>
+        {
+            //RoomName();
+            _networkManager.StartGame(GameMode.Host, _networkManager.GetRoomNameInput(), "JoinLobby");
+        });
+        // ⭐ [핵심 수정] 방 갱신 버튼에 새로운 UI 업데이트 함수를 연결합니다.
+        _refreshButton.onClick.AddListener(UpdateRoomListUI);
+        // 방 생성 취소
+        _cancelCreateButton.onClick.AddListener(() =>
+        {
+            _createRoomPanel.SetActive(false);
+            _roomListPanel.SetActive(true);
+        });
+        // 타이틀로 돌아가기
+        _backToTitleButton.onClick.AddListener(() =>
+        {
+            Debug.Log("추후 타이틀로 돌아가기 기능 구현하기");
+        });
+    }
+
+    /// <summary>
+    /// 방 목록 UI를 최신 정보로 갱신합니다.
+    /// </summary>
+    private void UpdateRoomListUI()
+    {
+        // 1. 기존에 생성된 방 목록 아이템들을 모두 삭제합니다.
+        foreach (Transform child in _roomListContent)
+        {
+            Destroy(child.gameObject);
+        }
+
+        // 2. 네트워크 매니저로부터 현재 세션 목록을 가져옵니다.
+        List<SessionInfo> sessions = _networkManager._sessionList;
+
+        // 3. 방이 하나도 없으면 "No Rooms" 텍스트를 표시하고 함수를 종료합니다.
+        _noRoomsText.gameObject.SetActive(sessions.Count == 0);
+        if (sessions.Count == 0)
+        {
             return;
         }
-    
-        InitializeUI();
-        SubscribeToEvents();
-        
-        if (_playerNicknameText != null)
+
+        // 4. 각 세션 정보에 대해 RoomItem 프리팹을 생성하고 설정합니다.
+        foreach (var session in sessions)
         {
-            _playerNicknameText.text = $"Player: {_networkManager.PlayerNickname}";
-        }
-        
-        ShowRoomListPanel();
-        RefreshRoomList().Forget();
-    }
+            // 이미 닫혔거나 보이지 않는 방은 목록에 표시하지 않습니다.
+            if (!session.IsOpen || !session.IsVisible) continue;
 
-    private void InitializeUI()
-    {
-        _createRoomButton?.onClick.AddListener(ShowCreateRoomPanel);
-        _refreshButton?.onClick.AddListener(() => RefreshRoomList().Forget());
-        _backToTitleButton?.onClick.AddListener(BackToTitle);
-        _confirmCreateButton?.onClick.AddListener(CreateRoom);
-        _cancelCreateButton?.onClick.AddListener(ShowRoomListPanel);
-    }
+            // RoomItem 프리팹을 _roomListContent 자식으로 생성합니다.
+            GameObject itemGO = Instantiate(_roomItemPrefab, _roomListContent);
+            RoomItem roomItem = itemGO.GetComponent<RoomItem>();
+            
+            // 클로저 문제를 피하기 위해 현재 세션을 지역 변수에 복사합니다.
+            SessionInfo currentSession = session;
 
-    private void SubscribeToEvents()
-    {
-        if (_networkManager == null) return;
-        
-        _networkManager.OnRoomListUpdated += OnRoomListUpdated;
-        _networkManager.OnConnectionStatusChanged += OnConnectionStatusChanged;
-        _networkManager.OnErrorOccurred += OnErrorOccurred;
-        _networkManager.OnRoomCreationStarted += OnRoomCreationStarted;
-        _networkManager.OnRoomCreationCompleted += OnRoomCreationCompleted;
-    }
-
-    private void OnDestroy()
-    {
-        if (_networkManager != null)
-        {
-            _networkManager.OnRoomListUpdated -= OnRoomListUpdated;
-            _networkManager.OnConnectionStatusChanged -= OnConnectionStatusChanged;
-            _networkManager.OnErrorOccurred -= OnErrorOccurred;
-            _networkManager.OnRoomCreationStarted -= OnRoomCreationStarted;
-            _networkManager.OnRoomCreationCompleted -= OnRoomCreationCompleted;
+            // RoomItem의 Setup 함수를 호출하여 UI를 설정하고,
+            // Join 버튼을 눌렀을 때 실행될 행동을 람다식으로 전달합니다.
+            roomItem.Setup(
+                currentSession.Name,
+                currentSession.PlayerCount,
+                currentSession.MaxPlayers,
+                () => {
+                    // 이 RoomItem의 Join 버튼을 누르면 해당 방으로 참가를 시도합니다.
+                    _networkManager.StartGame(GameMode.Client, currentSession.Name, "JoinLobby");
+                }
+            );
         }
     }
 
-    private void ShowCreateRoomPanel()
+    void RoomName()
     {
-        _roomListPanel.SetActive(false);
-        _createRoomPanel.SetActive(true);
-        _roomNameInput.text = $"Room_{UnityEngine.Random.Range(1000, 9999)}";
-    }
-
-    private void ShowRoomListPanel()
-    {
-        _roomListPanel?.SetActive(true);
-        _createRoomPanel?.SetActive(false);
-    }
-
-    private void BackToTitle()
-    {
-        _networkManager?.DisconnectCompletely();
-        SceneManager.LoadScene("Title");
-    }
-
-    private async void CreateRoom()
-    {
-        if (string.IsNullOrWhiteSpace(_roomNameInput.text) || _roomNameInput.text.Length < 3)
+        // TODO : 안됨
+        if (_roomNameInput.text == null)
         {
-            ShowStatus("방 이름은 3자 이상이어야 합니다.", true);
-            return;
-        }
-        if (_isCreatingRoom) return;
-
-        await _networkManager.CreateRoom(_roomNameInput.text.Trim(), "JoinLobby");
-    }
-
-    private async void JoinRoom(string roomName)
-    {
-        ShowLoading(true);
-        ShowStatus($"'{roomName}' 방에 참여 중...", false);
-        await _networkManager.JoinRoom(roomName, "JoinLobby");
-    }
-
-    private async UniTask RefreshRoomList()
-    {
-        if (_isRefreshing) return;
-        _isRefreshing = true;
-        ShowStatus("방 목록 새로고침...", false);
-        
-        // ✅ [수정] NetworkManager의 public 메서드를 호출합니다.
-        if (_networkManager != null)
-        {
-            await _networkManager.RefreshRoomList();
-        }
-        
-        _isRefreshing = false;
-    }
-
-    private void OnRoomListUpdated(List<SessionInfo> rooms)
-    {
-        foreach (var item in _roomListItems)
-        {
-            Destroy(item);
-        }
-        _roomListItems.Clear();
-
-        if (_roomItemPrefab == null || _roomListContent == null) return;
-
-        if (rooms.Count == 0)
-        {
-            _noRoomsText.text = "현재 생성된 방이 없습니다.\n직접 방을 만들거나 다른 플레이어를 기다려주세요.";
-            _noRoomsText.gameObject.SetActive(true);
-            ShowStatus("생성된 방이 없습니다.", false);
-        }
-        else
-        {
-            _noRoomsText.gameObject.SetActive(false);
-            ShowStatus($"{rooms.Count}개의 방을 찾았습니다.", false);
+            _roomNameInput.text = "Room_" + UnityEngine.Random.Range(0000, 9999);
         }
 
-        foreach (var room in rooms)
-        {
-            GameObject roomItemObj = Instantiate(_roomItemPrefab, _roomListContent);
-            _roomListItems.Add(roomItemObj);
-            RoomItem roomItem = roomItemObj.GetComponent<RoomItem>();
-            if(roomItem != null) roomItem.Setup(room.Name, room.PlayerCount, room.MaxPlayers, () => JoinRoom(room.Name));
-        }
+         _networkManager.SetRoomNameInput(_roomNameInput.text);
     }
 
-    private void OnConnectionStatusChanged(bool connected)
-    {
-        if (!connected)
-        {
-            ShowStatus("서버 연결이 끊어졌습니다.", true);
-            ShowLoading(false);
-        }
-    }
 
-    private void OnErrorOccurred(string error)
-    {
-        ShowStatus(error, true);
-        ShowLoading(false);
-        _isCreatingRoom = false;
-        _confirmCreateButton.interactable = true;
-    }
-    
-    private void OnRoomCreationStarted(string roomName)
-    {
-        _isCreatingRoom = true;
-        ShowLoading(true);
-        ShowStatus($"'{roomName}' 방 생성 중...", false);
-        if(_confirmCreateButton != null) _confirmCreateButton.interactable = false;
-    }
 
-    private void OnRoomCreationCompleted(string roomName, bool success)
-    {
-        _isCreatingRoom = false;
-        if (!success)
-        {
-            ShowLoading(false);
-            if(_confirmCreateButton != null) _confirmCreateButton.interactable = true;
-        }
-    }
-
-    private void ShowStatus(string message, bool isError)
-    {
-        if (_statusText != null)
-        {
-            _statusText.text = message;
-            _statusText.color = isError ? Color.red : Color.white;
-        }
-    }
-
-    private void ShowLoading(bool show)
-    {
-        if (_loadingPanel != null)
-        {
-            _loadingPanel.SetActive(show);
-        }
-    }
 }
