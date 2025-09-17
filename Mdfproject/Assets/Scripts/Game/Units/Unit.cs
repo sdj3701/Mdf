@@ -133,6 +133,19 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             }
             // 전투 종료 시 구독을 해제합니다.
             UnsubscribeFromAllies();
+
+            // 전투 종료 시 체력을 최대로, 마나를 0으로 초기화합니다.
+            Heal(maxHP);
+
+            if (manaController != null)
+            {
+                int maxMana = 0;
+                if (DoesHaveSkill() && _loadedSkillData != null)
+                {
+                    maxMana = _loadedSkillData.manaCost;
+                }
+                manaController.Initialize(maxMana);
+            }
         }
     }
 
@@ -550,7 +563,13 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     public void Heal(float amount)
     {
         if (IsDead || amount <= 0) return;
-        currentHP = Mathf.Min(currentHP + amount, maxHP);
+
+        currentHP += amount;
+        if (currentHP > maxHP)
+        {
+            currentHP = maxHP;
+        }
+        
         OnHealthChanged?.Invoke(currentHP, maxHP);
     }
     #endregion

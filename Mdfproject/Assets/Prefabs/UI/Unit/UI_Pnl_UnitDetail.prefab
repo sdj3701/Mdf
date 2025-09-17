@@ -2730,8 +2730,8 @@ RectTransform:
   - {fileID: 209915495064529761}
   - {fileID: 6260944997341478227}
   - {fileID: 4236216799768526862}
-  - {fileID: 4406227491788322325}
   - {fileID: 234879402841135728}
+  - {fileID: 4406227491788322325}
   - {fileID: 6916124078140479569}
   - {fileID: 8098229908807022383}
   - {fileID: 8997345443626892604}
@@ -3305,7 +3305,7 @@ GameObject:
   - component: {fileID: 7713341673816348943}
   - component: {fileID: 3743694263691296589}
   m_Layer: 5
-  m_Name: UI_Txt_Def
+  m_Name: UI_Txt_Atk
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -3324,7 +3324,7 @@ RectTransform:
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1227916382736734780}
-  m_RootOrder: 5
+  m_RootOrder: 4
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
@@ -3881,8 +3881,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   unitNameText: {fileID: 4002221506233901713}
   healthText: {fileID: 3020249194620722976}
-  attackDamageText: {fileID: 2807637696584895369}
-  defenseText: {fileID: 3743694263691296589}
+  attackDamageText: {fileID: 3743694263691296589}
+  defenseText: {fileID: 2807637696584895369}
   magicResistText: {fileID: 6737535226267174694}
   attackSpeedText: {fileID: 6250299340039805013}
   attackRangeText: {fileID: 2502980700613419801}
@@ -3903,7 +3903,7 @@ GameObject:
   - component: {fileID: 7877621838713027609}
   - component: {fileID: 2807637696584895369}
   m_Layer: 5
-  m_Name: UI_Txt_Atk
+  m_Name: UI_Txt_Def
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -3922,7 +3922,7 @@ RectTransform:
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1227916382736734780}
-  m_RootOrder: 4
+  m_RootOrder: 5
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
