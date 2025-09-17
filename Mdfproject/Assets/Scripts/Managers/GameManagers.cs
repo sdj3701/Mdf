@@ -20,9 +20,13 @@ public class GameManagers : MonoBehaviour
     [Header("현재 페이즈 타이머 (읽기 전용)")]
     [SerializeField] private float _currentPhaseTimer;
     public float currentPhaseTimer => _currentPhaseTimer;
-    
-    [HideInInspector] public PlayerManager player1;
-    [HideInInspector] public PlayerManager player2;
+
+    [Header("플레이어 설정")]
+    [Range(1, 4)]
+    public int playerCount = 2;
+    public bool[] isAIPlayer = new bool[4] { false, true, false, false };
+
+    [HideInInspector] public List<PlayerManager> players = new List<PlayerManager>();
     [HideInInspector] public PlayerManager localPlayer;
     #endregion
 
@@ -102,10 +106,12 @@ public class GameManagers : MonoBehaviour
     
     public PlayerManager GetPlayer(int id)
     {
-        if (player1 != null && player1.playerId == id) return player1;
-        if (player2 != null && player2.playerId == id) return player2;
-        Debug.LogWarning($"GameManagers: ID '{id}'에 해당하는 플레이어를 찾을 수 없습니다.");
-        return null;
+        var player = players.FirstOrDefault(p => p.playerId == id);
+        if (player == null)
+        {
+            Debug.LogWarning($"GameManagers: ID '{id}'에 해당하는 플레이어를 찾을 수 없습니다.");
+        }
+        return player;
     }
 
 
@@ -125,30 +131,56 @@ public class GameManagers : MonoBehaviour
     
     private void SetupPlayersAndGrids()
     {
-        GameObject player1GO = Instantiate(playerManagerPrefab, player1BasePosition, Quaternion.identity);
-        player1GO.name = "Player 1";
-        player1 = player1GO.GetComponent<PlayerManager>();
-        GameObject grid1GO = Instantiate(gridPrefab, player1BasePosition, Quaternion.identity);
-        grid1GO.name = "Grid 1";
-        player1.InitializePlayer(0, grid1GO, defaultMonsterPrefab);
+        players.Clear();
+        localPlayer = null;
 
-        Vector3 player2Position = player1BasePosition + playerOffset;
-        GameObject player2GO = Instantiate(playerManagerPrefab, player2Position, Quaternion.identity);
-        player2GO.name = "Player 2 (AI)";
-        player2 = player2GO.GetComponent<PlayerManager>();
-        GameObject grid2GO = Instantiate(gridPrefab, player2Position, Quaternion.identity);
-        grid2GO.name = "Grid 2";
-        player2.InitializePlayer(1, grid2GO, defaultMonsterPrefab);
+        for (int i = 0; i < playerCount; i++)
+        {
+            Vector3 playerPosition = player1BasePosition + playerOffset * i;
+            GameObject playerGO = Instantiate(playerManagerPrefab, playerPosition, Quaternion.identity);
+            bool isAI = i < isAIPlayer.Length && isAIPlayer[i];
+            playerGO.name = $"Player {i + 1}" + (isAI ? " (AI)" : "");
+            
+            PlayerManager newPlayer = playerGO.GetComponent<PlayerManager>();
+            GameObject gridGO = Instantiate(gridPrefab, playerPosition, Quaternion.identity);
+            gridGO.name = $"Grid {i + 1}";
+            newPlayer.InitializePlayer(i, gridGO, defaultMonsterPrefab);
 
-        // AI 컨트롤러 추가 및 초기화
-        var aiController = player2GO.AddComponent<AIPlayerController>();
-        aiController.Initialize(player2, this.CommandProcessor);
+            if (isAI)
+            {
+                var aiController = playerGO.AddComponent<AIPlayerController>();
+                aiController.Initialize(newPlayer, this.CommandProcessor);
+            }
 
-        player1.opponentManager = player2;
-        player2.opponentManager = player1;
+            if (localPlayer == null && !isAI)
+            {
+                localPlayer = newPlayer;
+            }
+            
+            players.Add(newPlayer);
+        }
+
+        if (localPlayer == null && players.Count > 0)
+        {
+            localPlayer = players[0]; // Fallback: if all players are AI, treat P1 as the local player for observation.
+        }
         
-        localPlayer = player1;
-        Debug.Log("플레이어와 그리드 자동 생성 및 설정 완료. 로컬 플레이어는 Player " + localPlayer.playerId + " 입니다.");
+        // Setup opponent logic for 2 players. For more players, opponent-targeting effects may not work as intended
+        // without changes to PlayerManager to support multiple opponents.
+        if (playerCount == 2)
+        {
+            players[0].opponentManager = players[1];
+            players[1].opponentManager = players[0];
+        }
+
+        if (localPlayer != null)
+        {
+            Debug.Log($"플레이어와 그리드 자동 생성 및 설정 완료. 총 {playerCount}명. 로컬 플레이어는 Player {localPlayer.playerId} 입니다.");
+        }
+        else
+        {
+            Debug.LogWarning("플레이어 생성에 실패했거나 로컬 플레이어를 찾을 수 없습니다.");
+        }
     }
     
     private async UniTask SetupGameUI()
@@ -181,17 +213,15 @@ public class GameManagers : MonoBehaviour
 
     private IEnumerator WaitForDataLoading()
     {
-        if(player1 == null || player2 == null)
+        if (players.Count == 0)
         {
             Debug.LogError("플레이어가 설정되지 않아 데이터 로딩을 시작할 수 없습니다.");
             yield break;
         }
 
         Debug.Log("모든 플레이어의 데이터 로딩을 기다립니다...");
-        yield return UniTask.WhenAll(
-            player1.shopManager.WaitUntilDatabaseLoaded(), 
-            player2.shopManager.WaitUntilDatabaseLoaded()
-        ).ToCoroutine();
+        var loadingTasks = players.Select(p => p.shopManager.WaitUntilDatabaseLoaded());
+        yield return UniTask.WhenAll(loadingTasks).ToCoroutine();
         Debug.Log("모든 데이터 로딩 완료. 게임 루프를 시작합니다.");
     }
     private void HandleAugmentChosen(PlayerManager selectingPlayer, AugmentData chosenAugment)
@@ -216,15 +246,20 @@ public class GameManagers : MonoBehaviour
             GameEvents.TriggerRoundStart(currentRound);
             
             ChangeState(GameState.Prepare);
-            
-            player1.AddGold(baseGoldPerRound + GetInterest(player1.GetGold()));
-            player2.AddGold(baseGoldPerRound + GetInterest(player2.GetGold()));
-            player1.shopManager.Reroll(true);
-            player2.shopManager.Reroll(true);
+
+            foreach (var player in players)
+            {
+                player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
+                player.shopManager.Reroll(true);
+            }
 
             if (currentRound >= 1)
             {
-                player1.augmentManager.PresentAugments();
+                foreach (var player in players)
+                {
+                    player.augmentManager.PresentAugments();
+                }
+
                 if(augmentSelectionUI != null)
                 {
                     if (localPlayerShopUIGameObject != null)
@@ -257,8 +292,10 @@ public class GameManagers : MonoBehaviour
             if (currentState == GameState.GameOver) break;
 
             ChangeState(GameState.Combat);
-            player1.monsterSpawner.SpawnWave(currentRound);
-            player2.monsterSpawner.SpawnWave(currentRound);
+            foreach (var player in players)
+            {
+                player.monsterSpawner.SpawnWave(currentRound);
+            }
 
             yield return StartCoroutine(PhaseTimerCoroutine(combatTime));
 
@@ -278,8 +315,7 @@ public class GameManagers : MonoBehaviour
             _currentPhaseTimer -= Time.deltaTime;
 
             if (currentState == GameState.Combat && !hasCombatBeenShortened &&
-                player1 != null && !player1.IsActivelyFighting &&
-                player2 != null && !player2.IsActivelyFighting)
+                players.Count > 0 && players.All(p => p != null && !p.IsActivelyFighting))
             {
                 if (_currentPhaseTimer > 3f)
                 {
@@ -320,19 +356,35 @@ public class GameManagers : MonoBehaviour
     public async void GameOver(PlayerManager loser)
     {
         if (currentState == GameState.GameOver) return;
+
+        var alivePlayers = players.Where(p => p != null && p.GetHealth() > 0).ToList();
+
+        if (alivePlayers.Count > 1)
+        {
+            Debug.Log($"Player {loser.playerId}가 패배했습니다! 남은 플레이어: {alivePlayers.Count}명");
+            return;
+        }
+
         ChangeState(GameState.GameOver);
-        PlayerManager winner = (loser == player1) ? player2 : player1;
-        Debug.Log($"<color=red>게임 종료!</color> 승자: Player {winner.playerId}");
+        PlayerManager winner = alivePlayers.FirstOrDefault();
+
+        if (winner != null)
+        {
+            Debug.Log($"<color=red>게임 종료!</color> 승자: Player {winner.playerId}");
+        }
+        else
+        {
+            Debug.Log("<color=red>게임 종료! 무승부입니다.</color>");
+        }
+        
         StopAllCoroutines();
 
-        if (localPlayer == loser)
+        if (localPlayer != null && localPlayer.GetHealth() <= 0)
         {
-            // 패배 UI 표시
             await UIManagers.Instance.GetUIElement("UI_Pnl_Defeat");
         }
         else if (localPlayer == winner)
         {
-            // 승리 UI 표시
             await UIManagers.Instance.GetUIElement("UI_Pnl_Victory");
         }
     }
@@ -341,11 +393,8 @@ public class GameManagers : MonoBehaviour
 
     public List<PlayerManager> GetRankedPlayers()
     {
-        var players = new List<PlayerManager>();
-        if (player1 != null) players.Add(player1);
-        if (player2 != null) players.Add(player2);
-
-        return players.OrderByDescending(p => p.GetHealth())
+        return players.Where(p => p != null)
+                      .OrderByDescending(p => p.GetHealth())
                       .ThenBy(p => p.gameObject.name)
                       .ToList();
     }
