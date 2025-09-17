@@ -64,11 +64,25 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         this.statusBarUI = ui;
     }
 
-   public async void Initialize(UnitData data, int initialStarLevel)
+    // Force AI purchase to enable skill auto-use during the next initialization.
+    // This flag is consumed during InitializeStats() and then cleared.
+    private bool _forceSkillAutoUseOnNextInitialize = false;
+    public void SetForceSkillAutoUse(bool enabled)
+    {
+        _forceSkillAutoUseOnNextInitialize = enabled;
+    }
+
+   public async void Initialize(UnitData data, int initialStarLevel, PlayerManager owner)
     {
         this.unitData = data;
         this.starLevel = initialStarLevel;
         manaController = GetComponent<ManaController>();
+
+        // AI가 소유한 유닛인 경우, 스킬 자동 사용을 강제합니다.
+        if (owner != null && ComponentRegistry.Has<AIPlayerController>(owner.playerId.ToString()))
+        {
+            SetForceSkillAutoUse(true);
+        }
 
         // 이벤트 구독/해지는 그대로 둡니다.
         if (manaController != null)
@@ -139,6 +153,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             {
                 newMaxMana = _loadedSkillData.manaCost;
                 currentSkillActivationType = _loadedSkillData.activationType;
+                // If this unit was created by an AI purchase and requested auto-skill, override activation type.
+                if (_forceSkillAutoUseOnNextInitialize)
+                {
+                    currentSkillActivationType = SkillActivationType.Automatic;
+                    _forceSkillAutoUseOnNextInitialize = false;
+                }
             }
         }
         else

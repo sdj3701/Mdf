@@ -315,7 +315,7 @@ public class FieldManager : MonoBehaviour
 
         if (placementPos.HasValue)
         {
-            CreateUnitAt(unitData, placementPos.Value, starLevel);
+            CreateUnitAt(unitData, placementPos.Value, starLevel, true);
             CheckForCombination();
         }
         else
@@ -326,7 +326,7 @@ public class FieldManager : MonoBehaviour
         }
     }
 
-     public async void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel)
+     public async void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel, bool markAsAIPurchased = false)
     {
         if (ObstacleTilemap == null)
         {
@@ -356,7 +356,7 @@ public class FieldManager : MonoBehaviour
                 newUnitComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
             }
             // Initialize가 비동기가 되었으므로 async void로 호출합니다. (await 불필요)
-            newUnitComponent.Initialize(data, starLevel);
+            newUnitComponent.Initialize(data, starLevel, playerManager);
             placedUnits.Add(gridPosition, newUnitComponent);
         }
         else
