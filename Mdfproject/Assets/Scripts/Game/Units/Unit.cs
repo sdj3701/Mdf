@@ -244,8 +244,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             }
             else
             {
-                // 그 외 스킬은 마나가 차면 즉시 발동
-                ActivateSkill();
+                // 그 외 스킬은 스킬 범위 내에 적이 있을 때만 발동합니다.
+                if (IsEnemyInSkillRange())
+                {
+                    ActivateSkill();
+                }
             }
         }
         // --- [수정 끝] ---
@@ -321,6 +324,17 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private bool DoesHaveSkill()
     {
         return unitData.skillsByStarLevel.Length >= starLevel && unitData.skillsByStarLevel[starLevel - 1] != null;
+    }
+
+    private bool IsEnemyInSkillRange()
+    {
+        if (_loadedSkillData == null) return false;
+
+        // OverlapCircleAll을 사용하여 스킬 범위 내의 모든 적 콜라이더를 찾습니다.
+        Collider2D[] enemiesInRange = Physics2D.OverlapCircleAll(transform.position, _loadedSkillData.range, enemyLayerMask);
+
+        // 적이 한 명이라도 있으면 true를 반환합니다.
+        return enemiesInRange.Length > 0;
     }
 
     #region 힐러 스킬 로직
