@@ -43,6 +43,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private StatusBarUI statusBarUI;
     private Coroutine attackCoroutine;
     [SerializeField] private List<Monster> blockedMonsters = new List<Monster>();
+    private List<Unit> subscribedAllies = new List<Unit>();
     public LayerMask enemyLayerMask;
     private IEnemy targetEnemy;
     private Transform targetTransform;
@@ -57,6 +58,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+        UnsubscribeFromAllies();
     }
 
     public void SetStatusBar(StatusBarUI ui)
@@ -115,6 +117,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         if (isCombatPhase)
         {
             StartAttackLoop();
+
+            // 힐러인 경우, 전투 시작 시 주변 아군 유닛의 체력 변화를 구독합니다.
+            if (DoesHaveSkill() && _loadedSkillData != null && _loadedSkillData.name == "Skill_Heal" && currentSkillActivationType == SkillActivationType.Automatic)
+            {
+                SubscribeToNearbyAllies();
+            }
         }
         else
         {
@@ -123,6 +131,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 StopCoroutine(attackCoroutine);
                 attackCoroutine = null;
             }
+            // 전투 종료 시 구독을 해제합니다.
+            UnsubscribeFromAllies();
         }
     }
 
@@ -208,9 +218,22 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         // InitializeStats에서 미리 저장해 둔 currentSkillActivationType 값을 사용합니다.
         if (currentSkillActivationType == SkillActivationType.Automatic)
         {
-            // ActivateSkill()은 내부적으로 로드된 _loadedSkillData를 사용하므로
-            // 여기서 별도로 데이터를 넘겨줄 필요가 없습니다.
-            ActivateSkill();
+            // 'Skill_Heal' 스킬은 특별한 발동 조건 확인
+            if (_loadedSkillData != null && _loadedSkillData.name == "Skill_Heal")
+            {
+                // 마나가 꽉 찼을 때 즉시 힐이 필요한 아군이 있는지 확인합니다.
+                bool needsHeal = subscribedAllies.Any(ally => ally != null && !ally.IsDead && ally.CurrentHealth / ally.MaxHealth < 0.7f);
+                if (needsHeal)
+                {
+                    ActivateSkill();
+                }
+                // 필요한 아군이 없다면, OnAllyHealthChanged 이벤트에 의해 스킬이 발동되기를 기다립니다.
+            }
+            else
+            {
+                // 그 외 스킬은 마나가 차면 즉시 발동
+                ActivateSkill();
+            }
         }
         // --- [수정 끝] ---
     }
@@ -286,6 +309,60 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         return unitData.skillsByStarLevel.Length >= starLevel && unitData.skillsByStarLevel[starLevel - 1] != null;
     }
+
+    #region 힐러 스킬 로직
+    private void SubscribeToNearbyAllies()
+    {
+        if (_loadedSkillData?.targetingStrategy == null) return;
+
+        // 자신을 제외한 아군을 찾습니다.
+        List<GameObject> alliesGO = _loadedSkillData.targetingStrategy.FindTargets(this.gameObject, transform.position, _loadedSkillData.range)
+            .Where(go => go != this.gameObject).ToList();
+
+        foreach (var allyGO in alliesGO)
+        {
+            if (allyGO.TryGetComponent<Unit>(out var allyUnit))
+            {
+                if (!subscribedAllies.Contains(allyUnit))
+                {
+                    subscribedAllies.Add(allyUnit);
+                    allyUnit.OnHealthChanged += OnAllyHealthChanged;
+                    
+                    // 구독 시점에도 체력이 낮은 아군이 있다면 즉시 힐을 시도할 수 있도록 체크합니다.
+                    OnAllyHealthChanged(allyUnit.CurrentHealth, allyUnit.MaxHealth);
+                }
+            }
+        }
+    }
+
+    private void UnsubscribeFromAllies()
+    {
+        foreach (var ally in subscribedAllies)
+        {
+            if (ally != null)
+            {
+                ally.OnHealthChanged -= OnAllyHealthChanged;
+            }
+        }
+        subscribedAllies.Clear();
+    }
+
+    private void OnAllyHealthChanged(float currentHP, float maxHP)
+    {
+        // 전투 중이 아니거나, 스킬이 없거나, 힐 스킬이 아니거나, 최대 체력이 0 이하면 무시
+        if (!isCombatPhase || !DoesHaveSkill() || _loadedSkillData?.name != "Skill_Heal" || maxHP <= 0) return;
+
+        // 체력이 70% 미만으로 떨어졌을 때
+        if (currentHP / maxHP < 0.7f)
+        {
+            // 마나가 가득 찼고, 스킬이 자동사용 모드일 때
+            if (manaController.IsManaFull && currentSkillActivationType == SkillActivationType.Automatic)
+            {
+                ActivateSkill();
+            }
+        }
+    }
+    #endregion
 
     #region 공격 로직 (이하 동일)
     public void StartAttackLoop()
