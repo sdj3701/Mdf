@@ -109,7 +109,26 @@ public class AugmentManager : MonoBehaviour
         playerManager.chosenAugments.Add(chosenAugment);
         Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강을 선택했습니다.");
 
-        PlayerManager target = (chosenAugment.targetType == TargetType.Player) ? playerManager : playerManager.opponentManager;
+        PlayerManager target;
+        if (chosenAugment.targetType == TargetType.Player)
+        {
+            target = playerManager;
+        }
+        else
+        {
+            target = playerManager.opponentManager;
+            // 2인 플레이가 아니어서 opponentManager가 설정되지 않은 경우(예: 3인 이상 게임),
+            // 자신을 제외한 다른 플레이어 중 한 명을 무작위로 선택합니다.
+            if (target == null && GameManagers.Instance.playerCount > 1)
+            {
+                var otherPlayers = GameManagers.Instance.players.Where(p => p != playerManager).ToList();
+                if (otherPlayers.Any())
+                {
+                    target = otherPlayers[UnityEngine.Random.Range(0, otherPlayers.Count)];
+                }
+            }
+        }
+        
         ApplyEffect(target, chosenAugment);
         
         presentedAugments.Clear();
