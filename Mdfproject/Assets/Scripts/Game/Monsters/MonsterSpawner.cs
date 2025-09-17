@@ -17,9 +17,9 @@ public class MonsterSpawner : MonoBehaviour
 
     [Header("정리용 부모 오브젝트")]
     public Transform monsterParent;
-    
+
     private bool isSpawningWave = false;
-    
+
     // ✅ [수정된 최종 로직] 필요한 모든 참조를 전달받습니다.
    public void Initialize(PlayerManager owner, AstarGrid grid, GameObject monsterPrefab, Transform spawnPoint, Transform goalTransform)
     {
@@ -94,7 +94,7 @@ public class MonsterSpawner : MonoBehaviour
             yield break;
         }
         MonsterData dataToSpawn = monsterComponentInPrefab.monsterData;
-        
+
         for (int i = 0; i < count; i++)
         {
             if (spawnPoint == null || goalTransform == null)
@@ -104,7 +104,7 @@ public class MonsterSpawner : MonoBehaviour
                  playerManager.SetFightingState(false);
                  yield break;
             }
-            
+
             GameObject monsterGO = Instantiate(monsterPrefab, spawnPoint.position, Quaternion.identity, monsterParent);
             Monster monster = monsterGO.GetComponent<Monster>();
 
@@ -120,9 +120,11 @@ public class MonsterSpawner : MonoBehaviour
                 monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
                 ApplyOpponentDebuffs(monster);
 
-                Vector2Int startPos = new Vector2Int(Mathf.RoundToInt(spawnPoint.position.x), Mathf.RoundToInt(spawnPoint.position.y));
-                Vector2Int endPos = new Vector2Int(Mathf.RoundToInt(goalTransform.position.x), Mathf.RoundToInt(goalTransform.position.y));
-                
+                Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.y));
+                Vector2Int endPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.y));
+
+
+
                 if (pathfinder.FindPath(startPos, endPos))
                 {
                     List<AstarNode> path = pathfinder.FinalPath;
@@ -134,10 +136,10 @@ public class MonsterSpawner : MonoBehaviour
                     Destroy(monsterGO);
                 }
             }
-            
+
             yield return new WaitForSeconds(0.5f);
         }
-        
+
         isSpawningWave = false;
     }
 
@@ -150,7 +152,7 @@ public class MonsterSpawner : MonoBehaviour
 
         foreach (var augment in playerManager.opponentManager.chosenAugments)
         {
-            if (augment.targetType == TargetType.Opponent) 
+            if (augment.targetType == TargetType.Opponent)
             {
                 switch(augment.effectType)
                 {
@@ -163,13 +165,13 @@ public class MonsterSpawner : MonoBehaviour
                 }
             }
         }
-        
+
         if(healthMultiplier > 1f || speedMultiplier > 1f)
         {
             monster.ApplyBuff(healthMultiplier, speedMultiplier);
         }
     }
-    
+
     public void SpawnSpecificMonster(GameObject monsterPrefabToSpawn)
     {
         if (pathfinder == null || monsterPrefabToSpawn == null)
@@ -177,7 +179,7 @@ public class MonsterSpawner : MonoBehaviour
             Debug.LogError("MonsterSpawner에 AstarGrid 또는 특정 몬스터 프리팹이 없습니다!", this);
             return;
         }
-        
+
         Monster monsterComponentInPrefab = monsterPrefabToSpawn.GetComponent<Monster>();
         if (monsterComponentInPrefab == null || monsterComponentInPrefab.monsterData == null)
         {
@@ -187,7 +189,7 @@ public class MonsterSpawner : MonoBehaviour
         MonsterData dataToSpawn = monsterComponentInPrefab.monsterData;
 
         Debug.Log($"<color=red>보스 몬스터 소환!</color> {dataToSpawn.monsterName} at Player {playerManager.playerId}'s field");
-        
+
         GameObject monsterGO = Instantiate(monsterPrefabToSpawn, spawnPoint.position, Quaternion.identity, monsterParent);
         Monster monster = monsterGO.GetComponent<Monster>();
 
@@ -200,10 +202,10 @@ public class MonsterSpawner : MonoBehaviour
             }
             // [수정] 몬스터에게 올바른 AstarGrid 인스턴스를 직접 전달합니다.
             monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
-            
+
             // [수정] startPos의 y좌표가 goalTransform을 잘못 참조하던 버그를 수정합니다.
-            Vector2Int startPos = new Vector2Int(Mathf.RoundToInt(spawnPoint.position.x), Mathf.RoundToInt(spawnPoint.position.y));
-            Vector2Int endPos = new Vector2Int(Mathf.RoundToInt(goalTransform.position.x), Mathf.RoundToInt(goalTransform.position.y));
+            Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.y));
+            Vector2Int endPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.y));
 
             if (pathfinder.FindPath(startPos, endPos))
             {

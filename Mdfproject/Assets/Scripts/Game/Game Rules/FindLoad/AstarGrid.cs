@@ -9,7 +9,7 @@ public class AstarGrid : MonoBehaviour
     public Vector2Int bottomLeft;
     [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 오른쪽 위 경계입니다.")]
     public Vector2Int topRight;
-    
+
     [Header("레이어 및 비용 설정")]
     public LayerMask wallLayers = -1;
     [Tooltip("파괴 가능한 벽 오브젝트들이 속한 레이어를 지정합니다. (예: BreakWall 레이어)")]
@@ -26,35 +26,40 @@ public class AstarGrid : MonoBehaviour
     [SerializeField] private Vector2Int debugStartPos, debugTargetPos;
 
     public List<AstarNode> FinalPath { get; private set; }
+    public List<AstarNode> IdealPathForAIDebug { get; set; } // AI 디버깅용 경로
     public List<Vector2Int> WallsToBreakInPath { get; private set; }
 
     private int sizeX, sizeY;
     private AstarNode[,] NodeArray;
-    
+
     // ✅ [추가된 핵심 로직] 런타임에 계산될 실제 월드 좌표 경계
     private Vector2Int worldBottomLeft;
     private Vector2Int worldTopRight;
 
-    private void Awake()
+    // ✅ [수정] Awake에서 public Initialize로 변경
+    public void Initialize()
     {
-        // ✅ [추가된 핵심 로직]
         // 이 컴포넌트가 깨어날 때, 자신의 월드 위치를 기준으로 실제 경계를 계산합니다.
         // 이렇게 하면 GameManagers가 이 그리드를 어디에 생성하든 항상 올바른 경계를 갖게 됩니다.
         Vector2Int gridOrigin = new Vector2Int(
-            Mathf.RoundToInt(transform.position.x),
-            Mathf.RoundToInt(transform.position.y)
+            Mathf.FloorToInt(transform.position.x),
+            Mathf.FloorToInt(transform.position.y)
         );
         worldBottomLeft = gridOrigin + bottomLeft;
         worldTopRight = gridOrigin + topRight;
-        
+
         // 그리드 노드 배열을 처음 생성합니다.
         InitializeGrid();
     }
 
-    public bool FindPath(Vector2Int start, Vector2Int end)
+    public bool FindPath(Vector2Int start, Vector2Int end, bool ignoreWalls = false)
     {
         // 런타임에 벽 정보가 바뀔 수 있으므로, 경로 탐색 시마다 벽 상태를 다시 확인합니다.
-        UpdateGridWallStatus();
+        // 벽을 무시하는 경우, 이 업데이트를 건너뛰어 성능을 최적화하고 그리드를 '깨끗한' 상태로 둡니다.
+        if (!ignoreWalls)
+        {
+            UpdateGridWallStatus();
+        }
 
         if (!IsValidPosition(start) || !IsValidPosition(end))
         {
@@ -67,7 +72,7 @@ public class AstarGrid : MonoBehaviour
 
         List<AstarNode> OpenList = new List<AstarNode>();
         HashSet<AstarNode> ClosedList = new HashSet<AstarNode>();
-        
+
         for (int i = 0; i < sizeX; i++)
         {
             for (int j = 0; j < sizeY; j++)
@@ -76,11 +81,11 @@ public class AstarGrid : MonoBehaviour
                 NodeArray[i, j].ParentNode = null;
             }
         }
-        
+
         StartNode.G = 0;
         StartNode.H = GetManhattanDistance(start, end);
         OpenList.Add(StartNode);
-        
+
         while (OpenList.Count > 0)
         {
             AstarNode CurNode = OpenList[0];
@@ -100,8 +105,8 @@ public class AstarGrid : MonoBehaviour
                 BuildFinalPath(StartNode, TargetNode);
                 return true;
             }
-            
-            ExploreNeighbors(CurNode, TargetNode, OpenList, ClosedList);
+
+            ExploreNeighbors(CurNode, TargetNode, OpenList, ClosedList, ignoreWalls);
         }
 
         Debug.LogWarning($"[AstarGrid] 경로를 찾을 수 없습니다: {start} -> {end}");
@@ -156,7 +161,7 @@ public class AstarGrid : MonoBehaviour
     }
 
 
-    private void ExploreNeighbors(AstarNode CurNode, AstarNode TargetNode, List<AstarNode> OpenList, HashSet<AstarNode> ClosedList)
+    private void ExploreNeighbors(AstarNode CurNode, AstarNode TargetNode, List<AstarNode> OpenList, HashSet<AstarNode> ClosedList, bool ignoreWalls)
     {
         for (int x = -1; x <= 1; x++)
         {
@@ -171,9 +176,9 @@ public class AstarGrid : MonoBehaviour
                 AstarNode NeighborNode = GetNode(neighborPos);
                 if (ClosedList.Contains(NeighborNode)) continue;
 
-                if (NeighborNode.isWall && !NeighborNode.isBreakable) continue;
+                if (!ignoreWalls && NeighborNode.isWall && !NeighborNode.isBreakable) continue;
 
-                if (dontCrossCorner && x != 0 && y != 0)
+                if (!ignoreWalls && dontCrossCorner && x != 0 && y != 0)
                 {
                     if (GetNode(new Vector2Int(CurNode.x + x, CurNode.y)).isWall || GetNode(new Vector2Int(CurNode.x, CurNode.y + y)).isWall)
                         continue;
@@ -181,19 +186,21 @@ public class AstarGrid : MonoBehaviour
 
                 int distanceCost = (x == 0 || y == 0) ? 10 : 14;
                 int tentativeGCost = CurNode.G + distanceCost;
-                
-                if (NeighborNode.isWall)
+
+                if (!ignoreWalls && NeighborNode.isWall)
                 {
                     tentativeGCost += wallBreakCost;
                 }
 
-                if (tentativeGCost < NeighborNode.G)
+                // 이웃 노드까지의 새로운 G 비용이 기존보다 저렴하거나, OpenList에 아직 없다면 정보를 갱신합니다.
+                bool inOpenList = OpenList.Contains(NeighborNode);
+                if (tentativeGCost < NeighborNode.G || !inOpenList)
                 {
                     NeighborNode.ParentNode = CurNode;
                     NeighborNode.G = tentativeGCost;
                     NeighborNode.H = GetManhattanDistance(new Vector2Int(NeighborNode.x, NeighborNode.y), new Vector2Int(TargetNode.x, TargetNode.y));
 
-                    if (!OpenList.Contains(NeighborNode))
+                    if (!inOpenList)
                     {
                         OpenList.Add(NeighborNode);
                     }
@@ -218,7 +225,7 @@ public class AstarGrid : MonoBehaviour
             currentNode = currentNode.ParentNode;
         }
         FinalPath.Add(startNode);
-        
+
         FinalPath.Reverse();
         WallsToBreakInPath.Reverse();
     }
@@ -242,19 +249,19 @@ public class AstarGrid : MonoBehaviour
         // ✅ [수정] 월드 좌표를 배열 인덱스로 변환합니다.
         return NodeArray[pos.x - worldBottomLeft.x, pos.y - worldBottomLeft.y];
     }
-    
+
     [ContextMenu("디버그 경로 탐색 실행")]
     private void PathFindingForDebug()
     {
         // 디버깅 시에는 Awake가 호출된 후의 월드 좌표를 사용해야 합니다.
-        if (NodeArray == null) Awake(); // 에디터에서 바로 실행 시 Awake 호출
-        FindPath(debugStartPos, debugTargetPos);
+        if (NodeArray == null) Initialize(); // 에디터에서 바로 실행 시 Initialize 호출
+        FindPath(debugStartPos, debugTargetPos, false);
     }
 
     void OnDrawGizmos()
     {
         if (!showDebugInfo) return;
-        
+
         // ✅ [수정] 월드 좌표 경계를 기준으로 기즈모를 그립니다.
         Vector2Int bottomLeftGizmo = Application.isPlaying ? worldBottomLeft : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + bottomLeft;
         Vector2Int topRightGizmo = Application.isPlaying ? worldTopRight : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + topRight;
@@ -273,7 +280,7 @@ public class AstarGrid : MonoBehaviour
                 if (NodeArray[i, j].isWall)
                 {
                     Vector3 pos = new Vector3(NodeArray[i,j].x + 0.5f, NodeArray[i,j].y + 0.5f, 0);
-                    Gizmos.color = NodeArray[i, j].isBreakable ? new Color(1f, 0.5f, 0f, 0.7f) : new Color(1f, 0f, 0f, 0.7f); 
+                    Gizmos.color = NodeArray[i, j].isBreakable ? new Color(1f, 0.5f, 0f, 0.7f) : new Color(1f, 0f, 0f, 0.7f);
                     Gizmos.DrawCube(pos, Vector3.one * 0.8f);
                 }
             }
@@ -281,7 +288,7 @@ public class AstarGrid : MonoBehaviour
 
         if (FinalPath != null && FinalPath.Count > 0)
         {
-            Gizmos.color = Color.green;
+            Gizmos.color = Color.green; // 몬스터의 현재 실제 경로
             for (int i = 0; i < FinalPath.Count - 1; i++)
             {
                 Vector3 from = new Vector3(FinalPath[i].x + 0.5f, FinalPath[i].y + 0.5f, 0);
@@ -289,6 +296,20 @@ public class AstarGrid : MonoBehaviour
                 Gizmos.DrawLine(from, to);
             }
         }
+
+        // AI가 계획 중인 이상적인 경로를 별도의 색상으로 표시합니다.
+        if (IdealPathForAIDebug != null && IdealPathForAIDebug.Count > 0)
+        {
+            Gizmos.color = Color.magenta; // AI가 참고하는 이상적인 경로
+            for (int i = 0; i < IdealPathForAIDebug.Count - 1; i++)
+            {
+                Vector3 from = new Vector3(IdealPathForAIDebug[i].x + 0.5f, IdealPathForAIDebug[i].y + 0.5f, 0);
+                Vector3 to = new Vector3(IdealPathForAIDebug[i + 1].x + 0.5f, IdealPathForAIDebug[i + 1].y + 0.5f, 0);
+                Gizmos.DrawLine(from, to);
+            }
+        }
     }
+
+
     #endregion
 }

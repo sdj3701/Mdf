@@ -87,5 +87,7 @@ Mdfproject/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Core/Proper
 Mdfproject/Assets/Photon/
 
 .aider*
+.qwen*
+QWEN.md
 Mdfproject/Assets/StarterAssets
 Mdfproject/Assets/StarterAssets.meta

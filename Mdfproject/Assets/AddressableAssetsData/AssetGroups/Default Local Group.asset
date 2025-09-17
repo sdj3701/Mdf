@@ -52,26 +52,31 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - Unit
+    - UnitData
   - m_GUID: b294db2481416c64fb9edd6bc0222d6e
     m_Address: UnitData_Assassin
     m_ReadOnly: 0
     m_SerializedLabels:
     - Unit
+    - UnitData
   - m_GUID: af161e66696ca4742b05891ba27598fd
     m_Address: UnitData_Guardian
     m_ReadOnly: 0
     m_SerializedLabels:
     - Unit
+    - UnitData
   - m_GUID: afdb119d7f8d3394dade8a6d18888eee
     m_Address: UnitData_Archer
     m_ReadOnly: 0
     m_SerializedLabels:
     - Unit
+    - UnitData
   - m_GUID: 4e7855d10fe859147b90840b76fc592a
     m_Address: UnitData_Pyromancer
     m_ReadOnly: 0
     m_SerializedLabels:
     - Unit
+    - UnitData
   - m_GUID: f6bbfc7e5c73ea14f8d03e940134dc1a
     m_Address: UI_Pnl_Shop
     m_ReadOnly: 0
