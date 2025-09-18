@@ -27,7 +27,7 @@ public class JoinLobbyUI : MonoBehaviour
     [SerializeField] private Button _readyButton;
     [SerializeField] private Button _leaveRoomButton;
 
-    private FusionLobbyManager _networkManager;
+    private NetworkManager _networkManager;
     private NetworkPlayer _localPlayer;
 
     private void Awake()
@@ -44,7 +44,7 @@ public class JoinLobbyUI : MonoBehaviour
 
     private void Start()
     {
-        _networkManager = FusionLobbyManager.Instance;
+        _networkManager = NetworkManager.Instance;
 
         if (_networkManager == null)
         {
