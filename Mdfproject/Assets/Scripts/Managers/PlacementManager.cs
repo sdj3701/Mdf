@@ -144,13 +144,13 @@ public class PlacementManager : MonoBehaviour
                 if (unitPrefabToPlace != null)
                 {
                     var command = new PlaceUnitCommand(playerManager.playerId, dataToPlace, currentMouseGridPosition);
-                    GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
+                    GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
                     StopPlacementMode();
                 }
                 break;
             case PlacementMode.Wall:
                 var wallCommand = new PlaceWallCommand(playerManager.playerId, currentMouseGridPosition);
-                GameManagers.Instance.CommandProcessor.ExecuteCommand(wallCommand);
+                GameManagers.Instance.CommandProcessor.RequestCommandExecution(wallCommand);
                 break;
         }
     }
@@ -161,7 +161,7 @@ public class PlacementManager : MonoBehaviour
         {
             // 실제 벽이 있는지 여부는 PlayerManager에서 확인하므로, 여기서는 요청만 보냅니다.
             var command = new RemoveWallCommand(playerManager.playerId, currentMouseGridPosition);
-            GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
+            GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
             return true; // 요청을 보냈으므로 true를 반환하여 StopPlacementMode()가 호출되지 않도록 합니다.
         }
         return false;

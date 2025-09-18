@@ -76,7 +76,7 @@ public class AugmentUIController : MonoBehaviour
         if (localPlayer != null && currentChoices != null && index < currentChoices.Count)
         {
             var command = new SelectAugmentCommand(localPlayer.playerId, index);
-            GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
+            GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
         }
         else
         {

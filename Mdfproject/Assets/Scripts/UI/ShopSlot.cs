@@ -110,7 +110,7 @@ public class ShopSlot : MonoBehaviour
             // 기존: GameEvents.TriggerUnitPurchased(...)
             // 변경: BuyUnitCommand 생성 및 실행
             var command = new BuyUnitCommand(shopManager.playerManager.playerId, this.slotIndex);
-            GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
+            GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
         }
     }
 

@@ -51,7 +51,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             // 0.2점 같은 임계값보다 높은 점수의 아이템이 있다면 구매
             if (bestSlotIndex != -1 && highestScore > 0.2f)
             {
-                _commandProcessor.ExecuteCommand(new BuyUnitCommand(_playerManager.playerId, bestSlotIndex));
+                _commandProcessor.RequestCommandExecution(new BuyUnitCommand(_playerManager.playerId, bestSlotIndex));
                 return status = NodeStatus.Success;
             }
 
