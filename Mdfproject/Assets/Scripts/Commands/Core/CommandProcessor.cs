@@ -25,6 +25,21 @@ public class CommandProcessor
         await SimulateServerReceipt(type, intParams, stringParams, vectorParams);
     }
 
+    /*          ****************        멀티플레이어로 코드 수정법            ****************     
+        로컬에서 이 위의 RequestCommandExecution 함수의 주석처럼 직렬화된 커맨드 데이터를 서버로 보낸 다음 서버에서 유효성
+        테스트들을 여럿 걸친 후 문제없는 커맨드인지 확인 (예: 골드가 충분한가? 위치가 유효한가?, 유저가 치트를 쓰진 않았나? ), 
+        문제없으면 그걸 브로드캐스트로 이 데이터 그대로(type, intParams, stringParams, vectorParams) 클라이언트들에게 쏘고 
+        그걸 로컬은 이 아래의 SimulateServerReceipt 함수 같이 받아서 함수 내부 내용처럼 역직렬화해서 자신의 큐에 넣는다.
+
+        ex) 서버에서 실행된 NetworkManager.Instance.RPC_SendToServer 함수 내용
+        {
+            들어온 직렬화 된 커맨드 내용 유효성 검사
+            문제 없으면 브로드캐스트로 (SimulateServerReceipt) 함수 실행
+        }
+    */
+
+
+
     /// <summary>
     /// [시뮬레이션용] 서버가 클라이언트로부터 커맨드 데이터를 받았다고 가정하는 메서드.
     /// 이 메서드는 받은 데이터를 역직렬화하여 모든 클라이언트에게 브로드캐스팅하는 서버의 역할을 흉내 냅니다.
