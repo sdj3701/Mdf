@@ -3,12 +3,12 @@ using UnityEngine;
 public class PlaceWallCommand : ICommand
 {
     public int PlayerId { get; set; }
-    private Vector3Int _position;
+    public Vector3Int Position { get; private set; }
 
     public PlaceWallCommand(int playerId, Vector3Int position)
     {
         this.PlayerId = playerId;
-        this._position = position;
+        this.Position = position;
     }
 
     public void Execute()
@@ -20,8 +20,8 @@ public class PlaceWallCommand : ICommand
         {
             if (player.fieldManager != null)
             {
-                player.fieldManager.CreateWallAt(_position);
-                GameEvents.TriggerWallPlacementSucceeded(player.playerId, _position);
+                player.fieldManager.CreateWallAt(Position);
+                GameEvents.TriggerWallPlacementSucceeded(player.playerId, Position);
             }
         }
     }

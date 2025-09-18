@@ -3,12 +3,12 @@ using UnityEngine;
 public class RemoveWallCommand : ICommand
 {
     public int PlayerId { get; set; }
-    private Vector3Int _position;
+    public Vector3Int Position { get; private set; }
 
     public RemoveWallCommand(int playerId, Vector3Int position)
     {
         this.PlayerId = playerId;
-        this._position = position;
+        this.Position = position;
     }
 
     public void Execute()
@@ -16,11 +16,11 @@ public class RemoveWallCommand : ICommand
         var player = GameManagers.Instance.GetPlayer(PlayerId);
         if (player == null) return;
         
-        if (player.fieldManager != null && player.fieldManager.GetWallAt(_position) != null)
+        if (player.fieldManager != null && player.fieldManager.GetWallAt(Position) != null)
         {
-            player.fieldManager.RemoveWallAt(_position);
+            player.fieldManager.RemoveWallAt(Position);
             player.ReturnWall();
-            GameEvents.TriggerWallRemovalSucceeded(player.playerId, _position);
+            GameEvents.TriggerWallRemovalSucceeded(player.playerId, Position);
         }
     }
 }
