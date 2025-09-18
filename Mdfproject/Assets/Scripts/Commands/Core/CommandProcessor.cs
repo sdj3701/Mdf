@@ -11,45 +11,31 @@ public class CommandProcessor
     /// [수정됨] 클라이언트(AI, UI)가 커맨드 실행을 '요청'할 때 호출하는 메서드입니다.
     /// 이 메서드는 커맨드를 직렬화하고, 멀티플레이어 환경에서는 네트워크로 전송합니다.
     /// </summary>
-    public async void RequestCommandExecution(ICommand command)
+    public void RequestCommandExecution(ICommand command)
     {
         // 1. 커맨드를 직렬화합니다.
         (CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams) = SerializeCommand(command);
 
-        // TODO: 멀티플레이어 구현 시, 아래 주석을 해제하고 직렬화된 데이터를 RPC로 서버에 전송합니다.
-        // NetworkManager.Instance.RPC_SendToServer(type, intParams, stringParams, vectorParams);
-
-        // 현재는 싱글플레이어 테스트를 위해, 서버 역할을 시뮬레이션합니다.
-        // 받은 데이터를 즉시 역직렬화하여 실행 큐에 넣습니다.
-        // 이는 "요청 -> 서버(시뮬레이션) -> 실행 큐" 흐름을 따릅니다.
-        await SimulateServerReceipt(type, intParams, stringParams, vectorParams);
+        // NetworkManager가 있고, 게임 세션이 활성화 상태일 때만 RPC를 호출합니다.
+        if (NetworkManager.Instance != null && NetworkManager.Instance.IsGameRunnerActive)
+        {
+            // 2. 직렬화된 데이터를 RPC로 서버에 전송합니다.
+            NetworkManager.Instance.RPC_RequestCommandToServer(type, intParams, stringParams, vectorParams);
+        }
+        else
+        {
+            // 싱글플레이어 또는 네트워크가 연결되지 않은 환경을 위한 폴백(Fallback)
+            // 서버 역할을 로컬에서 즉시 시뮬레이션합니다.
+            ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
+        }
     }
 
-    /*          ****************        멀티플레이어로 코드 수정법            ****************     
-        로컬에서 이 위의 RequestCommandExecution 함수의 주석처럼 직렬화된 커맨드 데이터를 서버로 보낸 다음 서버에서 유효성
-        테스트들을 여럿 걸친 후 문제없는 커맨드인지 확인 (예: 골드가 충분한가? 위치가 유효한가?, 유저가 치트를 쓰진 않았나? ), 
-        문제없으면 그걸 브로드캐스트로 이 데이터 그대로(type, intParams, stringParams, vectorParams) 클라이언트들에게 쏘고 
-        그걸 로컬은 이 아래의 SimulateServerReceipt 함수 같이 받아서 함수 내부 내용처럼 역직렬화해서 자신의 큐에 넣는다.
-
-        ex) 서버에서 실행된 NetworkManager.Instance.RPC_SendToServer 함수 내용
-        {
-            들어온 직렬화 된 커맨드 내용 유효성 검사
-            문제 없으면 브로드캐스트로 (SimulateServerReceipt) 함수 실행
-        }
-    */
-
-
-
     /// <summary>
-    /// [시뮬레이션용] 서버가 클라이언트로부터 커맨드 데이터를 받았다고 가정하는 메서드.
-    /// 이 메서드는 받은 데이터를 역직렬화하여 모든 클라이언트에게 브로드캐스팅하는 서버의 역할을 흉내 냅니다.
+    /// [수정됨] 서버로부터 브로드캐스팅된 커맨드 데이터 또는 싱글플레이어용 데이터를 받아
+    /// 역직렬화하고 실행 큐에 추가합니다.
     /// </summary>
-    private async UniTask SimulateServerReceipt(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
+    public async void ReceiveAndEnqueueCommand(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
     {
-        // TODO: 멀티플레이어에서는 서버가 여기서 유효성 검사를 수행해야 합니다.
-        // 예: if (!IsValid(command)) return;
-
-        // 모든 클라이언트에게 브로드캐스팅한다고 가정하고, 로컬에서 역직렬화하여 큐에 넣습니다.
         ICommand command = await DeserializeCommand(type, intParams, stringParams, vectorParams);
         if (command != null)
         {
