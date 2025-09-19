@@ -46,7 +46,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 3. 상태 변경 이벤트를 정의 (Action 델리게이트 사용)
     public static event Action<ConnectionState> OnStateChanged;
 
-
+    public bool IsGameRunnerActive => _runner != null && _runner.IsRunning;
 
     private void Awake()
     {
@@ -154,6 +154,43 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             _runner.Shutdown();
         }
     }
+
+    // /// <summary>
+    // /// [클라이언트 -> 서버] 커맨드 실행을 서버에 요청하는 RPC
+    // /// </summary>
+    // [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    // public void RPC_RequestCommandToServer(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams, RpcInfo info = default)
+    // {
+    //     // TODO: 여기서 서버는 커맨드의 유효성을 검사해야 합니다.
+    //     // 예: 플레이어가 골드가 충분한지, 유닛 배치가 유효한 위치인지 등.
+    //     // 유효성 검사는 보안(치팅 방지)에 매우 중요합니다.
+    //     // bool isValid = ValidateCommand(type, intParams, stringParams, vectorParams, info.Source);
+    //     bool isValid = true; // 지금은 모든 요청을 유효하다고 가정
+
+    //     if (isValid)
+    //     {
+    //         // 유효성 검사를 통과하면, 모든 클라이언트에게 이 커맨드를 실행하라고 브로드캐스팅합니다.
+    //         RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+    //     }
+    //     else
+    //     {
+    //         // (선택적) 요청을 보낸 클라이언트에게만 실패를 알릴 수 있습니다.
+    //         Debug.LogWarning($"Player {info.Source.PlayerId}의 {type} 커맨드 요청이 유효성 검사에 실패했습니다.");
+    //     }
+    // }
+
+    // /// <summary>
+    // /// [서버 -> 모든 클라이언트] 서버가 승인한 커맨드를 모든 클라이언트에서 실행하도록 브로드캐스팅하는 RPC
+    // /// </summary>
+    // [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    // private void RPC_BroadcastCommandToClients(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
+    // {
+    //     if (GameManagers.Instance != null && GameManagers.Instance.CommandProcessor != null)
+    //     {
+    //         GameManagers.Instance.CommandProcessor.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
+    //     }
+    // }
+
 
     #region UI 그리기 (OnGUI)
     // 이 부분은 실제 게임에서는 UGUI(버튼, 텍스트 등)로 구현하는 것이 좋습니다.
