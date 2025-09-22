@@ -64,6 +64,15 @@ public class GameManagers : MonoBehaviour
     
     private bool hasCombatBeenShortened = false;
 
+    private void Update()
+    {
+        // 서버로부터 수신하여 큐에 쌓인 커맨드들을 실행합니다.
+        if (CommandProcessor != null)
+        {
+            CommandProcessor.ProcessCommands();
+        }
+    }
+
     private void Awake()
     {
         if (Instance == null)

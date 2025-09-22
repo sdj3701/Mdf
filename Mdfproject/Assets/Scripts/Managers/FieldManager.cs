@@ -804,7 +804,7 @@ public class FieldManager : MonoBehaviour
                 if (placementManager.IsPositionValidForPlacement(gridPos, selectedUnit.Data))
                 {
                     var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, gridPos);
-                    GameManagers.Instance.CommandProcessor.ExecuteCommand(command);
+                    GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
                 }
                 else
                 {

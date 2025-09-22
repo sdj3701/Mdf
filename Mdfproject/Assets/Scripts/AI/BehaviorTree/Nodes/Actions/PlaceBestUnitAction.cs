@@ -84,7 +84,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             if (bestPos.HasValue && bestPos.Value != originalPos)
             {
                 // 위치가 변경되어야 한다면 MoveUnitCommand를 실행합니다.
-                _commandProcessor.ExecuteCommand(new MoveUnitCommand(_playerManager.playerId, originalPos, bestPos.Value));
+                _commandProcessor.RequestCommandExecution(new MoveUnitCommand(_playerManager.playerId, originalPos, bestPos.Value));
             }
 
             // 이 유닛은 처리되었음을 기록합니다.

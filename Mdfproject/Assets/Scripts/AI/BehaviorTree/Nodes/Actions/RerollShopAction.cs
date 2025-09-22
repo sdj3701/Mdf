@@ -17,7 +17,7 @@ namespace AI.BehaviorTree.Nodes.Actions
         {
             if (_playerManager.GetGold() >= _playerManager.shopManager.GetRerollCost())
             {
-                _commandProcessor.ExecuteCommand(new RerollShopCommand(_playerManager.playerId));
+                _commandProcessor.RequestCommandExecution(new RerollShopCommand(_playerManager.playerId));
                 return status = NodeStatus.Success;
             }
             return status = NodeStatus.Failure;

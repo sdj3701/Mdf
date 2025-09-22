@@ -3,14 +3,14 @@ using UnityEngine;
 public class MoveUnitCommand : ICommand
 {
     public int PlayerId { get; set; }
-    private Vector3Int _from;
-    private Vector3Int _to;
+    public Vector3Int From { get; private set; }
+    public Vector3Int To { get; private set; }
 
     public MoveUnitCommand(int playerId, Vector3Int from, Vector3Int to)
     {
         this.PlayerId = playerId;
-        this._from = from;
-        this._to = to;
+        this.From = from;
+        this.To = to;
     }
 
     public void Execute()
@@ -18,6 +18,6 @@ public class MoveUnitCommand : ICommand
         var player = GameManagers.Instance.GetPlayer(PlayerId);
         if (player == null) return;
 
-        player.fieldManager.MoveUnit(_from, _to);
+        player.fieldManager.MoveUnit(From, To);
     }
 }
