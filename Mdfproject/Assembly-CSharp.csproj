@@ -198,6 +198,7 @@
     <Compile Include="Assets\Scripts\Commands\PlayerActions\SelectAugmentCommand.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\SkillData.cs" />
     <Compile Include="Assets\Scripts\DB\AddressableKeyAttribute.cs" />
+    <Compile Include="Assets\Scripts\Enums\CommandType.cs" />
     <Compile Include="Assets\Scripts\UI\PlayerHUDController.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark02.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarGrid.cs" />
