@@ -541,7 +541,7 @@ GameObject:
   - component: {fileID: 599305249}
   - component: {fileID: 599305250}
   m_Layer: 0
-  m_Name: FusionManager
+  m_Name: NetworkManager
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -576,7 +576,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   NickNameInput: {fileID: 2109837510}
   PassWordInput: {fileID: 1542998652}
-  _playerPrefab: {fileID: 8176208168343543267, guid: ac4a58b8ca2d76c4c9a1c9b66a8cf080,
+  _playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
 --- !u!1 &740816618
 GameObject:

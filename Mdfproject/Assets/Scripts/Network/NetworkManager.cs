@@ -30,7 +30,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     private string _roomNameInput = "MyFusionRoom";
     // 현재 네트워크 상태를 관리합니다. (연결 끊김, 로비, 게임 중)
 
-        // 2. 현재 상태를 저장하고, 변경 시 이벤트를 발생시키는 프로퍼티
+    // 2. 현재 상태를 저장하고, 변경 시 이벤트를 발생시키는 프로퍼티
     private ConnectionState _state;
     public ConnectionState State
     {
@@ -47,6 +47,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public static event Action<ConnectionState> OnStateChanged;
 
     public bool IsGameRunnerActive => _runner != null && _runner.IsRunning;
+
+    private int playerCount;
 
     private void Awake()
     {
@@ -118,7 +120,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             _runner = gameObject.AddComponent<NetworkRunner>();
             _runner.AddCallbacks(this);
         }
-        
+
         _runner.ProvideInput = true;
         Debug.Log(sceneName);
 
@@ -212,44 +214,56 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             //     }
             //     break;
 
-            case ConnectionState.InLobby:
-                // 여기가 LobbyUI에서 방 생성 누르기 버튼
-                // [로비] 상태일 때: 방 만들기 UI와 방 목록 표시 
-                GUI.Label(new Rect(10, 10, 200, 30), "Room Name:");
-                //_roomNameInput = GUI.TextField(new Rect(10, 40, 200, 40), _roomNameInput);
+            // case ConnectionState.InLobby:
+            //     // 여기가 LobbyUI에서 방 생성 누르기 버튼
+            //     // [로비] 상태일 때: 방 만들기 UI와 방 목록 표시 
+            //     GUI.Label(new Rect(10, 10, 200, 30), "Room Name:");
+            //     //_roomNameInput = GUI.TextField(new Rect(10, 40, 200, 40), _roomNameInput);
 
-                if (GUI.Button(new Rect(10, 90, 200, 50), "Create Room"))
-                {
-                    // 입력된 이름으로 방을 생성(Host)합니다.
-                    StartGame(GameMode.Host, GetRoomNameInput());
-                }
+            //     if (GUI.Button(new Rect(10, 90, 200, 50), "Create Room"))
+            //     {
+            //         // 입력된 이름으로 방을 생성(Host)합니다.
+            //         StartGame(GameMode.Host, GetRoomNameInput());
+            //     }
 
-                // 여기가 LObbyUI에사 방 확인 else 문이 리스트 출력
-                // 방 목록 표시
-                GUI.Label(new Rect(250, 10, 300, 30), "Available Rooms");
-                if (_sessionList.Count == 0)
-                {
-                    GUI.Label(new Rect(250, 50, 300, 30), "No rooms available.");
-                }
-                else
-                {
-                    for (int i = 0; i < _sessionList.Count; i++)
-                    {
-                        var session = _sessionList[i];
-                        string roomInfo = $"{session.Name} ({session.PlayerCount}/{session.MaxPlayers})";
-                        if (GUI.Button(new Rect(250, 50 + (i * 60), 300, 50), roomInfo))
-                        {
-                            // 해당 방에 참가(Client)합니다.
-                            StartGame(GameMode.Client, session.Name, "JoinLobby");
-                        }
-                    }
-                }
-                break;
+            //     // 여기가 LObbyUI에사 방 확인 else 문이 리스트 출력
+            //     // 방 목록 표시
+            //     GUI.Label(new Rect(250, 10, 300, 30), "Available Rooms");
+            //     if (_sessionList.Count == 0)
+            //     {
+            //         GUI.Label(new Rect(250, 50, 300, 30), "No rooms available.");
+            //     }
+            //     else
+            //     {
+            //         for (int i = 0; i < _sessionList.Count; i++)
+            //         {
+            //             var session = _sessionList[i];
+            //             string roomInfo = $"{session.Name} ({session.PlayerCount}/{session.MaxPlayers})";
+            //             if (GUI.Button(new Rect(250, 50 + (i * 60), 300, 50), roomInfo))
+            //             {
+            //                 // 해당 방에 참가(Client)합니다.
+            //                 StartGame(GameMode.Client, session.Name, "JoinLobby");
+            //             }
+            //         }
+            //     }
+            //     break;
 
             case ConnectionState.InGame:
-                // [게임 중] 상태일 때: 나가기 버튼과 방 정보 표시
+                // [게임 중] 상태일 때: 나가기 버튼과 방 정보, 플레이어 수 표시
                 GUI.Label(new Rect(10, 10, 300, 30), $"In Room: {_runner.SessionInfo.Name}");
-                if (GUI.Button(new Rect(10, 50, 200, 50), "Leave Game"))
+
+                // --- ✨ 추가된 부분 시작 ✨ ---
+                if (_runner != null && _runner.SessionInfo != null)
+                {
+                    // 현재 플레이어 수와 최대 플레이어 수를 가져와서 표시합니다.
+                    playerCount = _runner.SessionInfo.PlayerCount;
+                    int maxPlayers = _runner.SessionInfo.MaxPlayers;
+                    GUI.Label(new Rect(10, 50, 300, 30), $"Players: {playerCount} / {maxPlayers}");
+                }
+                // --- ✨ 추가된 부분 종료 ✨ ---
+
+                // 기존 'Leave Game' 버튼의 위치를 아래로 조정합니다 (y: 50 -> 90)
+                if (GUI.Button(new Rect(10, 90, 200, 50), "Leave Game"))
                 {
                     LeaveGame();
                 }
@@ -332,6 +346,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void SetRunner()
     {
 
+    }
+
+    // 외부 클래스에서 플레이어 몇명 생성 해야하는지 확인할 떄 필요한 함수
+    public int GetPlayerCount()
+    {
+        return playerCount;
     }
 
     #endregion

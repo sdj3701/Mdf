@@ -16,6 +16,8 @@ GameObject:
   - component: {fileID: 3270167375977648020}
   - component: {fileID: 6644745135085917644}
   - component: {fileID: 2677132262766825164}
+  - component: {fileID: 2880498752219008532}
+  - component: {fileID: -5536215474837600463}
   m_Layer: 13
   m_Name: Monster
   m_TagString: Enemy
@@ -198,3 +200,39 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1ecec5c26686a964dbfc4e867a930b16, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &2880498752219008532
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2020015458557610380}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 412075957
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours:
+  - {fileID: -5536215474837600463}
+  ForceRemoteRenderTimeframe: 0
+--- !u!114 &-5536215474837600463
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2020015458557610380}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 158639473, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _stateAuthorityChangeErrorCorrectionDelta: 0
+  SyncScale: 0
+  SyncParent: 0
+  _autoAOIOverride: 1
+  DisableSharedModeInterpolation: 0
