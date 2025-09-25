@@ -229,27 +229,38 @@ public class GameManagers : MonoBehaviour
     {
         try
         {
-            Debug.Log($"<color=red> Create UI </color>");
-            buildTestCheck = true;
+            BuildDebugGUI.Instance.Log("<color=cyan>SetupGameUI: 시작</color>");
+            
             var shopPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
             var augmentPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
             var (shopPanelInstance, augmentPanelInstance) = await UniTask.WhenAll(shopPanelTask, augmentPanelTask);
 
             if (shopPanelInstance != null)
             {
+                BuildDebugGUI.Instance.Log("<color=green>Shop Panel 로드 성공</color>");
                 localPlayerShopUI = shopPanelInstance.GetComponent<ShopUIController>();
                 localPlayerShopUIGameObject = shopPanelInstance;
                 localPlayerShopUI.SetContentVisibility(false);
             }
+            else
+            {
+                BuildDebugGUI.Instance.Log("<color=red>Shop Panel 로드 실패 (null)</color>");
+            }
+
             if (augmentPanelInstance != null)
             {
+                BuildDebugGUI.Instance.Log("<color=green>Augment Panel 로드 성공</color>");
                 augmentSelectionUI = augmentPanelInstance.GetComponent<AugmentUIController>();
                 UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+            }
+            else
+            {
+                BuildDebugGUI.Instance.Log("<color=red>Augment Panel 로드 실패 (null)</color>");
             }
         }
         catch (System.Exception ex)
         {
-            Debug.LogError($"UI 설정 중 심각한 에러 발생: {ex.Message}");
+            BuildDebugGUI.Instance.Log($"<color=red>CRITICAL ERROR in SetupGameUI: {ex.Message}</color>");
         }
     }
 
@@ -401,11 +412,9 @@ public class GameManagers : MonoBehaviour
         selectCharacterName.Add(name);
     }
     #endregion
-    
+
     void OnGUI()
     {
-        // 현재 상태를 화면에 텍스트로 표시합니다.
         GUI.Label(new Rect(20, 270, 180, 40), $"현재 상태: {buildTestCheck}");
-
     }
 }
