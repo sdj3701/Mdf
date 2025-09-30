@@ -74,12 +74,14 @@ public class GameManagers : NetworkBehaviour
     private NetworkManager networkManager;
 
     private bool hasCombatBeenShortened = false;
+    private bool _isSpawned = false;
 
     /// <summary>
     /// 이 NetworkBehaviour가 네트워크 상에 스폰될 때 Fusion에 의해 호출됩니다.
     /// </summary>
     public override void Spawned()
     {
+        Debug.Log("11111111111111111111111111111111111111");
         if (Instance == null)
         {
             Instance = this;
@@ -90,17 +92,19 @@ public class GameManagers : NetworkBehaviour
             Runner.Despawn(Object);
             return;
         }
-        
-        // [수정] ChangeDetector를 초기화합니다.
+
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
         networkManager = NetworkManager.Instance;
-        
+
         if (Object.HasStateAuthority)
         {
             Debug.Log("호스트의 GameManagers 스폰 완료. 게임 흐름을 시작합니다.");
             GameFlow().Forget();
         }
+
+        // ▼▼▼ 2. Spawned가 성공적으로 호출되었으므로 플래그를 true로 설정합니다. ▼▼▼
+        _isSpawned = true;
     }
 
     /// <summary>
@@ -437,6 +441,11 @@ public class GameManagers : NetworkBehaviour
 
     void OnGUI()
     {
+        if (!_isSpawned)
+        {
+            return; // 아직 스폰되지 않았으면 아무것도 그리지 않고 함수를 종료합니다.
+        }
+
         GUI.Label(new Rect(20, 270, 180, 40), $"현재 상태: {currentState}");
         GUI.Label(new Rect(20, 290, 180, 40), $"남은 시간: {currentPhaseTimer:F1}");
     }

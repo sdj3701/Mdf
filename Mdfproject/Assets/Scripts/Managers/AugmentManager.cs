@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using System;
+using Cysharp.Threading.Tasks; // [추가] UniTask 사용을 위해 네임스페이스 추가
 
 public class AugmentManager : MonoBehaviour
 {
@@ -21,8 +22,13 @@ public class AugmentManager : MonoBehaviour
         return presentedAugments;
     }
 
-    void Start()
+    // [수정] void Start() -> async void Start()
+    async void Start()
     {
+        // [추가] playerManager 참조가 할당될 때까지 비동기적으로 기다립니다.
+        // 이렇게 하면 NullReferenceException을 방지할 수 있습니다.
+        await UniTask.WaitUntil(() => playerManager != null);
+        
         LoadAllAugmentsFromAddressables();
     }
     

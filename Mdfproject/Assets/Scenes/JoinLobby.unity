@@ -1148,6 +1148,7 @@ GameObject:
   m_Component:
   - component: {fileID: 841252912}
   - component: {fileID: 841252911}
+  - component: {fileID: 841252913}
   m_Layer: 0
   m_Name: Directional Light
   m_TagString: Untagged
@@ -1232,6 +1233,26 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 1
   m_LocalEulerAnglesHint: {x: 50, y: -30, z: 0}
+--- !u!114 &841252913
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 841252910}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_Version: 1
+  m_UsePipelineSettings: 1
+  m_AdditionalLightsShadowResolutionTier: 2
+  m_LightLayerMask: 1
+  m_CustomShadowLayers: 0
+  m_ShadowLayerMask: 1
+  m_LightCookieSize: {x: 1, y: 1}
+  m_LightCookieOffset: {x: 0, y: 0}
 --- !u!1 &1163827718
 GameObject:
   m_ObjectHideFlags: 0
@@ -1844,8 +1865,6 @@ MonoBehaviour:
   _roomNameText: {fileID: 1163827720}
   _playerCountText: {fileID: 1468092206}
   _hostIndicatorText: {fileID: 1702196393}
-  _playerListContent: {fileID: 1468092204}
-  _playerItemPrefab: {fileID: 0}
   _player1NameText: {fileID: 269490515}
   _player2NameText: {fileID: 521929958}
   _player1ReadyImage: {fileID: 1627015061}
@@ -1853,11 +1872,6 @@ MonoBehaviour:
   _gameStartButton: {fileID: 1540119498}
   _readyButton: {fileID: 432029512}
   _leaveRoomButton: {fileID: 175845188}
-  _statusText: {fileID: 0}
-  _waitingPanel: {fileID: 0}
-  _waitingText: {fileID: 0}
-  _readyColor: {r: 0, g: 1, b: 0, a: 1}
-  _notReadyColor: {r: 1, g: 0, b: 0, a: 1}
 --- !u!1 &1540119496
 GameObject:
   m_ObjectHideFlags: 0

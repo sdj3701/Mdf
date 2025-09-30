@@ -2,87 +2,83 @@
 using UnityEngine;
 using TMPro;
 
-/// <summary>
-/// 플레이어의 주요 정보(골드, 라운드 등)를 표시하는 HUD UI를 제어합니다.
-/// Update() 대신 GameEvents를 구독하여 정보를 갱신합니다.
-/// </summary>
 public class PlayerHUDController : MonoBehaviour
 {
     [Header("HUD UI 요소")]
-    [Tooltip("골드를 표시할 TextMeshPro UI 요소를 연결하세요.")]
     public TextMeshProUGUI goldText;
-
-    [Tooltip("현재 라운드를 표시할 TextMeshPro UI 요소를 연결하세요.")]
     public TextMeshProUGUI roundText;
 
     private PlayerManager localPlayer;
     private GameManagers gameManager;
 
-    void Start()
+    // [추가] 초기화가 완료되었는지 확인하기 위한 플래그
+    private bool isInitialized = false;
+
+    // [수정] Start() 메서드를 비워두거나 삭제합니다.
+    // void Start() { }
+
+    // [추가] Update() 메서드에서 초기화를 시도합니다.
+    void Update()
     {
-        // 게임 시작 시 필요한 참조를 찾고 UI의 초기 값을 설정합니다.
+        // 아직 초기화되지 않았다면 매 프레임 초기화를 시도합니다.
+        if (!isInitialized)
+        {
+            Initialize();
+        }
+    }
+
+    // [추가] 초기화 로직을 별도의 메서드로 분리합니다.
+    private void Initialize()
+    {
         gameManager = GameManagers.Instance;
         if (gameManager != null)
         {
             localPlayer = gameManager.localPlayer;
-        }
-        else
-        {
-            Debug.LogError("GameManagers 인스턴스를 찾을 수 없습니다! HUD가 작동하지 않을 수 있습니다.");
-            this.enabled = false;
-            return;
-        }
+            
+            // localPlayer도 GameManagers가 초기화된 후에 할당되므로, 여기서 한 번 더 확인합니다.
+            if (localPlayer != null)
+            {
+                // UI 초기값 설정
+                UpdatePlayerStats(localPlayer.playerId, localPlayer.GetHealth(), localPlayer.GetGold());
+                UpdateRoundText(gameManager.currentRound);
 
-        // UI 초기값 설정
-        if (localPlayer != null)
-        {
-            UpdatePlayerStats(localPlayer.playerId, localPlayer.GetHealth(), localPlayer.GetGold());
-        }
-        if (gameManager != null)
-        {
-            UpdateRoundText(gameManager.currentRound);
+                // 이벤트 구독
+                GameEvents.OnPlayerStatsChanged += UpdatePlayerStats;
+                GameEvents.OnRoundStart += UpdateRoundText;
+
+                // 초기화가 성공적으로 완료되었으므로 플래그를 true로 설정합니다.
+                isInitialized = true;
+                Debug.Log("PlayerHUDController 초기화 및 이벤트 구독 완료.");
+            }
         }
     }
 
-    void OnEnable()
-    {
-        // 필요한 이벤트들을 구독합니다.
-        GameEvents.OnPlayerStatsChanged += UpdatePlayerStats;
-        GameEvents.OnRoundStart += UpdateRoundText;
-    }
-
+    // [수정] OnEnable/OnDisable을 Initialize와 분리하여 관리합니다.
     void OnDisable()
     {
-        // 오브젝트가 비활성화될 때 반드시 구독을 해지하여 메모리 누수를 방지합니다.
+        // isInitialized 여부와 관계없이 항상 구독 해제를 시도하여 안전성을 높입니다.
         GameEvents.OnPlayerStatsChanged -= UpdatePlayerStats;
         GameEvents.OnRoundStart -= UpdateRoundText;
     }
 
-    /// <summary>
-    /// OnPlayerStatsChanged 이벤트가 발생할 때 호출되어 골드와 체력 UI를 갱신합니다.
-    /// </summary>
     private void UpdatePlayerStats(int playerID, int newHealth, int newGold)
     {
-        // 이 이벤트가 로컬 플레이어에게 해당하는 것인지 확인합니다.
+        // localPlayer가 아직 설정되지 않았을 수 있으므로 null 체크를 추가합니다.
         if (localPlayer != null && localPlayer.playerId == playerID)
         {
             if (goldText != null)
             {
                 goldText.text = newGold.ToString();
             }
-            // 체력 UI가 있다면 여기서 갱신합니다.
-            // if (healthText != null) healthText.text = newHealth.ToString();
         }
     }
-
-    /// <summary>
-    /// OnRoundStart 이벤트가 발생할 때 호출되어 라운드 UI를 갱신합니다.
-    /// </summary>
+    
     private void UpdateRoundText(int roundNumber)
     {
         if (roundText != null)
         {
-            roundText.text = $"ROUND\n{roundNumber}";
+            // 라운드가 0일 경우 "ROUND 1"로 표시되도록 보정할 수 있습니다.
+            roundText.text = $"ROUND\n{Mathf.Max(1, roundNumber)}";
         }
     }
 }
