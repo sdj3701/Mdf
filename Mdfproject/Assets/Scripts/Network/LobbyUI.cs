@@ -25,11 +25,11 @@ public class LobbyUI : MonoBehaviour
     [SerializeField] private GameObject _roomItemPrefab;
     [SerializeField] private TMP_Text _noRoomsText;
 
-    private FusionLobbyManager _networkManager;
+    private NetworkManager _networkManager;
 
     private void Start()
     {
-        _networkManager = FusionLobbyManager.Instance;
+        _networkManager = NetworkManager.Instance;
 
         if (_networkManager == null)
         {

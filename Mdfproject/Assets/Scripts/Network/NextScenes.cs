@@ -4,19 +4,19 @@ using UnityEngine.SceneManagement;
 
 public class NextScenes : BaseButton
 {
-    FusionLobbyManager fusionManager;
+    NetworkManager _networkManager;
 
     protected override void Start()
     {
         // DontDestroyOnLoad로 유지되는 싱글톤 인스턴스를 사용합니다.
-        fusionManager = FusionLobbyManager.Instance;
+        _networkManager = NetworkManager.Instance;
         base.Start();
     }
 
     public override void OnClick()
     {
         // 1. 닉네임 입력 필드에서 값을 가져옵니다.
-        string nickname = fusionManager.NickNameInput.text;
+        string nickname = _networkManager.NickNameInput.text;
 
         // 2. 닉네임이 유효한지 확인하고, 비어있다면 기본값을 설정합니다.
         if (string.IsNullOrWhiteSpace(nickname))
@@ -32,7 +32,7 @@ public class NextScenes : BaseButton
         Debug.Log($"닉네임 '{nickname}'을 PlayerPrefs에 저장했습니다.");
 
         // 4. 로비에 접속하고 씬을 전환합니다.
-        fusionManager.JoinLobby();
+        _networkManager.JoinLobby();
         SceneManager.LoadScene("MatchingLobby");
     }
 }

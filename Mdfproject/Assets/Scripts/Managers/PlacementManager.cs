@@ -34,27 +34,36 @@ public class PlacementManager : MonoBehaviour
     void Awake()
     {
         fieldManager = GetComponent<FieldManager>();
-        
-        // ✅ [수정된 핵심 로직] FieldManager가 먼저 초기화되기를 기다리기 때문에,
-        // 참조를 받아오는 부분을 Start로 옮겨 안정성을 높입니다.
     }
 
     void Start()
     {
         // FieldManager는 Awake에서 초기화되므로, Start에서 참조를 가져오면 안전합니다.
         this.playerManager = fieldManager.playerManager;
-        this.groundTilemap = fieldManager.GroundTilemap;
-        this.obstacleTilemap = fieldManager.ObstacleTilemap;
-
-        if (groundTilemap == null || obstacleTilemap == null)
-        {
-            Debug.LogError("PlacementManager가 FieldManager로부터 Tilemap 참조를 받아오지 못했습니다!", gameObject);
-        }
+        
+        // [수정] 아래 타일맵 할당 코드를 제거합니다. 이 시점에서는 아직 FieldManager의 타일맵이 null일 수 있습니다.
+        // this.groundTilemap = fieldManager.GroundTilemap;
+        // this.obstacleTilemap = fieldManager.ObstacleTilemap;
+        //
+        // if (groundTilemap == null || obstacleTilemap == null)
+        // {
+        //     Debug.LogError("PlacementManager가 FieldManager로부터 Tilemap 참조를 받아오지 못했습니다!", gameObject);
+        // }
     }
     
-    // ... (이하 나머지 코드는 이전과 동일) ...
     void Update()
     {
+        // [추가] 타일맵 참조가 null일 경우 FieldManager로부터 가져옵니다.
+        // 이렇게 하면 FieldManager가 초기화된 이후에 안전하게 참조를 얻을 수 있습니다.
+        if (groundTilemap == null && fieldManager != null)
+        {
+            groundTilemap = fieldManager.GroundTilemap;
+        }
+        if (obstacleTilemap == null && fieldManager != null)
+        {
+            obstacleTilemap = fieldManager.ObstacleTilemap;
+        }
+
         if (currentMode == PlacementMode.None)
         {
             if (previewObject != null && previewObject.activeSelf)

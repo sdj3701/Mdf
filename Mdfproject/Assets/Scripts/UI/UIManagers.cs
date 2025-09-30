@@ -41,17 +41,19 @@ public class UIManagers : MonoBehaviour
     {
         if (mainCanvas == null)
         {
+            BuildDebugGUI.Instance.Log("GetUIElement: MainCanvas 탐색 시도...");
             mainCanvas = FindObjectOfType<Canvas>();
             if (mainCanvas == null)
             {
-                Debug.LogError("MainCanvas를 찾을 수 없습니다! UI를 표시할 수 없습니다.");
+                BuildDebugGUI.Instance.Log("<color=red>GetUIElement: MainCanvas를 찾을 수 없음!</color>");
                 return null;
             }
+            BuildDebugGUI.Instance.Log("<color=green>GetUIElement: MainCanvas 찾음!</color>");
         }
 
         if (!uiPools.ContainsKey(uiName))
         {
-            Debug.LogWarning($"UI 요소 '{uiName}'가 풀에 없습니다. Addressables를 통해 로드하고 새로 등록합니다.");
+            BuildDebugGUI.Instance.Log($"<color=yellow>GetUIElement: '{uiName}' 풀 없음. Addressables 로드 시작.</color>");
             uiPools.Add(uiName, new UIPool(null, uiName));
         }
         

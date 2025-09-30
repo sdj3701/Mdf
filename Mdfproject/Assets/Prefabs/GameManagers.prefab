@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 5549527826790287607}
   - component: {fileID: 5549527826790287606}
   - component: {fileID: 5549527826790287601}
+  - component: {fileID: 5684997431109300748}
   m_Layer: 0
   m_Name: GameManagers
   m_TagString: Untagged
@@ -45,11 +46,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1dc4269197ee346ffb1ee49d9022301a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  currentState: 0
-  currentRound: 1
-  _currentPhaseTimer: 0
-  player1: {fileID: 0}
-  player2: {fileID: 0}
+  _currentState: 0
+  _currentRound: 0
+  playerCount: 2
+  isAIPlayer: 00010000
+  players: []
   localPlayer: {fileID: 0}
   playerManagerPrefab: {fileID: 5614185707068383334, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
@@ -79,3 +80,22 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0ce7f4ad4fb8dcd44a2b53f2ec10ad90, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &5684997431109300748
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5549527826790287604}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 2264668856
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours:
+  - {fileID: 5549527826790287606}
+  ForceRemoteRenderTimeframe: 0

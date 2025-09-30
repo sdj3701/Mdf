@@ -1,16 +1,19 @@
 // Assets/Scripts/Managers/PlayerManager.cs
+
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 using System.Linq;
+using Fusion; // Fusion 네임스페이스 추가
 
-public class PlayerManager : MonoBehaviour
+public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> NetworkBehaviour
 {
-    // ... (변수 선언은 동일) ...
-    [Header("플레이어 식별 정보")]
-    public int playerId;
+    // [수정] playerId를 모든 클라이언트가 동기화할 수 있도록 [Networked] 프로퍼티로 변경합니다.
+    [Networked] public int playerId { get; set; }
 
     [Header("핵심 능력치 (읽기 전용)")]
+    // 참고: 이 능력치들도 [Networked]로 변경하면 더 안정적이지만,
+    // 현재는 Command 패턴을 사용하므로 playerId만 동기화해도 동작합니다.
     [SerializeField] private int health = 100;
     [SerializeField] private int gold = 10;
     [SerializeField] private int wallCount = 5;
@@ -36,81 +39,73 @@ public class PlayerManager : MonoBehaviour
 
      void Awake()
     {
+        // Awake는 그대로 유지하여 하위 컴포넌트 참조를 미리 찾아둡니다.
         fieldManager = GetComponentInChildren<FieldManager>();
         shopManager = GetComponentInChildren<ShopManager>();
         monsterSpawner = GetComponentInChildren<MonsterSpawner>();
         augmentManager = GetComponentInChildren<AugmentManager>();
-
-        // ✅ [진단 코드] Awake에서 MonsterSpawner를 찾았는지 확인
-        if (monsterSpawner == null)
-        {
-            Debug.LogError($"PlayerManager '{gameObject.name}'의 자식에서 MonsterSpawner를 찾지 못했습니다!", gameObject);
-        }
     }
     
-    public void InitializePlayer(int id, GameObject gridInstance, GameObject monsterPrefab)
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void Rpc_InitializePlayer(int id, NetworkObject gridNetworkObject)
     {
+        // [수정] 네트워크를 통해 전달받은 ID를 [Networked] 프로퍼티에 저장합니다.
         this.playerId = id;
-        Debug.Log($"--- Player {id} 초기화 시작 ---");
+        //Debug.Log($"--- Player {playerId} RPC 초기화 실행 (IsServer: {Object.ToString()}) ---");
 
-        // ✅ [핵심 수정] Grid 내의 TilemapController들이 고유 ID를 갖도록 재등록합니다.
-        // 이렇게 하면 "중복 등록" 경고가 해결됩니다.
-        var allTilemapControllers = gridInstance.GetComponentsInChildren<TilemapController>();
-        foreach (var controller in allTilemapControllers)
+        // --- 1. 가장 중요한 gridNetworkObject가 제대로 전달되었는지 확인 ---
+        if (gridNetworkObject == null)
         {
-            controller.UnregisterSelf(); // Awake에서 등록된 기본 ID를 해제합니다.
-            // 플레이어 ID와 TilemapController의 Type을 조합하여 고유 ID를 새로 만듭니다. (예: "Player0_Ground")
-            controller.componentId = $"Player{this.playerId}_{controller.Type}";
-            controller.RegisterSelf(); // 새로운 고유 ID로 다시 등록합니다.
+            Debug.LogError($"[Player {playerId}]: RPC로 전달받은 gridNetworkObject가 null입니다! 초기화 실패.");
+            return;
         }
+        Debug.Log($"[Player {playerId}]: gridNetworkObject를 성공적으로 받았습니다. (ID: {gridNetworkObject.Id})");
 
-        // ✅ [진단 코드] 전달받은 참조들이 null이 아닌지 하나씩 확인
-        if (gridInstance == null) Debug.LogError($"Player {id}: 전달받은 gridInstance가 null입니다!");
-        if (monsterPrefab == null) Debug.LogError($"Player {id}: 전달받은 monsterPrefab이 null입니다!");
+        // 전달받은 NetworkObject 참조로부터 그리드 게임오브젝트를 가져옵니다.
+        GameObject gridInstance = gridNetworkObject.gameObject;
 
+        // --- 2. 그리드 내부의 구성 요소들을 찾고, 각각 성공 여부를 로그로 남깁니다. ---
         var allTilemaps = gridInstance.GetComponentsInChildren<Tilemap>();
         Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
         Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
-        if (this.astarGrid != null)
-        {
-            this.astarGrid.Initialize(); // 그리드의 월드 좌표를 현재 위치 기준으로 설정합니다.
-        }
         this.spawnPoint = gridInstance.transform.Find("SpawnPoint");
         this.goalTransform = gridInstance.transform.Find("Goal");
 
-        // ✅ [진단 코드] Grid 프리팹 내부에서 컴포넌트를 제대로 찾았는지 확인
-        if (this.astarGrid == null) Debug.LogError($"Player {id}: Grid 프리팹에서 AstarGrid 컴по넌트를 찾지 못했습니다!");
-        if (this.spawnPoint == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'SpawnPoint' 자식 오브젝트를 찾지 못했습니다!");
-        if (this.goalTransform == null) Debug.LogError($"Player {id}: Grid 프리팹에서 'Goal' 자식 오브젝트를 찾지 못했습니다!");
+        // 각 컴포넌트/오브젝트를 찾았는지 확인하는 로그
+        Debug.Log($"[Player {playerId}]: Ground Tilemap 찾음? -> {(groundTilemap != null)}");
+        Debug.Log($"[Player {playerId}]: BreakWall Tilemap 찾음? -> {(obstacleTilemap != null)}");
+        Debug.Log($"[Player {playerId}]: AstarGrid 찾음? -> {(this.astarGrid != null)}");
+        Debug.Log($"[Player {playerId}]: SpawnPoint 찾음? -> {(this.spawnPoint != null)}");
+        Debug.Log($"[Player {playerId}]: Goal 찾음? -> {(this.goalTransform != null)}");
 
+        // AstarGrid 초기화
+        if (this.astarGrid != null)
+        {
+            this.astarGrid.Initialize();
+        }
+        else
+        {
+            Debug.LogError($"[Player {playerId}]: AstarGrid 컴포넌트를 찾지 못해 경로 탐색을 초기화할 수 없습니다.");
+        }
+
+        // 하위 매니저 초기화
         if (fieldManager) fieldManager.Initialize(this, groundTilemap, obstacleTilemap);
         if (shopManager) shopManager.playerManager = this;
         
         if (monsterSpawner)
         {
-            Debug.Log($"Player {id}: MonsterSpawner에게 참조 전달 시도...");
-            monsterSpawner.Initialize(this, this.astarGrid, monsterPrefab, this.spawnPoint, this.goalTransform);
+            var defaultMonsterPrefab = GameManagers.Instance.defaultMonsterPrefab;
+            monsterSpawner.Initialize(this, this.astarGrid, defaultMonsterPrefab, this.spawnPoint, this.goalTransform);
         }
-        else
-        {
-            Debug.LogError($"Player {id}: monsterSpawner 참조가 null이라서 Initialize를 호출할 수 없습니다!");
-        }
-
+        
         if (augmentManager) augmentManager.playerManager = this;
         
         IsActivelyFighting = false;
-        Debug.Log($"--- Player {id} 초기화 완료 ---");
+        Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
     }
 
-    // ... (이하 나머지 코드는 이전과 동일) ...
-    void OnEnable()
-    {
-    }
-
-    void OnDisable()
-    {
-    }
+    // ... (이하 나머지 코드는 기존과 동일) ...
 
     public void SetFightingState(bool isFighting)
     {
@@ -160,7 +155,6 @@ public class PlayerManager : MonoBehaviour
     public void AddUnit(UnitData unitData, int starLevel)
     {
         Debug.Log($"Player {playerId}가 {starLevel}성 {unitData.unitName} 유닛을 획득했습니다.");
-
         if(fieldManager != null)
         {
             fieldManager.CreateAndPlaceUnitOnField(unitData, starLevel);
@@ -175,7 +169,6 @@ public class PlayerManager : MonoBehaviour
             GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
             return true;
         }
-        Debug.LogWarning("벽이 부족하여 사용할 수 없습니다.");
         return false;
     }
 
