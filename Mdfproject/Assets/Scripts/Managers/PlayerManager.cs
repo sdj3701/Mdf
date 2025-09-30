@@ -46,36 +46,55 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         augmentManager = GetComponentInChildren<AugmentManager>();
     }
     
-    // [수정] 기존 InitializePlayer 메서드를 RPC(Remote Procedure Call)로 변경합니다.
-    // 이 RPC는 호스트가 호출하며, 모든 클라이언트에서 실행됩니다.
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void Rpc_InitializePlayer(int id, NetworkObject gridNetworkObject)
     {
-        // 네트워크를 통해 전달받은 ID를 [Networked] 프로퍼티에 저장합니다.
+        // [수정] 네트워크를 통해 전달받은 ID를 [Networked] 프로퍼티에 저장합니다.
         this.playerId = id;
-        Debug.Log($"--- Player {playerId} RPC 초기화 실행 ---");
+        //Debug.Log($"--- Player {playerId} RPC 초기화 실행 (IsServer: {Object.ToString()}) ---");
+
+        // --- 1. 가장 중요한 gridNetworkObject가 제대로 전달되었는지 확인 ---
+        if (gridNetworkObject == null)
+        {
+            Debug.LogError($"[Player {playerId}]: RPC로 전달받은 gridNetworkObject가 null입니다! 초기화 실패.");
+            return;
+        }
+        Debug.Log($"[Player {playerId}]: gridNetworkObject를 성공적으로 받았습니다. (ID: {gridNetworkObject.Id})");
 
         // 전달받은 NetworkObject 참조로부터 그리드 게임오브젝트를 가져옵니다.
         GameObject gridInstance = gridNetworkObject.gameObject;
 
-        // --- 기존 InitializePlayer의 로직을 이곳으로 옮깁니다. ---
+        // --- 2. 그리드 내부의 구성 요소들을 찾고, 각각 성공 여부를 로그로 남깁니다. ---
         var allTilemaps = gridInstance.GetComponentsInChildren<Tilemap>();
         Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
         Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
+        this.spawnPoint = gridInstance.transform.Find("SpawnPoint");
+        this.goalTransform = gridInstance.transform.Find("Goal");
+
+        // 각 컴포넌트/오브젝트를 찾았는지 확인하는 로그
+        Debug.Log($"[Player {playerId}]: Ground Tilemap 찾음? -> {(groundTilemap != null)}");
+        Debug.Log($"[Player {playerId}]: BreakWall Tilemap 찾음? -> {(obstacleTilemap != null)}");
+        Debug.Log($"[Player {playerId}]: AstarGrid 찾음? -> {(this.astarGrid != null)}");
+        Debug.Log($"[Player {playerId}]: SpawnPoint 찾음? -> {(this.spawnPoint != null)}");
+        Debug.Log($"[Player {playerId}]: Goal 찾음? -> {(this.goalTransform != null)}");
+
+        // AstarGrid 초기화
         if (this.astarGrid != null)
         {
             this.astarGrid.Initialize();
         }
-        this.spawnPoint = gridInstance.transform.Find("SpawnPoint");
-        this.goalTransform = gridInstance.transform.Find("Goal");
+        else
+        {
+            Debug.LogError($"[Player {playerId}]: AstarGrid 컴포넌트를 찾지 못해 경로 탐색을 초기화할 수 없습니다.");
+        }
 
+        // 하위 매니저 초기화
         if (fieldManager) fieldManager.Initialize(this, groundTilemap, obstacleTilemap);
         if (shopManager) shopManager.playerManager = this;
         
         if (monsterSpawner)
         {
-            // defaultMonsterPrefab은 GameManagers가 가지고 있으므로, 거기서 참조를 가져옵니다.
             var defaultMonsterPrefab = GameManagers.Instance.defaultMonsterPrefab;
             monsterSpawner.Initialize(this, this.astarGrid, defaultMonsterPrefab, this.spawnPoint, this.goalTransform);
         }

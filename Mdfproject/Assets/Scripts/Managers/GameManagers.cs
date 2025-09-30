@@ -1,33 +1,41 @@
-// Assets/Scripts/Managers/GameManagers.cs
-
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using Cysharp.Threading.Tasks;
-using Fusion; // Fusion 네임스페이스 추가
-using System.Threading.Tasks; // Task 네임스페이스 추가
+using Fusion;
 
-public class GameManagers : MonoBehaviour
+// MonoBehaviour 대신 NetworkBehaviour를 상속받아 네트워크 객체로 만듭니다.
+public class GameManagers : NetworkBehaviour
 {
+    // 싱글톤 패턴은 유지하되, 초기화는 Spawned()에서 수행합니다.
     public static GameManagers Instance { get; private set; }
     public CommandProcessor CommandProcessor { get; private set; }
 
-    #region 인게임 관련 변수
-    public enum GameState { Setup, DataLoading, Prepare, Combat, GameOver }
-    [Header("게임 상태")]
-    [SerializeField] private GameState currentState;
-    public int currentRound = 1;
-    [Header("현재 페이즈 타이머 (읽기 전용)")]
-    [SerializeField] private float _currentPhaseTimer;
-    public float currentPhaseTimer => _currentPhaseTimer;
+    // [수정] Fusion 2의 변경 감지를 위한 ChangeDetector 인스턴스
+    private ChangeDetector _changeDetector;
 
-    [Header("플레이어 설정")]
+    #region 인게임 관련 변수 (네트워크 동기화)
+    public enum GameState { Setup, DataLoading, Prepare, Combat, GameOver }
+
+    // [수정] OnChanged 속성을 제거했습니다. Fusion 2에서는 ChangeDetector를 사용합니다.
+    [Networked]
+    public GameState currentState { get; set; }
+
+    [Networked]
+    public int currentRound { get; set; }
+
+    [Networked]
+    private TickTimer phaseTimer { get; set; }
+
+    public float currentPhaseTimer => phaseTimer.IsRunning ? phaseTimer.RemainingTime(Runner) ?? 0f : 0f;
+
     [Range(1, 4)]
     public int playerCount = 2;
     public bool[] isAIPlayer = new bool[4] { false, true, false, false };
+
+    [Networked, Capacity(4)]
+    private NetworkArray<NetworkObject> NetworkPlayers { get; }
 
     [HideInInspector] public List<PlayerManager> players = new List<PlayerManager>();
     [HideInInspector] public PlayerManager localPlayer;
@@ -67,30 +75,80 @@ public class GameManagers : MonoBehaviour
 
     private bool hasCombatBeenShortened = false;
 
-    private bool buildTestCheck;
-
-    private void Awake()
+    /// <summary>
+    /// 이 NetworkBehaviour가 네트워크 상에 스폰될 때 Fusion에 의해 호출됩니다.
+    /// </summary>
+    public override void Spawned()
     {
         if (Instance == null)
         {
             Instance = this;
             CommandProcessor = new CommandProcessor();
-            DontDestroyOnLoad(gameObject);
         }
         else
         {
-            Destroy(gameObject);
+            Runner.Despawn(Object);
+            return;
+        }
+        
+        // [수정] ChangeDetector를 초기화합니다.
+        _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+
+        networkManager = NetworkManager.Instance;
+        
+        if (Object.HasStateAuthority)
+        {
+            Debug.Log("호스트의 GameManagers 스폰 완료. 게임 흐름을 시작합니다.");
+            GameFlow().Forget();
         }
     }
 
-    // [수정] Start 메서드는 더 이상 필요하지 않거나 다른 초기화 로직을 담을 수 있습니다.
-    private void Start()
+    /// <summary>
+    /// Fusion의 네트워크/물리 틱마다 호출됩니다. 게임 로직 처리에 적합합니다.
+    /// </summary>
+    public override void FixedUpdateNetwork()
     {
-        networkManager = NetworkManager.Instance;
+        if (!Object.HasStateAuthority) return;
+
+        if (phaseTimer.Expired(Runner))
+        {
+            phaseTimer = TickTimer.None;
+            switch (currentState)
+            {
+                case GameState.Prepare:
+                    StartCombatPhase();
+                    break;
+                case GameState.Combat:
+                    StartNextRound();
+                    break;
+            }
+        }
+        else if (currentState == GameState.Combat && !hasCombatBeenShortened && players.All(p => p != null && !p.IsActivelyFighting))
+        {
+            if (phaseTimer.RemainingTime(Runner) > 3f)
+            {
+                phaseTimer = TickTimer.CreateFromSeconds(Runner, 3f);
+                hasCombatBeenShortened = true;
+            }
+        }
     }
 
-    private void Update()
+    /// <summary>
+    /// 매 프레임 호출됩니다. 시각적 요소나 입력 처리, 그리고 변경 감지에 사용됩니다.
+    /// </summary>
+    public override void Render()
     {
+        // [수정] ChangeDetector를 사용하여 네트워크 변수의 변경을 감지합니다.
+        foreach (var propertyName in _changeDetector.DetectChanges(this))
+        {
+            // currentState 프로퍼티가 변경되었을 때
+            if (propertyName == nameof(currentState))
+            {
+                // 변경에 따른 로직을 처리하는 함수를 호출합니다.
+                OnGameStateChanged(currentState);
+            }
+        }
+
         if (CommandProcessor != null)
         {
             CommandProcessor.ProcessCommands();
@@ -99,183 +157,123 @@ public class GameManagers : MonoBehaviour
 
     private void OnEnable()
     {
-        SceneManager.sceneLoaded += OnSceneLoaded;
         GameEvents.OnAugmentApplied += HandleAugmentChosen;
     }
 
     private void OnDisable()
     {
-        SceneManager.sceneLoaded -= OnSceneLoaded;
         GameEvents.OnAugmentApplied -= HandleAugmentChosen;
     }
 
-    void OnSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        if (scene.name == "Game" || FindObjectOfType<GameSceneInitializer>() != null)
-        {
-            StopAllCoroutines();
-            // .Forget()은 UniTask의 확장 기능으로, 비동기 작업의 완료를 기다리지 않고 "일단 실행만 시키고 잊어버리는" 역할을 합니다. 오류가 발생해도 무시하므로, 반환값이 중요하지 않은 경우에 사용됩니다.
-            GameFlow().Forget();
-        }
-    }
-
-    // [수정] GameFlow 코루틴을 UniTask를 사용하는 비동기 메서드로 변경합니다.
+    /// <summary>
+    /// 호스트에서만 호출되는 게임 시작 및 설정 플로우입니다.
+    /// </summary>
     private async UniTask GameFlow()
     {
-        ChangeState(GameState.Setup);
-        // [수정] 이제 SetupPlayersAndGrids는 비동기 작업이므로 완료를 기다립니다.
+        currentState = GameState.Setup;
         await SetupPlayersAndGrids();
 
-        await SetupGameUI();
+        Rpc_SetupGameUI();
 
-        ChangeState(GameState.DataLoading);
-        await WaitForDataLoading();
+        currentState = GameState.DataLoading;
+        var loadingTasks = players.Select(p => p.shopManager.WaitUntilDatabaseLoaded());
+        await UniTask.WhenAll(loadingTasks);
+        Debug.Log("모든 데이터 로딩 완료. 첫 라운드를 시작합니다.");
 
-        StartCoroutine(GameLoop());
+        StartNextRound();
     }
 
-    // [수정] 로컬 생성에서 네트워크 스폰 방식으로 메서드 전체를 변경합니다.
     private async UniTask SetupPlayersAndGrids()
     {
-        var runner = NetworkManager.Instance._runner;
-        if (runner == null)
-        {
-            Debug.LogError("NetworkRunner가 없습니다! 셋업을 진행할 수 없습니다.");
-            return;
-        }
+        if (!Runner.IsServer) return;
 
-        // 이 로직은 호스트/서버만 실행하여 모든 객체를 생성합니다.
-        if (runner.IsServer)
-        {
-            Debug.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
-            players.Clear();
-            var playerRefs = runner.ActivePlayers.ToList();
-            playerCount = runner.SessionInfo.MaxPlayers; // 세션의 최대 플레이어 수로 설정
+        Debug.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
+        var playerRefs = Runner.ActivePlayers.ToList();
+        playerCount = Runner.SessionInfo.MaxPlayers;
 
-            for (int i = 0; i < playerCount; i++)
+        for (int i = 0; i < playerCount; i++)
+        {
+            Vector3 playerPosition = player1BasePosition + playerOffset * i;
+            bool isAI = i >= playerRefs.Count || (i < isAIPlayer.Length && isAIPlayer[i]);
+            PlayerRef inputAuthority = isAI ? PlayerRef.None : playerRefs[i];
+
+            NetworkObject gridNO = await Runner.SpawnAsync(gridPrefab, playerPosition, Quaternion.identity);
+            NetworkObject playerNO = await Runner.SpawnAsync(playerManagerPrefab, playerPosition, Quaternion.identity, inputAuthority);
+
+            NetworkPlayers.Set(i, playerNO);
+
+            PlayerManager newPlayer = playerNO.GetComponent<PlayerManager>();
+            if (newPlayer != null)
             {
-                Vector3 playerPosition = player1BasePosition + playerOffset * i;
+                newPlayer.Rpc_InitializePlayer(i, gridNO);
+            }
 
-                // 이 슬롯이 AI용인지, 실제 플레이어용인지 결정합니다.
-                bool isAI = i >= playerRefs.Count || (i < isAIPlayer.Length && isAIPlayer[i]);
-                PlayerRef inputAuthority = isAI ? PlayerRef.None : playerRefs[i];
-
-                // 그리드를 네트워크 객체로 스폰합니다.
-                NetworkObject gridNO = await runner.SpawnAsync(gridPrefab, playerPosition, Quaternion.identity);
-
-                // PlayerManager를 네트워크 객체로 스폰하고, 실제 플레이어에게 입력 권한을 부여합니다.
-                NetworkObject playerNO = await runner.SpawnAsync(playerManagerPrefab, playerPosition, Quaternion.identity, inputAuthority);
-
-                PlayerManager newPlayer = playerNO.GetComponent<PlayerManager>();
-                if (newPlayer != null)
-                {
-                    // 모든 클라이언트에서 초기화 로직이 실행되도록 RPC를 호출합니다.
-                    newPlayer.Rpc_InitializePlayer(i, gridNO);
-                }
-
-                // AI 관련 로직은 서버에만 존재합니다.
-                if (isAI)
-                {
-                    playerNO.name = $"Player {i + 1} (AI)";
-                    var aiController = playerNO.gameObject.AddComponent<AIPlayerController>();
-                    aiController.Initialize(newPlayer, this.CommandProcessor);
-                }
-                else
-                {
-                    playerNO.name = $"Player {i + 1}";
-                }
+            if (isAI)
+            {
+                playerNO.name = $"Player {i + 1} (AI)";
+                var aiController = playerNO.gameObject.AddComponent<AIPlayerController>();
+                aiController.Initialize(newPlayer, this.CommandProcessor);
+            }
+            else
+            {
+                playerNO.name = $"Player {i + 1}";
             }
         }
-
-        // 모든 클라이언트(호스트 포함)는 생성된 객체들을 찾아서 로컬 리스트에 연결해야 합니다.
-        await LinkSpawnedObjects();
+        
+        Rpc_LinkSpawnedObjects();
     }
 
-    /// <summary>
-    /// 모든 클라이언트에서 실행되어, 네트워크를 통해 생성된 PlayerManager 객체들을
-    /// 로컬 players 리스트에 연결하고 localPlayer를 설정합니다.
-    /// </summary>
-    private async UniTask LinkSpawnedObjects()
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void Rpc_LinkSpawnedObjects()
     {
         Debug.Log("생성된 네트워크 객체들을 연결하는 중...");
-        // 씬에 필요한 모든 PlayerManager가 스폰될 때까지 기다립니다.
-        while (FindObjectsOfType<PlayerManager>().Length < playerCount)
+        players.Clear();
+        foreach (var playerNO in NetworkPlayers)
         {
-            await UniTask.Yield();
+            if(playerNO != null)
+                players.Add(playerNO.GetComponent<PlayerManager>());
         }
 
-        // 모든 PlayerManager를 찾은 후, playerId를 기준으로 정렬하여 모든 클라이언트에서 동일한 순서를 보장합니다.
-        players = FindObjectsOfType<PlayerManager>().OrderBy(p => p.playerId).ToList();
+        localPlayer = players.FirstOrDefault(p => p != null && p.Object.HasInputAuthority);
 
-        // 각 클라이언트는 자신이 입력 권한을 가진 PlayerManager를 찾아 로컬 플레이어로 설정합니다.
-        localPlayer = players.FirstOrDefault(p => p.Object.HasInputAuthority);
-
-        // 상대방 참조를 설정합니다 (2인용 게임 기준).
         if (playerCount == 2 && players.Count == 2)
         {
             players[0].opponentManager = players[1];
             players[1].opponentManager = players[0];
         }
-
         Debug.Log($"객체 연결 완료. 총 {players.Count}명의 플레이어 발견. 로컬 플레이어: Player {localPlayer?.playerId}");
     }
 
-    // ... (이하 나머지 코드는 기존과 동일)
-
-    public GameState GetGameState() => currentState;
-    public PlayerManager GetPlayer(int id) => players.FirstOrDefault(p => p.playerId == id);
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void Rpc_SetupGameUI()
+    {
+        SetupGameUI().Forget();
+    }
 
     private async UniTask SetupGameUI()
     {
         try
         {
-            BuildDebugGUI.Instance.Log("<color=cyan>SetupGameUI: 시작</color>");
-            
             var shopPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
             var augmentPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
             var (shopPanelInstance, augmentPanelInstance) = await UniTask.WhenAll(shopPanelTask, augmentPanelTask);
 
             if (shopPanelInstance != null)
             {
-                BuildDebugGUI.Instance.Log("<color=green>Shop Panel 로드 성공</color>");
                 localPlayerShopUI = shopPanelInstance.GetComponent<ShopUIController>();
                 localPlayerShopUIGameObject = shopPanelInstance;
                 localPlayerShopUI.SetContentVisibility(false);
             }
-            else
-            {
-                BuildDebugGUI.Instance.Log("<color=red>Shop Panel 로드 실패 (null)</color>");
-            }
-
             if (augmentPanelInstance != null)
             {
-                BuildDebugGUI.Instance.Log("<color=green>Augment Panel 로드 성공</color>");
                 augmentSelectionUI = augmentPanelInstance.GetComponent<AugmentUIController>();
                 UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
-            }
-            else
-            {
-                BuildDebugGUI.Instance.Log("<color=red>Augment Panel 로드 실패 (null)</color>");
             }
         }
         catch (System.Exception ex)
         {
-            BuildDebugGUI.Instance.Log($"<color=red>CRITICAL ERROR in SetupGameUI: {ex.Message}</color>");
+            Debug.LogError($"UI 설정 중 심각한 에러 발생: {ex.Message}");
         }
-    }
-
-    private IEnumerator WaitForDataLoading()
-    {
-        if (players.Count == 0)
-        {
-            Debug.LogError("플레이어가 설정되지 않아 데이터 로딩을 시작할 수 없습니다.");
-            yield break;
-        }
-
-        Debug.Log("모든 플레이어의 데이터 로딩을 기다립니다...");
-        var loadingTasks = players.Select(p => p.shopManager.WaitUntilDatabaseLoaded());
-        yield return UniTask.WhenAll(loadingTasks).ToCoroutine();
-        Debug.Log("모든 데이터 로딩 완료. 게임 루프를 시작합니다.");
     }
 
     private void HandleAugmentChosen(PlayerManager selectingPlayer, AugmentData chosenAugment)
@@ -292,104 +290,128 @@ public class GameManagers : MonoBehaviour
         }
     }
 
-    private IEnumerator GameLoop()
+    private void StartNextRound()
     {
-        while (currentState != GameState.GameOver)
+        if (!Object.HasStateAuthority) return;
+        if (currentState == GameState.GameOver) return;
+
+        if (currentState != GameState.DataLoading)
         {
-            GameEvents.TriggerRoundStart(currentRound);
-            ChangeState(GameState.Prepare);
-
-            foreach (var player in players)
-            {
-                player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
-                player.shopManager.Reroll(true);
-            }
-
-            if (currentRound >= 1)
-            {
-                foreach (var player in players) player.augmentManager.PresentAugments();
-                if (augmentSelectionUI != null)
-                {
-                    if (localPlayerShopUIGameObject != null) localPlayerShopUIGameObject.SetActive(false);
-                    yield return UIManagers.Instance.GetUIElement("UI_Pnl_Augment").ToCoroutine();
-                    GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
-                }
-            }
-            else
-            {
-                if (localPlayerShopUI != null)
-                {
-                    localPlayerShopUIGameObject.SetActive(true);
-                    localPlayerShopUI.SetContentVisibility(true);
-                    localPlayerShopUI.UpdateShopSlots();
-                }
-            }
-
-            yield return StartCoroutine(PhaseTimerCoroutine(preparePhaseTime));
-
-            UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
-            if (localPlayerShopUIGameObject != null) localPlayerShopUI.SetContentVisibility(false);
-
-            if (currentState == GameState.GameOver) break;
-
-            ChangeState(GameState.Combat);
-            foreach (var player in players) player.monsterSpawner.SpawnWave(currentRound);
-
-            yield return StartCoroutine(PhaseTimerCoroutine(combatTime));
-            if (currentState == GameState.GameOver) break;
             currentRound++;
         }
-        Debug.Log("게임 루프가 종료되었습니다.");
-    }
-
-    private IEnumerator PhaseTimerCoroutine(float duration)
-    {
-        _currentPhaseTimer = duration;
-        while (_currentPhaseTimer > 0)
+        else
         {
-            _currentPhaseTimer -= Time.deltaTime;
-            if (currentState == GameState.Combat && !hasCombatBeenShortened && players.All(p => p != null && !p.IsActivelyFighting))
-            {
-                if (_currentPhaseTimer > 3f)
-                {
-                    _currentPhaseTimer = 3f;
-                    hasCombatBeenShortened = true;
-                }
-            }
-            if (currentState == GameState.GameOver) yield break;
-            yield return null;
+            currentRound = 1;
         }
-        _currentPhaseTimer = 0;
+
+        currentState = GameState.Prepare;
+
+        foreach (var player in players)
+        {
+            player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
+            player.shopManager.Reroll(true);
+        }
+        
+        if (currentRound >= 1)
+        {
+            foreach (var player in players) player.augmentManager.PresentAugments();
+        }
+        
+        phaseTimer = TickTimer.CreateFromSeconds(Runner, preparePhaseTime);
+    }
+    
+    private void StartCombatPhase()
+    {
+        if (!Object.HasStateAuthority) return;
+        if (currentState == GameState.GameOver) return;
+        
+        currentState = GameState.Combat;
+        hasCombatBeenShortened = false;
+
+        foreach (var player in players)
+        {
+            player.monsterSpawner.SpawnWave(currentRound);
+        }
+
+        phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
     }
 
-    public void ChangeState(GameState newState)
+    /// <summary>
+    /// [수정] ChangeDetector에 의해 호출되는 새로운 게임 상태 처리 함수입니다.
+    /// </summary>
+    private void OnGameStateChanged(GameState newState)
     {
-        if (currentState == newState) return;
-        currentState = newState;
         Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 ---");
-        if (newState == GameState.Combat) hasCombatBeenShortened = false;
+        
         GameEvents.TriggerGameStateChanged(newState);
+
+        HandleUIForNewState(newState).Forget();
     }
+
+    private async UniTask HandleUIForNewState(GameState newState)
+    {
+        if (localPlayer == null && !Runner.IsServer) return; // 로컬 플레이어가 아직 없으면 UI 처리 안함
+
+        switch (newState)
+        {
+            case GameState.Prepare:
+                if (currentRound >= 1)
+                {
+                    if (augmentSelectionUI != null)
+                    {
+                        if (localPlayerShopUIGameObject != null) localPlayerShopUIGameObject.SetActive(false);
+                        await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
+                        GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
+                    }
+                }
+                else
+                {
+                    if (localPlayerShopUI != null)
+                    {
+                        localPlayerShopUIGameObject.SetActive(true);
+                        localPlayerShopUI.SetContentVisibility(true);
+                        localPlayerShopUI.UpdateShopSlots();
+                    }
+                }
+                break;
+            case GameState.Combat:
+                UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+                if (localPlayerShopUIGameObject != null) localPlayerShopUI.SetContentVisibility(false);
+                break;
+            case GameState.GameOver:
+                PlayerManager winner = players.FirstOrDefault(p => p != null && p.GetHealth() > 0);
+                if (localPlayer != null && localPlayer.GetHealth() <= 0) await UIManagers.Instance.GetUIElement("UI_Pnl_Defeat");
+                else if (localPlayer == winner) await UIManagers.Instance.GetUIElement("UI_Pnl_Victory");
+                break;
+        }
+    }
+    
+    public GameState GetGameState() => currentState;
+    public PlayerManager GetPlayer(int id) => players.FirstOrDefault(p => p.playerId == id);
 
     public void OnMonsterReachedGoal(PlayerManager failedPlayer)
     {
-        if (currentState == GameState.GameOver) return;
-        failedPlayer.TakeDamage(1);
+        if (Runner.IsServer)
+        {
+             if (currentState == GameState.GameOver) return;
+             failedPlayer.TakeDamage(1);
+        }
     }
 
-    public async void GameOver(PlayerManager loser)
+    public void GameOver(PlayerManager loser)
     {
+        if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
+
         var alivePlayers = players.Where(p => p != null && p.GetHealth() > 0).ToList();
-        if (alivePlayers.Count > 1) return;
-
-        ChangeState(GameState.GameOver);
-        PlayerManager winner = alivePlayers.FirstOrDefault();
-        Debug.Log(winner != null ? $"게임 종료! 승자: Player {winner.playerId}" : "게임 종료! 무승부입니다.");
-        StopAllCoroutines();
-
-        if (localPlayer != null && localPlayer.GetHealth() <= 0) await UIManagers.Instance.GetUIElement("UI_Pnl_Defeat");
-        else if (localPlayer == winner) await UIManagers.Instance.GetUIElement("UI_Pnl_Victory");
+        if (alivePlayers.Count <= 1)
+        {
+            currentState = GameState.GameOver;
+            phaseTimer = TickTimer.None;
+            
+            PlayerManager winner = alivePlayers.FirstOrDefault();
+            Debug.Log(winner != null ? $"게임 종료! 승자: Player {winner.playerId}" : "게임 종료! 무승부입니다.");
+        }
     }
 
     private int GetInterest(int gold) => Mathf.Min(gold / 10, maxInterest);
@@ -415,6 +437,7 @@ public class GameManagers : MonoBehaviour
 
     void OnGUI()
     {
-        GUI.Label(new Rect(20, 270, 180, 40), $"현재 상태: {buildTestCheck}");
+        GUI.Label(new Rect(20, 270, 180, 40), $"현재 상태: {currentState}");
+        GUI.Label(new Rect(20, 290, 180, 40), $"남은 시간: {currentPhaseTimer:F1}");
     }
 }
