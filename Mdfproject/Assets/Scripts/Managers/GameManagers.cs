@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEngine.UI;
 using Cysharp.Threading.Tasks;
 using Fusion;
+using System.Threading.Tasks; // [추가됨] Task.Delay와 Task.WhenAny를 사용하기 위해 필요합니다.
 
 // MonoBehaviour 대신 NetworkBehaviour를 상속받아 네트워크 객체로 만듭니다.
 public class GameManagers : NetworkBehaviour
@@ -81,7 +82,6 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     public override void Spawned()
     {
-        Debug.Log("11111111111111111111111111111111111111");
         if (Instance == null)
         {
             Instance = this;
@@ -96,6 +96,7 @@ public class GameManagers : NetworkBehaviour
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
         networkManager = NetworkManager.Instance;
+        
 
         if (Object.HasStateAuthority)
         {
@@ -103,7 +104,6 @@ public class GameManagers : NetworkBehaviour
             GameFlow().Forget();
         }
 
-        // ▼▼▼ 2. Spawned가 성공적으로 호출되었으므로 플래그를 true로 설정합니다. ▼▼▼
         _isSpawned = true;
     }
 
@@ -142,13 +142,10 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     public override void Render()
     {
-        // [수정] ChangeDetector를 사용하여 네트워크 변수의 변경을 감지합니다.
         foreach (var propertyName in _changeDetector.DetectChanges(this))
         {
-            // currentState 프로퍼티가 변경되었을 때
             if (propertyName == nameof(currentState))
             {
-                // 변경에 따른 로직을 처리하는 함수를 호출합니다.
                 OnGameStateChanged(currentState);
             }
         }
@@ -180,11 +177,46 @@ public class GameManagers : NetworkBehaviour
         Rpc_SetupGameUI();
 
         currentState = GameState.DataLoading;
-        var loadingTasks = players.Select(p => p.shopManager.WaitUntilDatabaseLoaded());
-        await UniTask.WhenAll(loadingTasks);
-        Debug.Log("모든 데이터 로딩 완료. 첫 라운드를 시작합니다.");
+        
+        // ▼▼▼ [수정됨] 데이터 로딩 실패를 감지하기 위한 타임아웃 로직 추가 ▼▼▼
 
-        StartNextRound();
+        // 1. 각 플레이어의 데이터 로딩 작업을 Task 리스트로 변환합니다.
+        var loadingTasks = players
+            .Select(p => p.shopManager.WaitUntilDatabaseLoaded().AsTask())
+            .ToList();
+        
+        BuildDebugGUI.Instance.Log($"[GameFlow] {players.Count}명의 플레이어 데이터 로딩 시작. (15초 후 타임아웃)");
+
+        // 2. 15초짜리 타임아웃 Task를 생성합니다.
+        var timeoutTask = Task.Delay(15000); // 15초 (15000ms)
+
+        // 3. Task.WhenAny를 사용해 '모든 로딩이 완료되는 것'과 '타임아웃' 중 먼저 끝나는 것을 기다립니다.
+        var completedTask = await Task.WhenAny(Task.WhenAll(loadingTasks), timeoutTask);
+
+        // 4. 결과를 확인합니다.
+        if (completedTask == timeoutTask)
+        {
+            // 4-1. 만약 먼저 끝난 것이 타임아웃 Task라면, 로딩에 실패한 것입니다.
+            BuildDebugGUI.Instance.Log("<color=red>[GameFlow] 데이터 로딩 시간 초과! 게임을 시작할 수 없습니다.</color>");
+
+            // 어떤 플레이어의 로딩이 완료되지 않았는지 추적하여 로그를 남깁니다.
+            for(int i = 0; i < players.Count; i++)
+            {
+                if (!loadingTasks[i].IsCompleted)
+                {
+                    BuildDebugGUI.Instance.Log($"<color=red>[GameFlow] 로딩 실패 플레이어: Player {players[i].playerId}</color>");
+                }
+            }
+            // 여기서 게임 흐름을 중단하거나, 에러 UI를 띄우는 등의 처리를 할 수 있습니다.
+        }
+        else
+        {
+            // 4-2. 모든 로딩 작업이 정상적으로 끝난 경우입니다.
+            Debug.Log("모든 데이터 로딩 완료. 첫 라운드를 시작합니다.");
+            BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
+            StartNextRound();
+        }
+        // ▲▲▲ [수정 완료] 타임아웃 로직 끝 ▲▲▲
     }
 
     private async UniTask SetupPlayersAndGrids()
@@ -192,6 +224,7 @@ public class GameManagers : NetworkBehaviour
         if (!Runner.IsServer) return;
 
         Debug.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
+        BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
         var playerRefs = Runner.ActivePlayers.ToList();
         playerCount = Runner.SessionInfo.MaxPlayers;
 
@@ -231,10 +264,11 @@ public class GameManagers : NetworkBehaviour
     private void Rpc_LinkSpawnedObjects()
     {
         Debug.Log("생성된 네트워크 객체들을 연결하는 중...");
+        BuildDebugGUI.Instance.Log("생성된 네트워크 객체들을 연결하는 중...");
         players.Clear();
         foreach (var playerNO in NetworkPlayers)
         {
-            if(playerNO != null)
+            if (playerNO != null)
                 players.Add(playerNO.GetComponent<PlayerManager>());
         }
 
@@ -246,6 +280,7 @@ public class GameManagers : NetworkBehaviour
             players[1].opponentManager = players[0];
         }
         Debug.Log($"객체 연결 완료. 총 {players.Count}명의 플레이어 발견. 로컬 플레이어: Player {localPlayer?.playerId}");
+        BuildDebugGUI.Instance.Log("객체 연결 완료");
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -277,6 +312,7 @@ public class GameManagers : NetworkBehaviour
         catch (System.Exception ex)
         {
             Debug.LogError($"UI 설정 중 심각한 에러 발생: {ex.Message}");
+            BuildDebugGUI.Instance.Log("UI 설정 중 심각한 에러 발생");
         }
     }
 
@@ -340,9 +376,6 @@ public class GameManagers : NetworkBehaviour
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
     }
 
-    /// <summary>
-    /// [수정] ChangeDetector에 의해 호출되는 새로운 게임 상태 처리 함수입니다.
-    /// </summary>
     private void OnGameStateChanged(GameState newState)
     {
         Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 ---");
@@ -354,7 +387,7 @@ public class GameManagers : NetworkBehaviour
 
     private async UniTask HandleUIForNewState(GameState newState)
     {
-        if (localPlayer == null && !Runner.IsServer) return; // 로컬 플레이어가 아직 없으면 UI 처리 안함
+        if (localPlayer == null && !Runner.IsServer) return;
 
         switch (newState)
         {
@@ -443,7 +476,7 @@ public class GameManagers : NetworkBehaviour
     {
         if (!_isSpawned)
         {
-            return; // 아직 스폰되지 않았으면 아무것도 그리지 않고 함수를 종료합니다.
+            return;
         }
 
         GUI.Label(new Rect(20, 270, 180, 40), $"현재 상태: {currentState}");
