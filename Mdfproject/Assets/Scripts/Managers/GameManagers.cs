@@ -177,7 +177,14 @@ public class GameManagers : NetworkBehaviour
         currentState = GameState.Setup;
         await SetupPlayersAndGrids();
 
+        // [수정] 플레이어가 완전히 연결될 때까지 대기
+        await UniTask.WaitUntil(() => localPlayer != null && players.Count > 0);
+        Debug.Log($"플레이어 연결 완료. 로컬 플레이어: Player {localPlayer.playerId}, 총 플레이어 수: {players.Count}");
+
         Rpc_SetupGameUI();
+
+        // UI 설정이 완료될 때까지 잠시 대기
+        await UniTask.Delay(100);
 
         currentState = GameState.DataLoading;
         var loadingTasks = players.Select(p => p.shopManager.WaitUntilDatabaseLoaded());
@@ -189,11 +196,25 @@ public class GameManagers : NetworkBehaviour
 
     private async UniTask SetupPlayersAndGrids()
     {
-        if (!Runner.IsServer) return;
+        Debug.Log($"[SetupPlayersAndGrids] Runner.IsServer: {Runner.IsServer}, Runner.GameMode: {Runner.GameMode}");
+
+        if (!Runner.IsServer)
+        {
+            Debug.LogWarning("[SetupPlayersAndGrids] 서버가 아니므로 플레이어 생성을 건너뜁니다.");
+            return;
+        }
 
         Debug.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
         var playerRefs = Runner.ActivePlayers.ToList();
-        playerCount = Runner.SessionInfo.MaxPlayers;
+
+        // [수정] 싱글플레이 모드 지원: SessionInfo가 null일 수 있으므로 Inspector 값을 우선 사용
+        if (Runner.SessionInfo != null && Runner.SessionInfo.MaxPlayers > 0)
+        {
+            playerCount = Runner.SessionInfo.MaxPlayers;
+        }
+        // playerCount는 Inspector에서 설정된 값을 유지 (싱글플레이 모드에서 사용)
+
+        Debug.Log($"총 {playerCount}명의 플레이어 생성 예정 (현재 접속: {playerRefs.Count}명, 나머지는 AI)");
 
         for (int i = 0; i < playerCount; i++)
         {
@@ -217,13 +238,15 @@ public class GameManagers : NetworkBehaviour
                 playerNO.name = $"Player {i + 1} (AI)";
                 var aiController = playerNO.gameObject.AddComponent<AIPlayerController>();
                 aiController.Initialize(newPlayer, this.CommandProcessor);
+                Debug.Log($"✅ AI 플레이어 {i + 1} 생성 완료");
             }
             else
             {
                 playerNO.name = $"Player {i + 1}";
+                Debug.Log($"✅ 실제 플레이어 {i + 1} 생성 완료");
             }
         }
-        
+
         Rpc_LinkSpawnedObjects();
     }
 
@@ -238,7 +261,15 @@ public class GameManagers : NetworkBehaviour
                 players.Add(playerNO.GetComponent<PlayerManager>());
         }
 
+        // [수정] 싱글플레이 모드 지원: InputAuthority가 있는 플레이어를 찾고, 없으면 첫 번째 플레이어를 로컬 플레이어로 설정
         localPlayer = players.FirstOrDefault(p => p != null && p.Object.HasInputAuthority);
+
+        // 싱글플레이 모드(Shared 모드)에서는 모든 플레이어가 InputAuthority를 가지지 않을 수 있음
+        if (localPlayer == null && players.Count > 0)
+        {
+            localPlayer = players[0];
+            Debug.Log($"[싱글플레이 모드] 첫 번째 플레이어를 로컬 플레이어로 설정: Player {localPlayer.playerId}");
+        }
 
         if (playerCount == 2 && players.Count == 2)
         {
@@ -315,20 +346,20 @@ public class GameManagers : NetworkBehaviour
             player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
             player.shopManager.Reroll(true);
         }
-        
+
         if (currentRound >= 1)
         {
             foreach (var player in players) player.augmentManager.PresentAugments();
         }
-        
+
         phaseTimer = TickTimer.CreateFromSeconds(Runner, preparePhaseTime);
     }
-    
+
     private void StartCombatPhase()
     {
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
-        
+
         currentState = GameState.Combat;
         hasCombatBeenShortened = false;
 
@@ -346,7 +377,7 @@ public class GameManagers : NetworkBehaviour
     private void OnGameStateChanged(GameState newState)
     {
         Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 ---");
-        
+
         GameEvents.TriggerGameStateChanged(newState);
 
         HandleUIForNewState(newState).Forget();
@@ -354,7 +385,19 @@ public class GameManagers : NetworkBehaviour
 
     private async UniTask HandleUIForNewState(GameState newState)
     {
-        if (localPlayer == null && !Runner.IsServer) return; // 로컬 플레이어가 아직 없으면 UI 처리 안함
+        // [수정] 싱글플레이 모드 지원: 서버(호스트)이거나 로컬 플레이어가 있을 때만 UI 처리
+        if (localPlayer == null)
+        {
+            if (!Runner.IsServer)
+            {
+                return; // 클라이언트인데 로컬 플레이어가 없으면 UI 처리 안함
+            }
+            else
+            {
+                Debug.LogWarning("[HandleUIForNewState] 로컬 플레이어가 아직 설정되지 않았습니다. UI 처리를 건너뜁니다.");
+                return;
+            }
+        }
 
         switch (newState)
         {
@@ -389,7 +432,7 @@ public class GameManagers : NetworkBehaviour
                 break;
         }
     }
-    
+
     public GameState GetGameState() => currentState;
     public PlayerManager GetPlayer(int id) => players.FirstOrDefault(p => p.playerId == id);
 
@@ -412,7 +455,7 @@ public class GameManagers : NetworkBehaviour
         {
             currentState = GameState.GameOver;
             phaseTimer = TickTimer.None;
-            
+
             PlayerManager winner = alivePlayers.FirstOrDefault();
             Debug.Log(winner != null ? $"게임 종료! 승자: Player {winner.playerId}" : "게임 종료! 무승부입니다.");
         }
