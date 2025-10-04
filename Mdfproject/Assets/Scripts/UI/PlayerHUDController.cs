@@ -14,51 +14,45 @@ public class PlayerHUDController : MonoBehaviour
     // [추가] 초기화가 완료되었는지 확인하기 위한 플래그
     private bool isInitialized = false;
 
-    // [수정] Start() 메서드를 비워두거나 삭제합니다.
-    // void Start() { }
-
-    // [추가] Update() 메서드에서 초기화를 시도합니다.
-    void Update()
+    // OnEnable에서 이벤트를 구독합니다.
+    void OnEnable()
     {
-        // 아직 초기화되지 않았다면 매 프레임 초기화를 시도합니다.
-        if (!isInitialized)
+        GameEvents.OnGameManagersReady += Initialize;
+    }
+
+    // OnDisable에서 이벤트를 구독 해제합니다.
+    void OnDisable()
+    {
+        GameEvents.OnGameManagersReady -= Initialize;
+        if (isInitialized) // 초기화가 된 경우에만 다른 이벤트 구독 해제
         {
-            Initialize();
+            GameEvents.OnPlayerStatsChanged -= UpdatePlayerStats;
+            GameEvents.OnRoundStart -= UpdateRoundText;
         }
     }
 
-    // [추가] 초기화 로직을 별도의 메서드로 분리합니다.
+    // GameManagers가 준비되면 이 메서드가 호출됩니다.
     private void Initialize()
     {
+        if (isInitialized) return; // 중복 초기화 방지
+
         gameManager = GameManagers.Instance;
         if (gameManager != null)
         {
             localPlayer = gameManager.localPlayer;
             
-            // localPlayer도 GameManagers가 초기화된 후에 할당되므로, 여기서 한 번 더 확인합니다.
             if (localPlayer != null)
             {
-                // UI 초기값 설정
                 UpdatePlayerStats(localPlayer.playerId, localPlayer.GetHealth(), localPlayer.GetGold());
                 UpdateRoundText(gameManager.currentRound);
 
-                // 이벤트 구독
                 GameEvents.OnPlayerStatsChanged += UpdatePlayerStats;
                 GameEvents.OnRoundStart += UpdateRoundText;
 
-                // 초기화가 성공적으로 완료되었으므로 플래그를 true로 설정합니다.
                 isInitialized = true;
                 Debug.Log("PlayerHUDController 초기화 및 이벤트 구독 완료.");
             }
         }
-    }
-
-    // [수정] OnEnable/OnDisable을 Initialize와 분리하여 관리합니다.
-    void OnDisable()
-    {
-        // isInitialized 여부와 관계없이 항상 구독 해제를 시도하여 안전성을 높입니다.
-        GameEvents.OnPlayerStatsChanged -= UpdatePlayerStats;
-        GameEvents.OnRoundStart -= UpdateRoundText;
     }
 
     private void UpdatePlayerStats(int playerID, int newHealth, int newGold)

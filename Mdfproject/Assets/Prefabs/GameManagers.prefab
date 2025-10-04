@@ -11,7 +11,6 @@ GameObject:
   - component: {fileID: 1166691957424101726}
   - component: {fileID: 1166691957424101665}
   - component: {fileID: 1166691957424101667}
-  - component: {fileID: 1309829077933269741}
   m_Layer: 0
   m_Name: GameManagers
   m_TagString: Untagged
@@ -49,8 +48,8 @@ MonoBehaviour:
   _currentState: 0
   _currentRound: 0
   playerCount: 2
-  isAIPlayer: 00010000
-  players: []
+  isAIPlayer: 0000
+  _singlePlayerModeCount: 0
   localPlayer: {fileID: 0}
   playerManagerPrefab: {fileID: 5614185707068383334, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
@@ -87,17 +86,3 @@ MonoBehaviour:
   NetworkedBehaviours:
   - {fileID: 1166691957424101665}
   ForceRemoteRenderTimeframe: 0
---- !u!114 &1309829077933269741
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1166691957424101666}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 1541381998, guid: e725a070cec140c4caffb81624c8c787, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  Guid:
-    RawGuidValue: e632060e4786c87469cfbf29fea19915

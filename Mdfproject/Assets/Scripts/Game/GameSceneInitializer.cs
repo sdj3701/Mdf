@@ -26,6 +26,9 @@ public class GameSceneInitializer : MonoBehaviour
 
     async void Start()
     {
+        // 중복 등록 경고를 막기 위해 씬 시작 시 레지스트리를 초기화합니다.
+        ComponentRegistry.Clear();
+
         // NetworkManager가 이미 존재하면 멀티플레이 모드로 진입한 것이므로 초기화하지 않음
         if (NetworkManager.Instance != null && NetworkManager.Instance.IsGameRunnerActive)
         {
@@ -64,6 +67,7 @@ public class GameSceneInitializer : MonoBehaviour
         SceneRef sceneRef = SceneRef.FromIndex(currentSceneIndex);
 
         Debug.Log($"[GameSceneInitializer] 현재 씬: {currentScene.name} (빌드 인덱스: {currentSceneIndex})");
+        Debug.Log($"[GameSceneInitializer] 🎮 싱글플레이 모드 플레이어 수 설정: {singlePlayerCount}명");
 
         // [수정] Single 모드로 게임 시작 (완전한 오프라인 로컬 싱글플레이)
         var result = await _runner.StartGame(new StartGameArgs()
@@ -72,7 +76,7 @@ public class GameSceneInitializer : MonoBehaviour
             SessionName = "SinglePlayerSession",
             Scene = sceneRef, // 현재 씬을 명시적으로 지정
             SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
-            PlayerCount = singlePlayerCount
+            PlayerCount = singlePlayerCount // GameSceneInitializer의 설정을 따름
         });
 
         if (result.Ok)
@@ -120,6 +124,16 @@ public class GameSceneInitializer : MonoBehaviour
         if (spawnedGameManagers != null)
         {
             Debug.Log("[GameSceneInitializer] ✅ GameManagers 스폰 완료!");
+            
+            // 싱글플레이어 모드인 경우, GameManagers의 singlePlayerModeCount를 설정
+            if (_runner.GameMode == GameMode.Single)
+            {
+                var gameManagers = spawnedGameManagers.GetComponent<GameManagers>();
+                if (gameManagers != null)
+                {
+                    gameManagers.Rpc_SetSinglePlayerModeCount(singlePlayerCount);
+                }
+            }
         }
         else
         {

@@ -8,6 +8,10 @@ using UnityEngine;
 /// </summary>
 public static class GameEvents
 {
+    // --- 게임 매니저 준비 완료 이벤트 ---
+    public static event Action OnGameManagersReady;
+    public static void TriggerGameManagersReady() => OnGameManagersReady?.Invoke();
+
     // --- 게임 흐름 이벤트 ---
     public static event Action<GameManagers.GameState> OnGameStateChanged;
     public static void TriggerGameStateChanged(GameManagers.GameState newState) => OnGameStateChanged?.Invoke(newState);

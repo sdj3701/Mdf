@@ -64,6 +64,16 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // 전달받은 NetworkObject 참조로부터 그리드 게임오브젝트를 가져옵니다.
         GameObject gridInstance = gridNetworkObject.gameObject;
 
+        // --- 중복 등록 경고 해결 ---
+        // 1. Grid에 포함된 모든 TilemapController를 찾습니다.
+        var tilemapControllers = gridInstance.GetComponentsInChildren<TilemapController>();
+        foreach (var controller in tilemapControllers)
+        {
+            // 2. 각 컨트롤러에 플레이어 ID를 알려주어 고유 ID를 설정하게 합니다.
+            controller.SetPlayerOwner(this.playerId);
+        }
+        // -------------------------
+
         // --- 2. 그리드 내부의 구성 요소들을 찾고, 각각 성공 여부를 로그로 남깁니다. ---
         var allTilemaps = gridInstance.GetComponentsInChildren<Tilemap>();
         Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");

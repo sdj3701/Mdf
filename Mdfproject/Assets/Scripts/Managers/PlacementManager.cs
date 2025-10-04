@@ -28,7 +28,23 @@ public class PlacementManager : MonoBehaviour
     private PlayerManager playerManager;
     private FieldManager fieldManager;
     
-    private Camera playerCamera => GameAssets.Cameras.MainCamera;
+    private Camera _cachedPlayerCamera;
+    private Camera playerCamera
+    {
+        get
+        {
+            if (_cachedPlayerCamera == null)
+            {
+                _cachedPlayerCamera = GameAssets.Cameras.MainCamera;
+                if (_cachedPlayerCamera == null)
+                {
+                    // Fallback: Find the main camera directly if not registered in ComponentRegistry
+                    _cachedPlayerCamera = Camera.main;
+                }
+            }
+            return _cachedPlayerCamera;
+        }
+    }
     private readonly Plane gamePlane = new Plane(Vector3.forward, 0);
 
     void Awake()

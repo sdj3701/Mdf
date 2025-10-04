@@ -41,6 +41,7 @@ public class StatusBarUI : MonoBehaviour
 
     private bool isUnit = false;
     private bool isCombatPhase = false;
+    private bool isInitialized = false; // 초기화 플래그 추가
 
     private IHealth healthComponent;
     private IMana manaComponent;
@@ -57,25 +58,26 @@ public class StatusBarUI : MonoBehaviour
 
     private void OnEnable()
     {
+        GameEvents.OnGameManagersReady += Initialize;
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
 
     private void OnDisable()
     {
+        GameEvents.OnGameManagersReady -= Initialize;
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
 
         if (healthComponent != null) healthComponent.OnHealthChanged -= UpdateHealth;
         if (manaComponent != null) manaComponent.OnManaChanged -= UpdateMana;
     }
 
-    private void Start()
+    private void Initialize()
     {
-        if (GameManagers.Instance != null)
-        {
-            isCombatPhase = GameManagers.Instance.GetGameState() == GameManagers.GameState.Combat;
-        }
+        if (isInitialized) return;
+        if (GameManagers.Instance == null) return;
 
-        // 체력 바 설정
+        isCombatPhase = GameManagers.Instance.GetGameState() == GameManagers.GameState.Combat;
+
         healthComponent = GetComponentInParent<IHealth>();
         if (healthComponent != null)
         {
@@ -87,11 +89,9 @@ public class StatusBarUI : MonoBehaviour
             healthComponent.OnHealthChanged += UpdateHealth;
         }
 
-        // 마나 바 설정
         manaComponent = GetComponentInParent<IMana>();
         if (manaComponent != null)
         {
-            // [핵심 변경] MaxMana 값과 상관없이 우선 이벤트를 구독합니다.
             manaComponent.OnManaChanged += UpdateMana;
         }
         else
@@ -99,16 +99,11 @@ public class StatusBarUI : MonoBehaviour
             SetManaBarVisibility(false);
         }
 
-        // 유닛이 아닌 경우 (몬스터, 벽 등) 스킬 버튼을 확실히 비활성화합니다.
         if (!isUnit && skillButton != null)
         {
             skillButton.gameObject.SetActive(false);
         }
 
-        // [변경] Unit.cs에서 스탯 초기화 후 직접 호출하도록 변경되었으므로 Start에서 호출하지 않습니다.
-        //InitializeSkillButton();
-
-        // 캔버스 및 위치/스케일 설정
         Canvas canvas = GetComponent<Canvas>();
         if (canvas != null && canvas.renderMode == RenderMode.WorldSpace && canvas.worldCamera == null)
         {
@@ -127,6 +122,7 @@ public class StatusBarUI : MonoBehaviour
         }
 
         UpdateAllUIVisibility();
+        isInitialized = true;
     }
 
     private void HandleGameStateChanged(GameManagers.GameState newState)

@@ -74,7 +74,23 @@ public class FieldManager : MonoBehaviour
     private GameObject unitDetailPanelInstance;
     private Unit unitDisplayedInPanel;
 
-    private Camera playerCamera => GameAssets.Cameras.MainCamera;
+    private Camera _cachedPlayerCamera;
+    private Camera playerCamera
+    {
+        get
+        {
+            if (_cachedPlayerCamera == null)
+            {
+                _cachedPlayerCamera = GameAssets.Cameras.MainCamera;
+                if (_cachedPlayerCamera == null)
+                {
+                    // Fallback: Find the main camera directly if not registered in ComponentRegistry
+                    _cachedPlayerCamera = Camera.main;
+                }
+            }
+            return _cachedPlayerCamera;
+        }
+    }
 
     void Awake()
     {

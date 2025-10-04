@@ -125,12 +125,12 @@ public class AugmentManager : MonoBehaviour
             target = playerManager.opponentManager;
             // 2인 플레이가 아니어서 opponentManager가 설정되지 않은 경우(예: 3인 이상 게임),
             // 자신을 제외한 다른 플레이어 중 한 명을 무작위로 선택합니다.
-            if (target == null && GameManagers.Instance.playerCount > 1)
+            if (target == null && GameManagers.Instance.AllPlayers.Count() > 1)
             {
-                var otherPlayers = GameManagers.Instance.players.Where(p => p != playerManager).ToList();
+                var otherPlayers = GameManagers.Instance.AllPlayers.Where(p => p != playerManager).ToList();
                 if (otherPlayers.Any())
                 {
-                    target = otherPlayers[UnityEngine.Random.Range(0, otherPlayers.Count)];
+                    target = otherPlayers[(int)UnityEngine.Random.Range(0f, otherPlayers.Count)];
                 }
             }
         }
