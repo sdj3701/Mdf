@@ -11,68 +11,76 @@ public class PlayerHUDController : MonoBehaviour
     private PlayerManager localPlayer;
     private GameManagers gameManager;
 
-    // [추가] 초기화가 완료되었는지 확인하기 위한 플래그
-    private bool isInitialized = false;
-
-    // OnEnable에서 이벤트를 구독합니다.
     void OnEnable()
     {
-        GameEvents.OnGameManagersReady += Initialize;
+        // GameManagers가 준비될 때 이벤트를 구독합니다.
+        GameEvents.OnGameManagersReady += OnGameManagersReady;
     }
 
-    // OnDisable에서 이벤트를 구독 해제합니다.
     void OnDisable()
     {
-        GameEvents.OnGameManagersReady -= Initialize;
-        if (isInitialized) // 초기화가 된 경우에만 다른 이벤트 구독 해제
-        {
-            GameEvents.OnPlayerStatsChanged -= UpdatePlayerStats;
-            GameEvents.OnRoundStart -= UpdateRoundText;
-        }
+        // 이벤트 구독 해제
+        GameEvents.OnGameManagersReady -= OnGameManagersReady;
     }
 
-    // GameManagers가 준비되면 이 메서드가 호출됩니다.
-    private void Initialize()
+    void Start()
     {
-        if (isInitialized) return; // 중복 초기화 방지
-
-        gameManager = GameManagers.Instance;
-        if (gameManager != null)
+        // Start()에서도 시도해봅니다 (이미 준비되어 있을 수 있음)
+        if (gameManager == null)
+        {
+            gameManager = GameManagers.Instance;
+        }
+        if (gameManager != null && localPlayer == null)
         {
             localPlayer = gameManager.localPlayer;
-            
-            if (localPlayer != null)
-            {
-                UpdatePlayerStats(localPlayer.playerId, localPlayer.GetHealth(), localPlayer.GetGold());
-                UpdateRoundText(gameManager.currentRound);
-
-                GameEvents.OnPlayerStatsChanged += UpdatePlayerStats;
-                GameEvents.OnRoundStart += UpdateRoundText;
-
-                isInitialized = true;
-                Debug.Log("PlayerHUDController 초기화 및 이벤트 구독 완료.");
-            }
         }
     }
 
-    private void UpdatePlayerStats(int playerID, int newHealth, int newGold)
+    private void OnGameManagersReady()
     {
-        // localPlayer가 아직 설정되지 않았을 수 있으므로 null 체크를 추가합니다.
-        if (localPlayer != null && localPlayer.playerId == playerID)
+        // GameManagers가 준비되면 참조를 저장합니다.
+        if (gameManager == null)
         {
-            if (goldText != null)
+            gameManager = GameManagers.Instance;
+        }
+        if (gameManager != null && localPlayer == null)
+        {
+            localPlayer = gameManager.localPlayer;
+        }
+        Debug.Log("[PlayerHUDController] GameManagers 참조 획득 완료");
+    }
+
+    void Update()
+    {
+        // GameManager가 없으면 다시 시도합니다.
+        if (gameManager == null)
+        {
+            gameManager = GameManagers.Instance;
+            if (gameManager == null)
             {
-                goldText.text = newGold.ToString();
+                return;
             }
         }
-    }
-    
-    private void UpdateRoundText(int roundNumber)
-    {
+
+        // localPlayer가 없으면 다시 시도합니다.
+        if (localPlayer == null)
+        {
+            localPlayer = gameManager.localPlayer;
+            if (localPlayer == null)
+            {
+                return;
+            }
+        }
+
+        // 매 프레임 UI를 직접 업데이트합니다.
+        if (goldText != null)
+        {
+            goldText.text = localPlayer.GetGold().ToString();
+        }
+
         if (roundText != null)
         {
-            // 라운드가 0일 경우 "ROUND 1"로 표시되도록 보정할 수 있습니다.
-            roundText.text = $"ROUND\n{Mathf.Max(1, roundNumber)}";
+            roundText.text = $"ROUND\n{Mathf.Max(1, gameManager.currentRound)}";
         }
     }
 }
