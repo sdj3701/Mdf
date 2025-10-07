@@ -120,8 +120,9 @@ public class MonsterSpawner : MonoBehaviour
                 monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
                 ApplyOpponentDebuffs(monster);
 
-                Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.y));
-                Vector2Int endPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.y));
+                // [3D Migration] position.y → position.z
+                Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.z));
+                Vector2Int endPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
 
 
 
@@ -203,9 +204,9 @@ public class MonsterSpawner : MonoBehaviour
             // [수정] 몬스터에게 올바른 AstarGrid 인스턴스를 직접 전달합니다.
             monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
 
-            // [수정] startPos의 y좌표가 goalTransform을 잘못 참조하던 버그를 수정합니다.
-            Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.y));
-            Vector2Int endPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.y));
+            // [3D Migration] position.y → position.z
+            Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.z));
+            Vector2Int endPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
 
             if (pathfinder.FindPath(startPos, endPos))
             {

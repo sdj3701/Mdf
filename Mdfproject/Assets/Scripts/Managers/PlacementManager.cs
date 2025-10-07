@@ -71,25 +71,22 @@ public class PlacementManager : MonoBehaviour
     void Update()
     {
         // [추가] 타일맵 참조가 null일 경우 FieldManager로부터 가져옵니다.
-        // 이렇게 하면 FieldManager가 초기화된 이후에 안전하게 참조를 얻을 수 있습니다.
-        if (groundTilemap == null && fieldManager != null)
+        // 3D 모드에서는 Tilemap이 null일 수 있으므로 한 번만 시도
+        if (groundTilemap == null && obstacleTilemap == null && fieldManager != null)
         {
             groundTilemap = fieldManager.GroundTilemap;
-        }
-        if (obstacleTilemap == null && fieldManager != null)
-        {
             obstacleTilemap = fieldManager.ObstacleTilemap;
+            // 3D 모드면 둘 다 null일 수 있음
         }
 
-        if (currentMode == PlacementMode.None)
+        if (currentMode == PlacementMode.None || !showPreview) return;
+        
+        // [3D Migration] fieldManager가 초기화되었는지 확인
+        if (fieldManager == null || (obstacleTilemap == null && fieldManager.ground3D == null))
         {
-            if (previewObject != null && previewObject.activeSelf)
-                previewObject.SetActive(false);
-            return;
+            return; // 아직 초기화 안 됨
         }
         
-        if (obstacleTilemap == null || playerCamera == null) return;
-
         UpdateMousePosition();
         HandleMouseInput();
         if (showPreview)

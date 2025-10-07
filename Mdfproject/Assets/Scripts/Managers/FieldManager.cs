@@ -986,13 +986,23 @@ public class FieldManager : MonoBehaviour
         if (GameManagers.Instance == null)
         {
             // 아직 GameManagers가 준비되지 않았으면 아무것도 하지 않고 함수를 종료합니다.
-            Debug.Log("GameManagers.Instance 준비 안됨");
             return;
         }
         var gameState = GameManagers.Instance.GetGameState();
         if (gameState != GameManagers.GameState.Prepare && gameState != GameManagers.GameState.Combat) return;
 
-        if (playerCamera == null) return;
+        if (playerCamera == null)
+        {
+            Debug.LogWarning("[FieldManager] playerCamera is null!");
+            return;
+        }
+
+        // [3D Migration] 초기화 확인
+        if (ObstacleTilemap == null && ground3D == null)
+        {
+            Debug.LogWarning("[FieldManager] Both ObstacleTilemap and ground3D are null - not initialized yet!");
+            return;
+        }
 
         // [3D Migration] 마우스 월드 좌표 및 그리드 좌표 계산
         Vector3 mouseWorldPos = GetMouseWorldPosition();
