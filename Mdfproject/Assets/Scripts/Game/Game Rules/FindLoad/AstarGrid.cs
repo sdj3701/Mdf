@@ -5,9 +5,9 @@ using UnityEngine;
 public class AstarGrid : MonoBehaviour
 {
     [Header("그리드 설정 (로컬 오프셋)")]
-    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 왼쪽 아래 경계입니다.")]
+    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 왼쪽 아래 경계입니다. (X, Z 좌표)")]
     public Vector2Int bottomLeft;
-    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 오른쪽 위 경계입니다.")]
+    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 오른쪽 위 경계입니다. (X, Z 좌표)")]
     public Vector2Int topRight;
 
     [Header("레이어 및 비용 설정")]
@@ -37,13 +37,14 @@ public class AstarGrid : MonoBehaviour
     private Vector2Int worldTopRight;
 
     // ✅ [수정] Awake에서 public Initialize로 변경
+    // [3D Migration] transform.position.z를 사용하여 3D 공간의 x, z 좌표로 초기화
     public void Initialize()
     {
         // 이 컴포넌트가 깨어날 때, 자신의 월드 위치를 기준으로 실제 경계를 계산합니다.
-        // 이렇게 하면 GameManagers가 이 그리드를 어디에 생성하든 항상 올바른 경계를 갖게 됩니다.
+        // Vector2Int의 x는 3D의 x, y는 3D의 z를 의미합니다.
         Vector2Int gridOrigin = new Vector2Int(
             Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.y)
+            Mathf.FloorToInt(transform.position.z)  // [3D Migration] y → z
         );
         worldBottomLeft = gridOrigin + bottomLeft;
         worldTopRight = gridOrigin + topRight;
@@ -141,6 +142,8 @@ public class AstarGrid : MonoBehaviour
         {
             for (int j = 0; j < sizeY; j++)
             {
+                // [3D Migration] NodeArray[i,j].x는 3D의 x, .y는 3D의 z를 의미
+                // Physics2D는 유닛이 2D를 사용하므로 그대로 유지 (x, z를 x, y로 매핑)
                 Vector2 checkWorldPos = new Vector2(NodeArray[i, j].x + 0.5f, NodeArray[i, j].y + 0.5f);
                 bool isWall = Physics2D.OverlapCircle(checkWorldPos, detectionRadius, wallLayers);
                 NodeArray[i, j].isWall = isWall;
@@ -263,12 +266,22 @@ public class AstarGrid : MonoBehaviour
         if (!showDebugInfo) return;
 
         // ✅ [수정] 월드 좌표 경계를 기준으로 기즈모를 그립니다.
-        Vector2Int bottomLeftGizmo = Application.isPlaying ? worldBottomLeft : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + bottomLeft;
-        Vector2Int topRightGizmo = Application.isPlaying ? worldTopRight : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y)) + topRight;
+        // [3D Migration] Vector2Int의 x는 3D의 x, y는 3D의 z
+        Vector2Int bottomLeftGizmo = Application.isPlaying ? worldBottomLeft : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.z)) + bottomLeft;
+        Vector2Int topRightGizmo = Application.isPlaying ? worldTopRight : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.z)) + topRight;
 
         Gizmos.color = Color.cyan;
-        Vector3 center = new Vector3(bottomLeftGizmo.x + (topRightGizmo.x - bottomLeftGizmo.x) / 2f + 0.5f, bottomLeftGizmo.y + (topRightGizmo.y - bottomLeftGizmo.y) / 2f + 0.5f, 0);
-        Vector3 size = new Vector3(topRightGizmo.x - bottomLeftGizmo.x + 1, topRightGizmo.y - bottomLeftGizmo.y + 1, 0);
+        // [3D Migration] Y축은 0으로 고정, Z축 사용
+        Vector3 center = new Vector3(
+            bottomLeftGizmo.x + (topRightGizmo.x - bottomLeftGizmo.x) / 2f + 0.5f,
+            0,
+            bottomLeftGizmo.y + (topRightGizmo.y - bottomLeftGizmo.y) / 2f + 0.5f
+        );
+        Vector3 size = new Vector3(
+            topRightGizmo.x - bottomLeftGizmo.x + 1,
+            0.1f,  // Y축 두께
+            topRightGizmo.y - bottomLeftGizmo.y + 1
+        );
         Gizmos.DrawWireCube(center, size);
 
         if (NodeArray == null) return;
@@ -279,9 +292,10 @@ public class AstarGrid : MonoBehaviour
             {
                 if (NodeArray[i, j].isWall)
                 {
-                    Vector3 pos = new Vector3(NodeArray[i,j].x + 0.5f, NodeArray[i,j].y + 0.5f, 0);
+                    // [3D Migration] x는 그대로, y는 z로
+                    Vector3 pos = new Vector3(NodeArray[i,j].x + 0.5f, 0, NodeArray[i,j].y + 0.5f);
                     Gizmos.color = NodeArray[i, j].isBreakable ? new Color(1f, 0.5f, 0f, 0.7f) : new Color(1f, 0f, 0f, 0.7f);
-                    Gizmos.DrawCube(pos, Vector3.one * 0.8f);
+                    Gizmos.DrawCube(pos, new Vector3(0.8f, 0.1f, 0.8f));
                 }
             }
         }
@@ -291,8 +305,9 @@ public class AstarGrid : MonoBehaviour
             Gizmos.color = Color.green; // 몬스터의 현재 실제 경로
             for (int i = 0; i < FinalPath.Count - 1; i++)
             {
-                Vector3 from = new Vector3(FinalPath[i].x + 0.5f, FinalPath[i].y + 0.5f, 0);
-                Vector3 to = new Vector3(FinalPath[i + 1].x + 0.5f, FinalPath[i + 1].y + 0.5f, 0);
+                // [3D Migration] x는 그대로, y는 z로, Y축은 0.1로 살짝 띄움
+                Vector3 from = new Vector3(FinalPath[i].x + 0.5f, 0.1f, FinalPath[i].y + 0.5f);
+                Vector3 to = new Vector3(FinalPath[i + 1].x + 0.5f, 0.1f, FinalPath[i + 1].y + 0.5f);
                 Gizmos.DrawLine(from, to);
             }
         }
@@ -303,8 +318,9 @@ public class AstarGrid : MonoBehaviour
             Gizmos.color = Color.magenta; // AI가 참고하는 이상적인 경로
             for (int i = 0; i < IdealPathForAIDebug.Count - 1; i++)
             {
-                Vector3 from = new Vector3(IdealPathForAIDebug[i].x + 0.5f, IdealPathForAIDebug[i].y + 0.5f, 0);
-                Vector3 to = new Vector3(IdealPathForAIDebug[i + 1].x + 0.5f, IdealPathForAIDebug[i + 1].y + 0.5f, 0);
+                // [3D Migration] x는 그대로, y는 z로, Y축은 0.2로 더 띄움
+                Vector3 from = new Vector3(IdealPathForAIDebug[i].x + 0.5f, 0.2f, IdealPathForAIDebug[i].y + 0.5f);
+                Vector3 to = new Vector3(IdealPathForAIDebug[i + 1].x + 0.5f, 0.2f, IdealPathForAIDebug[i + 1].y + 0.5f);
                 Gizmos.DrawLine(from, to);
             }
         }

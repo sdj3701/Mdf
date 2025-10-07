@@ -28,9 +28,9 @@ MonoBehaviour:
   manaOnAttack: 0
   manaPerSecond: 5
   prefabsByStarLevel:
-  - Archer
-  - Archer
-  - Archer
+  - Knight
+  - Knight
+  - Knight
   skillsByStarLevel:
   - Skill_Heal
   - Skill_Heal

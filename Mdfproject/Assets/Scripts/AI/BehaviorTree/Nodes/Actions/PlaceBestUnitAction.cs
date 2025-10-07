@@ -115,10 +115,11 @@ namespace AI.BehaviorTree.Nodes.Actions
                 }
             }
 
-            Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(start.position.x), Mathf.FloorToInt(start.position.y));
-            Vector2Int goalPos = new Vector2Int(Mathf.FloorToInt(goal.position.x), Mathf.FloorToInt(goal.position.y));
+            // [3D Migration] position.y → position.z (3D 공간의 Z축 사용)
+            Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(start.position.x), Mathf.FloorToInt(start.position.z));
+            Vector2Int goalPos = new Vector2Int(Mathf.FloorToInt(goal.position.x), Mathf.FloorToInt(goal.position.z));
 
-            // Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - Start: {start.position} -> {startPos}, Goal: {goal.position} -> {goalPos}");
+            Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - Start: {start.position} -> {startPos}, Goal: {goal.position} -> {goalPos}");
 
             // 유닛이 없는 상태에서, 벽을 정상적으로 고려한 실제 몬스터 이동 경로를 계산합니다.
             bool pathFound = grid.FindPath(startPos, goalPos, false);

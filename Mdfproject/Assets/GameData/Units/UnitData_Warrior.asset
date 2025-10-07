@@ -28,9 +28,9 @@ MonoBehaviour:
   manaOnAttack: 15
   manaPerSecond: 5
   prefabsByStarLevel:
-  - Hero
-  - Hero
-  - Hero
+  - Knight
+  - Knight
+  - Knight
   skillsByStarLevel:
   - 
   - 

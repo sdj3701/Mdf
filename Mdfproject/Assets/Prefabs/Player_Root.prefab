@@ -339,6 +339,11 @@ MonoBehaviour:
     type: 3}
   skillRangeIndicatorPrefab: {fileID: 6707416124263797107, guid: 53ef04ccc8fd56d4e904555c7c4b7449,
     type: 3}
+  gridOrigin: {x: 0, y: 0, z: 0}
+  cellSize: 1
+  gridSize: {x: 8, y: 7}
+  groundYOffset: 0.5
+  wallYOffset: 1
 --- !u!114 &5614185707629608620
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -75,9 +75,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // -------------------------
 
         // --- 2. 그리드 내부의 구성 요소들을 찾고, 각각 성공 여부를 로그로 남깁니다. ---
+        // [3D Migration] Tilemap과 3D Ground 모두 지원
         var allTilemaps = gridInstance.GetComponentsInChildren<Tilemap>();
         Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
         Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
+        
+        // 3D Ground 오브젝트 찾기 (Tilemap이 없을 경우)
+        GameObject ground3D = gridInstance.transform.Find("Ground")?.gameObject;
+        if (ground3D == null)
+        {
+            // 다른 이름도 시도
+            ground3D = gridInstance.transform.Find("Field")?.gameObject;
+        }
+        
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
         this.spawnPoint = gridInstance.transform.Find("SpawnPoint");
         this.goalTransform = gridInstance.transform.Find("Goal");
@@ -85,6 +95,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // 각 컴포넌트/오브젝트를 찾았는지 확인하는 로그
         Debug.Log($"[Player {playerId}]: Ground Tilemap 찾음? -> {(groundTilemap != null)}");
         Debug.Log($"[Player {playerId}]: BreakWall Tilemap 찾음? -> {(obstacleTilemap != null)}");
+        Debug.Log($"[Player {playerId}]: 3D Ground 찾음? -> {(ground3D != null)}");
         Debug.Log($"[Player {playerId}]: AstarGrid 찾음? -> {(this.astarGrid != null)}");
         Debug.Log($"[Player {playerId}]: SpawnPoint 찾음? -> {(this.spawnPoint != null)}");
         Debug.Log($"[Player {playerId}]: Goal 찾음? -> {(this.goalTransform != null)}");
@@ -100,7 +111,24 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         // 하위 매니저 초기화
-        if (fieldManager) fieldManager.Initialize(this, groundTilemap, obstacleTilemap);
+        // [3D Migration] 3D Ground가 있으면 3D 모드로, 없으면 2D Tilemap 모드로 초기화
+        if (fieldManager)
+        {
+            if (ground3D != null)
+            {
+                Debug.Log($"[Player {playerId}]: FieldManager를 3D 모드로 초기화합니다.");
+                fieldManager.Initialize(this, ground3D);
+            }
+            else if (groundTilemap != null && obstacleTilemap != null)
+            {
+                Debug.Log($"[Player {playerId}]: FieldManager를 2D Tilemap 모드로 초기화합니다.");
+                fieldManager.Initialize(this, groundTilemap, obstacleTilemap);
+            }
+            else
+            {
+                Debug.LogError($"[Player {playerId}]: FieldManager 초기화 실패 - Ground 오브젝트나 Tilemap을 찾을 수 없습니다!");
+            }
+        }
         if (shopManager) shopManager.playerManager = this;
         
         if (monsterSpawner)

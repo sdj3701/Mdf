@@ -47,18 +47,16 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _currentState: 0
   _currentRound: 0
-  playerCount: 2
-  isAIPlayer: 0000
   _singlePlayerModeCount: 0
   localPlayer: {fileID: 0}
   playerManagerPrefab: {fileID: 5614185707068383334, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
-  gridPrefab: {fileID: 7721388087672272711, guid: 02503b93bf979f74ebb624163dc2e873,
+  gridPrefab: {fileID: 4893606957262395073, guid: 23db93d9dcd62b140b715dc66412d301,
     type: 3}
   defaultMonsterPrefab: {fileID: 2020015458557610380, guid: 4ae077da17a50f048a4009c3a41f2705,
     type: 3}
   player1BasePosition: {x: 0, y: 0, z: 0}
-  playerOffset: {x: 0, y: -10, z: 0}
+  playerOffset: {x: 0, y: 0, z: -10}
   preparePhaseTime: 15
   combatTime: 20
   baseGoldPerRound: 5
