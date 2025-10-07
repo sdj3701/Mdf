@@ -77,6 +77,16 @@ public class FieldManager : MonoBehaviour
     // 유닛 클릭/드래그 및 상세 정보 패널 관련 변수
     private float mouseDownTimer;
     private const float dragDelay = 0.2f; // 0.2초 이상 누르면 드래그 시작
+    [Header("드래그 설정")]
+    [Tooltip("드래그 중 유닛이 떠오르는 높이(Y)")]
+    public float dragLiftHeight = 3f;
+    [Tooltip("드래그 중 마우스를 따라가는 보간 속도")]
+    public float dragFollowSpeed = 20f;
+    [Tooltip("유닛을 드래그 시작으로 인식할 최대 스크린 거리(픽셀)")]
+    public float dragPickMaxScreenDistance = 80f;
+    // 드래그 상태 값 (3D용)
+    private float dragBaseY;           // 드래그 시작 시의 기준 Y 값
+    private Vector2 offsetXZ;          // 마우스 대비 유닛의 XZ 평면 오프셋
 
     // AI 배치 디버그용 변수들
     private Dictionary<Vector3Int, float> _debugTileScores = new Dictionary<Vector3Int, float>();
@@ -112,6 +122,53 @@ public class FieldManager : MonoBehaviour
             }
             return _cachedPlayerCamera;
         }
+    }
+
+    /// <summary>
+    /// 쿼터뷰 등 기울어진 카메라에서, 화면상의 마우스와 가장 겹쳐 보이는 그리드 셀을 찾습니다.
+    /// 기준은 각 셀 중심의 스크린 좌표와 현재 마우스 스크린 좌표 간의 거리입니다.
+    /// </summary>
+    private Vector3Int GetBestGridUnderMouse(int searchRadius = 2)
+    {
+        // 마우스 위치 기반 초깃값
+        Vector3 mouseWorld = GetMouseWorldPosition();
+        Vector2 mouseScreen = Input.mousePosition;
+        Vector3Int guess = WorldToGridInt(mouseWorld);
+
+        float bestDist = float.MaxValue;
+        Vector3Int best = guess;
+
+        // 주변 후보 탐색 (작은 반경)
+        for (int dy = -searchRadius; dy <= searchRadius; dy++)
+        {
+            for (int dx = -searchRadius; dx <= searchRadius; dx++)
+            {
+                int gx = guess.x + dx;
+                int gy = guess.y + dy;
+                if (gx < 0 || gy < 0 || gx >= gridSize.x || gy >= gridSize.y) continue;
+
+                var cell = new Vector3Int(gx, gy, 0);
+                Vector3 center;
+                if (ObstacleTilemap != null)
+                {
+                    center = ObstacleTilemap.CellToWorld(cell) + (ObstacleTilemap.cellSize * 0.5f);
+                }
+                else
+                {
+                    center = GridToWorld(cell, checkForWall: true);
+                }
+
+                Vector3 centerScreen = playerCamera.WorldToScreenPoint(center);
+                float dist = Vector2.SqrMagnitude((Vector2)centerScreen - mouseScreen);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    best = cell;
+                }
+            }
+        }
+
+        return best;
     }
 
     void Awake()
@@ -981,6 +1038,61 @@ public class FieldManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 마우스 아래의 유닛을 찾습니다. 3D Raycast를 우선 시도하고, 실패 시 2D Physics로 폴백합니다.
+    /// </summary>
+    private Unit GetUnitUnderMouse()
+    {
+        if (playerCamera == null) return null;
+
+        // 3D Raycast (쿼터뷰/3D 환경용)
+        Ray ray = playerCamera.ScreenPointToRay(Input.mousePosition);
+        if (Physics.Raycast(ray, out RaycastHit hit, 1000f))
+        {
+            var unit3D = hit.collider.GetComponentInParent<Unit>();
+            if (unit3D != null) return unit3D;
+        }
+
+        // 2D Overlap (2D Collider 유지 환경 폴백)
+        Vector3 sp = playerCamera.ScreenToWorldPoint(Input.mousePosition);
+        Vector2 p2 = new Vector2(sp.x, sp.y);
+        var hit2D = Physics2D.OverlapPoint(p2);
+        if (hit2D != null)
+        {
+            var unit2D = hit2D.GetComponentInParent<Unit>();
+            if (unit2D != null) return unit2D;
+        }
+
+        // 스크린 공간 기반 근사: 마우스와 가장 가까운 유닛 선택
+        if (placedUnits.Count > 0)
+        {
+            Vector2 mouseScreen = Input.mousePosition;
+            float thresholdSq = dragPickMaxScreenDistance * dragPickMaxScreenDistance;
+            Unit bestUnit = null;
+            float bestDistSq = thresholdSq;
+
+            foreach (var unit in placedUnits.Values)
+            {
+                if (unit == null) continue;
+                Vector3 unitScreen = playerCamera.WorldToScreenPoint(unit.transform.position);
+                Vector2 delta = (Vector2)unitScreen - mouseScreen;
+                float distSq = delta.sqrMagnitude;
+                if (distSq <= bestDistSq)
+                {
+                    bestDistSq = distSq;
+                    bestUnit = unit;
+                }
+            }
+
+            if (bestUnit != null)
+            {
+                return bestUnit;
+            }
+        }
+
+        return null;
+    }
+
     private void HandleUnitDragAndDrop()
     {
         if (GameManagers.Instance == null)
@@ -1011,7 +1123,8 @@ public class FieldManager : MonoBehaviour
         // 마우스 버튼을 눌렀을 때
         if (Input.GetMouseButtonDown(0))
         {
-            Unit clickedUnit = placedUnits.ContainsKey(gridPos) ? placedUnits[gridPos] : null;
+            // 셀 기반이 아니라 실제 유닛 콜라이더를 클릭해야 드래그 시작
+            Unit clickedUnit = GetUnitUnderMouse();
 
             // 패널이 열려있는 상태에서
             if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
@@ -1043,16 +1156,18 @@ public class FieldManager : MonoBehaviour
                 isDragStarted = false;
                 // [3D Migration] 유닛의 현재 위치를 그리드 좌표로 변환
                 originalUnitPosition = WorldToGridInt(selectedUnit.transform.position);
-                offset = selectedUnit.transform.position - mouseWorldPos;
+                // 3D 드래그를 위한 XZ 오프셋 및 기준 Y 저장
+                dragBaseY = selectedUnit.transform.position.y;
+                offsetXZ = new Vector2(
+                    selectedUnit.transform.position.x - mouseWorldPos.x,
+                    selectedUnit.transform.position.z - mouseWorldPos.z
+                );
             }
         }
 
         // 마우스 버튼을 누르고 있을 때
         if (Input.GetMouseButton(0) && selectedUnit != null)
         {
-            // 드래그 상태와 관계없이 유닛 미리보기 위치를 부드럽게 업데이트합니다.
-            selectedUnit.transform.position = new Vector3(mouseWorldPos.x + offset.x, mouseWorldPos.y + offset.y, selectedUnit.transform.position.z);
-
             // 아직 드래그가 시작되지 않았다면, 타이머를 확인하여 드래그 상태로 전환할지 결정합니다.
             if (!isDragStarted)
             {
@@ -1073,6 +1188,19 @@ public class FieldManager : MonoBehaviour
                     }
                 }
             }
+            else
+            {
+                // 드래그 중: 유닛이 마우스를 부드럽게 따라감 (XZ는 마우스, Y는 들어올림)
+                float targetX = mouseWorldPos.x + offsetXZ.x;
+                float targetZ = mouseWorldPos.z + offsetXZ.y;
+                float targetY = dragBaseY + dragLiftHeight;
+                Vector3 targetPos = new Vector3(targetX, targetY, targetZ);
+                selectedUnit.transform.position = Vector3.Lerp(
+                    selectedUnit.transform.position,
+                    targetPos,
+                    Time.deltaTime * dragFollowSpeed
+                );
+            }
         }
 
         // 마우스 버튼을 뗐을 때
@@ -1080,10 +1208,14 @@ public class FieldManager : MonoBehaviour
         {
             if (isDragStarted)
             {
-                // 드래그 종료 로직 (기존과 동일)
-                if (placementManager.IsPositionValidForPlacement(gridPos, selectedUnit.Data))
+                // 드래그 종료: 화면상 마우스와 가장 겹쳐 보이는 셀을 최종 선택
+                Vector3Int bestGrid = GetBestGridUnderMouse();
+                bestGrid.x = Mathf.Clamp(bestGrid.x, 0, gridSize.x - 1);
+                bestGrid.y = Mathf.Clamp(bestGrid.y, 0, gridSize.y - 1);
+
+                if (placementManager.IsPositionValidForPlacement(bestGrid, selectedUnit.Data))
                 {
-                    var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, gridPos);
+                    var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
                     GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
                 }
                 else

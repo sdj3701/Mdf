@@ -344,6 +344,9 @@ MonoBehaviour:
   gridSize: {x: 8, y: 7}
   groundYOffset: 0.5
   wallYOffset: 1
+  dragLiftHeight: 0
+  dragFollowSpeed: 20
+  dragPickMaxScreenDistance: 80
 --- !u!114 &5614185707629608620
 MonoBehaviour:
   m_ObjectHideFlags: 0
