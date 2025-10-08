@@ -31,15 +31,35 @@ public class GameManagers : NetworkBehaviour
 
     public float currentPhaseTimer => phaseTimer.IsRunning ? phaseTimer.RemainingTime(Runner) ?? 0f : 0f;
 
-    [Range(1, 4)]
-    public int playerCount = 2;
-    public bool[] isAIPlayer = new bool[4] { false, true, false, false };
+    // 세션은 항상 4명 (Inspector 설정 제거)
+    private const int MAX_PLAYERS = 4;
 
     [Networked, Capacity(4)]
     private NetworkArray<NetworkObject> NetworkPlayers { get; }
 
-    [HideInInspector] public List<PlayerManager> players = new List<PlayerManager>();
+    // 싱글플레이어 모드에서 사용할 플레이어 수 (GameSceneInitializer에서 설정)
+    [Networked]
+    public int singlePlayerModeCount { get; set; }
+
     [HideInInspector] public PlayerManager localPlayer;
+    
+    // 플레이어 데이터가 모두 준비되었을 때 발생시키는 이벤트
+    public static System.Action OnPlayersDataReady;
+
+    public IEnumerable<PlayerManager> AllPlayers
+    {
+        get
+        {
+            if (NetworkPlayers.Length == 0) yield break;
+            foreach (var playerNO in NetworkPlayers)
+            {
+                if (playerNO != null && playerNO.TryGetComponent<PlayerManager>(out var playerManager))
+                {
+                    yield return playerManager;
+                }
+            }
+        }
+    }
     #endregion
 
     [Header("생성할 프리팹 (NetworkObject 필수)")]
@@ -73,9 +93,9 @@ public class GameManagers : NetworkBehaviour
     private GameObject localPlayerShopUIGameObject;
     private AugmentUIController augmentSelectionUI;
     private NetworkManager networkManager;
+    private bool _isSpawned;
 
     private bool hasCombatBeenShortened = false;
-    private bool _isSpawned = false;
 
     /// <summary>
     /// 이 NetworkBehaviour가 네트워크 상에 스폰될 때 Fusion에 의해 호출됩니다.
@@ -105,6 +125,8 @@ public class GameManagers : NetworkBehaviour
         }
 
         _isSpawned = true;
+        // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
+        GameEvents.TriggerGameManagersReady();
     }
 
     /// <summary>
@@ -127,7 +149,7 @@ public class GameManagers : NetworkBehaviour
                     break;
             }
         }
-        else if (currentState == GameState.Combat && !hasCombatBeenShortened && players.All(p => p != null && !p.IsActivelyFighting))
+        else if (currentState == GameState.Combat && !hasCombatBeenShortened && AllPlayers.All(p => p != null && !p.IsActivelyFighting))
         {
             if (phaseTimer.RemainingTime(Runner) > 3f)
             {
@@ -172,70 +194,173 @@ public class GameManagers : NetworkBehaviour
     private async UniTask GameFlow()
     {
         currentState = GameState.Setup;
+        
         await SetupPlayersAndGrids();
+
+        // [수정] 플레이어가 완전히 연결될 때까지 대기
+        await UniTask.WaitUntil(() => localPlayer != null && AllPlayers.Any());
+        Debug.Log($"플레이어 연결 완료. 로컬 플레이어: Player {localPlayer.playerId}, 총 플레이어 수: {AllPlayers.Count()}");
 
         Rpc_SetupGameUI();
 
-        currentState = GameState.DataLoading;
-        
-        // ▼▼▼ [수정됨] 데이터 로딩 실패를 감지하기 위한 타임아웃 로직 추가 ▼▼▼
+        // UI 설정이 완료될 때까지 잠시 대기
+        await UniTask.Delay(100);
 
-        // 1. 각 플레이어의 데이터 로딩 작업을 Task 리스트로 변환합니다.
-        var loadingTasks = players
+        currentState = GameState.DataLoading;
+
+        // 데이터 로딩 실패를 감지하기 위한 타임아웃 로직 (15초)
+        var playersList = AllPlayers.ToList();
+        var loadingTasks = playersList
             .Select(p => p.shopManager.WaitUntilDatabaseLoaded().AsTask())
             .ToList();
-        
-        BuildDebugGUI.Instance.Log($"[GameFlow] {players.Count}명의 플레이어 데이터 로딩 시작. (15초 후 타임아웃)");
 
-        // 2. 15초짜리 타임아웃 Task를 생성합니다.
+        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"[GameFlow] {playersList.Count}명의 플레이어 데이터 로딩 시작. (15초 후 타임아웃)");
+
         var timeoutTask = Task.Delay(15000); // 15초 (15000ms)
-
-        // 3. Task.WhenAny를 사용해 '모든 로딩이 완료되는 것'과 '타임아웃' 중 먼저 끝나는 것을 기다립니다.
         var completedTask = await Task.WhenAny(Task.WhenAll(loadingTasks), timeoutTask);
 
-        // 4. 결과를 확인합니다.
         if (completedTask == timeoutTask)
         {
-            // 4-1. 만약 먼저 끝난 것이 타임아웃 Task라면, 로딩에 실패한 것입니다.
-            BuildDebugGUI.Instance.Log("<color=red>[GameFlow] 데이터 로딩 시간 초과! 게임을 시작할 수 없습니다.</color>");
+            if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("<color=red>[GameFlow] 데이터 로딩 시간 초과! 게임을 시작할 수 없습니다.</color>");
 
-            // 어떤 플레이어의 로딩이 완료되지 않았는지 추적하여 로그를 남깁니다.
-            for(int i = 0; i < players.Count; i++)
+            for (int i = 0; i < playersList.Count; i++)
             {
                 if (!loadingTasks[i].IsCompleted)
                 {
-                    BuildDebugGUI.Instance.Log($"<color=red>[GameFlow] 로딩 실패 플레이어: Player {players[i].playerId}</color>");
+                    if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"<color=red>[GameFlow] 로딩 실패 플레이어: Player {playersList[i].playerId}</color>");
                 }
             }
-            // 여기서 게임 흐름을 중단하거나, 에러 UI를 띄우는 등의 처리를 할 수 있습니다.
+            // 데이터 로딩 실패 시, 게임 흐름을 중단합니다.
+            return;
         }
         else
         {
-            // 4-2. 모든 로딩 작업이 정상적으로 끝난 경우입니다.
             Debug.Log("모든 데이터 로딩 완료. 첫 라운드를 시작합니다.");
-            BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
+            if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
+
+            // 싱글플레이어 모드에서는 singlePlayerModeCount를 기반으로 실제 게임 로직에 반영
+            if (Runner.GameMode == GameMode.Single)
+            {
+                var allPlayersList = playersList;
+                if (singlePlayerModeCount >= 2)
+                {
+                    for (int i = 0; i < singlePlayerModeCount; i++)
+                    {
+                        if (i < allPlayersList.Count && (i + 1) < allPlayersList.Count)
+                        {
+                            allPlayersList[i].opponentManager = allPlayersList[i + 1];
+                            allPlayersList[i + 1].opponentManager = allPlayersList[i];
+                        }
+                    }
+                }
+            }
+
             StartNextRound();
         }
-        // ▲▲▲ [수정 완료] 타임아웃 로직 끝 ▲▲▲
     }
 
     private async UniTask SetupPlayersAndGrids()
     {
-        if (!Runner.IsServer) return;
+        Debug.Log($"[SetupPlayersAndGrids] Runner.IsServer: {Runner.IsServer}, Runner.GameMode: {Runner.GameMode}");
+
+        if (!Runner.IsServer)
+        {
+            Debug.LogWarning("[SetupPlayersAndGrids] 서버가 아니므로 플레이어 생성을 건너뜁니다.");
+            return;
+        }
 
         Debug.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
-        BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
+        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
         var playerRefs = Runner.ActivePlayers.ToList();
-        playerCount = Runner.SessionInfo.MaxPlayers;
 
-        for (int i = 0; i < playerCount; i++)
+        // 플레이어 생성 수 및 AI 설정 결정
+        int playersToCreate;
+        bool[] isAIPlayer = new bool[MAX_PLAYERS];
+        
+        if (Runner.GameMode == GameMode.Single)
+        {
+            // 싱글플레이 모드: GameSceneInitializer에서 직접 가져오기
+            var initializer = FindObjectOfType<GameSceneInitializer>();
+            if (initializer != null)
+            {
+                playersToCreate = initializer.singlePlayerCount;
+                singlePlayerModeCount = playersToCreate; // 네트워크 동기화
+                Debug.Log($"[싱글플레이 모드] GameSceneInitializer에서 플레이어 수 가져옴: {playersToCreate}명");
+            }
+            else
+            {
+                // GameSceneInitializer가 없으면 singlePlayerModeCount 사용 (멀티플레이에서 Single 모드로 전환 시)
+                playersToCreate = singlePlayerModeCount > 0 ? singlePlayerModeCount : 2;
+                Debug.Log($"[싱글플레이 모드] singlePlayerModeCount 사용: {playersToCreate}명");
+            }
+            
+            Debug.Log($"[싱글플레이 모드] {playersToCreate}명 생성 (0번=로컬, 나머지=AI)");
+            
+            // 0번은 로컬 플레이어, 나머지는 AI
+            for (int i = 0; i < MAX_PLAYERS; i++)
+            {
+                isAIPlayer[i] = (i >= playersToCreate) ? false : (i > 0); // i=0은 로컬, i>0은 AI
+            }
+        }
+        else
+        {
+            // 멀티플레이 모드: 항상 4명, 접속 안한 슬롯은 AI
+            playersToCreate = MAX_PLAYERS;
+            
+            Debug.Log($"[멀티플레이 모드] 4명 생성 (접속: {playerRefs.Count}명, AI: {MAX_PLAYERS - playerRefs.Count}명)");
+            
+            // 실제 접속한 플레이어 수만큼은 실제 플레이어, 나머지는 AI
+            for (int i = 0; i < MAX_PLAYERS; i++)
+            {
+                isAIPlayer[i] = (i >= playerRefs.Count);
+            }
+        }
+        
+        Debug.Log($"총 {playersToCreate}명의 플레이어 생성 예정 (현재 접속: {playerRefs.Count}명)");
+
+        for (int i = 0; i < playersToCreate; i++)
         {
             Vector3 playerPosition = player1BasePosition + playerOffset * i;
-            bool isAI = i >= playerRefs.Count || (i < isAIPlayer.Length && isAIPlayer[i]);
-            PlayerRef inputAuthority = isAI ? PlayerRef.None : playerRefs[i];
+            bool isAI = isAIPlayer[i];
+            PlayerRef inputAuthority = PlayerRef.None;
 
+            if (!isAI && i < playerRefs.Count)
+            {
+                // 실제 접속한 플레이어에게 InputAuthority 부여
+                inputAuthority = playerRefs[i];
+            }
+
+            Debug.Log($"🎮 Player {i} 생성 시작 - AI: {isAI}, Position: {playerPosition}, InputAuthority: {inputAuthority}");
+            
+            // Prefab 유효성 검사
+            if (gridPrefab == null)
+            {
+                Debug.LogError($"❌ gridPrefab이 null입니다! Inspector에서 할당되었는지 확인하세요.");
+                continue;
+            }
+            if (playerManagerPrefab == null)
+            {
+                Debug.LogError($"❌ playerManagerPrefab이 null입니다! Inspector에서 할당되었는지 확인하세요.");
+                continue;
+            }
+
+            Debug.Log($"🌍 Player {i}의 Grid 생성 중...");
             NetworkObject gridNO = await Runner.SpawnAsync(gridPrefab, playerPosition, Quaternion.identity);
+            if (gridNO == null)
+            {
+                Debug.LogError($"❌ Player {i}의 Grid 생성 실패!");
+                continue;
+            }
+            Debug.Log($"✅ Player {i}의 Grid 생성 완료: {gridNO.name}");
+
+            Debug.Log($"👤 Player {i}의 PlayerManager 생성 중...");
             NetworkObject playerNO = await Runner.SpawnAsync(playerManagerPrefab, playerPosition, Quaternion.identity, inputAuthority);
+            if (playerNO == null)
+            {
+                Debug.LogError($"❌ Player {i}의 PlayerManager 생성 실패!");
+                continue;
+            }
+            Debug.Log($"✅ Player {i}의 PlayerManager 생성 완료: {playerNO.name}");
 
             NetworkPlayers.Set(i, playerNO);
 
@@ -250,13 +375,15 @@ public class GameManagers : NetworkBehaviour
                 playerNO.name = $"Player {i + 1} (AI)";
                 var aiController = playerNO.gameObject.AddComponent<AIPlayerController>();
                 aiController.Initialize(newPlayer, this.CommandProcessor);
+                Debug.Log($"✅ AI 플레이어 {i + 1} 생성 완료");
             }
             else
             {
                 playerNO.name = $"Player {i + 1}";
+                Debug.Log($"✅ 실제 플레이어 {i + 1} 생성 완료");
             }
         }
-        
+
         Rpc_LinkSpawnedObjects();
     }
 
@@ -264,23 +391,44 @@ public class GameManagers : NetworkBehaviour
     private void Rpc_LinkSpawnedObjects()
     {
         Debug.Log("생성된 네트워크 객체들을 연결하는 중...");
-        BuildDebugGUI.Instance.Log("생성된 네트워크 객체들을 연결하는 중...");
-        players.Clear();
-        foreach (var playerNO in NetworkPlayers)
+        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("생성된 네트워크 객체들을 연결하는 중...");
+
+        // InputAuthority를 가진 플레이어를 찾아 로컬 플레이어로 설정
+        localPlayer = AllPlayers.FirstOrDefault(p => p != null && p.Object.HasInputAuthority);
+
+        // 싱글플레이 모드에서는 InputAuthority가 없을 수 있으므로, 첫 번째 플레이어를 로컬 플레이어로 설정
+        if (localPlayer == null && AllPlayers.Any())
         {
-            if (playerNO != null)
-                players.Add(playerNO.GetComponent<PlayerManager>());
+            localPlayer = AllPlayers.First(p => p != null);
+            Debug.Log($"[싱글플레이 모드] 첫 번째 플레이어를 로컬 플레이어로 설정: Player {localPlayer.playerId}");
         }
 
-        localPlayer = players.FirstOrDefault(p => p != null && p.Object.HasInputAuthority);
-
-        if (playerCount == 2 && players.Count == 2)
+        var allPlayersList = AllPlayers.ToList();
+        if (allPlayersList.Count == 2)
         {
-            players[0].opponentManager = players[1];
-            players[1].opponentManager = players[0];
+            allPlayersList[0].opponentManager = allPlayersList[1];
+            allPlayersList[1].opponentManager = allPlayersList[0];
         }
-        Debug.Log($"객체 연결 완료. 총 {players.Count}명의 플레이어 발견. 로컬 플레이어: Player {localPlayer?.playerId}");
-        BuildDebugGUI.Instance.Log("객체 연결 완료");
+        Debug.Log($"객체 연결 완료. 총 {allPlayersList.Count}명의 플레이어 발견. 로컬 플레이어: Player {localPlayer?.playerId}");
+        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("객체 연결 완료");
+        
+        // 싱글플레이 모드에서 singlePlayerModeCount가 설정되지 않았다면 기본값으로 설정
+        if (Runner.GameMode == GameMode.Single && singlePlayerModeCount <= 0)
+        {
+            // 싱글플레이 모드에서는 실제 플레이어 수를 기반으로 singlePlayerModeCount 설정
+            singlePlayerModeCount = allPlayersList.Count;
+            Debug.Log($"[Rpc_LinkSpawnedObjects] 싱글플레이 모드에서 singlePlayerModeCount를 {singlePlayerModeCount}로 설정");
+        }
+        
+        // 플레이어 데이터가 모두 준비되었을 때 발생시키는 이벤트 호출
+        OnPlayersDataReady?.Invoke();
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void Rpc_SetSinglePlayerModeCount(int count)
+    {
+        singlePlayerModeCount = count;
+        Debug.Log($"[Rpc_SetSinglePlayerModeCount] 싱글플레이어 모드 플레이어 수 설정: {count}");
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -312,7 +460,7 @@ public class GameManagers : NetworkBehaviour
         catch (System.Exception ex)
         {
             Debug.LogError($"UI 설정 중 심각한 에러 발생: {ex.Message}");
-            BuildDebugGUI.Instance.Log("UI 설정 중 심각한 에러 발생");
+            if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("UI 설정 중 심각한 에러 발생");
         }
     }
 
@@ -345,31 +493,38 @@ public class GameManagers : NetworkBehaviour
         }
 
         currentState = GameState.Prepare;
+        OnGameStateChanged(currentState); // 상태 변경 후 직접 이벤트 호출
 
-        foreach (var player in players)
+        foreach (var player in AllPlayers)
         {
+            if (player == null) continue;
             player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
             player.shopManager.Reroll(true);
         }
-        
+
         if (currentRound >= 1)
         {
-            foreach (var player in players) player.augmentManager.PresentAugments();
+            foreach (var player in AllPlayers)
+            {
+                if (player == null) continue;
+                player.augmentManager.PresentAugments();
+            }
         }
-        
+
         phaseTimer = TickTimer.CreateFromSeconds(Runner, preparePhaseTime);
     }
-    
+
     private void StartCombatPhase()
     {
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
-        
+
         currentState = GameState.Combat;
         hasCombatBeenShortened = false;
 
-        foreach (var player in players)
+        foreach (var player in AllPlayers)
         {
+            if (player == null) continue;
             player.monsterSpawner.SpawnWave(currentRound);
         }
 
@@ -378,27 +533,50 @@ public class GameManagers : NetworkBehaviour
 
     private void OnGameStateChanged(GameState newState)
     {
-        Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 ---");
-        
+        Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 --- (호출된 상태: {currentState})");
+        Debug.Log($"[OnGameStateChanged] HandleUIForNewState 호출 시작");
+
         GameEvents.TriggerGameStateChanged(newState);
 
         HandleUIForNewState(newState).Forget();
+        Debug.Log($"[OnGameStateChanged] HandleUIForNewState 호출 완료");
     }
 
     private async UniTask HandleUIForNewState(GameState newState)
     {
-        if (localPlayer == null && !Runner.IsServer) return;
+        // [수정] 싱글플레이 모드 지원: 서버(호스트)이거나 로컬 플레이어가 있을 때만 UI 처리
+        if (localPlayer == null)
+        {
+            if (!Runner.IsServer)
+            {
+                return; // 클라이언트인데 로컬 플레이어가 없으면 UI 처리 안함
+            }
+            else
+            {
+                Debug.LogWarning("[HandleUIForNewState] 로컬 플레이어가 아직 설정되지 않았습니다. UI 처리를 건너뜁니다.");
+                return;
+            }
+        }
+
+        Debug.Log($"[HandleUIForNewState] newState: {newState}, currentRound: {currentRound}");
 
         switch (newState)
         {
             case GameState.Prepare:
+                Debug.Log($"[HandleUIForNewState] Prepare 상태 처리 시작. currentRound: {currentRound}, augmentSelectionUI: {augmentSelectionUI != null}");
                 if (currentRound >= 1)
                 {
+                    Debug.Log($"[HandleUIForNewState] currentRound >= 1 조건 만족");
                     if (augmentSelectionUI != null)
                     {
+                        Debug.Log($"[HandleUIForNewState] augmentSelectionUI != null 조건 만족");
                         if (localPlayerShopUIGameObject != null) localPlayerShopUIGameObject.SetActive(false);
                         await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
                         GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
+                    }
+                    else
+                    {
+                        Debug.LogWarning("[HandleUIForNewState] augmentSelectionUI가 null입니다.");
                     }
                 }
                 else
@@ -416,15 +594,15 @@ public class GameManagers : NetworkBehaviour
                 if (localPlayerShopUIGameObject != null) localPlayerShopUI.SetContentVisibility(false);
                 break;
             case GameState.GameOver:
-                PlayerManager winner = players.FirstOrDefault(p => p != null && p.GetHealth() > 0);
+                PlayerManager winner = AllPlayers.FirstOrDefault(p => p != null && p.GetHealth() > 0);
                 if (localPlayer != null && localPlayer.GetHealth() <= 0) await UIManagers.Instance.GetUIElement("UI_Pnl_Defeat");
                 else if (localPlayer == winner) await UIManagers.Instance.GetUIElement("UI_Pnl_Victory");
                 break;
         }
     }
-    
+
     public GameState GetGameState() => currentState;
-    public PlayerManager GetPlayer(int id) => players.FirstOrDefault(p => p.playerId == id);
+    public PlayerManager GetPlayer(int id) => AllPlayers.FirstOrDefault(p => p.playerId == id);
 
     public void OnMonsterReachedGoal(PlayerManager failedPlayer)
     {
@@ -440,19 +618,19 @@ public class GameManagers : NetworkBehaviour
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
 
-        var alivePlayers = players.Where(p => p != null && p.GetHealth() > 0).ToList();
+        var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
         if (alivePlayers.Count <= 1)
         {
             currentState = GameState.GameOver;
             phaseTimer = TickTimer.None;
-            
+
             PlayerManager winner = alivePlayers.FirstOrDefault();
             Debug.Log(winner != null ? $"게임 종료! 승자: Player {winner.playerId}" : "게임 종료! 무승부입니다.");
         }
     }
 
     private int GetInterest(int gold) => Mathf.Min(gold / 10, maxInterest);
-    public List<PlayerManager> GetRankedPlayers() => players.Where(p => p != null).OrderByDescending(p => p.GetHealth()).ThenBy(p => p.gameObject.name).ToList();
+    public List<PlayerManager> GetRankedPlayers() => AllPlayers.Where(p => p != null).OrderByDescending(p => p.GetHealth()).ThenBy(p => p.gameObject.name).ToList();
 
     #region 로비 관련 함수
     public void SetMaxQueueSize(int count) => maxqueue = count;
@@ -478,7 +656,6 @@ public class GameManagers : NetworkBehaviour
         {
             return;
         }
-
         GUI.Label(new Rect(20, 270, 180, 40), $"현재 상태: {currentState}");
         GUI.Label(new Rect(20, 290, 180, 40), $"남은 시간: {currentPhaseTimer:F1}");
     }

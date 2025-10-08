@@ -38,14 +38,15 @@ public class ShopUIController : MonoBehaviour
         {
             localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
             SetupUI();
-            
+
             // 현재 게임 상태에 맞춰 UI를 즉시 갱신합니다.
             HandleGameStateChange(GameManagers.Instance.GetGameState());
         }
         else
         {
-            Debug.LogError("로컬 플레이어를 찾을 수 없어 상점 UI를 초기화할 수 없습니다!");
-            gameObject.SetActive(false);
+            // [수정] 로컬 플레이어가 아직 없으면 경고만 출력하고 나중에 재시도
+            Debug.LogWarning("[ShopUIController] 로컬 플레이어가 아직 설정되지 않았습니다. 나중에 재시도합니다.");
+            // 비활성화하지 않고 이벤트만 구독하여 나중에 초기화될 수 있도록 함
         }
 
         // 게임 상태 변경 이벤트를 구독합니다.
@@ -67,8 +68,19 @@ public class ShopUIController : MonoBehaviour
     /// </summary>
     private void HandleGameStateChange(GameManagers.GameState newState)
     {
+        // [수정] 로컬 플레이어가 아직 없으면 초기화 시도
+        if (localPlayerShopManager == null && GameManagers.Instance != null && GameManagers.Instance.localPlayer != null)
+        {
+            localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
+            SetupUI();
+            Debug.Log("[ShopUIController] 로컬 플레이어가 설정되어 UI를 초기화했습니다.");
+        }
+
+        // 여전히 로컬 플레이어가 없으면 처리하지 않음
+        if (localPlayerShopManager == null) return;
+
         bool isPreparePhase = (newState == GameManagers.GameState.Prepare);
-        
+
         // [수정] 게임 상태에 따라 벽 생성 버튼과 상점 토글 버튼의 가시성을 제어합니다.
         if (wallPlacementButton != null)
         {
@@ -78,7 +90,7 @@ public class ShopUIController : MonoBehaviour
         {
             toggleButton.gameObject.SetActive(isPreparePhase);
         }
-        
+
         // 버튼들의 상호작용 여부를 게임 상태에 따라 결정합니다.
         rerollButton.interactable = isPreparePhase;
 
@@ -191,7 +203,7 @@ public class ShopUIController : MonoBehaviour
         if (rerollButtonObject != null) rerollButtonObject.SetActive(isVisible);
         UpdateButtonText();
     }
-    
+
     private void UpdateButtonText()
     {
         if (toggleButtonText == null) return;

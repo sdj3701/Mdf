@@ -11,11 +11,11 @@ public class ExitButton : BaseButton
         Debug.Log($"나가기 버튼 클릭됨 - {sceneNameToLoad} 씬으로 이동합니다.");
         if (!string.IsNullOrEmpty(sceneNameToLoad))
         {
-            // 씬을 전환하기 전에 게임 상태를 정리합니다.
             if (GameManagers.Instance != null)
             {
                 Destroy(GameManagers.Instance.gameObject);
             }
+            // 씬을 떠나기 전에 레지스트리를 초기화합니다.
             ComponentRegistry.Clear();
 
             SceneManager.LoadScene(sceneNameToLoad);

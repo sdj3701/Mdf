@@ -22,13 +22,30 @@ public class PlacementManager : MonoBehaviour
     private PlacementMode currentMode = PlacementMode.None;
     private GameObject unitPrefabToPlace;
     private GameObject previewObject;
-    private SpriteRenderer previewRenderer;
+    private SpriteRenderer previewRenderer;  // 2D 모드용
+    private MeshRenderer previewMeshRenderer;  // [3D Migration] 3D 모드용
     private Vector3Int currentMouseGridPosition;
 
     private PlayerManager playerManager;
     private FieldManager fieldManager;
     
-    private Camera playerCamera => GameAssets.Cameras.MainCamera;
+    private Camera _cachedPlayerCamera;
+    private Camera playerCamera
+    {
+        get
+        {
+            if (_cachedPlayerCamera == null)
+            {
+                _cachedPlayerCamera = GameAssets.Cameras.MainCamera;
+                if (_cachedPlayerCamera == null)
+                {
+                    // Fallback: Find the main camera directly if not registered in ComponentRegistry
+                    _cachedPlayerCamera = Camera.main;
+                }
+            }
+            return _cachedPlayerCamera;
+        }
+    }
     private readonly Plane gamePlane = new Plane(Vector3.forward, 0);
 
     void Awake()
@@ -54,25 +71,22 @@ public class PlacementManager : MonoBehaviour
     void Update()
     {
         // [추가] 타일맵 참조가 null일 경우 FieldManager로부터 가져옵니다.
-        // 이렇게 하면 FieldManager가 초기화된 이후에 안전하게 참조를 얻을 수 있습니다.
-        if (groundTilemap == null && fieldManager != null)
+        // 3D 모드에서는 Tilemap이 null일 수 있으므로 한 번만 시도
+        if (groundTilemap == null && obstacleTilemap == null && fieldManager != null)
         {
             groundTilemap = fieldManager.GroundTilemap;
-        }
-        if (obstacleTilemap == null && fieldManager != null)
-        {
             obstacleTilemap = fieldManager.ObstacleTilemap;
+            // 3D 모드면 둘 다 null일 수 있음
         }
 
-        if (currentMode == PlacementMode.None)
+        if (currentMode == PlacementMode.None || !showPreview) return;
+        
+        // [3D Migration] fieldManager가 초기화되었는지 확인
+        if (fieldManager == null || (obstacleTilemap == null && fieldManager.ground3D == null))
         {
-            if (previewObject != null && previewObject.activeSelf)
-                previewObject.SetActive(false);
-            return;
+            return; // 아직 초기화 안 됨
         }
         
-        if (obstacleTilemap == null || playerCamera == null) return;
-
         UpdateMousePosition();
         HandleMouseInput();
         if (showPreview)
@@ -98,32 +112,56 @@ public class PlacementManager : MonoBehaviour
     
     public bool IsPositionValidForPlacement(Vector3Int gridPosition, UnitData unitData = null)
     {
-        if (groundTilemap == null) return false;
-
-        bool hasGroundTile = groundTilemap.GetTile(gridPosition) != null;
-        bool hasObstacle = fieldManager.GetWallAt(gridPosition) != null;
-        bool hasUnit = fieldManager.IsUnitAt(gridPosition);
-
-        // 기본 조건: 유닛이 이미 있거나, 땅 타일이 없으면 배치 불가
-        if (hasUnit || !hasGroundTile) return false;
-        
-        // 배치하려는 것이 유닛일 경우, 유닛 타입에 따른 규칙을 적용
-        if (unitData != null)
+        // [3D Migration] Tilemap 또는 3D 그리드 사용
+        if (groundTilemap != null)
         {
-            // 근접 유닛은 장애물(언덕) 위에 배치할 수 없습니다.
-            if (unitData.unitType == UnitType.Melee && hasObstacle)
+            // 2D Tilemap 모드
+            bool hasGroundTile = groundTilemap.GetTile(gridPosition) != null;
+            bool hasObstacle = fieldManager.GetWallAt(gridPosition) != null;
+            bool hasUnit = fieldManager.IsUnitAt(gridPosition);
+
+            if (hasUnit || !hasGroundTile) return false;
+            
+            if (unitData != null)
+            {
+                if (unitData.unitType == UnitType.Melee && hasObstacle)
+                {
+                    return false;
+                }
+            }
+            else if (hasObstacle)
             {
                 return false;
             }
+            
+            return true;
         }
-        // 배치하려는 것이 유닛이 아닐 경우 (예: 벽), 장애물 위에 놓을 수 없습니다.
-        else if (hasObstacle)
+        else
         {
-            return false;
+            // 3D 모드
+            // 그리드 범위 체크
+            if (!fieldManager.IsValidGridPosition(gridPosition)) return false;
+            
+            bool hasObstacle = fieldManager.GetWallAt(gridPosition) != null;
+            bool hasUnit = fieldManager.IsUnitAt(gridPosition);
+
+            if (hasUnit) return false;
+            
+            if (unitData != null)
+            {
+                // 근접 유닛은 벽 위에 배치 불가
+                if (unitData.unitType == UnitType.Melee && hasObstacle)
+                {
+                    return false;
+                }
+            }
+            else if (hasObstacle)
+            {
+                return false;
+            }
+            
+            return true;
         }
-        
-        // 위의 모든 금지 조건에 해당하지 않으면 배치 가능
-        return true;
     }
     
     #endregion
@@ -183,54 +221,153 @@ public class PlacementManager : MonoBehaviour
     private void UpdateMousePosition()
     {
         Vector3 mouseWorldPos = GetMouseWorldPosition();
-        currentMouseGridPosition = obstacleTilemap.WorldToCell(mouseWorldPos);
+        // [3D Migration] Tilemap 또는 3D 그리드 사용
+        if (obstacleTilemap != null)
+        {
+            currentMouseGridPosition = obstacleTilemap.WorldToCell(mouseWorldPos);
+        }
+        else
+        {
+            currentMouseGridPosition = fieldManager.WorldToGridInt(mouseWorldPos);
+        }
     }
 
     private Vector3 GetMouseWorldPosition()
     {
-        Ray cameraRay = playerCamera.ScreenPointToRay(Input.mousePosition);
-        if (gamePlane.Raycast(cameraRay, out float enter))
+        // [3D Migration] Tilemap 또는 3D Raycast 사용
+        if (obstacleTilemap != null)
         {
-            return cameraRay.GetPoint(enter);
+            // 2D Tilemap 모드
+            Ray cameraRay = playerCamera.ScreenPointToRay(Input.mousePosition);
+            if (gamePlane.Raycast(cameraRay, out float enter))
+            {
+                return cameraRay.GetPoint(enter);
+            }
+            return Vector3.zero;
         }
-        return Vector3.zero;
+        else
+        {
+            // 3D 모드: Ground에 Raycast
+            Ray ray = playerCamera.ScreenPointToRay(Input.mousePosition);
+            Plane groundPlane = new Plane(Vector3.up, fieldManager.gridOrigin);
+            
+            if (groundPlane.Raycast(ray, out float enter))
+            {
+                return ray.GetPoint(enter);
+            }
+            
+            return Vector3.zero;
+        }
     }
 
     private void SetupPreviewObject()
     {
+        // [3D Migration] Tilemap 또는 3D 모드에 따라 다른 프리뷰 생성
+        bool is3DMode = (obstacleTilemap == null);
+        
         if (previewObject == null)
         {
             previewObject = new GameObject("PlacementPreview");
-            previewRenderer = previewObject.AddComponent<SpriteRenderer>();
-            previewRenderer.sortingOrder = 10;
+            
+            if (is3DMode)
+            {
+                // 3D 모드: 큰 큐브 프리뷰
+                GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cube.transform.SetParent(previewObject.transform);
+                cube.transform.localPosition = Vector3.zero;
+                cube.transform.localScale = new Vector3(fieldManager.cellSize * 0.9f, 0.2f, fieldManager.cellSize * 0.9f);
+                
+                // Collider 제거 (프리뷰는 충돌 불필요)
+                Destroy(cube.GetComponent<Collider>());
+                
+                previewMeshRenderer = cube.GetComponent<MeshRenderer>();
+                // 투명 Material 생성
+                Material previewMaterial = new Material(Shader.Find("Standard"));
+                previewMaterial.SetFloat("_Mode", 3); // Transparent
+                previewMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                previewMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                previewMaterial.SetInt("_ZWrite", 0);
+                previewMaterial.DisableKeyword("_ALPHATEST_ON");
+                previewMaterial.EnableKeyword("_ALPHABLEND_ON");
+                previewMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+                previewMaterial.renderQueue = 3000;
+                previewMeshRenderer.material = previewMaterial;
+            }
+            else
+            {
+                // 2D 모드: SpriteRenderer
+                previewRenderer = previewObject.AddComponent<SpriteRenderer>();
+                previewRenderer.sortingOrder = 10;
+            }
         }
 
-        Sprite previewSprite = null;
-        if (currentMode == PlacementMode.Unit && unitPrefabToPlace != null)
+        if (is3DMode)
         {
-            previewSprite = unitPrefabToPlace.GetComponentInChildren<SpriteRenderer>()?.sprite;
+            // 3D 모드: 큐브 크기 조정
+            Transform cube = previewObject.transform.GetChild(0);
+            if (currentMode == PlacementMode.Unit && unitPrefabToPlace != null)
+            {
+                cube.localScale = new Vector3(fieldManager.cellSize * 0.9f, 0.5f, fieldManager.cellSize * 0.9f);
+            }
+            else if (currentMode == PlacementMode.Wall)
+            {
+                cube.localScale = new Vector3(fieldManager.cellSize * 0.9f, fieldManager.cellSize * 0.9f, fieldManager.cellSize * 0.9f);
+            }
+            previewObject.SetActive(true);
         }
-        else if (currentMode == PlacementMode.Wall && fieldManager.destructibleWallPrefab != null)
+        else
         {
-            previewSprite = fieldManager.destructibleWallPrefab.GetComponent<SpriteRenderer>()?.sprite;
+            // 2D 모드: Sprite 할당
+            Sprite previewSprite = null;
+            if (currentMode == PlacementMode.Unit && unitPrefabToPlace != null)
+            {
+                previewSprite = unitPrefabToPlace.GetComponentInChildren<SpriteRenderer>()?.sprite;
+            }
+            else if (currentMode == PlacementMode.Wall && fieldManager.destructibleWallPrefab != null)
+            {
+                previewSprite = fieldManager.destructibleWallPrefab.GetComponent<SpriteRenderer>()?.sprite;
+            }
+            
+            previewRenderer.sprite = previewSprite;
+            previewObject.SetActive(previewSprite != null);
         }
-        
-        previewRenderer.sprite = previewSprite;
-        previewObject.SetActive(previewSprite != null);
     }
 
     private void UpdatePreviewDisplay()
     {
         if (previewObject == null || !previewObject.activeSelf) return;
 
-        Vector3 worldPos = obstacleTilemap.CellToWorld(currentMouseGridPosition) + (obstacleTilemap.cellSize * 0.5f);
+        // [3D Migration] Tilemap 또는 3D 그리드 사용 (벽 체크 포함)
+        Vector3 worldPos;
+        if (obstacleTilemap != null)
+        {
+            worldPos = obstacleTilemap.CellToWorld(currentMouseGridPosition) + (obstacleTilemap.cellSize * 0.5f);
+        }
+        else
+        {
+            // 3D 모드: 유닛 배치 시에만 벽 높이 체크
+            bool checkWall = (currentMode == PlacementMode.Unit);
+            worldPos = fieldManager.GridToWorld(currentMouseGridPosition, checkForWall: checkWall);
+        }
+        
         previewObject.transform.position = worldPos;
         
         UnitData dataToPlace = (currentMode == PlacementMode.Unit && unitPrefabToPlace != null)
             ? unitPrefabToPlace.GetComponent<Unit>().Data
             : null;
 
-        previewRenderer.color = IsPositionValidForPlacement(currentMouseGridPosition, dataToPlace) ? validPreviewColor : invalidPreviewColor;
+        bool isValid = IsPositionValidForPlacement(currentMouseGridPosition, dataToPlace);
+        Color previewColor = isValid ? validPreviewColor : invalidPreviewColor;
+        
+        // [3D Migration] 3D 또는 2D 모드에 따라 색상 적용
+        if (previewMeshRenderer != null)
+        {
+            previewMeshRenderer.material.color = previewColor;
+        }
+        else if (previewRenderer != null)
+        {
+            previewRenderer.color = previewColor;
+        }
     }
     
     #endregion

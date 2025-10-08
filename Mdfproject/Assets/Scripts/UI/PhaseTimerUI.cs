@@ -9,31 +9,62 @@ public class PhaseTimerUI : MonoBehaviour
 
     private GameManagers gameManager;
 
+    void OnEnable()
+    {
+        // GameManagers가 준비될 때 이벤트를 구독합니다.
+        GameEvents.OnGameManagersReady += OnGameManagersReady;
+    }
+
+    void OnDisable()
+    {
+        // 이벤트 구독 해제
+        GameEvents.OnGameManagersReady -= OnGameManagersReady;
+    }
+
     void Start()
     {
-        // GameManager 인스턴스를 한번만 찾아와서 저장해두면 효율적입니다.
-        gameManager = GameManagers.Instance;
-
         if (timerText == null)
         {
             Debug.LogError("Timer Text가 PhaseTimerUI 스크립트에 할당되지 않았습니다!", gameObject);
             this.enabled = false; // 텍스트가 없으면 스크립트 비활성화
+            return;
+        }
+
+        // Start()에서도 시도해봅니다 (이미 준비되어 있을 수 있음)
+        if (gameManager == null)
+        {
+            gameManager = GameManagers.Instance;
+        }
+    }
+
+    private void OnGameManagersReady()
+    {
+        // GameManagers가 준비되면 참조를 저장합니다.
+        if (gameManager == null)
+        {
+            gameManager = GameManagers.Instance;
+            Debug.Log("[PhaseTimerUI] GameManagers 참조 획득 완료");
         }
     }
 
     void Update()
     {
-        // GameManager가 없으면 아무것도 하지 않음
+        // GameManager가 없으면 다시 시도합니다.
         if (gameManager == null)
         {
-            return;
+            gameManager = GameManagers.Instance;
+            if (gameManager == null)
+            {
+                return;
+            }
         }
 
         // GameManager로부터 현재 게임 상태와 남은 시간을 가져옵니다.
         GameManagers.GameState currentState = gameManager.GetGameState();
-        int remainingTime = Mathf.CeilToInt(gameManager.currentPhaseTimer);
+        float remainingTime = gameManager.currentPhaseTimer;
 
         // 텍스트 UI의 내용을 업데이트합니다.
-        timerText.text = $" {remainingTime}";
+        // 정수로 올림하여 표시합니다.
+        timerText.text = $"{Mathf.CeilToInt(remainingTime)}";
     }
 }

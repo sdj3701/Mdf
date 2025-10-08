@@ -25,7 +25,7 @@ public class AIPlayerController : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (_playerManager != null)
+        if (_playerManager != null && _playerManager.Object != null && _playerManager.HasStateAuthority)
         {
             ComponentRegistry.Unregister<AIPlayerController>(_playerManager.playerId.ToString());
         }

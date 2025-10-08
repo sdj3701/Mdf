@@ -17,6 +17,7 @@ GameObject:
   - component: {fileID: 7600661703355144067}
   - component: {fileID: 25415035275296506}
   - component: {fileID: 3762269291064651588}
+  - component: {fileID: -7162209881235473755}
   m_Layer: 14
   m_Name: Hero
   m_TagString: Untagged
@@ -118,8 +119,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   unitData: {fileID: 0}
   firePoint: {fileID: 4670276977646022269}
-  skillButtonPrefab: {fileID: 0}
-  worldSpaceCanvas: {fileID: 0}
   m_starLevel: 1
   currentHP: 0
   blockedMonsters: []
@@ -217,3 +216,21 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1ecec5c26686a964dbfc4e867a930b16, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &-7162209881235473755
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4670276977646022270}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 2610181621
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours: []
+  ForceRemoteRenderTimeframe: 0

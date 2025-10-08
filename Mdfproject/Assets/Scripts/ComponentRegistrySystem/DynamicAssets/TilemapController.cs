@@ -14,6 +14,8 @@ public class TilemapController : RegisteredComponent
     [SerializeField] private TilemapRenderer tilemapRenderer;
     [SerializeField] private string tilemapType; // Ground, Wall, Decoration 등
 
+    private int _ownerPlayerId = -1; // 소유자 플레이어 ID
+
     protected override void Awake()
     {
         // Tilemap 컴포넌트 자동 할당
@@ -26,13 +28,28 @@ public class TilemapController : RegisteredComponent
             tilemapType = this.gameObject.name;
         }
 
-        // ID를 타입 이름으로 설정
-        if (string.IsNullOrEmpty(componentId))
-        {
-            componentId = $"{tilemapType}";
-        }
+        // Awake에서는 기본 ID로 등록
+        componentId = tilemapType;
 
         base.Awake();
+    }
+
+    // 플레이어 ID를 받아 고유 ID로 재등록하는 메서드
+    public void SetPlayerOwner(int playerId)
+    {
+        // 이미 소유자가 설정되었으면 변경하지 않음
+        if (_ownerPlayerId != -1) return;
+
+        _ownerPlayerId = playerId;
+
+        // 기존의 일반 ID 등록 해제
+        UnregisterSelf();
+
+        // 플레이어 ID를 포함한 고유 ID 생성
+        componentId = $"P{_ownerPlayerId}_{tilemapType}";
+
+        // 새로운 고유 ID로 다시 등록
+        RegisterSelf();
     }
 
     public override void RegisterSelf()
