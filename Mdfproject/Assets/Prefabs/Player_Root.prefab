@@ -342,8 +342,8 @@ MonoBehaviour:
   gridOrigin: {x: 0, y: 0, z: 0}
   cellSize: 1
   gridSize: {x: 8, y: 7}
-  groundYOffset: 0.5
-  wallYOffset: 1
+  groundYOffset: 0
+  wallYOffset: 0.4
   dragLiftHeight: 0
   dragFollowSpeed: 20
   dragPickMaxScreenDistance: 80
