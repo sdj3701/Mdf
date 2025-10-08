@@ -47,7 +47,7 @@ public class BuildDebugGUI : MonoBehaviour
     void OnGUI()
     {
         // 개발 빌드 또는 유니티 에디터에서만 GUI를 표시하도록 제한
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if DEVELOPMENT_BUILD
         // 스타일 초기화 (첫 OnGUI 호출 시 한 번만 실행)
         if (!styleInitialized)
         {
