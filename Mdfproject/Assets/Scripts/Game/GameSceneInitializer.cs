@@ -33,6 +33,7 @@ public class GameSceneInitializer : MonoBehaviour
         if (NetworkManager.Instance != null && NetworkManager.Instance.IsGameRunnerActive)
         {
             Debug.Log("[GameSceneInitializer] 멀티플레이 모드로 진입. 싱글플레이 초기화를 건너뜁니다.");
+            await StartMultiPlayerMode();
             return;
         }
 
@@ -90,6 +91,28 @@ public class GameSceneInitializer : MonoBehaviour
         {
             Debug.LogError($"[GameSceneInitializer] ❌ 싱글플레이 모드 시작 실패: {result.ShutdownReason}");
         }
+    }
+
+    private async UniTask StartMultiPlayerMode()
+    {
+        if (_isInitialized)
+        {
+            Debug.LogWarning("[GameSceneInitializer] 이미 초기화되었습니다.");
+            return;
+        }
+
+        _isInitialized = true;
+
+        // NetworkManager를 통해 이미 존재하는 Runner를 가져옵니다.
+        _runner = NetworkManager.Instance._runner;
+        if (_runner == null || !_runner.IsRunning)
+        {
+            Debug.LogError("[GameSceneInitializer] 멀티플레이 모드지만 Runner가 실행 중이지 않습니다.");
+            return;
+        }
+
+        Debug.Log("[GameSceneInitializer] ✅ 멀티플레이 모드 시작 성공!");
+        await SpawnGameManagers();
     }
 
     /// <summary>
