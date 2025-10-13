@@ -16,6 +16,10 @@ public class AstarGrid : MonoBehaviour
     public LayerMask breakableWallLayer;
     public float detectionRadius = 0.4f;
     public int wallBreakCost = 10000;
+    [Tooltip("벽 감지 샘플의 월드 Y 높이 (그리드 셀 중심의 Y)")]
+    public float sampleY = 0.5f;
+    [Tooltip("벽 감지 시 사용할 세로(높이) 두께. CheckBox의 전체 높이 값입니다.")]
+    public float sampleHeight = 2f;
 
     [Header("경로 탐색 옵션")]
     public bool allowDiagonal = true;
@@ -142,17 +146,17 @@ public class AstarGrid : MonoBehaviour
         {
             for (int j = 0; j < sizeY; j++)
             {
-                // [3D Migration] NodeArray[i,j].x는 3D의 x, .y는 3D의 z를 의미
-                // Physics2D는 유닛이 2D를 사용하므로 그대로 유지 (x, z를 x, y로 매핑)
-                Vector2 checkWorldPos = new Vector2(NodeArray[i, j].x + 0.5f, NodeArray[i, j].y + 0.5f);
-                bool isWall = Physics2D.OverlapCircle(checkWorldPos, detectionRadius, wallLayers);
+                // [3D Migration] NodeArray[i,j].x -> world X, NodeArray[i,j].y -> world Z
+                // 세로 두께를 가진 박스 콜리전으로 감지 (Y 고정이더라도 벽이 떠있을 수 있으므로)
+                Vector3 checkWorldPos = new Vector3(NodeArray[i, j].x + 0.5f, sampleY, NodeArray[i, j].y + 0.5f);
+                Vector3 halfExtents = new Vector3(detectionRadius, Mathf.Max(0.01f, sampleHeight * 0.5f), detectionRadius);
+                bool isWall = Physics.CheckBox(checkWorldPos, halfExtents, Quaternion.identity, wallLayers);
                 NodeArray[i, j].isWall = isWall;
 
                 if (isWall)
                 {
-                    // [수정] 벽 중에서, breakableWallLayer에 속한 것만 파괴 가능으로 설정합니다.
-                    // 이렇게 하면 'Wall' 레이어는 파괴 불가능 장애물로, 'BreakWall' 레이어는 파괴 가능 장애물로 정확히 구분됩니다.
-                    bool isBreakable = Physics2D.OverlapCircle(checkWorldPos, detectionRadius, breakableWallLayer);
+                    // 벽 중에서 breakableWallLayer에 속한 것만 파괴 가능으로 설정
+                    bool isBreakable = Physics.CheckBox(checkWorldPos, halfExtents, Quaternion.identity, breakableWallLayer);
                     NodeArray[i, j].isBreakable = isBreakable;
                 }
                 else
@@ -239,6 +243,21 @@ public class AstarGrid : MonoBehaviour
     }
 
     #region 유틸리티 메서드
+    /// <summary>
+    /// 주어진 월드 좌표를 그리드의 월드 경계 내로 클램프합니다. (X/Z만 제한, Y는 그대로)
+    /// </summary>
+    public Vector3 ClampToGrid(Vector3 worldPos)
+    {
+        // 경계는 셀 경계까지 허용: [worldBottomLeft.x, worldTopRight.x + 1)
+        float minX = worldBottomLeft.x;
+        float maxX = worldTopRight.x + 1f; // 셀의 오른쪽 경계
+        float minZ = worldBottomLeft.y;
+        float maxZ = worldTopRight.y + 1f; // 셀의 위쪽 경계
+
+        float clampedX = Mathf.Clamp(worldPos.x, minX, maxX);
+        float clampedZ = Mathf.Clamp(worldPos.z, minZ, maxZ);
+        return new Vector3(clampedX, worldPos.y, clampedZ);
+    }
     private bool IsValidPosition(Vector2Int pos)
     {
         // ✅ [수정] 월드 좌표 경계와 비교합니다.
@@ -290,12 +309,18 @@ public class AstarGrid : MonoBehaviour
         {
             for (int j = 0; j < sizeY; j++)
             {
+                Vector3 pos = new Vector3(NodeArray[i,j].x + 0.5f, 0, NodeArray[i,j].y + 0.5f);
                 if (NodeArray[i, j].isWall)
                 {
-                    // [3D Migration] x는 그대로, y는 z로
-                    Vector3 pos = new Vector3(NodeArray[i,j].x + 0.5f, 0, NodeArray[i,j].y + 0.5f);
+                    // 벽 셀: 빨강(고정) / 주황(파괴 가능)
                     Gizmos.color = NodeArray[i, j].isBreakable ? new Color(1f, 0.5f, 0f, 0.7f) : new Color(1f, 0f, 0f, 0.7f);
                     Gizmos.DrawCube(pos, new Vector3(0.8f, 0.1f, 0.8f));
+                }
+                else
+                {
+                    // 이동 가능 셀: 반투명 초록
+                    Gizmos.color = new Color(0f, 1f, 0f, 0.15f);
+                    Gizmos.DrawCube(pos, new Vector3(0.8f, 0.02f, 0.8f));
                 }
             }
         }
