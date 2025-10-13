@@ -15,9 +15,9 @@ public class AlliesInRadius : TargetingStrategy
             return new List<GameObject>();
         }
 
-        // Allegiance 컴포넌트의 'AllyLayer'를 사용합니다.
-        var colliders = Physics2D.OverlapCircleAll(targetPosition, range, allegiance.AllyLayer);
-        
+        // Allegiance 컴포넌트의 'AllyLayer'를 사용합니다. (3D)
+        var colliders = Physics.OverlapSphere(targetPosition, range, allegiance.AllyLayer);
+
         // 자기 자신을 포함한 아군을 반환합니다.
         return colliders.Select(col => col.gameObject).ToList();
     }

@@ -330,9 +330,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         if (_loadedSkillData == null) return false;
 
-        // OverlapCircleAll을 사용하여 스킬 범위 내의 모든 적 콜라이더를 찾습니다.
-        Collider2D[] enemiesInRange = Physics2D.OverlapCircleAll(transform.position, _loadedSkillData.range, enemyLayerMask);
-
+        // 3D 환경: XZ 평면 기준 구면 탐색
+        Collider[] enemiesInRange = Physics.OverlapSphere(transform.position, _loadedSkillData.range, enemyLayerMask);
         // 적이 한 명이라도 있으면 true를 반환합니다.
         return enemiesInRange.Length > 0;
     }
@@ -420,11 +419,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private void FindNearestEnemy()
     {
-        Collider2D[] enemiesInRange = Physics2D.OverlapCircleAll(transform.position, currentAttackRange, enemyLayerMask);
+        // 3D 환경: XZ 평면 기준 구면 탐색
+        Collider[] enemiesInRange = Physics.OverlapSphere(transform.position, currentAttackRange, enemyLayerMask);
         float closestDistanceSqr = float.MaxValue;
         IEnemy nearestEnemy = null;
         Transform nearestTransform = null;
-        
+
         foreach (var enemyCollider in enemiesInRange)
         {
             if (enemyCollider.TryGetComponent<IEnemy>(out var enemy))
@@ -452,7 +452,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private async void Attack()
     {
-        if (targetEnemy == null || targetTransform == null || Vector2.Distance(transform.position, targetTransform.position) > currentAttackRange)
+        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange)
         {
             targetEnemy = null;
             return;
@@ -508,12 +508,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     #endregion
 
     #region 저지, 스킬 UI, IEnemy 구현 등 (이하 동일)
-    private void OnTriggerEnter2D(Collider2D other)
+    private void OnTriggerEnter(Collider other)
     {
         if (other.TryGetComponent<Monster>(out var monster))
         {
-            if (blockedMonsters.Contains(monster) || monster.IsBlocked() || 
-                monster.monsterData.monsterType == MonsterType.Flying || Data.blockCount <= 0 || 
+            if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
+                monster.monsterData.monsterType == MonsterType.Flying || Data.blockCount <= 0 ||
                 blockedMonsters.Count >= Data.blockCount)
             {
                 return;
