@@ -39,6 +39,13 @@ public class StatusBarUI : MonoBehaviour
     [Tooltip("몬스터나 벽에 부착될 때의 UI 스케일입니다.")]
     public Vector3 monsterScale = Vector3.one;
 
+    [Header("3D 월드 스페이스 정렬")]
+    [Tooltip("World Space UI일 때 카메라의 X(피치) 회전과 맞춥니다.")]
+    public bool matchCameraPitch = true;
+
+    [Tooltip("World Space UI일 때 사용할 카메라. 비워두면 플레이어 카메라/Camera.main을 사용합니다.")]
+    public Camera overrideCamera;
+
     private bool isUnit = false;
     private bool isCombatPhase = false;
     private bool isInitialized = false; // 초기화 플래그 추가
@@ -47,6 +54,8 @@ public class StatusBarUI : MonoBehaviour
     private IMana manaComponent;
     private Unit unitComponent;
     private GraphicRaycaster graphicRaycaster;
+    private Canvas cachedCanvas;
+    private Camera cachedCamera;
 
     private void Awake()
     {
@@ -54,6 +63,7 @@ public class StatusBarUI : MonoBehaviour
         unitComponent = GetComponentInParent<Unit>();
         isUnit = unitComponent != null;
         graphicRaycaster = GetComponent<GraphicRaycaster>();
+        cachedCanvas = GetComponent<Canvas>();
     }
 
     private void Start()
@@ -126,10 +136,9 @@ public class StatusBarUI : MonoBehaviour
             }
         }
 
-        Canvas canvas = GetComponent<Canvas>();
-        if (canvas != null && canvas.renderMode == RenderMode.WorldSpace && canvas.worldCamera == null)
+        if (cachedCanvas != null && cachedCanvas.renderMode == RenderMode.WorldSpace)
         {
-            canvas.worldCamera = Camera.main;
+            cachedCanvas.worldCamera = ResolveCamera();
         }
 
         // 위치 오프셋 적용
@@ -156,6 +165,21 @@ public class StatusBarUI : MonoBehaviour
 
         // 초기화 완료 후 현재 상태에 맞춰 UI 업데이트
         UpdateAllUIVisibility();
+    }
+
+    private void LateUpdate()
+    {
+        if (!matchCameraPitch) return;
+
+        if (cachedCanvas == null || cachedCanvas.renderMode != RenderMode.WorldSpace) return;
+
+        Camera cam = ResolveCamera();
+        if (cam == null) return;
+
+        Vector3 currentEuler = transform.rotation.eulerAngles;
+        Vector3 camEuler = cam.transform.rotation.eulerAngles;
+        currentEuler.x = camEuler.x;
+        transform.rotation = Quaternion.Euler(currentEuler);
     }
 
     private void HandleGameStateChanged(GameManagers.GameState newState)
@@ -292,5 +316,22 @@ public class StatusBarUI : MonoBehaviour
             if (graphicRaycaster != null) graphicRaycaster.enabled = false;
             skillButton.gameObject.SetActive(false);
         }
+    }
+
+    private Camera ResolveCamera()
+    {
+        if (overrideCamera != null) return overrideCamera;
+        if (cachedCamera != null) return cachedCamera;
+
+        cachedCamera = ComponentRegistry.Get<Camera>("Main Camera", false);
+        if (cachedCamera == null)
+        {
+            cachedCamera = Camera.main;
+        }
+        if (cachedCamera == null)
+        {
+            cachedCamera = FindObjectOfType<Camera>();
+        }
+        return cachedCamera;
     }
 }

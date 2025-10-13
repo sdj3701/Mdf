@@ -107,10 +107,12 @@ MonoBehaviour:
   skillIconImage: {fileID: 7000019785505408582}
   unitHealthColor: {r: 0.2, g: 0.8, b: 0.2, a: 1}
   monsterHealthColor: {r: 0.8, g: 0.2, b: 0.2, a: 1}
-  unitPositionOffset: {x: 0, y: -1, z: 0}
-  unitScale: {x: 0.03, y: 0.02, z: 0.01}
-  monsterPositionOffset: {x: 0, y: -0.5, z: 0}
+  unitPositionOffset: {x: 0, y: 0, z: -0.15}
+  unitScale: {x: 0.005, y: 0.005, z: 0.005}
+  monsterPositionOffset: {x: 0, y: 0, z: -0.2}
   monsterScale: {x: 0.012, y: 0.01, z: 0.01}
+  matchCameraPitch: 1
+  overrideCamera: {fileID: 0}
 --- !u!114 &-9059791331206764385
 MonoBehaviour:
   m_ObjectHideFlags: 0

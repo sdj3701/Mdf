@@ -580,6 +580,14 @@ public class FieldManager : MonoBehaviour
         }
         
         GameObject newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+        // Attach orientation fixer to ensure rig local rotation and face camera on spawn
+        var orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
+        orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs
+        orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
+        orientationFixer.faceCameraOnSpawn = true;
+        orientationFixer.enforceEveryLateUpdate = true;
+        orientationFixer.targetCamera = playerCamera; // avoid ComponentRegistry lookup warnings
+        orientationFixer.yawOffsetDeg = 180f; // compensate if model's visual forward is flipped
         Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
 
         if (newUnitComponent != null)

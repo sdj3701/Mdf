@@ -851,7 +851,7 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1967239203219668249}
-  m_LocalRotation: {x: -0.7071068, y: 0, z: -0, w: 0.7071068}
+  m_LocalRotation: {x: 0, y: 0.7071068, z: 0.7071068, w: 0}
   m_LocalPosition: {x: -0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -859,7 +859,7 @@ Transform:
   - {fileID: 4456485726827004240}
   m_Father: {fileID: 2613645079569365513}
   m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: -90, y: 180, z: 0}
 --- !u!1 &2095252994020446824
 GameObject:
   m_ObjectHideFlags: 0
@@ -1230,6 +1230,7 @@ GameObject:
   - component: {fileID: -7275651770259432833}
   - component: {fileID: 8458851446229057478}
   - component: {fileID: 537464650844258833}
+  - component: {fileID: 5618643157864474369}
   m_Layer: 14
   m_Name: Knight
   m_TagString: Untagged
@@ -1244,7 +1245,7 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3390745386030047411}
-  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1.5, y: 1.5, z: 1.5}
   m_ConstrainProportionsScale: 0
@@ -1253,7 +1254,7 @@ Transform:
   - {fileID: 1190146533794775031}
   m_Father: {fileID: 0}
   m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: 0, y: 180, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!95 &8261190024189452403
 Animator:
   serializedVersion: 5
@@ -1287,7 +1288,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 48d949fe188cd184eb557efe696eff35, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  lookAtWeight: 0.403
+  lookAtWeight: 0.407
   tiltAngle: 1.75
 --- !u!114 &2580335155922129112
 MonoBehaviour:
@@ -1440,6 +1441,25 @@ MonoBehaviour:
   NestedObjects: []
   NetworkedBehaviours: []
   ForceRemoteRenderTimeframe: 0
+--- !u!114 &5618643157864474369
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3390745386030047411}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 95440f7af61a97548ae4098492b34fe8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  rigRoot: {fileID: 2613645079569365513}
+  rigRootName: root
+  rigLocalEulerTarget: {x: 0, y: 0, z: 0}
+  faceCameraOnSpawn: 1
+  enforceEveryLateUpdate: 1
+  targetCamera: {fileID: 0}
+  yawOffsetDeg: 0
 --- !u!1 &3406743204688566394
 GameObject:
   m_ObjectHideFlags: 0
@@ -2081,14 +2101,14 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 5981951002417829680}
-  m_LocalRotation: {x: -0.7071068, y: 0, z: -0, w: 0.7071068}
+  m_LocalRotation: {x: -0.7071068, y: 0, z: 0, w: 0.7071068}
   m_LocalPosition: {x: -0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 2613645079569365513}
   m_RootOrder: 1
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: -90, y: 0, z: 0}
 --- !u!137 &3964305690492256077
 SkinnedMeshRenderer:
   m_ObjectHideFlags: 0
