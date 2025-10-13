@@ -19,7 +19,7 @@ public class PlacementButtonsUI : MonoBehaviour
         // "벽 배치 모드로 들어가고 싶다"는 요청 이벤트를 시스템 전체에 알립니다.
         if (GameManagers.Instance.localPlayer != null)
         {
-            GameManagers.Instance.localPlayer.fieldManager.StartPlacementMode(PlacementMode.Wall);
+            GameManagers.Instance.localPlayer.fieldManager.TogglePlacementMode(PlacementMode.Wall);
         }
     }
 

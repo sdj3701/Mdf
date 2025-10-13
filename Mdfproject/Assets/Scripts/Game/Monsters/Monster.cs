@@ -203,9 +203,13 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
     private void FindNewPathToGoal()
     {
-        // [3D Migration] position.y → position.z
-        Vector2Int currentGridPos = new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.z));
-        Vector2Int targetGridPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
+        // [3D Migration] FieldManager/AstarGrid 그리드 기준으로 변환
+        Vector2Int currentGridPos = (pathfinder != null)
+            ? pathfinder.WorldToCell(transform.position)
+            : new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.z));
+        Vector2Int targetGridPos = (pathfinder != null)
+            ? pathfinder.WorldToCell(goalTransform.position)
+            : new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
 
 
 
@@ -271,12 +275,15 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         {
             AstarNode targetNode = path[currentPathIndex];
             // [3D Migration] Navigate using XZ; keep current Y
-            Vector3 currentTarget = new Vector3(targetNode.x + 0.5f, transform.position.y, targetNode.y + 0.5f);
+            Vector3 currentTarget = (pathfinder != null)
+                ? pathfinder.CellToWorldCenter(new Vector2Int(targetNode.x, targetNode.y), transform.position.y)
+                : new Vector3(targetNode.x + 0.5f, transform.position.y, targetNode.y + 0.5f);
 
             if (targetNode.isWall)
             {
                 // [3D Migration] Use 3D physics to locate wall object
-                Collider[] wallColliders = Physics.OverlapSphere(currentTarget, 0.4f, wallLayerMask);
+                float radius = 0.4f * ((pathfinder != null) ? Mathf.Max(0.0001f, pathfinder.cellSize) : 1f);
+                Collider[] wallColliders = Physics.OverlapSphere(currentTarget, radius, wallLayerMask);
                 DestructibleWall wall = null;
                 foreach (var col in wallColliders)
                 {

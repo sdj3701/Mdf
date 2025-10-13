@@ -4,6 +4,15 @@ using UnityEngine;
 
 public class AstarGrid : MonoBehaviour
 {
+    [Header("3D 그리드 바인딩")]
+    [Tooltip("FieldManager의 그리드 설정(Origin, CellSize, Size)을 사용합니다.")]
+    public bool useFieldManagerGrid = true;
+    [Tooltip("동일한 Grid 루트 아래의 FieldManager를 자동으로 찾습니다.")]
+    public FieldManager fieldManager;
+    [Tooltip("FieldManager를 사용하지 않을 때, 직접 지정할 그리드 원점(월드, XZ)")]
+    public Vector3 gridOrigin = Vector3.zero;
+    [Tooltip("FieldManager를 사용하지 않을 때, 직접 지정할 셀 크기")]
+    public float cellSize = 1f;
     [Header("그리드 설정 (원점 + 크기, X/Z)")]
     [Tooltip("그리드 오브젝트의 위치(Pivot)에서 시작하여 +X(오른쪽), +Z(위)로 전개됩니다.")]
     public Vector2Int gridSize = new Vector2Int(10, 10);
@@ -35,16 +44,19 @@ public class AstarGrid : MonoBehaviour
 
     private int sizeX, sizeY;
     private AstarNode[,] NodeArray;
-    // ✅ [추가된 핵심 로직] 런타임에 계산될 실제 월드 좌표 경계
-    private Vector2Int worldBottomLeft;
-    private Vector2Int worldTopRight;
+    // ✅ [변경] 노드 인덱스 경계(셀 좌표). FieldManager 그리드(0,0)~(size-1,size-1)를 기본으로 사용
+    private Vector2Int worldBottomLeft; // 셀 좌표 기준 최소값
+    private Vector2Int worldTopRight;   // 셀 좌표 기준 최대값
     private bool initialized = false;
 
-    // ✅ [수정] Awake에서 public Initialize로 변경 (필요 시 외부에서도 재초기화 가능)
+    // 플레이 중에는 PlayerManager가 FieldManager 초기화 이후 호출하도록 두고,
+    // 에디터 미플레이 상태에서는 미리 초기화하여 프리뷰를 보이게 합니다.
     private void Awake()
     {
-        if (!initialized)
+        if (!Application.isPlaying && !initialized)
+        {
             Initialize();
+        }
     }
 
     private void OnValidate()
@@ -52,18 +64,39 @@ public class AstarGrid : MonoBehaviour
         if (gridSize.x < 1) gridSize.x = 1;
         if (gridSize.y < 1) gridSize.y = 1;
     }
-    // [3D Migration] Pivot 기준 원점에서 +X/+Z로 전개
+    // [3D Migration] FieldManager 그리드를 우선 바인딩, 없으면 기존 방식 사용
     public void Initialize()
     {
-        // 자신의 월드 위치를 기준으로 실제 경계를 계산합니다. (x=월드 X, y=월드 Z)
-        Vector2Int origin = new Vector2Int(
-            Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.z)
-        ) + startOffset;
+        // FieldManager 자동 바인딩 시도
+        if (useFieldManagerGrid && fieldManager == null)
+        {
+            fieldManager = GetComponentInParent<FieldManager>();
+        }
 
-        // 오른쪽(+X), 위(+Z)로 전개
-        worldBottomLeft = origin;
-        worldTopRight = origin + new Vector2Int(gridSize.x - 1, gridSize.y - 1);
+        if (useFieldManagerGrid && fieldManager != null && fieldManager.ground3D != null)
+        {
+            // FieldManager의 그리드 정보를 사용
+            gridOrigin = fieldManager.gridOrigin;
+            cellSize = Mathf.Max(0.0001f, fieldManager.cellSize);
+            gridSize = fieldManager.gridSize;
+
+            // FieldManager 좌표계를 그대로 사용하기 위해 오프셋 없이 0..size-1 범위를 사용
+            worldBottomLeft = Vector2Int.zero; // 셀 좌표 기준
+            worldTopRight = new Vector2Int(gridSize.x - 1, gridSize.y - 1);
+        }
+        else
+        {
+            // 자신의 월드 위치를 기준으로 기존 방식 유지 (셀 크기 1 가정)
+            Vector2Int origin = new Vector2Int(
+                Mathf.FloorToInt(transform.position.x),
+                Mathf.FloorToInt(transform.position.z)
+            ) + startOffset;
+
+            worldBottomLeft = origin;
+            worldTopRight = origin + new Vector2Int(gridSize.x - 1, gridSize.y - 1);
+            gridOrigin = new Vector3(worldBottomLeft.x, 0f, worldBottomLeft.y);
+            cellSize = 1f;
+        }
 
         // 그리드 노드 배열을 처음 생성합니다.
         InitializeGrid();
@@ -135,7 +168,7 @@ public class AstarGrid : MonoBehaviour
 
     private void InitializeGrid()
     {
-        // ✅ [수정] 월드 좌표 경계를 기준으로 크기를 계산합니다.
+        // ✅ [수정] 셀 좌표 경계를 기준으로 크기를 계산합니다.
         sizeX = worldTopRight.x - worldBottomLeft.x + 1;
         sizeY = worldTopRight.y - worldBottomLeft.y + 1;
         NodeArray = new AstarNode[sizeX, sizeY];
@@ -144,9 +177,9 @@ public class AstarGrid : MonoBehaviour
         {
             for (int j = 0; j < sizeY; j++)
             {
-                int x = i + worldBottomLeft.x;
-                int y = j + worldBottomLeft.y;
-                NodeArray[i, j] = new AstarNode(false, x, y);
+                int cellX = i + worldBottomLeft.x; // 셀 좌표
+                int cellY = j + worldBottomLeft.y; // 셀 좌표
+                NodeArray[i, j] = new AstarNode(false, cellX, cellY);
             }
         }
     }
@@ -159,10 +192,10 @@ public class AstarGrid : MonoBehaviour
         {
             for (int j = 0; j < sizeY; j++)
             {
-                // [3D Migration] NodeArray[i,j].x -> world X, NodeArray[i,j].y -> world Z
-                // 세로 두께를 가진 박스 콜리전으로 감지 (Y 고정이더라도 벽이 떠있을 수 있으므로)
-                Vector3 checkWorldPos = new Vector3(NodeArray[i, j].x + 0.5f, sampleY, NodeArray[i, j].y + 0.5f);
-                Vector3 halfExtents = new Vector3(detectionRadius, Mathf.Max(0.01f, sampleHeight * 0.5f), detectionRadius);
+                // ✅ 셀 좌표를 월드 좌표로 변환하여 감지
+                Vector3 cellCenter = CellToWorldCenter(new Vector2Int(NodeArray[i, j].x, NodeArray[i, j].y), sampleY);
+                Vector3 checkWorldPos = cellCenter;
+                Vector3 halfExtents = new Vector3(detectionRadius * cellSize, Mathf.Max(0.01f, sampleHeight * 0.5f), detectionRadius * cellSize);
                 bool isWall = Physics.CheckBox(checkWorldPos, halfExtents, Quaternion.identity, wallLayers);
                 NodeArray[i, j].isWall = isWall;
 
@@ -261,11 +294,11 @@ public class AstarGrid : MonoBehaviour
     /// </summary>
     public Vector3 ClampToGrid(Vector3 worldPos)
     {
-        // 경계는 셀 경계까지 허용: [worldBottomLeft.x, worldTopRight.x + 1)
-        float minX = worldBottomLeft.x;
-        float maxX = worldTopRight.x + 1f; // 셀의 오른쪽 경계
-        float minZ = worldBottomLeft.y;
-        float maxZ = worldTopRight.y + 1f; // 셀의 위쪽 경계
+        // 경계는 셀 경계까지 허용
+        float minX = gridOrigin.x + (worldBottomLeft.x) * cellSize;
+        float maxX = gridOrigin.x + (worldTopRight.x + 1) * cellSize;
+        float minZ = gridOrigin.z + (worldBottomLeft.y) * cellSize;
+        float maxZ = gridOrigin.z + (worldTopRight.y + 1) * cellSize;
 
         float clampedX = Mathf.Clamp(worldPos.x, minX, maxX);
         float clampedZ = Mathf.Clamp(worldPos.z, minZ, maxZ);
@@ -276,10 +309,10 @@ public class AstarGrid : MonoBehaviour
     /// </summary>
     public Vector2Int WorldToCell(Vector3 worldPos)
     {
-        return new Vector2Int(
-            Mathf.FloorToInt(worldPos.x),
-            Mathf.FloorToInt(worldPos.z)
-        );
+        // FieldManager 그리드 기준으로 변환
+        int cx = Mathf.FloorToInt((worldPos.x - gridOrigin.x) / cellSize);
+        int cz = Mathf.FloorToInt((worldPos.z - gridOrigin.z) / cellSize);
+        return new Vector2Int(cx, cz);
     }
 
     /// <summary>
@@ -287,7 +320,9 @@ public class AstarGrid : MonoBehaviour
     /// </summary>
     public Vector3 CellToWorldCenter(Vector2Int cell, float y = 0f)
     {
-        return new Vector3(cell.x + 0.5f, y, cell.y + 0.5f);
+        float wx = gridOrigin.x + (cell.x + 0.5f) * cellSize;
+        float wz = gridOrigin.z + (cell.y + 0.5f) * cellSize;
+        return new Vector3(wx, y, wz);
     }
 
     /// <summary>
@@ -295,13 +330,15 @@ public class AstarGrid : MonoBehaviour
     /// </summary>
     public Vector3 SnapToCellCenter(Vector3 worldPos, float yOverride = float.NaN)
     {
-        Vector2Int cell = WorldToCell(worldPos);
+        // 먼저 그리드 경계로 클램프하여 항상 유효 셀을 선택
+        Vector3 clamped = ClampToGrid(worldPos);
+        Vector2Int cell = WorldToCell(clamped);
         float y = float.IsNaN(yOverride) ? worldPos.y : yOverride;
-        return new Vector3(cell.x + 0.5f, y, cell.y + 0.5f);
+        return CellToWorldCenter(cell, y);
     }
     private bool IsValidPosition(Vector2Int pos)
     {
-        // ✅ [수정] 월드 좌표 경계와 비교합니다.
+        // ✅ [수정] 셀 좌표 경계와 비교합니다.
         return pos.x >= worldBottomLeft.x && pos.x <= worldTopRight.x &&
                pos.y >= worldBottomLeft.y && pos.y <= worldTopRight.y;
     }
@@ -309,7 +346,7 @@ public class AstarGrid : MonoBehaviour
     private AstarNode GetNode(Vector2Int pos)
     {
         if (!IsValidPosition(pos)) return null;
-        // ✅ [수정] 월드 좌표를 배열 인덱스로 변환합니다.
+        // ✅ [수정] 셀 좌표를 배열 인덱스로 변환합니다.
         return NodeArray[pos.x - worldBottomLeft.x, pos.y - worldBottomLeft.y];
     }
 
@@ -325,34 +362,31 @@ public class AstarGrid : MonoBehaviour
     {
         if (!showDebugInfo) return;
 
-        // ✅ 월드 좌표 경계를 기준으로 기즈모를 그립니다. (x=월드 X, y=월드 Z)
-        Vector2Int bottomLeftGizmo;
-        Vector2Int topRightGizmo;
-        if (Application.isPlaying)
+        // ✅ FieldManager/Origin/CellSize 기반으로 그리드 박스를 그립니다.
+        Vector3 gizmoOrigin;
+        Vector2Int gizmoSize;
+        if (Application.isPlaying && useFieldManagerGrid && fieldManager != null && fieldManager.ground3D != null)
         {
-            bottomLeftGizmo = worldBottomLeft;
-            topRightGizmo = worldTopRight;
+            gizmoOrigin = gridOrigin;
+            gizmoSize = gridSize;
         }
         else
         {
-            Vector2Int editorOrigin = new Vector2Int(
-                Mathf.RoundToInt(transform.position.x),
-                Mathf.RoundToInt(transform.position.z)
-            ) + startOffset;
-            bottomLeftGizmo = editorOrigin;
-            topRightGizmo = editorOrigin + new Vector2Int(gridSize.x - 1, gridSize.y - 1);
+            // 에디터에서도 최대한 FieldManager와 일치하도록 시도
+            gizmoOrigin = gridOrigin;
+            gizmoSize = gridSize;
         }
 
         Gizmos.color = Color.cyan;
         Vector3 center = new Vector3(
-            bottomLeftGizmo.x + (topRightGizmo.x - bottomLeftGizmo.x) / 2f + 0.5f,
+            gizmoOrigin.x + gizmoSize.x * cellSize * 0.5f,
             0,
-            bottomLeftGizmo.y + (topRightGizmo.y - bottomLeftGizmo.y) / 2f + 0.5f
+            gizmoOrigin.z + gizmoSize.y * cellSize * 0.5f
         );
         Vector3 size = new Vector3(
-            topRightGizmo.x - bottomLeftGizmo.x + 1,
-            0.1f,  // Y축 두께
-            topRightGizmo.y - bottomLeftGizmo.y + 1
+            gizmoSize.x * cellSize,
+            0.1f,
+            gizmoSize.y * cellSize
         );
         Gizmos.DrawWireCube(center, size);
 
@@ -362,18 +396,18 @@ public class AstarGrid : MonoBehaviour
         {
             for (int j = 0; j < sizeY; j++)
             {
-                Vector3 pos = new Vector3(NodeArray[i,j].x + 0.5f, 0, NodeArray[i,j].y + 0.5f);
+                Vector3 pos = CellToWorldCenter(new Vector2Int(NodeArray[i, j].x, NodeArray[i, j].y), 0f);
                 if (NodeArray[i, j].isWall)
                 {
                     // 벽 셀: 빨강(고정) / 주황(파괴 가능)
                     Gizmos.color = NodeArray[i, j].isBreakable ? new Color(1f, 0.5f, 0f, 0.7f) : new Color(1f, 0f, 0f, 0.7f);
-                    Gizmos.DrawCube(pos, new Vector3(0.8f, 0.1f, 0.8f));
+                    Gizmos.DrawCube(pos, new Vector3(0.8f * cellSize, 0.1f, 0.8f * cellSize));
                 }
                 else
                 {
                     // 이동 가능 셀: 반투명 초록
                     Gizmos.color = new Color(0f, 1f, 0f, 0.15f);
-                    Gizmos.DrawCube(pos, new Vector3(0.8f, 0.02f, 0.8f));
+                    Gizmos.DrawCube(pos, new Vector3(0.8f * cellSize, 0.02f, 0.8f * cellSize));
                 }
             }
         }
@@ -383,9 +417,9 @@ public class AstarGrid : MonoBehaviour
             Gizmos.color = Color.green; // 몬스터의 현재 실제 경로
             for (int i = 0; i < FinalPath.Count - 1; i++)
             {
-                // [3D Migration] x는 그대로, y는 z로, Y축은 0.1로 살짝 띄움
-                Vector3 from = new Vector3(FinalPath[i].x + 0.5f, 0.1f, FinalPath[i].y + 0.5f);
-                Vector3 to = new Vector3(FinalPath[i + 1].x + 0.5f, 0.1f, FinalPath[i + 1].y + 0.5f);
+                // [3D Migration] 셀 -> 월드 변환 사용
+                Vector3 from = CellToWorldCenter(new Vector2Int(FinalPath[i].x, FinalPath[i].y), 0.1f);
+                Vector3 to = CellToWorldCenter(new Vector2Int(FinalPath[i + 1].x, FinalPath[i + 1].y), 0.1f);
                 Gizmos.DrawLine(from, to);
             }
         }
@@ -396,9 +430,10 @@ public class AstarGrid : MonoBehaviour
             Gizmos.color = Color.magenta; // AI가 참고하는 이상적인 경로
             for (int i = 0; i < IdealPathForAIDebug.Count - 1; i++)
             {
-                // [3D Migration] x는 그대로, y는 z로, Y축은 0.2로 더 띄움
-                Vector3 from = new Vector3(IdealPathForAIDebug[i].x + 0.5f, 0.2f, IdealPathForAIDebug[i].y + 0.5f);
-                Vector3 to = new Vector3(IdealPathForAIDebug[i + 1].x + 0.5f, 0.2f, IdealPathForAIDebug[i + 1].y + 0.5f);
+                Vector2Int fromCell = new Vector2Int(IdealPathForAIDebug[i].x, IdealPathForAIDebug[i].y);
+                Vector2Int toCell = new Vector2Int(IdealPathForAIDebug[i + 1].x, IdealPathForAIDebug[i + 1].y);
+                Vector3 from = CellToWorldCenter(fromCell, 0.2f);
+                Vector3 to = CellToWorldCenter(toCell, 0.2f);
                 Gizmos.DrawLine(from, to);
             }
         }

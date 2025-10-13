@@ -99,7 +99,7 @@ public class PlacementManager : MonoBehaviour
 
     public void StartPlacementMode(PlacementMode mode, GameObject unitPrefab = null)
     {
-        if (GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare) return;
+        if (GameManagers.Instance != null && GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare) return;
         currentMode = mode;
         unitPrefabToPlace = unitPrefab;
         SetupPreviewObject();
@@ -108,6 +108,11 @@ public class PlacementManager : MonoBehaviour
     public void StopPlacementMode()
     {
         currentMode = PlacementMode.None;
+        unitPrefabToPlace = null;
+        if (previewObject != null)
+        {
+            previewObject.SetActive(false);
+        }
     }
     
     public bool IsPositionValidForPlacement(Vector3Int gridPosition, UnitData unitData = null)
@@ -139,7 +144,6 @@ public class PlacementManager : MonoBehaviour
         else
         {
             // 3D 모드
-            // 그리드 범위 체크
             if (!fieldManager.IsValidGridPosition(gridPosition)) return false;
             
             bool hasObstacle = fieldManager.GetWallAt(gridPosition) != null;
@@ -171,10 +175,7 @@ public class PlacementManager : MonoBehaviour
     private void HandleMouseInput()
     {
         if (Input.GetMouseButtonDown(0)) TryPlace();
-        if (Input.GetMouseButtonDown(1))
-        {
-            if (!TryRemoveWall()) StopPlacementMode();
-        }
+        if (Input.GetMouseButtonDown(1)) StopPlacementMode();
     }
 
     private void TryPlace()

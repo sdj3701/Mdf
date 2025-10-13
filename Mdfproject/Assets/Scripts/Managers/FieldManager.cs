@@ -190,11 +190,17 @@ public class FieldManager : MonoBehaviour
             if (renderer != null)
             {
                 Bounds bounds = renderer.bounds;
-                gridOrigin = new Vector3(bounds.min.x, 0, bounds.min.z);
-                // gridSize.x는 3D의 X축, gridSize.y는 3D의 Z축
+                // 그리드 원점을 셀 그리드에 스냅하여 미세한 오프셋 제거 (Floor로 내부 포함 보장)
+                float snappedMinX = Mathf.Floor(bounds.min.x / cellSize) * cellSize;
+                float snappedMinZ = Mathf.Floor(bounds.min.z / cellSize) * cellSize;
+                gridOrigin = new Vector3(snappedMinX, 0, snappedMinZ);
+                // 최대 경계도 셀 경계로 스냅하여 전체 영역을 포함하도록 보정
+                float snappedMaxX = Mathf.Ceil(bounds.max.x / cellSize) * cellSize;
+                float snappedMaxZ = Mathf.Ceil(bounds.max.z / cellSize) * cellSize;
+                // 셀 수는 스냅된 경계 차이를 기준으로 정확히 계산
                 gridSize = new Vector2Int(
-                    Mathf.RoundToInt(bounds.size.x / cellSize),  // X축 길이
-                    Mathf.RoundToInt(bounds.size.z / cellSize)   // Z축 길이
+                    Mathf.RoundToInt((snappedMaxX - gridOrigin.x) / cellSize),
+                    Mathf.RoundToInt((snappedMaxZ - gridOrigin.z) / cellSize)
                 );
                 Debug.Log($"[FieldManager] 3D 그리드 초기화: Origin={gridOrigin}, Size(X,Z)={gridSize}, CellSize={cellSize}");
             }
@@ -343,6 +349,18 @@ public class FieldManager : MonoBehaviour
     public void StopPlacementMode()
     {
         placementManager.StopPlacementMode();
+    }
+
+    public void TogglePlacementMode(PlacementMode mode, GameObject unitPrefab = null)
+    {
+        if (placementManager.GetCurrentMode() == mode)
+        {
+            placementManager.StopPlacementMode();
+        }
+        else
+        {
+            placementManager.StartPlacementMode(mode, unitPrefab);
+        }
     }
 
     #endregion

@@ -100,15 +100,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         Debug.Log($"[Player {playerId}]: SpawnPoint 찾음? -> {(this.spawnPoint != null)}");
         Debug.Log($"[Player {playerId}]: Goal 찾음? -> {(this.goalTransform != null)}");
 
-        // AstarGrid 초기화
-        if (this.astarGrid != null)
-        {
-            this.astarGrid.Initialize();
-        }
-        else
-        {
-            Debug.LogError($"[Player {playerId}]: AstarGrid 컴포넌트를 찾지 못해 경로 탐색을 초기화할 수 없습니다.");
-        }
+        // AstarGrid 초기화는 FieldManager 초기화 이후에 수행하여 3D 그리드 정보를 공유합니다.
 
         // 하위 매니저 초기화
         // [3D Migration] 3D Ground가 있으면 3D 모드로, 없으면 2D Tilemap 모드로 초기화
@@ -128,6 +120,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             {
                 Debug.LogError($"[Player {playerId}]: FieldManager 초기화 실패 - Ground 오브젝트나 Tilemap을 찾을 수 없습니다!");
             }
+        }
+
+        // 이제 FieldManager가 준비되었으므로 AstarGrid를 FieldManager와 동기화하여 초기화합니다.
+        if (this.astarGrid != null)
+        {
+            this.astarGrid.fieldManager = fieldManager;
+            this.astarGrid.useFieldManagerGrid = true;
+            this.astarGrid.Initialize();
+        }
+        else
+        {
+            Debug.LogError($"[Player {playerId}]: AstarGrid 컴포넌트를 찾지 못해 경로 탐색을 초기화할 수 없습니다.");
         }
         if (shopManager) shopManager.playerManager = this;
         

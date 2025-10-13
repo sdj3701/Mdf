@@ -115,9 +115,12 @@ namespace AI.BehaviorTree.Nodes.Actions
                 }
             }
 
-            // [3D Migration] position.y → position.z (3D 공간의 Z축 사용)
-            Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(start.position.x), Mathf.FloorToInt(start.position.z));
-            Vector2Int goalPos = new Vector2Int(Mathf.FloorToInt(goal.position.x), Mathf.FloorToInt(goal.position.z));
+            // [3D Migration] FieldManager/AstarGrid 좌표 변환 사용 (origin/cellSize 반영)
+            // 경계 밖일 수 있으므로 먼저 클램프 후 셀 변환
+            Vector3 startClamped = grid.ClampToGrid(start.position);
+            Vector3 goalClamped = grid.ClampToGrid(goal.position);
+            Vector2Int startPos = grid.WorldToCell(startClamped);
+            Vector2Int goalPos = grid.WorldToCell(goalClamped);
 
             Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - Start: {start.position} -> {startPos}, Goal: {goal.position} -> {goalPos}");
 
