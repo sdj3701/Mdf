@@ -23,6 +23,7 @@ public class GameSceneInitializer : MonoBehaviour
 
     private NetworkRunner _runner;
     private bool _isInitialized = false;
+    private bool _isOwnerOfRunner = false; // 이 스크립트가 Runner를 직접 생성했는지 여부
 
     async void Start()
     {
@@ -33,6 +34,7 @@ public class GameSceneInitializer : MonoBehaviour
         if (NetworkManager.Instance != null && NetworkManager.Instance.IsGameRunnerActive)
         {
             Debug.Log("[GameSceneInitializer] 멀티플레이 모드로 진입. 싱글플레이 초기화를 건너뜁니다.");
+            await StartMultiPlayerMode();
             return;
         }
 
@@ -90,6 +92,36 @@ public class GameSceneInitializer : MonoBehaviour
         {
             Debug.LogError($"[GameSceneInitializer] ❌ 싱글플레이 모드 시작 실패: {result.ShutdownReason}");
         }
+    }
+
+    private async UniTask StartMultiPlayerMode()
+    {
+        if (_isInitialized)
+        {
+            Debug.LogWarning("[GameSceneInitializer] 이미 초기화되었습니다.");
+            return;
+        }
+
+        _isInitialized = true;
+        // 한 프레임 기다려서 Runner의 상태가 안정화될 시간을 줍니다.
+        await UniTask.Yield(); 
+
+        // NetworkManager를 통해 이미 존재하는 Runner를 가져옵니다.
+        _runner = NetworkManager.Instance._runner;
+        if (_runner == null || !_runner.IsRunning)
+        {
+            Debug.LogError("[GameSceneInitializer] 멀티플레이 모드지만 Runner가 실행 중이지 않습니다.");
+            return;
+        }
+
+        if (_runner.GameMode != GameMode.Host)
+        {
+            Debug.Log("서버가 아니니까 생성 할 필요 없어");
+            return;
+        }
+
+        Debug.Log("[GameSceneInitializer] ✅ 멀티플레이 모드 시작 성공!");
+        await SpawnGameManagers();
     }
 
     /// <summary>
