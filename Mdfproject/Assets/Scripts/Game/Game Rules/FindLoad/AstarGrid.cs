@@ -4,11 +4,11 @@ using UnityEngine;
 
 public class AstarGrid : MonoBehaviour
 {
-    [Header("그리드 설정 (로컬 오프셋)")]
-    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 왼쪽 아래 경계입니다. (X, Z 좌표)")]
-    public Vector2Int bottomLeft;
-    [Tooltip("그리드 오브젝트의 위치(Pivot)를 기준으로 한 오른쪽 위 경계입니다. (X, Z 좌표)")]
-    public Vector2Int topRight;
+    [Header("그리드 설정 (원점 + 크기, X/Z)")]
+    [Tooltip("그리드 오브젝트의 위치(Pivot)에서 시작하여 +X(오른쪽), +Z(위)로 전개됩니다.")]
+    public Vector2Int gridSize = new Vector2Int(10, 10);
+    [Tooltip("Pivot로부터의 로컬 오프셋 (시작 셀). 보통 (0,0).")]
+    public Vector2Int startOffset = Vector2Int.zero;
 
     [Header("레이어 및 비용 설정")]
     public LayerMask wallLayers = -1;
@@ -35,32 +35,45 @@ public class AstarGrid : MonoBehaviour
 
     private int sizeX, sizeY;
     private AstarNode[,] NodeArray;
-
     // ✅ [추가된 핵심 로직] 런타임에 계산될 실제 월드 좌표 경계
     private Vector2Int worldBottomLeft;
     private Vector2Int worldTopRight;
+    private bool initialized = false;
 
-    // ✅ [수정] Awake에서 public Initialize로 변경
-    // [3D Migration] transform.position.z를 사용하여 3D 공간의 x, z 좌표로 초기화
+    // ✅ [수정] Awake에서 public Initialize로 변경 (필요 시 외부에서도 재초기화 가능)
+    private void Awake()
+    {
+        if (!initialized)
+            Initialize();
+    }
+
+    private void OnValidate()
+    {
+        if (gridSize.x < 1) gridSize.x = 1;
+        if (gridSize.y < 1) gridSize.y = 1;
+    }
+    // [3D Migration] Pivot 기준 원점에서 +X/+Z로 전개
     public void Initialize()
     {
-        // 이 컴포넌트가 깨어날 때, 자신의 월드 위치를 기준으로 실제 경계를 계산합니다.
-        // Vector2Int의 x는 3D의 x, y는 3D의 z를 의미합니다.
-        Vector2Int gridOrigin = new Vector2Int(
+        // 자신의 월드 위치를 기준으로 실제 경계를 계산합니다. (x=월드 X, y=월드 Z)
+        Vector2Int origin = new Vector2Int(
             Mathf.FloorToInt(transform.position.x),
-            Mathf.FloorToInt(transform.position.z)  // [3D Migration] y → z
-        );
-        worldBottomLeft = gridOrigin + bottomLeft;
-        worldTopRight = gridOrigin + topRight;
+            Mathf.FloorToInt(transform.position.z)
+        ) + startOffset;
+
+        // 오른쪽(+X), 위(+Z)로 전개
+        worldBottomLeft = origin;
+        worldTopRight = origin + new Vector2Int(gridSize.x - 1, gridSize.y - 1);
 
         // 그리드 노드 배열을 처음 생성합니다.
         InitializeGrid();
+        initialized = true;
     }
 
     public bool FindPath(Vector2Int start, Vector2Int end, bool ignoreWalls = false)
     {
         // 런타임에 벽 정보가 바뀔 수 있으므로, 경로 탐색 시마다 벽 상태를 다시 확인합니다.
-        // 벽을 무시하는 경우, 이 업데이트를 건너뛰어 성능을 최적화하고 그리드를 '깨끗한' 상태로 둡니다.
+        // 벽을 무시하는 경우, 이 업데이斯特를 건너뛰어 성능을 최적화하고 그리드를 '깨끗한' 상태로 둡니다.
         if (!ignoreWalls)
         {
             UpdateGridWallStatus();
@@ -258,6 +271,34 @@ public class AstarGrid : MonoBehaviour
         float clampedZ = Mathf.Clamp(worldPos.z, minZ, maxZ);
         return new Vector3(clampedX, worldPos.y, clampedZ);
     }
+    /// <summary>
+    /// 월드 좌표를 포함하는 셀의 정수 그리드 좌표(X/Z)를 반환합니다. (바닥 내림)
+    /// </summary>
+    public Vector2Int WorldToCell(Vector3 worldPos)
+    {
+        return new Vector2Int(
+            Mathf.FloorToInt(worldPos.x),
+            Mathf.FloorToInt(worldPos.z)
+        );
+    }
+
+    /// <summary>
+    /// 셀 좌표의 중심 월드 좌표를 반환합니다. (기본 Y=0)
+    /// </summary>
+    public Vector3 CellToWorldCenter(Vector2Int cell, float y = 0f)
+    {
+        return new Vector3(cell.x + 0.5f, y, cell.y + 0.5f);
+    }
+
+    /// <summary>
+    /// 임의 월드 좌표를 가장 가까운 셀 중심으로 스냅합니다. (Y 유지 또는 지정)
+    /// </summary>
+    public Vector3 SnapToCellCenter(Vector3 worldPos, float yOverride = float.NaN)
+    {
+        Vector2Int cell = WorldToCell(worldPos);
+        float y = float.IsNaN(yOverride) ? worldPos.y : yOverride;
+        return new Vector3(cell.x + 0.5f, y, cell.y + 0.5f);
+    }
     private bool IsValidPosition(Vector2Int pos)
     {
         // ✅ [수정] 월드 좌표 경계와 비교합니다.
@@ -284,13 +325,25 @@ public class AstarGrid : MonoBehaviour
     {
         if (!showDebugInfo) return;
 
-        // ✅ [수정] 월드 좌표 경계를 기준으로 기즈모를 그립니다.
-        // [3D Migration] Vector2Int의 x는 3D의 x, y는 3D의 z
-        Vector2Int bottomLeftGizmo = Application.isPlaying ? worldBottomLeft : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.z)) + bottomLeft;
-        Vector2Int topRightGizmo = Application.isPlaying ? worldTopRight : new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.z)) + topRight;
+        // ✅ 월드 좌표 경계를 기준으로 기즈모를 그립니다. (x=월드 X, y=월드 Z)
+        Vector2Int bottomLeftGizmo;
+        Vector2Int topRightGizmo;
+        if (Application.isPlaying)
+        {
+            bottomLeftGizmo = worldBottomLeft;
+            topRightGizmo = worldTopRight;
+        }
+        else
+        {
+            Vector2Int editorOrigin = new Vector2Int(
+                Mathf.RoundToInt(transform.position.x),
+                Mathf.RoundToInt(transform.position.z)
+            ) + startOffset;
+            bottomLeftGizmo = editorOrigin;
+            topRightGizmo = editorOrigin + new Vector2Int(gridSize.x - 1, gridSize.y - 1);
+        }
 
         Gizmos.color = Color.cyan;
-        // [3D Migration] Y축은 0으로 고정, Z축 사용
         Vector3 center = new Vector3(
             bottomLeftGizmo.x + (topRightGizmo.x - bottomLeftGizmo.x) / 2f + 0.5f,
             0,
