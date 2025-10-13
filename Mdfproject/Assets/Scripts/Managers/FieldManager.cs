@@ -186,26 +186,42 @@ public class FieldManager : MonoBehaviour
         this.playerManager = owner;
         this.ground3D = ground3DObject;
         
-        // 3D Ground의 bounds를 기반으로 그리드 설정 (옵션)
-        if (deriveGridFromGroundBounds && ground3D != null)
+        // 3D Ground 기준으로 항상 그리드 원점을 정렬하고, 필요 시에만 사이즈를 유도합니다.
+        if (ground3D != null)
         {
             Renderer renderer = ground3D.GetComponent<Renderer>();
             if (renderer != null)
             {
                 Bounds bounds = renderer.bounds;
-                // 인덱스 계산은 하한 포함, 상한 배타로 처리 (유령 셀 방지)
                 float epsilon = Mathf.Max(1e-4f * cellSize, Mathf.Epsilon);
                 int minIndexX = Mathf.FloorToInt(bounds.min.x / cellSize);
                 int minIndexZ = Mathf.FloorToInt(bounds.min.z / cellSize);
-                int maxIndexExclusiveX = Mathf.FloorToInt((bounds.max.x - epsilon) / cellSize) + 1;
-                int maxIndexExclusiveZ = Mathf.FloorToInt((bounds.max.z - epsilon) / cellSize) + 1;
 
+                // 항상 per-player ground에 맞게 원점을 정렬 (겹침 방지)
                 gridOrigin = new Vector3(minIndexX * cellSize, 0, minIndexZ * cellSize);
-                gridSize = new Vector2Int(
-                    Mathf.Max(1, maxIndexExclusiveX - minIndexX),
-                    Mathf.Max(1, maxIndexExclusiveZ - minIndexZ)
-                );
-                Debug.Log($"[FieldManager] Grid derived from ground bounds: Origin={gridOrigin}, Size(X,Z)={gridSize}, CellSize={cellSize}");
+
+                if (deriveGridFromGroundBounds)
+                {
+                    int maxIndexExclusiveX = Mathf.FloorToInt((bounds.max.x - epsilon) / cellSize) + 1;
+                    int maxIndexExclusiveZ = Mathf.FloorToInt((bounds.max.z - epsilon) / cellSize) + 1;
+                    gridSize = new Vector2Int(
+                        Mathf.Max(1, maxIndexExclusiveX - minIndexX),
+                        Mathf.Max(1, maxIndexExclusiveZ - minIndexZ)
+                    );
+                    Debug.Log($"[FieldManager] Grid derived from ground bounds: Origin={gridOrigin}, Size(X,Z)={gridSize}, CellSize={cellSize}");
+                }
+                else
+                {
+                    Debug.Log($"[FieldManager] Grid origin aligned to ground: Origin={gridOrigin}, keep Size(X,Z)={gridSize}");
+                }
+            }
+            else
+            {
+                // Renderer가 없으면 Transform 위치를 기준으로 최소 인덱스 정렬
+                int minIndexX = Mathf.FloorToInt(ground3D.transform.position.x / cellSize);
+                int minIndexZ = Mathf.FloorToInt(ground3D.transform.position.z / cellSize);
+                gridOrigin = new Vector3(minIndexX * cellSize, 0, minIndexZ * cellSize);
+                Debug.Log($"[FieldManager] Grid origin aligned (no Renderer): Origin={gridOrigin}, keep Size(X,Z)={gridSize}");
             }
         }
 

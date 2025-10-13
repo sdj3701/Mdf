@@ -320,7 +320,23 @@ public class GameManagers : NetworkBehaviour
 
         for (int i = 0; i < playersToCreate; i++)
         {
-            Vector3 playerPosition = player1BasePosition + playerOffset * i;
+            // [3D Migration] 각 플레이어의 그리드를 XZ 평면에서 분리합니다.
+            // 과거 2D 프로젝트에서는 Y(상하)로 띄웠지만, 3D(XZ)로 전환 후에는 겹치게 됩니다.
+            // 해결: inspector에서 설정된 playerOffset을 XZ로 투영하고, 
+            //       만약 Z가 0이고 Y만 설정돼 있다면(레거시 설정) Y를 Z로 매핑합니다.
+            Vector3 effectiveOffset = playerOffset;
+            if (Mathf.Approximately(effectiveOffset.z, 0f) && !Mathf.Approximately(effectiveOffset.y, 0f))
+            {
+                // 레거시(2D) 설정 대응: Y 오프셋을 Z 오프셋으로 사용
+                effectiveOffset = new Vector3(effectiveOffset.x, 0f, effectiveOffset.y);
+            }
+            // XZ만 사용하고 Y는 무시
+            effectiveOffset.y = 0f;
+            Vector3 playerPosition = new Vector3(
+                player1BasePosition.x + effectiveOffset.x * i,
+                player1BasePosition.y, // 동일한 바닥 높이 유지
+                player1BasePosition.z + effectiveOffset.z * i
+            );
             bool isAI = isAIPlayer[i];
             PlayerRef inputAuthority = PlayerRef.None;
 
