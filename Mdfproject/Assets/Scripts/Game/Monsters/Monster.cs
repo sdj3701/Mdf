@@ -205,10 +205,10 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     {
         // [3D Migration] FieldManager/AstarGrid 그리드 기준으로 변환
         Vector2Int currentGridPos = (pathfinder != null)
-            ? pathfinder.WorldToCell(transform.position)
+            ? pathfinder.WorldToCell(pathfinder.ClampToGrid(transform.position))
             : new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.z));
         Vector2Int targetGridPos = (pathfinder != null)
-            ? pathfinder.WorldToCell(goalTransform.position)
+            ? pathfinder.WorldToCell(pathfinder.ClampToGrid(goalTransform.position))
             : new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
 
 

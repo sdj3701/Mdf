@@ -81,11 +81,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
         
         // 3D Ground 오브젝트 찾기 (Tilemap이 없을 경우)
-        GameObject ground3D = gridInstance.transform.Find("Ground")?.gameObject;
+        GameObject ground3D = null;
+        // 우선 활성화된 오브젝트 중에서 이름이 "Ground" 또는 "Field"인 것을 찾습니다.
+        var groundCandidates = gridInstance.GetComponentsInChildren<Transform>(true)
+            .Where(t => t != null && (t.name == "Ground" || t.name == "Field"))
+            .Select(t => t.gameObject)
+            .ToList();
+
+        ground3D = groundCandidates.FirstOrDefault(go => go != null && go.activeInHierarchy);
+        // 폴백: 없다면 첫 후보를 사용
         if (ground3D == null)
         {
-            // 다른 이름도 시도
-            ground3D = gridInstance.transform.Find("Field")?.gameObject;
+            ground3D = groundCandidates.FirstOrDefault();
         }
         
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();

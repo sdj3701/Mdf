@@ -39,6 +39,9 @@ public class FieldManager : MonoBehaviour
     [Tooltip("그리드 크기 (X, Z 칸 수) - x는 3D의 X, y는 3D의 Z를 의미")]
     public Vector2Int gridSize = new Vector2Int(10, 8);
     
+    [Tooltip("Ground Renderer의 Bounds로부터 그리드 Origin/Size를 자동 유도합니다. 끄면 인스펙터 설정값을 그대로 사용합니다.")]
+    public bool deriveGridFromGroundBounds = false;
+    
     [Header("유닛 배치 높이 설정")]
     [Tooltip("일반 Ground에 배치될 때 Y축 오프셋")]
     public float groundYOffset = 0f;
@@ -183,26 +186,26 @@ public class FieldManager : MonoBehaviour
         this.playerManager = owner;
         this.ground3D = ground3DObject;
         
-        // 3D Ground의 bounds를 기반으로 그리드 설정
-        if (ground3D != null)
+        // 3D Ground의 bounds를 기반으로 그리드 설정 (옵션)
+        if (deriveGridFromGroundBounds && ground3D != null)
         {
             Renderer renderer = ground3D.GetComponent<Renderer>();
             if (renderer != null)
             {
                 Bounds bounds = renderer.bounds;
-                // 그리드 원점을 셀 그리드에 스냅하여 미세한 오프셋 제거 (Floor로 내부 포함 보장)
-                float snappedMinX = Mathf.Floor(bounds.min.x / cellSize) * cellSize;
-                float snappedMinZ = Mathf.Floor(bounds.min.z / cellSize) * cellSize;
-                gridOrigin = new Vector3(snappedMinX, 0, snappedMinZ);
-                // 최대 경계도 셀 경계로 스냅하여 전체 영역을 포함하도록 보정
-                float snappedMaxX = Mathf.Ceil(bounds.max.x / cellSize) * cellSize;
-                float snappedMaxZ = Mathf.Ceil(bounds.max.z / cellSize) * cellSize;
-                // 셀 수는 스냅된 경계 차이를 기준으로 정확히 계산
+                // 인덱스 계산은 하한 포함, 상한 배타로 처리 (유령 셀 방지)
+                float epsilon = Mathf.Max(1e-4f * cellSize, Mathf.Epsilon);
+                int minIndexX = Mathf.FloorToInt(bounds.min.x / cellSize);
+                int minIndexZ = Mathf.FloorToInt(bounds.min.z / cellSize);
+                int maxIndexExclusiveX = Mathf.FloorToInt((bounds.max.x - epsilon) / cellSize) + 1;
+                int maxIndexExclusiveZ = Mathf.FloorToInt((bounds.max.z - epsilon) / cellSize) + 1;
+
+                gridOrigin = new Vector3(minIndexX * cellSize, 0, minIndexZ * cellSize);
                 gridSize = new Vector2Int(
-                    Mathf.RoundToInt((snappedMaxX - gridOrigin.x) / cellSize),
-                    Mathf.RoundToInt((snappedMaxZ - gridOrigin.z) / cellSize)
+                    Mathf.Max(1, maxIndexExclusiveX - minIndexX),
+                    Mathf.Max(1, maxIndexExclusiveZ - minIndexZ)
                 );
-                Debug.Log($"[FieldManager] 3D 그리드 초기화: Origin={gridOrigin}, Size(X,Z)={gridSize}, CellSize={cellSize}");
+                Debug.Log($"[FieldManager] Grid derived from ground bounds: Origin={gridOrigin}, Size(X,Z)={gridSize}, CellSize={cellSize}");
             }
         }
 
@@ -283,6 +286,9 @@ public class FieldManager : MonoBehaviour
         // 3D 월드 좌표를 그리드 좌표로 변환 (X, Z 사용)
         int gridX = Mathf.FloorToInt((worldPos.x - gridOrigin.x) / cellSize);
         int gridY = Mathf.FloorToInt((worldPos.z - gridOrigin.z) / cellSize);
+        // 경계에서의 미세한 오차로 인해 size 인덱스가 되는 것을 방지하기 위해 유효 범위로 클램프
+        gridX = Mathf.Clamp(gridX, 0, Mathf.Max(0, gridSize.x - 1));
+        gridY = Mathf.Clamp(gridY, 0, Mathf.Max(0, gridSize.y - 1));
         return new Vector2Int(gridX, gridY);
     }
     
@@ -301,6 +307,23 @@ public class FieldManager : MonoBehaviour
     {
         Vector2Int grid2D = WorldToGrid(worldPos);
         return new Vector3Int(grid2D.x, grid2D.y, 0);
+    }
+
+    /// <summary>
+    /// 주어진 월드 좌표를 논리 그리드의 월드 경계 내로 클램프합니다. (X/Z만 제한, Y는 그대로)
+    /// 최대 경계는 배타적으로 취급하여 최댓값에서의 내림으로 인한 유령 셀을 방지합니다.
+    /// </summary>
+    public Vector3 ClampToGrid(Vector3 worldPos)
+    {
+        float minX = gridOrigin.x;
+        float minZ = gridOrigin.z;
+        float maxXExclusive = gridOrigin.x + gridSize.x * cellSize;
+        float maxZExclusive = gridOrigin.z + gridSize.y * cellSize;
+        float epsilon = Mathf.Max(1e-4f * cellSize, Mathf.Epsilon);
+
+        float clampedX = Mathf.Clamp(worldPos.x, minX, maxXExclusive - epsilon);
+        float clampedZ = Mathf.Clamp(worldPos.z, minZ, maxZExclusive - epsilon);
+        return new Vector3(clampedX, worldPos.y, clampedZ);
     }
     
     /// <summary>
@@ -414,6 +437,11 @@ public class FieldManager : MonoBehaviour
     public void CreateWallAt(Vector3Int gridPosition)
     {
         if (destructibleWallPrefab == null || placedWalls.ContainsKey(gridPosition)) return;
+        if (!IsValidGridPosition(gridPosition))
+        {
+            Debug.LogWarning($"[FieldManager] CreateWallAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            return;
+        }
 
         // [3D Migration] Tilemap 또는 3D 그리드 사용
         Vector3 worldPos;
@@ -575,6 +603,11 @@ public class FieldManager : MonoBehaviour
 
      public async void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel, bool markAsAIPurchased = false)
     {
+        if (!IsValidGridPosition(gridPosition))
+        {
+            Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            return;
+        }
         // --- [핵심 수정 부분] ---
         string prefabKey = data.prefabsByStarLevel[starLevel - 1];
         GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
@@ -637,6 +670,12 @@ public class FieldManager : MonoBehaviour
 
     public void MoveUnit(Vector3Int from, Vector3Int to)
     {
+        if (!IsValidGridPosition(from) || !IsValidGridPosition(to))
+        {
+            Debug.LogWarning($"[FieldManager] MoveUnit 무시: 범위를 벗어난 이동 {from} -> {to} (GridSize={gridSize})");
+            return;
+        }
+
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
             placedUnits.Remove(from);
@@ -836,6 +875,11 @@ public class FieldManager : MonoBehaviour
     /// </summary>
     public void RegisterUnitAt(Unit unit, Vector3Int gridPosition)
     {
+        if (!IsValidGridPosition(gridPosition))
+        {
+            Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            return;
+        }
         // [3D Migration] Tilemap 또는 3D 그리드 사용 (벽 체크 포함)
         Vector3 worldPos;
         if (ObstacleTilemap != null)

@@ -291,17 +291,19 @@ public class AstarGrid : MonoBehaviour
     #region 유틸리티 메서드
     /// <summary>
     /// 주어진 월드 좌표를 그리드의 월드 경계 내로 클램프합니다. (X/Z만 제한, Y는 그대로)
+    /// 최대 경계는 셀 경계 바로 안쪽까지만 허용하여 최댓값에서의 올림/내림 오차로 인한 유령 셀을 방지합니다.
     /// </summary>
     public Vector3 ClampToGrid(Vector3 worldPos)
     {
-        // 경계는 셀 경계까지 허용
+        // 하한은 포함, 상한은 셀 경계 바로 안쪽(배타적)으로 클램프
         float minX = gridOrigin.x + (worldBottomLeft.x) * cellSize;
-        float maxX = gridOrigin.x + (worldTopRight.x + 1) * cellSize;
+        float maxXExclusive = gridOrigin.x + (worldTopRight.x + 1) * cellSize;
         float minZ = gridOrigin.z + (worldBottomLeft.y) * cellSize;
-        float maxZ = gridOrigin.z + (worldTopRight.y + 1) * cellSize;
+        float maxZExclusive = gridOrigin.z + (worldTopRight.y + 1) * cellSize;
 
-        float clampedX = Mathf.Clamp(worldPos.x, minX, maxX);
-        float clampedZ = Mathf.Clamp(worldPos.z, minZ, maxZ);
+        float epsilon = Mathf.Max(1e-4f * cellSize, Mathf.Epsilon);
+        float clampedX = Mathf.Clamp(worldPos.x, minX, maxXExclusive - epsilon);
+        float clampedZ = Mathf.Clamp(worldPos.z, minZ, maxZExclusive - epsilon);
         return new Vector3(clampedX, worldPos.y, clampedZ);
     }
     /// <summary>
@@ -312,6 +314,9 @@ public class AstarGrid : MonoBehaviour
         // FieldManager 그리드 기준으로 변환
         int cx = Mathf.FloorToInt((worldPos.x - gridOrigin.x) / cellSize);
         int cz = Mathf.FloorToInt((worldPos.z - gridOrigin.z) / cellSize);
+        // 최댓값 경계에서 생길 수 있는 유령 셀(= size 인덱스)을 방지하기 위해 유효 범위로 클램프
+        cx = Mathf.Clamp(cx, worldBottomLeft.x, worldTopRight.x);
+        cz = Mathf.Clamp(cz, worldBottomLeft.y, worldTopRight.y);
         return new Vector2Int(cx, cz);
     }
 

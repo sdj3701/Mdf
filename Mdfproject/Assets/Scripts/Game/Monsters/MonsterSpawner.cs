@@ -120,9 +120,11 @@ public class MonsterSpawner : MonoBehaviour
                 monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
                 ApplyOpponentDebuffs(monster);
 
-                // [3D Migration] position.y → position.z
-                Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.z));
-                Vector2Int endPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
+                // [3D Migration] 경계 밖 스폰/목표가 유령셀을 만들지 않도록, 그리드로 클램프 후 셀 변환
+                Vector3 clampedSpawn = pathfinder.ClampToGrid(spawnPoint.position);
+                Vector3 clampedGoal = pathfinder.ClampToGrid(goalTransform.position);
+                Vector2Int startPos = pathfinder.WorldToCell(clampedSpawn);
+                Vector2Int endPos = pathfinder.WorldToCell(clampedGoal);
 
 
 

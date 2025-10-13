@@ -184,6 +184,16 @@ public class PlacementManager : MonoBehaviour
             ? unitPrefabToPlace.GetComponent<Unit>().Data
             : null;
 
+        // 안전 클램프 (특히 경계 클릭 시)
+        if (fieldManager != null && fieldManager.ground3D != null)
+        {
+            currentMouseGridPosition = new Vector3Int(
+                Mathf.Clamp(currentMouseGridPosition.x, 0, fieldManager.gridSize.x - 1),
+                Mathf.Clamp(currentMouseGridPosition.y, 0, fieldManager.gridSize.y - 1),
+                0
+            );
+        }
+
         if (!IsPositionValidForPlacement(currentMouseGridPosition, dataToPlace)) return;
 
         switch (currentMode)
@@ -229,7 +239,18 @@ public class PlacementManager : MonoBehaviour
         }
         else
         {
-            currentMouseGridPosition = fieldManager.WorldToGridInt(mouseWorldPos);
+            // 경계 밖 점을 먼저 그리드 경계로 클램프 후 셀로 변환 (경계에서의 -1/size 인덱스 방지)
+            Vector3 clamped = fieldManager.ClampToGrid(mouseWorldPos);
+            currentMouseGridPosition = fieldManager.WorldToGridInt(clamped);
+        }
+        // 그리드 범위를 벗어나지 않도록 클램프하여 미묘한 -1/size 인덱스 방지
+        if (fieldManager != null && fieldManager.ground3D != null)
+        {
+            currentMouseGridPosition = new Vector3Int(
+                Mathf.Clamp(currentMouseGridPosition.x, 0, fieldManager.gridSize.x - 1),
+                Mathf.Clamp(currentMouseGridPosition.y, 0, fieldManager.gridSize.y - 1),
+                0
+            );
         }
     }
 
