@@ -320,6 +320,7 @@ public class GameManagers : NetworkBehaviour
 
         for (int i = 0; i < playersToCreate; i++)
         {
+            BuildDebugGUI.Instance.Log(i.ToString());
             Vector3 playerPosition = player1BasePosition + playerOffset * i;
             bool isAI = isAIPlayer[i];
             PlayerRef inputAuthority = PlayerRef.None;
