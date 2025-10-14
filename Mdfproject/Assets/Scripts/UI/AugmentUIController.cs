@@ -13,6 +13,10 @@ public class AugmentUIController : MonoBehaviour
 
     void Awake()
     {
+        OnEnable();
+    }
+    void OnEnable()
+    {
         // 증강 단계 시작 이벤트를 구독합니다.
         GameEvents.OnAugmentPhaseStart += HandleAugmentPhaseStart;
     }

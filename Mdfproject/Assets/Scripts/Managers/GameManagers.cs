@@ -320,7 +320,7 @@ public class GameManagers : NetworkBehaviour
 
         for (int i = 0; i < playersToCreate; i++)
         {
-            BuildDebugGUI.Instance.Log(i.ToString());
+            //BuildDebugGUI.Instance.Log(i.ToString());
             Vector3 playerPosition = player1BasePosition + playerOffset * i;
             bool isAI = isAIPlayer[i];
             PlayerRef inputAuthority = PlayerRef.None;
@@ -442,6 +442,7 @@ public class GameManagers : NetworkBehaviour
     {
         try
         {
+            Debug.Log("<color=red>UI 생성</color>");
             var shopPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
             var augmentPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
             var (shopPanelInstance, augmentPanelInstance) = await UniTask.WhenAll(shopPanelTask, augmentPanelTask);
