@@ -20,6 +20,7 @@ public class CommandProcessor
         if (NetworkManager.Instance != null && NetworkManager.Instance.IsGameRunnerActive)
         {
             // 2. 직렬화된 데이터를 RPC로 서버에 전송합니다.
+            Debug.Log("<color=red>test RPC RequestCommandExecution </color>");
             NetworkManager.Instance.RPC_RequestCommandToServer(type, intParams, stringParams, vectorParams);
         }
         else
@@ -39,6 +40,7 @@ public class CommandProcessor
         ICommand command = await DeserializeCommand(type, intParams, stringParams, vectorParams);
         if (command != null)
         {
+            Debug.Log("<color=red>test RPC ReceiveAndEnqueueCommand </color>");
             EnqueueCommandFromServer(command);
         }
     }

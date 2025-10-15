@@ -210,14 +210,18 @@ public class GameManagers : NetworkBehaviour
 
         // 데이터 로딩 실패를 감지하기 위한 타임아웃 로직 (15초)
         var playersList = AllPlayers.ToList();
-        var loadingTasks = playersList
+        var shopLoadingTasks = playersList
             .Select(p => p.shopManager.WaitUntilDatabaseLoaded().AsTask())
             .ToList();
+        var augmentLoadingTasks = playersList
+            .Select(p => (p.augmentManager != null ? p.augmentManager.WaitUntilAugmentDataLoaded().AsTask() : Task.CompletedTask))
+            .ToList();
+        var allLoadingTasks = shopLoadingTasks.Concat(augmentLoadingTasks).ToList();
 
-        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"[GameFlow] {playersList.Count}명의 플레이어 데이터 로딩 시작. (15초 후 타임아웃)");
+        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"[GameFlow] {playersList.Count}명의 플레이어 데이터 및 증강 데이터 로딩 시작. (15초 후 타임아웃)");
 
         var timeoutTask = Task.Delay(15000); // 15초 (15000ms)
-        var completedTask = await Task.WhenAny(Task.WhenAll(loadingTasks), timeoutTask);
+        var completedTask = await Task.WhenAny(Task.WhenAll(allLoadingTasks), timeoutTask);
 
         if (completedTask == timeoutTask)
         {
@@ -225,9 +229,12 @@ public class GameManagers : NetworkBehaviour
 
             for (int i = 0; i < playersList.Count; i++)
             {
-                if (!loadingTasks[i].IsCompleted)
+                bool shopDone = shopLoadingTasks[i].IsCompleted;
+                bool augmentDone = augmentLoadingTasks[i].IsCompleted;
+                if (!shopDone || !augmentDone)
                 {
-                    if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"<color=red>[GameFlow] 로딩 실패 플레이어: Player {playersList[i].playerId}</color>");
+                    string detail = (!shopDone && !augmentDone) ? "상점+증강" : (!shopDone ? "상점" : "증강");
+                    if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"<color=red>[GameFlow] 로딩 실패 플레이어: Player {playersList[i].playerId} ({detail})</color>");
                 }
             }
             // 데이터 로딩 실패 시, 게임 흐름을 중단합니다.
@@ -235,7 +242,9 @@ public class GameManagers : NetworkBehaviour
         }
         else
         {
-            Debug.Log("모든 데이터 로딩 완료. 첫 라운드를 시작합니다.");
+            //await UniTask.Delay(2000);
+
+            Debug.Log("<color=green>모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
             if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
 
             // 싱글플레이어 모드에서는 singlePlayerModeCount를 기반으로 실제 게임 로직에 반영
@@ -458,6 +467,8 @@ public class GameManagers : NetworkBehaviour
                 augmentSelectionUI = augmentPanelInstance.GetComponent<AugmentUIController>();
                 UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
             }
+            Debug.Log("<color=red>UI 완성</color>");
+
         }
         catch (System.Exception ex)
         {
@@ -574,6 +585,7 @@ public class GameManagers : NetworkBehaviour
                         Debug.Log($"[HandleUIForNewState] augmentSelectionUI != null 조건 만족");
                         if (localPlayerShopUIGameObject != null) localPlayerShopUIGameObject.SetActive(false);
                         await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
+                        Debug.Log("<color=blue> Test </color>");
                         GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
                     }
                     else
