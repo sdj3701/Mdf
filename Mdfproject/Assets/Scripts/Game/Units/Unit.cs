@@ -47,7 +47,13 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     public LayerMask enemyLayerMask;
     private IEnemy targetEnemy;
     private Transform targetTransform;
-    
+    [SerializeField] private Animator animator;
+    [SerializeField] private string attackTriggerParam = "AttackTrigger";
+    [SerializeField] private float maxAttackAnimationsPerSecond = 4f;
+    [SerializeField] private float baseAttackAnimationDuration = 1f;
+    private float lastAttackAnimTime = -999f;
+    private Coroutine animSpeedResetRoutine;
+
     private bool isCombatPhase = false;
 
     void OnEnable()
@@ -55,10 +61,49 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
 
+    private void TryPlayAttackAnimation()
+    {
+        if (animator == null) return;
+        float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
+        if (animRate <= 0f) return;
+        float now = Time.time;
+        float minInterval = 1f / animRate;
+        if (now - lastAttackAnimTime < minInterval) return;
+        lastAttackAnimTime = now;
+        float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
+        animator.speed = Mathf.Max(0.01f, speed);
+        animator.ResetTrigger(attackTriggerParam);
+        animator.SetTrigger(attackTriggerParam);
+        if (animSpeedResetRoutine != null)
+        {
+            StopCoroutine(animSpeedResetRoutine);
+        }
+        animSpeedResetRoutine = StartCoroutine(ResetAnimatorSpeedAfter(minInterval));
+    }
+
+    private IEnumerator ResetAnimatorSpeedAfter(float seconds)
+    {
+        yield return new WaitForSeconds(seconds);
+        if (animator != null)
+        {
+            animator.speed = 1f;
+        }
+        animSpeedResetRoutine = null;
+    }
+
     void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
         UnsubscribeFromAllies();
+        if (animSpeedResetRoutine != null)
+        {
+            StopCoroutine(animSpeedResetRoutine);
+            animSpeedResetRoutine = null;
+        }
+        if (animator != null)
+        {
+            animator.speed = 1f;
+        }
     }
 
     public void SetStatusBar(StatusBarUI ui)
@@ -79,6 +124,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         this.unitData = data;
         this.starLevel = initialStarLevel;
         manaController = GetComponent<ManaController>();
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null) animator = GetComponentInChildren<Animator>();
+        }
 
         // AI가 소유한 유닛인 경우, 스킬 자동 사용을 강제합니다.
         if (owner != null && ComponentRegistry.Has<AIPlayerController>(owner.playerId.ToString()))
@@ -457,6 +507,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             targetEnemy = null;
             return;
         }
+        TryPlayAttackAnimation();
 
         if (unitData.unitType == UnitType.Melee)
         {
