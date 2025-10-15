@@ -22,6 +22,16 @@ public class FieldManager : MonoBehaviour
     public TileBase wallTileToPlace;
     public GameObject statusBarPrefab;
 
+    [Header("영구 벽 설정")]
+    [Tooltip("게임 시작 시 자동 배치할 파괴 불가(영구) 벽 프리팹입니다. 미지정 시 Addressables 키 'PermanentWallPrefab'로 로드합니다.")]
+    public GameObject permanentWallPrefab;
+    [Tooltip("Addressables에서 영구 벽 프리팹을 로드할 키 (미지정 프리팹 폴백)")]
+    public string permanentWallAddressKey = "PermanentWallPrefab";
+    [Tooltip("게임 시작 시 각 플레이어 필드에 배치할 영구 벽 개수")]
+    public int initialPermanentWallCount = 0;
+    [Tooltip("영구/파괴가능 벽이 속할 레이어명 (AstarGrid.wallLayers와 일치해야 함)")]
+    public string wallLayerName = "Wall";
+
     [Header("범위 표시")]
     public GameObject attackRangeIndicatorPrefab;
     public GameObject skillRangeIndicatorPrefab;
@@ -60,6 +70,10 @@ public class FieldManager : MonoBehaviour
     private PlacementManager placementManager;
     private Dictionary<Vector3Int, Unit> placedUnits = new Dictionary<Vector3Int, Unit>();
     private Dictionary<Vector3Int, DestructibleWall> placedWalls = new Dictionary<Vector3Int, DestructibleWall>();
+    // 영구(파괴 불가) 벽 관리
+    private Dictionary<Vector3Int, GameObject> placedPermanentWalls = new Dictionary<Vector3Int, GameObject>();
+    private int wallLayer = -1;
+    private bool permanentWallsGenerated = false;
 
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
@@ -179,6 +193,7 @@ public class FieldManager : MonoBehaviour
     {
         placementManager = GetComponent<PlacementManager>();
         UpdateWallYOffsetFromPrefab();
+        wallLayer = LayerMask.NameToLayer(wallLayerName);
     }
 
     // ✅ [추가된 핵심 로직] PlayerManager가 호출하여 초기화
@@ -240,6 +255,8 @@ public class FieldManager : MonoBehaviour
             parentObject.transform.SetParent(transform.parent);
             wallParent = parentObject.transform;
         }
+
+        GeneratePermanentWallsIfNeeded();
     }
     
     // [Deprecated] 2D Tilemap 기반 초기화 (호환성 유지)
@@ -264,6 +281,8 @@ public class FieldManager : MonoBehaviour
         }
 
         PrepopulateWallsFromTilemap();
+
+        GeneratePermanentWallsIfNeeded();
     }
     
     #region 3D Grid Coordinate Conversion
@@ -285,7 +304,7 @@ public class FieldManager : MonoBehaviour
         if (checkForWall && ground3D != null)
         {
             Vector3Int gridPos3D = new Vector3Int(gridPos.x, gridPos.y, 0);
-            if (GetWallAt(gridPos3D) != null)
+            if (HasWallAt(gridPos3D))
             {
                 yOffset = gridOrigin.y + wallYOffset;
             }
@@ -459,7 +478,7 @@ public class FieldManager : MonoBehaviour
             Debug.LogError($"[FieldManager] CreateWallAt failed: destructibleWallPrefab is null (Player={playerManager?.playerId}) at {gridPosition}");
             return;
         }
-        if (placedWalls.ContainsKey(gridPosition))
+        if (HasWallAt(gridPosition))
         {
             Debug.LogWarning($"[FieldManager] CreateWallAt ignored: wall already exists at {gridPosition} (Player={playerManager?.playerId})");
             return;
@@ -571,6 +590,12 @@ public class FieldManager : MonoBehaviour
         return wall;
     }
 
+    // 파괴 가능/불가를 포함한 모든 벽 존재 여부
+    public bool HasWallAt(Vector3Int gridPosition)
+    {
+        return placedWalls.ContainsKey(gridPosition) || placedPermanentWalls.ContainsKey(gridPosition);
+    }
+
     private void UpdateWallYOffsetFromPrefab()
     {
         if (destructibleWallPrefab != null)
@@ -582,6 +607,11 @@ public class FieldManager : MonoBehaviour
     private float GetWallPrefabHeight()
     {
         return destructibleWallPrefab.transform.localScale.y;
+    }
+
+    private float GetPrefabHeight(GameObject prefab)
+    {
+        return prefab != null ? prefab.transform.localScale.y : 1f;
     }
 
     /// <summary>
@@ -606,6 +636,129 @@ public class FieldManager : MonoBehaviour
             }
         }
         Debug.Log($"[{playerManager.name}] 타일맵으로부터 {placedWalls.Count}개의 벽 오브젝트를 사전 생성했습니다.");
+    }
+
+    // 영구(파괴 불가) 벽 생성
+    private async void GeneratePermanentWallsIfNeeded()
+    {
+        if (permanentWallsGenerated) return;
+        if (initialPermanentWallCount <= 0) { permanentWallsGenerated = true; return; }
+        if (playerManager == null) return; // Initialize 미완료
+
+        // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
+        GameObject prefab = permanentWallPrefab;
+        if (prefab == null && !string.IsNullOrEmpty(permanentWallAddressKey))
+        {
+            prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey);
+        }
+
+        if (prefab == null)
+        {
+            Debug.LogError($"[FieldManager] Permanent wall prefab not set and failed to load '{permanentWallAddressKey}'. Skipping generation.");
+            permanentWallsGenerated = true;
+            return;
+        }
+
+        // 스폰/골 목표 셀 계산 (2D/3D 분기)
+        Vector3Int spawnCell;
+        Vector3Int goalCell;
+        if (ObstacleTilemap != null)
+        {
+            spawnCell = (playerManager.spawnPoint != null) ? ObstacleTilemap.WorldToCell(playerManager.spawnPoint.position) : Vector3Int.zero;
+            goalCell = (playerManager.goalTransform != null) ? ObstacleTilemap.WorldToCell(playerManager.goalTransform.position) : Vector3Int.zero;
+        }
+        else
+        {
+            spawnCell = WorldToGridInt(playerManager.spawnPoint != null ? playerManager.spawnPoint.position : Vector3.zero);
+            goalCell = WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero);
+        }
+
+        // 후보 셀 수집
+        List<Vector3Int> candidates = new List<Vector3Int>();
+        for (int y = 0; y < gridSize.y; y++)
+        {
+            for (int x = 0; x < gridSize.x; x++)
+            {
+                var cell = new Vector3Int(x, y, 0);
+                if (!IsValidGridPosition(cell)) continue;
+                if (cell == spawnCell || cell == goalCell) continue; // 스폰/도착지 제외
+                if (HasWallAt(cell)) continue; // 기존 벽 제외
+                if (IsUnitAt(cell)) continue; // 유닛이 있는 칸 제외
+                // 2D 모드면 Ground 타일 존재 확인
+                if (GroundTilemap != null && GroundTilemap.GetTile(cell) == null) continue;
+                candidates.Add(cell);
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            Debug.LogWarning($"[FieldManager] No valid cells found for permanent walls (Player={playerManager?.playerId}).");
+            permanentWallsGenerated = true;
+            return;
+        }
+
+        int toPlace = Mathf.Min(initialPermanentWallCount, candidates.Count);
+        for (int i = 0; i < toPlace; i++)
+        {
+            // 랜덤 추출
+            int idx = Random.Range(0, candidates.Count);
+            var pos = candidates[idx];
+            candidates.RemoveAt(idx);
+
+            // 실제 배치
+            CreatePermanentWallAt(pos, prefab);
+        }
+
+        permanentWallsGenerated = true;
+    }
+
+    private void CreatePermanentWallAt(Vector3Int gridPosition, GameObject prefab)
+    {
+        if (!IsValidGridPosition(gridPosition)) return;
+        if (HasWallAt(gridPosition)) return;
+
+        Vector3 worldPos;
+        if (ObstacleTilemap != null)
+        {
+            worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
+        }
+        else
+        {
+            worldPos = GridToWorld(gridPosition);
+            float halfH = GetPrefabHeight(prefab) * 0.5f;
+            worldPos.y += halfH;
+        }
+
+        GameObject wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+        // 레이어 지정 (자식 포함)
+        if (wallLayer >= 0) SetLayerRecursively(wallGO, wallLayer);
+
+        placedPermanentWalls[gridPosition] = wallGO;
+
+        // 벽 위에 원거리 유닛이 있었다면 올려놓기
+        Unit unitOnCell = GetUnitAt(gridPosition);
+        if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
+        {
+            Vector3 atopPos;
+            if (ObstacleTilemap != null)
+            {
+                atopPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
+            }
+            else
+            {
+                atopPos = GridToWorld(gridPosition, checkForWall: true);
+            }
+            unitOnCell.transform.position = atopPos;
+        }
+    }
+
+    private void SetLayerRecursively(GameObject go, int layer)
+    {
+        go.layer = layer;
+        foreach (Transform child in go.transform)
+        {
+            if (child != null) SetLayerRecursively(child.gameObject, layer);
+        }
     }
 
     #endregion

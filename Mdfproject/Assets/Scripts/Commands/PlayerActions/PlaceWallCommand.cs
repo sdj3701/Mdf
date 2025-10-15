@@ -33,9 +33,28 @@ public class PlaceWallCommand : ICommand
             return;
         }
 
-        if (fm.GetWallAt(Position) != null)
+        if (fm.HasWallAt(Position))
         {
             Debug.LogWarning($"[PlaceWallCommand] Wall already exists at {Position} for Player {PlayerId}");
+            return;
+        }
+
+        // 스폰/골 위치에는 벽 금지 (2D/3D 분기)
+        Vector3Int spawnCell;
+        Vector3Int goalCell;
+        if (fm.ObstacleTilemap != null)
+        {
+            spawnCell = player.spawnPoint != null ? fm.ObstacleTilemap.WorldToCell(player.spawnPoint.position) : Vector3Int.zero;
+            goalCell = player.goalTransform != null ? fm.ObstacleTilemap.WorldToCell(player.goalTransform.position) : Vector3Int.zero;
+        }
+        else
+        {
+            spawnCell = fm.WorldToGridInt(player.spawnPoint != null ? player.spawnPoint.position : Vector3.zero);
+            goalCell = fm.WorldToGridInt(player.goalTransform != null ? player.goalTransform.position : Vector3.zero);
+        }
+        if (Position == spawnCell || Position == goalCell)
+        {
+            Debug.LogWarning($"[PlaceWallCommand] Cannot place wall at spawn/goal cell {Position} for Player {PlayerId}");
             return;
         }
 

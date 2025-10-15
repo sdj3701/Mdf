@@ -122,7 +122,7 @@ public class PlacementManager : MonoBehaviour
         {
             // 2D Tilemap 모드
             bool hasGroundTile = groundTilemap.GetTile(gridPosition) != null;
-            bool hasObstacle = fieldManager.GetWallAt(gridPosition) != null;
+            bool hasObstacle = fieldManager.HasWallAt(gridPosition);
             bool hasUnit = fieldManager.IsUnitAt(gridPosition);
 
             if (unitData != null)
@@ -138,6 +138,13 @@ public class PlacementManager : MonoBehaviour
             {
                 if (!hasGroundTile) return false;
                 if (hasObstacle) return false;
+                // 스폰/골 그리드에는 벽 금지
+                if (playerManager != null)
+                {
+                    Vector3Int spawnCell = playerManager.spawnPoint != null ? groundTilemap.WorldToCell(playerManager.spawnPoint.position) : Vector3Int.zero;
+                    Vector3Int goalCell = playerManager.goalTransform != null ? groundTilemap.WorldToCell(playerManager.goalTransform.position) : Vector3Int.zero;
+                    if (gridPosition == spawnCell || gridPosition == goalCell) return false;
+                }
                 Unit occupant = fieldManager.GetUnitAt(gridPosition);
                 if (occupant == null) return true;
                 if (occupant.Data.unitType == UnitType.Ranged) return true;
@@ -149,7 +156,7 @@ public class PlacementManager : MonoBehaviour
         {
             // 3D 모드
             if (!fieldManager.IsValidGridPosition(gridPosition)) return false;
-            bool hasObstacle = fieldManager.GetWallAt(gridPosition) != null;
+            bool hasObstacle = fieldManager.HasWallAt(gridPosition);
             bool hasUnit = fieldManager.IsUnitAt(gridPosition);
 
             if (unitData != null)
@@ -164,6 +171,13 @@ public class PlacementManager : MonoBehaviour
             else
             {
                 if (hasObstacle) return false;
+                // 스폰/골 그리드에는 벽 금지
+                if (playerManager != null)
+                {
+                    var spawnCell = fieldManager.WorldToGridInt(playerManager.spawnPoint != null ? playerManager.spawnPoint.position : Vector3.zero);
+                    var goalCell = fieldManager.WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero);
+                    if (gridPosition == spawnCell || gridPosition == goalCell) return false;
+                }
                 Unit occupant = fieldManager.GetUnitAt(gridPosition);
                 if (occupant == null) return true;
                 if (occupant.Data.unitType == UnitType.Ranged) return true;
