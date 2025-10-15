@@ -434,7 +434,7 @@ public class FieldManager : MonoBehaviour
                 }
                 else
                 {
-                    originalWorldPos = GridToWorld(originalUnitPosition);
+                    originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
                 }
                 
                 selectedUnit.transform.position = originalWorldPos;
@@ -1339,7 +1339,7 @@ public class FieldManager : MonoBehaviour
                     }
                     else
                     {
-                        originalWorldPos = GridToWorld(originalUnitPosition);
+                        originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
                     }
                     selectedUnit.transform.position = originalWorldPos;
                 }
@@ -1356,7 +1356,7 @@ public class FieldManager : MonoBehaviour
                     }
                     else
                     {
-                        originalWorldPos = GridToWorld(originalUnitPosition);
+                        originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
                     }
                     selectedUnit.transform.position = originalWorldPos;
                 }
