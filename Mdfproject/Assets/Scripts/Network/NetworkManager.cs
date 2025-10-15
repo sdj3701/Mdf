@@ -171,6 +171,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         if (isValid)
         {
+            Debug.Log("<color=red>test RPC RPC_RequestCommandToServer </color>");
             // 유효성 검사를 통과하면, 모든 클라이언트에게 이 커맨드를 실행하라고 브로드캐스팅합니다.
             RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
         }
@@ -189,6 +190,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (GameManagers.Instance != null && GameManagers.Instance.CommandProcessor != null)
         {
+            Debug.Log("<color=red>test RPC RPC_BroadcastCommandToClients </color>");
             GameManagers.Instance.CommandProcessor.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
         }
     }

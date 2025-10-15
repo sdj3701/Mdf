@@ -17,6 +17,11 @@ public class AugmentManager : MonoBehaviour
     private bool isDataLoaded = false;
     private List<AugmentData> presentedAugments = new List<AugmentData>();
 
+    public Cysharp.Threading.Tasks.UniTask WaitUntilAugmentDataLoaded()
+    {
+        return Cysharp.Threading.Tasks.UniTask.WaitUntil(() => isDataLoaded);
+    }
+
     public List<AugmentData> GetPresentedAugments()
     {
         return presentedAugments;
@@ -74,7 +79,6 @@ public class AugmentManager : MonoBehaviour
             Debug.LogWarning("증강 데이터가 아직 로드되지 않았습니다.");
             return;
         }
-
         presentedAugments.Clear();
         
         float roll = UnityEngine.Random.value;
