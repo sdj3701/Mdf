@@ -1136,7 +1136,8 @@ public class FieldManager : MonoBehaviour
         if (Physics.Raycast(ray, out RaycastHit hit, 1000f))
         {
             var unit3D = hit.collider.GetComponentInParent<Unit>();
-            if (unit3D != null) return unit3D;
+            // 이 FieldManager가 관리하는 유닛만 선택되도록 제한합니다.
+            if (unit3D != null && placedUnits.ContainsValue(unit3D)) return unit3D;
         }
 
         // 2D Overlap (2D Collider 유지 환경 폴백)
@@ -1146,7 +1147,7 @@ public class FieldManager : MonoBehaviour
         if (hit2D != null)
         {
             var unit2D = hit2D.GetComponentInParent<Unit>();
-            if (unit2D != null) return unit2D;
+            if (unit2D != null && placedUnits.ContainsValue(unit2D)) return unit2D;
         }
 
         // 스크린 공간 기반 근사: 마우스와 가장 가까운 유닛 선택
@@ -1211,6 +1212,8 @@ public class FieldManager : MonoBehaviour
         {
             // 셀 기반이 아니라 실제 유닛 콜라이더를 클릭해야 드래그 시작
             Unit clickedUnit = GetUnitUnderMouse();
+            bool pointerOverUI = UnityEngine.EventSystems.EventSystem.current != null &&
+                                 UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
 
             // 패널이 열려있는 상태에서
             if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
@@ -1235,6 +1238,11 @@ public class FieldManager : MonoBehaviour
             }
 
             // 이제 클릭한 대상에 대한 처리 (드래그 시작 또는 새 패널 열기 준비)
+            // UI 위를 클릭한 경우에는 새 선택/드래그를 시작하지 않습니다.
+            if (pointerOverUI)
+            {
+                return;
+            }
             if (clickedUnit != null)
             {
                 selectedUnit = clickedUnit;
@@ -1321,18 +1329,20 @@ public class FieldManager : MonoBehaviour
             }
             else
             {
-                // 짧은 클릭이었으므로, 유닛을 원래 위치로 되돌리고 상세 정보 패널을 엽니다.
-                // [3D Migration] 원래 위치로 복귀
-                Vector3 originalWorldPos;
-                if (ObstacleTilemap != null)
+                // 짧은 클릭: 이 FieldManager 소유 유닛만 스냅백. (교차 플레이어 유닛 보호)
+                if (placedUnits.ContainsValue(selectedUnit))
                 {
-                    originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                    Vector3 originalWorldPos;
+                    if (ObstacleTilemap != null)
+                    {
+                        originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                    }
+                    else
+                    {
+                        originalWorldPos = GridToWorld(originalUnitPosition);
+                    }
+                    selectedUnit.transform.position = originalWorldPos;
                 }
-                else
-                {
-                    originalWorldPos = GridToWorld(originalUnitPosition);
-                }
-                selectedUnit.transform.position = originalWorldPos;
                 ShowUnitDetailPanel(selectedUnit);
             }
 
