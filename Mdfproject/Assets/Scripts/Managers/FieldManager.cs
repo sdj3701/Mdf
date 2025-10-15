@@ -47,7 +47,8 @@ public class FieldManager : MonoBehaviour
     public float groundYOffset = 0f;
     
     [Tooltip("벽(BreakWall) 위에 배치될 때 Y축 오프셋")]
-    public float wallYOffset = 1f;
+    [SerializeField]
+    private float wallYOffset = 1f;
     
     // 3D Ground 오브젝트 참조 (Raycast 대상)
     public GameObject ground3D { get; private set; }
@@ -177,6 +178,7 @@ public class FieldManager : MonoBehaviour
     void Awake()
     {
         placementManager = GetComponent<PlacementManager>();
+        UpdateWallYOffsetFromPrefab();
     }
 
     // ✅ [추가된 핵심 로직] PlayerManager가 호출하여 초기화
@@ -474,6 +476,8 @@ public class FieldManager : MonoBehaviour
         {
             // 3D 모드
             worldPos = GridToWorld(gridPosition);
+            float halfWallHeight = GetWallPrefabHeight() * 0.5f;
+            worldPos.y += halfWallHeight;
         }
         else
         {
@@ -526,6 +530,19 @@ public class FieldManager : MonoBehaviour
     {
         placedWalls.TryGetValue(gridPosition, out DestructibleWall wall);
         return wall;
+    }
+
+    private void UpdateWallYOffsetFromPrefab()
+    {
+        if (destructibleWallPrefab != null)
+        {
+            wallYOffset = GetWallPrefabHeight();
+        }
+    }
+
+    private float GetWallPrefabHeight()
+    {
+        return destructibleWallPrefab.transform.localScale.y;
     }
 
     /// <summary>
