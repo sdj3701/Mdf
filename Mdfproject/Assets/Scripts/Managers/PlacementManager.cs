@@ -125,46 +125,51 @@ public class PlacementManager : MonoBehaviour
             bool hasObstacle = fieldManager.GetWallAt(gridPosition) != null;
             bool hasUnit = fieldManager.IsUnitAt(gridPosition);
 
-            if (hasUnit || !hasGroundTile) return false;
-            
             if (unitData != null)
             {
+                if (hasUnit || !hasGroundTile) return false;
                 if (unitData.unitType == UnitType.Melee && hasObstacle)
                 {
                     return false;
                 }
+                return true;
             }
-            else if (hasObstacle)
+            else
             {
-                return false;
+                if (!hasGroundTile) return false;
+                if (hasObstacle) return false;
+                Unit occupant = fieldManager.GetUnitAt(gridPosition);
+                if (occupant == null) return true;
+                if (occupant.Data.unitType == UnitType.Ranged) return true;
+                var alt = fieldManager.FindFirstEmptySlot(occupant.Data);
+                return alt.HasValue;
             }
-            
-            return true;
         }
         else
         {
             // 3D 모드
             if (!fieldManager.IsValidGridPosition(gridPosition)) return false;
-            
             bool hasObstacle = fieldManager.GetWallAt(gridPosition) != null;
             bool hasUnit = fieldManager.IsUnitAt(gridPosition);
 
-            if (hasUnit) return false;
-            
             if (unitData != null)
             {
-                // 근접 유닛은 벽 위에 배치 불가
+                if (hasUnit) return false;
                 if (unitData.unitType == UnitType.Melee && hasObstacle)
                 {
                     return false;
                 }
+                return true;
             }
-            else if (hasObstacle)
+            else
             {
-                return false;
+                if (hasObstacle) return false;
+                Unit occupant = fieldManager.GetUnitAt(gridPosition);
+                if (occupant == null) return true;
+                if (occupant.Data.unitType == UnitType.Ranged) return true;
+                var alt = fieldManager.FindFirstEmptySlot(occupant.Data);
+                return alt.HasValue;
             }
-            
-            return true;
         }
     }
     

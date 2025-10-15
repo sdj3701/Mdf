@@ -470,6 +470,21 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
+        Unit occupant = GetUnitAt(gridPosition);
+        if (occupant != null)
+        {
+            if (occupant.Data.unitType == UnitType.Melee)
+            {
+                Vector3Int? alt = FindFirstEmptySlot(occupant.Data);
+                if (!alt.HasValue)
+                {
+                    Debug.LogWarning($"[FieldManager] CreateWallAt aborted: no empty slot to relocate melee unit at {gridPosition} (Player={playerManager?.playerId})");
+                    return;
+                }
+                MoveUnit(gridPosition, alt.Value);
+            }
+        }
+
         // [3D Migration] Tilemap 또는 3D 그리드 사용
         Vector3 worldPos;
         if (ObstacleTilemap != null)
@@ -506,6 +521,21 @@ public class FieldManager : MonoBehaviour
             }
             wallComponent.Initialize(this, gridPosition);
             placedWalls.Add(gridPosition, wallComponent);
+
+            Unit unitOnCell = GetUnitAt(gridPosition);
+            if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
+            {
+                Vector3 atopPos;
+                if (ObstacleTilemap != null)
+                {
+                    atopPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                }
+                else
+                {
+                    atopPos = GridToWorld(gridPosition, checkForWall: true);
+                }
+                unitOnCell.transform.position = atopPos;
+            }
         }
         else
         {
