@@ -53,6 +53,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     [SerializeField] private float baseAttackAnimationDuration = 1f;
     private float lastAttackAnimTime = -999f;
     private Coroutine animSpeedResetRoutine;
+    private bool attackClipDurationInitialized = false;
+    private Coroutine attackClipDetectRoutine;
 
     private bool isCombatPhase = false;
 
@@ -79,6 +81,10 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             StopCoroutine(animSpeedResetRoutine);
         }
         animSpeedResetRoutine = StartCoroutine(ResetAnimatorSpeedAfter(minInterval));
+        if (!attackClipDurationInitialized && attackClipDetectRoutine == null)
+        {
+            attackClipDetectRoutine = StartCoroutine(CaptureAttackClipDuration());
+        }
     }
 
     private IEnumerator ResetAnimatorSpeedAfter(float seconds)
@@ -89,6 +95,30 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             animator.speed = 1f;
         }
         animSpeedResetRoutine = null;
+    }
+
+    private IEnumerator CaptureAttackClipDuration()
+    {
+        float elapsed = 0f;
+        float timeout = 1f;
+        while (elapsed < timeout)
+        {
+            if (animator == null) break;
+            var st = animator.GetCurrentAnimatorStateInfo(0);
+            if (st.IsTag("Attack"))
+            {
+                var infos = animator.GetCurrentAnimatorClipInfo(0);
+                if (infos != null && infos.Length > 0 && infos[0].clip != null)
+                {
+                    baseAttackAnimationDuration = Mathf.Max(0.01f, infos[0].clip.length);
+                    attackClipDurationInitialized = true;
+                    break;
+                }
+            }
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+        attackClipDetectRoutine = null;
     }
 
     void OnDisable()
@@ -103,6 +133,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         if (animator != null)
         {
             animator.speed = 1f;
+        }
+        if (attackClipDetectRoutine != null)
+        {
+            StopCoroutine(attackClipDetectRoutine);
+            attackClipDetectRoutine = null;
         }
     }
 
@@ -508,36 +543,68 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             return;
         }
         TryPlayAttackAnimation();
+        bool useEvent = currentAttackSpeed <= maxAttackAnimationsPerSecond + 1e-4f;
+        if (!useEvent)
+        {
+            if (unitData.unitType == UnitType.Melee)
+            {
+                targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+            }
+            else if (unitData.unitType == UnitType.Ranged)
+            {
+                if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
+                {
+                    Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 'projectilePrefabsByStarLevel' 배열이 설정되지 않았습니다!", unitData);
+                    return;
+                }
 
+                string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
+                GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
+                if (projectilePrefab == null)
+                {
+                    Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 {starLevel}성 투사체 프리팹({projectileKey})이 할당되지 않았거나 로드에 실패했습니다!", unitData);
+                    return;
+                }
+                if (firePoint == null)
+                {
+                    Debug.LogError($"[공격 실패] {gameObject.name} 프리팹에 'firePoint'가 할당되지 않았습니다!", gameObject);
+                    return;
+                }
+                GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
+                Projectile projectileScript = projectileGO.GetComponent<Projectile>();
+                if (projectileScript != null)
+                {
+                    projectileScript.Initialize(targetTransform, currentAttackDamage, unitData.damageType);
+                }
+                else
+                {
+                    Debug.LogError($"[공격 실패] 투사체 프리팹 '{projectilePrefab.name}'에 Projectile.cs 스크립트가 없습니다!", projectilePrefab);
+                    Destroy(projectileGO);
+                }
+            }
+        }
+        
+        if (DoesHaveSkill() && unitData.manaRegenType == ManaRegenType.OnAttack)
+        {
+            manaController.GainMana(unitData.manaOnAttack);
+        }
+    }
+
+    public async void AnimEvent_AttackImpact()
+    {
+        if (currentAttackSpeed > maxAttackAnimationsPerSecond + 1e-4f) return;
+        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange) return;
         if (unitData.unitType == UnitType.Melee)
         {
             targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+            return;
         }
-        else if (unitData.unitType == UnitType.Ranged)
+        if (unitData.unitType == UnitType.Ranged)
         {
-            if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
-            {
-                Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 'projectilePrefabsByStarLevel' 배열이 설정되지 않았습니다!", unitData);
-                return;
-            }
-
-            // --- [핵심 수정 부분] ---
+            if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel) return;
             string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
             GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
-            // --- [수정 끝] ---
-
-            if (projectilePrefab == null)
-            {
-                Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 {starLevel}성 투사체 프리팹({projectileKey})이 할당되지 않았거나 로드에 실패했습니다!", unitData);
-                return;
-            }
-
-            if (firePoint == null)
-            {
-                Debug.LogError($"[공격 실패] {gameObject.name} 프리팹에 'firePoint'가 할당되지 않았습니다!", gameObject);
-                return;
-            }
-
+            if (projectilePrefab == null || firePoint == null) return;
             GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
             Projectile projectileScript = projectileGO.GetComponent<Projectile>();
             if (projectileScript != null)
@@ -546,14 +613,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             }
             else
             {
-                Debug.LogError($"[공격 실패] 투사체 프리팹 '{projectilePrefab.name}'에 Projectile.cs 스크립트가 없습니다!", projectilePrefab);
                 Destroy(projectileGO);
             }
-        }
-        
-        if (DoesHaveSkill() && unitData.manaRegenType == ManaRegenType.OnAttack)
-        {
-            manaController.GainMana(unitData.manaOnAttack);
         }
     }
     #endregion
