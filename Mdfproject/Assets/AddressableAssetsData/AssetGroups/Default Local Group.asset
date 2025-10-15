@@ -51,31 +51,26 @@ MonoBehaviour:
     m_Address: UnitData_Mage
     m_ReadOnly: 0
     m_SerializedLabels:
-    - Unit
     - UnitData
   - m_GUID: b294db2481416c64fb9edd6bc0222d6e
     m_Address: UnitData_Assassin
     m_ReadOnly: 0
     m_SerializedLabels:
-    - Unit
     - UnitData
   - m_GUID: af161e66696ca4742b05891ba27598fd
     m_Address: UnitData_Guardian
     m_ReadOnly: 0
     m_SerializedLabels:
-    - Unit
     - UnitData
   - m_GUID: afdb119d7f8d3394dade8a6d18888eee
     m_Address: UnitData_Archer
     m_ReadOnly: 0
     m_SerializedLabels:
-    - Unit
     - UnitData
   - m_GUID: 4e7855d10fe859147b90840b76fc592a
     m_Address: UnitData_Pyromancer
     m_ReadOnly: 0
     m_SerializedLabels:
-    - Unit
     - UnitData
   - m_GUID: f6bbfc7e5c73ea14f8d03e940134dc1a
     m_Address: UI_Pnl_Shop
@@ -111,13 +106,11 @@ MonoBehaviour:
     m_Address: UnitData_Warrior
     m_ReadOnly: 0
     m_SerializedLabels:
-    - Unit
     - UnitData
   - m_GUID: d5f8bf124e30c3944b07bb8b13a7c0c2
     m_Address: UnitData_Cleric
     m_ReadOnly: 0
     m_SerializedLabels:
-    - Unit
     - UnitData
   - m_GUID: 3faf75177209dda4780b3dd0458107a7
     m_Address: UI_Pnl_PlayerRanking
@@ -231,6 +224,10 @@ MonoBehaviour:
     - Manager
   - m_GUID: 99dda8f6ae322454ca5f9bd87b583efb
     m_Address: Knight
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: 6eaa42a01ce5cac4bb0de7380bb59d26
+    m_Address: UI_Pnl_AugmentSlot
     m_ReadOnly: 0
     m_SerializedLabels: []
   m_ReadOnly: 0
