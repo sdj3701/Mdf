@@ -1440,14 +1440,16 @@ public class FieldManager : MonoBehaviour
         }
 
         // 3. 범위 인디케이터 생성 및 크기 설정
+        Vector3 indicatorPos = unit.transform.position;
+        indicatorPos.y = unit.transform.position.y + 0.1f;
         if (showAttack)
         {
-            attackRangeIndicatorInstance = Instantiate(attackRangeIndicatorPrefab, unit.transform.position, Quaternion.identity, transform);
+            attackRangeIndicatorInstance = Instantiate(attackRangeIndicatorPrefab, indicatorPos, Quaternion.Euler(90f, 0f, 0f), transform);
             attackRangeIndicatorInstance.transform.localScale = new Vector3(attackDiameter, attackDiameter, 1f);
         }
         if (showSkill)
         {
-            skillRangeIndicatorInstance = Instantiate(skillRangeIndicatorPrefab, unit.transform.position, Quaternion.identity, transform);
+            skillRangeIndicatorInstance = Instantiate(skillRangeIndicatorPrefab, indicatorPos, Quaternion.Euler(90f, 0f, 0f), transform);
             skillRangeIndicatorInstance.transform.localScale = new Vector3(skillDiameter, skillDiameter, 1f);
         }
 

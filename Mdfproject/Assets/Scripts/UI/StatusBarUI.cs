@@ -1,8 +1,7 @@
-// Assets/Scripts/UI/StatusBarUI.cs
-
 using UnityEngine;
 using UnityEngine.UI;
 using Cysharp.Threading.Tasks;
+
 public class StatusBarUI : MonoBehaviour
 {
     [Header("컴포넌트")]
@@ -40,15 +39,17 @@ public class StatusBarUI : MonoBehaviour
     public Vector3 monsterScale = Vector3.one;
 
     [Header("3D 월드 스페이스 정렬")]
-    [Tooltip("World Space UI일 때 카메라의 X(피치) 회전과 맞춥니다.")]
-    public bool matchCameraPitch = true;
-
     [Tooltip("World Space UI일 때 사용할 카메라. 비워두면 플레이어 카메라/Camera.main을 사용합니다.")]
     public Camera overrideCamera;
 
+    // --- [삭제] ---
+    // 카메라 회전 관련 로직과 변수는 UIBillboard.cs로 이전되었으므로 모두 삭제합니다.
+    // public bool matchCameraPitch = true; 
+    // private Transform mainCameraTransform;
+
     private bool isUnit = false;
     private bool isCombatPhase = false;
-    private bool isInitialized = false; // 초기화 플래그 추가
+    private bool isInitialized = false;
 
     private IHealth healthComponent;
     private IMana manaComponent;
@@ -59,7 +60,6 @@ public class StatusBarUI : MonoBehaviour
 
     private void Awake()
     {
-        // Start보다 먼저 호출되므로, Unit.cs에서 참조를 사용할 때 null이 되는 것을 방지합니다.
         unitComponent = GetComponentInParent<Unit>();
         isUnit = unitComponent != null;
         graphicRaycaster = GetComponent<GraphicRaycaster>();
@@ -68,8 +68,6 @@ public class StatusBarUI : MonoBehaviour
 
     private void Start()
     {
-        // GameManagers가 아직 준비되지 않았을 수 있으므로, Start에서 직접 초기화를 시도합니다.
-        // 이렇게 하면 이벤트 타이밍과 무관하게 초기화가 보장됩니다.
         if (!isInitialized)
         {
             Initialize();
@@ -95,7 +93,6 @@ public class StatusBarUI : MonoBehaviour
     {
         if (isInitialized) return;
         
-        // GameManagers가 준비되지 않았다면, 기본값으로 초기화를 진행합니다.
         isCombatPhase = (GameManagers.Instance != null) 
             ? GameManagers.Instance.GetGameState() == GameManagers.GameState.Combat 
             : false;
@@ -121,15 +118,12 @@ public class StatusBarUI : MonoBehaviour
             SetManaBarVisibility(false);
         }
 
-        // 스킬 버튼 초기 상태 설정
         if (skillButton != null)
         {
-            // 유닛이 아닌 경우(몬스터, 벽 등)는 항상 스킬 버튼을 끕니다.
             if (!isUnit)
             {
                 skillButton.gameObject.SetActive(false);
             }
-            // 유닛인 경우는 일단 끄고, InitializeSkillButton이 호출되면 다시 판단합니다.
             else
             {
                 skillButton.gameObject.SetActive(false);
@@ -138,22 +132,21 @@ public class StatusBarUI : MonoBehaviour
 
         if (cachedCanvas != null && cachedCanvas.renderMode == RenderMode.WorldSpace)
         {
+            // Canvas가 이벤트를 올바르게 수신하기 위해 worldCamera 설정은 여전히 필요합니다.
             cachedCanvas.worldCamera = ResolveCamera();
         }
 
-        // 위치 오프셋 적용
         if (isUnit)
         {
-            transform.localPosition = unitPositionOffset; // +=에서 =로 변경 (중복 적용 방지)
+            transform.localPosition = unitPositionOffset;
             transform.localScale = unitScale;
         }
         else
         {
-            transform.localPosition = monsterPositionOffset; // +=에서 =로 변경 (중복 적용 방지)
+            transform.localPosition = monsterPositionOffset;
             transform.localScale = monsterScale;
         }
 
-        // 초기 UI 상태 설정 - 기본적으로 모두 꺼진 상태로 시작
         SetHealthBarVisibility(false);
         SetManaBarVisibility(false);
         if (skillButton != null)
@@ -162,25 +155,11 @@ public class StatusBarUI : MonoBehaviour
         }
 
         isInitialized = true;
-
-        // 초기화 완료 후 현재 상태에 맞춰 UI 업데이트
         UpdateAllUIVisibility();
     }
-
-    private void LateUpdate()
-    {
-        if (!matchCameraPitch) return;
-
-        if (cachedCanvas == null || cachedCanvas.renderMode != RenderMode.WorldSpace) return;
-
-        Camera cam = ResolveCamera();
-        if (cam == null) return;
-
-        Vector3 currentEuler = transform.rotation.eulerAngles;
-        Vector3 camEuler = cam.transform.rotation.eulerAngles;
-        currentEuler.x = camEuler.x;
-        transform.rotation = Quaternion.Euler(currentEuler);
-    }
+    
+    // --- [삭제] ---
+    // LateUpdate() 함수를 완전히 삭제하여 UIBillboard.cs가 회전을 전담하도록 합니다.
 
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
@@ -200,7 +179,6 @@ public class StatusBarUI : MonoBehaviour
         }
         else
         {
-            // manaComponent가 아예 없는 경우 (예: DestructibleWall) 확실하게 꺼줍니다.
             SetManaBarVisibility(false);
         }
     }
@@ -224,12 +202,10 @@ public class StatusBarUI : MonoBehaviour
         bool shouldShow;
         if (isUnit)
         {
-            // 유닛: 전투 중에만 표시
             shouldShow = isCombatPhase;
         }
         else
         {
-            // 몬스터, 벽: 전투 중이고, 피해를 입었을 때만 표시 (체력이 최대가 아닐 때)
             shouldShow = isCombatPhase && (current > 0 && current < max);
         }
 
@@ -243,7 +219,6 @@ public class StatusBarUI : MonoBehaviour
 
     private void UpdateMana(float current, float max)
     {
-        // 마나 바 처리 - 유닛만 마나 바를 가지며, 전투 중이고 최대 마나가 0보다 클 때만 표시
         if (manaBarImage != null)
         {
             bool shouldShowManaBar = isUnit && isCombatPhase && max > 0;
@@ -254,15 +229,12 @@ public class StatusBarUI : MonoBehaviour
             }
         }
 
-        // 스킬 버튼 처리 - 유닛만 스킬 버튼을 가질 수 있음
         if (skillButton != null && isUnit && unitComponent != null)
         {
-            // Unit이 이미 로드하고 저장해 둔 'currentSkillActivationType' 값을 직접 사용합니다.
-            // 이렇게 하면 비동기 로드가 필요 없어집니다.
             bool isManualSkill = unitComponent.currentSkillActivationType == SkillActivationType.Manual;
             
             bool shouldShowButton = false;
-            if (isManualSkill && max > 0) // 스킬이 있는 경우에만
+            if (isManualSkill && max > 0)
             {
                 bool isManaFull = current >= max;
                 shouldShowButton = isCombatPhase && isManaFull;
@@ -271,7 +243,6 @@ public class StatusBarUI : MonoBehaviour
         }
         else if (skillButton != null && !isUnit)
         {
-            // 몬스터나 벽의 경우 스킬 버튼을 항상 끔
             skillButton.gameObject.SetActive(false);
         }
     }
@@ -291,13 +262,10 @@ public class StatusBarUI : MonoBehaviour
             owner.Data.skillsByStarLevel.Length >= owner.starLevel &&
             !string.IsNullOrEmpty(owner.Data.skillsByStarLevel[owner.starLevel - 1]))
         {
-            // --- [핵심 수정 부분] ---
             string skillKey = owner.Data.skillsByStarLevel[owner.starLevel - 1];
             currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
-            // --- [수정 끝] ---
         }
 
-        // 스킬이 있고 수동 스킬인 경우에만 버튼 설정
         if (currentSkill != null && currentSkill.activationType == SkillActivationType.Manual)
         {
             if (graphicRaycaster != null) graphicRaycaster.enabled = true;
@@ -306,13 +274,11 @@ public class StatusBarUI : MonoBehaviour
             {
                 skillIconImage.sprite = currentSkill.icon;
             }
-            skillButton.onClick.RemoveAllListeners(); // 중복 방지
+            skillButton.onClick.RemoveAllListeners();
             skillButton.onClick.AddListener(owner.ActivateSkill);
-            // 버튼은 UpdateMana에서 마나가 찰 때 활성화됩니다.
         }
         else
         {
-            // 스킬이 없거나 자동 스킬인 경우
             if (graphicRaycaster != null) graphicRaycaster.enabled = false;
             skillButton.gameObject.SetActive(false);
         }

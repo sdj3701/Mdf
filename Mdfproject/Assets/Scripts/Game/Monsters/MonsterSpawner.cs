@@ -105,7 +105,11 @@ public class MonsterSpawner : MonoBehaviour
                  yield break;
             }
 
-            GameObject monsterGO = Instantiate(monsterPrefab, spawnPoint.position, Quaternion.identity, monsterParent);
+            Vector3 spawnPos = spawnPoint.position;
+            float groundOffset = GetGroundMonsterHeightOffset(monsterPrefab);
+            spawnPos.y += groundOffset;
+
+            GameObject monsterGO = Instantiate(monsterPrefab, spawnPos, Quaternion.identity, monsterParent);
             Monster monster = monsterGO.GetComponent<Monster>();
 
             if (monster != null)
@@ -193,7 +197,11 @@ public class MonsterSpawner : MonoBehaviour
 
         Debug.Log($"<color=red>보스 몬스터 소환!</color> {dataToSpawn.monsterName} at Player {playerManager.playerId}'s field");
 
-        GameObject monsterGO = Instantiate(monsterPrefabToSpawn, spawnPoint.position, Quaternion.identity, monsterParent);
+        Vector3 spawnPos = spawnPoint.position;
+        float groundOffset = GetGroundMonsterHeightOffset(monsterPrefabToSpawn);
+        spawnPos.y += groundOffset;
+
+        GameObject monsterGO = Instantiate(monsterPrefabToSpawn, spawnPos, Quaternion.identity, monsterParent);
         Monster monster = monsterGO.GetComponent<Monster>();
 
         if (monster != null)
@@ -221,5 +229,17 @@ public class MonsterSpawner : MonoBehaviour
                 Destroy(monsterGO);
             }
         }
+    }
+
+    private float GetGroundMonsterHeightOffset(GameObject prefab)
+    {
+        if (prefab == null) return 0f;
+
+        Monster monsterComponent = prefab.GetComponent<Monster>();
+        if (monsterComponent == null || monsterComponent.monsterData == null) return 0f;
+
+        if (monsterComponent.monsterData.monsterType == MonsterType.Flying) return 0f;
+
+        return prefab.transform.localScale.y * 0.5f;
     }
 }

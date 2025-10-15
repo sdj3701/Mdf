@@ -230,6 +230,7 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\GameAssets.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
+    <Compile Include="Assets\Scripts\UI\UIBillboard.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

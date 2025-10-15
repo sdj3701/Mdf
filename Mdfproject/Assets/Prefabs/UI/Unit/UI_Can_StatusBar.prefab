@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 880056320819582132}
   - component: {fileID: 3457712950737799617}
   - component: {fileID: -9059791331206764385}
+  - component: {fileID: 7607675968947440223}
   m_Layer: 5
   m_Name: UI_Can_StatusBar
   m_TagString: Untagged
@@ -111,7 +112,6 @@ MonoBehaviour:
   unitScale: {x: 0.005, y: 0.005, z: 0.005}
   monsterPositionOffset: {x: 0, y: 0, z: -0.2}
   monsterScale: {x: 0.012, y: 0.01, z: 0.01}
-  matchCameraPitch: 1
   overrideCamera: {fileID: 0}
 --- !u!114 &-9059791331206764385
 MonoBehaviour:
@@ -130,6 +130,18 @@ MonoBehaviour:
   m_BlockingMask:
     serializedVersion: 2
     m_Bits: 4294967295
+--- !u!114 &7607675968947440223
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 523785727660799067}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 400a41f16256132468506fac3df49a46, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &1513199817790218944
 GameObject:
   m_ObjectHideFlags: 0
