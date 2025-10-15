@@ -454,7 +454,16 @@ public class FieldManager : MonoBehaviour
 
     public void CreateWallAt(Vector3Int gridPosition)
     {
-        if (destructibleWallPrefab == null || placedWalls.ContainsKey(gridPosition)) return;
+        if (destructibleWallPrefab == null)
+        {
+            Debug.LogError($"[FieldManager] CreateWallAt failed: destructibleWallPrefab is null (Player={playerManager?.playerId}) at {gridPosition}");
+            return;
+        }
+        if (placedWalls.ContainsKey(gridPosition))
+        {
+            Debug.LogWarning($"[FieldManager] CreateWallAt ignored: wall already exists at {gridPosition} (Player={playerManager?.playerId})");
+            return;
+        }
         if (!IsValidGridPosition(gridPosition))
         {
             Debug.LogWarning($"[FieldManager] CreateWallAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");

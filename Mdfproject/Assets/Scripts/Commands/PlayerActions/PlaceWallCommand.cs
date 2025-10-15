@@ -14,15 +14,47 @@ public class PlaceWallCommand : ICommand
     public void Execute()
     {
         var player = GameManagers.Instance.GetPlayer(PlayerId);
-        if (player == null) return;
-
-        if (player.TryUseWall())
+        if (player == null)
         {
-            if (player.fieldManager != null)
-            {
-                player.fieldManager.CreateWallAt(Position);
-                GameEvents.TriggerWallPlacementSucceeded(player.playerId, Position);
-            }
+            Debug.LogError($"[PlaceWallCommand] Player not found for PlayerId {PlayerId}");
+            return;
+        }
+
+        var fm = player.fieldManager;
+        if (fm == null)
+        {
+            Debug.LogError($"[PlaceWallCommand] FieldManager is null for Player {PlayerId}");
+            return;
+        }
+
+        if (!fm.IsValidGridPosition(Position))
+        {
+            Debug.LogWarning($"[PlaceWallCommand] Invalid grid position {Position} for Player {PlayerId}");
+            return;
+        }
+
+        if (fm.GetWallAt(Position) != null)
+        {
+            Debug.LogWarning($"[PlaceWallCommand] Wall already exists at {Position} for Player {PlayerId}");
+            return;
+        }
+
+        if (!player.TryUseWall())
+        {
+            Debug.LogWarning($"[PlaceWallCommand] No wall stock left for Player {PlayerId}");
+            return;
+        }
+
+        fm.CreateWallAt(Position);
+
+        if (fm.GetWallAt(Position) != null)
+        {
+            GameEvents.TriggerWallPlacementSucceeded(player.playerId, Position);
+        }
+        else
+        {
+            Debug.LogError($"[PlaceWallCommand] CreateWallAt failed at {Position} for Player {PlayerId}. Refunding.");
+            player.ReturnWall();
         }
     }
 }
