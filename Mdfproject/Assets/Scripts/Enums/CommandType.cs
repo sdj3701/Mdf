@@ -10,6 +10,6 @@ public enum CommandType
     RemoveWall = 5,
     RerollShop = 6,
     SelectAugment = 7,
+    SwapUnit = 8,
     // 필요에 따라 다른 커맨드들도 추가...
 }// Assets/Scripts/Enums/CommandType.cs (새 파일)
-

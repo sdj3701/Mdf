@@ -743,6 +743,39 @@ public class FieldManager : MonoBehaviour
         }
     }
 
+    public void SwapUnits(Vector3Int a, Vector3Int b)
+    {
+        if (!IsValidGridPosition(a) || !IsValidGridPosition(b))
+        {
+            Debug.LogWarning($"[FieldManager] SwapUnits 무시: 범위를 벗어남 {a} <-> {b} (GridSize={gridSize})");
+            return;
+        }
+        if (!placedUnits.TryGetValue(a, out Unit unitA) || !placedUnits.TryGetValue(b, out Unit unitB))
+        {
+            Debug.LogWarning($"[FieldManager] SwapUnits 실패: 대상 유닛을 찾을 수 없음 {a} <-> {b}");
+            return;
+        }
+
+        Vector3 worldForA;
+        Vector3 worldForB;
+        if (ObstacleTilemap != null)
+        {
+            worldForA = ObstacleTilemap.CellToWorld(b) + (ObstacleTilemap.cellSize * 0.5f);
+            worldForB = ObstacleTilemap.CellToWorld(a) + (ObstacleTilemap.cellSize * 0.5f);
+        }
+        else
+        {
+            worldForA = GridToWorld(b, checkForWall: true);
+            worldForB = GridToWorld(a, checkForWall: true);
+        }
+
+        unitA.transform.position = worldForA;
+        unitB.transform.position = worldForB;
+        placedUnits[a] = unitB;
+        placedUnits[b] = unitA;
+        CheckForCombination();
+    }
+
     private void RespawnAllUnits()
     {
         foreach (Unit unit in placedUnits.Values)
@@ -1340,17 +1373,45 @@ public class FieldManager : MonoBehaviour
                 }
                 else
                 {
-                    // [3D Migration] 원래 위치로 복귀
-                    Vector3 originalWorldPos;
-                    if (ObstacleTilemap != null)
+                    Unit target = GetUnitAt(bestGrid);
+                    if (target != null)
                     {
-                        originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                        bool destWallForSelected = GetWallAt(bestGrid) != null;
+                        bool destWallForTarget = GetWallAt(originalUnitPosition) != null;
+                        bool invalidForSelected = selectedUnit.Data.unitType == UnitType.Melee && destWallForSelected;
+                        bool invalidForTarget = target.Data.unitType == UnitType.Melee && destWallForTarget;
+                        if (!invalidForSelected && !invalidForTarget)
+                        {
+                            var swapCmd = new SwapUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
+                            GameManagers.Instance.CommandProcessor.RequestCommandExecution(swapCmd);
+                        }
+                        else
+                        {
+                            Vector3 originalWorldPos;
+                            if (ObstacleTilemap != null)
+                            {
+                                originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                            }
+                            else
+                            {
+                                originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                            }
+                            selectedUnit.transform.position = originalWorldPos;
+                        }
                     }
                     else
                     {
-                        originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                        Vector3 originalWorldPos;
+                        if (ObstacleTilemap != null)
+                        {
+                            originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                        }
+                        else
+                        {
+                            originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                        }
+                        selectedUnit.transform.position = originalWorldPos;
                     }
-                    selectedUnit.transform.position = originalWorldPos;
                 }
             }
             else
