@@ -1310,13 +1310,13 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Assembly-CSharp.csproj" />
-    <ProjectReference Include="ToonyColorsPro.Demo.Editor.csproj" />
     <ProjectReference Include="Fusion.Unity.csproj" />
     <ProjectReference Include="Fusion.Unity.Editor.csproj" />
+    <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
+    <ProjectReference Include="ToonyColorsPro.Demo.Editor.csproj" />
+    <ProjectReference Include="KinoBloom.Runtime.csproj" />
     <ProjectReference Include="ToonyColorsPro.Runtime.csproj" />
     <ProjectReference Include="ToonyColorsPro.Editor.csproj" />
-    <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
-    <ProjectReference Include="KinoBloom.Runtime.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <ItemGroup>

@@ -15,7 +15,7 @@ GameObject:
   - component: {fileID: 4500141981080296219}
   - component: {fileID: 2290026435766595999}
   m_Layer: 9
-  m_Name: DestructibleWallPrefab
+  m_Name: UnBreakableWallPrefab
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -48,7 +48,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d3d5f0a454fded40972a205f228f082, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  maxHealth: 200
+  maxHealth: 50
   defense: 5
   magicResistance: 0
 --- !u!114 &-7537163315907183273
@@ -63,7 +63,7 @@ MonoBehaviour:
   m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  SortKey: 2479778479
+  SortKey: 1510511833
   ObjectInterest: 1
   Flags: 262145
   NestedObjects: []
