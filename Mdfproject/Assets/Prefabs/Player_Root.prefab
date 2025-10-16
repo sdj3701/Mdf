@@ -199,6 +199,9 @@ MonoBehaviour:
   gold: 20
   wallCount: 20
   wallReserveK: 3
+  wallBuildDelayRange: {x: 0.6, y: 1.2}
+  unitPurchaseDelayRange: {x: 1, y: 1.5}
+  unitMoveDelayRange: {x: 0.6, y: 1.2}
   mazePlannedOrder: []
   mazePlanned: 0
   mazeBuildCursor: 0

@@ -18,6 +18,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [SerializeField] private int wallCount = 5;
     private const int MAX_WALL_COUNT = 5;
     [SerializeField] private int wallReserveK = 2;
+    [SerializeField] private Vector2 wallBuildDelayRange = new Vector2(0.3f, 0.8f);
+    [SerializeField] private Vector2 unitPurchaseDelayRange = new Vector2(0.5f, 1.0f);
+    [SerializeField] private Vector2 unitMoveDelayRange = new Vector2(0.4f, 0.9f);
 
     [HideInInspector] public List<UnityEngine.Vector3Int> mazePlannedOrder = new List<UnityEngine.Vector3Int>();
     [HideInInspector] public bool mazePlanned = false;
@@ -148,6 +151,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public int GetGold() => gold;
     public int GetWallCount() => wallCount;
     public int GetWallReserveK() => wallReserveK;
+    public Vector2 GetWallBuildDelayRange() => NormalizeDelayRange(wallBuildDelayRange);
+    public Vector2 GetUnitPurchaseDelayRange() => NormalizeDelayRange(unitPurchaseDelayRange);
+    public Vector2 GetUnitMoveDelayRange() => NormalizeDelayRange(unitMoveDelayRange);
 
     public bool SpendGold(int amount)
     {
@@ -210,6 +216,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             wallCount++;
             GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
         }
+    }
+
+    private static Vector2 NormalizeDelayRange(Vector2 range)
+    {
+        float min = Mathf.Min(range.x, range.y);
+        float max = Mathf.Max(range.x, range.y);
+        if (min < 0f) min = 0f;
+        if (max < min) max = min;
+        return new Vector2(min, max);
     }
 
     #endregion
