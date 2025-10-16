@@ -156,27 +156,35 @@ public static class MazePlanner
 
         Debug.LogWarning($"[MazePlanner] Greedy 초기 해: {currentSolution.Count}개 벽, 경로: {currentPathLength}");
 
-        // Phase 2: Simulated Annealing으로 개선
+        // Phase 2: Simulated Annealing으로 개선 (강화된 파라미터)
         var bestSolution = new List<Vector2Int>(currentSolution);
         var bestBlocked = new HashSet<Vector2Int>(currentBlocked);
         int bestPathLength = currentPathLength;
 
-        float temperature = 100f;
-        float coolingRate = 0.95f;
-        int iterations = 200;
+        float temperature = 200f;  // 초기 온도 증가 (더 많은 탐색)
+        float coolingRate = 0.97f;  // 냉각 속도 감소 (더 오래 탐색)
+        int iterations = 500;  // 반복 횟수 증가
 
         var random = new System.Random();
 
-        for (int iter = 0; iter < iterations && temperature > 1f; iter++)
+        for (int iter = 0; iter < iterations && temperature > 0.5f; iter++)
         {
-            // 이웃 해 생성: 벽 하나 제거하고 다른 곳에 추가
+            // 이웃 해 생성 전략 개선: 2~3개 벽을 동시에 교체
             if (currentSolution.Count == 0) break;
 
-            // 무작위로 벽 하나 제거
-            int removeIdx = random.Next(currentSolution.Count);
-            var removedWall = currentSolution[removeIdx];
-            currentSolution.RemoveAt(removeIdx);
-            currentBlocked.Remove(removedWall);
+            int numSwaps = random.Next(1, 4);  // 1~3개 벽 교체
+            var removedWalls = new List<Vector2Int>();
+            var addedWalls = new List<Vector2Int>();
+
+            // 무작위로 벽 제거
+            for (int s = 0; s < numSwaps && currentSolution.Count > 0; s++)
+            {
+                int removeIdx = random.Next(currentSolution.Count);
+                var removedWall = currentSolution[removeIdx];
+                currentSolution.RemoveAt(removeIdx);
+                currentBlocked.Remove(removedWall);
+                removedWalls.Add(removedWall);
+            }
 
             // 무작위로 새 벽 추가
             var availableCandidates = new List<Vector2Int>();
@@ -188,11 +196,18 @@ public static class MazePlanner
                 }
             }
 
-            if (availableCandidates.Count > 0)
+            for (int s = 0; s < numSwaps && availableCandidates.Count > 0; s++)
             {
-                var newWall = availableCandidates[random.Next(availableCandidates.Count)];
+                int idx = random.Next(availableCandidates.Count);
+                var newWall = availableCandidates[idx];
+                availableCandidates.RemoveAt(idx);
                 currentBlocked.Add(newWall);
                 currentSolution.Add(newWall);
+                addedWalls.Add(newWall);
+            }
+
+            if (addedWalls.Count > 0)
+            {
 
                 // 새 해 평가
                 var newPath = ComputePath(spawn, goal, width, height, currentBlocked);
@@ -201,10 +216,17 @@ public static class MazePlanner
                 // 경로가 막히면 거부
                 if (newPath == null || newPathLength == 0)
                 {
-                    currentBlocked.Remove(newWall);
-                    currentSolution.RemoveAt(currentSolution.Count - 1);
-                    currentBlocked.Add(removedWall);
-                    currentSolution.Add(removedWall);
+                    // 복구
+                    foreach (var wall in addedWalls)
+                    {
+                        currentBlocked.Remove(wall);
+                        currentSolution.Remove(wall);
+                    }
+                    foreach (var wall in removedWalls)
+                    {
+                        currentBlocked.Add(wall);
+                        currentSolution.Add(wall);
+                    }
                 }
                 else
                 {
@@ -240,18 +262,27 @@ public static class MazePlanner
                     else
                     {
                         // 거부: 원래대로 복구
-                        currentBlocked.Remove(newWall);
-                        currentSolution.RemoveAt(currentSolution.Count - 1);
-                        currentBlocked.Add(removedWall);
-                        currentSolution.Add(removedWall);
+                        foreach (var wall in addedWalls)
+                        {
+                            currentBlocked.Remove(wall);
+                            currentSolution.Remove(wall);
+                        }
+                        foreach (var wall in removedWalls)
+                        {
+                            currentBlocked.Add(wall);
+                            currentSolution.Add(wall);
+                        }
                     }
                 }
             }
             else
             {
                 // 추가할 후보가 없으면 복구
-                currentBlocked.Add(removedWall);
-                currentSolution.Add(removedWall);
+                foreach (var wall in removedWalls)
+                {
+                    currentBlocked.Add(wall);
+                    currentSolution.Add(wall);
+                }
             }
 
             temperature *= coolingRate;
