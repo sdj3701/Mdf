@@ -27,6 +27,54 @@ public class AugmentManager : MonoBehaviour
         return presentedAugments;
     }
 
+    /// <summary>
+    /// 서버(호스트)에서 브로드캐스트된 증강 이름 목록을 기반으로 현재 제시 증강을 동기화합니다.
+    /// 클라이언트의 어드레서블 로딩이 끝난 후에 적용됩니다.
+    /// </summary>
+    public void SetPresentedAugmentsByNames(IEnumerable<string> augmentNames)
+    {
+        if (!isDataLoaded)
+        {
+            Debug.LogWarning("증강 데이터 로딩 전 동기화 요청이 도착했습니다. 로딩 완료 후 적용을 시도합니다.");
+        }
+
+        // 가능한 모든 풀을 하나로 묶어 빠르게 조회할 수 있도록 딕셔너리 구성
+        // 중복 이름이 없다는 전제(augmentName 유니크)를 가정합니다.
+        var all = new List<AugmentData>(silverAugments.Count + goldAugments.Count + prismaticAugments.Count);
+        all.AddRange(silverAugments);
+        all.AddRange(goldAugments);
+        all.AddRange(prismaticAugments);
+
+        var nameToAugment = new Dictionary<string, AugmentData>(StringComparer.Ordinal);
+        foreach (var a in all)
+        {
+            if (a != null && !string.IsNullOrEmpty(a.augmentName) && !nameToAugment.ContainsKey(a.augmentName))
+            {
+                nameToAugment[a.augmentName] = a;
+            }
+        }
+
+        presentedAugments.Clear();
+        foreach (var name in augmentNames)
+        {
+            if (string.IsNullOrEmpty(name)) continue;
+            if (nameToAugment.TryGetValue(name, out var data) && data != null)
+            {
+                presentedAugments.Add(data);
+            }
+            else
+            {
+                Debug.LogWarning($"서버가 보낸 증강 '{name}'을(를) 찾지 못했습니다. (아직 로드 중이거나 라벨/이름 불일치)");
+            }
+        }
+
+        if (presentedAugments.Count > 0)
+        {
+            string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
+            Debug.Log($"[동기화] Player {playerManager.playerId} 제시 증강 동기화: {presentedNames}");
+        }
+    }
+
     // [수정] void Start() -> async void Start()
     async void Start()
     {

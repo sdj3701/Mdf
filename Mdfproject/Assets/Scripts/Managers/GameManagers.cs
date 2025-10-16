@@ -242,8 +242,6 @@ public class GameManagers : NetworkBehaviour
         }
         else
         {
-            //await UniTask.Delay(2000);
-
             Debug.Log("<color=green>모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
             if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
 
@@ -520,11 +518,30 @@ public class GameManagers : NetworkBehaviour
             foreach (var player in AllPlayers)
             {
                 if (player == null) continue;
+                // 호스트에서만 증강을 굴리고, 결과를 모든 클라이언트와 동기화합니다.
                 player.augmentManager.PresentAugments();
+            }
+
+            // 각 플레이어의 제시 증강 이름을 모든 클라이언트에 동기화
+            foreach (var player in AllPlayers)
+            {
+                if (player == null) continue;
+                var names = player.augmentManager.GetPresentedAugments()
+                    .Select(a => a != null ? a.augmentName : string.Empty)
+                    .ToArray();
+                Rpc_SyncPresentedAugments(player.playerId, names);
             }
         }
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, preparePhaseTime);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void Rpc_SyncPresentedAugments(int targetPlayerId, string[] augmentNames)
+    {
+        var target = GetPlayer(targetPlayerId);
+        if (target == null || target.augmentManager == null) return;
+        target.augmentManager.SetPresentedAugmentsByNames(augmentNames);
     }
 
     private void StartCombatPhase()
@@ -585,7 +602,16 @@ public class GameManagers : NetworkBehaviour
                         Debug.Log($"[HandleUIForNewState] augmentSelectionUI != null 조건 만족");
                         if (localPlayerShopUIGameObject != null) localPlayerShopUIGameObject.SetActive(false);
                         await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
-                        Debug.Log("<color=blue> Test </color>");
+
+                        // 네트워크 전파/로드 타이밍으로 인해 아직 제시 증강이 비어있을 수 있으므로 잠깐 대기
+                        // 최대 1초(1000ms) 동안 presentedAugments가 준비될 때까지 대기합니다.
+                        var deadline = Time.realtimeSinceStartup + 1.0f;
+                        while (localPlayer != null && localPlayer.augmentManager.GetPresentedAugments().Count == 0 && Time.realtimeSinceStartup < deadline)
+                        {
+                            await UniTask.Yield();
+                        }
+
+                        Debug.Log("<color=blue> Augment UI Open </color>");
                         GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
                     }
                     else
