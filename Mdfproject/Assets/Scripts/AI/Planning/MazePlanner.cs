@@ -15,19 +15,19 @@ public static class MazePlanner
     /// </summary>
     public static List<Vector3Int> PlanWalls(FieldManager fm, PlayerManager pm)
     {
-        Debug.LogWarning($"[MazePlanner] ===== 미로 계획 시작 (Player {pm.playerId}) =====");
+        // Debug.LogWarning($"[MazePlanner] ===== 미로 계획 시작 (Player {pm.playerId}) =====");
 
         Vector3Int spawnCell3 = fm.WorldToGridInt(pm.spawnPoint != null ? pm.spawnPoint.position : Vector3.zero);
         Vector3Int goalCell3 = fm.WorldToGridInt(pm.goalTransform != null ? pm.goalTransform.position : Vector3.zero);
         Vector2Int spawn = new Vector2Int(spawnCell3.x, spawnCell3.y);
         Vector2Int goal = new Vector2Int(goalCell3.x, goalCell3.y);
 
-        Debug.LogWarning($"[MazePlanner] 스폰: {spawn}, 골: {goal}");
+        // Debug.LogWarning($"[MazePlanner] 스폰: {spawn}, 골: {goal}");
 
         int width = fm.gridSize.x;
         int height = fm.gridSize.y;
 
-        Debug.LogWarning($"[MazePlanner] 그리드 크기: {width}x{height}");
+        // Debug.LogWarning($"[MazePlanner] 그리드 크기: {width}x{height}");
 
         // 초기 벽 수집
         var initialBlocked = new HashSet<Vector2Int>();
@@ -40,7 +40,7 @@ public static class MazePlanner
             }
         }
 
-        Debug.LogWarning($"[MazePlanner] 초기 벽 개수: {initialBlocked.Count}");
+        // Debug.LogWarning($"[MazePlanner] 초기 벽 개수: {initialBlocked.Count}");
 
         // 초기 경로 계산
         var blocked = new HashSet<Vector2Int>(initialBlocked);
@@ -52,12 +52,12 @@ public static class MazePlanner
         }
 
         int initialPathLength = currentPath.Count;
-        Debug.LogWarning($"[MazePlanner] 초기 경로 길이: {initialPathLength}");
+        // Debug.LogWarning($"[MazePlanner] 초기 경로 길이: {initialPathLength}");
 
         // 새로운 전략: Beam Search로 최적 미로 찾기
         var result = BuildOptimalMaze(spawn, goal, width, height, blocked, initialBlocked, initialPathLength);
 
-        Debug.LogWarning($"[MazePlanner] ===== 미로 계획 반환 완료 =====");
+        // Debug.LogWarning($"[MazePlanner] ===== 미로 계획 반환 완료 =====");
         return result;
     }
 
@@ -82,7 +82,7 @@ public static class MazePlanner
             }
         }
 
-        Debug.LogWarning($"[MazePlanner] 벽 후보 개수: {allCandidates.Count}");
+        // Debug.LogWarning($"[MazePlanner] 벽 후보 개수: {allCandidates.Count}");
 
         // 2단계: 각 벽의 독립적인 효과 평가 (초기 경로 기준)
         var wallEffects = new List<WallCandidate>();
@@ -114,11 +114,11 @@ public static class MazePlanner
             return a.distanceToSpawn.CompareTo(b.distanceToSpawn);
         });
 
-        Debug.LogWarning($"[MazePlanner] 유효한 벽 후보: {wallEffects.Count}");
+        // Debug.LogWarning($"[MazePlanner] 유효한 벽 후보: {wallEffects.Count}");
 
         // 3단계: Simulated Annealing - 지역 최적해를 탈출하여 더 나은 해 탐색
         int targetWalls = Mathf.Min(width + height, 15);
-        Debug.LogWarning($"[MazePlanner] Simulated Annealing 시작: 목표 {targetWalls}개 벽");
+        // Debug.LogWarning($"[MazePlanner] Simulated Annealing 시작: 목표 {targetWalls}개 벽");
 
         // 초기 해: Greedy로 몇 개 벽 추가
         var currentSolution = new List<Vector2Int>();
@@ -154,7 +154,7 @@ public static class MazePlanner
         var currentPath = ComputePath(spawn, goal, width, height, currentBlocked);
         int currentPathLength = currentPath?.Count ?? initialPathLength;
 
-        Debug.LogWarning($"[MazePlanner] Greedy 초기 해: {currentSolution.Count}개 벽, 경로: {currentPathLength}");
+        // Debug.LogWarning($"[MazePlanner] Greedy 초기 해: {currentSolution.Count}개 벽, 경로: {currentPathLength}");
 
         // Phase 2: Simulated Annealing으로 개선 (강화된 파라미터)
         var bestSolution = new List<Vector2Int>(currentSolution);
@@ -256,7 +256,7 @@ public static class MazePlanner
                             bestPathLength = newPathLength;
                             bestSolution = new List<Vector2Int>(currentSolution);
                             bestBlocked = new HashSet<Vector2Int>(currentBlocked);
-                            Debug.LogWarning($"[MazePlanner] 새로운 최선 해: {bestSolution.Count}개 벽, 경로: {bestPathLength} (+{bestPathLength - initialPathLength})");
+                            // Debug.LogWarning($"[MazePlanner] 새로운 최선 해: {bestSolution.Count}개 벽, 경로: {bestPathLength} (+{bestPathLength - initialPathLength})");
                         }
                     }
                     else
@@ -293,13 +293,13 @@ public static class MazePlanner
         currentPath = ComputePath(spawn, goal, width, height, currentBlocked);
         currentPathLength = currentPath?.Count ?? bestPathLength;
 
-        Debug.LogWarning($"[MazePlanner] SA 완료: {currentSolution.Count}개 벽, 경로: {currentPathLength}");
+        // Debug.LogWarning($"[MazePlanner] SA 완료: {currentSolution.Count}개 벽, 경로: {currentPathLength}");
 
         // Phase 3: 남은 슬롯을 채우기 (조건 완화)
         int remainingSlots = targetWalls - currentSolution.Count;
         if (remainingSlots > 0)
         {
-            Debug.LogWarning($"[MazePlanner] 남은 {remainingSlots}개 슬롯 채우기 시작");
+            // Debug.LogWarning($"[MazePlanner] 남은 {remainingSlots}개 슬롯 채우기 시작");
 
             // 3-1: 먼저 경로를 길게 만드는 벽 추가
             for (int i = 0; i < remainingSlots; i++)
@@ -329,14 +329,14 @@ public static class MazePlanner
                 currentPath = ComputePath(spawn, goal, width, height, currentBlocked);
                 currentPathLength = currentPath?.Count ?? currentPathLength;
 
-                Debug.LogWarning($"[MazePlanner] 개선 벽 #{currentSolution.Count}: {bestWall.Value}, 경로: {currentPathLength} (+{currentPathLength - initialPathLength})");
+                // Debug.LogWarning($"[MazePlanner] 개선 벽 #{currentSolution.Count}: {bestWall.Value}, 경로: {currentPathLength} (+{currentPathLength - initialPathLength})");
             }
 
             // 3-2: 남은 슬롯을 경로 주변 벽으로 채우기 (경로 길이 유지)
             remainingSlots = targetWalls - currentSolution.Count;
             if (remainingSlots > 0)
             {
-                Debug.LogWarning($"[MazePlanner] 남은 {remainingSlots}개 슬롯을 경로 주변 벽으로 채우기");
+                // Debug.LogWarning($"[MazePlanner] 남은 {remainingSlots}개 슬롯을 경로 주변 벽으로 채우기");
 
                 // 현재 경로 주변 영역 계산
                 var pathNeighborhood = new HashSet<Vector2Int>();
@@ -378,7 +378,7 @@ public static class MazePlanner
                         currentSolution.Add(candidate);
                         currentPath = testPath;
                         currentPathLength = testPath.Count;
-                        Debug.LogWarning($"[MazePlanner] 밀도 벽 #{currentSolution.Count}: {candidate}, 경로: {currentPathLength}");
+                        // Debug.LogWarning($"[MazePlanner] 밀도 벽 #{currentSolution.Count}: {candidate}, 경로: {currentPathLength}");
                     }
                     else
                     {
@@ -388,14 +388,14 @@ public static class MazePlanner
             }
         }
 
-        Debug.LogWarning($"[MazePlanner] ===== 미로 설계 완료 =====");
-        Debug.LogWarning($"[MazePlanner] 계획된 벽 개수: {currentSolution.Count}");
-        Debug.LogWarning($"[MazePlanner] 경로 길이: {initialPathLength} -> {currentPathLength} (증가: {currentPathLength - initialPathLength})");
+        // Debug.LogWarning($"[MazePlanner] ===== 미로 설계 완료 =====");
+        // Debug.LogWarning($"[MazePlanner] 계획된 벽 개수: {currentSolution.Count}");
+        // Debug.LogWarning($"[MazePlanner] 경로 길이: {initialPathLength} -> {currentPathLength} (증가: {currentPathLength - initialPathLength})");
 
-        if (currentSolution.Count > 0)
-        {
-            Debug.LogWarning($"[MazePlanner] 첫 번째 벽: {currentSolution[0]}, 마지막 벽: {currentSolution[currentSolution.Count - 1]}");
-        }
+        // if (currentSolution.Count > 0)
+        // {
+        //     Debug.LogWarning($"[MazePlanner] 첫 번째 벽: {currentSolution[0]}, 마지막 벽: {currentSolution[currentSolution.Count - 1]}");
+        // }
 
         // 스폰에 가까운 순으로 정렬 (건설 순서)
         currentSolution.Sort((a, b) =>

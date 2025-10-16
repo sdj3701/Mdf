@@ -41,13 +41,13 @@ namespace AI.BehaviorTree.Nodes.Actions
             // 1) 최초 1회 미로 계획 수립 (초기 벽 포함, 무제한 가정)
             if (!_playerManager.mazePlanned)
             {
-                Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 미로 계획 시작...");
+                //Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 미로 계획 시작...");
                 var planned = MazePlanner.PlanWalls(fm, _playerManager);
                 _playerManager.mazePlannedOrder = planned ?? new List<Vector3Int>();
                 _playerManager.mazeBuildCursor = 0;
                 _playerManager.mazePlanned = true;
                 _nextBuildAt = Time.time + Random.Range(_minInterval, _maxInterval);
-                Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 미로 계획 완료: {_playerManager.mazePlannedOrder.Count}개 벽, 다음 건설 시간: {_nextBuildAt}");
+                //Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 미로 계획 완료: {_playerManager.mazePlannedOrder.Count}개 벽, 다음 건설 시간: {_nextBuildAt}");
                 // 계획 수립 후 Failure 반환 (다음 행동도 실행 가능하게)
                 return status = NodeStatus.Failure;
             }
@@ -64,7 +64,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             // 3) 더 지을 벽이 없다면 Failure 반환 (다음 행동으로 넘어감)
             if (nextIndex == -1)
             {
-                Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 더 지을 벽이 없음 (전체: {_playerManager.mazePlannedOrder.Count}, 스킵: {_temporarilySkipped.Count})");
+                //Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 더 지을 벽이 없음 (전체: {_playerManager.mazePlannedOrder.Count}, 스킵: {_temporarilySkipped.Count})");
                 return status = NodeStatus.Failure;
             }
 
@@ -73,7 +73,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             int available = _playerManager.GetWallCount() - reserve;
             if (available <= 0)
             {
-                Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 벽 재고 부족: 현재={_playerManager.GetWallCount()}, 예약={reserve}, 사용가능={available}");
+                //Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 벽 재고 부족: 현재={_playerManager.GetWallCount()}, 예약={reserve}, 사용가능={available}");
                 // 재고 부족 시 Failure 반환 (다음 행동으로)
                 return status = NodeStatus.Failure;
             }
@@ -100,14 +100,14 @@ namespace AI.BehaviorTree.Nodes.Actions
                         if (!_temporarilySkipped.Contains(placeAt))
                         {
                             _temporarilySkipped.Add(placeAt);
-                            Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 벽 위치 {placeAt}에 근접 유닛이 있어 스킵");
+                            //Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 벽 위치 {placeAt}에 근접 유닛이 있어 스킵");
                         }
                         // 이 벽은 스킵하고 다음 행동으로 (유닛 구매 등)
                         return status = NodeStatus.Failure;
                     }
                 }
 
-                Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 벽 건설 시도: {placeAt} (인덱스: {nextIndex}/{_playerManager.mazePlannedOrder.Count})");
+                //Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 벽 건설 시도: {placeAt} (인덱스: {nextIndex}/{_playerManager.mazePlannedOrder.Count})");
 
                 // 안전: Spawn/Goal 보호는 PlaceWallCommand에서 재확인됨
                 var cmd = new PlaceWallCommand(_playerManager.playerId, placeAt);
@@ -120,7 +120,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                 // 벽 건설 후 AI 디버그 경로 업데이트
                 UpdateAIDebugPath();
 
-                Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 벽 건설 완료! 다음 건설 시간: {_nextBuildAt}");
+                //Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 벽 건설 완료! 다음 건설 시간: {_nextBuildAt}");
                 // 벽을 건설했으므로 Success 반환 (이번 틱에서 성공적으로 행동 완료)
                 return status = NodeStatus.Success;
             }
@@ -153,11 +153,11 @@ namespace AI.BehaviorTree.Nodes.Actions
             {
                 // AI 디버그 경로 업데이트
                 grid.IdealPathForAIDebug = new List<AstarNode>(grid.FinalPath);
-                Debug.LogWarning($"[BuildMazeAction] AI 디버그 경로 업데이트: {grid.FinalPath.Count}개 노드");
+                //Debug.LogWarning($"[BuildMazeAction] AI 디버그 경로 업데이트: {grid.FinalPath.Count}개 노드");
             }
             else
             {
-                Debug.LogWarning($"[BuildMazeAction] 경로 찾기 실패, AI 디버그 경로 초기화");
+                //Debug.LogWarning($"[BuildMazeAction] 경로 찾기 실패, AI 디버그 경로 초기화");
                 grid.IdealPathForAIDebug = null;
             }
         }
