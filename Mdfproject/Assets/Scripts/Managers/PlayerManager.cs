@@ -2,7 +2,6 @@
 
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Tilemaps;
 using System.Linq;
 using Fusion; // Fusion 네임스페이스 추가
 
@@ -63,24 +62,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         // 전달받은 NetworkObject 참조로부터 그리드 게임오브젝트를 가져옵니다.
         GameObject gridInstance = gridNetworkObject.gameObject;
-
-        // --- 중복 등록 경고 해결 ---
-        // 1. Grid에 포함된 모든 TilemapController를 찾습니다.
-        var tilemapControllers = gridInstance.GetComponentsInChildren<TilemapController>();
-        foreach (var controller in tilemapControllers)
-        {
-            // 2. 각 컨트롤러에 플레이어 ID를 알려주어 고유 ID를 설정하게 합니다.
-            controller.SetPlayerOwner(this.playerId);
-        }
-        // -------------------------
-
-        // --- 2. 그리드 내부의 구성 요소들을 찾고, 각각 성공 여부를 로그로 남깁니다. ---
-        // [3D Migration] Tilemap과 3D Ground 모두 지원
-        var allTilemaps = gridInstance.GetComponentsInChildren<Tilemap>();
-        Tilemap groundTilemap = allTilemaps.FirstOrDefault(t => t.name == "Ground Tilemap");
-        Tilemap obstacleTilemap = allTilemaps.FirstOrDefault(t => t.name == "BreakWall Tilemap");
         
-        // 3D Ground 오브젝트 찾기 (Tilemap이 없을 경우)
+        // 3D Ground 오브젝트 찾기
         GameObject ground3D = null;
         // 우선 활성화된 오브젝트 중에서 이름이 "Ground" 또는 "Field"인 것을 찾습니다.
         var groundCandidates = gridInstance.GetComponentsInChildren<Transform>(true)
@@ -100,8 +83,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         this.goalTransform = gridInstance.transform.Find("Goal");
 
         // 각 컴포넌트/오브젝트를 찾았는지 확인하는 로그
-        Debug.Log($"[Player {playerId}]: Ground Tilemap 찾음? -> {(groundTilemap != null)}");
-        Debug.Log($"[Player {playerId}]: BreakWall Tilemap 찾음? -> {(obstacleTilemap != null)}");
         Debug.Log($"[Player {playerId}]: 3D Ground 찾음? -> {(ground3D != null)}");
         Debug.Log($"[Player {playerId}]: AstarGrid 찾음? -> {(this.astarGrid != null)}");
         Debug.Log($"[Player {playerId}]: SpawnPoint 찾음? -> {(this.spawnPoint != null)}");
@@ -110,7 +91,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // AstarGrid 초기화는 FieldManager 초기화 이후에 수행하여 3D 그리드 정보를 공유합니다.
 
         // 하위 매니저 초기화
-        // [3D Migration] 3D Ground가 있으면 3D 모드로, 없으면 2D Tilemap 모드로 초기화
+        // 3D Ground 기반 초기화
         if (fieldManager)
         {
             if (ground3D != null)
@@ -118,14 +99,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 Debug.Log($"[Player {playerId}]: FieldManager를 3D 모드로 초기화합니다.");
                 fieldManager.Initialize(this, ground3D);
             }
-            else if (groundTilemap != null && obstacleTilemap != null)
-            {
-                Debug.Log($"[Player {playerId}]: FieldManager를 2D Tilemap 모드로 초기화합니다.");
-                fieldManager.Initialize(this, groundTilemap, obstacleTilemap);
-            }
             else
             {
-                Debug.LogError($"[Player {playerId}]: FieldManager 초기화 실패 - Ground 오브젝트나 Tilemap을 찾을 수 없습니다!");
+                Debug.LogError($"[Player {playerId}]: FieldManager 초기화 실패 - Ground 오브젝트를 찾을 수 없습니다!");
             }
         }
 

@@ -102,12 +102,12 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (grid == null || start == null || goal == null) return;
 
-            // 재배치 계획을 위해 현재 필드에 있는 모든 유닛의 콜라이더를 일시적으로 비활성화합니다.
+            // 재배치 계획을 위해 현재 필드에 있는 모든 유닛의 3D 콜라이더를 일시적으로 비활성화합니다.
             var allUnits = _playerManager.fieldManager.GetAlliedUnitsOnField();
-            List<Collider2D> colliders = new List<Collider2D>();
+            List<Collider> colliders = new List<Collider>();
             foreach (var unit in allUnits)
             {
-                var collider = unit.GetComponent<Collider2D>();
+                var collider = unit.GetComponentInChildren<Collider>();
                 if (collider != null)
                 {
                     colliders.Add(collider);

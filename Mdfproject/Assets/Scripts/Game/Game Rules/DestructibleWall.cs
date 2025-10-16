@@ -1,6 +1,5 @@
 // Assets/Scripts/Game/Game Rules/DestructibleWall.cs (수정된 버전)
 using UnityEngine;
-using UnityEngine.Tilemaps;
 
 public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
 {

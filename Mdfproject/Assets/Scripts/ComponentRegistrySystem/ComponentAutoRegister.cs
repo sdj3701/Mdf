@@ -1,7 +1,6 @@
 using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
-using UnityEngine.Tilemaps;
 
 /// <summary>
 /// Unity 기본 컴포넌트들을 ComponentRegistry에 자동 등록하는 범용 스크립트
