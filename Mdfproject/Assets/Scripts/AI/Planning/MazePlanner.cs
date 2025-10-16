@@ -258,6 +258,104 @@ public static class MazePlanner
         }
 
         currentSolution = bestSolution;
+        currentBlocked = new HashSet<Vector2Int>(bestBlocked);
+        currentPath = ComputePath(spawn, goal, width, height, currentBlocked);
+        currentPathLength = currentPath?.Count ?? bestPathLength;
+
+        Debug.LogWarning($"[MazePlanner] SA 완료: {currentSolution.Count}개 벽, 경로: {currentPathLength}");
+
+        // Phase 3: 남은 슬롯을 채우기 (조건 완화)
+        int remainingSlots = targetWalls - currentSolution.Count;
+        if (remainingSlots > 0)
+        {
+            Debug.LogWarning($"[MazePlanner] 남은 {remainingSlots}개 슬롯 채우기 시작");
+
+            // 3-1: 먼저 경로를 길게 만드는 벽 추가
+            for (int i = 0; i < remainingSlots; i++)
+            {
+                Vector2Int? bestWall = null;
+                int bestPhase3PathLength = currentPathLength;
+
+                foreach (var candidate in allCandidates)
+                {
+                    if (currentBlocked.Contains(candidate)) continue;
+
+                    currentBlocked.Add(candidate);
+                    var testPath = ComputePath(spawn, goal, width, height, currentBlocked);
+                    currentBlocked.Remove(candidate);
+
+                    if (testPath != null && testPath.Count > bestPhase3PathLength)
+                    {
+                        bestPhase3PathLength = testPath.Count;
+                        bestWall = candidate;
+                    }
+                }
+
+                if (!bestWall.HasValue) break;
+
+                currentBlocked.Add(bestWall.Value);
+                currentSolution.Add(bestWall.Value);
+                currentPath = ComputePath(spawn, goal, width, height, currentBlocked);
+                currentPathLength = currentPath?.Count ?? currentPathLength;
+
+                Debug.LogWarning($"[MazePlanner] 개선 벽 #{currentSolution.Count}: {bestWall.Value}, 경로: {currentPathLength} (+{currentPathLength - initialPathLength})");
+            }
+
+            // 3-2: 남은 슬롯을 경로 주변 벽으로 채우기 (경로 길이 유지)
+            remainingSlots = targetWalls - currentSolution.Count;
+            if (remainingSlots > 0)
+            {
+                Debug.LogWarning($"[MazePlanner] 남은 {remainingSlots}개 슬롯을 경로 주변 벽으로 채우기");
+
+                // 현재 경로 주변 영역 계산
+                var pathNeighborhood = new HashSet<Vector2Int>();
+                if (currentPath != null)
+                {
+                    foreach (var node in currentPath)
+                    {
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            for (int dy = -1; dy <= 1; dy++)
+                            {
+                                pathNeighborhood.Add(new Vector2Int(node.x + dx, node.y + dy));
+                            }
+                        }
+                    }
+                }
+
+                // 경로 주변 후보 수집
+                var nearPathCandidates = new List<Vector2Int>();
+                foreach (var candidate in allCandidates)
+                {
+                    if (currentBlocked.Contains(candidate)) continue;
+                    if (pathNeighborhood.Contains(candidate))
+                    {
+                        nearPathCandidates.Add(candidate);
+                    }
+                }
+
+                // 경로를 막지 않는 벽 추가
+                foreach (var candidate in nearPathCandidates)
+                {
+                    if (currentSolution.Count >= targetWalls) break;
+
+                    currentBlocked.Add(candidate);
+                    var testPath = ComputePath(spawn, goal, width, height, currentBlocked);
+
+                    if (testPath != null && testPath.Count >= currentPathLength)
+                    {
+                        currentSolution.Add(candidate);
+                        currentPath = testPath;
+                        currentPathLength = testPath.Count;
+                        Debug.LogWarning($"[MazePlanner] 밀도 벽 #{currentSolution.Count}: {candidate}, 경로: {currentPathLength}");
+                    }
+                    else
+                    {
+                        currentBlocked.Remove(candidate);
+                    }
+                }
+            }
+        }
 
         Debug.LogWarning($"[MazePlanner] ===== 미로 설계 완료 =====");
         Debug.LogWarning($"[MazePlanner] 계획된 벽 개수: {currentSolution.Count}");
