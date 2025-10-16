@@ -1,6 +1,5 @@
 // Assets/Scripts/Managers/FieldManager.cs
 using UnityEngine;
-using UnityEngine.Tilemaps;
 using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
@@ -19,8 +18,17 @@ public class FieldManager : MonoBehaviour
     [Header("생성할 프리팹")]
     [Tooltip("몬스터가 공격하거나 플레이어가 설치할 때 사용되는 파괴 가능한 벽 프리팹입니다.")]
     public GameObject destructibleWallPrefab;
-    public TileBase wallTileToPlace;
     public GameObject statusBarPrefab;
+
+    [Header("영구 벽 설정")]
+    [Tooltip("게임 시작 시 자동 배치할 파괴 불가(영구) 벽 프리팹입니다. 미지정 시 Addressables 키 'PermanentWallPrefab'로 로드합니다.")]
+    public GameObject permanentWallPrefab;
+    [Tooltip("Addressables에서 영구 벽 프리팹을 로드할 키 (미지정 프리팹 폴백)")]
+    public string permanentWallAddressKey = "PermanentWallPrefab";
+    [Tooltip("게임 시작 시 각 플레이어 필드에 배치할 영구 벽 개수")]
+    public int initialPermanentWallCount = 0;
+    [Tooltip("영구/파괴가능 벽이 속할 레이어명 (AstarGrid.wallLayers와 일치해야 함)")]
+    public string wallLayerName = "Wall";
 
     [Header("범위 표시")]
     public GameObject attackRangeIndicatorPrefab;
@@ -39,23 +47,31 @@ public class FieldManager : MonoBehaviour
     [Tooltip("그리드 크기 (X, Z 칸 수) - x는 3D의 X, y는 3D의 Z를 의미")]
     public Vector2Int gridSize = new Vector2Int(10, 8);
     
+    [Tooltip("Ground Renderer의 Bounds로부터 그리드 Origin/Size를 자동 유도합니다. 끄면 인스펙터 설정값을 그대로 사용합니다.")]
+    public bool deriveGridFromGroundBounds = false;
+    
     [Header("유닛 배치 높이 설정")]
     [Tooltip("일반 Ground에 배치될 때 Y축 오프셋")]
     public float groundYOffset = 0f;
     
     [Tooltip("벽(BreakWall) 위에 배치될 때 Y축 오프셋")]
-    public float wallYOffset = 1f;
+    [SerializeField]
+    private float wallYOffset = 1f;
     
     // 3D Ground 오브젝트 참조 (Raycast 대상)
     public GameObject ground3D { get; private set; }
 
     // [Deprecated] Tilemap은 호환성을 위해 유지하되, 3D 전환 시 null이 될 수 있음
-    public Tilemap ObstacleTilemap { get; private set; }
-    public Tilemap GroundTilemap { get; private set; }
+    
+
 
     private PlacementManager placementManager;
     private Dictionary<Vector3Int, Unit> placedUnits = new Dictionary<Vector3Int, Unit>();
     private Dictionary<Vector3Int, DestructibleWall> placedWalls = new Dictionary<Vector3Int, DestructibleWall>();
+    // 영구(파괴 불가) 벽 관리
+    private Dictionary<Vector3Int, GameObject> placedPermanentWalls = new Dictionary<Vector3Int, GameObject>();
+    private int wallLayer = -1;
+    private bool permanentWallsGenerated = false;
 
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
@@ -130,7 +146,6 @@ public class FieldManager : MonoBehaviour
     /// </summary>
     private Vector3Int GetBestGridUnderMouse(int searchRadius = 2)
     {
-        // 마우스 위치 기반 초깃값
         Vector3 mouseWorld = GetMouseWorldPosition();
         Vector2 mouseScreen = Input.mousePosition;
         Vector3Int guess = WorldToGridInt(mouseWorld);
@@ -138,7 +153,6 @@ public class FieldManager : MonoBehaviour
         float bestDist = float.MaxValue;
         Vector3Int best = guess;
 
-        // 주변 후보 탐색 (작은 반경)
         for (int dy = -searchRadius; dy <= searchRadius; dy++)
         {
             for (int dx = -searchRadius; dx <= searchRadius; dx++)
@@ -148,15 +162,7 @@ public class FieldManager : MonoBehaviour
                 if (gx < 0 || gy < 0 || gx >= gridSize.x || gy >= gridSize.y) continue;
 
                 var cell = new Vector3Int(gx, gy, 0);
-                Vector3 center;
-                if (ObstacleTilemap != null)
-                {
-                    center = ObstacleTilemap.CellToWorld(cell) + (ObstacleTilemap.cellSize * 0.5f);
-                }
-                else
-                {
-                    center = GridToWorld(cell, checkForWall: true);
-                }
+                Vector3 center = GridToWorld(cell, checkForWall: true);
 
                 Vector3 centerScreen = playerCamera.WorldToScreenPoint(center);
                 float dist = Vector2.SqrMagnitude((Vector2)centerScreen - mouseScreen);
@@ -174,6 +180,8 @@ public class FieldManager : MonoBehaviour
     void Awake()
     {
         placementManager = GetComponent<PlacementManager>();
+        UpdateWallYOffsetFromPrefab();
+        wallLayer = LayerMask.NameToLayer(wallLayerName);
     }
 
     // ✅ [추가된 핵심 로직] PlayerManager가 호출하여 초기화
@@ -183,20 +191,42 @@ public class FieldManager : MonoBehaviour
         this.playerManager = owner;
         this.ground3D = ground3DObject;
         
-        // 3D Ground의 bounds를 기반으로 그리드 설정
+        // 3D Ground 기준으로 항상 그리드 원점을 정렬하고, 필요 시에만 사이즈를 유도합니다.
         if (ground3D != null)
         {
             Renderer renderer = ground3D.GetComponent<Renderer>();
             if (renderer != null)
             {
                 Bounds bounds = renderer.bounds;
-                gridOrigin = new Vector3(bounds.min.x, 0, bounds.min.z);
-                // gridSize.x는 3D의 X축, gridSize.y는 3D의 Z축
-                gridSize = new Vector2Int(
-                    Mathf.RoundToInt(bounds.size.x / cellSize),  // X축 길이
-                    Mathf.RoundToInt(bounds.size.z / cellSize)   // Z축 길이
-                );
-                Debug.Log($"[FieldManager] 3D 그리드 초기화: Origin={gridOrigin}, Size(X,Z)={gridSize}, CellSize={cellSize}");
+                float epsilon = Mathf.Max(1e-4f * cellSize, Mathf.Epsilon);
+                int minIndexX = Mathf.FloorToInt(bounds.min.x / cellSize);
+                int minIndexZ = Mathf.FloorToInt(bounds.min.z / cellSize);
+
+                // 항상 per-player ground에 맞게 원점을 정렬 (겹침 방지)
+                gridOrigin = new Vector3(minIndexX * cellSize, 0, minIndexZ * cellSize);
+
+                if (deriveGridFromGroundBounds)
+                {
+                    int maxIndexExclusiveX = Mathf.FloorToInt((bounds.max.x - epsilon) / cellSize) + 1;
+                    int maxIndexExclusiveZ = Mathf.FloorToInt((bounds.max.z - epsilon) / cellSize) + 1;
+                    gridSize = new Vector2Int(
+                        Mathf.Max(1, maxIndexExclusiveX - minIndexX),
+                        Mathf.Max(1, maxIndexExclusiveZ - minIndexZ)
+                    );
+                    Debug.Log($"[FieldManager] Grid derived from ground bounds: Origin={gridOrigin}, Size(X,Z)={gridSize}, CellSize={cellSize}");
+                }
+                else
+                {
+                    Debug.Log($"[FieldManager] Grid origin aligned to ground: Origin={gridOrigin}, keep Size(X,Z)={gridSize}");
+                }
+            }
+            else
+            {
+                // Renderer가 없으면 Transform 위치를 기준으로 최소 인덱스 정렬
+                int minIndexX = Mathf.FloorToInt(ground3D.transform.position.x / cellSize);
+                int minIndexZ = Mathf.FloorToInt(ground3D.transform.position.z / cellSize);
+                gridOrigin = new Vector3(minIndexX * cellSize, 0, minIndexZ * cellSize);
+                Debug.Log($"[FieldManager] Grid origin aligned (no Renderer): Origin={gridOrigin}, keep Size(X,Z)={gridSize}");
             }
         }
 
@@ -213,31 +243,11 @@ public class FieldManager : MonoBehaviour
             parentObject.transform.SetParent(transform.parent);
             wallParent = parentObject.transform;
         }
+
+        GeneratePermanentWallsIfNeeded();
     }
     
-    // [Deprecated] 2D Tilemap 기반 초기화 (호환성 유지)
-    public void Initialize(PlayerManager owner, Tilemap ground, Tilemap obstacle)
-    {
-        this.playerManager = owner;
-        this.GroundTilemap = ground;
-        this.ObstacleTilemap = obstacle;
-
-        if (unitParent == null)
-        {
-            GameObject parentObject = new GameObject($"[{playerManager.name} Units]");
-            parentObject.transform.SetParent(transform.parent);
-            unitParent = parentObject.transform;
-        }
-
-        if (wallParent == null)
-        {
-            GameObject parentObject = new GameObject($"[{playerManager.name} Walls]");
-            parentObject.transform.SetParent(transform.parent);
-            wallParent = parentObject.transform;
-        }
-
-        PrepopulateWallsFromTilemap();
-    }
+    
     
     #region 3D Grid Coordinate Conversion
     
@@ -258,7 +268,7 @@ public class FieldManager : MonoBehaviour
         if (checkForWall && ground3D != null)
         {
             Vector3Int gridPos3D = new Vector3Int(gridPos.x, gridPos.y, 0);
-            if (GetWallAt(gridPos3D) != null)
+            if (HasWallAt(gridPos3D))
             {
                 yOffset = gridOrigin.y + wallYOffset;
             }
@@ -277,6 +287,9 @@ public class FieldManager : MonoBehaviour
         // 3D 월드 좌표를 그리드 좌표로 변환 (X, Z 사용)
         int gridX = Mathf.FloorToInt((worldPos.x - gridOrigin.x) / cellSize);
         int gridY = Mathf.FloorToInt((worldPos.z - gridOrigin.z) / cellSize);
+        // 경계에서의 미세한 오차로 인해 size 인덱스가 되는 것을 방지하기 위해 유효 범위로 클램프
+        gridX = Mathf.Clamp(gridX, 0, Mathf.Max(0, gridSize.x - 1));
+        gridY = Mathf.Clamp(gridY, 0, Mathf.Max(0, gridSize.y - 1));
         return new Vector2Int(gridX, gridY);
     }
     
@@ -295,6 +308,23 @@ public class FieldManager : MonoBehaviour
     {
         Vector2Int grid2D = WorldToGrid(worldPos);
         return new Vector3Int(grid2D.x, grid2D.y, 0);
+    }
+
+    /// <summary>
+    /// 주어진 월드 좌표를 논리 그리드의 월드 경계 내로 클램프합니다. (X/Z만 제한, Y는 그대로)
+    /// 최대 경계는 배타적으로 취급하여 최댓값에서의 내림으로 인한 유령 셀을 방지합니다.
+    /// </summary>
+    public Vector3 ClampToGrid(Vector3 worldPos)
+    {
+        float minX = gridOrigin.x;
+        float minZ = gridOrigin.z;
+        float maxXExclusive = gridOrigin.x + gridSize.x * cellSize;
+        float maxZExclusive = gridOrigin.z + gridSize.y * cellSize;
+        float epsilon = Mathf.Max(1e-4f * cellSize, Mathf.Epsilon);
+
+        float clampedX = Mathf.Clamp(worldPos.x, minX, maxXExclusive - epsilon);
+        float clampedZ = Mathf.Clamp(worldPos.z, minZ, maxZExclusive - epsilon);
+        return new Vector3(clampedX, worldPos.y, clampedZ);
     }
     
     /// <summary>
@@ -345,6 +375,18 @@ public class FieldManager : MonoBehaviour
         placementManager.StopPlacementMode();
     }
 
+    public void TogglePlacementMode(PlacementMode mode, GameObject unitPrefab = null)
+    {
+        if (placementManager.GetCurrentMode() == mode)
+        {
+            placementManager.StopPlacementMode();
+        }
+        else
+        {
+            placementManager.StartPlacementMode(mode, unitPrefab);
+        }
+    }
+
     #endregion
 
     #region Event Handlers
@@ -367,16 +409,7 @@ public class FieldManager : MonoBehaviour
             // 유닛을 드래그하는 중이었다면 취소하고 원위치시킵니다.
             if (selectedUnit != null)
             {
-                // [3D Migration] Tilemap 또는 3D 그리드 사용
-                Vector3 originalWorldPos;
-                if (ObstacleTilemap != null)
-                {
-                    originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
-                }
-                else
-                {
-                    originalWorldPos = GridToWorld(originalUnitPosition);
-                }
+                Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
                 
                 selectedUnit.transform.position = originalWorldPos;
                 // 드래그 중에는 placedUnits에서 제거되지 않으므로, 다시 Add할 필요가 없습니다.
@@ -395,29 +428,40 @@ public class FieldManager : MonoBehaviour
 
     public void CreateWallAt(Vector3Int gridPosition)
     {
-        if (destructibleWallPrefab == null || placedWalls.ContainsKey(gridPosition)) return;
-
-        // [3D Migration] Tilemap 또는 3D 그리드 사용
-        Vector3 worldPos;
-        if (ObstacleTilemap != null)
+        if (destructibleWallPrefab == null)
         {
-            // 2D Tilemap 모드
-            if (wallTileToPlace != null)
-            {
-                ObstacleTilemap.SetTile(gridPosition, wallTileToPlace);
-            }
-            worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
-        }
-        else if (ground3D != null)
-        {
-            // 3D 모드
-            worldPos = GridToWorld(gridPosition);
-        }
-        else
-        {
-            Debug.LogError("FieldManager에 ObstacleTilemap 또는 ground3D 참조가 없습니다!");
+            Debug.LogError($"[FieldManager] CreateWallAt failed: destructibleWallPrefab is null (Player={playerManager?.playerId}) at {gridPosition}");
             return;
         }
+        if (HasWallAt(gridPosition))
+        {
+            Debug.LogWarning($"[FieldManager] CreateWallAt ignored: wall already exists at {gridPosition} (Player={playerManager?.playerId})");
+            return;
+        }
+        if (!IsValidGridPosition(gridPosition))
+        {
+            Debug.LogWarning($"[FieldManager] CreateWallAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            return;
+        }
+
+        Unit occupant = GetUnitAt(gridPosition);
+        if (occupant != null)
+        {
+            if (occupant.Data.unitType == UnitType.Melee)
+            {
+                Vector3Int? alt = FindFirstEmptySlot(occupant.Data);
+                if (!alt.HasValue)
+                {
+                    Debug.LogWarning($"[FieldManager] CreateWallAt aborted: no empty slot to relocate melee unit at {gridPosition} (Player={playerManager?.playerId})");
+                    return;
+                }
+                MoveUnit(gridPosition, alt.Value);
+            }
+        }
+
+        Vector3 worldPos = GridToWorld(gridPosition);
+        float halfWallHeight = GetWallPrefabHeight() * 0.5f;
+        worldPos.y += halfWallHeight;
 
         GameObject wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
@@ -431,6 +475,13 @@ public class FieldManager : MonoBehaviour
             }
             wallComponent.Initialize(this, gridPosition);
             placedWalls.Add(gridPosition, wallComponent);
+
+            Unit unitOnCell = GetUnitAt(gridPosition);
+            if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
+            {
+                Vector3 atopPos = GridToWorld(gridPosition, checkForWall: true);
+                unitOnCell.transform.position = atopPos;
+            }
         }
         else
         {
@@ -452,11 +503,6 @@ public class FieldManager : MonoBehaviour
 
             Destroy(wall.gameObject);
             placedWalls.Remove(gridPosition);
-
-            if (ObstacleTilemap != null)
-            {
-                ObstacleTilemap.SetTile(gridPosition, null);
-            }
         }
     }
 
@@ -466,28 +512,125 @@ public class FieldManager : MonoBehaviour
         return wall;
     }
 
-    /// <summary>
-    /// 게임 시작 시 타일맵을 스캔하여 'BreakWall' 타일이 있는 모든 위치에
-    /// DestructibleWall 프리팹을 미리 생성합니다.
-    /// </summary>
-    private void PrepopulateWallsFromTilemap()
+    // 파괴 가능/불가를 포함한 모든 벽 존재 여부
+    public bool HasWallAt(Vector3Int gridPosition)
     {
-        if (ObstacleTilemap == null) return;
+        return placedWalls.ContainsKey(gridPosition) || placedPermanentWalls.ContainsKey(gridPosition);
+    }
 
-        BoundsInt bounds = ObstacleTilemap.cellBounds;
-        for (int y = bounds.yMin; y < bounds.yMax; y++)
+    private void UpdateWallYOffsetFromPrefab()
+    {
+        if (destructibleWallPrefab != null)
         {
-            for (int x = bounds.xMin; x < bounds.xMax; x++)
+            wallYOffset = GetWallPrefabHeight();
+        }
+    }
+
+    private float GetWallPrefabHeight()
+    {
+        return destructibleWallPrefab.transform.localScale.y;
+    }
+
+    private float GetPrefabHeight(GameObject prefab)
+    {
+        return prefab != null ? prefab.transform.localScale.y : 1f;
+    }
+
+    
+
+    // 영구(파괴 불가) 벽 생성
+    private async void GeneratePermanentWallsIfNeeded()
+    {
+        if (permanentWallsGenerated) return;
+        if (initialPermanentWallCount <= 0) { permanentWallsGenerated = true; return; }
+        if (playerManager == null) return; // Initialize 미완료
+
+        // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
+        GameObject prefab = permanentWallPrefab;
+        if (prefab == null && !string.IsNullOrEmpty(permanentWallAddressKey))
+        {
+            prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey);
+        }
+
+        if (prefab == null)
+        {
+            Debug.LogError($"[FieldManager] Permanent wall prefab not set and failed to load '{permanentWallAddressKey}'. Skipping generation.");
+            permanentWallsGenerated = true;
+            return;
+        }
+
+        // 스폰/골 목표 셀 계산 (3D)
+        Vector3Int spawnCell = WorldToGridInt(playerManager.spawnPoint != null ? playerManager.spawnPoint.position : Vector3.zero);
+        Vector3Int goalCell = WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero);
+
+        // 후보 셀 수집
+        List<Vector3Int> candidates = new List<Vector3Int>();
+        for (int y = 0; y < gridSize.y; y++)
+        {
+            for (int x = 0; x < gridSize.x; x++)
             {
-                Vector3Int pos = new Vector3Int(x, y, 0);
-                if (ObstacleTilemap.GetTile(pos) != null)
-                {
-                    // CreateWallAt 내부에서 중복 생성을 방지하므로 여기서 별도 확인은 필요 없습니다.
-                    CreateWallAt(pos);
-                }
+                var cell = new Vector3Int(x, y, 0);
+                if (!IsValidGridPosition(cell)) continue;
+                if (cell == spawnCell || cell == goalCell) continue; // 스폰/도착지 제외
+                if (HasWallAt(cell)) continue; // 기존 벽 제외
+                if (IsUnitAt(cell)) continue; // 유닛이 있는 칸 제외
+                candidates.Add(cell);
             }
         }
-        Debug.Log($"[{playerManager.name}] 타일맵으로부터 {placedWalls.Count}개의 벽 오브젝트를 사전 생성했습니다.");
+
+        if (candidates.Count == 0)
+        {
+            Debug.LogWarning($"[FieldManager] No valid cells found for permanent walls (Player={playerManager?.playerId}).");
+            permanentWallsGenerated = true;
+            return;
+        }
+
+        int toPlace = Mathf.Min(initialPermanentWallCount, candidates.Count);
+        for (int i = 0; i < toPlace; i++)
+        {
+            // 랜덤 추출
+            int idx = Random.Range(0, candidates.Count);
+            var pos = candidates[idx];
+            candidates.RemoveAt(idx);
+
+            // 실제 배치
+            CreatePermanentWallAt(pos, prefab);
+        }
+
+        permanentWallsGenerated = true;
+    }
+
+    private void CreatePermanentWallAt(Vector3Int gridPosition, GameObject prefab)
+    {
+        if (!IsValidGridPosition(gridPosition)) return;
+        if (HasWallAt(gridPosition)) return;
+
+        Vector3 worldPos = GridToWorld(gridPosition);
+        float halfH = GetPrefabHeight(prefab) * 0.5f;
+        worldPos.y += halfH;
+
+        GameObject wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+        // 레이어 지정 (자식 포함)
+        if (wallLayer >= 0) SetLayerRecursively(wallGO, wallLayer);
+
+        placedPermanentWalls[gridPosition] = wallGO;
+
+        // 벽 위에 원거리 유닛이 있었다면 올려놓기
+        Unit unitOnCell = GetUnitAt(gridPosition);
+        if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
+        {
+            Vector3 atopPos = GridToWorld(gridPosition, checkForWall: true);
+            unitOnCell.transform.position = atopPos;
+        }
+    }
+
+    private void SetLayerRecursively(GameObject go, int layer)
+    {
+        go.layer = layer;
+        foreach (Transform child in go.transform)
+        {
+            if (child != null) SetLayerRecursively(child.gameObject, layer);
+        }
     }
 
     #endregion
@@ -557,6 +700,11 @@ public class FieldManager : MonoBehaviour
 
      public async void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel, bool markAsAIPurchased = false)
     {
+        if (!IsValidGridPosition(gridPosition))
+        {
+            Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            return;
+        }
         // --- [핵심 수정 부분] ---
         string prefabKey = data.prefabsByStarLevel[starLevel - 1];
         GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
@@ -568,18 +716,18 @@ public class FieldManager : MonoBehaviour
             return;
         }
         
-        // [3D Migration] Tilemap 또는 3D 그리드 사용 (벽 체크 포함)
-        Vector3 worldPos;
-        if (ObstacleTilemap != null)
-        {
-            worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
-        }
-        else
-        {
-            worldPos = GridToWorld(gridPosition, checkForWall: true);
-        }
+        // 3D 그리드 사용 (벽 체크 포함)
+        Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
         
         GameObject newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+        // Attach orientation fixer to ensure rig local rotation and face camera on spawn
+        var orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
+        orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs
+        orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
+        orientationFixer.faceCameraOnSpawn = true;
+        orientationFixer.enforceEveryLateUpdate = true;
+        orientationFixer.targetCamera = playerCamera; // avoid ComponentRegistry lookup warnings
+        orientationFixer.yawOffsetDeg = 180f; // compensate if model's visual forward is flipped
         Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
 
         if (newUnitComponent != null)
@@ -611,20 +759,17 @@ public class FieldManager : MonoBehaviour
 
     public void MoveUnit(Vector3Int from, Vector3Int to)
     {
+        if (!IsValidGridPosition(from) || !IsValidGridPosition(to))
+        {
+            Debug.LogWarning($"[FieldManager] MoveUnit 무시: 범위를 벗어난 이동 {from} -> {to} (GridSize={gridSize})");
+            return;
+        }
+
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
             placedUnits.Remove(from);
             
-            // [3D Migration] Tilemap 또는 3D 그리드 사용 (벽 체크 포함)
-            Vector3 finalWorldPos;
-            if (ObstacleTilemap != null)
-            {
-                finalWorldPos = ObstacleTilemap.CellToWorld(to) + (ObstacleTilemap.cellSize * 0.5f);
-            }
-            else
-            {
-                finalWorldPos = GridToWorld(to, checkForWall: true);
-            }
+            Vector3 finalWorldPos = GridToWorld(to, checkForWall: true);
             
             unit.transform.position = finalWorldPos;
             placedUnits.Add(to, unit);
@@ -634,6 +779,29 @@ public class FieldManager : MonoBehaviour
         {
             Debug.LogWarning($"[FieldManager] MoveUnit: '{from}' 위치에서 유닛을 찾을 수 없습니다.");
         }
+    }
+
+    public void SwapUnits(Vector3Int a, Vector3Int b)
+    {
+        if (!IsValidGridPosition(a) || !IsValidGridPosition(b))
+        {
+            Debug.LogWarning($"[FieldManager] SwapUnits 무시: 범위를 벗어남 {a} <-> {b} (GridSize={gridSize})");
+            return;
+        }
+        if (!placedUnits.TryGetValue(a, out Unit unitA) || !placedUnits.TryGetValue(b, out Unit unitB))
+        {
+            Debug.LogWarning($"[FieldManager] SwapUnits 실패: 대상 유닛을 찾을 수 없음 {a} <-> {b}");
+            return;
+        }
+
+        Vector3 worldForA = GridToWorld(b, checkForWall: true);
+        Vector3 worldForB = GridToWorld(a, checkForWall: true);
+
+        unitA.transform.position = worldForA;
+        unitB.transform.position = worldForB;
+        placedUnits[a] = unitB;
+        placedUnits[b] = unitA;
+        CheckForCombination();
     }
 
     private void RespawnAllUnits()
@@ -649,39 +817,18 @@ public class FieldManager : MonoBehaviour
 
     public Vector3Int? FindFirstEmptySlot(UnitData unitData)
     {
-        // [3D Migration] Tilemap 또는 3D 그리드 사용
-        if (GroundTilemap != null)
+        // 3D 모드: 논리 그리드 전체 스캔
+        for (int y = 0; y < gridSize.y; y++)
         {
-            // 2D Tilemap 모드
-            BoundsInt bounds = GroundTilemap.cellBounds;
-            for (int y = bounds.yMin; y < bounds.yMax; y++)
+            for (int x = 0; x < gridSize.x; x++)
             {
-                for (int x = bounds.xMin; x < bounds.xMax; x++)
+                Vector3Int pos = new Vector3Int(x, y, 0);
+                if (placementManager.IsPositionValidForPlacement(pos, unitData))
                 {
-                    Vector3Int pos = new Vector3Int(x, y, 0);
-                    if (placementManager.IsPositionValidForPlacement(pos, unitData))
-                    {
-                        return pos;
-                    }
+                    return pos;
                 }
             }
         }
-        else if (ground3D != null)
-        {
-            // 3D 모드
-            for (int y = 0; y < gridSize.y; y++)
-            {
-                for (int x = 0; x < gridSize.x; x++)
-                {
-                    Vector3Int pos = new Vector3Int(x, y, 0);
-                    if (placementManager.IsPositionValidForPlacement(pos, unitData))
-                    {
-                        return pos;
-                    }
-                }
-            }
-        }
-        
         return null;
     }
 
@@ -692,18 +839,8 @@ public class FieldManager : MonoBehaviour
     /// </summary>
     public BoundsInt GetMapBounds()
     {
-        // [3D Migration] Tilemap 또는 3D 그리드 사용
-        if (GroundTilemap != null)
-        {
-            return GroundTilemap.cellBounds;
-        }
-        else if (ground3D != null)
-        {
-            // 3D 모드: 논리 그리드 범위 반환
-            return new BoundsInt(0, 0, 0, gridSize.x, gridSize.y, 1);
-        }
-        
-        return new BoundsInt(0, 0, 0, 0, 0, 0);
+        // 3D 모드: 논리 그리드 범위 반환
+        return new BoundsInt(0, 0, 0, gridSize.x, gridSize.y, 1);
     }
 
     /// <summary>
@@ -735,61 +872,29 @@ public class FieldManager : MonoBehaviour
     public List<Vector3Int> GetValidPlacementTiles(UnitType unitType)
     {
         var validTiles = new List<Vector3Int>();
-
-        // [3D Migration] Tilemap 또는 3D 그리드 사용
-        if (GroundTilemap != null)
+        // 3D 모드: 논리 그리드의 모든 셀이 배치 가능 (근접 유닛의 경우)
+        if (unitType == UnitType.Melee)
         {
-            // 2D Tilemap 모드
-            if (unitType == UnitType.Melee)
+            for (int y = 0; y < gridSize.y; y++)
             {
-                BoundsInt bounds = GroundTilemap.cellBounds;
-                for (int y = bounds.yMin; y < bounds.yMax; y++)
+                for (int x = 0; x < gridSize.x; x++)
                 {
-                    for (int x = bounds.xMin; x < bounds.xMax; x++)
-                    {
-                        Vector3Int pos = new Vector3Int(x, y, 0);
-                        if (GroundTilemap.GetTile(pos) != null) validTiles.Add(pos);
-                    }
-                }
-            }
-            if (ObstacleTilemap != null)
-            {
-                BoundsInt bounds = ObstacleTilemap.cellBounds;
-                for (int y = bounds.yMin; y < bounds.yMax; y++)
-                {
-                    for (int x = bounds.xMin; x < bounds.xMax; x++)
-                    {
-                        Vector3Int pos = new Vector3Int(x, y, 0);
-                        if (ObstacleTilemap.GetTile(pos) != null) validTiles.Add(pos);
-                    }
+                    validTiles.Add(new Vector3Int(x, y, 0));
                 }
             }
         }
-        else if (ground3D != null)
+        else // Ranged
         {
-            // 3D 모드: 논리 그리드의 모든 셀이 배치 가능 (근접 유닛의 경우)
-            // 원거리 유닛은 벽 위에만 배치 가능하지만, 3D에서는 placedWalls 딕셔너리를 활용
-            if (unitType == UnitType.Melee)
+            // 원거리 유닛은 파괴 가능/불가 벽 위에 배치 가능
+            foreach (var wallPos in placedWalls.Keys)
             {
-                // 근접 유닛은 모든 그리드 셀에 배치 가능
-                for (int y = 0; y < gridSize.y; y++)
-                {
-                    for (int x = 0; x < gridSize.x; x++)
-                    {
-                        validTiles.Add(new Vector3Int(x, y, 0));
-                    }
-                }
+                validTiles.Add(wallPos);
             }
-            else // Ranged
+            foreach (var permPos in placedPermanentWalls.Keys)
             {
-                // 원거리 유닛은 벽이 있는 곳에만 배치 가능
-                foreach (var wallPos in placedWalls.Keys)
-                {
-                    validTiles.Add(wallPos);
-                }
+                validTiles.Add(permPos);
             }
         }
-
         return validTiles;
     }
 
@@ -810,17 +915,12 @@ public class FieldManager : MonoBehaviour
     /// </summary>
     public void RegisterUnitAt(Unit unit, Vector3Int gridPosition)
     {
-        // [3D Migration] Tilemap 또는 3D 그리드 사용 (벽 체크 포함)
-        Vector3 worldPos;
-        if (ObstacleTilemap != null)
+        if (!IsValidGridPosition(gridPosition))
         {
-            worldPos = ObstacleTilemap.CellToWorld(gridPosition) + (ObstacleTilemap.cellSize * 0.5f);
+            Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            return;
         }
-        else
-        {
-            worldPos = GridToWorld(gridPosition, checkForWall: true);
-        }
-        
+        Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
         unit.transform.position = worldPos;
         placedUnits.Add(gridPosition, unit);
     }
@@ -1005,41 +1105,22 @@ public class FieldManager : MonoBehaviour
     #region 유닛 상세 정보 패널 및 드래그 앤 드롭
 
     /// <summary>
-    /// [3D Migration] 마우스 위치를 3D 월드 좌표로 변환합니다.
-    /// 3D 모드에서는 Ground에 Raycast를 쏘고, 2D 모드에서는 ScreenToWorldPoint를 사용합니다.
+    /// [3D] 마우스 위치를 3D 월드 좌표로 변환합니다. Ground 평면과의 교차점을 사용합니다.
     /// </summary>
     private Vector3 GetMouseWorldPosition()
     {
-        if (ObstacleTilemap != null)
+        if (ground3D == null) return Vector3.zero;
+        Ray ray = playerCamera.ScreenPointToRay(Input.mousePosition);
+        Plane groundPlane = new Plane(Vector3.up, gridOrigin);
+        if (groundPlane.Raycast(ray, out float enter))
         {
-            // 2D Tilemap 모드: 기존 방식 사용
-            Vector3 pos = playerCamera.ScreenToWorldPoint(Input.mousePosition);
-            pos.z = 0;
-            return pos;
+            return ray.GetPoint(enter);
         }
-        else if (ground3D != null)
-        {
-            // 3D 모드: Raycast로 Ground와의 교차점 찾기
-            Ray ray = playerCamera.ScreenPointToRay(Input.mousePosition);
-            Plane groundPlane = new Plane(Vector3.up, gridOrigin);
-            
-            if (groundPlane.Raycast(ray, out float enter))
-            {
-                return ray.GetPoint(enter);
-            }
-            
-            // Raycast 실패 시 기본값 반환
-            return Vector3.zero;
-        }
-        else
-        {
-            // 초기화되지 않은 상태
-            return Vector3.zero;
-        }
+        return Vector3.zero;
     }
 
     /// <summary>
-    /// 마우스 아래의 유닛을 찾습니다. 3D Raycast를 우선 시도하고, 실패 시 2D Physics로 폴백합니다.
+    /// 마우스 아래의 유닛을 찾습니다. 3D Raycast를 사용하고, 실패 시 스크린 거리 근사치를 사용합니다.
     /// </summary>
     private Unit GetUnitUnderMouse()
     {
@@ -1050,17 +1131,8 @@ public class FieldManager : MonoBehaviour
         if (Physics.Raycast(ray, out RaycastHit hit, 1000f))
         {
             var unit3D = hit.collider.GetComponentInParent<Unit>();
-            if (unit3D != null) return unit3D;
-        }
-
-        // 2D Overlap (2D Collider 유지 환경 폴백)
-        Vector3 sp = playerCamera.ScreenToWorldPoint(Input.mousePosition);
-        Vector2 p2 = new Vector2(sp.x, sp.y);
-        var hit2D = Physics2D.OverlapPoint(p2);
-        if (hit2D != null)
-        {
-            var unit2D = hit2D.GetComponentInParent<Unit>();
-            if (unit2D != null) return unit2D;
+            // 이 FieldManager가 관리하는 유닛만 선택되도록 제한합니다.
+            if (unit3D != null && placedUnits.ContainsValue(unit3D)) return unit3D;
         }
 
         // 스크린 공간 기반 근사: 마우스와 가장 가까운 유닛 선택
@@ -1109,10 +1181,10 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
-        // [3D Migration] 초기화 확인
-        if (ObstacleTilemap == null && ground3D == null)
+        // [3D] 초기화 확인
+        if (ground3D == null)
         {
-            Debug.LogWarning("[FieldManager] Both ObstacleTilemap and ground3D are null - not initialized yet!");
+            Debug.LogWarning("[FieldManager] ground3D is null - not initialized yet!");
             return;
         }
 
@@ -1125,6 +1197,8 @@ public class FieldManager : MonoBehaviour
         {
             // 셀 기반이 아니라 실제 유닛 콜라이더를 클릭해야 드래그 시작
             Unit clickedUnit = GetUnitUnderMouse();
+            bool pointerOverUI = UnityEngine.EventSystems.EventSystem.current != null &&
+                                 UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
 
             // 패널이 열려있는 상태에서
             if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
@@ -1149,6 +1223,11 @@ public class FieldManager : MonoBehaviour
             }
 
             // 이제 클릭한 대상에 대한 처리 (드래그 시작 또는 새 패널 열기 준비)
+            // UI 위를 클릭한 경우에는 새 선택/드래그를 시작하지 않습니다.
+            if (pointerOverUI)
+            {
+                return;
+            }
             if (clickedUnit != null)
             {
                 selectedUnit = clickedUnit;
@@ -1220,33 +1299,39 @@ public class FieldManager : MonoBehaviour
                 }
                 else
                 {
-                    // [3D Migration] 원래 위치로 복귀
-                    Vector3 originalWorldPos;
-                    if (ObstacleTilemap != null)
+                    Unit target = GetUnitAt(bestGrid);
+                    if (target != null)
                     {
-                        originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                        bool destWallForSelected = GetWallAt(bestGrid) != null;
+                        bool destWallForTarget = GetWallAt(originalUnitPosition) != null;
+                        bool invalidForSelected = selectedUnit.Data.unitType == UnitType.Melee && destWallForSelected;
+                        bool invalidForTarget = target.Data.unitType == UnitType.Melee && destWallForTarget;
+                        if (!invalidForSelected && !invalidForTarget)
+                        {
+                            var swapCmd = new SwapUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
+                            GameManagers.Instance.CommandProcessor.RequestCommandExecution(swapCmd);
+                        }
+                        else
+                        {
+                            Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                            selectedUnit.transform.position = originalWorldPos;
+                        }
                     }
                     else
                     {
-                        originalWorldPos = GridToWorld(originalUnitPosition);
+                        Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                        selectedUnit.transform.position = originalWorldPos;
                     }
-                    selectedUnit.transform.position = originalWorldPos;
                 }
             }
             else
             {
-                // 짧은 클릭이었으므로, 유닛을 원래 위치로 되돌리고 상세 정보 패널을 엽니다.
-                // [3D Migration] 원래 위치로 복귀
-                Vector3 originalWorldPos;
-                if (ObstacleTilemap != null)
+                // 짧은 클릭: 이 FieldManager 소유 유닛만 스냅백. (교차 플레이어 유닛 보호)
+                if (placedUnits.ContainsValue(selectedUnit))
                 {
-                    originalWorldPos = ObstacleTilemap.CellToWorld(originalUnitPosition) + (ObstacleTilemap.cellSize * 0.5f);
+                    Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                    selectedUnit.transform.position = originalWorldPos;
                 }
-                else
-                {
-                    originalWorldPos = GridToWorld(originalUnitPosition);
-                }
-                selectedUnit.transform.position = originalWorldPos;
                 ShowUnitDetailPanel(selectedUnit);
             }
 
@@ -1327,14 +1412,16 @@ public class FieldManager : MonoBehaviour
         }
 
         // 3. 범위 인디케이터 생성 및 크기 설정
+        Vector3 indicatorPos = unit.transform.position;
+        indicatorPos.y = unit.transform.position.y + 0.1f;
         if (showAttack)
         {
-            attackRangeIndicatorInstance = Instantiate(attackRangeIndicatorPrefab, unit.transform.position, Quaternion.identity, transform);
+            attackRangeIndicatorInstance = Instantiate(attackRangeIndicatorPrefab, indicatorPos, Quaternion.Euler(90f, 0f, 0f), transform);
             attackRangeIndicatorInstance.transform.localScale = new Vector3(attackDiameter, attackDiameter, 1f);
         }
         if (showSkill)
         {
-            skillRangeIndicatorInstance = Instantiate(skillRangeIndicatorPrefab, unit.transform.position, Quaternion.identity, transform);
+            skillRangeIndicatorInstance = Instantiate(skillRangeIndicatorPrefab, indicatorPos, Quaternion.Euler(90f, 0f, 0f), transform);
             skillRangeIndicatorInstance.transform.localScale = new Vector3(skillDiameter, skillDiameter, 1f);
         }
 
@@ -1398,21 +1485,8 @@ public class FieldManager : MonoBehaviour
             Vector3Int tilePos = kvp.Key;
             var breakdown = kvp.Value;
 
-            // AI 필드의 실제 월드 좌표 계산 (FieldManager의 GroundTilemap 기준)
-            Vector3 worldPos;
-            if (GroundTilemap != null)
-            {
-                // GroundTilemap의 월드 좌표를 기준으로 타일 위치 계산
-                Vector3 tilemapWorldPos = GroundTilemap.transform.position;
-                worldPos = new Vector3(tilemapWorldPos.x + tilePos.x + 0.5f, tilemapWorldPos.y + tilePos.y + 0.5f, 0);
-
-
-            }
-            else
-            {
-                // 폴백: 기본 월드 좌표
-                worldPos = new Vector3(tilePos.x + 0.5f, tilePos.y + 0.5f, 0);
-            }
+            // AI 필드의 실제 월드 좌표 계산 (3D 그리드 기준)
+            Vector3 worldPos = GridToWorld(tilePos, checkForWall: false);
 
             Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPos);
 

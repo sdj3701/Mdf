@@ -198,6 +198,13 @@ MonoBehaviour:
   health: 15
   gold: 20
   wallCount: 10
+  wallReserveK: 1
+  wallBuildDelayRange: {x: 0.6, y: 1.2}
+  unitPurchaseDelayRange: {x: 1, y: 1.5}
+  unitMoveDelayRange: {x: 0.6, y: 1.2}
+  mazePlannedOrder: []
+  mazePlanned: 0
+  mazeBuildCursor: 0
   ownedUnits: []
   chosenAugments: []
   fieldManager: {fileID: 0}
@@ -332,9 +339,13 @@ MonoBehaviour:
   wallParent: {fileID: 0}
   destructibleWallPrefab: {fileID: 7586660566649568007, guid: 0336ce3939b88d84baa6095048c203eb,
     type: 3}
-  wallTileToPlace: {fileID: 0}
   statusBarPrefab: {fileID: 523785727660799067, guid: 1ce31d6300e00da47a20857d35fa5332,
     type: 3}
+  permanentWallPrefab: {fileID: 7586660566649568007, guid: 3bf990b075171b04bb58bfb3aa3402cb,
+    type: 3}
+  permanentWallAddressKey: PermanentWallPrefab
+  initialPermanentWallCount: 4
+  wallLayerName: Wall
   attackRangeIndicatorPrefab: {fileID: 6707416124263797107, guid: fe466910ad4bce1449daf555db79121d,
     type: 3}
   skillRangeIndicatorPrefab: {fileID: 6707416124263797107, guid: 53ef04ccc8fd56d4e904555c7c4b7449,
@@ -342,8 +353,9 @@ MonoBehaviour:
   gridOrigin: {x: 0, y: 0, z: 0}
   cellSize: 1
   gridSize: {x: 8, y: 7}
+  deriveGridFromGroundBounds: 0
   groundYOffset: 0
-  wallYOffset: 0.4
+  wallYOffset: 1
   dragLiftHeight: 0
   dragFollowSpeed: 20
   dragPickMaxScreenDistance: 80

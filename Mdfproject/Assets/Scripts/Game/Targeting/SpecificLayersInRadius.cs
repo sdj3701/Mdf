@@ -13,10 +13,10 @@ public class SpecificLayersInRadius : TargetingStrategy
     public override List<GameObject> FindTargets(GameObject caster, Vector3 targetPosition, float range)
     {
         // 이 타겟팅 전략은 시전자의 Allegiance 컴포넌트를 사용하지 않고,
-        // 인스펙터에 직접 설정된 targetLayers를 사용합니다.
-        var colliders = Physics2D.OverlapCircleAll(targetPosition, range, targetLayers);
-        
-        // Collider2D 배열에서 GameObject 리스트로 변환하여 반환합니다.
+        // 인스펙터에 직접 설정된 targetLayers를 사용합니다. (3D)
+        var colliders = Physics.OverlapSphere(targetPosition, range, targetLayers);
+
+        // Collider 배열에서 GameObject 리스트로 변환하여 반환합니다.
         return colliders.Select(col => col.gameObject).ToList();
     }
 }

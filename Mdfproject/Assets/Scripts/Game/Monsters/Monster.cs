@@ -203,9 +203,13 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
     private void FindNewPathToGoal()
     {
-        // [3D Migration] position.y → position.z
-        Vector2Int currentGridPos = new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.z));
-        Vector2Int targetGridPos = new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
+        // [3D Migration] FieldManager/AstarGrid 그리드 기준으로 변환
+        Vector2Int currentGridPos = (pathfinder != null)
+            ? pathfinder.WorldToCell(pathfinder.ClampToGrid(transform.position))
+            : new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.z));
+        Vector2Int targetGridPos = (pathfinder != null)
+            ? pathfinder.WorldToCell(pathfinder.ClampToGrid(goalTransform.position))
+            : new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
 
 
 
@@ -242,10 +246,24 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     }
     private IEnumerator FlyDirectlyCoroutine()
     {
-        Vector2 targetPosition = goalTransform.position;
-        while (Vector2.Distance(transform.position, targetPosition) > 0.1f && isMoving)
+        // [3D Migration] Move on XZ plane, keep current Y fixed
+        Vector3 targetPosition = new Vector3(
+            goalTransform.position.x,
+            transform.position.y,
+            goalTransform.position.z
+        );
+        while (Vector3.Distance(transform.position, targetPosition) > 0.1f && isMoving)
         {
-            transform.position = Vector2.MoveTowards(transform.position, targetPosition, monsterData.moveSpeed * Time.deltaTime);
+            Vector3 nextPos = Vector3.MoveTowards(
+                transform.position,
+                targetPosition,
+                monsterData.moveSpeed * Time.deltaTime
+            );
+            if (pathfinder != null)
+            {
+                nextPos = pathfinder.ClampToGrid(nextPos);
+            }
+            transform.position = nextPos;
             yield return null;
         }
         OnPathCompleted();
@@ -256,11 +274,16 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         while (currentPathIndex < path.Count && isMoving)
         {
             AstarNode targetNode = path[currentPathIndex];
-            Vector2 currentTarget = new Vector2(targetNode.x + 0.5f, targetNode.y + 0.5f);
+            // [3D Migration] Navigate using XZ; keep current Y
+            Vector3 currentTarget = (pathfinder != null)
+                ? pathfinder.CellToWorldCenter(new Vector2Int(targetNode.x, targetNode.y), transform.position.y)
+                : new Vector3(targetNode.x + 0.5f, transform.position.y, targetNode.y + 0.5f);
 
             if (targetNode.isWall)
             {
-                Collider2D[] wallColliders = Physics2D.OverlapCircleAll(currentTarget, 0.4f, wallLayerMask);
+                // [3D Migration] Use 3D physics to locate wall object
+                float radius = 0.4f * ((pathfinder != null) ? Mathf.Max(0.0001f, pathfinder.cellSize) : 1f);
+                Collider[] wallColliders = Physics.OverlapSphere(currentTarget, radius, wallLayerMask);
                 DestructibleWall wall = null;
                 foreach (var col in wallColliders)
                 {
@@ -278,9 +301,14 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
                 }
             }
 
-            while (Vector2.Distance(transform.position, currentTarget) > 0.1f && isMoving)
+            while (Vector3.Distance(transform.position, currentTarget) > 0.1f && isMoving)
             {
-                transform.position = Vector2.MoveTowards(transform.position, currentTarget, monsterData.moveSpeed * Time.deltaTime);
+                Vector3 nextPos = Vector3.MoveTowards(transform.position, currentTarget, monsterData.moveSpeed * Time.deltaTime);
+                if (pathfinder != null)
+                {
+                    nextPos = pathfinder.ClampToGrid(nextPos);
+                }
+                transform.position = nextPos;
                 yield return null;
             }
             currentPathIndex++;

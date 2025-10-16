@@ -18,9 +18,9 @@ public class EnemiesInRadius : TargetingStrategy
             return new List<GameObject>(); // 빈 리스트 반환
         }
 
-        // 2. Allegiance 컴포넌트에 정의된 'EnemyLayer'를 사용하여 주변의 적들을 찾습니다.
-        var colliders = Physics2D.OverlapCircleAll(targetPosition, range, allegiance.EnemyLayer);
-        
+        // 2. Allegiance 컴포넌트에 정의된 'EnemyLayer'를 사용하여 주변의 적들을 찾습니다. (3D)
+        var colliders = Physics.OverlapSphere(targetPosition, range, allegiance.EnemyLayer);
+
         return colliders.Select(col => col.gameObject).ToList();
     }
 }

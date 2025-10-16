@@ -9,7 +9,7 @@ public class AIPlayerController : MonoBehaviour
     private PlayerManager _playerManager;
     private CommandProcessor _commandProcessor;
     private float _decisionTimer = 0f;
-    private float _decisionCooldown = 1.0f; // 1초마다 의사결정
+    private float _decisionCooldown = 0.1f; // 더 잦은 틱으로 0.3~0.8초 간격 건설을 부드럽게 반영
 
     private BehaviorTree _preparePhaseBT;
     private BehaviorTree _combatPhaseBT;
@@ -60,14 +60,16 @@ public class AIPlayerController : MonoBehaviour
                 new IsAugmentPhaseCondition(_playerManager,
                     new ChooseBestAugmentAction(_playerManager, _commandProcessor)
                 ),
+                // 2. 미로 건설 및 유지 (k개 남기고 우선순위대로 건설)
+                new BuildMazeAction(_playerManager, _commandProcessor),
                 
-                // 2. 유닛 구매
+                // 3. 유닛 구매
                 new BuyBestUnitAction(_playerManager, _commandProcessor),
                 
-                // 3. 유닛 재배치 (구매할 것이 없을 때 시도)
+                // 4. 유닛 재배치 (구매할 것이 없을 때 시도)
                 new RearrangeAllUnitsAction(_playerManager, _commandProcessor),
                 
-                // 4. 리롤 (구매와 재배치 모두 할 것이 없을 때 마지막으로 고려)
+                // 5. 리롤 (구매와 재배치 모두 할 것이 없을 때 마지막으로 고려)
                 new RerollShopAction(_playerManager, _commandProcessor)
             )
         );

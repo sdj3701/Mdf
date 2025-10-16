@@ -16,13 +16,13 @@ namespace AI.UtilitySystem.Considerations.Placement
             }
 
             var fieldManager = context.Player.fieldManager;
-            if (fieldManager == null || fieldManager.ObstacleTilemap == null)
+            if (fieldManager == null)
             {
                 return 0.5f; // 필요한 정보가 없으면 중립 점수를 반환합니다.
             }
 
-            // 배치하려는 위치에 ObstacleTilemap(breakWall) 타일이 있는지 확인합니다.
-            if (fieldManager.ObstacleTilemap.GetTile(context.PlacementPosition) != null)
+            // 배치하려는 위치에 벽(브레이크월 포함)이 있으면 매우 낮은 점수
+            if (fieldManager.HasWallAt(context.PlacementPosition))
             {
                 // 근접 유닛을 벽 위에 놓으려고 하면 매우 낮은 점수를 부여합니다.
                 return 0.05f; 

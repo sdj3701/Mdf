@@ -1708,8 +1708,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 13af32c410712468aa7f2b47ae1f3fbd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  bottomLeft: {x: -6, y: -4}
-  topRight: {x: 5, y: 4}
+  useFieldManagerGrid: 1
+  fieldManager: {fileID: 0}
+  gridOrigin: {x: 0, y: 0, z: 0}
+  cellSize: 1
+  gridSize: {x: 10, y: 10}
+  startOffset: {x: 0, y: 0}
   wallLayers:
     serializedVersion: 2
     m_Bits: 32896
@@ -1718,6 +1722,8 @@ MonoBehaviour:
     m_Bits: 32768
   detectionRadius: 0.4
   wallBreakCost: 10000
+  sampleY: 0.5
+  sampleHeight: 2
   allowDiagonal: 0
   dontCrossCorner: 0
   showDebugInfo: 1

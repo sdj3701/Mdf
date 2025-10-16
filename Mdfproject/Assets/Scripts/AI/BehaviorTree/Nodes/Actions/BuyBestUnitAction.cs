@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using AI.BehaviorTree; // for AIPacer
 using AI.BehaviorTree.Nodes;
 using AI.UtilitySystem;
 using AI.UtilitySystem.Considerations;
@@ -27,6 +28,12 @@ namespace AI.BehaviorTree.Nodes.Actions
 
         public override NodeStatus Tick()
         {
+            // Pace purchases so they don't look instantaneous
+            if (!AIPacer.Ready(_playerManager.playerId, AIPacer.CatBuy))
+            {
+                return status = NodeStatus.Failure;
+            }
+
             var availableItems = _playerManager.shopManager.GetAvailableShopItems();
             int bestSlotIndex = -1;
             float highestScore = 0f;
@@ -52,6 +59,8 @@ namespace AI.BehaviorTree.Nodes.Actions
             if (bestSlotIndex != -1 && highestScore > 0.2f)
             {
                 _commandProcessor.RequestCommandExecution(new BuyUnitCommand(_playerManager.playerId, bestSlotIndex));
+                // Arm next buy after a short random delay
+                AIPacer.Arm(_playerManager.playerId, AIPacer.CatBuy, 0.5f, 1.0f);
                 return status = NodeStatus.Success;
             }
 

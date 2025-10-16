@@ -47,7 +47,15 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     public LayerMask enemyLayerMask;
     private IEnemy targetEnemy;
     private Transform targetTransform;
-    
+    [SerializeField] private Animator animator;
+    [SerializeField] private string attackTriggerParam = "AttackTrigger";
+    [SerializeField] private float maxAttackAnimationsPerSecond = 4f;
+    [SerializeField] private float baseAttackAnimationDuration = 1f;
+    private float lastAttackAnimTime = -999f;
+    private Coroutine animSpeedResetRoutine;
+    private bool attackClipDurationInitialized = false;
+    private Coroutine attackClipDetectRoutine;
+
     private bool isCombatPhase = false;
 
     void OnEnable()
@@ -55,10 +63,82 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
 
+    private void TryPlayAttackAnimation()
+    {
+        if (animator == null) return;
+        float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
+        if (animRate <= 0f) return;
+        float now = Time.time;
+        float minInterval = 1f / animRate;
+        if (now - lastAttackAnimTime < minInterval) return;
+        lastAttackAnimTime = now;
+        float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
+        animator.speed = Mathf.Max(0.01f, speed);
+        animator.ResetTrigger(attackTriggerParam);
+        animator.SetTrigger(attackTriggerParam);
+        if (animSpeedResetRoutine != null)
+        {
+            StopCoroutine(animSpeedResetRoutine);
+        }
+        animSpeedResetRoutine = StartCoroutine(ResetAnimatorSpeedAfter(minInterval));
+        if (!attackClipDurationInitialized && attackClipDetectRoutine == null)
+        {
+            attackClipDetectRoutine = StartCoroutine(CaptureAttackClipDuration());
+        }
+    }
+
+    private IEnumerator ResetAnimatorSpeedAfter(float seconds)
+    {
+        yield return new WaitForSeconds(seconds);
+        if (animator != null)
+        {
+            animator.speed = 1f;
+        }
+        animSpeedResetRoutine = null;
+    }
+
+    private IEnumerator CaptureAttackClipDuration()
+    {
+        float elapsed = 0f;
+        float timeout = 1f;
+        while (elapsed < timeout)
+        {
+            if (animator == null) break;
+            var st = animator.GetCurrentAnimatorStateInfo(0);
+            if (st.IsTag("Attack"))
+            {
+                var infos = animator.GetCurrentAnimatorClipInfo(0);
+                if (infos != null && infos.Length > 0 && infos[0].clip != null)
+                {
+                    baseAttackAnimationDuration = Mathf.Max(0.01f, infos[0].clip.length);
+                    attackClipDurationInitialized = true;
+                    break;
+                }
+            }
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+        attackClipDetectRoutine = null;
+    }
+
     void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
         UnsubscribeFromAllies();
+        if (animSpeedResetRoutine != null)
+        {
+            StopCoroutine(animSpeedResetRoutine);
+            animSpeedResetRoutine = null;
+        }
+        if (animator != null)
+        {
+            animator.speed = 1f;
+        }
+        if (attackClipDetectRoutine != null)
+        {
+            StopCoroutine(attackClipDetectRoutine);
+            attackClipDetectRoutine = null;
+        }
     }
 
     public void SetStatusBar(StatusBarUI ui)
@@ -79,6 +159,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         this.unitData = data;
         this.starLevel = initialStarLevel;
         manaController = GetComponent<ManaController>();
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null) animator = GetComponentInChildren<Animator>();
+        }
 
         // AI가 소유한 유닛인 경우, 스킬 자동 사용을 강제합니다.
         if (owner != null && ComponentRegistry.Has<AIPlayerController>(owner.playerId.ToString()))
@@ -330,9 +415,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         if (_loadedSkillData == null) return false;
 
-        // OverlapCircleAll을 사용하여 스킬 범위 내의 모든 적 콜라이더를 찾습니다.
-        Collider2D[] enemiesInRange = Physics2D.OverlapCircleAll(transform.position, _loadedSkillData.range, enemyLayerMask);
-
+        // 3D 환경: XZ 평면 기준 구면 탐색
+        Collider[] enemiesInRange = Physics.OverlapSphere(transform.position, _loadedSkillData.range, enemyLayerMask);
         // 적이 한 명이라도 있으면 true를 반환합니다.
         return enemiesInRange.Length > 0;
     }
@@ -420,11 +504,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private void FindNearestEnemy()
     {
-        Collider2D[] enemiesInRange = Physics2D.OverlapCircleAll(transform.position, currentAttackRange, enemyLayerMask);
+        // 3D 환경: XZ 평면 기준 구면 탐색
+        Collider[] enemiesInRange = Physics.OverlapSphere(transform.position, currentAttackRange, enemyLayerMask);
         float closestDistanceSqr = float.MaxValue;
         IEnemy nearestEnemy = null;
         Transform nearestTransform = null;
-        
+
         foreach (var enemyCollider in enemiesInRange)
         {
             if (enemyCollider.TryGetComponent<IEnemy>(out var enemy))
@@ -452,51 +537,50 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private async void Attack()
     {
-        if (targetEnemy == null || targetTransform == null || Vector2.Distance(transform.position, targetTransform.position) > currentAttackRange)
+        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange)
         {
             targetEnemy = null;
             return;
         }
-
-        if (unitData.unitType == UnitType.Melee)
+        TryPlayAttackAnimation();
+        bool useEvent = currentAttackSpeed <= maxAttackAnimationsPerSecond + 1e-4f;
+        if (!useEvent)
         {
-            targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
-        }
-        else if (unitData.unitType == UnitType.Ranged)
-        {
-            if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
+            if (unitData.unitType == UnitType.Melee)
             {
-                Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 'projectilePrefabsByStarLevel' 배열이 설정되지 않았습니다!", unitData);
-                return;
+                targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
             }
-
-            // --- [핵심 수정 부분] ---
-            string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
-            GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
-            // --- [수정 끝] ---
-
-            if (projectilePrefab == null)
+            else if (unitData.unitType == UnitType.Ranged)
             {
-                Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 {starLevel}성 투사체 프리팹({projectileKey})이 할당되지 않았거나 로드에 실패했습니다!", unitData);
-                return;
-            }
+                if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
+                {
+                    Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 'projectilePrefabsByStarLevel' 배열이 설정되지 않았습니다!", unitData);
+                    return;
+                }
 
-            if (firePoint == null)
-            {
-                Debug.LogError($"[공격 실패] {gameObject.name} 프리팹에 'firePoint'가 할당되지 않았습니다!", gameObject);
-                return;
-            }
-
-            GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
-            Projectile projectileScript = projectileGO.GetComponent<Projectile>();
-            if (projectileScript != null)
-            {
-                projectileScript.Initialize(targetTransform, currentAttackDamage, unitData.damageType);
-            }
-            else
-            {
-                Debug.LogError($"[공격 실패] 투사체 프리팹 '{projectilePrefab.name}'에 Projectile.cs 스크립트가 없습니다!", projectilePrefab);
-                Destroy(projectileGO);
+                string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
+                GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
+                if (projectilePrefab == null)
+                {
+                    Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 {starLevel}성 투사체 프리팹({projectileKey})이 할당되지 않았거나 로드에 실패했습니다!", unitData);
+                    return;
+                }
+                if (firePoint == null)
+                {
+                    Debug.LogError($"[공격 실패] {gameObject.name} 프리팹에 'firePoint'가 할당되지 않았습니다!", gameObject);
+                    return;
+                }
+                GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
+                Projectile projectileScript = projectileGO.GetComponent<Projectile>();
+                if (projectileScript != null)
+                {
+                    projectileScript.Initialize(targetTransform, currentAttackDamage, unitData.damageType);
+                }
+                else
+                {
+                    Debug.LogError($"[공격 실패] 투사체 프리팹 '{projectilePrefab.name}'에 Projectile.cs 스크립트가 없습니다!", projectilePrefab);
+                    Destroy(projectileGO);
+                }
             }
         }
         
@@ -505,15 +589,43 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             manaController.GainMana(unitData.manaOnAttack);
         }
     }
+
+    public async void AnimEvent_AttackImpact()
+    {
+        if (currentAttackSpeed > maxAttackAnimationsPerSecond + 1e-4f) return;
+        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange) return;
+        if (unitData.unitType == UnitType.Melee)
+        {
+            targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+            return;
+        }
+        if (unitData.unitType == UnitType.Ranged)
+        {
+            if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel) return;
+            string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
+            GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
+            if (projectilePrefab == null || firePoint == null) return;
+            GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
+            Projectile projectileScript = projectileGO.GetComponent<Projectile>();
+            if (projectileScript != null)
+            {
+                projectileScript.Initialize(targetTransform, currentAttackDamage, unitData.damageType);
+            }
+            else
+            {
+                Destroy(projectileGO);
+            }
+        }
+    }
     #endregion
 
     #region 저지, 스킬 UI, IEnemy 구현 등 (이하 동일)
-    private void OnTriggerEnter2D(Collider2D other)
+    private void OnTriggerEnter(Collider other)
     {
         if (other.TryGetComponent<Monster>(out var monster))
         {
-            if (blockedMonsters.Contains(monster) || monster.IsBlocked() || 
-                monster.monsterData.monsterType == MonsterType.Flying || Data.blockCount <= 0 || 
+            if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
+                monster.monsterData.monsterType == MonsterType.Flying || Data.blockCount <= 0 ||
                 blockedMonsters.Count >= Data.blockCount)
             {
                 return;
