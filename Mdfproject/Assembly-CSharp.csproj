@@ -232,6 +232,9 @@
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
     <Compile Include="Assets\Scripts\UI\UIBillboard.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\SwapUnitCommand.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\BuildMazeAction.cs" />
+    <Compile Include="Assets\Scripts\AI\Planning\MazePlanner.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\AIPacer.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

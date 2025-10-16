@@ -885,10 +885,14 @@ public class FieldManager : MonoBehaviour
         }
         else // Ranged
         {
-            // 원거리 유닛은 벽이 있는 곳에만 배치 가능
+            // 원거리 유닛은 파괴 가능/불가 벽 위에 배치 가능
             foreach (var wallPos in placedWalls.Keys)
             {
                 validTiles.Add(wallPos);
+            }
+            foreach (var permPos in placedPermanentWalls.Keys)
+            {
+                validTiles.Add(permPos);
             }
         }
         return validTiles;

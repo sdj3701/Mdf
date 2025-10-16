@@ -17,6 +17,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [SerializeField] private int gold = 10;
     [SerializeField] private int wallCount = 5;
     private const int MAX_WALL_COUNT = 5;
+    [SerializeField] private int wallReserveK = 2;
+
+    [HideInInspector] public List<UnityEngine.Vector3Int> mazePlannedOrder = new List<UnityEngine.Vector3Int>();
+    [HideInInspector] public bool mazePlanned = false;
+    [HideInInspector] public int mazeBuildCursor = 0;
 
     [Header("소유 객체 목록")]
     public List<Unit> ownedUnits = new List<Unit>();
@@ -142,6 +147,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public int GetHealth() => health;
     public int GetGold() => gold;
     public int GetWallCount() => wallCount;
+    public int GetWallReserveK() => wallReserveK;
 
     public bool SpendGold(int amount)
     {

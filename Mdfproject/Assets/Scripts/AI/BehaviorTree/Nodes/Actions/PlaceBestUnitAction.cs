@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using AI.BehaviorTree; // for AIPacer pacing
 using AI.BehaviorTree.Nodes;
 using UnityEngine;
 
@@ -83,8 +84,14 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (bestPos.HasValue && bestPos.Value != originalPos)
             {
+                // Pace unit moves
+                if (!AIPacer.Ready(_playerManager.playerId, AIPacer.CatMove))
+                {
+                    return status = NodeStatus.Running;
+                }
                 // 위치가 변경되어야 한다면 MoveUnitCommand를 실행합니다.
                 _commandProcessor.RequestCommandExecution(new MoveUnitCommand(_playerManager.playerId, originalPos, bestPos.Value));
+                AIPacer.Arm(_playerManager.playerId, AIPacer.CatMove, 0.4f, 0.9f);
             }
 
             // 이 유닛은 처리되었음을 기록합니다.

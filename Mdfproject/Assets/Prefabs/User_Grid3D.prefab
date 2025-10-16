@@ -165,7 +165,7 @@ MonoBehaviour:
   wallBreakCost: 10000
   sampleY: 0.5
   sampleHeight: 2
-  allowDiagonal: 1
+  allowDiagonal: 0
   dontCrossCorner: 1
   showDebugInfo: 1
   debugStartPos: {x: 0, y: 0}
