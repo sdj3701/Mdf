@@ -38,10 +38,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public AstarGrid astarGrid;
     public Transform spawnPoint { get; private set; }
     public Transform goalTransform { get; private set; }
-    
+
     [HideInInspector]
     public PlayerManager opponentManager;
-    
+
     public bool IsActivelyFighting { get; private set; }
 
      void Awake()
@@ -52,7 +52,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         monsterSpawner = GetComponentInChildren<MonsterSpawner>();
         augmentManager = GetComponentInChildren<AugmentManager>();
     }
-    
+
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void Rpc_InitializePlayer(int id, NetworkObject gridNetworkObject)
     {
@@ -70,7 +70,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         // 전달받은 NetworkObject 참조로부터 그리드 게임오브젝트를 가져옵니다.
         GameObject gridInstance = gridNetworkObject.gameObject;
-        
+
         // 3D Ground 오브젝트 찾기
         GameObject ground3D = null;
         // 우선 활성화된 오브젝트 중에서 이름이 "Ground" 또는 "Field"인 것을 찾습니다.
@@ -85,7 +85,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             ground3D = groundCandidates.FirstOrDefault();
         }
-        
+
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
         this.spawnPoint = gridInstance.transform.Find("SpawnPoint");
         this.goalTransform = gridInstance.transform.Find("Goal");
@@ -125,15 +125,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             Debug.LogError($"[Player {playerId}]: AstarGrid 컴포넌트를 찾지 못해 경로 탐색을 초기화할 수 없습니다.");
         }
         if (shopManager) shopManager.playerManager = this;
-        
+
         if (monsterSpawner)
         {
             var defaultMonsterPrefab = GameManagers.Instance.defaultMonsterPrefab;
             monsterSpawner.Initialize(this, this.astarGrid, defaultMonsterPrefab, this.spawnPoint, this.goalTransform);
         }
-        
+
         if (augmentManager) augmentManager.playerManager = this;
-        
+
         IsActivelyFighting = false;
         Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
     }
@@ -144,7 +144,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         this.IsActivelyFighting = isFighting;
     }
-    
+
     #region Public Getters & Stat Modifiers
 
     public int GetHealth() => health;
@@ -177,7 +177,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         if (damage <= 0) return;
         health -= damage;
-        
+
         if (health <= 0)
         {
             health = 0;
@@ -225,6 +225,44 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (min < 0f) min = 0f;
         if (max < min) max = min;
         return new Vector2(min, max);
+    }
+
+    #endregion
+
+    #region 디버그 시각화
+
+    void OnDrawGizmos()
+    {
+        // 미로 계획 시각화 (연한 노란색)
+        if (mazePlanned && mazePlannedOrder != null && mazePlannedOrder.Count > 0 && fieldManager != null)
+        {
+            Gizmos.color = new Color(1f, 1f, 0f, 0.3f); // 연한 노란색
+
+            foreach (var wallPos in mazePlannedOrder)
+            {
+                // 이미 건설된 벽은 건너뛰기
+                if (fieldManager.HasWallAt(wallPos)) continue;
+
+                // 그리드 좌표를 월드 좌표로 변환
+                Vector3 worldPos = fieldManager.GridToWorld(wallPos);
+
+                // 큐브로 표시 (연하게)
+                Gizmos.DrawCube(worldPos, new Vector3(0.9f, 0.5f, 0.9f));
+                Gizmos.DrawWireCube(worldPos, new Vector3(0.9f, 0.5f, 0.9f));
+            }
+
+            // 건설 순서 표시 (선으로 연결)
+            Gizmos.color = new Color(1f, 0.8f, 0f, 0.5f);
+            for (int i = 0; i < mazePlannedOrder.Count - 1; i++)
+            {
+                if (fieldManager.HasWallAt(mazePlannedOrder[i])) continue;
+                if (fieldManager.HasWallAt(mazePlannedOrder[i + 1])) continue;
+
+                Vector3 from = fieldManager.GridToWorld(mazePlannedOrder[i]) + Vector3.up * 0.5f;
+                Vector3 to = fieldManager.GridToWorld(mazePlannedOrder[i + 1]) + Vector3.up * 0.5f;
+                Gizmos.DrawLine(from, to);
+            }
+        }
     }
 
     #endregion
