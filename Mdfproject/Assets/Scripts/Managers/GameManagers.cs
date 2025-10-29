@@ -489,7 +489,10 @@ public class GameManagers : NetworkBehaviour
         {
             localPlayerShopUIGameObject.SetActive(true);
             localPlayerShopUI.SetContentVisibility(true);
+            // 상점 UI를 표시하기 전에, 데이터베이스 로드를 기다리고 상점을 채우는 것을 보장합니다.
+            localPlayer.shopManager.EnsureShopRerolledAsync().Forget(); 
             var shopItems = localPlayer.shopManager.GetCurrentShopItems();
+            Debug.Log(shopItems.Count());
             localPlayerShopUI.DisplayShopItems(shopItems);
         }
     }
@@ -626,18 +629,14 @@ public class GameManagers : NetworkBehaviour
                             await UniTask.WaitUntil(() =>
                                 localPlayer != null && localPlayer.augmentManager.GetPresentedAugments().Count > 0
                             ).Timeout(System.TimeSpan.FromSeconds(5));
-                            Debug.Log($"<color=green>{localPlayer.augmentManager.GetPresentedAugments().Count}.</color>");
                             
                             Debug.Log("<color=green>[HandleUIForNewState] 증강 데이터 준비 완료.</color>");
                         }
                         catch (System.TimeoutException)
                         {
-                            Debug.Log($"<color=green>{localPlayer.augmentManager.GetPresentedAugments().Count}.</color>");
                             // 5초 안에 데이터가 들어오지 않았을 경우 (에러는 발생시키되 게임은 멈추지 않음)
                             Debug.LogError("<color=red>[HandleUIForNewState] 5초 안에 증강 데이터 로드에 실패했습니다. (Timeout). 빈 목록으로 UI 표시를 시도합니다.</color>");
                         }
-
-                        Debug.Log("<color=blue> Augment UI Open </color>");
                         GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
                     }
                     else
@@ -665,7 +664,6 @@ public class GameManagers : NetworkBehaviour
                 else if (localPlayer == winner) await UIManagers.Instance.GetUIElement("UI_Pnl_Victory");
                 break;
         }
-        Debug.Log("<color=green> check </color>");
     }
 
     public GameState GetGameState() => currentState;
