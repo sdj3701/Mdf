@@ -19,7 +19,6 @@ public class AugmentUIController : MonoBehaviour
     void OnEnable()
     {
         // 증강 단계 시작 이벤트를 구독합니다.
-        Debug.Log("<color=blue> OnEnable </color>");
         GameEvents.OnAugmentPhaseStart += HandleAugmentPhaseStart;
     }
 
@@ -39,8 +38,7 @@ public class AugmentUIController : MonoBehaviour
 
         this.localPlayer = player;
         this.currentChoices = choices;
-        
-        Debug.Log("<color=blue> HandleAugmentPhaseStart </color>");
+
         SetAugmentChoices(choices);
     }
 
@@ -49,8 +47,6 @@ public class AugmentUIController : MonoBehaviour
     /// </summary>
     public void SetAugmentChoices(List<AugmentData> choices)
     {
-        Debug.Log($"<color=blue>{choices.Count}</color>");
-        Debug.Log($"<color=blue>{augmentSlots.Length}</color>");
         for (int i = 0; i < augmentSlots.Length; i++)
         {
             if (i < choices.Count)

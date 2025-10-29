@@ -29,6 +29,7 @@ public class ShopUIController : MonoBehaviour
         {
             toggleButton.onClick.AddListener(ToggleContent);
         }
+        OnEnable();
     }
 
     void OnEnable()
