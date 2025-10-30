@@ -3,6 +3,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
+using Fusion;
 using AI.UtilitySystem;
 using AI.UtilitySystem.Considerations.Placement;
 [RequireComponent(typeof(PlacementManager))]
@@ -718,8 +719,32 @@ public class FieldManager : MonoBehaviour
         
         // 3D 그리드 사용 (벽 체크 포함)
         Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
-        
-        GameObject newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+
+        GameObject newUnitGO = null;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && prefabToCreate.TryGetComponent<NetworkObject>(out var networkPrefab))
+        {
+            if (!playerManager.Object.HasStateAuthority)
+            {
+                return;
+            }
+
+            var spawned = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
+            if (spawned == null)
+            {
+                Debug.LogError($"[FieldManager] Runner.Spawn 실패: {prefabToCreate.name} (Player={playerManager?.playerId})");
+                return;
+            }
+            newUnitGO = spawned.gameObject;
+            if (unitParent != null)
+            {
+                newUnitGO.transform.SetParent(unitParent, true);
+            }
+        }
+        else
+        {
+            newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+        }
         // Attach orientation fixer to ensure rig local rotation and face camera on spawn
         var orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
         orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs

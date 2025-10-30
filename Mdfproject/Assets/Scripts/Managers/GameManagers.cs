@@ -518,7 +518,7 @@ public class GameManagers : NetworkBehaviour
         GameEvents.TriggerGameStateChanged(currentState); // 상태 변경 이벤트는 여기서 한번 트리거
         
         // UI 로직이 완료될 때까지 명시적으로 기다립니다.
-        await HandleUIForNewState(currentState); 
+        //await HandleUIForNewState(currentState); 
         
         Debug.Log(currentRound); // << 이 코드는 이제 HandleUIForNewState가 완료되면 실행됩니다!
 
@@ -549,6 +549,8 @@ public class GameManagers : NetworkBehaviour
                 PresentedAugments(player.playerId, names);
             }
         }
+        // UI 로직이 완료될 때까지 명시적으로 기다립니다.
+        await HandleUIForNewState(currentState); 
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, preparePhaseTime);
     }
