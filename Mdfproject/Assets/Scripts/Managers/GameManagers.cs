@@ -117,12 +117,8 @@ public class GameManagers : NetworkBehaviour
 
         networkManager = NetworkManager.Instance;
         
-
-        if (Object.HasStateAuthority)
-        {
-            Debug.Log("호스트의 GameManagers 스폰 완료. 게임 흐름을 시작합니다.");
-            GameFlow().Forget();
-        }
+        GameFlow().Forget();
+        
 
         _isSpawned = true;
         // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
@@ -145,7 +141,8 @@ public class GameManagers : NetworkBehaviour
                     StartCombatPhase();
                     break;
                 case GameState.Combat:
-                    StartNextRound();
+                    // 일단 수정
+                    StartNextRound().Forget();
                     break;
             }
         }
@@ -168,7 +165,7 @@ public class GameManagers : NetworkBehaviour
         {
             if (propertyName == nameof(currentState))
             {
-                OnGameStateChanged(currentState);
+                HandleNetworkStateChange(currentState);
             }
         }
 
@@ -188,20 +185,33 @@ public class GameManagers : NetworkBehaviour
         GameEvents.OnAugmentApplied -= HandleAugmentChosen;
     }
 
+    // [새로 추가] 네트워크 상태가 변경될 때 모든 클라이언트에서 반응하는 함수 (Render에서 호출됨)
+    private void HandleNetworkStateChange(GameState newState)
+    {
+        // 로컬 플레이어의 UI만 업데이트해야 하므로, 로컬 플레이어 확인 후 비동기 UI 로직 호출
+        if (localPlayer == null) return;
+        
+        // UI 업데이트 및 이벤트 발송은 UniTask의 'Fire-and-Forget' 패턴으로 처리
+        // Render()는 async/await을 할 수 없습니다.
+        Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 (네트워크 반응) ---");
+        GameEvents.TriggerGameStateChanged(newState);
+        HandleUIForNewState(newState).Forget();
+    }
+
     /// <summary>
     /// 호스트에서만 호출되는 게임 시작 및 설정 플로우입니다.
     /// </summary>
     private async UniTask GameFlow()
     {
         currentState = GameState.Setup;
-        
+
         await SetupPlayersAndGrids();
 
         // [수정] 플레이어가 완전히 연결될 때까지 대기
         await UniTask.WaitUntil(() => localPlayer != null && AllPlayers.Any());
         Debug.Log($"플레이어 연결 완료. 로컬 플레이어: Player {localPlayer.playerId}, 총 플레이어 수: {AllPlayers.Count()}");
 
-        Rpc_SetupGameUI();
+        await SetupGameUI();
 
         // UI 설정이 완료될 때까지 잠시 대기
         await UniTask.Delay(100);
@@ -242,8 +252,6 @@ public class GameManagers : NetworkBehaviour
         }
         else
         {
-            //await UniTask.Delay(2000);
-
             Debug.Log("<color=green>모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
             if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
 
@@ -263,8 +271,7 @@ public class GameManagers : NetworkBehaviour
                     }
                 }
             }
-
-            StartNextRound();
+            await StartNextRound();
         }
     }
 
@@ -441,12 +448,6 @@ public class GameManagers : NetworkBehaviour
         Debug.Log($"[Rpc_SetSinglePlayerModeCount] 싱글플레이어 모드 플레이어 수 설정: {count}");
     }
 
-    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    private void Rpc_SetupGameUI()
-    {
-        SetupGameUI().Forget();
-    }
-
     private async UniTask SetupGameUI()
     {
         try
@@ -461,14 +462,16 @@ public class GameManagers : NetworkBehaviour
                 localPlayerShopUI = shopPanelInstance.GetComponent<ShopUIController>();
                 localPlayerShopUIGameObject = shopPanelInstance;
                 localPlayerShopUI.SetContentVisibility(false);
+                Debug.Log("<color=red> not shopPanelInstance </color>");
             }
             if (augmentPanelInstance != null)
             {
                 augmentSelectionUI = augmentPanelInstance.GetComponent<AugmentUIController>();
                 UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+                Debug.Log("<color=red> Not augmentPanelInstance</color>");
             }
             Debug.Log("<color=red>UI 완성</color>");
-
+            //LogGameMode();
         }
         catch (System.Exception ex)
         {
@@ -486,12 +489,15 @@ public class GameManagers : NetworkBehaviour
         {
             localPlayerShopUIGameObject.SetActive(true);
             localPlayerShopUI.SetContentVisibility(true);
+            // 상점 UI를 표시하기 전에, 데이터베이스 로드를 기다리고 상점을 채우는 것을 보장합니다.
+            localPlayer.shopManager.EnsureShopRerolledAsync().Forget(); 
             var shopItems = localPlayer.shopManager.GetCurrentShopItems();
+            Debug.Log(shopItems.Count());
             localPlayerShopUI.DisplayShopItems(shopItems);
         }
     }
 
-    private void StartNextRound()
+    private async UniTask StartNextRound()
     {
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
@@ -506,7 +512,15 @@ public class GameManagers : NetworkBehaviour
         }
 
         currentState = GameState.Prepare;
-        OnGameStateChanged(currentState); // 상태 변경 후 직접 이벤트 호출
+        
+        // [수정] OnGameStateChanged를 제거하고 상태 변경 이벤트 및 UI 로직을 여기서 명시적으로 await 합니다.
+        Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{currentState}</color> 단계 시작 (명시적 흐름) ---");
+        GameEvents.TriggerGameStateChanged(currentState); // 상태 변경 이벤트는 여기서 한번 트리거
+        
+        // UI 로직이 완료될 때까지 명시적으로 기다립니다.
+        await HandleUIForNewState(currentState); 
+        
+        Debug.Log(currentRound); // << 이 코드는 이제 HandleUIForNewState가 완료되면 실행됩니다!
 
         foreach (var player in AllPlayers)
         {
@@ -514,17 +528,36 @@ public class GameManagers : NetworkBehaviour
             player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
             player.shopManager.Reroll(true);
         }
-
+        Debug.Log(currentRound);
         if (currentRound >= 1)
         {
+            Debug.Log("PresentedAugments Check");
             foreach (var player in AllPlayers)
             {
                 if (player == null) continue;
+                // 호스트에서만 증강을 굴리고, 결과를 모든 클라이언트와 동기화합니다.
                 player.augmentManager.PresentAugments();
+            }
+
+            // 각 플레이어의 제시 증강 이름을 모든 클라이언트에 동기화
+            foreach (var player in AllPlayers)
+            {
+                if (player == null) continue;
+                var names = player.augmentManager.GetPresentedAugments()
+                    .Select(a => a != null ? a.augmentName : string.Empty)
+                    .ToArray();
+                PresentedAugments(player.playerId, names);
             }
         }
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, preparePhaseTime);
+    }
+
+    private void PresentedAugments(int targetPlayerId, string[] augmentNames)
+    {
+        var target = GetPlayer(targetPlayerId);
+        if (target == null || target.augmentManager == null) return;
+        target.augmentManager.SetPresentedAugmentsByNames(augmentNames);
     }
 
     private void StartCombatPhase()
@@ -544,16 +577,17 @@ public class GameManagers : NetworkBehaviour
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
     }
 
-    private void OnGameStateChanged(GameState newState)
-    {
-        Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 --- (호출된 상태: {currentState})");
-        Debug.Log($"[OnGameStateChanged] HandleUIForNewState 호출 시작");
+    // private async UniTask OnGameStateChanged(GameState newState)
+    // {
+    //     Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 --- (호출된 상태: {currentState})");
+    //     Debug.Log($"[OnGameStateChanged] HandleUIForNewState 호출 시작");
 
-        GameEvents.TriggerGameStateChanged(newState);
+    //     GameEvents.TriggerGameStateChanged(newState);
 
-        HandleUIForNewState(newState).Forget();
-        Debug.Log($"[OnGameStateChanged] HandleUIForNewState 호출 완료");
-    }
+    //     // await을 사용하여 HandleUIForNewState가 완료될 때까지 기다립니다.
+    //     await HandleUIForNewState(newState); 
+    //     Debug.Log($"[OnGameStateChanged] HandleUIForNewState 호출 완료");
+    // }
 
     private async UniTask HandleUIForNewState(GameState newState)
     {
@@ -585,7 +619,24 @@ public class GameManagers : NetworkBehaviour
                         Debug.Log($"[HandleUIForNewState] augmentSelectionUI != null 조건 만족");
                         if (localPlayerShopUIGameObject != null) localPlayerShopUIGameObject.SetActive(false);
                         await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
-                        Debug.Log("<color=blue> Test </color>");
+                        await localPlayer.augmentManager.EnsureAugmentsPresentedAsync(); // 예시: 싱글 플레이처럼 동작하도록 호출
+
+                        // 2. [수정된 핵심 로직] 증강 데이터가 준비될 때까지 최대 5초간 대기합니다.
+                        Debug.Log($"[HandleUIForNewState] 증강 데이터 준비를 위해 최대 5초간 대기합니다.");
+                        try
+                        {
+                            // presentedAugments 리스트에 1개 이상의 데이터가 들어올 때까지 대기
+                            await UniTask.WaitUntil(() =>
+                                localPlayer != null && localPlayer.augmentManager.GetPresentedAugments().Count > 0
+                            ).Timeout(System.TimeSpan.FromSeconds(5));
+                            
+                            Debug.Log("<color=green>[HandleUIForNewState] 증강 데이터 준비 완료.</color>");
+                        }
+                        catch (System.TimeoutException)
+                        {
+                            // 5초 안에 데이터가 들어오지 않았을 경우 (에러는 발생시키되 게임은 멈추지 않음)
+                            Debug.LogError("<color=red>[HandleUIForNewState] 5초 안에 증강 데이터 로드에 실패했습니다. (Timeout). 빈 목록으로 UI 표시를 시도합니다.</color>");
+                        }
                         GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
                     }
                     else
@@ -672,5 +723,65 @@ public class GameManagers : NetworkBehaviour
         }
         GUI.Label(new Rect(20, 270, 180, 40), $"현재 상태: {currentState}");
         GUI.Label(new Rect(20, 290, 180, 40), $"남은 시간: {currentPhaseTimer:F1}");
+    }
+
+      private void LogGameMode()
+    {
+        if (Runner == null)
+        {
+            Debug.LogError("[GameModeCheck] Runner가 초기화되지 않았습니다.");
+            return;
+        }
+
+        string modeString = "알 수 없는 모드";
+        string colorTag = "#FFFFFF"; // 기본 흰색
+
+        switch (Runner.GameMode)
+        {
+            case GameMode.Shared:
+                modeString = "Shared Mode Client";
+                colorTag = "#FFC0CB"; // 분홍색
+                break;
+            case GameMode.AutoHostOrClient:
+            case GameMode.Client:
+                modeString = "Client Mode";
+                colorTag = "#ADD8E6"; // 연한 파란색 (클라이언트)
+                break;
+            case GameMode.Host:
+                modeString = "Host Mode (StateAuthority)";
+                colorTag = "#FFA500"; // 주황색 (호스트/권한)
+                break;
+            case GameMode.Server:
+                modeString = "Server Mode (StateAuthority)";
+                colorTag = "#FF4500"; // 주황색 (서버/권한)
+                break;
+            case GameMode.Single:
+                modeString = "Single Player Mode (Host와 유사)";
+                colorTag = "#90EE90"; // 연한 녹색
+                break;
+        }
+
+        // Object.HasStateAuthority 확인
+        string authorityStatus = "";
+        if (Object.HasStateAuthority)
+        {
+            authorityStatus = " (이 객체의 상태 권한 보유)";
+        }
+        else if (Object.HasInputAuthority)
+        {
+            authorityStatus = " (이 객체의 입력 권한 보유)";
+        }
+
+        Debug.Log($"<color={colorTag}>[GameModeCheck] 현재 모드: {modeString}{authorityStatus}</color>");
+
+        // Host와 Client를 간단히 구분하는 로직
+        if (Object.HasStateAuthority)
+        {
+            Debug.Log("<color=red>★★★ 현재 이 컴퓨터가 'Host' 또는 'Server'입니다. 게임 흐름을 제어합니다. ★★★</color>");
+        }
+        else
+        {
+            Debug.Log("<color=blue>--- 현재 이 컴퓨터는 'Client'입니다. 호스트를 따릅니다. ---</color>");
+        }
     }
 }

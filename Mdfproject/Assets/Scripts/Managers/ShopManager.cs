@@ -95,6 +95,27 @@ public class ShopManager : MonoBehaviour
         GameEvents.TriggerShopRefreshed(playerManager);
     }
 
+    /// <summary>
+    /// 유닛 데이터 로딩을 보장하고, 상점 아이템 리롤을 실행합니다.
+    /// 이 함수를 호출하면 currentShopItems가 채워집니다 (Count > 0).
+    /// </summary>
+    public async UniTask EnsureShopRerolledAsync()
+    {
+        // 1. 유닛 데이터(Addressables) 로드가 완료될 때까지 기다림
+        // Reroll 함수 내부에서 IsDatabaseLoaded를 체크하지만, 비동기로 외부에서 기다려주어 확실하게 보장합니다.
+        await WaitUntilDatabaseLoaded(); 
+        
+        // 2. 데이터 로딩이 완료되면 Reroll을 호출하여 currentShopItems를 채움
+        //    * Reroll() 함수 내부에 currentShopItems.Add(...) 로직이 이미 구현되어 있습니다.
+        
+        // 상점 아이템이 0개일 때만 리롤을 수행하여 채웁니다. (새 라운드 시작 등)
+        if (currentShopItems.Count == 0)
+        {
+            Debug.Log($"[ShopManager] 상점 데이터가 비어있어 Reroll을 강제 실행하여 currentShopItems를 채웁니다.");
+            Reroll(isFree: true); // 처음 상점을 채우는 것이므로 무료 리롤로 처리합니다.
+        }
+    }
+
     public void MarkSlotAsPurchased(int slotIndex)
     {
         if (slotIndex >= 0 && slotIndex < _isSlotSold.Length)
