@@ -77,6 +77,7 @@
     <Compile Include="Assets\Scripts\AI\BehaviorTree\NodeStatus.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\DamageCalculator.cs" />
     <Compile Include="Assets\Scripts\Enums\StatType.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\AIPacer.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextMeshProFloatingText.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\SlowDebuffEffect.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\StaticAssets\AssetRegistry.cs" />
@@ -118,6 +119,7 @@
     <Compile Include="Assets\Scripts\Game\Units\UnitData.cs" />
     <Compile Include="Assets\Scripts\Button\PlacementButtonsUI.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\MonsterSpawner.cs" />
+    <Compile Include="Assets\Scripts\UI\UIBillboard.cs" />
     <Compile Include="Assets\Scripts\Game\Targeting\SelfTarget.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\Astar.cs" />
     <Compile Include="Assets\Scripts\Game\Players\Player.cs" />
@@ -134,6 +136,7 @@
     <Compile Include="Assets\Scripts\Button\BaseButton.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffStatEffect.cs" />
     <Compile Include="Assets\Scripts\Button\ExitButton.cs" />
+    <Compile Include="Assets\Scripts\AI\Planning\MazePlanner.cs" />
     <Compile Include="Assets\Scripts\Network\NextScenes.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\DropdownSample.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_PhoneNumberValidator.cs" />
@@ -182,6 +185,7 @@
     <Compile Include="Assets\Scripts\Managers\FieldManager.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_UiFrameRateCounter.cs" />
     <Compile Include="Assets\Scripts\Game\Units\HeadLookController.cs" />
+    <Compile Include="Assets\Scripts\Commands\PlayerActions\SwapUnitCommand.cs" />
     <Compile Include="Assets\Scripts\Network\GetPlayerCamera.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\PlaceWallCommand.cs" />
     <Compile Include="Assets\Scripts\Button\ShopToggleButton.cs" />
@@ -209,6 +213,7 @@
     <Compile Include="Assets\Scripts\Network\BuildDebugGUI.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\TilemapController.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Readme.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\BuildMazeAction.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\ChooseBestAugmentAction.cs" />
     <Compile Include="Assets\Scripts\UI\ShopSlot.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark03.cs" />
@@ -230,11 +235,6 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\GameAssets.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Scripts\UI\UIBillboard.cs" />
-    <Compile Include="Assets\Scripts\Commands\PlayerActions\SwapUnitCommand.cs" />
-    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\BuildMazeAction.cs" />
-    <Compile Include="Assets\Scripts\AI\Planning\MazePlanner.cs" />
-    <Compile Include="Assets\Scripts\AI\BehaviorTree\AIPacer.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
@@ -1496,13 +1496,13 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="ToonyColorsPro.Demo.Editor.csproj" />
     <ProjectReference Include="Fusion.Unity.csproj" />
     <ProjectReference Include="Fusion.Unity.Editor.csproj" />
-    <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
-    <ProjectReference Include="ToonyColorsPro.Demo.Editor.csproj" />
-    <ProjectReference Include="KinoBloom.Runtime.csproj" />
     <ProjectReference Include="ToonyColorsPro.Runtime.csproj" />
     <ProjectReference Include="ToonyColorsPro.Editor.csproj" />
+    <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
+    <ProjectReference Include="KinoBloom.Runtime.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <ItemGroup>
