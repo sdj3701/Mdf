@@ -405,16 +405,21 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             }
         }
     }
-    
+
     private bool DoesHaveSkill()
     {
-        return unitData.skillsByStarLevel.Length >= starLevel && unitData.skillsByStarLevel[starLevel - 1] != null;
+        if (unitData == null) return false;
+        if (unitData.skillsByStarLevel == null) return false;
+        if (starLevel <= 0) return false;
+        var arr = unitData.skillsByStarLevel;
+        if (arr.Length < starLevel) return false;
+        var key = arr[starLevel - 1];
+        return !string.IsNullOrEmpty(key);
     }
 
     private bool IsEnemyInSkillRange()
     {
         if (_loadedSkillData == null) return false;
-
         // 3D 환경: XZ 평면 기준 구면 탐색
         Collider[] enemiesInRange = Physics.OverlapSphere(transform.position, _loadedSkillData.range, enemyLayerMask);
         // 적이 한 명이라도 있으면 true를 반환합니다.
