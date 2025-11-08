@@ -75,6 +75,7 @@ public class AugmentUIController : MonoBehaviour
     /// </summary>
     private void OnAugmentButtonClicked(int index)
     {
+        Debug.Log("<color=yellow>OnAugmentButtonClicked 호출</color>");
         // [핵심 변경점]
         // 이제 이벤트를 직접 발생시키는 대신, SelectAugmentCommand를 생성하여 실행합니다.
         // 이를 통해 플레이어의 행동과 AI의 행동이 동일한 로직을 타게 됩니다.

@@ -406,15 +406,14 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         }
     }
 
-    private bool DoesHaveSkill()
-    {
+    private bool DoesHaveSkill() {
         if (unitData == null) return false;
         if (unitData.skillsByStarLevel == null) return false;
         if (starLevel <= 0) return false;
         var arr = unitData.skillsByStarLevel;
         if (arr.Length < starLevel) return false;
-        var key = arr[starLevel - 1];
-        return !string.IsNullOrEmpty(key);
+        // 예전 의미와 동일: null만 배제하고 빈 문자열은 허용
+        return arr[starLevel - 1] != null;
     }
 
     private bool IsEnemyInSkillRange()
