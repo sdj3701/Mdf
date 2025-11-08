@@ -464,7 +464,30 @@ public class FieldManager : MonoBehaviour
         float halfWallHeight = GetWallPrefabHeight() * 0.5f;
         worldPos.y += halfWallHeight;
 
-        GameObject wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
+        GameObject wallGO = null;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && destructibleWallPrefab.TryGetComponent<NetworkObject>(out var netPrefab))
+        {
+            if (!playerManager.Object.HasStateAuthority)
+            {
+                return;
+            }
+            var spawned = runner.Spawn(netPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
+            if (spawned == null)
+            {
+                Debug.LogError($"[FieldManager] Runner.Spawn 실패: {destructibleWallPrefab.name} (Player={playerManager?.playerId})");
+                return;
+            }
+            wallGO = spawned.gameObject;
+            if (wallParent != null)
+            {
+                wallGO.transform.SetParent(wallParent, true);
+            }
+        }
+        else
+        {
+            wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
+        }
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
 
         if (wallComponent != null)
@@ -502,7 +525,15 @@ public class FieldManager : MonoBehaviour
                 unitOnTop.TakeDamage(99999, DamageType.Physical);
             }
 
-            Destroy(wall.gameObject);
+            var runner = playerManager != null ? playerManager.Runner : null;
+            if (runner != null && wall.TryGetComponent<NetworkObject>(out var no) && playerManager.Object.HasStateAuthority)
+            {
+                runner.Despawn(no);
+            }
+            else
+            {
+                Destroy(wall.gameObject);
+            }
             placedWalls.Remove(gridPosition);
         }
     }

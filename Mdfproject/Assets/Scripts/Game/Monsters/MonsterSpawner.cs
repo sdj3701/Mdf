@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Fusion;
 
 public class MonsterSpawner : MonoBehaviour
 {
@@ -109,7 +110,28 @@ public class MonsterSpawner : MonoBehaviour
             float groundOffset = GetGroundMonsterHeightOffset(monsterPrefab);
             spawnPos.y += groundOffset;
 
-            GameObject monsterGO = Instantiate(monsterPrefab, spawnPos, Quaternion.identity, monsterParent);
+            GameObject monsterGO = null;
+            var runner = playerManager != null ? playerManager.Runner : null;
+            if (runner != null && playerManager.Object.HasStateAuthority && monsterPrefab.TryGetComponent<NetworkObject>(out var netPrefab))
+            {
+                var spawned = runner.Spawn(netPrefab, spawnPos, Quaternion.identity, playerManager.Object.InputAuthority);
+                if (spawned == null)
+                {
+                    Debug.LogError($"Runner.Spawn 실패: {monsterPrefab.name}", this);
+                    isSpawningWave = false;
+                    playerManager.SetFightingState(false);
+                    yield break;
+                }
+                monsterGO = spawned.gameObject;
+                if (monsterParent != null)
+                {
+                    monsterGO.transform.SetParent(monsterParent, true);
+                }
+            }
+            else
+            {
+                monsterGO = Instantiate(monsterPrefab, spawnPos, Quaternion.identity, monsterParent);
+            }
             Monster monster = monsterGO.GetComponent<Monster>();
 
             if (monster != null)
@@ -201,7 +223,26 @@ public class MonsterSpawner : MonoBehaviour
         float groundOffset = GetGroundMonsterHeightOffset(monsterPrefabToSpawn);
         spawnPos.y += groundOffset;
 
-        GameObject monsterGO = Instantiate(monsterPrefabToSpawn, spawnPos, Quaternion.identity, monsterParent);
+        GameObject monsterGO = null;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && playerManager.Object.HasStateAuthority && monsterPrefabToSpawn.TryGetComponent<NetworkObject>(out var netPrefab))
+        {
+            var spawned = runner.Spawn(netPrefab, spawnPos, Quaternion.identity, playerManager.Object.InputAuthority);
+            if (spawned == null)
+            {
+                Debug.LogError($"Runner.Spawn 실패: {monsterPrefabToSpawn.name}", this);
+                return;
+            }
+            monsterGO = spawned.gameObject;
+            if (monsterParent != null)
+            {
+                monsterGO.transform.SetParent(monsterParent, true);
+            }
+        }
+        else
+        {
+            monsterGO = Instantiate(monsterPrefabToSpawn, spawnPos, Quaternion.identity, monsterParent);
+        }
         Monster monster = monsterGO.GetComponent<Monster>();
 
         if (monster != null)
