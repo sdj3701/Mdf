@@ -33,6 +33,13 @@ public class NextScenes : BaseButton
 
         // 4. 로비에 접속하고 씬을 전환합니다.
         _networkManager.JoinLobby();
-        SceneManager.LoadScene("MatchingLobby");
+        if (_networkManager != null)
+        {
+            _networkManager.LoadSceneSmart("MatchingLobby");
+        }
+        else
+        {
+            SceneManager.LoadScene("MatchingLobby");
+        }
     }
 }

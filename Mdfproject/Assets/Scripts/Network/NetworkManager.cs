@@ -12,7 +12,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 {
     public static NetworkManager Instance { get; private set; }
 
-    public NetworkRunner _runner { get; private set; }
+    public NetworkRunner _runner { get; set; }
 
     public TMP_InputField NickNameInput;
     public TMP_InputField PassWordInput;
@@ -352,6 +352,48 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public int GetPlayerCount()
     {
         return playerCount;
+    }
+
+    // Fusion 표준: 세션 중이면 Runner로 씬을 전환, 아니면 Unity 씬 로드 사용
+    public void LoadSceneSmart(string sceneName)
+    {
+        if (string.IsNullOrEmpty(sceneName))
+        {
+            Debug.LogError("[NetworkManager] sceneName is null or empty");
+            return;
+        }
+
+        int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
+        if (sceneIndex < 0)
+        {
+            Debug.LogError($"[NetworkManager] '{sceneName}' 씬을 빌드 설정에서 찾을 수 없습니다!");
+            return;
+        }
+
+        if (_runner != null && _runner.IsRunning)
+        {
+            if (_runner.SceneManager == null)
+            {
+                Debug.LogWarning("[NetworkManager] Runner.SceneManager is null. Falling back to Unity SceneManager. Ensure StartGame is called with a SceneManager.");
+                SceneManager.LoadScene(sceneName);
+                return;
+            }
+            _runner.LoadScene(SceneRef.FromIndex(sceneIndex), LoadSceneMode.Single);
+        }
+        else
+        {
+            SceneManager.LoadScene(sceneName);
+        }
+    }
+
+    // 세션 종료 후 특정 씬으로 복귀
+    public void LeaveAndLoad(string sceneName)
+    {
+        if (_runner != null)
+        {
+            _runner.Shutdown();
+        }
+        SceneManager.LoadScene(sceneName);
     }
 
     #endregion
