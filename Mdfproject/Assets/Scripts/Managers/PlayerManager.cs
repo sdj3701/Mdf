@@ -138,6 +138,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
     }
 
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_ApplyPermanentWalls(int[] flatPositions)
+    {
+        if (fieldManager != null)
+        {
+            fieldManager.ApplyPermanentWallsFromServer(flatPositions);
+        }
+    }
+
     // ... (이하 나머지 코드는 기존과 동일) ...
 
     public void SetFightingState(bool isFighting)

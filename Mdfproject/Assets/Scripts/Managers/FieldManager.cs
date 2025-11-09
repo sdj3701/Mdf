@@ -574,8 +574,17 @@ public class FieldManager : MonoBehaviour
     private async void GeneratePermanentWallsIfNeeded()
     {
         if (permanentWallsGenerated) return;
-        if (initialPermanentWallCount <= 0) { permanentWallsGenerated = true; return; }
         if (playerManager == null) return; // Initialize 미완료
+
+        // 네트워크 환경에서는 서버(호스트)만 초기 랜덤 생성 수행
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && runner.IsRunning && !runner.IsServer)
+        {
+            // 클라이언트는 서버의 RPC를 통해 동기화 대기
+            return;
+        }
+
+        if (initialPermanentWallCount <= 0) { permanentWallsGenerated = true; return; }
 
         // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
         GameObject prefab = permanentWallPrefab;
@@ -618,14 +627,57 @@ public class FieldManager : MonoBehaviour
         }
 
         int toPlace = Mathf.Min(initialPermanentWallCount, candidates.Count);
+        List<Vector3Int> selected = new List<Vector3Int>(toPlace);
         for (int i = 0; i < toPlace; i++)
         {
-            // 랜덤 추출
             int idx = Random.Range(0, candidates.Count);
             var pos = candidates[idx];
             candidates.RemoveAt(idx);
+            selected.Add(pos);
+            CreatePermanentWallAt(pos, prefab); // 서버/오프라인에서만 실제 배치
+        }
 
-            // 실제 배치
+        // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트하여 동일 위치에 생성
+        if (runner != null && runner.IsRunning && runner.IsServer && playerManager != null)
+        {
+            int[] flat = new int[selected.Count * 2];
+            for (int i = 0; i < selected.Count; i++)
+            {
+                flat[i * 2] = selected[i].x;
+                flat[i * 2 + 1] = selected[i].y;
+            }
+            playerManager.RPC_ApplyPermanentWalls(flat);
+        }
+
+        permanentWallsGenerated = true;
+    }
+
+    /// <summary>
+    /// 서버가 선택한 영구 벽 좌표 목록을 받아, 클라이언트에서 동일하게 생성합니다.
+    /// </summary>
+    public async void ApplyPermanentWallsFromServer(int[] flatPositions)
+    {
+        if (flatPositions == null || flatPositions.Length == 0) return;
+
+        // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
+        GameObject prefab = permanentWallPrefab;
+        if (prefab == null && !string.IsNullOrEmpty(permanentWallAddressKey))
+        {
+            prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey);
+        }
+
+        if (prefab == null)
+        {
+            Debug.LogError($"[FieldManager] Permanent wall prefab not available on client for ApplyPermanentWallsFromServer. Key='{permanentWallAddressKey}'");
+            return;
+        }
+
+        int count = flatPositions.Length / 2;
+        for (int i = 0; i < count; i++)
+        {
+            var pos = new Vector3Int(flatPositions[i * 2], flatPositions[i * 2 + 1], 0);
+            if (!IsValidGridPosition(pos)) continue;
+            if (HasWallAt(pos)) continue;
             CreatePermanentWallAt(pos, prefab);
         }
 

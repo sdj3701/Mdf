@@ -13,7 +13,14 @@ public class PlaceWallCommand : ICommand
 
     public void Execute()
     {
-        var player = GameManagers.Instance.GetPlayer(PlayerId);
+        var gm = GameManagers.Instance;
+        if (gm == null || gm.Runner == null || !gm.Runner.IsServer)
+        {
+            Debug.Log($"[PlaceWallCommand] Ignored on non-server peer. Player={PlayerId}, Pos={Position}");
+            return;
+        }
+
+        var player = gm.GetPlayer(PlayerId);
         if (player == null)
         {
             Debug.LogError($"[PlaceWallCommand] Player not found for PlayerId {PlayerId}");
@@ -58,7 +65,8 @@ public class PlaceWallCommand : ICommand
 
         if (fm.GetWallAt(Position) != null)
         {
-            GameEvents.TriggerWallPlacementSucceeded(player.playerId, Position);
+            // 서버가 성공을 모든 피어에 알림 (클라이언트 UI 동기화)
+            gm.RPC_NotifyWallPlacementSucceeded(player.playerId, Position.x, Position.y);
         }
         else
         {

@@ -466,6 +466,22 @@ public class GameManagers : NetworkBehaviour
         GameEvents.TriggerUnitPurchaseSucceeded(playerID, default(ShopItem), slotIndex);
     }
 
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_NotifyWallPlacementSucceeded(int playerID, int x, int y)
+    {
+        var pos = new Vector3Int(x, y, 0);
+        Debug.Log($"<color=green>[NetFlow] WallPlacementSucceeded broadcast -> Player={playerID}, Pos={pos}</color>");
+        GameEvents.TriggerWallPlacementSucceeded(playerID, pos);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_NotifyWallRemovalSucceeded(int playerID, int x, int y)
+    {
+        var pos = new Vector3Int(x, y, 0);
+        Debug.Log($"<color=green>[NetFlow] WallRemovalSucceeded broadcast -> Player={playerID}, Pos={pos}</color>");
+        GameEvents.TriggerWallRemovalSucceeded(playerID, pos);
+    }
+
     private async UniTask SetupGameUI()
     {
         try
