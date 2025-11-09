@@ -459,6 +459,13 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_NotifyPurchaseSucceeded(int playerID, int slotIndex)
+    {
+        Debug.Log($"<color=green>[NetFlow] PurchaseSucceeded broadcast -> Player={playerID}, Slot={slotIndex}</color>");
+        GameEvents.TriggerUnitPurchaseSucceeded(playerID, default(ShopItem), slotIndex);
+    }
+
     private async UniTask SetupGameUI()
     {
         try

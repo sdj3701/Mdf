@@ -13,7 +13,14 @@ public class BuyUnitCommand : ICommand
 
     public void Execute()
     {
-        var player = GameManagers.Instance.GetPlayer(PlayerId);
+        var gm = GameManagers.Instance;
+        if (gm == null || gm.Runner == null || !gm.Runner.IsServer)
+        {
+            Debug.Log($"[BuyUnitCommand] Ignored on non-server peer. Player={PlayerId}, Slot={ShopSlotIndex}");
+            return;
+        }
+
+        var player = gm.GetPlayer(PlayerId);
         if (player == null || player.shopManager == null) return;
 
         var shopItems = player.shopManager.GetCurrentShopItems();
@@ -28,9 +35,9 @@ public class BuyUnitCommand : ICommand
 
             // 상점의 상태를 갱신합니다.
             player.shopManager.MarkSlotAsPurchased(ShopSlotIndex);
-            
-            // ⭐ 핵심: 여기서 "결과" 이벤트를 발생시킵니다!
-            GameEvents.TriggerUnitPurchaseSucceeded(PlayerId, itemToBuy, ShopSlotIndex);
+
+            // ⭐ 서버에서 모든 피어에게 '구매 성공'을 네트워크로 알립니다 (클라이언트 UI 비활성화 목적).
+            gm.RPC_NotifyPurchaseSucceeded(PlayerId, ShopSlotIndex);
         }
         else
         {
