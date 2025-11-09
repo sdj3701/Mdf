@@ -218,6 +218,25 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    public void RPC_RequestCommandToServer(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams, RpcInfo info = default)
+    {
+        if (Runner == null || !Runner.IsServer) return; // 서버에서만 처리
+        Debug.Log($"<color=green>[NetFlow] Server received command request -> {type}</color>");
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            gm = FindObjectOfType<GameManagers>();
+            if (gm == null)
+            {
+                Debug.LogWarning("<color=green>[NetFlow] GameManagers not found on server yet. Dropping command.</color>");
+                return;
+            }
+            Debug.Log("<color=green>[NetFlow] GameManagers resolved via FindObjectOfType on server.</color>");
+        }
+        gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+    }
+
     private static Vector2 NormalizeDelayRange(Vector2 range)
     {
         float min = Mathf.Min(range.x, range.y);

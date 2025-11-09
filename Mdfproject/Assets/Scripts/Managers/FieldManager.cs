@@ -689,9 +689,11 @@ public class FieldManager : MonoBehaviour
 
     public void CreateAndPlaceUnitOnField(UnitData unitData, int starLevel)
     {
+        Debug.Log($"<color=green>[Flow] Request CreateAndPlaceUnitOnField -> {unitData?.unitName} ({starLevel}★) Player={playerManager?.playerId}</color>");
         // AI 플레이어인지 ComponentRegistry를 통해 확인합니다. AIPlayerController가 자신의 ID로 등록한다고 가정합니다.
         if (ComponentRegistry.Has<AIPlayerController>(playerManager.playerId.ToString()))
         {
+            Debug.Log($"<color=green>[Flow] AI path -> CreateAndPlaceUnitOnFieldForAI</color>");
             CreateAndPlaceUnitOnFieldForAI(unitData, starLevel);
             return; // AI 로직을 수행했으면 여기서 종료
         }
@@ -699,12 +701,14 @@ public class FieldManager : MonoBehaviour
         Vector3Int? emptySlot = FindFirstEmptySlot(unitData);
         if (emptySlot.HasValue)
         {
+            Debug.Log($"<color=green>[Flow] Placement slot found at {emptySlot.Value} -> CreateUnitAt</color>");
             CreateUnitAt(unitData, emptySlot.Value, starLevel);
             CheckForCombination();
         }
         else
         {
             Debug.LogWarning("[FieldManager] 필드에 빈 공간이 없어 유닛을 배치할 수 없습니다! 골드를 환불합니다.");
+            Debug.Log("<color=green>[Flow] No empty slot -> refund</color>");
             int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
             playerManager.AddGold(refundCost);
         }
@@ -753,10 +757,13 @@ public class FieldManager : MonoBehaviour
 
         GameObject newUnitGO = null;
         var runner = playerManager != null ? playerManager.Runner : null;
-        if (runner != null && prefabToCreate.TryGetComponent<NetworkObject>(out var networkPrefab))
+        bool hasNetPrefab = prefabToCreate.TryGetComponent<NetworkObject>(out var networkPrefab);
+        Debug.Log($"<color=green>[Spawn] Request -> {data.unitName} ({starLevel}★) at {gridPosition}, runner={(runner!=null)}, hasNetPrefab={hasNetPrefab}, stateAuth={(playerManager!=null ? playerManager.Object.HasStateAuthority : false)}</color>");
+        if (runner != null && hasNetPrefab)
         {
             if (!playerManager.Object.HasStateAuthority)
             {
+                Debug.Log($"<color=green>[Spawn] Client attempted network spawn -> ignored (server only). Player={playerManager?.playerId}</color>");
                 return;
             }
 
@@ -767,6 +774,7 @@ public class FieldManager : MonoBehaviour
                 return;
             }
             newUnitGO = spawned.gameObject;
+            Debug.Log($"<color=green>[Spawn] Network unit spawned -> {newUnitGO.name} at {worldPos} (Player={playerManager?.playerId})</color>");
             if (unitParent != null)
             {
                 newUnitGO.transform.SetParent(unitParent, true);
@@ -775,6 +783,7 @@ public class FieldManager : MonoBehaviour
         else
         {
             newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+            Debug.Log($"<color=green>[Spawn] Local instantiate (non-network) -> {newUnitGO.name} at {worldPos}</color>");
         }
         // Attach orientation fixer to ensure rig local rotation and face camera on spawn
         var orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();

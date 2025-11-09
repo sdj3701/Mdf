@@ -12,7 +12,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 {
     public static NetworkManager Instance { get; private set; }
 
-    public NetworkRunner _runner { get; set; }
+    public NetworkRunner _runner { get; private set; }
 
     public TMP_InputField NickNameInput;
     public TMP_InputField PassWordInput;

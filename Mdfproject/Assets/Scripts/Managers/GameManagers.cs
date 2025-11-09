@@ -448,6 +448,17 @@ public class GameManagers : NetworkBehaviour
         Debug.Log($"[Rpc_SetSinglePlayerModeCount] 싱글플레이어 모드 플레이어 수 설정: {count}");
     }
 
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_BroadcastCommandToClients(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
+    {
+        string who = Object.HasStateAuthority ? "Server" : "Client";
+        Debug.Log($"<color=green>[NetFlow] {who} BroadcastCommand received -> {type}</color>");
+        if (CommandProcessor != null)
+        {
+            CommandProcessor.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
+        }
+    }
+
     private async UniTask SetupGameUI()
     {
         try

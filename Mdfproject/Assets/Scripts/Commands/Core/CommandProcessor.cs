@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System; 
 using UnityEngine;
 using Cysharp.Threading.Tasks;
 
@@ -16,18 +17,35 @@ public class CommandProcessor
         // 1. 커맨드를 직렬화합니다.
         (CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams) = SerializeCommand(command);
 
-        // NetworkManager가 있고, 게임 세션이 활성화 상태일 때만 RPC를 호출합니다.
-        if (NetworkManager.Instance != null && NetworkManager.Instance.IsGameRunnerActive)
+        // 네트워크 세션이 활성 상태라면 Fusion 네트워크 경로로 전송합니다.
+        if (GameManagers.Instance != null && GameManagers.Instance.Runner != null && GameManagers.Instance.Runner.IsRunning)
         {
-            // 2. 직렬화된 데이터를 RPC로 서버에 전송합니다.
-            NetworkManager.Instance.RPC_RequestCommandToServer(type, intParams, stringParams, vectorParams);
+            var gm = GameManagers.Instance;
+
+            // 서버(호스트)라면 곧장 브로드캐스트 실행
+            if (gm.Object != null && gm.Object.HasStateAuthority)
+            {
+                Debug.Log($"<color=green>[NetFlow] Host executes & broadcasts -> {type}</color>");
+                gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+                return;
+            }
+
+            // 클라이언트라면 자신의 PlayerManager로 서버에 요청
+            var lp = gm.localPlayer;
+            if (lp != null && lp.Object != null && lp.Object.HasInputAuthority)
+            {
+                Debug.Log($"<color=green>[NetFlow] Client -> Server request via PlayerManager RPC -> {type}</color>");
+                lp.RPC_RequestCommandToServer(type, intParams, stringParams, vectorParams);
+                return;
+            }
+
+            Debug.LogWarning($"<color=green>[NetFlow] Local player not ready. Dropping command -> {type}</color>");
+            return;
         }
-        else
-        {
-            // 싱글플레이어 또는 네트워크가 연결되지 않은 환경을 위한 폴백(Fallback)
-            // 서버 역할을 로컬에서 즉시 시뮬레이션합니다.
-            ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
-        }
+
+        // 싱글플레이/비네트워크 폴백: 로컬에서 즉시 실행
+        Debug.Log($"<color=green>[NetFlow] Offline fallback execute -> {type}</color>");
+        ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
     }
 
     /// <summary>
@@ -51,25 +69,25 @@ public class CommandProcessor
         switch (command)
         {
             case BuyUnitCommand cmd:
-                return (CommandType.BuyUnit, new int[] { cmd.PlayerId, cmd.ShopSlotIndex }, null, null);
+                return (CommandType.BuyUnit, new int[] { cmd.PlayerId, cmd.ShopSlotIndex }, Array.Empty<string>(), Array.Empty<Vector3>());
             case MoveUnitCommand cmd:
-                return (CommandType.MoveUnit, new int[] { cmd.PlayerId }, null, new Vector3[] { cmd.From, cmd.To });
+                return (CommandType.MoveUnit, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.From, cmd.To });
             case SwapUnitCommand cmd:
-                return (CommandType.SwapUnit, new int[] { cmd.PlayerId }, null, new Vector3[] { cmd.PosA, cmd.PosB });
+                return (CommandType.SwapUnit, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.PosA, cmd.PosB });
             case PlaceUnitCommand cmd:
                 // UnitData는 ScriptableObject이므로 이름(ID)을 string으로 전송합니다.
                 return (CommandType.PlaceUnit, new int[] { cmd.PlayerId }, new string[] { cmd.UnitData.name }, new Vector3[] { cmd.Position });
             case PlaceWallCommand cmd:
-                return (CommandType.PlaceWall, new int[] { cmd.PlayerId }, null, new Vector3[] { cmd.Position });
+                return (CommandType.PlaceWall, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.Position });
             case RemoveWallCommand cmd:
-                return (CommandType.RemoveWall, new int[] { cmd.PlayerId }, null, new Vector3[] { cmd.Position });
+                return (CommandType.RemoveWall, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.Position });
             case RerollShopCommand cmd:
-                return (CommandType.RerollShop, new int[] { cmd.PlayerId }, null, null);
+                return (CommandType.RerollShop, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
             case SelectAugmentCommand cmd:
-                return (CommandType.SelectAugment, new int[] { cmd.PlayerId, cmd.AugmentIndex }, null, null);
+                return (CommandType.SelectAugment, new int[] { cmd.PlayerId, cmd.AugmentIndex }, Array.Empty<string>(), Array.Empty<Vector3>());
             default:
                 Debug.LogError($"[CommandProcessor] 직렬화할 수 없는 커맨드 타입입니다: {command.GetType().Name}");
-                return (0, null, null, null);
+                return (0, Array.Empty<int>(), Array.Empty<string>(), Array.Empty<Vector3>());
         }
     }
 
