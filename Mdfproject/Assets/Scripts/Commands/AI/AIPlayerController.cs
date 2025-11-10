@@ -19,7 +19,7 @@ public class AIPlayerController : MonoBehaviour
         _playerManager = playerManager;
         _commandProcessor = commandProcessor;
         BuildBehaviorTrees();
-        
+
         ComponentRegistry.Register(playerManager.playerId.ToString(), this);
     }
 
@@ -54,22 +54,36 @@ public class AIPlayerController : MonoBehaviour
     private void BuildBehaviorTrees()
     {
         // --- 준비 단계 행동 트리 ---
+        // 순차적 실행: 증강 선택 → 미로 건설 → 유닛 구매 → 유닛 재배치 → 리롤
         _preparePhaseBT = new BehaviorTree(
             new SelectorNode(
                 // 1. 증강 선택 (가장 높은 우선순위)
                 new IsAugmentPhaseCondition(_playerManager,
                     new ChooseBestAugmentAction(_playerManager, _commandProcessor)
                 ),
-                // 2. 미로 건설 및 유지 (k개 남기고 우선순위대로 건설)
-                new BuildMazeAction(_playerManager, _commandProcessor),
-                
-                // 3. 유닛 구매
-                new BuyBestUnitAction(_playerManager, _commandProcessor),
-                
-                // 4. 유닛 재배치 (구매할 것이 없을 때 시도)
-                new RearrangeAllUnitsAction(_playerManager, _commandProcessor),
-                
-                // 5. 리롤 (구매와 재배치 모두 할 것이 없을 때 마지막으로 고려)
+
+                // 2. 미로 건설 (완료될 때까지)
+                // 미로 미완료면 건설 실행
+                new SequenceNode(
+                    new InverterNode(new IsMazeConstructionCompleteCondition(_playerManager, new AlwaysSuccessNode())),
+                    new BuildMazeAction(_playerManager, _commandProcessor)
+                ),
+
+                // 3. 유닛 구매 (미로 건설 완료 후, 구매 완료될 때까지)
+                new SequenceNode(
+                    new IsMazeConstructionCompleteCondition(_playerManager, new AlwaysSuccessNode()),
+                    new InverterNode(new IsUnitPurchaseCompleteCondition(_playerManager, new AlwaysSuccessNode())),
+                    new BuyBestUnitAction(_playerManager, _commandProcessor)
+                ),
+
+                // 4. 유닛 재배치 (미로 건설 + 유닛 구매 완료 후)
+                new SequenceNode(
+                    new IsMazeConstructionCompleteCondition(_playerManager, new AlwaysSuccessNode()),
+                    new IsUnitPurchaseCompleteCondition(_playerManager, new AlwaysSuccessNode()),
+                    new RearrangeAllUnitsAction(_playerManager, _commandProcessor)
+                ),
+
+                // 5. 리롤 (모든 작업 완료 후)
                 new RerollShopAction(_playerManager, _commandProcessor)
             )
         );
@@ -77,7 +91,7 @@ public class AIPlayerController : MonoBehaviour
         // --- 전투 단계 행동 트리 (현재는 비어있음) ---
         _combatPhaseBT = new BehaviorTree(
             new SelectorNode(
-                // new CanUseManualSkillCondition(_playerManager, 
+                // new CanUseManualSkillCondition(_playerManager,
                 //     new UseBestManualSkillAction(_playerManager, _commandProcessor)
                 // )
             )

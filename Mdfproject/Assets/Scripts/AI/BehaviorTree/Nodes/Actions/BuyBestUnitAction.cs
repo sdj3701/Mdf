@@ -64,6 +64,13 @@ namespace AI.BehaviorTree.Nodes.Actions
                 return status = NodeStatus.Success;
             }
 
+            // 더 이상 구매할 유닛이 없으면 구매 완료 플래그 설정
+            if (!_playerManager.unitPurchaseComplete)
+            {
+                _playerManager.unitPurchaseComplete = true;
+                Debug.Log($"[BuyBestUnitAction] Player {_playerManager.playerId} 유닛 구매 완료!");
+            }
+
             return status = NodeStatus.Failure;
         }
 

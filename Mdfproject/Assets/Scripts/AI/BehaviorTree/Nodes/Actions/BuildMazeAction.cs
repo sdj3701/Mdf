@@ -61,10 +61,14 @@ namespace AI.BehaviorTree.Nodes.Actions
                 if (!fm.HasWallAt(pos)) { nextIndex = i; break; }
             }
 
-            // 3) 더 지을 벽이 없다면 Failure 반환 (다음 행동으로 넘어감)
+            // 3) 더 지을 벽이 없다면 건설 완료 플래그 설정 후 Failure 반환
             if (nextIndex == -1)
             {
-                //Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 더 지을 벽이 없음 (전체: {_playerManager.mazePlannedOrder.Count}, 스킵: {_temporarilySkipped.Count})");
+                if (!_playerManager.mazeConstructionComplete)
+                {
+                    _playerManager.mazeConstructionComplete = true;
+                    Debug.Log($"[BuildMazeAction] Player {_playerManager.playerId} 미로 건설 완료!");
+                }
                 return status = NodeStatus.Failure;
             }
 

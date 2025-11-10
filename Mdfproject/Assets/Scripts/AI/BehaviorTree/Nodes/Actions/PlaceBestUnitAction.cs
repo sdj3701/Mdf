@@ -16,6 +16,7 @@ namespace AI.BehaviorTree.Nodes.Actions
 
         // 재배치 진행 상태를 저장하기 위한 상태 변수
         private List<Unit> _rearrangedUnits;
+        private List<Unit> _unitsToRearrange; // 재배치 시작 시점의 유닛 스냅샷
         private List<AstarNode> _idealMonsterPath;
 
         public RearrangeAllUnitsAction(PlayerManager playerManager, CommandProcessor commandProcessor)
@@ -29,39 +30,44 @@ namespace AI.BehaviorTree.Nodes.Actions
             // 재배치 사이클의 첫 번째 틱인 경우, 상태를 초기화합니다.
             if (_rearrangedUnits == null)
             {
-                if (_playerManager.fieldManager.GetAlliedUnitsOnField().Count == 0)
+                var currentUnits = _playerManager.fieldManager.GetAlliedUnitsOnField();
+                if (currentUnits.Count == 0)
                 {
                     return status = NodeStatus.Failure; // 재배치할 유닛이 없으면 다음 행동으로
                 }
 
                 _rearrangedUnits = new List<Unit>();
+                // 재배치 시작 시점의 유닛 리스트를 스냅샷으로 저장
+                _unitsToRearrange = new List<Unit>(currentUnits);
+
                 RecalculateMonsterPath(); // 재배치 시작 시 몬스터 경로를 한 번 계산하고 변환합니다.
 
-                // RecalculateMonsterPath()에서 이미 변환된 _idealMonsterPath를 사용하므로
-                // 여기서 다시 원본 경로로 덮어쓰지 않습니다.
+                Debug.Log($"[AI] 유닛 재배치 시작: {_unitsToRearrange.Count}개 유닛 대상");
             }
 
-            var allUnitsOnField = _playerManager.fieldManager.GetAlliedUnitsOnField();
-
             // 모든 유닛의 재배치 검토가 끝났는지 확인합니다.
-            if (_rearrangedUnits.Count >= allUnitsOnField.Count)
+            if (_rearrangedUnits.Count >= _unitsToRearrange.Count)
             {
+                Debug.Log($"[AI] 유닛 재배치 완료: {_rearrangedUnits.Count}/{_unitsToRearrange.Count}개 처리됨");
                 _rearrangedUnits = null; // 다음 사이클을 위해 상태를 리셋합니다.
+                _unitsToRearrange = null;
                 _playerManager.fieldManager.CheckForCombination(); // 모든 이동 후 조합을 확인합니다.
-                Debug.Log("[AI] 유닛 재배치를 완료했습니다.");
                 // Failure 반환: 재배치는 보조 행동이므로 완료 후 다른 행동 시도
                 return status = NodeStatus.Failure;
             }
 
             // 재배치할 다음 유닛을 우선순위(원거리 -> 근접)에 따라 선택합니다.
-            var nextUnitToMove = allUnitsOnField
+            // 스냅샷 리스트에서 선택하되, 이미 처리된 유닛은 제외
+            var nextUnitToMove = _unitsToRearrange
                 .Except(_rearrangedUnits)
                 .OrderBy(u => u.Data.unitType == UnitType.Ranged ? 0 : 1)
                 .FirstOrDefault();
 
             if (nextUnitToMove == null)
             {
+                Debug.LogWarning($"[AI] 재배치할 다음 유닛을 찾을 수 없습니다. 재배치 종료. (처리됨: {_rearrangedUnits.Count}/{_unitsToRearrange.Count})");
                 _rearrangedUnits = null; // 예외 상황: 남은 유닛이 없으면 종료
+                _unitsToRearrange = null;
                 return status = NodeStatus.Failure;
             }
 
@@ -70,7 +76,7 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (!originalPosNullable.HasValue)
             {
-                Debug.LogWarning($"[AI] 재배치 중 유닛 {nextUnitToMove.Data.unitName}의 위치를 찾을 수 없어 건너뜁니다.");
+                Debug.LogWarning($"[AI] 재배치 중 유닛 {nextUnitToMove.Data.unitName}의 위치를 찾을 수 없어 건너뜁니다. (처리됨: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
                 _rearrangedUnits.Add(nextUnitToMove);
                 return status = NodeStatus.Running; // 다음 유닛으로 계속 진행
             }
@@ -87,8 +93,13 @@ namespace AI.BehaviorTree.Nodes.Actions
                     return status = NodeStatus.Running;
                 }
                 // 위치가 변경되어야 한다면 MoveUnitCommand를 실행합니다.
+                Debug.Log($"[AI] 유닛 재배치: {nextUnitToMove.Data.unitName} {originalPos} → {bestPos.Value} (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
                 _commandProcessor.RequestCommandExecution(new MoveUnitCommand(_playerManager.playerId, originalPos, bestPos.Value));
                 AIPacer.Arm(_playerManager.playerId, AIPacer.CatMove, 0.4f, 0.9f);
+            }
+            else
+            {
+                Debug.Log($"[AI] 유닛 유지: {nextUnitToMove.Data.unitName} {originalPos} (최적 위치) (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
             }
 
             // 이 유닛은 처리되었음을 기록합니다.

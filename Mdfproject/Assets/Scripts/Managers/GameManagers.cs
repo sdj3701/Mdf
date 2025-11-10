@@ -42,7 +42,7 @@ public class GameManagers : NetworkBehaviour
     public int singlePlayerModeCount { get; set; }
 
     [HideInInspector] public PlayerManager localPlayer;
-    
+
     // 플레이어 데이터가 모두 준비되었을 때 발생시키는 이벤트
     public static System.Action OnPlayersDataReady;
 
@@ -116,9 +116,9 @@ public class GameManagers : NetworkBehaviour
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
         networkManager = NetworkManager.Instance;
-        
+
         GameFlow().Forget();
-        
+
 
         _isSpawned = true;
         // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
@@ -190,7 +190,7 @@ public class GameManagers : NetworkBehaviour
     {
         // 로컬 플레이어의 UI만 업데이트해야 하므로, 로컬 플레이어 확인 후 비동기 UI 로직 호출
         if (localPlayer == null) return;
-        
+
         // UI 업데이트 및 이벤트 발송은 UniTask의 'Fire-and-Forget' 패턴으로 처리
         // Render()는 async/await을 할 수 없습니다.
         Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 (네트워크 반응) ---");
@@ -292,7 +292,7 @@ public class GameManagers : NetworkBehaviour
         // 플레이어 생성 수 및 AI 설정 결정
         int playersToCreate;
         bool[] isAIPlayer = new bool[MAX_PLAYERS];
-        
+
         if (Runner.GameMode == GameMode.Single)
         {
             // 싱글플레이 모드: GameSceneInitializer에서 직접 가져오기
@@ -309,9 +309,9 @@ public class GameManagers : NetworkBehaviour
                 playersToCreate = singlePlayerModeCount > 0 ? singlePlayerModeCount : 2;
                 Debug.Log($"[싱글플레이 모드] singlePlayerModeCount 사용: {playersToCreate}명");
             }
-            
+
             Debug.Log($"[싱글플레이 모드] {playersToCreate}명 생성 (0번=로컬, 나머지=AI)");
-            
+
             // 0번은 로컬 플레이어, 나머지는 AI
             for (int i = 0; i < MAX_PLAYERS; i++)
             {
@@ -322,16 +322,16 @@ public class GameManagers : NetworkBehaviour
         {
             // 멀티플레이 모드: 항상 4명, 접속 안한 슬롯은 AI
             playersToCreate = MAX_PLAYERS;
-            
+
             Debug.Log($"[멀티플레이 모드] 4명 생성 (접속: {playerRefs.Count}명, AI: {MAX_PLAYERS - playerRefs.Count}명)");
-            
+
             // 실제 접속한 플레이어 수만큼은 실제 플레이어, 나머지는 AI
             for (int i = 0; i < MAX_PLAYERS; i++)
             {
                 isAIPlayer[i] = (i >= playerRefs.Count);
             }
         }
-        
+
         Debug.Log($"총 {playersToCreate}명의 플레이어 생성 예정 (현재 접속: {playerRefs.Count}명)");
 
         for (int i = 0; i < playersToCreate; i++)
@@ -348,7 +348,7 @@ public class GameManagers : NetworkBehaviour
             }
 
             Debug.Log($"🎮 Player {i} 생성 시작 - AI: {isAI}, Position: {playerPosition}, InputAuthority: {inputAuthority}");
-            
+
             // Prefab 유효성 검사
             if (gridPrefab == null)
             {
@@ -428,7 +428,7 @@ public class GameManagers : NetworkBehaviour
         }
         Debug.Log($"객체 연결 완료. 총 {allPlayersList.Count}명의 플레이어 발견. 로컬 플레이어: Player {localPlayer?.playerId}");
         if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("객체 연결 완료");
-        
+
         // 싱글플레이 모드에서 singlePlayerModeCount가 설정되지 않았다면 기본값으로 설정
         if (Runner.GameMode == GameMode.Single && singlePlayerModeCount <= 0)
         {
@@ -436,7 +436,7 @@ public class GameManagers : NetworkBehaviour
             singlePlayerModeCount = allPlayersList.Count;
             Debug.Log($"[Rpc_LinkSpawnedObjects] 싱글플레이 모드에서 singlePlayerModeCount를 {singlePlayerModeCount}로 설정");
         }
-        
+
         // 플레이어 데이터가 모두 준비되었을 때 발생시키는 이벤트 호출
         OnPlayersDataReady?.Invoke();
     }
@@ -524,7 +524,7 @@ public class GameManagers : NetworkBehaviour
             localPlayerShopUIGameObject.SetActive(true);
             localPlayerShopUI.SetContentVisibility(true);
             // 상점 UI를 표시하기 전에, 데이터베이스 로드를 기다리고 상점을 채우는 것을 보장합니다.
-            localPlayer.shopManager.EnsureShopRerolledAsync().Forget(); 
+            localPlayer.shopManager.EnsureShopRerolledAsync().Forget();
             var shopItems = localPlayer.shopManager.GetCurrentShopItems();
             Debug.Log(shopItems.Count());
             localPlayerShopUI.DisplayShopItems(shopItems);
@@ -546,14 +546,14 @@ public class GameManagers : NetworkBehaviour
         }
 
         currentState = GameState.Prepare;
-        
+
         // [수정] OnGameStateChanged를 제거하고 상태 변경 이벤트 및 UI 로직을 여기서 명시적으로 await 합니다.
         Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{currentState}</color> 단계 시작 (명시적 흐름) ---");
         GameEvents.TriggerGameStateChanged(currentState); // 상태 변경 이벤트는 여기서 한번 트리거
-        
+
         // UI 로직이 완료될 때까지 명시적으로 기다립니다.
-        //await HandleUIForNewState(currentState); 
-        
+        //await HandleUIForNewState(currentState);
+
         Debug.Log(currentRound); // << 이 코드는 이제 HandleUIForNewState가 완료되면 실행됩니다!
 
         foreach (var player in AllPlayers)
@@ -561,6 +561,10 @@ public class GameManagers : NetworkBehaviour
             if (player == null) continue;
             player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
             player.shopManager.Reroll(true);
+
+            // AI 준비 단계 플래그 리셋
+            player.mazeConstructionComplete = false;
+            player.unitPurchaseComplete = false;
         }
         Debug.Log(currentRound);
         if (currentRound >= 1)
@@ -584,7 +588,7 @@ public class GameManagers : NetworkBehaviour
             }
         }
         // UI 로직이 완료될 때까지 명시적으로 기다립니다.
-        await HandleUIForNewState(currentState); 
+        await HandleUIForNewState(currentState);
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, preparePhaseTime);
     }
@@ -621,7 +625,7 @@ public class GameManagers : NetworkBehaviour
     //     GameEvents.TriggerGameStateChanged(newState);
 
     //     // await을 사용하여 HandleUIForNewState가 완료될 때까지 기다립니다.
-    //     await HandleUIForNewState(newState); 
+    //     await HandleUIForNewState(newState);
     //     Debug.Log($"[OnGameStateChanged] HandleUIForNewState 호출 완료");
     // }
 
@@ -665,7 +669,7 @@ public class GameManagers : NetworkBehaviour
                             await UniTask.WaitUntil(() =>
                                 localPlayer != null && localPlayer.augmentManager.GetPresentedAugments().Count > 0
                             ).Timeout(System.TimeSpan.FromSeconds(5));
-                            
+
                             Debug.Log("<color=green>[HandleUIForNewState] 증강 데이터 준비 완료.</color>");
                         }
                         catch (System.TimeoutException)

@@ -26,6 +26,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [HideInInspector] public bool mazePlanned = false;
     [HideInInspector] public int mazeBuildCursor = 0;
 
+    // AI 준비 단계 진행 상태 추적
+    [HideInInspector] public bool mazeConstructionComplete = false;
+    [HideInInspector] public bool unitPurchaseComplete = false;
+
     [Header("소유 객체 목록")]
     public List<Unit> ownedUnits = new List<Unit>();
     public List<AugmentData> chosenAugments = new List<AugmentData>();
