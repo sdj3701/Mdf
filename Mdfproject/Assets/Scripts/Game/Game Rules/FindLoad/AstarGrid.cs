@@ -39,7 +39,6 @@ public class AstarGrid : MonoBehaviour
     [SerializeField] private Vector2Int debugStartPos, debugTargetPos;
 
     public List<AstarNode> FinalPath { get; private set; }
-    public List<AstarNode> IdealPathForAIDebug { get; set; } // AI 디버깅용 경로
     public List<Vector2Int> WallsToBreakInPath { get; private set; }
 
     private int sizeX, sizeY;
@@ -425,20 +424,6 @@ public class AstarGrid : MonoBehaviour
                 // [3D Migration] 셀 -> 월드 변환 사용
                 Vector3 from = CellToWorldCenter(new Vector2Int(FinalPath[i].x, FinalPath[i].y), 0.1f);
                 Vector3 to = CellToWorldCenter(new Vector2Int(FinalPath[i + 1].x, FinalPath[i + 1].y), 0.1f);
-                Gizmos.DrawLine(from, to);
-            }
-        }
-
-        // AI가 계획 중인 이상적인 경로를 별도의 색상으로 표시합니다.
-        if (IdealPathForAIDebug != null && IdealPathForAIDebug.Count > 0)
-        {
-            Gizmos.color = Color.magenta; // AI가 참고하는 이상적인 경로
-            for (int i = 0; i < IdealPathForAIDebug.Count - 1; i++)
-            {
-                Vector2Int fromCell = new Vector2Int(IdealPathForAIDebug[i].x, IdealPathForAIDebug[i].y);
-                Vector2Int toCell = new Vector2Int(IdealPathForAIDebug[i + 1].x, IdealPathForAIDebug[i + 1].y);
-                Vector3 from = CellToWorldCenter(fromCell, 0.2f);
-                Vector3 to = CellToWorldCenter(toCell, 0.2f);
                 Gizmos.DrawLine(from, to);
             }
         }

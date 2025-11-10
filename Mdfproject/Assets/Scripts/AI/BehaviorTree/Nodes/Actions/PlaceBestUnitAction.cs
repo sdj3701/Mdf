@@ -39,12 +39,6 @@ namespace AI.BehaviorTree.Nodes.Actions
 
                 // RecalculateMonsterPath()에서 이미 변환된 _idealMonsterPath를 사용하므로
                 // 여기서 다시 원본 경로로 덮어쓰지 않습니다.
-
-                // 디버깅을 위해 AI가 사용하는 경로를 AstarGrid에 별도로 저장합니다.
-                if (_playerManager.astarGrid != null)
-                {
-                    _playerManager.astarGrid.IdealPathForAIDebug = _idealMonsterPath;
-                }
             }
 
             var allUnitsOnField = _playerManager.fieldManager.GetAlliedUnitsOnField();
@@ -53,7 +47,6 @@ namespace AI.BehaviorTree.Nodes.Actions
             if (_rearrangedUnits.Count >= allUnitsOnField.Count)
             {
                 _rearrangedUnits = null; // 다음 사이클을 위해 상태를 리셋합니다.
-                if (_playerManager.astarGrid != null) _playerManager.astarGrid.IdealPathForAIDebug = null; // 디버그 경로 정리
                 _playerManager.fieldManager.CheckForCombination(); // 모든 이동 후 조합을 확인합니다.
                 Debug.Log("[AI] 유닛 재배치를 완료했습니다.");
                 // Failure 반환: 재배치는 보조 행동이므로 완료 후 다른 행동 시도
@@ -181,12 +174,6 @@ namespace AI.BehaviorTree.Nodes.Actions
 
                         Debug.Log($"[AI Path Transform] 변환 후 첫 번째 노드: ({_idealMonsterPath[0].x}, {_idealMonsterPath[0].y}), 마지막 노드: ({_idealMonsterPath[_idealMonsterPath.Count-1].x}, {_idealMonsterPath[_idealMonsterPath.Count-1].y})");
                     }
-                }
-
-                // 디버그용 경로 저장 (변환된 경로를 저장)
-                if (grid != null)
-                {
-                    grid.IdealPathForAIDebug = _idealMonsterPath;
                 }
             }
             else

@@ -117,9 +117,6 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _nextBuildAt = Time.time + Random.Range(_minInterval, _maxInterval);
                 AIPacer.Arm(_playerManager.playerId, AIPacer.CatWall, _minInterval, _maxInterval);
 
-                // 벽 건설 후 AI 디버그 경로 업데이트
-                UpdateAIDebugPath();
-
                 //Debug.LogWarning($"[BuildMazeAction] Player {_playerManager.playerId} 벽 건설 완료! 다음 건설 시간: {_nextBuildAt}");
                 // 벽을 건설했으므로 Success 반환 (이번 틱에서 성공적으로 행동 완료)
                 return status = NodeStatus.Success;
@@ -127,39 +124,6 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             // 아직 건설 타이밍이 아니면 Failure 반환 (다른 행동 실행 가능하게)
             return status = NodeStatus.Failure;
-        }
-
-        /// <summary>
-        /// 벽 건설 후 AI 디버그 경로를 업데이트합니다.
-        /// </summary>
-        private void UpdateAIDebugPath()
-        {
-            var grid = _playerManager.astarGrid;
-            var start = _playerManager.spawnPoint;
-            var goal = _playerManager.goalTransform;
-
-            if (grid == null || start == null || goal == null) return;
-
-            // 현재 벽 상태를 반영하여 경로 재계산
-            Vector3 startClamped = grid.ClampToGrid(start.position);
-            Vector3 goalClamped = grid.ClampToGrid(goal.position);
-            Vector2Int startPos = grid.WorldToCell(startClamped);
-            Vector2Int goalPos = grid.WorldToCell(goalClamped);
-
-            // 벽을 고려한 경로 계산
-            bool pathFound = grid.FindPath(startPos, goalPos, ignoreWalls: false);
-
-            if (pathFound && grid.FinalPath != null)
-            {
-                // AI 디버그 경로 업데이트
-                grid.IdealPathForAIDebug = new List<AstarNode>(grid.FinalPath);
-                //Debug.LogWarning($"[BuildMazeAction] AI 디버그 경로 업데이트: {grid.FinalPath.Count}개 노드");
-            }
-            else
-            {
-                //Debug.LogWarning($"[BuildMazeAction] 경로 찾기 실패, AI 디버그 경로 초기화");
-                grid.IdealPathForAIDebug = null;
-            }
         }
     }
 }
