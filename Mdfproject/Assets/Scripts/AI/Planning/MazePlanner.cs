@@ -101,11 +101,12 @@ public static class MazePlanner
         Debug.Log($"[MazePlanner] 벽 후보 개수: {allCandidates.Count}, 신규 건설 목표: {maxWallsToBuild}개");
 
         // Greedy 전략: 매번 경로를 가장 많이 늘리는 벽을 선택
-        // 목표 개수만큼 건설 (단, 경로가 막히지 않는 선에서)
+        // 목표 개수만큼 건설하되, 필드 벽이 15개 넘으면 효율성 체크
         int noImprovementCount = 0;
-        int maxNoImprovement = 3; // 3번 연속 개선 없으면 중단
+        const int EFFICIENCY_CHECK_THRESHOLD = 15; // 이 개수 이상부터 효율성 체크
+        const int MAX_NO_IMPROVEMENT = 3; // 3번 연속 개선 없으면 중단
 
-        while (solution.Count < maxWallsToBuild && noImprovementCount < maxNoImprovement)
+        while (solution.Count < maxWallsToBuild)
         {
             Vector2Int? bestWall = null;
             int bestPathLength = currentPathLength;
@@ -172,29 +173,11 @@ public static class MazePlanner
             // 최선의 벽을 찾았는지 확인
             if (!bestWall.HasValue)
             {
-                Debug.Log("[MazePlanner] 더 이상 유효한 벽 후보가 없습니다.");
+                Debug.LogWarning($"[MazePlanner] 더 이상 유효한 벽 후보가 없습니다. (현재: {solution.Count}/{maxWallsToBuild})");
                 break;
             }
 
             int improvement = bestPathLength - currentPathLength;
-
-            // 경로 개선이 없으면 카운트 증가
-            if (improvement <= 0)
-            {
-                noImprovementCount++;
-                Debug.Log($"[MazePlanner] 개선 없음 ({noImprovementCount}/{maxNoImprovement})");
-
-                // 개선이 없어도 일정 확률로 계속 (지역 최적해 탈출)
-                if (noImprovementCount >= maxNoImprovement)
-                {
-                    Debug.Log("[MazePlanner] 더 이상 경로 개선이 없어 중단합니다.");
-                    break;
-                }
-            }
-            else
-            {
-                noImprovementCount = 0; // 개선되면 리셋
-            }
 
             // 벽 배치
             solution.Add(bestWall.Value);
@@ -203,7 +186,40 @@ public static class MazePlanner
             currentPathLength = currentPath?.Count ?? currentPathLength;
 
             int distFromSpawn = Mathf.Abs(bestWall.Value.x - spawn.x) + Mathf.Abs(bestWall.Value.y - spawn.y);
-            Debug.Log($"[MazePlanner] 벽 #{solution.Count}: {bestWall.Value} (출발지 거리: {distFromSpawn}), 경로: {currentPathLength} (+{improvement}), 점수: {bestScore:F1}");
+            int totalWallsNow = initialBlocked.Count + solution.Count;
+
+            // 효율성 체크: 필드 벽이 15개 이상일 때만
+            if (totalWallsNow >= EFFICIENCY_CHECK_THRESHOLD)
+            {
+                if (improvement <= 0)
+                {
+                    noImprovementCount++;
+                    Debug.Log($"[MazePlanner] 벽 #{solution.Count}/{maxWallsToBuild}: {bestWall.Value} (출발지 거리: {distFromSpawn}), 경로: {currentPathLength} (개선없음 {noImprovementCount}/{MAX_NO_IMPROVEMENT}), 점수: {bestScore:F1}");
+
+                    if (noImprovementCount >= MAX_NO_IMPROVEMENT)
+                    {
+                        Debug.LogWarning($"[MazePlanner] 필드 벽 {totalWallsNow}개 상태에서 {MAX_NO_IMPROVEMENT}번 연속 개선 없음. 효율성을 위해 중단합니다.");
+                        break;
+                    }
+                }
+                else
+                {
+                    noImprovementCount = 0; // 개선되면 리셋
+                    Debug.Log($"[MazePlanner] 벽 #{solution.Count}/{maxWallsToBuild}: {bestWall.Value} (출발지 거리: {distFromSpawn}), 경로: {currentPathLength} (+{improvement}), 점수: {bestScore:F1}");
+                }
+            }
+            else
+            {
+                // 15개 미만일 때는 효율성 체크 없이 계속 건설
+                if (improvement > 0)
+                {
+                    Debug.Log($"[MazePlanner] 벽 #{solution.Count}/{maxWallsToBuild}: {bestWall.Value} (출발지 거리: {distFromSpawn}), 경로: {currentPathLength} (+{improvement}), 점수: {bestScore:F1}");
+                }
+                else
+                {
+                    Debug.Log($"[MazePlanner] 벽 #{solution.Count}/{maxWallsToBuild}: {bestWall.Value} (출발지 거리: {distFromSpawn}), 경로: {currentPathLength} (개선없음), 점수: {bestScore:F1}");
+                }
+            }
         }
 
         // 최종 경로 확인
