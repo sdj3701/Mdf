@@ -13,14 +13,22 @@ public class RemoveWallCommand : ICommand
 
     public void Execute()
     {
-        var player = GameManagers.Instance.GetPlayer(PlayerId);
-        if (player == null) return;
-        
-        if (player.fieldManager != null && player.fieldManager.GetWallAt(Position) != null)
+        var gm = GameManagers.Instance;
+        if (gm == null || gm.Runner == null || !gm.Runner.IsServer)
         {
-            player.fieldManager.RemoveWallAt(Position);
+            Debug.Log($"[RemoveWallCommand] Ignored on non-server peer. Player={PlayerId}, Pos={Position}");
+            return;
+        }
+
+        var player = gm.GetPlayer(PlayerId);
+        if (player == null) return;
+
+        var fm = player.fieldManager;
+        if (fm != null && fm.GetWallAt(Position) != null)
+        {
+            fm.RemoveWallAt(Position);
             player.ReturnWall();
-            GameEvents.TriggerWallRemovalSucceeded(player.playerId, Position);
+            gm.RPC_NotifyWallRemovalSucceeded(player.playerId, Position.x, Position.y);
         }
     }
 }

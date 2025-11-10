@@ -9,20 +9,26 @@ public class ExitButton : BaseButton
     public override void OnClick()
     {
         Debug.Log($"나가기 버튼 클릭됨 - {sceneNameToLoad} 씬으로 이동합니다.");
-        if (!string.IsNullOrEmpty(sceneNameToLoad))
+        if (string.IsNullOrEmpty(sceneNameToLoad))
         {
-            if (GameManagers.Instance != null)
-            {
-                Destroy(GameManagers.Instance.gameObject);
-            }
-            // 씬을 떠나기 전에 레지스트리를 초기화합니다.
-            ComponentRegistry.Clear();
+            Debug.LogError("로드할 씬 이름이 지정되지 않았습니다.");
+            return;
+        }
+        if (GameManagers.Instance != null)
+        {
+            Destroy(GameManagers.Instance.gameObject);
+        }
+        // 씬을 떠나기 전에 레지스트리를 초기화합니다.
+        ComponentRegistry.Clear();
 
-            SceneManager.LoadScene(sceneNameToLoad);
+        var nm = NetworkManager.Instance;
+        if (nm != null)
+        {
+            nm.LeaveAndLoad(sceneNameToLoad);
         }
         else
         {
-            Debug.LogError("로드할 씬 이름이 지정되지 않았습니다.");
+            SceneManager.LoadScene(sceneNameToLoad);
         }
     }
 }

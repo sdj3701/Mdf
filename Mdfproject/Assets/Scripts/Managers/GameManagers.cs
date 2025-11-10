@@ -448,6 +448,40 @@ public class GameManagers : NetworkBehaviour
         Debug.Log($"[Rpc_SetSinglePlayerModeCount] 싱글플레이어 모드 플레이어 수 설정: {count}");
     }
 
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_BroadcastCommandToClients(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
+    {
+        string who = Object.HasStateAuthority ? "Server" : "Client";
+        Debug.Log($"<color=green>[NetFlow] {who} BroadcastCommand received -> {type}</color>");
+        if (CommandProcessor != null)
+        {
+            CommandProcessor.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
+        }
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_NotifyPurchaseSucceeded(int playerID, int slotIndex)
+    {
+        Debug.Log($"<color=green>[NetFlow] PurchaseSucceeded broadcast -> Player={playerID}, Slot={slotIndex}</color>");
+        GameEvents.TriggerUnitPurchaseSucceeded(playerID, default(ShopItem), slotIndex);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_NotifyWallPlacementSucceeded(int playerID, int x, int y)
+    {
+        var pos = new Vector3Int(x, y, 0);
+        Debug.Log($"<color=green>[NetFlow] WallPlacementSucceeded broadcast -> Player={playerID}, Pos={pos}</color>");
+        GameEvents.TriggerWallPlacementSucceeded(playerID, pos);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_NotifyWallRemovalSucceeded(int playerID, int x, int y)
+    {
+        var pos = new Vector3Int(x, y, 0);
+        Debug.Log($"<color=green>[NetFlow] WallRemovalSucceeded broadcast -> Player={playerID}, Pos={pos}</color>");
+        GameEvents.TriggerWallRemovalSucceeded(playerID, pos);
+    }
+
     private async UniTask SetupGameUI()
     {
         try
@@ -518,7 +552,7 @@ public class GameManagers : NetworkBehaviour
         GameEvents.TriggerGameStateChanged(currentState); // 상태 변경 이벤트는 여기서 한번 트리거
         
         // UI 로직이 완료될 때까지 명시적으로 기다립니다.
-        await HandleUIForNewState(currentState); 
+        //await HandleUIForNewState(currentState); 
         
         Debug.Log(currentRound); // << 이 코드는 이제 HandleUIForNewState가 완료되면 실행됩니다!
 
@@ -549,6 +583,8 @@ public class GameManagers : NetworkBehaviour
                 PresentedAugments(player.playerId, names);
             }
         }
+        // UI 로직이 완료될 때까지 명시적으로 기다립니다.
+        await HandleUIForNewState(currentState); 
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, preparePhaseTime);
     }

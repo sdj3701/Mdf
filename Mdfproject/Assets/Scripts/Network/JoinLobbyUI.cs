@@ -101,10 +101,9 @@ public class JoinLobbyUI : MonoBehaviour
         
         _leaveRoomButton.onClick.AddListener(() =>
         {
-             if (_networkManager != null && _networkManager._runner != null)
+             if (_networkManager != null)
              {
-                 _networkManager._runner.Shutdown();
-                 SceneManager.LoadScene("MatchingLobby");
+                 _networkManager.LeaveAndLoad("MatchingLobby");
              }
         });
     }

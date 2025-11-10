@@ -3,6 +3,7 @@ using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using Fusion;
 
 public class Monster : MonoBehaviour, IEnemy, IHealth
 {
@@ -32,6 +33,9 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     private Coroutine attackCoroutine;
     private static bool isQuitting = false;
     private bool isMoving = false;
+    private float baseMoveSpeed;
+    private float currentMoveSpeed;
+    private NetworkObject netObj;
 
     void OnApplicationQuit() { isQuitting = true; }
 
@@ -48,6 +52,9 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         this.pathfinder = pathfinder;
         this.name = monsterData.monsterName;
         this.wallLayerMask = pathfinder.wallLayers;
+        netObj = GetComponent<NetworkObject>();
+        baseMoveSpeed = monsterData.moveSpeed;
+        currentMoveSpeed = baseMoveSpeed;
 
         currentMaxHP = monsterData.maxHealth;
         currentHP = currentMaxHP;
@@ -151,6 +158,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         float healthPercentage = currentHP / currentMaxHP;
         currentMaxHP = monsterData.maxHealth * healthMultiplier;
         currentHP = currentMaxHP * healthPercentage;
+        currentMoveSpeed = baseMoveSpeed * speedMultiplier;
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {currentHP}/{currentMaxHP}");
     }
@@ -227,6 +235,12 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
     public void StartFollowingPath(List<AstarNode> path)
     {
+        var no = netObj != null ? netObj : GetComponent<NetworkObject>();
+        if (no != null && !no.HasStateAuthority)
+        {
+            isMoving = false;
+            return;
+        }
         StopAllCoroutines();
 
         isMoving = true;
@@ -254,10 +268,11 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         );
         while (Vector3.Distance(transform.position, targetPosition) > 0.1f && isMoving)
         {
+            float dt = (netObj != null && netObj.Runner != null) ? netObj.Runner.DeltaTime : Time.deltaTime;
             Vector3 nextPos = Vector3.MoveTowards(
                 transform.position,
                 targetPosition,
-                monsterData.moveSpeed * Time.deltaTime
+                currentMoveSpeed * dt
             );
             if (pathfinder != null)
             {
@@ -303,7 +318,8 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
             while (Vector3.Distance(transform.position, currentTarget) > 0.1f && isMoving)
             {
-                Vector3 nextPos = Vector3.MoveTowards(transform.position, currentTarget, monsterData.moveSpeed * Time.deltaTime);
+                float dt = (netObj != null && netObj.Runner != null) ? netObj.Runner.DeltaTime : Time.deltaTime;
+                Vector3 nextPos = Vector3.MoveTowards(transform.position, currentTarget, currentMoveSpeed * dt);
                 if (pathfinder != null)
                 {
                     nextPos = pathfinder.ClampToGrid(nextPos);

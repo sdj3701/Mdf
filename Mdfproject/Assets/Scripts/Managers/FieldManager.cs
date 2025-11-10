@@ -3,6 +3,7 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
+using Fusion;
 using AI.UtilitySystem;
 using AI.UtilitySystem.Considerations.Placement;
 [RequireComponent(typeof(PlacementManager))]
@@ -463,7 +464,30 @@ public class FieldManager : MonoBehaviour
         float halfWallHeight = GetWallPrefabHeight() * 0.5f;
         worldPos.y += halfWallHeight;
 
-        GameObject wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
+        GameObject wallGO = null;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && destructibleWallPrefab.TryGetComponent<NetworkObject>(out var netPrefab))
+        {
+            if (!playerManager.Object.HasStateAuthority)
+            {
+                return;
+            }
+            var spawned = runner.Spawn(netPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
+            if (spawned == null)
+            {
+                Debug.LogError($"[FieldManager] Runner.Spawn 실패: {destructibleWallPrefab.name} (Player={playerManager?.playerId})");
+                return;
+            }
+            wallGO = spawned.gameObject;
+            if (wallParent != null)
+            {
+                wallGO.transform.SetParent(wallParent, true);
+            }
+        }
+        else
+        {
+            wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
+        }
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
 
         if (wallComponent != null)
@@ -501,7 +525,15 @@ public class FieldManager : MonoBehaviour
                 unitOnTop.TakeDamage(99999, DamageType.Physical);
             }
 
-            Destroy(wall.gameObject);
+            var runner = playerManager != null ? playerManager.Runner : null;
+            if (runner != null && wall.TryGetComponent<NetworkObject>(out var no) && playerManager.Object.HasStateAuthority)
+            {
+                runner.Despawn(no);
+            }
+            else
+            {
+                Destroy(wall.gameObject);
+            }
             placedWalls.Remove(gridPosition);
         }
     }
@@ -542,8 +574,17 @@ public class FieldManager : MonoBehaviour
     private async void GeneratePermanentWallsIfNeeded()
     {
         if (permanentWallsGenerated) return;
-        if (initialPermanentWallCount <= 0) { permanentWallsGenerated = true; return; }
         if (playerManager == null) return; // Initialize 미완료
+
+        // 네트워크 환경에서는 서버(호스트)만 초기 랜덤 생성 수행
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && runner.IsRunning && !runner.IsServer)
+        {
+            // 클라이언트는 서버의 RPC를 통해 동기화 대기
+            return;
+        }
+
+        if (initialPermanentWallCount <= 0) { permanentWallsGenerated = true; return; }
 
         // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
         GameObject prefab = permanentWallPrefab;
@@ -586,14 +627,57 @@ public class FieldManager : MonoBehaviour
         }
 
         int toPlace = Mathf.Min(initialPermanentWallCount, candidates.Count);
+        List<Vector3Int> selected = new List<Vector3Int>(toPlace);
         for (int i = 0; i < toPlace; i++)
         {
-            // 랜덤 추출
             int idx = Random.Range(0, candidates.Count);
             var pos = candidates[idx];
             candidates.RemoveAt(idx);
+            selected.Add(pos);
+            CreatePermanentWallAt(pos, prefab); // 서버/오프라인에서만 실제 배치
+        }
 
-            // 실제 배치
+        // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트하여 동일 위치에 생성
+        if (runner != null && runner.IsRunning && runner.IsServer && playerManager != null)
+        {
+            int[] flat = new int[selected.Count * 2];
+            for (int i = 0; i < selected.Count; i++)
+            {
+                flat[i * 2] = selected[i].x;
+                flat[i * 2 + 1] = selected[i].y;
+            }
+            playerManager.RPC_ApplyPermanentWalls(flat);
+        }
+
+        permanentWallsGenerated = true;
+    }
+
+    /// <summary>
+    /// 서버가 선택한 영구 벽 좌표 목록을 받아, 클라이언트에서 동일하게 생성합니다.
+    /// </summary>
+    public async void ApplyPermanentWallsFromServer(int[] flatPositions)
+    {
+        if (flatPositions == null || flatPositions.Length == 0) return;
+
+        // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
+        GameObject prefab = permanentWallPrefab;
+        if (prefab == null && !string.IsNullOrEmpty(permanentWallAddressKey))
+        {
+            prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey);
+        }
+
+        if (prefab == null)
+        {
+            Debug.LogError($"[FieldManager] Permanent wall prefab not available on client for ApplyPermanentWallsFromServer. Key='{permanentWallAddressKey}'");
+            return;
+        }
+
+        int count = flatPositions.Length / 2;
+        for (int i = 0; i < count; i++)
+        {
+            var pos = new Vector3Int(flatPositions[i * 2], flatPositions[i * 2 + 1], 0);
+            if (!IsValidGridPosition(pos)) continue;
+            if (HasWallAt(pos)) continue;
             CreatePermanentWallAt(pos, prefab);
         }
 
@@ -657,9 +741,11 @@ public class FieldManager : MonoBehaviour
 
     public void CreateAndPlaceUnitOnField(UnitData unitData, int starLevel)
     {
+        Debug.Log($"<color=green>[Flow] Request CreateAndPlaceUnitOnField -> {unitData?.unitName} ({starLevel}★) Player={playerManager?.playerId}</color>");
         // AI 플레이어인지 ComponentRegistry를 통해 확인합니다. AIPlayerController가 자신의 ID로 등록한다고 가정합니다.
         if (ComponentRegistry.Has<AIPlayerController>(playerManager.playerId.ToString()))
         {
+            Debug.Log($"<color=green>[Flow] AI path -> CreateAndPlaceUnitOnFieldForAI</color>");
             CreateAndPlaceUnitOnFieldForAI(unitData, starLevel);
             return; // AI 로직을 수행했으면 여기서 종료
         }
@@ -667,12 +753,14 @@ public class FieldManager : MonoBehaviour
         Vector3Int? emptySlot = FindFirstEmptySlot(unitData);
         if (emptySlot.HasValue)
         {
+            Debug.Log($"<color=green>[Flow] Placement slot found at {emptySlot.Value} -> CreateUnitAt</color>");
             CreateUnitAt(unitData, emptySlot.Value, starLevel);
             CheckForCombination();
         }
         else
         {
             Debug.LogWarning("[FieldManager] 필드에 빈 공간이 없어 유닛을 배치할 수 없습니다! 골드를 환불합니다.");
+            Debug.Log("<color=green>[Flow] No empty slot -> refund</color>");
             int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
             playerManager.AddGold(refundCost);
         }
@@ -718,8 +806,37 @@ public class FieldManager : MonoBehaviour
         
         // 3D 그리드 사용 (벽 체크 포함)
         Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
-        
-        GameObject newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+
+        GameObject newUnitGO = null;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        bool hasNetPrefab = prefabToCreate.TryGetComponent<NetworkObject>(out var networkPrefab);
+        Debug.Log($"<color=green>[Spawn] Request -> {data.unitName} ({starLevel}★) at {gridPosition}, runner={(runner!=null)}, hasNetPrefab={hasNetPrefab}, stateAuth={(playerManager!=null ? playerManager.Object.HasStateAuthority : false)}</color>");
+        if (runner != null && hasNetPrefab)
+        {
+            if (!playerManager.Object.HasStateAuthority)
+            {
+                Debug.Log($"<color=green>[Spawn] Client attempted network spawn -> ignored (server only). Player={playerManager?.playerId}</color>");
+                return;
+            }
+
+            var spawned = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
+            if (spawned == null)
+            {
+                Debug.LogError($"[FieldManager] Runner.Spawn 실패: {prefabToCreate.name} (Player={playerManager?.playerId})");
+                return;
+            }
+            newUnitGO = spawned.gameObject;
+            Debug.Log($"<color=green>[Spawn] Network unit spawned -> {newUnitGO.name} at {worldPos} (Player={playerManager?.playerId})</color>");
+            if (unitParent != null)
+            {
+                newUnitGO.transform.SetParent(unitParent, true);
+            }
+        }
+        else
+        {
+            newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+            Debug.Log($"<color=green>[Spawn] Local instantiate (non-network) -> {newUnitGO.name} at {worldPos}</color>");
+        }
         // Attach orientation fixer to ensure rig local rotation and face camera on spawn
         var orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
         orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs
