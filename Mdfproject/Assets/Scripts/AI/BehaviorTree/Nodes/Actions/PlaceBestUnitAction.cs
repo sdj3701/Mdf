@@ -82,19 +82,37 @@ namespace AI.BehaviorTree.Nodes.Actions
             }
             Vector3Int originalPos = originalPosNullable.Value;
 
+            // 유닛의 실제 물리적 위치가 논리적 그리드 위치와 일치하는지 확인합니다.
+            Vector3 expectedWorldPos = _playerManager.fieldManager.GridToWorld(originalPos, checkForWall: true);
+            float distanceFromExpected = Vector3.Distance(nextUnitToMove.transform.position, expectedWorldPos);
+            bool isPhysicallyAtPosition = distanceFromExpected < 0.1f; // 0.1 유닛 이내면 같은 위치로 간주
+
             // 현재 위치를 고려하여 최적의 새 위치를 찾습니다. (변환된 '이상적인 경로'를 전달)
             Vector3Int? bestPos = _playerManager.fieldManager.FindBestSpotForAI(nextUnitToMove.Data, _idealMonsterPath, null, null, originalPos);
 
-            if (bestPos.HasValue && bestPos.Value != originalPos)
+            // 최적 위치로 이동해야 하는 경우:
+            // 1. 최적 위치가 현재 논리적 위치와 다른 경우
+            // 2. 또는 최적 위치가 같더라도 유닛이 물리적으로 그 위치에 없는 경우 (async 생성 지연 대응)
+            if (bestPos.HasValue && (bestPos.Value != originalPos || !isPhysicallyAtPosition))
             {
                 // Pace unit moves
                 if (!AIPacer.Ready(_playerManager.playerId, AIPacer.CatMove))
                 {
                     return status = NodeStatus.Running;
                 }
-                // 위치가 변경되어야 한다면 MoveUnitCommand를 실행합니다.
-                Debug.Log($"[AI] 유닛 재배치: {nextUnitToMove.Data.unitName} {originalPos} → {bestPos.Value} (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
-                _commandProcessor.RequestCommandExecution(new MoveUnitCommand(_playerManager.playerId, originalPos, bestPos.Value));
+
+                if (bestPos.Value != originalPos)
+                {
+                    // 위치가 변경되어야 한다면 MoveUnitCommand를 실행합니다.
+                    Debug.Log($"[AI] 유닛 재배치: {nextUnitToMove.Data.unitName} {originalPos} → {bestPos.Value} (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
+                    _commandProcessor.RequestCommandExecution(new MoveUnitCommand(_playerManager.playerId, originalPos, bestPos.Value));
+                }
+                else
+                {
+                    // 논리적 위치는 같지만 물리적으로 이동이 필요한 경우 (같은 위치로 "이동"하여 물리적 위치 동기화)
+                    Debug.Log($"[AI] 유닛 위치 동기화: {nextUnitToMove.Data.unitName} {originalPos} (물리적 거리: {distanceFromExpected:F2}) (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
+                    _commandProcessor.RequestCommandExecution(new MoveUnitCommand(_playerManager.playerId, originalPos, bestPos.Value));
+                }
                 AIPacer.Arm(_playerManager.playerId, AIPacer.CatMove, 0.4f, 0.9f);
             }
             else
