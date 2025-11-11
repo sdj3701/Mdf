@@ -77,6 +77,7 @@ public class FieldManager : MonoBehaviour
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
     private Vector3 offset;
+    private Fusion.NetworkTransform selectedUnitNetworkTransform; // 드래그 중 NetworkTransform 참조
 
     private readonly List<Consideration> _placementConsiderations = new List<Consideration>
     {
@@ -884,17 +885,49 @@ public class FieldManager : MonoBehaviour
 
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
+            Debug.Log($"<color=green>[MoveUnit] {unit.Data.unitName} 이동: {from} -> {to}</color>");
             placedUnits.Remove(from);
 
             Vector3 finalWorldPos = GridToWorld(to, checkForWall: true);
 
-            unit.transform.position = finalWorldPos;
+            // ✅ NetworkTransform 처리
+            var networkTransform = unit.GetComponent<Fusion.NetworkTransform>();
+
+            if (networkTransform != null)
+            {
+                // NetworkTransform이 비활성화되어 있으면 재활성화
+                if (!networkTransform.enabled)
+                {
+                    networkTransform.enabled = true;
+                    Debug.Log($"<color=cyan>[MoveUnit] NetworkTransform 재활성화: {unit.Data.unitName}</color>");
+                }
+
+                // StateAuthority가 있는 경우에만 Teleport 호출
+                var networkObject = unit.GetComponent<Fusion.NetworkObject>();
+                if (networkObject != null && networkObject.HasStateAuthority)
+                {
+                    networkTransform.Teleport(finalWorldPos, unit.transform.rotation);
+                    Debug.Log($"<color=cyan>[MoveUnit] NetworkTransform.Teleport 호출 (StateAuthority): {unit.Data.unitName} to {finalWorldPos}</color>");
+                }
+                else
+                {
+                    // StateAuthority가 없으면 직접 위치 설정 (네트워크 동기화 대기)
+                    unit.transform.position = finalWorldPos;
+                    Debug.Log($"<color=yellow>[MoveUnit] 직접 위치 설정 (No StateAuthority): {unit.Data.unitName} to {finalWorldPos}</color>");
+                }
+            }
+            else
+            {
+                // NetworkTransform이 없는 경우 (로컬 전용)
+                unit.transform.position = finalWorldPos;
+            }
+
             placedUnits.Add(to, unit);
             CheckForCombination();
         }
         else
         {
-            Debug.LogWarning($"[FieldManager] MoveUnit: '{from}' 위치에서 유닛을 찾을 수 없습니다.");
+            Debug.LogWarning($"<color=red>[FieldManager] MoveUnit: '{from}' 위치에서 유닛을 찾을 수 없습니다.</color>");
         }
     }
 
@@ -911,11 +944,67 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
+        Debug.Log($"<color=yellow>[SwapUnits] {unitA.Data.unitName} <-> {unitB.Data.unitName} ({a} <-> {b})</color>");
+
         Vector3 worldForA = GridToWorld(b, checkForWall: true);
         Vector3 worldForB = GridToWorld(a, checkForWall: true);
 
-        unitA.transform.position = worldForA;
-        unitB.transform.position = worldForB;
+        // ✅ NetworkTransform 처리
+        var networkTransformA = unitA.GetComponent<Fusion.NetworkTransform>();
+        var networkTransformB = unitB.GetComponent<Fusion.NetworkTransform>();
+
+        // unitA 처리
+        if (networkTransformA != null)
+        {
+            if (!networkTransformA.enabled)
+            {
+                networkTransformA.enabled = true;
+                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform 재활성화: {unitA.Data.unitName}</color>");
+            }
+
+            var networkObjectA = unitA.GetComponent<Fusion.NetworkObject>();
+            if (networkObjectA != null && networkObjectA.HasStateAuthority)
+            {
+                networkTransformA.Teleport(worldForA, unitA.transform.rotation);
+                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform.Teleport (StateAuthority): {unitA.Data.unitName} to {worldForA}</color>");
+            }
+            else
+            {
+                unitA.transform.position = worldForA;
+                Debug.Log($"<color=yellow>[SwapUnits] 직접 위치 설정 (No StateAuthority): {unitA.Data.unitName} to {worldForA}</color>");
+            }
+        }
+        else
+        {
+            unitA.transform.position = worldForA;
+        }
+
+        // unitB 처리
+        if (networkTransformB != null)
+        {
+            if (!networkTransformB.enabled)
+            {
+                networkTransformB.enabled = true;
+                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform 재활성화: {unitB.Data.unitName}</color>");
+            }
+
+            var networkObjectB = unitB.GetComponent<Fusion.NetworkObject>();
+            if (networkObjectB != null && networkObjectB.HasStateAuthority)
+            {
+                networkTransformB.Teleport(worldForB, unitB.transform.rotation);
+                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform.Teleport (StateAuthority): {unitB.Data.unitName} to {worldForB}</color>");
+            }
+            else
+            {
+                unitB.transform.position = worldForB;
+                Debug.Log($"<color=yellow>[SwapUnits] 직접 위치 설정 (No StateAuthority): {unitB.Data.unitName} to {worldForB}</color>");
+            }
+        }
+        else
+        {
+            unitB.transform.position = worldForB;
+        }
+
         placedUnits[a] = unitB;
         placedUnits[b] = unitA;
         CheckForCombination();
@@ -1358,6 +1447,9 @@ public class FieldManager : MonoBehaviour
                     selectedUnit.transform.position.x - mouseWorldPos.x,
                     selectedUnit.transform.position.z - mouseWorldPos.z
                 );
+
+                // NetworkTransform 참조 저장 (드래그 시작 시 비활성화할 예정)
+                selectedUnitNetworkTransform = selectedUnit.GetComponent<Fusion.NetworkTransform>();
             }
         }
 
@@ -1375,6 +1467,13 @@ public class FieldManager : MonoBehaviour
                     isDragStarted = true;
                     // offset과 originalUnitPosition은 이미 GetMouseButtonDown에서 설정되었습니다.
 
+                    // ✅ NetworkTransform 비활성화 (로컬 드래그를 위해)
+                    if (selectedUnitNetworkTransform != null)
+                    {
+                        selectedUnitNetworkTransform.enabled = false;
+                        Debug.Log($"<color=cyan>[Drag] NetworkTransform 비활성화: {selectedUnit.Data.unitName}</color>");
+                    }
+
                     // 드래그가 시작되면 열려있던 상세 정보 패널을 닫음
                     if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
                     {
@@ -1391,10 +1490,12 @@ public class FieldManager : MonoBehaviour
                 float targetZ = mouseWorldPos.z + offsetXZ.y;
                 float targetY = dragBaseY + dragLiftHeight;
                 Vector3 targetPos = new Vector3(targetX, targetY, targetZ);
-                selectedUnit.transform.position = Vector3.Lerp(
+
+                // NetworkTransform이 비활성화되어 있으므로 직접 transform.position 변경 가능
+                selectedUnit.transform.position = Vector3.MoveTowards(
                     selectedUnit.transform.position,
                     targetPos,
-                    Time.deltaTime * dragFollowSpeed
+                    dragFollowSpeed * Time.deltaTime
                 );
             }
         }
@@ -1411,6 +1512,9 @@ public class FieldManager : MonoBehaviour
 
                 if (placementManager.IsPositionValidForPlacement(bestGrid, selectedUnit.Data))
                 {
+                    Debug.Log($"<color=green>[Drag] 유효한 위치로 이동: {originalUnitPosition} -> {bestGrid}</color>");
+                    Debug.Log($"<color=green>[Drag] 현재 유닛 물리적 위치: {selectedUnit.transform.position}</color>");
+                    Debug.Log($"<color=green>[Drag] 목표 그리드 월드 위치: {GridToWorld(bestGrid, checkForWall: true)}</color>");
                     var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
                     GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
                 }
@@ -1425,19 +1529,64 @@ public class FieldManager : MonoBehaviour
                         bool invalidForTarget = target.Data.unitType == UnitType.Melee && destWallForTarget;
                         if (!invalidForSelected && !invalidForTarget)
                         {
+                            Debug.Log($"<color=yellow>[Drag] 스왑: {originalUnitPosition} <-> {bestGrid}</color>");
                             var swapCmd = new SwapUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
                             GameManagers.Instance.CommandProcessor.RequestCommandExecution(swapCmd);
                         }
                         else
                         {
+                            Debug.Log($"<color=red>[Drag] 스왑 불가, 원래 위치로 복귀</color>");
                             Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-                            selectedUnit.transform.position = originalWorldPos;
+
+                            // ✅ NetworkTransform 처리
+                            if (selectedUnitNetworkTransform != null)
+                            {
+                                selectedUnitNetworkTransform.enabled = true;
+
+                                var networkObject = selectedUnit.GetComponent<Fusion.NetworkObject>();
+                                if (networkObject != null && networkObject.HasStateAuthority)
+                                {
+                                    selectedUnitNetworkTransform.Teleport(originalWorldPos, selectedUnit.transform.rotation);
+                                    Debug.Log($"<color=cyan>[Drag] NetworkTransform.Teleport로 원래 위치 복귀 (StateAuthority): {originalWorldPos}</color>");
+                                }
+                                else
+                                {
+                                    selectedUnit.transform.position = originalWorldPos;
+                                    Debug.Log($"<color=yellow>[Drag] 직접 위치 설정으로 원래 위치 복귀 (No StateAuthority): {originalWorldPos}</color>");
+                                }
+                            }
+                            else
+                            {
+                                selectedUnit.transform.position = originalWorldPos;
+                            }
                         }
                     }
                     else
                     {
+                        Debug.Log($"<color=red>[Drag] 유효하지 않은 위치, 원래 위치로 복귀</color>");
                         Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-                        selectedUnit.transform.position = originalWorldPos;
+
+                        // ✅ NetworkTransform 처리
+                        if (selectedUnitNetworkTransform != null)
+                        {
+                            selectedUnitNetworkTransform.enabled = true;
+
+                            var networkObject = selectedUnit.GetComponent<Fusion.NetworkObject>();
+                            if (networkObject != null && networkObject.HasStateAuthority)
+                            {
+                                selectedUnitNetworkTransform.Teleport(originalWorldPos, selectedUnit.transform.rotation);
+                                Debug.Log($"<color=cyan>[Drag] NetworkTransform.Teleport로 원래 위치 복귀 (StateAuthority): {originalWorldPos}</color>");
+                            }
+                            else
+                            {
+                                selectedUnit.transform.position = originalWorldPos;
+                                Debug.Log($"<color=yellow>[Drag] 직접 위치 설정으로 원래 위치 복귀 (No StateAuthority): {originalWorldPos}</color>");
+                            }
+                        }
+                        else
+                        {
+                            selectedUnit.transform.position = originalWorldPos;
+                        }
                     }
                 }
             }
@@ -1454,6 +1603,7 @@ public class FieldManager : MonoBehaviour
 
             // 상태 초기화
             selectedUnit = null;
+            selectedUnitNetworkTransform = null;
             isDragStarted = false;
         }
     }

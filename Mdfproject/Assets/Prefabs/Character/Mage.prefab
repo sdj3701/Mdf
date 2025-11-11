@@ -461,10 +461,11 @@ GameObject:
   - component: {fileID: 5421546248919597826}
   - component: {fileID: 2344990515100363923}
   - component: {fileID: 5687841422489749802}
-  - component: {fileID: 4393772096081097981}
   - component: {fileID: 8535952003866153453}
   - component: {fileID: 7820414157509443085}
   - component: {fileID: 3992811062149835066}
+  - component: {fileID: 3195058962985288894}
+  - component: {fileID: -8159867622231242624}
   m_Layer: 14
   m_Name: Mage
   m_TagString: Untagged
@@ -616,24 +617,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1ecec5c26686a964dbfc4e867a930b16, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
---- !u!114 &4393772096081097981
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1478022659275265631}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  SortKey: 698072620
-  ObjectInterest: 1
-  Flags: 262145
-  NestedObjects: []
-  NetworkedBehaviours: []
-  ForceRemoteRenderTimeframe: 0
 --- !u!114 &8535952003866153453
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -682,6 +665,42 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
+--- !u!114 &3195058962985288894
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1478022659275265631}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: -1552182283, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  SortKey: 1354919597
+  ObjectInterest: 1
+  Flags: 262145
+  NestedObjects: []
+  NetworkedBehaviours:
+  - {fileID: -8159867622231242624}
+  ForceRemoteRenderTimeframe: 0
+--- !u!114 &-8159867622231242624
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1478022659275265631}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 158639473, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _stateAuthorityChangeErrorCorrectionDelta: 0
+  SyncScale: 0
+  SyncParent: 0
+  _autoAOIOverride: 1
+  DisableSharedModeInterpolation: 0
 --- !u!1 &1515882270959870548
 GameObject:
   m_ObjectHideFlags: 0
