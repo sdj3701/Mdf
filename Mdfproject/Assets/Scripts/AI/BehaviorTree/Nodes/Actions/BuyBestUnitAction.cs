@@ -28,13 +28,18 @@ namespace AI.BehaviorTree.Nodes.Actions
 
         public override NodeStatus Tick()
         {
+            //Debug.Log($"<color=magenta>[BuyBestUnitAction] Tick 시작 - Player {_playerManager.playerId}, 골드: {_playerManager.GetGold()}, 구매완료: {_playerManager.unitPurchaseComplete}</color>");
+
             // Pace purchases so they don't look instantaneous
             if (!AIPacer.Ready(_playerManager.playerId, AIPacer.CatBuy))
             {
-                return status = NodeStatus.Failure;
+                //Debug.Log($"<color=magenta>[BuyBestUnitAction] AIPacer 대기 중...</color>");
+                return status = NodeStatus.Running; // Failure 대신 Running 반환
             }
 
             var availableItems = _playerManager.shopManager.GetAvailableShopItems();
+            //Debug.Log($"<color=magenta>[BuyBestUnitAction] 상점 아이템 개수: {availableItems.Count}</color>");
+
             int bestSlotIndex = -1;
             float highestScore = 0f;
 
@@ -43,10 +48,16 @@ namespace AI.BehaviorTree.Nodes.Actions
                 int slotIndex = itemPair.Key;
                 ShopItem item = itemPair.Value;
 
-                if (_playerManager.GetGold() < item.CalculatedCost) continue;
+                if (_playerManager.GetGold() < item.CalculatedCost)
+                {
+                    //Debug.Log($"<color=magenta>[BuyBestUnitAction] 슬롯 {slotIndex}: {item.UnitData.unitName} - 골드 부족 (필요: {item.CalculatedCost}, 보유: {_playerManager.GetGold()})</color>");
+                    continue;
+                }
 
                 var context = new AIContext(_playerManager, item);
                 float currentScore = CalculateScore(context, _buyConsiderations);
+
+                //Debug.Log($"<color=magenta>[BuyBestUnitAction] 슬롯 {slotIndex}: {item.UnitData.unitName} - 점수: {currentScore:F2}</color>");
 
                 if (currentScore > highestScore)
                 {
@@ -55,13 +66,21 @@ namespace AI.BehaviorTree.Nodes.Actions
                 }
             }
 
-            // 0.2점 같은 임계값보다 높은 점수의 아이템이 있다면 구매
-            if (bestSlotIndex != -1 && highestScore > 0.2f)
+            // 0.1점 같은 임계값보다 높은 점수의 아이템이 있다면 구매
+            if (bestSlotIndex != -1 && highestScore > 0.1f)
             {
+                //Debug.Log($"<color=magenta>[BuyBestUnitAction] 유닛 구매: 슬롯 {bestSlotIndex}, 점수: {highestScore:F2}</color>");
                 _commandProcessor.RequestCommandExecution(new BuyUnitCommand(_playerManager.playerId, bestSlotIndex));
                 // Arm next buy after a short random delay
                 AIPacer.Arm(_playerManager.playerId, AIPacer.CatBuy, 0.5f, 1.0f);
                 return status = NodeStatus.Success;
+            }
+
+            // 더 이상 구매할 유닛이 없으면 구매 완료 플래그 설정
+            if (!_playerManager.unitPurchaseComplete)
+            {
+                _playerManager.unitPurchaseComplete = true;
+                //Debug.Log($"<color=magenta>[BuyBestUnitAction] Player {_playerManager.playerId} 유닛 구매 완료! (최고 점수: {highestScore:F2}, 골드: {_playerManager.GetGold()})</color>");
             }
 
             return status = NodeStatus.Failure;

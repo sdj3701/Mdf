@@ -41,29 +41,29 @@ public class FieldManager : MonoBehaviour
     [Header("3D 그리드 설정")]
     [Tooltip("3D 공간에서 논리 그리드의 시작점 (보통 Ground 오브젝트의 위치)")]
     public Vector3 gridOrigin = Vector3.zero;
-    
+
     [Tooltip("그리드 한 칸의 크기 (미터 단위)")]
     public float cellSize = 1f;
-    
+
     [Tooltip("그리드 크기 (X, Z 칸 수) - x는 3D의 X, y는 3D의 Z를 의미")]
     public Vector2Int gridSize = new Vector2Int(10, 8);
-    
+
     [Tooltip("Ground Renderer의 Bounds로부터 그리드 Origin/Size를 자동 유도합니다. 끄면 인스펙터 설정값을 그대로 사용합니다.")]
     public bool deriveGridFromGroundBounds = false;
-    
+
     [Header("유닛 배치 높이 설정")]
     [Tooltip("일반 Ground에 배치될 때 Y축 오프셋")]
     public float groundYOffset = 0f;
-    
+
     [Tooltip("벽(BreakWall) 위에 배치될 때 Y축 오프셋")]
     [SerializeField]
     private float wallYOffset = 1f;
-    
+
     // 3D Ground 오브젝트 참조 (Raycast 대상)
     public GameObject ground3D { get; private set; }
 
     // [Deprecated] Tilemap은 호환성을 위해 유지하되, 3D 전환 시 null이 될 수 있음
-    
+
 
 
     private PlacementManager placementManager;
@@ -191,7 +191,7 @@ public class FieldManager : MonoBehaviour
     {
         this.playerManager = owner;
         this.ground3D = ground3DObject;
-        
+
         // 3D Ground 기준으로 항상 그리드 원점을 정렬하고, 필요 시에만 사이즈를 유도합니다.
         if (ground3D != null)
         {
@@ -247,11 +247,11 @@ public class FieldManager : MonoBehaviour
 
         GeneratePermanentWallsIfNeeded();
     }
-    
-    
-    
+
+
+
     #region 3D Grid Coordinate Conversion
-    
+
     /// <summary>
     /// 논리 그리드 좌표를 3D 월드 좌표로 변환합니다.
     /// </summary>
@@ -263,7 +263,7 @@ public class FieldManager : MonoBehaviour
         // 그리드 좌표를 3D 월드 좌표로 변환
         float worldX = gridOrigin.x + (gridPos.x + 0.5f) * cellSize;
         float worldZ = gridOrigin.z + (gridPos.y + 0.5f) * cellSize;
-        
+
         // Y 오프셋 계산 (벽 위인지 확인)
         float yOffset = gridOrigin.y + groundYOffset;
         if (checkForWall && ground3D != null)
@@ -274,10 +274,10 @@ public class FieldManager : MonoBehaviour
                 yOffset = gridOrigin.y + wallYOffset;
             }
         }
-        
+
         return new Vector3(worldX, yOffset, worldZ);
     }
-    
+
     /// <summary>
     /// 3D 월드 좌표를 논리 그리드 좌표로 변환합니다.
     /// </summary>
@@ -293,7 +293,7 @@ public class FieldManager : MonoBehaviour
         gridY = Mathf.Clamp(gridY, 0, Mathf.Max(0, gridSize.y - 1));
         return new Vector2Int(gridX, gridY);
     }
-    
+
     /// <summary>
     /// Vector3Int를 3D 월드 좌표로 변환합니다. (호환성용)
     /// </summary>
@@ -301,7 +301,7 @@ public class FieldManager : MonoBehaviour
     {
         return GridToWorld(new Vector2Int(gridPos.x, gridPos.y), checkForWall);
     }
-    
+
     /// <summary>
     /// 3D 월드 좌표를 Vector3Int 그리드 좌표로 변환합니다. (호환성용)
     /// </summary>
@@ -327,7 +327,7 @@ public class FieldManager : MonoBehaviour
         float clampedZ = Mathf.Clamp(worldPos.z, minZ, maxZExclusive - epsilon);
         return new Vector3(clampedX, worldPos.y, clampedZ);
     }
-    
+
     /// <summary>
     /// 그리드 좌표가 유효한 범위 내에 있는지 확인합니다.
     /// </summary>
@@ -336,12 +336,12 @@ public class FieldManager : MonoBehaviour
         return gridPos.x >= 0 && gridPos.x < gridSize.x &&
                gridPos.y >= 0 && gridPos.y < gridSize.y;
     }
-    
+
     public bool IsValidGridPosition(Vector3Int gridPos)
     {
         return IsValidGridPosition(new Vector2Int(gridPos.x, gridPos.y));
     }
-    
+
     #endregion
 
     // ... (이하 나머지 코드는 이전과 동일) ...
@@ -411,7 +411,7 @@ public class FieldManager : MonoBehaviour
             if (selectedUnit != null)
             {
                 Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-                
+
                 selectedUnit.transform.position = originalWorldPos;
                 // 드래그 중에는 placedUnits에서 제거되지 않으므로, 다시 Add할 필요가 없습니다.
 
@@ -568,7 +568,7 @@ public class FieldManager : MonoBehaviour
         return prefab != null ? prefab.transform.localScale.y : 1f;
     }
 
-    
+
 
     // 영구(파괴 불가) 벽 생성
     private async void GeneratePermanentWallsIfNeeded()
@@ -803,7 +803,7 @@ public class FieldManager : MonoBehaviour
             Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹({prefabKey})을 로드할 수 없습니다!");
             return;
         }
-        
+
         // 3D 그리드 사용 (벽 체크 포함)
         Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
 
@@ -885,9 +885,9 @@ public class FieldManager : MonoBehaviour
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
             placedUnits.Remove(from);
-            
+
             Vector3 finalWorldPos = GridToWorld(to, checkForWall: true);
-            
+
             unit.transform.position = finalWorldPos;
             placedUnits.Add(to, unit);
             CheckForCombination();

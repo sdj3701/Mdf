@@ -21,9 +21,19 @@ public class HeadLookController : MonoBehaviour
     {
         if (animator == null) return;
 
-        // 1. 캐릭터의 머리 위치를 가져옵니다.
-        Vector3 headPosition = animator.GetBoneTransform(HumanBodyBones.Head).position;
+         Transform headTransform = animator.GetBoneTransform(HumanBodyBones.Head);
 
+        // ★★★ 추가된 부분: 머리 뼈를 찾았는지 확인합니다. ★★★
+        if (headTransform == null)
+        {
+            // 머리 뼈를 못 찾았으면 더 이상 진행하지 않고 함수를 종료합니다.
+            // 디버그 로그를 추가하여 원인 파악을 쉽게 할 수 있습니다.
+            Debug.LogWarning("Head bone not found. Please check the Humanoid Avatar configuration.");
+            return;
+        }
+
+        // 1. 캐릭터의 머리 위치를 가져옵니다.
+        Vector3 headPosition = headTransform.position;
         // 2. 목표 방향을 계산합니다: 캐릭터의 정면(transform.forward) + 월드 위쪽(Vector3.up)
         // tiltAngle 값으로 위를 보는 정도를 조절할 수 있습니다.
         Vector3 lookDirection = (transform.forward + Vector3.up * tiltAngle).normalized;

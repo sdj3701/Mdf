@@ -3,23 +3,25 @@ using UnityEngine;
 
 namespace AI.BehaviorTree.Nodes.Conditions
 {
-    public class IsAugmentPhaseCondition : DecoratorNode
+    /// <summary>
+    /// 유닛 구매가 완료되었는지 확인하는 조건 노드
+    /// </summary>
+    public class IsUnitPurchaseCompleteCondition : DecoratorNode
     {
-        private PlayerManager _playerManager;
+        private readonly PlayerManager _playerManager;
 
-        public IsAugmentPhaseCondition(PlayerManager playerManager, Node child) : base(child)
+        public IsUnitPurchaseCompleteCondition(PlayerManager playerManager, Node child) : base(child)
         {
             _playerManager = playerManager;
         }
 
         public override NodeStatus Tick()
         {
-            int augmentCount = _playerManager.augmentManager.GetPresentedAugments().Count;
+            bool isComplete = _playerManager != null && _playerManager.unitPurchaseComplete;
 
-            if (augmentCount > 0)
+            if (isComplete)
             {
                 status = child.Tick(); // 조건 만족 시 자식 노드 실행
-                Debug.Log($"<color=magenta>[IsAugmentPhaseCondition] 증강 선택 실행 결과: {status}</color>");
                 return status;
             }
             status = NodeStatus.Failure;
@@ -27,3 +29,4 @@ namespace AI.BehaviorTree.Nodes.Conditions
         }
     }
 }
+

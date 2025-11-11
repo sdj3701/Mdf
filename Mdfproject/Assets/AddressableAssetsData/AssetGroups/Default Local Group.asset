@@ -237,6 +237,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - WallPrefab
+  - m_GUID: a177306eb7631374bae91b51e268e10d
+    m_Address: Mage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:
