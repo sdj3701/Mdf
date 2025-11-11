@@ -85,8 +85,8 @@ namespace AI.BehaviorTree.Nodes.Actions
                 }
                 return status = NodeStatus.Failure;
             }
-
-            Debug.Log($"<color=cyan>[BuildMazeAction] 다음 벽 찾음: 인덱스 {nextIndex}/{_playerManager.mazePlannedOrder.Count}, 위치: {_playerManager.mazePlannedOrder[nextIndex]} (이미 건설: {wallsAlreadyBuilt}, 스킵: {wallsSkipped})</color>");
+            
+            //Debug.Log($"<color=cyan>[BuildMazeAction] 다음 벽 찾음: 인덱스 {nextIndex}/{_playerManager.mazePlannedOrder.Count}, 위치: {_playerManager.mazePlannedOrder[nextIndex]} (이미 건설: {wallsAlreadyBuilt}, 스킵: {wallsSkipped})</color>");
 
             // 4) 재고 확인: k개는 항상 남긴다
             int reserve = _playerManager.GetWallReserveK();
@@ -127,13 +127,9 @@ namespace AI.BehaviorTree.Nodes.Actions
                     }
                 }
 
-                Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} 벽 건설: {placeAt} ({nextIndex + 1}/{_playerManager.mazePlannedOrder.Count}) (건설 전 골드: {_playerManager.GetGold()})</color>");
-
                 // 안전: Spawn/Goal 보호는 PlaceWallCommand에서 재확인됨
                 var cmd = new PlaceWallCommand(_playerManager.playerId, placeAt);
                 _commandProcessor.RequestCommandExecution(cmd);
-
-                Debug.Log($"<color=cyan>[BuildMazeAction] 벽 건설 후 골드: {_playerManager.GetGold()}</color>");
 
                 _playerManager.mazeBuildCursor = nextIndex + 1;
                 _nextBuildAt = Time.time + Random.Range(_minInterval, _maxInterval);

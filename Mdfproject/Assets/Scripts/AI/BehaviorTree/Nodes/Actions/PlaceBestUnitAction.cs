@@ -104,20 +104,20 @@ namespace AI.BehaviorTree.Nodes.Actions
                 if (bestPos.Value != originalPos)
                 {
                     // 위치가 변경되어야 한다면 MoveUnitCommand를 실행합니다.
-                    Debug.Log($"[AI] 유닛 재배치: {nextUnitToMove.Data.unitName} {originalPos} → {bestPos.Value} (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
+                    //Debug.Log($"[AI] 유닛 재배치: {nextUnitToMove.Data.unitName} {originalPos} → {bestPos.Value} (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
                     _commandProcessor.RequestCommandExecution(new MoveUnitCommand(_playerManager.playerId, originalPos, bestPos.Value));
                 }
                 else
                 {
                     // 논리적 위치는 같지만 물리적으로 이동이 필요한 경우 (같은 위치로 "이동"하여 물리적 위치 동기화)
-                    Debug.Log($"[AI] 유닛 위치 동기화: {nextUnitToMove.Data.unitName} {originalPos} (물리적 거리: {distanceFromExpected:F2}) (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
+                    //Debug.Log($"[AI] 유닛 위치 동기화: {nextUnitToMove.Data.unitName} {originalPos} (물리적 거리: {distanceFromExpected:F2}) (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
                     _commandProcessor.RequestCommandExecution(new MoveUnitCommand(_playerManager.playerId, originalPos, bestPos.Value));
                 }
                 AIPacer.Arm(_playerManager.playerId, AIPacer.CatMove, 0.4f, 0.9f);
             }
             else
             {
-                Debug.Log($"[AI] 유닛 유지: {nextUnitToMove.Data.unitName} {originalPos} (최적 위치) (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
+                //Debug.Log($"[AI] 유닛 유지: {nextUnitToMove.Data.unitName} {originalPos} (최적 위치) (진행: {_rearrangedUnits.Count + 1}/{_unitsToRearrange.Count})");
             }
 
             // 이 유닛은 처리되었음을 기록합니다.
