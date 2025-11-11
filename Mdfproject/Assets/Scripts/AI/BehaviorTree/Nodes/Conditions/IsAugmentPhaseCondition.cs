@@ -1,4 +1,5 @@
 using AI.BehaviorTree.Nodes;
+using UnityEngine;
 
 namespace AI.BehaviorTree.Nodes.Conditions
 {
@@ -13,9 +14,12 @@ namespace AI.BehaviorTree.Nodes.Conditions
 
         public override NodeStatus Tick()
         {
-            if (_playerManager.augmentManager.GetPresentedAugments().Count > 0)
+            int augmentCount = _playerManager.augmentManager.GetPresentedAugments().Count;
+
+            if (augmentCount > 0)
             {
                 status = child.Tick(); // 조건 만족 시 자식 노드 실행
+                Debug.Log($"<color=magenta>[IsAugmentPhaseCondition] 증강 선택 실행 결과: {status}</color>");
                 return status;
             }
             status = NodeStatus.Failure;

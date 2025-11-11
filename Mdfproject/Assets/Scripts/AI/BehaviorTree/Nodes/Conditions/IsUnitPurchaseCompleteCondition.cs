@@ -1,4 +1,5 @@
 using AI.BehaviorTree.Nodes;
+using UnityEngine;
 
 namespace AI.BehaviorTree.Nodes.Conditions
 {
@@ -16,7 +17,9 @@ namespace AI.BehaviorTree.Nodes.Conditions
 
         public override NodeStatus Tick()
         {
-            if (_playerManager != null && _playerManager.unitPurchaseComplete)
+            bool isComplete = _playerManager != null && _playerManager.unitPurchaseComplete;
+
+            if (isComplete)
             {
                 status = child.Tick(); // 조건 만족 시 자식 노드 실행
                 return status;

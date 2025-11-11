@@ -100,6 +100,7 @@
     <Compile Include="Assets\Scripts\Game\Game Rules\DestructibleWall.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextInfoDebugTool.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\GoldRemainingConsideration.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\InverterNode.cs" />
     <Compile Include="Assets\Scripts\Enums\DamageType.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\HealEffect.cs" />
     <Compile Include="Assets\Scripts\Game\Units\UnitOrientationFixer.cs" />
@@ -123,6 +124,7 @@
     <Compile Include="Assets\Scripts\Game\Targeting\SelfTarget.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\Astar.cs" />
     <Compile Include="Assets\Scripts\Game\Players\Player.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\AlwaysSuccessNode.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Conditions\IsAugmentPhaseCondition.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\CompositeNode.cs" />
     <Compile Include="Assets\Scripts\UI\PhaseTimerUI.cs" />
@@ -136,6 +138,7 @@
     <Compile Include="Assets\Scripts\Button\BaseButton.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffStatEffect.cs" />
     <Compile Include="Assets\Scripts\Button\ExitButton.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Conditions\IsMazeConstructionCompleteCondition.cs" />
     <Compile Include="Assets\Scripts\AI\Planning\MazePlanner.cs" />
     <Compile Include="Assets\Scripts\Network\NextScenes.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\DropdownSample.cs" />
@@ -187,6 +190,7 @@
     <Compile Include="Assets\Scripts\Game\Units\HeadLookController.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\SwapUnitCommand.cs" />
     <Compile Include="Assets\Scripts\Network\GetPlayerCamera.cs" />
+    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Conditions\IsUnitPurchaseCompleteCondition.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\PlaceWallCommand.cs" />
     <Compile Include="Assets\Scripts\Button\ShopToggleButton.cs" />
     <Compile Include="Assets\Scripts\DB\AssetKeys.cs" />
@@ -235,10 +239,6 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\GameAssets.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Conditions\IsUnitPurchaseCompleteCondition.cs" />
-    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Conditions\IsMazeConstructionCompleteCondition.cs" />
-    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\InverterNode.cs" />
-    <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\AlwaysSuccessNode.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
