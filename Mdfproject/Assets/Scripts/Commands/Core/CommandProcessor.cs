@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System; 
 using UnityEngine;
 using Cysharp.Threading.Tasks;
+using System.Linq;
 
 public class CommandProcessor
 {
@@ -32,8 +33,23 @@ public class CommandProcessor
 
             // 클라이언트라면 자신의 PlayerManager로 서버에 요청
             var lp = gm.localPlayer;
+            if (lp == null || lp.Object == null || !lp.Object.HasInputAuthority)
+            {
+                // 폴백: AllPlayers에서 InputAuthority 보유 플레이어 탐색
+                var resolved = gm.AllPlayers.FirstOrDefault(p => p != null && p.Object != null && p.Object.HasInputAuthority);
+                if (resolved != null)
+                {
+                    lp = resolved;
+                    Debug.Log("<color=green>[NetFlow] Resolved localPlayer via AllPlayers fallback.</color>");
+                }
+            }
+
             if (lp != null && lp.Object != null && lp.Object.HasInputAuthority)
             {
+                if (gm.Runner != null && gm.Runner.IsRunning && !gm.Runner.IsServer)
+                {
+                    Debug.Log($"<color=#3399FF>[ClientFlow] Send RPC Request -> {type}</color>");
+                }
                 Debug.Log($"<color=green>[NetFlow] Client -> Server request via PlayerManager RPC -> {type}</color>");
                 lp.RPC_RequestCommandToServer(type, intParams, stringParams, vectorParams);
                 return;
@@ -54,6 +70,12 @@ public class CommandProcessor
     /// </summary>
     public async void ReceiveAndEnqueueCommand(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
     {
+        var gm = GameManagers.Instance;
+        bool isClient = gm != null && gm.Runner != null && gm.Runner.IsRunning && !gm.Runner.IsServer;
+        if (isClient && (type == CommandType.MoveUnit || type == CommandType.SwapUnit))
+        {
+            Debug.Log($"<color=#3399FF>[ClientFlow] Enqueue {type}</color>");
+        }
         ICommand command = await DeserializeCommand(type, intParams, stringParams, vectorParams);
         if (command != null)
         {

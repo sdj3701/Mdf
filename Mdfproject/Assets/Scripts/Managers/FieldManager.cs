@@ -832,6 +832,11 @@ public class FieldManager : MonoBehaviour
             {
                 newUnitGO.transform.SetParent(unitParent, true);
             }
+            // 클라이언트들의 placedUnits 등록을 위해 브로드캐스트
+            if (playerManager != null)
+            {
+                playerManager.RPC_RegisterUnitAt(spawned, gridPosition.x, gridPosition.y);
+            }
         }
         else
         {
@@ -1515,8 +1520,55 @@ public class FieldManager : MonoBehaviour
                     Debug.Log($"<color=green>[Drag] 유효한 위치로 이동: {originalUnitPosition} -> {bestGrid}</color>");
                     Debug.Log($"<color=green>[Drag] 현재 유닛 물리적 위치: {selectedUnit.transform.position}</color>");
                     Debug.Log($"<color=green>[Drag] 목표 그리드 월드 위치: {GridToWorld(bestGrid, checkForWall: true)}</color>");
-                    var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
-                    GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+                    // 네트워크 준비 상태 확인 (Runner가 실행 중이면 localPlayer와 InputAuthority 확인)
+                    bool canSend = true;
+                    var gmInst = GameManagers.Instance;
+                    if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning)
+                    {
+                        var lp = gmInst.localPlayer;
+                        if (lp == null || lp.Object == null || !lp.Object.HasInputAuthority)
+                        {
+                            canSend = false;
+                        }
+                    }
+
+                    // 드래그 중 비활성화한 NetworkTransform을 성공 드랍 시 항상 복구
+                    if (selectedUnitNetworkTransform != null && !selectedUnitNetworkTransform.enabled)
+                    {
+                        selectedUnitNetworkTransform.enabled = true;
+                    }
+
+                    if (canSend)
+                    {
+                        if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning && !gmInst.Runner.IsServer)
+                        {
+                            Debug.Log($"<color=#3399FF>[ClientFlow] Request MoveUnit {originalUnitPosition} -> {bestGrid}</color>");
+                        }
+                        var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
+                        GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+                    }
+                    else
+                    {
+                        Debug.Log($"<color=#3399FF>[ClientFlow] Network not ready, snapback</color>");
+                        // 네트워크 준비가 안 되었으면 원위치 복귀
+                        Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                        if (selectedUnitNetworkTransform != null)
+                        {
+                            var networkObject = selectedUnit.GetComponent<Fusion.NetworkObject>();
+                            if (networkObject != null && networkObject.HasStateAuthority)
+                            {
+                                selectedUnitNetworkTransform.Teleport(originalWorldPos, selectedUnit.transform.rotation);
+                            }
+                            else
+                            {
+                                selectedUnit.transform.position = originalWorldPos;
+                            }
+                        }
+                        else
+                        {
+                            selectedUnit.transform.position = originalWorldPos;
+                        }
+                    }
                 }
                 else
                 {
@@ -1530,8 +1582,55 @@ public class FieldManager : MonoBehaviour
                         if (!invalidForSelected && !invalidForTarget)
                         {
                             Debug.Log($"<color=yellow>[Drag] 스왑: {originalUnitPosition} <-> {bestGrid}</color>");
-                            var swapCmd = new SwapUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
-                            GameManagers.Instance.CommandProcessor.RequestCommandExecution(swapCmd);
+                            // 네트워크 준비 상태 확인
+                            bool canSend = true;
+                            var gmInst = GameManagers.Instance;
+                            if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning)
+                            {
+                                var lp = gmInst.localPlayer;
+                                if (lp == null || lp.Object == null || !lp.Object.HasInputAuthority)
+                                {
+                                    canSend = false;
+                                }
+                            }
+
+                            // 성공 드랍 경로에서도 NetworkTransform 복구
+                            if (selectedUnitNetworkTransform != null && !selectedUnitNetworkTransform.enabled)
+                            {
+                                selectedUnitNetworkTransform.enabled = true;
+                            }
+
+                            if (canSend)
+                            {
+                                if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning && !gmInst.Runner.IsServer)
+                                {
+                                    Debug.Log($"<color=#3399FF>[ClientFlow] Request SwapUnit {originalUnitPosition} <-> {bestGrid}</color>");
+                                }
+                                var swapCmd = new SwapUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
+                                GameManagers.Instance.CommandProcessor.RequestCommandExecution(swapCmd);
+                            }
+                            else
+                            {
+                                Debug.Log($"<color=#3399FF>[ClientFlow] Network not ready, snapback</color>");
+                                // 네트워크 준비가 안 되었으면 원위치 복귀
+                                Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                                if (selectedUnitNetworkTransform != null)
+                                {
+                                    var networkObject = selectedUnit.GetComponent<Fusion.NetworkObject>();
+                                    if (networkObject != null && networkObject.HasStateAuthority)
+                                    {
+                                        selectedUnitNetworkTransform.Teleport(originalWorldPos, selectedUnit.transform.rotation);
+                                    }
+                                    else
+                                    {
+                                        selectedUnit.transform.position = originalWorldPos;
+                                    }
+                                }
+                                else
+                                {
+                                    selectedUnit.transform.position = originalWorldPos;
+                                }
+                            }
                         }
                         else
                         {

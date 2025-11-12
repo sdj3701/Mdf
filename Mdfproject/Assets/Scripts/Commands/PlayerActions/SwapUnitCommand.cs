@@ -15,6 +15,12 @@ public class SwapUnitCommand : ICommand
 
     public void Execute()
     {
+        var gm = GameManagers.Instance;
+        bool isClient = gm != null && gm.Runner != null && gm.Runner.IsRunning && !gm.Runner.IsServer;
+        if (isClient)
+        {
+            Debug.Log($"<color=#3399FF>[ClientFlow] Execute SwapUnit {PosA} <-> {PosB} (Player {PlayerId})</color>");
+        }
         var player = GameManagers.Instance.GetPlayer(PlayerId);
         if (player == null) return;
         var fm = player.fieldManager;

@@ -32,9 +32,9 @@ public class GameManagers : NetworkBehaviour
     public float currentPhaseTimer => phaseTimer.IsRunning ? phaseTimer.RemainingTime(Runner) ?? 0f : 0f;
 
     // 세션은 항상 4명 (Inspector 설정 제거)
-    private const int MAX_PLAYERS = 4;
+    private const int MAX_PLAYERS = 2;
 
-    [Networked, Capacity(4)]
+    [Networked, Capacity(2)]
     private NetworkArray<NetworkObject> NetworkPlayers { get; }
 
     // 싱글플레이어 모드에서 사용할 플레이어 수 (GameSceneInitializer에서 설정)
@@ -453,6 +453,10 @@ public class GameManagers : NetworkBehaviour
     {
         string who = Object.HasStateAuthority ? "Server" : "Client";
         Debug.Log($"<color=green>[NetFlow] {who} BroadcastCommand received -> {type}</color>");
+        if (!Object.HasStateAuthority && (type == CommandType.MoveUnit || type == CommandType.SwapUnit))
+        {
+            Debug.Log($"<color=#3399FF>[ClientFlow] Received Broadcast -> {type}</color>");
+        }
         if (CommandProcessor != null)
         {
             CommandProcessor.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);

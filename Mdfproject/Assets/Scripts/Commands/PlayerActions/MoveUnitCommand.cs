@@ -15,6 +15,12 @@ public class MoveUnitCommand : ICommand
 
     public void Execute()
     {
+        var gm = GameManagers.Instance;
+        bool isClient = gm != null && gm.Runner != null && gm.Runner.IsRunning && !gm.Runner.IsServer;
+        if (isClient)
+        {
+            Debug.Log($"<color=#3399FF>[ClientFlow] Execute MoveUnit {From} -> {To} (Player {PlayerId})</color>");
+        }
         var player = GameManagers.Instance.GetPlayer(PlayerId);
         if (player == null) return;
 

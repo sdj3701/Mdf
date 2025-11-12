@@ -151,6 +151,22 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_RegisterUnitAt(NetworkObject unitNO, int x, int y)
+    {
+        // 서버(호스트)는 이미 등록했으므로 스킵하고, 클라이언트만 등록합니다.
+        if (Object != null && Object.HasStateAuthority) return;
+        if (fieldManager == null || unitNO == null) return;
+        var unit = unitNO.GetComponent<Unit>();
+        if (unit == null) return;
+        var pos = new Vector3Int(x, y, 0);
+        if (!fieldManager.IsUnitAt(pos))
+        {
+            fieldManager.RegisterUnitAt(unit, pos);
+            Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId})</color>");
+        }
+    }
+
     // ... (이하 나머지 코드는 기존과 동일) ...
 
     public void SetFightingState(bool isFighting)
