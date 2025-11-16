@@ -835,7 +835,7 @@ public class FieldManager : MonoBehaviour
             // 클라이언트들의 placedUnits 등록을 위해 브로드캐스트
             if (playerManager != null)
             {
-                playerManager.RPC_RegisterUnitAt(spawned, gridPosition.x, gridPosition.y);
+                playerManager.RPC_RegisterUnitAt(spawned, gridPosition.x, gridPosition.y, data.name, starLevel);
             }
         }
         else
@@ -890,7 +890,8 @@ public class FieldManager : MonoBehaviour
 
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
-            Debug.Log($"<color=green>[MoveUnit] {unit.Data.unitName} 이동: {from} -> {to}</color>");
+            string uName = (unit != null && unit.Data != null) ? unit.Data.unitName : (unit != null ? unit.name : "Unit");
+            Debug.Log($"<color=green>[MoveUnit] {uName} 이동: {from} -> {to}</color>");
             placedUnits.Remove(from);
 
             Vector3 finalWorldPos = GridToWorld(to, checkForWall: true);
@@ -904,7 +905,7 @@ public class FieldManager : MonoBehaviour
                 if (!networkTransform.enabled)
                 {
                     networkTransform.enabled = true;
-                    Debug.Log($"<color=cyan>[MoveUnit] NetworkTransform 재활성화: {unit.Data.unitName}</color>");
+                    Debug.Log($"<color=cyan>[MoveUnit] NetworkTransform 재활성화: {uName}</color>");
                 }
 
                 // StateAuthority가 있는 경우에만 Teleport 호출
@@ -912,13 +913,14 @@ public class FieldManager : MonoBehaviour
                 if (networkObject != null && networkObject.HasStateAuthority)
                 {
                     networkTransform.Teleport(finalWorldPos, unit.transform.rotation);
-                    Debug.Log($"<color=cyan>[MoveUnit] NetworkTransform.Teleport 호출 (StateAuthority): {unit.Data.unitName} to {finalWorldPos}</color>");
+                    Debug.Log($"<color=cyan>[MoveUnit] NetworkTransform.Teleport 호출 (StateAuthority): {uName} to {finalWorldPos}</color>");
                 }
                 else
                 {
                     // StateAuthority가 없으면 직접 위치 설정 (네트워크 동기화 대기)
                     unit.transform.position = finalWorldPos;
-                    Debug.Log($"<color=yellow>[MoveUnit] 직접 위치 설정 (No StateAuthority): {unit.Data.unitName} to {finalWorldPos}</color>");
+                    string uNameNoAuth = (unit != null && unit.Data != null) ? unit.Data.unitName : (unit != null ? unit.name : "Unit");
+                    Debug.Log($"<color=yellow>[MoveUnit] 직접 위치 설정 (No StateAuthority): {uNameNoAuth} to {finalWorldPos}</color>");
                 }
             }
             else
@@ -949,7 +951,9 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
-        Debug.Log($"<color=yellow>[SwapUnits] {unitA.Data.unitName} <-> {unitB.Data.unitName} ({a} <-> {b})</color>");
+        string uNameA = (unitA != null && unitA.Data != null) ? unitA.Data.unitName : (unitA != null ? unitA.name : "UnitA");
+        string uNameB = (unitB != null && unitB.Data != null) ? unitB.Data.unitName : (unitB != null ? unitB.name : "UnitB");
+        Debug.Log($"<color=yellow>[SwapUnits] {uNameA} <-> {uNameB} ({a} <-> {b})</color>");
 
         Vector3 worldForA = GridToWorld(b, checkForWall: true);
         Vector3 worldForB = GridToWorld(a, checkForWall: true);
@@ -964,19 +968,19 @@ public class FieldManager : MonoBehaviour
             if (!networkTransformA.enabled)
             {
                 networkTransformA.enabled = true;
-                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform 재활성화: {unitA.Data.unitName}</color>");
+                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform 재활성화: {uNameA}</color>");
             }
 
             var networkObjectA = unitA.GetComponent<Fusion.NetworkObject>();
             if (networkObjectA != null && networkObjectA.HasStateAuthority)
             {
                 networkTransformA.Teleport(worldForA, unitA.transform.rotation);
-                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform.Teleport (StateAuthority): {unitA.Data.unitName} to {worldForA}</color>");
+                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform.Teleport (StateAuthority): {uNameA} to {worldForA}</color>");
             }
             else
             {
                 unitA.transform.position = worldForA;
-                Debug.Log($"<color=yellow>[SwapUnits] 직접 위치 설정 (No StateAuthority): {unitA.Data.unitName} to {worldForA}</color>");
+                Debug.Log($"<color=yellow>[SwapUnits] 직접 위치 설정 (No StateAuthority): {uNameA} to {worldForA}</color>");
             }
         }
         else
@@ -990,19 +994,19 @@ public class FieldManager : MonoBehaviour
             if (!networkTransformB.enabled)
             {
                 networkTransformB.enabled = true;
-                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform 재활성화: {unitB.Data.unitName}</color>");
+                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform 재활성화: {uNameB}</color>");
             }
 
             var networkObjectB = unitB.GetComponent<Fusion.NetworkObject>();
             if (networkObjectB != null && networkObjectB.HasStateAuthority)
             {
                 networkTransformB.Teleport(worldForB, unitB.transform.rotation);
-                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform.Teleport (StateAuthority): {unitB.Data.unitName} to {worldForB}</color>");
+                Debug.Log($"<color=cyan>[SwapUnits] NetworkTransform.Teleport (StateAuthority): {uNameB} to {worldForB}</color>");
             }
             else
             {
                 unitB.transform.position = worldForB;
-                Debug.Log($"<color=yellow>[SwapUnits] 직접 위치 설정 (No StateAuthority): {unitB.Data.unitName} to {worldForB}</color>");
+                Debug.Log($"<color=yellow>[SwapUnits] 직접 위치 설정 (No StateAuthority): {uNameB} to {worldForB}</color>");
             }
         }
         else
@@ -1476,7 +1480,8 @@ public class FieldManager : MonoBehaviour
                     if (selectedUnitNetworkTransform != null)
                     {
                         selectedUnitNetworkTransform.enabled = false;
-                        Debug.Log($"<color=cyan>[Drag] NetworkTransform 비활성화: {selectedUnit.Data.unitName}</color>");
+                        string selName = (selectedUnit != null && selectedUnit.Data != null) ? selectedUnit.Data.unitName : (selectedUnit != null ? selectedUnit.name : "Unit");
+                        Debug.Log($"<color=cyan>[Drag] NetworkTransform 비활성화: {selName}</color>");
                     }
 
                     // 드래그가 시작되면 열려있던 상세 정보 패널을 닫음

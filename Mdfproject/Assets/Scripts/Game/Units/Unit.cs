@@ -157,6 +157,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
    public async void Initialize(UnitData data, int initialStarLevel, PlayerManager owner)
     {
         this.unitData = data;
+        if(this.unitData == null)
+        {
+            Debug.LogError($"UnitData is null for unit {name}");
+            return;
+        }
         this.starLevel = initialStarLevel;
         manaController = GetComponent<ManaController>();
         if (animator == null)

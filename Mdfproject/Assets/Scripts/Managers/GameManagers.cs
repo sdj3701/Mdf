@@ -102,6 +102,7 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     public override void Spawned()
     {
+        Application.targetFrameRate = 60;
         if (Instance == null)
         {
             Instance = this;

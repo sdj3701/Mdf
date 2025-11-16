@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
 using Fusion; // Fusion 네임스페이스 추가
+using Cysharp.Threading.Tasks;
 
 public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> NetworkBehaviour
 {
@@ -152,7 +153,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void RPC_RegisterUnitAt(NetworkObject unitNO, int x, int y)
+    public async void RPC_RegisterUnitAt(NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
     {
         // 서버(호스트)는 이미 등록했으므로 스킵하고, 클라이언트만 등록합니다.
         if (Object != null && Object.HasStateAuthority) return;
@@ -162,6 +163,23 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         var pos = new Vector3Int(x, y, 0);
         if (!fieldManager.IsUnitAt(pos))
         {
+            // 클라이언트에서 UnitData가 없으면 로드 후 초기화
+            if (unit.Data == null)
+            {
+                UnitData data = null;
+                if (!string.IsNullOrEmpty(unitDataKey))
+                {
+                    data = await AssetLoader.LoadAssetAsync<UnitData>(unitDataKey);
+                }
+                if (data != null)
+                {
+                    unit.Initialize(data, starLevel, this);
+                }
+                else
+                {
+                    Debug.LogError($"[Player {playerId}] RPC_RegisterUnitAt failed to load UnitData '{unitDataKey}'.");
+                }
+            }
             fieldManager.RegisterUnitAt(unit, pos);
             Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId})</color>");
         }

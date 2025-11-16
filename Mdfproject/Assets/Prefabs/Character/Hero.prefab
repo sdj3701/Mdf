@@ -18,6 +18,7 @@ GameObject:
   - component: {fileID: 25415035275296506}
   - component: {fileID: 3762269291064651588}
   - component: {fileID: -7162209881235473755}
+  - component: {fileID: -360597348846165844}
   m_Layer: 14
   m_Name: Hero
   m_TagString: Untagged
@@ -125,6 +126,10 @@ MonoBehaviour:
   enemyLayerMask:
     serializedVersion: 2
     m_Bits: 8192
+  animator: {fileID: 0}
+  attackTriggerParam: AttackTrigger
+  maxAttackAnimationsPerSecond: 4
+  baseAttackAnimationDuration: 1
 --- !u!61 &2958327059153163017
 BoxCollider2D:
   m_ObjectHideFlags: 0
@@ -232,5 +237,23 @@ MonoBehaviour:
   ObjectInterest: 1
   Flags: 262145
   NestedObjects: []
-  NetworkedBehaviours: []
+  NetworkedBehaviours:
+  - {fileID: -360597348846165844}
   ForceRemoteRenderTimeframe: 0
+--- !u!114 &-360597348846165844
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4670276977646022270}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 158639473, guid: e725a070cec140c4caffb81624c8c787, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _stateAuthorityChangeErrorCorrectionDelta: 0
+  SyncScale: 0
+  SyncParent: 0
+  _autoAOIOverride: 1
+  DisableSharedModeInterpolation: 0
