@@ -52,6 +52,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private void Awake()
     {
+        Application.targetFrameRate = 60;
         // 이미 인스턴스가 있는지 확인
         if (Instance == null)
         {

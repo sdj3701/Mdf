@@ -49,6 +49,17 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public bool IsActivelyFighting { get; private set; }
 
+    // Pending unit registrations received before FieldManager is ready
+    private struct PendingUnitReg
+    {
+        public NetworkObject unitNO;
+        public int x;
+        public int y;
+        public string unitDataKey;
+        public int starLevel;
+    }
+    private List<PendingUnitReg> _pendingUnitRegs = new List<PendingUnitReg>();
+
      void Awake()
     {
         // Awake는 그대로 유지하여 하위 컴포넌트 참조를 미리 찾아둡니다.
@@ -59,7 +70,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void Rpc_InitializePlayer(int id, NetworkObject gridNetworkObject)
+    public async void Rpc_InitializePlayer(int id, NetworkObject gridNetworkObject)
     {
         // [수정] 네트워크를 통해 전달받은 ID를 [Networked] 프로퍼티에 저장합니다.
         this.playerId = id;
@@ -141,6 +152,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         IsActivelyFighting = false;
         Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
+
+        // Process any unit registrations that arrived early
+        if (_pendingUnitRegs.Count > 0)
+        {
+            // Make a copy to avoid modification during iteration
+            var pending = new List<PendingUnitReg>(_pendingUnitRegs);
+            _pendingUnitRegs.Clear();
+            foreach (var p in pending)
+            {
+                await RPC_RegisterUnitAt_Internal(p.unitNO, p.x, p.y, p.unitDataKey, p.starLevel);
+            }
+        }
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -157,13 +180,47 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         // 서버(호스트)는 이미 등록했으므로 스킵하고, 클라이언트만 등록합니다.
         if (Object != null && Object.HasStateAuthority) return;
-        if (fieldManager == null || unitNO == null) return;
+        if (unitNO == null) return;
+
+        // If FieldManager isn't ready yet, queue this registration to process after initialization completes
+        if (fieldManager == null || fieldManager.ground3D == null)
+        {
+            _pendingUnitRegs.Add(new PendingUnitReg
+            {
+                unitNO = unitNO,
+                x = x,
+                y = y,
+                unitDataKey = unitDataKey,
+                starLevel = starLevel
+            });
+            return;
+        }
+
+        await RPC_RegisterUnitAt_Internal(unitNO, x, y, unitDataKey, starLevel);
+    }
+
+    private async Cysharp.Threading.Tasks.UniTask RPC_RegisterUnitAt_Internal(NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
+    {
+        if (fieldManager == null) return;
         var unit = unitNO.GetComponent<Unit>();
         if (unit == null) return;
         var pos = new Vector3Int(x, y, 0);
         if (!fieldManager.IsUnitAt(pos))
         {
-            // 클라이언트에서 UnitData가 없으면 로드 후 초기화
+            // Ensure StatusBarUI exists before initializing the Unit to prevent warnings
+            if (fieldManager.statusBarPrefab != null)
+            {
+                var preExistingStatusBar = unit.GetComponentInChildren<StatusBarUI>(includeInactive: true);
+                if (preExistingStatusBar == null)
+                {
+                    var statusBarGO = UnityEngine.Object.Instantiate(fieldManager.statusBarPrefab, unit.transform);
+                    var statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
+                    if (statusBarUI != null)
+                    {
+                        unit.SetStatusBar(statusBarUI);
+                    }
+                }
+            }
             if (unit.Data == null)
             {
                 UnitData data = null;
@@ -173,11 +230,25 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 }
                 if (data != null)
                 {
-                    unit.Initialize(data, starLevel, this);
+                    await unit.Initialize(data, starLevel, this);
                 }
                 else
                 {
                     Debug.LogError($"[Player {playerId}] RPC_RegisterUnitAt failed to load UnitData '{unitDataKey}'.");
+                }
+            }
+            // Ensure StatusBarUI exists on clients too
+            if (fieldManager.statusBarPrefab != null)
+            {
+                var existingStatusBar = unit.GetComponentInChildren<StatusBarUI>(includeInactive: true);
+                if (existingStatusBar == null)
+                {
+                    var statusBarGO = UnityEngine.Object.Instantiate(fieldManager.statusBarPrefab, unit.transform);
+                    var statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
+                    if (statusBarUI != null)
+                    {
+                        unit.SetStatusBar(statusBarUI);
+                    }
                 }
             }
             fieldManager.RegisterUnitAt(unit, pos);
@@ -238,7 +309,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public void AddUnit(UnitData unitData, int starLevel)
     {
-        Debug.Log($"Player {playerId}가 {starLevel}성 {unitData.unitName} 유닛을 획득했습니다.");
         if(fieldManager != null)
         {
             fieldManager.CreateAndPlaceUnitOnField(unitData, starLevel);

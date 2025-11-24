@@ -102,7 +102,7 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     public override void Spawned()
     {
-        Application.targetFrameRate = 60;
+        
         if (Instance == null)
         {
             Instance = this;
@@ -519,7 +519,7 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
-    private void HandleAugmentChosen(PlayerManager selectingPlayer, AugmentData chosenAugment)
+    private async void HandleAugmentChosen(PlayerManager selectingPlayer, AugmentData chosenAugment)
     {
         if (selectingPlayer != localPlayer) return;
 
@@ -529,7 +529,7 @@ public class GameManagers : NetworkBehaviour
             localPlayerShopUIGameObject.SetActive(true);
             localPlayerShopUI.SetContentVisibility(true);
             // 상점 UI를 표시하기 전에, 데이터베이스 로드를 기다리고 상점을 채우는 것을 보장합니다.
-            localPlayer.shopManager.EnsureShopRerolledAsync().Forget();
+            await localPlayer.shopManager.EnsureShopRerolledAsync();
             var shopItems = localPlayer.shopManager.GetCurrentShopItems();
             Debug.Log(shopItems.Count());
             localPlayerShopUI.DisplayShopItems(shopItems);

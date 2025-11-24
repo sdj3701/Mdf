@@ -756,7 +756,6 @@ public class FieldManager : MonoBehaviour
         {
             Debug.Log($"<color=green>[Flow] Placement slot found at {emptySlot.Value} -> CreateUnitAt</color>");
             CreateUnitAt(unitData, emptySlot.Value, starLevel);
-            CheckForCombination();
         }
         else
         {
@@ -777,7 +776,6 @@ public class FieldManager : MonoBehaviour
         if (placementPos.HasValue)
         {
             CreateUnitAt(unitData, placementPos.Value, starLevel, true);
-            CheckForCombination();
         }
         else
         {
@@ -860,9 +858,10 @@ public class FieldManager : MonoBehaviour
                 GameObject statusBarGO = Instantiate(statusBarPrefab, newUnitGO.transform);
                 newUnitComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
             }
-            // Initialize가 비동기가 되었으므로 async void로 호출합니다. (await 불필요)
-            newUnitComponent.Initialize(data, starLevel, playerManager);
+            // Initialize가 비동기이므로 완료를 기다린 후 등록합니다.
+            await newUnitComponent.Initialize(data, starLevel, playerManager);
             placedUnits.Add(gridPosition, newUnitComponent);
+            CheckForCombination();
         }
         else
         {

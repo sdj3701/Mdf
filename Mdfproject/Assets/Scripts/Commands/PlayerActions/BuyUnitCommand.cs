@@ -27,10 +27,12 @@ public class BuyUnitCommand : ICommand
         if (ShopSlotIndex < 0 || ShopSlotIndex >= shopItems.Count) return;
 
         var itemToBuy = shopItems[ShopSlotIndex];
+        
 
         // 기존 PlayerManager의 구매 로직을 이곳으로 가져옵니다.
         if (player.SpendGold(itemToBuy.CalculatedCost))
         {
+            
             player.AddUnit(itemToBuy.UnitData, itemToBuy.StarLevel);
 
             // 상점의 상태를 갱신합니다.

@@ -28,6 +28,8 @@ public class ShopManager : MonoBehaviour
         var handle = UnityEngine.AddressableAssets.Addressables.LoadAssetsAsync<UnitData>("UnitData", null);
         await handle.Task;
 
+        Debug.Log($"ShopManager: 유닛 데이터베이스 로드 완료. 총 {handle}개의 유닛 데이터 로드.");
+
         if (handle.Status == UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationStatus.Succeeded)
         {
             allUnitDatabase = handle.Result.ToList();
@@ -43,7 +45,15 @@ public class ShopManager : MonoBehaviour
     public UniTask WaitUntilDatabaseLoaded() => databaseLoadTask.Task.AsUniTask();
 
     // [변경됨] 반환 타입이 List<ShopItem>으로 변경되었습니다.
-    public List<ShopItem> GetCurrentShopItems() => currentShopItems;
+    public List<ShopItem> GetCurrentShopItems()
+    {
+        if (currentShopItems.Count == 0 && IsDatabaseLoaded)
+        {
+            Debug.LogWarning("[ShopManager] currentShopItems가 비어 있어 무료 리롤을 실행합니다.");
+            Reroll(isFree: true);
+        }
+        return currentShopItems;
+    }
     public int GetRerollCost() => rerollCost;
 
     // [핵심 로직] Reroll 메서드가 성급 확률을 계산하도록 완전히 변경됩니다.

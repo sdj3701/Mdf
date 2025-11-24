@@ -154,7 +154,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         _forceSkillAutoUseOnNextInitialize = enabled;
     }
 
-   public async void Initialize(UnitData data, int initialStarLevel, PlayerManager owner)
+   public async UniTask Initialize(UnitData data, int initialStarLevel, PlayerManager owner)
     {
         this.unitData = data;
         if(this.unitData == null)
