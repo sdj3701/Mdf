@@ -833,7 +833,8 @@ public class FieldManager : MonoBehaviour
             // 클라이언트들의 placedUnits 등록을 위해 브로드캐스트
             if (playerManager != null)
             {
-                playerManager.RPC_RegisterUnitAt(spawned, gridPosition.x, gridPosition.y, data.name, starLevel);
+                Debug.Log($"<color=yellow>[Spawn] RPC_RegisterUnitAt broadcast -> NO.ID={spawned.Id} pos={gridPosition} key='{data.name}'</color>");
+                playerManager.RPC_RegisterUnitAt(spawned.Id, gridPosition.x, gridPosition.y, data.name, starLevel);
             }
         }
         else

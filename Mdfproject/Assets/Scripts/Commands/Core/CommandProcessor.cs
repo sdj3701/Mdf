@@ -131,7 +131,12 @@ public class CommandProcessor
             case CommandType.PlaceUnit:
                 // 생성자: PlaceUnitCommand(playerId, unitData, position)
                 // UnitData는 이름(ID)을 사용하여 에셋을 비동기적으로 로드합니다.
-                UnitData unitData = await AssetLoader.LoadAssetAsync<UnitData>(stringParams[0]);
+                if (LoadManager.Instance == null)
+                {
+                    await Cysharp.Threading.Tasks.UniTask.WaitUntil(() => LoadManager.Instance != null);
+                }
+                await LoadManager.Instance.WaitUntilReady();
+                UnitData unitData = LoadManager.Instance.GetUnitData(stringParams[0]);
                 if (unitData == null)
                 {
                     Debug.LogError($"[CommandProcessor] UnitData '{stringParams[0]}'를 찾을 수 없어 PlaceUnitCommand를 생성할 수 없습니다.");

@@ -176,38 +176,79 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public async void RPC_RegisterUnitAt(NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
+    public async void RPC_RegisterUnitAt(NetworkId unitId, int x, int y, string unitDataKey, int starLevel)
     {
-        // 서버(호스트)는 이미 등록했으므로 스킵하고, 클라이언트만 등록합니다.
-        if (Object != null && Object.HasStateAuthority) return;
-        if (unitNO == null) return;
-
-        // If FieldManager isn't ready yet, queue this registration to process after initialization completes
-        if (fieldManager == null || fieldManager.ground3D == null)
+        try
         {
-            _pendingUnitRegs.Add(new PendingUnitReg
+            Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] recv pos=({x},{y}) key='{unitDataKey}' star={starLevel} stateAuth={(Object != null && Object.HasStateAuthority)} id={unitId}</color>");
+            if (Object != null && Object.HasStateAuthority) return;
+            NetworkObject unitNO = null;
+            bool resolved = false;
+            int attempts = 0;
+            do
             {
-                unitNO = unitNO,
-                x = x,
-                y = y,
-                unitDataKey = unitDataKey,
-                starLevel = starLevel
-            });
-            return;
-        }
+                if (Runner != null)
+                {
+                    resolved = Runner.TryFindObject(unitId, out unitNO);
+                }
+                if (!resolved)
+                {
+                    await Cysharp.Threading.Tasks.UniTask.Yield();
+                    attempts++;
+                }
+            } while (!resolved && attempts < 300);
+            if (!resolved || unitNO == null)
+            {
+                Debug.LogWarning($"<color=yellow>[RPC_RegisterUnitAt] failed to resolve NetworkObject by NetworkId='{unitId}' key='{unitDataKey}'</color>");
+                return;
+            }
 
-        await RPC_RegisterUnitAt_Internal(unitNO, x, y, unitDataKey, starLevel);
+            if (fieldManager == null || fieldManager.ground3D == null)
+            {
+                Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] queued. fieldManagerReady={(fieldManager != null)} groundReady={(fieldManager != null && fieldManager.ground3D != null)}</color>");
+                _pendingUnitRegs.Add(new PendingUnitReg
+                {
+                    unitNO = unitNO,
+                    x = x,
+                    y = y,
+                    unitDataKey = unitDataKey,
+                    starLevel = starLevel
+                });
+                return;
+            }
+
+            await RPC_RegisterUnitAt_Internal(unitNO, x, y, unitDataKey, starLevel);
+            Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] dispatched to Internal for pos=({x},{y})</color>");
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[RPC_RegisterUnitAt] exception: {ex.Message}");
+        }
     }
 
     private async Cysharp.Threading.Tasks.UniTask RPC_RegisterUnitAt_Internal(NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
     {
-        if (fieldManager == null) return;
-        var unit = unitNO.GetComponent<Unit>();
-        if (unit == null) return;
-        var pos = new Vector3Int(x, y, 0);
-        if (!fieldManager.IsUnitAt(pos))
+        try
         {
-            // Ensure StatusBarUI exists before initializing the Unit to prevent warnings
+            if (fieldManager == null)
+            {
+                Debug.LogWarning($"<color=yellow>[RPC_Internal] fieldManager null</color>");
+                return;
+            }
+            var unit = unitNO.GetComponent<Unit>();
+            if (unit == null)
+            {
+                Debug.LogWarning($"<color=yellow>[RPC_Internal] Unit component missing on '{unitNO?.name}'</color>");
+                return;
+            }
+            var pos = new Vector3Int(x, y, 0);
+            Debug.Log($"<color=yellow>[RPC_Internal] start pos={pos} currentData={(unit.Data != null ? unit.Data.name : "null")} key='{unitDataKey}'</color>");
+            if (fieldManager.IsUnitAt(pos))
+            {
+                Debug.Log($"<color=yellow>[RPC_Internal] position already occupied. Skipping register. pos={pos}</color>");
+                return;
+            }
+
             if (fieldManager.statusBarPrefab != null)
             {
                 var preExistingStatusBar = unit.GetComponentInChildren<StatusBarUI>(includeInactive: true);
@@ -221,23 +262,41 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                     }
                 }
             }
-            if (unit.Data == null)
+
+            bool needInit = unit.Data == null || (!string.IsNullOrEmpty(unitDataKey) && unit.Data.name != unitDataKey);
+            if (needInit)
             {
                 UnitData data = null;
                 if (!string.IsNullOrEmpty(unitDataKey))
                 {
-                    data = await AssetLoader.LoadAssetAsync<UnitData>(unitDataKey);
+                    if (LoadManager.Instance == null)
+                    {
+                        await Cysharp.Threading.Tasks.UniTask.WaitUntil(() => LoadManager.Instance != null);
+                    }
+                    var lmReady = LoadManager.Instance.IsReady;
+                    if (!lmReady)
+                    {
+                        Debug.Log($"<color=yellow>[RPC_Internal] waiting LoadManager ready...</color>");
+                        await LoadManager.Instance.WaitUntilReady();
+                    }
+                    data = LoadManager.Instance.GetUnitData(unitDataKey);
+                    if (data == null)
+                    {
+                        Debug.Log($"<color=yellow>[RPC_Internal] LoadManager miss for key='{unitDataKey}'. Trying Addressables fallback...</color>");
+                        data = await AssetLoader.LoadAssetAsync<UnitData>(unitDataKey);
+                    }
                 }
                 if (data != null)
                 {
                     await unit.Initialize(data, starLevel, this);
+                    Debug.Log($"<color=yellow>[RPC_Internal] unit.Initialize OK data='{unit.Data?.name}' star={starLevel}</color>");
                 }
                 else
                 {
-                    Debug.LogError($"[Player {playerId}] RPC_RegisterUnitAt failed to load UnitData '{unitDataKey}'.");
+                    Debug.LogError($"[Player {playerId}] RPC_RegisterUnitAt could not resolve UnitData for key '{unitDataKey}'.");
                 }
             }
-            // Ensure StatusBarUI exists on clients too
+
             if (fieldManager.statusBarPrefab != null)
             {
                 var existingStatusBar = unit.GetComponentInChildren<StatusBarUI>(includeInactive: true);
@@ -251,8 +310,17 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                     }
                 }
             }
+            if (unit.Data == null)
+            {
+                Debug.LogWarning($"<color=yellow>[RPC_Internal] unit.Data still null after resolve. Skip Register. key='{unitDataKey}', pos={pos}</color>");
+                return;
+            }
             fieldManager.RegisterUnitAt(unit, pos);
-            Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId})</color>");
+            Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId}) data='{unit.Data?.name}'</color>");
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[RPC_Internal] exception: {ex.Message}");
         }
     }
 

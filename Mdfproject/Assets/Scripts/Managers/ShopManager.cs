@@ -17,29 +17,18 @@ public class ShopManager : MonoBehaviour
     public bool IsDatabaseLoaded { get; private set; } = false;
     private UniTaskCompletionSource<bool> databaseLoadTask = new UniTaskCompletionSource<bool>();
 
-    void Awake()
+    void Start()
     {
-        LoadAllUnitsFromAddressables();
+        InitializeFromLoadManager();
     }
 
-    // (Addressables 로딩 코드는 기존과 동일)
-    private async void LoadAllUnitsFromAddressables()
+    private async void InitializeFromLoadManager()
     {
-        var handle = UnityEngine.AddressableAssets.Addressables.LoadAssetsAsync<UnitData>("UnitData", null);
-        await handle.Task;
-
-        Debug.Log($"ShopManager: 유닛 데이터베이스 로드 완료. 총 {handle}개의 유닛 데이터 로드.");
-
-        if (handle.Status == UnityEngine.ResourceManagement.AsyncOperations.AsyncOperationStatus.Succeeded)
-        {
-            allUnitDatabase = handle.Result.ToList();
-            IsDatabaseLoaded = true;
-            databaseLoadTask.TrySetResult(true);
-        }
-        else
-        {
-            databaseLoadTask.TrySetException(handle.OperationException);
-        }
+        await Cysharp.Threading.Tasks.UniTask.WaitUntil(() => LoadManager.Instance != null);
+        await LoadManager.Instance.WaitUntilReady();
+        allUnitDatabase = LoadManager.Instance.GetAllUnitData().ToList();
+        IsDatabaseLoaded = true;
+        databaseLoadTask.TrySetResult(true);
     }
 
     public UniTask WaitUntilDatabaseLoaded() => databaseLoadTask.Task.AsUniTask();

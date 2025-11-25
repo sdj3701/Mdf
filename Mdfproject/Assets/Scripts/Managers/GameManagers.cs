@@ -114,6 +114,13 @@ public class GameManagers : NetworkBehaviour
             return;
         }
 
+        if (LoadManager.Instance == null)
+        {
+            var go = new GameObject("LoadManager");
+            go.AddComponent<LoadManager>();
+        }
+        LoadManager.Instance.InitializeAsync().Forget();
+
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
         networkManager = NetworkManager.Instance;
