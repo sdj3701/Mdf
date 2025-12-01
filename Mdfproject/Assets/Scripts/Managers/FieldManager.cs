@@ -1,5 +1,6 @@
 // Assets/Scripts/Managers/FieldManager.cs
 using UnityEngine;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
@@ -412,8 +413,7 @@ public class FieldManager : MonoBehaviour
             if (selectedUnit != null)
             {
                 Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-
-                selectedUnit.transform.position = originalWorldPos;
+                SnapbackSelectedUnit(originalWorldPos);
                 // 드래그 중에는 placedUnits에서 제거되지 않으므로, 다시 Add할 필요가 없습니다.
                 
 
@@ -492,11 +492,7 @@ public class FieldManager : MonoBehaviour
 
         if (wallComponent != null)
         {
-            if (statusBarPrefab != null)
-            {
-                GameObject statusBarGO = Instantiate(statusBarPrefab, wallGO.transform);
-                wallComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
-            }
+            AttachStatusBar(wallGO, wallComponent.SetStatusBar);
             wallComponent.Initialize(this, gridPosition);
             placedWalls.Add(gridPosition, wallComponent);
 
@@ -629,7 +625,7 @@ public class FieldManager : MonoBehaviour
         List<Vector3Int> selected = new List<Vector3Int>(toPlace);
         for (int i = 0; i < toPlace; i++)
         {
-            int idx = Random.Range(0, candidates.Count);
+            int idx = UnityEngine.Random.Range(0, candidates.Count);
             var pos = candidates[idx];
             candidates.RemoveAt(idx);
             selected.Add(pos);
@@ -716,6 +712,80 @@ public class FieldManager : MonoBehaviour
         }
     }
 
+    private bool IsNetworkReadyAndHasInputAuthority()
+    {
+        var gmInst = GameManagers.Instance;
+        if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning)
+        {
+            var lp = gmInst.localPlayer;
+            if (lp == null || lp.Object == null || !lp.Object.HasInputAuthority)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void SnapbackSelectedUnit(Vector3 targetWorldPos)
+    {
+        if (selectedUnitNetworkTransform != null)
+        {
+            selectedUnitNetworkTransform.enabled = true;
+            var networkObject = selectedUnit.GetComponent<Fusion.NetworkObject>();
+            if (networkObject != null && networkObject.HasStateAuthority)
+            {
+                selectedUnitNetworkTransform.Teleport(targetWorldPos, selectedUnit.transform.rotation);
+            }
+            else
+            {
+                selectedUnit.transform.position = targetWorldPos;
+            }
+        }
+        else
+        {
+            selectedUnit.transform.position = targetWorldPos;
+        }
+    }
+
+    private void AttachStatusBar(GameObject host, Action<StatusBarUI> setter)
+    {
+        if (statusBarPrefab != null)
+        {
+            GameObject statusBarGO = Instantiate(statusBarPrefab, host.transform);
+            var statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
+            if (statusBarUI != null)
+            {
+                setter?.Invoke(statusBarUI);
+            }
+        }
+    }
+
+    private void MoveUnitImmediate(Unit unit, Vector3 targetWorldPos)
+    {
+        var networkTransform = unit.GetComponent<Fusion.NetworkTransform>();
+        if (networkTransform != null)
+        {
+            if (!networkTransform.enabled)
+            {
+                networkTransform.enabled = true;
+            }
+
+            var networkObject = unit.GetComponent<Fusion.NetworkObject>();
+            if (networkObject != null && networkObject.HasStateAuthority)
+            {
+                networkTransform.Teleport(targetWorldPos, unit.transform.rotation);
+            }
+            else
+            {
+                unit.transform.position = targetWorldPos;
+            }
+        }
+        else
+        {
+            unit.transform.position = targetWorldPos;
+        }
+    }
+
     #endregion
 
     #region 유닛 생성 및 관리
@@ -786,10 +856,33 @@ public class FieldManager : MonoBehaviour
             Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
-        // --- [핵심 수정 부분] ---
+        if (data == null)
+        {
+            Debug.LogError("[FieldManager] CreateUnitAt 실패: UnitData가 null입니다.");
+            return;
+        }
+        if (IsUnitAt(gridPosition))
+        {
+            Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 해당 위치에 이미 유닛이 존재합니다. pos={gridPosition}");
+            return;
+        }
+        if (data.prefabsByStarLevel == null || data.prefabsByStarLevel.Length == 0)
+        {
+            Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 prefabsByStarLevel이 비어있습니다.");
+            return;
+        }
+        if (starLevel < 1 || starLevel > data.prefabsByStarLevel.Length)
+        {
+            Debug.LogError($"[FieldManager] CreateUnitAt 실패: 잘못된 성급({starLevel}). 허용 범위: 1~{data.prefabsByStarLevel.Length}");
+            return;
+        }
         string prefabKey = data.prefabsByStarLevel[starLevel - 1];
+        if (string.IsNullOrEmpty(prefabKey))
+        {
+            Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 성급 {starLevel} 프리팹 키가 비어있습니다.");
+            return;
+        }
         GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
-        // --- [수정 끝] ---
 
         if (prefabToCreate == null)
         {
@@ -843,11 +936,7 @@ public class FieldManager : MonoBehaviour
 
         if (newUnitComponent != null)
         {
-            if (statusBarPrefab != null)
-            {
-                GameObject statusBarGO = Instantiate(statusBarPrefab, newUnitGO.transform);
-                newUnitComponent.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
-            }
+            AttachStatusBar(newUnitGO, newUnitComponent.SetStatusBar);
             // Initialize가 비동기이므로 완료를 기다린 후 등록합니다.
             await newUnitComponent.Initialize(data, starLevel, playerManager);
             placedUnits.Add(gridPosition, newUnitComponent);
@@ -883,34 +972,7 @@ public class FieldManager : MonoBehaviour
             placedUnits.Remove(from);
 
             Vector3 finalWorldPos = GridToWorld(to, checkForWall: true);
-
-            // ✅ NetworkTransform 처리
-            var networkTransform = unit.GetComponent<Fusion.NetworkTransform>();
-
-            if (networkTransform != null)
-            {
-                // NetworkTransform이 비활성화되어 있으면 재활성화
-                if (!networkTransform.enabled)
-                {
-                    networkTransform.enabled = true;
-                }
-
-                // StateAuthority가 있는 경우에만 Teleport 호출
-                var networkObject = unit.GetComponent<Fusion.NetworkObject>();
-                if (networkObject != null && networkObject.HasStateAuthority)
-                {
-                    networkTransform.Teleport(finalWorldPos, unit.transform.rotation);
-                }
-                else
-                {
-                    unit.transform.position = finalWorldPos;
-                }
-            }
-            else
-            {
-                // NetworkTransform이 없는 경우 (로컬 전용)
-                unit.transform.position = finalWorldPos;
-            }
+            MoveUnitImmediate(unit, finalWorldPos);
 
             placedUnits.Add(to, unit);
             CheckForCombination();
@@ -945,51 +1007,9 @@ public class FieldManager : MonoBehaviour
         var networkTransformA = unitA.GetComponent<Fusion.NetworkTransform>();
         var networkTransformB = unitB.GetComponent<Fusion.NetworkTransform>();
 
-        // unitA 처리
-        if (networkTransformA != null)
-        {
-            if (!networkTransformA.enabled)
-            {
-                networkTransformA.enabled = true;
-            }
+        MoveUnitImmediate(unitA, worldForA);
 
-            var networkObjectA = unitA.GetComponent<Fusion.NetworkObject>();
-            if (networkObjectA != null && networkObjectA.HasStateAuthority)
-            {
-                networkTransformA.Teleport(worldForA, unitA.transform.rotation);
-            }
-            else
-            {
-                unitA.transform.position = worldForA;
-            }
-        }
-        else
-        {
-            unitA.transform.position = worldForA;
-        }
-
-        // unitB 처리
-        if (networkTransformB != null)
-        {
-            if (!networkTransformB.enabled)
-            {
-                networkTransformB.enabled = true;
-            }
-
-            var networkObjectB = unitB.GetComponent<Fusion.NetworkObject>();
-            if (networkObjectB != null && networkObjectB.HasStateAuthority)
-            {
-                networkTransformB.Teleport(worldForB, unitB.transform.rotation);
-            }
-            else
-            {
-                unitB.transform.position = worldForB;
-            }
-        }
-        else
-        {
-            unitB.transform.position = worldForB;
-        }
+        MoveUnitImmediate(unitB, worldForB);
 
         placedUnits[a] = unitB;
         placedUnits[b] = unitA;
@@ -1499,16 +1519,7 @@ public class FieldManager : MonoBehaviour
                 if (placementManager.IsPositionValidForPlacement(bestGrid, selectedUnit.Data))
                 {
                     // 네트워크 준비 상태 확인 (Runner가 실행 중이면 localPlayer와 InputAuthority 확인)
-                    bool canSend = true;
-                    var gmInst = GameManagers.Instance;
-                    if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning)
-                    {
-                        var lp = gmInst.localPlayer;
-                        if (lp == null || lp.Object == null || !lp.Object.HasInputAuthority)
-                        {
-                            canSend = false;
-                        }
-                    }
+                    bool canSend = IsNetworkReadyAndHasInputAuthority();
 
                     // 드래그 중 비활성화한 NetworkTransform을 성공 드랍 시 항상 복구
                     if (selectedUnitNetworkTransform != null && !selectedUnitNetworkTransform.enabled)
@@ -1518,9 +1529,6 @@ public class FieldManager : MonoBehaviour
 
                     if (canSend)
                     {
-                        if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning && !gmInst.Runner.IsServer)
-                        {
-                        }
                         var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
                         GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
                     }
@@ -1528,22 +1536,7 @@ public class FieldManager : MonoBehaviour
                     {
                         // 네트워크 준비가 안 되었으면 원위치 복귀
                         Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-                        if (selectedUnitNetworkTransform != null)
-                        {
-                            var networkObject = selectedUnit.GetComponent<Fusion.NetworkObject>();
-                            if (networkObject != null && networkObject.HasStateAuthority)
-                            {
-                                selectedUnitNetworkTransform.Teleport(originalWorldPos, selectedUnit.transform.rotation);
-                            }
-                            else
-                            {
-                                selectedUnit.transform.position = originalWorldPos;
-                            }
-                        }
-                        else
-                        {
-                            selectedUnit.transform.position = originalWorldPos;
-                        }
+                        SnapbackSelectedUnit(originalWorldPos);
                     }
                 }
                 else
@@ -1558,16 +1551,7 @@ public class FieldManager : MonoBehaviour
                         if (!invalidForSelected && !invalidForTarget)
                         {
                             // 네트워크 준비 상태 확인
-                            bool canSend = true;
-                            var gmInst = GameManagers.Instance;
-                            if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning)
-                            {
-                                var lp = gmInst.localPlayer;
-                                if (lp == null || lp.Object == null || !lp.Object.HasInputAuthority)
-                                {
-                                    canSend = false;
-                                }
-                            }
+                            bool canSend = IsNetworkReadyAndHasInputAuthority();
 
                             // 성공 드랍 경로에서도 NetworkTransform 복구
                             if (selectedUnitNetworkTransform != null && !selectedUnitNetworkTransform.enabled)
@@ -1585,22 +1569,7 @@ public class FieldManager : MonoBehaviour
                                 
                                 // 네트워크 준비가 안 되었으면 원위치 복귀
                                 Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-                                if (selectedUnitNetworkTransform != null)
-                                {
-                                    var networkObject = selectedUnit.GetComponent<Fusion.NetworkObject>();
-                                    if (networkObject != null && networkObject.HasStateAuthority)
-                                    {
-                                        selectedUnitNetworkTransform.Teleport(originalWorldPos, selectedUnit.transform.rotation);
-                                    }
-                                    else
-                                    {
-                                        selectedUnit.transform.position = originalWorldPos;
-                                    }
-                                }
-                                else
-                                {
-                                    selectedUnit.transform.position = originalWorldPos;
-                                }
+                                SnapbackSelectedUnit(originalWorldPos);
                             }
                         }
                         else
@@ -1609,24 +1578,7 @@ public class FieldManager : MonoBehaviour
                             Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
 
                             // ✅ NetworkTransform 처리
-                            if (selectedUnitNetworkTransform != null)
-                            {
-                                selectedUnitNetworkTransform.enabled = true;
-
-                                var networkObject = selectedUnit.GetComponent<Fusion.NetworkObject>();
-                                if (networkObject != null && networkObject.HasStateAuthority)
-                                {
-                                    selectedUnitNetworkTransform.Teleport(originalWorldPos, selectedUnit.transform.rotation);
-                                }
-                                else
-                                {
-                                    selectedUnit.transform.position = originalWorldPos;
-                                }
-                            }
-                            else
-                            {
-                                selectedUnit.transform.position = originalWorldPos;
-                            }
+                            SnapbackSelectedUnit(originalWorldPos);
                         }
                     }
                     else
@@ -1635,24 +1587,7 @@ public class FieldManager : MonoBehaviour
                         Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
 
                         // ✅ NetworkTransform 처리
-                        if (selectedUnitNetworkTransform != null)
-                        {
-                            selectedUnitNetworkTransform.enabled = true;
-
-                            var networkObject = selectedUnit.GetComponent<Fusion.NetworkObject>();
-                            if (networkObject != null && networkObject.HasStateAuthority)
-                            {
-                                selectedUnitNetworkTransform.Teleport(originalWorldPos, selectedUnit.transform.rotation);
-                            }
-                            else
-                            {
-                                selectedUnit.transform.position = originalWorldPos;
-                            }
-                        }
-                        else
-                        {
-                            selectedUnit.transform.position = originalWorldPos;
-                        }
+                        SnapbackSelectedUnit(originalWorldPos);
                     }
                 }
             }
@@ -1662,7 +1597,7 @@ public class FieldManager : MonoBehaviour
                 if (placedUnits.ContainsValue(selectedUnit))
                 {
                     Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-                    selectedUnit.transform.position = originalWorldPos;
+                    SnapbackSelectedUnit(originalWorldPos);
                 }
                 ShowUnitDetailPanel(selectedUnit);
             }
