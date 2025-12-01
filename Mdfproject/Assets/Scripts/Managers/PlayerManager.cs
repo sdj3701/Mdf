@@ -60,6 +60,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     }
     private List<PendingUnitReg> _pendingUnitRegs = new List<PendingUnitReg>();
 
+    /// <summary>
+    /// 이 플레이어 오브젝트에 있는 하위 매니저 참조를 캐시합니다.
+    /// </summary>
      void Awake()
     {
         // Awake는 그대로 유지하여 하위 컴포넌트 참조를 미리 찾아둡니다.
@@ -69,6 +72,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         augmentManager = GetComponentInChildren<AugmentManager>();
     }
 
+    /// <summary>
+    /// 상태 권한(서버)에서 호출되어 모든 클라이언트에 이 플레이어의 ID와 그리드 참조를 초기화합니다.
+    /// </summary>
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void Rpc_InitializePlayer(int id, NetworkObject gridNetworkObject)
     {
@@ -82,7 +88,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             Debug.LogError($"[Player {playerId}]: RPC로 전달받은 gridNetworkObject가 null입니다! 초기화 실패.");
             return;
         }
-        Debug.Log($"[Player {playerId}]: gridNetworkObject를 성공적으로 받았습니다. (ID: {gridNetworkObject.Id})");
 
         // 전달받은 NetworkObject 참조로부터 그리드 게임오브젝트를 가져옵니다.
         GameObject gridInstance = gridNetworkObject.gameObject;
@@ -107,10 +112,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         this.goalTransform = gridInstance.transform.Find("Goal");
 
         // 각 컴포넌트/오브젝트를 찾았는지 확인하는 로그
-        Debug.Log($"[Player {playerId}]: 3D Ground 찾음? -> {(ground3D != null)}");
-        Debug.Log($"[Player {playerId}]: AstarGrid 찾음? -> {(this.astarGrid != null)}");
-        Debug.Log($"[Player {playerId}]: SpawnPoint 찾음? -> {(this.spawnPoint != null)}");
-        Debug.Log($"[Player {playerId}]: Goal 찾음? -> {(this.goalTransform != null)}");
 
         // AstarGrid 초기화는 FieldManager 초기화 이후에 수행하여 3D 그리드 정보를 공유합니다.
 
@@ -120,7 +121,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             if (ground3D != null)
             {
-                Debug.Log($"[Player {playerId}]: FieldManager를 3D 모드로 초기화합니다.");
                 fieldManager.Initialize(this, ground3D);
             }
             else
@@ -151,7 +151,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augmentManager) augmentManager.playerManager = this;
 
         IsActivelyFighting = false;
-        Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
 
         // Process any unit registrations that arrived early
         if (_pendingUnitRegs.Count > 0)
@@ -166,6 +165,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    /// <summary>
+    /// 서버에서 전달된 영구 벽 정보를 모든 클라이언트의 이 플레이어 필드에 적용합니다.
+    /// </summary>
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_ApplyPermanentWalls(int[] flatPositions)
     {
@@ -175,12 +177,14 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    /// <summary>
+    /// NetworkId로 스폰된 유닛을 찾아 지정된 그리드 위치에 이 플레이어 소유로 등록합니다.
+    /// </summary>
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void RPC_RegisterUnitAt(NetworkId unitId, int x, int y, string unitDataKey, int starLevel)
     {
         try
         {
-            Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] recv pos=({x},{y}) key='{unitDataKey}' star={starLevel} stateAuth={(Object != null && Object.HasStateAuthority)} id={unitId}</color>");
             if (Object != null && Object.HasStateAuthority) return;
             NetworkObject unitNO = null;
             bool resolved = false;
@@ -205,7 +209,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
             if (fieldManager == null || fieldManager.ground3D == null)
             {
-                Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] queued. fieldManagerReady={(fieldManager != null)} groundReady={(fieldManager != null && fieldManager.ground3D != null)}</color>");
                 _pendingUnitRegs.Add(new PendingUnitReg
                 {
                     unitNO = unitNO,
@@ -218,7 +221,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
 
             await RPC_RegisterUnitAt_Internal(unitNO, x, y, unitDataKey, starLevel);
-            Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] dispatched to Internal for pos=({x},{y})</color>");
         }
         catch (System.Exception ex)
         {
@@ -226,6 +228,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    /// <summary>
+    /// 필드에 등록하기 전에 유닛 데이터를 초기화하고 UI를 연결하는 내부 도우미입니다.
+    /// </summary>
     private async Cysharp.Threading.Tasks.UniTask RPC_RegisterUnitAt_Internal(NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
     {
         try
@@ -242,10 +247,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 return;
             }
             var pos = new Vector3Int(x, y, 0);
-            Debug.Log($"<color=yellow>[RPC_Internal] start pos={pos} currentData={(unit.Data != null ? unit.Data.name : "null")} key='{unitDataKey}'</color>");
             if (fieldManager.IsUnitAt(pos))
             {
-                Debug.Log($"<color=yellow>[RPC_Internal] position already occupied. Skipping register. pos={pos}</color>");
+                Debug.LogWarning($"<color=yellow>[RPC_Internal] position already occupied. Skipping register. pos={pos}</color>");
                 return;
             }
 
@@ -276,20 +280,17 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                     var lmReady = LoadManager.Instance.IsReady;
                     if (!lmReady)
                     {
-                        Debug.Log($"<color=yellow>[RPC_Internal] waiting LoadManager ready...</color>");
                         await LoadManager.Instance.WaitUntilReady();
                     }
                     data = LoadManager.Instance.GetUnitData(unitDataKey);
                     if (data == null)
                     {
-                        Debug.Log($"<color=yellow>[RPC_Internal] LoadManager miss for key='{unitDataKey}'. Trying Addressables fallback...</color>");
                         data = await AssetLoader.LoadAssetAsync<UnitData>(unitDataKey);
                     }
                 }
                 if (data != null)
                 {
                     await unit.Initialize(data, starLevel, this);
-                    Debug.Log($"<color=yellow>[RPC_Internal] unit.Initialize OK data='{unit.Data?.name}' star={starLevel}</color>");
                 }
                 else
                 {
@@ -316,7 +317,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 return;
             }
             fieldManager.RegisterUnitAt(unit, pos);
-            Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId}) data='{unit.Data?.name}'</color>");
         }
         catch (System.Exception ex)
         {
@@ -326,6 +326,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     // ... (이하 나머지 코드는 기존과 동일) ...
 
+    /// <summary>
+    /// 플레이어가 전투 중(전투 단계)인지 상태를 설정합니다.
+    /// </summary>
     public void SetFightingState(bool isFighting)
     {
         this.IsActivelyFighting = isFighting;
@@ -333,14 +336,24 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     #region Public Getters & Stat Modifiers
 
+    /// <summary>현재 체력을 반환합니다.</summary>
     public int GetHealth() => health;
+    /// <summary>현재 골드를 반환합니다.</summary>
     public int GetGold() => gold;
+    /// <summary>남은 설치 가능한 벽 개수를 반환합니다.</summary>
     public int GetWallCount() => wallCount;
+    /// <summary>벽 건설에 사용하는 예비 계수 값을 반환합니다.</summary>
     public int GetWallReserveK() => wallReserveK;
+    /// <summary>벽 건설 행동의 지연 범위를 정규화하여 반환합니다.</summary>
     public Vector2 GetWallBuildDelayRange() => NormalizeDelayRange(wallBuildDelayRange);
+    /// <summary>유닛 구매 지연 범위를 정규화하여 반환합니다.</summary>
     public Vector2 GetUnitPurchaseDelayRange() => NormalizeDelayRange(unitPurchaseDelayRange);
+    /// <summary>유닛 이동 지연 범위를 정규화하여 반환합니다.</summary>
     public Vector2 GetUnitMoveDelayRange() => NormalizeDelayRange(unitMoveDelayRange);
 
+    /// <summary>
+    /// 지정한 골드만큼 사용을 시도합니다. 성공 시 true를 반환합니다.
+    /// </summary>
     public bool SpendGold(int amount)
     {
         if (gold >= amount)
@@ -352,6 +365,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return false;
     }
 
+    /// <summary>
+    /// 지정한 골드를 추가하고 능력치 갱신 이벤트를 발생시킵니다.
+    /// </summary>
     public void AddGold(int amount)
     {
         if (amount <= 0) return;
@@ -359,6 +375,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
     }
 
+    /// <summary>
+    /// 데미지를 적용하고 체력이 0이 되면 게임 오버를 처리합니다.
+    /// </summary>
     public void TakeDamage(int damage)
     {
         if (damage <= 0) return;
@@ -375,6 +394,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
     }
 
+    /// <summary>
+    /// 지정한 데이터와 성급으로 유닛을 생성하여 필드에 배치합니다.
+    /// </summary>
     public void AddUnit(UnitData unitData, int starLevel)
     {
         if(fieldManager != null)
@@ -383,6 +405,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    /// <summary>
+    /// 벽이 남아 있으면 하나를 사용합니다. 성공 시 true를 반환하고 이벤트를 발생시킵니다.
+    /// </summary>
     public bool TryUseWall()
     {
         if (wallCount > 0)
@@ -394,6 +419,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return false;
     }
 
+    /// <summary>
+    /// 최대치까지 벽을 1개 돌려주고 이벤트를 발생시킵니다.
+    /// </summary>
     public void ReturnWall()
     {
         if (wallCount < MAX_WALL_COUNT)
@@ -403,11 +431,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    /// <summary>
+    /// 클라이언트→서버 RPC로 명령 처리 요청을 전달합니다. 서버에서만 실행됩니다.
+    /// </summary>
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
     public void RPC_RequestCommandToServer(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams, RpcInfo info = default)
     {
         if (Runner == null || !Runner.IsServer) return; // 서버에서만 처리
-        Debug.Log($"<color=green>[NetFlow] Server received command request -> {type}</color>");
         var gm = GameManagers.Instance;
         if (gm == null)
         {
@@ -417,11 +447,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 Debug.LogWarning("<color=green>[NetFlow] GameManagers not found on server yet. Dropping command.</color>");
                 return;
             }
-            Debug.Log("<color=green>[NetFlow] GameManagers resolved via FindObjectOfType on server.</color>");
         }
         gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
     }
 
+    /// <summary>
+    /// 벡터를 [최소, 최대] 순서의 음수가 아닌 값으로 보정합니다.
+    /// </summary>
     private static Vector2 NormalizeDelayRange(Vector2 range)
     {
         float min = Mathf.Min(range.x, range.y);
@@ -435,6 +467,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     #region 디버그 시각화
 
+    /// <summary>
+    /// 에디터에서 미로 계획과 건설 순서를 시각화하는 기즈모를 그립니다.
+    /// </summary>
     void OnDrawGizmos()
     {
         // 미로 계획 시각화 (연한 노란색)

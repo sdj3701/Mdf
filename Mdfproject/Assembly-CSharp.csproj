@@ -167,6 +167,7 @@
     <Compile Include="Assets\Scripts\UI\ShopItem.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\BehaviorTree.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\RangedUnitSynergyConsideration.cs" />
+    <Compile Include="Assets\Scripts\Managers\LoadManager.cs" />
     <Compile Include="Assets\Scripts\UI\StatusBarUI.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\Allegiance.cs" />
     <Compile Include="Assets\Scripts\UI\AugmentSlot.cs" />
@@ -239,7 +240,6 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\GameAssets.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Scripts\Managers\LoadManager.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
