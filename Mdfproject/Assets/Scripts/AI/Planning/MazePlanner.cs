@@ -1,299 +1,627 @@
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 public static class MazePlanner
 {
+    private enum CellType { Empty, WallAi, WallInitial }
+
+    private class PathNode
+    {
+        public Vector2Int Position;
+        public PathNode Parent;
+        public int G;
+        public int H;
+        public int F => G + H;
+    }
+
+    private class MazeGenerationResult
+    {
+        public CellType[,] Grid;
+        public List<Vector2Int> FinalPath;
+        public List<Vector2Int> AiWalls;
+        public Vector2Int Start;
+        public Vector2Int Goal;
+        public List<Vector2Int> DfsPath;
+    }
+
     private static readonly Vector2Int[] Dir4 = new[]
     {
         new Vector2Int(1,0), new Vector2Int(-1,0), new Vector2Int(0,1), new Vector2Int(0,-1)
     };
 
-    /// <summary>
-    /// 미로 설계: 최소한의 벽으로 몬스터 경로를 최대한 길게 만드는 벽 배치 계획을 생성합니다.
-    /// 전략: 출발 지점 근처부터 시작하여 경로를 최대한 길게 만드는 전략적 벽 배치
-    /// </summary>
-    public static List<Vector3Int> PlanWalls(FieldManager fm, PlayerManager pm)
+    private const float LongestSearchMs = 200f;
+    private const int MaxGenerationAttempts = 80;
+
+    public class MazePlanResult
     {
-        Debug.Log($"[MazePlanner] ===== 미로 계획 시작 (Player {pm.playerId}) =====");
-
-        Vector3Int spawnCell3 = fm.WorldToGridInt(pm.spawnPoint != null ? pm.spawnPoint.position : Vector3.zero);
-        Vector3Int goalCell3 = fm.WorldToGridInt(pm.goalTransform != null ? pm.goalTransform.position : Vector3.zero);
-        Vector2Int spawn = new Vector2Int(spawnCell3.x, spawnCell3.y);
-        Vector2Int goal = new Vector2Int(goalCell3.x, goalCell3.y);
-
-        Debug.Log($"[MazePlanner] 스폰: {spawn}, 골: {goal}");
-
-        int width = fm.gridSize.x;
-        int height = fm.gridSize.y;
-
-        // 플레이어가 보유한 벽 개수에서 비상용 예비 벽을 뺀 개수만큼 건설
-        int totalWallCount = pm.GetWallCount(); // 플레이어가 보유한 총 벽 개수
-        int reserveWalls = pm.GetWallReserveK(); // 비상용으로 남겨둘 벽 개수
-        int maxWallsToBuild = totalWallCount - reserveWalls; // 실제로 건설할 벽 개수
-
-        Debug.Log($"[MazePlanner] 그리드 크기: {width}x{height}, 보유 벽: {totalWallCount}개, 예비: {reserveWalls}개, 건설 목표: {maxWallsToBuild}개");
-
-        // 초기 벽 수집
-        var initialBlocked = new HashSet<Vector2Int>();
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                var cell = new Vector3Int(x, y, 0);
-                if (fm.HasWallAt(cell)) initialBlocked.Add(new Vector2Int(x, y));
-            }
-        }
-
-        Debug.Log($"[MazePlanner] 초기 벽 개수: {initialBlocked.Count}");
-
-        // 초기 경로 계산
-        var blocked = new HashSet<Vector2Int>(initialBlocked);
-        var currentPath = ComputePath(spawn, goal, width, height, blocked);
-        if (currentPath == null || currentPath.Count == 0)
-        {
-            Debug.LogWarning("[MazePlanner] 초기 경로를 찾을 수 없습니다. 미로 계획 실패.");
-            return new List<Vector3Int>();
-        }
-
-        int initialPathLength = currentPath.Count;
-        Debug.Log($"[MazePlanner] 초기 경로 길이: {initialPathLength}");
-
-        // 새로운 전략: 최소 벽으로 최대 효율
-        var result = BuildOptimalMaze(spawn, goal, width, height, blocked, initialBlocked, initialPathLength, maxWallsToBuild);
-
-        Debug.Log($"[MazePlanner] ===== 미로 계획 반환 완료 =====");
-        return result;
+        public List<Vector3Int> BuildOrder = new List<Vector3Int>();
+        public List<Vector2Int> ValidatedPath = new List<Vector2Int>();
+        public HashSet<Vector2Int> BlueprintWalls = new HashSet<Vector2Int>();
+        public Vector2Int Start;
+        public Vector2Int Goal;
     }
 
     /// <summary>
-    /// 최소한의 벽으로 경로를 최대한 길게 만드는 전략적 미로를 생성합니다.
-    /// Greedy 방식으로 각 벽이 경로 길이를 최대한 증가시키는 위치를 선택합니다.
-    /// 출발 지점 근처부터 시작하여 벽을 배치합니다.
+    /// Generate a maze once and return the blueprint and build order for the AI.
     /// </summary>
-    private static List<Vector3Int> BuildOptimalMaze(Vector2Int spawn, Vector2Int goal, int width, int height,
-        HashSet<Vector2Int> blocked, HashSet<Vector2Int> initialBlocked, int initialPathLength, int maxWallsToBuild)
+    public static MazePlanResult PlanWalls(FieldManager fm, PlayerManager pm)
     {
-        var solution = new List<Vector2Int>();
-        var currentBlocked = new HashSet<Vector2Int>(initialBlocked);
-
-        // 현재 경로
-        var currentPath = ComputePath(spawn, goal, width, height, currentBlocked);
-        int currentPathLength = currentPath?.Count ?? initialPathLength;
-
-        Debug.Log($"[MazePlanner] 초기 경로 길이: {currentPathLength}");
-        Debug.Log($"[MazePlanner] 초기 벽 개수: {initialBlocked.Count}개");
-
-        // 모든 가능한 벽 후보 수집
-        var allCandidates = new List<Vector2Int>();
-        for (int y = 0; y < height; y++)
+        var plan = new MazePlanResult();
+        if (fm == null || pm == null)
         {
-            for (int x = 0; x < width; x++)
-            {
-                var pos = new Vector2Int(x, y);
-                if (pos == spawn || pos == goal) continue;
-                if (initialBlocked.Contains(pos)) continue;
-                if (!IsValidPosition(pos, width, height)) continue;
-                allCandidates.Add(pos);
-            }
+            Debug.LogWarning("[MazePlanner] PlanWalls called with null references.");
+            return plan;
         }
 
-        Debug.Log($"[MazePlanner] 벽 후보 개수: {allCandidates.Count}, 신규 건설 목표: {maxWallsToBuild}개");
+        int width = Mathf.Max(1, fm.gridSize.x);
+        int height = Mathf.Max(1, fm.gridSize.y);
+        var rng = new System.Random();
 
-        // Greedy 전략: 매번 경로를 가장 많이 늘리는 벽을 선택
-        // 목표 개수만큼 건설하되, 필드 벽이 15개 넘으면 효율성 체크
-        int noImprovementCount = 0;
-        const int EFFICIENCY_CHECK_THRESHOLD = 15; // 이 개수 이상부터 효율성 체크
-        const int MAX_NO_IMPROVEMENT = 3; // 3번 연속 개선 없으면 중단
+        var initialWalls = CollectInitialWalls(fm);
+        int freeCells = Mathf.Max(1, width * height - initialWalls.Count);
+        int maxPossiblePath = Mathf.Max(1, freeCells - 1);
+        int minDesired = Mathf.Min(width + height + 2, maxPossiblePath);
+        int targetMinLength = Mathf.Clamp((int)(freeCells * 0.4f), minDesired, maxPossiblePath);
 
-        while (solution.Count < maxWallsToBuild)
+        var generation = GenerateFlawlessMaze(width, height, initialWalls, targetMinLength, rng);
+        if (generation == null)
         {
-            Vector2Int? bestWall = null;
-            int bestPathLength = currentPathLength;
-            float bestScore = float.MinValue;
+            Debug.LogWarning("[MazePlanner] Strict maze generation failed, using fallback path.");
+            generation = BuildFallbackMaze(fm, pm, initialWalls);
+        }
 
-            // 모든 후보 중에서 최선의 벽 찾기
-            foreach (var candidate in allCandidates)
+        if (generation == null)
+        {
+            Debug.LogWarning("[MazePlanner] Failed to build any maze. Returning empty plan.");
+            return plan;
+        }
+
+        AlignSpawnAndGoal(pm, fm, generation.Start, generation.Goal);
+
+        plan.Start = generation.Start;
+        plan.Goal = generation.Goal;
+        plan.ValidatedPath = generation.FinalPath ?? new List<Vector2Int>();
+        plan.BlueprintWalls = new HashSet<Vector2Int>(generation.AiWalls);
+
+        var orderedWalls = PrioritizeWalls(generation, initialWalls, rng);
+        foreach (var cell in orderedWalls)
+        {
+            plan.BuildOrder.Add(new Vector3Int(cell.x, cell.y, 0));
+        }
+
+        Debug.Log($"[MazePlanner] Maze planned. Start={plan.Start}, Goal={plan.Goal}, Walls={plan.BuildOrder.Count}, PathLen={plan.ValidatedPath.Count}");
+        return plan;
+    }
+
+    #region Generation Core
+
+    private static MazeGenerationResult GenerateFlawlessMaze(int width, int height, HashSet<Vector2Int> initialWalls, int targetMinLength, System.Random rng)
+    {
+        int minDistance = Mathf.Max(4, (width + height) / 3);
+        int attempt = 0;
+
+        while (attempt < MaxGenerationAttempts)
+        {
+            attempt++;
+
+            if (!TryPickStartGoal(width, height, initialWalls, rng, minDistance, out var start, out var goal))
             {
-                if (currentBlocked.Contains(candidate)) continue;
-
-                // 테스트: 이 위치에 벽을 세웠을 때
-                currentBlocked.Add(candidate);
-                var testPath = ComputePath(spawn, goal, width, height, currentBlocked);
-                currentBlocked.Remove(candidate);
-
-                // 경로가 막히면 스킵
-                if (testPath == null || testPath.Count == 0)
-                    continue;
-
-                int pathIncrease = testPath.Count - currentPathLength;
-
-                // 점수 계산: 경로 증가량이 주요 기준
-                float score = pathIncrease * 1000f;
-
-                // 보조 기준 1: 출발 지점과의 거리 (가까울수록 높은 점수)
-                int distToSpawn = Mathf.Abs(candidate.x - spawn.x) + Mathf.Abs(candidate.y - spawn.y);
-                score -= distToSpawn * 5f; // 출발지에서 멀수록 페널티
-
-                // 보조 기준 2: 인접성 보너스 (가급적 이어붙이기)
-                if (solution.Count > 0)
-                {
-                    int minDistToExisting = int.MaxValue;
-                    foreach (var existingWall in solution)
-                    {
-                        int dist = Mathf.Abs(candidate.x - existingWall.x) + Mathf.Abs(candidate.y - existingWall.y);
-                        if (dist < minDistToExisting)
-                            minDistToExisting = dist;
-                    }
-
-                    // 인접(거리 1)이면 보너스, 멀어질수록 페널티
-                    if (minDistToExisting == 1)
-                        score += 100f; // 인접 보너스
-                    else if (minDistToExisting == 2)
-                        score += 50f; // 대각선 인접
-                    else
-                        score -= minDistToExisting * 10f; // 거리 페널티 (하지만 경로 증가가 크면 상쇄됨)
-                }
-
-                // 보조 기준 3: 경로 상에 있으면 추가 보너스
-                if (currentPath != null && currentPath.Contains(candidate))
-                {
-                    score += 200f;
-                }
-
-                if (testPath.Count > bestPathLength ||
-                    (testPath.Count == bestPathLength && score > bestScore))
-                {
-                    bestPathLength = testPath.Count;
-                    bestScore = score;
-                    bestWall = candidate;
-                }
-            }
-
-            // 최선의 벽을 찾았는지 확인
-            if (!bestWall.HasValue)
-            {
-                Debug.LogWarning($"[MazePlanner] 더 이상 유효한 벽 후보가 없습니다. (현재: {solution.Count}/{maxWallsToBuild})");
                 break;
             }
 
-            int improvement = bestPathLength - currentPathLength;
-
-            // 벽 배치
-            solution.Add(bestWall.Value);
-            currentBlocked.Add(bestWall.Value);
-            currentPath = ComputePath(spawn, goal, width, height, currentBlocked);
-            currentPathLength = currentPath?.Count ?? currentPathLength;
-
-            int distFromSpawn = Mathf.Abs(bestWall.Value.x - spawn.x) + Mathf.Abs(bestWall.Value.y - spawn.y);
-            int totalWallsNow = initialBlocked.Count + solution.Count;
-
-            // 효율성 체크: 필드 벽이 15개 이상일 때만
-            if (totalWallsNow >= EFFICIENCY_CHECK_THRESHOLD)
+            var dfsPath = FindStrictLongestPath(start, goal, initialWalls, width, height, rng);
+            if (dfsPath == null || dfsPath.Count < targetMinLength)
             {
-                if (improvement <= 0)
-                {
-                    noImprovementCount++;
-                    Debug.Log($"[MazePlanner] 벽 #{solution.Count}/{maxWallsToBuild}: {bestWall.Value} (출발지 거리: {distFromSpawn}), 경로: {currentPathLength} (개선없음 {noImprovementCount}/{MAX_NO_IMPROVEMENT}), 점수: {bestScore:F1}");
+                continue;
+            }
 
-                    if (noImprovementCount >= MAX_NO_IMPROVEMENT)
-                    {
-                        Debug.LogWarning($"[MazePlanner] 필드 벽 {totalWallsNow}개 상태에서 {MAX_NO_IMPROVEMENT}번 연속 개선 없음. 효율성을 위해 중단합니다.");
-                        break;
-                    }
-                }
-                else
-                {
-                    noImprovementCount = 0; // 개선되면 리셋
-                    Debug.Log($"[MazePlanner] 벽 #{solution.Count}/{maxWallsToBuild}: {bestWall.Value} (출발지 거리: {distFromSpawn}), 경로: {currentPathLength} (+{improvement}), 점수: {bestScore:F1}");
-                }
-            }
-            else
+            var optimizedGrid = OptimizeWalls(start, goal, initialWalls, dfsPath, width, height, rng);
+            if (optimizedGrid == null) continue;
+
+            var finalPath = AStarSearch(optimizedGrid, start, goal);
+            if (finalPath == null) continue;
+            if (finalPath.Count < dfsPath.Count) continue;
+
+            var aiWalls = ExtractAiWalls(optimizedGrid);
+
+            Debug.Log($"[MazePlanner] Maze found on attempt {attempt}. Path {dfsPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
+
+            return new MazeGenerationResult
             {
-                // 15개 미만일 때는 효율성 체크 없이 계속 건설
-                if (improvement > 0)
-                {
-                    Debug.Log($"[MazePlanner] 벽 #{solution.Count}/{maxWallsToBuild}: {bestWall.Value} (출발지 거리: {distFromSpawn}), 경로: {currentPathLength} (+{improvement}), 점수: {bestScore:F1}");
-                }
-                else
-                {
-                    Debug.Log($"[MazePlanner] 벽 #{solution.Count}/{maxWallsToBuild}: {bestWall.Value} (출발지 거리: {distFromSpawn}), 경로: {currentPathLength} (개선없음), 점수: {bestScore:F1}");
-                }
-            }
+                Grid = optimizedGrid,
+                FinalPath = finalPath,
+                DfsPath = dfsPath,
+                AiWalls = aiWalls,
+                Start = start,
+                Goal = goal
+            };
         }
 
-        // 최종 경로 확인
-        var finalPath = ComputePath(spawn, goal, width, height, currentBlocked);
-        int finalPathLength = finalPath?.Count ?? 0;
-        int totalWallsInField = initialBlocked.Count + solution.Count;
-
-        Debug.Log($"[MazePlanner] ===== 미로 설계 완료 =====");
-        Debug.Log($"[MazePlanner] 초기 벽: {initialBlocked.Count}개, 신규 건설: {solution.Count}개, 필드 총 벽: {totalWallsInField}개");
-        Debug.Log($"[MazePlanner] 경로 길이: {initialPathLength} -> {finalPathLength} (증가: {finalPathLength - initialPathLength})");
-        Debug.Log($"[MazePlanner] 효율성: {(finalPathLength - initialPathLength) / (float)Mathf.Max(1, solution.Count):F2} (경로증가/신규벽개수)");
-
-        // Vector3Int로 변환하여 반환
-        var result = new List<Vector3Int>(solution.Count);
-        foreach (var pos in solution)
-        {
-            result.Add(new Vector3Int(pos.x, pos.y, 0));
-        }
-
-        return result;
+        return null;
     }
 
-    private static bool IsValidPosition(Vector2Int pos, int width, int height)
+    private static CellType[,] OptimizeWalls(Vector2Int start, Vector2Int goal, HashSet<Vector2Int> initialWalls, List<Vector2Int> targetPath, int width, int height, System.Random rng)
+    {
+        var grid = BuildGrid(width, height, initialWalls, null);
+
+        // Fill with AI walls except path/initial
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                if (grid[x, y] == CellType.WallInitial) continue;
+                grid[x, y] = CellType.WallAi;
+            }
+        }
+
+        foreach (var p in targetPath)
+        {
+            grid[p.x, p.y] = CellType.Empty;
+        }
+
+        var wallsToCheck = new List<Vector2Int>();
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                if (grid[x, y] == CellType.WallAi)
+                {
+                    wallsToCheck.Add(new Vector2Int(x, y));
+                }
+            }
+        }
+
+        ShuffleInPlace(wallsToCheck, rng);
+        int targetLen = targetPath.Count;
+
+        foreach (var wall in wallsToCheck)
+        {
+            grid[wall.x, wall.y] = CellType.Empty;
+            var checkPath = AStarSearch(grid, start, goal);
+            if (checkPath != null && checkPath.Count < targetLen)
+            {
+                grid[wall.x, wall.y] = CellType.WallAi;
+            }
+        }
+
+        return grid;
+    }
+
+    private static MazeGenerationResult BuildFallbackMaze(FieldManager fm, PlayerManager pm, HashSet<Vector2Int> initialWalls)
+    {
+        int width = Mathf.Max(1, fm.gridSize.x);
+        int height = Mathf.Max(1, fm.gridSize.y);
+
+        var start = fm.WorldToGridInt(pm.spawnPoint != null ? pm.spawnPoint.position : Vector3.zero);
+        var goal = fm.WorldToGridInt(pm.goalTransform != null ? pm.goalTransform.position : Vector3.zero);
+        var start2D = new Vector2Int(start.x, start.y);
+        var goal2D = new Vector2Int(goal.x, goal.y);
+
+        if (!IsInside(start2D, width, height) || initialWalls.Contains(start2D))
+        {
+            start2D = FindFirstEmptyCell(width, height, initialWalls, Vector2Int.zero);
+        }
+
+        if (!IsInside(goal2D, width, height) || initialWalls.Contains(goal2D) || goal2D == start2D)
+        {
+            goal2D = FindFirstEmptyCell(width, height, initialWalls, start2D);
+        }
+
+        var grid = BuildGrid(width, height, initialWalls, null);
+        var path = AStarSearch(grid, start2D, goal2D) ?? new List<Vector2Int> { start2D, goal2D };
+
+        return new MazeGenerationResult
+        {
+            Grid = grid,
+            FinalPath = path,
+            DfsPath = path,
+            AiWalls = new List<Vector2Int>(),
+            Start = start2D,
+            Goal = goal2D
+        };
+    }
+
+    private static bool TryPickStartGoal(int width, int height, HashSet<Vector2Int> initialWalls, System.Random rng, int minDistance, out Vector2Int start, out Vector2Int goal)
+    {
+        var cells = new List<Vector2Int>();
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                var cell = new Vector2Int(x, y);
+                if (initialWalls.Contains(cell)) continue;
+                cells.Add(cell);
+            }
+        }
+
+        start = Vector2Int.zero;
+        goal = Vector2Int.zero;
+        if (cells.Count < 2) return false;
+
+        for (int i = 0; i < 100; i++)
+        {
+            start = cells[rng.Next(cells.Count)];
+            goal = cells[rng.Next(cells.Count)];
+            if (start == goal) continue;
+            int dist = Mathf.Abs(start.x - goal.x) + Mathf.Abs(start.y - goal.y);
+            if (dist <= minDistance) continue;
+            return true;
+        }
+
+        // fallback: farthest pair
+        start = cells[0];
+        var anchor = start; // copy to avoid capturing ref/out in LINQ
+        goal = cells.Skip(1).OrderByDescending(c => Mathf.Abs(anchor.x - c.x) + Mathf.Abs(anchor.y - c.y)).FirstOrDefault();
+        return start != goal;
+    }
+
+    private static List<Vector2Int> FindStrictLongestPath(Vector2Int start, Vector2Int goal, HashSet<Vector2Int> initialWalls, int width, int height, System.Random rng)
+    {
+        var best = new List<Vector2Int>();
+        var visited = new HashSet<Vector2Int> { start };
+        var path = new List<Vector2Int> { start };
+        var sw = Stopwatch.StartNew();
+
+        void Dfs(Vector2Int current)
+        {
+            if (sw.ElapsedMilliseconds > LongestSearchMs) return;
+
+            if (current == goal)
+            {
+                if (path.Count > best.Count)
+                {
+                    best = new List<Vector2Int>(path);
+                }
+                return;
+            }
+
+            var candidates = new List<Vector2Int>();
+            foreach (var dir in Dir4)
+            {
+                var next = current + dir;
+                if (!IsInside(next, width, height)) continue;
+                if (visited.Contains(next)) continue;
+                if (initialWalls.Contains(next)) continue;
+
+                if (next == goal || IsSafeSpacing(next, current, visited))
+                {
+                    candidates.Add(next);
+                }
+            }
+
+            ShuffleInPlace(candidates, rng);
+            // push goal candidate to the end to encourage detours
+            int goalIndex = candidates.FindIndex(c => c == goal);
+            if (goalIndex >= 0)
+            {
+                var g = candidates[goalIndex];
+                candidates.RemoveAt(goalIndex);
+                candidates.Add(g);
+            }
+
+            foreach (var next in candidates)
+            {
+                visited.Add(next);
+                path.Add(next);
+                Dfs(next);
+                if (sw.ElapsedMilliseconds > LongestSearchMs) break;
+                path.RemoveAt(path.Count - 1);
+                visited.Remove(next);
+            }
+        }
+
+        Dfs(start);
+        return best;
+    }
+
+    private static bool IsSafeSpacing(Vector2Int target, Vector2Int current, HashSet<Vector2Int> visited)
+    {
+        foreach (var dir in Dir4)
+        {
+            var neighbor = target + dir;
+            if (visited.Contains(neighbor) && neighbor != current)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static CellType[,] BuildGrid(int width, int height, HashSet<Vector2Int> initialWalls, HashSet<Vector2Int> aiWalls)
+    {
+        var grid = new CellType[width, height];
+        if (initialWalls != null)
+        {
+            foreach (var wall in initialWalls)
+            {
+                if (IsInside(wall, width, height))
+                {
+                    grid[wall.x, wall.y] = CellType.WallInitial;
+                }
+            }
+        }
+
+        if (aiWalls != null)
+        {
+            foreach (var wall in aiWalls)
+            {
+                if (IsInside(wall, width, height))
+                {
+                    grid[wall.x, wall.y] = CellType.WallAi;
+                }
+            }
+        }
+        return grid;
+    }
+
+    private static List<Vector2Int> ExtractAiWalls(CellType[,] grid)
+    {
+        var list = new List<Vector2Int>();
+        int width = grid.GetLength(0);
+        int height = grid.GetLength(1);
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                if (grid[x, y] == CellType.WallAi)
+                {
+                    list.Add(new Vector2Int(x, y));
+                }
+            }
+        }
+        return list;
+    }
+
+    #endregion
+
+    #region Pathfinding / Ordering
+
+    private static List<Vector2Int> AStarSearch(CellType[,] grid, Vector2Int start, Vector2Int goal)
+    {
+        int width = grid.GetLength(0);
+        int height = grid.GetLength(1);
+
+        if (!IsInside(start, width, height) || !IsInside(goal, width, height)) return null;
+
+        var open = new List<PathNode>();
+        var closed = new HashSet<Vector2Int>();
+        var startNode = new PathNode
+        {
+            Position = start,
+            G = 0,
+            H = Heuristic(start, goal)
+        };
+        open.Add(startNode);
+
+        while (open.Count > 0)
+        {
+            var current = open[0];
+            for (int i = 1; i < open.Count; i++)
+            {
+                if (open[i].F < current.F || (open[i].F == current.F && open[i].H < current.H))
+                {
+                    current = open[i];
+                }
+            }
+
+            open.Remove(current);
+            closed.Add(current.Position);
+
+            if (current.Position == goal)
+            {
+                var path = new List<Vector2Int>();
+                var node = current;
+                while (node != null)
+                {
+                    path.Add(node.Position);
+                    node = node.Parent;
+                }
+                path.Reverse();
+                return path;
+            }
+
+            foreach (var dir in Dir4)
+            {
+                var nextPos = current.Position + dir;
+                if (!IsInside(nextPos, width, height)) continue;
+                if (grid[nextPos.x, nextPos.y] != CellType.Empty) continue;
+                if (closed.Contains(nextPos)) continue;
+
+                int tentativeG = current.G + 1;
+                var existing = open.FirstOrDefault(n => n.Position == nextPos);
+                if (existing == null)
+                {
+                    open.Add(new PathNode
+                    {
+                        Position = nextPos,
+                        Parent = current,
+                        G = tentativeG,
+                        H = Heuristic(nextPos, goal)
+                    });
+                }
+                else if (tentativeG < existing.G)
+                {
+                    existing.G = tentativeG;
+                    existing.Parent = current;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static List<Vector2Int> PrioritizeWalls(MazeGenerationResult generation, HashSet<Vector2Int> initialWalls, System.Random rng)
+    {
+        var order = new List<Vector2Int>();
+        var remaining = new HashSet<Vector2Int>(generation.AiWalls);
+
+        var workingGrid = BuildGrid(generation.Grid.GetLength(0), generation.Grid.GetLength(1), initialWalls, null);
+        var currentPath = AStarSearch(workingGrid, generation.Start, generation.Goal);
+        int currentLength = currentPath?.Count ?? 0;
+
+        while (remaining.Count > 0)
+        {
+            Vector2Int? best = null;
+            int bestIncrease = int.MinValue;
+            int bestScore = int.MinValue;
+            List<Vector2Int> bestPath = null;
+
+            foreach (var candidate in remaining)
+            {
+                if (workingGrid[candidate.x, candidate.y] != CellType.Empty) continue;
+
+                workingGrid[candidate.x, candidate.y] = CellType.WallAi;
+                var path = AStarSearch(workingGrid, generation.Start, generation.Goal);
+                workingGrid[candidate.x, candidate.y] = CellType.Empty;
+
+                if (path == null) continue;
+
+                int increase = path.Count - currentLength;
+                int distToGoal = Heuristic(candidate, generation.Goal);
+                int distToStart = Heuristic(candidate, generation.Start);
+                bool onPath = currentPath != null && currentPath.Contains(candidate);
+
+                int score = increase * 1000 + (distToGoal + distToStart) * 3 + (onPath ? 50 : 0);
+
+                if (increase > bestIncrease || (increase == bestIncrease && (score > bestScore || (score == bestScore && rng.Next(2) == 0))))
+                {
+                    best = candidate;
+                    bestIncrease = increase;
+                    bestScore = score;
+                    bestPath = path;
+                }
+            }
+
+            if (!best.HasValue)
+            {
+                // no improvement candidate (shouldn't happen often)
+                var fallback = remaining.First();
+                order.Add(fallback);
+                remaining.Remove(fallback);
+                workingGrid[fallback.x, fallback.y] = CellType.WallAi;
+                currentPath = AStarSearch(workingGrid, generation.Start, generation.Goal);
+                currentLength = currentPath?.Count ?? currentLength;
+                continue;
+            }
+
+            order.Add(best.Value);
+            remaining.Remove(best.Value);
+            workingGrid[best.Value.x, best.Value.y] = CellType.WallAi;
+            currentPath = bestPath ?? currentPath;
+            currentLength = currentPath?.Count ?? currentLength;
+        }
+
+        return order;
+    }
+
+    #endregion
+
+    #region Utility
+
+    public static bool RandomizeSpawnAndGoal(FieldManager fm, PlayerManager pm)
+    {
+        if (fm == null || pm == null) return false;
+
+        int width = Mathf.Max(1, fm.gridSize.x);
+        int height = Mathf.Max(1, fm.gridSize.y);
+        var initialWalls = CollectInitialWalls(fm);
+        var rng = new System.Random();
+        int minDistance = Mathf.Max(3, (width + height) / 4);
+
+        for (int attempt = 0; attempt < MaxGenerationAttempts; attempt++)
+        {
+            if (!TryPickStartGoal(width, height, initialWalls, rng, minDistance, out var start, out var goal))
+            {
+                break;
+            }
+
+            var grid = BuildGrid(width, height, initialWalls, null);
+            var path = AStarSearch(grid, start, goal);
+            if (path != null && path.Count > 1)
+            {
+                AlignSpawnAndGoal(pm, fm, start, goal);
+                return true;
+            }
+        }
+
+        var fallback = BuildFallbackMaze(fm, pm, initialWalls);
+        if (fallback != null)
+        {
+            AlignSpawnAndGoal(pm, fm, fallback.Start, fallback.Goal);
+            return true;
+        }
+
+        Debug.LogWarning($"[MazePlanner] Failed to randomize spawn/goal for Player {pm.playerId}");
+        return false;
+    }
+
+    private static HashSet<Vector2Int> CollectInitialWalls(FieldManager fm)
+    {
+        var set = new HashSet<Vector2Int>();
+        for (int y = 0; y < fm.gridSize.y; y++)
+        {
+            for (int x = 0; x < fm.gridSize.x; x++)
+            {
+                var cell = new Vector3Int(x, y, 0);
+                if (fm.HasWallAt(cell))
+                {
+                    set.Add(new Vector2Int(x, y));
+                }
+            }
+        }
+        return set;
+    }
+
+    private static void AlignSpawnAndGoal(PlayerManager pm, FieldManager fm, Vector2Int start, Vector2Int goal)
+    {
+        if (pm.spawnPoint != null)
+        {
+            var world = fm.GridToWorld(new Vector3Int(start.x, start.y, 0));
+            pm.spawnPoint.position = world;
+        }
+
+        if (pm.goalTransform != null)
+        {
+            var world = fm.GridToWorld(new Vector3Int(goal.x, goal.y, 0));
+            pm.goalTransform.position = world;
+        }
+    }
+
+    private static int Heuristic(Vector2Int a, Vector2Int b)
+    {
+        return Mathf.Abs(a.x - b.x) + Mathf.Abs(a.y - b.y);
+    }
+
+    private static bool IsInside(Vector2Int pos, int width, int height)
     {
         return pos.x >= 0 && pos.x < width && pos.y >= 0 && pos.y < height;
     }
 
-    private static int DistanceToPath(Vector2Int c, List<Vector2Int> path)
+    private static Vector2Int FindFirstEmptyCell(int width, int height, HashSet<Vector2Int> blocked, Vector2Int avoid)
     {
-        int best = int.MaxValue;
-        for (int i = 0; i < path.Count; i++)
+        for (int y = 0; y < height; y++)
         {
-            var p = path[i];
-            int d = Mathf.Abs(c.x - p.x) + Mathf.Abs(c.y - p.y);
-            if (d < best) best = d;
-            if (best == 0) break;
-        }
-        return best == int.MaxValue ? 99999 : best;
-    }
-
-    private static List<Vector2Int> ComputePath(Vector2Int start, Vector2Int goal, int width, int height, HashSet<Vector2Int> blocked)
-    {
-        if (start == goal) return new List<Vector2Int> { start };
-        var q = new Queue<Vector2Int>();
-        var prev = new Dictionary<Vector2Int, Vector2Int>();
-        var seen = new HashSet<Vector2Int>();
-        q.Enqueue(start);
-        seen.Add(start);
-        while (q.Count > 0)
-        {
-            var cur = q.Dequeue();
-            for (int i = 0; i < Dir4.Length; i++)
+            for (int x = 0; x < width; x++)
             {
-                var nxt = cur + Dir4[i];
-                if (nxt.x < 0 || nxt.x >= width || nxt.y < 0 || nxt.y >= height) continue;
-                if (blocked.Contains(nxt)) continue;
-                if (!seen.Add(nxt)) continue;
-                prev[nxt] = cur;
-                if (nxt == goal)
-                {
-                    var path = new List<Vector2Int>();
-                    var t = nxt;
-                    while (t != start)
-                    {
-                        path.Add(t);
-                        t = prev[t];
-                    }
-                    path.Add(start);
-                    path.Reverse();
-                    return path;
-                }
-                q.Enqueue(nxt);
+                var cell = new Vector2Int(x, y);
+                if (blocked.Contains(cell) || cell == avoid) continue;
+                return cell;
             }
         }
-        return null;
+        return Vector2Int.zero;
     }
+
+    private static void ShuffleInPlace(List<Vector2Int> list, System.Random rng)
+    {
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int j = rng.Next(i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
+    }
+
+    #endregion
 }

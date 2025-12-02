@@ -94,6 +94,7 @@ public class GameManagers : NetworkBehaviour
     private AugmentUIController augmentSelectionUI;
     private NetworkManager networkManager;
     private bool _isSpawned;
+    private readonly HashSet<int> _spawnGoalRandomized = new HashSet<int>();
 
     private bool hasCombatBeenShortened = false;
 
@@ -577,6 +578,13 @@ public class GameManagers : NetworkBehaviour
             // AI 준비 단계 플래그 리셋
             player.mazeConstructionComplete = false;
             player.unitPurchaseComplete = false;
+
+            // 스폰/도착 지점은 게임 시작 시 1회만 랜덤 지정
+            if (!_spawnGoalRandomized.Contains(player.playerId) && player.fieldManager != null)
+            {
+                MazePlanner.RandomizeSpawnAndGoal(player.fieldManager, player);
+                _spawnGoalRandomized.Add(player.playerId);
+            }
         }
         Debug.Log(currentRound);
         if (currentRound >= 1)
