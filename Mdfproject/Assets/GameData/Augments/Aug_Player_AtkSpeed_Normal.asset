@@ -18,5 +18,5 @@ MonoBehaviour:
   tier: 0
   targetType: 0
   effectType: 1
-  value: 10
+  value: 0.5
   prefabToSpawn: {fileID: 0}
