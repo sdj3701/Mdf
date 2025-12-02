@@ -57,7 +57,7 @@ public class FieldManager : MonoBehaviour
     private readonly List<Vector3> _pathWorldPoints = new List<Vector3>();
     private readonly List<GameObject> _pathMarkerPool = new List<GameObject>();
     private Coroutine _markerSpawnRoutine;
-    private bool _pathDirty;
+    private Coroutine _pathRefreshRoutine;
 
     // [3D Migration] 논리 그리드 설정
     [Header("3D 그리드 설정")]
@@ -381,17 +381,20 @@ public class FieldManager : MonoBehaviour
     private void SchedulePathRefresh()
     {
         if (!showPathInPrepare) return;
-        var gm = GameManagers.Instance;
-        if (gm != null && gm.GetGameState() == GameManagers.GameState.Prepare)
+        if (_pathRefreshRoutine != null)
         {
-            // 준비 단계라면 즉시 갱신
-            _pathDirty = false;
-            RefreshPathLine();
+            StopCoroutine(_pathRefreshRoutine);
         }
-        else
-        {
-            _pathDirty = true;
-        }
+        _pathRefreshRoutine = StartCoroutine(RefreshPathLineNextFrame());
+    }
+
+    private System.Collections.IEnumerator RefreshPathLineNextFrame()
+    {
+        // 물리/콜라이더 업데이트가 반영된 뒤 실행
+        yield return new WaitForFixedUpdate();
+        yield return new WaitForEndOfFrame();
+        RefreshPathLine();
+        _pathRefreshRoutine = null;
     }
 
     private void RefreshPathLine()
@@ -442,6 +445,11 @@ public class FieldManager : MonoBehaviour
     private void HidePathLine()
     {
         StopMarkerFlow();
+        if (_pathRefreshRoutine != null)
+        {
+            StopCoroutine(_pathRefreshRoutine);
+            _pathRefreshRoutine = null;
+        }
     }
 
     private void RestartMarkerFlow()
@@ -573,11 +581,7 @@ public class FieldManager : MonoBehaviour
         {
             HandleUnitDragAndDrop();
         }
-        if (_pathDirty && GameManagers.Instance != null && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
-        {
-            _pathDirty = false;
-            RefreshPathLine();
-        }
+        // 즉시 갱신이 필요한 경우(벽/유닛 배치 변경)에는 _pathRefreshRoutine에서 처리
     }
 
     #region Public Methods for UI
