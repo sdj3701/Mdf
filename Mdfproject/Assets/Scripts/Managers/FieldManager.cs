@@ -58,6 +58,8 @@ public class FieldManager : MonoBehaviour
     private readonly List<GameObject> _pathMarkerPool = new List<GameObject>();
     private Coroutine _markerSpawnRoutine;
     private Coroutine _pathRefreshRoutine;
+    private readonly List<GameObject> _activeMarkers = new List<GameObject>();
+    private readonly Dictionary<GameObject, Coroutine> _markerRoutines = new Dictionary<GameObject, Coroutine>();
 
     // [3D Migration] 논리 그리드 설정
     [Header("3D 그리드 설정")]
@@ -438,7 +440,8 @@ public class FieldManager : MonoBehaviour
         }
 
         // 마커 표시
-        HidePathLine();
+        // 경로가 바뀌면 기존 마커를 모두 회수하고 새 경로로 다시 흘려보냅니다.
+        StopMarkerFlow();
         RestartMarkerFlow();
     }
 
@@ -454,7 +457,7 @@ public class FieldManager : MonoBehaviour
 
     private void RestartMarkerFlow()
     {
-        StopMarkerFlow();
+        StopMarkerSpawn();
         if (_pathWorldPoints.Count < 2) return;
         WarmupMarkerPool();
         _markerSpawnRoutine = StartCoroutine(SpawnMarkersRoutine());
@@ -462,14 +465,25 @@ public class FieldManager : MonoBehaviour
 
     private void StopMarkerFlow()
     {
+        StopMarkerSpawn();
+        foreach (var kv in _markerRoutines)
+        {
+            if (kv.Value != null) StopCoroutine(kv.Value);
+        }
+        _markerRoutines.Clear();
+        foreach (var marker in _activeMarkers)
+        {
+            if (marker != null) marker.SetActive(false);
+        }
+        _activeMarkers.Clear();
+    }
+
+    private void StopMarkerSpawn()
+    {
         if (_markerSpawnRoutine != null)
         {
             StopCoroutine(_markerSpawnRoutine);
             _markerSpawnRoutine = null;
-        }
-        foreach (var marker in _pathMarkerPool)
-        {
-            if (marker != null) marker.SetActive(false);
         }
     }
 
@@ -523,28 +537,31 @@ public class FieldManager : MonoBehaviour
             if (marker != null)
             {
                 marker.SetActive(true);
-                StartCoroutine(MoveMarkerAlongPath(marker));
+                var snapshot = new List<Vector3>(_pathWorldPoints);
+                _activeMarkers.Add(marker);
+                var routine = StartCoroutine(MoveMarkerAlongPath(marker, snapshot));
+                _markerRoutines[marker] = routine;
             }
             yield return new WaitForSeconds(pathMarkerSpawnInterval);
         }
     }
 
-    private System.Collections.IEnumerator MoveMarkerAlongPath(GameObject marker)
+    private System.Collections.IEnumerator MoveMarkerAlongPath(GameObject marker, List<Vector3> pathSnapshot)
     {
-        if (marker == null || _pathWorldPoints.Count < 2)
+        if (marker == null || pathSnapshot == null || pathSnapshot.Count < 2)
         {
             if (marker != null) marker.SetActive(false);
             yield break;
         }
 
         int seg = 0;
-        Vector3 pos = _pathWorldPoints[0];
+        Vector3 pos = pathSnapshot[0];
         marker.transform.position = pos;
 
-        while (seg < _pathWorldPoints.Count - 1 && GameManagers.Instance != null && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+        while (seg < pathSnapshot.Count - 1 && GameManagers.Instance != null && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
         {
-            Vector3 a = _pathWorldPoints[seg];
-            Vector3 b = _pathWorldPoints[seg + 1];
+            Vector3 a = pathSnapshot[seg];
+            Vector3 b = pathSnapshot[seg + 1];
             float dist = Vector3.Distance(a, b);
             float travelled = 0f;
             while (travelled < dist && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
@@ -559,6 +576,8 @@ public class FieldManager : MonoBehaviour
         }
 
         marker.SetActive(false);
+        _activeMarkers.Remove(marker);
+        _markerRoutines.Remove(marker);
     }
 
     #endregion
