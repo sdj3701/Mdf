@@ -98,11 +98,11 @@ public class RoomItem : MonoBehaviour
             {
                 if (isFull)
                 {
-                    buttonText.text = "만석";
+                    buttonText.text = GetRoomName() + "만석";
                 }
                 else if (_currentPlayers > 0)
                 {
-                    buttonText.text = "참여";
+                    buttonText.text = GetRoomName() + "참여";
                 }
                 else
                 {

@@ -43,7 +43,6 @@ public class GetPlayerCamera : MonoBehaviour
 
     void TryApply()
     {
-        Debug.Log("<color=yellow>TryApply 호출</color>");
         if (applied) return;
         var gm = GameManagers.Instance;
         if (gm == null) return;

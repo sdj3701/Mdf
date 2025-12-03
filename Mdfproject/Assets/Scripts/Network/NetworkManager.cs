@@ -113,7 +113,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         // 로비에 있을 때만 게임을 시작할 수 있습니다.
         if (_state != ConnectionState.InLobby) return;
 
-        Debug.Log($"Starting Game with session name: {sessionName}, loading scene: {sceneName}");
+        string finalSessionName = string.IsNullOrWhiteSpace(sessionName)
+            ? PlayerPrefs.GetString("PlayerNickname", "Host")
+            : sessionName;
+
+        Debug.Log($"Starting Game with session name: {finalSessionName}, loading scene: {sceneName}");
 
         // Runner가 없으면 새로 생성하고 콜백을 등록합니다.
         if (_runner == null)
@@ -139,7 +143,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         await _runner.StartGame(new StartGameArgs()
         {
             GameMode = mode,
-            SessionName = sessionName,
+            SessionName = finalSessionName,
             Scene = scene, // Fusion이 이 씬을 로드하도록 지정합니다.
             SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
             PlayerCount = 2 // 최대 플레이어 수를 2명으로 설정
