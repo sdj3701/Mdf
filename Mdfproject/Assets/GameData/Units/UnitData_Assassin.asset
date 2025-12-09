@@ -28,9 +28,9 @@ MonoBehaviour:
   manaOnAttack: 5
   manaPerSecond: 5
   prefabsByStarLevel:
-  - Knight
-  - Knight
-  - Knight
+  - Fighter1
+  - Fighter1
+  - Fighter1
   skillsByStarLevel:
   - Skill_AreaMeleeDamage
   - Skill_AreaMeleeDamage

@@ -28,9 +28,9 @@ MonoBehaviour:
   manaOnAttack: 15
   manaPerSecond: 5
   prefabsByStarLevel:
-  - Knight
-  - Knight
-  - Knight
+  - Archer1
+  - Archer1
+  - Archer1
   skillsByStarLevel:
   - Skill_InspiringShout
   - Skill_InspiringShout
