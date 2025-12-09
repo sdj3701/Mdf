@@ -552,21 +552,27 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private IEnumerator AttackLoop()
     {
+        float nextAttackTime = 0f;
         while (isCombatPhase)
         {
             if (currentAttackSpeed <= 0)
             {
-                yield return new WaitForSeconds(1f);
+                yield return null;
                 continue;
             }
 
             FindNearestEnemy();
             if (targetEnemy != null)
             {
-                Attack();
+                if (Time.time >= nextAttackTime)
+                {
+                    Attack();
+                    nextAttackTime = Time.time + 1f / currentAttackSpeed;
+                }
             }
-            
-            yield return new WaitForSeconds(1f / currentAttackSpeed);
+
+            // 매 프레임마다 적 탐색/쿨다운 확인
+            yield return null;
         }
     }
 
