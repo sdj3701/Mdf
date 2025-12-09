@@ -239,8 +239,12 @@ public class AugmentManager : MonoBehaviour
                 target.AddGold((int)augment.value);
                 break;
             case EffectType.IncreaseMyUnitAttack:
+                target.AddPermanentAttackDamagePercent(augment.value);
+                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격력 버프 적용 (+{augment.value:P0})");
+                break;
             case EffectType.IncreaseMyUnitAttackSpeed:
-                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 효과가 추가되었습니다.");
+                target.AddPermanentAttackSpeedPercent(augment.value);
+                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격속도 버프 적용 (+{augment.value:P0})");
                 break;
             case EffectType.SpawnBossOnEnemyField:
                 if (augment.prefabToSpawn != null && target.monsterSpawner != null)

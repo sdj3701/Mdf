@@ -55,6 +55,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private Coroutine animSpeedResetRoutine;
     private bool attackClipDurationInitialized = false;
     private Coroutine attackClipDetectRoutine;
+    private PlayerManager owner;
 
     private bool isCombatPhase = false;
 
@@ -121,6 +122,62 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         attackClipDetectRoutine = null;
     }
 
+    private void CacheAttackClipDurationFromController()
+    {
+        if (animator == null || animator.runtimeAnimatorController == null) return;
+        var clips = animator.runtimeAnimatorController.animationClips;
+        if (clips == null || clips.Length == 0) return;
+
+        AnimationClip attackClip = null;
+        foreach (var clip in clips)
+        {
+            if (clip == null) continue;
+            if (clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                attackClip = clip;
+                break;
+            }
+        }
+
+        if (attackClip == null)
+        {
+            attackClip = clips[0];
+        }
+
+        baseAttackAnimationDuration = Mathf.Max(0.01f, attackClip.length);
+        attackClipDurationInitialized = true;
+    }
+
+    public float GetPermanentAdjustedBaseAttackDamage()
+    {
+        if (unitData == null) return 0f;
+        float statMultiplier = Mathf.Pow(1.8f, starLevel - 1);
+        float baseDamage = unitData.baseAttackDamage * statMultiplier;
+        float bonusPercent = owner != null ? owner.permanentAttackDamagePercent : 0f;
+        return baseDamage * (1f + bonusPercent);
+    }
+
+    public float GetPermanentAdjustedBaseAttackSpeed()
+    {
+        if (unitData == null) return 0f;
+        float baseSpeed = unitData.attackSpeed;
+        float bonusPercent = owner != null ? owner.permanentAttackSpeedPercent : 0f;
+        return baseSpeed * (1f + bonusPercent);
+    }
+
+    public void RefreshPermanentBonuses()
+    {
+        var buffManager = GetComponent<BuffManager>();
+        if (buffManager != null)
+        {
+            buffManager.RecalculateStats();
+            return;
+        }
+        float baseDmg = GetPermanentAdjustedBaseAttackDamage();
+        float baseSpd = GetPermanentAdjustedBaseAttackSpeed();
+        ApplyStatModifiers(baseDmg, baseSpd);
+    }
+
     void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
@@ -157,6 +214,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
    public async UniTask Initialize(UnitData data, int initialStarLevel, PlayerManager owner)
     {
         this.unitData = data;
+        this.owner = owner;
         if(this.unitData == null)
         {
             Debug.LogError($"UnitData is null for unit {name}");
@@ -169,6 +227,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             animator = GetComponent<Animator>();
             if (animator == null) animator = GetComponentInChildren<Animator>();
         }
+        CacheAttackClipDurationFromController();
 
         // AI가 소유한 유닛인 경우, 스킬 자동 사용을 강제합니다.
         if (owner != null && ComponentRegistry.Has<AIPlayerController>(owner.playerId.ToString()))
@@ -247,8 +306,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         maxHP = unitData.baseHealth * statMultiplier;
         currentHP = maxHP;
         OnHealthChanged?.Invoke(currentHP, maxHP);
-        currentAttackDamage = unitData.baseAttackDamage * statMultiplier;
-        currentAttackSpeed = unitData.attackSpeed;
+        currentAttackDamage = GetPermanentAdjustedBaseAttackDamage();
+        currentAttackSpeed = GetPermanentAdjustedBaseAttackSpeed();
         currentAttackRange = unitData.attackRange;
         currentDefense = unitData.defense;
         currentMagicResistance = unitData.magicResistance;

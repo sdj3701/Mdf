@@ -1125,6 +1125,17 @@ public class FieldManager : MonoBehaviour
         }
     }
 
+    public void ApplyPermanentBonusesToAllUnits()
+    {
+        foreach (var unit in placedUnits.Values)
+        {
+            if (unit != null)
+            {
+                unit.RefreshPermanentBonuses();
+            }
+        }
+    }
+
     public void MoveUnit(Vector3Int from, Vector3Int to)
     {
         if (!IsValidGridPosition(from) || !IsValidGridPosition(to))

@@ -35,6 +35,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public List<Unit> ownedUnits = new List<Unit>();
     public List<AugmentData> chosenAugments = new List<AugmentData>();
 
+    [Header("Permanent Augment Bonuses")]
+    [Tooltip("영구 증강으로 인한 아군 공격력(%) 가산. 0.1 = +10%")]
+    public float permanentAttackDamagePercent = 0f;
+    [Tooltip("영구 증강으로 인한 아군 공격속도(%) 가산. 0.1 = +10%")]
+    public float permanentAttackSpeedPercent = 0f;
+
     [Header("하위 매니저 참조 (자동 할당)")]
     public FieldManager fieldManager;
     public ShopManager shopManager;
@@ -340,6 +346,26 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public Vector2 GetWallBuildDelayRange() => NormalizeDelayRange(wallBuildDelayRange);
     public Vector2 GetUnitPurchaseDelayRange() => NormalizeDelayRange(unitPurchaseDelayRange);
     public Vector2 GetUnitMoveDelayRange() => NormalizeDelayRange(unitMoveDelayRange);
+
+    public void AddPermanentAttackDamagePercent(float percent)
+    {
+        permanentAttackDamagePercent += percent;
+        ApplyPermanentBonusesToUnitsOnField();
+    }
+
+    public void AddPermanentAttackSpeedPercent(float percent)
+    {
+        permanentAttackSpeedPercent += percent;
+        ApplyPermanentBonusesToUnitsOnField();
+    }
+
+    public void ApplyPermanentBonusesToUnitsOnField()
+    {
+        if (fieldManager != null)
+        {
+            fieldManager.ApplyPermanentBonusesToAllUnits();
+        }
+    }
 
     public bool SpendGold(int amount)
     {
