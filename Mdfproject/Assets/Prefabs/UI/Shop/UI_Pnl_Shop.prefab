@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 8005641800376955035}
   - component: {fileID: 5964667320754543925}
   - component: {fileID: 6433996034630332052}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Btn_OpenToggle
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -35,11 +35,11 @@ RectTransform:
   m_Father: {fileID: 6676499223151732611}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.5, y: 0.5}
-  m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 1020, y: 500}
+  m_AnchorMin: {x: 1, y: 1}
+  m_AnchorMax: {x: 1, y: 1}
+  m_AnchoredPosition: {x: 35.999878, y: 319.99994}
   m_SizeDelta: {x: 180, y: 180}
-  m_Pivot: {x: 0.5, y: 0.5}
+  m_Pivot: {x: 1, y: 1}
 --- !u!222 &8005641800376955035
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -147,7 +147,7 @@ GameObject:
   - component: {fileID: 7070144050531560703}
   - component: {fileID: 6476532909379558762}
   - component: {fileID: 8945489850432793071}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Btn_CreateWall
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -170,11 +170,11 @@ RectTransform:
   m_Father: {fileID: 6676499223151732611}
   m_RootOrder: 3
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.5, y: 0.5}
-  m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 672, y: -598}
+  m_AnchorMin: {x: 1, y: 0}
+  m_AnchorMax: {x: 1, y: 0}
+  m_AnchoredPosition: {x: -327, y: -403}
   m_SizeDelta: {x: 150, y: 150}
-  m_Pivot: {x: 0.5, y: 0.5}
+  m_Pivot: {x: 1, y: 0}
 --- !u!222 &3953496568939431724
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -294,7 +294,7 @@ GameObject:
   - component: {fileID: 6302236554832538343}
   - component: {fileID: 9223062932381624378}
   - component: {fileID: 8800281883950722334}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: SlotsContainer
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -402,7 +402,7 @@ GameObject:
   - component: {fileID: 5676507736196258541}
   - component: {fileID: 3642673118705706602}
   - component: {fileID: 3453449872492597822}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Btn_Reroll
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -536,7 +536,7 @@ GameObject:
   - component: {fileID: 6676499223151732611}
   - component: {fileID: 6676499223151732613}
   - component: {fileID: 4156242450800912212}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Pnl_Shop
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -611,7 +611,7 @@ GameObject:
   - component: {fileID: 3668249312409299095}
   - component: {fileID: 1354065408705439301}
   - component: {fileID: 6627483054856993217}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Txt_OpenToggle
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -748,7 +748,7 @@ GameObject:
   - component: {fileID: 2219178911006521218}
   - component: {fileID: 7093569535666428378}
   - component: {fileID: 3785201107235726767}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Txt_RerollCost
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -883,7 +883,7 @@ GameObject:
   - component: {fileID: 7946782406212604011}
   - component: {fileID: 7360313571304615224}
   - component: {fileID: 7374956316011609113}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Txt_Reroll
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1018,7 +1018,7 @@ GameObject:
   - component: {fileID: 2173995041784959770}
   - component: {fileID: 4883641575163959927}
   - component: {fileID: 1419980664621239499}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Txt_CreateWall
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1260,6 +1260,46 @@ PrefabInstance:
       propertyPath: m_Name
       value: UI_Pnl_ShopSlot (4)
       objectReference: {fileID: 0}
+    - target: {fileID: 37613086633180501, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086710126716, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086802759034, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087188901068, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087876429578, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087993181225, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 4325109842688670134, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 6188402686986527155, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 18e65b521fc35fa4f9dbdb1d3461950b, type: 3}
 --- !u!114 &2291790037958534375 stripped
@@ -1396,6 +1436,46 @@ PrefabInstance:
         type: 3}
       propertyPath: m_Name
       value: UI_Pnl_ShopSlot (1)
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086633180501, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086710126716, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086802759034, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087188901068, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087876429578, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087993181225, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 4325109842688670134, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 6188402686986527155, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 18e65b521fc35fa4f9dbdb1d3461950b, type: 3}
@@ -1534,6 +1614,46 @@ PrefabInstance:
       propertyPath: m_Name
       value: UI_Pnl_ShopSlot (3)
       objectReference: {fileID: 0}
+    - target: {fileID: 37613086633180501, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086710126716, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086802759034, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087188901068, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087876429578, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087993181225, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 4325109842688670134, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 6188402686986527155, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 18e65b521fc35fa4f9dbdb1d3461950b, type: 3}
 --- !u!114 &1564729419727972754 stripped
@@ -1671,6 +1791,46 @@ PrefabInstance:
       propertyPath: m_Name
       value: UI_Pnl_ShopSlot
       objectReference: {fileID: 0}
+    - target: {fileID: 37613086633180501, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086710126716, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086802759034, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087188901068, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087876429578, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087993181225, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 4325109842688670134, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 6188402686986527155, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 18e65b521fc35fa4f9dbdb1d3461950b, type: 3}
 --- !u!114 &1647748270174831885 stripped
@@ -1807,6 +1967,46 @@ PrefabInstance:
         type: 3}
       propertyPath: m_Name
       value: UI_Pnl_ShopSlot (2)
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086633180501, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086710126716, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613086802759034, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087188901068, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087876429578, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 37613087993181225, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 4325109842688670134, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
+      objectReference: {fileID: 0}
+    - target: {fileID: 6188402686986527155, guid: 18e65b521fc35fa4f9dbdb1d3461950b,
+        type: 3}
+      propertyPath: m_Layer
+      value: 5
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 18e65b521fc35fa4f9dbdb1d3461950b, type: 3}
