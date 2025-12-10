@@ -18,7 +18,7 @@ MonoBehaviour:
   unitType: 1
   baseHealth: 10
   baseAttackDamage: 2
-  attackSpeed: 2
+  attackSpeed: 1
   attackRange: 2.5
   damageType: 0
   defense: 0
