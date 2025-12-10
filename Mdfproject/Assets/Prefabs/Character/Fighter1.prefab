@@ -2839,7 +2839,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 48d949fe188cd184eb557efe696eff35, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  lookAtWeight: 0.407
+  lookAtWeight: 0.542
   tiltAngle: 1.75
 --- !u!114 &9151525281240374274
 MonoBehaviour:

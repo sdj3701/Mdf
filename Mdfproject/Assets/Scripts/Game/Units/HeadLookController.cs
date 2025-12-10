@@ -9,7 +9,7 @@ public class HeadLookController : MonoBehaviour
     public float lookAtWeight = 1.0f;
 
     [Tooltip("캐릭터가 얼마나 위를 쳐다볼지 결정합니다. 높을수록 하늘을 봅니다.")]
-    [Range(0, 2)]
+    [Range(0, 5)]
     public float tiltAngle = 1.0f;
 
     void Awake()
