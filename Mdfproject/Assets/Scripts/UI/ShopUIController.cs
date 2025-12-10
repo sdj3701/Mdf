@@ -1,4 +1,5 @@
 // Assets/Scripts/UI/ShopUIController.cs
+using System;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -10,27 +11,13 @@ public class ShopUIController : MonoBehaviour
     public ShopSlot[] shopSlots;
     public Button rerollButton;
     public TextMeshProUGUI rerollCostText;
-    [Tooltip("준비 단계에서만 활성화되는 벽 생성 버튼입니다.")]
-    public GameObject wallPlacementButton;
 
-    [Header("상점 토글 버튼 설정")]
-    public Button toggleButton;
-    public TextMeshProUGUI toggleButtonText;
-
-    [Header("내부 콘텐츠 토글 설정")]
+    [Header("슬롯 컨테이너 관련 설정")]
     public GameObject slotsContainer;
     public GameObject rerollButtonObject;
 
     private ShopManager localPlayerShopManager;
-
-    void Awake()
-    {
-        if (toggleButton != null)
-        {
-            toggleButton.onClick.AddListener(ToggleContent);
-        }
-        OnEnable();
-    }
+    public event Action<bool> OnContentVisibilityChanged;
 
     void OnEnable()
     {
@@ -45,12 +32,12 @@ public class ShopUIController : MonoBehaviour
         }
         else
         {
-            // [수정] 로컬 플레이어가 아직 없으면 경고만 출력하고 나중에 재시도
-            Debug.LogWarning("[ShopUIController] 로컬 플레이어가 아직 설정되지 않았습니다. 나중에 재시도합니다.");
-            // 비활성화하지 않고 이벤트만 구독하여 나중에 초기화될 수 있도록 함
+            // [예외처리] 로컬 플레이어가 아직 지정되지 않았다면 경고 로그를 남기고 재시도합니다.
+            Debug.LogWarning("[ShopUIController] 로컬 플레이어가 아직 지정되지 않았습니다. 나중에 재시도합니다.");
+            // 비활성화상태여도 경고만 출력하고 이벤트만 구독해서 재시도가 가능하도록 유지됩니다.
         }
 
-        // 게임 상태 변경 이벤트를 구독합니다.
+        // 게임 상태 변경, 상점 갱신, 구매 성공 이벤트를 구독합니다.
         GameEvents.OnGameStateChanged += HandleGameStateChange;
         GameEvents.OnShopRefreshed += HandleShopRefreshed;
         GameEvents.OnUnitPurchaseSucceeded += HandleUnitPurchaseSucceeded;
@@ -58,7 +45,7 @@ public class ShopUIController : MonoBehaviour
 
     void OnDisable()
     {
-        // 패널이 비활성화될 때 이벤트 구독을 해지하여 메모리 누수를 방지합니다.
+        // 패널 비활성화 시 이벤트 구독을 해제하여 메모리를 보호합니다.
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
         GameEvents.OnShopRefreshed -= HandleShopRefreshed;
         GameEvents.OnUnitPurchaseSucceeded -= HandleUnitPurchaseSucceeded;
@@ -69,7 +56,7 @@ public class ShopUIController : MonoBehaviour
     /// </summary>
     private void HandleGameStateChange(GameManagers.GameState newState)
     {
-        // [수정] 로컬 플레이어가 아직 없으면 초기화 시도
+        // [예외처리] 로컬 플레이어가 아직 지정되지 않았다면 초기화를 시도
         if (localPlayerShopManager == null && GameManagers.Instance != null && GameManagers.Instance.localPlayer != null)
         {
             localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
@@ -82,17 +69,7 @@ public class ShopUIController : MonoBehaviour
 
         bool isPreparePhase = (newState == GameManagers.GameState.Prepare);
 
-        // [수정] 게임 상태에 따라 벽 생성 버튼과 상점 토글 버튼의 가시성을 제어합니다.
-        if (wallPlacementButton != null)
-        {
-            wallPlacementButton.SetActive(isPreparePhase);
-        }
-        if (toggleButton != null)
-        {
-            toggleButton.gameObject.SetActive(isPreparePhase);
-        }
-
-        // 버튼들의 상호작용 여부를 게임 상태에 따라 결정합니다.
+        // 버튼들의 활성/비활성 여부를 게임 상태에 따라 결정합니다.
         rerollButton.interactable = isPreparePhase;
 
         foreach (var slot in shopSlots)
@@ -103,7 +80,7 @@ public class ShopUIController : MonoBehaviour
             }
         }
 
-        // 전투 페이즈가 되면 상점 내용을 자동으로 숨깁니다.
+        // 전투 페이즈로 넘어가면 상점 UI를 자동으로 닫습니다.
         if (!isPreparePhase)
         {
             SetContentVisibility(false);
@@ -119,7 +96,7 @@ public class ShopUIController : MonoBehaviour
 
         for (int i = 0; i < shopSlots.Length; i++)
         {
-            shopSlots[i].Initialize(localPlayerShopManager, i); // 슬롯에 인덱스 전달
+            shopSlots[i].Initialize(localPlayerShopManager, i); // 슬롯별 인덱스도 전달
         }
 
         UpdateInfoText();
@@ -145,10 +122,10 @@ public class ShopUIController : MonoBehaviour
 
     private void HandleUnitPurchaseSucceeded(int playerID, ShopItem purchasedItem, int slotIndex)
     {
-        // 이 이벤트가 로컬 플레이어의 상점에 해당하는지 확인
+        // 이벤트가 로컬 플레이어에 해당하는지 확인
         if (localPlayerShopManager != null && localPlayerShopManager.playerManager.playerId == playerID)
         {
-            // 해당 슬롯을 '구매 완료' 상태로 변경
+            // 해당 슬롯의 '구매 완료' 상태로 변경
             if (slotIndex >= 0 && slotIndex < shopSlots.Length)
             {
                 shopSlots[slotIndex].SetPurchased();
@@ -167,7 +144,7 @@ public class ShopUIController : MonoBehaviour
     {
         if (items == null)
         {
-            Debug.LogError("표시할 아이템 리스트가 null입니다!");
+            Debug.LogError("표시할 리스트가 null입니다.");
             return;
         }
 
@@ -192,30 +169,22 @@ public class ShopUIController : MonoBehaviour
         }
     }
 
-    public void ToggleContent()
+    public bool IsContentVisible()
     {
-        bool newVisibility = !slotsContainer.activeSelf;
+        return slotsContainer != null && slotsContainer.activeSelf;
+    }
+
+    public bool ToggleContent()
+    {
+        bool newVisibility = !IsContentVisible();
         SetContentVisibility(newVisibility);
+        return newVisibility;
     }
 
     public void SetContentVisibility(bool isVisible)
     {
         if (slotsContainer != null) slotsContainer.SetActive(isVisible);
         if (rerollButtonObject != null) rerollButtonObject.SetActive(isVisible);
-        UpdateButtonText();
-    }
-
-    private void UpdateButtonText()
-    {
-        if (toggleButtonText == null) return;
-
-        if (slotsContainer != null && slotsContainer.activeSelf)
-        {
-            toggleButtonText.text = "Close";
-        }
-        else
-        {
-            toggleButtonText.text = "Open";
-        }
+        OnContentVisibilityChanged?.Invoke(isVisible);
     }
 }

@@ -1,5 +1,6 @@
 // Assets/Scripts/UI/PlayerHUDController.cs
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 
 public class PlayerHUDController : MonoBehaviour
@@ -8,24 +9,46 @@ public class PlayerHUDController : MonoBehaviour
     public TextMeshProUGUI goldText;
     public TextMeshProUGUI roundText;
 
+    [Header("Shop Controls")]
+    public ShopUIController shopUIController;
+    public Button shopToggleButton;
+    public TextMeshProUGUI shopToggleButtonText;
+    public GameObject wallPlacementButton;
+
     private PlayerManager localPlayer;
     private GameManagers gameManager;
 
     void OnEnable()
     {
-        // GameManagers가 준비될 때 이벤트를 구독합니다.
         GameEvents.OnGameManagersReady += OnGameManagersReady;
+        GameEvents.OnGameStateChanged += HandleGameStateChange;
+
+        if (shopToggleButton != null)
+        {
+            shopToggleButton.onClick.AddListener(OnShopToggleButtonClicked);
+        }
+
+        SubscribeToShopVisibility();
     }
 
     void OnDisable()
     {
-        // 이벤트 구독 해제
         GameEvents.OnGameManagersReady -= OnGameManagersReady;
+        GameEvents.OnGameStateChanged -= HandleGameStateChange;
+
+        if (shopToggleButton != null)
+        {
+            shopToggleButton.onClick.RemoveListener(OnShopToggleButtonClicked);
+        }
+
+        if (shopUIController != null)
+        {
+            shopUIController.OnContentVisibilityChanged -= HandleShopVisibilityChanged;
+        }
     }
 
     void Start()
     {
-        // Start()에서도 시도해봅니다 (이미 준비되어 있을 수 있음)
         if (gameManager == null)
         {
             gameManager = GameManagers.Instance;
@@ -33,12 +56,19 @@ public class PlayerHUDController : MonoBehaviour
         if (gameManager != null && localPlayer == null)
         {
             localPlayer = gameManager.localPlayer;
+        }
+
+        SubscribeToShopVisibility();
+        RefreshShopToggleText();
+
+        if (gameManager != null)
+        {
+            HandleGameStateChange(gameManager.GetGameState());
         }
     }
 
     private void OnGameManagersReady()
     {
-        // GameManagers가 준비되면 참조를 저장합니다.
         if (gameManager == null)
         {
             gameManager = GameManagers.Instance;
@@ -47,12 +77,21 @@ public class PlayerHUDController : MonoBehaviour
         {
             localPlayer = gameManager.localPlayer;
         }
+
+        SubscribeToShopVisibility();
+        RefreshShopToggleText();
+
+        if (gameManager != null)
+        {
+            HandleGameStateChange(gameManager.GetGameState());
+        }
+
         Debug.Log("[PlayerHUDController] GameManagers 참조 획득 완료");
     }
 
     void Update()
     {
-        // GameManager가 없으면 다시 시도합니다.
+        // GameManager가 없으면 매 프레임 시도
         if (gameManager == null)
         {
             gameManager = GameManagers.Instance;
@@ -62,7 +101,7 @@ public class PlayerHUDController : MonoBehaviour
             }
         }
 
-        // localPlayer가 없으면 다시 시도합니다.
+        // localPlayer가 없으면 매 프레임 시도
         if (localPlayer == null)
         {
             localPlayer = gameManager.localPlayer;
@@ -72,7 +111,7 @@ public class PlayerHUDController : MonoBehaviour
             }
         }
 
-        // 매 프레임 UI를 직접 업데이트합니다.
+        // HUD UI 업데이트
         if (goldText != null)
         {
             goldText.text = localPlayer.GetGold().ToString();
@@ -81,6 +120,67 @@ public class PlayerHUDController : MonoBehaviour
         if (roundText != null)
         {
             roundText.text = $"ROUND\n{Mathf.Max(1, gameManager.currentRound)}";
+        }
+    }
+
+    private void HandleGameStateChange(GameManagers.GameState newState)
+    {
+        bool isPreparePhase = (newState == GameManagers.GameState.Prepare);
+
+        if (wallPlacementButton != null)
+        {
+            wallPlacementButton.SetActive(isPreparePhase);
+        }
+
+        if (shopToggleButton != null)
+        {
+            shopToggleButton.gameObject.SetActive(isPreparePhase);
+        }
+
+        if (!isPreparePhase && shopUIController != null)
+        {
+            shopUIController.SetContentVisibility(false);
+        }
+
+        RefreshShopToggleText();
+    }
+
+    private void OnShopToggleButtonClicked()
+    {
+        if (shopUIController == null)
+        {
+            SubscribeToShopVisibility();
+            if (shopUIController == null) return;
+        }
+
+        shopUIController.ToggleContent();
+        RefreshShopToggleText();
+    }
+
+    private void HandleShopVisibilityChanged(bool isVisible)
+    {
+        RefreshShopToggleText();
+    }
+
+    private void RefreshShopToggleText()
+    {
+        if (shopToggleButtonText == null) return;
+
+        bool isVisible = shopUIController != null && shopUIController.IsContentVisible();
+        shopToggleButtonText.text = isVisible ? "Close" : "Open";
+    }
+
+    private void SubscribeToShopVisibility()
+    {
+        if (shopUIController == null)
+        {
+            shopUIController = FindObjectOfType<ShopUIController>(true);
+        }
+
+        if (shopUIController != null)
+        {
+            shopUIController.OnContentVisibilityChanged -= HandleShopVisibilityChanged;
+            shopUIController.OnContentVisibilityChanged += HandleShopVisibilityChanged;
         }
     }
 }
