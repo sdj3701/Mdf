@@ -4,15 +4,14 @@ using UnityEngine;
 
 public class VersionButton : BaseButton
 {
-    public async override void OnClick()
+    public override void OnClick()
     {
-        _uiManager.ReturnUIElement("OptionCanvas");
-        await _uiManager.GetUIElement("VersionCanvas");
+        uiManager.ReturnUIElement("OptionCanvas");
+        uiManager.GetUIElement("VersionCanvas");
     }
-    
-    public async override void BackButton()
+    public override void BackButton()
     {
-        _uiManager.ReturnUIElement("VersionCanvas");
-        await _uiManager.GetUIElement("OptionCanvas");
+        uiManager.ReturnUIElement("VersionCanvas");
+        uiManager.GetUIElement("OptionCanvas");
     }
 }

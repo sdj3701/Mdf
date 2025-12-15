@@ -43,7 +43,6 @@ MonoBehaviour:
   m_GroupAssets:
   - {fileID: 11400000, guid: 79f89cde8fbf51d45a32accc62b0d055, type: 2}
   - {fileID: 11400000, guid: e789eb02bc22a324ebc18e265752883a, type: 2}
-  - {fileID: 11400000, guid: 22f3d4e5e2a067f43b83a57537f69368, type: 2}
   m_BuildSettings:
     m_CompileScriptsInVirtualMode: 0
     m_CleanupStreamingAssetsAfterBuilds: 1
@@ -60,11 +59,11 @@ MonoBehaviour:
       - m_Id: 877936acbd14a0442b4c7285c676bd98
         m_Value: '[UnityEngine.AddressableAssets.Addressables.BuildPath]/[BuildTarget]'
       - m_Id: 5f35bbe19d99fca4dab09100fbd66f2e
-        m_Value: '{UnityEngine.AddressableAssets.Addressables.RuntimePath}'
-      - m_Id: 9de760e01509c98438d4bb93e2c02d33
-        m_Value: '[UnityEngine.AddressableAssets.Addressables.BuildPath]/[BuildTarget]'
-      - m_Id: 993965979e213264e9f10d518a55f334
         m_Value: '{UnityEngine.AddressableAssets.Addressables.RuntimePath}/[BuildTarget]'
+      - m_Id: 9de760e01509c98438d4bb93e2c02d33
+        m_Value: ServerData/[BuildTarget]
+      - m_Id: 993965979e213264e9f10d518a55f334
+        m_Value: http://[PrivateIpAddress]:[HostingServicePort]
     m_ProfileEntryNames:
     - m_Id: 694ef40b82da2014385ff49aff2cab9b
       m_Name: BuildTarget
@@ -86,17 +85,6 @@ MonoBehaviour:
     m_LabelNames:
     - default
     - UI
-    - Augment
-    - TileBase
-    - CharacterSprite
-    - CharacterPrefab
-    - MonsterData
-    - WallPrefab
-    - SkillData
-    - UnitData
-    - Projectile
-    - Player
-    - Manager
   m_SchemaTemplates: []
   m_GroupTemplateObjects:
   - {fileID: 11400000, guid: 296fe4b267b8c2b49955d16e6a872c12, type: 2}

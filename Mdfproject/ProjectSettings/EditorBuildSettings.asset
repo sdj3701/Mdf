@@ -9,17 +9,11 @@ EditorBuildSettings:
     path: Assets/Scenes/Title.unity
     guid: 6fc6e643bae3348f99e472d581505a1a
   - enabled: 1
-    path: Assets/Scenes/MatchingLobby.unity
-    guid: f6c24109f5ec991468e77b8fcd1335fa
-  - enabled: 1
-    path: Assets/Scenes/JoinLobby.unity
-    guid: f79e0c7e15df6a547aeecc601ffa921c
+    path: Assets/Scenes/MainLobby.unity
+    guid: b29162107311bc54da21d5e31f9b2c38
   - enabled: 1
     path: Assets/Scenes/Game.unity
-    guid: d78b0b9bf72c1eb4f802cdb55745f191
-  - enabled: 0
-    path: Assets/StarterAssets/ThirdPersonController/Scenes/Playground.unity
-    guid: e9017d5f96b9f09489b4b37e1d6eb914
+    guid: 99c9720ab356a0642a771bea13969a05
   m_configObjects:
     com.unity.addressableassets: {fileID: 11400000, guid: f665f5a3959309349a748224e562f107,
       type: 2}
