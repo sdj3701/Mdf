@@ -17,13 +17,13 @@ TagManager:
   - Ground
   - Wall
   - Obstacle
-  - BreakWall
+  - 
   - Start
   - End
   - 
   - Monster
-  - Unit
-  - Projectile
+  - 
+  - 
   - 
   - 
   - 

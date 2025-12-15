@@ -1,385 +1,275 @@
-// Assets/Scripts/Game/Monsters/Monster.cs
-using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
-using Fusion;
+using UnityEngine;
 
-public class Monster : MonoBehaviour, IEnemy, IHealth
+public struct MonsterData
 {
-    [Header("참조 데이터")]
-    public MonsterData monsterData;
+    public int Hp;
+    public int Damage;
 
-    [Tooltip("공격하거나 파괴할 수 있는 벽의 레이어를 설정해야 합니다.")]
-    public LayerMask wallLayerMask;
-
-    [Header("현재 상태")]
-    public float currentHP;
-    private float currentMaxHP;
-
-    public float CurrentHealth => currentHP;
-    public float MaxHealth => currentMaxHP;
-    public event System.Action<float, float> OnHealthChanged;
-
-    private ManaController manaController;
-
-    private Transform goalTransform;
-    private PlayerManager ownerPlayer;
-    private AstarGrid pathfinder;
-    private bool isBlocked = false;
-    private Unit blockingUnit;
-    private StatusBarUI statusBarUI;
-    private Coroutine movementCoroutine;
-    private Coroutine attackCoroutine;
-    private static bool isQuitting = false;
-    private bool isMoving = false;
-    private float baseMoveSpeed;
-    private float currentMoveSpeed;
-    private NetworkObject netObj;
-
-    void OnApplicationQuit() { isQuitting = true; }
-
-    public void SetStatusBar(StatusBarUI ui)
+    public MonsterData(int hp, int damage)
     {
-        this.statusBarUI = ui;
+        Hp = hp;
+        Damage = damage;
+    }
+};
+
+// 적 인터페이스 (선택사항)
+public interface IEnemy
+{
+    void TakeDamage(int damage);
+}
+
+public class Monster : MonoBehaviour
+{
+    [Header("Test")]
+    private GameObject PlaneObject;
+    public GameObject EndUI;
+
+    [Header("MonsterData")]
+    public MonsterData md = new MonsterData(100, 1);
+
+    [Header("이동 설정")]
+    public float moveSpeed = 2f;              // 이동 속도
+    public float arrivalThreshold = 0.1f;     // 도착 판정 거리
+    public bool smoothMovement = true;        // 부드러운 이동 여부
+    
+    [Header("디버깅")]
+    public bool showPath = true;              // 경로 표시
+    public bool showCurrentTarget = true;     // 현재 목표점 표시
+    
+    private List<Node> currentPath;           // 현재 따라가는 경로
+    private int currentPathIndex = 0;         // 현재 목표하는 경로상의 인덱스
+    private Vector2 currentTarget;            // 현재 목표 좌표
+    private bool isMoving = false;            // 이동 중인지 여부
+    private TestCode pathfinder;              // PathFinding 스크립트 참조
+
+    void Start()
+    {
+        pathfinder = FindObjectOfType<TestCode>();
+        currentHP = maxHP;
+        PlaneObject = GameObject.Find("Plane");
+        
+
     }
 
-    public void Initialize(PlayerManager owner, Transform goal, MonsterData data, AstarGrid pathfinder)
+
+    [Header("체력 설정")]
+    public int maxHP = 100;
+    public int currentHP;
+
+    public void TakeDamage(int damage)
     {
-        this.ownerPlayer = owner;
-        this.goalTransform = goal;
-        this.monsterData = data;
-        this.pathfinder = pathfinder;
-        this.name = monsterData.monsterName;
-        this.wallLayerMask = pathfinder.wallLayers;
-        netObj = GetComponent<NetworkObject>();
-        baseMoveSpeed = monsterData.moveSpeed;
-        currentMoveSpeed = baseMoveSpeed;
+        currentHP -= damage;
+        Debug.Log($"{gameObject.name} HP: {currentHP}/{maxHP}");
 
-        currentMaxHP = monsterData.maxHealth;
-        currentHP = currentMaxHP;
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-
-        manaController = GetComponent<ManaController>();
-
-        int maxMana = 0;
-        if (monsterData.skillData != null)
+        if (currentHP <= 0)
         {
-            maxMana = monsterData.skillData.manaCost;
-            manaController.OnManaFull += ActivateSkill;
-        }
-        manaController.Initialize(maxMana);
-    }
-
-    void Update()
-    {
-        if (monsterData != null && monsterData.skillData != null)
-        {
-            manaController.GainManaOverTime(10f);
+            Die();
         }
     }
 
-    private void ActivateSkill()
+    void Die()
     {
-        SkillData skillData = monsterData.skillData;
-
-        if (skillData == null || skillData.targetingStrategy == null || skillData.effects.Count == 0)
-        {
-            Debug.LogError($"{monsterData.monsterName}의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
-            return;
-        }
-
-        if (!manaController.IsManaFull) return;
-
-        if (manaController.UseMana(skillData.manaCost))
-        {
-            Debug.Log($"<color=magenta>{monsterData.monsterName} 스킬 발동: {skillData.skillName}</color>");
-
-            List<GameObject> targets = skillData.targetingStrategy.FindTargets(this.gameObject, transform.position, skillData.range);
-
-            foreach (var effect in skillData.effects)
-            {
-                if (effect != null)
-                {
-                    effect.ApplyEffect(null, this.gameObject, targets);
-                }
-            }
-
-            if (skillData.vfxPrefab != null)
-            {
-                GameObject vfxInstance = Instantiate(skillData.vfxPrefab, transform.position, Quaternion.identity);
-
-                float maxDuration = 0f;
-                foreach (var effect in skillData.effects)
-                {
-                    if (effect is IDurationEffect durationEffect)
-                    {
-                        if (durationEffect.Duration > maxDuration)
-                        {
-                            maxDuration = durationEffect.Duration;
-                        }
-                    }
-                }
-
-                float vfxLifetime = (maxDuration > 0) ? maxDuration : 2f;
-
-                if (vfxInstance.TryGetComponent<VFXAutoDestroy>(out var autoDestroy))
-                {
-                    autoDestroy.Initialize(vfxLifetime);
-                }
-                else
-                {
-                    Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
-                    // ✅ [수정] 컴파일 오류를 유발하던 아래 코드를 완전히 삭제했습니다.
-                    // GameManagers.Instance.RegisterActiveVFX(vfxInstance);
-                }
-            }
-        }
-    }
-
-    public void Heal(float amount)
-    {
-        if (currentHP <= 0 || amount <= 0) return;
-        currentHP = Mathf.Min(currentHP + amount, currentMaxHP);
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-    }
-
-    public void TakeDamage(float baseDamage, DamageType damageType)
-    {
-        if (monsterData == null) return;
-        int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, monsterData.defense, monsterData.magicResistance);
-        currentHP -= finalDamage;
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-        if (currentHP <= 0) Die();
-    }
-
-    public void ApplyBuff(float healthMultiplier, float speedMultiplier)
-    {
-        float healthPercentage = currentHP / currentMaxHP;
-        currentMaxHP = monsterData.maxHealth * healthMultiplier;
-        currentHP = currentMaxHP * healthPercentage;
-        currentMoveSpeed = baseMoveSpeed * speedMultiplier;
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-        Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {currentHP}/{currentMaxHP}");
-    }
-
-    private void Die()
-    {
-        Debug.Log($"{monsterData.monsterName}이(가) 죽었습니다!");
-        if (isBlocked && blockingUnit != null)
-        {
-            blockingUnit.ReleaseBlockedMonster(this);
-        }
+        Debug.Log($"{gameObject.name}이(가) 죽었습니다!");
         Destroy(gameObject);
     }
 
-    private void OnDestroy()
+    /// <summary>
+    /// 새로운 경로로 이동 시작
+    /// </summary>
+    public void StartFollowingPath(List<Node> path)
     {
-        if (manaController != null) manaController.OnManaFull -= ActivateSkill;
-    }
-
-    #region 공격 로직 (이하 동일)
-    private void StartAttacking(IEnemy target)
-    {
-        if (target == null) return;
-        StopAllCoroutines();
-        isMoving = false;
-        attackCoroutine = StartCoroutine(AttackLoop(target));
-    }
-
-    private IEnumerator AttackLoop(IEnemy target)
-    {
-        while (target != null && (target as MonoBehaviour) != null)
+        if (!this.gameObject.activeInHierarchy)
         {
-            yield return new WaitForSeconds(1f / monsterData.attackSpeed);
-
-            if ((target as MonoBehaviour) == null) break;
-
-            string targetName = (target as MonoBehaviour).name;
-            target.TakeDamage(monsterData.attackDamage, monsterData.damageType);
-            Debug.Log($"{monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+            this.gameObject.SetActive(true);
         }
 
-        Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
-        attackCoroutine = null;
-
-        FindNewPathToGoal();
-    }
-    #endregion
-
-    #region 이동 및 경로탐색 로직 (이하 동일)
-
-    private void FindNewPathToGoal()
-    {
-        // [3D Migration] FieldManager/AstarGrid 그리드 기준으로 변환
-        Vector2Int currentGridPos = (pathfinder != null)
-            ? pathfinder.WorldToCell(pathfinder.ClampToGrid(transform.position))
-            : new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.z));
-        Vector2Int targetGridPos = (pathfinder != null)
-            ? pathfinder.WorldToCell(pathfinder.ClampToGrid(goalTransform.position))
-            : new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
-
-
-
-        if (pathfinder.FindPath(currentGridPos, targetGridPos))
+        if (path == null || path.Count == 0)
         {
-            List<AstarNode> newPath = pathfinder.FinalPath;
-            StartFollowingPath(newPath);
-        }
-        else
-        {
-             Debug.LogWarning($"{monsterData.monsterName}이(가) 경로를 찾지 못했습니다. 소멸합니다.");
-             Destroy(gameObject);
-        }
-    }
-
-    public void StartFollowingPath(List<AstarNode> path)
-    {
-        var no = netObj != null ? netObj : GetComponent<NetworkObject>();
-        if (no != null && !no.HasStateAuthority)
-        {
-            isMoving = false;
+            Debug.LogWarning("❌ 유효하지 않은 경로입니다!");
             return;
         }
-        StopAllCoroutines();
 
+        currentPath = new List<Node>(path); // 복사본 생성
+        currentPathIndex = 1; // 0번은 시작점이므로 1번부터 시작
         isMoving = true;
-        if (monsterData.monsterType == MonsterType.Flying)
-        {
-            movementCoroutine = StartCoroutine(FlyDirectlyCoroutine());
-        }
-        else if (path != null && path.Count > 0)
-        {
-            movementCoroutine = StartCoroutine(SmoothMoveCoroutine(path));
-        }
+
+        Debug.Log($"🎯 몬스터 이동 시작! 총 {currentPath.Count}개 지점");
+
+        if (smoothMovement)
+            StartCoroutine(SmoothMoveCoroutine());
         else
-        {
-            isMoving = false;
-            OnPathBlocked(null);
-        }
+            StartCoroutine(InstantMoveCoroutine());
     }
-    private IEnumerator FlyDirectlyCoroutine()
+
+    /// <summary>
+    /// 부드러운 이동 (Lerp 사용)
+    /// </summary>
+    private IEnumerator SmoothMoveCoroutine()
     {
-        // [3D Migration] Move on XZ plane, keep current Y fixed
-        Vector3 targetPosition = new Vector3(
-            goalTransform.position.x,
-            transform.position.y,
-            goalTransform.position.z
-        );
-        while (Vector3.Distance(transform.position, targetPosition) > 0.1f && isMoving)
+        while (currentPathIndex < currentPath.Count && isMoving)
         {
-            float dt = (netObj != null && netObj.Runner != null) ? netObj.Runner.DeltaTime : Time.deltaTime;
-            Vector3 nextPos = Vector3.MoveTowards(
-                transform.position,
-                targetPosition,
-                currentMoveSpeed * dt
-            );
-            if (pathfinder != null)
-            {
-                nextPos = pathfinder.ClampToGrid(nextPos);
-            }
-            transform.position = nextPos;
-            yield return null;
-        }
-        OnPathCompleted();
-    }
-    private IEnumerator SmoothMoveCoroutine(List<AstarNode> path)
-    {
-        int currentPathIndex = 1;
-        while (currentPathIndex < path.Count && isMoving)
-        {
-            AstarNode targetNode = path[currentPathIndex];
-            // [3D Migration] Navigate using XZ; keep current Y
-            Vector3 currentTarget = (pathfinder != null)
-                ? pathfinder.CellToWorldCenter(new Vector2Int(targetNode.x, targetNode.y), transform.position.y)
-                : new Vector3(targetNode.x + 0.5f, transform.position.y, targetNode.y + 0.5f);
+            currentTarget = new Vector2(currentPath[currentPathIndex].x, currentPath[currentPathIndex].y);
+            Vector2 startPos = transform.position;
+            float journeyLength = Vector2.Distance(startPos, currentTarget);
+            float journeyTime = journeyLength / moveSpeed;
+            float elapsedTime = 0;
 
-            if (targetNode.isWall)
-            {
-                // [3D Migration] Use 3D physics to locate wall object
-                float radius = 0.4f * ((pathfinder != null) ? Mathf.Max(0.0001f, pathfinder.cellSize) : 1f);
-                Collider[] wallColliders = Physics.OverlapSphere(currentTarget, radius, wallLayerMask);
-                DestructibleWall wall = null;
-                foreach (var col in wallColliders)
-                {
-                    if (col.TryGetComponent(out wall)) break;
-                }
+            Debug.Log($"🏃 {currentPathIndex}번째 목표로 이동: ({currentTarget.x}, {currentTarget.y})");
 
-                if (wall != null)
-                {
-                    StartAttacking(wall);
-                    yield break;
-                }
-                else
-                {
-                    Debug.LogWarning($"경로상에 벽({currentTarget})이 있지만, 실제 벽 오브젝트를 찾을 수 없습니다. 경로를 계속 진행합니다.");
-                }
-            }
-
-            while (Vector3.Distance(transform.position, currentTarget) > 0.1f && isMoving)
+            while (elapsedTime < journeyTime && isMoving)
             {
-                float dt = (netObj != null && netObj.Runner != null) ? netObj.Runner.DeltaTime : Time.deltaTime;
-                Vector3 nextPos = Vector3.MoveTowards(transform.position, currentTarget, currentMoveSpeed * dt);
-                if (pathfinder != null)
-                {
-                    nextPos = pathfinder.ClampToGrid(nextPos);
-                }
-                transform.position = nextPos;
+                elapsedTime += Time.deltaTime;
+                float fractionOfJourney = elapsedTime / journeyTime;
+                transform.position = Vector2.Lerp(startPos, currentTarget, fractionOfJourney);
                 yield return null;
             }
+
+            // 목표점에 정확히 도착
+            transform.position = currentTarget;
             currentPathIndex++;
+
+            // 잠깐 대기 (선택사항)
+            yield return new WaitForSeconds(0.1f);
         }
+
         OnPathCompleted();
     }
+
+    /// <summary>
+    /// 즉시 이동 (MoveTowards 사용)
+    /// </summary>
+    private IEnumerator InstantMoveCoroutine()
+    {
+        while (currentPathIndex < currentPath.Count && isMoving)
+        {
+            currentTarget = new Vector2(currentPath[currentPathIndex].x, currentPath[currentPathIndex].y);
+
+            while (Vector2.Distance(transform.position, currentTarget) > arrivalThreshold && isMoving)
+            {
+                transform.position = Vector2.MoveTowards(transform.position, currentTarget, moveSpeed * Time.deltaTime);
+                yield return null;
+            }
+
+            Debug.Log($"✅ {currentPathIndex}번째 지점 도착: ({currentTarget.x}, {currentTarget.y})");
+            currentPathIndex++;
+        }
+
+        OnPathCompleted();
+    }
+
+    /// <summary>
+    /// 경로 완주 시 호출
+    /// </summary>
     private void OnPathCompleted()
     {
         isMoving = false;
-        if (GameManagers.Instance != null && ownerPlayer != null)
-        {
-            GameManagers.Instance.OnMonsterReachedGoal(ownerPlayer);
-        }
-        Destroy(gameObject);
-    }
-    #endregion
-
-    #region 저지 및 경로 막힘 처리 (이하 동일)
-    public bool IsBlocked() { return isBlocked; }
-
-    public void Block(Unit unit)
-    {
-        if (isBlocked) return;
-        isBlocked = true;
-        blockingUnit = unit;
-        StartAttacking(unit.GetComponent<IEnemy>());
+        Debug.Log("🏆 목표 지점에 도착했습니다!");
+        
+        // 도착 후 처리 (예: 플레이어 공격, 아이템 획득 등)
+        OnReachedDestination();
     }
 
-    public void OnPathBlocked(GameObject obstacle)
+    /// <summary>
+    /// 목표 도달 시 실행할 로직
+    /// </summary>
+    private void OnReachedDestination()
     {
-        if (obstacle != null && obstacle.TryGetComponent<IEnemy>(out var enemyWall))
+        // 여기에 목표 도달 시 실행할 코드 작성
+        Debug.Log("💀 몬스터가 목표에 도달했습니다!");
+
+        PlaneObject.SetActive(false);
+
+        if (EndUI == null)
+            EndUI = GameObject.Find("EndUI");
+
+        EndUI.SetActive(true);
+    }
+
+    /// <summary>
+    /// 이동 중단
+    /// </summary>
+    public void StopMovement()
+    {
+        isMoving = false;
+        StopAllCoroutines();
+        Debug.Log("⏹️ 몬스터 이동이 중단되었습니다.");
+    }
+
+    /// <summary>
+    /// 새로운 경로 계산 및 이동 시작
+    /// </summary>
+    public void FindAndFollowPath(Vector2Int targetPosition)
+    {
+        StopMovement(); // 기존 이동 중단
+        
+        // 현재 위치를 시작점으로 설정
+        Vector2Int currentPos = new Vector2Int(Mathf.RoundToInt(transform.position.x), Mathf.RoundToInt(transform.position.y));
+        pathfinder.startPos = currentPos;
+        pathfinder.targetPos = targetPosition;
+        
+        // 경로 계산
+        pathfinder.PathFinding();
+        
+        // 계산된 경로로 이동 시작
+        if (pathfinder.FinalNodeList != null && pathfinder.FinalNodeList.Count > 0)
         {
-            Debug.Log($"{monsterData.monsterName}의 경로가 {obstacle.name}에 의해 막혔습니다. 공격을 시작합니다.");
-            StartAttacking(enemyWall);
+            StartFollowingPath(pathfinder.FinalNodeList);
         }
         else
         {
-            Debug.LogWarning($"{monsterData.monsterName}의 경로가 막혔지만, 대상을 공격할 수 없습니다.");
+            Debug.LogError("❌ 경로를 찾을 수 없습니다!");
         }
     }
 
-    public void Unblock()
+    /// <summary>
+    /// 경로상의 장애물 감지 시 재계산
+    /// </summary>
+    public void RecalculatePathIfBlocked()
     {
-        if (isQuitting || !isBlocked) return;
+        if (!isMoving || currentPath == null) return;
 
-        isBlocked = false;
-        blockingUnit = null;
-
-        if (attackCoroutine != null)
+        // 현재 목표점이 막혔는지 확인
+        Vector2Int checkPos = new Vector2Int(currentPath[currentPathIndex].x, currentPath[currentPathIndex].y);
+        
+        // 장애물 감지 로직 (예시)
+        Collider2D obstacle = Physics2D.OverlapCircle(new Vector2(checkPos.x, checkPos.y), 0.4f, LayerMask.GetMask("Wall"));
+        
+        if (obstacle != null)
         {
-            StopCoroutine(attackCoroutine);
-            attackCoroutine = null;
+            Debug.LogWarning("⚠️ 경로상에 새로운 장애물 발견! 경로 재계산 중...");
+            Vector2Int finalDestination = new Vector2Int(currentPath[currentPath.Count - 1].x, currentPath[currentPath.Count - 1].y);
+            FindAndFollowPath(finalDestination);
+        }
+    }
+
+    void OnDrawGizmos()
+    {
+        if (!showPath || currentPath == null || currentPath.Count == 0) return;
+
+        // 경로 선 그리기
+        Gizmos.color = Color.green;
+        for (int i = 0; i < currentPath.Count - 1; i++)
+        {
+            Vector3 from = new Vector3(currentPath[i].x, currentPath[i].y, 0);
+            Vector3 to = new Vector3(currentPath[i + 1].x, currentPath[i + 1].y, 0);
+            Gizmos.DrawLine(from, to);
         }
 
-        FindNewPathToGoal();
+        // 경로상의 점들 그리기
+        Gizmos.color = Color.yellow;
+        foreach (Node node in currentPath)
+        {
+            Gizmos.DrawWireSphere(new Vector3(node.x, node.y, 0), 0.2f);
+        }
+
+        // 현재 목표점 강조
+        if (showCurrentTarget && isMoving && currentPathIndex < currentPath.Count)
+        {
+            Gizmos.color = Color.red;
+            Vector3 targetPos = new Vector3(currentPath[currentPathIndex].x, currentPath[currentPathIndex].y, 0);
+            Gizmos.DrawWireSphere(targetPos, 0.4f);
+        }
     }
-    #endregion
 }
