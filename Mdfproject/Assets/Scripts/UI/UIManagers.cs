@@ -1,82 +1,77 @@
-using System.Collections;
+// Assets/Scripts/UI/UIManagers.cs
 using System.Collections.Generic;
-using System.Numerics;
-using UnityEditor;
 using UnityEngine;
-using System.Threading.Tasks;
-using static UnityEngine.GridBrushBase;
 using Cysharp.Threading.Tasks;
 
 public class UIManagers : MonoBehaviour
 {
     public static UIManagers Instance = null;
 
-    // �ν����Ϳ��� UI �ʱ�ȭ (UI ��ҵ��� ����Ʈ�� ����)
     public List<GameObject> UILists;
-    // UI ��Ҹ� �̸����� �����ϱ� ���� ����Ʈ (�� UI ��Һ��� Ǯ�� ����)
-    private Dictionary<string, UIPool> uiPools;  // UI Ǯ ����
+    private Dictionary<string, UIPool> uiPools;
+    public Canvas mainCanvas;
 
-    private async void Awake()
+    private void Awake()
     {
         if (Instance == null)
         {
             Instance = this;
             DontDestroyOnLoad(this.gameObject);
+            InitializePools();
         }
         else
         {
             Destroy(this.gameObject);
         }
+    }
 
-        uiPools = new Dictionary<string, UIPool>(); // �ʱ�ȭ
-
-        // UI List use uiPools Dictionary Create
-        foreach (GameObject ui in UILists)
+    private void InitializePools()
+    {
+        uiPools = new Dictionary<string, UIPool>();
+        foreach (GameObject uiPrefab in UILists)
         {
-            if (ui != null)
+            if (uiPrefab != null)
             {
-                // UI Ǯ�� �ʱ�ȭ�ϰ� ��ųʸ��� �߰�
-                uiPools.Add(ui.name, new UIPool(ui));
+                uiPools.Add(uiPrefab.name, new UIPool(uiPrefab));
             }
         }
     }
 
-    // UI ��Ҹ� Ǯ���� ������
-    public UniTask<GameObject> GetUIElement(string uiName)
+    public async UniTask<GameObject> GetUIElement(string uiName)
     {
-        if (uiPools.ContainsKey(uiName))
+        if (mainCanvas == null)
         {
-            return uiPools[uiName].GetObject(uiName);
+            BuildDebugGUI.Instance.Log("GetUIElement: MainCanvas 탐색 시도...");
+            mainCanvas = FindObjectOfType<Canvas>();
+            if (mainCanvas == null)
+            {
+                BuildDebugGUI.Instance.Log("<color=red>GetUIElement: MainCanvas를 찾을 수 없음!</color>");
+                return null;
+            }
+            BuildDebugGUI.Instance.Log("<color=green>GetUIElement: MainCanvas 찾음!</color>");
         }
-        else
-        {
-            Debug.LogWarning($"UI element '{uiName}' is not found in the pool and Addressable Load.");
-            // 여기가 문제 없어서 만들면 풀에 넣어야 하는데 안넣음
-            UIPool ui = new UIPool(null, uiName);
-            uiPools.Add(uiName, ui);
-            return ui.GetObject(uiName);
-        }    
-    }
 
-    // UI ��Ҹ� Ǯ�� ��ȯ�ϱ�
+        if (!uiPools.ContainsKey(uiName))
+        {
+            BuildDebugGUI.Instance.Log($"<color=yellow>GetUIElement: '{uiName}' 풀 없음. Addressables 로드 시작.</color>");
+            uiPools.Add(uiName, new UIPool(null, uiName));
+        }
+        
+        return await uiPools[uiName].GetObject(mainCanvas.transform);
+    }
+    
     public void ReturnUIElement(string uiName)
     {
-        if (uiPools.ContainsKey(uiName))
+        // [개선] (Clone)이 붙어있을 가능성을 제거
+        string originalName = uiName.Replace("(Clone)", "");
+
+        if (uiPools.ContainsKey(originalName))
         {
-            uiPools[uiName].ReturnObject(uiName);
+            uiPools[originalName].ReturnObject();
         }
         else
         {
-            Debug.LogWarning($"UI element '{uiName}' is not found in the pool.");
+            Debug.LogWarning($"UI 요소 '{originalName}'가 풀에 등록되어 있지 않습니다.");
         }
     }
-
 }
-
-/*
-    LinkHero
-    2D디펜스 게임에서 특수한 캐릭터를 누르면 3D 화면으로 전환되어서 화면을 여러번 터치하는 방식의 게임 (시간이 있음)
-    특수 캐릭터는 누를 수 있게 되면 캐릭터에 대한 효과가 나타남
-    
-
-*/
