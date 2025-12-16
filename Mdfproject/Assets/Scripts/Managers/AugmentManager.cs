@@ -66,6 +66,7 @@ public class AugmentManager : MonoBehaviour
         {
             Debug.LogWarning("증강 데이터 로딩 전 동기화 요청이 도착했습니다. 로딩 완료 후 적용을 시도합니다.");
         }
+        Debug.Log("SetPresentedAugmentsByNames Check");
 
         // 가능한 모든 풀을 하나로 묶어 빠르게 조회할 수 있도록 딕셔너리 구성
         // 중복 이름이 없다는 전제(augmentName 유니크)를 가정합니다.
@@ -97,7 +98,11 @@ public class AugmentManager : MonoBehaviour
             }
         }
 
-        // 동기화 결과는 UI에서 표시되므로 여기서는 추가 로그를 남기지 않습니다.
+        if (presentedAugments.Count > 0)
+        {
+            string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
+            Debug.Log($"[동기화] Player {playerManager.playerId} 제시 증강 동기화: {presentedNames}");
+        }
     }
 
     // [수정] void Start() -> async void Start()
@@ -113,6 +118,7 @@ public class AugmentManager : MonoBehaviour
 
     private async void LoadAllAugmentsFromAddressables()
     {
+        Debug.Log($"Player {playerManager.playerId}: 어드레서블에서 증강 데이터 로딩을 시작합니다...");
         
         AsyncOperationHandle<IList<AugmentData>> handle = Addressables.LoadAssetsAsync<AugmentData>("Augment", null);
         await handle.Task;
@@ -135,7 +141,8 @@ public class AugmentManager : MonoBehaviour
                 }
             }
             isDataLoaded = true;
-            
+            Debug.Log($"<color=cyan>Player {playerManager.playerId}: 증강 데이터 로드 완료. " +
+                      $"실버: {silverAugments.Count}개, 골드: {goldAugments.Count}개, 프리즘: {prismaticAugments.Count}개</color>");
         }
         else
         {
@@ -180,12 +187,15 @@ public class AugmentManager : MonoBehaviour
 
         int countToTake = Mathf.Min(sourceList.Count, 3);
         presentedAugments = sourceList.OrderBy(x => UnityEngine.Random.value).Take(countToTake).ToList();
-        
+
+        string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
+        Debug.Log($"Player {playerManager.playerId}에게 <color=yellow>{tierName} 등급</color> 증강 제시: {presentedNames}");
     }
 
     public void SelectAndApplyAugment(AugmentData chosenAugment)
     {
         playerManager.chosenAugments.Add(chosenAugment);
+        Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강을 선택했습니다.");
 
         PlayerManager target;
         if (chosenAugment.targetType == TargetType.Player)
@@ -229,7 +239,12 @@ public class AugmentManager : MonoBehaviour
                 target.AddGold((int)augment.value);
                 break;
             case EffectType.IncreaseMyUnitAttack:
+                target.AddPermanentAttackDamagePercent(augment.value);
+                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격력 버프 적용 (+{augment.value:P0})");
+                break;
             case EffectType.IncreaseMyUnitAttackSpeed:
+                target.AddPermanentAttackSpeedPercent(augment.value);
+                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격속도 버프 적용 (+{augment.value:P0})");
                 break;
             case EffectType.SpawnBossOnEnemyField:
                 if (augment.prefabToSpawn != null && target.monsterSpawner != null)
@@ -239,6 +254,7 @@ public class AugmentManager : MonoBehaviour
                 break;
             case EffectType.IncreaseEnemyHealth:
             case EffectType.IncreaseEnemyMoveSpeed:
+                 Debug.Log($"{target.playerId}의 다음 라운드 몬스터에게 '{augment.augmentName}' 효과가 추가되었습니다.");
                  break;
         }
     }

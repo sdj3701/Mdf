@@ -18,7 +18,7 @@ MonoBehaviour:
   unitType: 0
   baseHealth: 60
   baseAttackDamage: 5
-  attackSpeed: 2
+  attackSpeed: 1
   attackRange: 1
   damageType: 0
   defense: 1
@@ -28,9 +28,9 @@ MonoBehaviour:
   manaOnAttack: 15
   manaPerSecond: 5
   prefabsByStarLevel:
-  - Knight
-  - Knight
-  - Knight
+  - Warrior
+  - Warrior
+  - Warrior
   skillsByStarLevel:
   - 
   - 

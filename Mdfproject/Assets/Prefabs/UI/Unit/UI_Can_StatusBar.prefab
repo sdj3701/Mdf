@@ -108,8 +108,8 @@ MonoBehaviour:
   skillIconImage: {fileID: 7000019785505408582}
   unitHealthColor: {r: 0.2, g: 0.8, b: 0.2, a: 1}
   monsterHealthColor: {r: 0.8, g: 0.2, b: 0.2, a: 1}
-  unitPositionOffset: {x: 0, y: 0, z: -0.15}
-  unitScale: {x: 0.005, y: 0.005, z: 0.005}
+  unitPositionOffset: {x: 0, y: 0, z: -0.22}
+  unitScale: {x: 0.0075, y: 0.0075, z: 0.0075}
   monsterPositionOffset: {x: 0, y: 0, z: -0.9}
   monsterScale: {x: 0.012, y: 0.01, z: 0.01}
   overrideCamera: {fileID: 0}

@@ -73,6 +73,8 @@ public class GameManagers : NetworkBehaviour
 
     #region 단계별 시간 및 보상
     [Header("단계별 시간 설정 (초)")]
+    [Tooltip("게임 시작 후 첫 번째 준비 단계 시간 (초)")]
+    public float firstPreparePhaseTime = 60f;
     public float preparePhaseTime = 45f;
     public float combatTime = 60f;
 
@@ -94,8 +96,10 @@ public class GameManagers : NetworkBehaviour
     private AugmentUIController augmentSelectionUI;
     private NetworkManager networkManager;
     private bool _isSpawned;
+    private readonly HashSet<int> _spawnGoalRandomized = new HashSet<int>();
 
     private bool hasCombatBeenShortened = false;
+    private bool firstPrepareDurationUsed = false;
 
     /// <summary>
     /// 이 NetworkBehaviour가 네트워크 상에 스폰될 때 Fusion에 의해 호출됩니다.
@@ -561,6 +565,13 @@ public class GameManagers : NetworkBehaviour
             // AI 준비 단계 플래그 리셋
             player.mazeConstructionComplete = false;
             player.unitPurchaseComplete = false;
+
+            // 스폰/도착 지점은 게임 시작 시 1회만 랜덤 지정
+            if (!_spawnGoalRandomized.Contains(player.playerId) && player.fieldManager != null)
+            {
+                MazePlanner.RandomizeSpawnAndGoal(player.fieldManager, player);
+                _spawnGoalRandomized.Add(player.playerId);
+            }
         }
         
         if (currentRound >= 1)
@@ -586,7 +597,9 @@ public class GameManagers : NetworkBehaviour
         // UI 로직이 완료될 때까지 명시적으로 기다립니다.
         await HandleUIForNewState(currentState);
 
-        phaseTimer = TickTimer.CreateFromSeconds(Runner, preparePhaseTime);
+        float prepDuration = (!firstPrepareDurationUsed && currentRound == 1) ? firstPreparePhaseTime : preparePhaseTime;
+        firstPrepareDurationUsed = true;
+        phaseTimer = TickTimer.CreateFromSeconds(Runner, prepDuration);
     }
 
     private void PresentedAugments(int targetPlayerId, string[] augmentNames)

@@ -527,7 +527,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   lookAtWeight: 1
-  tiltAngle: 2
+  tiltAngle: 5
 --- !u!114 &1748403905114007092
 MonoBehaviour:
   m_ObjectHideFlags: 0

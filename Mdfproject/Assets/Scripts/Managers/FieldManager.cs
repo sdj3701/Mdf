@@ -38,6 +38,30 @@ public class FieldManager : MonoBehaviour
     private GameObject attackRangeIndicatorInstance;
     private GameObject skillRangeIndicatorInstance;
 
+    [Header("Path Visualization")]
+    [Tooltip("경로 표시: 라인 대신 정사각형 마커를 움직여서 표시")]
+    public bool useMovingPathMarkers = true;
+    [Tooltip("경로 위를 이동할 네모 마커 프리팹 (정사각형 Quad/Sprite)")]
+    public GameObject pathMarkerPrefab;
+    [Tooltip("마커 높이 보정")]
+    public float pathMarkerYOffset = 0.05f;
+    [Tooltip("네모 마커 이동 속도")]
+    public float pathMarkerSpeed = 4f;
+    [Tooltip("네모 마커 생성 간격(초)")]
+    public float pathMarkerSpawnInterval = 0.25f;
+    [Tooltip("한 번에 준비해둘 마커 개수(풀 사이즈)")]
+    public int pathMarkerPoolSize = 32;
+    [Tooltip("마커 한 변의 스케일(정사각형 유지)")]
+    public float pathMarkerSize = 1f;
+    [Tooltip("준비 단계에서만 경로를 표시")]
+    public bool showPathInPrepare = true;
+    private readonly List<Vector3> _pathWorldPoints = new List<Vector3>();
+    private readonly List<GameObject> _pathMarkerPool = new List<GameObject>();
+    private Coroutine _markerSpawnRoutine;
+    private Coroutine _pathRefreshRoutine;
+    private readonly List<GameObject> _activeMarkers = new List<GameObject>();
+    private readonly Dictionary<GameObject, Coroutine> _markerRoutines = new Dictionary<GameObject, Coroutine>();
+
     // [3D Migration] 논리 그리드 설정
     [Header("3D 그리드 설정")]
     [Tooltip("3D 공간에서 논리 그리드의 시작점 (보통 Ground 오브젝트의 위치)")]
@@ -346,6 +370,219 @@ public class FieldManager : MonoBehaviour
 
     #endregion
 
+    #region Path Line Helpers
+
+    private bool IsLocalControlledField()
+    {
+        var gm = GameManagers.Instance;
+        if (playerManager == null) return false;
+        if (playerManager.Object == null) return true; // fallback in non-networked testing
+        if (playerManager.Object.HasInputAuthority) return true;
+        return gm != null && gm.localPlayer == playerManager;
+    }
+
+    private void SchedulePathRefresh()
+    {
+        if (!showPathInPrepare) return;
+        if (_pathRefreshRoutine != null)
+        {
+            StopCoroutine(_pathRefreshRoutine);
+        }
+        _pathRefreshRoutine = StartCoroutine(RefreshPathLineNextFrame());
+    }
+
+    private System.Collections.IEnumerator RefreshPathLineNextFrame()
+    {
+        // 물리/콜라이더 업데이트가 반영된 뒤 실행
+        yield return new WaitForFixedUpdate();
+        yield return new WaitForEndOfFrame();
+        RefreshPathLine();
+        _pathRefreshRoutine = null;
+    }
+
+    private void RefreshPathLine()
+    {
+        if (!showPathInPrepare || !IsLocalControlledField())
+        {
+            return;
+        }
+
+        var grid = playerManager != null ? playerManager.astarGrid : null;
+        if (grid == null || playerManager.spawnPoint == null || playerManager.goalTransform == null)
+        {
+            return;
+        }
+
+        Vector3 clampedSpawn = grid.ClampToGrid(playerManager.spawnPoint.position);
+        Vector3 clampedGoal = grid.ClampToGrid(playerManager.goalTransform.position);
+        Vector2Int startPos = grid.WorldToCell(clampedSpawn);
+        Vector2Int endPos = grid.WorldToCell(clampedGoal);
+
+        if (!grid.FindPath(startPos, endPos))
+        {
+            return;
+        }
+
+        var path = grid.FinalPath;
+        if (path == null || path.Count < 2)
+        {
+            return;
+        }
+
+        // 경로를 월드 좌표로 변환해 캐시
+        _pathWorldPoints.Clear();
+        for (int i = 0; i < path.Count; i++)
+        {
+            var node = path[i];
+            var cell = new Vector3Int(node.x, node.y, 0);
+            Vector3 pos = GridToWorld(cell);
+            pos.y += pathMarkerYOffset;
+            _pathWorldPoints.Add(pos);
+        }
+
+        // 마커 표시
+        // 경로가 바뀌면 기존 마커를 모두 회수하고 새 경로로 다시 흘려보냅니다.
+        StopMarkerFlow();
+        RestartMarkerFlow();
+    }
+
+    private void HidePathLine()
+    {
+        StopMarkerFlow();
+        if (_pathRefreshRoutine != null)
+        {
+            StopCoroutine(_pathRefreshRoutine);
+            _pathRefreshRoutine = null;
+        }
+    }
+
+    private void RestartMarkerFlow()
+    {
+        StopMarkerSpawn();
+        if (_pathWorldPoints.Count < 2) return;
+        WarmupMarkerPool();
+        _markerSpawnRoutine = StartCoroutine(SpawnMarkersRoutine());
+    }
+
+    private void StopMarkerFlow()
+    {
+        StopMarkerSpawn();
+        foreach (var kv in _markerRoutines)
+        {
+            if (kv.Value != null) StopCoroutine(kv.Value);
+        }
+        _markerRoutines.Clear();
+        foreach (var marker in _activeMarkers)
+        {
+            if (marker != null) marker.SetActive(false);
+        }
+        _activeMarkers.Clear();
+    }
+
+    private void StopMarkerSpawn()
+    {
+        if (_markerSpawnRoutine != null)
+        {
+            StopCoroutine(_markerSpawnRoutine);
+            _markerSpawnRoutine = null;
+        }
+    }
+
+    private void WarmupMarkerPool()
+    {
+        if (pathMarkerPrefab == null) return;
+        while (_pathMarkerPool.Count < pathMarkerPoolSize)
+        {
+            var go = Instantiate(pathMarkerPrefab, transform);
+            SetupMarkerTransform(go.transform);
+            go.SetActive(false);
+            _pathMarkerPool.Add(go);
+        }
+    }
+
+    private GameObject GetMarkerFromPool()
+    {
+        foreach (var marker in _pathMarkerPool)
+        {
+            if (marker != null && !marker.activeSelf)
+            {
+                SetupMarkerTransform(marker.transform);
+                return marker;
+            }
+        }
+        if (_pathMarkerPool.Count < pathMarkerPoolSize && pathMarkerPrefab != null)
+        {
+            var go = Instantiate(pathMarkerPrefab, transform);
+            SetupMarkerTransform(go.transform);
+            go.SetActive(false);
+            _pathMarkerPool.Add(go);
+            return go;
+        }
+        return null;
+    }
+
+    private void SetupMarkerTransform(Transform t)
+    {
+        if (t == null) return;
+        // 정사각형 유지: 한 변 스케일을 통일
+        t.localScale = Vector3.one * pathMarkerSize;
+        // 지형과 수평: 노멀을 위쪽으로
+        t.rotation = Quaternion.LookRotation(Vector3.up, Vector3.forward);
+    }
+
+    private System.Collections.IEnumerator SpawnMarkersRoutine()
+    {
+        while (showPathInPrepare && IsLocalControlledField() && GameManagers.Instance != null && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+        {
+            var marker = GetMarkerFromPool();
+            if (marker != null)
+            {
+                marker.SetActive(true);
+                var snapshot = new List<Vector3>(_pathWorldPoints);
+                _activeMarkers.Add(marker);
+                var routine = StartCoroutine(MoveMarkerAlongPath(marker, snapshot));
+                _markerRoutines[marker] = routine;
+            }
+            yield return new WaitForSeconds(pathMarkerSpawnInterval);
+        }
+    }
+
+    private System.Collections.IEnumerator MoveMarkerAlongPath(GameObject marker, List<Vector3> pathSnapshot)
+    {
+        if (marker == null || pathSnapshot == null || pathSnapshot.Count < 2)
+        {
+            if (marker != null) marker.SetActive(false);
+            yield break;
+        }
+
+        int seg = 0;
+        Vector3 pos = pathSnapshot[0];
+        marker.transform.position = pos;
+
+        while (seg < pathSnapshot.Count - 1 && GameManagers.Instance != null && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+        {
+            Vector3 a = pathSnapshot[seg];
+            Vector3 b = pathSnapshot[seg + 1];
+            float dist = Vector3.Distance(a, b);
+            float travelled = 0f;
+            while (travelled < dist && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+            {
+                float step = pathMarkerSpeed * Time.deltaTime;
+                travelled += step;
+                float t = Mathf.Clamp01(travelled / Mathf.Max(0.001f, dist));
+                marker.transform.position = Vector3.Lerp(a, b, t);
+                yield return null;
+            }
+            seg++;
+        }
+
+        marker.SetActive(false);
+        _activeMarkers.Remove(marker);
+        _markerRoutines.Remove(marker);
+    }
+
+    #endregion
+
     // ... (이하 나머지 코드는 이전과 동일) ...
     // OnEnable, OnDisable, Update, Event Handlers, 벽/유닛 관리, 드래그앤드롭 로직 등
     void OnEnable()
@@ -364,6 +601,7 @@ public class FieldManager : MonoBehaviour
         {
             HandleUnitDragAndDrop();
         }
+        // 즉시 갱신이 필요한 경우(벽/유닛 배치 변경)에는 _pathRefreshRoutine에서 처리
     }
 
     #region Public Methods for UI
@@ -399,6 +637,10 @@ public class FieldManager : MonoBehaviour
         if (newState == GameManagers.GameState.Prepare)
         {
             RespawnAllUnits();
+            if (showPathInPrepare)
+            {
+                RefreshPathLine();
+            }
         }
         // [수정] 게임 상태가 전투로 변경될 때의 처리
         else if (newState == GameManagers.GameState.Combat)
@@ -420,6 +662,7 @@ public class FieldManager : MonoBehaviour
                 // 드래그 상태를 초기화합니다.
                 selectedUnit = null;
             }
+            HidePathLine();
         }
     }
 
@@ -495,6 +738,7 @@ public class FieldManager : MonoBehaviour
             AttachStatusBar(wallGO, wallComponent.SetStatusBar);
             wallComponent.Initialize(this, gridPosition);
             placedWalls.Add(gridPosition, wallComponent);
+            SchedulePathRefresh();
 
             Unit unitOnCell = GetUnitAt(gridPosition);
             if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
@@ -530,6 +774,7 @@ public class FieldManager : MonoBehaviour
                 Destroy(wall.gameObject);
             }
             placedWalls.Remove(gridPosition);
+            SchedulePathRefresh();
         }
     }
 
@@ -955,6 +1200,17 @@ public class FieldManager : MonoBehaviour
         {
             var item = placedUnits.First(kvp => kvp.Value == deadUnit);
             placedUnits.Remove(item.Key);
+        }
+    }
+
+    public void ApplyPermanentBonusesToAllUnits()
+    {
+        foreach (var unit in placedUnits.Values)
+        {
+            if (unit != null)
+            {
+                unit.RefreshPermanentBonuses();
+            }
         }
     }
 

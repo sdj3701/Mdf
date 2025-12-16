@@ -197,7 +197,7 @@ MonoBehaviour:
   _playerId: 0
   health: 15
   gold: 20
-  wallCount: 11
+  wallCount: 10
   wallReserveK: 1
   wallBuildDelayRange: {x: 0.6, y: 1.2}
   unitPurchaseDelayRange: {x: 1, y: 1.5}
@@ -205,8 +205,12 @@ MonoBehaviour:
   mazePlannedOrder: []
   mazePlanned: 0
   mazeBuildCursor: 0
+  mazeConstructionComplete: 0
+  unitPurchaseComplete: 0
   ownedUnits: []
   chosenAugments: []
+  permanentAttackDamagePercent: 0
+  permanentAttackSpeedPercent: 0
   fieldManager: {fileID: 0}
   shopManager: {fileID: 0}
   monsterSpawner: {fileID: 0}
@@ -350,6 +354,15 @@ MonoBehaviour:
     type: 3}
   skillRangeIndicatorPrefab: {fileID: 6707416124263797107, guid: 53ef04ccc8fd56d4e904555c7c4b7449,
     type: 3}
+  useMovingPathMarkers: 1
+  pathMarkerPrefab: {fileID: 2572758595662738359, guid: 40814905c9bb4214194021eff4502d43,
+    type: 3}
+  pathMarkerYOffset: 0.08
+  pathMarkerSpeed: 2
+  pathMarkerSpawnInterval: 0.5
+  pathMarkerPoolSize: 32
+  pathMarkerSize: 0.3
+  showPathInPrepare: 1
   gridOrigin: {x: 0, y: 0, z: 0}
   cellSize: 1
   gridSize: {x: 8, y: 7}
