@@ -210,45 +210,44 @@
      {
          var sortedPlayers = allPlayers
              .OrderByDescending(p => p != null ? p.GetHealth() : 0) // null 플레이어는 체력이 0으로 간주
-             .ThenBy(p => p != null && p.HasStateAuthority ? p.playerId : int.MaxValue)
+             .ThenBy(p => p != null ? p.playerId : int.MaxValue)
              .ToList();
-   
-         int leftSideCount = Mathf.CeilToInt(sortedPlayers.Count / 2.0f);
-   
+
          for (int i = 0; i < allSlots.Count; i++)
          {
              PlayerRankSlot currentSlot = allSlots[i];
-   
+
              if (i < sortedPlayers.Count)
              {
                  PlayerManager playerForThisSlot = sortedPlayers[i];
-   
-                 Transform targetParent = (i < leftSideCount) ? leftSideContainer : rightSideContainer;
+
+                 // Host(왼쪽) / Client(오른쪽) 기준으로 부모 컨테이너를 선택합니다.
+                 Transform targetParent = IsHostPlayer(playerForThisSlot) ? leftSideContainer : rightSideContainer;
                  if (targetParent == null)
                  {
                      targetParent = transform;
                  }
-   
+
                  // 부모가 비활성인 경우 강제로 활성화하여 자식 UI가 보이도록 합니다.
                  if (!targetParent.gameObject.activeInHierarchy)
                      targetParent.gameObject.SetActive(true);
-   
+
                  // 먼저 부모에 배치하여 계층/레이아웃이 올바르게 설정되도록 합니다.
                  currentSlot.transform.SetParent(targetParent, false);
-   
+
                  // 슬롯을 활성화(하이라키 상에서 활성화)하여 텍스트/레이아웃가 제대로 초기화되도록 보장합니다.
                  if (!currentSlot.gameObject.activeInHierarchy)
                      currentSlot.gameObject.SetActive(true);
-   
+
                  // 그 다음 데이터 바인딩 및 UI 업데이트 순서
                  currentSlot.Initialize(playerForThisSlot);
-   
+
                  // 레이아웃 강제 업데이트 (즉시 드로우 보장)
                  Canvas.ForceUpdateCanvases();
                  RectTransform rt = targetParent.GetComponent<RectTransform>();
                  if (rt != null)
                      LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
-   
+
                  currentSlot.UpdateUI();
              }
              else
@@ -256,5 +255,10 @@
                  currentSlot.gameObject.SetActive(false);
              }
          }
+     }
+
+     private bool IsHostPlayer(PlayerManager player)
+     {
+         return player != null && player.playerId == 0;
      }
  }

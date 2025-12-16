@@ -17,11 +17,17 @@ public class ShopManager : MonoBehaviour
     public bool IsDatabaseLoaded { get; private set; } = false;
     private UniTaskCompletionSource<bool> databaseLoadTask = new UniTaskCompletionSource<bool>();
 
+    /// <summary>
+    /// Unity 생명주기 진입점으로, LoadManager를 통해 UnitData 로딩을 시작합니다.
+    /// </summary>
     void Start()
     {
         InitializeFromLoadManager();
     }
 
+    /// <summary>
+    /// LoadManager 준비 완료를 기다린 뒤 모든 UnitData를 로컬 데이터베이스에 캐시합니다.
+    /// </summary>
     private async void InitializeFromLoadManager()
     {
         await Cysharp.Threading.Tasks.UniTask.WaitUntil(() => LoadManager.Instance != null);
@@ -31,21 +37,33 @@ public class ShopManager : MonoBehaviour
         databaseLoadTask.TrySetResult(true);
     }
 
+    /// <summary>
+    /// 유닛 데이터베이스 로딩이 완료되면 끝나는 작업을 반환합니다.
+    /// </summary>
     public UniTask WaitUntilDatabaseLoaded() => databaseLoadTask.Task.AsUniTask();
 
     // [변경됨] 반환 타입이 List<ShopItem>으로 변경되었습니다.
+    /// <summary>
+    /// 현재 상점 아이템을 반환합니다. 비어 있고 DB가 준비되었다면 무료 리롤로 채웁니다.
+    /// </summary>
     public List<ShopItem> GetCurrentShopItems()
     {
         if (currentShopItems.Count == 0 && IsDatabaseLoaded)
         {
-            Debug.LogWarning("[ShopManager] currentShopItems가 비어 있어 무료 리롤을 실행합니다.");
             Reroll(isFree: true);
         }
         return currentShopItems;
     }
+    /// <summary>
+    /// 상점 리롤에 필요한 골드 비용을 반환합니다.
+    /// </summary>
     public int GetRerollCost() => rerollCost;
 
     // [핵심 로직] Reroll 메서드가 성급 확률을 계산하도록 완전히 변경됩니다.
+    /// <summary>
+    /// 새로운 상점 아이템 세트를 생성합니다(필요 시 무료). DB 준비 상태와 플레이어 골드를 검증합니다.
+    /// </summary>
+    /// <param name="isFree">true이면 골드를 차감하지 않습니다.</param>
     public void Reroll(bool isFree = false)
     {
         if (!IsDatabaseLoaded)
@@ -56,7 +74,7 @@ public class ShopManager : MonoBehaviour
 
         if (!isFree && !playerManager.SpendGold(rerollCost))
         {
-            Debug.Log($"Player {playerManager.playerId}: 골드가 부족하여 리롤할 수 없습니다.");
+            Debug.LogWarning($"Player {playerManager.playerId}: 골드가 부족하여 리롤할 수 없습니다.");
             return;
         }
 
@@ -90,7 +108,6 @@ public class ShopManager : MonoBehaviour
                 currentShopItems.Add(new ShopItem(randomUnitData, starLevel));
             }
         }
-        Debug.Log($"Player {playerManager.playerId}의 상점이 리롤되었습니다. (무료: {isFree})");
         GameEvents.TriggerShopRefreshed(playerManager);
     }
 
@@ -110,11 +127,14 @@ public class ShopManager : MonoBehaviour
         // 상점 아이템이 0개일 때만 리롤을 수행하여 채웁니다. (새 라운드 시작 등)
         if (currentShopItems.Count == 0)
         {
-            Debug.Log($"[ShopManager] 상점 데이터가 비어있어 Reroll을 강제 실행하여 currentShopItems를 채웁니다.");
             Reroll(isFree: true); // 처음 상점을 채우는 것이므로 무료 리롤로 처리합니다.
         }
     }
 
+    /// <summary>
+    /// 지정한 상점 슬롯을 구매 처리하여 재선택을 방지합니다.
+    /// </summary>
+    /// <param name="slotIndex">구매 처리할 슬롯의 인덱스입니다.</param>
     public void MarkSlotAsPurchased(int slotIndex)
     {
         if (slotIndex >= 0 && slotIndex < _isSlotSold.Length)
@@ -123,6 +143,9 @@ public class ShopManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 구매되지 않은 슬롯만 슬롯 인덱스→아이템 형태의 사전으로 반환합니다.
+    /// </summary>
     public Dictionary<int, ShopItem> GetAvailableShopItems()
     {
         var availableItems = new Dictionary<int, ShopItem>();

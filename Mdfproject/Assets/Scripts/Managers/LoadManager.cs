@@ -15,6 +15,9 @@ public class LoadManager : MonoBehaviour
     private Dictionary<string, UnitData> _unitByKey = new Dictionary<string, UnitData>();
     private UniTaskCompletionSource<bool> _unitLoadTcs = new UniTaskCompletionSource<bool>();
 
+    /// <summary>
+    /// 싱글톤 인스턴스를 초기화하고 씬 전환 시에도 유지되도록 설정합니다.
+    /// </summary>
     void Awake()
     {
         if (Instance != null && Instance != this)
@@ -28,6 +31,9 @@ public class LoadManager : MonoBehaviour
 
     public bool IsReady => _isReady;
 
+    /// <summary>
+    /// 인스펙터 또는 Addressables에서 UnitData를 로드하고 조회용 캐시를 구성합니다.
+    /// </summary>
     public async UniTask InitializeAsync()
     {
         if (_isReady) return;
@@ -37,26 +43,13 @@ public class LoadManager : MonoBehaviour
             {
                 _allUnits = inspectorUnitData.Where(u => u != null).ToList();
                 _unitByKey = _allUnits.Where(u => u != null).GroupBy(u => u.name).ToDictionary(g => g.Key, g => g.First());
-                int totalI = _allUnits.Count;
-                int uniqueI = _unitByKey.Count;
-                var duplicatesI = _allUnits.Where(u => u != null)
-                    .GroupBy(u => u.name)
-                    .Where(g => g.Count() > 1)
-                    .Select(g => $"{g.Key} x{g.Count()}")
-                    .ToList();
-                Debug.Log($"[LoadManager] UnitData preload (Inspector) complete. Total={totalI}, UniqueKeys={uniqueI}, Duplicates={duplicatesI.Count}{(duplicatesI.Count > 0 ? " [" + string.Join(", ", duplicatesI) + "]" : "")}");
                 for (int i = 0; i < _allUnits.Count; i++)
                 {
                     var u = _allUnits[i];
                     if (u == null)
                     {
-                        Debug.Log($"[LoadManager] #{i + 1} Null UnitData entry");
-                        continue;
+                        Debug.LogWarning($"[LoadManager] #{i + 1} Null UnitData entry");
                     }
-                    string prefabsI = u.prefabsByStarLevel != null ? string.Join(", ", u.prefabsByStarLevel) : string.Empty;
-                    string skillsI = u.skillsByStarLevel != null ? string.Join(", ", u.skillsByStarLevel) : string.Empty;
-                    string projectilesI = u.projectilePrefabsByStarLevel != null ? string.Join(", ", u.projectilePrefabsByStarLevel) : string.Empty;
-                    Debug.Log($"[LoadManager] #{i + 1} key='{u.name}', unitName='{u.unitName}', cost={u.cost}, type={u.unitType}, icon='{u.unitIcon}', prefabs=[{prefabsI}], skills=[{skillsI}], projectiles=[{projectilesI}]");
                 }
                 _isReady = true;
                 _unitLoadTcs.TrySetResult(true);
@@ -66,26 +59,13 @@ public class LoadManager : MonoBehaviour
             var result = await handle.Task;
             _allUnits = result != null ? result.ToList() : new List<UnitData>();
             _unitByKey = _allUnits.Where(u => u != null).GroupBy(u => u.name).ToDictionary(g => g.Key, g => g.First());
-            int total = _allUnits.Count;
-            int unique = _unitByKey.Count;
-            var duplicates = _allUnits.Where(u => u != null)
-                .GroupBy(u => u.name)
-                .Where(g => g.Count() > 1)
-                .Select(g => $"{g.Key} x{g.Count()}")
-                .ToList();
-            Debug.Log($"[LoadManager] UnitData preload complete. Total={total}, UniqueKeys={unique}, Duplicates={duplicates.Count}{(duplicates.Count > 0 ? " [" + string.Join(", ", duplicates) + "]" : "")}");
             for (int i = 0; i < _allUnits.Count; i++)
             {
                 var u = _allUnits[i];
                 if (u == null)
                 {
-                    Debug.Log($"[LoadManager] #{i + 1} Null UnitData entry");
-                    continue;
+                    Debug.LogWarning($"[LoadManager] #{i + 1} Null UnitData entry");
                 }
-                string prefabs = u.prefabsByStarLevel != null ? string.Join(", ", u.prefabsByStarLevel) : string.Empty;
-                string skills = u.skillsByStarLevel != null ? string.Join(", ", u.skillsByStarLevel) : string.Empty;
-                string projectiles = u.projectilePrefabsByStarLevel != null ? string.Join(", ", u.projectilePrefabsByStarLevel) : string.Empty;
-                Debug.Log($"[LoadManager] #{i + 1} key='{u.name}', unitName='{u.unitName}', cost={u.cost}, type={u.unitType}, icon='{u.unitIcon}', prefabs=[{prefabs}], skills=[{skills}], projectiles=[{projectiles}]");
             }
             _isReady = true;
             _unitLoadTcs.TrySetResult(true);
@@ -97,17 +77,26 @@ public class LoadManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// InitializeAsync가 완료되면 끝나는 작업을 반환합니다. 이미 준비되었다면 즉시 완료됩니다.
+    /// </summary>
     public UniTask WaitUntilReady()
     {
         if (_isReady) return UniTask.CompletedTask;
         return _unitLoadTcs.Task.AsUniTask();
     }
 
+    /// <summary>
+    /// 로드된 모든 UnitData의 읽기 전용 리스트를 반환합니다.
+    /// </summary>
     public IReadOnlyList<UnitData> GetAllUnitData()
     {
         return _allUnits;
     }
 
+    /// <summary>
+    /// 키(이름)로 UnitData를 조회합니다. 없거나 키가 유효하지 않으면 null을 반환합니다.
+    /// </summary>
     public UnitData GetUnitData(string key)
     {
         if (string.IsNullOrEmpty(key)) return null;

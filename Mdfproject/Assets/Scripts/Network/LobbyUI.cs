@@ -54,8 +54,8 @@ public class LobbyUI : MonoBehaviour
         // 방 생성 및 연결?
         _confirmCreateButton.onClick.AddListener(() =>
         {
-            //RoomName();
-            _networkManager.StartGame(GameMode.Host, _networkManager.GetRoomNameInput(), "JoinLobby");
+            string inputName = _roomNameInput != null ? _roomNameInput.text : null;
+            _networkManager.StartGame(GameMode.Host, inputName, "JoinLobby");
         });
         // ⭐ [핵심 수정] 방 갱신 버튼에 새로운 UI 업데이트 함수를 연결합니다.
         _refreshButton.onClick.AddListener(UpdateRoomListUI);
@@ -119,18 +119,5 @@ public class LobbyUI : MonoBehaviour
             );
         }
     }
-
-    void RoomName()
-    {
-        // TODO : 안됨
-        if (_roomNameInput.text == null)
-        {
-            _roomNameInput.text = "Room_" + UnityEngine.Random.Range(0000, 9999);
-        }
-
-         _networkManager.SetRoomNameInput(_roomNameInput.text);
-    }
-
-
 
 }
