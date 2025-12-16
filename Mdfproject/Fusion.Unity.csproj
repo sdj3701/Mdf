@@ -62,30 +62,30 @@
     <Analyzer Include="C:\Users\djthe\.vscode\extensions\visualstudiotoolsforunity.vstuc-1.2.0\Analyzers\Microsoft.Unity.Analyzers.dll" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerAOIGizmos.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerVisibilityLinksRoot.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatsConfig.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatsCanvas.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\FusionAddressablePrefabsPreloader.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerVisibilityLink.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerEnableVisibility.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerLagCompensationGizmos.cs" />
     <Compile Include="Assets\Photon\Fusion\Runtime\FusionBootstrapDebugGUI.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\FusionBootstrap.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionNetworkObjectStatsGraph.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Fusion.Unity.AssemblyAttributes.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\FusionBasicBillboard.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionNetworkObjectStatsGraphCombine.cs" />
     <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionNetworkObjectStatistics.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\NetworkObjectProviderDefault.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\NetworkCharacterController.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\EnableOnSingleRunner.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Fusion.Unity.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatsWorldAnchor.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatistics.cs" />
-    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatsGraphDefault.cs" />
     <Compile Include="Assets\Photon\Fusion\Runtime\NetworkSceneManagerDefault.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Fusion.Unity.AssemblyAttributes.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerLagCompensationGizmos.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatsWorldAnchor.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerAOIGizmos.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\NetworkObjectProviderDefault.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerVisibilityLink.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionNetworkObjectStatsGraphCombine.cs" />
     <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatsPanelHeader.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Fusion.Unity.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerVisibilityLinksRoot.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\EnableOnSingleRunner.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionNetworkObjectStatsGraph.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\NetworkCharacterController.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatsCanvas.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Utilities\RunnerVisibility\RunnerEnableVisibility.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\FusionBasicBillboard.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatistics.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatsConfig.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\Statistics\FusionStatsGraphDefault.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\FusionAddressablePrefabsPreloader.cs" />
+    <Compile Include="Assets\Photon\Fusion\Runtime\FusionBootstrap.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Photon\Fusion\Runtime\RuntimeAssets\JetBrainsMono OFL.txt" />
@@ -429,20 +429,32 @@
       <HintPath>C:\Program Files\Unity\Hub\Editor\2021.3.45f1\Editor\Data\PlaybackEngines\WindowsStandaloneSupport\UnityEditor.WindowsStandalone.Extensions.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="NanoSockets">
-      <HintPath>Assets\Photon\Fusion\Plugins\NanoSockets\NanoSockets\Dynamic\NanoSockets.dll</HintPath>
+    <Reference Include="Google.JarResolver">
+      <HintPath>Assets\ExternalDependencyManager\Editor\1.2.186\Google.JarResolver.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Firebase.Crashlytics">
       <HintPath>Assets\Firebase\Plugins\Firebase.Crashlytics.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Photon3Unity3D">
-      <HintPath>Assets\Photon\PhotonLibs\netstandard2.0\Photon3Unity3D.dll</HintPath>
+    <Reference Include="Firebase.Crashlytics.Editor">
+      <HintPath>Assets\Firebase\Editor\Firebase.Crashlytics.Editor.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.VisualScripting.IonicZip">
+      <HintPath>Library\PackageCache\com.unity.visualscripting@1.9.4\Editor\VisualScripting.Core\Dependencies\DotNetZip\Unity.VisualScripting.IonicZip.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="log4netPlastic">
       <HintPath>Library\PackageCache\com.unity.collab-proxy@2.5.2\Lib\Editor\PlasticSCM\log4netPlastic.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Google.VersionHandler">
+      <HintPath>Assets\ExternalDependencyManager\Editor\Google.VersionHandler.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="unityplastic">
+      <HintPath>Library\PackageCache\com.unity.collab-proxy@2.5.2\Lib\Editor\PlasticSCM\unityplastic.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Firebase.App">
@@ -461,20 +473,24 @@
       <HintPath>Library\PackageCache\com.unity.collab-proxy@2.5.2\Lib\Editor\PlasticSCM\Unity.Plastic.Newtonsoft.Json.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="Firebase.Editor">
+      <HintPath>Assets\Firebase\Editor\Firebase.Editor.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="Firebase.Firestore">
       <HintPath>Assets\Firebase\Plugins\Firebase.Firestore.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Firebase.Analytics">
+      <HintPath>Assets\Firebase\Plugins\Firebase.Analytics.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.Plastic.Antlr3.Runtime">
       <HintPath>Library\PackageCache\com.unity.collab-proxy@2.5.2\Lib\Editor\PlasticSCM\Unity.Plastic.Antlr3.Runtime.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="websocket-sharp">
-      <HintPath>Assets\Photon\PhotonLibs\WebSocket\websocket-sharp.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Fusion.Sockets">
-      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Sockets.dll</HintPath>
+    <Reference Include="Unity.VisualScripting.YamlDotNet">
+      <HintPath>Library\PackageCache\com.unity.visualscripting@1.9.4\Editor\VisualScripting.Core\Dependencies\YamlDotNet\Unity.VisualScripting.YamlDotNet.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.VisualScripting.TextureAssets">
@@ -485,64 +501,12 @@
       <HintPath>Assets\Firebase\Plugins\Firebase.TaskExtension.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Unity.VisualScripting.Antlr3.Runtime">
-      <HintPath>Library\PackageCache\com.unity.visualscripting@1.9.4\Runtime\VisualScripting.Flow\Dependencies\NCalc\Unity.VisualScripting.Antlr3.Runtime.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Mono.Cecil">
-      <HintPath>Library\PackageCache\com.unity.nuget.mono-cecil@1.10.2\Mono.Cecil.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Google.JarResolver">
-      <HintPath>Assets\ExternalDependencyManager\Editor\1.2.186\Google.JarResolver.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Fusion.Log">
-      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Log.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Firebase.Crashlytics.Editor">
-      <HintPath>Assets\Firebase\Editor\Firebase.Crashlytics.Editor.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Unity.VisualScripting.IonicZip">
-      <HintPath>Library\PackageCache\com.unity.visualscripting@1.9.4\Editor\VisualScripting.Core\Dependencies\DotNetZip\Unity.VisualScripting.IonicZip.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Google.VersionHandler">
-      <HintPath>Assets\ExternalDependencyManager\Editor\Google.VersionHandler.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="unityplastic">
-      <HintPath>Library\PackageCache\com.unity.collab-proxy@2.5.2\Lib\Editor\PlasticSCM\unityplastic.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Firebase.Editor">
-      <HintPath>Assets\Firebase\Editor\Firebase.Editor.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Firebase.Analytics">
-      <HintPath>Assets\Firebase\Plugins\Firebase.Analytics.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Unity.VisualScripting.YamlDotNet">
-      <HintPath>Library\PackageCache\com.unity.visualscripting@1.9.4\Editor\VisualScripting.Core\Dependencies\YamlDotNet\Unity.VisualScripting.YamlDotNet.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Fusion.Common">
-      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Common.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Fusion.Realtime">
-      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Realtime.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="Google.MiniJson">
       <HintPath>Assets\Firebase\Plugins\Google.MiniJson.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Fusion.Runtime">
-      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Runtime.dll</HintPath>
+    <Reference Include="Unity.VisualScripting.Antlr3.Runtime">
+      <HintPath>Library\PackageCache\com.unity.visualscripting@1.9.4\Runtime\VisualScripting.Flow\Dependencies\NCalc\Unity.VisualScripting.Antlr3.Runtime.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Firebase.Platform">
@@ -555,6 +519,42 @@
     </Reference>
     <Reference Include="Firebase.Auth">
       <HintPath>Assets\Firebase\Plugins\Firebase.Auth.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Mono.Cecil">
+      <HintPath>Library\PackageCache\com.unity.nuget.mono-cecil@1.10.2\Mono.Cecil.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="NanoSockets">
+      <HintPath>Assets\Photon\Fusion\Plugins\NanoSockets\NanoSockets\Dynamic\NanoSockets.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Photon3Unity3D">
+      <HintPath>Assets\Photon\PhotonLibs\netstandard2.0\Photon3Unity3D.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="websocket-sharp">
+      <HintPath>Assets\Photon\PhotonLibs\WebSocket\websocket-sharp.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Fusion.Sockets">
+      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Sockets.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Fusion.Log">
+      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Log.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Fusion.Common">
+      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Common.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Fusion.Realtime">
+      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Realtime.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Fusion.Runtime">
+      <HintPath>Assets\Photon\Fusion\Assemblies\Fusion.Runtime.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="netstandard">

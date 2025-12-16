@@ -62,8 +62,8 @@
     <Analyzer Include="C:\Users\djthe\.vscode\extensions\visualstudiotoolsforunity.vstuc-1.2.0\Analyzers\Microsoft.Unity.Analyzers.dll" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Assets\Photon\Fusion\CodeGen\Fusion.CodeGen.cs" />
     <Compile Include="Assets\Photon\Fusion\CodeGen\Fusion.CodeGen.User.cs" />
+    <Compile Include="Assets\Photon\Fusion\CodeGen\Fusion.CodeGen.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Photon\Fusion\CodeGen\Fusion.CodeGen.asmdef" />

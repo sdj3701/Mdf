@@ -389,6 +389,7 @@ public class GameManagers : NetworkBehaviour
             PlayerManager newPlayer = playerNO.GetComponent<PlayerManager>();
             if (newPlayer != null)
             {
+                Debug.Log(gridNO);
                 newPlayer.Rpc_InitializePlayer(i, gridNO);
             }
 

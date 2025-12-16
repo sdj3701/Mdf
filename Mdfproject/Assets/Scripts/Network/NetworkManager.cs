@@ -85,21 +85,24 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     /// <summary>
     /// 특정 로비에 참여를 시작합니다.
     /// </summary>
-    public async void JoinLobby()
+    public async void JoinLobby() 
     {
-        // 이미 연결 중이거나 게임 중이면 실행하지 않습니다.
         if (_runner != null) return;
+        State = ConnectionState.Connecting; // 새 중간 상태
 
-        Debug.Log("Joining Lobby...");
-        _state = ConnectionState.InLobby; // 상태를 '로비'로 변경
-
-        // NetworkRunner 인스턴스를 생성하고 콜백을 받기 위해 등록합니다.
         _runner = gameObject.AddComponent<NetworkRunner>();
         _runner.AddCallbacks(this);
 
-        // 기본 로비에 참여합니다.
-        await _runner.JoinSessionLobby(SessionLobby.Shared);
+        var result = await _runner.JoinSessionLobby(SessionLobby.Shared);
+        if (!result.Ok) {
+            Debug.LogError($"Join lobby failed: {result.ShutdownReason}");
+            State = ConnectionState.Disconnected;
+            _runner.Shutdown();
+            _runner = null;
+            return;
+        }
 
+        State = ConnectionState.InLobby;
         Debug.Log("Joined Lobby.");
     }
 
@@ -110,6 +113,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     /// <param name="sessionName">참여하거나 생성할 방의 이름</param>
     public async void StartGame(GameMode mode, string sessionName, string sceneName = null)
     {
+        if (_runner == null || State != ConnectionState.InLobby) 
+        {
+            Debug.LogWarning("로비 입장 중입니다. 완료될 때까지 기다리세요.");
+            return;
+        }
         // 로비에 있을 때만 게임을 시작할 수 있습니다.
         if (_state != ConnectionState.InLobby) return;
 
