@@ -46,6 +46,11 @@ public class Projectile : MonoBehaviour
         Vector3 toTarget = currentTargetPosition - transform.position;
         float distanceThisFrame = speed * Time.deltaTime;
 
+        if (toTarget.sqrMagnitude > 1e-6f)
+        {
+            transform.rotation = Quaternion.LookRotation(toTarget.normalized, Vector3.up);
+        }
+
         if (toTarget.sqrMagnitude <= distanceThisFrame * distanceThisFrame)
         {
             transform.position = currentTargetPosition;
