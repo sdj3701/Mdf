@@ -641,6 +641,11 @@ PrefabInstance:
   m_Modification:
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 2026818999442698987, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_Name
+      value: UI_Txt_Bricks
+      objectReference: {fileID: 0}
     - target: {fileID: 2218765290447644169, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
       propertyPath: m_RootOrder
@@ -700,6 +705,31 @@ PrefabInstance:
         type: 3}
       propertyPath: m_Name
       value: UIManager
+      objectReference: {fileID: 0}
+    - target: {fileID: 2218765290905468377, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.y
+      value: -5.8
+      objectReference: {fileID: 0}
+    - target: {fileID: 3540457612324243826, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.x
+      value: -109
+      objectReference: {fileID: 0}
+    - target: {fileID: 3540457612324243826, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.y
+      value: -5.8
+      objectReference: {fileID: 0}
+    - target: {fileID: 5245685722014888849, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.x
+      value: -10
+      objectReference: {fileID: 0}
+    - target: {fileID: 5245685722014888849, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.y
+      value: 66
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 92043555220c0aa4aad2b36e97a211af, type: 3}
