@@ -76,21 +76,31 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// 상태 권한(서버)에서 호출되어 모든 클라이언트에 이 플레이어의 ID와 그리드 참조를 초기화합니다.
     /// </summary>
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public async void Rpc_InitializePlayer(int id, NetworkObject gridNetworkObject)
+    public async void Rpc_InitializePlayer(int id, NetworkId gridId)
     {
-        // [수정] 네트워크를 통해 전달받은 ID를 [Networked] 프로퍼티에 저장합니다.
-        this.playerId = id;
-        //Debug.Log($"--- Player {playerId} RPC 초기화 실행 (IsServer: {Object.ToString()}) ---");
+        playerId = id;
 
-        // --- 1. 가장 중요한 gridNetworkObject가 제대로 전달되었는지 확인 ---
-        if (gridNetworkObject == null)
+        NetworkObject gridNO = null;
+        int attempts = 0;
+        while ((gridNO == null || !gridNO) && attempts < 120)
         {
-            Debug.LogError($"[Player {playerId}]: RPC로 전달받은 gridNetworkObject가 null입니다! 초기화 실패.");
+            if (Runner != null)
+            {
+                Runner.TryFindObject(gridId, out gridNO);
+            }
+            if (gridNO == null)
+            {
+                await Cysharp.Threading.Tasks.UniTask.Yield(PlayerLoopTiming.FixedUpdate);
+            }
+            attempts++;
+        }
+        if (gridNO == null)
+        {
+            Debug.LogError($"[Player {playerId}]: gridNetworkObject resolve 실패");
             return;
         }
 
-        // 전달받은 NetworkObject 참조로부터 그리드 게임오브젝트를 가져옵니다.
-        GameObject gridInstance = gridNetworkObject.gameObject;
+        var gridInstance = gridNO.gameObject;
 
         // 3D Ground 오브젝트 찾기
         GameObject ground3D = null;
