@@ -63,6 +63,12 @@ public class GameSceneInitializer : MonoBehaviour
         _runner = gameObject.AddComponent<NetworkRunner>();
         _runner.ProvideInput = true;
 
+        var objectProvider = gameObject.GetComponent<PooledNetworkObjectProvider>();
+        if (objectProvider == null)
+        {
+            objectProvider = gameObject.AddComponent<PooledNetworkObjectProvider>();
+        }
+
         // [수정] 현재 씬의 빌드 인덱스를 가져옵니다
         Scene currentScene = SceneManager.GetActiveScene();
         int currentSceneIndex = currentScene.buildIndex;
@@ -78,7 +84,8 @@ public class GameSceneInitializer : MonoBehaviour
             SessionName = "SinglePlayerSession",
             Scene = sceneRef, // 현재 씬을 명시적으로 지정
             SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
-            PlayerCount = singlePlayerCount // GameSceneInitializer의 설정을 따름
+            PlayerCount = singlePlayerCount, // GameSceneInitializer의 설정을 따름
+            ObjectProvider = objectProvider
         });
 
         if (result.Ok)

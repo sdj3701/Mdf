@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 1166691957424101726}
   - component: {fileID: 1166691957424101665}
   - component: {fileID: 1166691957424101667}
+  - component: {fileID: 342060889542728245}
   m_Layer: 0
   m_Name: GameManagers
   m_TagString: Untagged
@@ -84,4 +85,20 @@ MonoBehaviour:
   NestedObjects: []
   NetworkedBehaviours:
   - {fileID: 1166691957424101665}
+  - {fileID: 342060889542728245}
   ForceRemoteRenderTimeframe: 0
+--- !u!114 &342060889542728245
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1166691957424101666}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 695ee2444ddd9624b9256e06e06924fc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hitBufferSize: 128
+  defaultProjectileSpeed: 20
+  _EventSequence: 0

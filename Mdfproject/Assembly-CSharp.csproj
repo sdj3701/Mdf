@@ -67,10 +67,13 @@
     <Compile Include="Assets\Scripts\Interfaces\IHealth.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\RearrangeUnitsCommand.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\PlaceUnitCommand.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SpringManager.cs" />
     <Compile Include="Assets\Scripts\Enums\MonsterRank.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\RefleshProbe.cs" />
     <Compile Include="Assets\Scripts\Network\NetworkPlayer.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextSelector_A.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\SequenceNode.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\ThirdPersonCamera.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexShakeA.cs" />
     <Compile Include="Assets\Scripts\MainLobby\SelectCharacter.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\SelectorNode.cs" />
@@ -91,6 +94,7 @@
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarNode.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IPlacementHandler.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\CameraController.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\CameraController.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\ActionNode.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMPro_InstructionOverlay.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_ExampleScript_01.cs" />
@@ -101,18 +105,22 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextInfoDebugTool.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\GoldRemainingConsideration.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\InverterNode.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\Animations\Rotator.cs" />
     <Compile Include="Assets\Scripts\Enums\DamageType.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\HealEffect.cs" />
     <Compile Include="Assets\Scripts\Game\Units\UnitOrientationFixer.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_DigitValidator.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\IdleChanger.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\AttackRangeCoverageConsideration.cs" />
     <Compile Include="Assets\Samples\Addressables\1.19.19\Addressables Utility\AddressablesUtility.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SetShadowQuality.cs" />
     <Compile Include="Assets\Scripts\Managers\GameEvents.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Node.cs" />
     <Compile Include="Assets\Scripts\Game\Monsters\Monster.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\Placement\MeleePlacementConsideration.cs" />
     <Compile Include="Assets\Scripts\Managers\ShopManager.cs" />
     <Compile Include="Assets\Scripts\Button\SceneLobbyButton.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\RandomWind.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TextMeshSpawner.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\MoveUnitCommand.cs" />
     <Compile Include="Assets\Scripts\UI\AugmentUIController.cs" />
@@ -136,7 +144,9 @@
     <Compile Include="Assets\Scripts\Game\Targeting\TargetingStrategy.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\PlaceBestUnitAction.cs" />
     <Compile Include="Assets\Scripts\Button\BaseButton.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\AutoBlink.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffStatEffect.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\AutoBlinkforSD.cs" />
     <Compile Include="Assets\Scripts\Button\ExitButton.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Conditions\IsMazeConstructionCompleteCondition.cs" />
     <Compile Include="Assets\Scripts\AI\Planning\MazePlanner.cs" />
@@ -157,6 +167,7 @@
     <Compile Include="Assets\Scripts\Network\NetworkManager.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IEnemy.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\BuffManager.cs" />
+    <Compile Include="Assets\Scripts\Game\Monsters\MonsterReleaseScheduler.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\SkewTextExample.cs" />
     <Compile Include="Assets\Scripts\Commands\Core\CommandProcessor.cs" />
     <Compile Include="Assets\Scripts\Game\Units\Unit.cs" />
@@ -175,8 +186,10 @@
     <Compile Include="Assets\Scripts\Managers\AugmentManager.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\RerollShopCommand.cs" />
     <Compile Include="Assets\Scripts\UI\RankingUIController.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SpringCollider.cs" />
     <Compile Include="Assets\Scripts\DB\MiniJSON.cs" />
     <Compile Include="Assets\Scripts\UI\PlayerRankSlot.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\Scripts\MirrorReflection.cs" />
     <Compile Include="Assets\Scripts\Network\JoinLobbyUI.cs" />
     <Compile Include="Assets\Scripts\MainLobby\CharacterSelectButton.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IMana.cs" />
@@ -201,6 +214,7 @@
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextEventCheck.cs" />
     <Compile Include="Assets\Scripts\Network\RoomItem.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\ShaderPropAnimator.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SetShadowResolution.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\WarpTextExample.cs" />
     <Compile Include="Assets\Scripts\Network\LobbyUI.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\BuyBestUnitAction.cs" />
@@ -212,10 +226,12 @@
     <Compile Include="Assets\Scripts\DB\AddressableKeyAttribute.cs" />
     <Compile Include="Assets\Scripts\Enums\CommandType.cs" />
     <Compile Include="Assets\Scripts\UI\PlayerHUDController.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\FaceUpdate.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark02.cs" />
     <Compile Include="Assets\Scripts\Game\Units\BodyScaler.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarGrid.cs" />
     <Compile Include="Assets\Scripts\Network\BuildDebugGUI.cs" />
+    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SpringBone.cs" />
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\DynamicAssets\TilemapController.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Readme.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\Actions\BuildMazeAction.cs" />
@@ -240,22 +256,12 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\GameAssets.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\Animations\Rotator.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\AutoBlink.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SpringManager.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SpringCollider.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\FaceUpdate.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SetShadowResolution.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\RefleshProbe.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\CameraController.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\AutoBlinkforSD.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SetShadowQuality.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\Scripts\MirrorReflection.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\ThirdPersonCamera.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\RandomWind.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SpringBone.cs" />
-    <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\IdleChanger.cs" />
-    <Compile Include="Assets\Scripts\Game\Monsters\MonsterReleaseScheduler.cs" />
+    <Compile Include="Assets\Scripts\Network\PooledNetworkObjectProvider.cs" />
+    <Compile Include="Assets\Scripts\VFX\ProjectileVfxManager.cs" />
+    <Compile Include="Assets\Scripts\Managers\AddressablesPreloader.cs" />
+    <Compile Include="Assets\Scripts\VFX\VfxPoolManager.cs" />
+    <Compile Include="Assets\Scripts\VFX\PooledObject.cs" />
+    <Compile Include="Assets\Scripts\Managers\CombatScheduler.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
@@ -1314,6 +1320,10 @@
       <HintPath>Library\ScriptAssemblies\Unity.Addressables.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="Unity.FilmInternalUtilities.Editor">
+      <HintPath>Library\ScriptAssemblies\Unity.FilmInternalUtilities.Editor.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="Unity.VisualScripting.State.Editor">
       <HintPath>Library\ScriptAssemblies\Unity.VisualScripting.State.Editor.dll</HintPath>
       <Private>False</Private>
@@ -1358,6 +1368,10 @@
       <HintPath>Library\ScriptAssemblies\Unity.ShaderGraph.Editor.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="Unity.Toonshader.Editor">
+      <HintPath>Library\ScriptAssemblies\Unity.Toonshader.Editor.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="Cinemachine">
       <HintPath>Library\ScriptAssemblies\Cinemachine.dll</HintPath>
       <Private>False</Private>
@@ -1368,6 +1382,10 @@
     </Reference>
     <Reference Include="Unity.RenderPipeline.Universal.ShaderLibrary">
       <HintPath>Library\ScriptAssemblies\Unity.RenderPipeline.Universal.ShaderLibrary.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.Toonshader">
+      <HintPath>Library\ScriptAssemblies\Unity.Toonshader.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.Mathematics.Editor">
@@ -1446,8 +1464,8 @@
       <HintPath>Library\ScriptAssemblies\Unity.ProBuilder.Editor.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Unity.VisualScripting.Flow">
-      <HintPath>Library\ScriptAssemblies\Unity.VisualScripting.Flow.dll</HintPath>
+    <Reference Include="Unity.PlasticSCM.Editor">
+      <HintPath>Library\ScriptAssemblies\Unity.PlasticSCM.Editor.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.2D.Tilemap.Extras.Editor">
@@ -1458,8 +1476,12 @@
       <HintPath>Library\ScriptAssemblies\UniTask.Linq.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Unity.PlasticSCM.Editor">
-      <HintPath>Library\ScriptAssemblies\Unity.PlasticSCM.Editor.dll</HintPath>
+    <Reference Include="Unity.FilmInternalUtilities">
+      <HintPath>Library\ScriptAssemblies\Unity.FilmInternalUtilities.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.VisualScripting.Flow">
+      <HintPath>Library\ScriptAssemblies\Unity.VisualScripting.Flow.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.VisualScripting.Core">
@@ -1516,22 +1538,6 @@
     </Reference>
     <Reference Include="Unity.VisualScripting.State">
       <HintPath>Library\ScriptAssemblies\Unity.VisualScripting.State.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Unity.Toonshader.Editor">
-      <HintPath>Library\ScriptAssemblies\Unity.Toonshader.Editor.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Unity.FilmInternalUtilities">
-      <HintPath>Library\ScriptAssemblies\Unity.FilmInternalUtilities.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Unity.FilmInternalUtilities.Editor">
-      <HintPath>Library\ScriptAssemblies\Unity.FilmInternalUtilities.Editor.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="Unity.Toonshader">
-      <HintPath>Library\ScriptAssemblies\Unity.Toonshader.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>

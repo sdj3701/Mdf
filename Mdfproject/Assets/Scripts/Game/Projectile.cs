@@ -1,20 +1,21 @@
-// Assets/Scripts/Game/Units/Projectile.cs (새 파일)
+// Assets/Scripts/Game/Projectile.cs
 using UnityEngine;
 
 public class Projectile : MonoBehaviour
 {
-    // --- 투사체가 받아야 할 정보 ---
     private Transform target;
     private Vector3 lastKnownTargetPosition;
     private float damage;
     private DamageType damageType;
 
-    [Header("투사체 설정")]
-    [SerializeField] private float speed = 20f; // 투사체의 비행 속도
+    [Header("Projectile Settings")]
+    [SerializeField] private float speed = 20f;
 
-    /// <summary>
-    /// 발사한 유닛이 이 메서드를 호출하여 투사체에게 임무를 부여합니다.
-    /// </summary>
+    private bool _visualOnly;
+
+    public float Speed => speed;
+
+    // Called by the firing unit to initialize gameplay projectile data.
     public void Initialize(Transform target, float damage, DamageType damageType)
     {
         this.target = target;
@@ -30,8 +31,23 @@ public class Projectile : MonoBehaviour
         }
     }
 
-    void Update()
+    // Visual-only projectiles are moved by ProjectileVfxManager.
+    public void SetVisualOnly(bool visualOnly)
     {
+        _visualOnly = visualOnly;
+        if (_visualOnly)
+        {
+            target = null;
+        }
+    }
+
+    private void Update()
+    {
+        if (_visualOnly)
+        {
+            return;
+        }
+
         Vector3 currentTargetPosition;
         if (target != null)
         {
