@@ -7,10 +7,16 @@ public class CombatScheduler : NetworkBehaviour
     public static CombatScheduler Instance { get; private set; }
 
     [Header("Hit Scheduling")]
-    [SerializeField] private int hitBufferSize = 128;
+    [SerializeField] private int hitBufferSize = 256;
     [SerializeField] private float defaultProjectileSpeed = 20f;
 
-    private const int EventBufferCapacity = 512;
+    private const int MaxPlayers = 4;
+    private const int MaxUnitsPerPlayer = 20;
+    private const int MaxAttackVfxPerSecond = 4;
+    private const int MaxProjectileFlightSeconds = 4;
+    private const int EventBufferSafetyMargin = 256;
+    private const int EventBufferCapacity =
+        MaxPlayers * MaxUnitsPerPlayer * MaxAttackVfxPerSecond * MaxProjectileFlightSeconds + EventBufferSafetyMargin;
 
     [Networked] public int EventSequence { get; private set; }
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> EventSeqs { get; }

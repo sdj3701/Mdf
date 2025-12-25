@@ -66,6 +66,7 @@
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\CanCombineConsideration.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IHealth.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\RearrangeUnitsCommand.cs" />
+    <Compile Include="Assets\Scripts\VFX\VfxPoolManager.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\PlaceUnitCommand.cs" />
     <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SpringManager.cs" />
     <Compile Include="Assets\Scripts\Enums\MonsterRank.cs" />
@@ -103,6 +104,7 @@
     <Compile Include="Assets\Scripts\Button\GameOptionButton.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\DestructibleWall.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextInfoDebugTool.cs" />
+    <Compile Include="Assets\Scripts\Managers\CombatScheduler.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\Considerations\GoldRemainingConsideration.cs" />
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\InverterNode.cs" />
     <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\Animations\Rotator.cs" />
@@ -137,6 +139,7 @@
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\CompositeNode.cs" />
     <Compile Include="Assets\Scripts\UI\PhaseTimerUI.cs" />
     <Compile Include="Assets\Scripts\AI\UtilitySystem\AIContext.cs" />
+    <Compile Include="Assets\Scripts\VFX\ProjectileVfxManager.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\VertexJitter.cs" />
     <Compile Include="Assets\Scripts\Game\Skills\SkillEffect.cs" />
     <Compile Include="Assets\Scripts\Interfaces\IDurationEffect.cs" />
@@ -228,7 +231,9 @@
     <Compile Include="Assets\Scripts\UI\PlayerHUDController.cs" />
     <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\FaceUpdate.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark02.cs" />
+    <Compile Include="Assets\Scripts\Managers\AddressablesPreloader.cs" />
     <Compile Include="Assets\Scripts\Game\Units\BodyScaler.cs" />
+    <Compile Include="Assets\Scripts\VFX\PooledObject.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarGrid.cs" />
     <Compile Include="Assets\Scripts\Network\BuildDebugGUI.cs" />
     <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\SpringBone.cs" />
@@ -245,6 +250,7 @@
     <Compile Include="Assets\Scripts\AI\BehaviorTree\Nodes\DecoratorNode.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\RemoveWallCommand.cs" />
     <Compile Include="Assets\Scripts\Enums\MonsterType.cs" />
+    <Compile Include="Assets\Scripts\Network\PooledNetworkObjectProvider.cs" />
     <Compile Include="Assets\Scripts\Commands\PlayerActions\BuyUnitCommand.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\TMP_TextSelector_B.cs" />
     <Compile Include="Assets\Scripts\Managers\PlayerManager.cs" />
@@ -256,12 +262,6 @@
     <Compile Include="Assets\Scripts\ComponentRegistrySystem\GameAssets.cs" />
     <Compile Include="Assets\Scripts\MainLobby\ReturnCharacterButton.cs" />
     <Compile Include="Assets\Scripts\UI\UIPool.cs" />
-    <Compile Include="Assets\Scripts\Network\PooledNetworkObjectProvider.cs" />
-    <Compile Include="Assets\Scripts\VFX\ProjectileVfxManager.cs" />
-    <Compile Include="Assets\Scripts\Managers\AddressablesPreloader.cs" />
-    <Compile Include="Assets\Scripts\VFX\VfxPoolManager.cs" />
-    <Compile Include="Assets\Scripts\VFX\PooledObject.cs" />
-    <Compile Include="Assets\Scripts\Managers\CombatScheduler.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
