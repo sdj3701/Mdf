@@ -60,6 +60,17 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private NetworkObject _networkObject;
     private float _nextProjectileVfxTime;
     private float _cachedProjectileSpeed = -1f;
+    private bool _hasPendingProjectileAttack;
+    private PendingProjectileAttack _pendingProjectileAttack;
+
+    private struct PendingProjectileAttack
+    {
+        public NetworkObject Target;
+        public IEnemy TargetEnemy;
+        public float Damage;
+        public DamageType DamageType;
+        public float ProjectileSpeed;
+    }
 
     private bool isCombatPhase = false;
 
@@ -68,14 +79,14 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
 
-    private void TryPlayAttackAnimation()
+    private bool TryPlayAttackAnimation()
     {
-        if (animator == null) return;
+        if (animator == null) return false;
         float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
-        if (animRate <= 0f) return;
+        if (animRate <= 0f) return false;
         float now = Time.time;
         float minInterval = 1f / animRate;
-        if (now - lastAttackAnimTime < minInterval) return;
+        if (now - lastAttackAnimTime < minInterval) return false;
         lastAttackAnimTime = now;
         float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
         animator.speed = Mathf.Max(0.01f, speed);
@@ -90,6 +101,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         {
             attackClipDetectRoutine = StartCoroutine(CaptureAttackClipDuration());
         }
+        return true;
     }
 
     private IEnumerator ResetAnimatorSpeedAfter(float seconds)
@@ -658,10 +670,9 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             targetEnemy = null;
             return;
         }
-        TryPlayAttackAnimation();
+        bool playedAnim = TryPlayAttackAnimation();
 
         bool isRanged = unitData.unitType == UnitType.Ranged;
-        bool emitVfx = false;
 
         if (_networkObject == null)
         {
@@ -671,19 +682,30 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         bool hasAuthority = _networkObject == null || _networkObject.HasStateAuthority;
         if (hasAuthority)
         {
-            if (isRanged)
-            {
-                emitVfx = ShouldEmitProjectileVfx();
-            }
             var scheduler = CombatScheduler.Instance;
             if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning)
             {
                 var targetNo = targetTransform.GetComponentInParent<NetworkObject>();
                 if (targetNo != null)
                 {
-                    Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
-                    scheduler.ScheduleHit(_networkObject, targetNo, firePos, currentAttackDamage, unitData.damageType,
-                        isRanged, emitVfx, _cachedProjectileSpeed);
+                    if (isRanged && playedAnim && !_hasPendingProjectileAttack && ShouldEmitProjectileVfx())
+                    {
+                        _pendingProjectileAttack = new PendingProjectileAttack
+                        {
+                            Target = targetNo,
+                            TargetEnemy = targetEnemy,
+                            Damage = currentAttackDamage,
+                            DamageType = unitData.damageType,
+                            ProjectileSpeed = _cachedProjectileSpeed
+                        };
+                        _hasPendingProjectileAttack = true;
+                    }
+                    else
+                    {
+                        Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                        scheduler.ScheduleHit(_networkObject, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                            isRanged, false, _cachedProjectileSpeed);
+                    }
                 }
                 else if (targetEnemy != null)
                 {
@@ -725,7 +747,36 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     public void AnimEvent_AttackImpact()
     {
-        // Damage and projectile VFX are scheduled by CombatScheduler.
+        if (!_hasPendingProjectileAttack)
+        {
+            return;
+        }
+
+        if (_networkObject == null)
+        {
+            _networkObject = GetComponent<NetworkObject>();
+        }
+
+        bool hasAuthority = _networkObject == null || _networkObject.HasStateAuthority;
+        if (!hasAuthority)
+        {
+            _hasPendingProjectileAttack = false;
+            return;
+        }
+
+        var scheduler = CombatScheduler.Instance;
+        if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && _pendingProjectileAttack.Target != null)
+        {
+            Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+            scheduler.ScheduleHit(_networkObject, _pendingProjectileAttack.Target, firePos, _pendingProjectileAttack.Damage,
+                _pendingProjectileAttack.DamageType, true, true, _pendingProjectileAttack.ProjectileSpeed);
+        }
+        else if (_pendingProjectileAttack.TargetEnemy != null)
+        {
+            _pendingProjectileAttack.TargetEnemy.TakeDamage(_pendingProjectileAttack.Damage, _pendingProjectileAttack.DamageType);
+        }
+
+        _hasPendingProjectileAttack = false;
     }
     #endregion
 

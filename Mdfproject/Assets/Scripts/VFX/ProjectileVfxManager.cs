@@ -113,7 +113,9 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        if (evt.HitTick <= runner.Tick)
+        float nowTime = GetRenderTime(runner);
+        float hitTime = evt.HitTick * runner.DeltaTime;
+        if (hitTime <= nowTime)
         {
             return;
         }
@@ -124,13 +126,16 @@ public class ProjectileVfxManager : MonoBehaviour
         }
 
         GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
-        if (prefab == null || runner.Tick >= evt.HitTick)
+        nowTime = GetRenderTime(runner);
+        hitTime = evt.HitTick * runner.DeltaTime;
+        if (prefab == null || hitTime <= nowTime)
         {
             return;
         }
 
         Vector3 firePos = ResolveFirePosition(evt);
-        Vector3 spawnPos = CalculateSpawnPosition(firePos, evt, runner.Tick);
+        float fireTime = evt.FireTick * runner.DeltaTime;
+        Vector3 spawnPos = CalculateSpawnPosition(firePos, evt, fireTime, hitTime, nowTime);
         GameObject instance = pool != null
             ? pool.Spawn(prefab, spawnPos, Quaternion.identity, vfxRoot)
             : Instantiate(prefab, spawnPos, Quaternion.identity, vfxRoot);
@@ -160,10 +165,10 @@ public class ProjectileVfxManager : MonoBehaviour
         _activeProjectiles.Add(active);
     }
 
-    private Vector3 CalculateSpawnPosition(Vector3 firePos, CombatScheduler.ProjectileEventData evt, int nowTick)
+    private Vector3 CalculateSpawnPosition(Vector3 firePos, CombatScheduler.ProjectileEventData evt, float fireTime, float hitTime, float nowTime)
     {
-        int totalTicks = Mathf.Max(1, evt.HitTick - evt.FireTick);
-        float progress = Mathf.Clamp01((nowTick - evt.FireTick) / (float)totalTicks);
+        float totalTime = Mathf.Max(0.0001f, hitTime - fireTime);
+        float progress = Mathf.Clamp01((nowTime - fireTime) / totalTime);
         Vector3 targetPos = evt.Target != null ? evt.Target.transform.position : firePos;
         return Vector3.Lerp(firePos, targetPos, progress);
     }
@@ -204,6 +209,11 @@ public class ProjectileVfxManager : MonoBehaviour
         return evt.Attacker.transform.position;
     }
 
+    private static float GetRenderTime(NetworkRunner runner)
+    {
+        return runner != null ? (float)runner.LocalRenderTime : Time.time;
+    }
+
     private void UpdateActiveProjectiles()
     {
         if (_activeProjectiles.Count == 0)
@@ -217,6 +227,8 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
+        float nowTime = GetRenderTime(runner);
+
         for (int i = _activeProjectiles.Count - 1; i >= 0; i--)
         {
             var active = _activeProjectiles[i];
@@ -226,7 +238,8 @@ public class ProjectileVfxManager : MonoBehaviour
                 continue;
             }
 
-            if (runner.Tick >= active.HitTick)
+            float hitTime = active.HitTick * runner.DeltaTime;
+            if (nowTime >= hitTime)
             {
                 DespawnProjectile(active);
                 RemoveActive(active);
@@ -241,21 +254,33 @@ public class ProjectileVfxManager : MonoBehaviour
             }
 
             Vector3 direction = targetPos - active.Instance.transform.position;
-            float remainingSeconds = Mathf.Max(minRemainingSeconds, (active.HitTick - runner.Tick) * runner.DeltaTime);
-            float speedNeeded = direction.magnitude / remainingSeconds;
+            float remainingSeconds = Mathf.Max(minRemainingSeconds, hitTime - nowTime);
+            float distance = direction.magnitude;
+            if (distance <= 1e-6f)
+            {
+                continue;
+            }
+
+            float speedNeeded = distance / remainingSeconds;
             if (maxSpeed > 0f)
             {
                 speedNeeded = Mathf.Min(speedNeeded, maxSpeed);
             }
 
-            if (direction.sqrMagnitude > 1e-6f)
+            float dt = Mathf.Min(Time.deltaTime, remainingSeconds);
+            Vector3 step = direction.normalized * speedNeeded * dt;
+            if (step.magnitude >= distance)
             {
-                Vector3 step = direction.normalized * speedNeeded * Time.deltaTime;
+                active.Instance.transform.position = targetPos;
+            }
+            else
+            {
                 active.Instance.transform.position += step;
-                if (alignToDirection)
-                {
-                    active.Instance.transform.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
-                }
+            }
+
+            if (alignToDirection)
+            {
+                active.Instance.transform.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
             }
         }
     }

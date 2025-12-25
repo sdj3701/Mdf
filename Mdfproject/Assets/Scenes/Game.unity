@@ -566,7 +566,7 @@ MonoBehaviour:
   pool: {fileID: 1423344281}
   vfxRoot: {fileID: 1423344283}
   minRemainingSeconds: 0.02
-  maxSpeed: 200
+  maxSpeed: 0
   alignToDirection: 1
 --- !u!4 &1423344283
 Transform:
@@ -774,7 +774,7 @@ PrefabInstance:
     - target: {fileID: 2218765290905468377, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: -5.8
+      value: -5.799988
       objectReference: {fileID: 0}
     - target: {fileID: 3540457612324243826, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
@@ -784,7 +784,7 @@ PrefabInstance:
     - target: {fileID: 3540457612324243826, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
       propertyPath: m_AnchoredPosition.y
-      value: -5.8
+      value: -5.799988
       objectReference: {fileID: 0}
     - target: {fileID: 5245685722014888849, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
