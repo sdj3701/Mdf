@@ -115,5 +115,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ea8fec763b721e942aeb37cfe8b34cc1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  autoLoadOnStart: 0
+  autoLoadOnStart: 1
   assetKeys: []

@@ -22,9 +22,6 @@ public class CombatScheduler : NetworkBehaviour
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> EventSeqs { get; }
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> EventFireTicks { get; }
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> EventHitTicks { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<float> EventFirePosX { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<float> EventFirePosY { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<float> EventFirePosZ { get; }
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<NetworkObject> EventAttackers { get; }
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<NetworkObject> EventTargets { get; }
 
@@ -43,7 +40,6 @@ public class CombatScheduler : NetworkBehaviour
         public int Sequence;
         public int FireTick;
         public int HitTick;
-        public Vector3 FirePos;
         public NetworkObject Attacker;
         public NetworkObject Target;
     }
@@ -136,7 +132,7 @@ public class CombatScheduler : NetworkBehaviour
 
         if (emitVfx)
         {
-            WriteProjectileEvent(attacker, target, firePos, fireTick, hitTick);
+            WriteProjectileEvent(attacker, target, fireTick, hitTick);
         }
     }
 
@@ -157,7 +153,6 @@ public class CombatScheduler : NetworkBehaviour
         data.Sequence = sequence;
         data.FireTick = EventFireTicks[index];
         data.HitTick = EventHitTicks[index];
-        data.FirePos = new Vector3(EventFirePosX[index], EventFirePosY[index], EventFirePosZ[index]);
         data.Attacker = EventAttackers[index];
         data.Target = EventTargets[index];
         return true;
@@ -201,7 +196,7 @@ public class CombatScheduler : NetworkBehaviour
         }
     }
 
-    private void WriteProjectileEvent(NetworkObject attacker, NetworkObject target, Vector3 firePos, int fireTick, int hitTick)
+    private void WriteProjectileEvent(NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
     {
         int nextSeq = EventSequence + 1;
         EventSequence = nextSeq;
@@ -210,9 +205,6 @@ public class CombatScheduler : NetworkBehaviour
         EventSeqs.Set(index, nextSeq);
         EventFireTicks.Set(index, fireTick);
         EventHitTicks.Set(index, hitTick);
-        EventFirePosX.Set(index, firePos.x);
-        EventFirePosY.Set(index, firePos.y);
-        EventFirePosZ.Set(index, firePos.z);
         EventAttackers.Set(index, attacker);
         EventTargets.Set(index, target);
     }

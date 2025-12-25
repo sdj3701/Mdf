@@ -23,7 +23,6 @@ public class ProjectileVfxManager : MonoBehaviour
         public int Sequence;
         public int FireTick;
         public int HitTick;
-        public Vector3 FirePos;
         public GameObject Instance;
         public Transform TargetTransform;
         public Vector3 LastKnownTargetPos;
@@ -130,7 +129,8 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        Vector3 spawnPos = CalculateSpawnPosition(evt, runner.Tick);
+        Vector3 firePos = ResolveFirePosition(evt);
+        Vector3 spawnPos = CalculateSpawnPosition(firePos, evt, runner.Tick);
         GameObject instance = pool != null
             ? pool.Spawn(prefab, spawnPos, Quaternion.identity, vfxRoot)
             : Instantiate(prefab, spawnPos, Quaternion.identity, vfxRoot);
@@ -151,22 +151,21 @@ public class ProjectileVfxManager : MonoBehaviour
             Sequence = evt.Sequence,
             FireTick = evt.FireTick,
             HitTick = evt.HitTick,
-            FirePos = evt.FirePos,
             Instance = instance,
             TargetTransform = evt.Target != null ? evt.Target.transform : null,
-            LastKnownTargetPos = evt.Target != null ? evt.Target.transform.position : evt.FirePos
+            LastKnownTargetPos = evt.Target != null ? evt.Target.transform.position : firePos
         };
 
         _activeBySeq[evt.Sequence] = active;
         _activeProjectiles.Add(active);
     }
 
-    private Vector3 CalculateSpawnPosition(CombatScheduler.ProjectileEventData evt, int nowTick)
+    private Vector3 CalculateSpawnPosition(Vector3 firePos, CombatScheduler.ProjectileEventData evt, int nowTick)
     {
         int totalTicks = Mathf.Max(1, evt.HitTick - evt.FireTick);
         float progress = Mathf.Clamp01((nowTick - evt.FireTick) / (float)totalTicks);
-        Vector3 targetPos = evt.Target != null ? evt.Target.transform.position : evt.FirePos;
-        return Vector3.Lerp(evt.FirePos, targetPos, progress);
+        Vector3 targetPos = evt.Target != null ? evt.Target.transform.position : firePos;
+        return Vector3.Lerp(firePos, targetPos, progress);
     }
 
     private bool TryResolveProjectileKey(CombatScheduler.ProjectileEventData evt, out string projectileKey)
@@ -186,6 +185,23 @@ public class ProjectileVfxManager : MonoBehaviour
         int starIndex = Mathf.Clamp(unit.starLevel - 1, 0, unit.Data.projectilePrefabsByStarLevel.Length - 1);
         projectileKey = unit.Data.projectilePrefabsByStarLevel[starIndex];
         return !string.IsNullOrEmpty(projectileKey);
+    }
+
+    // Fire position is resolved from the attacker to keep network payload small.
+    private Vector3 ResolveFirePosition(CombatScheduler.ProjectileEventData evt)
+    {
+        if (evt.Attacker == null)
+        {
+            return Vector3.zero;
+        }
+
+        var unit = evt.Attacker.GetComponent<Unit>();
+        if (unit != null && unit.firePoint != null)
+        {
+            return unit.firePoint.position;
+        }
+
+        return evt.Attacker.transform.position;
     }
 
     private void UpdateActiveProjectiles()
