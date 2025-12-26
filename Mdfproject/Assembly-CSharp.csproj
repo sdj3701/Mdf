@@ -231,7 +231,6 @@
     <Compile Include="Assets\Scripts\UI\PlayerHUDController.cs" />
     <Compile Include="Assets\Samples\Unity Toon Shader\0.12.0-preview\Universal render pipeline\UnityChan\Scripts\FaceUpdate.cs" />
     <Compile Include="Assets\TextMesh Pro\Examples &amp; Extras\Scripts\Benchmark02.cs" />
-    <Compile Include="Assets\Scripts\Managers\AddressablesPreloader.cs" />
     <Compile Include="Assets\Scripts\Game\Units\BodyScaler.cs" />
     <Compile Include="Assets\Scripts\VFX\PooledObject.cs" />
     <Compile Include="Assets\Scripts\Game\Game Rules\FindLoad\AstarGrid.cs" />

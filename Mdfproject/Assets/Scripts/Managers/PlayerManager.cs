@@ -2,6 +2,7 @@
 
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 using System.Linq;
 using Fusion; // Fusion 네임스페이스 추가
 using Cysharp.Threading.Tasks;
@@ -14,9 +15,16 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Header("핵심 능력치 (읽기 전용)")]
     // 참고: 이 능력치들도 [Networked]로 변경하면 더 안정적이지만,
     // 현재는 Command 패턴을 사용하므로 playerId만 동기화해도 동작합니다.
-    [SerializeField] private int health = 100;
-    [SerializeField] private int gold = 10;
-    [SerializeField] private int wallCount = 5;
+    [FormerlySerializedAs("health")]
+    [SerializeField] private int initialHealth = 100;
+    [FormerlySerializedAs("gold")]
+    [SerializeField] private int initialGold = 10;
+    [FormerlySerializedAs("wallCount")]
+    [SerializeField] private int initialWallCount = 5;
+
+    [Networked] private int health { get; set; }
+    [Networked] private int gold { get; set; }
+    [Networked] private int wallCount { get; set; }
     private const int MAX_WALL_COUNT = 5;
     [SerializeField] private int wallReserveK = 2;
     [SerializeField] private Vector2 wallBuildDelayRange = new Vector2(0.3f, 0.8f);
@@ -55,6 +63,17 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public bool IsActivelyFighting { get; private set; }
 
+    private ChangeDetector _changeDetector;
+
+    private bool HasStateAuthorityOrNoNetwork()
+    {
+        if (Object == null || Runner == null || !Runner.IsRunning)
+        {
+            return true;
+        }
+        return Object.HasStateAuthority;
+    }
+
     // Pending unit registrations received before FieldManager is ready
     private struct PendingUnitReg
     {
@@ -73,6 +92,38 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         shopManager = GetComponentInChildren<ShopManager>();
         monsterSpawner = GetComponentInChildren<MonsterSpawner>();
         augmentManager = GetComponentInChildren<AugmentManager>();
+    }
+
+    public override void Spawned()
+    {
+        if (Object != null && Object.HasStateAuthority)
+        {
+            health = initialHealth;
+            gold = initialGold;
+            wallCount = initialWallCount;
+        }
+
+        _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+    }
+
+    public override void Render()
+    {
+        if (_changeDetector == null)
+        {
+            _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+        }
+
+        foreach (var propertyName in _changeDetector.DetectChanges(this))
+        {
+            if (propertyName == nameof(health) || propertyName == nameof(gold))
+            {
+                GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
+            }
+            if (propertyName == nameof(wallCount))
+            {
+                GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
+            }
+        }
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -369,25 +420,35 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public bool SpendGold(int amount)
     {
-        if (gold >= amount)
+        if (amount <= 0) return true;
+        if (gold < amount) return false;
+        if (!HasStateAuthorityOrNoNetwork())
         {
-            gold -= amount;
-            GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
             return true;
         }
-        return false;
+        gold -= amount;
+        if (Runner == null || !Runner.IsRunning)
+        {
+            GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
+        }
+        return true;
     }
 
     public void AddGold(int amount)
     {
         if (amount <= 0) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
         gold += amount;
-        GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
+        if (Runner == null || !Runner.IsRunning)
+        {
+            GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
+        }
     }
 
     public void TakeDamage(int damage)
     {
         if (damage <= 0) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
         health -= damage;
 
         if (health <= 0)
@@ -398,7 +459,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 GameManagers.Instance.GameOver(this);
             }
         }
-        GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
+        if (Runner == null || !Runner.IsRunning)
+        {
+            GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
+        }
     }
 
     public void AddUnit(UnitData unitData, int starLevel)
@@ -411,21 +475,32 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public bool TryUseWall()
     {
-        if (wallCount > 0)
+        if (wallCount <= 0) return false;
+        if (!HasStateAuthorityOrNoNetwork())
         {
-            wallCount--;
-            GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
             return true;
         }
-        return false;
+        wallCount--;
+        if (Runner == null || !Runner.IsRunning)
+        {
+            GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
+        }
+        return true;
     }
 
     public void ReturnWall()
     {
         if (wallCount < MAX_WALL_COUNT)
         {
+            if (!HasStateAuthorityOrNoNetwork())
+            {
+                return;
+            }
             wallCount++;
-            GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
+            if (Runner == null || !Runner.IsRunning)
+            {
+                GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
+            }
         }
     }
 

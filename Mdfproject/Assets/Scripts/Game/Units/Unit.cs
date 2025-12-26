@@ -74,6 +74,21 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private bool isCombatPhase = false;
 
+    private bool HasStateAuthorityOrNoNetwork()
+    {
+        if (_networkObject == null)
+        {
+            _networkObject = GetComponent<NetworkObject>();
+        }
+
+        if (_networkObject == null || _networkObject.Runner == null || !_networkObject.Runner.IsRunning)
+        {
+            return true;
+        }
+
+        return _networkObject.HasStateAuthority;
+    }
+
     void OnEnable()
     {
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
@@ -274,6 +289,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             return;
         }
 
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
+
         if (manaController != null)
         {
             manaController.GainManaOverTime(unitData.manaPerSecond);
@@ -429,6 +449,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private void HandleManaFull()
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
         
         // --- [핵심 수정 부분] ---
         // 더 이상 SkillData를 직접 접근하거나 로드할 필요가 없습니다.
@@ -461,6 +482,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     public async void ActivateSkill()
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
         
         // 스킬 데이터가 로드되었는지 다시 한번 확인합니다.
         if (_loadedSkillData == null)
@@ -585,6 +607,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         // 전투 중이 아니거나, 스킬이 없거나, 힐 스킬이 아니거나, 최대 체력이 0 이하면 무시
         if (!isCombatPhase || !DoesHaveSkill() || _loadedSkillData?.name != "Skill_Heal" || maxHP <= 0) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
 
         // 체력이 70% 미만으로 떨어졌을 때
         if (currentHP / maxHP < 0.7f)
@@ -718,7 +741,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             }
         }
 
-        if (DoesHaveSkill() && unitData.manaRegenType == ManaRegenType.OnAttack)
+        if (DoesHaveSkill() && unitData.manaRegenType == ManaRegenType.OnAttack && HasStateAuthorityOrNoNetwork())
         {
             manaController.GainMana(unitData.manaOnAttack);
         }

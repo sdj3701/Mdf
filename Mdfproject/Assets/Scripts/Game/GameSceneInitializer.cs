@@ -21,6 +21,10 @@ public class GameSceneInitializer : MonoBehaviour
     [Header("필수 프리팹 참조")]
     public GameObject gameManagersPrefab;
 
+    [Header("멀티플레이 감지 대기")]
+    [Tooltip("NetworkManager가 존재하지만 Runner가 아직 시작되지 않은 경우 대기할 시간(초).")]
+    [SerializeField] private float waitForRunnerSeconds = 3f;
+
     private NetworkRunner _runner;
     private bool _isInitialized = false;
     private bool _isOwnerOfRunner = false; // 이 스크립트가 Runner를 직접 생성했는지 여부
@@ -30,11 +34,18 @@ public class GameSceneInitializer : MonoBehaviour
         // 중복 등록 경고를 막기 위해 씬 시작 시 레지스트리를 초기화합니다.
         ComponentRegistry.Clear();
 
-        // NetworkManager가 이미 존재하면 멀티플레이 모드로 진입한 것이므로 초기화하지 않음
-        if (NetworkManager.Instance != null && NetworkManager.Instance.IsGameRunnerActive)
+        // NetworkManager가 존재하면 멀티플레이 흐름을 우선시하고 싱글플레이 초기화를 건너뜁니다.
+        if (NetworkManager.Instance != null)
         {
-            Debug.Log("[GameSceneInitializer] 멀티플레이 모드로 진입. 싱글플레이 초기화를 건너뜁니다.");
-            await StartMultiPlayerMode();
+            if (NetworkManager.Instance.IsGameRunnerActive || await WaitForRunnerStart())
+            {
+                Debug.Log("[GameSceneInitializer] 멀티플레이 모드로 진입. 싱글플레이 초기화를 건너뜁니다.");
+                await StartMultiPlayerMode();
+            }
+            else
+            {
+                Debug.LogWarning("[GameSceneInitializer] NetworkManager가 있지만 Runner가 준비되지 않았습니다. 싱글플레이 초기화를 건너뜁니다.");
+            }
             return;
         }
 
@@ -58,6 +69,7 @@ public class GameSceneInitializer : MonoBehaviour
         }
 
         _isInitialized = true;
+        _isOwnerOfRunner = true;
 
         // NetworkRunner 생성
         _runner = gameObject.AddComponent<NetworkRunner>();
@@ -110,6 +122,7 @@ public class GameSceneInitializer : MonoBehaviour
         }
 
         _isInitialized = true;
+        _isOwnerOfRunner = false;
         // 한 프레임 기다려서 Runner의 상태가 안정화될 시간을 줍니다.
         await UniTask.Yield(); 
 
@@ -182,10 +195,32 @@ public class GameSceneInitializer : MonoBehaviour
 
     private void OnDestroy()
     {
-        // 씬이 종료될 때 Runner 정리
-        if (_runner != null && _runner.IsRunning)
+        // 씬이 종료될 때 Runner 정리 (직접 생성한 경우에만)
+        if (_isOwnerOfRunner && _runner != null && _runner.IsRunning)
         {
             _runner.Shutdown();
         }
+    }
+
+    private async UniTask<bool> WaitForRunnerStart()
+    {
+        if (NetworkManager.Instance == null)
+        {
+            return false;
+        }
+
+        float elapsed = 0f;
+        while (elapsed < Mathf.Max(0f, waitForRunnerSeconds))
+        {
+            if (NetworkManager.Instance.IsGameRunnerActive)
+            {
+                return true;
+            }
+
+            elapsed += Time.unscaledDeltaTime;
+            await UniTask.Yield();
+        }
+
+        return NetworkManager.Instance.IsGameRunnerActive;
     }
 }

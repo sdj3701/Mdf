@@ -40,6 +40,21 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     private Coroutine resumeCoroutine;
     private int currentBlockerId = 0;
 
+    private bool HasStateAuthorityOrNoNetwork()
+    {
+        if (netObj == null)
+        {
+            netObj = GetComponent<NetworkObject>();
+        }
+
+        if (netObj == null || netObj.Runner == null || !netObj.Runner.IsRunning)
+        {
+            return true;
+        }
+
+        return netObj.HasStateAuthority;
+    }
+
     void OnApplicationQuit() { isQuitting = true; }
 
     public void SetStatusBar(StatusBarUI ui)
@@ -79,12 +94,20 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     {
         if (monsterData != null && monsterData.skillData != null)
         {
+            if (!HasStateAuthorityOrNoNetwork())
+            {
+                return;
+            }
             manaController.GainManaOverTime(10f);
         }
     }
 
     private void ActivateSkill()
     {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
         SkillData skillData = monsterData.skillData;
 
         if (skillData == null || skillData.targetingStrategy == null || skillData.effects.Count == 0)
@@ -173,6 +196,16 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         if (isBlocked && blockingUnit != null)
         {
             blockingUnit.ReleaseBlockedMonster(this);
+        }
+        var no = netObj != null ? netObj : GetComponent<NetworkObject>();
+        if (no != null && no.Runner != null && no.Runner.IsRunning)
+        {
+            if (!no.HasStateAuthority)
+            {
+                return;
+            }
+            no.Runner.Despawn(no);
+            return;
         }
         Destroy(gameObject);
     }
