@@ -50,6 +50,9 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private Transform targetTransform;
     [SerializeField] private Animator animator;
     [SerializeField] private string attackTriggerParam = "AttackTrigger";
+    [SerializeField] private string skillTriggerParam = "SkillTrigger";
+    [SerializeField] private string skillStateTag = "Skill";
+    [SerializeField] private bool blockAttacksDuringSkill = true;
     [SerializeField] private float maxAttackAnimationsPerSecond = 4f;
     [SerializeField] private float baseAttackAnimationDuration = 1f;
     private float lastAttackAnimTime = -999f;
@@ -62,6 +65,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private float _cachedProjectileSpeed = -1f;
     private bool _hasPendingProjectileAttack;
     private PendingProjectileAttack _pendingProjectileAttack;
+    private bool _isSkillCasting;
+    private Coroutine _skillCastingRoutine;
 
     private struct PendingProjectileAttack
     {
@@ -94,8 +99,103 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
 
+    private bool IsSkillCasting()
+    {
+        return blockAttacksDuringSkill && _isSkillCasting;
+    }
+
+    private void BeginSkillCasting()
+    {
+        TriggerSkillAnimation();
+        CancelPendingProjectileAttack();
+
+        if (!blockAttacksDuringSkill || animator == null || string.IsNullOrEmpty(skillStateTag))
+        {
+            return;
+        }
+
+        _isSkillCasting = true;
+
+        if (_skillCastingRoutine != null)
+        {
+            StopCoroutine(_skillCastingRoutine);
+        }
+
+        _skillCastingRoutine = StartCoroutine(MonitorSkillAnimation());
+    }
+
+    private void TriggerSkillAnimation()
+    {
+        if (animator == null || string.IsNullOrEmpty(skillTriggerParam))
+        {
+            return;
+        }
+
+        if (animSpeedResetRoutine != null)
+        {
+            StopCoroutine(animSpeedResetRoutine);
+            animSpeedResetRoutine = null;
+        }
+
+        animator.speed = 1f;
+
+        if (!string.IsNullOrEmpty(attackTriggerParam))
+        {
+            animator.ResetTrigger(attackTriggerParam);
+        }
+
+        animator.ResetTrigger(skillTriggerParam);
+        animator.SetTrigger(skillTriggerParam);
+    }
+
+    private IEnumerator MonitorSkillAnimation()
+    {
+        float elapsed = 0f;
+        const float enterTimeout = 0.5f;
+
+        while (elapsed < enterTimeout)
+        {
+            if (animator == null)
+            {
+                _isSkillCasting = false;
+                _skillCastingRoutine = null;
+                yield break;
+            }
+
+            var st = animator.GetCurrentAnimatorStateInfo(0);
+            if (st.IsTag(skillStateTag))
+            {
+                break;
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        while (animator != null)
+        {
+            var st = animator.GetCurrentAnimatorStateInfo(0);
+            if (!st.IsTag(skillStateTag))
+            {
+                break;
+            }
+
+            yield return null;
+        }
+
+        _isSkillCasting = false;
+        _skillCastingRoutine = null;
+    }
+
+    private void CancelPendingProjectileAttack()
+    {
+        _hasPendingProjectileAttack = false;
+        _pendingProjectileAttack = new PendingProjectileAttack();
+    }
+
     private bool TryPlayAttackAnimation()
     {
+        if (IsSkillCasting()) return false;
         if (animator == null) return false;
         float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
         if (animRate <= 0f) return false;
@@ -227,6 +327,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             StopCoroutine(attackClipDetectRoutine);
             attackClipDetectRoutine = null;
         }
+        if (_skillCastingRoutine != null)
+        {
+            StopCoroutine(_skillCastingRoutine);
+            _skillCastingRoutine = null;
+        }
+        _isSkillCasting = false;
     }
 
     public void SetStatusBar(StatusBarUI ui)
@@ -337,6 +443,13 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 }
                 manaController.Initialize(maxMana);
             }
+
+            if (_skillCastingRoutine != null)
+            {
+                StopCoroutine(_skillCastingRoutine);
+                _skillCastingRoutine = null;
+            }
+            _isSkillCasting = false;
         }
     }
 
@@ -450,6 +563,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
         if (!HasStateAuthorityOrNoNetwork()) return;
+        if (IsSkillCasting()) return;
         
         // --- [핵심 수정 부분] ---
         // 더 이상 SkillData를 직접 접근하거나 로드할 필요가 없습니다.
@@ -483,6 +597,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
         if (!HasStateAuthorityOrNoNetwork()) return;
+        if (IsSkillCasting()) return;
         
         // 스킬 데이터가 로드되었는지 다시 한번 확인합니다.
         if (_loadedSkillData == null)
@@ -505,6 +620,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
         if (manaController.UseMana(currentSkillData.manaCost))
         {
+            BeginSkillCasting();
             Debug.Log($"<color=yellow>{unitData.unitName} 스킬 발동: {currentSkillData.skillName}</color>");
 
             List<GameObject> targets = currentSkillData.targetingStrategy.FindTargets(this.gameObject, transform.position, currentSkillData.range);
@@ -639,6 +755,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 continue;
             }
 
+            if (IsSkillCasting())
+            {
+                yield return null;
+                continue;
+            }
+
             FindNearestEnemy();
             if (targetEnemy != null)
             {
@@ -688,6 +810,10 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     }
     private void Attack()
     {
+        if (IsSkillCasting())
+        {
+            return;
+        }
         if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange)
         {
             targetEnemy = null;
@@ -800,6 +926,21 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         }
 
         _hasPendingProjectileAttack = false;
+    }
+
+    public void AnimEvent_SkillEnd()
+    {
+        if (!blockAttacksDuringSkill)
+        {
+            return;
+        }
+
+        _isSkillCasting = false;
+        if (_skillCastingRoutine != null)
+        {
+            StopCoroutine(_skillCastingRoutine);
+            _skillCastingRoutine = null;
+        }
     }
     #endregion
 

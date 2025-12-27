@@ -1824,7 +1824,7 @@ Animator:
   m_GameObject: {fileID: 5668209445059025477}
   m_Enabled: 1
   m_Avatar: {fileID: 9000000, guid: e022cda7e04d6f34b985faa93b200ff6, type: 3}
-  m_Controller: {fileID: 9100000, guid: 44d7d0a30bbc1ff4fbbabb017ec31683, type: 2}
+  m_Controller: {fileID: 22100000, guid: 655386d0c3045ea4dbe05b1aff8a317c, type: 2}
   m_CullingMode: 1
   m_UpdateMode: 0
   m_ApplyRootMotion: 0
@@ -1892,6 +1892,9 @@ MonoBehaviour:
     m_Bits: 8192
   animator: {fileID: 0}
   attackTriggerParam: AttackTrigger
+  skillTriggerParam: SkillTrigger
+  skillStateTag: Skill
+  blockAttacksDuringSkill: 1
   maxAttackAnimationsPerSecond: 4
   baseAttackAnimationDuration: 1
 --- !u!114 &1231250871101230872
