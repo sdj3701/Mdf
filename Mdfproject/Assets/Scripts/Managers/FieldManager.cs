@@ -2131,6 +2131,13 @@ public class FieldManager : MonoBehaviour
 
         if (unitSellPanelInstance != null)
         {
+            var canvas = unitSellPanelInstance.GetComponent<Canvas>();
+            if (canvas != null)
+            {
+                canvas.renderMode = RenderMode.WorldSpace;
+                canvas.worldCamera = playerCamera;
+                unitSellPanelInstance.transform.SetParent(unit.transform, false);
+            }
             var controller = unitSellPanelInstance.GetComponent<UnitSellPanelController>();
             if (controller != null)
             {

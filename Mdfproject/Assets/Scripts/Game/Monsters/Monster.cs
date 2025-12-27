@@ -128,7 +128,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             {
                 if (effect != null)
                 {
-                    effect.ApplyEffect(null, this.gameObject, targets);
+                    effect.ApplyEffect(null, this.gameObject, targets, skillData.range, skillData.targetingStrategy);
                 }
             }
 

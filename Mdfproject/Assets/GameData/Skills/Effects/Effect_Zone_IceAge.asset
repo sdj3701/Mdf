@@ -1,0 +1,23 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93a19cb6437ac5e409077b5dea692dab, type: 3}
+  m_Name: Effect_Zone_IceAge
+  m_EditorClassIdentifier: 
+  zoneDuration: 5
+  zoneRadius: 5
+  tickInterval: 1
+  effectsPerTick:
+  - {fileID: 11400000, guid: ea582019e5f54544a896a13b7ca3fb3d, type: 2}
+  - {fileID: 11400000, guid: 432954f573e6d5441bdf95f913e864cf, type: 2}
+  targetTag: Enemy
+  zonePrefab: {fileID: 3178614178979242518, guid: 89f2776e47e86d44ea455ef0ac412247,
+    type: 3}

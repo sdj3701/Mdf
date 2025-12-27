@@ -629,7 +629,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             {
                 if (effect != null)
                 {
-                    effect.ApplyEffect(null, this.gameObject, targets);
+                    effect.ApplyEffect(null, this.gameObject, targets, currentSkillData.range, currentSkillData.targetingStrategy);
                 }
             }
             

@@ -267,6 +267,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - CharacterPrefab
+  - m_GUID: c8a3ccb30abc84e499d580e12d4d6a22
+    m_Address: UI_Pnl_UnitSell
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

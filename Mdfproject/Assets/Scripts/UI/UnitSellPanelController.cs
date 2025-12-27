@@ -15,10 +15,12 @@ public class UnitSellPanelController : MonoBehaviour
     private Canvas targetCanvas;
     private Camera targetCamera;
     private RectTransform rectTransform;
+    private Canvas selfCanvas;
 
     private void Awake()
     {
         rectTransform = GetComponent<RectTransform>();
+        selfCanvas = GetComponent<Canvas>();
     }
 
     private void OnEnable()
@@ -51,6 +53,10 @@ public class UnitSellPanelController : MonoBehaviour
         fieldManager = manager;
         targetCanvas = UIManagers.Instance != null ? UIManagers.Instance.mainCanvas : null;
         targetCamera = manager != null ? manager.PlayerCamera : Camera.main;
+        if (selfCanvas != null && selfCanvas.renderMode == RenderMode.WorldSpace)
+        {
+            selfCanvas.worldCamera = targetCamera;
+        }
         HookSellButton();
         UpdateSellSection();
         UpdatePosition();
@@ -117,21 +123,49 @@ public class UnitSellPanelController : MonoBehaviour
 
     private void UpdatePosition()
     {
-        if (rectTransform == null || targetCanvas == null || currentUnit == null) return;
+        if (rectTransform == null || currentUnit == null) return;
         var cam = targetCamera != null ? targetCamera : Camera.main;
         if (cam == null) return;
 
-        Vector3 anchorWorldPos = currentUnit.transform.position + worldOffset;
-        Vector3 screenPos = cam.WorldToScreenPoint(anchorWorldPos);
+        if (selfCanvas != null && selfCanvas.renderMode == RenderMode.WorldSpace)
+        {
+            rectTransform.position = GetAnchorWorldPosition();
+            return;
+        }
+
+        if (targetCanvas == null) return;
+        Vector3 screenPos = GetAnchorScreenPosition(cam);
         if (screenPos.z < 0f) return;
 
-        RectTransform canvasRect = targetCanvas.GetComponent<RectTransform>();
-        if (canvasRect == null) return;
+        RectTransform parentRect = rectTransform.parent as RectTransform;
+        if (parentRect == null) return;
 
         Camera eventCamera = targetCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : targetCanvas.worldCamera;
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRect, screenPos, eventCamera, out Vector2 localPoint))
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(parentRect, screenPos, eventCamera, out Vector2 localPoint))
         {
-            rectTransform.anchoredPosition = localPoint + screenOffset;
+            rectTransform.localPosition = new Vector3(
+                localPoint.x + screenOffset.x,
+                localPoint.y + screenOffset.y,
+                rectTransform.localPosition.z);
         }
     }
+
+    private Vector3 GetAnchorScreenPosition(Camera cam)
+    {
+        if (currentUnit == null || cam == null) return Vector3.zero;
+
+        Vector3 worldPos = GetAnchorWorldPosition();
+        Vector3 viewport = cam.WorldToViewportPoint(worldPos);
+        return new Vector3(
+            viewport.x * Screen.width,
+            viewport.y * Screen.height,
+            viewport.z);
+    }
+
+    private Vector3 GetAnchorWorldPosition()
+    {
+        if (currentUnit == null) return Vector3.zero;
+        return currentUnit.transform.position + worldOffset;
+    }
+
 }
