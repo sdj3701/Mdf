@@ -209,9 +209,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _playerId: 0
-  health: 15
-  gold: 20
-  wallCount: 10
+  initialHealth: 15
+  initialGold: 20
+  initialWallCount: 10
   wallReserveK: 1
   wallBuildDelayRange: {x: 0.6, y: 1.2}
   unitPurchaseDelayRange: {x: 1, y: 1.5}
@@ -377,6 +377,7 @@ MonoBehaviour:
   pathMarkerPoolSize: 32
   pathMarkerSize: 0.3
   showPathInPrepare: 1
+  sellPenalty: 1
   gridOrigin: {x: 0, y: 0, z: 0}
   cellSize: 1
   gridSize: {x: 8, y: 7}
@@ -386,6 +387,7 @@ MonoBehaviour:
   dragLiftHeight: 0
   dragFollowSpeed: 20
   dragPickMaxScreenDistance: 80
+  clickPickMaxWorldDistance: 0.4
 --- !u!114 &5614185707629608620
 MonoBehaviour:
   m_ObjectHideFlags: 0

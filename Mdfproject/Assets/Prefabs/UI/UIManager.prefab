@@ -161,6 +161,7 @@ MonoBehaviour:
   - {fileID: 5572923746174139170, guid: 199addd7be097b24aa0651281483b48e, type: 3}
   - {fileID: 523785727660799067, guid: 1ce31d6300e00da47a20857d35fa5332, type: 3}
   - {fileID: 8567712813786591603, guid: 5e83db60ddfc8454aaf327f483dcdb80, type: 3}
+  - {fileID: 7077758964565751834, guid: c8a3ccb30abc84e499d580e12d4d6a22, type: 3}
   mainCanvas: {fileID: 2218765290028887320}
 --- !u!1001 &2218765289743524766
 PrefabInstance:

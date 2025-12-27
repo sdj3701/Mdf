@@ -96,6 +96,8 @@ public class CommandProcessor
                 return (CommandType.MoveUnit, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.From, cmd.To });
             case SwapUnitCommand cmd:
                 return (CommandType.SwapUnit, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.PosA, cmd.PosB });
+            case SellUnitCommand cmd:
+                return (CommandType.SellUnit, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.Position });
             case PlaceUnitCommand cmd:
                 // UnitData는 ScriptableObject이므로 이름(ID)을 string으로 전송합니다.
                 return (CommandType.PlaceUnit, new int[] { cmd.PlayerId }, new string[] { cmd.UnitData.name }, new Vector3[] { cmd.Position });
@@ -128,6 +130,8 @@ public class CommandProcessor
                 return new MoveUnitCommand(intParams[0], Vector3Int.RoundToInt(vectorParams[0]), Vector3Int.RoundToInt(vectorParams[1]));
             case CommandType.SwapUnit:
                 return new SwapUnitCommand(intParams[0], Vector3Int.RoundToInt(vectorParams[0]), Vector3Int.RoundToInt(vectorParams[1]));
+            case CommandType.SellUnit:
+                return new SellUnitCommand(intParams[0], Vector3Int.RoundToInt(vectorParams[0]));
             case CommandType.PlaceUnit:
                 // 생성자: PlaceUnitCommand(playerId, unitData, position)
                 // UnitData는 이름(ID)을 사용하여 에셋을 비동기적으로 로드합니다.

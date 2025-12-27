@@ -8,4 +8,15 @@ AnimatorOverrideController:
   m_PrefabAsset: {fileID: 0}
   m_Name: MageController
   m_Controller: {fileID: 9100000, guid: 11f2bc07d5809b54d928426a18f301bb, type: 2}
-  m_Clips: []
+  m_Clips:
+  - m_OriginalClip: {fileID: -623603649343465320, guid: c429d1273a374064281ebaf8d67edcf7,
+      type: 3}
+    m_OverrideClip: {fileID: -623603649343465320, guid: f7f5e9069cf78a04082fd2bf7c0edf07,
+      type: 3}
+  - m_OriginalClip: {fileID: -623603649343465320, guid: 87bbe224efde77e4d885551a90d6c09a,
+      type: 3}
+    m_OverrideClip: {fileID: -623603649343465320, guid: d3361d79dd72e884aa10bd2a1c1f757a,
+      type: 3}
+  - m_OriginalClip: {fileID: 7400000, guid: ece86909df094cb4590bead40fd12188, type: 3}
+    m_OverrideClip: {fileID: -623603649343465320, guid: f7f5e9069cf78a04082fd2bf7c0edf07,
+      type: 3}

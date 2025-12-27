@@ -483,6 +483,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4899e616a48886d42b4696e3f88fd470, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  autoPreloadAllOnStart: 1
+  logPreloadProgress: 1
 --- !u!4 &1329380063
 Transform:
   m_ObjectHideFlags: 0
@@ -616,6 +618,7 @@ MonoBehaviour:
   singlePlayerCount: 2
   gameManagersPrefab: {fileID: 1166691957424101666, guid: e632060e4786c87469cfbf29fea19915,
     type: 3}
+  waitForRunnerSeconds: 3
 --- !u!4 &1924884487
 Transform:
   m_ObjectHideFlags: 0

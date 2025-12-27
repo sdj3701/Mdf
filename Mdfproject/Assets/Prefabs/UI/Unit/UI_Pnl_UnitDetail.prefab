@@ -807,7 +807,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 0.29999924, y: -80.3}
+  m_AnchoredPosition: {x: 0.29999542, y: -80.3}
   m_SizeDelta: {x: 80, y: 25}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!222 &6960943238688758343
@@ -1771,8 +1771,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 60, y: 101}
-  m_SizeDelta: {x: 160, y: 20}
+  m_AnchoredPosition: {x: 22.847992, y: 101}
+  m_SizeDelta: {x: 85.696, y: 20}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1519975380095538446
 MonoBehaviour:
@@ -3891,6 +3891,8 @@ MonoBehaviour:
   manaRegenText: {fileID: 762962542980830407}
   skillDescriptionText: {fileID: 6865810972061457112}
   skillActivationToggle: {fileID: 1519975380095538446}
+  sellButton: {fileID: 0}
+  sellPriceText: {fileID: 0}
 --- !u!1 &8826233836817898403
 GameObject:
   m_ObjectHideFlags: 0
