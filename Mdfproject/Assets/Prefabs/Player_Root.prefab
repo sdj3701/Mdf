@@ -368,6 +368,8 @@ MonoBehaviour:
     type: 3}
   skillRangeIndicatorPrefab: {fileID: 6707416124263797107, guid: 53ef04ccc8fd56d4e904555c7c4b7449,
     type: 3}
+  rangeIndicatorYOffset: 0.02
+  rangeIndicatorSortingOrder: 200
   useMovingPathMarkers: 1
   pathMarkerPrefab: {fileID: 2572758595662738359, guid: 40814905c9bb4214194021eff4502d43,
     type: 3}
@@ -387,6 +389,7 @@ MonoBehaviour:
   dragLiftHeight: 0
   dragFollowSpeed: 20
   dragPickMaxScreenDistance: 80
+  useWorldDistanceFallback: 0
   clickPickMaxWorldDistance: 0.4
 --- !u!114 &5614185707629608620
 MonoBehaviour:

@@ -9,6 +9,8 @@ public class UnitSellPanelController : MonoBehaviour
     [SerializeField] private TextMeshProUGUI sellPriceText;
     [SerializeField] private Vector3 worldOffset = new Vector3(0f, -0.3f, 0f);
     [SerializeField] private Vector2 screenOffset = Vector2.zero;
+    [SerializeField] private bool overrideSorting = true;
+    [SerializeField] private int sortingOrder = 200;
 
     private Unit currentUnit;
     private FieldManager fieldManager;
@@ -56,6 +58,11 @@ public class UnitSellPanelController : MonoBehaviour
         if (selfCanvas != null && selfCanvas.renderMode == RenderMode.WorldSpace)
         {
             selfCanvas.worldCamera = targetCamera;
+            if (overrideSorting)
+            {
+                selfCanvas.overrideSorting = true;
+                selfCanvas.sortingOrder = sortingOrder;
+            }
         }
         HookSellButton();
         UpdateSellSection();

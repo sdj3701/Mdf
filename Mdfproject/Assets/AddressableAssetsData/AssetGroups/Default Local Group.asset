@@ -267,8 +267,8 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - CharacterPrefab
-  - m_GUID: c8a3ccb30abc84e499d580e12d4d6a22
-    m_Address: UI_Pnl_UnitSell
+  - m_GUID: 1a43a415e2b482941a838df442570927
+    m_Address: UI_Can_UnitSell
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI

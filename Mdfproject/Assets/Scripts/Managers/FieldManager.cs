@@ -35,6 +35,8 @@ public class FieldManager : MonoBehaviour
     [Header("범위 표시")]
     public GameObject attackRangeIndicatorPrefab;
     public GameObject skillRangeIndicatorPrefab;
+    [SerializeField] private float rangeIndicatorYOffset = 0.15f;
+    [SerializeField] private int rangeIndicatorSortingOrder = 200;
     private GameObject attackRangeIndicatorInstance;
     private GameObject skillRangeIndicatorInstance;
 
@@ -2126,21 +2128,29 @@ public class FieldManager : MonoBehaviour
 
         if (unitSellPanelInstance == null)
         {
-            unitSellPanelInstance = await UIManagers.Instance.GetUIElement("UI_Pnl_UnitSell");
+            unitSellPanelInstance = await UIManagers.Instance.GetUIElement("UI_Can_UnitSell");
         }
 
         if (unitSellPanelInstance != null)
         {
-            var canvas = unitSellPanelInstance.GetComponent<Canvas>();
-            if (canvas != null)
+            unitSellPanelInstance.transform.SetParent(unit.transform, false);
+
+            var rootCanvas = unitSellPanelInstance.GetComponent<Canvas>();
+            if (rootCanvas != null)
             {
-                canvas.renderMode = RenderMode.WorldSpace;
-                canvas.worldCamera = playerCamera;
-                unitSellPanelInstance.transform.SetParent(unit.transform, false);
+                rootCanvas.renderMode = RenderMode.WorldSpace;
+                rootCanvas.worldCamera = playerCamera;
             }
-            var controller = unitSellPanelInstance.GetComponent<UnitSellPanelController>();
+
+            var controller = unitSellPanelInstance.GetComponentInChildren<UnitSellPanelController>(true);
             if (controller != null)
             {
+                var controllerCanvas = controller.GetComponent<Canvas>();
+                if (controllerCanvas != null && controllerCanvas != rootCanvas)
+                {
+                    controllerCanvas.renderMode = RenderMode.WorldSpace;
+                    controllerCanvas.worldCamera = playerCamera;
+                }
                 controller.Bind(unit, this);
                 unitSellPanelInstance.SetActive(true);
                 unitDisplayedInSellPanel = unit;
@@ -2152,7 +2162,7 @@ public class FieldManager : MonoBehaviour
     {
         if (unitSellPanelInstance != null && UIManagers.Instance != null)
         {
-            UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitSell");
+            UIManagers.Instance.ReturnUIElement("UI_Can_UnitSell");
         }
         unitSellPanelInstance = null;
         unitDisplayedInSellPanel = null;
@@ -2208,37 +2218,44 @@ public class FieldManager : MonoBehaviour
 
         // 3. 범위 인디케이터 생성 및 크기 설정
         Vector3 indicatorPos = unit.transform.position;
-        indicatorPos.y = unit.transform.position.y + 0.1f;
+        indicatorPos.y = unit.transform.position.y + rangeIndicatorYOffset;
+        SpriteRenderer attackRenderer = null;
+        SpriteRenderer skillRenderer = null;
         if (showAttack)
         {
             attackRangeIndicatorInstance = Instantiate(attackRangeIndicatorPrefab, indicatorPos, Quaternion.Euler(90f, 0f, 0f), transform);
             attackRangeIndicatorInstance.transform.localScale = new Vector3(attackDiameter, attackDiameter, 1f);
+            attackRenderer = attackRangeIndicatorInstance.GetComponent<SpriteRenderer>();
         }
         if (showSkill)
         {
             skillRangeIndicatorInstance = Instantiate(skillRangeIndicatorPrefab, indicatorPos, Quaternion.Euler(90f, 0f, 0f), transform);
             skillRangeIndicatorInstance.transform.localScale = new Vector3(skillDiameter, skillDiameter, 1f);
+            skillRenderer = skillRangeIndicatorInstance.GetComponent<SpriteRenderer>();
         }
 
         // 4. 두 범위가 모두 표시될 때 렌더링 순서(Sorting Order) 조정
-        if (showAttack && showSkill)
+        if (attackRenderer != null)
         {
-            SpriteRenderer attackRenderer = attackRangeIndicatorInstance.GetComponent<SpriteRenderer>();
-            SpriteRenderer skillRenderer = skillRangeIndicatorInstance.GetComponent<SpriteRenderer>();
+            attackRenderer.sortingOrder = rangeIndicatorSortingOrder;
+        }
+        if (skillRenderer != null)
+        {
+            skillRenderer.sortingOrder = rangeIndicatorSortingOrder;
+        }
 
-            if (attackRenderer != null && skillRenderer != null)
+        if (attackRenderer != null && skillRenderer != null)
+        {
+            // 더 큰 범위를 뒤에, 작은 범위를 앞에 렌더링
+            if (attackDiameter > skillDiameter)
             {
-                // 더 큰 범위를 뒤에(sortingOrder = 0), 작은 범위를 앞에(sortingOrder = 1) 렌더링
-                if (attackDiameter > skillDiameter)
-                {
-                    attackRenderer.sortingOrder = 0; // 뒤
-                    skillRenderer.sortingOrder = 1;  // 앞
-                }
-                else
-                {
-                    skillRenderer.sortingOrder = 0;  // 뒤
-                    attackRenderer.sortingOrder = 1; // 앞
-                }
+                attackRenderer.sortingOrder = rangeIndicatorSortingOrder;
+                skillRenderer.sortingOrder = rangeIndicatorSortingOrder + 1;
+            }
+            else
+            {
+                skillRenderer.sortingOrder = rangeIndicatorSortingOrder;
+                attackRenderer.sortingOrder = rangeIndicatorSortingOrder + 1;
             }
         }
     }

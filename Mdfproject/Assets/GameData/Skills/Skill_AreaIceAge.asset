@@ -21,6 +21,6 @@ MonoBehaviour:
   activationType: 1
   targetingStrategy: {fileID: 11400000, guid: ac91b01935cc0cb41ace8ebc9f3b1d08, type: 2}
   effects:
-  - {fileID: 11400000, guid: 0ca81da5f66186c4f9ae167b32892cb5, type: 2}
+  - {fileID: 11400000, guid: 4f090249f8a834b44999604b8f0e63de, type: 2}
   vfxPrefab: {fileID: 3178614178979242518, guid: 89f2776e47e86d44ea455ef0ac412247,
     type: 3}
