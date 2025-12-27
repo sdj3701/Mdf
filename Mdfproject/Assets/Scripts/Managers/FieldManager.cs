@@ -1901,7 +1901,7 @@ public class FieldManager : MonoBehaviour
             if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
             {
                 // 표시된 유닛을 다시 클릭한 경우 -> 패널 닫고 아무것도 안 함
-                if (clickedUnit != null && clickedUnit == unitDisplayedInPanel)
+                if (!pointerOverUI && clickedUnit != null && clickedUnit == unitDisplayedInPanel)
                 {
                     UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                     unitDetailPanelInstance = null;
@@ -1912,7 +1912,7 @@ public class FieldManager : MonoBehaviour
                 }
 
                 // UI가 아닌 다른 곳을 클릭한 경우 -> 패널 닫고 클릭한 대상에 대한 처리 계속
-                if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+                if (!pointerOverUI)
                 {
                     UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                     unitDetailPanelInstance = null;
