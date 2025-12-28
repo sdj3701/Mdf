@@ -109,13 +109,12 @@ public class BuffManager : MonoBehaviour
         RecalculateStats();
     }
 
-    private void RecalculateStats()
+    public void RecalculateStats()
     {
         if (unit != null)
         {
-            float statMultiplier = Mathf.Pow(1.8f, unit.starLevel - 1);
-            float baseAttackDamage = unit.Data.baseAttackDamage * statMultiplier;
-            float baseAttackSpeed = unit.Data.attackSpeed;
+            float baseAttackDamage = unit.GetPermanentAdjustedBaseAttackDamage();
+            float baseAttackSpeed = unit.GetPermanentAdjustedBaseAttackSpeed();
 
             float attackDamageBonus = 0;
             float attackSpeedBonusPercent = 0;

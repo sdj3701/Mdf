@@ -15,7 +15,7 @@ public class BuffStatEffect : SkillEffect, IDurationEffect
     // ✅ [수정] 인터페이스 구현
     public float Duration => duration;
 
-    public override void ApplyEffect(MonoBehaviour runner, GameObject caster, List<GameObject> targets)
+    public override void ApplyEffect(MonoBehaviour runner, GameObject caster, List<GameObject> targets, float skillRange, TargetingStrategy targetingStrategy)
     {
         foreach (var target in targets)
         {

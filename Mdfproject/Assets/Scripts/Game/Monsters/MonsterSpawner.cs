@@ -114,7 +114,7 @@ public class MonsterSpawner : MonoBehaviour
             var runner = playerManager != null ? playerManager.Runner : null;
             if (runner != null && playerManager.Object.HasStateAuthority && monsterPrefab.TryGetComponent<NetworkObject>(out var netPrefab))
             {
-                var spawned = runner.Spawn(netPrefab, spawnPos, Quaternion.identity, playerManager.Object.InputAuthority);
+                var spawned = runner.Spawn(netPrefab, spawnPos, Quaternion.identity, PlayerRef.None);
                 if (spawned == null)
                 {
                     Debug.LogError($"Runner.Spawn 실패: {monsterPrefab.name}", this);
@@ -227,7 +227,7 @@ public class MonsterSpawner : MonoBehaviour
         var runner = playerManager != null ? playerManager.Runner : null;
         if (runner != null && playerManager.Object.HasStateAuthority && monsterPrefabToSpawn.TryGetComponent<NetworkObject>(out var netPrefab))
         {
-            var spawned = runner.Spawn(netPrefab, spawnPos, Quaternion.identity, playerManager.Object.InputAuthority);
+            var spawned = runner.Spawn(netPrefab, spawnPos, Quaternion.identity, PlayerRef.None);
             if (spawned == null)
             {
                 Debug.LogError($"Runner.Spawn 실패: {monsterPrefabToSpawn.name}", this);

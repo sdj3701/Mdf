@@ -18,7 +18,7 @@ MonoBehaviour:
   unitType: 1
   baseHealth: 10
   baseAttackDamage: 2
-  attackSpeed: 2
+  attackSpeed: 0.8
   attackRange: 2.5
   damageType: 1
   defense: 0
@@ -28,9 +28,9 @@ MonoBehaviour:
   manaOnAttack: 0
   manaPerSecond: 5
   prefabsByStarLevel:
-  - Knight
-  - Knight
-  - Knight
+  - Healer1
+  - Healer1
+  - Healer1
   skillsByStarLevel:
   - Skill_Heal
   - Skill_Heal

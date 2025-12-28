@@ -1,4 +1,4 @@
-// Assets/Scripts/Managers/FieldManager.cs
+﻿// Assets/Scripts/Managers/FieldManager.cs
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -35,8 +35,37 @@ public class FieldManager : MonoBehaviour
     [Header("범위 표시")]
     public GameObject attackRangeIndicatorPrefab;
     public GameObject skillRangeIndicatorPrefab;
+    [SerializeField] private float rangeIndicatorYOffset = 0.15f;
+    [SerializeField] private int rangeIndicatorSortingOrder = 200;
     private GameObject attackRangeIndicatorInstance;
     private GameObject skillRangeIndicatorInstance;
+
+    [Header("Path Visualization")]
+    [Tooltip("경로 표시: 라인 대신 정사각형 마커를 움직여서 표시")]
+    public bool useMovingPathMarkers = true;
+    [Tooltip("경로 위를 이동할 네모 마커 프리팹 (정사각형 Quad/Sprite)")]
+    public GameObject pathMarkerPrefab;
+    [Tooltip("마커 높이 보정")]
+    public float pathMarkerYOffset = 0.05f;
+    [Tooltip("네모 마커 이동 속도")]
+    public float pathMarkerSpeed = 4f;
+    [Tooltip("네모 마커 생성 간격(초)")]
+    public float pathMarkerSpawnInterval = 0.25f;
+    [Tooltip("한 번에 준비해둘 마커 개수(풀 사이즈)")]
+    public int pathMarkerPoolSize = 32;
+    [Tooltip("마커 한 변의 스케일(정사각형 유지)")]
+    public float pathMarkerSize = 1f;
+    [Tooltip("준비 단계에서만 경로를 표시")]
+    public bool showPathInPrepare = true;
+    [Header("Economy")]
+    [Tooltip("Sell price penalty applied to 2+ star units.")]
+    [SerializeField] private int sellPenalty = 1;
+    private readonly List<Vector3> _pathWorldPoints = new List<Vector3>();
+    private readonly List<GameObject> _pathMarkerPool = new List<GameObject>();
+    private Coroutine _markerSpawnRoutine;
+    private Coroutine _pathRefreshRoutine;
+    private readonly List<GameObject> _activeMarkers = new List<GameObject>();
+    private readonly Dictionary<GameObject, Coroutine> _markerRoutines = new Dictionary<GameObject, Coroutine>();
 
     // [3D Migration] 논리 그리드 설정
     [Header("3D 그리드 설정")]
@@ -103,6 +132,11 @@ public class FieldManager : MonoBehaviour
     public float dragFollowSpeed = 20f;
     [Tooltip("유닛을 드래그 시작으로 인식할 최대 스크린 거리(픽셀)")]
     public float dragPickMaxScreenDistance = 80f;
+    [Header("Selection")]
+    [Tooltip("Enable world-distance fallback selection when raycast/screen bounds miss.")]
+    public bool useWorldDistanceFallback = false;
+    [Tooltip("Max world-space distance used for fallback unit selection.")]
+    public float clickPickMaxWorldDistance = 0.6f;
     // 드래그 상태 값 (3D용)
     private float dragBaseY;           // 드래그 시작 시의 기준 Y 값
     private Vector2 offsetXZ;          // 마우스 대비 유닛의 XZ 평면 오프셋
@@ -124,6 +158,8 @@ public class FieldManager : MonoBehaviour
     private bool isDragStarted = false;
     private GameObject unitDetailPanelInstance;
     private Unit unitDisplayedInPanel;
+    private GameObject unitSellPanelInstance;
+    private Unit unitDisplayedInSellPanel;
 
     private Camera _cachedPlayerCamera;
     private Camera playerCamera
@@ -142,6 +178,8 @@ public class FieldManager : MonoBehaviour
             return _cachedPlayerCamera;
         }
     }
+
+    public Camera PlayerCamera => playerCamera;
 
     /// <summary>
     /// 쿼터뷰 등 기울어진 카메라에서, 화면상의 마우스와 가장 겹쳐 보이는 그리드 셀을 찾습니다.
@@ -346,6 +384,219 @@ public class FieldManager : MonoBehaviour
 
     #endregion
 
+    #region Path Line Helpers
+
+    public bool IsLocalControlledField()
+    {
+        var gm = GameManagers.Instance;
+        if (playerManager == null) return false;
+        if (playerManager.Object == null) return true; // fallback in non-networked testing
+        if (playerManager.Object.HasInputAuthority) return true;
+        return gm != null && gm.localPlayer == playerManager;
+    }
+
+    private void SchedulePathRefresh()
+    {
+        if (!showPathInPrepare) return;
+        if (_pathRefreshRoutine != null)
+        {
+            StopCoroutine(_pathRefreshRoutine);
+        }
+        _pathRefreshRoutine = StartCoroutine(RefreshPathLineNextFrame());
+    }
+
+    private System.Collections.IEnumerator RefreshPathLineNextFrame()
+    {
+        // 물리/콜라이더 업데이트가 반영된 뒤 실행
+        yield return new WaitForFixedUpdate();
+        yield return new WaitForEndOfFrame();
+        RefreshPathLine();
+        _pathRefreshRoutine = null;
+    }
+
+    private void RefreshPathLine()
+    {
+        if (!showPathInPrepare || !IsLocalControlledField())
+        {
+            return;
+        }
+
+        var grid = playerManager != null ? playerManager.astarGrid : null;
+        if (grid == null || playerManager.spawnPoint == null || playerManager.goalTransform == null)
+        {
+            return;
+        }
+
+        Vector3 clampedSpawn = grid.ClampToGrid(playerManager.spawnPoint.position);
+        Vector3 clampedGoal = grid.ClampToGrid(playerManager.goalTransform.position);
+        Vector2Int startPos = grid.WorldToCell(clampedSpawn);
+        Vector2Int endPos = grid.WorldToCell(clampedGoal);
+
+        if (!grid.FindPath(startPos, endPos))
+        {
+            return;
+        }
+
+        var path = grid.FinalPath;
+        if (path == null || path.Count < 2)
+        {
+            return;
+        }
+
+        // 경로를 월드 좌표로 변환해 캐시
+        _pathWorldPoints.Clear();
+        for (int i = 0; i < path.Count; i++)
+        {
+            var node = path[i];
+            var cell = new Vector3Int(node.x, node.y, 0);
+            Vector3 pos = GridToWorld(cell);
+            pos.y += pathMarkerYOffset;
+            _pathWorldPoints.Add(pos);
+        }
+
+        // 마커 표시
+        // 경로가 바뀌면 기존 마커를 모두 회수하고 새 경로로 다시 흘려보냅니다.
+        StopMarkerFlow();
+        RestartMarkerFlow();
+    }
+
+    private void HidePathLine()
+    {
+        StopMarkerFlow();
+        if (_pathRefreshRoutine != null)
+        {
+            StopCoroutine(_pathRefreshRoutine);
+            _pathRefreshRoutine = null;
+        }
+    }
+
+    private void RestartMarkerFlow()
+    {
+        StopMarkerSpawn();
+        if (_pathWorldPoints.Count < 2) return;
+        WarmupMarkerPool();
+        _markerSpawnRoutine = StartCoroutine(SpawnMarkersRoutine());
+    }
+
+    private void StopMarkerFlow()
+    {
+        StopMarkerSpawn();
+        foreach (var kv in _markerRoutines)
+        {
+            if (kv.Value != null) StopCoroutine(kv.Value);
+        }
+        _markerRoutines.Clear();
+        foreach (var marker in _activeMarkers)
+        {
+            if (marker != null) marker.SetActive(false);
+        }
+        _activeMarkers.Clear();
+    }
+
+    private void StopMarkerSpawn()
+    {
+        if (_markerSpawnRoutine != null)
+        {
+            StopCoroutine(_markerSpawnRoutine);
+            _markerSpawnRoutine = null;
+        }
+    }
+
+    private void WarmupMarkerPool()
+    {
+        if (pathMarkerPrefab == null) return;
+        while (_pathMarkerPool.Count < pathMarkerPoolSize)
+        {
+            var go = Instantiate(pathMarkerPrefab, transform);
+            SetupMarkerTransform(go.transform);
+            go.SetActive(false);
+            _pathMarkerPool.Add(go);
+        }
+    }
+
+    private GameObject GetMarkerFromPool()
+    {
+        foreach (var marker in _pathMarkerPool)
+        {
+            if (marker != null && !marker.activeSelf)
+            {
+                SetupMarkerTransform(marker.transform);
+                return marker;
+            }
+        }
+        if (_pathMarkerPool.Count < pathMarkerPoolSize && pathMarkerPrefab != null)
+        {
+            var go = Instantiate(pathMarkerPrefab, transform);
+            SetupMarkerTransform(go.transform);
+            go.SetActive(false);
+            _pathMarkerPool.Add(go);
+            return go;
+        }
+        return null;
+    }
+
+    private void SetupMarkerTransform(Transform t)
+    {
+        if (t == null) return;
+        // 정사각형 유지: 한 변 스케일을 통일
+        t.localScale = Vector3.one * pathMarkerSize;
+        // 지형과 수평: 노멀을 위쪽으로
+        t.rotation = Quaternion.LookRotation(Vector3.up, Vector3.forward);
+    }
+
+    private System.Collections.IEnumerator SpawnMarkersRoutine()
+    {
+        while (showPathInPrepare && IsLocalControlledField() && GameManagers.Instance != null && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+        {
+            var marker = GetMarkerFromPool();
+            if (marker != null)
+            {
+                marker.SetActive(true);
+                var snapshot = new List<Vector3>(_pathWorldPoints);
+                _activeMarkers.Add(marker);
+                var routine = StartCoroutine(MoveMarkerAlongPath(marker, snapshot));
+                _markerRoutines[marker] = routine;
+            }
+            yield return new WaitForSeconds(pathMarkerSpawnInterval);
+        }
+    }
+
+    private System.Collections.IEnumerator MoveMarkerAlongPath(GameObject marker, List<Vector3> pathSnapshot)
+    {
+        if (marker == null || pathSnapshot == null || pathSnapshot.Count < 2)
+        {
+            if (marker != null) marker.SetActive(false);
+            yield break;
+        }
+
+        int seg = 0;
+        Vector3 pos = pathSnapshot[0];
+        marker.transform.position = pos;
+
+        while (seg < pathSnapshot.Count - 1 && GameManagers.Instance != null && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+        {
+            Vector3 a = pathSnapshot[seg];
+            Vector3 b = pathSnapshot[seg + 1];
+            float dist = Vector3.Distance(a, b);
+            float travelled = 0f;
+            while (travelled < dist && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+            {
+                float step = pathMarkerSpeed * Time.deltaTime;
+                travelled += step;
+                float t = Mathf.Clamp01(travelled / Mathf.Max(0.001f, dist));
+                marker.transform.position = Vector3.Lerp(a, b, t);
+                yield return null;
+            }
+            seg++;
+        }
+
+        marker.SetActive(false);
+        _activeMarkers.Remove(marker);
+        _markerRoutines.Remove(marker);
+    }
+
+    #endregion
+
     // ... (이하 나머지 코드는 이전과 동일) ...
     // OnEnable, OnDisable, Update, Event Handlers, 벽/유닛 관리, 드래그앤드롭 로직 등
     void OnEnable()
@@ -364,6 +615,7 @@ public class FieldManager : MonoBehaviour
         {
             HandleUnitDragAndDrop();
         }
+        // 즉시 갱신이 필요한 경우(벽/유닛 배치 변경)에는 _pathRefreshRoutine에서 처리
     }
 
     #region Public Methods for UI
@@ -399,6 +651,10 @@ public class FieldManager : MonoBehaviour
         if (newState == GameManagers.GameState.Prepare)
         {
             RespawnAllUnits();
+            if (showPathInPrepare)
+            {
+                RefreshPathLine();
+            }
         }
         // [수정] 게임 상태가 전투로 변경될 때의 처리
         else if (newState == GameManagers.GameState.Combat)
@@ -420,6 +676,8 @@ public class FieldManager : MonoBehaviour
                 // 드래그 상태를 초기화합니다.
                 selectedUnit = null;
             }
+            HidePathLine();
+            HideUnitSellPanel();
         }
     }
 
@@ -495,6 +753,7 @@ public class FieldManager : MonoBehaviour
             AttachStatusBar(wallGO, wallComponent.SetStatusBar);
             wallComponent.Initialize(this, gridPosition);
             placedWalls.Add(gridPosition, wallComponent);
+            SchedulePathRefresh();
 
             Unit unitOnCell = GetUnitAt(gridPosition);
             if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
@@ -530,6 +789,7 @@ public class FieldManager : MonoBehaviour
                 Destroy(wall.gameObject);
             }
             placedWalls.Remove(gridPosition);
+            SchedulePathRefresh();
         }
     }
 
@@ -958,6 +1218,17 @@ public class FieldManager : MonoBehaviour
         }
     }
 
+    public void ApplyPermanentBonusesToAllUnits()
+    {
+        foreach (var unit in placedUnits.Values)
+        {
+            if (unit != null)
+            {
+                unit.RefreshPermanentBonuses();
+            }
+        }
+    }
+
     public void MoveUnit(Vector3Int from, Vector3Int to)
     {
         if (!IsValidGridPosition(from) || !IsValidGridPosition(to))
@@ -1075,6 +1346,86 @@ public class FieldManager : MonoBehaviour
             return entry.Key;
         }
         return null;
+    }
+
+    public int GetSellPrice(Unit unit)
+    {
+        if (unit == null || unit.Data == null) return 0;
+        int baseCost = GetCombinedUnitCost(unit.Data.cost, unit.starLevel);
+        if (unit.starLevel >= 2)
+        {
+            baseCost = Mathf.Max(0, baseCost - sellPenalty);
+        }
+        return baseCost;
+    }
+
+    public bool TrySellUnitAt(Vector3Int gridPosition)
+    {
+        if (playerManager == null) return false;
+        var gm = GameManagers.Instance;
+        if (gm != null && gm.GetGameState() != GameManagers.GameState.Prepare)
+        {
+            return false;
+        }
+
+        if (!placedUnits.TryGetValue(gridPosition, out Unit unit) || unit == null)
+        {
+            return false;
+        }
+
+        int sellPrice = GetSellPrice(unit);
+        playerManager.AddGold(sellPrice);
+
+        if (selectedUnit == unit)
+        {
+            selectedUnit = null;
+            selectedUnitNetworkTransform = null;
+            isDragStarted = false;
+        }
+
+        if (unitDisplayedInPanel == unit && unitDetailPanelInstance != null)
+        {
+            if (UIManagers.Instance != null)
+            {
+                UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
+            }
+            unitDetailPanelInstance = null;
+            unitDisplayedInPanel = null;
+            HideUnitSellPanel();
+        }
+        else if (unitDisplayedInSellPanel == unit)
+        {
+            HideUnitSellPanel();
+        }
+
+        placedUnits.Remove(gridPosition);
+
+        var runner = playerManager.Runner;
+        var networkObject = unit.GetComponent<NetworkObject>();
+        if (runner != null && runner.IsRunning && networkObject != null)
+        {
+            if (playerManager.Object == null || playerManager.Object.HasStateAuthority)
+            {
+                runner.Despawn(networkObject);
+            }
+        }
+        else
+        {
+            Destroy(unit.gameObject);
+        }
+
+        return true;
+    }
+
+    private int GetCombinedUnitCost(int unitCost, int starLevel)
+    {
+        if (unitCost <= 0 || starLevel <= 0) return 0;
+        int multiplier = 1;
+        for (int i = 1; i < starLevel; i++)
+        {
+            multiplier *= 3;
+        }
+        return unitCost * multiplier;
     }
 
     /// <summary>
@@ -1338,28 +1689,49 @@ public class FieldManager : MonoBehaviour
     {
         if (playerCamera == null) return null;
 
-        // 3D Raycast (쿼터뷰/3D 환경용)
-        Ray ray = playerCamera.ScreenPointToRay(Input.mousePosition);
-        if (Physics.Raycast(ray, out RaycastHit hit, 1000f))
+        Vector2 mouseScreen = Input.mousePosition;
+        Ray ray = playerCamera.ScreenPointToRay(mouseScreen);
+        RaycastHit[] hits = Physics.RaycastAll(ray, 1000f);
+        if (hits != null && hits.Length > 0)
         {
-            var unit3D = hit.collider.GetComponentInParent<Unit>();
-            // 이 FieldManager가 관리하는 유닛만 선택되도록 제한합니다.
-            if (unit3D != null && placedUnits.ContainsValue(unit3D)) return unit3D;
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            foreach (var hit in hits)
+            {
+                var unit3D = hit.collider.GetComponentInParent<Unit>();
+                if (unit3D == null || !placedUnits.ContainsValue(unit3D)) continue;
+
+                if (TryGetUnitScreenRect(unit3D, out Rect rect, out _))
+                {
+                    if (rect.Contains(mouseScreen))
+                    {
+                        return unit3D;
+                    }
+                }
+                else
+                {
+                    return unit3D;
+                }
+            }
         }
 
-        // 스크린 공간 기반 근사: 마우스와 가장 가까운 유닛 선택
-        if (placedUnits.Count > 0)
+        Unit screenHit = GetUnitFromScreenBounds(mouseScreen);
+        if (screenHit != null)
         {
-            Vector2 mouseScreen = Input.mousePosition;
-            float thresholdSq = dragPickMaxScreenDistance * dragPickMaxScreenDistance;
+            return screenHit;
+        }
+
+        if (useWorldDistanceFallback && clickPickMaxWorldDistance > 0f && placedUnits.Count > 0 && ground3D != null)
+        {
+            Vector3 mouseWorld = GetMouseWorldPosition();
+            float thresholdSq = clickPickMaxWorldDistance * clickPickMaxWorldDistance;
             Unit bestUnit = null;
             float bestDistSq = thresholdSq;
 
             foreach (var unit in placedUnits.Values)
             {
                 if (unit == null) continue;
-                Vector3 unitScreen = playerCamera.WorldToScreenPoint(unit.transform.position);
-                Vector2 delta = (Vector2)unitScreen - mouseScreen;
+                Vector3 unitPos = unit.transform.position;
+                Vector2 delta = new Vector2(unitPos.x - mouseWorld.x, unitPos.z - mouseWorld.z);
                 float distSq = delta.sqrMagnitude;
                 if (distSq <= bestDistSq)
                 {
@@ -1375,6 +1747,121 @@ public class FieldManager : MonoBehaviour
         }
 
         return null;
+    }
+
+    private Unit GetUnitFromScreenBounds(Vector2 mouseScreen)
+    {
+        if (placedUnits.Count == 0) return null;
+
+        Unit bestUnit = null;
+        float bestDepth = float.MaxValue;
+
+        foreach (var unit in placedUnits.Values)
+        {
+            if (unit == null) continue;
+            if (!TryGetUnitScreenRect(unit, out Rect rect, out float depth)) continue;
+            if (!rect.Contains(mouseScreen)) continue;
+
+            if (depth < bestDepth)
+            {
+                bestDepth = depth;
+                bestUnit = unit;
+            }
+        }
+
+        return bestUnit;
+    }
+
+    private bool TryGetUnitScreenRect(Unit unit, out Rect rect, out float depth)
+    {
+        rect = default;
+        depth = float.MaxValue;
+        if (playerCamera == null) return false;
+        if (!TryGetUnitBounds(unit, out Bounds bounds)) return false;
+
+        Vector3 center = bounds.center;
+        Vector3 extents = bounds.extents;
+        float minX = float.PositiveInfinity;
+        float maxX = float.NegativeInfinity;
+        float minY = float.PositiveInfinity;
+        float maxY = float.NegativeInfinity;
+        bool anyInFront = false;
+
+        anyInFront |= AccumulateScreenRect(center + new Vector3(-extents.x, -extents.y, -extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
+        anyInFront |= AccumulateScreenRect(center + new Vector3(-extents.x, -extents.y, extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
+        anyInFront |= AccumulateScreenRect(center + new Vector3(-extents.x, extents.y, -extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
+        anyInFront |= AccumulateScreenRect(center + new Vector3(-extents.x, extents.y, extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
+        anyInFront |= AccumulateScreenRect(center + new Vector3(extents.x, -extents.y, -extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
+        anyInFront |= AccumulateScreenRect(center + new Vector3(extents.x, -extents.y, extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
+        anyInFront |= AccumulateScreenRect(center + new Vector3(extents.x, extents.y, -extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
+        anyInFront |= AccumulateScreenRect(center + new Vector3(extents.x, extents.y, extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
+
+        if (!anyInFront) return false;
+
+        rect = Rect.MinMaxRect(minX, minY, maxX, maxY);
+        return true;
+    }
+
+    private bool AccumulateScreenRect(
+        Vector3 worldPoint,
+        ref float minX,
+        ref float maxX,
+        ref float minY,
+        ref float maxY,
+        ref float minDepth)
+    {
+        Vector3 screen = playerCamera.WorldToScreenPoint(worldPoint);
+        if (screen.z <= 0f) return false;
+
+        if (screen.x < minX) minX = screen.x;
+        if (screen.x > maxX) maxX = screen.x;
+        if (screen.y < minY) minY = screen.y;
+        if (screen.y > maxY) maxY = screen.y;
+        if (screen.z < minDepth) minDepth = screen.z;
+        return true;
+    }
+
+    private bool TryGetUnitBounds(Unit unit, out Bounds bounds)
+    {
+        bounds = default;
+        if (unit == null) return false;
+
+        bool hasBounds = false;
+        Renderer[] renderers = unit.GetComponentsInChildren<Renderer>();
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled) continue;
+            if (!hasBounds)
+            {
+                bounds = renderer.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        if (hasBounds) return true;
+
+        Collider[] colliders = unit.GetComponentsInChildren<Collider>();
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            Collider collider = colliders[i];
+            if (collider == null || !collider.enabled) continue;
+            if (!hasBounds)
+            {
+                bounds = collider.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                bounds.Encapsulate(collider.bounds);
+            }
+        }
+
+        return hasBounds;
     }
 
     private void HandleUnitDragAndDrop()
@@ -1416,21 +1903,23 @@ public class FieldManager : MonoBehaviour
             if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
             {
                 // 표시된 유닛을 다시 클릭한 경우 -> 패널 닫고 아무것도 안 함
-                if (clickedUnit != null && clickedUnit == unitDisplayedInPanel)
+                if (!pointerOverUI && clickedUnit != null && clickedUnit == unitDisplayedInPanel)
                 {
                     UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                     unitDetailPanelInstance = null;
                     unitDisplayedInPanel = null;
+                    HideUnitSellPanel();
                     selectedUnit = null; // 모든 상태 초기화
                     return;
                 }
 
                 // UI가 아닌 다른 곳을 클릭한 경우 -> 패널 닫고 클릭한 대상에 대한 처리 계속
-                if (!UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+                if (!pointerOverUI)
                 {
                     UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                     unitDetailPanelInstance = null;
                     unitDisplayedInPanel = null;
+                    HideUnitSellPanel();
                 }
             }
 
@@ -1486,6 +1975,7 @@ public class FieldManager : MonoBehaviour
                         UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                         unitDetailPanelInstance = null;
                         unitDisplayedInPanel = null;
+                        HideUnitSellPanel();
                     }
                 }
             }
@@ -1600,6 +2090,7 @@ public class FieldManager : MonoBehaviour
                     SnapbackSelectedUnit(originalWorldPos);
                 }
                 ShowUnitDetailPanel(selectedUnit);
+                ShowUnitSellPanel(selectedUnit);
             }
 
             // 상태 초기화
@@ -1629,6 +2120,52 @@ public class FieldManager : MonoBehaviour
                 unitDisplayedInPanel = unit;
             }
         }
+    }
+
+    private async void ShowUnitSellPanel(Unit unit)
+    {
+        if (unit == null || UIManagers.Instance == null) return;
+
+        if (unitSellPanelInstance == null)
+        {
+            unitSellPanelInstance = await UIManagers.Instance.GetUIElement("UI_Can_UnitSell");
+        }
+
+        if (unitSellPanelInstance != null)
+        {
+            unitSellPanelInstance.transform.SetParent(unit.transform, false);
+
+            var rootCanvas = unitSellPanelInstance.GetComponent<Canvas>();
+            if (rootCanvas != null)
+            {
+                rootCanvas.renderMode = RenderMode.WorldSpace;
+                rootCanvas.worldCamera = playerCamera;
+            }
+
+            var controller = unitSellPanelInstance.GetComponentInChildren<UnitSellPanelController>(true);
+            if (controller != null)
+            {
+                var controllerCanvas = controller.GetComponent<Canvas>();
+                if (controllerCanvas != null && controllerCanvas != rootCanvas)
+                {
+                    controllerCanvas.renderMode = RenderMode.WorldSpace;
+                    controllerCanvas.worldCamera = playerCamera;
+                }
+                controller.Bind(unit, this);
+                unitSellPanelInstance.SetActive(true);
+                unitDisplayedInSellPanel = unit;
+            }
+        }
+    }
+
+    private void HideUnitSellPanel()
+    {
+        if (unitSellPanelInstance != null && UIManagers.Instance != null)
+        {
+            UIManagers.Instance.ReturnUIElement("UI_Can_UnitSell");
+        }
+        unitSellPanelInstance = null;
+        unitDisplayedInSellPanel = null;
     }
     #endregion
 
@@ -1681,37 +2218,44 @@ public class FieldManager : MonoBehaviour
 
         // 3. 범위 인디케이터 생성 및 크기 설정
         Vector3 indicatorPos = unit.transform.position;
-        indicatorPos.y = unit.transform.position.y + 0.1f;
+        indicatorPos.y = unit.transform.position.y + rangeIndicatorYOffset;
+        SpriteRenderer attackRenderer = null;
+        SpriteRenderer skillRenderer = null;
         if (showAttack)
         {
             attackRangeIndicatorInstance = Instantiate(attackRangeIndicatorPrefab, indicatorPos, Quaternion.Euler(90f, 0f, 0f), transform);
             attackRangeIndicatorInstance.transform.localScale = new Vector3(attackDiameter, attackDiameter, 1f);
+            attackRenderer = attackRangeIndicatorInstance.GetComponent<SpriteRenderer>();
         }
         if (showSkill)
         {
             skillRangeIndicatorInstance = Instantiate(skillRangeIndicatorPrefab, indicatorPos, Quaternion.Euler(90f, 0f, 0f), transform);
             skillRangeIndicatorInstance.transform.localScale = new Vector3(skillDiameter, skillDiameter, 1f);
+            skillRenderer = skillRangeIndicatorInstance.GetComponent<SpriteRenderer>();
         }
 
         // 4. 두 범위가 모두 표시될 때 렌더링 순서(Sorting Order) 조정
-        if (showAttack && showSkill)
+        if (attackRenderer != null)
         {
-            SpriteRenderer attackRenderer = attackRangeIndicatorInstance.GetComponent<SpriteRenderer>();
-            SpriteRenderer skillRenderer = skillRangeIndicatorInstance.GetComponent<SpriteRenderer>();
+            attackRenderer.sortingOrder = rangeIndicatorSortingOrder;
+        }
+        if (skillRenderer != null)
+        {
+            skillRenderer.sortingOrder = rangeIndicatorSortingOrder;
+        }
 
-            if (attackRenderer != null && skillRenderer != null)
+        if (attackRenderer != null && skillRenderer != null)
+        {
+            // 더 큰 범위를 뒤에, 작은 범위를 앞에 렌더링
+            if (attackDiameter > skillDiameter)
             {
-                // 더 큰 범위를 뒤에(sortingOrder = 0), 작은 범위를 앞에(sortingOrder = 1) 렌더링
-                if (attackDiameter > skillDiameter)
-                {
-                    attackRenderer.sortingOrder = 0; // 뒤
-                    skillRenderer.sortingOrder = 1;  // 앞
-                }
-                else
-                {
-                    skillRenderer.sortingOrder = 0;  // 뒤
-                    attackRenderer.sortingOrder = 1; // 앞
-                }
+                attackRenderer.sortingOrder = rangeIndicatorSortingOrder;
+                skillRenderer.sortingOrder = rangeIndicatorSortingOrder + 1;
+            }
+            else
+            {
+                skillRenderer.sortingOrder = rangeIndicatorSortingOrder;
+                attackRenderer.sortingOrder = rangeIndicatorSortingOrder + 1;
             }
         }
     }
@@ -1791,3 +2335,5 @@ public class FieldManager : MonoBehaviour
 
     #endregion
 }
+
+

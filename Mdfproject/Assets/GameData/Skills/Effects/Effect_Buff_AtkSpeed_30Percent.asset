@@ -13,6 +13,6 @@ MonoBehaviour:
   m_Name: Effect_Buff_AtkSpeed_30Percent
   m_EditorClassIdentifier: 
   statToBuff: 1
-  value: 1
+  value: 0.3
   isPercentage: 1
   duration: 3

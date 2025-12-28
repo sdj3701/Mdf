@@ -1,13 +1,25 @@
 // Assets/Scripts/Managers/AddressablesManager.cs
+using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
+using UnityEngine.ResourceManagement.ResourceLocations;
 
 public class AddressablesManager : MonoBehaviour
 {
     // ✅ 싱글톤 인스턴스 추가
     public static AddressablesManager Instance { get; private set; }
+
+    [Header("Preload Settings")]
+    [SerializeField] private bool autoPreloadAllOnStart = true;
+    [SerializeField] private bool logPreloadProgress = true;
+
+    public bool AssetsReady { get; private set; }
+    public bool IsPreloading { get; private set; }
+
+    private bool _preloadCompleted;
+    private AsyncOperationHandle<IList<Object>> _preloadHandle;
 
     private void Awake()
     {
@@ -21,6 +33,117 @@ public class AddressablesManager : MonoBehaviour
         {
             Destroy(gameObject);
         }
+    }
+
+    private async void Start()
+    {
+        if (autoPreloadAllOnStart)
+        {
+            await PreloadAllAsync();
+        }
+    }
+
+    /// <summary>
+    /// 모든 Addressables 에셋을 씬 시작 시점에 로드합니다.
+    /// </summary>
+    public async UniTask PreloadAllAsync()
+    {
+        if (_preloadCompleted)
+        {
+            AssetsReady = true;
+            return;
+        }
+
+        if (IsPreloading)
+        {
+            await UniTask.WaitUntil(() => !IsPreloading);
+            return;
+        }
+
+        IsPreloading = true;
+        AssetsReady = false;
+
+        if (logPreloadProgress)
+        {
+            Debug.Log("[AddressablesManager] PreloadAll 시작");
+        }
+
+        try
+        {
+            var initHandle = Addressables.InitializeAsync();
+            await initHandle.Task;
+
+            List<IResourceLocation> locations = CollectAllObjectLocations();
+            if (locations.Count == 0)
+            {
+                Debug.LogWarning("[AddressablesManager] PreloadAll 대상 에셋이 없습니다.");
+                AssetsReady = true;
+                _preloadCompleted = true;
+                return;
+            }
+
+            _preloadHandle = Addressables.LoadAssetsAsync<Object>(locations, null);
+            await _preloadHandle.Task;
+
+            if (_preloadHandle.Status == AsyncOperationStatus.Succeeded)
+            {
+                AssetsReady = true;
+                _preloadCompleted = true;
+                if (logPreloadProgress)
+                {
+                    Debug.Log($"[AddressablesManager] PreloadAll 완료: {locations.Count}개");
+                }
+            }
+            else
+            {
+                Debug.LogError($"[AddressablesManager] PreloadAll 실패: {_preloadHandle.OperationException?.Message}");
+            }
+        }
+        finally
+        {
+            IsPreloading = false;
+        }
+    }
+
+    private static List<IResourceLocation> CollectAllObjectLocations()
+    {
+        var results = new List<IResourceLocation>();
+        var seen = new HashSet<string>();
+
+        foreach (var locator in Addressables.ResourceLocators)
+        {
+            foreach (var key in locator.Keys)
+            {
+                if (!locator.Locate(key, typeof(Object), out var locations))
+                {
+                    continue;
+                }
+
+                for (int i = 0; i < locations.Count; i++)
+                {
+                    var location = locations[i];
+                    if (location == null)
+                    {
+                        continue;
+                    }
+
+                    if (!typeof(Object).IsAssignableFrom(location.ResourceType))
+                    {
+                        continue;
+                    }
+
+                    string id = string.IsNullOrEmpty(location.InternalId) ? location.PrimaryKey : location.InternalId;
+                    if (string.IsNullOrEmpty(id) || !seen.Add(id))
+                    {
+                        continue;
+                    }
+
+                    results.Add(location);
+                }
+            }
+        }
+
+        return results;
     }
 
     /// <summary>

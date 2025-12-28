@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 37613086633180496}
   - component: {fileID: 37613086633180499}
   - component: {fileID: 4133784372236805096}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Pnl_ShopSlot
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -119,7 +119,7 @@ GameObject:
   - component: {fileID: 37613086710126717}
   - component: {fileID: 37613086710126715}
   - component: {fileID: 37613086710126714}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Img_UnitCost
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -195,7 +195,7 @@ GameObject:
   - component: {fileID: 37613086802759035}
   - component: {fileID: 37613086802759033}
   - component: {fileID: 37613086802759032}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Txt_CostValue
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -331,7 +331,7 @@ GameObject:
   - component: {fileID: 37613087188901067}
   - component: {fileID: 37613087188901066}
   - component: {fileID: 6522918597611531027}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Img_Border
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -463,7 +463,7 @@ GameObject:
   - component: {fileID: 37613087876429579}
   - component: {fileID: 37613087876429577}
   - component: {fileID: 37613087876429576}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Txt_UnitName
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -598,7 +598,7 @@ GameObject:
   - component: {fileID: 37613087993181222}
   - component: {fileID: 37613087993181220}
   - component: {fileID: 37613087993181223}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Img_UnitPortrait
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -674,7 +674,7 @@ GameObject:
   - component: {fileID: 3573153100912366225}
   - component: {fileID: 5251935572458738288}
   - component: {fileID: 4696798350893777049}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Img_Purchased
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -750,7 +750,7 @@ GameObject:
   - component: {fileID: 640733554933392206}
   - component: {fileID: 6393218292930219703}
   - component: {fileID: 239453988722890005}
-  m_Layer: 0
+  m_Layer: 5
   m_Name: UI_Txt_Star
   m_TagString: Untagged
   m_Icon: {fileID: 0}

@@ -155,15 +155,15 @@ Material:
     - _OutlinePixelSizeType: 1
     - _OutlineTextureLOD: 5
     - _OutlineTextureType: 0
-    - _OutlineWidth: 0.12
+    - _OutlineWidth: 3.31
     - _Parallax: 0.005
     - _QueueOffset: 0
     - _RampBands: 4
     - _RampBandsSmoothing: 0.1
     - _RampOffset: 0
     - _RampScale: 1
-    - _RampSmoothing: 0.4
-    - _RampThreshold: 0.6
+    - _RampSmoothing: 0.71
+    - _RampThreshold: 0.57
     - _RampType: 0
     - _ReceiveShadows: 1
     - _ReceiveShadowsOff: 0
