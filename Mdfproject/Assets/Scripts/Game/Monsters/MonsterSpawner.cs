@@ -50,21 +50,29 @@ public class MonsterSpawner : MonoBehaviour
     void Update()
     {
         if (playerManager == null || GameManagers.Instance == null) return;
+        
+        // 서버에서만 전투 상태 업데이트 (Networked 속성은 StateAuthority만 변경 가능)
+        if (playerManager.Object == null || !playerManager.Object.HasStateAuthority) return;
 
         if (GameManagers.Instance.GetGameState() != GameManagers.GameState.Combat)
         {
             if (playerManager.IsActivelyFighting)
             {
                 playerManager.SetFightingState(false);
+                Debug.Log($"<color=yellow>[MonsterSpawner] Player {playerManager.playerId}: 전투 상태 비전투 (GameState != Combat)</color>");
             }
             return;
         }
 
-        if (!isSpawningWave && monsterParent.childCount == 0)
+        // 디버그: 현재 몬스터 상태 확인
+        int monsterCount = monsterParent != null ? monsterParent.childCount : -1;
+        
+        if (!isSpawningWave && monsterCount == 0)
         {
             if (playerManager.IsActivelyFighting)
             {
                 playerManager.SetFightingState(false);
+                Debug.Log($"<color=green>[MonsterSpawner] Player {playerManager.playerId}: 전투 종료! (monsterCount={monsterCount}, isSpawningWave={isSpawningWave})</color>");
             }
         }
     }

@@ -54,6 +54,15 @@
              {
                  SortAndDisplayPlayers();
              }
+             
+             // 전투 상태 등 실시간 변경사항 반영을 위해 매 프레임 UI 업데이트
+             foreach (var slot in allSlots)
+             {
+                 if (slot != null && slot.gameObject.activeInHierarchy)
+                 {
+                     slot.UpdateUI();
+                 }
+             }
          }
      }
 

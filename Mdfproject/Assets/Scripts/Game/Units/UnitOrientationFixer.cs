@@ -25,6 +25,9 @@ public class UnitOrientationFixer : MonoBehaviour
     [Tooltip("Rotate the unit root to face the camera once on spawn (yaw only).")]
     public bool faceCameraOnSpawn = true;
 
+    [Tooltip("Continuously face the camera every frame (overrides network sync).")]
+    public bool faceCameraEveryFrame = true;
+
     [Tooltip("Continuously enforce rig local rotation in LateUpdate (after Animator).")]
     public bool enforceEveryLateUpdate = true;
 
@@ -65,6 +68,12 @@ public class UnitOrientationFixer : MonoBehaviour
         if (enforceEveryLateUpdate)
         {
             EnforceRigLocalRotation();
+        }
+        
+        // 네트워크 동기화를 덮어쓰기 위해 매 프레임 카메라를 바라봄
+        if (faceCameraEveryFrame)
+        {
+            FaceCameraYaw();
         }
     }
 
@@ -118,6 +127,7 @@ public class UnitOrientationFixer : MonoBehaviour
 
     private void FaceCameraYaw()
     {
+        // Camera.main 사용 (각 클라이언트에서 자신의 메인 카메라 반환)
         Camera cam = targetCamera != null ? targetCamera : Camera.main;
         if (cam == null) return;
 

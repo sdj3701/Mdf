@@ -61,7 +61,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [HideInInspector]
     public PlayerManager opponentManager;
 
-    public bool IsActivelyFighting { get; private set; }
+    [Networked] public NetworkBool IsActivelyFighting { get; set; }
 
     private ChangeDetector _changeDetector;
 
@@ -474,7 +474,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public void SetFightingState(bool isFighting)
     {
-        this.IsActivelyFighting = isFighting;
+        // Networked 속성은 StateAuthority만 변경 가능
+        bool hasAuth = HasStateAuthorityOrNoNetwork();
+        Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: isFighting={isFighting}, hasAuth={hasAuth}, 이전값={IsActivelyFighting}</color>");
+        if (!hasAuth) return;
+        IsActivelyFighting = isFighting;
+        Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: 설정 후={IsActivelyFighting}</color>");
     }
 
     #region Public Getters & Stat Modifiers
