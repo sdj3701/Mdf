@@ -84,7 +84,7 @@ Mdfproject/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Core/Proper
 
 # --- 3rd Party Assets (Team Decision) --- #
 # Temporarily ignoring Photon package until team decision is made.
-Mdfproject/Assets/Photon/
+
 
 .aider*
 .qwen*
