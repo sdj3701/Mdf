@@ -15,11 +15,21 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
 
     protected virtual NetworkObject InstantiatePrefab(NetworkRunner runner, NetworkObject prefab, NetworkPrefabId prefabId)
     {
+        // 풀에서 재사용 가능한 인스턴스 확인
         if (_free.TryGetValue(prefabId, out var freeQueue) && freeQueue.Count > 0)
         {
             var instance = freeQueue.Dequeue();
-            instance.gameObject.SetActive(true);
-            return instance;
+            // 풀에 있던 인스턴스가 파괴되었는지 확인
+            if (instance == null || instance.gameObject == null)
+            {
+                Debug.LogWarning($"[PooledNetworkObjectProvider] 풀에서 가져온 인스턴스가 null입니다. PrefabId: {prefabId}. 새로 생성합니다.");
+                // 계속해서 새 인스턴스 생성으로 진행
+            }
+            else
+            {
+                instance.gameObject.SetActive(true);
+                return instance;
+            }
         }
 
         if (!_free.ContainsKey(prefabId))
@@ -27,6 +37,14 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             _free.Add(prefabId, new Queue<NetworkObject>());
         }
 
+        // 프리팹이 null인지 확인
+        if (prefab == null)
+        {
+            Debug.LogError($"[PooledNetworkObjectProvider] ❌ 프리팹이 null입니다! PrefabId: {prefabId}. Fusion 프리팹 테이블을 확인하세요.");
+            return null;
+        }
+
+        Debug.Log($"[PooledNetworkObjectProvider] 새 인스턴스 생성: {prefab.name}, PrefabId: {prefabId}");
         return Instantiate(prefab);
     }
 

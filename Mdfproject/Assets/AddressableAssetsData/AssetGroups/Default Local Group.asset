@@ -192,16 +192,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
-  - m_GUID: 1831533972272eb408da1971d3a1e504
-    m_Address: Player_Root
-    m_ReadOnly: 0
-    m_SerializedLabels:
-    - Manager
-  - m_GUID: 02503b93bf979f74ebb624163dc2e873
-    m_Address: User_Grid
-    m_ReadOnly: 0
-    m_SerializedLabels:
-    - Manager
   - m_GUID: e632060e4786c87469cfbf29fea19915
     m_Address: GameManagers
     m_ReadOnly: 0
@@ -217,11 +207,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
-  - m_GUID: 23db93d9dcd62b140b715dc66412d301
-    m_Address: User_Grid3D
-    m_ReadOnly: 0
-    m_SerializedLabels:
-    - Manager
   - m_GUID: 99dda8f6ae322454ca5f9bd87b583efb
     m_Address: Knight
     m_ReadOnly: 0
