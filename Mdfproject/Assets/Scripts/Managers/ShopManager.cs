@@ -38,20 +38,43 @@ public class ShopManager : MonoBehaviour
     }
 
     /// <summary>
+    /// 서버에서 전송받은 상점 아이템 데이터로 로컬 상점을 업데이트합니다.
+    /// </summary>
+    public void SetShopItemsFromServer(string[] unitDataNames, int[] starLevels)
+    {
+        currentShopItems.Clear();
+        for (int i = 0; i < _isSlotSold.Length; i++)
+        {
+            _isSlotSold[i] = false;
+        }
+
+        for (int i = 0; i < unitDataNames.Length && i < starLevels.Length; i++)
+        {
+            var unitData = LoadManager.Instance?.GetUnitData(unitDataNames[i]);
+            if (unitData != null)
+            {
+                currentShopItems.Add(new ShopItem(unitData, starLevels[i]));
+            }
+            else
+            {
+                Debug.LogWarning($"[ShopManager] 유닛 데이터를 찾을 수 없음: {unitDataNames[i]}");
+            }
+        }
+        GameEvents.TriggerShopRefreshed(playerManager);
+    }
+
+    /// <summary>
     /// 유닛 데이터베이스 로딩이 완료되면 끝나는 작업을 반환합니다.
     /// </summary>
     public UniTask WaitUntilDatabaseLoaded() => databaseLoadTask.Task.AsUniTask();
 
     // [변경됨] 반환 타입이 List<ShopItem>으로 변경되었습니다.
     /// <summary>
-    /// 현재 상점 아이템을 반환합니다. 비어 있고 DB가 준비되었다면 무료 리롤로 채웁니다.
+    /// 현재 상점 아이템을 반환합니다.
     /// </summary>
     public List<ShopItem> GetCurrentShopItems()
     {
-        if (currentShopItems.Count == 0 && IsDatabaseLoaded)
-        {
-            Reroll(isFree: true);
-        }
+        // 자동 리롤 제거 - 서버에서 RPC로 동기화해야 함
         return currentShopItems;
     }
     /// <summary>
@@ -112,22 +135,27 @@ public class ShopManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 유닛 데이터 로딩을 보장하고, 상점 아이템 리롤을 실행합니다.
-    /// 이 함수를 호출하면 currentShopItems가 채워집니다 (Count > 0).
+    /// 유닛 데이터 로딩을 보장하고, 상점 아이템이 있는지 확인합니다.
+    /// 서버에서는 리롤 후 동기화, 클라이언트는 서버 데이터 도착을 대기합니다.
     /// </summary>
     public async UniTask EnsureShopRerolledAsync()
     {
-        // 1. 유닛 데이터(Addressables) 로드가 완료될 때까지 기다림
-        // Reroll 함수 내부에서 IsDatabaseLoaded를 체크하지만, 비동기로 외부에서 기다려주어 확실하게 보장합니다.
-        await WaitUntilDatabaseLoaded(); 
+        await WaitUntilDatabaseLoaded();
         
-        // 2. 데이터 로딩이 완료되면 Reroll을 호출하여 currentShopItems를 채움
-        //    * Reroll() 함수 내부에 currentShopItems.Add(...) 로직이 이미 구현되어 있습니다.
+        // 상점 아이템이 이미 있으면 대기 없이 반환
+        if (currentShopItems.Count > 0) return;
         
-        // 상점 아이템이 0개일 때만 리롤을 수행하여 채웁니다. (새 라운드 시작 등)
+        // 서버 데이터 도착을 최대 5초간 대기
+        float waited = 0f;
+        while (currentShopItems.Count == 0 && waited < 5f)
+        {
+            await UniTask.Delay(100);
+            waited += 0.1f;
+        }
+        
         if (currentShopItems.Count == 0)
         {
-            Reroll(isFree: true); // 처음 상점을 채우는 것이므로 무료 리롤로 처리합니다.
+            UnityEngine.Debug.LogWarning("[ShopManager] 상점 아이템 대기 타임아웃");
         }
     }
 

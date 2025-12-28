@@ -242,6 +242,28 @@ public class GameManagers : NetworkBehaviour
         // [수정] 플레이어가 완전히 연결될 때까지 대기
         await UniTask.WaitUntil(() => localPlayer != null && AllPlayers.Any());
         
+        // 로컬 플레이어의 상점/증강 데이터 로딩 대기 (클라이언트도 자신의 데이터가 로드될 때까지 기다림)
+        if (localPlayer != null)
+        {
+            Debug.Log($"[GameFlow] 로컬 플레이어 데이터 로딩 대기 중...");
+            if (localPlayer.shopManager != null)
+            {
+                await localPlayer.shopManager.WaitUntilDatabaseLoaded();
+            }
+            if (localPlayer.augmentManager != null)
+            {
+                await localPlayer.augmentManager.WaitUntilAugmentDataLoaded();
+            }
+            Debug.Log($"[GameFlow] 로컬 플레이어 데이터 로딩 완료!");
+            
+            // 클라이언트인 경우 서버에 데이터 동기화 요청
+            if (!Runner.IsServer)
+            {
+                Debug.Log($"[GameFlow] 클라이언트가 서버에 데이터 동기화 요청");
+                localPlayer.RPC_RequestSyncData();
+            }
+        }
+        
         await SetupGameUI();
 
         // UI 설정이 완료될 때까지 잠시 대기
@@ -301,6 +323,24 @@ public class GameManagers : NetworkBehaviour
                     }
                 }
             }
+            
+            // 서버에서 모든 플레이어의 초기 상점 아이템 생성 (클라이언트가 요청하면 동기화됨)
+            if (Runner.IsServer)
+            {
+                foreach (var player in playersList)
+                {
+                    if (player.shopManager != null)
+                    {
+                        // 상점이 비어있으면 리롤
+                        if (player.shopManager.GetCurrentShopItems().Count == 0)
+                        {
+                            player.shopManager.Reroll(isFree: true);
+                            Debug.Log($"[GameFlow] Player {player.playerId} 초기 상점 리롤 완료");
+                        }
+                    }
+                }
+            }
+            
             await StartNextRound();
         }
     }
@@ -547,6 +587,25 @@ public class GameManagers : NetworkBehaviour
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_NotifyAugmentSelected(int playerID, string augmentName)
+    {
+        var player = GetPlayer(playerID);
+        if (player != null)
+        {
+            // 증강 데이터 찾기
+            var augments = player.augmentManager?.GetPresentedAugments();
+            AugmentData chosenAugment = augments?.FirstOrDefault(a => a?.augmentName == augmentName);
+            
+            // 이벤트 트리거 (UI 닫기 등)
+            if (chosenAugment != null)
+            {
+                GameEvents.TriggerAugmentApplied(player, chosenAugment);
+                Debug.Log($"<color=green>[RPC_NotifyAugmentSelected] Player {playerID}: '{augmentName}' 선택 알림</color>");
+            }
+        }
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyWallPlacementSucceeded(int playerID, int x, int y)
     {
         var pos = new Vector3Int(x, y, 0);
@@ -638,6 +697,12 @@ public class GameManagers : NetworkBehaviour
             player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
             player.shopManager.Reroll(true);
 
+            // 상점 아이템 RPC 동기화
+            var shopItems = player.shopManager.GetCurrentShopItems();
+            string[] shopNames = shopItems.Select(i => i.UnitData?.name ?? "").ToArray();
+            int[] shopStars = shopItems.Select(i => i.StarLevel).ToArray();
+            player.RPC_SyncShopItems(shopNames, shopStars);
+
             // AI 준비 단계 플래그 리셋
             player.mazeConstructionComplete = false;
             player.unitPurchaseComplete = false;
@@ -660,14 +725,16 @@ public class GameManagers : NetworkBehaviour
                 player.augmentManager.PresentAugments();
             }
 
-            // 각 플레이어의 제시 증강 이름을 모든 클라이언트에 동기화
+            // 각 플레이어의 제시 증강 이름을 모든 클라이언트에 RPC로 동기화
+            // (클라이언트 RPC_RequestSyncData 요청 외에 백업으로도 동작)
             foreach (var player in AllPlayers)
             {
                 if (player == null) continue;
                 var names = player.augmentManager.GetPresentedAugments()
                     .Select(a => a != null ? a.augmentName : string.Empty)
                     .ToArray();
-                PresentedAugments(player.playerId, names);
+                player.RPC_SyncPresentedAugments(names);
+                Debug.Log($"[StartNextRound] Player {player.playerId} 증강체 동기화: {string.Join(", ", names)}");
             }
         }
         // UI 로직이 완료될 때까지 명시적으로 기다립니다.

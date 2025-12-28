@@ -233,6 +233,73 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    /// <summary>
+    /// 서버에서 생성한 상점 아이템을 모든 클라이언트에 동기화합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_SyncShopItems(string[] unitDataNames, int[] starLevels)
+    {
+        // 서버는 이미 상점 아이템을 가지고 있으므로 무시
+        if (Object != null && Object.HasStateAuthority) return;
+
+        if (shopManager != null)
+        {
+            shopManager.SetShopItemsFromServer(unitDataNames, starLevels);
+            Debug.Log($"<color=cyan>[RPC_SyncShopItems] Player {playerId}: {unitDataNames.Length}개 상점 아이템 동기화 완료</color>");
+        }
+    }
+
+    /// <summary>
+    /// 서버에서 생성한 증강체 목록을 모든 클라이언트에 동기화합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_SyncPresentedAugments(string[] augmentNames)
+    {
+        // 서버는 이미 증강체 목록을 가지고 있으므로 무시
+        if (Object != null && Object.HasStateAuthority) return;
+
+        if (augmentManager != null)
+        {
+            augmentManager.SetPresentedAugmentsByNames(augmentNames);
+            Debug.Log($"<color=magenta>[RPC_SyncPresentedAugments] Player {playerId}: {augmentNames.Length}개 증강체 동기화 완료</color>");
+        }
+    }
+
+    /// <summary>
+    /// 클라이언트가 서버에 상점 및 증강체 데이터 동기화를 요청합니다.
+    /// </summary>
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestSyncData()
+    {
+        // 서버만 처리
+        if (Object == null || !Object.HasStateAuthority) return;
+        
+        Debug.Log($"<color=yellow>[RPC_RequestSyncData] Player {playerId}에게 데이터 동기화 요청 수신</color>");
+        
+        // 상점 동기화
+        if (shopManager != null)
+        {
+            var items = shopManager.GetCurrentShopItems();
+            if (items.Count > 0)
+            {
+                string[] shopNames = items.Select(i => i.UnitData?.name ?? "").ToArray();
+                int[] shopStars = items.Select(i => i.StarLevel).ToArray();
+                RPC_SyncShopItems(shopNames, shopStars);
+            }
+        }
+        
+        // 증강체 동기화
+        if (augmentManager != null)
+        {
+            var augments = augmentManager.GetPresentedAugments();
+            if (augments.Count > 0)
+            {
+                string[] augNames = augments.Select(a => a?.augmentName ?? "").ToArray();
+                RPC_SyncPresentedAugments(augNames);
+            }
+        }
+    }
+
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_ApplyPermanentWalls(int[] flatPositions)
     {

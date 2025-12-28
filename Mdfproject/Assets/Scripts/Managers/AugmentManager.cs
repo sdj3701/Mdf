@@ -28,31 +28,35 @@ public class AugmentManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 증강 데이터 로딩을 보장하고, 멀티플레이/싱글플레이 상황에 맞게 증강 제시를 요청합니다.
+    /// 증강 데이터 로딩을 보장하고, 증강 목록이 있는지 확인합니다.
+    /// 서버에서는 생성, 클라이언트에서는 서버 데이터 도착을 대기합니다.
     /// </summary>
     public async UniTask EnsureAugmentsPresentedAsync(IEnumerable<string> augmentNamesFromServer = null)
     {
         // 1. 증강 데이터(Addressables) 로드가 완료될 때까지 기다림
-        // isDataLoaded가 true가 될 때까지 기다립니다. (LoadAllAugmentsFromAddressables의 완료 보장)
-        await WaitUntilAugmentDataLoaded(); 
+        await WaitUntilAugmentDataLoaded();
 
-        // 2. 증강 목록을 채우는 로직 실행
+        // 2. 서버에서 이름 목록을 받았으면 적용
         if (augmentNamesFromServer != null && augmentNamesFromServer.Any())
         {
-            // 서버/호스트로부터 동기화할 이름 목록이 있을 경우
             SetPresentedAugmentsByNames(augmentNamesFromServer);
-        }
-        else
-        {
-            // 이름 목록이 없을 경우 (싱글 플레이이거나 호스트가 직접 제시하는 경우)
-            PresentAugments();
+            return;
         }
         
-        // 이 시점에는 presentedAugments.Count가 1 이상이 될 확률이 높습니다.
+        // 3. 이미 증강 목록이 있으면 대기 없이 반환
+        if (presentedAugments.Count > 0) return;
+        
+        // 4. 서버 데이터 도착을 최대 5초간 대기 (클라이언트용)
+        float waited = 0f;
+        while (presentedAugments.Count == 0 && waited < 5f)
+        {
+            await UniTask.Delay(100);
+            waited += 0.1f;
+        }
+        
         if (presentedAugments.Count == 0)
         {
-            // 예외 상황: 로드는 끝났는데 제시할 증강이 없는 경우 (데이터 오류/룰렛 문제 등)
-            Debug.LogError("로딩은 완료되었으나, 제시 가능한 증강이 없어 presentedAugments가 비어있습니다.");
+            Debug.LogWarning("[AugmentManager] 증강체 데이터 대기 타임아웃");
         }
     }
 
