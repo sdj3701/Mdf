@@ -211,7 +211,9 @@ public class GameManagers : NetworkBehaviour
     private async UniTask GameFlow()
     {
         currentState = GameState.Setup;
-
+        if (Runner.IsServer) {
+            await UniTask.WaitUntil(() => Runner.ActivePlayers.Count() >= MAX_PLAYERS);
+        }
         await SetupPlayersAndGrids();
 
         // [수정] 플레이어가 완전히 연결될 때까지 대기
