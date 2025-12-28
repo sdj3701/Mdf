@@ -20,6 +20,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     [Header("Player")]
     // 스폰할 플레이어 프리팹입니다. Inspector에서 할당해야 합니다.
     [SerializeField] private NetworkObject _playerPrefab;
+    // 세션 최대 플레이어 수 (Inspector에서 설정)
+    [SerializeField, Range(2, 4)] private int maxSessionPlayers = 2;
     // 서버에서 플레이어들을 관리하기 위한 딕셔너리입니다.
     private readonly Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
 
@@ -161,7 +163,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             Scene = scene, // Fusion이 이 씬을 로드하도록 지정합니다.
             SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
             ObjectProvider = objectProvider,
-            PlayerCount = 2 // 최대 플레이어 수를 2명으로 설정
+            PlayerCount = maxSessionPlayers // Inspector에서 설정한 최대 플레이어 수
         });
     }
 
