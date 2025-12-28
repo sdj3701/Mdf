@@ -150,7 +150,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             Debug.LogError($"[Player {playerId}]: gridNetworkObject resolve 실패");
             return;
         }
-        Debug.Log($"[Player {playerId}]: gridNetworkObject를 성공적으로 받았습니다. (ID: {gridNetworkObject.Id})");
+        //Debug.Log($"[Player {playerId}]: gridNetworkObject를 성공적으로 받았습니다. (ID: {gridNetworkObject.Id})");
 
         var gridInstance = gridNO.gameObject;
 
