@@ -33,10 +33,10 @@ public class GameManagers : NetworkBehaviour
 
     public float currentPhaseTimer => phaseTimer.IsRunning ? phaseTimer.RemainingTime(Runner) ?? 0f : 0f;
 
-    // 세션은 항상 4명 (Inspector 설정 제거)
-    private const int MAX_PLAYERS = 2;
+    // 세션은 최대 4명까지 지원
+    private const int MAX_PLAYERS = 4;
 
-    [Networked, Capacity(2)]
+    [Networked, Capacity(4)]
     private NetworkArray<NetworkObject> NetworkPlayers { get; }
 
     // 싱글플레이어 모드에서 사용할 플레이어 수 (GameSceneInitializer에서 설정)
@@ -230,8 +230,12 @@ public class GameManagers : NetworkBehaviour
         // Addressables에서 프리팹 로드
         await LoadPrefabsAsync();
         
-        if (Runner.IsServer) {
-            await UniTask.WaitUntil(() => Runner.ActivePlayers.Count() >= MAX_PLAYERS);
+        // 멀티플레이 모드: 로비에서 이미 호스트가 시작 버튼을 눌렀으므로 대기 필요 없음
+        // 싱글플레이: 바로 진행
+        if (Runner.IsServer && Runner.GameMode != GameMode.Single) {
+            int currentPlayers = Runner.ActivePlayers.Count();
+            int sessionMaxPlayers = Runner.SessionInfo?.MaxPlayers ?? 4;
+            Debug.Log($"[GameFlow] 멀티플레이 모드 - 접속자: {currentPlayers}명, 세션 최대: {sessionMaxPlayers}명");
         }
         await SetupPlayersAndGrids();
 
@@ -367,9 +371,8 @@ public class GameManagers : NetworkBehaviour
         if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
         var playerRefs = Runner.ActivePlayers.ToList();
 
-        // 플레이어 생성 수 및 AI 설정 결정
+        // 플레이어 생성 수 결정
         int playersToCreate;
-        bool[] isAIPlayer = new bool[MAX_PLAYERS];
 
         if (Runner.GameMode == GameMode.Single)
         {
@@ -377,34 +380,37 @@ public class GameManagers : NetworkBehaviour
             var initializer = FindObjectOfType<GameSceneInitializer>();
             if (initializer != null)
             {
-                playersToCreate = initializer.singlePlayerCount;
+                playersToCreate = Mathf.Min(initializer.singlePlayerCount, MAX_PLAYERS);
                 singlePlayerModeCount = playersToCreate; // 네트워크 동기화
-                
             }
             else
             {
                 // GameSceneInitializer가 없으면 singlePlayerModeCount 사용 (멀티플레이에서 Single 모드로 전환 시)
-                playersToCreate = singlePlayerModeCount > 0 ? singlePlayerModeCount : 2;
-                
-            }
-
-            
-
-            // 0번은 로컬 플레이어, 나머지는 AI
-            for (int i = 0; i < MAX_PLAYERS; i++)
-            {
-                isAIPlayer[i] = (i >= playersToCreate) ? false : (i > 0); // i=0은 로컬, i>0은 AI
+                playersToCreate = singlePlayerModeCount > 0 ? Mathf.Min(singlePlayerModeCount, MAX_PLAYERS) : 2;
             }
         }
         else
         {
-            // 멀티플레이 모드: 항상 4명, 접속 안한 슬롯은 AI
-            playersToCreate = MAX_PLAYERS;
+            // 멀티플레이 모드: 세션에 설정된 플레이어 수
+            int sessionMaxPlayers = Runner.SessionInfo?.MaxPlayers ?? 2;
+            playersToCreate = Mathf.Min(sessionMaxPlayers, MAX_PLAYERS);
+        }
 
-            
+        // AI 플레이어 배열을 playersToCreate 크기로 동적 생성
+        bool[] isAIPlayer = new bool[playersToCreate];
 
-            // 실제 접속한 플레이어 수만큼은 실제 플레이어, 나머지는 AI
-            for (int i = 0; i < MAX_PLAYERS; i++)
+        if (Runner.GameMode == GameMode.Single)
+        {
+            // 0번은 로컬 플레이어, 나머지는 AI
+            for (int i = 0; i < playersToCreate; i++)
+            {
+                isAIPlayer[i] = (i > 0);
+            }
+        }
+        else
+        {
+            // 멀티플레이 모드: 실제 접속한 플레이어 수만큼은 실제 플레이어, 나머지는 AI
+            for (int i = 0; i < playersToCreate; i++)
             {
                 isAIPlayer[i] = (i >= playerRefs.Count);
             }
