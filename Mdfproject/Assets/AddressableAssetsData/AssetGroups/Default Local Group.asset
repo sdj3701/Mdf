@@ -257,6 +257,21 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - CharacterPrefab
+  - m_GUID: b4a0e6f54c522e440a5d01c7849a9981
+    m_Address: ArrowProjectile
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Projectile
+  - m_GUID: bbbaa5e8ca9294147bc1c80923466b82
+    m_Address: Healer1
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
+  - m_GUID: 1a43a415e2b482941a838df442570927
+    m_Address: UI_Can_UnitSell
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

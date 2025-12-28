@@ -36,6 +36,24 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     private float baseMoveSpeed;
     private float currentMoveSpeed;
     private NetworkObject netObj;
+    private MonsterReleaseScheduler releaseScheduler;
+    private Coroutine resumeCoroutine;
+    private int currentBlockerId = 0;
+
+    private bool HasStateAuthorityOrNoNetwork()
+    {
+        if (netObj == null)
+        {
+            netObj = GetComponent<NetworkObject>();
+        }
+
+        if (netObj == null || netObj.Runner == null || !netObj.Runner.IsRunning)
+        {
+            return true;
+        }
+
+        return netObj.HasStateAuthority;
+    }
 
     void OnApplicationQuit() { isQuitting = true; }
 
@@ -50,6 +68,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         this.goalTransform = goal;
         this.monsterData = data;
         this.pathfinder = pathfinder;
+        this.releaseScheduler = owner != null ? owner.GetComponentInChildren<MonsterReleaseScheduler>(true) : null;
         this.name = monsterData.monsterName;
         this.wallLayerMask = pathfinder.wallLayers;
         netObj = GetComponent<NetworkObject>();
@@ -75,12 +94,20 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     {
         if (monsterData != null && monsterData.skillData != null)
         {
+            if (!HasStateAuthorityOrNoNetwork())
+            {
+                return;
+            }
             manaController.GainManaOverTime(10f);
         }
     }
 
     private void ActivateSkill()
     {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
         SkillData skillData = monsterData.skillData;
 
         if (skillData == null || skillData.targetingStrategy == null || skillData.effects.Count == 0)
@@ -101,7 +128,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             {
                 if (effect != null)
                 {
-                    effect.ApplyEffect(null, this.gameObject, targets);
+                    effect.ApplyEffect(null, this.gameObject, targets, skillData.range, skillData.targetingStrategy);
                 }
             }
 
@@ -170,6 +197,16 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         {
             blockingUnit.ReleaseBlockedMonster(this);
         }
+        var no = netObj != null ? netObj : GetComponent<NetworkObject>();
+        if (no != null && no.Runner != null && no.Runner.IsRunning)
+        {
+            if (!no.HasStateAuthority)
+            {
+                return;
+            }
+            no.Runner.Despawn(no);
+            return;
+        }
         Destroy(gameObject);
     }
 
@@ -183,6 +220,13 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     {
         if (target == null) return;
         StopAllCoroutines();
+        resumeCoroutine = null;
+        currentBlockerId = 0;
+        var blocker = target as MonoBehaviour;
+        if (blocker != null)
+        {
+            currentBlockerId = blocker.GetInstanceID();
+        }
         isMoving = false;
         attackCoroutine = StartCoroutine(AttackLoop(target));
     }
@@ -203,6 +247,39 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
         attackCoroutine = null;
 
+        ScheduleResumeFromBlocker();
+    }
+
+    private void ScheduleResumeFromBlocker()
+    {
+        int blockerId = currentBlockerId;
+        currentBlockerId = 0;
+
+        if (resumeCoroutine != null)
+        {
+            StopCoroutine(resumeCoroutine);
+            resumeCoroutine = null;
+        }
+
+        float delay = 0f;
+        if (releaseScheduler != null)
+        {
+            delay = releaseScheduler.ReserveDelay(blockerId);
+        }
+
+        if (delay <= 0f)
+        {
+            FindNewPathToGoal();
+            return;
+        }
+
+        resumeCoroutine = StartCoroutine(ResumeAfterDelay(delay));
+    }
+
+    private IEnumerator ResumeAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        resumeCoroutine = null;
         FindNewPathToGoal();
     }
     #endregion
@@ -379,7 +456,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             attackCoroutine = null;
         }
 
-        FindNewPathToGoal();
+        ScheduleResumeFromBlocker();
     }
     #endregion
 }

@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
 using System.Threading.Tasks;
+using Fusion;
 public class Unit : MonoBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
@@ -49,6 +50,9 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private Transform targetTransform;
     [SerializeField] private Animator animator;
     [SerializeField] private string attackTriggerParam = "AttackTrigger";
+    [SerializeField] private string skillTriggerParam = "SkillTrigger";
+    [SerializeField] private string skillStateTag = "Skill";
+    [SerializeField] private bool blockAttacksDuringSkill = true;
     [SerializeField] private float maxAttackAnimationsPerSecond = 4f;
     [SerializeField] private float baseAttackAnimationDuration = 1f;
     private float lastAttackAnimTime = -999f;
@@ -56,22 +60,148 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private bool attackClipDurationInitialized = false;
     private Coroutine attackClipDetectRoutine;
     private PlayerManager owner;
+    private NetworkObject _networkObject;
+    private float _nextProjectileVfxTime;
+    private float _cachedProjectileSpeed = -1f;
+    private bool _hasPendingProjectileAttack;
+    private PendingProjectileAttack _pendingProjectileAttack;
+    private bool _isSkillCasting;
+    private Coroutine _skillCastingRoutine;
+
+    private struct PendingProjectileAttack
+    {
+        public NetworkObject Target;
+        public IEnemy TargetEnemy;
+        public float Damage;
+        public DamageType DamageType;
+        public float ProjectileSpeed;
+    }
 
     private bool isCombatPhase = false;
+
+    private bool HasStateAuthorityOrNoNetwork()
+    {
+        if (_networkObject == null)
+        {
+            _networkObject = GetComponent<NetworkObject>();
+        }
+
+        if (_networkObject == null || _networkObject.Runner == null || !_networkObject.Runner.IsRunning)
+        {
+            return true;
+        }
+
+        return _networkObject.HasStateAuthority;
+    }
 
     void OnEnable()
     {
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
 
-    private void TryPlayAttackAnimation()
+    private bool IsSkillCasting()
     {
-        if (animator == null) return;
+        return blockAttacksDuringSkill && _isSkillCasting;
+    }
+
+    private void BeginSkillCasting()
+    {
+        TriggerSkillAnimation();
+        CancelPendingProjectileAttack();
+
+        if (!blockAttacksDuringSkill || animator == null || string.IsNullOrEmpty(skillStateTag))
+        {
+            return;
+        }
+
+        _isSkillCasting = true;
+
+        if (_skillCastingRoutine != null)
+        {
+            StopCoroutine(_skillCastingRoutine);
+        }
+
+        _skillCastingRoutine = StartCoroutine(MonitorSkillAnimation());
+    }
+
+    private void TriggerSkillAnimation()
+    {
+        if (animator == null || string.IsNullOrEmpty(skillTriggerParam))
+        {
+            return;
+        }
+
+        if (animSpeedResetRoutine != null)
+        {
+            StopCoroutine(animSpeedResetRoutine);
+            animSpeedResetRoutine = null;
+        }
+
+        animator.speed = 1f;
+
+        if (!string.IsNullOrEmpty(attackTriggerParam))
+        {
+            animator.ResetTrigger(attackTriggerParam);
+        }
+
+        animator.ResetTrigger(skillTriggerParam);
+        animator.SetTrigger(skillTriggerParam);
+    }
+
+    private IEnumerator MonitorSkillAnimation()
+    {
+        float elapsed = 0f;
+        const float enterTimeout = 0.5f;
+
+        while (elapsed < enterTimeout)
+        {
+            if (animator == null)
+            {
+                _isSkillCasting = false;
+                _skillCastingRoutine = null;
+                yield break;
+            }
+
+            var st = animator.GetCurrentAnimatorStateInfo(0);
+            if (st.IsTag(skillStateTag))
+            {
+                break;
+            }
+
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        while (animator != null)
+        {
+            var st = animator.GetCurrentAnimatorStateInfo(0);
+            if (!st.IsTag(skillStateTag))
+            {
+                break;
+            }
+
+            yield return null;
+        }
+
+        _isSkillCasting = false;
+        _skillCastingRoutine = null;
+    }
+
+    private void CancelPendingProjectileAttack()
+    {
+        _hasPendingProjectileAttack = false;
+        _pendingProjectileAttack = new PendingProjectileAttack();
+    }
+
+    private bool TryPlayAttackAnimation()
+    {
+        if (IsSkillCasting()) return false;
+        if (animator == null) return false;
         float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
-        if (animRate <= 0f) return;
+        if (animRate <= 0f) return false;
         float now = Time.time;
         float minInterval = 1f / animRate;
-        if (now - lastAttackAnimTime < minInterval) return;
+        if (now - lastAttackAnimTime < minInterval) return false;
         lastAttackAnimTime = now;
         float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
         animator.speed = Mathf.Max(0.01f, speed);
@@ -86,6 +216,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         {
             attackClipDetectRoutine = StartCoroutine(CaptureAttackClipDuration());
         }
+        return true;
     }
 
     private IEnumerator ResetAnimatorSpeedAfter(float seconds)
@@ -196,6 +327,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             StopCoroutine(attackClipDetectRoutine);
             attackClipDetectRoutine = null;
         }
+        if (_skillCastingRoutine != null)
+        {
+            StopCoroutine(_skillCastingRoutine);
+            _skillCastingRoutine = null;
+        }
+        _isSkillCasting = false;
     }
 
     public void SetStatusBar(StatusBarUI ui)
@@ -215,6 +352,10 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         this.unitData = data;
         this.owner = owner;
+        if (_networkObject == null)
+        {
+            _networkObject = GetComponent<NetworkObject>();
+        }
         if(this.unitData == null)
         {
             Debug.LogError($"UnitData is null for unit {name}");
@@ -244,11 +385,17 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         
         // InitializeStats가 비동기 함수가 되었으므로 await로 호출을 기다립니다.
         await InitializeStats();
+        await CacheProjectileSpeedAsync();
     }
 
     void Update()
     {
         if (!isCombatPhase || !DoesHaveSkill() || unitData.manaRegenType != ManaRegenType.Passive)
+        {
+            return;
+        }
+
+        if (!HasStateAuthorityOrNoNetwork())
         {
             return;
         }
@@ -266,6 +413,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         if (isCombatPhase)
         {
             StartAttackLoop();
+            _nextProjectileVfxTime = Time.time;
 
             // 힐러인 경우, 전투 시작 시 주변 아군 유닛의 체력 변화를 구독합니다.
             if (DoesHaveSkill() && _loadedSkillData != null && _loadedSkillData.name == "Skill_Heal" && currentSkillActivationType == SkillActivationType.Automatic)
@@ -295,6 +443,13 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                 }
                 manaController.Initialize(maxMana);
             }
+
+            if (_skillCastingRoutine != null)
+            {
+                StopCoroutine(_skillCastingRoutine);
+                _skillCastingRoutine = null;
+            }
+            _isSkillCasting = false;
         }
     }
 
@@ -352,12 +507,44 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         }
     }
     
+    private async UniTask CacheProjectileSpeedAsync()
+    {
+        if (unitData == null || unitData.unitType != UnitType.Ranged)
+        {
+            return;
+        }
+
+        if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
+        {
+            return;
+        }
+
+        string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
+        if (string.IsNullOrEmpty(projectileKey))
+        {
+            return;
+        }
+
+        GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
+        if (projectilePrefab == null)
+        {
+            return;
+        }
+
+        var projectile = projectilePrefab.GetComponent<Projectile>();
+        if (projectile != null)
+        {
+            _cachedProjectileSpeed = projectile.Speed;
+        }
+    }
+
     public async Task Upgrade()
     {
         if (starLevel < 3)
         {
             starLevel++;
             await InitializeStats();
+        await CacheProjectileSpeedAsync();
             Debug.Log($"<color=cyan>{unitData.unitName}이(가) {starLevel}성으로 업그레이드되었습니다!</color>");
         }
     }
@@ -367,6 +554,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         if (!IsDead) return;
         IsDead = false;
         await InitializeStats();
+        await CacheProjectileSpeedAsync();
         gameObject.SetActive(true);
         Debug.Log($"<color=green>{unitData.unitName}이(가) 부활했습니다!</color>");
     }
@@ -374,6 +562,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private void HandleManaFull()
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
+        if (IsSkillCasting()) return;
         
         // --- [핵심 수정 부분] ---
         // 더 이상 SkillData를 직접 접근하거나 로드할 필요가 없습니다.
@@ -406,6 +596,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     public async void ActivateSkill()
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
+        if (IsSkillCasting()) return;
         
         // 스킬 데이터가 로드되었는지 다시 한번 확인합니다.
         if (_loadedSkillData == null)
@@ -428,6 +620,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
         if (manaController.UseMana(currentSkillData.manaCost))
         {
+            BeginSkillCasting();
             Debug.Log($"<color=yellow>{unitData.unitName} 스킬 발동: {currentSkillData.skillName}</color>");
 
             List<GameObject> targets = currentSkillData.targetingStrategy.FindTargets(this.gameObject, transform.position, currentSkillData.range);
@@ -436,7 +629,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             {
                 if (effect != null)
                 {
-                    effect.ApplyEffect(null, this.gameObject, targets);
+                    effect.ApplyEffect(null, this.gameObject, targets, currentSkillData.range, currentSkillData.targetingStrategy);
                 }
             }
             
@@ -530,6 +723,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         // 전투 중이 아니거나, 스킬이 없거나, 힐 스킬이 아니거나, 최대 체력이 0 이하면 무시
         if (!isCombatPhase || !DoesHaveSkill() || _loadedSkillData?.name != "Skill_Heal" || maxHP <= 0) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
 
         // 체력이 70% 미만으로 떨어졌을 때
         if (currentHP / maxHP < 0.7f)
@@ -556,6 +750,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         while (isCombatPhase)
         {
             if (currentAttackSpeed <= 0)
+            {
+                yield return null;
+                continue;
+            }
+
+            if (IsSkillCasting())
             {
                 yield return null;
                 continue;
@@ -608,87 +808,138 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         targetEnemy = nearestEnemy;
         targetTransform = nearestTransform;
     }
-
-    private async void Attack()
+    private void Attack()
     {
+        if (IsSkillCasting())
+        {
+            return;
+        }
         if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange)
         {
             targetEnemy = null;
             return;
         }
-        TryPlayAttackAnimation();
-        bool useEvent = currentAttackSpeed <= maxAttackAnimationsPerSecond + 1e-4f;
-        if (!useEvent)
+        bool playedAnim = TryPlayAttackAnimation();
+
+        bool isRanged = unitData.unitType == UnitType.Ranged;
+
+        if (_networkObject == null)
         {
-            if (unitData.unitType == UnitType.Melee)
+            _networkObject = GetComponent<NetworkObject>();
+        }
+
+        bool hasAuthority = _networkObject == null || _networkObject.HasStateAuthority;
+        if (hasAuthority)
+        {
+            var scheduler = CombatScheduler.Instance;
+            if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning)
+            {
+                var targetNo = targetTransform.GetComponentInParent<NetworkObject>();
+                if (targetNo != null)
+                {
+                    if (isRanged && playedAnim && !_hasPendingProjectileAttack && ShouldEmitProjectileVfx())
+                    {
+                        _pendingProjectileAttack = new PendingProjectileAttack
+                        {
+                            Target = targetNo,
+                            TargetEnemy = targetEnemy,
+                            Damage = currentAttackDamage,
+                            DamageType = unitData.damageType,
+                            ProjectileSpeed = _cachedProjectileSpeed
+                        };
+                        _hasPendingProjectileAttack = true;
+                    }
+                    else
+                    {
+                        Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                        scheduler.ScheduleHit(_networkObject, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                            isRanged, false, _cachedProjectileSpeed);
+                    }
+                }
+                else if (targetEnemy != null)
+                {
+                    targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+                }
+            }
+            else if (targetEnemy != null)
             {
                 targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
             }
-            else if (unitData.unitType == UnitType.Ranged)
-            {
-                if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
-                {
-                    Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 'projectilePrefabsByStarLevel' 배열이 설정되지 않았습니다!", unitData);
-                    return;
-                }
-
-                string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
-                GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
-                if (projectilePrefab == null)
-                {
-                    Debug.LogError($"[공격 실패] {unitData.unitName} ({starLevel}성)의 UnitData에 {starLevel}성 투사체 프리팹({projectileKey})이 할당되지 않았거나 로드에 실패했습니다!", unitData);
-                    return;
-                }
-                if (firePoint == null)
-                {
-                    Debug.LogError($"[공격 실패] {gameObject.name} 프리팹에 'firePoint'가 할당되지 않았습니다!", gameObject);
-                    return;
-                }
-                GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
-                Projectile projectileScript = projectileGO.GetComponent<Projectile>();
-                if (projectileScript != null)
-                {
-                    projectileScript.Initialize(targetTransform, currentAttackDamage, unitData.damageType);
-                }
-                else
-                {
-                    Debug.LogError($"[공격 실패] 투사체 프리팹 '{projectilePrefab.name}'에 Projectile.cs 스크립트가 없습니다!", projectilePrefab);
-                    Destroy(projectileGO);
-                }
-            }
         }
-        
-        if (DoesHaveSkill() && unitData.manaRegenType == ManaRegenType.OnAttack)
+
+        if (DoesHaveSkill() && unitData.manaRegenType == ManaRegenType.OnAttack && HasStateAuthorityOrNoNetwork())
         {
             manaController.GainMana(unitData.manaOnAttack);
         }
     }
 
-    public async void AnimEvent_AttackImpact()
+    private bool ShouldEmitProjectileVfx()
     {
-        if (currentAttackSpeed > maxAttackAnimationsPerSecond + 1e-4f) return;
-        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange) return;
-        if (unitData.unitType == UnitType.Melee)
+        if (maxAttackAnimationsPerSecond <= 0f)
         {
-            targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+            return false;
+        }
+
+        if (currentAttackSpeed <= maxAttackAnimationsPerSecond + 1e-4f)
+        {
+            return true;
+        }
+
+        if (Time.time >= _nextProjectileVfxTime)
+        {
+            _nextProjectileVfxTime = Time.time + 1f / maxAttackAnimationsPerSecond;
+            return true;
+        }
+
+        return false;
+    }
+
+    public void AnimEvent_AttackImpact()
+    {
+        if (!_hasPendingProjectileAttack)
+        {
             return;
         }
-        if (unitData.unitType == UnitType.Ranged)
+
+        if (_networkObject == null)
         {
-            if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel) return;
-            string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
-            GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
-            if (projectilePrefab == null || firePoint == null) return;
-            GameObject projectileGO = Instantiate(projectilePrefab, firePoint.position, firePoint.rotation);
-            Projectile projectileScript = projectileGO.GetComponent<Projectile>();
-            if (projectileScript != null)
-            {
-                projectileScript.Initialize(targetTransform, currentAttackDamage, unitData.damageType);
-            }
-            else
-            {
-                Destroy(projectileGO);
-            }
+            _networkObject = GetComponent<NetworkObject>();
+        }
+
+        bool hasAuthority = _networkObject == null || _networkObject.HasStateAuthority;
+        if (!hasAuthority)
+        {
+            _hasPendingProjectileAttack = false;
+            return;
+        }
+
+        var scheduler = CombatScheduler.Instance;
+        if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && _pendingProjectileAttack.Target != null)
+        {
+            Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+            scheduler.ScheduleHit(_networkObject, _pendingProjectileAttack.Target, firePos, _pendingProjectileAttack.Damage,
+                _pendingProjectileAttack.DamageType, true, true, _pendingProjectileAttack.ProjectileSpeed);
+        }
+        else if (_pendingProjectileAttack.TargetEnemy != null)
+        {
+            _pendingProjectileAttack.TargetEnemy.TakeDamage(_pendingProjectileAttack.Damage, _pendingProjectileAttack.DamageType);
+        }
+
+        _hasPendingProjectileAttack = false;
+    }
+
+    public void AnimEvent_SkillEnd()
+    {
+        if (!blockAttacksDuringSkill)
+        {
+            return;
+        }
+
+        _isSkillCasting = false;
+        if (_skillCastingRoutine != null)
+        {
+            StopCoroutine(_skillCastingRoutine);
+            _skillCastingRoutine = null;
         }
     }
     #endregion

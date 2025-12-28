@@ -36,6 +36,6 @@ MonoBehaviour:
   - Skill_InspiringShout
   - Skill_InspiringShout
   projectilePrefabsByStarLevel:
-  - BaseProjectile
-  - BaseProjectile
-  - BaseProjectile
+  - ArrowProjectile
+  - ArrowProjectile
+  - ArrowProjectile

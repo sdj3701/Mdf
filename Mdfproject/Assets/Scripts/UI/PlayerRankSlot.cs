@@ -353,12 +353,12 @@
              if (healthText != null)
              {
                  // 플레이어가 스폰된 상태에서 체력 가져오기
-                 int healthValue = trackedPlayer.HasStateAuthority ? trackedPlayer.GetHealth() : 0;
+                 int healthValue = trackedPlayer.GetHealth();
                  healthText.text = healthValue.ToString();
              }
              else if (legacyHealthText != null)
              {
-                 int healthValue = trackedPlayer.HasStateAuthority ? trackedPlayer.GetHealth() : 0;
+                 int healthValue = trackedPlayer.GetHealth();
                  legacyHealthText.text = healthValue.ToString();
              }
              else

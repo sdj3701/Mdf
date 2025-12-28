@@ -11,7 +11,7 @@ public class AreaDamageEffect : SkillEffect
     public DamageType damageType;
 
     // public override void ApplyEffect(NetworkRunner runner, GameObject caster, List<GameObject> targets)
-    public override void ApplyEffect(MonoBehaviour runner, GameObject caster, List<GameObject> targets) // runner 타입을 MonoBehaviour로 변경
+    public override void ApplyEffect(MonoBehaviour runner, GameObject caster, List<GameObject> targets, float skillRange, TargetingStrategy targetingStrategy)
     {
         // if (runner != null && !runner.IsServer) return; // 네트워크 모드에서는 이 라인이 필요합니다.
 

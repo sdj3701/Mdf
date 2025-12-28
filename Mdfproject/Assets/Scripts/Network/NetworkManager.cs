@@ -18,19 +18,19 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public TMP_InputField PassWordInput;
 
     [Header("Player")]
-    // 스폰할 플레이어 프리팹입니다. Inspector에서 할당해야 합니다.
+    // ?�폰???�레?�어 ?�리?�입?�다. Inspector?�서 ?�당?�야 ?�니??
     [SerializeField] private NetworkObject _playerPrefab;
-    // 서버에서 플레이어들을 관리하기 위한 딕셔너리입니다.
+    // ?�버?�서 ?�레?�어?�을 관리하�??�한 ?�셔?�리?�니??
     private readonly Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
 
     [Header("Lobby & UI")]
-    // 현재 로비에 있는 세션(방) 목록을 저장합니다.
+    // ?�재 로비???�는 ?�션(�? 목록???�?�합?�다.
     public List<SessionInfo> _sessionList = new List<SessionInfo>();
-    // 유저가 입력할 방 제목을 저장하는 변수입니다.
+    // ?��?가 ?�력??�??�목???�?�하??변?�입?�다.
     private string _roomNameInput = "MyFusionRoom";
-    // 현재 네트워크 상태를 관리합니다. (연결 끊김, 로비, 게임 중)
+    // ?�재 ?�트?�크 ?�태�?관리합?�다. (?�결 ?��?, 로비, 게임 �?
 
-    // 2. 현재 상태를 저장하고, 변경 시 이벤트를 발생시키는 프로퍼티
+    // 2. ?�재 ?�태�??�?�하�? 변�????�벤?��? 발생?�키???�로?�티
     private ConnectionState _state;
     public ConnectionState State
     {
@@ -38,12 +38,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         private set
         {
             _state = value;
-            // 상태가 변경될 때마다 OnStateChanged 이벤트를 호출(방송)
+            // ?�태가 변경될 ?�마??OnStateChanged ?�벤?��? ?�출(방송)
             OnStateChanged?.Invoke(_state);
         }
     }
 
-    // 3. 상태 변경 이벤트를 정의 (Action 델리게이트 사용)
+    // 3. ?�태 변�??�벤?��? ?�의 (Action ?�리게이???�용)
     public static event Action<ConnectionState> OnStateChanged;
 
     public bool IsGameRunnerActive => _runner != null && _runner.IsRunning;
@@ -53,18 +53,18 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     private void Awake()
     {
         Application.targetFrameRate = 60;
-        // 이미 인스턴스가 있는지 확인
+        // ?��? ?�스?�스가 ?�는지 ?�인
         if (Instance == null)
         {
-            // 인스턴스가 없으면, 이 오브젝트를 인스턴스로 지정
+            // ?�스?�스가 ?�으�? ???�브?�트�??�스?�스�?지??
             Instance = this;
-            // 씬이 전환되어도 이 게임 오브젝트가 파괴되지 않도록 설정
+            // ?�이 ?�환?�어????게임 ?�브?�트가 ?�괴?��? ?�도�??�정
             DontDestroyOnLoad(gameObject);
         }
         else
         {
-            // 이미 인스턴스가 존재하면, 새로 생긴 중복 오브젝트는 파괴
-            // (예: 메인 메뉴 씬에서 게임 씬으로 돌아왔을 때 매니저가 중복 생성되는 것을 방지)
+            // ?��? ?�스?�스가 존재?�면, ?�로 ?�긴 중복 ?�브?�트???�괴
+            // (?? 메인 메뉴 ?�에??게임 ?�으�??�아?�을 ??매니?�가 중복 ?�성?�는 것을 방�?)
             if (Instance != this)
             {
                 Destroy(gameObject);
@@ -83,34 +83,34 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     }
 
     /// <summary>
-    /// 특정 로비에 참여를 시작합니다.
+    /// ?�정 로비??참여�??�작?�니??
     /// </summary>
     public async void JoinLobby()
     {
-        // 이미 연결 중이거나 게임 중이면 실행하지 않습니다.
+        // ?��? ?�결 중이거나 게임 중이�??�행?��? ?�습?�다.
         if (_runner != null) return;
 
         Debug.Log("Joining Lobby...");
-        _state = ConnectionState.InLobby; // 상태를 '로비'로 변경
+        _state = ConnectionState.InLobby; // ?�태�?'로비'�?변�?
 
-        // NetworkRunner 인스턴스를 생성하고 콜백을 받기 위해 등록합니다.
+        // NetworkRunner ?�스?�스�??�성?�고 콜백??받기 ?�해 ?�록?�니??
         _runner = gameObject.AddComponent<NetworkRunner>();
         _runner.AddCallbacks(this);
 
-        // 기본 로비에 참여합니다.
+        // 기본 로비??참여?�니??
         await _runner.JoinSessionLobby(SessionLobby.Shared);
 
         Debug.Log("Joined Lobby.");
     }
 
     /// <summary>
-    /// 게임 세션(방)을 시작하거나 참여합니다.
+    /// 게임 ?�션(�????�작?�거??참여?�니??
     /// </summary>
-    /// <param name="mode">Host, Client 등 게임 모드</param>
-    /// <param name="sessionName">참여하거나 생성할 방의 이름</param>
+    /// <param name="mode">Host, Client ??게임 모드</param>
+    /// <param name="sessionName">참여?�거???�성??방의 ?�름</param>
     public async void StartGame(GameMode mode, string sessionName, string sceneName = null)
     {
-        // 로비에 있을 때만 게임을 시작할 수 있습니다.
+        // 로비???�을 ?�만 게임???�작?????�습?�다.
         if (_state != ConnectionState.InLobby) return;
 
         string finalSessionName = string.IsNullOrWhiteSpace(sessionName)
@@ -119,7 +119,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         Debug.Log($"Starting Game with session name: {finalSessionName}, loading scene: {sceneName}");
 
-        // Runner가 없으면 새로 생성하고 콜백을 등록합니다.
+        // Runner가 ?�으�??�로 ?�성?�고 콜백???�록?�니??
         if (_runner == null)
         {
             _runner = gameObject.AddComponent<NetworkRunner>();
@@ -129,65 +129,72 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _runner.ProvideInput = true;
         Debug.Log(sceneName);
 
-        // 씬 이름을 기반으로 빌드 인덱스를 찾습니다.
-        // ※ 주의: 로드할 씬은 반드시 File > Build Settings에 추가되어 있어야 합니다.
+        // ???�름??기반?�로 빌드 ?�덱?��? 찾습?�다.
+        // ??주의: 로드???��? 반드??File > Build Settings??추�??�어 ?�어???�니??
         int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
         if (sceneIndex < 0)
         {
-            Debug.LogError($"'{sceneName}' 씬을 빌드 설정에서 찾을 수 없습니다!");
+            Debug.LogError($"'{sceneName}' ?�을 빌드 ?�정?�서 찾을 ???�습?�다!");
             return;
         }
         var scene = SceneRef.FromIndex(sceneIndex);
 
-        // StartGameArgs를 설정하여 게임을 시작합니다.
+        var objectProvider = gameObject.GetComponent<PooledNetworkObjectProvider>();
+        if (objectProvider == null)
+        {
+            objectProvider = gameObject.AddComponent<PooledNetworkObjectProvider>();
+        }
+
+        // StartGameArgs�??�정?�여 게임???�작?�니??
         await _runner.StartGame(new StartGameArgs()
         {
             GameMode = mode,
             SessionName = finalSessionName,
-            Scene = scene, // Fusion이 이 씬을 로드하도록 지정합니다.
+            Scene = scene, // Fusion?????�을 로드?�도�?지?�합?�다.
             SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
-            PlayerCount = 2 // 최대 플레이어 수를 2명으로 설정
+            PlayerCount = 2,
+            ObjectProvider = objectProvider
         });
     }
 
     /// <summary>
-    /// 현재 실행 중인 게임 세션을 종료합니다.
+    /// ?�재 ?�행 중인 게임 ?�션??종료?�니??
     /// </summary>
     private void LeaveGame()
     {
         if (_runner != null)
         {
-            // Runner를 종료하면 OnShutdown 콜백이 호출됩니다.
+            // Runner�?종료?�면 OnShutdown 콜백???�출?�니??
             _runner.Shutdown();
         }
     }
 
     /// <summary>
-    /// [클라이언트 -> 서버] 커맨드 실행을 서버에 요청하는 RPC
+    /// [?�라?�언??-> ?�버] 커맨???�행???�버???�청?�는 RPC
     /// </summary>
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
     public void RPC_RequestCommandToServer(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams, RpcInfo info = default)
     {
-        // TODO: 여기서 서버는 커맨드의 유효성을 검사해야 합니다.
-        // 예: 플레이어가 골드가 충분한지, 유닛 배치가 유효한 위치인지 등.
-        // 유효성 검사는 보안(치팅 방지)에 매우 중요합니다.
+        // TODO: ?�기???�버??커맨?�의 ?�효?�을 검?�해???�니??
+        // ?? ?�레?�어가 골드가 충분?��?, ?�닛 배치가 ?�효???�치?��? ??
+        // ?�효??검?�는 보안(치팅 방�?)??매우 중요?�니??
         // bool isValid = ValidateCommand(type, intParams, stringParams, vectorParams, info.Source);
-        bool isValid = true; // 지금은 모든 요청을 유효하다고 가정
+        bool isValid = true; // 지금�? 모든 ?�청???�효?�다�?가??
 
         if (isValid)
         {
-            // 유효성 검사를 통과하면, 모든 클라이언트에게 이 커맨드를 실행하라고 브로드캐스팅합니다.
+            // ?�효??검?��? ?�과?�면, 모든 ?�라?�언?�에�???커맨?��? ?�행?�라�?브로?�캐?�팅?�니??
             RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
         }
         else
         {
-            // (선택적) 요청을 보낸 클라이언트에게만 실패를 알릴 수 있습니다.
-            Debug.LogWarning($"Player {info.Source.PlayerId}의 {type} 커맨드 요청이 유효성 검사에 실패했습니다.");
+            // (?�택?? ?�청??보낸 ?�라?�언?�에게만 ?�패�??�릴 ???�습?�다.
+            Debug.LogWarning($"Player {info.Source.PlayerId}??{type} 커맨???�청???�효??검?�에 ?�패?�습?�다.");
         }
     }
 
     /// <summary>
-    /// [서버 -> 모든 클라이언트] 서버가 승인한 커맨드를 모든 클라이언트에서 실행하도록 브로드캐스팅하는 RPC
+    /// [?�버 -> 모든 ?�라?�언?? ?�버가 ?�인??커맨?��? 모든 ?�라?�언?�에???�행?�도�?브로?�캐?�팅?�는 RPC
     /// </summary>
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     private void RPC_BroadcastCommandToClients(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
@@ -199,9 +206,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     }
 
 
-    #region UI 그리기 (OnGUI)
-    // 이 부분은 실제 게임에서는 UGUI(버튼, 텍스트 등)로 구현하는 것이 좋습니다.
-    // 테스트를 위해 간단히 OnGUI를 사용합니다.
+    #region UI 그리�?(OnGUI)
+    // ??부분�? ?�제 게임?�서??UGUI(버튼, ?�스????�?구현?�는 것이 좋습?�다.
+    // ?�스?��? ?�해 간단??OnGUI�??�용?�니??
     private void OnGUI()
     {
         GUI.skin.button.fontSize = 20;
@@ -210,9 +217,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         switch (_state)
         {
-            // Title 씬에서 사용
+            // Title ?�에???�용
             // case ConnectionState.Disconnected:
-            //     // [연결 끊김] 상태일 때: 로비 접속 버튼만 표시
+            //     // [?�결 ?��?] ?�태???? 로비 ?�속 버튼�??�시
             //     if (GUI.Button(new Rect(10, 10, 200, 50), "Join Lobby"))
             //     {
             //         JoinLobby();
@@ -220,19 +227,19 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             //     break;
 
             // case ConnectionState.InLobby:
-            //     // 여기가 LobbyUI에서 방 생성 누르기 버튼
-            //     // [로비] 상태일 때: 방 만들기 UI와 방 목록 표시 
+            //     // ?�기가 LobbyUI?�서 �??�성 ?�르�?버튼
+            //     // [로비] ?�태???? �?만들�?UI?� �?목록 ?�시 
             //     GUI.Label(new Rect(10, 10, 200, 30), "Room Name:");
             //     //_roomNameInput = GUI.TextField(new Rect(10, 40, 200, 40), _roomNameInput);
 
             //     if (GUI.Button(new Rect(10, 90, 200, 50), "Create Room"))
             //     {
-            //         // 입력된 이름으로 방을 생성(Host)합니다.
+            //         // ?�력???�름?�로 방을 ?�성(Host)?�니??
             //         StartGame(GameMode.Host, GetRoomNameInput());
             //     }
 
-            //     // 여기가 LObbyUI에사 방 확인 else 문이 리스트 출력
-            //     // 방 목록 표시
+            //     // ?�기가 LObbyUI?�사 �??�인 else 문이 리스??출력
+            //     // �?목록 ?�시
             //     GUI.Label(new Rect(250, 10, 300, 30), "Available Rooms");
             //     if (_sessionList.Count == 0)
             //     {
@@ -246,7 +253,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             //             string roomInfo = $"{session.Name} ({session.PlayerCount}/{session.MaxPlayers})";
             //             if (GUI.Button(new Rect(250, 50 + (i * 60), 300, 50), roomInfo))
             //             {
-            //                 // 해당 방에 참가(Client)합니다.
+            //                 // ?�당 방에 참�?(Client)?�니??
             //                 StartGame(GameMode.Client, session.Name, "JoinLobby");
             //             }
             //         }
@@ -254,20 +261,20 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             //     break;
 
             case ConnectionState.InGame:
-                // [게임 중] 상태일 때: 나가기 버튼과 방 정보, 플레이어 수 표시
+                // [게임 �? ?�태???? ?��?�?버튼�?�??�보, ?�레?�어 ???�시
                 GUI.Label(new Rect(10, 10, 300, 30), $"In Room: {_runner.SessionInfo.Name}");
 
-                // --- ✨ 추가된 부분 시작 ✨ ---
+                // --- ??추�???부�??�작 ??---
                 if (_runner != null && _runner.SessionInfo != null)
                 {
-                    // 현재 플레이어 수와 최대 플레이어 수를 가져와서 표시합니다.
+                    // ?�재 ?�레?�어 ?��? 최�? ?�레?�어 ?��? 가?��????�시?�니??
                     playerCount = _runner.SessionInfo.PlayerCount;
                     int maxPlayers = _runner.SessionInfo.MaxPlayers;
                     GUI.Label(new Rect(10, 50, 300, 30), $"Players: {playerCount} / {maxPlayers}");
                 }
-                // --- ✨ 추가된 부분 종료 ✨ ---
+                // --- ??추�???부�?종료 ??---
 
-                // 기존 'Leave Game' 버튼의 위치를 아래로 조정합니다 (y: 50 -> 90)
+                // 기존 'Leave Game' 버튼???�치�??�래�?조정?�니??(y: 50 -> 90)
                 if (GUI.Button(new Rect(10, 90, 200, 50), "Leave Game"))
                 {
                     LeaveGame();
@@ -279,31 +286,31 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
 
     #region INetworkRunnerCallbacks 구현
-    // 이 콜백은 로비에 있는 방 목록이 업데이트될 때마다 호출됩니다.
+    // ??콜백?� 로비???�는 �?목록???�데?�트???�마???�출?�니??
     public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList)
     {
         Debug.Log("Session list updated. Found " + sessionList.Count + " sessions.");
-        // 받은 목록으로 로컬 목록을 갱신합니다.
+        // 받�? 목록?�로 로컬 목록??갱신?�니??
         _sessionList = sessionList;
     }
 
-    // 플레이어가 게임 세션에 성공적으로 참여했을 때 호출됩니다.
+    // ?�레?�어가 게임 ?�션???�공?�으�?참여?�을 ???�출?�니??
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
         Debug.Log($"Player {player} Joined.");
-        _state = ConnectionState.InGame; // 상태를 '게임 중'으로 변경
+        _state = ConnectionState.InGame; // ?�태�?'게임 �??�로 변�?
 
         if (runner.IsServer)
         {
             Debug.Log("Spawning player character...");
-            // 서버(호스트)는 새로 참여한 플레이어의 캐릭터를 스폰합니다.
-            // ✅ 아래 줄의 주석이 해제되어 있는지 확인하세요.
+            // ?�버(?�스?????�로 참여???�레?�어??캐릭?��? ?�폰?�니??
+            // ???�래 줄의 주석???�제?�어 ?�는지 ?�인?�세??
             NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, Vector3.zero, Quaternion.identity, player);
             _spawnedCharacters.Add(player, networkPlayerObject);
         }
     }
 
-    // 플레이어가 게임 세션을 떠났을 때 호출됩니다.
+    // ?�레?�어가 게임 ?�션???�났?????�출?�니??
     public void OnPlayerLeft(NetworkRunner runner, PlayerRef player)
     {
         Debug.Log($"Player {player} Left.");
@@ -314,22 +321,22 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    // Runner가 종료되었을 때 호출됩니다. (연결 끊김, 스스로 나가기 등)
+    // Runner가 종료?�었?????�출?�니?? (?�결 ?��?, ?�스�??��?�???
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
         Debug.Log("OnShutdown: " + shutdownReason);
-        _state = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
-        _sessionList.Clear(); // 방 목록 초기화
+        _state = ConnectionState.Disconnected; // ?�태�?'?�결 ?��?'?�로 변�?
+        _sessionList.Clear(); // �?목록 초기??
 
-        // Runner 오브젝트를 파괴하여 정리합니다.
+        // Runner ?�브?�트�??�괴?�여 ?�리?�니??
         if (runner != null && runner.gameObject != null)
         {
             Destroy(runner.gameObject);
         }
-        _runner = null; // 참조를 null로 설정하여 중복 생성을 방지합니다.
+        _runner = null; // 참조�?null�??�정?�여 중복 ?�성??방�??�니??
     }
 
-    // --- 이하 콜백들은 이 예제에서 사용되지 않지만, 인터페이스 구현을 위해 필요합니다. ---
+    // --- ?�하 콜백?��? ???�제?�서 ?�용?��? ?��?�? ?�터?�이??구현???�해 ?�요?�니?? ---
     public void OnConnectedToServer(NetworkRunner runner) { }
     public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason) { }
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }
@@ -347,19 +354,19 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
     #endregion
 
-    #region 외부 클래스 접근 함수
+    #region ?��? ?�래???�근 ?�수
     public void SetRunner()
     {
 
     }
 
-    // 외부 클래스에서 플레이어 몇명 생성 해야하는지 확인할 떄 필요한 함수
+    // ?��? ?�래?�에???�레?�어 몇명 ?�성 ?�야?�는지 ?�인?????�요???�수
     public int GetPlayerCount()
     {
         return playerCount;
     }
 
-    // Fusion 표준: 세션 중이면 Runner로 씬을 전환, 아니면 Unity 씬 로드 사용
+    // Fusion ?��?: ?�션 중이�?Runner�??�을 ?�환, ?�니�?Unity ??로드 ?�용
     public void LoadSceneSmart(string sceneName)
     {
         if (string.IsNullOrEmpty(sceneName))
@@ -371,7 +378,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
         if (sceneIndex < 0)
         {
-            Debug.LogError($"[NetworkManager] '{sceneName}' 씬을 빌드 설정에서 찾을 수 없습니다!");
+            Debug.LogError($"[NetworkManager] '{sceneName}' ?�을 빌드 ?�정?�서 찾을 ???�습?�다!");
             return;
         }
 
@@ -391,7 +398,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    // 세션 종료 후 특정 씬으로 복귀
+    // ?�션 종료 ???�정 ?�으�?복�?
     public void LeaveAndLoad(string sceneName)
     {
         if (_runner != null)
@@ -405,3 +412,4 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
 
 }
+

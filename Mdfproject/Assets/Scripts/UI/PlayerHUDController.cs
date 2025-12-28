@@ -8,6 +8,7 @@ public class PlayerHUDController : MonoBehaviour
     [Header("HUD UI 요소")]
     public TextMeshProUGUI goldText;
     public TextMeshProUGUI roundText;
+    public TextMeshProUGUI wallCountText;
 
     [Header("Shop Controls")]
     public ShopUIController shopUIController;
@@ -120,6 +121,11 @@ public class PlayerHUDController : MonoBehaviour
         if (roundText != null)
         {
             roundText.text = $"ROUND\n{Mathf.Max(1, gameManager.currentRound)}";
+        }
+
+        if (wallCountText != null)
+        {
+            wallCountText.text = localPlayer.GetWallCount().ToString();
         }
     }
 

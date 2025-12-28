@@ -483,6 +483,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4899e616a48886d42b4696e3f88fd470, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  autoPreloadAllOnStart: 1
+  logPreloadProgress: 1
 --- !u!4 &1329380063
 Transform:
   m_ObjectHideFlags: 0
@@ -518,6 +520,71 @@ MonoBehaviour:
   - BreakWall
   - Start
   - End
+--- !u!1 &1423344280
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1423344283}
+  - component: {fileID: 1423344282}
+  - component: {fileID: 1423344281}
+  m_Layer: 0
+  m_Name: VfxManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1423344281
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1423344280}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 832fcdcd42ed7fb43b1602b954cc3f89, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  initialPools: []
+  defaultParent: {fileID: 1423344283}
+  prewarmOnStart: 1
+--- !u!114 &1423344282
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1423344280}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 05862234134a5df4a815a6a0afb1f97f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  pool: {fileID: 1423344281}
+  vfxRoot: {fileID: 1423344283}
+  minRemainingSeconds: 0.02
+  maxSpeed: 0
+  alignToDirection: 1
+--- !u!4 &1423344283
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1423344280}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 350, y: 208, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 8
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1924884485
 GameObject:
   m_ObjectHideFlags: 0
@@ -551,6 +618,7 @@ MonoBehaviour:
   singlePlayerCount: 2
   gameManagersPrefab: {fileID: 1166691957424101666, guid: e632060e4786c87469cfbf29fea19915,
     type: 3}
+  waitForRunnerSeconds: 3
 --- !u!4 &1924884487
 Transform:
   m_ObjectHideFlags: 0
@@ -641,6 +709,11 @@ PrefabInstance:
   m_Modification:
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 2026818999442698987, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_Name
+      value: UI_Txt_Bricks
+      objectReference: {fileID: 0}
     - target: {fileID: 2218765290447644169, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
       propertyPath: m_RootOrder
@@ -696,10 +769,41 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 2218765290447644182, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: UILists.Array.data[11]
+      value: 
+      objectReference: {fileID: 3398557135419195462, guid: 1a43a415e2b482941a838df442570927,
+        type: 3}
     - target: {fileID: 2218765290447644183, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
       propertyPath: m_Name
       value: UIManager
+      objectReference: {fileID: 0}
+    - target: {fileID: 2218765290905468377, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.y
+      value: -5.799988
+      objectReference: {fileID: 0}
+    - target: {fileID: 3540457612324243826, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.x
+      value: -109
+      objectReference: {fileID: 0}
+    - target: {fileID: 3540457612324243826, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.y
+      value: -5.799988
+      objectReference: {fileID: 0}
+    - target: {fileID: 5245685722014888849, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.x
+      value: -10
+      objectReference: {fileID: 0}
+    - target: {fileID: 5245685722014888849, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.y
+      value: 66
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 92043555220c0aa4aad2b36e97a211af, type: 3}
