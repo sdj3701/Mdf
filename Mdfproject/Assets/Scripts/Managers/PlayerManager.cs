@@ -300,6 +300,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    /// <summary>
+    /// 서버에서 적용된 영구 증강 보너스를 클라이언트에 동기화합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_SyncPermanentBonuses(float attackDamagePercent, float attackSpeedPercent)
+    {
+        this.permanentAttackDamagePercent = attackDamagePercent;
+        this.permanentAttackSpeedPercent = attackSpeedPercent;
+        ApplyPermanentBonusesToUnitsOnField();
+        Debug.Log($"<color=cyan>[RPC_SyncPermanentBonuses] Player {playerId}: AttackDmg={attackDamagePercent:P0}, AttackSpd={attackSpeedPercent:P0}</color>");
+    }
+
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_ApplyPermanentWalls(int[] flatPositions)
     {
@@ -479,12 +491,24 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         permanentAttackDamagePercent += percent;
         ApplyPermanentBonusesToUnitsOnField();
+        
+        // 클라이언트에 동기화
+        if (Object != null && Object.HasStateAuthority)
+        {
+            RPC_SyncPermanentBonuses(permanentAttackDamagePercent, permanentAttackSpeedPercent);
+        }
     }
 
     public void AddPermanentAttackSpeedPercent(float percent)
     {
         permanentAttackSpeedPercent += percent;
         ApplyPermanentBonusesToUnitsOnField();
+        
+        // 클라이언트에 동기화
+        if (Object != null && Object.HasStateAuthority)
+        {
+            RPC_SyncPermanentBonuses(permanentAttackDamagePercent, permanentAttackSpeedPercent);
+        }
     }
 
     public void ApplyPermanentBonusesToUnitsOnField()

@@ -192,12 +192,23 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
     private void Die()
     {
+        // 이미 파괴 중인 오브젝트면 무시
+        if (this == null || gameObject == null) return;
+        
         Debug.Log($"{monsterData.monsterName}이(가) 죽었습니다!");
         if (isBlocked && blockingUnit != null)
         {
             blockingUnit.ReleaseBlockedMonster(this);
         }
-        var no = netObj != null ? netObj : GetComponent<NetworkObject>();
+        
+        // 안전하게 NetworkObject 가져오기
+        NetworkObject no = netObj;
+        if (no == null)
+        {
+            try { no = GetComponent<NetworkObject>(); }
+            catch { no = null; }
+        }
+        
         if (no != null && no.Runner != null && no.Runner.IsRunning)
         {
             if (!no.HasStateAuthority)
@@ -288,15 +299,19 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
     private void FindNewPathToGoal()
     {
+        // 클라이언트에서는 경로탐색 안함
+        if (!HasStateAuthorityOrNoNetwork()) return;
+        
+        // null 체크
+        if (pathfinder == null || goalTransform == null)
+        {
+            Debug.LogWarning($"[Monster] pathfinder 또는 goalTransform이 null입니다.");
+            return;
+        }
+        
         // [3D Migration] FieldManager/AstarGrid 그리드 기준으로 변환
-        Vector2Int currentGridPos = (pathfinder != null)
-            ? pathfinder.WorldToCell(pathfinder.ClampToGrid(transform.position))
-            : new Vector2Int(Mathf.FloorToInt(transform.position.x), Mathf.FloorToInt(transform.position.z));
-        Vector2Int targetGridPos = (pathfinder != null)
-            ? pathfinder.WorldToCell(pathfinder.ClampToGrid(goalTransform.position))
-            : new Vector2Int(Mathf.FloorToInt(goalTransform.position.x), Mathf.FloorToInt(goalTransform.position.z));
-
-
+        Vector2Int currentGridPos = pathfinder.WorldToCell(pathfinder.ClampToGrid(transform.position));
+        Vector2Int targetGridPos = pathfinder.WorldToCell(pathfinder.ClampToGrid(goalTransform.position));
 
         if (pathfinder.FindPath(currentGridPos, targetGridPos))
         {
@@ -446,6 +461,9 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     public void Unblock()
     {
         if (isQuitting || !isBlocked) return;
+        
+        // 클라이언트에서는 처리하지 않음
+        if (!HasStateAuthorityOrNoNetwork()) return;
 
         isBlocked = false;
         blockingUnit = null;
