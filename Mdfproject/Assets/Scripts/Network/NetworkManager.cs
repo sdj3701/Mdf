@@ -147,6 +147,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
         var scene = SceneRef.FromIndex(sceneIndex);
 
+        var objectProvider = gameObject.GetComponent<PooledNetworkObjectProvider>();
+        if (objectProvider == null)
+        {
+            objectProvider = gameObject.AddComponent<PooledNetworkObjectProvider>();
+        }
+
         // StartGameArgs를 설정하여 게임을 시작합니다.
         await _runner.StartGame(new StartGameArgs()
         {
@@ -154,6 +160,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             SessionName = finalSessionName,
             Scene = scene, // Fusion이 이 씬을 로드하도록 지정합니다.
             SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
+            ObjectProvider = objectProvider,
             PlayerCount = 2 // 최대 플레이어 수를 2명으로 설정
         });
     }
