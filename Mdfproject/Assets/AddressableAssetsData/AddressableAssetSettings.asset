@@ -87,7 +87,6 @@ MonoBehaviour:
     - default
     - UI
     - Augment
-    - TileBase
     - CharacterSprite
     - CharacterPrefab
     - MonsterData
@@ -97,6 +96,8 @@ MonoBehaviour:
     - Projectile
     - Player
     - Manager
+    - MonsterPrepab
+    - TileBase
   m_SchemaTemplates: []
   m_GroupTemplateObjects:
   - {fileID: 11400000, guid: 296fe4b267b8c2b49955d16e6a872c12, type: 2}

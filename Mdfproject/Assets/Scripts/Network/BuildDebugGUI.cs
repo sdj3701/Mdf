@@ -13,7 +13,6 @@ public class BuildDebugGUI : MonoBehaviour
 
     // GUI 스타일을 미리 설정하여 성능 저하 방지
     private GUIStyle logStyle;
-    private bool styleInitialized = false;
 
     void Awake()
     {
@@ -48,13 +47,12 @@ public class BuildDebugGUI : MonoBehaviour
     {
         // 개발 빌드 또는 유니티 에디터에서만 GUI를 표시하도록 제한
 #if DEVELOPMENT_BUILD
-        // 스타일 초기화 (첫 OnGUI 호출 시 한 번만 실행)
-        if (!styleInitialized)
+        // 스타일 초기화 (logStyle이 null일 때만 실행)
+        if (logStyle == null)
         {
             logStyle = new GUIStyle(GUI.skin.label);
             logStyle.fontSize = 20; // 폰트 크기 조절
             logStyle.normal.textColor = Color.white; // 폰트 색상
-            styleInitialized = true;
         }
 
         // 화면 좌측 상단에 로그를 표시할 영역 설정

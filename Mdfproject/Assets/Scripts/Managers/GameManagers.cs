@@ -4,7 +4,9 @@ using System.Linq;
 using UnityEngine.UI;
 using Cysharp.Threading.Tasks;
 using Fusion;
-using System.Threading.Tasks; // [추가됨] Task.Delay와 Task.WhenAny를 사용하기 위해 필요합니다.
+using System.Threading.Tasks;
+using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 
 // MonoBehaviour 대신 NetworkBehaviour를 상속받아 네트워크 객체로 만듭니다.
 public class GameManagers : NetworkBehaviour
@@ -62,10 +64,19 @@ public class GameManagers : NetworkBehaviour
     }
     #endregion
 
-    [Header("생성할 프리팹 (NetworkObject 필수)")]
-    public GameObject playerManagerPrefab;
-    public GameObject gridPrefab;
-    public GameObject defaultMonsterPrefab;
+    [Header("생성할 프리팹 (Addressables AssetReference)")]
+    [SerializeField] private AssetReference playerManagerPrefabRef;
+    [SerializeField] private AssetReference gridPrefabRef;
+    [SerializeField] private AssetReference defaultMonsterPrefabRef;
+
+    // 로드된 프리팹 캐시 (런타임에 사용)
+    private GameObject _playerManagerPrefab;
+    private GameObject _gridPrefab;
+    private GameObject _defaultMonsterPrefab;
+    private bool _prefabsLoaded = false;
+
+    // Public getters for loaded prefabs (다른 클래스에서 접근용)
+    public GameObject defaultMonsterPrefab => _defaultMonsterPrefab;
 
     [Header("자동 생성 위치 설정")]
     public Vector3 player1BasePosition = new Vector3(0, 0, 0);
@@ -215,6 +226,10 @@ public class GameManagers : NetworkBehaviour
     private async UniTask GameFlow()
     {
         currentState = GameState.Setup;
+        
+        // Addressables에서 프리팹 로드
+        await LoadPrefabsAsync();
+        
         if (Runner.IsServer) {
             await UniTask.WaitUntil(() => Runner.ActivePlayers.Count() >= MAX_PLAYERS);
         }
@@ -286,9 +301,61 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
+    /// <summary>
+    /// Addressables에서 프리팹을 비동기로 로드합니다.
+    /// </summary>
+    private async UniTask LoadPrefabsAsync()
+    {
+        if (_prefabsLoaded) return;
+
+        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("[GameManagers] Addressables 프리팹 로딩 시작...");
+
+        try
+        {
+            var loadTasks = new List<UniTask>();
+
+            if (playerManagerPrefabRef != null && playerManagerPrefabRef.RuntimeKeyIsValid())
+            {
+                loadTasks.Add(LoadPrefabAsync(playerManagerPrefabRef, prefab => _playerManagerPrefab = prefab, "PlayerManager"));
+            }
+            if (gridPrefabRef != null && gridPrefabRef.RuntimeKeyIsValid())
+            {
+                loadTasks.Add(LoadPrefabAsync(gridPrefabRef, prefab => _gridPrefab = prefab, "Grid"));
+            }
+            if (defaultMonsterPrefabRef != null && defaultMonsterPrefabRef.RuntimeKeyIsValid())
+            {
+                loadTasks.Add(LoadPrefabAsync(defaultMonsterPrefabRef, prefab => _defaultMonsterPrefab = prefab, "Monster"));
+            }
+
+            await UniTask.WhenAll(loadTasks);
+            _prefabsLoaded = true;
+
+            if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("[GameManagers] 모든 프리팹 로딩 완료!");
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[GameManagers] 프리팹 로딩 실패: {ex.Message}");
+        }
+    }
+
+    private async UniTask LoadPrefabAsync(AssetReference assetRef, System.Action<GameObject> onLoaded, string prefabName)
+    {
+        var handle = assetRef.LoadAssetAsync<GameObject>();
+        await handle.Task;
+
+        if (handle.Status == AsyncOperationStatus.Succeeded)
+        {
+            onLoaded?.Invoke(handle.Result);
+            Debug.Log($"[GameManagers] {prefabName} 프리팹 로드 성공");
+        }
+        else
+        {
+            Debug.LogError($"[GameManagers] {prefabName} 프리팹 로드 실패!");
+        }
+    }
+
     private async UniTask SetupPlayersAndGrids()
     {
-        
 
         if (!Runner.IsServer)
         {
@@ -361,19 +428,19 @@ public class GameManagers : NetworkBehaviour
             
 
             // Prefab 유효성 검사
-            if (gridPrefab == null)
+            if (_gridPrefab == null)
             {
-                Debug.LogError($"❌ gridPrefab이 null입니다! Inspector에서 할당되었는지 확인하세요.");
+                Debug.LogError($"❌ gridPrefab이 null입니다! Addressables에서 로드되었는지 확인하세요.");
                 continue;
             }
-            if (playerManagerPrefab == null)
+            if (_playerManagerPrefab == null)
             {
-                Debug.LogError($"❌ playerManagerPrefab이 null입니다! Inspector에서 할당되었는지 확인하세요.");
+                Debug.LogError($"❌ playerManagerPrefab이 null입니다! Addressables에서 로드되었는지 확인하세요.");
                 continue;
             }
 
             
-            NetworkObject gridNO = await Runner.SpawnAsync(gridPrefab, playerPosition, Quaternion.identity);
+            NetworkObject gridNO = await Runner.SpawnAsync(_gridPrefab, playerPosition, Quaternion.identity);
             if (gridNO == null)
             {
                 Debug.LogError($"❌ Player {i}의 Grid 생성 실패!");
@@ -382,7 +449,7 @@ public class GameManagers : NetworkBehaviour
             
 
             
-            NetworkObject playerNO = await Runner.SpawnAsync(playerManagerPrefab, playerPosition, Quaternion.identity, inputAuthority);
+            NetworkObject playerNO = await Runner.SpawnAsync(_playerManagerPrefab, playerPosition, Quaternion.identity, inputAuthority);
             if (playerNO == null)
             {
                 Debug.LogError($"❌ Player {i}의 PlayerManager 생성 실패!");

@@ -97,7 +97,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (!result.Ok) {
             Debug.LogError($"Join lobby failed: {result.ShutdownReason}");
             State = ConnectionState.Disconnected;
-            _runner.Shutdown();
+            _ = _runner.Shutdown();
             _runner = null;
             return;
         }
