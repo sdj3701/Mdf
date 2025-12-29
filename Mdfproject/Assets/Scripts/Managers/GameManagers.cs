@@ -745,12 +745,12 @@ public class GameManagers : NetworkBehaviour
         phaseTimer = TickTimer.CreateFromSeconds(Runner, prepDuration);
     }
 
-    private void PresentedAugments(int targetPlayerId, string[] augmentNames)
-    {
-        var target = GetPlayer(targetPlayerId);
-        if (target == null || target.augmentManager == null) return;
-        target.augmentManager.SetPresentedAugmentsByNames(augmentNames);
-    }
+    // private void PresentedAugments(int targetPlayerId, string[] augmentNames)
+    // {
+    //     var target = GetPlayer(targetPlayerId);
+    //     if (target == null || target.augmentManager == null) return;
+    //     target.augmentManager.SetPresentedAugmentsByNames(augmentNames);
+    // }
 
     private void StartCombatPhase()
     {

@@ -253,13 +253,16 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// 서버에서 생성한 증강체 목록을 모든 클라이언트에 동기화합니다.
     /// </summary>
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void RPC_SyncPresentedAugments(string[] augmentNames)
+    public async void RPC_SyncPresentedAugments(string[] augmentNames)
     {
         // 서버는 이미 증강체 목록을 가지고 있으므로 무시
         if (Object != null && Object.HasStateAuthority) return;
 
         if (augmentManager != null)
         {
+            // 증강 데이터가 Addressables에서 로드될 때까지 대기
+            await augmentManager.WaitUntilAugmentDataLoaded();
+            
             augmentManager.SetPresentedAugmentsByNames(augmentNames);
             Debug.Log($"<color=magenta>[RPC_SyncPresentedAugments] Player {playerId}: {augmentNames.Length}개 증강체 동기화 완료</color>");
         }
