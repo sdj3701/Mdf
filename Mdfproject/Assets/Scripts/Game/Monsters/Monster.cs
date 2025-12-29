@@ -5,13 +5,17 @@ using System.Collections.Generic;
 using System.Linq;
 using Fusion;
 
-public class Monster : MonoBehaviour, IEnemy, IHealth
+public class Monster : NetworkBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
     public MonsterData monsterData;
 
     [Tooltip("공격하거나 파괴할 수 있는 벽의 레이어를 설정해야 합니다.")]
     public LayerMask wallLayerMask;
+
+    [Header("StatusBar 설정")]
+    [Tooltip("StatusBar 프리팹 참조 (MonsterSpawner에서 전달받음)")]
+    public GameObject statusBarPrefab;
 
     [Header("현재 상태")]
     public float currentHP;
@@ -35,24 +39,28 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
     private bool isMoving = false;
     private float baseMoveSpeed;
     private float currentMoveSpeed;
-    private NetworkObject netObj;
     private MonsterReleaseScheduler releaseScheduler;
     private Coroutine resumeCoroutine;
     private int currentBlockerId = 0;
+    private bool isInitialized = false;
 
     private bool HasStateAuthorityOrNoNetwork()
     {
-        if (netObj == null)
-        {
-            netObj = GetComponent<NetworkObject>();
-        }
-
-        if (netObj == null || netObj.Runner == null || !netObj.Runner.IsRunning)
+        if (Object == null || Runner == null || !Runner.IsRunning)
         {
             return true;
         }
+        return Object.HasStateAuthority;
+    }
 
-        return netObj.HasStateAuthority;
+    /// <summary>
+    /// Fusion NetworkBehaviour의 Spawned 콜백.
+    /// </summary>
+    public override void Spawned()
+    {
+        base.Spawned();
+        // StatusBarUI 생성은 Initialize()에서 처리합니다.
+        // Spawned()는 statusBarPrefab이 할당되기 전에 호출되므로 여기서는 생성하지 않습니다.
     }
 
     void OnApplicationQuit() { isQuitting = true; }
@@ -71,12 +79,15 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         this.releaseScheduler = owner != null ? owner.GetComponentInChildren<MonsterReleaseScheduler>(true) : null;
         this.name = monsterData.monsterName;
         this.wallLayerMask = pathfinder.wallLayers;
-        netObj = GetComponent<NetworkObject>();
         baseMoveSpeed = monsterData.moveSpeed;
         currentMoveSpeed = baseMoveSpeed;
 
         currentMaxHP = monsterData.maxHealth;
         currentHP = currentMaxHP;
+        
+        // StatusBarUI 생성 (statusBarPrefab이 이미 할당된 상태)
+        EnsureStatusBarUI();
+        
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
 
         manaController = GetComponent<ManaController>();
@@ -88,6 +99,130 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             manaController.OnManaFull += ActivateSkill;
         }
         manaController.Initialize(maxMana);
+        
+        isInitialized = true;
+    }
+    
+    /// <summary>
+    /// StatusBarUI가 없으면 생성합니다.
+    /// </summary>
+    private void EnsureStatusBarUI()
+    {
+        if (statusBarUI != null) return;
+        
+        // 이미 자식으로 StatusBarUI가 있는지 확인
+        var existing = GetComponentInChildren<StatusBarUI>(true);
+        if (existing != null)
+        {
+            statusBarUI = existing;
+            return;
+        }
+        
+        // statusBarPrefab이 없으면 MonsterSpawner에서 가져오기 시도
+        if (statusBarPrefab == null)
+        {
+            var spawner = FindObjectOfType<MonsterSpawner>();
+            if (spawner != null && spawner.statusBarPrefab != null)
+            {
+                statusBarPrefab = spawner.statusBarPrefab;
+            }
+        }
+        
+        // 프리팹이 있으면 생성
+        if (statusBarPrefab != null)
+        {
+            GameObject statusBarGO = Instantiate(statusBarPrefab, transform);
+            statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
+            Debug.Log($"<color=cyan>[Monster] {name}: StatusBarUI 생성 (HasStateAuthority={(Object != null ? Object.HasStateAuthority.ToString() : "N/A")})</color>");
+        }
+    }
+    
+    /// <summary>
+    /// 서버에서 클라이언트로 초기화 데이터를 전송합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_InitializeOnClient(NetworkId ownerPlayerId, string monsterDataName)
+    {
+        // 서버는 이미 Initialize()로 초기화되었으므로 무시
+        if (Object != null && Object.HasStateAuthority) return;
+        
+        Debug.Log($"<color=yellow>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 시작 (monsterDataName={monsterDataName})</color>");
+        
+        StartCoroutine(InitializeOnClientCoroutine(ownerPlayerId, monsterDataName));
+    }
+    
+    private System.Collections.IEnumerator InitializeOnClientCoroutine(NetworkId ownerPlayerId, string monsterDataName)
+    {
+        // ownerPlayer 찾기
+        NetworkObject ownerNO = null;
+        int attempts = 0;
+        while (ownerNO == null && attempts < 60)
+        {
+            if (Runner != null)
+            {
+                Runner.TryFindObject(ownerPlayerId, out ownerNO);
+            }
+            if (ownerNO == null)
+            {
+                yield return null;
+                attempts++;
+            }
+        }
+        
+        PlayerManager owner = ownerNO != null ? ownerNO.GetComponent<PlayerManager>() : null;
+        
+        if (owner == null)
+        {
+            Debug.LogWarning($"[Monster.RPC_InitializeOnClient] ownerPlayer를 찾을 수 없습니다.");
+            // StatusBarUI만이라도 생성
+            EnsureStatusBarUI();
+            yield break;
+        }
+        
+        // MonsterData 로드 (프리팹에 이미 할당되어 있거나 Addressables에서 로드)
+        if (monsterData == null && !string.IsNullOrEmpty(monsterDataName))
+        {
+            // 프리팹의 monsterData가 있으면 사용
+            var prefabMonster = GetComponent<Monster>();
+            if (prefabMonster != null && prefabMonster.monsterData != null)
+            {
+                monsterData = prefabMonster.monsterData;
+            }
+        }
+        
+        // 필수 참조 설정
+        this.ownerPlayer = owner;
+        this.goalTransform = owner.goalTransform;
+        this.pathfinder = owner.astarGrid;
+        
+        if (monsterData != null)
+        {
+            this.name = monsterData.monsterName;
+            this.wallLayerMask = pathfinder != null ? pathfinder.wallLayers : default;
+            baseMoveSpeed = monsterData.moveSpeed;
+            currentMoveSpeed = baseMoveSpeed;
+            currentMaxHP = monsterData.maxHealth;
+            currentHP = currentMaxHP;
+        }
+        
+        // StatusBarUI 생성
+        EnsureStatusBarUI();
+        
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+        
+        manaController = GetComponent<ManaController>();
+        if (manaController != null && monsterData != null)
+        {
+            int maxMana = 0;
+            if (monsterData.skillData != null)
+            {
+                maxMana = monsterData.skillData.manaCost;
+            }
+            manaController.Initialize(maxMana);
+        }
+        
+        isInitialized = true;
+        Debug.Log($"<color=cyan>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 완료</color>");
     }
 
     void Update()
@@ -201,13 +336,8 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
             blockingUnit.ReleaseBlockedMonster(this);
         }
         
-        // 안전하게 NetworkObject 가져오기
-        NetworkObject no = netObj;
-        if (no == null)
-        {
-            try { no = GetComponent<NetworkObject>(); }
-            catch { no = null; }
-        }
+        // 안전하게 NetworkObject 가져오기 (NetworkBehaviour의 Object 프로퍼티 사용)
+        NetworkObject no = Object;
         
         if (no != null && no.Runner != null && no.Runner.IsRunning)
         {
@@ -327,8 +457,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
     public void StartFollowingPath(List<AstarNode> path)
     {
-        var no = netObj != null ? netObj : GetComponent<NetworkObject>();
-        if (no != null && !no.HasStateAuthority)
+        if (Object != null && !Object.HasStateAuthority)
         {
             isMoving = false;
             return;
@@ -360,7 +489,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         );
         while (Vector3.Distance(transform.position, targetPosition) > 0.1f && isMoving)
         {
-            float dt = (netObj != null && netObj.Runner != null) ? netObj.Runner.DeltaTime : Time.deltaTime;
+            float dt = (Runner != null) ? Runner.DeltaTime : Time.deltaTime;
             Vector3 nextPos = Vector3.MoveTowards(
                 transform.position,
                 targetPosition,
@@ -410,7 +539,7 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
 
             while (Vector3.Distance(transform.position, currentTarget) > 0.1f && isMoving)
             {
-                float dt = (netObj != null && netObj.Runner != null) ? netObj.Runner.DeltaTime : Time.deltaTime;
+                float dt = (Runner != null) ? Runner.DeltaTime : Time.deltaTime;
                 Vector3 nextPos = Vector3.MoveTowards(transform.position, currentTarget, currentMoveSpeed * dt);
                 if (pathfinder != null)
                 {
