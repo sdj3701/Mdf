@@ -17,12 +17,25 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     [Tooltip("StatusBar 프리팹 참조 (MonsterSpawner에서 전달받음)")]
     public GameObject statusBarPrefab;
 
-    [Header("현재 상태")]
-    public float currentHP;
-    private float currentMaxHP;
+    // === 현재 상태 (Networked) ===
+    // [Networked] 속성으로 서버/클라이언트 간 HP 동기화
+    [Networked] public float NetworkedHP { get; set; }
+    [Networked] public float NetworkedMaxHP { get; set; }
+    
+    // 로컬 접근용 프로퍼티 (IHealth 인터페이스 호환성 유지)
+    public float currentHP
+    {
+        get => NetworkedHP;
+        set => NetworkedHP = value;
+    }
+    private float currentMaxHP
+    {
+        get => NetworkedMaxHP;
+        set => NetworkedMaxHP = value;
+    }
 
-    public float CurrentHealth => currentHP;
-    public float MaxHealth => currentMaxHP;
+    public float CurrentHealth => NetworkedHP;
+    public float MaxHealth => NetworkedMaxHP;
     public event System.Action<float, float> OnHealthChanged;
 
     private ManaController manaController;
@@ -43,6 +56,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private Coroutine resumeCoroutine;
     private int currentBlockerId = 0;
     private bool isInitialized = false;
+    private ChangeDetector _changeDetector;
 
     private bool HasStateAuthorityOrNoNetwork()
     {
@@ -59,8 +73,28 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public override void Spawned()
     {
         base.Spawned();
+        _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
         // StatusBarUI 생성은 Initialize()에서 처리합니다.
         // Spawned()는 statusBarPrefab이 할당되기 전에 호출되므로 여기서는 생성하지 않습니다.
+    }
+    
+    /// <summary>
+    /// 클라이언트에서 HP 변경을 감지하고 이벤트를 발생시킵니다.
+    /// </summary>
+    public override void Render()
+    {
+        if (_changeDetector == null)
+        {
+            _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+        }
+        
+        foreach (var propertyName in _changeDetector.DetectChanges(this))
+        {
+            if (propertyName == nameof(NetworkedHP) || propertyName == nameof(NetworkedMaxHP))
+            {
+                OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
+            }
+        }
     }
 
     void OnApplicationQuit() { isQuitting = true; }
@@ -301,17 +335,21 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     public void Heal(float amount)
     {
+        // 서버에서만 HP 수정 (클라이언트는 Networked 속성 동기화로 반영)
+        if (!HasStateAuthorityOrNoNetwork()) return;
         if (currentHP <= 0 || amount <= 0) return;
         currentHP = Mathf.Min(currentHP + amount, currentMaxHP);
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+        // Render()에서 ChangeDetector가 OnHealthChanged 이벤트를 발생시킴
     }
 
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
+        // 서버에서만 HP 수정 (클라이언트는 Networked 속성 동기화로 반영)
+        if (!HasStateAuthorityOrNoNetwork()) return;
         if (monsterData == null) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, monsterData.defense, monsterData.magicResistance);
         currentHP -= finalDamage;
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+        // Render()에서 ChangeDetector가 OnHealthChanged 이벤트를 발생시킴
         if (currentHP <= 0) Die();
     }
 
