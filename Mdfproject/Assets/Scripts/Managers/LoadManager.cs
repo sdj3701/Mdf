@@ -37,42 +37,34 @@ public class LoadManager : MonoBehaviour
     public async UniTask InitializeAsync()
     {
         if (_isReady) return;
+
         try
         {
+            // 데이터 소스 결정: 인스펙터 우선, 없으면 Addressables
             if (inspectorUnitData != null && inspectorUnitData.Count > 0)
             {
                 _allUnits = inspectorUnitData.Where(u => u != null).ToList();
-                _unitByKey = _allUnits.Where(u => u != null).GroupBy(u => u.name).ToDictionary(g => g.Key, g => g.First());
-                for (int i = 0; i < _allUnits.Count; i++)
-                {
-                    var u = _allUnits[i];
-                    if (u == null)
-                    {
-                        Debug.LogWarning($"[LoadManager] #{i + 1} Null UnitData entry");
-                    }
-                }
-                _isReady = true;
-                _unitLoadTcs.TrySetResult(true);
-                return;
             }
-            var handle = Addressables.LoadAssetsAsync<UnitData>("UnitData", null);
-            var result = await handle.Task;
-            _allUnits = result != null ? result.ToList() : new List<UnitData>();
-            _unitByKey = _allUnits.Where(u => u != null).GroupBy(u => u.name).ToDictionary(g => g.Key, g => g.First());
-            for (int i = 0; i < _allUnits.Count; i++)
+            else
             {
-                var u = _allUnits[i];
-                if (u == null)
-                {
-                    Debug.LogWarning($"[LoadManager] #{i + 1} Null UnitData entry");
-                }
+                var handle = Addressables.LoadAssetsAsync<UnitData>("UnitData", null);
+                var result = await handle.Task;
+                _allUnits = result?.ToList() ?? new List<UnitData>();
             }
+
+            // 딕셔너리 생성 (공통)
+            _unitByKey = _allUnits
+                .GroupBy(u => u.name)
+                .ToDictionary(g => g.Key, g => g.First());
+
             _isReady = true;
             _unitLoadTcs.TrySetResult(true);
+
+            Debug.Log($"[LoadManager] {_allUnits.Count}개 UnitData 로드 완료");
         }
         catch (System.Exception e)
         {
-            Debug.LogError($"[LoadManager] Failed to load UnitData assets: {e.Message}");
+            Debug.LogError($"[LoadManager] UnitData 로드 실패: {e.Message}");
             _unitLoadTcs.TrySetException(e);
         }
     }

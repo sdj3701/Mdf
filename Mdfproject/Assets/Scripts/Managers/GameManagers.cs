@@ -105,7 +105,6 @@ public class GameManagers : NetworkBehaviour
     private ShopUIController localPlayerShopUI;
     private GameObject localPlayerShopUIGameObject;
     private AugmentUIController augmentSelectionUI;
-    private NetworkManager networkManager;
     private bool _isSpawned;
     private readonly HashSet<int> _spawnGoalRandomized = new HashSet<int>();
 
@@ -117,7 +116,6 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     public override void Spawned()
     {
-        
         if (Instance == null)
         {
             Instance = this;
@@ -134,18 +132,24 @@ public class GameManagers : NetworkBehaviour
             var go = new GameObject("LoadManager");
             go.AddComponent<LoadManager>();
         }
-        LoadManager.Instance.InitializeAsync().Forget();
 
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
-        networkManager = NetworkManager.Instance;
-
-        GameFlow().Forget();
-
+        // 초기화 완료 후 GameFlow 시작
+        InitializeAndStartGame().Forget();
 
         _isSpawned = true;
         // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
         GameEvents.TriggerGameManagersReady();
+    }
+
+    /// <summary>
+    /// LoadManager 초기화 완료 후 게임 흐름을 시작합니다.
+    /// </summary>
+    private async UniTask InitializeAndStartGame()
+    {
+        await LoadManager.Instance.InitializeAsync();
+        await GameFlow();
     }
 
     /// <summary>
