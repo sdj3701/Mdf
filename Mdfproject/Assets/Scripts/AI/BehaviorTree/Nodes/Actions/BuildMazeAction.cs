@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using AI.BehaviorTree.Nodes;
 
@@ -16,6 +17,7 @@ namespace AI.BehaviorTree.Nodes.Actions
         private readonly HashSet<Vector3Int> _temporarilySkipped = new HashSet<Vector3Int>();
         private readonly HashSet<Vector3Int> _builtAtLeastOnce = new HashSet<Vector3Int>();
         private float _skipClearTime;
+        private Task<MazePlanner.MazePlanResult> _planTask;
 
         public BuildMazeAction(PlayerManager playerManager, CommandProcessor commandProcessor)
         {
@@ -41,7 +43,25 @@ namespace AI.BehaviorTree.Nodes.Actions
             // 1) Plan once per match/owner
             if (!_playerManager.mazePlanned)
             {
-                var planResult = MazePlanner.PlanWalls(fm, _playerManager);
+                if (_planTask == null)
+                {
+                    _planTask = MazePlanner.PlanWallsAsync(fm, _playerManager);
+                }
+
+                if (!_planTask.IsCompleted)
+                {
+                    return status = NodeStatus.Running;
+                }
+
+                if (_planTask.IsFaulted || _planTask.IsCanceled)
+                {
+                    Debug.LogWarning($"<color=red>[BuildMazeAction] Maze planning failed: {_planTask.Exception?.GetBaseException().Message}</color>");
+                    _planTask = null;
+                    return status = NodeStatus.Failure;
+                }
+
+                var planResult = _planTask.Result;
+                _planTask = null;
                 _playerManager.mazePlannedOrder = planResult?.BuildOrder ?? new List<Vector3Int>();
                 _playerManager.mazeBuildCursor = 0;
                 _playerManager.mazePlanned = true;

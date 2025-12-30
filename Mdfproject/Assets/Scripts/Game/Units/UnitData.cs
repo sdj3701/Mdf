@@ -14,6 +14,15 @@ public enum ManaRegenType
     Passive   // 매초 일정량 자연 회복
 }
 
+/// <summary>
+/// 공격 대상 타입을 정의합니다 (단일/스플래시).
+/// </summary>
+public enum AttackTargetType 
+{ 
+    Single,  // 단일 대상 공격
+    Splash   // 다중 대상 공격 (범위)
+}
+
 
 /// <summary>
 /// 유닛의 모든 정적 데이터(정보)를 담고 있는 ScriptableObject입니다.
@@ -60,6 +69,13 @@ public class UnitData : ScriptableObject
     [Header("특수 능력")]
     [Tooltip("이 유닛이 동시에 저지할 수 있는 지상 몬스터의 수입니다. 원거리 유닛은 0으로 설정하세요.")]
     public int blockCount;
+
+    [Header("공격 타입")]
+    [Tooltip("단일 대상 공격인지 스플래시(범위) 공격인지 설정합니다.")]
+    public AttackTargetType attackTargetType = AttackTargetType.Single;
+
+    [Tooltip("원거리 유닛의 투사체 폭발 범위입니다. 스플래시 공격일 때만 사용됩니다. 근접 유닛은 저지 중인 모든 몬스터를 공격합니다.")]
+    public float splashRadius = 0f;
 
     // [추가됨] 마나 회복 관련 설정
     [Header("마나 & 스킬")]

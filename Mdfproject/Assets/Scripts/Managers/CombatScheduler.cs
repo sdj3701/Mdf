@@ -30,9 +30,12 @@ public class CombatScheduler : NetworkBehaviour
     private struct PendingHit
     {
         public NetworkId TargetId;
+        public Vector3 ImpactPosition;
         public float Damage;
         public DamageType DamageType;
         public int HitTick;
+        public float SplashRadius;
+        public LayerMask EnemyLayerMask;
     }
 
     public struct ProjectileEventData
@@ -85,12 +88,29 @@ public class CombatScheduler : NetworkBehaviour
                 continue;
             }
 
-            if (Runner.TryFindObject(hit.TargetId, out var targetObj))
+            // 스플래시 공격 처리
+            if (hit.SplashRadius > 0f)
             {
-                var enemy = targetObj.GetComponent<IEnemy>();
-                if (enemy != null)
+                Collider[] enemiesInRange = Physics.OverlapSphere(hit.ImpactPosition, hit.SplashRadius, hit.EnemyLayerMask);
+                foreach (var enemyCollider in enemiesInRange)
                 {
-                    enemy.TakeDamage(hit.Damage, hit.DamageType);
+                    var enemy = enemyCollider.GetComponent<IEnemy>();
+                    if (enemy != null)
+                    {
+                        enemy.TakeDamage(hit.Damage, hit.DamageType);
+                    }
+                }
+            }
+            else
+            {
+                // 단일 대상 공격
+                if (Runner.TryFindObject(hit.TargetId, out var targetObj))
+                {
+                    var enemy = targetObj.GetComponent<IEnemy>();
+                    if (enemy != null)
+                    {
+                        enemy.TakeDamage(hit.Damage, hit.DamageType);
+                    }
                 }
             }
         }
@@ -98,7 +118,7 @@ public class CombatScheduler : NetworkBehaviour
     }
 
     public void ScheduleHit(NetworkObject attacker, NetworkObject target, Vector3 firePos, float damage,
-        DamageType damageType, bool isRanged, bool emitVfx, float projectileSpeedOverride = 0f)
+        DamageType damageType, bool isRanged, bool emitVfx, float projectileSpeedOverride = 0f, float splashRadius = 0f, LayerMask enemyLayerMask = default)
     {
         if (!Object.HasStateAuthority || Runner == null || target == null || _hitBuckets == null)
         {
@@ -130,9 +150,12 @@ public class CombatScheduler : NetworkBehaviour
         _hitBuckets[bucketIndex].Add(new PendingHit
         {
             TargetId = target.Id,
+            ImpactPosition = target.transform.position,
             Damage = damage,
             DamageType = damageType,
-            HitTick = hitTick
+            HitTick = hitTick,
+            SplashRadius = splashRadius,
+            EnemyLayerMask = enemyLayerMask
         });
 
         if (emitVfx)

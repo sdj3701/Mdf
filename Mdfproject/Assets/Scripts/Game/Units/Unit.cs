@@ -77,6 +77,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         public float ProjectileSpeed;
         public bool IsRanged;
         public bool EmitVfx;
+        public float SplashRadius;
     }
 
     private bool isCombatPhase = false;
@@ -820,14 +821,11 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             FindNearestEnemy();
             if (targetEnemy != null)
             {
-                // [Fix] 새 타겟 감지 시 즉시 공격 (쿨다운 무시)
-                bool isNewTarget = previousTarget == null || previousTarget != targetEnemy;
-                
-                if (isNewTarget || Time.time >= nextAttackTime)
+                // 쿨다운 준수: 항상 공격 속도에 맞춰서만 공격
+                if (Time.time >= nextAttackTime)
                 {
                     Attack();
                     nextAttackTime = Time.time + 1f / currentAttackSpeed;
-                    previousTarget = targetEnemy;
                 }
             }
             else
@@ -917,15 +915,18 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                             DamageType = unitData.damageType,
                             ProjectileSpeed = _cachedProjectileSpeed,
                             IsRanged = true,
-                            EmitVfx = true
+                            EmitVfx = true,
+                            SplashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f
                         };
                         _hasPendingAttack = true;
                     }
                     else
                     {
                         Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                        // 원거리 스플래시 공격: splashRadius와 enemyLayerMask 전달
+                        float splashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f;
                         scheduler.ScheduleHit(_networkObject, targetNo, firePos, currentAttackDamage, unitData.damageType,
-                            true, false, _cachedProjectileSpeed);
+                            true, false, _cachedProjectileSpeed, splashRadius, enemyLayerMask);
                     }
                 }
                 else if (targetEnemy != null)
@@ -935,31 +936,73 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             }
             else
             {
-                if (canSyncMelee)
+                // 디버그: 공격 타입 확인
+                Debug.Log($"[Unit Attack Debug] {unitData.unitName} - AttackTargetType: {unitData.attackTargetType}, BlockedMonsters: {blockedMonsters.Count}");
+                
+                // 근접 유닛 스플래시 공격: 저지 중인 모든 몬스터에게 데미지
+                if (unitData.attackTargetType == AttackTargetType.Splash && blockedMonsters.Count > 0)
                 {
-                    _pendingAttack = new PendingAttack
+                    Debug.Log($"[Unit Attack Debug] → 스플래시 공격 분기 진입! 대상 수: {blockedMonsters.Count}");
+                    // 스플래시 공격: 저지 중인 모든 몬스터에게 동시에 데미지
+                    foreach (var monster in blockedMonsters.ToList())
                     {
-                        Target = targetNo,
-                        TargetEnemy = targetEnemy,
-                        Damage = currentAttackDamage,
-                        DamageType = unitData.damageType,
-                        ProjectileSpeed = 0f,
-                        IsRanged = false,
-                        EmitVfx = false
-                    };
-                    _hasPendingAttack = true;
+                        if (monster != null && monster.currentHP > 0)
+                        {
+                            Debug.Log($"[Unit Attack Debug] → 스플래시 데미지: {monster.name}에게 {currentAttackDamage} 데미지");
+                            if (schedulerReady)
+                            {
+                                var monsterNo = monster.GetComponent<NetworkObject>();
+                                if (monsterNo != null)
+                                {
+                                    Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                                    scheduler.ScheduleHit(_networkObject, monsterNo, firePos, currentAttackDamage, unitData.damageType,
+                                        false, false, 0f);
+                                }
+                                else
+                                {
+                                    monster.TakeDamage(currentAttackDamage, unitData.damageType);
+                                }
+                            }
+                            else
+                            {
+                                monster.TakeDamage(currentAttackDamage, unitData.damageType);
+                            }
+                        }
+                    }
                 }
                 else
                 {
-                    if (schedulerReady && targetNo != null)
+                    Debug.Log($"[Unit Attack Debug] → 단일 공격 분기 진입! 대상: {targetEnemy}");
+                    // 기존 단일 대상 공격 로직
+                    if (canSyncMelee)
                     {
-                        Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
-                        scheduler.ScheduleHit(_networkObject, targetNo, firePos, currentAttackDamage, unitData.damageType,
-                            false, false, 0f);
+                        Debug.Log($"[Unit Attack Debug] → 단일 공격 (PendingAttack): {targetNo?.name}에게 {currentAttackDamage} 데미지");
+                        _pendingAttack = new PendingAttack
+                        {
+                            Target = targetNo,
+                            TargetEnemy = targetEnemy,
+                            Damage = currentAttackDamage,
+                            DamageType = unitData.damageType,
+                            ProjectileSpeed = 0f,
+                            IsRanged = false,
+                            EmitVfx = false
+                        };
+                        _hasPendingAttack = true;
                     }
-                    else if (targetEnemy != null)
+                    else
                     {
-                        targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+                        if (schedulerReady && targetNo != null)
+                        {
+                            Debug.Log($"[Unit Attack Debug] → 단일 공격 (Scheduler): {targetNo.name}에게 {currentAttackDamage} 데미지");
+                            Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                            scheduler.ScheduleHit(_networkObject, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                                false, false, 0f);
+                        }
+                        else if (targetEnemy != null)
+                        {
+                            Debug.Log($"[Unit Attack Debug] → 단일 공격 (Direct): 대상에게 {currentAttackDamage} 데미지");
+                            targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+                        }
                     }
                 }
             }
@@ -1016,7 +1059,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         {
             Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
             scheduler.ScheduleHit(_networkObject, _pendingAttack.Target, firePos, _pendingAttack.Damage,
-                _pendingAttack.DamageType, _pendingAttack.IsRanged, _pendingAttack.EmitVfx, _pendingAttack.ProjectileSpeed);
+                _pendingAttack.DamageType, _pendingAttack.IsRanged, _pendingAttack.EmitVfx, _pendingAttack.ProjectileSpeed,
+                _pendingAttack.SplashRadius, enemyLayerMask);
         }
         else if (_pendingAttack.TargetEnemy != null)
         {
