@@ -129,6 +129,16 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             var placeAt = target.Value;
 
+            // 스폰/골 셀인지 확인 (안전장치)
+            Vector3Int spawnCell = fm.WorldToGridInt(_playerManager.spawnPoint != null ? _playerManager.spawnPoint.position : Vector3.zero);
+            Vector3Int goalCell = fm.WorldToGridInt(_playerManager.goalTransform != null ? _playerManager.goalTransform.position : Vector3.zero);
+            if (placeAt == spawnCell || placeAt == goalCell)
+            {
+                // 스폰/골 위치는 건너뜀
+                _temporarilySkipped.Add(placeAt);
+                return status = NodeStatus.Failure;
+            }
+
             var cmd = new PlaceWallCommand(_playerManager.playerId, placeAt);
             _commandProcessor.RequestCommandExecution(cmd);
 

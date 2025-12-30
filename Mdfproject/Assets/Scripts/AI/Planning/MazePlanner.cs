@@ -89,6 +89,8 @@ public static class MazePlanner
         var orderedWalls = PrioritizeWalls(generation, initialWalls, rng);
         foreach (var cell in orderedWalls)
         {
+            // 스폰/골 셀은 BuildOrder에 포함하지 않음 (안전장치)
+            if (cell == plan.Start || cell == plan.Goal) continue;
             plan.BuildOrder.Add(new Vector3Int(cell.x, cell.y, 0));
         }
 
