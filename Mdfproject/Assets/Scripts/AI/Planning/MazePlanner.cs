@@ -34,8 +34,6 @@ public static class MazePlanner
 
     private const float LongestSearchMs = 200f;
     private const int MaxGenerationAttempts = 80;
-    private const int DefaultTargetMinLength = 20;
-    private const int DefaultMinStartGoalDistance = 5;
 
     public class MazePlanResult
     {
@@ -65,29 +63,51 @@ public static class MazePlanner
         var initialWalls = CollectInitialWalls(fm);
         int freeCells = Mathf.Max(1, width * height - initialWalls.Count);
         int maxPossiblePath = Mathf.Max(1, freeCells - 1);
-        int targetMinLength = Mathf.Clamp(DefaultTargetMinLength, 2, maxPossiblePath);
+        int minDesired = Mathf.Min(width + height + 2, maxPossiblePath);
+        int targetMinLength = Mathf.Clamp((int)(freeCells * 0.4f), minDesired, maxPossiblePath);
 
-        Vector2Int? preferredStart = null;
-        Vector2Int? preferredGoal = null;
-        if (pm.spawnPoint != null && pm.goalTransform != null)
+        bool useFixedEndpoints = pm.spawnPoint != null && pm.goalTransform != null;
+        Vector2Int fixedStart = Vector2Int.zero;
+        Vector2Int fixedGoal = Vector2Int.zero;
+        if (useFixedEndpoints)
         {
             var spawnCell = fm.WorldToGridInt(pm.spawnPoint.position);
             var goalCell = fm.WorldToGridInt(pm.goalTransform.position);
-            var start2D = new Vector2Int(spawnCell.x, spawnCell.y);
-            var goal2D = new Vector2Int(goalCell.x, goalCell.y);
-            if (IsInside(start2D, width, height) && IsInside(goal2D, width, height) &&
-                start2D != goal2D && !initialWalls.Contains(start2D) && !initialWalls.Contains(goal2D))
+            fixedStart = new Vector2Int(spawnCell.x, spawnCell.y);
+            fixedGoal = new Vector2Int(goalCell.x, goalCell.y);
+
+            if (fixedStart == fixedGoal)
             {
-                preferredStart = start2D;
-                preferredGoal = goal2D;
+                Debug.LogWarning($"[MazePlanner] Spawn/Goal overlap at {fixedStart}. Maze may fail.");
+            }
+            if (initialWalls.Contains(fixedStart) || initialWalls.Contains(fixedGoal))
+            {
+                Debug.LogWarning($"[MazePlanner] Spawn/Goal is on a wall cell. Start={fixedStart}, Goal={fixedGoal}");
             }
         }
-
-        var generation = GenerateFlawlessMaze(width, height, initialWalls, targetMinLength, rng, preferredStart, preferredGoal);
-        if (generation == null)
+        else
         {
-            Debug.LogWarning("[MazePlanner] Maze generation failed, using fallback path.");
-            generation = BuildFallbackMaze(fm, pm, initialWalls);
+            Debug.LogWarning("[MazePlanner] Spawn/Goal transforms missing. Falling back to random endpoints.");
+        }
+
+        MazeGenerationResult generation = null;
+        if (useFixedEndpoints)
+        {
+            generation = GenerateFlawlessMazeWithFixedEndpoints(width, height, initialWalls, targetMinLength, rng, fixedStart, fixedGoal);
+            if (generation == null)
+            {
+                Debug.LogWarning($"[MazePlanner] Fixed endpoint maze generation failed. Start={fixedStart}, Goal={fixedGoal}");
+                generation = BuildFallbackMazeFixed(width, height, initialWalls, fixedStart, fixedGoal);
+            }
+        }
+        else
+        {
+            generation = GenerateFlawlessMaze(width, height, initialWalls, targetMinLength, rng);
+            if (generation == null)
+            {
+                Debug.LogWarning("[MazePlanner] Strict maze generation failed, using fallback path.");
+                generation = BuildFallbackMaze(fm, pm, initialWalls);
+            }
         }
 
         if (generation == null)
@@ -96,7 +116,10 @@ public static class MazePlanner
             return plan;
         }
 
-        AlignSpawnAndGoal(pm, fm, generation.Start, generation.Goal);
+        if (!useFixedEndpoints)
+        {
+            AlignSpawnAndGoal(pm, fm, generation.Start, generation.Goal);
+        }
 
         plan.Start = generation.Start;
         plan.Goal = generation.Goal;
@@ -115,66 +138,22 @@ public static class MazePlanner
 
     #region Generation Core
 
-    private static MazeGenerationResult GenerateFlawlessMaze(
-        int width,
-        int height,
-        HashSet<Vector2Int> initialWalls,
-        int targetMinLength,
-        System.Random rng,
-        Vector2Int? preferredStart,
-        Vector2Int? preferredGoal)
+    private static MazeGenerationResult GenerateFlawlessMaze(int width, int height, HashSet<Vector2Int> initialWalls, int targetMinLength, System.Random rng)
     {
-        int freeCells = Mathf.Max(1, width * height - initialWalls.Count);
-        if (freeCells < 2)
-        {
-            return null;
-        }
-
-        int maxPossiblePath = Mathf.Max(1, freeCells - 1);
-        int minDistance = Mathf.Min(DefaultMinStartGoalDistance, width + height - 2);
-        if (minDistance < 1) minDistance = 1;
-        int requiredLength = Mathf.Clamp(targetMinLength, 2, maxPossiblePath);
-
-        bool usePreferred = preferredStart.HasValue && preferredGoal.HasValue;
-        if (usePreferred)
-        {
-            var start = preferredStart.Value;
-            var goal = preferredGoal.Value;
-            if (!IsInside(start, width, height) || !IsInside(goal, width, height) ||
-                start == goal || initialWalls.Contains(start) || initialWalls.Contains(goal))
-            {
-                usePreferred = false;
-            }
-        }
-
-        bool triedPreferred = false;
+        int minDistance = Mathf.Max(4, (width + height) / 3);
         int attempt = 0;
 
         while (attempt < MaxGenerationAttempts)
         {
             attempt++;
 
-            Vector2Int start;
-            Vector2Int goal;
-            if (usePreferred && !triedPreferred)
+            if (!TryPickStartGoal(width, height, initialWalls, rng, minDistance, out var start, out var goal))
             {
-                start = preferredStart.Value;
-                goal = preferredGoal.Value;
-                triedPreferred = true;
-
-                int dist = Mathf.Abs(start.x - goal.x) + Mathf.Abs(start.y - goal.y);
-                if (dist <= minDistance)
-                {
-                    continue;
-                }
-            }
-            else if (!TryPickStartGoal(width, height, initialWalls, rng, minDistance, out start, out goal))
-            {
-                continue;
+                break;
             }
 
             var dfsPath = FindStrictLongestPath(start, goal, initialWalls, width, height, rng);
-            if (dfsPath == null || dfsPath.Count < requiredLength)
+            if (dfsPath == null || dfsPath.Count < targetMinLength)
             {
                 continue;
             }
@@ -189,6 +168,52 @@ public static class MazePlanner
             var aiWalls = ExtractAiWalls(optimizedGrid);
 
             Debug.Log($"[MazePlanner] Maze found on attempt {attempt}. Path {dfsPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
+
+            return new MazeGenerationResult
+            {
+                Grid = optimizedGrid,
+                FinalPath = finalPath,
+                DfsPath = dfsPath,
+                AiWalls = aiWalls,
+                Start = start,
+                Goal = goal
+            };
+        }
+
+        return null;
+    }
+
+    private static MazeGenerationResult GenerateFlawlessMazeWithFixedEndpoints(
+        int width,
+        int height,
+        HashSet<Vector2Int> initialWalls,
+        int targetMinLength,
+        System.Random rng,
+        Vector2Int start,
+        Vector2Int goal)
+    {
+        int attempt = 0;
+
+        while (attempt < MaxGenerationAttempts)
+        {
+            attempt++;
+
+            var dfsPath = FindStrictLongestPath(start, goal, initialWalls, width, height, rng);
+            if (dfsPath == null || dfsPath.Count < targetMinLength)
+            {
+                continue;
+            }
+
+            var optimizedGrid = OptimizeWalls(start, goal, initialWalls, dfsPath, width, height, rng);
+            if (optimizedGrid == null) continue;
+
+            var finalPath = AStarSearch(optimizedGrid, start, goal);
+            if (finalPath == null) continue;
+            if (finalPath.Count < dfsPath.Count) continue;
+
+            var aiWalls = ExtractAiWalls(optimizedGrid);
+
+            Debug.Log($"[MazePlanner] Fixed maze found on attempt {attempt}. Path {dfsPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
 
             return new MazeGenerationResult
             {
@@ -282,6 +307,22 @@ public static class MazePlanner
             AiWalls = new List<Vector2Int>(),
             Start = start2D,
             Goal = goal2D
+        };
+    }
+
+    private static MazeGenerationResult BuildFallbackMazeFixed(int width, int height, HashSet<Vector2Int> initialWalls, Vector2Int start, Vector2Int goal)
+    {
+        var grid = BuildGrid(width, height, initialWalls, null);
+        var path = AStarSearch(grid, start, goal) ?? new List<Vector2Int> { start, goal };
+
+        return new MazeGenerationResult
+        {
+            Grid = grid,
+            FinalPath = path,
+            DfsPath = path,
+            AiWalls = new List<Vector2Int>(),
+            Start = start,
+            Goal = goal
         };
     }
 
