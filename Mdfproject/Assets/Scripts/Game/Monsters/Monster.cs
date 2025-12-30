@@ -75,6 +75,22 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
         baseMoveSpeed = monsterData.moveSpeed;
         currentMoveSpeed = baseMoveSpeed;
 
+        // [Fix] 오브젝트 재사용 시 이전 상태 초기화
+        isBlocked = false;
+        blockingUnit = null;
+        isMoving = false;
+        if (attackCoroutine != null)
+        {
+            StopCoroutine(attackCoroutine);
+            attackCoroutine = null;
+        }
+        if (resumeCoroutine != null)
+        {
+            StopCoroutine(resumeCoroutine);
+            resumeCoroutine = null;
+        }
+        currentBlockerId = 0;
+
         currentMaxHP = monsterData.maxHealth;
         currentHP = currentMaxHP;
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
@@ -417,6 +433,36 @@ public class Monster : MonoBehaviour, IEnemy, IHealth
                     nextPos = pathfinder.ClampToGrid(nextPos);
                 }
                 transform.position = nextPos;
+
+                // [Fix] 저지 유닛 능동 탐지 - OnTriggerEnter 누락 방지
+                // 이동 거리에 비례하여 탐지 범위를 동적으로 설정 (빠른 몬스터도 감지)
+                if (!isBlocked && monsterData.monsterType != MonsterType.Flying)
+                {
+                    float moveDistance = currentMoveSpeed * dt;
+                    float detectionRadius = Mathf.Max(0.6f, moveDistance + 0.3f);
+                    float blockDistance = 0.6f; // 실제 저지가 발생하는 최대 거리
+                    
+                    Collider[] nearbyUnits = Physics.OverlapSphere(nextPos, detectionRadius);
+                    foreach (var col in nearbyUnits)
+                    {
+                        if (col.TryGetComponent<Unit>(out var unit) &&
+                            unit.Data.blockCount > 0 &&
+                            unit.Data.unitType == UnitType.Melee &&
+                            !unit.IsBlockingFull())
+                        {
+                            // 유닛과의 실제 거리 확인 - 충분히 가까울 때만 저지
+                            float distToUnit = Vector3.Distance(nextPos, unit.transform.position);
+                            if (distToUnit <= blockDistance)
+                            {
+                                if (unit.TryBlockMonster(this))
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
                 yield return null;
             }
             currentPathIndex++;

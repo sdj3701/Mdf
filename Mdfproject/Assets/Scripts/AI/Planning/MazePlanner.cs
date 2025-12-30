@@ -34,7 +34,8 @@ public static class MazePlanner
 
     private const float LongestSearchMs = 200f;
     private const int MaxGenerationAttempts = 80;
-    private const float GenerationBudgetMs = 1200f;
+    private const int DefaultTargetMinLength = 20;
+    private const int DefaultMinStartGoalDistance = 5;
 
     public class MazePlanResult
     {
@@ -64,8 +65,7 @@ public static class MazePlanner
         var initialWalls = CollectInitialWalls(fm);
         int freeCells = Mathf.Max(1, width * height - initialWalls.Count);
         int maxPossiblePath = Mathf.Max(1, freeCells - 1);
-        int minDesired = Mathf.Min(width + height + 2, maxPossiblePath);
-        int targetMinLength = Mathf.Clamp((int)(freeCells * 0.4f), minDesired, maxPossiblePath);
+        int targetMinLength = Mathf.Clamp(DefaultTargetMinLength, 2, maxPossiblePath);
 
         Vector2Int? preferredStart = null;
         Vector2Int? preferredGoal = null;
@@ -124,7 +124,17 @@ public static class MazePlanner
         Vector2Int? preferredStart,
         Vector2Int? preferredGoal)
     {
-        int minDistance = Mathf.Max(4, (width + height) / 3);
+        int freeCells = Mathf.Max(1, width * height - initialWalls.Count);
+        if (freeCells < 2)
+        {
+            return null;
+        }
+
+        int maxPossiblePath = Mathf.Max(1, freeCells - 1);
+        int minDistance = Mathf.Min(DefaultMinStartGoalDistance, width + height - 2);
+        if (minDistance < 1) minDistance = 1;
+        int requiredLength = Mathf.Clamp(targetMinLength, 2, maxPossiblePath);
+
         bool usePreferred = preferredStart.HasValue && preferredGoal.HasValue;
         if (usePreferred)
         {
@@ -137,93 +147,61 @@ public static class MazePlanner
             }
         }
 
-        int freeCells = Mathf.Max(1, width * height - initialWalls.Count);
-        int maxPossiblePath = Mathf.Max(1, freeCells - 1);
-        int strictTargetLen = Mathf.Clamp(targetMinLength, 2, maxPossiblePath);
-        int relaxedTargetLen = Mathf.Clamp(Mathf.Min(strictTargetLen, Mathf.RoundToInt(freeCells * 0.3f)), 2, maxPossiblePath);
-        bool allowStrict = true;
-        if (usePreferred)
+        bool triedPreferred = false;
+        int attempt = 0;
+
+        while (attempt < MaxGenerationAttempts)
         {
-            int preferredDist = Mathf.Abs(preferredStart.Value.x - preferredGoal.Value.x) +
-                                Mathf.Abs(preferredStart.Value.y - preferredGoal.Value.y);
-            if (preferredDist <= minDistance)
+            attempt++;
+
+            Vector2Int start;
+            Vector2Int goal;
+            if (usePreferred && !triedPreferred)
             {
-                allowStrict = false;
-            }
-        }
+                start = preferredStart.Value;
+                goal = preferredGoal.Value;
+                triedPreferred = true;
 
-        MazeGenerationResult TryGenerate(int targetLen, bool requireSpacing, int maxAttempts, float budgetMs)
-        {
-            int attempt = 0;
-            var phaseBudget = Stopwatch.StartNew();
-            while (attempt < maxAttempts && phaseBudget.ElapsedMilliseconds < budgetMs)
-            {
-                attempt++;
-
-                Vector2Int start;
-                Vector2Int goal;
-                if (usePreferred)
-                {
-                    start = preferredStart.Value;
-                    goal = preferredGoal.Value;
-                }
-                else if (!TryPickStartGoal(width, height, initialWalls, rng, minDistance, out start, out goal))
-                {
-                    break;
-                }
-
-                var dfsPath = requireSpacing
-                    ? FindStrictLongestPath(start, goal, initialWalls, width, height, rng)
-                    : FindLongestPath(start, goal, initialWalls, width, height, rng, false);
-                if (dfsPath == null || dfsPath.Count < targetLen)
+                int dist = Mathf.Abs(start.x - goal.x) + Mathf.Abs(start.y - goal.y);
+                if (dist <= minDistance)
                 {
                     continue;
                 }
-
-                var optimizedGrid = OptimizeWalls(start, goal, initialWalls, dfsPath, width, height, rng);
-                if (optimizedGrid == null) continue;
-
-                var finalPath = AStarSearch(optimizedGrid, start, goal);
-                if (finalPath == null) continue;
-                if (finalPath.Count < dfsPath.Count) continue;
-
-                var aiWalls = ExtractAiWalls(optimizedGrid);
-
-                Debug.Log($"[MazePlanner] Maze found on attempt {attempt}. Path {dfsPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
-
-                return new MazeGenerationResult
-                {
-                    Grid = optimizedGrid,
-                    FinalPath = finalPath,
-                    DfsPath = dfsPath,
-                    AiWalls = aiWalls,
-                    Start = start,
-                    Goal = goal
-                };
             }
-
-            return null;
-        }
-
-        float strictBudgetMs = GenerationBudgetMs * 0.6f;
-        float relaxedBudgetMs = GenerationBudgetMs * 0.4f;
-        if (!allowStrict)
-        {
-            relaxedBudgetMs = GenerationBudgetMs;
-        }
-
-        if (allowStrict)
-        {
-            var strictResult = TryGenerate(strictTargetLen, true, MaxGenerationAttempts, strictBudgetMs);
-            if (strictResult != null)
+            else if (!TryPickStartGoal(width, height, initialWalls, rng, minDistance, out start, out goal))
             {
-                return strictResult;
+                continue;
             }
-            Debug.LogWarning("[MazePlanner] Strict maze generation failed, trying relaxed constraints.");
+
+            var dfsPath = FindStrictLongestPath(start, goal, initialWalls, width, height, rng);
+            if (dfsPath == null || dfsPath.Count < requiredLength)
+            {
+                continue;
+            }
+
+            var optimizedGrid = OptimizeWalls(start, goal, initialWalls, dfsPath, width, height, rng);
+            if (optimizedGrid == null) continue;
+
+            var finalPath = AStarSearch(optimizedGrid, start, goal);
+            if (finalPath == null) continue;
+            if (finalPath.Count < dfsPath.Count) continue;
+
+            var aiWalls = ExtractAiWalls(optimizedGrid);
+
+            Debug.Log($"[MazePlanner] Maze found on attempt {attempt}. Path {dfsPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
+
+            return new MazeGenerationResult
+            {
+                Grid = optimizedGrid,
+                FinalPath = finalPath,
+                DfsPath = dfsPath,
+                AiWalls = aiWalls,
+                Start = start,
+                Goal = goal
+            };
         }
 
-        int relaxedAttempts = Mathf.Max(10, MaxGenerationAttempts / 2);
-        return TryGenerate(relaxedTargetLen, false, relaxedAttempts, relaxedBudgetMs);
+        return null;
     }
 
     private static CellType[,] OptimizeWalls(Vector2Int start, Vector2Int goal, HashSet<Vector2Int> initialWalls, List<Vector2Int> targetPath, int width, int height, System.Random rng)
@@ -334,19 +312,10 @@ public static class MazePlanner
             return true;
         }
 
-        // fallback: farthest pair
-        start = cells[0];
-        var anchor = start; // copy to avoid capturing ref/out in LINQ
-        goal = cells.Skip(1).OrderByDescending(c => Mathf.Abs(anchor.x - c.x) + Mathf.Abs(anchor.y - c.y)).FirstOrDefault();
-        return start != goal;
+        return false;
     }
 
     private static List<Vector2Int> FindStrictLongestPath(Vector2Int start, Vector2Int goal, HashSet<Vector2Int> initialWalls, int width, int height, System.Random rng)
-    {
-        return FindLongestPath(start, goal, initialWalls, width, height, rng, true);
-    }
-
-    private static List<Vector2Int> FindLongestPath(Vector2Int start, Vector2Int goal, HashSet<Vector2Int> initialWalls, int width, int height, System.Random rng, bool requireSpacing)
     {
         var best = new List<Vector2Int>();
         var visited = new HashSet<Vector2Int> { start };
@@ -374,7 +343,7 @@ public static class MazePlanner
                 if (visited.Contains(next)) continue;
                 if (initialWalls.Contains(next)) continue;
 
-                if (next == goal || !requireSpacing || IsSafeSpacing(next, current, visited))
+                if (next == goal || IsSafeSpacing(next, current, visited))
                 {
                     candidates.Add(next);
                 }

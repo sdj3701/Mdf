@@ -599,6 +599,10 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         if (!IsDead) return;
         IsDead = false;
+        
+        // [Fix] 부활 시 저지 리스트 초기화
+        blockedMonsters.Clear();
+        
         await InitializeStats();
         await CacheProjectileSpeedAsync();
         gameObject.SetActive(true);
@@ -1037,6 +1041,30 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             blockedMonsters.Add(monster);
             monster.Block(this);
         }
+    }
+
+    /// <summary>
+    /// 현재 저지 수가 최대치에 도달했는지 확인합니다.
+    /// </summary>
+    public bool IsBlockingFull()
+    {
+        return blockedMonsters.Count >= Data.blockCount;
+    }
+
+    /// <summary>
+    /// Monster에서 호출하여 저지를 시도합니다. OnTriggerEnter 누락 시 백업용.
+    /// </summary>
+    public bool TryBlockMonster(Monster monster)
+    {
+        if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
+            monster.monsterData.monsterType == MonsterType.Flying ||
+            Data.blockCount <= 0 || blockedMonsters.Count >= Data.blockCount)
+        {
+            return false;
+        }
+        blockedMonsters.Add(monster);
+        monster.Block(this);
+        return true;
     }
 
     public void ReleaseBlockedMonster(Monster monster)
