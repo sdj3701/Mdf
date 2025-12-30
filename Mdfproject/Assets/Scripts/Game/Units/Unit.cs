@@ -458,6 +458,10 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
         if (isCombatPhase)
         {
+            // [Fix] 전투 시작 시 공격 쿨다운 초기화 - 첫 공격 즉시 실행
+            lastAttackAnimTime = -999f;
+            _hasPendingAttack = false;
+            
             StartAttackLoop();
             _nextProjectileVfxTime = Time.time;
 
@@ -797,6 +801,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private IEnumerator AttackLoop()
     {
         float nextAttackTime = 0f;
+        IEnemy previousTarget = null;
+        
         while (isCombatPhase)
         {
             if (currentAttackSpeed <= 0)
@@ -814,11 +820,19 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             FindNearestEnemy();
             if (targetEnemy != null)
             {
-                if (Time.time >= nextAttackTime)
+                // [Fix] 새 타겟 감지 시 즉시 공격 (쿨다운 무시)
+                bool isNewTarget = previousTarget == null || previousTarget != targetEnemy;
+                
+                if (isNewTarget || Time.time >= nextAttackTime)
                 {
                     Attack();
                     nextAttackTime = Time.time + 1f / currentAttackSpeed;
+                    previousTarget = targetEnemy;
                 }
+            }
+            else
+            {
+                previousTarget = null;
             }
 
             // 매 프레임마다 적 탐색/쿨다운 확인

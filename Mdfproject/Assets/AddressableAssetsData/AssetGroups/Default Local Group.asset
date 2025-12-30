@@ -122,11 +122,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - CharacterSprite
-  - m_GUID: d795ac710a26b664498d445586629318
-    m_Address: Archer
-    m_ReadOnly: 0
-    m_SerializedLabels:
-    - CharacterPrefab
   - m_GUID: 0336ce3939b88d84baa6095048c203eb
     m_Address: DestructibleWallPrefab
     m_ReadOnly: 0
