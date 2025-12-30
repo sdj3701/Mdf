@@ -8,26 +8,40 @@ using UnityEngine.ResourceManagement.ResourceLocations;
 
 public class AddressablesManager : MonoBehaviour
 {
-    // ✅ 싱글톤 인스턴스 추가
     public static AddressablesManager Instance { get; private set; }
 
     [Header("Preload Settings")]
     [SerializeField] private bool autoPreloadAllOnStart = true;
     [SerializeField] private bool logPreloadProgress = true;
 
+    [Header("Game Prefabs (Addressables AssetReference)")]
+    [SerializeField] private AssetReference playerManagerPrefabRef;
+    [SerializeField] private AssetReference gridPrefabRef;
+    [SerializeField] private AssetReference defaultMonsterPrefabRef;
+
     public bool AssetsReady { get; private set; }
     public bool IsPreloading { get; private set; }
+    public bool GamePrefabsLoaded { get; private set; }
+
+    // 캐시된 게임 프리팹
+    private GameObject _playerManagerPrefab;
+    private GameObject _gridPrefab;
+    private GameObject _defaultMonsterPrefab;
+
+    // Public getters
+    public GameObject PlayerManagerPrefab => _playerManagerPrefab;
+    public GameObject GridPrefab => _gridPrefab;
+    public GameObject DefaultMonsterPrefab => _defaultMonsterPrefab;
 
     private bool _preloadCompleted;
     private AsyncOperationHandle<IList<Object>> _preloadHandle;
 
     private void Awake()
     {
-        // ✅ 싱글톤 초기화 로직 추가
         if (Instance == null)
         {
             Instance = this;
-            DontDestroyOnLoad(gameObject); // 씬이 바뀌어도 파괴되지 않도록 설정
+            DontDestroyOnLoad(gameObject);
         }
         else
         {
@@ -105,6 +119,59 @@ public class AddressablesManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 게임에서 사용하는 핵심 프리팹들을 로드합니다.
+    /// </summary>
+    public async UniTask LoadGamePrefabsAsync()
+    {
+        if (GamePrefabsLoaded) return;
+
+        Debug.Log("[AddressablesManager] 게임 프리팹 로딩 시작...");
+
+        try
+        {
+            var loadTasks = new List<UniTask>();
+
+            if (playerManagerPrefabRef != null && playerManagerPrefabRef.RuntimeKeyIsValid())
+            {
+                loadTasks.Add(LoadPrefabAsync(playerManagerPrefabRef, prefab => _playerManagerPrefab = prefab, "PlayerManager"));
+            }
+            if (gridPrefabRef != null && gridPrefabRef.RuntimeKeyIsValid())
+            {
+                loadTasks.Add(LoadPrefabAsync(gridPrefabRef, prefab => _gridPrefab = prefab, "Grid"));
+            }
+            if (defaultMonsterPrefabRef != null && defaultMonsterPrefabRef.RuntimeKeyIsValid())
+            {
+                loadTasks.Add(LoadPrefabAsync(defaultMonsterPrefabRef, prefab => _defaultMonsterPrefab = prefab, "Monster"));
+            }
+
+            await UniTask.WhenAll(loadTasks);
+            GamePrefabsLoaded = true;
+
+            Debug.Log("[AddressablesManager] 모든 게임 프리팹 로딩 완료!");
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[AddressablesManager] 게임 프리팹 로딩 실패: {ex.Message}");
+        }
+    }
+
+    private async UniTask LoadPrefabAsync(AssetReference assetRef, System.Action<GameObject> onLoaded, string prefabName)
+    {
+        var handle = assetRef.LoadAssetAsync<GameObject>();
+        await handle.Task;
+
+        if (handle.Status == AsyncOperationStatus.Succeeded)
+        {
+            onLoaded?.Invoke(handle.Result);
+            Debug.Log($"[AddressablesManager] {prefabName} 프리팹 로드 성공");
+        }
+        else
+        {
+            Debug.LogError($"[AddressablesManager] {prefabName} 프리팹 로드 실패!");
+        }
+    }
+
     private static List<IResourceLocation> CollectAllObjectLocations()
     {
         var results = new List<IResourceLocation>();
@@ -149,9 +216,6 @@ public class AddressablesManager : MonoBehaviour
     /// <summary>
     /// 어드레서블 에셋을 로드하고 지정된 부모 아래에 인스턴스화합니다.
     /// </summary>
-    /// <param name="name">로드할 에셋의 어드레서블 주소</param>
-    /// <param name="parent">생성된 오브젝트가 자식으로 속할 부모 Transform</param>
-    /// <returns>생성된 게임 오브젝트</returns>
     public async UniTask<GameObject> LoadObject(string name, Transform parent = null)
     {
         var handle = Addressables.LoadAssetAsync<GameObject>(name);
@@ -168,9 +232,6 @@ public class AddressablesManager : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// 에셋 로드가 성공했을 때 호출되어 인스턴스를 생성합니다.
-    /// </summary>
     private GameObject OnAssetLoaded(AsyncOperationHandle<GameObject> handle, string name, Transform parent)
     {
         GameObject prefabAsset = handle.Result;
