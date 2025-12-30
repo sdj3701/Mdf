@@ -126,6 +126,9 @@ public class UnitSellPanelController : MonoBehaviour
         {
             fieldManager.TrySellUnitAt(pos.Value);
         }
+
+        // 유닛 판매 후 모든 선택 UI 패널 숨기기 (유닛 디테일, 유닛 판매, 벽 제거)
+        fieldManager.HideAllSelectionPanels();
     }
 
     private void UpdatePosition()

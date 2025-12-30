@@ -281,6 +281,26 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         attackClipDurationInitialized = true;
     }
 
+    private void EnsureAnimationEventProxy()
+    {
+        if (animator == null)
+        {
+            return;
+        }
+
+        if (animator.gameObject == gameObject)
+        {
+            return;
+        }
+
+        var proxy = animator.GetComponent<UnitAnimationEventProxy>();
+        if (proxy == null)
+        {
+            proxy = animator.gameObject.AddComponent<UnitAnimationEventProxy>();
+        }
+        proxy.Initialize(this);
+    }
+
     public float GetPermanentAdjustedBaseAttackDamage()
     {
         if (unitData == null) return 0f;
@@ -371,6 +391,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             if (animator == null) animator = GetComponentInChildren<Animator>();
         }
         CacheAttackClipDurationFromController();
+        EnsureAnimationEventProxy();
 
         // AI가 소유한 유닛인 경우, 스킬 자동 사용을 강제합니다.
         if (owner != null && ComponentRegistry.Has<AIPlayerController>(owner.playerId.ToString()))

@@ -1708,15 +1708,62 @@ public class FieldManager : MonoBehaviour
         }
     }
 
-    private void ReplaceUnitPrefab(Unit unitToReplace)
+    private async void ReplaceUnitPrefab(Unit unitToReplace)
     {
+        // 현재 위치를 먼저 저장 (UnitDied 전에)
+        if (!placedUnits.ContainsValue(unitToReplace))
+        {
+            Debug.LogError("[FieldManager] ReplaceUnitPrefab: 유닛이 placedUnits에 없습니다.");
+            return;
+        }
         Vector3Int currentPos = placedUnits.First(kvp => kvp.Value == unitToReplace).Key;
         UnitData unitData = unitToReplace.Data;
         int newStarLevel = unitToReplace.starLevel;
+
+        // 기존 유닛 제거
         UnitDied(unitToReplace);
         Destroy(unitToReplace.gameObject);
-        // CreateUnitAt을 호출합니다. (await 불필요)
-        CreateUnitAt(unitData, currentPos, newStarLevel);
+
+        // 새 유닛 강제 배치 (IsUnitAt 체크 없이 직접 배치)
+        if (unitData == null || unitData.prefabsByStarLevel == null || unitData.prefabsByStarLevel.Length == 0)
+        {
+            Debug.LogError("[FieldManager] ReplaceUnitPrefab: UnitData 또는 프리팹이 없습니다.");
+            return;
+        }
+        if (newStarLevel < 1 || newStarLevel > unitData.prefabsByStarLevel.Length)
+        {
+            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 잘못된 성급({newStarLevel})");
+            return;
+        }
+
+        string prefabKey = unitData.prefabsByStarLevel[newStarLevel - 1];
+        if (string.IsNullOrEmpty(prefabKey))
+        {
+            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 키가 비어있습니다.");
+            return;
+        }
+
+        var prefab = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+        if (prefab == null)
+        {
+            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 로드 실패 ({prefabKey})");
+            return;
+        }
+
+        Vector3 worldPos = GridToWorld(currentPos, checkForWall: true);
+        GameObject unitGO = Instantiate(prefab, worldPos, Quaternion.identity, unitParent);
+        Unit newUnit = unitGO.GetComponent<Unit>();
+        if (newUnit == null)
+        {
+            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 생성된 프리팹에 Unit 컴포넌트 없음");
+            Destroy(unitGO);
+            return;
+        }
+
+        // 강제로 위치에 배치 (중복 체크 없이)
+        AttachStatusBar(unitGO, newUnit.SetStatusBar);
+        await newUnit.Initialize(unitData, newStarLevel, playerManager);
+        placedUnits[currentPos] = newUnit;
     }
 
     #endregion

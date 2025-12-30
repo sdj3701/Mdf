@@ -121,6 +121,11 @@ public class CombatScheduler : NetworkBehaviour
             }
         }
 
+        if (hitTick <= fireTick)
+        {
+            hitTick = fireTick + 1;
+        }
+
         int bucketIndex = hitTick % _hitBuckets.Length;
         _hitBuckets[bucketIndex].Add(new PendingHit
         {
