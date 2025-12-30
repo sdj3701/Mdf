@@ -8,7 +8,7 @@ using System.Linq;
 using Cysharp.Threading.Tasks;
 using System.Threading.Tasks;
 using Fusion;
-public class Unit : MonoBehaviour, IEnemy, IHealth
+public class Unit : NetworkBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
     [SerializeField] private UnitData unitData;
@@ -24,14 +24,27 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     
     public bool IsDead { get; private set; } = false;
 
-    public float CurrentHealth => currentHP;
-    public float MaxHealth => maxHP;
-    public event System.Action<float, float> OnHealthChanged;
-
-    [Header("현재 스탯 (읽기 전용)")]
-    [SerializeField] private float currentHP;
+    // === HP (Networked) ===
+    // [수정] 서버/클라이언트 간 HP 동기화를 위한 Networked 속성
+    [Networked] public float NetworkedHP { get; set; }
+    [Networked] public float NetworkedMaxHP { get; set; }
     
-    public float maxHP { get; private set; }
+    public float CurrentHealth => NetworkedHP;
+    public float MaxHealth => NetworkedMaxHP;
+    public event System.Action<float, float> OnHealthChanged;
+    
+    // 로컬 접근용 프로퍼티 (기존 코드 호환성 유지)
+    public float currentHP
+    {
+        get => NetworkedHP;
+        set => NetworkedHP = value;
+    }
+    public float maxHP
+    {
+        get => NetworkedMaxHP;
+        set => NetworkedMaxHP = value;
+    }
+
     public float currentAttackDamage { get; private set; }
     public float currentAttackSpeed { get; private set; }
     public float currentAttackRange { get; private set; }
@@ -60,13 +73,13 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     private bool attackClipDurationInitialized = false;
     private Coroutine attackClipDetectRoutine;
     private PlayerManager owner;
-    private NetworkObject _networkObject;
     private float _nextProjectileVfxTime;
     private float _cachedProjectileSpeed = -1f;
     private bool _hasPendingProjectileAttack;
     private PendingProjectileAttack _pendingProjectileAttack;
     private bool _isSkillCasting;
     private Coroutine _skillCastingRoutine;
+    private ChangeDetector _changeDetector;
 
     private struct PendingProjectileAttack
     {
@@ -78,20 +91,43 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     }
 
     private bool isCombatPhase = false;
+    
+    /// <summary>
+    /// Fusion NetworkBehaviour의 Spawned 콜백.
+    /// </summary>
+    public override void Spawned()
+    {
+        base.Spawned();
+        _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+    }
+    
+    /// <summary>
+    /// 클라이언트에서 HP 변경을 감지하고 이벤트를 발생시킵니다.
+    /// </summary>
+    public override void Render()
+    {
+        if (_changeDetector == null)
+        {
+            _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+        }
+        
+        foreach (var propertyName in _changeDetector.DetectChanges(this))
+        {
+            if (propertyName == nameof(NetworkedHP) || propertyName == nameof(NetworkedMaxHP))
+            {
+                OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
+            }
+        }
+    }
 
     private bool HasStateAuthorityOrNoNetwork()
     {
-        if (_networkObject == null)
-        {
-            _networkObject = GetComponent<NetworkObject>();
-        }
-
-        if (_networkObject == null || _networkObject.Runner == null || !_networkObject.Runner.IsRunning)
+        // NetworkBehaviour이므로 Object/Runner 프로퍼티 직접 사용
+        if (Object == null || Runner == null || !Runner.IsRunning)
         {
             return true;
         }
-
-        return _networkObject.HasStateAuthority;
+        return Object.HasStateAuthority;
     }
 
     void OnEnable()
@@ -352,10 +388,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     {
         this.unitData = data;
         this.owner = owner;
-        if (_networkObject == null)
-        {
-            _networkObject = GetComponent<NetworkObject>();
-        }
+        // NetworkBehaviour이므로 Object 프로퍼티 직접 사용 (별도 캐싱 불필요)
         if(this.unitData == null)
         {
             Debug.LogError($"UnitData is null for unit {name}");
@@ -823,12 +856,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
         bool isRanged = unitData.unitType == UnitType.Ranged;
 
-        if (_networkObject == null)
-        {
-            _networkObject = GetComponent<NetworkObject>();
-        }
-
-        bool hasAuthority = _networkObject == null || _networkObject.HasStateAuthority;
+        // NetworkBehaviour이므로 Object 프로퍼티 직접 사용
+        bool hasAuthority = Object == null || Object.HasStateAuthority;
         if (hasAuthority)
         {
             var scheduler = CombatScheduler.Instance;
@@ -852,7 +881,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
                     else
                     {
                         Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
-                        scheduler.ScheduleHit(_networkObject, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                        scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
                             isRanged, false, _cachedProjectileSpeed);
                     }
                 }
@@ -901,12 +930,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             return;
         }
 
-        if (_networkObject == null)
-        {
-            _networkObject = GetComponent<NetworkObject>();
-        }
-
-        bool hasAuthority = _networkObject == null || _networkObject.HasStateAuthority;
+        // NetworkBehaviour이므로 Object 프로퍼티 직접 사용
+        bool hasAuthority = Object == null || Object.HasStateAuthority;
         if (!hasAuthority)
         {
             _hasPendingProjectileAttack = false;
@@ -917,7 +942,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && _pendingProjectileAttack.Target != null)
         {
             Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
-            scheduler.ScheduleHit(_networkObject, _pendingProjectileAttack.Target, firePos, _pendingProjectileAttack.Damage,
+            scheduler.ScheduleHit(Object, _pendingProjectileAttack.Target, firePos, _pendingProjectileAttack.Damage,
                 _pendingProjectileAttack.DamageType, true, true, _pendingProjectileAttack.ProjectileSpeed);
         }
         else if (_pendingProjectileAttack.TargetEnemy != null)
@@ -978,10 +1003,12 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
+        // 서버에서만 HP 수정 (클라이언트는 Networked 속성 동기화로 반영)
+        if (!HasStateAuthorityOrNoNetwork()) return;
         if (unitData == null || IsDead) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, currentDefense, currentMagicResistance);
         currentHP -= finalDamage;
-        OnHealthChanged?.Invoke(currentHP, maxHP);
+        // Render()에서 ChangeDetector가 OnHealthChanged 이벤트를 발생시킴
         if (currentHP <= 0)
         {
             Die();
@@ -1013,6 +1040,8 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     public void Heal(float amount)
     {
+        // 서버에서만 HP 수정 (클라이언트는 Networked 속성 동기화로 반영)
+        if (!HasStateAuthorityOrNoNetwork()) return;
         if (IsDead || amount <= 0) return;
 
         currentHP += amount;
@@ -1020,8 +1049,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         {
             currentHP = maxHP;
         }
-        
-        OnHealthChanged?.Invoke(currentHP, maxHP);
+        // Render()에서 ChangeDetector가 OnHealthChanged 이벤트를 발생시킴
     }
     #endregion
 

@@ -233,9 +233,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    #region Legacy RPC Methods (Deprecated - Command Pattern으로 마이그레이션 권장)
     /// <summary>
     /// 서버에서 생성한 상점 아이템을 모든 클라이언트에 동기화합니다.
     /// </summary>
+    [System.Obsolete("Use SyncShopItemsCommand via CommandProcessor instead.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_SyncShopItems(string[] unitDataNames, int[] starLevels)
     {
@@ -252,6 +254,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <summary>
     /// 서버에서 생성한 증강체 목록을 모든 클라이언트에 동기화합니다.
     /// </summary>
+    [System.Obsolete("Use SyncAugmentsCommand via CommandProcessor instead.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void RPC_SyncPresentedAugments(string[] augmentNames)
     {
@@ -271,6 +274,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <summary>
     /// 클라이언트가 서버에 상점 및 증강체 데이터 동기화를 요청합니다.
     /// </summary>
+    [System.Obsolete("Use RequestSyncDataCommand via CommandProcessor instead.")]
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_RequestSyncData()
     {
@@ -306,6 +310,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <summary>
     /// 서버에서 적용된 영구 증강 보너스를 클라이언트에 동기화합니다.
     /// </summary>
+    [System.Obsolete("Use SyncPermanentBonusesCommand via CommandProcessor instead.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_SyncPermanentBonuses(float attackDamagePercent, float attackSpeedPercent)
     {
@@ -315,6 +320,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         Debug.Log($"<color=cyan>[RPC_SyncPermanentBonuses] Player {playerId}: AttackDmg={attackDamagePercent:P0}, AttackSpd={attackSpeedPercent:P0}</color>");
     }
 
+    [System.Obsolete("Use ApplyPermanentWallsCommand via CommandProcessor instead.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_ApplyPermanentWalls(int[] flatPositions)
     {
@@ -324,6 +330,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    [System.Obsolete("Use RegisterUnitAtCommand via CommandProcessor instead.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void RPC_RegisterUnitAt(NetworkId unitId, int x, int y, string unitDataKey, int starLevel)
     {
@@ -474,6 +481,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     }
 
     // ... (이하 나머지 코드는 기존과 동일) ...
+    #endregion
+
 
     public void SetFightingState(bool isFighting)
     {

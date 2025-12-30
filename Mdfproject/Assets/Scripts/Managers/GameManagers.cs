@@ -565,12 +565,6 @@ public class GameManagers : NetworkBehaviour
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void Rpc_SetSinglePlayerModeCount(int count)
-    {
-        singlePlayerModeCount = count;
-    }
-
-    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_BroadcastCommandToClients(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
     {
         string who = Object.HasStateAuthority ? "Server" : "Client";
@@ -580,23 +574,62 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
+    #region Notification Helper Methods (Command Pattern 기반)
+    /// <summary>
+    /// 구매 성공을 모든 클라이언트에 알립니다.
+    /// </summary>
+    public void NotifyPurchaseSucceeded(int playerID, int slotIndex)
+    {
+        var cmd = new NotifyPurchaseSucceededCommand(playerID, slotIndex);
+        CommandProcessor.RequestCommandExecution(cmd);
+    }
+
+    /// <summary>
+    /// 증강 선택을 모든 클라이언트에 알립니다.
+    /// </summary>
+    public void NotifyAugmentSelected(int playerID, string augmentName)
+    {
+        var cmd = new NotifyAugmentSelectedCommand(playerID, augmentName);
+        CommandProcessor.RequestCommandExecution(cmd);
+    }
+
+    /// <summary>
+    /// 벽 배치 성공을 모든 클라이언트에 알립니다.
+    /// </summary>
+    public void NotifyWallPlacementSucceeded(int playerID, int x, int y)
+    {
+        var cmd = new NotifyWallPlacementCommand(playerID, x, y);
+        CommandProcessor.RequestCommandExecution(cmd);
+    }
+
+    /// <summary>
+    /// 벽 제거 성공을 모든 클라이언트에 알립니다.
+    /// </summary>
+    public void NotifyWallRemovalSucceeded(int playerID, int x, int y)
+    {
+        var cmd = new NotifyWallRemovalCommand(playerID, x, y);
+        CommandProcessor.RequestCommandExecution(cmd);
+    }
+    #endregion
+
+    #region Legacy RPC Methods (Deprecated - Command Pattern으로 마이그레이션 권장)
+    [System.Obsolete("Use NotifyPurchaseSucceeded() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyPurchaseSucceeded(int playerID, int slotIndex)
     {
         GameEvents.TriggerUnitPurchaseSucceeded(playerID, default(ShopItem), slotIndex);
     }
 
+    [System.Obsolete("Use NotifyAugmentSelected() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyAugmentSelected(int playerID, string augmentName)
     {
         var player = GetPlayer(playerID);
         if (player != null)
         {
-            // 증강 데이터 찾기
             var augments = player.augmentManager?.GetPresentedAugments();
             AugmentData chosenAugment = augments?.FirstOrDefault(a => a?.augmentName == augmentName);
             
-            // 이벤트 트리거 (UI 닫기 등)
             if (chosenAugment != null)
             {
                 GameEvents.TriggerAugmentApplied(player, chosenAugment);
@@ -605,6 +638,7 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
+    [System.Obsolete("Use NotifyWallPlacementSucceeded() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyWallPlacementSucceeded(int playerID, int x, int y)
     {
@@ -612,12 +646,14 @@ public class GameManagers : NetworkBehaviour
         GameEvents.TriggerWallPlacementSucceeded(playerID, pos);
     }
 
+    [System.Obsolete("Use NotifyWallRemovalSucceeded() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyWallRemovalSucceeded(int playerID, int x, int y)
     {
         var pos = new Vector3Int(x, y, 0);
         GameEvents.TriggerWallRemovalSucceeded(playerID, pos);
     }
+    #endregion
 
     private async UniTask SetupGameUI()
     {
@@ -697,11 +733,12 @@ public class GameManagers : NetworkBehaviour
             player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
             player.shopManager.Reroll(true);
 
-            // 상점 아이템 RPC 동기화
+            // 상점 아이템 동기화 (Command Pattern 사용)
             var shopItems = player.shopManager.GetCurrentShopItems();
             string[] shopNames = shopItems.Select(i => i.UnitData?.name ?? "").ToArray();
             int[] shopStars = shopItems.Select(i => i.StarLevel).ToArray();
-            player.RPC_SyncShopItems(shopNames, shopStars);
+            var syncShopCmd = new SyncShopItemsCommand(player.playerId, shopNames, shopStars);
+            CommandProcessor.RequestCommandExecution(syncShopCmd);
 
             // AI 준비 단계 플래그 리셋
             player.mazeConstructionComplete = false;
@@ -725,15 +762,15 @@ public class GameManagers : NetworkBehaviour
                 player.augmentManager.PresentAugments();
             }
 
-            // 각 플레이어의 제시 증강 이름을 모든 클라이언트에 RPC로 동기화
-            // (클라이언트 RPC_RequestSyncData 요청 외에 백업으로도 동작)
+            // 각 플레이어의 제시 증강 이름을 모든 클라이언트에 동기화 (Command Pattern 사용)
             foreach (var player in AllPlayers)
             {
                 if (player == null) continue;
                 var names = player.augmentManager.GetPresentedAugments()
                     .Select(a => a != null ? a.augmentName : string.Empty)
                     .ToArray();
-                player.RPC_SyncPresentedAugments(names);
+                var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, names);
+                CommandProcessor.RequestCommandExecution(syncAugmentCmd);
                 Debug.Log($"[StartNextRound] Player {player.playerId} 증강체 동기화: {string.Join(", ", names)}");
             }
         }

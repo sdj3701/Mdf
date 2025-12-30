@@ -65,8 +65,8 @@ public class PlaceWallCommand : ICommand
 
         if (fm.GetWallAt(Position) != null)
         {
-            // 서버가 성공을 모든 피어에 알림 (클라이언트 UI 동기화)
-            gm.RPC_NotifyWallPlacementSucceeded(player.playerId, Position.x, Position.y);
+            // 서버가 성공을 모든 피어에 알림 (Command Pattern 사용)
+            gm.NotifyWallPlacementSucceeded(player.playerId, Position.x, Position.y);
         }
         else
         {
