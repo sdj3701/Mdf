@@ -307,136 +307,89 @@ public class GameManagers : NetworkBehaviour
 
     private async UniTask SetupPlayersAndGrids()
     {
-
         if (!Runner.IsServer)
         {
             Debug.LogWarning("[SetupPlayersAndGrids] 서버가 아니므로 플레이어 생성을 건너뜁니다.");
             return;
         }
 
+        // 프리팹 유효성 검사 (루프 밖에서 1번만)
+        var gridPrefab = AddressablesManager.Instance?.GridPrefab;
+        var playerManagerPrefab = AddressablesManager.Instance?.PlayerManagerPrefab;
         
-        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
+        if (gridPrefab == null || playerManagerPrefab == null)
+        {
+            Debug.LogError("❌ 프리팹이 로드되지 않았습니다! AddressablesManager를 확인하세요.");
+            return;
+        }
+
+        if (BuildDebugGUI.Instance != null) 
+            BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
+
         var playerRefs = Runner.ActivePlayers.ToList();
-
-        // 플레이어 생성 수 결정
-        int playersToCreate;
-
-        if (Runner.GameMode == GameMode.Single)
-        {
-            // 싱글플레이 모드: GameSceneInitializer에서 직접 가져오기
-            var initializer = FindObjectOfType<GameSceneInitializer>();
-            if (initializer != null)
-            {
-                playersToCreate = Mathf.Min(initializer.singlePlayerCount, MAX_PLAYERS);
-                singlePlayerModeCount = playersToCreate; // 네트워크 동기화
-            }
-            else
-            {
-                // GameSceneInitializer가 없으면 singlePlayerModeCount 사용 (멀티플레이에서 Single 모드로 전환 시)
-                playersToCreate = singlePlayerModeCount > 0 ? Mathf.Min(singlePlayerModeCount, MAX_PLAYERS) : 2;
-            }
-        }
-        else
-        {
-            // 멀티플레이 모드: 세션에 설정된 플레이어 수
-            int sessionMaxPlayers = Runner.SessionInfo?.MaxPlayers ?? 2;
-            playersToCreate = Mathf.Min(sessionMaxPlayers, MAX_PLAYERS);
-        }
-
-        // AI 플레이어 배열을 playersToCreate 크기로 동적 생성
-        bool[] isAIPlayer = new bool[playersToCreate];
-
-        if (Runner.GameMode == GameMode.Single)
-        {
-            // 0번은 로컬 플레이어, 나머지는 AI
-            for (int i = 0; i < playersToCreate; i++)
-            {
-                isAIPlayer[i] = (i > 0);
-            }
-        }
-        else
-        {
-            // 멀티플레이 모드: 실제 접속한 플레이어 수만큼은 실제 플레이어, 나머지는 AI
-            for (int i = 0; i < playersToCreate; i++)
-            {
-                isAIPlayer[i] = (i >= playerRefs.Count);
-            }
-        }
-
-        
+        int playersToCreate = DeterminePlayerCount();
+        bool isSinglePlayer = Runner.GameMode == GameMode.Single;
 
         for (int i = 0; i < playersToCreate; i++)
         {
-            //BuildDebugGUI.Instance.Log(i.ToString());
             Vector3 playerPosition = player1BasePosition + playerOffset * i;
-            bool isAI = isAIPlayer[i];
-            PlayerRef inputAuthority = PlayerRef.None;
+            bool isAI = isSinglePlayer ? (i > 0) : (i >= playerRefs.Count);
+            PlayerRef inputAuthority = (!isAI && i < playerRefs.Count) ? playerRefs[i] : PlayerRef.None;
 
-            if (!isAI && i < playerRefs.Count)
-            {
-                // 실제 접속한 플레이어에게 InputAuthority 부여
-                inputAuthority = playerRefs[i];
-            }
-
-            
-
-            // Prefab 유효성 검사
-            var gridPrefab = AddressablesManager.Instance?.GridPrefab;
-            var playerManagerPrefab = AddressablesManager.Instance?.PlayerManagerPrefab;
-            
-            if (gridPrefab == null)
-            {
-                Debug.LogError($"❌ gridPrefab이 null입니다! AddressablesManager에서 로드되었는지 확인하세요.");
-                continue;
-            }
-            if (playerManagerPrefab == null)
-            {
-                Debug.LogError($"❌ playerManagerPrefab이 null입니다! AddressablesManager에서 로드되었는지 확인하세요.");
-                continue;
-            }
-
-            
+            // Grid 스폰
             NetworkObject gridNO = await Runner.SpawnAsync(gridPrefab, playerPosition, Quaternion.identity);
             if (gridNO == null)
             {
                 Debug.LogError($"❌ Player {i}의 Grid 생성 실패!");
                 continue;
             }
-            
 
-            
+            // PlayerManager 스폰
             NetworkObject playerNO = await Runner.SpawnAsync(playerManagerPrefab, playerPosition, Quaternion.identity, inputAuthority);
             if (playerNO == null)
             {
                 Debug.LogError($"❌ Player {i}의 PlayerManager 생성 실패!");
                 continue;
             }
-            
 
             NetworkPlayers.Set(i, playerNO);
+            playerNO.name = isAI ? $"Player {i + 1} (AI)" : $"Player {i + 1}";
 
             PlayerManager newPlayer = playerNO.GetComponent<PlayerManager>();
             if (newPlayer != null)
             {
-                Debug.Log(gridNO);
                 newPlayer.Rpc_InitializePlayer(i, gridNO);
             }
 
             if (isAI)
             {
-                playerNO.name = $"Player {i + 1} (AI)";
                 var aiController = playerNO.gameObject.AddComponent<AIPlayerController>();
                 aiController.Initialize(newPlayer, this.CommandProcessor);
-                
-            }
-            else
-            {
-                playerNO.name = $"Player {i + 1}";
-                
             }
         }
 
         Rpc_LinkSpawnedObjects();
+    }
+
+    /// <summary>
+    /// 플레이어 생성 수를 결정합니다.
+    /// </summary>
+    private int DeterminePlayerCount()
+    {
+        if (Runner.GameMode == GameMode.Single)
+        {
+            var initializer = FindObjectOfType<GameSceneInitializer>();
+            if (initializer != null)
+            {
+                int count = Mathf.Min(initializer.singlePlayerCount, MAX_PLAYERS);
+                singlePlayerModeCount = count;
+                return count;
+            }
+            return singlePlayerModeCount > 0 ? Mathf.Min(singlePlayerModeCount, MAX_PLAYERS) : 2;
+        }
+        
+        int sessionMaxPlayers = Runner.SessionInfo?.MaxPlayers ?? 2;
+        return Mathf.Min(sessionMaxPlayers, MAX_PLAYERS);
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
