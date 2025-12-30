@@ -384,6 +384,15 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             return;
         }
         this.starLevel = initialStarLevel;
+
+        // [Fix] 저지(Block) 기능을 위해 물리 연산용 Rigidbody가 필요합니다.
+        if (GetComponent<Rigidbody>() == null)
+        {
+            var rb = gameObject.AddComponent<Rigidbody>();
+            rb.isKinematic = true;
+            rb.useGravity = false;
+        }
+
         manaController = GetComponent<ManaController>();
         if (animator == null)
         {
@@ -392,6 +401,20 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         }
         CacheAttackClipDurationFromController();
         EnsureAnimationEventProxy();
+
+        // AI가 소유한 유닛인 경우, 스킬 자동 사용을 강제합니다.
+        if (owner != null && ComponentRegistry.Has<AIPlayerController>(owner.playerId.ToString()))
+        {
+            SetForceSkillAutoUse(true);
+        }
+
+        // 이벤트 구독/해지는 그대로 둡니다.
+        if (manaController != null)
+        {
+            manaController.OnManaFull -= HandleManaFull;
+            manaController.OnManaFull += HandleManaFull;
+        }
+        
 
         // AI가 소유한 유닛인 경우, 스킬 자동 사용을 강제합니다.
         if (owner != null && ComponentRegistry.Has<AIPlayerController>(owner.playerId.ToString()))
@@ -428,7 +451,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             manaController.GainManaOverTime(unitData.manaPerSecond);
         }
     }
-    
+
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
         isCombatPhase = (newState == GameManagers.GameState.Combat);
@@ -837,7 +860,9 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
         {
             return;
         }
-        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange)
+        // [Fix] 물리 연산(OverlapSphere)과 거리 계산(Distance)의 미세한 오차로 인해 공격 타이밍을 놓치는 것을 방지 (0.1f)
+        // 이는 공격 판정에만 적용되며, 몬스터가 멈추는 위치(저지 범위)는 변경하지 않습니다.
+        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange + 0.1f)
         {
             targetEnemy = null;
             return;
@@ -982,7 +1007,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
         _hasPendingAttack = false;
     }
-
     public void AnimEvent_SkillEnd()
     {
         if (!blockAttacksDuringSkill)
@@ -999,7 +1023,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
     }
     #endregion
 
-    #region 저지, 스킬 UI, IEnemy 구현 등 (이하 동일)
+    #region 저지, 스킬 UI, IEnemy 구현 등
     private void OnTriggerEnter(Collider other)
     {
         if (other.TryGetComponent<Monster>(out var monster))
@@ -1014,6 +1038,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             monster.Block(this);
         }
     }
+
     public void ReleaseBlockedMonster(Monster monster)
     {
         if (blockedMonsters.Contains(monster))
@@ -1024,7 +1049,6 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
 
     private void OnDestroy()
     {
-        // [수정됨] 오브젝트 파괴 시 이벤트 구독을 확실히 해제합니다.
         if (manaController != null)
         {
             manaController.OnManaFull -= HandleManaFull;
@@ -1042,6 +1066,7 @@ public class Unit : MonoBehaviour, IEnemy, IHealth
             Die();
         }
     }
+
     private void Die()
     {
         if (IsDead) return;
