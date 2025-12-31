@@ -121,13 +121,17 @@ MonoBehaviour:
   unitData: {fileID: 0}
   firePoint: {fileID: 4670276977646022269}
   m_starLevel: 1
-  currentHP: 0
+  _NetworkedHP: 0
+  _NetworkedMaxHP: 0
   blockedMonsters: []
   enemyLayerMask:
     serializedVersion: 2
     m_Bits: 8192
   animator: {fileID: 0}
   attackTriggerParam: AttackTrigger
+  skillTriggerParam: SkillTrigger
+  skillStateTag: Skill
+  blockAttacksDuringSkill: 1
   maxAttackAnimationsPerSecond: 4
   baseAttackAnimationDuration: 1
 --- !u!61 &2958327059153163017
@@ -238,6 +242,7 @@ MonoBehaviour:
   Flags: 262145
   NestedObjects: []
   NetworkedBehaviours:
+  - {fileID: -4950746016226421887}
   - {fileID: -360597348846165844}
   ForceRemoteRenderTimeframe: 0
 --- !u!114 &-360597348846165844

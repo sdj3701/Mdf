@@ -5,8 +5,6 @@ using UnityEngine.UI;
 using Cysharp.Threading.Tasks;
 using Fusion;
 using System.Threading.Tasks;
-using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.AsyncOperations;
 
 // MonoBehaviour 대신 NetworkBehaviour를 상속받아 네트워크 객체로 만듭니다.
 public class GameManagers : NetworkBehaviour
@@ -64,19 +62,10 @@ public class GameManagers : NetworkBehaviour
     }
     #endregion
 
-    [Header("생성할 프리팹 (Addressables AssetReference)")]
-    [SerializeField] private AssetReference playerManagerPrefabRef;
-    [SerializeField] private AssetReference gridPrefabRef;
-    [SerializeField] private AssetReference defaultMonsterPrefabRef;
+    // 프리팹은 AddressablesManager에서 관리
 
-    // 로드된 프리팹 캐시 (런타임에 사용)
-    private GameObject _playerManagerPrefab;
-    private GameObject _gridPrefab;
-    private GameObject _defaultMonsterPrefab;
-    private bool _prefabsLoaded = false;
-
-    // Public getters for loaded prefabs (다른 클래스에서 접근용)
-    public GameObject defaultMonsterPrefab => _defaultMonsterPrefab;
+    // AddressablesManager에서 캐시된 프리팹 접근
+    public GameObject defaultMonsterPrefab => AddressablesManager.Instance?.DefaultMonsterPrefab;
 
     [Header("자동 생성 위치 설정")]
     public Vector3 player1BasePosition = new Vector3(0, 0, 0);
@@ -105,19 +94,18 @@ public class GameManagers : NetworkBehaviour
     private ShopUIController localPlayerShopUI;
     private GameObject localPlayerShopUIGameObject;
     private AugmentUIController augmentSelectionUI;
-    private NetworkManager networkManager;
     private bool _isSpawned;
     private readonly HashSet<int> _spawnGoalRandomized = new HashSet<int>();
 
     private bool hasCombatBeenShortened = false;
     private bool firstPrepareDurationUsed = false;
+    private bool isTransitioningRound = false; // 라운드 전환 중 중복 호출 방지
 
     /// <summary>
     /// 이 NetworkBehaviour가 네트워크 상에 스폰될 때 Fusion에 의해 호출됩니다.
     /// </summary>
     public override void Spawned()
     {
-        
         if (Instance == null)
         {
             Instance = this;
@@ -134,14 +122,20 @@ public class GameManagers : NetworkBehaviour
             var go = new GameObject("LoadManager");
             go.AddComponent<LoadManager>();
         }
-        LoadManager.Instance.InitializeAsync().Forget();
 
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
-        networkManager = NetworkManager.Instance;
+        // 초기화 완료 후 GameFlow 시작
+        InitializeAndStartGame().Forget();
+    }
 
-        GameFlow().Forget();
-
+    /// <summary>
+    /// LoadManager 초기화 완료 후 게임 흐름을 시작합니다.
+    /// </summary>
+    private async UniTask InitializeAndStartGame()
+    {
+        await LoadManager.Instance.InitializeAsync();
+        await GameFlow();
 
         _isSpawned = true;
         // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
@@ -164,8 +158,11 @@ public class GameManagers : NetworkBehaviour
                     StartCombatPhase();
                     break;
                 case GameState.Combat:
-                    // 일단 수정
-                    StartNextRound().Forget();
+                    if (!isTransitioningRound)
+                    {
+                        isTransitioningRound = true;
+                        StartNextRound().Forget();
+                    }
                     break;
             }
         }
@@ -211,6 +208,9 @@ public class GameManagers : NetworkBehaviour
     // [새로 추가] 네트워크 상태가 변경될 때 모든 클라이언트에서 반응하는 함수 (Render에서 호출됨)
     private void HandleNetworkStateChange(GameState newState)
     {
+        // UI 초기화가 완료되기 전에는 처리하지 않음
+        if (!_isSpawned) return;
+        
         // 로컬 플레이어의 UI만 업데이트해야 하므로, 로컬 플레이어 확인 후 비동기 UI 로직 호출
         if (localPlayer == null) return;
 
@@ -221,312 +221,114 @@ public class GameManagers : NetworkBehaviour
     }
 
     /// <summary>
-    /// 호스트에서만 호출되는 게임 시작 및 설정 플로우입니다.
+    /// 게임 시작 및 설정 플로우입니다. Host와 Client 모두 실행되며, 내부에서 역할을 분기합니다.
     /// </summary>
     private async UniTask GameFlow()
     {
         currentState = GameState.Setup;
         
-        // Addressables에서 프리팹 로드
-        await LoadPrefabsAsync();
+        // 프리팹 로드
+        await AddressablesManager.Instance.LoadGamePrefabsAsync();
         
-        // 멀티플레이 모드: 로비에서 이미 호스트가 시작 버튼을 눌렀으므로 대기 필요 없음
-        // 싱글플레이: 바로 진행
-        if (Runner.IsServer && Runner.GameMode != GameMode.Single) {
-            int currentPlayers = Runner.ActivePlayers.Count();
-            int sessionMaxPlayers = Runner.SessionInfo?.MaxPlayers ?? 4;
-            Debug.Log($"[GameFlow] 멀티플레이 모드 - 접속자: {currentPlayers}명, 세션 최대: {sessionMaxPlayers}명");
-        }
+        // 플레이어/그리드 생성 (서버만 실행, 내부에서 Rpc_LinkSpawnedObjects 호출)
         await SetupPlayersAndGrids();
-
-        // [수정] 플레이어가 완전히 연결될 때까지 대기
-        await UniTask.WaitUntil(() => localPlayer != null && AllPlayers.Any());
         
-        // 로컬 플레이어의 상점/증강 데이터 로딩 대기 (클라이언트도 자신의 데이터가 로드될 때까지 기다림)
-        if (localPlayer != null)
-        {
-            Debug.Log($"[GameFlow] 로컬 플레이어 데이터 로딩 대기 중...");
-            if (localPlayer.shopManager != null)
-            {
-                await localPlayer.shopManager.WaitUntilDatabaseLoaded();
-            }
-            if (localPlayer.augmentManager != null)
-            {
-                await localPlayer.augmentManager.WaitUntilAugmentDataLoaded();
-            }
-            Debug.Log($"[GameFlow] 로컬 플레이어 데이터 로딩 완료!");
-            
-            // 클라이언트인 경우 서버에 데이터 동기화 요청
-            if (!Runner.IsServer)
-            {
-                Debug.Log($"[GameFlow] 클라이언트가 서버에 데이터 동기화 요청");
-                localPlayer.RPC_RequestSyncData();
-            }
-        }
-        
+        // UI 설정 및 데이터 로딩 (SetupGameUI에서 데이터 로딩까지 처리)
         await SetupGameUI();
 
-        // UI 설정이 완료될 때까지 잠시 대기
-        await UniTask.Delay(100);
-
-        currentState = GameState.DataLoading;
-
-        // 데이터 로딩 실패를 감지하기 위한 타임아웃 로직 (15초)
-        var playersList = AllPlayers.ToList();
-        var shopLoadingTasks = playersList
-            .Select(p => p.shopManager.WaitUntilDatabaseLoaded().AsTask())
-            .ToList();
-        var augmentLoadingTasks = playersList
-            .Select(p => (p.augmentManager != null ? p.augmentManager.WaitUntilAugmentDataLoaded().AsTask() : Task.CompletedTask))
-            .ToList();
-        var allLoadingTasks = shopLoadingTasks.Concat(augmentLoadingTasks).ToList();
-
-        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"[GameFlow] {playersList.Count}명의 플레이어 데이터 및 증강 데이터 로딩 시작. (15초 후 타임아웃)");
-
-        var timeoutTask = Task.Delay(15000); // 15초 (15000ms)
-        var completedTask = await Task.WhenAny(Task.WhenAll(allLoadingTasks), timeoutTask);
-
-        if (completedTask == timeoutTask)
+        // 서버: 첫 라운드 시작 (Reroll은 StartNextRound에서 처리)
+        if (Runner.IsServer)
         {
-            if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("<color=red>[GameFlow] 데이터 로딩 시간 초과! 게임을 시작할 수 없습니다.</color>");
-
-            for (int i = 0; i < playersList.Count; i++)
-            {
-                bool shopDone = shopLoadingTasks[i].IsCompleted;
-                bool augmentDone = augmentLoadingTasks[i].IsCompleted;
-                if (!shopDone || !augmentDone)
-                {
-                    string detail = (!shopDone && !augmentDone) ? "상점+증강" : (!shopDone ? "상점" : "증강");
-                    if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"<color=red>[GameFlow] 로딩 실패 플레이어: Player {playersList[i].playerId} ({detail})</color>");
-                }
-            }
-            // 데이터 로딩 실패 시, 게임 흐름을 중단합니다.
-            return;
-        }
-        else
-        {
-            if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
-
-            // 싱글플레이어 모드에서는 singlePlayerModeCount를 기반으로 실제 게임 로직에 반영
-            if (Runner.GameMode == GameMode.Single)
-            {
-                var allPlayersList = playersList;
-                if (singlePlayerModeCount >= 2)
-                {
-                    for (int i = 0; i < singlePlayerModeCount; i++)
-                    {
-                        if (i < allPlayersList.Count && (i + 1) < allPlayersList.Count)
-                        {
-                            allPlayersList[i].opponentManager = allPlayersList[i + 1];
-                            allPlayersList[i + 1].opponentManager = allPlayersList[i];
-                        }
-                    }
-                }
-            }
-            
-            // 서버에서 모든 플레이어의 초기 상점 아이템 생성 (클라이언트가 요청하면 동기화됨)
-            if (Runner.IsServer)
-            {
-                foreach (var player in playersList)
-                {
-                    if (player.shopManager != null)
-                    {
-                        // 상점이 비어있으면 리롤
-                        if (player.shopManager.GetCurrentShopItems().Count == 0)
-                        {
-                            player.shopManager.Reroll(isFree: true);
-                            Debug.Log($"[GameFlow] Player {player.playerId} 초기 상점 리롤 완료");
-                        }
-                    }
-                }
-            }
-            
             await StartNextRound();
-        }
-    }
-
-    /// <summary>
-    /// Addressables에서 프리팹을 비동기로 로드합니다.
-    /// </summary>
-    private async UniTask LoadPrefabsAsync()
-    {
-        if (_prefabsLoaded) return;
-
-        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("[GameManagers] Addressables 프리팹 로딩 시작...");
-
-        try
-        {
-            var loadTasks = new List<UniTask>();
-
-            if (playerManagerPrefabRef != null && playerManagerPrefabRef.RuntimeKeyIsValid())
-            {
-                loadTasks.Add(LoadPrefabAsync(playerManagerPrefabRef, prefab => _playerManagerPrefab = prefab, "PlayerManager"));
-            }
-            if (gridPrefabRef != null && gridPrefabRef.RuntimeKeyIsValid())
-            {
-                loadTasks.Add(LoadPrefabAsync(gridPrefabRef, prefab => _gridPrefab = prefab, "Grid"));
-            }
-            if (defaultMonsterPrefabRef != null && defaultMonsterPrefabRef.RuntimeKeyIsValid())
-            {
-                loadTasks.Add(LoadPrefabAsync(defaultMonsterPrefabRef, prefab => _defaultMonsterPrefab = prefab, "Monster"));
-            }
-
-            await UniTask.WhenAll(loadTasks);
-            _prefabsLoaded = true;
-
-            if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("[GameManagers] 모든 프리팹 로딩 완료!");
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError($"[GameManagers] 프리팹 로딩 실패: {ex.Message}");
-        }
-    }
-
-    private async UniTask LoadPrefabAsync(AssetReference assetRef, System.Action<GameObject> onLoaded, string prefabName)
-    {
-        var handle = assetRef.LoadAssetAsync<GameObject>();
-        await handle.Task;
-
-        if (handle.Status == AsyncOperationStatus.Succeeded)
-        {
-            onLoaded?.Invoke(handle.Result);
-            Debug.Log($"[GameManagers] {prefabName} 프리팹 로드 성공");
-        }
-        else
-        {
-            Debug.LogError($"[GameManagers] {prefabName} 프리팹 로드 실패!");
         }
     }
 
     private async UniTask SetupPlayersAndGrids()
     {
-
         if (!Runner.IsServer)
         {
             Debug.LogWarning("[SetupPlayersAndGrids] 서버가 아니므로 플레이어 생성을 건너뜁니다.");
             return;
         }
 
+        // 프리팹 유효성 검사 (루프 밖에서 1번만)
+        var gridPrefab = AddressablesManager.Instance?.GridPrefab;
+        var playerManagerPrefab = AddressablesManager.Instance?.PlayerManagerPrefab;
         
-        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
+        if (gridPrefab == null || playerManagerPrefab == null)
+        {
+            Debug.LogError("❌ 프리팹이 로드되지 않았습니다! AddressablesManager를 확인하세요.");
+            return;
+        }
+
+        if (BuildDebugGUI.Instance != null) 
+            BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
+
         var playerRefs = Runner.ActivePlayers.ToList();
-
-        // 플레이어 생성 수 결정
-        int playersToCreate;
-
-        if (Runner.GameMode == GameMode.Single)
-        {
-            // 싱글플레이 모드: GameSceneInitializer에서 직접 가져오기
-            var initializer = FindObjectOfType<GameSceneInitializer>();
-            if (initializer != null)
-            {
-                playersToCreate = Mathf.Min(initializer.singlePlayerCount, MAX_PLAYERS);
-                singlePlayerModeCount = playersToCreate; // 네트워크 동기화
-            }
-            else
-            {
-                // GameSceneInitializer가 없으면 singlePlayerModeCount 사용 (멀티플레이에서 Single 모드로 전환 시)
-                playersToCreate = singlePlayerModeCount > 0 ? Mathf.Min(singlePlayerModeCount, MAX_PLAYERS) : 2;
-            }
-        }
-        else
-        {
-            // 멀티플레이 모드: 세션에 설정된 플레이어 수
-            int sessionMaxPlayers = Runner.SessionInfo?.MaxPlayers ?? 2;
-            playersToCreate = Mathf.Min(sessionMaxPlayers, MAX_PLAYERS);
-        }
-
-        // AI 플레이어 배열을 playersToCreate 크기로 동적 생성
-        bool[] isAIPlayer = new bool[playersToCreate];
-
-        if (Runner.GameMode == GameMode.Single)
-        {
-            // 0번은 로컬 플레이어, 나머지는 AI
-            for (int i = 0; i < playersToCreate; i++)
-            {
-                isAIPlayer[i] = (i > 0);
-            }
-        }
-        else
-        {
-            // 멀티플레이 모드: 실제 접속한 플레이어 수만큼은 실제 플레이어, 나머지는 AI
-            for (int i = 0; i < playersToCreate; i++)
-            {
-                isAIPlayer[i] = (i >= playerRefs.Count);
-            }
-        }
-
-        
+        int playersToCreate = DeterminePlayerCount();
+        bool isSinglePlayer = Runner.GameMode == GameMode.Single;
 
         for (int i = 0; i < playersToCreate; i++)
         {
-            //BuildDebugGUI.Instance.Log(i.ToString());
             Vector3 playerPosition = player1BasePosition + playerOffset * i;
-            bool isAI = isAIPlayer[i];
-            PlayerRef inputAuthority = PlayerRef.None;
+            bool isAI = isSinglePlayer ? (i > 0) : (i >= playerRefs.Count);
+            PlayerRef inputAuthority = (!isAI && i < playerRefs.Count) ? playerRefs[i] : PlayerRef.None;
 
-            if (!isAI && i < playerRefs.Count)
-            {
-                // 실제 접속한 플레이어에게 InputAuthority 부여
-                inputAuthority = playerRefs[i];
-            }
-
-            
-
-            // Prefab 유효성 검사
-            if (_gridPrefab == null)
-            {
-                Debug.LogError($"❌ gridPrefab이 null입니다! Addressables에서 로드되었는지 확인하세요.");
-                continue;
-            }
-            if (_playerManagerPrefab == null)
-            {
-                Debug.LogError($"❌ playerManagerPrefab이 null입니다! Addressables에서 로드되었는지 확인하세요.");
-                continue;
-            }
-
-            
-            NetworkObject gridNO = await Runner.SpawnAsync(_gridPrefab, playerPosition, Quaternion.identity);
+            // Grid 스폰
+            NetworkObject gridNO = await Runner.SpawnAsync(gridPrefab, playerPosition, Quaternion.identity);
             if (gridNO == null)
             {
                 Debug.LogError($"❌ Player {i}의 Grid 생성 실패!");
                 continue;
             }
-            
 
-            
-            NetworkObject playerNO = await Runner.SpawnAsync(_playerManagerPrefab, playerPosition, Quaternion.identity, inputAuthority);
+            // PlayerManager 스폰
+            NetworkObject playerNO = await Runner.SpawnAsync(playerManagerPrefab, playerPosition, Quaternion.identity, inputAuthority);
             if (playerNO == null)
             {
                 Debug.LogError($"❌ Player {i}의 PlayerManager 생성 실패!");
                 continue;
             }
-            
 
             NetworkPlayers.Set(i, playerNO);
+            playerNO.name = isAI ? $"Player {i + 1} (AI)" : $"Player {i + 1}";
 
             PlayerManager newPlayer = playerNO.GetComponent<PlayerManager>();
             if (newPlayer != null)
             {
-                Debug.Log(gridNO);
                 newPlayer.Rpc_InitializePlayer(i, gridNO);
             }
 
             if (isAI)
             {
-                playerNO.name = $"Player {i + 1} (AI)";
                 var aiController = playerNO.gameObject.AddComponent<AIPlayerController>();
                 aiController.Initialize(newPlayer, this.CommandProcessor);
-                
-            }
-            else
-            {
-                playerNO.name = $"Player {i + 1}";
-                
             }
         }
 
+        // TODO : 추후 방향성에 따라서 수정(매칭관련)
         Rpc_LinkSpawnedObjects();
+    }
+
+    /// <summary>
+    /// 플레이어 생성 수를 결정합니다.
+    /// </summary>
+    private int DeterminePlayerCount()
+    {
+        if (Runner.GameMode == GameMode.Single)
+        {
+            var initializer = FindObjectOfType<GameSceneInitializer>();
+            if (initializer != null)
+            {
+                int count = Mathf.Min(initializer.singlePlayerCount, MAX_PLAYERS);
+                singlePlayerModeCount = count;
+                return count;
+            }
+            return singlePlayerModeCount > 0 ? Mathf.Min(singlePlayerModeCount, MAX_PLAYERS) : 2;
+        }
+        
+        int sessionMaxPlayers = Runner.SessionInfo?.MaxPlayers ?? 2;
+        return Mathf.Min(sessionMaxPlayers, MAX_PLAYERS);
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -565,12 +367,6 @@ public class GameManagers : NetworkBehaviour
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void Rpc_SetSinglePlayerModeCount(int count)
-    {
-        singlePlayerModeCount = count;
-    }
-
-    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_BroadcastCommandToClients(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
     {
         string who = Object.HasStateAuthority ? "Server" : "Client";
@@ -580,23 +376,62 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
+    #region Notification Helper Methods (Command Pattern 기반)
+    /// <summary>
+    /// 구매 성공을 모든 클라이언트에 알립니다.
+    /// </summary>
+    public void NotifyPurchaseSucceeded(int playerID, int slotIndex)
+    {
+        var cmd = new NotifyPurchaseSucceededCommand(playerID, slotIndex);
+        CommandProcessor.RequestCommandExecution(cmd);
+    }
+
+    /// <summary>
+    /// 증강 선택을 모든 클라이언트에 알립니다.
+    /// </summary>
+    public void NotifyAugmentSelected(int playerID, string augmentName)
+    {
+        var cmd = new NotifyAugmentSelectedCommand(playerID, augmentName);
+        CommandProcessor.RequestCommandExecution(cmd);
+    }
+
+    /// <summary>
+    /// 벽 배치 성공을 모든 클라이언트에 알립니다.
+    /// </summary>
+    public void NotifyWallPlacementSucceeded(int playerID, int x, int y)
+    {
+        var cmd = new NotifyWallPlacementCommand(playerID, x, y);
+        CommandProcessor.RequestCommandExecution(cmd);
+    }
+
+    /// <summary>
+    /// 벽 제거 성공을 모든 클라이언트에 알립니다.
+    /// </summary>
+    public void NotifyWallRemovalSucceeded(int playerID, int x, int y)
+    {
+        var cmd = new NotifyWallRemovalCommand(playerID, x, y);
+        CommandProcessor.RequestCommandExecution(cmd);
+    }
+    #endregion
+
+    #region Legacy RPC Methods (Deprecated - Command Pattern으로 마이그레이션 권장)
+    [System.Obsolete("Use NotifyPurchaseSucceeded() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyPurchaseSucceeded(int playerID, int slotIndex)
     {
         GameEvents.TriggerUnitPurchaseSucceeded(playerID, default(ShopItem), slotIndex);
     }
 
+    [System.Obsolete("Use NotifyAugmentSelected() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyAugmentSelected(int playerID, string augmentName)
     {
         var player = GetPlayer(playerID);
         if (player != null)
         {
-            // 증강 데이터 찾기
             var augments = player.augmentManager?.GetPresentedAugments();
             AugmentData chosenAugment = augments?.FirstOrDefault(a => a?.augmentName == augmentName);
             
-            // 이벤트 트리거 (UI 닫기 등)
             if (chosenAugment != null)
             {
                 GameEvents.TriggerAugmentApplied(player, chosenAugment);
@@ -605,6 +440,7 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
+    [System.Obsolete("Use NotifyWallPlacementSucceeded() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyWallPlacementSucceeded(int playerID, int x, int y)
     {
@@ -612,37 +448,59 @@ public class GameManagers : NetworkBehaviour
         GameEvents.TriggerWallPlacementSucceeded(playerID, pos);
     }
 
+    [System.Obsolete("Use NotifyWallRemovalSucceeded() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyWallRemovalSucceeded(int playerID, int x, int y)
     {
         var pos = new Vector3Int(x, y, 0);
         GameEvents.TriggerWallRemovalSucceeded(playerID, pos);
     }
+    #endregion
 
+    /// <summary>
+    /// UI 요소를 로드하고 참조를 저장합니다. 상태 관리는 각 UIController가 담당합니다.
+    /// </summary>
     private async UniTask SetupGameUI()
     {
         try
         {
-            
             var shopPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
             var augmentPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
             var (shopPanelInstance, augmentPanelInstance) = await UniTask.WhenAll(shopPanelTask, augmentPanelTask);
 
+            // 참조 저장 후 Controller의 초기화 메서드 호출
             if (shopPanelInstance != null)
             {
                 localPlayerShopUI = shopPanelInstance.GetComponent<ShopUIController>();
                 localPlayerShopUIGameObject = shopPanelInstance;
-                localPlayerShopUI.SetContentVisibility(false);
-                
+                localPlayerShopUI.InitializeAndHide();
             }
+            
             if (augmentPanelInstance != null)
             {
                 augmentSelectionUI = augmentPanelInstance.GetComponent<AugmentUIController>();
-                UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
-                
+                augmentSelectionUI.InitializeAndHide();
             }
             
-            //LogGameMode();
+            // 모든 플레이어의 상점/증강 데이터 로딩
+            foreach (var player in AllPlayers.ToList())
+            {
+                if (player == null) continue;
+
+                // 증강 데이터 로딩 (명시적 호출 + 대기)
+                if (player.augmentManager != null)
+                {
+                    await player.augmentManager.LoadAllAugmentsAsync();
+                }
+                
+                // 상점 데이터 로딩 (ShopManager.Start에서 이미 시작됨, 대기만)
+                if (player.shopManager != null)
+                {
+                    await player.shopManager.WaitUntilDatabaseLoaded();
+                }
+            }
+            
+            Debug.Log("<color=green>[SetupGameUI] 모든 플레이어의 상점/증강 데이터 로딩 완료</color>");
         }
         catch (System.Exception ex)
         {
@@ -655,15 +513,28 @@ public class GameManagers : NetworkBehaviour
     {
         if (selectingPlayer != localPlayer) return;
 
+        Debug.Log($"<color=cyan>[HandleAugmentChosen] 증강 '{chosenAugment?.augmentName}' 선택됨 → 증강 UI 비활성화</color>");
+        
+        // 1. 증강 UI 비활성화 (부모 GameObject 비활성화)
         UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+        
+        // 2. 상점 UI 활성화
         if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
         {
-            localPlayerShopUIGameObject.SetActive(true);
-            localPlayerShopUI.SetContentVisibility(true);
+            Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 활성화</color>");
+            localPlayerShopUIGameObject.SetActive(true);  // 부모 GameObject 활성화
+            localPlayerShopUI.SetContentVisibility(true);  // 콘텐츠 표시
+            
             // 상점 UI를 표시하기 전에, 데이터베이스 로드를 기다리고 상점을 채우는 것을 보장합니다.
             await localPlayer.shopManager.EnsureShopRerolledAsync();
             var shopItems = localPlayer.shopManager.GetCurrentShopItems();
             localPlayerShopUI.DisplayShopItems(shopItems);
+            
+            Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 표시 완료 (아이템 수: {shopItems?.Count ?? 0})</color>");
+        }
+        else
+        {
+            Debug.LogWarning("[HandleAugmentChosen] 상점 UI 참조가 null입니다!");
         }
     }
 
@@ -672,7 +543,8 @@ public class GameManagers : NetworkBehaviour
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
 
-        if (currentState != GameState.DataLoading)
+        // 라운드 증가 (첫 라운드는 1로 설정)
+        if (currentState != GameState.Setup)
         {
             currentRound++;
         }
@@ -682,26 +554,22 @@ public class GameManagers : NetworkBehaviour
         }
 
         currentState = GameState.Prepare;
-
-        // [수정] OnGameStateChanged를 제거하고 상태 변경 이벤트 및 UI 로직을 여기서 명시적으로 await 합니다.
-        GameEvents.TriggerGameStateChanged(currentState); // 상태 변경 이벤트는 여기서 한번 트리거
-
-        // UI 로직이 완료될 때까지 명시적으로 기다립니다.
-        //await HandleUIForNewState(currentState);
-
-        
+        GameEvents.TriggerGameStateChanged(currentState);
 
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
+            
+            // 골드 지급 및 상점 리롤
             player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
             player.shopManager.Reroll(true);
 
-            // 상점 아이템 RPC 동기화
+            // 상점 아이템 동기화 (Command Pattern 사용)
             var shopItems = player.shopManager.GetCurrentShopItems();
             string[] shopNames = shopItems.Select(i => i.UnitData?.name ?? "").ToArray();
             int[] shopStars = shopItems.Select(i => i.StarLevel).ToArray();
-            player.RPC_SyncShopItems(shopNames, shopStars);
+            var syncShopCmd = new SyncShopItemsCommand(player.playerId, shopNames, shopStars);
+            CommandProcessor.RequestCommandExecution(syncShopCmd);
 
             // AI 준비 단계 플래그 리셋
             player.mazeConstructionComplete = false;
@@ -713,43 +581,30 @@ public class GameManagers : NetworkBehaviour
                 MazePlanner.RandomizeSpawnAndGoal(player.fieldManager, player);
                 _spawnGoalRandomized.Add(player.playerId);
             }
-        }
-        
-        if (currentRound >= 1)
-        {
             
-            foreach (var player in AllPlayers)
-            {
-                if (player == null) continue;
-                // 호스트에서만 증강을 굴리고, 결과를 모든 클라이언트와 동기화합니다.
-                player.augmentManager.PresentAugments();
-            }
-
-            // 각 플레이어의 제시 증강 이름을 모든 클라이언트에 RPC로 동기화
-            // (클라이언트 RPC_RequestSyncData 요청 외에 백업으로도 동작)
-            foreach (var player in AllPlayers)
-            {
-                if (player == null) continue;
-                var names = player.augmentManager.GetPresentedAugments()
-                    .Select(a => a != null ? a.augmentName : string.Empty)
-                    .ToArray();
-                player.RPC_SyncPresentedAugments(names);
-                Debug.Log($"[StartNextRound] Player {player.playerId} 증강체 동기화: {string.Join(", ", names)}");
-            }
+            // 증강 생성 및 동기화 (한 루프에서 처리)
+            Debug.Log($"<color=orange>[흐름 1] StartNextRound: Player {player.playerId} PresentAugments() 호출 전</color>");
+            player.augmentManager.PresentAugments();
+            var presentedAugments = player.augmentManager.GetPresentedAugments();
+            Debug.Log($"<color=orange>[흐름 2] StartNextRound: Player {player.playerId} PresentAugments() 완료, 증강 수: {presentedAugments?.Count ?? 0}</color>");
+            
+            var augmentNames = presentedAugments
+                .Select(a => a != null ? a.augmentName : string.Empty)
+                .ToArray();
+            Debug.Log($"<color=orange>[흐름 3] StartNextRound: Player {player.playerId} SyncAugmentsCommand 생성, 증강: [{string.Join(", ", augmentNames)}]</color>");
+            
+            var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentNames);
+            CommandProcessor.RequestCommandExecution(syncAugmentCmd);
+            Debug.Log($"<color=orange>[흐름 4] StartNextRound: Player {player.playerId} SyncAugmentsCommand 큐에 추가됨</color>");
         }
-        // UI 로직이 완료될 때까지 명시적으로 기다립니다.
+
+        // UI 로직이 완료될 때까지 대기
         await HandleUIForNewState(currentState);
 
         float prepDuration = (!firstPrepareDurationUsed && currentRound == 1) ? firstPreparePhaseTime : preparePhaseTime;
         firstPrepareDurationUsed = true;
         phaseTimer = TickTimer.CreateFromSeconds(Runner, prepDuration);
-    }
-
-    private void PresentedAugments(int targetPlayerId, string[] augmentNames)
-    {
-        var target = GetPlayer(targetPlayerId);
-        if (target == null || target.augmentManager == null) return;
-        target.augmentManager.SetPresentedAugmentsByNames(augmentNames);
+        isTransitioningRound = false; // 라운드 전환 완료
     }
 
     private void StartCombatPhase()
@@ -800,42 +655,10 @@ public class GameManagers : NetworkBehaviour
         switch (newState)
         {
             case GameState.Prepare:
-                if (currentRound >= 1)
+                // 상점 UI 숨김 (증강 UI는 SyncAugmentsCommand에서 활성화)
+                if (localPlayerShopUIGameObject != null)
                 {
-                    if (augmentSelectionUI != null)
-                    {
-                        if (localPlayerShopUIGameObject != null) localPlayerShopUIGameObject.SetActive(false);
-                        await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
-                        await localPlayer.augmentManager.EnsureAugmentsPresentedAsync(); // 예시: 싱글 플레이처럼 동작하도록 호출
-
-                        // 2. [수정된 핵심 로직] 증강 데이터가 준비될 때까지 최대 5초간 대기합니다.
-                        try
-                        {
-                            // presentedAugments 리스트에 1개 이상의 데이터가 들어올 때까지 대기
-                            await UniTask.WaitUntil(() =>
-                                localPlayer != null && localPlayer.augmentManager.GetPresentedAugments().Count > 0
-                            ).Timeout(System.TimeSpan.FromSeconds(5));
-                        }
-                        catch (System.TimeoutException)
-                        {
-                            // 5초 안에 데이터가 들어오지 않았을 경우 (에러는 발생시키되 게임은 멈추지 않음)
-                            Debug.LogError("<color=red>[HandleUIForNewState] 5초 안에 증강 데이터 로드에 실패했습니다. (Timeout). 빈 목록으로 UI 표시를 시도합니다.</color>");
-                        }
-                        GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
-                    }
-                    else
-                    {
-                        Debug.LogWarning("[HandleUIForNewState] augmentSelectionUI가 null입니다.");
-                    }
-                }
-                else
-                {
-                    if (localPlayerShopUI != null)
-                    {
-                        localPlayerShopUIGameObject.SetActive(true);
-                        localPlayerShopUI.SetContentVisibility(true);
-                        localPlayerShopUI.UpdateShopSlots();
-                    }
+                    localPlayerShopUIGameObject.SetActive(false);
                 }
                 break;
             case GameState.Combat:

@@ -32,9 +32,7 @@ public class ShopUIController : MonoBehaviour
         }
         else
         {
-            // [예외처리] 로컬 플레이어가 아직 지정되지 않았다면 경고 로그를 남기고 재시도합니다.
-            Debug.LogWarning("[ShopUIController] 로컬 플레이어가 아직 지정되지 않았습니다. 나중에 재시도합니다.");
-            // 비활성화상태여도 경고만 출력하고 이벤트만 구독해서 재시도가 가능하도록 유지됩니다.
+            Debug.LogWarning("[ShopUIController] 로컬 플레이어가 아직 지정되지 않았습니다. 이벤트 구독 후 재시도합니다.");
         }
 
         // 게임 상태 변경, 상점 갱신, 구매 성공 이벤트를 구독합니다.
@@ -186,5 +184,13 @@ public class ShopUIController : MonoBehaviour
         if (slotsContainer != null) slotsContainer.SetActive(isVisible);
         if (rerollButtonObject != null) rerollButtonObject.SetActive(isVisible);
         OnContentVisibilityChanged?.Invoke(isVisible);
+    }
+
+    /// <summary>
+    /// GameManagers에서 호출. 초기화 후 UI를 숨깁니다.
+    /// </summary>
+    public void InitializeAndHide()
+    {
+        SetContentVisibility(false);
     }
 }
