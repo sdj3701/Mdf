@@ -7,15 +7,13 @@ public class AugmentUIController : MonoBehaviour
     [Header("슬롯 설정")]
     public AugmentSlot[] augmentSlots;
 
+    [Header("슬롯 컨테이너 설정")]
+    public GameObject slotsContainer;
+
     // 이벤트를 통해 전달받은 데이터를 임시로 저장할 변수들
     private PlayerManager localPlayer;
     private List<AugmentData> currentChoices;
 
-    void Awake()
-    {
-        OnEnable();
-    }
-    
     void OnEnable()
     {
         // 증강 단계 시작 이벤트를 구독합니다.
@@ -39,6 +37,8 @@ public class AugmentUIController : MonoBehaviour
         this.localPlayer = player;
         this.currentChoices = choices;
 
+        // 증강 선택 UI 표시
+        SetContentVisibility(true);
         SetAugmentChoices(choices);
     }
 
@@ -83,10 +83,40 @@ public class AugmentUIController : MonoBehaviour
         {
             var command = new SelectAugmentCommand(localPlayer.playerId, index);
             GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+            
+            // 증강 선택 후 UI 숨김
+            SetContentVisibility(false);
         }
         else
         {
             Debug.LogError($"증강 선택 처리 중 오류 발생: LocalPlayer: {localPlayer}, Choices: {currentChoices}, Index: {index}");
         }
+    }
+
+    /// <summary>
+    /// 콘텐츠의 표시/숨김을 설정합니다.
+    /// </summary>
+    public void SetContentVisibility(bool isVisible)
+    {
+        if (slotsContainer != null)
+        {
+            slotsContainer.SetActive(isVisible);
+        }
+    }
+
+    /// <summary>
+    /// 콘텐츠가 현재 표시 중인지 확인합니다.
+    /// </summary>
+    public bool IsContentVisible()
+    {
+        return slotsContainer != null && slotsContainer.activeSelf;
+    }
+
+    /// <summary>
+    /// GameManagers에서 호출. 초기화 후 UI를 숨깁니다.
+    /// </summary>
+    public void InitializeAndHide()
+    {
+        SetContentVisibility(false);
     }
 }

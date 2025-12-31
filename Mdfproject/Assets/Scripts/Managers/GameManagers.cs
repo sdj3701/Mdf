@@ -493,30 +493,30 @@ public class GameManagers : NetworkBehaviour
     }
     #endregion
 
+    /// <summary>
+    /// UI 요소를 로드하고 참조를 저장합니다. 상태 관리는 각 UIController가 담당합니다.
+    /// </summary>
     private async UniTask SetupGameUI()
     {
         try
         {
-            
             var shopPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
             var augmentPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
             var (shopPanelInstance, augmentPanelInstance) = await UniTask.WhenAll(shopPanelTask, augmentPanelTask);
 
+            // 참조 저장 후 Controller의 초기화 메서드 호출
             if (shopPanelInstance != null)
             {
                 localPlayerShopUI = shopPanelInstance.GetComponent<ShopUIController>();
                 localPlayerShopUIGameObject = shopPanelInstance;
-                localPlayerShopUI.SetContentVisibility(false);
-                
+                localPlayerShopUI.InitializeAndHide();
             }
+            
             if (augmentPanelInstance != null)
             {
                 augmentSelectionUI = augmentPanelInstance.GetComponent<AugmentUIController>();
-                UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
-                
+                augmentSelectionUI.InitializeAndHide();
             }
-            
-            //LogGameMode();
         }
         catch (System.Exception ex)
         {
