@@ -39,7 +39,7 @@ public class AugmentManager : MonoBehaviour
         // 2. 서버에서 이름 목록을 받았으면 적용
         if (augmentNamesFromServer != null && augmentNamesFromServer.Any())
         {
-            SetPresentedAugmentsByNames(augmentNamesFromServer);
+            await SetPresentedAugmentsByNamesAsync(augmentNamesFromServer);
             return;
         }
         
@@ -62,15 +62,14 @@ public class AugmentManager : MonoBehaviour
 
     /// <summary>
     /// 서버(호스트)에서 브로드캐스트된 증강 이름 목록을 기반으로 현재 제시 증강을 동기화합니다.
-    /// 클라이언트의 어드레서블 로딩이 끝난 후에 적용됩니다.
+    /// 데이터 로딩이 완료될 때까지 대기합니다.
     /// </summary>
-    public void SetPresentedAugmentsByNames(IEnumerable<string> augmentNames)
+    public async UniTask SetPresentedAugmentsByNamesAsync(IEnumerable<string> augmentNames)
     {
-        if (!isDataLoaded)
-        {
-            Debug.LogWarning("증강 데이터 로딩 전 동기화 요청이 도착했습니다. 로딩 완료 후 적용을 시도합니다.");
-        }
-        Debug.Log("SetPresentedAugmentsByNames Check");
+        // 데이터 로딩 완료 대기
+        await WaitUntilAugmentDataLoaded();
+
+        Debug.Log("SetPresentedAugmentsByNamesAsync: 데이터 로딩 완료, 동기화 시작");
 
         // 가능한 모든 풀을 하나로 묶어 빠르게 조회할 수 있도록 딕셔너리 구성
         // 중복 이름이 없다는 전제(augmentName 유니크)를 가정합니다.
@@ -98,7 +97,7 @@ public class AugmentManager : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning($"서버가 보낸 증강 '{name}'을(를) 찾지 못했습니다. (아직 로드 중이거나 라벨/이름 불일치)");
+                Debug.LogWarning($"서버가 보낸 증강 '{name}'을(를) 찾지 못했습니다. (라벨/이름 불일치)");
             }
         }
 

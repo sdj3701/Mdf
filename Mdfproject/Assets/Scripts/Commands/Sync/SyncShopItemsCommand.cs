@@ -1,6 +1,7 @@
 // Assets/Scripts/Commands/Sync/SyncShopItemsCommand.cs
 
 using UnityEngine;
+using Cysharp.Threading.Tasks;
 
 /// <summary>
 /// 서버에서 생성한 상점 아이템을 클라이언트에 동기화하는 커맨드
@@ -18,7 +19,7 @@ public class SyncShopItemsCommand : ICommand
         StarLevels = starLevels ?? System.Array.Empty<int>();
     }
 
-    public void Execute()
+    public async void Execute()
     {
         var gm = GameManagers.Instance;
         if (gm == null) return;
@@ -29,7 +30,7 @@ public class SyncShopItemsCommand : ICommand
         var player = gm.GetPlayer(PlayerId);
         if (player?.shopManager != null)
         {
-            player.shopManager.SetShopItemsFromServer(UnitDataNames, StarLevels);
+            await player.shopManager.SetShopItemsFromServerAsync(UnitDataNames, StarLevels);
             Debug.Log($"<color=cyan>[SyncShopItemsCommand] Player {PlayerId}: {UnitDataNames.Length}개 상점 아이템 동기화 완료</color>");
         }
     }

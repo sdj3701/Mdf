@@ -239,14 +239,14 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// </summary>
     [System.Obsolete("Use SyncShopItemsCommand via CommandProcessor instead.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void RPC_SyncShopItems(string[] unitDataNames, int[] starLevels)
+    public async void RPC_SyncShopItems(string[] unitDataNames, int[] starLevels)
     {
         // 서버는 이미 상점 아이템을 가지고 있으므로 무시
         if (Object != null && Object.HasStateAuthority) return;
 
         if (shopManager != null)
         {
-            shopManager.SetShopItemsFromServer(unitDataNames, starLevels);
+            await shopManager.SetShopItemsFromServerAsync(unitDataNames, starLevels);
             Debug.Log($"<color=cyan>[RPC_SyncShopItems] Player {playerId}: {unitDataNames.Length}개 상점 아이템 동기화 완료</color>");
         }
     }
@@ -263,10 +263,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (augmentManager != null)
         {
-            // 증강 데이터가 Addressables에서 로드될 때까지 대기
-            await augmentManager.WaitUntilAugmentDataLoaded();
-            
-            augmentManager.SetPresentedAugmentsByNames(augmentNames);
+            await augmentManager.SetPresentedAugmentsByNamesAsync(augmentNames);
             Debug.Log($"<color=magenta>[RPC_SyncPresentedAugments] Player {playerId}: {augmentNames.Length}개 증강체 동기화 완료</color>");
         }
     }

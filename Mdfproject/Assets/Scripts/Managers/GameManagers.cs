@@ -99,6 +99,7 @@ public class GameManagers : NetworkBehaviour
 
     private bool hasCombatBeenShortened = false;
     private bool firstPrepareDurationUsed = false;
+    private bool isTransitioningRound = false; // 라운드 전환 중 중복 호출 방지
 
     /// <summary>
     /// 이 NetworkBehaviour가 네트워크 상에 스폰될 때 Fusion에 의해 호출됩니다.
@@ -157,8 +158,11 @@ public class GameManagers : NetworkBehaviour
                     StartCombatPhase();
                     break;
                 case GameState.Combat:
-                    // 일단 수정
-                    StartNextRound().Forget();
+                    if (!isTransitioningRound)
+                    {
+                        isTransitioningRound = true;
+                        StartNextRound().Forget();
+                    }
                     break;
             }
         }
@@ -204,6 +208,9 @@ public class GameManagers : NetworkBehaviour
     // [새로 추가] 네트워크 상태가 변경될 때 모든 클라이언트에서 반응하는 함수 (Render에서 호출됨)
     private void HandleNetworkStateChange(GameState newState)
     {
+        // UI 초기화가 완료되기 전에는 처리하지 않음
+        if (!_isSpawned) return;
+        
         // 로컬 플레이어의 UI만 업데이트해야 하므로, 로컬 플레이어 확인 후 비동기 UI 로직 호출
         if (localPlayer == null) return;
 
@@ -229,18 +236,9 @@ public class GameManagers : NetworkBehaviour
         // UI 설정 및 데이터 로딩 (SetupGameUI에서 데이터 로딩까지 처리)
         await SetupGameUI();
 
-        // 서버: 초기 상점 리롤 및 첫 라운드 시작
+        // 서버: 첫 라운드 시작 (Reroll은 StartNextRound에서 처리)
         if (Runner.IsServer)
         {
-            foreach (var player in AllPlayers.ToList())
-            {
-                if (player?.shopManager != null && player.shopManager.GetCurrentShopItems().Count == 0)
-                {
-                    player.shopManager.Reroll(isFree: true);
-                    Debug.Log($"[GameFlow] Player {player.playerId} 초기 상점 리롤 완료");
-                }
-            }
-            
             await StartNextRound();
         }
     }
@@ -488,17 +486,17 @@ public class GameManagers : NetworkBehaviour
             foreach (var player in AllPlayers.ToList())
             {
                 if (player == null) continue;
+
+                // 증강 데이터 로딩 (명시적 호출 + 대기)
+                if (player.augmentManager != null)
+                {
+                    await player.augmentManager.LoadAllAugmentsAsync();
+                }
                 
                 // 상점 데이터 로딩 (ShopManager.Start에서 이미 시작됨, 대기만)
                 if (player.shopManager != null)
                 {
                     await player.shopManager.WaitUntilDatabaseLoaded();
-                }
-                
-                // 증강 데이터 로딩 (명시적 호출 + 대기)
-                if (player.augmentManager != null)
-                {
-                    await player.augmentManager.LoadAllAugmentsAsync();
                 }
             }
             
@@ -515,15 +513,28 @@ public class GameManagers : NetworkBehaviour
     {
         if (selectingPlayer != localPlayer) return;
 
+        Debug.Log($"<color=cyan>[HandleAugmentChosen] 증강 '{chosenAugment?.augmentName}' 선택됨 → 증강 UI 비활성화</color>");
+        
+        // 1. 증강 UI 비활성화 (부모 GameObject 비활성화)
         UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+        
+        // 2. 상점 UI 활성화
         if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
         {
-            localPlayerShopUIGameObject.SetActive(true);
-            localPlayerShopUI.SetContentVisibility(true);
+            Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 활성화</color>");
+            localPlayerShopUIGameObject.SetActive(true);  // 부모 GameObject 활성화
+            localPlayerShopUI.SetContentVisibility(true);  // 콘텐츠 표시
+            
             // 상점 UI를 표시하기 전에, 데이터베이스 로드를 기다리고 상점을 채우는 것을 보장합니다.
             await localPlayer.shopManager.EnsureShopRerolledAsync();
             var shopItems = localPlayer.shopManager.GetCurrentShopItems();
             localPlayerShopUI.DisplayShopItems(shopItems);
+            
+            Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 표시 완료 (아이템 수: {shopItems?.Count ?? 0})</color>");
+        }
+        else
+        {
+            Debug.LogWarning("[HandleAugmentChosen] 상점 UI 참조가 null입니다!");
         }
     }
 
@@ -532,6 +543,7 @@ public class GameManagers : NetworkBehaviour
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
 
+        // 라운드 증가 (첫 라운드는 1로 설정)
         if (currentState != GameState.Setup)
         {
             currentRound++;
@@ -542,18 +554,13 @@ public class GameManagers : NetworkBehaviour
         }
 
         currentState = GameState.Prepare;
-
-        // [수정] OnGameStateChanged를 제거하고 상태 변경 이벤트 및 UI 로직을 여기서 명시적으로 await 합니다.
-        GameEvents.TriggerGameStateChanged(currentState); // 상태 변경 이벤트는 여기서 한번 트리거
-
-        // UI 로직이 완료될 때까지 명시적으로 기다립니다.
-        //await HandleUIForNewState(currentState);
-
-        
+        GameEvents.TriggerGameStateChanged(currentState);
 
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
+            
+            // 골드 지급 및 상점 리롤
             player.AddGold(baseGoldPerRound + GetInterest(player.GetGold()));
             player.shopManager.Reroll(true);
 
@@ -574,44 +581,31 @@ public class GameManagers : NetworkBehaviour
                 MazePlanner.RandomizeSpawnAndGoal(player.fieldManager, player);
                 _spawnGoalRandomized.Add(player.playerId);
             }
-        }
-        
-        if (currentRound >= 1)
-        {
             
-            foreach (var player in AllPlayers)
-            {
-                if (player == null) continue;
-                // 호스트에서만 증강을 굴리고, 결과를 모든 클라이언트와 동기화합니다.
-                player.augmentManager.PresentAugments();
-            }
-
-            // 각 플레이어의 제시 증강 이름을 모든 클라이언트에 동기화 (Command Pattern 사용)
-            foreach (var player in AllPlayers)
-            {
-                if (player == null) continue;
-                var names = player.augmentManager.GetPresentedAugments()
-                    .Select(a => a != null ? a.augmentName : string.Empty)
-                    .ToArray();
-                var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, names);
-                CommandProcessor.RequestCommandExecution(syncAugmentCmd);
-                Debug.Log($"[StartNextRound] Player {player.playerId} 증강체 동기화: {string.Join(", ", names)}");
-            }
+            // 증강 생성 및 동기화 (한 루프에서 처리)
+            Debug.Log($"<color=orange>[흐름 1] StartNextRound: Player {player.playerId} PresentAugments() 호출 전</color>");
+            player.augmentManager.PresentAugments();
+            var presentedAugments = player.augmentManager.GetPresentedAugments();
+            Debug.Log($"<color=orange>[흐름 2] StartNextRound: Player {player.playerId} PresentAugments() 완료, 증강 수: {presentedAugments?.Count ?? 0}</color>");
+            
+            var augmentNames = presentedAugments
+                .Select(a => a != null ? a.augmentName : string.Empty)
+                .ToArray();
+            Debug.Log($"<color=orange>[흐름 3] StartNextRound: Player {player.playerId} SyncAugmentsCommand 생성, 증강: [{string.Join(", ", augmentNames)}]</color>");
+            
+            var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentNames);
+            CommandProcessor.RequestCommandExecution(syncAugmentCmd);
+            Debug.Log($"<color=orange>[흐름 4] StartNextRound: Player {player.playerId} SyncAugmentsCommand 큐에 추가됨</color>");
         }
-        // UI 로직이 완료될 때까지 명시적으로 기다립니다.
+
+        // UI 로직이 완료될 때까지 대기
         await HandleUIForNewState(currentState);
 
         float prepDuration = (!firstPrepareDurationUsed && currentRound == 1) ? firstPreparePhaseTime : preparePhaseTime;
         firstPrepareDurationUsed = true;
         phaseTimer = TickTimer.CreateFromSeconds(Runner, prepDuration);
+        isTransitioningRound = false; // 라운드 전환 완료
     }
-
-    // private void PresentedAugments(int targetPlayerId, string[] augmentNames)
-    // {
-    //     var target = GetPlayer(targetPlayerId);
-    //     if (target == null || target.augmentManager == null) return;
-    //     target.augmentManager.SetPresentedAugmentsByNames(augmentNames);
-    // }
 
     private void StartCombatPhase()
     {
@@ -661,42 +655,10 @@ public class GameManagers : NetworkBehaviour
         switch (newState)
         {
             case GameState.Prepare:
-                if (currentRound >= 1)
+                // 상점 UI 숨김 (증강 UI는 SyncAugmentsCommand에서 활성화)
+                if (localPlayerShopUIGameObject != null)
                 {
-                    if (augmentSelectionUI != null)
-                    {
-                        if (localPlayerShopUIGameObject != null) localPlayerShopUIGameObject.SetActive(false);
-                        await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
-                        await localPlayer.augmentManager.EnsureAugmentsPresentedAsync(); // 예시: 싱글 플레이처럼 동작하도록 호출
-
-                        // 2. [수정된 핵심 로직] 증강 데이터가 준비될 때까지 최대 5초간 대기합니다.
-                        try
-                        {
-                            // presentedAugments 리스트에 1개 이상의 데이터가 들어올 때까지 대기
-                            await UniTask.WaitUntil(() =>
-                                localPlayer != null && localPlayer.augmentManager.GetPresentedAugments().Count > 0
-                            ).Timeout(System.TimeSpan.FromSeconds(5));
-                        }
-                        catch (System.TimeoutException)
-                        {
-                            // 5초 안에 데이터가 들어오지 않았을 경우 (에러는 발생시키되 게임은 멈추지 않음)
-                            Debug.LogError("<color=red>[HandleUIForNewState] 5초 안에 증강 데이터 로드에 실패했습니다. (Timeout). 빈 목록으로 UI 표시를 시도합니다.</color>");
-                        }
-                        GameEvents.TriggerAugmentPhaseStart(localPlayer, localPlayer.augmentManager.GetPresentedAugments());
-                    }
-                    else
-                    {
-                        Debug.LogWarning("[HandleUIForNewState] augmentSelectionUI가 null입니다.");
-                    }
-                }
-                else
-                {
-                    if (localPlayerShopUI != null)
-                    {
-                        localPlayerShopUIGameObject.SetActive(true);
-                        localPlayerShopUI.SetContentVisibility(true);
-                        localPlayerShopUI.UpdateShopSlots();
-                    }
+                    localPlayerShopUIGameObject.SetActive(false);
                 }
                 break;
             case GameState.Combat:

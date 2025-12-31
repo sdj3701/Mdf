@@ -39,9 +39,13 @@ public class ShopManager : MonoBehaviour
 
     /// <summary>
     /// 서버에서 전송받은 상점 아이템 데이터로 로컬 상점을 업데이트합니다.
+    /// 데이터베이스 로딩이 완료될 때까지 대기합니다.
     /// </summary>
-    public void SetShopItemsFromServer(string[] unitDataNames, int[] starLevels)
+    public async UniTask SetShopItemsFromServerAsync(string[] unitDataNames, int[] starLevels)
     {
+        // 데이터베이스 로딩 완료 대기
+        await WaitUntilDatabaseLoaded();
+        
         currentShopItems.Clear();
         for (int i = 0; i < _isSlotSold.Length; i++)
         {
