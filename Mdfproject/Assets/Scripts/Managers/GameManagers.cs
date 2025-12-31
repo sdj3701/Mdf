@@ -126,10 +126,6 @@ public class GameManagers : NetworkBehaviour
 
         // 초기화 완료 후 GameFlow 시작
         InitializeAndStartGame().Forget();
-
-        _isSpawned = true;
-        // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
-        GameEvents.TriggerGameManagersReady();
     }
 
     /// <summary>
@@ -139,6 +135,10 @@ public class GameManagers : NetworkBehaviour
     {
         await LoadManager.Instance.InitializeAsync();
         await GameFlow();
+
+        _isSpawned = true;
+        // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
+        GameEvents.TriggerGameManagersReady();
     }
 
     /// <summary>
@@ -225,71 +225,45 @@ public class GameManagers : NetworkBehaviour
         
         await SetupPlayersAndGrids();
 
-        // [수정] 플레이어가 완전히 연결될 때까지 대기
+        // 플레이어가 완전히 연결될 때까지 대기
         await UniTask.WaitUntil(() => localPlayer != null && AllPlayers.Any());
-        
-        // 로컬 플레이어의 상점/증강 데이터 로딩 대기 (클라이언트도 자신의 데이터가 로드될 때까지 기다림)
-        if (localPlayer != null)
-        {
-            Debug.Log($"[GameFlow] 로컬 플레이어 데이터 로딩 대기 중...");
-            if (localPlayer.shopManager != null)
-            {
-                await localPlayer.shopManager.WaitUntilDatabaseLoaded();
-            }
-            if (localPlayer.augmentManager != null)
-            {
-                await localPlayer.augmentManager.WaitUntilAugmentDataLoaded();
-            }
-            Debug.Log($"[GameFlow] 로컬 플레이어 데이터 로딩 완료!");
-            
-            // 클라이언트인 경우 서버에 데이터 동기화 요청
-            if (!Runner.IsServer)
-            {
-                Debug.Log($"[GameFlow] 클라이언트가 서버에 데이터 동기화 요청");
-                localPlayer.RPC_RequestSyncData();
-            }
-        }
         
         await SetupGameUI();
 
         currentState = GameState.DataLoading;
 
-        // 데이터 로딩 실패를 감지하기 위한 타임아웃 로직 (15초)
+        // 모든 플레이어의 데이터 로딩 대기 (15초 타임아웃)
         var playersList = AllPlayers.ToList();
-        var shopLoadingTasks = playersList
-            .Select(p => p.shopManager.WaitUntilDatabaseLoaded().AsTask())
-            .ToList();
-        var augmentLoadingTasks = playersList
-            .Select(p => (p.augmentManager != null ? p.augmentManager.WaitUntilAugmentDataLoaded().AsTask() : Task.CompletedTask))
-            .ToList();
-        var allLoadingTasks = shopLoadingTasks.Concat(augmentLoadingTasks).ToList();
+        var allLoadingTasks = playersList
+            .SelectMany(p => new[] {
+                p.shopManager.WaitUntilDatabaseLoaded().AsTask(),
+                p.augmentManager != null ? p.augmentManager.WaitUntilAugmentDataLoaded().AsTask() : Task.CompletedTask
+            }).ToList();
 
-        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"[GameFlow] {playersList.Count}명의 플레이어 데이터 및 증강 데이터 로딩 시작. (15초 후 타임아웃)");
+        if (BuildDebugGUI.Instance != null) 
+            BuildDebugGUI.Instance.Log($"[GameFlow] {playersList.Count}명의 플레이어 데이터 로딩 시작. (15초 후 타임아웃)");
 
-        var timeoutTask = Task.Delay(15000); // 15초 (15000ms)
+        var timeoutTask = Task.Delay(15000);
         var completedTask = await Task.WhenAny(Task.WhenAll(allLoadingTasks), timeoutTask);
 
         if (completedTask == timeoutTask)
         {
-            if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("<color=red>[GameFlow] 데이터 로딩 시간 초과! 게임을 시작할 수 없습니다.</color>");
-
-            for (int i = 0; i < playersList.Count; i++)
-            {
-                bool shopDone = shopLoadingTasks[i].IsCompleted;
-                bool augmentDone = augmentLoadingTasks[i].IsCompleted;
-                if (!shopDone || !augmentDone)
-                {
-                    string detail = (!shopDone && !augmentDone) ? "상점+증강" : (!shopDone ? "상점" : "증강");
-                    if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log($"<color=red>[GameFlow] 로딩 실패 플레이어: Player {playersList[i].playerId} ({detail})</color>");
-                }
-            }
-            // 데이터 로딩 실패 시, 게임 흐름을 중단합니다.
+            if (BuildDebugGUI.Instance != null) 
+                BuildDebugGUI.Instance.Log("<color=red>[GameFlow] 데이터 로딩 시간 초과! 게임을 시작할 수 없습니다.</color>");
             return;
         }
 
-        if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료. 첫 라운드를 시작합니다.</color>");
+        if (BuildDebugGUI.Instance != null) 
+            BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료.</color>");
 
-        // 서버에서 모든 플레이어의 초기 상점 아이템 생성
+        // 클라이언트: 서버에 데이터 동기화 요청 (UI 설정 후)
+        if (!Runner.IsServer && localPlayer != null)
+        {
+            Debug.Log($"[GameFlow] 클라이언트가 서버에 데이터 동기화 요청");
+            localPlayer.RPC_RequestSyncData();
+        }
+
+        // 서버: 초기 상점 리롤 및 첫 라운드 시작
         if (Runner.IsServer)
         {
             foreach (var player in playersList)
@@ -300,9 +274,9 @@ public class GameManagers : NetworkBehaviour
                     Debug.Log($"[GameFlow] Player {player.playerId} 초기 상점 리롤 완료");
                 }
             }
+            
+            await StartNextRound();
         }
-        
-        await StartNextRound();
     }
 
     private async UniTask SetupPlayersAndGrids()
@@ -368,6 +342,7 @@ public class GameManagers : NetworkBehaviour
             }
         }
 
+        // TODO : 추후 방향성에 따라서 수정(매칭관련)
         Rpc_LinkSpawnedObjects();
     }
 
