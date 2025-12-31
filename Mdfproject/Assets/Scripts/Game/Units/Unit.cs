@@ -75,19 +75,22 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private PlayerManager owner;
     private float _nextProjectileVfxTime;
     private float _cachedProjectileSpeed = -1f;
-    private bool _hasPendingProjectileAttack;
-    private PendingProjectileAttack _pendingProjectileAttack;
+    private bool _hasPendingAttack;
+    private PendingAttack _pendingAttack;
     private bool _isSkillCasting;
     private Coroutine _skillCastingRoutine;
     private ChangeDetector _changeDetector;
 
-    private struct PendingProjectileAttack
+    private struct PendingAttack
     {
         public NetworkObject Target;
         public IEnemy TargetEnemy;
         public float Damage;
         public DamageType DamageType;
         public float ProjectileSpeed;
+        public bool IsRanged;
+        public bool EmitVfx;
+        public float SplashRadius;
     }
 
     private bool isCombatPhase = false;
@@ -143,7 +146,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private void BeginSkillCasting()
     {
         TriggerSkillAnimation();
-        CancelPendingProjectileAttack();
+        CancelPendingAttack();
 
         if (!blockAttacksDuringSkill || animator == null || string.IsNullOrEmpty(skillStateTag))
         {
@@ -223,10 +226,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         _skillCastingRoutine = null;
     }
 
-    private void CancelPendingProjectileAttack()
+    private void CancelPendingAttack()
     {
-        _hasPendingProjectileAttack = false;
-        _pendingProjectileAttack = new PendingProjectileAttack();
+        _hasPendingAttack = false;
+        _pendingAttack = new PendingAttack();
     }
 
     private bool TryPlayAttackAnimation()
@@ -313,6 +316,26 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
         baseAttackAnimationDuration = Mathf.Max(0.01f, attackClip.length);
         attackClipDurationInitialized = true;
+    }
+
+    private void EnsureAnimationEventProxy()
+    {
+        if (animator == null)
+        {
+            return;
+        }
+
+        if (animator.gameObject == gameObject)
+        {
+            return;
+        }
+
+        var proxy = animator.GetComponent<UnitAnimationEventProxy>();
+        if (proxy == null)
+        {
+            proxy = animator.gameObject.AddComponent<UnitAnimationEventProxy>();
+        }
+        proxy.Initialize(this);
     }
 
     public float GetPermanentAdjustedBaseAttackDamage()
@@ -402,6 +425,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             if (animator == null) animator = GetComponentInChildren<Animator>();
         }
         CacheAttackClipDurationFromController();
+        EnsureAnimationEventProxy();
 
         // AI가 소유한 유닛인 경우, 스킬 자동 사용을 강제합니다.
         if (owner != null && ComponentRegistry.Has<AIPlayerController>(owner.playerId.ToString()))
@@ -445,6 +469,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
         if (isCombatPhase)
         {
+            // [Fix] 전투 시작 시 공격 쿨다운 초기화 - 첫 공격 즉시 실행
+            lastAttackAnimTime = -999f;
+            _hasPendingAttack = false;
+            
             StartAttackLoop();
             _nextProjectileVfxTime = Time.time;
 
@@ -586,6 +614,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (!IsDead) return;
         IsDead = false;
+        
+        // [Fix] 부활 시 저지 리스트 초기화
+        blockedMonsters.Clear();
+        
         await InitializeStats();
         await CacheProjectileSpeedAsync();
         gameObject.SetActive(true);
@@ -847,42 +879,53 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             return;
         }
-        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange)
+        // [Fix] 물리 연산(OverlapSphere)과 거리 계산(Distance)의 미세한 오차로 인해 공격 타이밍을 놓치는 것을 방지 (0.1f)
+        // 이는 공격 판정에만 적용되며, 몬스터가 멈추는 위치(저지 범위)는 변경하지 않습니다.
+        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange + 0.1f)
         {
             targetEnemy = null;
             return;
         }
         bool playedAnim = TryPlayAttackAnimation();
-
         bool isRanged = unitData.unitType == UnitType.Ranged;
+        bool canSyncToAnimation = playedAnim && !_hasPendingAttack;
+        bool canSyncMelee = canSyncToAnimation && currentAttackSpeed <= maxAttackAnimationsPerSecond + 1e-4f;
+        bool canSyncRanged = canSyncToAnimation && ShouldEmitProjectileVfx();
 
         // NetworkBehaviour이므로 Object 프로퍼티 직접 사용
         bool hasAuthority = Object == null || Object.HasStateAuthority;
         if (hasAuthority)
         {
             var scheduler = CombatScheduler.Instance;
-            if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning)
+            bool schedulerReady = scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning;
+            var targetNo = targetTransform.GetComponentInParent<NetworkObject>();
+
+            if (isRanged)
             {
-                var targetNo = targetTransform.GetComponentInParent<NetworkObject>();
-                if (targetNo != null)
+                if (schedulerReady && targetNo != null)
                 {
-                    if (isRanged && playedAnim && !_hasPendingProjectileAttack && ShouldEmitProjectileVfx())
+                    if (canSyncRanged)
                     {
-                        _pendingProjectileAttack = new PendingProjectileAttack
+                        _pendingAttack = new PendingAttack
                         {
                             Target = targetNo,
                             TargetEnemy = targetEnemy,
                             Damage = currentAttackDamage,
                             DamageType = unitData.damageType,
-                            ProjectileSpeed = _cachedProjectileSpeed
+                            ProjectileSpeed = _cachedProjectileSpeed,
+                            IsRanged = true,
+                            EmitVfx = true,
+                            SplashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f
                         };
-                        _hasPendingProjectileAttack = true;
+                        _hasPendingAttack = true;
                     }
                     else
                     {
                         Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                        // 원거리 스플래시 공격: splashRadius와 enemyLayerMask 전달
+                        float splashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f;
                         scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
-                            isRanged, false, _cachedProjectileSpeed);
+                            true, false, _cachedProjectileSpeed, splashRadius, enemyLayerMask);
                     }
                 }
                 else if (targetEnemy != null)
@@ -890,9 +933,77 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                     targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
                 }
             }
-            else if (targetEnemy != null)
+            else
             {
-                targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+                // 디버그: 공격 타입 확인
+                Debug.Log($"[Unit Attack Debug] {unitData.unitName} - AttackTargetType: {unitData.attackTargetType}, BlockedMonsters: {blockedMonsters.Count}");
+                
+                // 근접 유닛 스플래시 공격: 저지 중인 모든 몬스터에게 데미지
+                if (unitData.attackTargetType == AttackTargetType.Splash && blockedMonsters.Count > 0)
+                {
+                    Debug.Log($"[Unit Attack Debug] → 스플래시 공격 분기 진입! 대상 수: {blockedMonsters.Count}");
+                    // 스플래시 공격: 저지 중인 모든 몬스터에게 동시에 데미지
+                    foreach (var monster in blockedMonsters.ToList())
+                    {
+                        if (monster != null && monster.currentHP > 0)
+                        {
+                            Debug.Log($"[Unit Attack Debug] → 스플래시 데미지: {monster.name}에게 {currentAttackDamage} 데미지");
+                            if (schedulerReady)
+                            {
+                                var monsterNo = monster.GetComponent<NetworkObject>();
+                                if (monsterNo != null)
+                                {
+                                    Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                                    scheduler.ScheduleHit(Object, monsterNo, firePos, currentAttackDamage, unitData.damageType,
+                                        false, false, 0f);
+                                }
+                                else
+                                {
+                                    monster.TakeDamage(currentAttackDamage, unitData.damageType);
+                                }
+                            }
+                            else
+                            {
+                                monster.TakeDamage(currentAttackDamage, unitData.damageType);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    Debug.Log($"[Unit Attack Debug] → 단일 공격 분기 진입! 대상: {targetEnemy}");
+                    // 기존 단일 대상 공격 로직
+                    if (canSyncMelee)
+                    {
+                        Debug.Log($"[Unit Attack Debug] → 단일 공격 (PendingAttack): {targetNo?.name}에게 {currentAttackDamage} 데미지");
+                        _pendingAttack = new PendingAttack
+                        {
+                            Target = targetNo,
+                            TargetEnemy = targetEnemy,
+                            Damage = currentAttackDamage,
+                            DamageType = unitData.damageType,
+                            ProjectileSpeed = 0f,
+                            IsRanged = false,
+                            EmitVfx = false
+                        };
+                        _hasPendingAttack = true;
+                    }
+                    else
+                    {
+                        if (schedulerReady && targetNo != null)
+                        {
+                            Debug.Log($"[Unit Attack Debug] → 단일 공격 (Scheduler): {targetNo.name}에게 {currentAttackDamage} 데미지");
+                            Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                            scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                                false, false, 0f);
+                        }
+                        else if (targetEnemy != null)
+                        {
+                            Debug.Log($"[Unit Attack Debug] → 단일 공격 (Direct): 대상에게 {currentAttackDamage} 데미지");
+                            targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+                        }
+                    }
+                }
             }
         }
 
@@ -925,7 +1036,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     public void AnimEvent_AttackImpact()
     {
-        if (!_hasPendingProjectileAttack)
+        if (!_hasPendingAttack)
         {
             return;
         }
@@ -934,23 +1045,24 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         bool hasAuthority = Object == null || Object.HasStateAuthority;
         if (!hasAuthority)
         {
-            _hasPendingProjectileAttack = false;
+            _hasPendingAttack = false;
             return;
         }
 
         var scheduler = CombatScheduler.Instance;
-        if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && _pendingProjectileAttack.Target != null)
+        if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && _pendingAttack.Target != null)
         {
             Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
-            scheduler.ScheduleHit(Object, _pendingProjectileAttack.Target, firePos, _pendingProjectileAttack.Damage,
-                _pendingProjectileAttack.DamageType, true, true, _pendingProjectileAttack.ProjectileSpeed);
+            scheduler.ScheduleHit(Object, _pendingAttack.Target, firePos, _pendingAttack.Damage,
+                _pendingAttack.DamageType, _pendingAttack.IsRanged, _pendingAttack.EmitVfx, _pendingAttack.ProjectileSpeed,
+                _pendingAttack.SplashRadius, enemyLayerMask);
         }
-        else if (_pendingProjectileAttack.TargetEnemy != null)
+        else if (_pendingAttack.TargetEnemy != null)
         {
-            _pendingProjectileAttack.TargetEnemy.TakeDamage(_pendingProjectileAttack.Damage, _pendingProjectileAttack.DamageType);
+            _pendingAttack.TargetEnemy.TakeDamage(_pendingAttack.Damage, _pendingAttack.DamageType);
         }
 
-        _hasPendingProjectileAttack = false;
+        _hasPendingAttack = false;
     }
 
     public void AnimEvent_SkillEnd()
@@ -969,7 +1081,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     }
     #endregion
 
-    #region 저지, 스킬 UI, IEnemy 구현 등 (이하 동일)
+    #region 저지, 스킬 UI, IEnemy 구현 등
     private void OnTriggerEnter(Collider other)
     {
         if (other.TryGetComponent<Monster>(out var monster))
@@ -984,6 +1096,31 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             monster.Block(this);
         }
     }
+
+    /// <summary>
+    /// 현재 저지 수가 최대치에 도달했는지 확인합니다.
+    /// </summary>
+    public bool IsBlockingFull()
+    {
+        return blockedMonsters.Count >= Data.blockCount;
+    }
+
+    /// <summary>
+    /// Monster에서 호출하여 저지를 시도합니다. OnTriggerEnter 누락 시 백업용.
+    /// </summary>
+    public bool TryBlockMonster(Monster monster)
+    {
+        if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
+            monster.monsterData.monsterType == MonsterType.Flying ||
+            Data.blockCount <= 0 || blockedMonsters.Count >= Data.blockCount)
+        {
+            return false;
+        }
+        blockedMonsters.Add(monster);
+        monster.Block(this);
+        return true;
+    }
+
     public void ReleaseBlockedMonster(Monster monster)
     {
         if (blockedMonsters.Contains(monster))

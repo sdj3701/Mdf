@@ -485,6 +485,21 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   autoPreloadAllOnStart: 1
   logPreloadProgress: 1
+  playerManagerPrefabRef:
+    m_AssetGUID: 1831533972272eb408da1971d3a1e504
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
+  gridPrefabRef:
+    m_AssetGUID: 23db93d9dcd62b140b715dc66412d301
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
+  defaultMonsterPrefabRef:
+    m_AssetGUID: 4ae077da17a50f048a4009c3a41f2705
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
 --- !u!4 &1329380063
 Transform:
   m_ObjectHideFlags: 0
