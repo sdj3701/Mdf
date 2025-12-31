@@ -56,6 +56,7 @@ MonoBehaviour:
   wallLayerMask:
     serializedVersion: 2
     m_Bits: 32768
+  statusBarPrefab: {fileID: 0}
   currentHP: 0
 --- !u!114 &3270167375977648020
 MonoBehaviour:
@@ -118,6 +119,7 @@ MonoBehaviour:
   Flags: 262145
   NestedObjects: []
   NetworkedBehaviours:
+  - {fileID: 2020015458557610381}
   - {fileID: -5536215474837600463}
   ForceRemoteRenderTimeframe: 0
 --- !u!114 &-5536215474837600463

@@ -28,7 +28,7 @@ public class RemoveWallCommand : ICommand
         {
             fm.RemoveWallAt(Position);
             player.ReturnWall();
-            gm.RPC_NotifyWallRemovalSucceeded(player.playerId, Position.x, Position.y);
+            gm.NotifyWallRemovalSucceeded(player.playerId, Position.x, Position.y);
         }
     }
 }

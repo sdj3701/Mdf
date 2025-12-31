@@ -578,6 +578,7 @@ MonoBehaviour:
   PassWordInput: {fileID: 1542998652}
   _playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
+  maxSessionPlayers: 2
 --- !u!1 &740816618
 GameObject:
   m_ObjectHideFlags: 0
@@ -1911,7 +1912,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1660193866
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2016,7 +2017,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1729066463
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2453,6 +2454,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4899e616a48886d42b4696e3f88fd470, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  autoPreloadAllOnStart: 1
+  logPreloadProgress: 1
+  playerManagerPrefabRef:
+    m_AssetGUID: 1831533972272eb408da1971d3a1e504
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
+  gridPrefabRef:
+    m_AssetGUID: 23db93d9dcd62b140b715dc66412d301
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
+  defaultMonsterPrefabRef:
+    m_AssetGUID: 4ae077da17a50f048a4009c3a41f2705
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
 --- !u!4 &2137547087
 Transform:
   m_ObjectHideFlags: 0

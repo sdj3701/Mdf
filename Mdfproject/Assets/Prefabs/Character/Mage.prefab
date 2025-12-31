@@ -563,7 +563,8 @@ MonoBehaviour:
   unitData: {fileID: 0}
   firePoint: {fileID: 1562768821376843237}
   m_starLevel: 1
-  currentHP: 0
+  _NetworkedHP: 0
+  _NetworkedMaxHP: 0
   blockedMonsters: []
   enemyLayerMask:
     serializedVersion: 2
@@ -635,6 +636,7 @@ MonoBehaviour:
   rigRootName: root
   rigLocalEulerTarget: {x: 0, y: 0, z: 0}
   faceCameraOnSpawn: 1
+  faceCameraEveryFrame: 1
   enforceEveryLateUpdate: 1
   targetCamera: {fileID: 0}
   yawOffsetDeg: 0
@@ -684,6 +686,7 @@ MonoBehaviour:
   Flags: 262145
   NestedObjects: []
   NetworkedBehaviours:
+  - {fileID: 1933068652523641582}
   - {fileID: -8159867622231242624}
   ForceRemoteRenderTimeframe: 0
 --- !u!114 &-8159867622231242624

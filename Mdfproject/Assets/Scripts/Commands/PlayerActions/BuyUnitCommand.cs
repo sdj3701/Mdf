@@ -38,8 +38,8 @@ public class BuyUnitCommand : ICommand
             // 상점의 상태를 갱신합니다.
             player.shopManager.MarkSlotAsPurchased(ShopSlotIndex);
 
-            // ⭐ 서버에서 모든 피어에게 '구매 성공'을 네트워크로 알립니다 (클라이언트 UI 비활성화 목적).
-            gm.RPC_NotifyPurchaseSucceeded(PlayerId, ShopSlotIndex);
+            // ⭐ 서버에서 모든 피어에게 '구매 성공'을 네트워크로 알립니다 (Command Pattern 사용)
+            gm.NotifyPurchaseSucceeded(PlayerId, ShopSlotIndex);
         }
         else
         {

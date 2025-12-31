@@ -144,15 +144,21 @@ public class MonsterSpawner : MonoBehaviour
 
             if (monster != null)
             {
-                if (statusBarPrefab != null)
-                {
-                    GameObject statusBarGO = Instantiate(statusBarPrefab, monsterGO.transform);
-                    monster.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
-                }
+                // StatusBarPrefab을 Monster에 설정
+                monster.statusBarPrefab = this.statusBarPrefab;
 
-                // [수정] 몬스터에게 올바른 AstarGrid 인스턴스를 직접 전달합니다.
+                // 서버에서 몬스터 초기화
                 monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
                 ApplyOpponentDebuffs(monster);
+                
+                // 클라이언트에도 초기화 데이터 전송 (RPC)
+                if (playerManager.Object != null)
+                {
+                    monster.RPC_InitializeOnClient(
+                        playerManager.Object.Id,
+                        dataToSpawn != null ? dataToSpawn.name : ""
+                    );
+                }
 
                 // [3D Migration] 경계 밖 스폰/목표가 유령셀을 만들지 않도록, 그리드로 클램프 후 셀 변환
                 Vector3 clampedSpawn = pathfinder.ClampToGrid(spawnPoint.position);
@@ -255,13 +261,20 @@ public class MonsterSpawner : MonoBehaviour
 
         if (monster != null)
         {
-            if (statusBarPrefab != null)
-            {
-                GameObject statusBarGO = Instantiate(statusBarPrefab, monsterGO.transform);
-                monster.SetStatusBar(statusBarGO.GetComponent<StatusBarUI>());
-            }
-            // [수정] 몬스터에게 올바른 AstarGrid 인스턴스를 직접 전달합니다.
+            // StatusBarPrefab을 Monster에 설정
+            monster.statusBarPrefab = this.statusBarPrefab;
+            
+            // 서버에서 몬스터 초기화
             monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
+            
+            // 클라이언트에도 초기화 데이터 전송 (RPC)
+            if (playerManager.Object != null)
+            {
+                monster.RPC_InitializeOnClient(
+                    playerManager.Object.Id,
+                    dataToSpawn != null ? dataToSpawn.name : ""
+                );
+            }
 
             // [3D Migration] position.y → position.z
             Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(spawnPoint.position.x), Mathf.FloorToInt(spawnPoint.position.z));

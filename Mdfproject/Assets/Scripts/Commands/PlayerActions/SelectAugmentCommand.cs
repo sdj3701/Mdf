@@ -33,8 +33,8 @@ public class SelectAugmentCommand : ICommand
             // 서버에서 증강 선택 및 적용
             player.augmentManager.SelectAndApplyAugment(chosenAugment);
             
-            // 모든 클라이언트에 알림 (UI 닫기 등)
-            gm.RPC_NotifyAugmentSelected(PlayerId, chosenAugment.augmentName);
+            // 모든 클라이언트에 알림 (Command Pattern 사용)
+            gm.NotifyAugmentSelected(PlayerId, chosenAugment.augmentName);
             
             Debug.Log($"[SelectAugmentCommand] Player {PlayerId}: '{chosenAugment.augmentName}' 선택 완료");
         }

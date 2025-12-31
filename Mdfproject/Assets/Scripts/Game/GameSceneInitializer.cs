@@ -26,7 +26,6 @@ public class GameSceneInitializer : MonoBehaviour
     [SerializeField] private float waitForRunnerSeconds = 3f;
 
     private NetworkRunner _runner;
-    private bool _isInitialized = false;
     private bool _isOwnerOfRunner = false; // 이 스크립트가 Runner를 직접 생성했는지 여부
 
     async void Start()
@@ -39,7 +38,15 @@ public class GameSceneInitializer : MonoBehaviour
         {
             if (NetworkManager.Instance.IsGameRunnerActive || await WaitForRunnerStart())
             {
-                Debug.Log("[GameSceneInitializer] 멀티플레이 모드로 진입. 싱글플레이 초기화를 건너뜁니다.");
+                var runner = NetworkManager.Instance._runner;
+                string modeStr = runner?.GameMode switch
+                {
+                    GameMode.Host => "Host 모드",
+                    GameMode.Client => "Client 모드",
+                    GameMode.Single => "싱글플레이 모드 (네트워크)",
+                    _ => "네트워크 모드"
+                };
+                Debug.Log($"[GameSceneInitializer] {modeStr}로 진입. 로컬 초기화를 건너뜁니다.");
                 await StartMultiPlayerMode();
             }
             else
@@ -62,13 +69,6 @@ public class GameSceneInitializer : MonoBehaviour
     /// </summary>
     private async UniTask StartSinglePlayerMode()
     {
-        if (_isInitialized)
-        {
-            Debug.LogWarning("[GameSceneInitializer] 이미 초기화되었습니다.");
-            return;
-        }
-
-        _isInitialized = true;
         _isOwnerOfRunner = true;
 
         // NetworkRunner 생성
@@ -113,15 +113,9 @@ public class GameSceneInitializer : MonoBehaviour
         }
     }
 
+    // 멀티 모드
     private async UniTask StartMultiPlayerMode()
     {
-        if (_isInitialized)
-        {
-            Debug.LogWarning("[GameSceneInitializer] 이미 초기화되었습니다.");
-            return;
-        }
-
-        _isInitialized = true;
         _isOwnerOfRunner = false;
         // 한 프레임 기다려서 Runner의 상태가 안정화될 시간을 줍니다.
         await UniTask.Yield(); 
@@ -134,14 +128,17 @@ public class GameSceneInitializer : MonoBehaviour
             return;
         }
 
-        if (_runner.GameMode != GameMode.Host)
+        // Host만 GameManagers 스폰
+        if (_runner.IsServer)
         {
-            Debug.Log("서버가 아니니까 생성 할 필요 없어");
-            return;
+            Debug.Log("[GameSceneInitializer] ✅ Host: GameManagers 스폰");
+            await SpawnGameManagers();
         }
-
-        Debug.Log("[GameSceneInitializer] ✅ 멀티플레이 모드 시작 성공!");
-        await SpawnGameManagers();
+        else
+        {
+            // Client는 Fusion이 자동으로 GameManagers를 동기화해줌
+            Debug.Log("[GameSceneInitializer] ✅ Client: GameManagers 동기화 대기");
+        }
     }
 
     /// <summary>
@@ -149,12 +146,6 @@ public class GameSceneInitializer : MonoBehaviour
     /// </summary>
     private async UniTask SpawnGameManagers()
     {
-        if (_runner == null || !_runner.IsRunning)
-        {
-            Debug.LogError("[GameSceneInitializer] Runner가 실행 중이지 않습니다.");
-            return;
-        }
-
         // GameManagers 프리팹 찾기
         if (gameManagersPrefab == null)
         {
@@ -163,31 +154,12 @@ public class GameSceneInitializer : MonoBehaviour
         }
 
         NetworkObject gameManagersNO = gameManagersPrefab.GetComponent<NetworkObject>();
-        if (gameManagersNO == null)
-        {
-            Debug.LogError("[GameSceneInitializer] GameManagers 프리팹에 NetworkObject 컴포넌트가 없습니다!");
-            return;
-        }
 
         // GameManagers 스폰
         Debug.Log("[GameSceneInitializer] GameManagers를 스폰합니다...");
         NetworkObject spawnedGameManagers = await _runner.SpawnAsync(gameManagersPrefab, Vector3.zero, Quaternion.identity);
 
-        if (spawnedGameManagers != null)
-        {
-            Debug.Log("[GameSceneInitializer] ✅ GameManagers 스폰 완료!");
-            
-            // 싱글플레이어 모드인 경우, GameManagers의 singlePlayerModeCount를 설정
-            if (_runner.GameMode == GameMode.Single)
-            {
-                var gameManagers = spawnedGameManagers.GetComponent<GameManagers>();
-                if (gameManagers != null)
-                {
-                    gameManagers.Rpc_SetSinglePlayerModeCount(singlePlayerCount);
-                }
-            }
-        }
-        else
+        if (spawnedGameManagers == null)
         {
             Debug.LogError("[GameSceneInitializer] ❌ GameManagers 스폰 실패!");
         }
