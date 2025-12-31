@@ -220,43 +220,16 @@ public class GameManagers : NetworkBehaviour
     {
         currentState = GameState.Setup;
         
-        // AddressablesManager에서 게임 프리팹 로드
+        // 프리팹 로드
         await AddressablesManager.Instance.LoadGamePrefabsAsync();
         
+        // 플레이어/그리드 생성 (서버만 실행, 내부에서 Rpc_LinkSpawnedObjects 호출)
         await SetupPlayersAndGrids();
-
-        // 플레이어가 완전히 연결될 때까지 대기
-        await UniTask.WaitUntil(() => localPlayer != null && AllPlayers.Any());
         
+        // UI 설정 및 초기화
         await SetupGameUI();
 
-        currentState = GameState.DataLoading;
-
-        // 모든 플레이어의 데이터 로딩 대기 (15초 타임아웃)
-        var playersList = AllPlayers.ToList();
-        var allLoadingTasks = playersList
-            .SelectMany(p => new[] {
-                p.shopManager.WaitUntilDatabaseLoaded().AsTask(),
-                p.augmentManager != null ? p.augmentManager.WaitUntilAugmentDataLoaded().AsTask() : Task.CompletedTask
-            }).ToList();
-
-        if (BuildDebugGUI.Instance != null) 
-            BuildDebugGUI.Instance.Log($"[GameFlow] {playersList.Count}명의 플레이어 데이터 로딩 시작. (15초 후 타임아웃)");
-
-        var timeoutTask = Task.Delay(15000);
-        var completedTask = await Task.WhenAny(Task.WhenAll(allLoadingTasks), timeoutTask);
-
-        if (completedTask == timeoutTask)
-        {
-            if (BuildDebugGUI.Instance != null) 
-                BuildDebugGUI.Instance.Log("<color=red>[GameFlow] 데이터 로딩 시간 초과! 게임을 시작할 수 없습니다.</color>");
-            return;
-        }
-
-        if (BuildDebugGUI.Instance != null) 
-            BuildDebugGUI.Instance.Log("<color=green>[GameFlow] 모든 데이터 로딩 완료.</color>");
-
-        // 클라이언트: 서버에 데이터 동기화 요청 (UI 설정 후)
+        // 클라이언트: 서버에 데이터 동기화 요청
         if (!Runner.IsServer && localPlayer != null)
         {
             Debug.Log($"[GameFlow] 클라이언트가 서버에 데이터 동기화 요청");
@@ -266,9 +239,9 @@ public class GameManagers : NetworkBehaviour
         // 서버: 초기 상점 리롤 및 첫 라운드 시작
         if (Runner.IsServer)
         {
-            foreach (var player in playersList)
+            foreach (var player in AllPlayers)
             {
-                if (player.shopManager != null && player.shopManager.GetCurrentShopItems().Count == 0)
+                if (player?.shopManager != null && player.shopManager.GetCurrentShopItems().Count == 0)
                 {
                     player.shopManager.Reroll(isFree: true);
                     Debug.Log($"[GameFlow] Player {player.playerId} 초기 상점 리롤 완료");
@@ -546,7 +519,7 @@ public class GameManagers : NetworkBehaviour
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
 
-        if (currentState != GameState.DataLoading)
+        if (currentState != GameState.Setup)
         {
             currentRound++;
         }
