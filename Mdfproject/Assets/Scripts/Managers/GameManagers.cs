@@ -226,20 +226,13 @@ public class GameManagers : NetworkBehaviour
         // 플레이어/그리드 생성 (서버만 실행, 내부에서 Rpc_LinkSpawnedObjects 호출)
         await SetupPlayersAndGrids();
         
-        // UI 설정 및 초기화
+        // UI 설정 및 데이터 로딩 (SetupGameUI에서 데이터 로딩까지 처리)
         await SetupGameUI();
-
-        // 클라이언트: 서버에 데이터 동기화 요청
-        if (!Runner.IsServer && localPlayer != null)
-        {
-            Debug.Log($"[GameFlow] 클라이언트가 서버에 데이터 동기화 요청");
-            localPlayer.RPC_RequestSyncData();
-        }
 
         // 서버: 초기 상점 리롤 및 첫 라운드 시작
         if (Runner.IsServer)
         {
-            foreach (var player in AllPlayers)
+            foreach (var player in AllPlayers.ToList())
             {
                 if (player?.shopManager != null && player.shopManager.GetCurrentShopItems().Count == 0)
                 {
@@ -490,6 +483,26 @@ public class GameManagers : NetworkBehaviour
                 augmentSelectionUI = augmentPanelInstance.GetComponent<AugmentUIController>();
                 augmentSelectionUI.InitializeAndHide();
             }
+            
+            // 모든 플레이어의 상점/증강 데이터 로딩
+            foreach (var player in AllPlayers.ToList())
+            {
+                if (player == null) continue;
+                
+                // 상점 데이터 로딩 (ShopManager.Start에서 이미 시작됨, 대기만)
+                if (player.shopManager != null)
+                {
+                    await player.shopManager.WaitUntilDatabaseLoaded();
+                }
+                
+                // 증강 데이터 로딩 (명시적 호출 + 대기)
+                if (player.augmentManager != null)
+                {
+                    await player.augmentManager.LoadAllAugmentsAsync();
+                }
+            }
+            
+            Debug.Log("<color=green>[SetupGameUI] 모든 플레이어의 상점/증강 데이터 로딩 완료</color>");
         }
         catch (System.Exception ex)
         {

@@ -1,4 +1,5 @@
 // Assets/Scripts/UI/AugmentUIController.cs
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -9,10 +10,12 @@ public class AugmentUIController : MonoBehaviour
 
     [Header("슬롯 컨테이너 설정")]
     public GameObject slotsContainer;
+    public GameObject rerollButtonObject;
 
     // 이벤트를 통해 전달받은 데이터를 임시로 저장할 변수들
     private PlayerManager localPlayer;
     private List<AugmentData> currentChoices;
+    public event Action<bool> OnContentVisibilityChanged;
 
     void OnEnable()
     {
@@ -98,10 +101,9 @@ public class AugmentUIController : MonoBehaviour
     /// </summary>
     public void SetContentVisibility(bool isVisible)
     {
-        if (slotsContainer != null)
-        {
-            slotsContainer.SetActive(isVisible);
-        }
+        if (slotsContainer != null) slotsContainer.SetActive(isVisible);
+        if (rerollButtonObject != null) rerollButtonObject.SetActive(isVisible);
+        OnContentVisibilityChanged?.Invoke(isVisible);
     }
 
     /// <summary>

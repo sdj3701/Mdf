@@ -432,6 +432,7 @@ MonoBehaviour:
   - {fileID: 4436940124964203076}
   - {fileID: 8284570207131594217}
   slotsContainer: {fileID: 3196368108515444536}
+  rerollButtonObject: {fileID: 3314891036811301707}
 --- !u!1 &7404265042918514443
 GameObject:
   m_ObjectHideFlags: 0

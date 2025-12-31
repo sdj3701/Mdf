@@ -109,18 +109,13 @@ public class AugmentManager : MonoBehaviour
         }
     }
 
-    // [수정] void Start() -> async void Start()
-    async void Start()
-    {
-        // [추가] playerManager 참조가 할당될 때까지 비동기적으로 기다립니다.
-        // 이렇게 하면 NullReferenceException을 방지할 수 있습니다.
-        await UniTask.WaitUntil(() => playerManager != null);
-        
-        LoadAllAugmentsFromAddressables();
-    }
+    // Start에서 자동 로딩 제거 - SetupGameUI에서 명시적으로 호출
+    // void Start() { }
     
-
-    private async void LoadAllAugmentsFromAddressables()
+    /// <summary>
+    /// 증강 데이터를 Addressables에서 로드합니다. 외부에서 명시적으로 호출해야 합니다.
+    /// </summary>
+    public async UniTask LoadAllAugmentsAsync()
     {
         Debug.Log($"Player {playerManager.playerId}: 어드레서블에서 증강 데이터 로딩을 시작합니다...");
         
