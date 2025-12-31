@@ -98,6 +98,7 @@ public class FieldManager : MonoBehaviour
 
     private PlacementManager placementManager;
     private Dictionary<Vector3Int, Unit> placedUnits = new Dictionary<Vector3Int, Unit>();
+    private readonly HashSet<Vector3Int> pendingUnitPositions = new HashSet<Vector3Int>();
     private Dictionary<Vector3Int, DestructibleWall> placedWalls = new Dictionary<Vector3Int, DestructibleWall>();
     // 영구(파괴 불가) 벽 관리
     private Dictionary<Vector3Int, GameObject> placedPermanentWalls = new Dictionary<Vector3Int, GameObject>();
@@ -160,6 +161,8 @@ public class FieldManager : MonoBehaviour
     private Unit unitDisplayedInPanel;
     private GameObject unitSellPanelInstance;
     private Unit unitDisplayedInSellPanel;
+    private GameObject wallRemovePanelInstance;
+    private DestructibleWall wallDisplayedInRemovePanel;
 
     private Camera _cachedPlayerCamera;
     private Camera playerCamera
@@ -231,6 +234,7 @@ public class FieldManager : MonoBehaviour
     {
         this.playerManager = owner;
         this.ground3D = ground3DObject;
+        pendingUnitPositions.Clear();
 
         // 3D Ground 기준으로 항상 그리드 원점을 정렬하고, 필요 시에만 사이즈를 유도합니다.
         if (ground3D != null)
@@ -776,7 +780,20 @@ public class FieldManager : MonoBehaviour
             Unit unitOnTop = GetUnitAt(gridPosition);
             if (unitOnTop != null)
             {
-                unitOnTop.TakeDamage(99999, DamageType.Physical);
+                var gm = GameManagers.Instance;
+                bool isPreparePhase = gm != null && gm.GetGameState() == GameManagers.GameState.Prepare;
+
+                if (isPreparePhase)
+                {
+                    // 준비 단계: 유닛을 벽 아래 높이로 재배치 (죽이지 않음)
+                    Vector3 newPos = GridToWorld(gridPosition, checkForWall: false);
+                    unitOnTop.transform.position = newPos;
+                }
+                else
+                {
+                    // 전투 단계: 벽 파괴 시 유닛도 사망
+                    unitOnTop.TakeDamage(99999, DamageType.Physical);
+                }
             }
 
             var runner = playerManager != null ? playerManager.Runner : null;
@@ -1065,7 +1082,17 @@ public class FieldManager : MonoBehaviour
         {
             return false;
         }
-        return placedUnits.ContainsKey(gridPosition);
+        return placedUnits.ContainsKey(gridPosition) || pendingUnitPositions.Contains(gridPosition);
+    }
+
+    private bool TryReserveUnitPosition(Vector3Int gridPosition)
+    {
+        return pendingUnitPositions.Add(gridPosition);
+    }
+
+    private void ReleaseReservedUnitPosition(Vector3Int gridPosition)
+    {
+        pendingUnitPositions.Remove(gridPosition);
     }
 
     public void CreateAndPlaceUnitOnField(UnitData unitData, int starLevel)
@@ -1142,70 +1169,97 @@ public class FieldManager : MonoBehaviour
             Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 성급 {starLevel} 프리팹 키가 비어있습니다.");
             return;
         }
-        GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
-
-        if (prefabToCreate == null)
+        if (!TryReserveUnitPosition(gridPosition))
         {
-            Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹({prefabKey})을 로드할 수 없습니다!");
+            Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already reserved. pos={gridPosition}");
             return;
         }
 
-        // 3D 그리드 사용 (벽 체크 포함)
-        Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
-
-        GameObject newUnitGO = null;
-        var runner = playerManager != null ? playerManager.Runner : null;
-        bool hasNetPrefab = prefabToCreate.TryGetComponent<NetworkObject>(out var networkPrefab);
-        if (runner != null && hasNetPrefab)
+        try
         {
-            if (!playerManager.Object.HasStateAuthority)
+            GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+
+            if (prefabToCreate == null)
             {
+                Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹({prefabKey})을 로드할 수 없습니다!");
                 return;
             }
 
-            var spawned = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
-            if (spawned == null)
-            {
-                Debug.LogError($"[FieldManager] Runner.Spawn 실패: {prefabToCreate.name} (Player={playerManager?.playerId})");
-                return;
-            }
-            newUnitGO = spawned.gameObject;
-            if (unitParent != null)
-            {
-                newUnitGO.transform.SetParent(unitParent, true);
-            }
-            // 클라이언트들의 placedUnits 등록을 위해 브로드캐스트
-            if (playerManager != null)
-            {
-                playerManager.RPC_RegisterUnitAt(spawned.Id, gridPosition.x, gridPosition.y, data.name, starLevel);
-            }
-        }
-        else
-        {
-            newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
-        }
-        // Attach orientation fixer to ensure rig local rotation and face camera on spawn
-        var orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
-        orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs
-        orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
-        orientationFixer.faceCameraOnSpawn = true;
-        orientationFixer.enforceEveryLateUpdate = true;
-        orientationFixer.targetCamera = playerCamera; // avoid ComponentRegistry lookup warnings
-        orientationFixer.yawOffsetDeg = 180f; // compensate if model's visual forward is flipped
-        Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
+            // 3D 그리드 사용 (벽 체크 포함)
+            Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
 
-        if (newUnitComponent != null)
-        {
-            AttachStatusBar(newUnitGO, newUnitComponent.SetStatusBar);
-            // Initialize가 비동기이므로 완료를 기다린 후 등록합니다.
-            await newUnitComponent.Initialize(data, starLevel, playerManager);
-            placedUnits.Add(gridPosition, newUnitComponent);
-            CheckForCombination();
+            GameObject newUnitGO = null;
+            var runner = playerManager != null ? playerManager.Runner : null;
+            bool hasNetPrefab = prefabToCreate.TryGetComponent<NetworkObject>(out var networkPrefab);
+            if (runner != null && hasNetPrefab)
+            {
+                if (!playerManager.Object.HasStateAuthority)
+                {
+                    return;
+                }
+
+                var spawned = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
+                if (spawned == null)
+                {
+                    Debug.LogError($"[FieldManager] Runner.Spawn 실패: {prefabToCreate.name} (Player={playerManager?.playerId})");
+                    return;
+                }
+                newUnitGO = spawned.gameObject;
+                if (unitParent != null)
+                {
+                    newUnitGO.transform.SetParent(unitParent, true);
+                }
+                // 클라이언트들의 placedUnits 등록을 위해 브로드캐스트
+                if (playerManager != null)
+                {
+                    playerManager.RPC_RegisterUnitAt(spawned.Id, gridPosition.x, gridPosition.y, data.name, starLevel);
+                }
+            }
+            else
+            {
+                newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+            }
+            // Attach orientation fixer to ensure rig local rotation and face camera on spawn
+            var orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
+            orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs
+            orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
+            orientationFixer.faceCameraOnSpawn = true;
+            orientationFixer.enforceEveryLateUpdate = true;
+            orientationFixer.targetCamera = playerCamera; // avoid ComponentRegistry lookup warnings
+            orientationFixer.yawOffsetDeg = 180f; // compensate if model's visual forward is flipped
+            Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
+
+            if (newUnitComponent != null)
+            {
+                AttachStatusBar(newUnitGO, newUnitComponent.SetStatusBar);
+                // Initialize가 비동기이므로 완료를 기다린 후 등록합니다.
+                await newUnitComponent.Initialize(data, starLevel, playerManager);
+                if (placedUnits.ContainsKey(gridPosition))
+                {
+                    Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already occupied after spawn. pos={gridPosition}");
+                    var netObj = newUnitGO.GetComponent<NetworkObject>();
+                    if (runner != null && runner.IsRunning && netObj != null && (playerManager?.Object == null || playerManager.Object.HasStateAuthority))
+                    {
+                        runner.Despawn(netObj);
+                    }
+                    else
+                    {
+                        Destroy(newUnitGO);
+                    }
+                    return;
+                }
+                placedUnits.Add(gridPosition, newUnitComponent);
+                CheckForCombination();
+            }
+            else
+            {
+                Debug.LogError($"{prefabToCreate.name} 프리팹에 Unit 컴포넌트가 없습니다!", newUnitGO);
+                Destroy(newUnitGO);
+            }
         }
-        else
+        finally
         {
-            Debug.LogError($"{prefabToCreate.name} 프리팹에 Unit 컴포넌트가 없습니다!", newUnitGO);
-            Destroy(newUnitGO);
+            ReleaseReservedUnitPosition(gridPosition);
         }
     }
 
@@ -1471,6 +1525,7 @@ public class FieldManager : MonoBehaviour
     public void UnregisterAllUnits()
     {
         placedUnits.Clear();
+        pendingUnitPositions.Clear();
     }
 
     /// <summary>
@@ -1483,6 +1538,7 @@ public class FieldManager : MonoBehaviour
             Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
+        ReleaseReservedUnitPosition(gridPosition);
         Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
         unit.transform.position = worldPos;
         placedUnits.Add(gridPosition, unit);
@@ -1652,15 +1708,62 @@ public class FieldManager : MonoBehaviour
         }
     }
 
-    private void ReplaceUnitPrefab(Unit unitToReplace)
+    private async void ReplaceUnitPrefab(Unit unitToReplace)
     {
+        // 현재 위치를 먼저 저장 (UnitDied 전에)
+        if (!placedUnits.ContainsValue(unitToReplace))
+        {
+            Debug.LogError("[FieldManager] ReplaceUnitPrefab: 유닛이 placedUnits에 없습니다.");
+            return;
+        }
         Vector3Int currentPos = placedUnits.First(kvp => kvp.Value == unitToReplace).Key;
         UnitData unitData = unitToReplace.Data;
         int newStarLevel = unitToReplace.starLevel;
+
+        // 기존 유닛 제거
         UnitDied(unitToReplace);
         Destroy(unitToReplace.gameObject);
-        // CreateUnitAt을 호출합니다. (await 불필요)
-        CreateUnitAt(unitData, currentPos, newStarLevel);
+
+        // 새 유닛 강제 배치 (IsUnitAt 체크 없이 직접 배치)
+        if (unitData == null || unitData.prefabsByStarLevel == null || unitData.prefabsByStarLevel.Length == 0)
+        {
+            Debug.LogError("[FieldManager] ReplaceUnitPrefab: UnitData 또는 프리팹이 없습니다.");
+            return;
+        }
+        if (newStarLevel < 1 || newStarLevel > unitData.prefabsByStarLevel.Length)
+        {
+            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 잘못된 성급({newStarLevel})");
+            return;
+        }
+
+        string prefabKey = unitData.prefabsByStarLevel[newStarLevel - 1];
+        if (string.IsNullOrEmpty(prefabKey))
+        {
+            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 키가 비어있습니다.");
+            return;
+        }
+
+        var prefab = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+        if (prefab == null)
+        {
+            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 로드 실패 ({prefabKey})");
+            return;
+        }
+
+        Vector3 worldPos = GridToWorld(currentPos, checkForWall: true);
+        GameObject unitGO = Instantiate(prefab, worldPos, Quaternion.identity, unitParent);
+        Unit newUnit = unitGO.GetComponent<Unit>();
+        if (newUnit == null)
+        {
+            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 생성된 프리팹에 Unit 컴포넌트 없음");
+            Destroy(unitGO);
+            return;
+        }
+
+        // 강제로 위치에 배치 (중복 체크 없이)
+        AttachStatusBar(unitGO, newUnit.SetStatusBar);
+        await newUnit.Initialize(unitData, newStarLevel, playerManager);
+        placedUnits[currentPos] = newUnit;
     }
 
     #endregion
@@ -1909,6 +2012,7 @@ public class FieldManager : MonoBehaviour
                     unitDetailPanelInstance = null;
                     unitDisplayedInPanel = null;
                     HideUnitSellPanel();
+                    HideWallRemovePanel();
                     selectedUnit = null; // 모든 상태 초기화
                     return;
                 }
@@ -1920,6 +2024,7 @@ public class FieldManager : MonoBehaviour
                     unitDetailPanelInstance = null;
                     unitDisplayedInPanel = null;
                     HideUnitSellPanel();
+                    HideWallRemovePanel();
                 }
             }
 
@@ -1945,6 +2050,22 @@ public class FieldManager : MonoBehaviour
 
                 // NetworkTransform 참조 저장 (드래그 시작 시 비활성화할 예정)
                 selectedUnitNetworkTransform = selectedUnit.GetComponent<Fusion.NetworkTransform>();
+            }
+            else
+            {
+                // 유닛이 없는 곳을 클릭함 -> 벽만 있는지 확인
+                Vector3Int clickedGridPos = WorldToGridInt(mouseWorldPos);
+                var clickedWall = GetWallAt(clickedGridPos);
+                if (clickedWall != null)
+                {
+                    // 벽만 있는 경우: 벽 제거 패널만 표시
+                    ShowWallRemovePanel(clickedWall, clickedGridPos);
+                }
+                else
+                {
+                    // 유닛도 벽도 없는 빈 공간: 벽 제거 패널 숨김
+                    HideWallRemovePanel();
+                }
             }
         }
 
@@ -2091,6 +2212,12 @@ public class FieldManager : MonoBehaviour
                 }
                 ShowUnitDetailPanel(selectedUnit);
                 ShowUnitSellPanel(selectedUnit);
+                // 유닛이 서 있는 그리드에 벽이 있으면 벽 제거 패널도 표시
+                var wallAtUnitPos = GetWallAt(originalUnitPosition);
+                if (wallAtUnitPos != null)
+                {
+                    ShowWallRemovePanel(wallAtUnitPos, originalUnitPosition);
+                }
             }
 
             // 상태 초기화
@@ -2166,6 +2293,83 @@ public class FieldManager : MonoBehaviour
         }
         unitSellPanelInstance = null;
         unitDisplayedInSellPanel = null;
+    }
+
+    /// <summary>
+    /// 벽 제거 패널을 표시합니다.
+    /// </summary>
+    private async void ShowWallRemovePanel(DestructibleWall wall, Vector3Int gridPosition)
+    {
+        if (wall == null || UIManagers.Instance == null) return;
+
+        if (wallRemovePanelInstance == null)
+        {
+            wallRemovePanelInstance = await UIManagers.Instance.GetUIElement("UI_Can_WallRemove");
+        }
+
+        if (wallRemovePanelInstance != null)
+        {
+            // 벽의 자식이 아닌 FieldManager의 자식으로 설정하여 렌더링 순서 문제 해결
+            wallRemovePanelInstance.transform.SetParent(transform, false);
+
+            var rootCanvas = wallRemovePanelInstance.GetComponent<Canvas>();
+            if (rootCanvas != null)
+            {
+                rootCanvas.renderMode = RenderMode.WorldSpace;
+                rootCanvas.worldCamera = playerCamera;
+                rootCanvas.overrideSorting = true;
+                rootCanvas.sortingOrder = 300;
+            }
+
+            var controller = wallRemovePanelInstance.GetComponentInChildren<WallRemovePanelController>(true);
+            if (controller != null)
+            {
+                var controllerCanvas = controller.GetComponent<Canvas>();
+                if (controllerCanvas != null && controllerCanvas != rootCanvas)
+                {
+                    controllerCanvas.renderMode = RenderMode.WorldSpace;
+                    controllerCanvas.worldCamera = playerCamera;
+                    controllerCanvas.overrideSorting = true;
+                    controllerCanvas.sortingOrder = 300;
+                }
+                controller.Bind(wall, gridPosition, this);
+                wallRemovePanelInstance.SetActive(true);
+                wallDisplayedInRemovePanel = wall;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 모든 선택 관련 UI 패널을 숨깁니다. (유닛 디테일, 유닛 판매, 벽 제거)
+    /// </summary>
+    public void HideAllSelectionPanels()
+    {
+        // 유닛 디테일 패널 숨기기
+        if (unitDetailPanelInstance != null && UIManagers.Instance != null)
+        {
+            UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
+            unitDetailPanelInstance = null;
+            unitDisplayedInPanel = null;
+        }
+
+        // 유닛 판매 패널 숨기기
+        HideUnitSellPanel();
+
+        // 벽 제거 패널 숨기기
+        HideWallRemovePanel();
+    }
+
+    /// <summary>
+    /// 벽 제거 패널을 숨깁니다.
+    /// </summary>
+    private void HideWallRemovePanel()
+    {
+        if (wallRemovePanelInstance != null && UIManagers.Instance != null)
+        {
+            UIManagers.Instance.ReturnUIElement("UI_Can_WallRemove");
+        }
+        wallRemovePanelInstance = null;
+        wallDisplayedInRemovePanel = null;
     }
     #endregion
 
