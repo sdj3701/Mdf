@@ -18,6 +18,10 @@ namespace AI.BehaviorTree.Nodes.Actions
         private readonly HashSet<Vector3Int> _builtAtLeastOnce = new HashSet<Vector3Int>();
         private float _skipClearTime;
         private Task<MazePlanner.MazePlanResult> _planTask;
+        private float _nextPlanRetryAt;
+        private int _planRetryCount;
+        private const int MaxPlanRetries = 3;
+        private const float PlanRetryDelay = 0.5f;
 
         public BuildMazeAction(PlayerManager playerManager, CommandProcessor commandProcessor)
         {
@@ -43,6 +47,11 @@ namespace AI.BehaviorTree.Nodes.Actions
             // 1) Plan once per match/owner
             if (!_playerManager.mazePlanned)
             {
+                if (Time.time < _nextPlanRetryAt)
+                {
+                    return status = NodeStatus.Running;
+                }
+
                 if (_planTask == null)
                 {
                     _planTask = MazePlanner.PlanWallsAsync(fm, _playerManager);
@@ -62,7 +71,36 @@ namespace AI.BehaviorTree.Nodes.Actions
 
                 var planResult = _planTask.Result;
                 _planTask = null;
-                _playerManager.mazePlannedOrder = planResult?.BuildOrder ?? new List<Vector3Int>();
+                var plannedOrder = planResult?.BuildOrder ?? new List<Vector3Int>();
+                if (plannedOrder.Count == 0 && _planRetryCount < MaxPlanRetries)
+                {
+                    _planRetryCount++;
+                    _nextPlanRetryAt = Time.time + PlanRetryDelay;
+                    int planningStock = _playerManager.GetWallCount();
+                    int planningReserve = _playerManager.GetWallReserveK();
+                    int budget = Mathf.Max(0, planningStock - planningReserve);
+                    int pathLen = planResult?.ValidatedPath?.Count ?? 0;
+                    int blueprintWalls = planResult?.BlueprintWalls?.Count ?? 0;
+                    Debug.LogWarning(
+                        $"<color=yellow>[BuildMazeAction] Empty maze plan; retrying ({_planRetryCount}/{MaxPlanRetries}) " +
+                        $"Start={planResult?.Start}, Goal={planResult?.Goal}, PathLen={pathLen}, BlueprintWalls={blueprintWalls}, Budget={budget}</color>");
+                    return status = NodeStatus.Running;
+                }
+
+                if (plannedOrder.Count == 0)
+                {
+                    int planningStock = _playerManager.GetWallCount();
+                    int planningReserve = _playerManager.GetWallReserveK();
+                    int budget = Mathf.Max(0, planningStock - planningReserve);
+                    int pathLen = planResult?.ValidatedPath?.Count ?? 0;
+                    int blueprintWalls = planResult?.BlueprintWalls?.Count ?? 0;
+                    Debug.LogWarning(
+                        $"<color=yellow>[BuildMazeAction] Empty maze plan after retries; proceeding with 0 walls. " +
+                        $"Start={planResult?.Start}, Goal={planResult?.Goal}, PathLen={pathLen}, BlueprintWalls={blueprintWalls}, Budget={budget}</color>");
+                }
+
+                _planRetryCount = 0;
+                _playerManager.mazePlannedOrder = plannedOrder;
                 _playerManager.mazeBuildCursor = 0;
                 _playerManager.mazePlanned = true;
                 _playerManager.mazeConstructionComplete = false;
