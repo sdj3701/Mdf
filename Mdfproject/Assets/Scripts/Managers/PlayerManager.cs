@@ -42,6 +42,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Header("소유 객체 목록")]
     public List<Unit> ownedUnits = new List<Unit>();
     public List<AugmentData> chosenAugments = new List<AugmentData>();
+    
+    // 활성화된 몬스터 소환 증강 리스트 (일반 몬스터: 매 라운드 상대에게 추가 침공)
+    private List<AugmentData> _activeMonsterSummonAugments = new List<AugmentData>();
 
     [Header("Permanent Augment Bonuses")]
     [Tooltip("영구 증강으로 인한 아군 공격력(%) 가산. 0.1 = +10%")]
@@ -500,6 +503,29 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public Vector2 GetWallBuildDelayRange() => NormalizeDelayRange(wallBuildDelayRange);
     public Vector2 GetUnitPurchaseDelayRange() => NormalizeDelayRange(unitPurchaseDelayRange);
     public Vector2 GetUnitMoveDelayRange() => NormalizeDelayRange(unitMoveDelayRange);
+
+    #region 몬스터 소환 증강 관리
+    /// <summary>
+    /// 일반 몬스터 소환 증강을 활성화 등록합니다. 
+    /// 매 라운드 이 플레이어의 상대에게 추가 몬스터가 침공하게 됩니다.
+    /// </summary>
+    public void RegisterActiveMonsterSummonAugment(AugmentData augment)
+    {
+        if (augment != null && !_activeMonsterSummonAugments.Contains(augment))
+        {
+            _activeMonsterSummonAugments.Add(augment);
+            Debug.Log($"<color=orange>[PlayerManager] Player {playerId}: 몬스터 소환 증강 '{augment.augmentName}' 등록 (매 라운드 상대 침공)</color>");
+        }
+    }
+
+    /// <summary>
+    /// 활성화된 몬스터 소환 증강 목록을 반환합니다.
+    /// </summary>
+    public List<AugmentData> GetActiveMonsterSummonAugments()
+    {
+        return _activeMonsterSummonAugments;
+    }
+    #endregion
 
     public void AddPermanentAttackDamagePercent(float percent)
     {

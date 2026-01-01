@@ -81,6 +81,12 @@ public class MonsterSpawner : MonoBehaviour
     {
         int monsterCount = 5 + round;
         StartCoroutine(SpawnMonsterCoroutine(monsterCount));
+        
+        // 1. 이전 라운드에서 살아남은 보스 소환 (전체 유저 중 랜덤 타겟)
+        SpawnSurvivorBosses();
+        
+        // 2. 상대의 일반 몬스터 소환 증강에 의한 추가 몬스터 소환
+        SpawnAugmentMonsters();
     }
 
     IEnumerator SpawnMonsterCoroutine(int count)
@@ -304,4 +310,169 @@ public class MonsterSpawner : MonoBehaviour
 
         return prefab.transform.localScale.y * 0.5f;
     }
+
+    #region 보스 및 증강 몬스터 소환
+
+    /// <summary>
+    /// 보스 몬스터를 소환합니다. (1회성, 보스 플래그 설정)
+    /// </summary>
+    /// <param name="bossPrefab">소환할 보스 프리팹</param>
+    /// <param name="originPlayerId">보스를 소환한 플레이어 ID (생존 시 추적용)</param>
+    public void SpawnBossMonster(GameObject bossPrefab, int originPlayerId)
+    {
+        if (pathfinder == null || bossPrefab == null)
+        {
+            Debug.LogError("[MonsterSpawner] 보스 소환 실패: pathfinder 또는 bossPrefab이 null");
+            return;
+        }
+
+        Monster monster = SpawnMonsterInternal(bossPrefab);
+        if (monster != null)
+        {
+            monster.SetAsBoss(true, originPlayerId, bossPrefab);
+            Debug.Log($"<color=red>[MonsterSpawner] 보스 '{monster.name}' 소환 완료! (OriginPlayer: {originPlayerId})</color>");
+        }
+    }
+
+    /// <summary>
+    /// 이전 라운드에서 살아남은 보스들을 소환합니다. (전체 유저 중 랜덤 타겟)
+    /// </summary>
+    private void SpawnSurvivorBosses()
+    {
+        if (SurvivorBossManager.Instance == null || !SurvivorBossManager.Instance.HasPendingBosses())
+        {
+            return;
+        }
+
+        var pendingBosses = SurvivorBossManager.Instance.GetPendingBossesWithTargets();
+
+        foreach (var (targetPlayerId, bossData) in pendingBosses)
+        {
+            // 이 플레이어가 타겟인 경우에만 소환
+            if (targetPlayerId != playerManager.playerId) continue;
+
+            Monster monster = SpawnMonsterInternal(bossData.BossPrefab);
+            if (monster != null)
+            {
+                monster.SetAsBoss(true, bossData.OriginPlayerId, bossData.BossPrefab);
+                monster.SetCurrentHP(bossData.RemainingHP, bossData.MaxHP);
+                Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {targetPlayerId}에게 침공. HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}</color>");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 상대의 일반 몬스터 소환 증강에 따라 추가 몬스터를 소환합니다.
+    /// 매 라운드 이 플레이어의 상대(opponentManager)의 증강 목록을 확인합니다.
+    /// </summary>
+    private void SpawnAugmentMonsters()
+    {
+        if (playerManager.opponentManager == null) return;
+
+        // 상대(opponentManager)가 등록한 일반 몬스터 소환 증강들을 가져옴
+        var augments = playerManager.opponentManager.GetActiveMonsterSummonAugments();
+
+        foreach (var augment in augments)
+        {
+            if (augment.monsterPrefabs == null || augment.monsterPrefabs.Count == 0) continue;
+
+            foreach (var prefab in augment.monsterPrefabs)
+            {
+                if (prefab == null) continue;
+
+                for (int i = 0; i < augment.monsterSpawnCount; i++)
+                {
+                    SpawnMonsterInternal(prefab);
+                }
+            }
+
+            Debug.Log($"<color=orange>[MonsterSpawner] 증강 '{augment.augmentName}'에 의해 Player {playerManager.playerId}에게 추가 몬스터 {augment.monsterSpawnCount * augment.monsterPrefabs.Count}마리 소환</color>");
+        }
+    }
+
+    /// <summary>
+    /// 내부 몬스터 스폰 로직 (공통화). 기존 SpawnSpecificMonster 로직 재사용.
+    /// </summary>
+    /// <param name="prefab">소환할 몬스터 프리팹</param>
+    /// <param name="overrideHP">잔여 HP 오버라이드 (생존 보스용, -1이면 무시)</param>
+    /// <param name="overrideMaxHP">최대 HP 오버라이드 (생존 보스용, -1이면 무시)</param>
+    /// <returns>생성된 Monster 컴포넌트</returns>
+    private Monster SpawnMonsterInternal(GameObject prefab, float overrideHP = -1f, float overrideMaxHP = -1f)
+    {
+        if (pathfinder == null || prefab == null) return null;
+
+        Monster monsterComponentInPrefab = prefab.GetComponent<Monster>();
+        if (monsterComponentInPrefab == null || monsterComponentInPrefab.monsterData == null)
+        {
+            Debug.LogError($"'{prefab.name}' 프리팹에 Monster 컴포넌트나 MonsterData가 없습니다!", prefab);
+            return null;
+        }
+        MonsterData dataToSpawn = monsterComponentInPrefab.monsterData;
+
+        Vector3 spawnPos = spawnPoint.position;
+        float groundOffset = GetGroundMonsterHeightOffset(prefab);
+        spawnPos.y += groundOffset;
+
+        GameObject monsterGO = null;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
+        {
+            var spawned = runner.Spawn(netPrefab, spawnPos, Quaternion.identity, PlayerRef.None);
+            if (spawned == null)
+            {
+                Debug.LogError($"Runner.Spawn 실패: {prefab.name}", this);
+                return null;
+            }
+            monsterGO = spawned.gameObject;
+            if (monsterParent != null)
+            {
+                monsterGO.transform.SetParent(monsterParent, true);
+            }
+        }
+        else
+        {
+            monsterGO = Instantiate(prefab, spawnPos, Quaternion.identity, monsterParent);
+        }
+
+        Monster monster = monsterGO.GetComponent<Monster>();
+        if (monster == null) return null;
+
+        // StatusBarPrefab 설정
+        monster.statusBarPrefab = this.statusBarPrefab;
+
+        // 몬스터 초기화
+        monster.Initialize(this.playerManager, this.goalTransform, dataToSpawn, this.pathfinder);
+        ApplyOpponentDebuffs(monster);
+
+        // 클라이언트에도 초기화 데이터 전송 (RPC)
+        if (playerManager.Object != null)
+        {
+            monster.RPC_InitializeOnClient(
+                playerManager.Object.Id,
+                dataToSpawn != null ? dataToSpawn.name : ""
+            );
+        }
+
+        // 경로 설정
+        Vector3 clampedSpawn = pathfinder.ClampToGrid(spawnPoint.position);
+        Vector3 clampedGoal = pathfinder.ClampToGrid(goalTransform.position);
+        Vector2Int startPos = pathfinder.WorldToCell(clampedSpawn);
+        Vector2Int endPos = pathfinder.WorldToCell(clampedGoal);
+
+        if (pathfinder.FindPath(startPos, endPos))
+        {
+            List<AstarNode> path = pathfinder.FinalPath;
+            monster.StartFollowingPath(path);
+        }
+        else
+        {
+            Debug.LogWarning($"{monsterGO.name}을(를) 위한 경로를 찾지 못했습니다.");
+            Destroy(monsterGO);
+            return null;
+        }
+
+        return monster;
+    }
+
+    #endregion
 }

@@ -236,6 +236,14 @@ public class AugmentManager : MonoBehaviour
             case EffectType.AddGold:
                 target.AddGold((int)augment.value);
                 break;
+            case EffectType.AddWallPlacementCount:
+                int addWalls = Mathf.Max(0, Mathf.RoundToInt(augment.value));
+                if (addWalls > 0)
+                {
+                    target.AddWalls(addWalls);
+                    Debug.Log($"<color=cyan>[AugmentManager] Player {target.playerId} gained +{addWalls} walls from '{augment.augmentName}' (stock={target.GetWallCount()})</color>");
+                }
+                break;
             case EffectType.IncreaseMyUnitAttack:
                 target.AddPermanentAttackDamagePercent(augment.value);
                 Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격력 버프 적용 (+{augment.value:P0})");
@@ -244,10 +252,25 @@ public class AugmentManager : MonoBehaviour
                 target.AddPermanentAttackSpeedPercent(augment.value);
                 Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격속도 버프 적용 (+{augment.value:P0})");
                 break;
-            case EffectType.SpawnBossOnEnemyField:
-                if (augment.prefabToSpawn != null && target.monsterSpawner != null)
+            case EffectType.SpawnMonsterOnEnemyField:
+                if (augment.isBossSummon)
                 {
-                    target.monsterSpawner.SpawnSpecificMonster(augment.prefabToSpawn);
+                    // 보스 모드: 즉시 1회 소환 (현재 상대에게)
+                    if (augment.bossPrefab != null && target.monsterSpawner != null)
+                    {
+                        target.monsterSpawner.SpawnBossMonster(augment.bossPrefab, playerManager.playerId);
+                        Debug.Log($"<color=red>[AugmentManager] 보스 소환! Player {playerManager.playerId}가 Player {target.playerId}에게 침공</color>");
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[AugmentManager] 보스 프리팹 또는 MonsterSpawner가 null입니다.");
+                    }
+                }
+                else
+                {
+                    // 일반 몬스터 모드: 매 라운드 소환을 위해 증강 등록 (증강 선택자에게 등록)
+                    playerManager.RegisterActiveMonsterSummonAugment(augment);
+                    Debug.Log($"<color=orange>[AugmentManager] Player {playerManager.playerId}의 일반 몬스터 소환 증강 '{augment.augmentName}' 등록 (매 라운드 상대 침공)</color>");
                 }
                 break;
             case EffectType.IncreaseEnemyHealth:

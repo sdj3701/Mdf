@@ -58,6 +58,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private bool isInitialized = false;
     private ChangeDetector _changeDetector;
 
+    #region 보스 몬스터 관련
+    // 보스 몬스터 플래그 및 생존 시 다음 라운드 침공을 위한 정보
+    private bool _isBoss = false;
+    private int _originPlayerId = -1;
+    private GameObject _bossPrefab;
+    #endregion
+
     private bool HasStateAuthorityOrNoNetwork()
     {
         if (Object == null || Runner == null || !Runner.IsRunning)
@@ -379,12 +386,54 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {currentHP}/{currentMaxHP}");
     }
 
+    #region 보스 몬스터 메서드
+    /// <summary>
+    /// 이 몬스터를 보스로 설정합니다. 살아남아 목표 도달 시 다음 라운드에 전체 유저 중 랜덤 침공합니다.
+    /// </summary>
+    /// <param name="isBoss">보스 여부</param>
+    /// <param name="originPlayerId">보스를 소환한 플레이어 ID</param>
+    /// <param name="bossPrefab">보스 프리팹 (생존 시 재소환용)</param>
+    public void SetAsBoss(bool isBoss, int originPlayerId, GameObject bossPrefab)
+    {
+        _isBoss = isBoss;
+        _originPlayerId = originPlayerId;
+        _bossPrefab = bossPrefab;
+        
+        if (isBoss)
+        {
+            Debug.Log($"<color=red>[Monster] '{name}'이 보스로 설정됨 (OriginPlayer: {originPlayerId})</color>");
+        }
+    }
+
+    /// <summary>
+    /// 현재 체력을 직접 설정합니다. (생존 보스 재소환 시 사용)
+    /// </summary>
+    public void SetCurrentHP(float hp, float maxHp)
+    {
+        currentMaxHP = maxHp;
+        currentHP = Mathf.Min(hp, maxHp);
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+    }
+
+    /// <summary>
+    /// 보스 여부를 반환합니다.
+    /// </summary>
+    public bool IsBoss() => _isBoss;
+    #endregion
+
     private void Die()
     {
         // 이미 파괴 중인 오브젝트면 무시
         if (this == null || gameObject == null) return;
         
         Debug.Log($"{monsterData.monsterName}이(가) 죽었습니다!");
+        
+        // 보스가 죽으면 SurvivorBossManager에 알림 (더 이상 다음 라운드에 소환되지 않음)
+        if (_isBoss && SurvivorBossManager.Instance != null)
+        {
+            SurvivorBossManager.Instance.OnBossDied(monsterData.monsterName);
+        }
+        
         if (isBlocked && blockingUnit != null)
         {
             blockingUnit.ReleaseBlockedMonster(this);
@@ -409,6 +458,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         if (manaController != null) manaController.OnManaFull -= ActivateSkill;
     }
+
 
     #region 공격 로직 (이하 동일)
     private void StartAttacking(IEnemy target)
@@ -639,6 +689,19 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private void OnPathCompleted()
     {
         isMoving = false;
+        
+        // 보스가 살아남아 목표에 도달하면 다음 라운드에 전체 유저 중 랜덤 침공
+        if (_isBoss && SurvivorBossManager.Instance != null)
+        {
+            SurvivorBossManager.Instance.RegisterSurvivorBoss(
+                _bossPrefab,
+                currentHP,
+                currentMaxHP,
+                _originPlayerId
+            );
+            Debug.Log($"<color=red>[Monster] 보스 '{monsterData?.monsterName}'가 살아남아 목표 도달! 다음 라운드에 전체 유저 중 랜덤 침공 예정 (HP: {currentHP:F0}/{currentMaxHP:F0})</color>");
+        }
+        
         if (GameManagers.Instance != null && ownerPlayer != null)
         {
             GameManagers.Instance.OnMonsterReachedGoal(ownerPlayer);
