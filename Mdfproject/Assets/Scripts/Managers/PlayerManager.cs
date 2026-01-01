@@ -227,8 +227,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (monsterSpawner)
         {
-            var defaultMonsterPrefab = GameManagers.Instance.defaultMonsterPrefab;
-            monsterSpawner.Initialize(this, this.astarGrid, defaultMonsterPrefab, this.spawnPoint, this.goalTransform);
+            var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+            monsterSpawner.Initialize(this, this.astarGrid, waveDatabase, this.spawnPoint, this.goalTransform);
         }
 
         if (augmentManager) augmentManager.playerManager = this;
@@ -414,8 +414,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             Debug.Log($"<color=yellow>[RPC_Internal] start pos={pos} currentData={(unit.Data != null ? unit.Data.name : "null")} key='{unitDataKey}'</color>");
             if (fieldManager.IsUnitAt(pos))
             {
-                Debug.Log($"<color=yellow>[RPC_Internal] position already occupied. Skipping register. pos={pos}</color>");
-                return;
+                var existingAtPos = fieldManager.GetUnitAt(pos);
+                if (existingAtPos != null && existingAtPos != unit)
+                {
+                    Debug.LogWarning($"<color=yellow>[RPC_Internal] position already occupied by another unit. Replacing. pos={pos}</color>");
+                }
             }
 
             if (fieldManager.statusBarPrefab != null)
@@ -521,13 +524,14 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <summary>
     /// 일반 몬스터 소환 증강을 활성화 등록합니다. 
     /// 매 라운드 이 플레이어의 상대에게 추가 몬스터가 침공하게 됩니다.
+    /// 같은 증강을 여러 번 선택하면 그 수만큼 누적됩니다.
     /// </summary>
     public void RegisterActiveMonsterSummonAugment(AugmentData augment)
     {
-        if (augment != null && !_activeMonsterSummonAugments.Contains(augment))
+        if (augment != null)
         {
             _activeMonsterSummonAugments.Add(augment);
-            Debug.Log($"<color=orange>[PlayerManager] Player {playerId}: 몬스터 소환 증강 '{augment.augmentName}' 등록 (매 라운드 상대 침공)</color>");
+            Debug.Log($"<color=orange>[PlayerManager] Player {playerId}: 몬스터 소환 증강 '{augment.augmentName}' 등록 (누적 {_activeMonsterSummonAugments.Count}개)</color>");
         }
     }
 

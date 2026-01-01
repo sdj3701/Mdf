@@ -18,6 +18,7 @@ public class AddressablesManager : MonoBehaviour
     [SerializeField] private AssetReference playerManagerPrefabRef;
     [SerializeField] private AssetReference gridPrefabRef;
     [SerializeField] private AssetReference defaultMonsterPrefabRef;
+    [SerializeField] private AssetReference waveDatabaseRef;
 
     public bool AssetsReady { get; private set; }
     public bool IsPreloading { get; private set; }
@@ -27,11 +28,13 @@ public class AddressablesManager : MonoBehaviour
     private GameObject _playerManagerPrefab;
     private GameObject _gridPrefab;
     private GameObject _defaultMonsterPrefab;
+    private WaveDatabase _waveDatabase;
 
     // Public getters
     public GameObject PlayerManagerPrefab => _playerManagerPrefab;
     public GameObject GridPrefab => _gridPrefab;
     public GameObject DefaultMonsterPrefab => _defaultMonsterPrefab;
+    public WaveDatabase WaveDatabase => _waveDatabase;
 
     private bool _preloadCompleted;
     private AsyncOperationHandle<IList<Object>> _preloadHandle;
@@ -144,6 +147,10 @@ public class AddressablesManager : MonoBehaviour
             {
                 loadTasks.Add(LoadPrefabAsync(defaultMonsterPrefabRef, prefab => _defaultMonsterPrefab = prefab, "Monster"));
             }
+            if (waveDatabaseRef != null && waveDatabaseRef.RuntimeKeyIsValid())
+            {
+                loadTasks.Add(LoadWaveDatabaseAsync());
+            }
 
             await UniTask.WhenAll(loadTasks);
             GamePrefabsLoaded = true;
@@ -169,6 +176,22 @@ public class AddressablesManager : MonoBehaviour
         else
         {
             Debug.LogError($"[AddressablesManager] {prefabName} 프리팹 로드 실패!");
+        }
+    }
+
+    private async UniTask LoadWaveDatabaseAsync()
+    {
+        var handle = waveDatabaseRef.LoadAssetAsync<WaveDatabase>();
+        await handle.Task;
+
+        if (handle.Status == AsyncOperationStatus.Succeeded)
+        {
+            _waveDatabase = handle.Result;
+            Debug.Log("[AddressablesManager] WaveDatabase 로드 완료");
+        }
+        else
+        {
+            Debug.LogError($"[AddressablesManager] WaveDatabase 로드 실패: {handle.OperationException?.Message}");
         }
     }
 

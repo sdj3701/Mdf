@@ -1082,7 +1082,21 @@ public class FieldManager : MonoBehaviour
         {
             return false;
         }
-        return placedUnits.ContainsKey(gridPosition) || pendingUnitPositions.Contains(gridPosition);
+
+        if (placedUnits.TryGetValue(gridPosition, out Unit unit))
+        {
+            // NetworkObject가 Despawn/Destroy 된 경우 Dictionary에 null 레퍼런스가 남을 수 있어 정리합니다.
+            if (unit == null)
+            {
+                placedUnits.Remove(gridPosition);
+            }
+            else
+            {
+                return true;
+            }
+        }
+
+        return pendingUnitPositions.Contains(gridPosition);
     }
 
     private bool TryReserveUnitPosition(Vector3Int gridPosition)
@@ -1533,15 +1547,34 @@ public class FieldManager : MonoBehaviour
     /// </summary>
     public void RegisterUnitAt(Unit unit, Vector3Int gridPosition)
     {
+        if (unit == null)
+        {
+            Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: unit이 null입니다. pos={gridPosition}");
+            return;
+        }
         if (!IsValidGridPosition(gridPosition))
         {
             Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
         ReleaseReservedUnitPosition(gridPosition);
+
+        // Despawn/Destroy 된 유닛 레퍼런스가 남아있을 수 있어 정리합니다.
+        if (placedUnits.TryGetValue(gridPosition, out Unit existingUnit) && existingUnit == null)
+        {
+            placedUnits.Remove(gridPosition);
+        }
+
+        // 같은 유닛이 다른 위치에 이미 등록되어 있으면 기존 엔트리를 제거합니다.
+        var previousEntry = placedUnits.FirstOrDefault(kvp => kvp.Value == unit);
+        if (previousEntry.Value == unit)
+        {
+            placedUnits.Remove(previousEntry.Key);
+        }
+
         Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
         unit.transform.position = worldPos;
-        placedUnits.Add(gridPosition, unit);
+        placedUnits[gridPosition] = unit;
     }
 
     #endregion
@@ -1687,6 +1720,14 @@ public class FieldManager : MonoBehaviour
 
     public async void CheckForCombination()
     {
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null
+            && runner.IsRunning
+            && (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority))
+        {
+            return;
+        }
+
         var combinableGroup = placedUnits.Values
             .Where(u => u != null && u.starLevel < 3)
             .GroupBy(u => new { u.Data.unitName, u.starLevel })
@@ -1696,10 +1737,25 @@ public class FieldManager : MonoBehaviour
         if (combinableGroup != null)
         {
             List<Unit> unitsToCombine = combinableGroup.Take(3).ToList();
+            bool canDespawn = runner != null
+                && runner.IsRunning
+                && playerManager != null
+                && playerManager.Object != null
+                && playerManager.Object.HasStateAuthority;
+
             for (int i = 0; i < 2; i++)
             {
-                UnitDied(unitsToCombine[i]);
-                Destroy(unitsToCombine[i].gameObject);
+                var unit = unitsToCombine[i];
+                UnitDied(unit);
+
+                if (canDespawn && unit != null && unit.TryGetComponent<NetworkObject>(out var no))
+                {
+                    runner.Despawn(no);
+                }
+                else if (unit != null)
+                {
+                    Destroy(unit.gameObject);
+                }
             }
             Unit baseUnit = unitsToCombine[2];
             await baseUnit.Upgrade();
@@ -1719,10 +1775,31 @@ public class FieldManager : MonoBehaviour
         Vector3Int currentPos = placedUnits.First(kvp => kvp.Value == unitToReplace).Key;
         UnitData unitData = unitToReplace.Data;
         int newStarLevel = unitToReplace.starLevel;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null
+            && runner.IsRunning
+            && (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority))
+        {
+            Debug.LogWarning("[FieldManager] ReplaceUnitPrefab ignored: no state authority.");
+            return;
+        }
 
         // 기존 유닛 제거
         UnitDied(unitToReplace);
-        Destroy(unitToReplace.gameObject);
+        if (runner != null
+            && runner.IsRunning
+            && playerManager != null
+            && playerManager.Object != null
+            && playerManager.Object.HasStateAuthority
+            && unitToReplace != null
+            && unitToReplace.TryGetComponent<NetworkObject>(out var oldNO))
+        {
+            runner.Despawn(oldNO);
+        }
+        else
+        {
+            Destroy(unitToReplace.gameObject);
+        }
 
         // 새 유닛 강제 배치 (IsUnitAt 체크 없이 직접 배치)
         if (unitData == null || unitData.prefabsByStarLevel == null || unitData.prefabsByStarLevel.Length == 0)
@@ -1751,12 +1828,61 @@ public class FieldManager : MonoBehaviour
         }
 
         Vector3 worldPos = GridToWorld(currentPos, checkForWall: true);
-        GameObject unitGO = Instantiate(prefab, worldPos, Quaternion.identity, unitParent);
+        GameObject unitGO = null;
+        NetworkObject spawnedNO = null;
+        if (runner != null && runner.IsRunning && prefab.TryGetComponent<NetworkObject>(out var networkPrefab))
+        {
+            if (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority)
+            {
+                return;
+            }
+
+            spawnedNO = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
+            if (spawnedNO == null)
+            {
+                Debug.LogError($"[FieldManager] Runner.Spawn failed: {prefab.name} (Player={playerManager?.playerId})");
+                return;
+            }
+
+            unitGO = spawnedNO.gameObject;
+            if (unitParent != null)
+            {
+                unitGO.transform.SetParent(unitParent, true);
+            }
+
+            playerManager.RPC_RegisterUnitAt(spawnedNO.Id, currentPos.x, currentPos.y, unitData.name, newStarLevel);
+        }
+        else
+        {
+            unitGO = Instantiate(prefab, worldPos, Quaternion.identity, unitParent);
+        }
+
+        // CreateUnitAt과 동일한 초기 스폰 보정 컴포넌트 부착
+        var orientationFixer = unitGO.AddComponent<UnitOrientationFixer>();
+        orientationFixer.rigRootName = "Armature";
+        orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
+        orientationFixer.faceCameraOnSpawn = true;
+        orientationFixer.enforceEveryLateUpdate = true;
+        orientationFixer.targetCamera = playerCamera;
+        orientationFixer.yawOffsetDeg = 180f;
+
         Unit newUnit = unitGO.GetComponent<Unit>();
         if (newUnit == null)
         {
             Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 생성된 프리팹에 Unit 컴포넌트 없음");
-            Destroy(unitGO);
+            if (spawnedNO != null
+                && runner != null
+                && runner.IsRunning
+                && playerManager != null
+                && playerManager.Object != null
+                && playerManager.Object.HasStateAuthority)
+            {
+                runner.Despawn(spawnedNO);
+            }
+            else
+            {
+                Destroy(unitGO);
+            }
             return;
         }
 
