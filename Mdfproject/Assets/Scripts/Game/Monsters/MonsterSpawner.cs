@@ -80,16 +80,13 @@ public class MonsterSpawner : MonoBehaviour
     public void SpawnWave(int round)
     {
         int monsterCount = 5 + round;
-        StartCoroutine(SpawnMonsterCoroutine(monsterCount));
-        
-        // 1. 이전 라운드에서 살아남은 보스 소환 (전체 유저 중 랜덤 타겟)
-        SpawnSurvivorBosses();
-        
-        // 2. 상대의 일반 몬스터 소환 증강에 의한 추가 몬스터 소환
-        SpawnAugmentMonsters();
+        StartCoroutine(SpawnAllMonstersCoroutine(round, monsterCount));
     }
 
-    IEnumerator SpawnMonsterCoroutine(int count)
+    /// <summary>
+    /// 기본 웨이브 → 대기 중인 보스 → 생존 보스 → 증강 몬스터 순으로 모두 간격 두고 소환
+    /// </summary>
+    IEnumerator SpawnAllMonstersCoroutine(int round, int baseCount)
     {
         if (pathfinder == null || monsterPrefab == null)
         {
@@ -100,12 +97,30 @@ public class MonsterSpawner : MonoBehaviour
         isSpawningWave = true;
         playerManager.SetFightingState(true);
 
+        // 1. 기본 웨이브 몬스터 소환
+        yield return StartCoroutine(SpawnBaseWaveCoroutine(baseCount));
+
+        // 2. 대기 중인 보스 증강 소환 (1회성, 상대의 증강에서 온 보스)
+        yield return StartCoroutine(SpawnPendingBossesCoroutine());
+
+        // 3. 이전 라운드에서 살아남은 보스 소환 (전체 유저 중 랜덤 타겟)
+        yield return StartCoroutine(SpawnSurvivorBossesCoroutine());
+
+        // 4. 상대의 일반 몬스터 소환 증강에 의한 추가 몬스터 소환
+        yield return StartCoroutine(SpawnAugmentMonstersCoroutine());
+
+        isSpawningWave = false;
+    }
+
+    /// <summary>
+    /// 기본 웨이브 몬스터 소환 (간격: 0.5초)
+    /// </summary>
+    IEnumerator SpawnBaseWaveCoroutine(int count)
+    {
         Monster monsterComponentInPrefab = monsterPrefab.GetComponent<Monster>();
         if (monsterComponentInPrefab == null || monsterComponentInPrefab.monsterData == null)
         {
             Debug.LogError($"'{monsterPrefab.name}' 프리팹에 Monster 컴포넌트나 MonsterData가 없습니다!", monsterPrefab);
-            isSpawningWave = false;
-            playerManager.SetFightingState(false);
             yield break;
         }
         MonsterData dataToSpawn = monsterComponentInPrefab.monsterData;
@@ -115,8 +130,6 @@ public class MonsterSpawner : MonoBehaviour
             if (spawnPoint == null || goalTransform == null)
             {
                  Debug.LogError("스폰 포인트 또는 목표 지점이 할당되지 않았습니다!", this);
-                 isSpawningWave = false;
-                 playerManager.SetFightingState(false);
                  yield break;
             }
 
@@ -132,8 +145,6 @@ public class MonsterSpawner : MonoBehaviour
                 if (spawned == null)
                 {
                     Debug.LogError($"Runner.Spawn 실패: {monsterPrefab.name}", this);
-                    isSpawningWave = false;
-                    playerManager.SetFightingState(false);
                     yield break;
                 }
                 monsterGO = spawned.gameObject;
@@ -172,8 +183,6 @@ public class MonsterSpawner : MonoBehaviour
                 Vector2Int startPos = pathfinder.WorldToCell(clampedSpawn);
                 Vector2Int endPos = pathfinder.WorldToCell(clampedGoal);
 
-
-
                 if (pathfinder.FindPath(startPos, endPos))
                 {
                     List<AstarNode> path = pathfinder.FinalPath;
@@ -188,8 +197,6 @@ public class MonsterSpawner : MonoBehaviour
 
             yield return new WaitForSeconds(0.5f);
         }
-
-        isSpawningWave = false;
     }
 
     private void ApplyOpponentDebuffs(Monster monster)
@@ -335,13 +342,46 @@ public class MonsterSpawner : MonoBehaviour
     }
 
     /// <summary>
+    /// 대기 중인 보스 증강을 코루틴으로 소환합니다. (1회성, 상대의 증강에서 온 보스)
+    /// 모든 플레이어를 확인하여 이 플레이어를 타겟으로 한 보스를 소환합니다.
+    /// </summary>
+    IEnumerator SpawnPendingBossesCoroutine()
+    {
+        // 모든 플레이어의 대기 중인 보스 증강 확인
+        var allPlayers = GameManagers.Instance?.AllPlayers;
+        if (allPlayers == null) yield break;
+
+        foreach (var sourcePlayer in allPlayers)
+        {
+            if (sourcePlayer == null) continue;
+            
+            var pendingBosses = sourcePlayer.GetAndClearPendingBossAugments();
+            foreach (var pending in pendingBosses)
+            {
+                // 이 플레이어가 타겟인 경우에만 소환
+                if (pending.TargetPlayerId != playerManager.playerId) continue;
+                if (pending.Augment?.bossPrefab == null) continue;
+
+                Monster monster = SpawnMonsterInternal(pending.Augment.bossPrefab);
+                if (monster != null)
+                {
+                    monster.SetAsBoss(true, sourcePlayer.playerId, pending.Augment.bossPrefab);
+                    Debug.Log($"<color=red>[MonsterSpawner] 보스 '{monster.name}' 소환! (소환자: Player {sourcePlayer.playerId} → 타겟: Player {playerManager.playerId})</color>");
+                }
+
+                yield return new WaitForSeconds(0.5f);
+            }
+        }
+    }
+
+    /// <summary>
     /// 이전 라운드에서 살아남은 보스들을 소환합니다. (전체 유저 중 랜덤 타겟)
     /// </summary>
-    private void SpawnSurvivorBosses()
+    IEnumerator SpawnSurvivorBossesCoroutine()
     {
         if (SurvivorBossManager.Instance == null || !SurvivorBossManager.Instance.HasPendingBosses())
         {
-            return;
+            yield break;
         }
 
         var pendingBosses = SurvivorBossManager.Instance.GetPendingBossesWithTargets();
@@ -358,6 +398,8 @@ public class MonsterSpawner : MonoBehaviour
                 monster.SetCurrentHP(bossData.RemainingHP, bossData.MaxHP);
                 Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {targetPlayerId}에게 침공. HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}</color>");
             }
+
+            yield return new WaitForSeconds(0.5f);
         }
     }
 
@@ -365,28 +407,34 @@ public class MonsterSpawner : MonoBehaviour
     /// 상대의 일반 몬스터 소환 증강에 따라 추가 몬스터를 소환합니다.
     /// 매 라운드 이 플레이어의 상대(opponentManager)의 증강 목록을 확인합니다.
     /// </summary>
-    private void SpawnAugmentMonsters()
+    IEnumerator SpawnAugmentMonstersCoroutine()
     {
-        if (playerManager.opponentManager == null) return;
+        if (playerManager.opponentManager == null) yield break;
 
         // 상대(opponentManager)가 등록한 일반 몬스터 소환 증강들을 가져옴
         var augments = playerManager.opponentManager.GetActiveMonsterSummonAugments();
 
         foreach (var augment in augments)
         {
-            if (augment.monsterPrefabs == null || augment.monsterPrefabs.Count == 0) continue;
+            if (augment.monsterSpawnEntries == null || augment.monsterSpawnEntries.Count == 0) continue;
 
-            foreach (var prefab in augment.monsterPrefabs)
+            int totalSpawned = 0;
+            
+            // 각 MonsterSpawnEntry의 프리팹을 count만큼 소환
+            foreach (var entry in augment.monsterSpawnEntries)
             {
-                if (prefab == null) continue;
-
-                for (int i = 0; i < augment.monsterSpawnCount; i++)
+                if (entry == null || entry.prefab == null) continue;
+                
+                int spawnCount = Mathf.Max(0, entry.count);
+                for (int i = 0; i < spawnCount; i++)
                 {
-                    SpawnMonsterInternal(prefab);
+                    SpawnMonsterInternal(entry.prefab);
+                    totalSpawned++;
+                    yield return new WaitForSeconds(0.5f);
                 }
             }
 
-            Debug.Log($"<color=orange>[MonsterSpawner] 증강 '{augment.augmentName}'에 의해 Player {playerManager.playerId}에게 추가 몬스터 {augment.monsterSpawnCount * augment.monsterPrefabs.Count}마리 소환</color>");
+            Debug.Log($"<color=orange>[MonsterSpawner] 증강 '{augment.augmentName}'에 의해 Player {playerManager.playerId}에게 추가 몬스터 {totalSpawned}마리 소환</color>");
         }
     }
 

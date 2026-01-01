@@ -591,15 +591,6 @@ public class GameManagers : NetworkBehaviour
             
             // 증강 생성 및 동기화 (한 루프에서 처리)
             Debug.Log($"<color=orange>[흐름 1] StartNextRound: Player {player.playerId} PresentAugments() 호출 전</color>");
-#if UNITY_EDITOR
-            // Debug: force extra wall materials on round 2 so maze extension/build can be tested reliably.
-            if (currentRound == 2 && ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString()))
-            {
-                player.AddWalls(10);
-                Debug.Log($"<color=orange>[GameManagers] Debug: Round 2 grant +10 walls to AI Player {player.playerId} (stock={player.GetWallCount()})</color>");
-            }
-#endif
-
             player.augmentManager.PresentAugments();
             var presentedAugments = player.augmentManager.GetPresentedAugments();
             Debug.Log($"<color=orange>[흐름 2] StartNextRound: Player {player.playerId} PresentAugments() 완료, 증강 수: {presentedAugments?.Count ?? 0}</color>");

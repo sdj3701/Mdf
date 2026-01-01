@@ -23,6 +23,19 @@ public enum EffectType
 // ✅ [추가] 증강의 등급을 정의하는 열거형
 public enum AugmentTier { Silver, Gold, Prismatic }
 
+/// <summary>
+/// 일반 몬스터 소환 증강에서 사용할 몬스터 + 수량 쌍
+/// </summary>
+[System.Serializable]
+public class MonsterSpawnEntry
+{
+    [Tooltip("소환할 몬스터 프리팹")]
+    public GameObject prefab;
+    
+    [Tooltip("소환 수량")]
+    public int count = 1;
+}
+
 [CreateAssetMenu(fileName = "New AugmentData", menuName = "Game/Augment Data")]
 public class AugmentData : ScriptableObject
 {
@@ -50,10 +63,7 @@ public class AugmentData : ScriptableObject
     [Tooltip("보스 모드: 소환할 보스 프리팹 (1마리)")]
     public GameObject bossPrefab;
     
-    [Tooltip("일반 모드: 매 라운드 소환할 몬스터 프리팹 목록")]
-    public List<GameObject> monsterPrefabs;
-    
-    [Tooltip("일반 모드: 각 프리팹 당 소환 수량")]
-    public int monsterSpawnCount = 1;
+    [Tooltip("일반 모드: 매 라운드 소환할 몬스터와 수량 목록")]
+    public List<MonsterSpawnEntry> monsterSpawnEntries;
     #endregion
 }

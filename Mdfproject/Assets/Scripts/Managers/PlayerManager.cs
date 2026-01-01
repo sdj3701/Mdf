@@ -45,6 +45,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     
     // 활성화된 몬스터 소환 증강 리스트 (일반 몬스터: 매 라운드 상대에게 추가 침공)
     private List<AugmentData> _activeMonsterSummonAugments = new List<AugmentData>();
+    
+    // 대기 중인 보스 소환 증강 (1회성: 다음 전투에 소환 후 삭제)
+    private List<PendingBoss> _pendingBossAugments = new List<PendingBoss>();
+    
+    /// <summary>
+    /// 대기 중인 보스 증강 정보
+    /// </summary>
+    [System.Serializable]
+    public struct PendingBoss
+    {
+        public AugmentData Augment;
+        public int TargetPlayerId;
+    }
 
     [Header("Permanent Augment Bonuses")]
     [Tooltip("영구 증강으로 인한 아군 공격력(%) 가산. 0.1 = +10%")]
@@ -524,6 +537,28 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public List<AugmentData> GetActiveMonsterSummonAugments()
     {
         return _activeMonsterSummonAugments;
+    }
+
+    /// <summary>
+    /// 보스 소환 증강을 등록합니다. (1회성: 다음 전투에 소환 후 자동 삭제)
+    /// </summary>
+    public void RegisterPendingBossAugment(AugmentData augment, int targetPlayerId)
+    {
+        if (augment != null)
+        {
+            _pendingBossAugments.Add(new PendingBoss { Augment = augment, TargetPlayerId = targetPlayerId });
+            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 증강 '{augment.augmentName}' 등록 (타겟: Player {targetPlayerId}, 다음 전투에 소환)</color>");
+        }
+    }
+
+    /// <summary>
+    /// 대기 중인 보스 증강 목록을 가져오고 초기화합니다. (1회성)
+    /// </summary>
+    public List<PendingBoss> GetAndClearPendingBossAugments()
+    {
+        var result = new List<PendingBoss>(_pendingBossAugments);
+        _pendingBossAugments.Clear();
+        return result;
     }
     #endregion
 

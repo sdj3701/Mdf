@@ -255,15 +255,15 @@ public class AugmentManager : MonoBehaviour
             case EffectType.SpawnMonsterOnEnemyField:
                 if (augment.isBossSummon)
                 {
-                    // 보스 모드: 즉시 1회 소환 (현재 상대에게)
-                    if (augment.bossPrefab != null && target.monsterSpawner != null)
+                    // 보스 모드: 다음 전투 시퀀스에 소환되도록 등록 (1회성)
+                    if (augment.bossPrefab != null)
                     {
-                        target.monsterSpawner.SpawnBossMonster(augment.bossPrefab, playerManager.playerId);
-                        Debug.Log($"<color=red>[AugmentManager] 보스 소환! Player {playerManager.playerId}가 Player {target.playerId}에게 침공</color>");
+                        playerManager.RegisterPendingBossAugment(augment, target.playerId);
+                        Debug.Log($"<color=red>[AugmentManager] 보스 증강 등록! Player {playerManager.playerId}가 Player {target.playerId}에게 다음 전투에 침공 예정</color>");
                     }
                     else
                     {
-                        Debug.LogWarning($"[AugmentManager] 보스 프리팹 또는 MonsterSpawner가 null입니다.");
+                        Debug.LogWarning($"[AugmentManager] 보스 프리팹이 null입니다.");
                     }
                 }
                 else
@@ -275,8 +275,8 @@ public class AugmentManager : MonoBehaviour
                 break;
             case EffectType.IncreaseEnemyHealth:
             case EffectType.IncreaseEnemyMoveSpeed:
-                 Debug.Log($"{target.playerId}의 다음 라운드 몬스터에게 '{augment.augmentName}' 효과가 추가되었습니다.");
-                 break;
+                Debug.Log($"{target.playerId}의 다음 라운드 몬스터에게 '{augment.augmentName}' 효과가 추가되었습니다.");
+                break;
         }
     }
 }
