@@ -588,6 +588,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    public void AddWalls(int amount)
+    {
+        if (amount <= 0) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
+        wallCount += amount;
+        mazeConstructionComplete = false;
+        if (Runner == null || !Runner.IsRunning)
+        {
+            GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
+        }
+    }
+
     public bool TryUseWall()
     {
         if (wallCount <= 0) return false;

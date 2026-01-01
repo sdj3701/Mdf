@@ -18,6 +18,9 @@ namespace AI.BehaviorTree.Nodes.Actions
         private readonly HashSet<Vector3Int> _builtAtLeastOnce = new HashSet<Vector3Int>();
         private float _skipClearTime;
         private Task<MazePlanner.MazePlanResult> _planTask;
+        private Task<MazePlanner.MazePlanResult> _extendPlanTask;
+        private int _lastExtendBudgetTried = -1;
+        private int _activeExtendBudget = -1;
         private float _nextPlanRetryAt;
         private int _planRetryCount;
         private const int MaxPlanRetries = 3;
@@ -107,12 +110,82 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _builtAtLeastOnce.Clear();
                 _temporarilySkipped.Clear();
                 _nextBuildAt = Time.time + Random.Range(_minInterval, _maxInterval);
+                _extendPlanTask = null;
+                _lastExtendBudgetTried = -1;
+                _activeExtendBudget = -1;
                 Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned {_playerManager.mazePlannedOrder.Count} walls</color>");
+                return status = NodeStatus.Success;
+            }
+
+            // 1.5) Plan extension (when extra wall resources become available later)
+            if (_extendPlanTask != null)
+            {
+                if (!_extendPlanTask.IsCompleted)
+                {
+                    return status = NodeStatus.Running;
+                }
+
+                if (_extendPlanTask.IsFaulted || _extendPlanTask.IsCanceled)
+                {
+                    Debug.LogWarning($"<color=red>[BuildMazeAction] Maze extension planning failed: {_extendPlanTask.Exception?.GetBaseException().Message}</color>");
+                    _extendPlanTask = null;
+                    _activeExtendBudget = -1;
+                    _playerManager.mazeConstructionComplete = true;
+                    return status = NodeStatus.Failure;
+                }
+
+                var extendResult = _extendPlanTask.Result;
+                _extendPlanTask = null;
+
+                var extraOrder = extendResult?.BuildOrder ?? new List<Vector3Int>();
+                if (extraOrder.Count == 0)
+                {
+                    if (_activeExtendBudget >= 0)
+                    {
+                        _lastExtendBudgetTried = Mathf.Max(_lastExtendBudgetTried, _activeExtendBudget);
+                    }
+                    _activeExtendBudget = -1;
+                    _playerManager.mazeConstructionComplete = true;
+                    Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} maze fully optimized; no extension walls</color>");
+                    return status = NodeStatus.Failure;
+                }
+
+                if (_playerManager.mazePlannedOrder == null)
+                {
+                    _playerManager.mazePlannedOrder = new List<Vector3Int>();
+                }
+
+                var existing = new HashSet<Vector3Int>(_playerManager.mazePlannedOrder);
+                int added = 0;
+                foreach (var pos in extraOrder)
+                {
+                    if (existing.Add(pos))
+                    {
+                        _playerManager.mazePlannedOrder.Add(pos);
+                        added++;
+                    }
+                }
+
+                _temporarilySkipped.Clear();
+                _nextBuildAt = Time.time + Random.Range(_minInterval, _maxInterval);
+                _lastExtendBudgetTried = -1;
+                _activeExtendBudget = -1;
+                Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned maze extension (+{added} walls)</color>");
                 return status = NodeStatus.Success;
             }
 
             if (_playerManager.mazePlannedOrder == null || _playerManager.mazePlannedOrder.Count == 0)
             {
+                int currentStock = _playerManager.GetWallCount();
+                int currentReserve = _playerManager.GetWallReserveK();
+                int budget = currentStock - currentReserve;
+                if (budget > 0 && budget > _lastExtendBudgetTried)
+                {
+                    _activeExtendBudget = budget;
+                    _extendPlanTask = MazePlanner.PlanAdditionalWallsAsync(fm, _playerManager);
+                    return status = NodeStatus.Running;
+                }
+
                 _playerManager.mazeConstructionComplete = true;
                 return status = NodeStatus.Failure;
             }
@@ -157,6 +230,19 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (!hasMissing)
             {
+                if (_extendPlanTask != null)
+                {
+                    return status = NodeStatus.Running;
+                }
+
+                int budget = stock - reserve;
+                if (budget > 0 && budget > _lastExtendBudgetTried)
+                {
+                    _activeExtendBudget = budget;
+                    _extendPlanTask = MazePlanner.PlanAdditionalWallsAsync(fm, _playerManager);
+                    return status = NodeStatus.Running;
+                }
+
                 if (!_playerManager.mazeConstructionComplete)
                 {
                     _playerManager.mazeConstructionComplete = true;
@@ -201,6 +287,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             _commandProcessor.RequestCommandExecution(cmd);
 
             _builtAtLeastOnce.Add(placeAt);
+            _lastExtendBudgetTried = -1;
             _playerManager.mazeBuildCursor = _playerManager.mazePlannedOrder.IndexOf(placeAt) + 1;
             _nextBuildAt = Time.time + Random.Range(_minInterval, _maxInterval);
             AIPacer.Arm(_playerManager.playerId, AIPacer.CatWall, _minInterval, _maxInterval);

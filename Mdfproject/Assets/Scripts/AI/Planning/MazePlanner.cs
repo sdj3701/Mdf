@@ -82,6 +82,15 @@ public static class MazePlanner
         return PlanWallsAsyncImpl(fm, pm);
     }
 
+    /// <summary>
+    /// Plan additional walls on top of the current maze layout (using the current wall stock budget).
+    /// Returns an empty plan when no net path-length increase is possible.
+    /// </summary>
+    public static Task<MazePlanResult> PlanAdditionalWallsAsync(FieldManager fm, PlayerManager pm)
+    {
+        return PlanAdditionalWallsAsyncImpl(fm, pm);
+    }
+
     private static MazePlanInput BuildPlanInput(FieldManager fm, PlayerManager pm)
     {
         int width = Mathf.Max(1, fm.gridSize.x);
@@ -144,6 +153,26 @@ public static class MazePlanner
         try
         {
             return await Task.Run(() => PlanWallsFromInput(input, log: false));
+        }
+        finally
+        {
+            PlanningSemaphore.Release();
+        }
+    }
+
+    private static async Task<MazePlanResult> PlanAdditionalWallsAsyncImpl(FieldManager fm, PlayerManager pm)
+    {
+        if (fm == null || pm == null)
+        {
+            return new MazePlanResult();
+        }
+
+        var input = BuildPlanInput(fm, pm);
+
+        await PlanningSemaphore.WaitAsync();
+        try
+        {
+            return await Task.Run(() => PlanAdditionalWallsFromInput(input, log: false));
         }
         finally
         {
@@ -270,6 +299,72 @@ public static class MazePlanner
         if (log)
         {
             Debug.Log($"[MazePlanner] Maze planned. Start={plan.Start}, Goal={plan.Goal}, Walls={plan.BuildOrder.Count}, PathLen={plan.ValidatedPath.Count}");
+        }
+
+        return plan;
+    }
+
+    private static MazePlanResult PlanAdditionalWallsFromInput(MazePlanInput input, bool log)
+    {
+        var plan = new MazePlanResult();
+        var rng = CreateRng();
+        int width = input.Width;
+        int height = input.Height;
+
+        Vector2Int start = Vector2Int.zero;
+        Vector2Int goal = Vector2Int.zero;
+
+        if (input.UseFixedEndpoints)
+        {
+            start = input.FixedStart;
+            goal = input.FixedGoal;
+        }
+        else
+        {
+            int minDistance = Mathf.Max(4, (width + height) / 3);
+            TryPickStartGoal(width, height, input.InitialWalls, rng, minDistance, out start, out goal);
+        }
+
+        if (!IsInside(start, width, height) || input.InitialWalls.Contains(start))
+        {
+            start = FindFirstEmptyCell(width, height, input.InitialWalls, Vector2Int.zero);
+        }
+        if (!IsInside(goal, width, height) || input.InitialWalls.Contains(goal) || goal == start)
+        {
+            goal = FindFirstEmptyCell(width, height, input.InitialWalls, start);
+        }
+
+        plan.Start = start;
+        plan.Goal = goal;
+
+        if (input.WallBudget <= 0)
+        {
+            var baseGrid = BuildGrid(width, height, input.InitialWalls, null);
+            plan.ValidatedPath = AStarSearch(baseGrid, start, goal) ?? new List<Vector2Int>();
+            plan.BlueprintWalls = new HashSet<Vector2Int>();
+            return plan;
+        }
+
+        var additional = GenerateBudgetedMaze(width, height, input.InitialWalls, start, goal, input.WallBudget, rng, log);
+        if (additional == null)
+        {
+            return plan;
+        }
+
+        plan.ValidatedPath = additional.FinalPath ?? new List<Vector2Int>();
+        plan.BlueprintWalls = additional.AiWalls != null ? new HashSet<Vector2Int>(additional.AiWalls) : new HashSet<Vector2Int>();
+
+        if (additional.AiWalls != null)
+        {
+            foreach (var cell in additional.AiWalls)
+            {
+                plan.BuildOrder.Add(new Vector3Int(cell.x, cell.y, 0));
+            }
+        }
+
+        if (log)
+        {
+            Debug.Log($"[MazePlanner] Additional plan. NewWalls={plan.BuildOrder.Count}, PathLen={plan.ValidatedPath.Count}");
         }
 
         return plan;
