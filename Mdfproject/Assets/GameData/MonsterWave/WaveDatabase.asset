@@ -12,9 +12,19 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9df4057dd2fc53442bf603fff122b7fd, type: 3}
   m_Name: WaveDatabase
   m_EditorClassIdentifier: 
-  rounds: []
-  fallbackWave:
-    roundNumber: 0
-    monsters: []
-    spawnInterval: 0.5
-  additionalMonstersPerRound: 1
+  rounds:
+  - roundNumber: 1
+    monsters:
+    - monsterPrefab: {fileID: 2020015458557610380, guid: 4ae077da17a50f048a4009c3a41f2705,
+        type: 3}
+      count: 1
+    - monsterPrefab: {fileID: 2020015458557610380, guid: 2813e96c555c01041a13c1343ebafbb0,
+        type: 3}
+      count: 1
+    spawnInterval: 0.3
+  additionalMonstersPerRound: 2
+  enableAutoScaling: 1
+  healthScalePerRound: 0.1
+  speedScalePerRound: 0.05
+  damageScalePerRound: 0.05
+  scalingStartRound: 1

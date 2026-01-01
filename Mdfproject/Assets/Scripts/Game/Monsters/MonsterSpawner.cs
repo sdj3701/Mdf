@@ -168,6 +168,7 @@ public class MonsterSpawner : MonoBehaviour
         // 자동 스케일링 배율 계산
         float autoHealthScale = _waveDatabase.GetHealthScaleForRound(round);
         float autoSpeedScale = _waveDatabase.GetSpeedScaleForRound(round);
+        float autoDamageScale = _waveDatabase.GetDamageScaleForRound(round);
 
         foreach (var entry in waveData.monsters)
         {
@@ -183,14 +184,10 @@ public class MonsterSpawner : MonoBehaviour
                 
                 if (monster != null)
                 {
-                    // 최종 배율 = 자동 스케일링 × 개별 엔트리 배율
-                    float finalHealthMultiplier = autoHealthScale * entry.healthMultiplier;
-                    float finalSpeedMultiplier = autoSpeedScale * entry.speedMultiplier;
-                    
-                    // 배율 적용 (1.0이 아닌 경우에만)
-                    if (finalHealthMultiplier != 1f || finalSpeedMultiplier != 1f)
+                    // 자동 스케일링 배율 적용 (1.0이 아닌 경우에만)
+                    if (autoHealthScale != 1f || autoSpeedScale != 1f || autoDamageScale != 1f)
                     {
-                        monster.ApplyBuff(finalHealthMultiplier, finalSpeedMultiplier);
+                        monster.ApplyBuff(autoHealthScale, autoSpeedScale, autoDamageScale);
                     }
                     
                     // 상대 증강에 의한 디버프 적용

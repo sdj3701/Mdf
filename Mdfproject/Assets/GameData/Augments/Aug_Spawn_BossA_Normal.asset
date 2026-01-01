@@ -19,9 +19,9 @@ MonoBehaviour:
     \uCE68\uACF5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."
   icon: {fileID: 21300000, guid: 65dbd69fe392da54baae96f1e9535149, type: 3}
   tier: 0
-  targetType: 0
+  targetType: 1
   effectType: 6
-  value: 5
+  value: 0
   isBossSummon: 1
   bossPrefab: {fileID: 2020015458557610380, guid: 041bf3e4e89d553478a214ce02b26a28,
     type: 3}

@@ -51,19 +51,6 @@ public class WaveMonsterEntry
     [Tooltip("소환 수량")]
     [Min(1)]
     public int count = 1;
-    
-    [Header("라운드 스케일링 (선택)")]
-    [Tooltip("이 몬스터의 체력 배율")]
-    [Range(0.5f, 5f)]
-    public float healthMultiplier = 1f;
-    
-    [Tooltip("이 몬스터의 이동속도 배율")]
-    [Range(0.5f, 3f)]
-    public float speedMultiplier = 1f;
-
-    [Tooltip("이 몬스터의 공격력 배율")]
-    [Range(0.5f, 5f)]
-    public float damageMultiplier = 1f;
 }
 
 /// <summary>
@@ -77,12 +64,8 @@ public class WaveDatabase : ScriptableObject
     [Tooltip("각 라운드에 대한 웨이브 데이터")]
     public List<RoundWaveData> rounds = new List<RoundWaveData>();
     
-    [Header("폴백 설정")]
-    [Tooltip("정의되지 않은 라운드에서 사용할 기본 웨이브")]
-    public RoundWaveData fallbackWave;
-    
     [Header("폴백 스케일링")]
-    [Tooltip("정의되지 않은 라운드에서 폴백 웨이브에 추가할 몬스터 수 (라운드당)")]
+    [Tooltip("마지막 라운드 이후 1라운드마다 각 몬스터 엔트리에 추가할 수량 (기본값 = 마지막 라운드 구성 + 이 수량)")]
     public int additionalMonstersPerRound = 1;
     
     [Header("자동 라운드 스케일링")]
@@ -152,14 +135,43 @@ public class WaveDatabase : ScriptableObject
             return waveData;
         }
         
-        // 폴백 사용
-        if (fallbackWave != null)
+        // 폴백 로직: 마지막으로 정의된 라운드를 기반으로 계산
+        int lastDefinedRound = GetLastDefinedRound();
+        var lastWaveData = rounds.Find(r => r.roundNumber == lastDefinedRound);
+
+        if (lastWaveData != null)
         {
-            Debug.Log($"[WaveDatabase] 라운드 {round}에 대한 웨이브 데이터가 없어 폴백 사용");
-            return fallbackWave;
+            int roundsPastLast = Mathf.Max(0, round - lastDefinedRound);
+            int additionalCount = roundsPastLast * additionalMonstersPerRound;
+            
+            // 마지막 웨이브 데이터의 깊은 복사본 생성
+            RoundWaveData scaledFallback = new RoundWaveData();
+            scaledFallback.roundNumber = round;
+            scaledFallback.spawnInterval = lastWaveData.spawnInterval;
+            scaledFallback.monsters = new List<WaveMonsterEntry>();
+
+            foreach (var originalEntry in lastWaveData.monsters)
+            {
+                if (originalEntry == null) continue;
+
+                WaveMonsterEntry newEntry = new WaveMonsterEntry();
+                newEntry.monsterPrefab = originalEntry.monsterPrefab;
+                
+                // 기본 수량 + (초과 라운드 × 추가 수량)
+                newEntry.count = originalEntry.count + additionalCount; 
+                
+                scaledFallback.monsters.Add(newEntry);
+            }
+            
+            if (roundsPastLast > 0)
+            {
+                Debug.Log($"[WaveDatabase] 라운드 {round} 폴백 적용 (기반: {lastDefinedRound}라운드): 몬스터 수 +{additionalCount} 증가");
+            }
+            
+            return scaledFallback;
         }
         
-        Debug.LogWarning($"[WaveDatabase] 라운드 {round}에 대한 웨이브 데이터와 폴백 모두 없음!");
+        Debug.LogWarning($"[WaveDatabase] 라운드 {round}에 대한 웨이브 데이터와 폴백을 생성할 기준 데이터가 없음!");
         return null;
     }
     
