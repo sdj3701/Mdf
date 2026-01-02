@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9df4057dd2fc53442bf603fff122b7fd, type: 3}
+  m_Name: WaveDatabase
+  m_EditorClassIdentifier: 
+  rounds:
+  - roundNumber: 1
+    monsters:
+    - monsterPrefab: {fileID: 2020015458557610380, guid: 4ae077da17a50f048a4009c3a41f2705,
+        type: 3}
+      count: 1
+    - monsterPrefab: {fileID: 2020015458557610380, guid: 2813e96c555c01041a13c1343ebafbb0,
+        type: 3}
+      count: 1
+    spawnInterval: 0.3
+  additionalMonstersPerRound: 2
+  enableAutoScaling: 1
+  healthScalePerRound: 0.1
+  speedScalePerRound: 0.05
+  damageScalePerRound: 0.05
+  scalingStartRound: 1

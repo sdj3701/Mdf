@@ -42,6 +42,22 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Header("소유 객체 목록")]
     public List<Unit> ownedUnits = new List<Unit>();
     public List<AugmentData> chosenAugments = new List<AugmentData>();
+    
+    // 활성화된 몬스터 소환 증강 리스트 (일반 몬스터: 매 라운드 상대에게 추가 침공)
+    private List<AugmentData> _activeMonsterSummonAugments = new List<AugmentData>();
+    
+    // 대기 중인 보스 소환 증강 (1회성: 다음 전투에 소환 후 삭제)
+    private List<PendingBoss> _pendingBossAugments = new List<PendingBoss>();
+    
+    /// <summary>
+    /// 대기 중인 보스 증강 정보
+    /// </summary>
+    [System.Serializable]
+    public struct PendingBoss
+    {
+        public AugmentData Augment;
+        public int TargetPlayerId;
+    }
 
     [Header("Permanent Augment Bonuses")]
     [Tooltip("영구 증강으로 인한 아군 공격력(%) 가산. 0.1 = +10%")]
@@ -211,8 +227,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (monsterSpawner)
         {
-            var defaultMonsterPrefab = GameManagers.Instance.defaultMonsterPrefab;
-            monsterSpawner.Initialize(this, this.astarGrid, defaultMonsterPrefab, this.spawnPoint, this.goalTransform);
+            var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+            monsterSpawner.Initialize(this, this.astarGrid, waveDatabase, this.spawnPoint, this.goalTransform);
         }
 
         if (augmentManager) augmentManager.playerManager = this;
@@ -398,8 +414,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             Debug.Log($"<color=yellow>[RPC_Internal] start pos={pos} currentData={(unit.Data != null ? unit.Data.name : "null")} key='{unitDataKey}'</color>");
             if (fieldManager.IsUnitAt(pos))
             {
-                Debug.Log($"<color=yellow>[RPC_Internal] position already occupied. Skipping register. pos={pos}</color>");
-                return;
+                var existingAtPos = fieldManager.GetUnitAt(pos);
+                if (existingAtPos != null && existingAtPos != unit)
+                {
+                    Debug.LogWarning($"<color=yellow>[RPC_Internal] position already occupied by another unit. Replacing. pos={pos}</color>");
+                }
             }
 
             if (fieldManager.statusBarPrefab != null)
@@ -501,6 +520,52 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public Vector2 GetUnitPurchaseDelayRange() => NormalizeDelayRange(unitPurchaseDelayRange);
     public Vector2 GetUnitMoveDelayRange() => NormalizeDelayRange(unitMoveDelayRange);
 
+    #region 몬스터 소환 증강 관리
+    /// <summary>
+    /// 일반 몬스터 소환 증강을 활성화 등록합니다. 
+    /// 매 라운드 이 플레이어의 상대에게 추가 몬스터가 침공하게 됩니다.
+    /// 같은 증강을 여러 번 선택하면 그 수만큼 누적됩니다.
+    /// </summary>
+    public void RegisterActiveMonsterSummonAugment(AugmentData augment)
+    {
+        if (augment != null)
+        {
+            _activeMonsterSummonAugments.Add(augment);
+            Debug.Log($"<color=orange>[PlayerManager] Player {playerId}: 몬스터 소환 증강 '{augment.augmentName}' 등록 (누적 {_activeMonsterSummonAugments.Count}개)</color>");
+        }
+    }
+
+    /// <summary>
+    /// 활성화된 몬스터 소환 증강 목록을 반환합니다.
+    /// </summary>
+    public List<AugmentData> GetActiveMonsterSummonAugments()
+    {
+        return _activeMonsterSummonAugments;
+    }
+
+    /// <summary>
+    /// 보스 소환 증강을 등록합니다. (1회성: 다음 전투에 소환 후 자동 삭제)
+    /// </summary>
+    public void RegisterPendingBossAugment(AugmentData augment, int targetPlayerId)
+    {
+        if (augment != null)
+        {
+            _pendingBossAugments.Add(new PendingBoss { Augment = augment, TargetPlayerId = targetPlayerId });
+            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 증강 '{augment.augmentName}' 등록 (타겟: Player {targetPlayerId}, 다음 전투에 소환)</color>");
+        }
+    }
+
+    /// <summary>
+    /// 대기 중인 보스 증강 목록을 가져오고 초기화합니다. (1회성)
+    /// </summary>
+    public List<PendingBoss> GetAndClearPendingBossAugments()
+    {
+        var result = new List<PendingBoss>(_pendingBossAugments);
+        _pendingBossAugments.Clear();
+        return result;
+    }
+    #endregion
+
     public void AddPermanentAttackDamagePercent(float percent)
     {
         permanentAttackDamagePercent += percent;
@@ -585,6 +650,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if(fieldManager != null)
         {
             fieldManager.CreateAndPlaceUnitOnField(unitData, starLevel);
+        }
+    }
+
+    public void AddWalls(int amount)
+    {
+        if (amount <= 0) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;
+        wallCount += amount;
+        mazeConstructionComplete = false;
+        if (Runner == null || !Runner.IsRunning)
+        {
+            GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
         }
     }
 

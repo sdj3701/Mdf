@@ -1,8 +1,8 @@
 // Assets/Scripts/Game/Monsters/Monster.cs
-using UnityEngine;
+using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
+using UnityEngine;
 using Fusion;
 
 public class Monster : NetworkBehaviour, IEnemy, IHealth
@@ -10,7 +10,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     [Header("참조 데이터")]
     public MonsterData monsterData;
 
-    [Tooltip("공격하거나 파괴할 수 있는 벽의 레이어를 설정해야 합니다.")]
+    [Tooltip("벽 레이어 마스크")]
     public LayerMask wallLayerMask;
 
     [Header("StatusBar 설정")]
@@ -21,21 +21,42 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // [Networked] 속성으로 서버/클라이언트 간 HP 동기화
     [Networked] public float NetworkedHP { get; set; }
     [Networked] public float NetworkedMaxHP { get; set; }
+
+    private bool _hasSpawned;
+    private bool _hasLocalHealthValues;
+    private float _localHP;
+    private float _localMaxHP;
     
     // 로컬 접근용 프로퍼티 (IHealth 인터페이스 호환성 유지)
     public float currentHP
     {
-        get => NetworkedHP;
-        set => NetworkedHP = value;
+        get => _hasSpawned ? NetworkedHP : _localHP;
+        set
+        {
+            _hasLocalHealthValues = true;
+            _localHP = value;
+            if (CanWriteNetworkedHealth())
+            {
+                NetworkedHP = value;
+            }
+        }
     }
     private float currentMaxHP
     {
-        get => NetworkedMaxHP;
-        set => NetworkedMaxHP = value;
+        get => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+        set
+        {
+            _hasLocalHealthValues = true;
+            _localMaxHP = value;
+            if (CanWriteNetworkedHealth())
+            {
+                NetworkedMaxHP = value;
+            }
+        }
     }
 
-    public float CurrentHealth => NetworkedHP;
-    public float MaxHealth => NetworkedMaxHP;
+    public float CurrentHealth => _hasSpawned ? NetworkedHP : _localHP;
+    public float MaxHealth => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
     public event System.Action<float, float> OnHealthChanged;
 
     private ManaController manaController;
@@ -52,11 +73,19 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private bool isMoving = false;
     private float baseMoveSpeed;
     private float currentMoveSpeed;
+    private float currentAttackDamage; // 공격력 스케일링 지원
     private MonsterReleaseScheduler releaseScheduler;
     private Coroutine resumeCoroutine;
     private int currentBlockerId = 0;
     private bool isInitialized = false;
     private ChangeDetector _changeDetector;
+
+    #region 보스 몬스터 관련
+    // 보스 몬스터 플래그 및 생존 시 다음 라운드 침공을 위한 정보
+    private bool _isBoss = false;
+    private int _originPlayerId = -1;
+    private GameObject _bossPrefab;
+    #endregion
 
     private bool HasStateAuthorityOrNoNetwork()
     {
@@ -73,7 +102,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public override void Spawned()
     {
         base.Spawned();
+        _hasSpawned = true;
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+        TryApplyPendingHealthToNetworked();
         // StatusBarUI 생성은 Initialize()에서 처리합니다.
         // Spawned()는 statusBarPrefab이 할당되기 전에 호출되므로 여기서는 생성하지 않습니다.
     }
@@ -97,6 +128,31 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
     }
 
+    private bool CanWriteNetworkedHealth()
+    {
+        return _hasSpawned
+            && Runner != null
+            && Runner.IsRunning
+            && Object != null
+            && Object.HasStateAuthority;
+    }
+
+    private void TryApplyPendingHealthToNetworked()
+    {
+        if (!_hasLocalHealthValues)
+        {
+            return;
+        }
+
+        if (!CanWriteNetworkedHealth())
+        {
+            return;
+        }
+
+        NetworkedMaxHP = _localMaxHP;
+        NetworkedHP = _localHP;
+    }
+
     void OnApplicationQuit() { isQuitting = true; }
 
     public void SetStatusBar(StatusBarUI ui)
@@ -115,6 +171,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         this.wallLayerMask = pathfinder.wallLayers;
         baseMoveSpeed = monsterData.moveSpeed;
         currentMoveSpeed = baseMoveSpeed;
+        currentAttackDamage = monsterData.attackDamage; // 초기화
 
         // [Fix] 오브젝트 재사용 시 이전 상태 초기화
         isBlocked = false;
@@ -251,6 +308,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             this.wallLayerMask = pathfinder != null ? pathfinder.wallLayers : default;
             baseMoveSpeed = monsterData.moveSpeed;
             currentMoveSpeed = baseMoveSpeed;
+            currentAttackDamage = monsterData.attackDamage; // 초기화
             currentMaxHP = monsterData.maxHealth;
             currentHP = currentMaxHP;
         }
@@ -342,8 +400,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 else
                 {
                     Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
-                    // ✅ [수정] 컴파일 오류를 유발하던 아래 코드를 완전히 삭제했습니다.
-                    // GameManagers.Instance.RegisterActiveVFX(vfxInstance);
                 }
             }
         }
@@ -355,7 +411,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (!HasStateAuthorityOrNoNetwork()) return;
         if (currentHP <= 0 || amount <= 0) return;
         currentHP = Mathf.Min(currentHP + amount, currentMaxHP);
-        // Render()에서 ChangeDetector가 OnHealthChanged 이벤트를 발생시킴
     }
 
     public void TakeDamage(float baseDamage, DamageType damageType)
@@ -365,19 +420,55 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (monsterData == null) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, monsterData.defense, monsterData.magicResistance);
         currentHP -= finalDamage;
-        // Render()에서 ChangeDetector가 OnHealthChanged 이벤트를 발생시킴
         if (currentHP <= 0) Die();
     }
 
-    public void ApplyBuff(float healthMultiplier, float speedMultiplier)
+    public void ApplyBuff(float healthMultiplier, float speedMultiplier, float damageMultiplier = 1f)
     {
         float healthPercentage = currentHP / currentMaxHP;
         currentMaxHP = monsterData.maxHealth * healthMultiplier;
         currentHP = currentMaxHP * healthPercentage;
         currentMoveSpeed = baseMoveSpeed * speedMultiplier;
+        currentAttackDamage = monsterData.attackDamage * damageMultiplier; // 공격력 스케일링 적용
+        
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-        Debug.Log($"{gameObject.name}이 강화되었습니다! HP: {currentHP}/{currentMaxHP}");
+        Debug.Log($"<color=orange>{gameObject.name} 강화: HP {currentHP:F0}/{currentMaxHP:F0}, 속도 {currentMoveSpeed:F1}, 공격력 {currentAttackDamage:F1}</color>");
     }
+
+    #region 보스 몬스터 메서드
+    /// <summary>
+    /// 이 몬스터를 보스로 설정합니다. 살아남아 목표 도달 시 다음 라운드에 전체 유저 중 랜덤 침공합니다.
+    /// </summary>
+    /// <param name="isBoss">보스 여부</param>
+    /// <param name="originPlayerId">보스를 소환한 플레이어 ID</param>
+    /// <param name="bossPrefab">보스 프리팹 (생존 시 재소환용)</param>
+    public void SetAsBoss(bool isBoss, int originPlayerId, GameObject bossPrefab)
+    {
+        _isBoss = isBoss;
+        _originPlayerId = originPlayerId;
+        _bossPrefab = bossPrefab;
+        
+        if (isBoss)
+        {
+            Debug.Log($"<color=red>[Monster] '{name}'이 보스로 설정됨 (OriginPlayer: {originPlayerId})</color>");
+        }
+    }
+
+    /// <summary>
+    /// 현재 체력을 직접 설정합니다. (생존 보스 재소환 시 사용)
+    /// </summary>
+    public void SetCurrentHP(float hp, float maxHp)
+    {
+        currentMaxHP = maxHp;
+        currentHP = Mathf.Min(hp, maxHp);
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+    }
+
+    /// <summary>
+    /// 보스 여부를 반환합니다.
+    /// </summary>
+    public bool IsBoss() => _isBoss;
+    #endregion
 
     private void Die()
     {
@@ -385,6 +476,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (this == null || gameObject == null) return;
         
         Debug.Log($"{monsterData.monsterName}이(가) 죽었습니다!");
+        
+        // 보스가 죽으면 SurvivorBossManager에 알림 (더 이상 다음 라운드에 소환되지 않음)
+        if (_isBoss && SurvivorBossManager.Instance != null)
+        {
+            SurvivorBossManager.Instance.OnBossDied(monsterData.monsterName);
+        }
+        
         if (isBlocked && blockingUnit != null)
         {
             blockingUnit.ReleaseBlockedMonster(this);
@@ -410,7 +508,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (manaController != null) manaController.OnManaFull -= ActivateSkill;
     }
 
-    #region 공격 로직 (이하 동일)
+
+    #region 공격 로직
     private void StartAttacking(IEnemy target)
     {
         if (target == null) return;
@@ -435,7 +534,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             if ((target as MonoBehaviour) == null) break;
 
             string targetName = (target as MonoBehaviour).name;
-            target.TakeDamage(monsterData.attackDamage, monsterData.damageType);
+            target.TakeDamage(currentAttackDamage, monsterData.damageType); // 스케일링된 공격력 사용
             Debug.Log($"{monsterData.monsterName}이(가) {targetName}을(를) 공격!");
         }
 
@@ -479,21 +578,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     }
     #endregion
 
-    #region 이동 및 경로탐색 로직 (이하 동일)
+    #region 이동 및 경로탐색 로직
 
     private void FindNewPathToGoal()
     {
-        // 클라이언트에서는 경로탐색 안함
         if (!HasStateAuthorityOrNoNetwork()) return;
+        if (pathfinder == null || goalTransform == null) return;
         
-        // null 체크
-        if (pathfinder == null || goalTransform == null)
-        {
-            Debug.LogWarning($"[Monster] pathfinder 또는 goalTransform이 null입니다.");
-            return;
-        }
-        
-        // [3D Migration] FieldManager/AstarGrid 그리드 기준으로 변환
         Vector2Int currentGridPos = pathfinder.WorldToCell(pathfinder.ClampToGrid(transform.position));
         Vector2Int targetGridPos = pathfinder.WorldToCell(pathfinder.ClampToGrid(goalTransform.position));
 
@@ -535,7 +626,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     }
     private IEnumerator FlyDirectlyCoroutine()
     {
-        // [3D Migration] Move on XZ plane, keep current Y fixed
         Vector3 targetPosition = new Vector3(
             goalTransform.position.x,
             transform.position.y,
@@ -564,14 +654,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         while (currentPathIndex < path.Count && isMoving)
         {
             AstarNode targetNode = path[currentPathIndex];
-            // [3D Migration] Navigate using XZ; keep current Y
             Vector3 currentTarget = (pathfinder != null)
                 ? pathfinder.CellToWorldCenter(new Vector2Int(targetNode.x, targetNode.y), transform.position.y)
                 : new Vector3(targetNode.x + 0.5f, transform.position.y, targetNode.y + 0.5f);
 
             if (targetNode.isWall)
             {
-                // [3D Migration] Use 3D physics to locate wall object
                 float radius = 0.4f * ((pathfinder != null) ? Mathf.Max(0.0001f, pathfinder.cellSize) : 1f);
                 Collider[] wallColliders = Physics.OverlapSphere(currentTarget, radius, wallLayerMask);
                 DestructibleWall wall = null;
@@ -585,10 +673,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                     StartAttacking(wall);
                     yield break;
                 }
-                else
-                {
-                    Debug.LogWarning($"경로상에 벽({currentTarget})이 있지만, 실제 벽 오브젝트를 찾을 수 없습니다. 경로를 계속 진행합니다.");
-                }
             }
 
             while (Vector3.Distance(transform.position, currentTarget) > 0.1f && isMoving)
@@ -601,13 +685,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 }
                 transform.position = nextPos;
 
-                // [Fix] 저지 유닛 능동 탐지 - OnTriggerEnter 누락 방지
-                // 이동 거리에 비례하여 탐지 범위를 동적으로 설정 (빠른 몬스터도 감지)
                 if (!isBlocked && monsterData.monsterType != MonsterType.Flying)
                 {
                     float moveDistance = currentMoveSpeed * dt;
                     float detectionRadius = Mathf.Max(0.6f, moveDistance + 0.3f);
-                    float blockDistance = 0.6f; // 실제 저지가 발생하는 최대 거리
+                    float blockDistance = 0.6f;
                     
                     Collider[] nearbyUnits = Physics.OverlapSphere(nextPos, detectionRadius);
                     foreach (var col in nearbyUnits)
@@ -617,7 +699,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                             unit.Data.unitType == UnitType.Melee &&
                             !unit.IsBlockingFull())
                         {
-                            // 유닛과의 실제 거리 확인 - 충분히 가까울 때만 저지
                             float distToUnit = Vector3.Distance(nextPos, unit.transform.position);
                             if (distToUnit <= blockDistance)
                             {
@@ -639,6 +720,17 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private void OnPathCompleted()
     {
         isMoving = false;
+        
+        if (_isBoss && SurvivorBossManager.Instance != null)
+        {
+            SurvivorBossManager.Instance.RegisterSurvivorBoss(
+                _bossPrefab,
+                currentHP,
+                currentMaxHP,
+                _originPlayerId
+            );
+        }
+        
         if (GameManagers.Instance != null && ownerPlayer != null)
         {
             GameManagers.Instance.OnMonsterReachedGoal(ownerPlayer);
@@ -647,7 +739,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     }
     #endregion
 
-    #region 저지 및 경로 막힘 처리 (이하 동일)
+    #region 저지 및 경로 막힘 처리
     public bool IsBlocked() { return isBlocked; }
 
     public void Block(Unit unit)
@@ -662,20 +754,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         if (obstacle != null && obstacle.TryGetComponent<IEnemy>(out var enemyWall))
         {
-            Debug.Log($"{monsterData.monsterName}의 경로가 {obstacle.name}에 의해 막혔습니다. 공격을 시작합니다.");
             StartAttacking(enemyWall);
-        }
-        else
-        {
-            Debug.LogWarning($"{monsterData.monsterName}의 경로가 막혔지만, 대상을 공격할 수 없습니다.");
         }
     }
 
     public void Unblock()
     {
         if (isQuitting || !isBlocked) return;
-        
-        // 클라이언트에서는 처리하지 않음
         if (!HasStateAuthorityOrNoNetwork()) return;
 
         isBlocked = false;

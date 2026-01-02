@@ -28,21 +28,42 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     // [수정] 서버/클라이언트 간 HP 동기화를 위한 Networked 속성
     [Networked] public float NetworkedHP { get; set; }
     [Networked] public float NetworkedMaxHP { get; set; }
+
+    private bool _hasSpawned;
+    private bool _hasLocalHealthValues;
+    private float _localHP;
+    private float _localMaxHP;
     
-    public float CurrentHealth => NetworkedHP;
-    public float MaxHealth => NetworkedMaxHP;
+    public float CurrentHealth => _hasSpawned ? NetworkedHP : _localHP;
+    public float MaxHealth => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
     public event System.Action<float, float> OnHealthChanged;
     
     // 로컬 접근용 프로퍼티 (기존 코드 호환성 유지)
     public float currentHP
     {
-        get => NetworkedHP;
-        set => NetworkedHP = value;
+        get => _hasSpawned ? NetworkedHP : _localHP;
+        set
+        {
+            _hasLocalHealthValues = true;
+            _localHP = value;
+            if (CanWriteNetworkedHealth())
+            {
+                NetworkedHP = value;
+            }
+        }
     }
     public float maxHP
     {
-        get => NetworkedMaxHP;
-        set => NetworkedMaxHP = value;
+        get => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+        set
+        {
+            _hasLocalHealthValues = true;
+            _localMaxHP = value;
+            if (CanWriteNetworkedHealth())
+            {
+                NetworkedMaxHP = value;
+            }
+        }
     }
 
     public float currentAttackDamage { get; private set; }
@@ -101,7 +122,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public override void Spawned()
     {
         base.Spawned();
+        _hasSpawned = true;
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+        TryApplyPendingHealthToNetworked();
     }
     
     /// <summary>
@@ -121,6 +144,31 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
             }
         }
+    }
+
+    private bool CanWriteNetworkedHealth()
+    {
+        return _hasSpawned
+            && Runner != null
+            && Runner.IsRunning
+            && Object != null
+            && Object.HasStateAuthority;
+    }
+
+    private void TryApplyPendingHealthToNetworked()
+    {
+        if (!_hasLocalHealthValues)
+        {
+            return;
+        }
+
+        if (!CanWriteNetworkedHealth())
+        {
+            return;
+        }
+
+        NetworkedMaxHP = _localMaxHP;
+        NetworkedHP = _localHP;
     }
 
     private bool HasStateAuthorityOrNoNetwork()

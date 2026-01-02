@@ -123,6 +123,13 @@ public class GameManagers : NetworkBehaviour
             go.AddComponent<LoadManager>();
         }
 
+        // SurvivorBossManager 초기화 (보스 생존 시스템)
+        if (SurvivorBossManager.Instance == null)
+        {
+            var survivorManagerGO = new GameObject("SurvivorBossManager");
+            survivorManagerGO.AddComponent<SurvivorBossManager>();
+        }
+
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
         // 초기화 완료 후 GameFlow 시작

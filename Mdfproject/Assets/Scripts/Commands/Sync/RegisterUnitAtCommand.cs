@@ -89,11 +89,14 @@ public class RegisterUnitAtCommand : ICommand
 
             var pos = new Vector3Int(X, Y, 0);
 
-            // 이미 해당 위치에 유닛이 있으면 스킵
+            // 이미 점유되어 있어도 서버/권한 기준으로 덮어씁니다.
             if (player.fieldManager.IsUnitAt(pos))
             {
-                Debug.Log($"<color=yellow>[RegisterUnitAtCommand] 위치 이미 점유됨: {pos}</color>");
-                return;
+                var existingAtPos = player.fieldManager.GetUnitAt(pos);
+                if (existingAtPos != null && existingAtPos != unit)
+                {
+                    Debug.LogWarning($"<color=yellow>[RegisterUnitAtCommand] 위치 이미 점유됨(다른 유닛). 교체 진행: {pos}</color>");
+                }
             }
 
             // StatusBar 생성
