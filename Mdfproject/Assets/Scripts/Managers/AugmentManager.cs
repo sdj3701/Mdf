@@ -187,7 +187,6 @@ public class AugmentManager : MonoBehaviour
         presentedAugments = sourceList.OrderBy(x => UnityEngine.Random.value).Take(countToTake).ToList();
 
         string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
-        Debug.Log($"Player {playerManager.playerId}에게 <color=yellow>{tierName} 등급</color> 증강 제시: {presentedNames}");
     }
 
     public void SelectAndApplyAugment(AugmentData chosenAugment)

@@ -590,19 +590,15 @@ public class GameManagers : NetworkBehaviour
             }
             
             // 증강 생성 및 동기화 (한 루프에서 처리)
-            Debug.Log($"<color=orange>[흐름 1] StartNextRound: Player {player.playerId} PresentAugments() 호출 전</color>");
             player.augmentManager.PresentAugments();
             var presentedAugments = player.augmentManager.GetPresentedAugments();
-            Debug.Log($"<color=orange>[흐름 2] StartNextRound: Player {player.playerId} PresentAugments() 완료, 증강 수: {presentedAugments?.Count ?? 0}</color>");
             
             var augmentNames = presentedAugments
                 .Select(a => a != null ? a.augmentName : string.Empty)
                 .ToArray();
-            Debug.Log($"<color=orange>[흐름 3] StartNextRound: Player {player.playerId} SyncAugmentsCommand 생성, 증강: [{string.Join(", ", augmentNames)}]</color>");
             
             var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentNames);
             CommandProcessor.RequestCommandExecution(syncAugmentCmd);
-            Debug.Log($"<color=orange>[흐름 4] StartNextRound: Player {player.playerId} SyncAugmentsCommand 큐에 추가됨</color>");
         }
 
         // UI 로직이 완료될 때까지 대기
@@ -618,6 +614,35 @@ public class GameManagers : NetworkBehaviour
     {
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
+
+        // 증강을 선택하지 않은 플레이어에게 첫 번째 증강 자동 선택
+        foreach (var player in AllPlayers)
+        {
+            if (player == null) continue;
+            
+            var presentedAugments = player.augmentManager?.GetPresentedAugments();
+            if (presentedAugments != null && presentedAugments.Count > 0)
+            {
+                // 아직 증강을 선택하지 않은 상태 → 첫 번째 증강 자동 선택
+                var firstAugment = presentedAugments[0];
+                Debug.Log($"<color=orange>[StartCombatPhase] Player {player.playerId}: 시간 초과로 인해 '{firstAugment.augmentName}' 증강 자동 선택</color>");
+                
+                player.augmentManager.SelectAndApplyAugment(firstAugment);
+                
+                // 모든 클라이언트에 증강 선택 알림
+                NotifyAugmentSelected(player.playerId, firstAugment.augmentName);
+            }
+        }
+
+        // 로컬 플레이어의 UI 비활성화 (증강 UI, 상점 UI)
+        if (augmentSelectionUI != null)
+        {
+            UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+        }
+        if (localPlayerShopUIGameObject != null)
+        {
+            localPlayerShopUIGameObject.SetActive(false);
+        }
 
         currentState = GameState.Combat;
         hasCombatBeenShortened = false;
