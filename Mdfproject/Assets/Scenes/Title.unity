@@ -2471,6 +2471,11 @@ MonoBehaviour:
     m_SubObjectName: 
     m_SubObjectType: 
     m_EditorAssetChanged: 0
+  waveDatabaseRef:
+    m_AssetGUID: 6a247e16678aac747a6bd158d74a54f6
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
 --- !u!4 &2137547087
 Transform:
   m_ObjectHideFlags: 0

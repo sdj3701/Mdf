@@ -65,11 +65,16 @@ public class UIPool
     {
         if (activeObject != null)
         {
+            Debug.Log($"<color=magenta>[UIPool.ReturnObject] '{activeObject.name}' 비활성화</color>");
             activeObject.SetActive(false);
             // 필요하다면 풀의 부모 오브젝트 아래로 이동시켜 정리할 수 있습니다.
             // activeObject.transform.SetParent(poolParent);
             availableObjects.Enqueue(activeObject);
             activeObject = null;
+        }
+        else
+        {
+            Debug.LogWarning($"<color=orange>[UIPool.ReturnObject] activeObject가 null이라 비활성화할 수 없음</color>");
         }
     }
 }

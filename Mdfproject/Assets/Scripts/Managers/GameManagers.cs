@@ -634,18 +634,15 @@ public class GameManagers : NetworkBehaviour
             }
         }
 
-        // 로컬 플레이어의 UI 비활성화 (증강 UI, 상점 UI)
-        if (augmentSelectionUI != null)
-        {
-            UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
-        }
-        if (localPlayerShopUIGameObject != null)
-        {
-            localPlayerShopUIGameObject.SetActive(false);
-        }
+        // UI 비활성화는 HandleNetworkStateChange → HandleUIForNewState에서 처리됨
+        // (currentState 변경 시 Render()에서 모든 클라이언트에서 호출)
 
         currentState = GameState.Combat;
         hasCombatBeenShortened = false;
+        
+        // 서버(호스트)에서도 UI를 명시적으로 비활성화
+        // Render()의 ChangeDetector에만 의존하면 싱글플레이어나 타이밍 문제 발생 가능
+        HandleUIForNewState(currentState).Forget();
 
         foreach (var player in AllPlayers)
         {
@@ -655,18 +652,6 @@ public class GameManagers : NetworkBehaviour
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
     }
-
-    // private async UniTask OnGameStateChanged(GameState newState)
-    // {
-    //     Debug.Log($"--- 라운드 {currentRound}: <color=yellow>{newState}</color> 단계 시작 --- (호출된 상태: {currentState})");
-    //     Debug.Log($"[OnGameStateChanged] HandleUIForNewState 호출 시작");
-
-    //     GameEvents.TriggerGameStateChanged(newState);
-
-    //     // await을 사용하여 HandleUIForNewState가 완료될 때까지 기다립니다.
-    //     await HandleUIForNewState(newState);
-    //     Debug.Log($"[OnGameStateChanged] HandleUIForNewState 호출 완료");
-    // }
 
     private async UniTask HandleUIForNewState(GameState newState)
     {
@@ -694,8 +679,13 @@ public class GameManagers : NetworkBehaviour
                 }
                 break;
             case GameState.Combat:
+                // 전투 단계 진입 시 모든 UI 비활성화
+                Debug.Log("<color=yellow>[HandleUIForNewState] Combat 단계 - UI 비활성화</color>");
                 UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
-                if (localPlayerShopUIGameObject != null) localPlayerShopUI.SetContentVisibility(false);
+                if (localPlayerShopUIGameObject != null)
+                {
+                    localPlayerShopUIGameObject.SetActive(false);
+                }
                 break;
             case GameState.GameOver:
                 PlayerManager winner = AllPlayers.FirstOrDefault(p => p != null && p.GetHealth() > 0);
