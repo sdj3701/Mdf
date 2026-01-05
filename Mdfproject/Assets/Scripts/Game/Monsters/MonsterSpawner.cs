@@ -487,5 +487,46 @@ public class MonsterSpawner : MonoBehaviour
         return monster;
     }
 
+    /// <summary>
+    /// 전투 페이즈 종료 시 필드에 남은 몬스터를 정리합니다.
+    /// - 일반 몬스터: 즉시 제거 (유저 HP 차감 없음)
+    /// - 보스 몬스터: 생존 등록 후 제거 (다음 라운드에 재배치, HP 차감 없음)
+    /// </summary>
+    public void OnCombatPhaseEnded()
+    {
+        if (monsterParent == null) return;
+        
+        var monstersToRemove = new List<Monster>();
+        
+        // 모든 자식 몬스터 수집
+        foreach (Transform child in monsterParent)
+        {
+            if (child.TryGetComponent<Monster>(out var monster))
+            {
+                monstersToRemove.Add(monster);
+            }
+        }
+        
+        if (monstersToRemove.Count == 0) return;
+        
+        foreach (var monster in monstersToRemove)
+        {
+            if (monster == null) continue;
+            
+            if (monster.IsBoss())
+            {
+                // 보스: 현재 HP로 생존 등록 → 다음 라운드에 재배치됨
+                monster.RegisterAsSurvivorAndRemove();
+            }
+            else
+            {
+                // 일반 몬스터: 유저 HP 차감 없이 제거
+                monster.ForceRemoveWithoutPenalty();
+            }
+        }
+        
+        Debug.Log($"<color=yellow>[MonsterSpawner] 전투 종료 정리: {monstersToRemove.Count}마리 처리 (Player {_playerManager?.playerId})</color>");
+    }
+
     #endregion
 }

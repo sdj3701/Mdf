@@ -550,6 +550,15 @@ public class GameManagers : NetworkBehaviour
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
 
+        // 전투 종료 시 필드에 남은 몬스터 정리 (라운드 증가 전에 처리)
+        foreach (var player in AllPlayers)
+        {
+            if (player?.monsterSpawner != null)
+            {
+                player.monsterSpawner.OnCombatPhaseEnded();
+            }
+        }
+
         // 라운드 증가 (첫 라운드는 1로 설정)
         if (currentState != GameState.Setup)
         {

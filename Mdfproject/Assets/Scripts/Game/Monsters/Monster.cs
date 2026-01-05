@@ -773,4 +773,66 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         ScheduleResumeFromBlocker();
     }
     #endregion
+
+    #region 전투 종료 처리
+
+    /// <summary>
+    /// 유저 HP 패널티 없이 몬스터를 강제 제거합니다. (전투 타이머 만료 시 사용)
+    /// </summary>
+    public void ForceRemoveWithoutPenalty()
+    {
+        if (this == null || gameObject == null) return;
+        
+        Debug.Log($"<color=gray>[Monster] '{name}' 강제 제거 (전투 종료)</color>");
+        
+        // 블로킹 상태 해제
+        if (isBlocked && blockingUnit != null)
+        {
+            blockingUnit.ReleaseBlockedMonster(this);
+        }
+        
+        // 코루틴 정지
+        StopAllCoroutines();
+        
+        // 네트워크 또는 로컬 제거
+        NetworkObject no = Object;
+        if (no != null && no.Runner != null && no.Runner.IsRunning)
+        {
+            if (no.HasStateAuthority)
+            {
+                no.Runner.Despawn(no);
+            }
+        }
+        else
+        {
+            Destroy(gameObject);
+        }
+    }
+
+    /// <summary>
+    /// 보스를 생존 등록 후 제거합니다. (전투 타이머 만료 시 사용)
+    /// 유저 HP 패널티 없이 다음 라운드에 재배치됩니다.
+    /// </summary>
+    public void RegisterAsSurvivorAndRemove()
+    {
+        if (this == null || gameObject == null) return;
+        
+        Debug.Log($"<color=red>[Monster] 보스 '{name}' 생존 등록 (전투 종료, HP: {currentHP:F0}/{currentMaxHP:F0})</color>");
+        
+        // SurvivorBossManager에 생존 등록
+        if (SurvivorBossManager.Instance != null && _monsterData != null)
+        {
+            SurvivorBossManager.Instance.RegisterSurvivorBoss(
+                _monsterData,
+                currentHP,
+                currentMaxHP,
+                _originPlayerId
+            );
+        }
+        
+        // HP 패널티 없이 제거
+        ForceRemoveWithoutPenalty();
+    }
+
+    #endregion
 }
