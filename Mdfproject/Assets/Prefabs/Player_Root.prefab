@@ -207,7 +207,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _playerId: 0
-  initialHealth: 15
+  initialHealth: 25
   initialGold: 20
   initialWallCount: 10
   wallReserveK: 1

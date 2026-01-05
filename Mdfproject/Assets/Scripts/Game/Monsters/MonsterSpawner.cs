@@ -285,7 +285,7 @@ public class MonsterSpawner : MonoBehaviour
 
     /// <summary>
     /// 대기 중인 보스 증강을 코루틴으로 소환합니다. (1회성, 상대의 증강에서 온 보스)
-    /// 모든 플레이어를 확인하여 이 플레이어를 타겟으로 한 보스를 소환합니다.
+    /// 모든 플레이어를 확인하여 이 플레이어를 타겟으로 한 보스만 추출하여 소환합니다.
     /// </summary>
     IEnumerator SpawnPendingBossesCoroutine()
     {
@@ -297,11 +297,10 @@ public class MonsterSpawner : MonoBehaviour
         {
             if (sourcePlayer == null) continue;
             
-            var pendingBosses = sourcePlayer.GetAndClearPendingBossAugments();
+            // 이 플레이어(타겟)에 해당하는 보스만 추출 (다른 플레이어의 데이터는 건드리지 않음)
+            var pendingBosses = sourcePlayer.ExtractPendingBossesForTarget(_playerManager.playerId);
             foreach (var pending in pendingBosses)
             {
-                // 이 플레이어가 타겟인 경우에만 소환
-                if (pending.TargetPlayerId != _playerManager.playerId) continue;
                 if (pending.Augment?.bossMonsterData == null) continue;
 
                 var spawnTask = SpawnMonsterInternalAsync(pending.Augment.bossMonsterData);
@@ -321,20 +320,20 @@ public class MonsterSpawner : MonoBehaviour
 
     /// <summary>
     /// 이전 라운드에서 살아남은 보스들을 소환합니다. (전체 유저 중 랜덤 타겟)
+    /// 타겟은 GameManagers에서 라운드 시작 전에 AssignTargetsToSurvivors()로 미리 할당됩니다.
     /// </summary>
     IEnumerator SpawnSurvivorBossesCoroutine()
     {
-        if (SurvivorBossManager.Instance == null || !SurvivorBossManager.Instance.HasPendingBosses())
+        if (SurvivorBossManager.Instance == null)
         {
             yield break;
         }
 
-        var pendingBosses = SurvivorBossManager.Instance.GetPendingBossesWithTargets();
+        // 이 플레이어를 타겟으로 하는 생존 보스만 추출 (다른 플레이어의 데이터는 건드리지 않음)
+        var pendingBosses = SurvivorBossManager.Instance.ExtractBossesForTarget(_playerManager.playerId);
 
-        foreach (var (targetPlayerId, bossData) in pendingBosses)
+        foreach (var bossData in pendingBosses)
         {
-            // 이 플레이어가 타겟인 경우에만 소환
-            if (targetPlayerId != _playerManager.playerId) continue;
             if (bossData.BossData == null) continue;
 
             var spawnTask = SpawnMonsterInternalAsync(bossData.BossData);
@@ -345,7 +344,7 @@ public class MonsterSpawner : MonoBehaviour
             {
                 monster.SetAsBoss(true, bossData.OriginPlayerId);
                 monster.SetCurrentHP(bossData.RemainingHP, bossData.MaxHP);
-                Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {targetPlayerId}에게 침공. HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}</color>");
+                Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {_playerManager.playerId}에게 침공. HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}</color>");
             }
 
             yield return new WaitForSeconds(0.5f);

@@ -644,6 +644,13 @@ public class GameManagers : NetworkBehaviour
         // Render()의 ChangeDetector에만 의존하면 싱글플레이어나 타이밍 문제 발생 가능
         HandleUIForNewState(currentState).Forget();
 
+        // 생존 보스 타겟 할당 (전투 시작 전에 한 번만 호출)
+        // 각 생존 보스에게 랜덤 타겟을 미리 할당하여 MonsterSpawner가 자신에게 해당하는 보스만 추출할 수 있도록 함
+        if (SurvivorBossManager.Instance != null)
+        {
+            SurvivorBossManager.Instance.AssignTargetsToSurvivors();
+        }
+
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
