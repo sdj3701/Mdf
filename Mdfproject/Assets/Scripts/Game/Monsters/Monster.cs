@@ -507,6 +507,27 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (manaController != null) manaController.OnManaFull -= ActivateSkill;
     }
 
+    /// <summary>
+    /// 네트워크 환경에서는 Despawn하여 풀에 반환하고, 로컬에서는 Destroy합니다.
+    /// </summary>
+    private void DespawnOrDestroy()
+    {
+        if (this == null || gameObject == null) return;
+        
+        NetworkObject no = Object;
+        if (no != null && no.Runner != null && no.Runner.IsRunning)
+        {
+            if (no.HasStateAuthority)
+            {
+                no.Runner.Despawn(no);
+            }
+            return;
+        }
+        
+        // 네트워크가 없는 순수 로컬 환경에서만 Destroy
+        Destroy(gameObject);
+    }
+
 
     #region 공격 로직
     private void StartAttacking(IEnemy target)
@@ -595,7 +616,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         else
         {
              Debug.LogWarning($"{_monsterData.monsterName}이(가) 경로를 찾지 못했습니다. 소멸합니다.");
-             Destroy(gameObject);
+             DespawnOrDestroy();
         }
     }
 
@@ -734,7 +755,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             GameManagers.Instance.OnMonsterReachedGoal(ownerPlayer);
         }
-        Destroy(gameObject);
+        DespawnOrDestroy();
     }
     #endregion
 

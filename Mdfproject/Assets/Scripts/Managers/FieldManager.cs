@@ -2379,6 +2379,13 @@ public class FieldManager : MonoBehaviour
     {
         if (unit == null || UIManagers.Instance == null) return;
 
+        // 전투 시퀀스에서는 판매 패널을 표시하지 않음
+        var gm = GameManagers.Instance;
+        if (gm != null && gm.GetGameState() != GameManagers.GameState.Prepare)
+        {
+            return;
+        }
+
         if (unitSellPanelInstance == null)
         {
             unitSellPanelInstance = await UIManagers.Instance.GetUIElement("UI_Can_UnitSell");
@@ -2427,6 +2434,13 @@ public class FieldManager : MonoBehaviour
     private async void ShowWallRemovePanel(DestructibleWall wall, Vector3Int gridPosition)
     {
         if (wall == null || UIManagers.Instance == null) return;
+
+        // 전투 시퀀스에서는 벽 제거 패널을 표시하지 않음
+        var gm = GameManagers.Instance;
+        if (gm != null && gm.GetGameState() != GameManagers.GameState.Prepare)
+        {
+            return;
+        }
 
         if (wallRemovePanelInstance == null)
         {

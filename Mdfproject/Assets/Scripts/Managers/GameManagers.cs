@@ -538,8 +538,11 @@ public class GameManagers : NetworkBehaviour
 
         Debug.Log($"<color=cyan>[HandleAugmentChosen] 증강 '{chosenAugment?.augmentName}' 선택됨 → 증강 UI 비활성화</color>");
         
-        // 1. 증강 UI 비활성화 (부모 GameObject 비활성화)
-        UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+        // 1. 증강 UI 비활성화 (부모 GameObject 비활성화) - 활성 상태일 때만
+        if (UIManagers.Instance.IsUIElementActive("UI_Pnl_Augment"))
+        {
+            UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+        }
         
         // 2. 상점 UI 활성화
         if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
@@ -730,7 +733,11 @@ public class GameManagers : NetworkBehaviour
             case GameState.Combat:
                 // 전투 단계 진입 시 모든 UI 비활성화
                 Debug.Log("<color=yellow>[HandleUIForNewState] Combat 단계 - UI 비활성화</color>");
-                UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+                // 증강 UI가 활성 상태일 때만 반환
+                if (UIManagers.Instance.IsUIElementActive("UI_Pnl_Augment"))
+                {
+                    UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+                }
                 if (localPlayerShopUIGameObject != null)
                 {
                     localPlayerShopUIGameObject.SetActive(false);
