@@ -17,7 +17,7 @@ MonoBehaviour:
   cost: 4
   unitType: 1
   baseHealth: 10
-  baseAttackDamage: 10
+  baseAttackDamage: 0
   attackSpeed: 0.8
   attackRange: 2.5
   damageType: 1
@@ -34,9 +34,9 @@ MonoBehaviour:
   - Mage
   - Mage
   skillsByStarLevel:
-  - 
-  - 
-  - 
+  - Skill_AreaSlowDebuff
+  - Skill_AreaSlowDebuff
+  - Skill_AreaSlowDebuff
   projectilePrefabsByStarLevel:
   - BaseProjectile
   - BaseProjectile

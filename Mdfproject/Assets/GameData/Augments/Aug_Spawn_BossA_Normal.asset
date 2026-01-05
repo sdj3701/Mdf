@@ -23,6 +23,5 @@ MonoBehaviour:
   effectType: 6
   value: 0
   isBossSummon: 1
-  bossPrefab: {fileID: 2020015458557610380, guid: 041bf3e4e89d553478a214ce02b26a28,
-    type: 3}
+  bossMonsterData: {fileID: 11400000, guid: b9ad52bb50cfab741bb309010e961c5b, type: 2}
   monsterSpawnEntries: []

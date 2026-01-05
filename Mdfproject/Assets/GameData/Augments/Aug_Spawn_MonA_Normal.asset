@@ -23,5 +23,5 @@ MonoBehaviour:
   isBossSummon: 0
   bossMonsterData: {fileID: 0}
   monsterSpawnEntries:
-  - monsterData: {fileID: 0}
+  - monsterData: {fileID: 11400000, guid: 467e13ba307d4c44fa072f30306c41b2, type: 2}
     count: 3

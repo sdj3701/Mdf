@@ -79,7 +79,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private MonsterReleaseScheduler releaseScheduler;
     private Coroutine resumeCoroutine;
     private int currentBlockerId = 0;
-    private bool isInitialized = false;
     private ChangeDetector _changeDetector;
 
     #region 보스 몬스터 관련
@@ -208,8 +207,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             manaController.OnManaFull += ActivateSkill;
         }
         manaController.Initialize(maxMana);
-        
-        isInitialized = true;
     }
     
     /// <summary>
@@ -331,7 +328,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             manaController.Initialize(maxMana);
         }
         
-        isInitialized = true;
         Debug.Log($"<color=cyan>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 완료</color>");
     }
 
@@ -838,6 +834,25 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // HP 패널티 없이 제거
         ForceRemoveWithoutPenalty();
     }
+
+    #endregion
+
+    #region 이동속도 수정 (디버프 지원)
+
+    /// <summary>
+    /// BuffManager에서 호출하여 이동속도 수정자를 적용합니다.
+    /// </summary>
+    /// <param name="speedMultiplier">이동속도 배율 (1.0 = 기본, 0.5 = 50% 감소)</param>
+    public void ApplyMoveSpeedModifier(float speedMultiplier)
+    {
+        currentMoveSpeed = baseMoveSpeed * speedMultiplier;
+        Debug.Log($"<color=cyan>[Monster] '{name}' 이동속도 변경: {currentMoveSpeed:F2} (x{speedMultiplier:F2})</color>");
+    }
+
+    /// <summary>
+    /// 기본 이동속도를 반환합니다. (BuffManager 스탯 계산용)
+    /// </summary>
+    public float GetBaseMoveSpeed() => baseMoveSpeed;
 
     #endregion
 

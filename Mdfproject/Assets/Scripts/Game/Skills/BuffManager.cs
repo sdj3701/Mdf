@@ -144,7 +144,27 @@ public class BuffManager : MonoBehaviour
         
         if (monster != null)
         {
-            // TODO: 몬스터 스탯 재계산 로직 구현
+            // 슬로우 디버프 효과 계산
+            float moveSpeedMultiplier = 1f;
+            
+            foreach (var buff in activeBuffs)
+            {
+                if (buff.Source is SlowDebuffEffect slowEffect)
+                {
+                    // 슬로우 효과 누적 (곱연산)
+                    moveSpeedMultiplier *= slowEffect.moveSpeedMultiplier;
+                }
+            }
+            
+            // 최소 이동속도 10%로 제한
+            moveSpeedMultiplier = Mathf.Max(0.1f, moveSpeedMultiplier);
+            
+            monster.ApplyMoveSpeedModifier(moveSpeedMultiplier);
+            
+            if (moveSpeedMultiplier < 1f)
+            {
+                Debug.Log($"<color=purple>{gameObject.name} 슬로우 적용: 이동속도 x{moveSpeedMultiplier:F2}</color>");
+            }
         }
     }
 }

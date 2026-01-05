@@ -54,7 +54,8 @@ MonoBehaviour:
   playerOffset: {x: 0, y: 0, z: -10}
   firstPreparePhaseTime: 35
   preparePhaseTime: 20
-  combatTime: 10
+  combatTime: 20
+  berserkTriggerTime: 7
   baseGoldPerRound: 5
   maxInterest: 5
   SelectCharacterButton:

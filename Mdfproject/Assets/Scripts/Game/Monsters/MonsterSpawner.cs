@@ -454,6 +454,12 @@ public class MonsterSpawner : MonoBehaviour
         // StatusBarPrefab 설정
         monster.statusBarPrefab = this.statusBarPrefab;
 
+        // BuffManager가 없으면 자동 추가 (디버프 시스템 지원)
+        if (monsterGO.GetComponent<BuffManager>() == null)
+        {
+            monsterGO.AddComponent<BuffManager>();
+        }
+
         // 몬스터 초기화
         monster.Initialize(_playerManager, this.goalTransform, monsterData, _pathfinder);
 

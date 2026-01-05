@@ -312,6 +312,26 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterPrepab
+  - m_GUID: 467e13ba307d4c44fa072f30306c41b2
+    m_Address: MonData_GoblinBlue
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+  - m_GUID: 0306cf61f03caa14788271cd945bc75c
+    m_Address: MonData_GoblinRed
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+  - m_GUID: f817fb7e1d738da43b6a2be4d129f437
+    m_Address: Skill_AreaIceAge
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+  - m_GUID: 355877faf21822646903bc21ef430533
+    m_Address: Skill_AreaSlowDebuff
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:
