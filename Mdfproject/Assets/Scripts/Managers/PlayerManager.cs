@@ -700,7 +700,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public void RPC_RequestCommandToServer(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams, RpcInfo info = default)
     {
         if (Runner == null || !Runner.IsServer) return; // 서버에서만 처리
-        Debug.Log($"<color=green>[NetFlow] Server received command request -> {type}</color>");
         var gm = GameManagers.Instance;
         if (gm == null)
         {

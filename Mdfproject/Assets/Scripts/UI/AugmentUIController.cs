@@ -33,39 +33,31 @@ public class AugmentUIController : MonoBehaviour
     /// <summary>
     /// OnAugmentPhaseStart 이벤트가 발생했을 때 호출되는 핸들러입니다.
     /// </summary>
-    private void HandleAugmentPhaseStart(PlayerManager player, List<AugmentData> choices)
-    {
-        Debug.Log($"<color=lime>[흐름 10] AugmentUIController.HandleAugmentPhaseStart 호출됨: player={player?.playerId ?? -1}, choices 수={choices?.Count ?? 0}</color>");
-        
+    private async void HandleAugmentPhaseStart(PlayerManager player, List<AugmentData> choices)
+    {        
         // 이 UI는 로컬 플레이어의 것만 처리합니다.
         var localPlayer = GameManagers.Instance?.localPlayer;
-        Debug.Log($"<color=lime>[흐름 11] AugmentUIController: localPlayer={localPlayer?.playerId ?? -1}, player={player?.playerId ?? -1}</color>");
         
         if (localPlayer != player)
         {
-            Debug.Log($"<color=red>[흐름 11-SKIP] AugmentUIController: 로컬 플레이어가 아니므로 스킵</color>");
             return;
         }
 
         this.localPlayer = player;
         this.currentChoices = choices;
 
-        // [핵심 수정] ReturnUIElement로 비활성화된 부모 GameObject를 먼저 활성화
-        // 부모가 비활성화 상태이면 자식(slotsContainer)를 활성화해도 보이지 않음
+        // [핵심 수정] UIPool.activeObject와 동기화되도록 GetUIElement를 통해 활성화
+        // 직접 SetActive(true)를 호출하면 activeObject가 설정되지 않아
+        // 이후 ReturnUIElement가 동작하지 않는 문제 발생
         if (!gameObject.activeSelf)
         {
-            Debug.Log($"<color=yellow>[흐름 11-B] AugmentUIController: 부모 GameObject 비활성 상태 → 활성화</color>");
-            gameObject.SetActive(true);
+            await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
         }
 
-        Debug.Log($"<color=lime>[흐름 12] AugmentUIController: SetContentVisibility(true) 호출</color>");
         // 증강 선택 UI 표시
         SetContentVisibility(true);
         
-        Debug.Log($"<color=lime>[흐름 13] AugmentUIController: SetAugmentChoices 호출, 증강들: ]</color>");
         SetAugmentChoices(choices);
-        
-        Debug.Log($"<color=lime>[흐름 14] AugmentUIController: UI 활성화 완료!</color>");
     }
 
     /// <summary>
@@ -110,11 +102,10 @@ public class AugmentUIController : MonoBehaviour
             var command = new SelectAugmentCommand(localPlayer.playerId, index);
             GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
             
-            // 증강 선택 후 UI 숨김
-            if (gameObject.activeSelf)
-            {
-                gameObject.SetActive(false);
-            }
+            // 증강 선택 후 UI 숨김 - UIPool 상태 동기화를 위해 ReturnUIElement 사용
+            // 직접 SetActive(false)를 호출하면 UIPool.activeObject가 불일치하여 
+            // 다음 라운드에서 ReturnUIElement가 동작하지 않는 문제 발생
+            UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
         }
         else
         {

@@ -27,7 +27,6 @@ public class CommandProcessor
             // 서버(호스트)라면 곧장 브로드캐스트 실행
             if (gm.Object != null && gm.Object.HasStateAuthority)
             {
-                Debug.Log($"<color=green>[NetFlow] Host executes & broadcasts -> {type}</color>");
                 gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
                 return;
             }
@@ -41,7 +40,6 @@ public class CommandProcessor
                 if (resolved != null)
                 {
                     lp = resolved;
-                    Debug.Log("<color=green>[NetFlow] Resolved localPlayer via AllPlayers fallback.</color>");
                 }
             }
 
@@ -51,17 +49,14 @@ public class CommandProcessor
                 {
                     Debug.Log($"<color=#3399FF>[ClientFlow] Send RPC Request -> {type}</color>");
                 }
-                Debug.Log($"<color=green>[NetFlow] Client -> Server request via PlayerManager RPC -> {type}</color>");
                 lp.RPC_RequestCommandToServer(type, intParams, stringParams, vectorParams);
                 return;
             }
 
-            Debug.LogWarning($"<color=green>[NetFlow] Local player not ready. Dropping command -> {type}</color>");
             return;
         }
 
         // 싱글플레이/비네트워크 폴백: 로컬에서 즉시 실행
-        Debug.Log($"<color=green>[NetFlow] Offline fallback execute -> {type}</color>");
         ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
     }
 
