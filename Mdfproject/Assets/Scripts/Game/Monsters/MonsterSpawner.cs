@@ -245,8 +245,18 @@ public class MonsterSpawner : MonoBehaviour
         Monster monsterComponent = prefab.GetComponent<Monster>();
         if (monsterComponent == null || monsterComponent.Data == null) return 0f;
 
+        // 비행 몬스터는 높이 오프셋 없음
         if (monsterComponent.Data.monsterType == MonsterType.Flying) return 0f;
 
+        // Collider bounds를 사용하여 정확한 높이 계산
+        Collider col = prefab.GetComponent<Collider>();
+        if (col != null)
+        {
+            // bounds.extents.y는 collider 중심에서 바닥까지의 거리
+            return col.bounds.extents.y;
+        }
+
+        // Collider가 없으면 localScale 기반 폴백
         return prefab.transform.localScale.y * 0.5f;
     }
 
@@ -429,6 +439,18 @@ public class MonsterSpawner : MonoBehaviour
 
         Monster monster = monsterGO.GetComponent<Monster>();
         if (monster == null) return null;
+
+        // 지상 몬스터의 경우 높이 조정 (Collider bounds 기반)
+        if (monsterData.monsterType != MonsterType.Flying)
+        {
+            Collider col = monsterGO.GetComponent<Collider>();
+            if (col != null)
+            {
+                Vector3 pos = monsterGO.transform.position;
+                pos.y = spawnPoint.position.y + col.bounds.extents.y;
+                monsterGO.transform.position = pos;
+            }
+        }
 
         // StatusBarPrefab 설정
         monster.statusBarPrefab = this.statusBarPrefab;
