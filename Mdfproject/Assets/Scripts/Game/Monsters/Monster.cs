@@ -8,7 +8,8 @@ using Fusion;
 public class Monster : NetworkBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
-    public MonsterData monsterData;
+    [SerializeField] private MonsterData _monsterData;
+    public MonsterData Data => _monsterData;
 
     [Tooltip("벽 레이어 마스크")]
     public LayerMask wallLayerMask;
@@ -84,7 +85,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // 보스 몬스터 플래그 및 생존 시 다음 라운드 침공을 위한 정보
     private bool _isBoss = false;
     private int _originPlayerId = -1;
-    private GameObject _bossPrefab;
     #endregion
 
     private bool HasStateAuthorityOrNoNetwork()
@@ -164,14 +164,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         this.ownerPlayer = owner;
         this.goalTransform = goal;
-        this.monsterData = data;
+        this._monsterData = data;
         this.pathfinder = pathfinder;
         this.releaseScheduler = owner != null ? owner.GetComponentInChildren<MonsterReleaseScheduler>(true) : null;
-        this.name = monsterData.monsterName;
+        this.name = _monsterData.monsterName;
         this.wallLayerMask = pathfinder.wallLayers;
-        baseMoveSpeed = monsterData.moveSpeed;
+        baseMoveSpeed = _monsterData.moveSpeed;
         currentMoveSpeed = baseMoveSpeed;
-        currentAttackDamage = monsterData.attackDamage; // 초기화
+        currentAttackDamage = _monsterData.attackDamage; // 초기화
 
         // [Fix] 오브젝트 재사용 시 이전 상태 초기화
         isBlocked = false;
@@ -189,7 +189,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         currentBlockerId = 0;
 
-        currentMaxHP = monsterData.maxHealth;
+        currentMaxHP = _monsterData.maxHealth;
         currentHP = currentMaxHP;
         
         // StatusBarUI 생성 (statusBarPrefab이 이미 할당된 상태)
@@ -200,9 +200,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         manaController = GetComponent<ManaController>();
 
         int maxMana = 0;
-        if (monsterData.skillData != null)
+        if (_monsterData.skillData != null)
         {
-            maxMana = monsterData.skillData.manaCost;
+            maxMana = _monsterData.skillData.manaCost;
             manaController.OnManaFull += ActivateSkill;
         }
         manaController.Initialize(maxMana);
@@ -286,14 +286,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             yield break;
         }
         
-        // MonsterData 로드 (프리팹에 이미 할당되어 있거나 Addressables에서 로드)
-        if (monsterData == null && !string.IsNullOrEmpty(monsterDataName))
+        // MonsterData 로드 (프리팩에 이미 할당되어 있거나 Addressables에서 로드)
+        if (_monsterData == null && !string.IsNullOrEmpty(monsterDataName))
         {
-            // 프리팹의 monsterData가 있으면 사용
+            // 프리팩의 _monsterData가 있으면 사용
             var prefabMonster = GetComponent<Monster>();
-            if (prefabMonster != null && prefabMonster.monsterData != null)
+            if (prefabMonster != null && prefabMonster._monsterData != null)
             {
-                monsterData = prefabMonster.monsterData;
+                _monsterData = prefabMonster._monsterData;
             }
         }
         
@@ -302,14 +302,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         this.goalTransform = owner.goalTransform;
         this.pathfinder = owner.astarGrid;
         
-        if (monsterData != null)
+        if (_monsterData != null)
         {
-            this.name = monsterData.monsterName;
+            this.name = _monsterData.monsterName;
             this.wallLayerMask = pathfinder != null ? pathfinder.wallLayers : default;
-            baseMoveSpeed = monsterData.moveSpeed;
+            baseMoveSpeed = _monsterData.moveSpeed;
             currentMoveSpeed = baseMoveSpeed;
-            currentAttackDamage = monsterData.attackDamage; // 초기화
-            currentMaxHP = monsterData.maxHealth;
+            currentAttackDamage = _monsterData.attackDamage; // 초기화
+            currentMaxHP = _monsterData.maxHealth;
             currentHP = currentMaxHP;
         }
         
@@ -319,12 +319,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         
         manaController = GetComponent<ManaController>();
-        if (manaController != null && monsterData != null)
+        if (manaController != null && _monsterData != null)
         {
             int maxMana = 0;
-            if (monsterData.skillData != null)
+            if (_monsterData.skillData != null)
             {
-                maxMana = monsterData.skillData.manaCost;
+                maxMana = _monsterData.skillData.manaCost;
             }
             manaController.Initialize(maxMana);
         }
@@ -335,7 +335,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     void Update()
     {
-        if (monsterData != null && monsterData.skillData != null)
+        if (_monsterData != null && _monsterData.skillData != null)
         {
             if (!HasStateAuthorityOrNoNetwork())
             {
@@ -351,11 +351,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             return;
         }
-        SkillData skillData = monsterData.skillData;
+        SkillData skillData = _monsterData.skillData;
 
         if (skillData == null || skillData.targetingStrategy == null || skillData.effects.Count == 0)
         {
-            Debug.LogError($"{monsterData.monsterName}의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
+            Debug.LogError($"{_monsterData.monsterName}의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
             return;
         }
 
@@ -363,7 +363,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
         if (manaController.UseMana(skillData.manaCost))
         {
-            Debug.Log($"<color=magenta>{monsterData.monsterName} 스킬 발동: {skillData.skillName}</color>");
+            Debug.Log($"<color=magenta>{_monsterData.monsterName} 스킬 발동: {skillData.skillName}</color>");
 
             List<GameObject> targets = skillData.targetingStrategy.FindTargets(this.gameObject, transform.position, skillData.range);
 
@@ -417,8 +417,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         // 서버에서만 HP 수정 (클라이언트는 Networked 속성 동기화로 반영)
         if (!HasStateAuthorityOrNoNetwork()) return;
-        if (monsterData == null) return;
-        int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, monsterData.defense, monsterData.magicResistance);
+        if (_monsterData == null) return;
+        int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, _monsterData.defense, _monsterData.magicResistance);
         currentHP -= finalDamage;
         if (currentHP <= 0) Die();
     }
@@ -426,10 +426,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public void ApplyBuff(float healthMultiplier, float speedMultiplier, float damageMultiplier = 1f)
     {
         float healthPercentage = currentHP / currentMaxHP;
-        currentMaxHP = monsterData.maxHealth * healthMultiplier;
+        currentMaxHP = _monsterData.maxHealth * healthMultiplier;
         currentHP = currentMaxHP * healthPercentage;
         currentMoveSpeed = baseMoveSpeed * speedMultiplier;
-        currentAttackDamage = monsterData.attackDamage * damageMultiplier; // 공격력 스케일링 적용
+        currentAttackDamage = _monsterData.attackDamage * damageMultiplier; // 공격력 스케일링 적용
         
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         Debug.Log($"<color=orange>{gameObject.name} 강화: HP {currentHP:F0}/{currentMaxHP:F0}, 속도 {currentMoveSpeed:F1}, 공격력 {currentAttackDamage:F1}</color>");
@@ -441,12 +441,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     /// <param name="isBoss">보스 여부</param>
     /// <param name="originPlayerId">보스를 소환한 플레이어 ID</param>
-    /// <param name="bossPrefab">보스 프리팹 (생존 시 재소환용)</param>
-    public void SetAsBoss(bool isBoss, int originPlayerId, GameObject bossPrefab)
+    public void SetAsBoss(bool isBoss, int originPlayerId)
     {
         _isBoss = isBoss;
         _originPlayerId = originPlayerId;
-        _bossPrefab = bossPrefab;
         
         if (isBoss)
         {
@@ -475,12 +473,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 이미 파괴 중인 오브젝트면 무시
         if (this == null || gameObject == null) return;
         
-        Debug.Log($"{monsterData.monsterName}이(가) 죽었습니다!");
+        Debug.Log($"{_monsterData.monsterName}이(가) 죽었습니다!");
         
         // 보스가 죽으면 SurvivorBossManager에 알림 (더 이상 다음 라운드에 소환되지 않음)
         if (_isBoss && SurvivorBossManager.Instance != null)
         {
-            SurvivorBossManager.Instance.OnBossDied(monsterData.monsterName);
+            SurvivorBossManager.Instance.OnBossDied(_monsterData.monsterName);
         }
         
         if (isBlocked && blockingUnit != null)
@@ -529,13 +527,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         while (target != null && (target as MonoBehaviour) != null)
         {
-            yield return new WaitForSeconds(1f / monsterData.attackSpeed);
+            yield return new WaitForSeconds(1f / _monsterData.attackSpeed);
 
             if ((target as MonoBehaviour) == null) break;
 
             string targetName = (target as MonoBehaviour).name;
-            target.TakeDamage(currentAttackDamage, monsterData.damageType); // 스케일링된 공격력 사용
-            Debug.Log($"{monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+            target.TakeDamage(currentAttackDamage, _monsterData.damageType); // 스케일링된 공격력 사용
+            Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
         }
 
         Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
@@ -595,7 +593,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         else
         {
-             Debug.LogWarning($"{monsterData.monsterName}이(가) 경로를 찾지 못했습니다. 소멸합니다.");
+             Debug.LogWarning($"{_monsterData.monsterName}이(가) 경로를 찾지 못했습니다. 소멸합니다.");
              Destroy(gameObject);
         }
     }
@@ -610,7 +608,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         StopAllCoroutines();
 
         isMoving = true;
-        if (monsterData.monsterType == MonsterType.Flying)
+        if (_monsterData.monsterType == MonsterType.Flying)
         {
             movementCoroutine = StartCoroutine(FlyDirectlyCoroutine());
         }
@@ -685,7 +683,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 }
                 transform.position = nextPos;
 
-                if (!isBlocked && monsterData.monsterType != MonsterType.Flying)
+                if (!isBlocked && _monsterData.monsterType != MonsterType.Flying)
                 {
                     float moveDistance = currentMoveSpeed * dt;
                     float detectionRadius = Mathf.Max(0.6f, moveDistance + 0.3f);
@@ -724,7 +722,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (_isBoss && SurvivorBossManager.Instance != null)
         {
             SurvivorBossManager.Instance.RegisterSurvivorBoss(
-                _bossPrefab,
+                _monsterData,
                 currentHP,
                 currentMaxHP,
                 _originPlayerId

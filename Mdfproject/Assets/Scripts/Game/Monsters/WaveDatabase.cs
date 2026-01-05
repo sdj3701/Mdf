@@ -29,7 +29,7 @@ public class RoundWaveData
         int total = 0;
         foreach (var entry in monsters)
         {
-            if (entry != null && entry.monsterPrefab != null)
+            if (entry != null && entry.monsterData != null)
             {
                 total += entry.count;
             }
@@ -45,8 +45,8 @@ public class RoundWaveData
 [System.Serializable]
 public class WaveMonsterEntry
 {
-    [Tooltip("소환할 몬스터 프리팹")]
-    public GameObject monsterPrefab;
+    [Tooltip("소환할 몬스터 데이터")]
+    public MonsterData monsterData;
     
     [Tooltip("소환 수량")]
     [Min(1)]
@@ -155,7 +155,7 @@ public class WaveDatabase : ScriptableObject
                 if (originalEntry == null) continue;
 
                 WaveMonsterEntry newEntry = new WaveMonsterEntry();
-                newEntry.monsterPrefab = originalEntry.monsterPrefab;
+                newEntry.monsterData = originalEntry.monsterData;
                 
                 // 기본 수량 + (초과 라운드 × 추가 수량)
                 newEntry.count = originalEntry.count + additionalCount; 

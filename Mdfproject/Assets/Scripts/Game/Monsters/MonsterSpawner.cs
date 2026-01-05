@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Fusion;
+using Cysharp.Threading.Tasks;
 
 public class MonsterSpawner : MonoBehaviour
 {
@@ -172,15 +173,18 @@ public class MonsterSpawner : MonoBehaviour
 
         foreach (var entry in waveData.monsters)
         {
-            if (entry == null || entry.monsterPrefab == null)
+            if (entry == null || entry.monsterData == null)
             {
-                Debug.LogWarning("[MonsterSpawner] 웨이브 엔트리가 null이거나 프리팹이 없습니다.");
+                Debug.LogWarning("[MonsterSpawner] 웨이브 엔트리가 null이거나 MonsterData가 없습니다.");
                 continue;
             }
 
             for (int i = 0; i < entry.count; i++)
             {
-                Monster monster = SpawnMonsterInternal(entry.monsterPrefab);
+                var spawnTask = SpawnMonsterInternalAsync(entry.monsterData);
+                yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
+                
+                Monster monster = spawnTask.GetAwaiter().GetResult();
                 
                 if (monster != null)
                 {
@@ -239,9 +243,9 @@ public class MonsterSpawner : MonoBehaviour
         if (prefab == null) return 0f;
 
         Monster monsterComponent = prefab.GetComponent<Monster>();
-        if (monsterComponent == null || monsterComponent.monsterData == null) return 0f;
+        if (monsterComponent == null || monsterComponent.Data == null) return 0f;
 
-        if (monsterComponent.monsterData.monsterType == MonsterType.Flying) return 0f;
+        if (monsterComponent.Data.monsterType == MonsterType.Flying) return 0f;
 
         return prefab.transform.localScale.y * 0.5f;
     }
@@ -251,20 +255,20 @@ public class MonsterSpawner : MonoBehaviour
     /// <summary>
     /// 보스 몬스터를 소환합니다. (1회성, 보스 플래그 설정)
     /// </summary>
-    /// <param name="bossPrefab">소환할 보스 프리팹</param>
+    /// <param name="bossData">소환할 보스 데이터</param>
     /// <param name="originPlayerId">보스를 소환한 플레이어 ID (생존 시 추적용)</param>
-    public void SpawnBossMonster(GameObject bossPrefab, int originPlayerId)
+    public async void SpawnBossMonsterAsync(MonsterData bossData, int originPlayerId)
     {
-        if (_pathfinder == null || bossPrefab == null)
+        if (_pathfinder == null || bossData == null)
         {
-            Debug.LogError("[MonsterSpawner] 보스 소환 실패: _pathfinder 또는 bossPrefab이 null");
+            Debug.LogError("[MonsterSpawner] 보스 소환 실패: _pathfinder 또는 bossData가 null");
             return;
         }
 
-        Monster monster = SpawnMonsterInternal(bossPrefab);
+        Monster monster = await SpawnMonsterInternalAsync(bossData);
         if (monster != null)
         {
-            monster.SetAsBoss(true, originPlayerId, bossPrefab);
+            monster.SetAsBoss(true, originPlayerId);
             Debug.Log($"<color=red>[MonsterSpawner] 보스 '{monster.name}' 소환 완료! (OriginPlayer: {originPlayerId})</color>");
         }
     }
@@ -288,12 +292,15 @@ public class MonsterSpawner : MonoBehaviour
             {
                 // 이 플레이어가 타겟인 경우에만 소환
                 if (pending.TargetPlayerId != _playerManager.playerId) continue;
-                if (pending.Augment?.bossPrefab == null) continue;
+                if (pending.Augment?.bossMonsterData == null) continue;
 
-                Monster monster = SpawnMonsterInternal(pending.Augment.bossPrefab);
+                var spawnTask = SpawnMonsterInternalAsync(pending.Augment.bossMonsterData);
+                yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
+                
+                Monster monster = spawnTask.GetAwaiter().GetResult();
                 if (monster != null)
                 {
-                    monster.SetAsBoss(true, sourcePlayer.playerId, pending.Augment.bossPrefab);
+                    monster.SetAsBoss(true, sourcePlayer.playerId);
                     Debug.Log($"<color=red>[MonsterSpawner] 보스 '{monster.name}' 소환! (소환자: Player {sourcePlayer.playerId} → 타겟: Player {_playerManager.playerId})</color>");
                 }
 
@@ -318,11 +325,15 @@ public class MonsterSpawner : MonoBehaviour
         {
             // 이 플레이어가 타겟인 경우에만 소환
             if (targetPlayerId != _playerManager.playerId) continue;
+            if (bossData.BossData == null) continue;
 
-            Monster monster = SpawnMonsterInternal(bossData.BossPrefab);
+            var spawnTask = SpawnMonsterInternalAsync(bossData.BossData);
+            yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
+            
+            Monster monster = spawnTask.GetAwaiter().GetResult();
             if (monster != null)
             {
-                monster.SetAsBoss(true, bossData.OriginPlayerId, bossData.BossPrefab);
+                monster.SetAsBoss(true, bossData.OriginPlayerId);
                 monster.SetCurrentHP(bossData.RemainingHP, bossData.MaxHP);
                 Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {targetPlayerId}에게 침공. HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}</color>");
             }
@@ -348,15 +359,17 @@ public class MonsterSpawner : MonoBehaviour
 
             int totalSpawned = 0;
             
-            // 각 MonsterSpawnEntry의 프리팹을 count만큼 소환
+            // 각 MonsterSpawnEntry의 MonsterData를 count만큼 소환
             foreach (var entry in augment.monsterSpawnEntries)
             {
-                if (entry == null || entry.prefab == null) continue;
+                if (entry == null || entry.monsterData == null) continue;
                 
                 int spawnCount = Mathf.Max(0, entry.count);
                 for (int i = 0; i < spawnCount; i++)
                 {
-                    SpawnMonsterInternal(entry.prefab);
+                    var spawnTask = SpawnMonsterInternalAsync(entry.monsterData);
+                    yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
+                    spawnTask.GetAwaiter().GetResult();
                     totalSpawned++;
                     yield return new WaitForSeconds(0.5f);
                 }
@@ -367,23 +380,27 @@ public class MonsterSpawner : MonoBehaviour
     }
 
     /// <summary>
-    /// 내부 몬스터 스폰 로직 (공통화). 기존 SpawnSpecificMonster 로직 재사용.
+    /// 내부 몬스터 스폰 로직 (비동기). MonsterData에서 프리팹을 로드하여 소환합니다.
     /// </summary>
-    /// <param name="prefab">소환할 몬스터 프리팹</param>
-    /// <param name="overrideHP">잔여 HP 오버라이드 (생존 보스용, -1이면 무시)</param>
-    /// <param name="overrideMaxHP">최대 HP 오버라이드 (생존 보스용, -1이면 무시)</param>
+    /// <param name="monsterData">소환할 몬스터 데이터</param>
     /// <returns>생성된 Monster 컴포넌트</returns>
-    private Monster SpawnMonsterInternal(GameObject prefab, float overrideHP = -1f, float overrideMaxHP = -1f)
+    private async UniTask<Monster> SpawnMonsterInternalAsync(MonsterData monsterData)
     {
-        if (_pathfinder == null || prefab == null) return null;
-
-        Monster monsterComponentInPrefab = prefab.GetComponent<Monster>();
-        if (monsterComponentInPrefab == null || monsterComponentInPrefab.monsterData == null)
+        if (_pathfinder == null || monsterData == null) return null;
+        
+        // MonsterData에서 프리팹 Addressable 키를 가져와 로드
+        if (string.IsNullOrEmpty(monsterData.monsterPrefab))
         {
-            Debug.LogError($"'{prefab.name}' 프리팹에 Monster 컴포넌트나 MonsterData가 없습니다!", prefab);
+            Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 monsterPrefab 주소가 설정되지 않았습니다!", monsterData);
             return null;
         }
-        MonsterData dataToSpawn = monsterComponentInPrefab.monsterData;
+        
+        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(monsterData.monsterPrefab);
+        if (prefab == null)
+        {
+            Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 프리팹 로드 실패! (주소: {monsterData.monsterPrefab})", monsterData);
+            return null;
+        }
 
         Vector3 spawnPos = spawnPoint.position;
         float groundOffset = GetGroundMonsterHeightOffset(prefab);
@@ -417,14 +434,14 @@ public class MonsterSpawner : MonoBehaviour
         monster.statusBarPrefab = this.statusBarPrefab;
 
         // 몬스터 초기화
-        monster.Initialize(_playerManager, this.goalTransform, dataToSpawn, _pathfinder);
+        monster.Initialize(_playerManager, this.goalTransform, monsterData, _pathfinder);
 
         // 클라이언트에도 초기화 데이터 전송 (RPC)
         if (_playerManager.Object != null)
         {
             monster.RPC_InitializeOnClient(
                 _playerManager.Object.Id,
-                dataToSpawn != null ? dataToSpawn.name : ""
+                monsterData != null ? monsterData.name : ""
             );
         }
 

@@ -942,7 +942,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             {
                 if (unitData.unitType == UnitType.Melee && enemyCollider.TryGetComponent<Monster>(out var monster))
                 {
-                    if (monster.monsterData.monsterType == MonsterType.Flying)
+                    if (monster.Data.monsterType == MonsterType.Flying)
                     {
                         continue;
                     }
@@ -1181,7 +1181,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (other.TryGetComponent<Monster>(out var monster))
         {
             if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
-                monster.monsterData.monsterType == MonsterType.Flying || Data.blockCount <= 0 ||
+                monster.Data.monsterType == MonsterType.Flying || Data.blockCount <= 0 ||
                 blockedMonsters.Count >= Data.blockCount)
             {
                 return;
@@ -1205,7 +1205,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public bool TryBlockMonster(Monster monster)
     {
         if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
-            monster.monsterData.monsterType == MonsterType.Flying ||
+            monster.Data.monsterType == MonsterType.Flying ||
             Data.blockCount <= 0 || blockedMonsters.Count >= Data.blockCount)
         {
             return false;

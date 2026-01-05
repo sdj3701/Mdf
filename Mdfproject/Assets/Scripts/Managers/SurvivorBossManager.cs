@@ -11,7 +11,7 @@ using Fusion;
 [System.Serializable]
 public struct SurvivorBossData
 {
-    public GameObject BossPrefab;
+    public MonsterData BossData;
     public float RemainingHP;
     public float MaxHP;
     public int OriginPlayerId; // 보스를 소환한 원래 플레이어
@@ -44,11 +44,11 @@ public class SurvivorBossManager : MonoBehaviour
     /// 보스가 목표 지점에 도달했을 때 호출됩니다. 
     /// 체력을 저장하고 다음 라운드에 전체 유저 중 랜덤하게 소환 예약합니다.
     /// </summary>
-    public void RegisterSurvivorBoss(GameObject bossPrefab, float remainingHP, float maxHP, int originPlayerId)
+    public void RegisterSurvivorBoss(MonsterData bossData, float remainingHP, float maxHP, int originPlayerId)
     {
         var data = new SurvivorBossData
         {
-            BossPrefab = bossPrefab,
+            BossData = bossData,
             RemainingHP = remainingHP,
             MaxHP = maxHP,
             OriginPlayerId = originPlayerId
