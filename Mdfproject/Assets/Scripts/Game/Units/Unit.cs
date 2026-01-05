@@ -860,6 +860,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private IEnumerator AttackLoop()
     {
         float nextAttackTime = 0f;
+        bool hadTargetLastFrame = false;
+        bool isMelee = unitData.unitType == UnitType.Melee;
+        
         while (isCombatPhase)
         {
             if (currentAttackSpeed <= 0)
@@ -874,15 +877,51 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 continue;
             }
 
-            FindNearestEnemy();
-            if (targetEnemy != null)
+            bool hasTarget;
+            
+            if (isMelee)
             {
+                // 근접 유닛: 저지 중인 몬스터가 있으면 공격 가능
+                // 죽은 몬스터는 리스트에서 제거
+                blockedMonsters.RemoveAll(m => m == null || m.currentHP <= 0);
+                hasTarget = blockedMonsters.Count > 0;
+                
+                if (hasTarget)
+                {
+                    // 첫 번째 저지 몬스터를 타겟으로 설정
+                    var firstBlocked = blockedMonsters[0];
+                    targetEnemy = firstBlocked;
+                    targetTransform = firstBlocked.transform;
+                }
+                else
+                {
+                    targetEnemy = null;
+                    targetTransform = null;
+                }
+            }
+            else
+            {
+                // 원거리 유닛: 기존 로직 (OverlapSphere로 범위 내 적 탐색)
+                FindNearestEnemy();
+                hasTarget = targetEnemy != null;
+            }
+            
+            if (hasTarget)
+            {
+                // [Fix] 타겟이 없다가 새로 발견되었을 때 즉시 공격 가능하도록 쿨타임 리셋
+                if (!hadTargetLastFrame)
+                {
+                    nextAttackTime = Time.time;
+                }
+                
                 if (Time.time >= nextAttackTime)
                 {
                     Attack();
                     nextAttackTime = Time.time + 1f / currentAttackSpeed;
                 }
             }
+            
+            hadTargetLastFrame = hasTarget;
 
             // 매 프레임마다 적 탐색/쿨다운 확인
             yield return null;
@@ -927,15 +966,28 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             return;
         }
-        // [Fix] 물리 연산(OverlapSphere)과 거리 계산(Distance)의 미세한 오차로 인해 공격 타이밍을 놓치는 것을 방지 (0.1f)
-        // 이는 공격 판정에만 적용되며, 몬스터가 멈추는 위치(저지 범위)는 변경하지 않습니다.
-        if (targetEnemy == null || targetTransform == null || Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange + 0.1f)
+        
+        bool isRanged = unitData.unitType == UnitType.Ranged;
+        
+        // 원거리 유닛만 거리 검사 수행 (근접 유닛은 저지 중인 몬스터를 공격하므로 거리 검사 불필요)
+        if (isRanged)
         {
-            targetEnemy = null;
-            return;
+            if (targetEnemy == null || targetTransform == null || 
+                Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange + 0.1f)
+            {
+                targetEnemy = null;
+                return;
+            }
+        }
+        else
+        {
+            // 근접 유닛: 타겟이 없으면 리턴
+            if (targetEnemy == null || targetTransform == null)
+            {
+                return;
+            }
         }
         bool playedAnim = TryPlayAttackAnimation();
-        bool isRanged = unitData.unitType == UnitType.Ranged;
         bool canSyncToAnimation = playedAnim && !_hasPendingAttack;
         bool canSyncMelee = canSyncToAnimation && currentAttackSpeed <= maxAttackAnimationsPerSecond + 1e-4f;
         bool canSyncRanged = canSyncToAnimation && ShouldEmitProjectileVfx();
@@ -983,19 +1035,15 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             }
             else
             {
-                // 디버그: 공격 타입 확인
-                Debug.Log($"[Unit Attack Debug] {unitData.unitName} - AttackTargetType: {unitData.attackTargetType}, BlockedMonsters: {blockedMonsters.Count}");
-                
                 // 근접 유닛 스플래시 공격: 저지 중인 모든 몬스터에게 데미지
                 if (unitData.attackTargetType == AttackTargetType.Splash && blockedMonsters.Count > 0)
                 {
-                    Debug.Log($"[Unit Attack Debug] → 스플래시 공격 분기 진입! 대상 수: {blockedMonsters.Count}");
                     // 스플래시 공격: 저지 중인 모든 몬스터에게 동시에 데미지
                     foreach (var monster in blockedMonsters.ToList())
                     {
                         if (monster != null && monster.currentHP > 0)
                         {
-                            Debug.Log($"[Unit Attack Debug] → 스플래시 데미지: {monster.name}에게 {currentAttackDamage} 데미지");
+
                             if (schedulerReady)
                             {
                                 var monsterNo = monster.GetComponent<NetworkObject>();
@@ -1019,11 +1067,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 }
                 else
                 {
-                    Debug.Log($"[Unit Attack Debug] → 단일 공격 분기 진입! 대상: {targetEnemy}");
-                    // 기존 단일 대상 공격 로직
+                    // 근접 유닛 단일 공격: 첫 번째 저지 몬스터 공격
                     if (canSyncMelee)
                     {
-                        Debug.Log($"[Unit Attack Debug] → 단일 공격 (PendingAttack): {targetNo?.name}에게 {currentAttackDamage} 데미지");
                         _pendingAttack = new PendingAttack
                         {
                             Target = targetNo,
@@ -1040,14 +1086,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                     {
                         if (schedulerReady && targetNo != null)
                         {
-                            Debug.Log($"[Unit Attack Debug] → 단일 공격 (Scheduler): {targetNo.name}에게 {currentAttackDamage} 데미지");
+
                             Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
                             scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
                                 false, false, 0f);
                         }
                         else if (targetEnemy != null)
                         {
-                            Debug.Log($"[Unit Attack Debug] → 단일 공격 (Direct): 대상에게 {currentAttackDamage} 데미지");
+
                             targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
                         }
                     }
