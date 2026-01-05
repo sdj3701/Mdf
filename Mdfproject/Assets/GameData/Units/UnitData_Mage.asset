@@ -26,8 +26,8 @@ MonoBehaviour:
   blockCount: 1
   attackTargetType: 0
   splashRadius: 0
-  manaRegenType: 0
-  manaOnAttack: 15
+  manaRegenType: 1
+  manaOnAttack: 5
   manaPerSecond: 5
   prefabsByStarLevel:
   - Mage

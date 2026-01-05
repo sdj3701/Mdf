@@ -19,7 +19,7 @@ MonoBehaviour:
   attackSpeed: 1
   attackRange: 0
   damageType: 0
-  maxHealth: 100
+  maxHealth: 20
   defense: 0
   magicResistance: 0
   moveSpeed: 1.5

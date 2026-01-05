@@ -27,7 +27,7 @@ MonoBehaviour:
   attackTargetType: 1
   splashRadius: 2
   manaRegenType: 1
-  manaOnAttack: 15
+  manaOnAttack: 5
   manaPerSecond: 5
   prefabsByStarLevel:
   - Mage
