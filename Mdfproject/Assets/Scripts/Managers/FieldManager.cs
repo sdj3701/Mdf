@@ -763,7 +763,7 @@ public class FieldManager : MonoBehaviour
             if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
             {
                 Vector3 atopPos = GridToWorld(gridPosition, checkForWall: true);
-                unitOnCell.transform.position = atopPos;
+                MoveUnitImmediate(unitOnCell, atopPos);
             }
         }
         else
@@ -787,7 +787,7 @@ public class FieldManager : MonoBehaviour
                 {
                     // 준비 단계: 유닛을 벽 아래 높이로 재배치 (죽이지 않음)
                     Vector3 newPos = GridToWorld(gridPosition, checkForWall: false);
-                    unitOnTop.transform.position = newPos;
+                    MoveUnitImmediate(unitOnTop, newPos);
                 }
                 else
                 {
@@ -976,7 +976,7 @@ public class FieldManager : MonoBehaviour
         if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
         {
             Vector3 atopPos = GridToWorld(gridPosition, checkForWall: true);
-            unitOnCell.transform.position = atopPos;
+            MoveUnitImmediate(unitOnCell, atopPos);
         }
     }
 
