@@ -17,7 +17,7 @@ MonoBehaviour:
   cost: 4
   unitType: 1
   baseHealth: 10
-  baseAttackDamage: 0
+  baseAttackDamage: 10
   attackSpeed: 0.8
   attackRange: 2.5
   damageType: 1
