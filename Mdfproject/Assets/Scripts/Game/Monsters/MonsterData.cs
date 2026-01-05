@@ -8,6 +8,11 @@ public class MonsterData : ScriptableObject
     public string monsterName;
     public MonsterType monsterType; // 지상, 공중 구분
 
+    [Header("프리팹")]
+    [Tooltip("몬스터 프리팹 (Addressable)")]
+    [AddressableKey(typeof(GameObject))]
+    public string monsterPrefab;
+
     [Header("공격 스탯")]
     public float attackDamage;      // 공격력
     public float attackSpeed = 1f;  // 공격 속도 (초당 공격 횟수)

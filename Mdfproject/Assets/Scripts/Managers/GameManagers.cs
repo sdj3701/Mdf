@@ -78,6 +78,10 @@ public class GameManagers : NetworkBehaviour
     public float preparePhaseTime = 45f;
     public float combatTime = 60f;
 
+    [Header("폭주 모드 설정")]
+    [Tooltip("전투 종료 N초 전에 폭주 모드 발동")]
+    public float berserkTriggerTime = 5f;
+
     [Header("라운드 보상")]
     public int baseGoldPerRound = 5;
     public int maxInterest = 5;
@@ -100,6 +104,7 @@ public class GameManagers : NetworkBehaviour
     private bool hasCombatBeenShortened = false;
     private bool firstPrepareDurationUsed = false;
     private bool isTransitioningRound = false; // 라운드 전환 중 중복 호출 방지
+    private bool _hasBerserkTriggered = false;  // 폭주 모드 트리거 여부
 
     /// <summary>
     /// 이 NetworkBehaviour가 네트워크 상에 스폰될 때 Fusion에 의해 호출됩니다.
@@ -179,6 +184,17 @@ public class GameManagers : NetworkBehaviour
             {
                 phaseTimer = TickTimer.CreateFromSeconds(Runner, 3f);
                 hasCombatBeenShortened = true;
+            }
+        }
+        
+        // 폭주 모드: 전투 5초 남았을 때 트리거
+        if (currentState == GameState.Combat && !_hasBerserkTriggered)
+        {
+            float remaining = phaseTimer.RemainingTime(Runner) ?? 0f;
+            if (remaining <= berserkTriggerTime && remaining > 0f)
+            {
+                _hasBerserkTriggered = true;
+                TriggerBerserkMode();
             }
         }
     }
@@ -522,8 +538,11 @@ public class GameManagers : NetworkBehaviour
 
         Debug.Log($"<color=cyan>[HandleAugmentChosen] 증강 '{chosenAugment?.augmentName}' 선택됨 → 증강 UI 비활성화</color>");
         
-        // 1. 증강 UI 비활성화 (부모 GameObject 비활성화)
-        UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+        // 1. 증강 UI 비활성화 (부모 GameObject 비활성화) - 활성 상태일 때만
+        if (UIManagers.Instance.IsUIElementActive("UI_Pnl_Augment"))
+        {
+            UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+        }
         
         // 2. 상점 UI 활성화
         if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
@@ -549,6 +568,15 @@ public class GameManagers : NetworkBehaviour
     {
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
+
+        // 전투 종료 시 필드에 남은 몬스터 정리 (라운드 증가 전에 처리)
+        foreach (var player in AllPlayers)
+        {
+            if (player?.monsterSpawner != null)
+            {
+                player.monsterSpawner.OnCombatPhaseEnded();
+            }
+        }
 
         // 라운드 증가 (첫 라운드는 1로 설정)
         if (currentState != GameState.Setup)
@@ -639,10 +667,18 @@ public class GameManagers : NetworkBehaviour
 
         currentState = GameState.Combat;
         hasCombatBeenShortened = false;
+        _hasBerserkTriggered = false;  // 폭주 모드 트리거 리셋
         
         // 서버(호스트)에서도 UI를 명시적으로 비활성화
         // Render()의 ChangeDetector에만 의존하면 싱글플레이어나 타이밍 문제 발생 가능
         HandleUIForNewState(currentState).Forget();
+
+        // 생존 보스 타겟 할당 (전투 시작 전에 한 번만 호출)
+        // 각 생존 보스에게 랜덤 타겟을 미리 할당하여 MonsterSpawner가 자신에게 해당하는 보스만 추출할 수 있도록 함
+        if (SurvivorBossManager.Instance != null)
+        {
+            SurvivorBossManager.Instance.AssignTargetsToSurvivors();
+        }
 
         foreach (var player in AllPlayers)
         {
@@ -651,6 +687,22 @@ public class GameManagers : NetworkBehaviour
         }
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
+    }
+
+    /// <summary>
+    /// 폭주 모드를 트리거합니다. (전투 종료 5초 전)
+    /// 모든 메스터와 유닛에 공격속도/공격력 1.5배, 이동속도 2배 적용
+    /// </summary>
+    private void TriggerBerserkMode()
+    {
+        Debug.Log("<color=red>[GameManagers] ⚡ 폭주 모드 발동! (남은 시간: 5초)</color>");
+        
+        foreach (var player in AllPlayers)
+        {
+            if (player == null) continue;
+            player.monsterSpawner?.ApplyBerserkModeToAllMonsters();
+            player.fieldManager?.ApplyBerserkModeToAllUnits();
+        }
     }
 
     private async UniTask HandleUIForNewState(GameState newState)
@@ -681,7 +733,11 @@ public class GameManagers : NetworkBehaviour
             case GameState.Combat:
                 // 전투 단계 진입 시 모든 UI 비활성화
                 Debug.Log("<color=yellow>[HandleUIForNewState] Combat 단계 - UI 비활성화</color>");
-                UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+                // 증강 UI가 활성 상태일 때만 반환
+                if (UIManagers.Instance.IsUIElementActive("UI_Pnl_Augment"))
+                {
+                    UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+                }
                 if (localPlayerShopUIGameObject != null)
                 {
                     localPlayerShopUIGameObject.SetActive(false);

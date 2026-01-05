@@ -558,10 +558,24 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <summary>
     /// 대기 중인 보스 증강 목록을 가져오고 초기화합니다. (1회성)
     /// </summary>
+    [System.Obsolete("Use ExtractPendingBossesForTarget instead for proper multi-player support")]
     public List<PendingBoss> GetAndClearPendingBossAugments()
     {
         var result = new List<PendingBoss>(_pendingBossAugments);
         _pendingBossAugments.Clear();
+        return result;
+    }
+    
+    /// <summary>
+    /// 특정 타겟 플레이어에 해당하는 대기 중인 보스만 가져오고 제거합니다.
+    /// 멀티플레이어 환경에서 각 플레이어의 MonsterSpawner가 자신에게 해당하는 보스만 추출합니다.
+    /// </summary>
+    public List<PendingBoss> ExtractPendingBossesForTarget(int targetPlayerId)
+    {
+        var result = _pendingBossAugments
+            .Where(b => b.TargetPlayerId == targetPlayerId)
+            .ToList();
+        _pendingBossAugments.RemoveAll(b => b.TargetPlayerId == targetPlayerId);
         return result;
     }
     #endregion

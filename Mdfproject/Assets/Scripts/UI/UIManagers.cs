@@ -72,6 +72,19 @@ public class UIManagers : MonoBehaviour
         return await uiPools[uiName].GetObject(mainCanvas.transform);
     }
     
+    /// <summary>
+    /// 지정된 UI 요소가 현재 활성 상태인지 확인합니다.
+    /// </summary>
+    public bool IsUIElementActive(string uiName)
+    {
+        string originalName = uiName.Replace("(Clone)", "");
+        if (uiPools.ContainsKey(originalName))
+        {
+            return uiPools[originalName].IsActive();
+        }
+        return false;
+    }
+
     public void ReturnUIElement(string uiName)
     {
         // [개선] (Clone)이 붙어있을 가능성을 제거

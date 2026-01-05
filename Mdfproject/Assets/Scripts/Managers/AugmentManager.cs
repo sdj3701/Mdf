@@ -255,14 +255,14 @@ public class AugmentManager : MonoBehaviour
                 if (augment.isBossSummon)
                 {
                     // 보스 모드: 다음 전투 시퀀스에 소환되도록 등록 (1회성)
-                    if (augment.bossPrefab != null)
+                    if (augment.bossMonsterData != null)
                     {
                         playerManager.RegisterPendingBossAugment(augment, target.playerId);
                         Debug.Log($"<color=red>[AugmentManager] 보스 증강 등록! Player {playerManager.playerId}가 Player {target.playerId}에게 다음 전투에 침공 예정</color>");
                     }
                     else
                     {
-                        Debug.LogWarning($"[AugmentManager] 보스 프리팹이 null입니다.");
+                        Debug.LogWarning($"[AugmentManager] bossMonsterData가 null입니다.");
                     }
                 }
                 else

@@ -22,7 +22,7 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             // 풀에 있던 인스턴스가 파괴되었는지 확인
             if (instance == null || instance.gameObject == null)
             {
-                Debug.LogWarning($"[PooledNetworkObjectProvider] 풀에서 가져온 인스턴스가 null입니다. PrefabId: {prefabId}. 새로 생성합니다.");
+                Debug.Log($"[PooledNetworkObjectProvider] 풀에서 가져온 인스턴스가 null입니다. PrefabId: {prefabId}. 새로 생성합니다.");
                 // 계속해서 새 인스턴스 생성으로 진행
             }
             else

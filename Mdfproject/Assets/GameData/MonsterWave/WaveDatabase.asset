@@ -15,11 +15,9 @@ MonoBehaviour:
   rounds:
   - roundNumber: 1
     monsters:
-    - monsterPrefab: {fileID: 2020015458557610380, guid: 4ae077da17a50f048a4009c3a41f2705,
-        type: 3}
+    - monsterData: {fileID: 11400000, guid: ae8a69e0ccd88974d8e8035798f0c066, type: 2}
       count: 1
-    - monsterPrefab: {fileID: 2020015458557610380, guid: 2813e96c555c01041a13c1343ebafbb0,
-        type: 3}
+    - monsterData: {fileID: 11400000, guid: 0306cf61f03caa14788271cd945bc75c, type: 2}
       count: 1
     spawnInterval: 0.3
   additionalMonstersPerRound: 2

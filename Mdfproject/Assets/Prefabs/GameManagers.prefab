@@ -50,26 +50,12 @@ MonoBehaviour:
   _currentRound: 0
   _singlePlayerModeCount: 0
   localPlayer: {fileID: 0}
-  playerManagerPrefabRef:
-    m_AssetGUID: 1831533972272eb408da1971d3a1e504
-    m_SubObjectName: 
-    m_SubObjectType: 
-    m_EditorAssetChanged: 0
-  gridPrefabRef:
-    m_AssetGUID: 23db93d9dcd62b140b715dc66412d301
-    m_SubObjectName: 
-    m_SubObjectType: 
-    m_EditorAssetChanged: 0
-  defaultMonsterPrefabRef:
-    m_AssetGUID: 4ae077da17a50f048a4009c3a41f2705
-    m_SubObjectName: 
-    m_SubObjectType: 
-    m_EditorAssetChanged: 0
   player1BasePosition: {x: 0, y: 0, z: 0}
   playerOffset: {x: 0, y: 0, z: -10}
   firstPreparePhaseTime: 35
   preparePhaseTime: 20
   combatTime: 20
+  berserkTriggerTime: 7
   baseGoldPerRound: 5
   maxInterest: 5
   SelectCharacterButton:

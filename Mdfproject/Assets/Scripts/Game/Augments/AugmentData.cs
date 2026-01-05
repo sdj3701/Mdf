@@ -29,8 +29,8 @@ public enum AugmentTier { Silver, Gold, Prismatic }
 [System.Serializable]
 public class MonsterSpawnEntry
 {
-    [Tooltip("소환할 몬스터 프리팹")]
-    public GameObject prefab;
+    [Tooltip("소환할 몬스터 데이터")]
+    public MonsterData monsterData;
     
     [Tooltip("소환 수량")]
     public int count = 1;
@@ -60,8 +60,8 @@ public class AugmentData : ScriptableObject
     [Tooltip("체크 시 보스 모드: 1회 소환, 살아남으면 다음 라운드 전체 유저 중 랜덤 침공")]
     public bool isBossSummon;
     
-    [Tooltip("보스 모드: 소환할 보스 프리팹 (1마리)")]
-    public GameObject bossPrefab;
+    [Tooltip("보스 모드: 소환할 보스 데이터 (1마리)")]
+    public MonsterData bossMonsterData;
     
     [Tooltip("일반 모드: 매 라운드 소환할 몬스터와 수량 목록")]
     public List<MonsterSpawnEntry> monsterSpawnEntries;

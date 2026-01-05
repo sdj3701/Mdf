@@ -61,6 +61,11 @@ public class UIPool
         return newInstance;
     }
 
+    /// <summary>
+    /// 현재 활성화된 UI 오브젝트가 있는지 확인합니다.
+    /// </summary>
+    public bool IsActive() => activeObject != null;
+
     public void ReturnObject()
     {
         if (activeObject != null)
