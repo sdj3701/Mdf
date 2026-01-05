@@ -75,6 +75,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private float baseMoveSpeed;
     private float currentMoveSpeed;
     private float currentAttackDamage; // 공격력 스케일링 지원
+    private float currentAttackSpeed;  // 공격속도 스케일링 지원
     private MonsterReleaseScheduler releaseScheduler;
     private Coroutine resumeCoroutine;
     private int currentBlockerId = 0;
@@ -172,6 +173,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         baseMoveSpeed = _monsterData.moveSpeed;
         currentMoveSpeed = baseMoveSpeed;
         currentAttackDamage = _monsterData.attackDamage; // 초기화
+        currentAttackSpeed = _monsterData.attackSpeed;   // 초기화
 
         // [Fix] 오브젝트 재사용 시 이전 상태 초기화
         isBlocked = false;
@@ -425,6 +427,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     public void ApplyBuff(float healthMultiplier, float speedMultiplier, float damageMultiplier = 1f)
     {
+        // 보스는 모든 버프에 면역
+        if (_isBoss) return;
+        
         float healthPercentage = currentHP / currentMaxHP;
         currentMaxHP = _monsterData.maxHealth * healthMultiplier;
         currentHP = currentMaxHP * healthPercentage;
@@ -527,7 +532,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         while (target != null && (target as MonoBehaviour) != null)
         {
-            yield return new WaitForSeconds(1f / _monsterData.attackSpeed);
+            yield return new WaitForSeconds(1f / currentAttackSpeed); // Changed to currentAttackSpeed
 
             if ((target as MonoBehaviour) == null) break;
 
@@ -832,6 +837,24 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         // HP 패널티 없이 제거
         ForceRemoveWithoutPenalty();
+    }
+
+    #endregion
+
+    #region 폭주 모드
+
+    /// <summary>
+    /// 폭주 모드를 적용합니다. (전투 종료 5초 전)
+    /// </summary>
+    public void ApplyBerserkMode()
+    {
+        // 보스는 모든 버프에 면역
+        if (_isBoss) return;
+        
+        currentMoveSpeed = baseMoveSpeed * 2f;
+        currentAttackDamage = _monsterData.attackDamage * 1.5f;
+        currentAttackSpeed = _monsterData.attackSpeed * 1.5f;
+        Debug.Log($"<color=red>[Monster] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배, 이속 2배)</color>");
     }
 
     #endregion

@@ -2664,6 +2664,24 @@ public class FieldManager : MonoBehaviour
     }
 
     #endregion
+
+    #region 폭주 모드
+
+    /// <summary>
+    /// 필드의 모든 유닛에 폭주 모드를 적용합니다.
+    /// </summary>
+    public void ApplyBerserkModeToAllUnits()
+    {
+        foreach (var unit in placedUnits.Values)
+        {
+            if (unit != null && !unit.IsDead)
+            {
+                unit.ApplyBerserkMode();
+            }
+        }
+    }
+
+    #endregion
 }
 
 

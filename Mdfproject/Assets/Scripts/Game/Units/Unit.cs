@@ -559,6 +559,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 _skillCastingRoutine = null;
             }
             _isSkillCasting = false;
+            
+            // 폭주 모드 해제
+            ClearBerserkMode();
         }
     }
 
@@ -1290,6 +1293,33 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         this.currentAttackDamage = attackDamage;
         this.currentAttackSpeed = attackSpeed;
+    }
+
+    #endregion
+
+    #region 폭주 모드
+
+    private bool _isBerserk = false;
+
+    /// <summary>
+    /// 폭주 모드를 적용합니다. (전투 종료 5초 전)
+    /// </summary>
+    public void ApplyBerserkMode()
+    {
+        if (_isBerserk) return;
+        _isBerserk = true;
+        
+        currentAttackDamage *= 1.5f;
+        currentAttackSpeed *= 1.5f;
+        Debug.Log($"<color=red>[Unit] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배)</color>");
+    }
+
+    /// <summary>
+    /// 폭주 모드를 해제합니다. (전투 종료 시)
+    /// </summary>
+    public void ClearBerserkMode()
+    {
+        _isBerserk = false;
     }
 
     #endregion

@@ -528,5 +528,21 @@ public class MonsterSpawner : MonoBehaviour
         Debug.Log($"<color=yellow>[MonsterSpawner] 전투 종료 정리: {monstersToRemove.Count}마리 처리 (Player {_playerManager?.playerId})</color>");
     }
 
+    /// <summary>
+    /// 필드의 모든 몬스터에 폭주 모드를 적용합니다.
+    /// </summary>
+    public void ApplyBerserkModeToAllMonsters()
+    {
+        if (monsterParent == null) return;
+        
+        foreach (Transform child in monsterParent)
+        {
+            if (child.TryGetComponent<Monster>(out var monster))
+            {
+                monster.ApplyBerserkMode();
+            }
+        }
+    }
+
     #endregion
 }
