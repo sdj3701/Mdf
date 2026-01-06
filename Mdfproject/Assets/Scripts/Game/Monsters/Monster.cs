@@ -18,6 +18,18 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     [Tooltip("StatusBar 프리팹 참조 (MonsterSpawner에서 전달받음)")]
     public GameObject statusBarPrefab;
 
+    #region 애니메이션 관련
+    [Header("Animation")]
+    [SerializeField] private Animator animator;
+    [SerializeField] private string attackTriggerParam = "AttackTrigger";
+    [SerializeField] private string isWalkingParam = "IsWalking";
+    [SerializeField] private float rotationSpeed = 10f;
+    
+    // 대기 중인 공격 정보 (애니메이션 이벤트 기반 데미지 적용용)
+    private bool _hasPendingAttack;
+    private IEnemy _pendingAttackTarget;
+    #endregion
+
     // === 현재 상태 (Networked) ===
     // [Networked] 속성으로 서버/클라이언트 간 HP 동기화
     [Networked] public float NetworkedHP { get; set; }
@@ -189,6 +201,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             resumeCoroutine = null;
         }
         currentBlockerId = 0;
+        _hasPendingAttack = false;
+        _pendingAttackTarget = null;
 
         currentMaxHP = _monsterData.maxHealth;
         currentHP = currentMaxHP;
@@ -207,6 +221,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             manaController.OnManaFull += ActivateSkill;
         }
         manaController.Initialize(maxMana);
+        
+        // 애니메이터 초기화
+        EnsureAnimator();
     }
     
     /// <summary>
@@ -542,6 +559,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             currentBlockerId = blocker.GetInstanceID();
         }
         isMoving = false;
+        
+        // 저지 상태: Idle 애니메이션으로 전환
+        SetWalkingAnimation(false);
+        
         attackCoroutine = StartCoroutine(AttackLoop(target));
     }
 
@@ -549,19 +570,57 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         while (target != null && (target as MonoBehaviour) != null)
         {
-            yield return new WaitForSeconds(1f / currentAttackSpeed); // Changed to currentAttackSpeed
+            yield return new WaitForSeconds(1f / currentAttackSpeed);
 
             if ((target as MonoBehaviour) == null) break;
 
-            string targetName = (target as MonoBehaviour).name;
-            target.TakeDamage(currentAttackDamage, _monsterData.damageType); // 스케일링된 공격력 사용
-            Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+            // 공격 애니메이션 트리거 + 대기 공격 설정
+            _pendingAttackTarget = target;
+            _hasPendingAttack = true;
+            TriggerAttackAnimation();
+            
+            // 애니메이션 이벤트가 없는 경우를 대비한 폴백 (0.5초 후에도 대기 중이면 직접 데미지)
+            yield return new WaitForSeconds(0.5f);
+            if (_hasPendingAttack && _pendingAttackTarget != null)
+            {
+                ExecutePendingAttack();
+            }
         }
 
         Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
         attackCoroutine = null;
+        _hasPendingAttack = false;
+        _pendingAttackTarget = null;
 
         ScheduleResumeFromBlocker();
+    }
+    
+    /// <summary>
+    /// 공격 애니메이션의 타격 시점에서 호출됩니다. (Animation Event)
+    /// </summary>
+    public void AnimEvent_AttackImpact()
+    {
+        ExecutePendingAttack();
+    }
+    
+    private void ExecutePendingAttack()
+    {
+        if (!_hasPendingAttack || _pendingAttackTarget == null) return;
+        
+        var targetMono = _pendingAttackTarget as MonoBehaviour;
+        if (targetMono == null) 
+        {
+            _hasPendingAttack = false;
+            _pendingAttackTarget = null;
+            return;
+        }
+        
+        string targetName = targetMono.name;
+        _pendingAttackTarget.TakeDamage(currentAttackDamage, _monsterData.damageType);
+        Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+        
+        _hasPendingAttack = false;
+        _pendingAttackTarget = null;
     }
 
     private void ScheduleResumeFromBlocker()
@@ -630,6 +689,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         StopAllCoroutines();
 
         isMoving = true;
+        
+        // 이동 시작: Walk 애니메이션으로 전환
+        SetWalkingAnimation(true);
+        
         if (_monsterData.monsterType == MonsterType.Flying)
         {
             movementCoroutine = StartCoroutine(FlyDirectlyCoroutine());
@@ -641,6 +704,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         else
         {
             isMoving = false;
+            SetWalkingAnimation(false);
             OnPathBlocked(null);
         }
     }
@@ -663,6 +727,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             {
                 nextPos = pathfinder.ClampToGrid(nextPos);
             }
+            
+            // 이동 방향으로 회전
+            RotateTowardsMovementDirection(targetPosition, dt);
+            
             transform.position = nextPos;
             yield return null;
         }
@@ -703,6 +771,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 {
                     nextPos = pathfinder.ClampToGrid(nextPos);
                 }
+                
+                // 이동 방향으로 회전
+                RotateTowardsMovementDirection(currentTarget, dt);
+                
                 transform.position = nextPos;
 
                 if (!isBlocked && _monsterData.monsterType != MonsterType.Flying)
@@ -740,6 +812,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private void OnPathCompleted()
     {
         isMoving = false;
+        SetWalkingAnimation(false);
         
         if (_isBoss && SurvivorBossManager.Instance != null)
         {
@@ -891,6 +964,85 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         currentAttackDamage = _monsterData.attackDamage * 1.5f;
         currentAttackSpeed = _monsterData.attackSpeed * 1.5f;
         Debug.Log($"<color=red>[Monster] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배, 이속 2배)</color>");
+    }
+
+    #endregion
+
+    #region 애니메이션 헬퍼
+
+    /// <summary>
+    /// Animator 참조를 확인하고 MonsterAnimationEventProxy를 설정합니다.
+    /// </summary>
+    private void EnsureAnimator()
+    {
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>();
+            }
+        }
+
+        if (animator == null)
+        {
+            return;
+        }
+
+        // Animator가 자식 오브젝트에 있는 경우 EventProxy 설정
+        if (animator.gameObject != gameObject)
+        {
+            var proxy = animator.GetComponent<MonsterAnimationEventProxy>();
+            if (proxy == null)
+            {
+                proxy = animator.gameObject.AddComponent<MonsterAnimationEventProxy>();
+            }
+            proxy.Initialize(this);
+        }
+    }
+
+    /// <summary>
+    /// Walking 애니메이션 상태를 설정합니다.
+    /// </summary>
+    private void SetWalkingAnimation(bool isWalking)
+    {
+        if (animator == null || string.IsNullOrEmpty(isWalkingParam))
+        {
+            return;
+        }
+
+        animator.SetBool(isWalkingParam, isWalking);
+    }
+
+    /// <summary>
+    /// 공격 애니메이션을 트리거합니다.
+    /// </summary>
+    private void TriggerAttackAnimation()
+    {
+        if (animator == null || string.IsNullOrEmpty(attackTriggerParam))
+        {
+            return;
+        }
+
+        animator.ResetTrigger(attackTriggerParam);
+        animator.SetTrigger(attackTriggerParam);
+    }
+
+    /// <summary>
+    /// 이동 방향을 바라보도록 몬스터를 회전시킵니다.
+    /// </summary>
+    private void RotateTowardsMovementDirection(Vector3 targetPosition, float deltaTime)
+    {
+        Vector3 direction = targetPosition - transform.position;
+        direction.y = 0f; // Y축 회전만 적용 (위에서 아래로 보는 시점)
+
+        if (direction.sqrMagnitude < 0.001f)
+        {
+            return;
+        }
+
+        Quaternion targetRotation = Quaternion.LookRotation(direction);
+        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * deltaTime);
     }
 
     #endregion
