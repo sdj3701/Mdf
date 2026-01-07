@@ -23,6 +23,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     [SerializeField] private Animator animator;
     [SerializeField] private string attackTriggerParam = "AttackTrigger";
     [SerializeField] private string isWalkingParam = "IsWalking";
+    [SerializeField] private string moveSpeedParam = "MoveSpeed";    // 이동 애니메이션 속도 배율
+    [SerializeField] private string attackSpeedParam = "AttackSpeed"; // 공격 애니메이션 속도 배율
     [SerializeField] private float rotationSpeed = 10f;
     
     // 대기 중인 공격 정보 (애니메이션 이벤트 기반 데미지 적용용)
@@ -940,6 +942,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public void ApplyMoveSpeedModifier(float speedMultiplier)
     {
         currentMoveSpeed = baseMoveSpeed * speedMultiplier;
+        UpdateMoveAnimationSpeed(); // 애니메이션 속도도 업데이트
         Debug.Log($"<color=cyan>[Monster] '{name}' 이동속도 변경: {currentMoveSpeed:F2} (x{speedMultiplier:F2})</color>");
     }
 
@@ -963,6 +966,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         currentMoveSpeed = baseMoveSpeed * 2f;
         currentAttackDamage = _monsterData.attackDamage * 1.5f;
         currentAttackSpeed = _monsterData.attackSpeed * 1.5f;
+        
+        // 애니메이션 속도 업데이트
+        UpdateMoveAnimationSpeed();
+        
         Debug.Log($"<color=red>[Monster] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배, 이속 2배)</color>");
     }
 
@@ -1002,7 +1009,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     }
 
     /// <summary>
-    /// Walking 애니메이션 상태를 설정합니다.
+    /// Walking 애니메이션 상태를 설정하고 이동속도에 따른 애니메이션 속도를 업데이트합니다.
     /// </summary>
     private void SetWalkingAnimation(bool isWalking)
     {
@@ -1012,16 +1019,38 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
 
         animator.SetBool(isWalkingParam, isWalking);
+        
+        // 이동속도에 비례하여 애니메이션 속도 조절 (Walk/Idle 모두 적용)
+        UpdateMoveAnimationSpeed();
+    }
+    
+    /// <summary>
+    /// 이동속도에 비례하여 애니메이션 속도를 업데이트합니다.
+    /// </summary>
+    private void UpdateMoveAnimationSpeed()
+    {
+        if (animator == null || string.IsNullOrEmpty(moveSpeedParam)) return;
+        if (baseMoveSpeed <= 0f) return;
+        
+        float speedRatio = currentMoveSpeed / baseMoveSpeed;
+        animator.SetFloat(moveSpeedParam, speedRatio);
     }
 
     /// <summary>
-    /// 공격 애니메이션을 트리거합니다.
+    /// 공격 애니메이션을 트리거하고 공격속도에 따른 애니메이션 속도를 적용합니다.
     /// </summary>
     private void TriggerAttackAnimation()
     {
         if (animator == null || string.IsNullOrEmpty(attackTriggerParam))
         {
             return;
+        }
+        
+        // 공격속도에 비례하여 애니메이션 속도 조절
+        if (!string.IsNullOrEmpty(attackSpeedParam) && _monsterData != null && _monsterData.attackSpeed > 0f)
+        {
+            float attackSpeedRatio = currentAttackSpeed / _monsterData.attackSpeed;
+            animator.SetFloat(attackSpeedParam, attackSpeedRatio);
         }
 
         animator.ResetTrigger(attackTriggerParam);

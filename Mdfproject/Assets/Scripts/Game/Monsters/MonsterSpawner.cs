@@ -439,15 +439,29 @@ public class MonsterSpawner : MonoBehaviour
         Monster monster = monsterGO.GetComponent<Monster>();
         if (monster == null) return null;
 
-        // 지상 몬스터의 경우 높이 조정 (Collider bounds 기반)
+        // 지상 몬스터의 경우 높이 조정 (BoxCollider 밑면이 스폰포인트에 닿도록)
         if (monsterData.monsterType != MonsterType.Flying)
         {
-            Collider col = monsterGO.GetComponent<Collider>();
-            if (col != null)
+            BoxCollider boxCol = monsterGO.GetComponent<BoxCollider>();
+            if (boxCol != null)
             {
+                // BoxCollider의 로컬 밑면 오프셋: center.y - size.y/2
+                // 밑면을 스폰포인트에 맞추려면 이 값을 빼줘야 함
+                float localBottomY = boxCol.center.y - boxCol.size.y * 0.5f;
                 Vector3 pos = monsterGO.transform.position;
-                pos.y = spawnPoint.position.y + col.bounds.extents.y;
+                pos.y = spawnPoint.position.y - localBottomY * monsterGO.transform.localScale.y;
                 monsterGO.transform.position = pos;
+            }
+            else
+            {
+                // BoxCollider가 없으면 일반 Collider 사용 (폴백)
+                Collider col = monsterGO.GetComponent<Collider>();
+                if (col != null)
+                {
+                    Vector3 pos = monsterGO.transform.position;
+                    pos.y = spawnPoint.position.y + col.bounds.extents.y;
+                    monsterGO.transform.position = pos;
+                }
             }
         }
 
