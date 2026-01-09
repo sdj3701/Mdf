@@ -51,7 +51,7 @@ MonoBehaviour:
   _singlePlayerModeCount: 0
   localPlayer: {fileID: 0}
   player1BasePosition: {x: 0, y: 0, z: 0}
-  playerOffset: {x: 0, y: 0, z: -10}
+  playerOffset: {x: 0, y: 0, z: -12}
   firstPreparePhaseTime: 35
   preparePhaseTime: 20
   combatTime: 20

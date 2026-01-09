@@ -382,7 +382,7 @@ MonoBehaviour:
   sellPenalty: 1
   gridOrigin: {x: 0, y: 0, z: 0}
   cellSize: 1
-  gridSize: {x: 8, y: 7}
+  gridSize: {x: 10, y: 9}
   deriveGridFromGroundBounds: 0
   groundYOffset: 0
   wallYOffset: 1

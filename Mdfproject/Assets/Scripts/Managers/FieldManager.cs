@@ -76,7 +76,7 @@ public class FieldManager : MonoBehaviour
     public float cellSize = 1f;
 
     [Tooltip("그리드 크기 (X, Z 칸 수) - x는 3D의 X, y는 3D의 Z를 의미")]
-    public Vector2Int gridSize = new Vector2Int(10, 8);
+    public Vector2Int gridSize = new Vector2Int(10, 9);
 
     [Tooltip("Ground Renderer의 Bounds로부터 그리드 Origin/Size를 자동 유도합니다. 끄면 인스펙터 설정값을 그대로 사용합니다.")]
     public bool deriveGridFromGroundBounds = false;
@@ -842,7 +842,7 @@ public class FieldManager : MonoBehaviour
 
 
 
-    // 영구(파괴 불가) 벽 생성
+    // 영구(파괴 불가) 벽 생성 - 테두리에 배치 (동서남북 가운데는 뚫려있음)
     private async void GeneratePermanentWallsIfNeeded()
     {
         if (permanentWallsGenerated) return;
@@ -855,8 +855,6 @@ public class FieldManager : MonoBehaviour
             // 클라이언트는 서버의 RPC를 통해 동기화 대기
             return;
         }
-
-        if (initialPermanentWallCount <= 0) { permanentWallsGenerated = true; return; }
 
         // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
         GameObject prefab = permanentWallPrefab;
@@ -876,41 +874,48 @@ public class FieldManager : MonoBehaviour
         Vector3Int spawnCell = WorldToGridInt(playerManager.spawnPoint != null ? playerManager.spawnPoint.position : Vector3.zero);
         Vector3Int goalCell = WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero);
 
-        // 후보 셀 수집
-        List<Vector3Int> candidates = new List<Vector3Int>();
-        for (int y = 0; y < gridSize.y; y++)
+        // 테두리 벽 좌표 수집 (동서남북 가운데는 뚫려있음)
+        List<Vector3Int> selected = new List<Vector3Int>();
+        int centerX = gridSize.x / 2; // 좌우(동서) 가운데
+        int centerY = gridSize.y / 2; // 상하(남북) 가운데
+
+        for (int x = 0; x < gridSize.x; x++)
         {
-            for (int x = 0; x < gridSize.x; x++)
+            for (int y = 0; y < gridSize.y; y++)
             {
+                // 테두리인지 확인
+                bool isLeftEdge = (x == 0);
+                bool isRightEdge = (x == gridSize.x - 1);
+                bool isBottomEdge = (y == 0);
+                bool isTopEdge = (y == gridSize.y - 1);
+
+                if (!isLeftEdge && !isRightEdge && !isBottomEdge && !isTopEdge)
+                    continue; // 테두리가 아니면 스킵
+
+                // 동서남북 가운데 뚫린 부분 확인
+                // 북(상단)과 남(하단)의 가운데: x == centerX
+                // 동(오른쪽)과 서(왼쪽)의 가운데: y == centerY
+                bool isNorthGap = isTopEdge && (x == centerX);
+                bool isSouthGap = isBottomEdge && (x == centerX);
+                bool isEastGap = isRightEdge && (y == centerY);
+                bool isWestGap = isLeftEdge && (y == centerY);
+
+                if (isNorthGap || isSouthGap || isEastGap || isWestGap)
+                    continue; // 동서남북 가운데는 뚫려있음
+
                 var cell = new Vector3Int(x, y, 0);
                 if (!IsValidGridPosition(cell)) continue;
                 if (cell == spawnCell || cell == goalCell) continue; // 스폰/도착지 제외
                 if (HasWallAt(cell)) continue; // 기존 벽 제외
                 if (IsUnitAt(cell)) continue; // 유닛이 있는 칸 제외
-                candidates.Add(cell);
+
+                selected.Add(cell);
+                CreatePermanentWallAt(cell, prefab);
             }
         }
 
-        if (candidates.Count == 0)
-        {
-            Debug.LogWarning($"[FieldManager] No valid cells found for permanent walls (Player={playerManager?.playerId}).");
-            permanentWallsGenerated = true;
-            return;
-        }
-
-        int toPlace = Mathf.Min(initialPermanentWallCount, candidates.Count);
-        List<Vector3Int> selected = new List<Vector3Int>(toPlace);
-        for (int i = 0; i < toPlace; i++)
-        {
-            int idx = UnityEngine.Random.Range(0, candidates.Count);
-            var pos = candidates[idx];
-            candidates.RemoveAt(idx);
-            selected.Add(pos);
-            CreatePermanentWallAt(pos, prefab); // 서버/오프라인에서만 실제 배치
-        }
-
         // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트하여 동일 위치에 생성
-        if (runner != null && runner.IsRunning && runner.IsServer && playerManager != null)
+        if (runner != null && runner.IsRunning && runner.IsServer && playerManager != null && selected.Count > 0)
         {
             int[] flat = new int[selected.Count * 2];
             for (int i = 0; i < selected.Count; i++)
