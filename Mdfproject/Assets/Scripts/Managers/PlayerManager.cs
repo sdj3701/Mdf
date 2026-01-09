@@ -186,14 +186,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
-        this.spawnPoint = gridInstance.transform.Find("SpawnPoint");
-        this.goalTransform = gridInstance.transform.Find("Goal");
 
         // 각 컴포넌트/오브젝트를 찾았는지 확인하는 로그
         Debug.Log($"[Player {playerId}]: 3D Ground 찾음? -> {(ground3D != null)}");
         Debug.Log($"[Player {playerId}]: AstarGrid 찾음? -> {(this.astarGrid != null)}");
-        Debug.Log($"[Player {playerId}]: SpawnPoint 찾음? -> {(this.spawnPoint != null)}");
-        Debug.Log($"[Player {playerId}]: Goal 찾음? -> {(this.goalTransform != null)}");
 
         // AstarGrid 초기화는 FieldManager 초기화 이후에 수행하여 3D 그리드 정보를 공유합니다.
 
@@ -211,6 +207,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 Debug.LogError($"[Player {playerId}]: FieldManager 초기화 실패 - Ground 오브젝트를 찾을 수 없습니다!");
             }
         }
+
+        // FieldManager 초기화 후 스폰/골 위치를 동적으로 설정
+        // - 골: 필드 정 가운데 그리드
+        // - 스폰: 동서남북 테두리 구멍 4곳 중 랜덤
+        SetupSpawnAndGoalPositions(gridInstance);
+        Debug.Log($"[Player {playerId}]: SpawnPoint 위치 -> {(this.spawnPoint != null ? this.spawnPoint.position.ToString() : "null")}");
+        Debug.Log($"[Player {playerId}]: Goal 위치 -> {(this.goalTransform != null ? this.goalTransform.position.ToString() : "null")}");
 
         // 이제 FieldManager가 준비되었으므로 AstarGrid를 FieldManager와 동기화하여 초기화합니다.
         if (this.astarGrid != null)
@@ -773,6 +776,83 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 Gizmos.DrawLine(from, to);
             }
         }
+    }
+
+    #endregion
+
+    #region Spawn/Goal 위치 설정
+
+    /// <summary>
+    /// 스폰 위치와 골 위치를 동적으로 설정합니다.
+    /// - 골: 필드 정 가운데 그리드
+    /// - 스폰: 동서남북 테두리 구멍 4곳 중 랜덤
+    /// </summary>
+    private void SetupSpawnAndGoalPositions(GameObject gridInstance)
+    {
+        // FieldManager에서 gridSize와 gridOrigin을 가져옴
+        Vector2Int gridSize = fieldManager != null ? fieldManager.gridSize : new Vector2Int(10, 9);
+        Vector3 gridOrigin = fieldManager != null ? fieldManager.gridOrigin : Vector3.zero;
+        float cellSize = fieldManager != null ? fieldManager.cellSize : 1f;
+
+        // 골 위치: 필드 정 가운데 그리드
+        int centerX = gridSize.x / 2;
+        int centerY = gridSize.y / 2;
+        Vector3 goalWorldPos = new Vector3(
+            gridOrigin.x + (centerX + 0.5f) * cellSize,
+            gridOrigin.y,
+            gridOrigin.z + (centerY + 0.5f) * cellSize
+        );
+
+        // 스폰 위치: 동서남북 테두리 구멍 4곳 중 랜덤
+        // 테두리 구멍 위치들 (FieldManager.GeneratePermanentWallsIfNeeded와 동일한 로직)
+        List<Vector2Int> gapPositions = new List<Vector2Int>
+        {
+            new Vector2Int(centerX, gridSize.y - 1), // 북 (상단 가운데)
+            new Vector2Int(centerX, 0),               // 남 (하단 가운데)
+            new Vector2Int(gridSize.x - 1, centerY), // 동 (오른쪽 가운데)
+            new Vector2Int(0, centerY)                // 서 (왼쪽 가운데)
+        };
+
+        // 랜덤으로 하나 선택
+        Vector2Int spawnGridPos = gapPositions[UnityEngine.Random.Range(0, gapPositions.Count)];
+        Vector3 spawnWorldPos = new Vector3(
+            gridOrigin.x + (spawnGridPos.x + 0.5f) * cellSize,
+            gridOrigin.y,
+            gridOrigin.z + (spawnGridPos.y + 0.5f) * cellSize
+        );
+
+        // 기존 SpawnPoint/Goal 오브젝트를 찾아보고, 없으면 새로 생성
+        Transform existingSpawn = gridInstance.transform.Find("SpawnPoint");
+        Transform existingGoal = gridInstance.transform.Find("Goal");
+
+        if (existingSpawn != null)
+        {
+            existingSpawn.position = spawnWorldPos;
+            this.spawnPoint = existingSpawn;
+        }
+        else
+        {
+            GameObject spawnGO = new GameObject("SpawnPoint");
+            spawnGO.transform.SetParent(gridInstance.transform);
+            spawnGO.transform.position = spawnWorldPos;
+            this.spawnPoint = spawnGO.transform;
+        }
+
+        if (existingGoal != null)
+        {
+            existingGoal.position = goalWorldPos;
+            this.goalTransform = existingGoal;
+        }
+        else
+        {
+            GameObject goalGO = new GameObject("Goal");
+            goalGO.transform.SetParent(gridInstance.transform);
+            goalGO.transform.position = goalWorldPos;
+            this.goalTransform = goalGO.transform;
+        }
+
+        Debug.Log($"[Player {playerId}]: 스폰 위치 설정 -> 그리드({spawnGridPos.x}, {spawnGridPos.y}), 월드{spawnWorldPos}");
+        Debug.Log($"[Player {playerId}]: 골 위치 설정 -> 그리드({centerX}, {centerY}), 월드{goalWorldPos}");
     }
 
     #endregion

@@ -99,7 +99,6 @@ public class GameManagers : NetworkBehaviour
     private GameObject localPlayerShopUIGameObject;
     private AugmentUIController augmentSelectionUI;
     private bool _isSpawned;
-    private readonly HashSet<int> _spawnGoalRandomized = new HashSet<int>();
 
     private bool hasCombatBeenShortened = false;
     private bool firstPrepareDurationUsed = false;
@@ -610,12 +609,8 @@ public class GameManagers : NetworkBehaviour
             player.mazeConstructionComplete = false;
             player.unitPurchaseComplete = false;
 
-            // 스폰/도착 지점은 게임 시작 시 1회만 랜덤 지정
-            if (!_spawnGoalRandomized.Contains(player.playerId) && player.fieldManager != null)
-            {
-                MazePlanner.RandomizeSpawnAndGoal(player.fieldManager, player);
-                _spawnGoalRandomized.Add(player.playerId);
-            }
+            // 스폰/도착 지점은 이제 PlayerManager.SetupSpawnAndGoalPositions에서 초기화 시 고정 설정됨
+            // (도착: 필드 정 가운데, 스폰: 동서남북 테두리 구멍 중 랜덤)
             
             // 증강 생성 및 동기화 (한 루프에서 처리)
             player.augmentManager.PresentAugments();

@@ -391,6 +391,13 @@ MonoBehaviour:
   dragPickMaxScreenDistance: 80
   useWorldDistanceFallback: 0
   clickPickMaxWorldDistance: 0.4
+  showGridDebug: 1
+  gridLineColor: {r: 0.3584906, g: 0.3567996, b: 0.3567996, a: 0.5}
+  borderLineColor: {r: 1, g: 0.5, b: 0, a: 0.56078434}
+  spawnGoalColor: {r: 0, g: 1, b: 0, a: 0.21176471}
+  goalColor: {r: 1, g: 0, b: 0, a: 0}
+  gridLineYOffset: 0.01
+  gridLineWidth: 0.02
 --- !u!114 &5614185707629608620
 MonoBehaviour:
   m_ObjectHideFlags: 0
