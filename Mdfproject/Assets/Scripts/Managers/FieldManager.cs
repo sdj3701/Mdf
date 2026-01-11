@@ -848,7 +848,7 @@ public class FieldManager : MonoBehaviour
 
 
 
-    // 영구(파괴 불가) 벽 생성 - 테두리에 배치 (동서남북 가운데는 뚫려있음)
+    // 영구(파괴 불가) 벽 생성 - 테두리 + 필드 내부 랜덤
     private async void GeneratePermanentWallsIfNeeded()
     {
         if (permanentWallsGenerated) return;
@@ -880,16 +880,15 @@ public class FieldManager : MonoBehaviour
         Vector3Int spawnCell = WorldToGridInt(playerManager.spawnPoint != null ? playerManager.spawnPoint.position : Vector3.zero);
         Vector3Int goalCell = WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero);
 
-        // 테두리 벽 좌표 수집 (동서남북 가운데는 뚫려있음)
         List<Vector3Int> selected = new List<Vector3Int>();
-        int centerX = gridSize.x / 2; // 좌우(동서) 가운데
-        int centerY = gridSize.y / 2; // 상하(남북) 가운데
+        int centerX = gridSize.x / 2;
+        int centerY = gridSize.y / 2;
 
+        // === 1. 테두리 벽 생성 (동서남북 가운데는 뚫려있음) ===
         for (int x = 0; x < gridSize.x; x++)
         {
             for (int y = 0; y < gridSize.y; y++)
             {
-                // 테두리인지 확인
                 bool isLeftEdge = (x == 0);
                 bool isRightEdge = (x == gridSize.x - 1);
                 bool isBottomEdge = (y == 0);
@@ -899,8 +898,6 @@ public class FieldManager : MonoBehaviour
                     continue; // 테두리가 아니면 스킵
 
                 // 동서남북 가운데 뚫린 부분 확인
-                // 북(상단)과 남(하단)의 가운데: x == centerX
-                // 동(오른쪽)과 서(왼쪽)의 가운데: y == centerY
                 bool isNorthGap = isTopEdge && (x == centerX);
                 bool isSouthGap = isBottomEdge && (x == centerX);
                 bool isEastGap = isRightEdge && (y == centerY);
@@ -911,13 +908,46 @@ public class FieldManager : MonoBehaviour
 
                 var cell = new Vector3Int(x, y, 0);
                 if (!IsValidGridPosition(cell)) continue;
-                if (cell == spawnCell || cell == goalCell) continue; // 스폰/도착지 제외
-                if (HasWallAt(cell)) continue; // 기존 벽 제외
-                if (IsUnitAt(cell)) continue; // 유닛이 있는 칸 제외
+                if (cell == spawnCell || cell == goalCell) continue;
+                if (HasWallAt(cell)) continue;
+                if (IsUnitAt(cell)) continue;
 
                 selected.Add(cell);
                 CreatePermanentWallAt(cell, prefab);
             }
+        }
+
+        // === 2. 필드 내부 랜덤 고정벽 생성 ===
+        if (initialPermanentWallCount > 0)
+        {
+            // 배치 가능한 내부 셀 수집 (테두리 제외)
+            List<Vector3Int> interiorCandidates = new List<Vector3Int>();
+            for (int x = 1; x < gridSize.x - 1; x++)
+            {
+                for (int y = 1; y < gridSize.y - 1; y++)
+                {
+                    var cell = new Vector3Int(x, y, 0);
+                    if (!IsValidGridPosition(cell)) continue;
+                    if (cell == spawnCell || cell == goalCell) continue;
+                    if (HasWallAt(cell)) continue;
+                    if (IsUnitAt(cell)) continue;
+                    // 골 주변 1칸은 제외 (경로 확보)
+                    if (Mathf.Abs(cell.x - goalCell.x) <= 1 && Mathf.Abs(cell.y - goalCell.y) <= 1) continue;
+                    interiorCandidates.Add(cell);
+                }
+            }
+
+            // 랜덤 셔플 후 지정된 개수만큼 선택
+            ShuffleList(interiorCandidates);
+            int countToPlace = Mathf.Min(initialPermanentWallCount, interiorCandidates.Count);
+            for (int i = 0; i < countToPlace; i++)
+            {
+                var cell = interiorCandidates[i];
+                selected.Add(cell);
+                CreatePermanentWallAt(cell, prefab);
+            }
+
+            Debug.Log($"[FieldManager] 필드 내부 랜덤 고정벽 {countToPlace}개 생성 완료");
         }
 
         // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트하여 동일 위치에 생성
@@ -933,6 +963,20 @@ public class FieldManager : MonoBehaviour
         }
 
         permanentWallsGenerated = true;
+    }
+
+    /// <summary>
+    /// 리스트를 랜덤하게 섞습니다.
+    /// </summary>
+    private void ShuffleList<T>(List<T> list)
+    {
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int j = UnityEngine.Random.Range(0, i + 1);
+            T temp = list[i];
+            list[i] = list[j];
+            list[j] = temp;
+        }
     }
 
     /// <summary>
