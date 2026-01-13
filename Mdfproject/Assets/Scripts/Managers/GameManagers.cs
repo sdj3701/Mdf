@@ -889,11 +889,14 @@ public class GameManagers : NetworkBehaviour
                             attackSeqMgr.StartAttackSequence(opponent);
                         }
                         
-                        // 카메라를 상대 필드로 이동
+                        // 카메라를 상대 필드로 이동 (공격 모드 - 더 멀리, 위에서 조망)
                         if (CameraManager.Instance != null && opponent != null)
                         {
-                            CameraManager.Instance.MoveToPlayerField(opponent).Forget();
+                            CameraManager.Instance.MoveToPlayerField(opponent, isAttackMode: true).Forget();
                         }
+                        
+                        // 공격 시퀀스 UI 표시
+                        AttackSequenceUIController.Instance?.Show(true);
                         
                         Debug.Log($"<color=green>[StartBattle] Player {player.playerId}: 공격자 (수동 소환 모드, 상대: Player {opponentId})</color>");
                     }
@@ -913,6 +916,9 @@ public class GameManagers : NetworkBehaviour
                         {
                             attackSeqMgr.EndAttackSequence();
                         }
+                        
+                        // 공격 시퀀스 UI 숨김
+                        AttackSequenceUIController.Instance?.Hide();
                         
                         // 카메라 본인 필드 복귀
                         if (CameraManager.Instance != null)
