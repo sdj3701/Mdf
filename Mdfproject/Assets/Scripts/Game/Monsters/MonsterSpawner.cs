@@ -651,10 +651,10 @@ public class MonsterSpawner : MonoBehaviour
             );
         }
 
-        // 경로 설정 (스폰 위치 → 상대 목표)
-        Vector3 clampedSpawn = targetGrid.ClampToGrid(spawnPosition);
+        // 경로 설정: 가장 가까운 그리드 테두리 셀 → 상대 목표
+        // (몬스터는 spawnPosition에서 시작하지만, 경로는 그리드 내에서 계산)
+        Vector2Int startPos = GetNearestGridCell(targetFieldManager, spawnPosition);
         Vector3 clampedGoal = targetGrid.ClampToGrid(targetGoal.position);
-        Vector2Int startPos = targetGrid.WorldToCell(clampedSpawn);
         Vector2Int endPos = targetGrid.WorldToCell(clampedGoal);
 
         if (targetGrid.FindPath(startPos, endPos))
@@ -668,12 +668,60 @@ public class MonsterSpawner : MonoBehaviour
             return null;
         }
 
-        Debug.Log($"<color=green>[MonsterSpawner] 수동 소환: {monsterData.monsterName} at {spawnPosition}</color>");
+        Debug.Log($"<color=green>[MonsterSpawner] 수동 소환: {monsterData.monsterName} at {spawnPosition}, 경로 시작: {startPos}</color>");
         return monster;
+    }
+
+    /// <summary>
+    /// 월드 좌표에서 가장 가까운 유효한 그리드 셀을 반환합니다.
+    /// 그리드 바깥이면 가장 가까운 테두리 셀을 반환합니다.
+    /// </summary>
+    private Vector2Int GetNearestGridCell(FieldManager fieldManager, Vector3 worldPosition)
+    {
+        Vector3 gridOrigin = fieldManager.gridOrigin;
+        float cellSize = fieldManager.cellSize;
+        Vector2Int gridSize = fieldManager.gridSize;
+
+        // 클램핑 없이 원시 그리드 좌표 계산
+        int rawX = Mathf.FloorToInt((worldPosition.x - gridOrigin.x) / cellSize);
+        int rawY = Mathf.FloorToInt((worldPosition.z - gridOrigin.z) / cellSize);
+
+        // 그리드 범위로 클램프 (테두리 셀)
+        int clampedX = Mathf.Clamp(rawX, 0, gridSize.x - 1);
+        int clampedY = Mathf.Clamp(rawY, 0, gridSize.y - 1);
+
+        return new Vector2Int(clampedX, clampedY);
     }
 
     #endregion
 
+    #region 상태 확인
+    /// <summary>
+    /// 필드에 생존한 몬스터가 있는지 확인합니다.
+    /// </summary>
+    public bool HasLivingMonsters()
+    {
+        if (monsterParent == null) return false;
+        
+        foreach (Transform child in monsterParent)
+        {
+            if (child == null) continue;
+            if (!child.TryGetComponent<Monster>(out var monster)) continue;
+            
+            // NetworkObject가 유효한 상태인지 확인 (Despawn된 몬스터 건너뛰기)
+            if (monster.Object == null || !monster.Object.IsValid) continue;
+            
+            // HP가 0보다 크면 생존 몬스터
+            if (monster.NetworkedHP > 0)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    #endregion
+
+    #region 전투 종료 처리
     /// <summary>
     /// 전투 페이즈 종료 시 필드에 남은 몬스터를 정리합니다.
     /// - 일반 몬스터: 즉시 제거 (유저 HP 차감 없음)
@@ -714,6 +762,7 @@ public class MonsterSpawner : MonoBehaviour
         
         Debug.Log($"<color=yellow>[MonsterSpawner] 전투 종료 정리: {monstersToRemove.Count}마리 처리 (Player {_playerManager?.playerId})</color>");
     }
+    #endregion
 
     /// <summary>
     /// 필드의 모든 몬스터에 폭주 모드를 적용합니다.

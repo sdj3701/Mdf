@@ -193,26 +193,27 @@ public class GameManagers : NetworkBehaviour
                     break;
             }
         }
-        // 전투 단축: 공격자와 수비자 모두 전투 종료 시
+        // 전투 단축: 모든 플레이어의 전투가 끝났을 때 남은 시간을 3초로
         else if ((currentState == GameState.Battle1 || currentState == GameState.Battle2) && !hasCombatBeenShortened)
         {
-            // 해당 전투에 참여하는 플레이어들만 체크
             bool allFinished = true;
             foreach (var player in AllPlayers)
             {
                 if (player == null) continue;
                 
-                // 아직 전투 중인 플레이어가 있으면 종료 아님
-                if (player.IsActivelyFighting)
+                // 개별 플레이어의 전투 종료 조건:
+                // 1. 필드 위에 생존한 몬스터가 없음
+                // 2. 공격자인 경우, 소환할 몬스터 목록도 없음
+                
+                // 필드에 생존 몬스터가 있으면 전투 진행 중
+                if (player.monsterSpawner != null && player.monsterSpawner.HasLivingMonsters())
                 {
                     allFinished = false;
                     break;
                 }
                 
-                // 유저 공격자가 수동 소환 대기 중이면 종료 아님
-                // (아직 몬스터를 다 소환하지 않은 상태)
+                // 공격자이고 소환 가능한 몬스터 풀이 남아있으면 전투 진행 중
                 if (player.IsAttackerInCurrentBattle && 
-                    player.Object.HasInputAuthority && 
                     player.AttackMonsterPool != null && 
                     player.AttackMonsterPool.Exists(p => !p.IsEmpty))
                 {
@@ -225,6 +226,7 @@ public class GameManagers : NetworkBehaviour
             {
                 phaseTimer = TickTimer.CreateFromSeconds(Runner, 3f);
                 hasCombatBeenShortened = true;
+                Debug.Log("<color=cyan>[GameManagers] 모든 플레이어 전투 종료 - 빠른 진행 (3초)</color>");
             }
         }
         

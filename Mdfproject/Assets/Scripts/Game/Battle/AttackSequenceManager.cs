@@ -213,33 +213,31 @@ public class AttackSequenceManager : MonoBehaviour
     /// <summary>
     /// 주어진 위치가 스폰 가능 영역인지 확인합니다.
     /// 공격자는 상대 필드의 그리드 **바깥** 영역에서만 소환 가능합니다.
-    /// (그리드 안쪽은 전부 소환 불가)
-    /// 
-    /// 사용법: 
-    /// 1. 필드 프리팹에 그리드보다 큰 SpawnArea 콜라이더를 추가하고 Ground보다 아래에 배치
-    /// 2. SpawnArea 레이어 생성 후 spawnAreaLayerMask에 설정
-    /// 3. Ground가 위에 있어서 그리드 안쪽 클릭 시 SpawnArea에 레이캐스트가 안 맞음
     /// </summary>
     private bool IsValidSpawnZone(Vector3 worldPosition)
     {
         if (_opponentFieldManager == null) return false;
 
-        // 상대 필드의 그리드 좌표로 변환
-        Vector2Int gridPos = _opponentFieldManager.WorldToGrid(worldPosition);
+        // 클램핑 없이 직접 그리드 좌표 계산 (FieldManager.WorldToGrid는 클램핑되어 있음)
+        Vector3 gridOrigin = _opponentFieldManager.gridOrigin;
+        float cellSize = _opponentFieldManager.cellSize;
         Vector2Int gridSize = _opponentFieldManager.gridSize;
 
+        int rawGridX = Mathf.FloorToInt((worldPosition.x - gridOrigin.x) / cellSize);
+        int rawGridY = Mathf.FloorToInt((worldPosition.z - gridOrigin.z) / cellSize);
+
         // 그리드 **안쪽**이면 소환 불가 (그리드 바깥만 허용)
-        bool isInsideGrid = gridPos.x >= 0 && gridPos.x < gridSize.x &&
-                            gridPos.y >= 0 && gridPos.y < gridSize.y;
+        bool isInsideGrid = rawGridX >= 0 && rawGridX < gridSize.x &&
+                            rawGridY >= 0 && rawGridY < gridSize.y;
 
         if (isInsideGrid)
         {
-            Debug.Log($"[AttackSequenceManager] 그리드 안쪽 위치 (소환 불가): {gridPos}");
+            Debug.Log($"[AttackSequenceManager] 그리드 안쪽 위치 (소환 불가): ({rawGridX}, {rawGridY})");
             return false;
         }
 
         // 그리드 바깥이면 소환 가능
-        Debug.Log($"[AttackSequenceManager] 그리드 바깥 위치 (소환 가능): {gridPos}");
+        Debug.Log($"[AttackSequenceManager] 그리드 바깥 위치 (소환 가능): ({rawGridX}, {rawGridY})");
         return true;
     }
     #endregion
