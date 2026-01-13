@@ -911,18 +911,18 @@ public class FieldManager : MonoBehaviour
                 if (!isLeftEdge && !isRightEdge && !isBottomEdge && !isTopEdge)
                     continue; // 테두리가 아니면 스킵
 
-                // 동서남북 가운데 뚫린 부분 확인
+                // 동서남북 가운데 뚫린 부분 확인 (스폰 포인트 입구)
                 bool isNorthGap = isTopEdge && (x == centerX);
                 bool isSouthGap = isBottomEdge && (x == centerX);
                 bool isEastGap = isRightEdge && (y == centerY);
                 bool isWestGap = isLeftEdge && (y == centerY);
 
                 if (isNorthGap || isSouthGap || isEastGap || isWestGap)
-                    continue; // 동서남북 가운데는 뚫려있음
+                    continue; // 동서남북 가운데는 뚫려있음 (몬스터 입구)
 
                 var cell = new Vector3Int(x, y, 0);
                 if (!IsValidGridPosition(cell)) continue;
-                if (cell == spawnCell || cell == goalCell) continue;
+                // 테두리는 spawnCell/goalCell 체크 없이 무조건 생성 (gap으로 이미 처리됨)
                 if (HasWallAt(cell)) continue;
                 if (IsUnitAt(cell)) continue;
 

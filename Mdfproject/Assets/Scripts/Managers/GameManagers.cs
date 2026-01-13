@@ -612,6 +612,19 @@ public class GameManagers : NetworkBehaviour
             {
                 player.monsterSpawner.OnCombatPhaseEnded();
             }
+            
+            // AttackSequenceManager 종료
+            var attackSeqMgr = player?.GetComponent<AttackSequenceManager>();
+            if (attackSeqMgr != null)
+            {
+                attackSeqMgr.EndAttackSequence();
+            }
+        }
+
+        // 로컬 플레이어 카메라 본인 필드로 복귀
+        if (CameraManager.Instance != null)
+        {
+            CameraManager.Instance.ReturnToOwnField();
         }
 
         // --- 라운드 종료 시 탈락 판정 ---
@@ -834,14 +847,46 @@ public class GameManagers : NetworkBehaviour
             {
                 if (isAttackerInThisBattle)
                 {
-                    // 공격자: 수동 소환 모드 (몬스터 풀 갱신)
+                    // 공격자 역할
                     player.RefreshAttackMonsterPool(currentRound);
                     player.SetFightingState(true);
-                    Debug.Log($"<color=green>[StartBattle] Player {player.playerId}: 공격자 (상대: Player {opponentId})</color>");
+
+                    // AI 공격자: 상대 필드에 자동 소환
+                    // 유저 공격자: 수동 소환 대기 (AttackSequenceManager에서 처리)
+                    bool isAI = !player.Object.HasInputAuthority;
+                    var opponent = AllPlayers.FirstOrDefault(p => p != null && p.playerId == opponentId);
+                    
+                    if (isAI)
+                    {
+                        // AI는 상대 필드에 기본 웨이브 자동 소환
+                        if (opponent?.monsterSpawner != null)
+                        {
+                            opponent.monsterSpawner.SpawnWaveWithoutAugments(currentRound);
+                            Debug.Log($"<color=orange>[StartBattle] AI Player {player.playerId}: 공격자 - 상대 Player {opponentId} 필드에 웨이브 자동 소환</color>");
+                        }
+                    }
+                    else
+                    {
+                        // 유저 공격자: 수동 소환 모드 시작
+                        // AttackSequenceManager 시작
+                        var attackSeqMgr = player.GetComponent<AttackSequenceManager>();
+                        if (attackSeqMgr != null && opponent != null)
+                        {
+                            attackSeqMgr.StartAttackSequence(opponent);
+                        }
+                        
+                        // 카메라를 상대 필드로 이동
+                        if (CameraManager.Instance != null && opponent != null)
+                        {
+                            CameraManager.Instance.MoveToPlayerField(opponent).Forget();
+                        }
+                        
+                        Debug.Log($"<color=green>[StartBattle] Player {player.playerId}: 공격자 (수동 소환 모드, 상대: Player {opponentId})</color>");
+                    }
                 }
                 else
                 {
-                    // 수비자: 상대가 수동 소환할 때까지 대기 (SpawnWave는 공격자가 수동으로)
+                    // 수비자: 공격자가 소환할 때까지 대기
                     player.SetFightingState(true);
                     Debug.Log($"<color=blue>[StartBattle] Player {player.playerId}: 수비자 (상대: Player {opponentId})</color>");
                 }

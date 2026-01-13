@@ -901,7 +901,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <summary>
     /// 스폰 위치와 골 위치를 동적으로 설정합니다.
     /// - 골: 필드 정 가운데 그리드
-    /// - 스폰: 동서남북 테두리 구멍 4곳 중 랜덤
+    /// - 스폰: 남쪽(하단 가운데) 고정 - AI 웨이브 소환용
+    /// 참고: 플레이어 vs 플레이어 전투에서는 공격자가 직접 위치를 선택하여 소환
     /// </summary>
     private void SetupSpawnAndGoalPositions(GameObject gridInstance)
     {
@@ -919,18 +920,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             gridOrigin.z + (centerY + 0.5f) * cellSize
         );
 
-        // 스폰 위치: 동서남북 테두리 구멍 4곳 중 랜덤
-        // 테두리 구멍 위치들 (FieldManager.GeneratePermanentWallsIfNeeded와 동일한 로직)
-        List<Vector2Int> gapPositions = new List<Vector2Int>
-        {
-            new Vector2Int(centerX, gridSize.y - 1), // 북 (상단 가운데)
-            new Vector2Int(centerX, 0),               // 남 (하단 가운데)
-            new Vector2Int(gridSize.x - 1, centerY), // 동 (오른쪽 가운데)
-            new Vector2Int(0, centerY)                // 서 (왼쪽 가운데)
-        };
-
-        // 랜덤으로 하나 선택
-        Vector2Int spawnGridPos = gapPositions[UnityEngine.Random.Range(0, gapPositions.Count)];
+        // 스폰 위치: 남쪽(하단 가운데) 고정 - AI 웨이브 소환용
+        Vector2Int spawnGridPos = new Vector2Int(centerX, 0); // 남쪽 (하단 가운데)
         Vector3 spawnWorldPos = new Vector3(
             gridOrigin.x + (spawnGridPos.x + 0.5f) * cellSize,
             gridOrigin.y,
@@ -967,7 +958,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             this.goalTransform = goalGO.transform;
         }
 
-        Debug.Log($"[Player {playerId}]: 스폰 위치 설정 -> 그리드({spawnGridPos.x}, {spawnGridPos.y}), 월드{spawnWorldPos}");
+        Debug.Log($"[Player {playerId}]: 스폰 위치 설정 -> 그리드({spawnGridPos.x}, {spawnGridPos.y}), 월드{spawnWorldPos} (남쪽 고정, AI용)");
         Debug.Log($"[Player {playerId}]: 골 위치 설정 -> 그리드({centerX}, {centerY}), 월드{goalWorldPos}");
     }
 
