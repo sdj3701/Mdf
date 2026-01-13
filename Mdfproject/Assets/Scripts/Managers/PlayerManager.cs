@@ -262,14 +262,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             CameraManager.Instance.Initialize(this);
         }
 
-        // AttackSequenceUIController 초기화 (로컬 플레이어만)
+        // AttackSequenceUIController 동적 로드 (로컬 플레이어만)
         if (Object.HasInputAuthority)
         {
-            var uiController = FindObjectOfType<AttackSequenceUIController>(true);
-            if (uiController != null)
-            {
-                uiController.Initialize(this, attackSeqMgr);
-            }
+            await AttackSequenceUIController.GetOrCreateAsync(this, attackSeqMgr);
         }
 
         IsActivelyFighting = false;

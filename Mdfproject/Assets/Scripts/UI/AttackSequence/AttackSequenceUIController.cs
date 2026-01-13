@@ -8,9 +8,62 @@ using Cysharp.Threading.Tasks;
 /// <summary>
 /// 공격 시퀀스 UI 패널을 관리하는 컨트롤러.
 /// 몬스터 풀 슬롯들을 표시하고 선택 상태를 관리합니다.
+/// UIManagers를 통해 동적으로 로드됩니다.
 /// </summary>
 public class AttackSequenceUIController : MonoBehaviour
 {
+    #region 정적 헬퍼 (동적 로드)
+    private const string UI_NAME = "UI_Pnl_AttackSequence";
+    private static AttackSequenceUIController _instance;
+    public static AttackSequenceUIController Instance => _instance;
+
+    /// <summary>
+    /// UI를 동적으로 로드하고 초기화합니다.
+    /// </summary>
+    public static async UniTask<AttackSequenceUIController> GetOrCreateAsync(PlayerManager playerManager, AttackSequenceManager attackSequenceManager)
+    {
+        if (_instance != null)
+        {
+            _instance.Initialize(playerManager, attackSequenceManager);
+            return _instance;
+        }
+
+        if (UIManagers.Instance == null)
+        {
+            Debug.LogWarning("[AttackSequenceUIController] UIManagers.Instance가 없습니다");
+            return null;
+        }
+
+        var uiObject = await UIManagers.Instance.GetUIElement(UI_NAME);
+        if (uiObject == null)
+        {
+            Debug.LogWarning($"[AttackSequenceUIController] '{UI_NAME}' UI를 로드할 수 없습니다");
+            return null;
+        }
+
+        _instance = uiObject.GetComponent<AttackSequenceUIController>();
+        if (_instance != null)
+        {
+            _instance.Initialize(playerManager, attackSequenceManager);
+        }
+
+        return _instance;
+    }
+
+    /// <summary>
+    /// UI를 반환합니다 (풀로 돌려보냄).
+    /// </summary>
+    public static void ReturnUI()
+    {
+        if (_instance != null)
+        {
+            _instance.Hide();
+            UIManagers.Instance?.ReturnUIElement(UI_NAME);
+            _instance = null;
+        }
+    }
+    #endregion
+
     #region UI 요소
     [Header("UI 참조")]
     [SerializeField] private GameObject panelRoot;
@@ -61,6 +114,12 @@ public class AttackSequenceUIController : MonoBehaviour
         _attackSequenceManager = attackSequenceManager;
         
         Debug.Log($"<color=cyan>[AttackSequenceUIController] 초기화 완료. Player {playerManager?.playerId}</color>");
+        
+        // 현재 공격자 상태면 바로 UI 표시
+        if (_playerManager != null && _playerManager.IsAttackerInCurrentBattle)
+        {
+            Show(true);
+        }
     }
 
     private void CreateSlots()

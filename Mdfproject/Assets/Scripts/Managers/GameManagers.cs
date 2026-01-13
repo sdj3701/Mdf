@@ -200,7 +200,21 @@ public class GameManagers : NetworkBehaviour
             bool allFinished = true;
             foreach (var player in AllPlayers)
             {
-                if (player != null && player.IsActivelyFighting)
+                if (player == null) continue;
+                
+                // 아직 전투 중인 플레이어가 있으면 종료 아님
+                if (player.IsActivelyFighting)
+                {
+                    allFinished = false;
+                    break;
+                }
+                
+                // 유저 공격자가 수동 소환 대기 중이면 종료 아님
+                // (아직 몬스터를 다 소환하지 않은 상태)
+                if (player.IsAttackerInCurrentBattle && 
+                    player.Object.HasInputAuthority && 
+                    player.AttackMonsterPool != null && 
+                    player.AttackMonsterPool.Exists(p => !p.IsEmpty))
                 {
                     allFinished = false;
                     break;
@@ -888,6 +902,25 @@ public class GameManagers : NetworkBehaviour
                 {
                     // 수비자: 공격자가 소환할 때까지 대기
                     player.SetFightingState(true);
+                    
+                    // 유저 수비자: 이전 공격 시퀀스 종료 및 카메라 본인 필드 복귀
+                    bool isLocalPlayer = player.Object.HasInputAuthority;
+                    if (isLocalPlayer)
+                    {
+                        // AttackSequenceManager 종료
+                        var attackSeqMgr = player.GetComponent<AttackSequenceManager>();
+                        if (attackSeqMgr != null)
+                        {
+                            attackSeqMgr.EndAttackSequence();
+                        }
+                        
+                        // 카메라 본인 필드 복귀
+                        if (CameraManager.Instance != null)
+                        {
+                            CameraManager.Instance.ReturnToOwnField();
+                        }
+                    }
+                    
                     Debug.Log($"<color=blue>[StartBattle] Player {player.playerId}: 수비자 (상대: Player {opponentId})</color>");
                 }
             }

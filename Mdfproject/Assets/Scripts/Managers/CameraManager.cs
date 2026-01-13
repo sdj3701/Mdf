@@ -34,11 +34,11 @@ public class CameraManager : MonoBehaviour
     [SerializeField] private float transitionDuration = 0.5f;
 
     [Header("필드 오프셋")]
-    [Tooltip("필드 중심에서 카메라까지의 오프셋")]
-    [SerializeField] private Vector3 cameraOffset = new Vector3(0f, 15f, -10f);
+    [Tooltip("필드 중심에서 카메라까지의 오프셋 (GetPlayerCamera와 동일하게 설정)")]
+    [SerializeField] private Vector3 cameraOffset = new Vector3(4f, 15f, -12f);
     
     [Tooltip("카메라 회전")]
-    [SerializeField] private Vector3 cameraRotation = new Vector3(60f, 0f, 0f);
+    [SerializeField] private Vector3 cameraRotation = new Vector3(45f, 0f, 0f);
 
     private PlayerManager _ownField;
     private PlayerManager _currentViewingField;
@@ -159,21 +159,15 @@ public class CameraManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 필드 중심 기준 카메라 위치 계산
+    /// 필드 기준 카메라 위치 계산 (GetPlayerCamera와 동일한 방식)
     /// </summary>
     private Vector3 GetCameraPositionForField(PlayerManager player)
     {
-        if (player?.fieldManager == null) return _originalPosition;
+        if (player == null) return _originalPosition;
 
-        // 필드의 중심 계산
-        Vector3 fieldCenter = player.fieldManager.gridOrigin + 
-            new Vector3(
-                player.fieldManager.gridSize.x * player.fieldManager.cellSize * 0.5f,
-                0f,
-                player.fieldManager.gridSize.y * player.fieldManager.cellSize * 0.5f
-            );
-
-        return fieldCenter + cameraOffset;
+        // GetPlayerCamera와 동일하게 PlayerManager의 transform.position을 기준으로 함
+        Vector3 targetPos = player.transform.position;
+        return targetPos + cameraOffset;
     }
     #endregion
 
