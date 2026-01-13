@@ -69,12 +69,15 @@ public class MonsterSpawner : MonoBehaviour
         // 서버에서만 전투 상태 업데이트 (Networked 속성은 StateAuthority만 변경 가능)
         if (_playerManager.Object == null || !_playerManager.Object.HasStateAuthority) return;
 
-        if (GameManagers.Instance.GetGameState() != GameManagers.GameState.Combat)
+        var currentState = GameManagers.Instance.GetGameState();
+        bool isInBattle = currentState == GameManagers.GameState.Battle1 || currentState == GameManagers.GameState.Battle2;
+        
+        if (!isInBattle)
         {
             if (_playerManager.IsActivelyFighting)
             {
                 _playerManager.SetFightingState(false);
-                Debug.Log($"<color=yellow>[MonsterSpawner] Player {_playerManager.playerId}: 전투 상태 비전투 (GameState != Combat)</color>");
+                Debug.Log($"<color=yellow>[MonsterSpawner] Player {_playerManager.playerId}: 전투 상태 비전투 (GameState != Battle)</color>");
             }
             return;
         }
@@ -115,6 +118,52 @@ public class MonsterSpawner : MonoBehaviour
         }
 
         StartCoroutine(SpawnAllMonstersCoroutine(round, waveData));
+    }
+
+    /// <summary>
+    /// 증강 몬스터 없이 기본 웨이브만 소환합니다. (상대 없는 플레이어의 수비 시퀀스용)
+    /// AI가 순서대로 자동 소환합니다.
+    /// </summary>
+    /// <param name="round">라운드 번호</param>
+    public void SpawnWaveWithoutAugments(int round)
+    {
+        if (_waveDatabase == null)
+        {
+            Debug.LogError("[MonsterSpawner] WaveDatabase가 설정되지 않았습니다!", this);
+            return;
+        }
+
+        RoundWaveData waveData = _waveDatabase.GetWaveForRound(round);
+        if (waveData == null)
+        {
+            Debug.LogError($"[MonsterSpawner] 라운드 {round}의 웨이브 데이터를 찾을 수 없습니다!", this);
+            return;
+        }
+
+        StartCoroutine(SpawnBaseWaveOnlyCoroutine(round, waveData));
+    }
+
+    /// <summary>
+    /// 기본 웨이브만 소환하는 코루틴 (증강 몬스터, 보스 제외)
+    /// </summary>
+    IEnumerator SpawnBaseWaveOnlyCoroutine(int round, RoundWaveData waveData)
+    {
+        if (_pathfinder == null)
+        {
+            Debug.LogError("[MonsterSpawner] AstarGrid가 연결되지 않았습니다!", this);
+            yield break;
+        }
+
+        _isSpawningWave = true;
+        _playerManager.SetFightingState(true);
+
+        int totalMonsters = waveData.GetTotalMonsterCount();
+        Debug.Log($"<color=gray>[MonsterSpawner] 라운드 {round} 기본 웨이브만 소환 (상대 없음): 총 {totalMonsters}마리</color>");
+
+        // 기본 웨이브 몬스터만 소환 (증강, 보스 제외)
+        yield return StartCoroutine(SpawnBaseWaveFromDataCoroutine(round, waveData));
+
+        _isSpawningWave = false;
     }
 
     /// <summary>
@@ -506,6 +555,124 @@ public class MonsterSpawner : MonoBehaviour
 
         return monster;
     }
+
+    #region 수동 몬스터 소환 (공격 시퀀스용)
+
+    /// <summary>
+    /// 지정 위치에 몬스터를 소환합니다. (공격 시퀀스에서 수동 소환용)
+    /// </summary>
+    /// <param name="monsterData">소환할 몬스터 데이터</param>
+    /// <param name="spawnPosition">소환 위치 (월드 좌표)</param>
+    /// <param name="targetFieldManager">대상 필드 매니저 (경로 설정용)</param>
+    public async UniTask<Monster> SpawnMonsterAtPositionAsync(MonsterData monsterData, Vector3 spawnPosition, FieldManager targetFieldManager)
+    {
+        if (monsterData == null || targetFieldManager == null)
+        {
+            Debug.LogError("[MonsterSpawner] SpawnMonsterAtPositionAsync 실패: monsterData 또는 targetFieldManager가 null");
+            return null;
+        }
+
+        // 프리팹 로드
+        if (string.IsNullOrEmpty(monsterData.monsterPrefab))
+        {
+            Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 monsterPrefab 주소가 설정되지 않았습니다!", monsterData);
+            return null;
+        }
+
+        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(monsterData.monsterPrefab);
+        if (prefab == null)
+        {
+            Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 프리팹 로드 실패!", monsterData);
+            return null;
+        }
+
+        // 지상 몬스터 높이 조정
+        Vector3 adjustedSpawnPos = spawnPosition;
+        if (monsterData.monsterType != MonsterType.Flying)
+        {
+            float groundOffset = GetGroundMonsterHeightOffset(prefab);
+            adjustedSpawnPos.y += groundOffset;
+        }
+
+        // 몬스터 생성
+        GameObject monsterGO = null;
+        var runner = _playerManager?.Runner;
+        if (runner != null && _playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
+        {
+            var spawned = runner.Spawn(netPrefab, adjustedSpawnPos, Quaternion.identity, PlayerRef.None);
+            if (spawned == null)
+            {
+                Debug.LogError($"Runner.Spawn 실패: {prefab.name}", this);
+                return null;
+            }
+            monsterGO = spawned.gameObject;
+            if (monsterParent != null)
+            {
+                monsterGO.transform.SetParent(monsterParent, true);
+            }
+        }
+        else
+        {
+            monsterGO = Instantiate(prefab, adjustedSpawnPos, Quaternion.identity, monsterParent);
+        }
+
+        Monster monster = monsterGO.GetComponent<Monster>();
+        if (monster == null) return null;
+
+        // StatusBarPrefab 설정
+        monster.statusBarPrefab = this.statusBarPrefab;
+
+        // BuffManager 자동 추가
+        if (monsterGO.GetComponent<BuffManager>() == null)
+        {
+            monsterGO.AddComponent<BuffManager>();
+        }
+
+        // 상대 필드의 목표 지점을 사용하여 초기화
+        var targetGrid = targetFieldManager.playerManager?.astarGrid;
+        var targetGoal = targetFieldManager.playerManager?.goalTransform;
+        
+        if (targetGrid == null || targetGoal == null)
+        {
+            Debug.LogError("[MonsterSpawner] 대상 필드의 AstarGrid 또는 goalTransform이 null");
+            Destroy(monsterGO);
+            return null;
+        }
+
+        // 몬스터 초기화 (상대 필드 목표 사용)
+        monster.Initialize(targetFieldManager.playerManager, targetGoal, monsterData, targetGrid);
+
+        // RPC로 클라이언트 동기화
+        if (_playerManager.Object != null)
+        {
+            monster.RPC_InitializeOnClient(
+                targetFieldManager.playerManager.Object.Id,
+                monsterData.name
+            );
+        }
+
+        // 경로 설정 (스폰 위치 → 상대 목표)
+        Vector3 clampedSpawn = targetGrid.ClampToGrid(spawnPosition);
+        Vector3 clampedGoal = targetGrid.ClampToGrid(targetGoal.position);
+        Vector2Int startPos = targetGrid.WorldToCell(clampedSpawn);
+        Vector2Int endPos = targetGrid.WorldToCell(clampedGoal);
+
+        if (targetGrid.FindPath(startPos, endPos))
+        {
+            monster.StartFollowingPath(targetGrid.FinalPath);
+        }
+        else
+        {
+            Debug.LogWarning($"[MonsterSpawner] 수동 소환 몬스터 경로 찾기 실패: {startPos} → {endPos}");
+            Destroy(monsterGO);
+            return null;
+        }
+
+        Debug.Log($"<color=green>[MonsterSpawner] 수동 소환: {monsterData.monsterName} at {spawnPosition}</color>");
+        return monster;
+    }
+
+    #endregion
 
     /// <summary>
     /// 전투 페이즈 종료 시 필드에 남은 몬스터를 정리합니다.

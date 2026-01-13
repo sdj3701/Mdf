@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: BossA
   monsterType: 0
+  monsterIcon: Spr_Port_Orc
   monsterPrefab: BossA
   attackDamage: 50
   attackSpeed: 1

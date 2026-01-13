@@ -513,7 +513,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
-        isCombatPhase = (newState == GameManagers.GameState.Combat);
+        isCombatPhase = (newState == GameManagers.GameState.Battle1 || newState == GameManagers.GameState.Battle2);
 
         if (isCombatPhase)
         {

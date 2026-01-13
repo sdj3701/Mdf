@@ -14,6 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Goblin
   monsterType: 0
+  monsterIcon: Spr_Port_Orc
   monsterPrefab: MonsterC
   attackDamage: 15
   attackSpeed: 1

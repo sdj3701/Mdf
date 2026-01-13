@@ -168,6 +168,7 @@ GameObject:
   - component: {fileID: -6962349454403488643}
   - component: {fileID: -9086820322679067216}
   - component: {fileID: 3388933188753406044}
+  - component: {fileID: -5530929583495818184}
   m_Layer: 0
   m_Name: Player_Root
   m_TagString: Untagged
@@ -230,6 +231,8 @@ MonoBehaviour:
   astarGrid: {fileID: 0}
   opponentManager: {fileID: 0}
   _IsActivelyFighting:
+    _value: 0
+  _IsAttackerInCurrentBattle:
     _value: 0
 --- !u!114 &-7495182607667504553
 MonoBehaviour:
@@ -307,6 +310,22 @@ MonoBehaviour:
   SyncParent: 0
   _autoAOIOverride: 1
   DisableSharedModeInterpolation: 0
+--- !u!114 &-5530929583495818184
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5614185707068383334}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 40659d343909c33459dd954fe9f9a00c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  holdSpawnInterval: 0.3
+  spawnAreaLayerMask:
+    serializedVersion: 2
+    m_Bits: 524288
 --- !u!1 &5614185707629608618
 GameObject:
   m_ObjectHideFlags: 0

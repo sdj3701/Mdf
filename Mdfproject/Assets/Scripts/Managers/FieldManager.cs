@@ -667,7 +667,7 @@ public class FieldManager : MonoBehaviour
             }
         }
         // [수정] 게임 상태가 전투로 변경될 때의 처리
-        else if (newState == GameManagers.GameState.Combat)
+        else if (newState == GameManagers.GameState.Battle1 || newState == GameManagers.GameState.Battle2)
         {
             // 활성화된 배치 모드(유닛, 벽 등)가 있다면 강제로 종료합니다.
             if (placementManager.GetCurrentMode() != PlacementMode.None)
@@ -878,7 +878,21 @@ public class FieldManager : MonoBehaviour
 
         // 스폰/골 목표 셀 계산 (3D)
         Vector3Int spawnCell = WorldToGridInt(playerManager.spawnPoint != null ? playerManager.spawnPoint.position : Vector3.zero);
-        Vector3Int goalCell = WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero);
+        
+        // goalTransform이 null이면 필드 중앙 사용
+        Vector3Int goalCell;
+        if (playerManager.goalTransform != null)
+        {
+            goalCell = WorldToGridInt(playerManager.goalTransform.position);
+        }
+        else
+        {
+            // 폴백: 필드 중앙
+            goalCell = new Vector3Int(gridSize.x / 2, gridSize.y / 2, 0);
+            Debug.LogWarning($"[FieldManager] goalTransform이 null입니다. 필드 중앙 {goalCell}을 사용합니다.");
+        }
+
+        Debug.Log($"[FieldManager] 영구벽 생성 - spawnCell: {spawnCell}, goalCell: {goalCell}");
 
         List<Vector3Int> selected = new List<Vector3Int>();
         int centerX = gridSize.x / 2;
@@ -920,6 +934,16 @@ public class FieldManager : MonoBehaviour
         // === 2. 필드 내부 랜덤 고정벽 생성 ===
         if (initialPermanentWallCount > 0)
         {
+            // 골 주변 상하좌우 4칸 (진입 경로로 반드시 1개 이상 열려있어야 함)
+            Vector3Int[] goalAdjacentCells = new Vector3Int[]
+            {
+                new Vector3Int(goalCell.x - 1, goalCell.y, 0),
+                new Vector3Int(goalCell.x + 1, goalCell.y, 0),
+                new Vector3Int(goalCell.x, goalCell.y - 1, 0),
+                new Vector3Int(goalCell.x, goalCell.y + 1, 0)
+            };
+            HashSet<Vector3Int> goalAdjacentSet = new HashSet<Vector3Int>(goalAdjacentCells);
+
             // 배치 가능한 내부 셀 수집 (테두리 제외)
             List<Vector3Int> interiorCandidates = new List<Vector3Int>();
             for (int x = 1; x < gridSize.x - 1; x++)
@@ -928,26 +952,49 @@ public class FieldManager : MonoBehaviour
                 {
                     var cell = new Vector3Int(x, y, 0);
                     if (!IsValidGridPosition(cell)) continue;
+                    // 스폰과 골 위치는 절대 배치 불가
                     if (cell == spawnCell || cell == goalCell) continue;
                     if (HasWallAt(cell)) continue;
                     if (IsUnitAt(cell)) continue;
-                    // 골 주변 1칸은 제외 (경로 확보)
-                    if (Mathf.Abs(cell.x - goalCell.x) <= 1 && Mathf.Abs(cell.y - goalCell.y) <= 1) continue;
                     interiorCandidates.Add(cell);
                 }
             }
 
-            // 랜덤 셔플 후 지정된 개수만큼 선택
+            // 랜덤 셔플
             ShuffleList(interiorCandidates);
-            int countToPlace = Mathf.Min(initialPermanentWallCount, interiorCandidates.Count);
-            for (int i = 0; i < countToPlace; i++)
+
+            // 벽 배치 (상하좌우 완전 차단 방지 로직 포함)
+            int placedCount = 0;
+            foreach (var cell in interiorCandidates)
             {
-                var cell = interiorCandidates[i];
+                if (placedCount >= initialPermanentWallCount) break;
+
+                // 이 셀이 골 인접 4칸 중 하나라면, 배치 후 남은 열린 인접 칸이 1개 이상인지 확인
+                if (goalAdjacentSet.Contains(cell))
+                {
+                    // 현재 열린 인접 칸 수 계산 (이미 selected에 추가된 것도 벽으로 간주)
+                    int openAdjacentCount = 0;
+                    foreach (var adj in goalAdjacentCells)
+                    {
+                        if (!IsValidGridPosition(adj)) continue;
+                        bool isBlocked = HasWallAt(adj) || selected.Contains(adj) || adj == cell;
+                        if (!isBlocked) openAdjacentCount++;
+                    }
+
+                    // 배치하면 열린 인접 칸이 0개가 되는 경우 스킵
+                    if (openAdjacentCount < 1)
+                    {
+                        Debug.Log($"[FieldManager] 골 인접 셀 {cell} 스킵 - 완전 차단 방지");
+                        continue;
+                    }
+                }
+
                 selected.Add(cell);
                 CreatePermanentWallAt(cell, prefab);
+                placedCount++;
             }
 
-            Debug.Log($"[FieldManager] 필드 내부 랜덤 고정벽 {countToPlace}개 생성 완료");
+            Debug.Log($"[FieldManager] 필드 내부 랜덤 고정벽 {placedCount}개 생성 완료");
         }
 
         // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트하여 동일 위치에 생성
@@ -2156,7 +2203,10 @@ public class FieldManager : MonoBehaviour
             return;
         }
         var gameState = GameManagers.Instance.GetGameState();
-        if (gameState != GameManagers.GameState.Prepare && gameState != GameManagers.GameState.Combat) return;
+        bool isActiveGameState = gameState == GameManagers.GameState.Prepare 
+            || gameState == GameManagers.GameState.Battle1 
+            || gameState == GameManagers.GameState.Battle2;
+        if (!isActiveGameState) return;
 
         if (playerCamera == null)
         {

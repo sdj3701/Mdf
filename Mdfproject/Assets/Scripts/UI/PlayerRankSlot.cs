@@ -3,6 +3,7 @@
  using UnityEngine.UI;
  using TMPro;
  using Fusion;
+ using Cysharp.Threading.Tasks;
 
  /// <summary>
  /// 개별 플레이어 랭킹 UI 슬롯의 표시를 관리하는 클래스입니다.
@@ -391,6 +392,9 @@
          string logPlayerId = (trackedPlayer != null && trackedPlayer.HasStateAuthority) ? trackedPlayer.playerId.ToString() : "Unknown";
          Debug.Log($"PlayerRankSlot for Player {logPlayerId} activated. Active: {gameObject.activeInHierarchy}");
 
+         // 클릭 이벤트 설정 (카메라 이동용)
+         SetupClickHandler();
+
          // 강제 레이아웃/캔버스 업데이트로 UI가 즉시 보이도록 합니다.
          Canvas.ForceUpdateCanvases();
          var rect = GetComponent<RectTransform>();
@@ -398,6 +402,52 @@
          {
              LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
              Debug.Log($"PlayerRankSlot: Forced layout rebuild for '{gameObject.name}'.");
+         }
+     }
+
+     /// <summary>
+     /// 클릭 핸들러를 설정합니다. 슬롯 클릭 시 해당 플레이어의 필드로 카메라 이동.
+     /// </summary>
+     private void SetupClickHandler()
+     {
+         // Button 컴포넌트가 없으면 추가
+         var button = GetComponent<Button>();
+         if (button == null)
+         {
+             button = gameObject.AddComponent<Button>();
+         }
+
+         // 기존 리스너 제거 후 새로 추가
+         button.onClick.RemoveAllListeners();
+         button.onClick.AddListener(OnSlotClicked);
+     }
+
+     /// <summary>
+     /// 슬롯 클릭 시 호출됩니다. 해당 플레이어의 필드로 카메라를 이동합니다.
+     /// </summary>
+     private void OnSlotClicked()
+     {
+         if (trackedPlayer == null)
+         {
+             Debug.Log("[PlayerRankSlot] 추적 중인 플레이어가 없습니다");
+             return;
+         }
+
+         if (CameraManager.Instance == null)
+         {
+             Debug.LogWarning("[PlayerRankSlot] CameraManager가 없습니다");
+             return;
+         }
+
+         // 본인 슬롯 클릭 시 본인 필드로 복귀
+         if (trackedPlayer == CameraManager.Instance.OwnField)
+         {
+             CameraManager.Instance.ReturnToOwnField();
+         }
+         else
+         {
+             // 다른 플레이어 슬롯 클릭 시 해당 필드로 이동
+             CameraManager.Instance.MoveToPlayerField(trackedPlayer).Forget();
          }
      }
 

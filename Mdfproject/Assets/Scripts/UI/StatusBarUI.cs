@@ -94,7 +94,7 @@ public class StatusBarUI : MonoBehaviour
         if (isInitialized) return;
         
         isCombatPhase = (GameManagers.Instance != null) 
-            ? GameManagers.Instance.GetGameState() == GameManagers.GameState.Combat 
+            ? (GameManagers.Instance.GetGameState() == GameManagers.GameState.Battle1 || GameManagers.Instance.GetGameState() == GameManagers.GameState.Battle2)
             : false;
 
         healthComponent = GetComponentInParent<IHealth>();
@@ -163,7 +163,7 @@ public class StatusBarUI : MonoBehaviour
 
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
-        isCombatPhase = (newState == GameManagers.GameState.Combat);
+        isCombatPhase = (newState == GameManagers.GameState.Battle1 || newState == GameManagers.GameState.Battle2);
         UpdateAllUIVisibility();
     }
 

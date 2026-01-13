@@ -79,6 +79,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     [Networked] public NetworkBool IsActivelyFighting { get; set; }
 
+    #region 공격 시퀀스 관련 필드
+    /// <summary>
+    /// 현재 전투에서 공격자인지 여부. GameManagers에서 설정됨.
+    /// </summary>
+    [Networked] public NetworkBool IsAttackerInCurrentBattle { get; set; }
+
+    /// <summary>
+    /// 공격 시퀀스에서 소환 가능한 몬스터 풀
+    /// </summary>
+    public List<MonsterPoolEntry> AttackMonsterPool { get; private set; } = new List<MonsterPoolEntry>();
+    #endregion
+
     private ChangeDetector _changeDetector;
 
     private bool HasStateAuthorityOrNoNetwork()
@@ -235,6 +247,30 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         if (augmentManager) augmentManager.playerManager = this;
+
+        // AttackSequenceManager 초기화
+        var attackSeqMgr = GetComponent<AttackSequenceManager>();
+        if (attackSeqMgr == null)
+        {
+            attackSeqMgr = gameObject.AddComponent<AttackSequenceManager>();
+        }
+        attackSeqMgr.Initialize(this);
+
+        // CameraManager 초기화 (로컬 플레이어만)
+        if (Object.HasInputAuthority && CameraManager.Instance != null)
+        {
+            CameraManager.Instance.Initialize(this);
+        }
+
+        // AttackSequenceUIController 초기화 (로컬 플레이어만)
+        if (Object.HasInputAuthority)
+        {
+            var uiController = FindObjectOfType<AttackSequenceUIController>(true);
+            if (uiController != null)
+            {
+                uiController.Initialize(this, attackSeqMgr);
+            }
+        }
 
         IsActivelyFighting = false;
         Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
@@ -583,6 +619,91 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     }
     #endregion
 
+    #region 공격 시퀀스 몬스터 풀 관리
+    /// <summary>
+    /// 라운드별 공격 몬스터 풀을 갱신합니다. (기본 웨이브 + 증강 공격 유닛)
+    /// </summary>
+    /// <param name="round">현재 라운드</param>
+    public void RefreshAttackMonsterPool(int round)
+    {
+        AttackMonsterPool.Clear();
+        
+        // 1. 기본 웨이브 몬스터 가져오기
+        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        if (waveDatabase != null)
+        {
+            var waveData = waveDatabase.GetWaveForRound(round);
+            if (waveData?.monsters != null)
+            {
+                foreach (var entry in waveData.monsters)
+                {
+                    if (entry?.monsterData != null && entry.count > 0)
+                    {
+                        // 기존 풀에 같은 몬스터가 있으면 수량 추가
+                        var existing = AttackMonsterPool.Find(p => p.MonsterData == entry.monsterData);
+                        if (existing != null)
+                        {
+                            existing.RemainingCount += entry.count;
+                            existing.MaxCount += entry.count;
+                        }
+                        else
+                        {
+                            AttackMonsterPool.Add(new MonsterPoolEntry(entry.monsterData, entry.count));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. 증강 공격 유닛 추가
+        foreach (var augment in _activeMonsterSummonAugments)
+        {
+            if (augment?.monsterSpawnEntries == null) continue;
+            
+            foreach (var entry in augment.monsterSpawnEntries)
+            {
+                if (entry?.monsterData != null && entry.count > 0)
+                {
+                    var existing = AttackMonsterPool.Find(p => p.MonsterData == entry.monsterData);
+                    if (existing != null)
+                    {
+                        existing.RemainingCount += entry.count;
+                        existing.MaxCount += entry.count;
+                    }
+                    else
+                    {
+                        AttackMonsterPool.Add(new MonsterPoolEntry(entry.monsterData, entry.count));
+                    }
+                }
+            }
+        }
+
+        Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 공격 몬스터 풀 갱신 완료 ({AttackMonsterPool.Count}종류)</color>");
+        
+        // 이벤트 발생 (UI 갱신용)
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+    }
+
+    /// <summary>
+    /// 풀에서 몬스터 1마리를 소비합니다.
+    /// </summary>
+    /// <param name="monsterData">소비할 몬스터 데이터</param>
+    /// <returns>성공 여부</returns>
+    public bool TryConsumeMonsterFromPool(MonsterData monsterData)
+    {
+        if (monsterData == null) return false;
+
+        var entry = AttackMonsterPool.Find(p => p.MonsterData == monsterData);
+        if (entry == null || entry.IsEmpty) return false;
+
+        entry.TryConsume();
+        
+        // 이벤트 발생 (UI 갱신용)
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        return true;
+    }
+    #endregion
+
     public void AddPermanentAttackDamagePercent(float percent)
     {
         permanentAttackDamagePercent += percent;
@@ -648,14 +769,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (!HasStateAuthorityOrNoNetwork()) return;
         health -= damage;
 
-        if (health <= 0)
-        {
-            health = 0;
-            if (GameManagers.Instance != null)
-            {
-                GameManagers.Instance.GameOver(this);
-            }
-        }
+        // 체력 음수 허용: 라운드 종료 시 GameManagers에서 판정
+        // (더 이상 즉시 탈락하지 않음)
+
         if (Runner == null || !Runner.IsRunning)
         {
             GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
