@@ -371,8 +371,8 @@
              {
                  // 초기 전투 상태 설정
                  battleStatusImage.gameObject.SetActive(true); // 이미지를 다시 활성화
-                 // 플레이어가 스폰된 상태에서 전투 상태 가져오기
-                 if (trackedPlayer.HasStateAuthority && trackedPlayer.IsActivelyFighting)
+                 // 플레이어의 전투 상태에 따라 표시 (HasStateAuthority 조건 제거 - 모든 플레이어 표시)
+                 if (trackedPlayer.IsActivelyFighting)
                  {
                      battleStatusImage.sprite = combatSprite; // 싸우는 중이면 칼 모양
                  }

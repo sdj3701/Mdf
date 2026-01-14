@@ -1,5 +1,6 @@
 // Assets/Scripts/Game/Battle/AttackSequenceManager.cs
 using UnityEngine;
+using UnityEngine.EventSystems;
 using Cysharp.Threading.Tasks;
 using Fusion;
 
@@ -105,17 +106,28 @@ public class AttackSequenceManager : MonoBehaviour
 
     private void HandleInput()
     {
+        // UI 위에서 클릭하면 스폰 처리 스킵 (UI 관통 방지)
+        bool isPointerOverUI = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+
         // 마우스 왼쪽 버튼 클릭/홀드
         if (Input.GetMouseButtonDown(0))
         {
-            TrySpawnMonsterAtMousePosition();
-            _isHolding = true;
+            if (!isPointerOverUI)
+            {
+                TrySpawnMonsterAtMousePosition();
+            }
+            _isHolding = !isPointerOverUI;
             _lastSpawnTime = Time.time;
         }
         else if (Input.GetMouseButton(0) && _isHolding)
         {
+            // UI 위로 마우스가 이동했으면 홀드 중단
+            if (isPointerOverUI)
+            {
+                _isHolding = false;
+            }
             // 홀드 중 연속 소환
-            if (Time.time - _lastSpawnTime >= holdSpawnInterval)
+            else if (Time.time - _lastSpawnTime >= holdSpawnInterval)
             {
                 TrySpawnMonsterAtMousePosition();
                 _lastSpawnTime = Time.time;

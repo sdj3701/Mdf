@@ -556,6 +556,54 @@ public class MonsterSpawner : MonoBehaviour
         return monster;
     }
 
+    #region AI 자동 소환 (AttackMonsterPool 사용)
+    
+    /// <summary>
+    /// AI 공격자가 AttackMonsterPool에서 순차적으로 몬스터를 자동 소환합니다.
+    /// </summary>
+    /// <param name="targetFieldManager">소환할 대상 필드 (수비자 필드)</param>
+    public async UniTask StartAutoSpawnFromPool(FieldManager targetFieldManager)
+    {
+        if (_playerManager == null || targetFieldManager == null)
+        {
+            Debug.LogError("[MonsterSpawner] AI 자동 소환 실패: PlayerManager 또는 targetFieldManager가 null");
+            return;
+        }
+
+        var pool = _playerManager.AttackMonsterPool;
+        if (pool == null || pool.Count == 0)
+        {
+            Debug.LogWarning("[MonsterSpawner] AI 자동 소환: 몬스터 풀이 비어있음");
+            return;
+        }
+
+        Debug.Log($"<color=orange>[MonsterSpawner] AI 자동 소환 시작: {pool.Count}종류의 몬스터</color>");
+
+        // 스폰 포인트 위치 (수비자 필드의 스폰 포인트)
+        Vector3 spawnPosition = targetFieldManager.playerManager?.spawnPoint?.position ?? 
+                                targetFieldManager.gridOrigin;
+
+        // 풀에 있는 모든 몬스터를 순차적으로 소환
+        foreach (var entry in pool)
+        {
+            while (!entry.IsEmpty)
+            {
+                // 몬스터 소환
+                await SpawnMonsterAtPositionAsync(entry.MonsterData, spawnPosition, targetFieldManager);
+                
+                // 풀에서 소비
+                _playerManager.TryConsumeMonsterFromPool(entry.MonsterData);
+                
+                // 소환 간격
+                await UniTask.Delay(300); // 0.3초 간격
+            }
+        }
+
+        Debug.Log($"<color=orange>[MonsterSpawner] AI 자동 소환 완료</color>");
+    }
+    
+    #endregion
+
     #region 수동 몬스터 소환 (공격 시퀀스용)
 
     /// <summary>
@@ -593,7 +641,10 @@ public class MonsterSpawner : MonoBehaviour
             float groundOffset = GetGroundMonsterHeightOffset(prefab);
             adjustedSpawnPos.y += groundOffset;
         }
-
+        
+        // 수비자(대상 필드)의 monsterParent 사용
+        Transform targetMonsterParent = targetFieldManager?.playerManager?.monsterSpawner?.monsterParent;
+        
         // 몬스터 생성
         GameObject monsterGO = null;
         var runner = _playerManager?.Runner;
@@ -606,14 +657,14 @@ public class MonsterSpawner : MonoBehaviour
                 return null;
             }
             monsterGO = spawned.gameObject;
-            if (monsterParent != null)
+            if (targetMonsterParent != null)
             {
-                monsterGO.transform.SetParent(monsterParent, true);
+                monsterGO.transform.SetParent(targetMonsterParent, true);
             }
         }
         else
         {
-            monsterGO = Instantiate(prefab, adjustedSpawnPos, Quaternion.identity, monsterParent);
+            monsterGO = Instantiate(prefab, adjustedSpawnPos, Quaternion.identity, targetMonsterParent);
         }
 
         Monster monster = monsterGO.GetComponent<Monster>();
@@ -651,9 +702,9 @@ public class MonsterSpawner : MonoBehaviour
             );
         }
 
-        // 경로 설정: 가장 가까운 그리드 테두리 셀 → 상대 목표
-        // (몬스터는 spawnPosition에서 시작하지만, 경로는 그리드 내에서 계산)
-        Vector2Int startPos = GetNearestGridCell(targetFieldManager, spawnPosition);
+        // 경로 설정: 스폰 위치 → 목표까지 A* 경로
+        // (그리드가 확장되어 스폰 위치도 그리드 안에 있음)
+        Vector2Int startPos = targetGrid.WorldToCell(targetGrid.ClampToGrid(spawnPosition));
         Vector3 clampedGoal = targetGrid.ClampToGrid(targetGoal.position);
         Vector2Int endPos = targetGrid.WorldToCell(clampedGoal);
 
@@ -672,32 +723,13 @@ public class MonsterSpawner : MonoBehaviour
         return monster;
     }
 
-    /// <summary>
-    /// 월드 좌표에서 가장 가까운 유효한 그리드 셀을 반환합니다.
-    /// 그리드 바깥이면 가장 가까운 테두리 셀을 반환합니다.
-    /// </summary>
-    private Vector2Int GetNearestGridCell(FieldManager fieldManager, Vector3 worldPosition)
-    {
-        Vector3 gridOrigin = fieldManager.gridOrigin;
-        float cellSize = fieldManager.cellSize;
-        Vector2Int gridSize = fieldManager.gridSize;
-
-        // 클램핑 없이 원시 그리드 좌표 계산
-        int rawX = Mathf.FloorToInt((worldPosition.x - gridOrigin.x) / cellSize);
-        int rawY = Mathf.FloorToInt((worldPosition.z - gridOrigin.z) / cellSize);
-
-        // 그리드 범위로 클램프 (테두리 셀)
-        int clampedX = Mathf.Clamp(rawX, 0, gridSize.x - 1);
-        int clampedY = Mathf.Clamp(rawY, 0, gridSize.y - 1);
-
-        return new Vector2Int(clampedX, clampedY);
-    }
 
     #endregion
 
     #region 상태 확인
     /// <summary>
-    /// 필드에 생존한 몬스터가 있는지 확인합니다.
+    /// 필드에 활성화되어 있고 생존한 몬스터가 있는지 확인합니다.
+    /// (비활성화된 몬스터나 골에 도달한 몬스터는 제외)
     /// </summary>
     public bool HasLivingMonsters()
     {
@@ -706,6 +738,10 @@ public class MonsterSpawner : MonoBehaviour
         foreach (Transform child in monsterParent)
         {
             if (child == null) continue;
+            
+            // 비활성화된 몬스터는 건너뛰기 (골에 도달하거나 죽은 경우)
+            if (!child.gameObject.activeInHierarchy) continue;
+            
             if (!child.TryGetComponent<Monster>(out var monster)) continue;
             
             // NetworkObject가 유효한 상태인지 확인 (Despawn된 몬스터 건너뛰기)

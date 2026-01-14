@@ -105,6 +105,7 @@ public class GameManagers : NetworkBehaviour
     private bool isTransitioningRound = false; // 라운드 전환 중 중복 호출 방지
     private bool _hasBerserkTriggered = false;  // 폭주 모드 트리거 여부
     private bool _hasBerserkTriggeredBattle2 = false;  // Battle2 폭주 모드 트리거 여부
+    private TickTimer _battleStartCheckDelay; // 전투 시작 후 상태 체크 딜레이
 
     #region 전투 시퀀스 관련 필드
     /// <summary>
@@ -194,31 +195,29 @@ public class GameManagers : NetworkBehaviour
             }
         }
         // 전투 단축: 모든 플레이어의 전투가 끝났을 때 남은 시간을 3초로
-        else if ((currentState == GameState.Battle1 || currentState == GameState.Battle2) && !hasCombatBeenShortened)
+        // 전투 시작 후 1초 딜레이가 끝난 후부터 체크
+        else if ((currentState == GameState.Battle1 || currentState == GameState.Battle2) && 
+                 !hasCombatBeenShortened && 
+                 _battleStartCheckDelay.Expired(Runner))
         {
             bool allFinished = true;
             foreach (var player in AllPlayers)
             {
                 if (player == null) continue;
                 
-                // 개별 플레이어의 전투 종료 조건:
-                // 1. 필드 위에 생존한 몬스터가 없음
-                // 2. 공격자인 경우, 소환할 몬스터 목록도 없음
+                // 개별 플레이어의 전투 상태 체크 및 업데이트
+                bool playerFinished = IsPlayerBattleFinished(player);
                 
-                // 필드에 생존 몬스터가 있으면 전투 진행 중
-                if (player.monsterSpawner != null && player.monsterSpawner.HasLivingMonsters())
+                // 개별 플레이어 상태 업데이트 (전투 중 → 전투 종료)
+                if (playerFinished && player.IsActivelyFighting)
                 {
-                    allFinished = false;
-                    break;
+                    player.SetFightingState(false);
+                    Debug.Log($"[빠른진행 체크] Player {player.playerId}: 전투 종료 → 방패");
                 }
                 
-                // 공격자이고 소환 가능한 몬스터 풀이 남아있으면 전투 진행 중
-                if (player.IsAttackerInCurrentBattle && 
-                    player.AttackMonsterPool != null && 
-                    player.AttackMonsterPool.Exists(p => !p.IsEmpty))
+                if (!playerFinished)
                 {
                     allFinished = false;
-                    break;
                 }
             }
             
@@ -249,6 +248,73 @@ public class GameManagers : NetworkBehaviour
                 TriggerBerserkMode();
             }
         }
+        
+        // 각 플레이어의 전투 상태(IsActivelyFighting) 업데이트는 빠른 진행 체크에서 수행
+        // (매 틱 호출하면 상태가 불안정해짐)
+    }
+
+    /// <summary>
+    /// 해당 플레이어의 전투가 끝났는지 확인합니다.
+    /// - 공격자: 풀이 비어있고 모든 수비자 필드에 몬스터가 없으면 종료
+    /// - 수비자: 자기 필드에 몬스터가 없고 공격자의 풀도 비었으면 종료
+    /// </summary>
+    private bool IsPlayerBattleFinished(PlayerManager player)
+    {
+        if (player == null) return true;
+        
+        if (player.IsAttackerInCurrentBattle)
+        {
+            // 공격자: 풀이 비어있고 모든 수비자 필드에 몬스터가 없으면 종료
+            bool hasPool = player.AttackMonsterPool != null && 
+                           player.AttackMonsterPool.Exists(p => !p.IsEmpty);
+            bool anyDefenderHasMonsters = AllPlayers.Any(p => 
+                p != null && 
+                !p.IsAttackerInCurrentBattle && 
+                p.monsterSpawner != null && 
+                p.monsterSpawner.HasLivingMonsters());
+            
+            return !hasPool && !anyDefenderHasMonsters;
+        }
+        else
+        {
+            // 수비자: 자기 필드에 몬스터가 없고, 상대 공격자의 풀도 비었으면 종료
+            bool hasMonsters = player.monsterSpawner != null && 
+                               player.monsterSpawner.HasLivingMonsters();
+            
+            // 공격자의 풀에 몬스터가 남아있으면 아직 전투 중
+            bool anyAttackerHasPool = AllPlayers.Any(p => 
+                p != null && 
+                p.IsAttackerInCurrentBattle && 
+                p.AttackMonsterPool != null && 
+                p.AttackMonsterPool.Exists(e => !e.IsEmpty));
+            
+            return !hasMonsters && !anyAttackerHasPool;
+        }
+    }
+    
+    /// <summary>
+    /// 현재 전투에서 해당 공격자의 상대 수비자를 찾습니다.
+    /// (수비자 필드에 이 공격자가 소환한 몬스터가 있는 플레이어를 찾음)
+    /// </summary>
+    private PlayerManager GetOpponentForPlayer(PlayerManager attacker)
+    {
+        if (!attacker.IsAttackerInCurrentBattle) return null;
+        
+        // 수비자 역할인 플레이어 중 자기 필드에 몬스터가 있는 플레이어 반환
+        // (자기 자신이 아닌 다른 플레이어)
+        foreach (var player in AllPlayers)
+        {
+            if (player == null || player == attacker) continue;
+            
+            // 수비자이고 (공격자가 아님) 필드에 몬스터가 있으면 상대
+            if (!player.IsAttackerInCurrentBattle && 
+                player.monsterSpawner != null && 
+                player.monsterSpawner.HasLivingMonsters())
+            {
+                return player;
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -749,6 +815,7 @@ public class GameManagers : NetworkBehaviour
         currentState = GameState.Battle1;
         hasCombatBeenShortened = false;
         _hasBerserkTriggered = false;
+        _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f); // 1초 딜레이
 
         HandleUIForNewState(currentState).Forget();
 
@@ -785,6 +852,7 @@ public class GameManagers : NetworkBehaviour
         currentState = GameState.Battle2;
         hasCombatBeenShortened = false;
         _hasBerserkTriggeredBattle2 = false;
+        _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f); // 1초 딜레이
 
         HandleUIForNewState(currentState).Forget();
 
@@ -874,11 +942,11 @@ public class GameManagers : NetworkBehaviour
                     
                     if (isAI)
                     {
-                        // AI는 상대 필드에 기본 웨이브 자동 소환
-                        if (opponent?.monsterSpawner != null)
+                        // AI는 AttackMonsterPool에서 순차적으로 자동 소환
+                        if (player.monsterSpawner != null && opponent?.fieldManager != null)
                         {
-                            opponent.monsterSpawner.SpawnWaveWithoutAugments(currentRound);
-                            Debug.Log($"<color=orange>[StartBattle] AI Player {player.playerId}: 공격자 - 상대 Player {opponentId} 필드에 웨이브 자동 소환</color>");
+                            player.monsterSpawner.StartAutoSpawnFromPool(opponent.fieldManager).Forget();
+                            Debug.Log($"<color=orange>[StartBattle] AI Player {player.playerId}: 공격자 - 상대 Player {opponentId} 필드에 AttackMonsterPool 자동 소환</color>");
                         }
                     }
                     else

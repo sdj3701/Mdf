@@ -75,8 +75,26 @@ public class FieldManager : MonoBehaviour
     [Tooltip("그리드 한 칸의 크기 (미터 단위)")]
     public float cellSize = 1f;
 
-    [Tooltip("그리드 크기 (X, Z 칸 수) - x는 3D의 X, y는 3D의 Z를 의미")]
+    [Tooltip("그리드 크기 (X, Z 칸 수) - x는 3D의 X, y는 3D의 Z를 의미. 이것이 수비자의 배치 가능 영역입니다.")]
     public Vector2Int gridSize = new Vector2Int(10, 9);
+
+    [Tooltip("동서남북으로 확장할 외곽 셀 수 (몬스터 스폰 영역, 배치 불가)")]
+    [SerializeField] private int outerGridMargin = 2;
+
+    /// <summary>
+    /// 외곽 확장을 포함한 전체 그리드 크기 (A* 경로 탐색에 사용)
+    /// </summary>
+    public Vector2Int TotalGridSize => new Vector2Int(gridSize.x + outerGridMargin * 2, gridSize.y + outerGridMargin * 2);
+
+    /// <summary>
+    /// 전체 그리드의 원점 (외곽 확장 포함)
+    /// </summary>
+    public Vector3 TotalGridOrigin => new Vector3(gridOrigin.x - outerGridMargin * cellSize, gridOrigin.y, gridOrigin.z - outerGridMargin * cellSize);
+
+    /// <summary>
+    /// 외곽 확장 마진 (셀 단위)
+    /// </summary>
+    public int OuterGridMargin => outerGridMargin;
 
     [Tooltip("Ground Renderer의 Bounds로부터 그리드 Origin/Size를 자동 유도합니다. 끄면 인스펙터 설정값을 그대로 사용합니다.")]
     public bool deriveGridFromGroundBounds = false;

@@ -537,12 +537,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public void SetFightingState(bool isFighting)
     {
-        // Networked 속성은 StateAuthority만 변경 가능
-        bool hasAuth = HasStateAuthorityOrNoNetwork();
-        Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: isFighting={isFighting}, hasAuth={hasAuth}, 이전값={IsActivelyFighting}</color>");
-        if (!hasAuth) return;
+        // StartBattleForPlayers에서 호스트가 호출하므로 권한 체크 없이 직접 설정
+        // (Networked 속성은 자동으로 동기화됨)
+        if (IsActivelyFighting == isFighting) return; // 변경 없으면 스킵
+        
         IsActivelyFighting = isFighting;
-        Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: 설정 후={IsActivelyFighting}</color>");
+        Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: isFighting={isFighting} 설정됨</color>");
     }
 
     #region Public Getters & Stat Modifiers

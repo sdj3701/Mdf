@@ -710,6 +710,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             OnPathBlocked(null);
         }
     }
+
+
     private IEnumerator FlyDirectlyCoroutine()
     {
         Vector3 targetPosition = new Vector3(

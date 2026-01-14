@@ -402,6 +402,7 @@ MonoBehaviour:
   gridOrigin: {x: 0, y: 0, z: 0}
   cellSize: 1
   gridSize: {x: 10, y: 9}
+  outerGridMargin: 2
   deriveGridFromGroundBounds: 0
   groundYOffset: 0
   wallYOffset: 1
