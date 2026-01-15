@@ -100,6 +100,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private bool _isBoss = false;
     private int _originPlayerId = -1;
     private int _bossUniqueId = -1; // 보스 고유 ID (턴당 1회 침공 추적용)
+    private bool _hasRegisteredAsSurvivor = false; // 중복 등록 방지 플래그
     #endregion
 
     private bool HasStateAuthorityOrNoNetwork()
@@ -826,14 +827,18 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         isMoving = false;
         SetWalkingAnimation(false);
         
-        if (_isBoss && SurvivorBossManager.Instance != null)
+        // 보스가 목표 도달 시 생존 등록 (중복 등록 방지 플래그 체크)
+        if (_isBoss && !_hasRegisteredAsSurvivor && SurvivorBossManager.Instance != null)
         {
+            _hasRegisteredAsSurvivor = true;
             SurvivorBossManager.Instance.RegisterSurvivorBoss(
                 _monsterData,
                 currentHP,
                 currentMaxHP,
-                _originPlayerId
+                _originPlayerId,
+                _bossUniqueId
             );
+            Debug.Log($"<color=red>[Monster] 보스 '{name}' 목표 도달 → 생존 등록 (HP: {currentHP:F0}/{currentMaxHP:F0})</color>");
         }
         
         if (GameManagers.Instance != null && ownerPlayer != null)
@@ -924,6 +929,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         if (this == null || gameObject == null) return;
         
+        // 이미 등록된 경우 중복 등록 방지 (목표 도달 시 이미 등록된 경우)
+        if (_hasRegisteredAsSurvivor)
+        {
+            Debug.Log($"<color=yellow>[Monster] 보스 '{name}' 이미 생존 등록됨 → 스킵</color>");
+            ForceRemoveWithoutPenalty();
+            return;
+        }
+        
         // 네트워크 상태와 관계없이 안전하게 HP 값 접근
         float safeCurrentHP = _hasSpawned && CanWriteNetworkedHealth() ? NetworkedHP : _localHP;
         float safeMaxHP = _hasSpawned && CanWriteNetworkedHealth() ? NetworkedMaxHP : _localMaxHP;
@@ -940,6 +953,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // SurvivorBossManager에 생존 등록 (고유 ID 유지)
         if (SurvivorBossManager.Instance != null && _monsterData != null)
         {
+            _hasRegisteredAsSurvivor = true;
             SurvivorBossManager.Instance.RegisterSurvivorBoss(
                 _monsterData,
                 safeCurrentHP,

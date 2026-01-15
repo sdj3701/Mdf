@@ -361,6 +361,50 @@ public class MonsterSpawner : MonoBehaviour
     }
 
     /// <summary>
+    /// 생존 보스들을 비동기로 소환합니다. (외부 호출용)
+    /// 이 플레이어를 타겟으로 하는 생존 보스 중 이번 턴에 침공하지 않은 보스만 소환합니다.
+    /// 전투 시퀀스 시작 시 수비자가 호출합니다.
+    /// </summary>
+    public async UniTask SpawnSurvivorBossesAsync()
+    {
+        if (SurvivorBossManager.Instance == null) return;
+        
+        // 이 플레이어를 타겟으로 하는 생존 보스 중 이번 턴에 침공하지 않은 보스만 추출
+        var pendingBosses = SurvivorBossManager.Instance.ExtractBossesForBattleSequence(_playerManager.playerId);
+        
+        if (pendingBosses.Count == 0) return;
+        
+        Debug.Log($"<color=cyan>[MonsterSpawner] Player {_playerManager.playerId}: 생존 보스 {pendingBosses.Count}마리 소환 시작</color>");
+        
+        foreach (var bossData in pendingBosses)
+        {
+            if (bossData.BossData == null) continue;
+            
+            // 아우터 그리드 랜덤 위치에서 소환
+            Vector3 spawnPos = GetRandomOuterGridPosition();
+            
+            // SpawnMonsterAtPositionAsync 사용 (경로 설정 포함)
+            Monster monster = await SpawnMonsterAtPositionAsync(
+                bossData.BossData,
+                spawnPos,
+                _playerManager.fieldManager,
+                true, // isBoss
+                bossData.BossUniqueId,
+                bossData.OriginPlayerId
+            );
+            
+            if (monster != null)
+            {
+                // 이전 라운드 HP 유지
+                monster.SetCurrentHP(bossData.RemainingHP, bossData.MaxHP);
+                Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {_playerManager.playerId}에게 침공. 위치: {spawnPos}, HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}, ID: {bossData.BossUniqueId}</color>");
+            }
+            
+            await UniTask.Delay(500); // 0.5초 간격
+        }
+    }
+
+    /// <summary>
     /// 이전 라운드에서 살아남은 보스들을 소환합니다. (전체 유저 중 랜덤 타겟)
     /// 타겟은 GameManagers에서 라운드 시작 전에 AssignTargetsToSurvivors()로 미리 할당됩니다.
     /// 턴당 1회 침공 제한: 이미 이번 턴에 침공한 보스는 제외됩니다.

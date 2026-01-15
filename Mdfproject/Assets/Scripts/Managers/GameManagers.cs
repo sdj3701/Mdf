@@ -999,6 +999,12 @@ public class GameManagers : NetworkBehaviour
                     // 수비자: 공격자가 소환할 때까지 대기
                     player.SetFightingState(true);
                     
+                    // 생존 보스 소환 (이전 라운드에서 살아남은 보스가 이 플레이어에게 침공)
+                    if (player.monsterSpawner != null)
+                    {
+                        player.monsterSpawner.SpawnSurvivorBossesAsync().Forget();
+                    }
+                    
                     // 유저 수비자: 이전 공격 시퀀스 종료 및 카메라 본인 필드 복귀
                     bool isLocalPlayer = player.Object.HasInputAuthority;
                     if (isLocalPlayer)
