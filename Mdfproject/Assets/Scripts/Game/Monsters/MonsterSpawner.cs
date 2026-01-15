@@ -72,6 +72,9 @@ public class MonsterSpawner : MonoBehaviour
         var currentState = GameManagers.Instance.GetGameState();
         bool isInBattle = currentState == GameManagers.GameState.Battle1 || currentState == GameManagers.GameState.Battle2;
         
+        // 비전투 상태일 때만 상태 리셋 (Prepare, Setup 등)
+        // 전투 중 상태 업데이트는 GameManagers.FixedUpdateNetwork()에서 처리
+        // (공격자-수비자 페어 동기화를 위해 중앙에서 관리)
         if (!isInBattle)
         {
             if (_playerManager.IsActivelyFighting)
@@ -79,19 +82,9 @@ public class MonsterSpawner : MonoBehaviour
                 _playerManager.SetFightingState(false);
                 Debug.Log($"<color=yellow>[MonsterSpawner] Player {_playerManager.playerId}: 전투 상태 비전투 (GameState != Battle)</color>");
             }
-            return;
         }
-
-        int monsterCount = monsterParent != null ? monsterParent.childCount : -1;
-        
-        if (!_isSpawningWave && monsterCount == 0)
-        {
-            if (_playerManager.IsActivelyFighting)
-            {
-                _playerManager.SetFightingState(false);
-                Debug.Log($"<color=green>[MonsterSpawner] Player {_playerManager.playerId}: 전투 종료! (monsterCount={monsterCount})</color>");
-            }
-        }
+        // 전투 중 개별 판정은 GameManagers.IsPlayerBattleFinished()에서 수행
+        // → 공격자 풀 + 수비자 필드 몬스터를 함께 확인하고, 상대와 함께 상태 변경
     }
 
     #endregion
@@ -370,6 +363,7 @@ public class MonsterSpawner : MonoBehaviour
     /// <summary>
     /// 이전 라운드에서 살아남은 보스들을 소환합니다. (전체 유저 중 랜덤 타겟)
     /// 타겟은 GameManagers에서 라운드 시작 전에 AssignTargetsToSurvivors()로 미리 할당됩니다.
+    /// 턴당 1회 침공 제한: 이미 이번 턴에 침공한 보스는 제외됩니다.
     /// </summary>
     IEnumerator SpawnSurvivorBossesCoroutine()
     {
@@ -378,26 +372,110 @@ public class MonsterSpawner : MonoBehaviour
             yield break;
         }
 
-        // 이 플레이어를 타겟으로 하는 생존 보스만 추출 (다른 플레이어의 데이터는 건드리지 않음)
-        var pendingBosses = SurvivorBossManager.Instance.ExtractBossesForTarget(_playerManager.playerId);
+        // 이 플레이어를 타겟으로 하는 생존 보스 중 이번 턴에 침공하지 않은 보스만 추출
+        var pendingBosses = SurvivorBossManager.Instance.ExtractBossesForBattleSequence(_playerManager.playerId);
 
         foreach (var bossData in pendingBosses)
         {
             if (bossData.BossData == null) continue;
 
-            var spawnTask = SpawnMonsterInternalAsync(bossData.BossData);
+            // 아우터 그리드 랜덤 위치에서 소환
+            Vector3 spawnPos = GetRandomOuterGridPosition();
+            
+            // SpawnMonsterAtPositionAsync 사용 (경로 설정 포함)
+            var spawnTask = SpawnMonsterAtPositionAsync(
+                bossData.BossData,
+                spawnPos,
+                _playerManager.fieldManager,
+                true, // isBoss
+                bossData.BossUniqueId,
+                bossData.OriginPlayerId
+            );
             yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
             
             Monster monster = spawnTask.GetAwaiter().GetResult();
             if (monster != null)
             {
-                monster.SetAsBoss(true, bossData.OriginPlayerId);
+                // 이전 라운드 HP 유지
                 monster.SetCurrentHP(bossData.RemainingHP, bossData.MaxHP);
-                Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {_playerManager.playerId}에게 침공. HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}</color>");
+                Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {_playerManager.playerId}에게 침공. 위치: {spawnPos}, HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}, ID: {bossData.BossUniqueId}</color>");
             }
 
             yield return new WaitForSeconds(0.5f);
         }
+    }
+    
+    /// <summary>
+    /// 아우터 그리드 영역(배치 불가, 스폰 가능)에서 랜덤 위치를 반환합니다.
+    /// </summary>
+    private Vector3 GetRandomOuterGridPosition()
+    {
+        var field = _playerManager?.fieldManager;
+        if (field == null)
+        {
+            // 폴백: 기본 스폰 포인트
+            return _playerManager?.spawnPoint?.position ?? Vector3.zero;
+        }
+        
+        int margin = field.OuterGridMargin;
+        Vector2Int gridSize = field.gridSize;
+        Vector3 gridOrigin = field.gridOrigin;
+        float cellSize = field.cellSize;
+        
+        // 아우터 그리드 영역 정의 (그리드 바깥쪽 셀들)
+        // 4개 구역: 위쪽, 아래쪽, 왼쪽, 오른쪽
+        List<Vector2Int> outerCells = new List<Vector2Int>();
+        
+        // 위쪽 (y = gridSize.y ~ gridSize.y + margin - 1)
+        for (int y = gridSize.y; y < gridSize.y + margin; y++)
+        {
+            for (int x = -margin; x < gridSize.x + margin; x++)
+            {
+                outerCells.Add(new Vector2Int(x, y));
+            }
+        }
+        
+        // 아래쪽 (y = -margin ~ -1)
+        for (int y = -margin; y < 0; y++)
+        {
+            for (int x = -margin; x < gridSize.x + margin; x++)
+            {
+                outerCells.Add(new Vector2Int(x, y));
+            }
+        }
+        
+        // 왼쪽 (x = -margin ~ -1, 중간 y만)
+        for (int y = 0; y < gridSize.y; y++)
+        {
+            for (int x = -margin; x < 0; x++)
+            {
+                outerCells.Add(new Vector2Int(x, y));
+            }
+        }
+        
+        // 오른쪽 (x = gridSize.x ~ gridSize.x + margin - 1, 중간 y만)
+        for (int y = 0; y < gridSize.y; y++)
+        {
+            for (int x = gridSize.x; x < gridSize.x + margin; x++)
+            {
+                outerCells.Add(new Vector2Int(x, y));
+            }
+        }
+        
+        if (outerCells.Count == 0)
+        {
+            // 폴백: 기본 스폰 포인트
+            return _playerManager?.spawnPoint?.position ?? Vector3.zero;
+        }
+        
+        // 랜덤 셀 선택
+        Vector2Int randomCell = outerCells[Random.Range(0, outerCells.Count)];
+        
+        // 월드 좌표로 변환 (셀 중심)
+        float worldX = gridOrigin.x + (randomCell.x + 0.5f) * cellSize;
+        float worldZ = gridOrigin.z + (randomCell.y + 0.5f) * cellSize;
+        
+        return new Vector3(worldX, gridOrigin.y, worldZ);
     }
 
     /// <summary>
@@ -612,7 +690,16 @@ public class MonsterSpawner : MonoBehaviour
     /// <param name="monsterData">소환할 몬스터 데이터</param>
     /// <param name="spawnPosition">소환 위치 (월드 좌표)</param>
     /// <param name="targetFieldManager">대상 필드 매니저 (경로 설정용)</param>
-    public async UniTask<Monster> SpawnMonsterAtPositionAsync(MonsterData monsterData, Vector3 spawnPosition, FieldManager targetFieldManager)
+    /// <param name="isBoss">보스 몬스터 여부</param>
+    /// <param name="bossUniqueId">보스 고유 ID (생존 추적용)</param>
+    /// <param name="originPlayerId">보스 소환자 플레이어 ID</param>
+    public async UniTask<Monster> SpawnMonsterAtPositionAsync(
+        MonsterData monsterData, 
+        Vector3 spawnPosition, 
+        FieldManager targetFieldManager,
+        bool isBoss = false,
+        int bossUniqueId = -1,
+        int originPlayerId = -1)
     {
         if (monsterData == null || targetFieldManager == null)
         {
@@ -692,6 +779,14 @@ public class MonsterSpawner : MonoBehaviour
 
         // 몬스터 초기화 (상대 필드 목표 사용)
         monster.Initialize(targetFieldManager.playerManager, targetGoal, monsterData, targetGrid);
+        
+        // 보스 플래그 설정
+        if (isBoss)
+        {
+            int actualOriginId = originPlayerId >= 0 ? originPlayerId : _playerManager.playerId;
+            monster.SetAsBoss(true, actualOriginId, bossUniqueId);
+            Debug.Log($"<color=red>[MonsterSpawner] 보스 소환! '{monsterData.monsterName}' (ID:{bossUniqueId}, Origin: Player {actualOriginId})</color>");
+        }
 
         // RPC로 클라이언트 동기화
         if (_playerManager.Object != null)
@@ -719,7 +814,8 @@ public class MonsterSpawner : MonoBehaviour
             return null;
         }
 
-        Debug.Log($"<color=green>[MonsterSpawner] 수동 소환: {monsterData.monsterName} at {spawnPosition}, 경로 시작: {startPos}</color>");
+        string bossTag = isBoss ? " [BOSS]" : "";
+        Debug.Log($"<color=green>[MonsterSpawner] 수동 소환: {monsterData.monsterName}{bossTag} at {spawnPosition}, 경로 시작: {startPos}</color>");
         return monster;
     }
 

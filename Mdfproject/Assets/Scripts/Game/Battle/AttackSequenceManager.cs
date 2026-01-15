@@ -197,11 +197,14 @@ public class AttackSequenceManager : MonoBehaviour
             return;
         }
 
-        // 상대 필드에 몬스터 소환
+        // 상대 필드에 몬스터 소환 (보스인 경우 보스 플래그 및 고유 ID 전달)
         await _monsterSpawner.SpawnMonsterAtPositionAsync(
             _selectedMonster.MonsterData,
             position,
-            _opponentFieldManager
+            _opponentFieldManager,
+            _selectedMonster.IsBoss,
+            _selectedMonster.BossUniqueId,
+            _selectedMonster.OriginPlayerId
         );
 
         // 선택된 몬스터가 소진되면 다음 몬스터로 자동 전환

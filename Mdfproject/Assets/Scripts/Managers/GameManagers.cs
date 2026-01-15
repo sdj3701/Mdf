@@ -213,6 +213,23 @@ public class GameManagers : NetworkBehaviour
                 {
                     player.SetFightingState(false);
                     Debug.Log($"[빠른진행 체크] Player {player.playerId}: 전투 종료 → 방패");
+                    
+                    // 상대 플레이어도 함께 전투 종료 처리 (공격자-수비자 페어 동기화)
+                    int opponentId = GetBattleOpponent(player.playerId);
+                    if (opponentId != -1)
+                    {
+                        var opponent = GetPlayer(opponentId);
+                        if (opponent != null && opponent.IsActivelyFighting)
+                        {
+                            // 상대의 전투도 종료됐는지 확인
+                            bool opponentFinished = IsPlayerBattleFinished(opponent);
+                            if (opponentFinished)
+                            {
+                                opponent.SetFightingState(false);
+                                Debug.Log($"[빠른진행 체크] Player {opponent.playerId}: 상대 전투 종료로 함께 방패");
+                            }
+                        }
+                    }
                 }
                 
                 if (!playerFinished)
@@ -686,6 +703,12 @@ public class GameManagers : NetworkBehaviour
     {
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
+        
+        // 턴 시작 시 보스 침공 상태 리셋 (턴당 1회 침공 제한용)
+        if (SurvivorBossManager.Instance != null)
+        {
+            SurvivorBossManager.Instance.ResetTurnInvasionState();
+        }
 
         // 전투 종료 시 필드에 남은 몬스터 정리 (라운드 증가 전에 처리)
         foreach (var player in AllPlayers)

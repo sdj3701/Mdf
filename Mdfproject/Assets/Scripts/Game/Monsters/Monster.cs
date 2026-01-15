@@ -99,6 +99,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // 보스 몬스터 플래그 및 생존 시 다음 라운드 침공을 위한 정보
     private bool _isBoss = false;
     private int _originPlayerId = -1;
+    private int _bossUniqueId = -1; // 보스 고유 ID (턴당 1회 침공 추적용)
     #endregion
 
     private bool HasStateAuthorityOrNoNetwork()
@@ -461,16 +462,23 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     /// <param name="isBoss">보스 여부</param>
     /// <param name="originPlayerId">보스를 소환한 플레이어 ID</param>
-    public void SetAsBoss(bool isBoss, int originPlayerId)
+    /// <param name="bossUniqueId">보스 고유 ID (턴당 1회 침공 추적용)</param>
+    public void SetAsBoss(bool isBoss, int originPlayerId, int bossUniqueId = -1)
     {
         _isBoss = isBoss;
         _originPlayerId = originPlayerId;
+        _bossUniqueId = bossUniqueId;
         
         if (isBoss)
         {
-            Debug.Log($"<color=red>[Monster] '{name}'이 보스로 설정됨 (OriginPlayer: {originPlayerId})</color>");
+            Debug.Log($"<color=red>[Monster] '{name}'이 보스로 설정됨 (OriginPlayer: {originPlayerId}, UniqueId: {bossUniqueId})</color>");
         }
     }
+    
+    /// <summary>
+    /// 보스 고유 ID를 반환합니다.
+    /// </summary>
+    public int GetBossUniqueId() => _bossUniqueId;
 
     /// <summary>
     /// 현재 체력을 직접 설정합니다. (생존 보스 재소환 시 사용)
@@ -916,16 +924,28 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         if (this == null || gameObject == null) return;
         
-        Debug.Log($"<color=red>[Monster] 보스 '{name}' 생존 등록 (전투 종료, HP: {currentHP:F0}/{currentMaxHP:F0})</color>");
+        // 네트워크 상태와 관계없이 안전하게 HP 값 접근
+        float safeCurrentHP = _hasSpawned && CanWriteNetworkedHealth() ? NetworkedHP : _localHP;
+        float safeMaxHP = _hasSpawned && CanWriteNetworkedHealth() ? NetworkedMaxHP : _localMaxHP;
         
-        // SurvivorBossManager에 생존 등록
+        // 유효하지 않은 HP 값이면 MonsterData에서 가져옴
+        if (safeMaxHP <= 0 && _monsterData != null)
+        {
+            safeMaxHP = _monsterData.maxHealth;
+            safeCurrentHP = safeMaxHP; // 기본값으로 풀피 사용
+        }
+        
+        Debug.Log($"<color=red>[Monster] 보스 '{name}' 생존 등록 (전투 종료, HP: {safeCurrentHP:F0}/{safeMaxHP:F0}, UniqueId: {_bossUniqueId})</color>");
+        
+        // SurvivorBossManager에 생존 등록 (고유 ID 유지)
         if (SurvivorBossManager.Instance != null && _monsterData != null)
         {
             SurvivorBossManager.Instance.RegisterSurvivorBoss(
                 _monsterData,
-                currentHP,
-                currentMaxHP,
-                _originPlayerId
+                safeCurrentHP,
+                safeMaxHP,
+                _originPlayerId,
+                _bossUniqueId
             );
         }
         
