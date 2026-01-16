@@ -51,9 +51,13 @@ public class CameraManager : MonoBehaviour
     private PlayerManager _currentViewingField;
     private bool _isTransitioning;
     private bool _isAttackMode;
-    private Vector3 _originalPosition;  // 인스펙터에서 설정한 원래 카메라 위치
-    private Quaternion _originalRotation;  // 인스펙터에서 설정한 원래 카메라 회전
+    private Vector3 _originalPosition;  // 자신의 필드를 보는 수비 모드 카메라 위치
+    private Quaternion _originalRotation;  // 자신의 필드를 보는 수비 모드 카메라 회전
     private Vector3 _ownFieldCenter;  // 본인 필드 중심 위치
+    
+    [Header("필드 간격 설정")]
+    [Tooltip("플레이어 간 필드 Z 오프셋 (GameManagers의 Player Offset.z와 동일해야 함)")]
+    [SerializeField] private float fieldZOffset = -14f;
     #endregion
 
     #region 초기화
@@ -84,24 +88,38 @@ public class CameraManager : MonoBehaviour
 
     /// <summary>
     /// 카메라 매니저 초기화. 본인 필드 설정.
-    /// 인스펙터에서 미리 설정한 카메라 위치/회전을 기준으로 사용합니다.
+    /// 씬 카메라 위치(호스트 필드 기준)에서 playerId * fieldZOffset만큼 z값을 이동합니다.
     /// </summary>
     public void Initialize(PlayerManager ownField)
     {
         _ownField = ownField;
         _currentViewingField = ownField;
         
-        // 인스펙터에서 설정한 원래 카메라 위치/회전 저장 (씬 시작 시 설정된 값)
-        if (mainCamera != null)
-        {
-            _originalPosition = mainCamera.transform.position;
-            _originalRotation = mainCamera.transform.rotation;
-        }
-        
-        // 본인 필드 중심 위치 저장 (다른 필드로 이동 시 오프셋 계산용)
+        // 본인 필드 중심 위치 계산
         _ownFieldCenter = GetFieldCenter(ownField);
         
-        Debug.Log($"<color=cyan>[CameraManager] 초기화 완료. 본인 필드: Player {ownField.playerId}, 원래 위치: {_originalPosition}</color>");
+        if (mainCamera != null)
+        {
+            // 씬 카메라 위치 (호스트 필드 기준)
+            Vector3 sceneCameraPos = mainCamera.transform.position;
+            Quaternion sceneCameraRot = mainCamera.transform.rotation;
+            
+            // playerId에 따라 z 오프셋 계산
+            // Player 0: z값 변화 없음
+            // Player 1: z값 -14
+            // Player 2: z값 -28
+            float zOffset = ownField.playerId * fieldZOffset;
+            
+            // 자신의 필드로 카메라 이동
+            _originalPosition = sceneCameraPos + new Vector3(0f, 0f, zOffset);
+            _originalRotation = sceneCameraRot;
+            
+            mainCamera.transform.position = _originalPosition;
+            mainCamera.transform.rotation = _originalRotation;
+            
+            Debug.Log($"<color=cyan>[CameraManager] 초기화 완료. Player {ownField.playerId}, " +
+                $"z오프셋: {zOffset}, 카메라 위치: {_originalPosition}</color>");
+        }
     }
     #endregion
 
@@ -135,24 +153,31 @@ public class CameraManager : MonoBehaviour
         Vector3 startPosition = mainCamera.transform.position;
         Quaternion startRotation = mainCamera.transform.rotation;
         
-        // 필드 간 위치 차이 계산 (z값 차이)
-        Vector3 targetFieldCenter = GetFieldCenter(targetPlayer);
-        float zOffset = targetFieldCenter.z - _ownFieldCenter.z;
+        // playerId 차이로 z 오프셋 계산
+        // Player 1 → Player 0: (0 - 1) * -14 = +14 (위로)
+        // Player 3 → Player 1: (1 - 3) * -14 = +28 (위로)
+        int playerIdDiff = targetPlayer.playerId - _ownField.playerId;
+        float zOffset = playerIdDiff * fieldZOffset;
         
         Vector3 targetPosition;
         Quaternion targetRotation;
         
+        // 수비 모드 위치 계산 (기본)
+        Vector3 defensePosition = _originalPosition + new Vector3(0f, 0f, zOffset);
+        
         if (isAttackMode)
         {
-            // 공격 모드: 인스펙터에서 설정한 attackOffset 사용 + z값 차이만 추가
-            targetPosition = attackOffset + new Vector3(0f, 0f, zOffset);
-            targetRotation = Quaternion.Euler(attackRotation);
+            // 공격 모드: 수비 모드 위치 + (attackOffset - defenseOffset)
+            Vector3 attackDiff = attackOffset - defenseOffset;
+            Vector3 rotationDiff = attackRotation - defenseRotation;
+            
+            targetPosition = defensePosition + attackDiff;
+            targetRotation = Quaternion.Euler(_originalRotation.eulerAngles + rotationDiff);
         }
         else
         {
-            // 수비/관전 모드: 원래 위치 + 필드 위치 차이 전체 적용
-            Vector3 fieldOffset = targetFieldCenter - _ownFieldCenter;
-            targetPosition = _originalPosition + fieldOffset;
+            // 수비/관전 모드
+            targetPosition = defensePosition;
             targetRotation = _originalRotation;
         }
         
