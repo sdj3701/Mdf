@@ -140,8 +140,8 @@ MonoBehaviour:
     y: 0
     width: 382
     height: 939
-  m_MinSize: {x: 101, y: 121}
-  m_MaxSize: {x: 4001, y: 4021}
+  m_MinSize: {x: 100, y: 100}
+  m_MaxSize: {x: 4000, y: 4000}
   m_ActualView: {fileID: 4}
   m_Panes:
   - {fileID: 4}
@@ -907,7 +907,7 @@ MonoBehaviour:
   m_MinSize: {x: 100, y: 200}
   m_MaxSize: {x: 8096, y: 16192}
   vertical: 1
-  controlID: 6309
+  controlID: 18798
 --- !u!114 &11
 MonoBehaviour:
   m_ObjectHideFlags: 52
@@ -969,7 +969,7 @@ MonoBehaviour:
       scrollPos: {x: 0, y: 0}
       m_SelectedIDs: 
       m_LastClickedID: 0
-      m_ExpandedIDs: 5e82fbffde88fbff8885fcff6086fcff6287fcff7a87fcff9687fcffa887fcfffaccfcff161cfdffb21ffdff8a20fdff8c21fdffa421fdffc021fdffd221fdff923dfdffa4b0fdff0acffdff9a60feff7261feff7262feff8a62feffa662feffb862feff969ffeff96aafeffacaefeff84affeffb0b3feffc6b3feffe4b3feff00b4feff38cbfeff7ccbfeff82cbfeff8acbfefff272ffffca73ffffcc74ffffe474ffff0075ffff1275ffffe4abffffbeaeffff96afffff1ab1ffff2eb1ffff42b1ffff52b1ffff18c0ffff1cc1ffff82eeffff5aefffff64f0ffff7cf0ffff98f0ffffaaf0fffffafafffff4ffffff
+      m_ExpandedIDs: b89ef8ff949ff8ff9ea0f8ffbea0f8ffe2a0f8fffca0f8ff4a47f9fff67cf9ff3a7df9ff407df9ff487df9ff6e13faff4614faffb017faffc617faffda17faffe817faff5e82fbffde88fbff8885fcff6086fcff6287fcff7a87fcff9687fcffa887fcfffaccfcff161cfdffb21ffdff8a20fdff8c21fdffa421fdffc021fdffd221fdff923dfdffa4b0fdff0acffdff9a60feff7261feff7262feff8a62feffa662feffb862feff969ffeff96aafeffacaefeff84affeffb0b3feffc6b3feffe4b3feff00b4feff38cbfeff7ccbfeff82cbfeff8acbfefff272ffffca73ffffcc74ffffe474ffff0075ffff1275ffffe4abffffbeaeffff96afffff1ab1ffff2eb1ffff42b1ffff52b1ffff18c0ffff1cc1ffff82eeffff5aefffff64f0ffff7cf0ffff98f0ffffaaf0fffffafafffff4ffffff
       m_RenameOverlay:
         m_UserAcceptedRename: 0
         m_Name: 
@@ -1060,23 +1060,23 @@ MonoBehaviour:
     m_SkipHidden: 0
     m_SearchArea: 1
     m_Folders:
-    - Assets/Prefabs/UI/AttackSequence
+    - Assets/VFX/Free Slash VFX/Prefabs
     m_Globs: []
     m_OriginalText: 
     m_FilterByTypeIntersection: 0
   m_ViewMode: 1
   m_StartGridSize: 16
   m_LastFolders:
-  - Assets/Prefabs/UI/AttackSequence
+  - Assets/VFX/Free Slash VFX/Prefabs
   m_LastFoldersGridSize: 16
   m_LastProjectPath: E:\UnityProjects\mdf\Mdfproject
   m_LockTracker:
     m_IsLocked: 0
   m_FolderTreeState:
-    scrollPos: {x: 0, y: 122}
-    m_SelectedIDs: c0eb0000
-    m_LastClickedID: 60352
-    m_ExpandedIDs: 00000000c67e00005a8400005c8400005e84000060840000628400006484000066840000688400006a8400006c8400006e84000070840000728400007484000076840000788400007a8400007c840000c2840000
+    scrollPos: {x: 0, y: 286}
+    m_SelectedIDs: 921f0100
+    m_LastClickedID: 73618
+    m_ExpandedIDs: 00000000c67e00005a8400005c8400005e84000060840000628400006484000066840000688400006a8400006c8400006e84000070840000728400007484000076840000788400007a8400007c840000d8840000d8180100
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -1179,8 +1179,8 @@ MonoBehaviour:
     y: 0
     width: 404
     height: 939
-  m_MinSize: {x: 276, y: 71}
-  m_MaxSize: {x: 4001, y: 4021}
+  m_MinSize: {x: 275, y: 50}
+  m_MaxSize: {x: 4000, y: 4000}
   m_ActualView: {fileID: 16}
   m_Panes:
   - {fileID: 16}

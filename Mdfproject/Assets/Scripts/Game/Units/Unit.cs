@@ -28,6 +28,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     // [수정] 서버/클라이언트 간 HP 동기화를 위한 Networked 속성
     [Networked] public float NetworkedHP { get; set; }
     [Networked] public float NetworkedMaxHP { get; set; }
+    
+    // === 상태 동기화 (클라이언트 애니메이션/사망 처리용) ===
+    [Networked] public NetworkBool NetworkedIsDead { get; set; }
+    [Networked] public NetworkBool NetworkedIsAttacking { get; set; }
 
     private bool _hasSpawned;
     private bool _hasLocalHealthValues;
@@ -143,6 +147,32 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             {
                 OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
             }
+            else if (propertyName == nameof(NetworkedIsDead))
+            {
+                HandleNetworkedDeathStateChanged();
+            }
+            else if (propertyName == nameof(NetworkedIsAttacking))
+            {
+                HandleNetworkedAttackStateChanged();
+            }
+        }
+    }
+    
+    private void HandleNetworkedDeathStateChanged()
+    {
+        if (NetworkedIsDead && !IsDead)
+        {
+            IsDead = true;
+            gameObject.SetActive(false);
+        }
+    }
+    
+    private void HandleNetworkedAttackStateChanged()
+    {
+        if (animator != null && Object != null && !Object.HasStateAuthority)
+        {
+            animator.ResetTrigger(attackTriggerParam);
+            animator.SetTrigger(attackTriggerParam);
         }
     }
 
@@ -302,6 +332,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (!attackClipDurationInitialized && attackClipDetectRoutine == null)
         {
             attackClipDetectRoutine = StartCoroutine(CaptureAttackClipDuration());
+        }
+        
+        if (Object != null && Object.HasStateAuthority)
+        {
+            NetworkedIsAttacking = !NetworkedIsAttacking;
         }
         return true;
     }
@@ -666,7 +701,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (!IsDead) return;
         IsDead = false;
         
-        // [Fix] 부활 시 저지 리스트 초기화
+        if (Object != null && Object.HasStateAuthority)
+        {
+            NetworkedIsDead = false;
+        }
+        
         blockedMonsters.Clear();
         
         await InitializeStats();
@@ -1254,7 +1293,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private void Die()
     {
         if (IsDead) return;
-        IsDead = true; 
+        IsDead = true;
+        
+        if (Object != null && Object.HasStateAuthority)
+        {
+            NetworkedIsDead = true;
+        }
         
         foreach (var monster in blockedMonsters)
         {
