@@ -98,7 +98,7 @@ MonoBehaviour:
     m_SerializedLabels:
     - UI
   - m_GUID: ae8a69e0ccd88974d8e8035798f0c066
-    m_Address: MonData_Goblin
+    m_Address: MonData_Orc
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterData
@@ -263,7 +263,7 @@ MonoBehaviour:
     m_SerializedLabels:
     - Manager
   - m_GUID: 4ae077da17a50f048a4009c3a41f2705
-    m_Address: MonsterA
+    m_Address: Orc
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterPrepab
@@ -282,8 +282,8 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - Augment
-  - m_GUID: 2813e96c555c01041a13c1343ebafbb0
-    m_Address: MonsterB
+  - m_GUID: 66ad4c36e4877594ea971606c9a5cfbb
+    m_Address: Slime
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterPrepab
@@ -307,18 +307,18 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterData
-  - m_GUID: 98f8d6964e81d244984a8fa948678d90
-    m_Address: MonsterC
+  - m_GUID: 7ddbf4bfdc44d8041929fb5d813457b7
+    m_Address: TurtleShell
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterPrepab
   - m_GUID: 467e13ba307d4c44fa072f30306c41b2
-    m_Address: MonData_GoblinBlue
+    m_Address: MonData_Slime
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterData
   - m_GUID: 0306cf61f03caa14788271cd945bc75c
-    m_Address: MonData_GoblinRed
+    m_Address: MonData_TurtleShell
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterData
@@ -352,6 +352,56 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
+  - m_GUID: dc67e39a28c053a4e9f20cbef0a40346
+    m_Address: Spider
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterPrepab
+  - m_GUID: ad514c2cde12faf4984ad6321c0e0b65
+    m_Address: Skeleton
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterPrepab
+  - m_GUID: f730397dca6c93b49b09c9557bfd2140
+    m_Address: Golem
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterPrepab
+  - m_GUID: 492fd9a527283ac458c01173e580d284
+    m_Address: EvilMage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterPrepab
+  - m_GUID: 1189d148162a5c94bb754bd8983fedd5
+    m_Address: Bat
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterPrepab
+  - m_GUID: 38bd09580b24c144ebfb111f6b7a4580
+    m_Address: MonData_Bat
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+  - m_GUID: 37c1410f39a37ce48baec7d335019032
+    m_Address: MonData_EvilMage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+  - m_GUID: 6c2b00d43e78aa34986b6826eb09d294
+    m_Address: MonData_Golem
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+  - m_GUID: 7813937e9a3ea3c46a5cc8c68e61ae5a
+    m_Address: MonData_Skeleton
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+  - m_GUID: 29cf65ff007c29842b0f94f054e2b808
+    m_Address: MonData_Spider
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

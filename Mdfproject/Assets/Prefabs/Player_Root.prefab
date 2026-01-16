@@ -397,7 +397,7 @@ MonoBehaviour:
   pathMarkerSpawnInterval: 0.5
   pathMarkerPoolSize: 32
   pathMarkerSize: 0.3
-  showPathInPrepare: 1
+  showPathInPrepare: 0
   sellPenalty: 1
   gridOrigin: {x: 0, y: 0, z: 0}
   cellSize: 1

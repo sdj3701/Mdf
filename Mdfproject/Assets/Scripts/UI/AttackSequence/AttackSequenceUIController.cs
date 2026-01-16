@@ -217,6 +217,30 @@ public class AttackSequenceUIController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 현재 몬스터 풀을 갱신하고 선택 상태를 해제합니다.
+    /// 몬스터 소진 시 AttackSequenceManager에서 호출됩니다.
+    /// </summary>
+    public void RefreshUI()
+    {
+        if (_playerManager == null) return;
+        
+        // 모든 슬롯의 수량 업데이트
+        for (int i = 0; i < _slots.Count && i < _playerManager.AttackMonsterPool.Count; i++)
+        {
+            _slots[i].UpdateCount();
+        }
+        
+        // 선택 해제 (UI에서 선택 표시 제거)
+        if (_selectedSlotIndex >= 0 && _selectedSlotIndex < _slots.Count)
+        {
+            _slots[_selectedSlotIndex].SetSelected(false);
+        }
+        _selectedSlotIndex = -1;
+        
+        Debug.Log("<color=yellow>[AttackSequenceUIController] UI 갱신 및 선택 해제</color>");
+    }
+
 
 
     /// <summary>

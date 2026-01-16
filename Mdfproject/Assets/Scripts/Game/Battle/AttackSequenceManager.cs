@@ -207,19 +207,15 @@ public class AttackSequenceManager : MonoBehaviour
             _selectedMonster.OriginPlayerId
         );
 
-        // 선택된 몬스터가 소진되면 다음 몬스터로 자동 전환
+        // 선택된 몬스터가 소진되면 선택 해제 (다음 몬스터 자동 선택 안 함)
+        // 사용자가 직접 UI에서 다른 몬스터를 선택해야 소환 가능
         if (_selectedMonster.IsEmpty)
         {
-            var nextAvailable = _playerManager.AttackMonsterPool.Find(p => !p.IsEmpty);
-            if (nextAvailable != null)
-            {
-                SelectMonster(nextAvailable);
-            }
-            else
-            {
-                _selectedMonster = null;
-                Debug.Log("<color=orange>[AttackSequenceManager] 모든 몬스터 소진!</color>");
-            }
+            Debug.Log($"<color=orange>[AttackSequenceManager] '{_selectedMonster.MonsterData.monsterName}' 소진! 다른 몬스터를 선택해주세요.</color>");
+            _selectedMonster = null;
+            
+            // UI 갱신 이벤트 발생
+            AttackSequenceUIController.Instance?.RefreshUI();
         }
     }
     #endregion

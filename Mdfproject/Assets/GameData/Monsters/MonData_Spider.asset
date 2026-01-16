@@ -10,18 +10,18 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 12b791e63b46fab4aa386d75dd5b687d, type: 3}
-  m_Name: MonData_BossA
+  m_Name: MonData_Spider
   m_EditorClassIdentifier: 
-  monsterName: BossA
+  monsterName: Goblin
   monsterType: 0
   monsterIcon: Spr_Port_Orc
-  monsterPrefab: BossA
-  attackDamage: 80
+  monsterPrefab: Spider
+  attackDamage: 15
   attackSpeed: 1
   attackRange: 0
   damageType: 0
-  maxHealth: 500
+  maxHealth: 40
   defense: 0
   magicResistance: 0
-  moveSpeed: 1
+  moveSpeed: 1.5
   skillData: {fileID: 0}
