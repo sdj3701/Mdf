@@ -1183,6 +1183,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (other.TryGetComponent<Monster>(out var monster))
         {
+            // Null 체크 추가
+            if (monster.Data == null || Data == null) return;
+            
             if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
                 monster.Data.monsterType == MonsterType.Flying || Data.blockCount <= 0 ||
                 blockedMonsters.Count >= Data.blockCount)

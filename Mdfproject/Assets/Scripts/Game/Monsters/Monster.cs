@@ -118,11 +118,24 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public override void Spawned()
     {
         base.Spawned();
-        _hasSpawned = true;
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
-        TryApplyPendingHealthToNetworked();
-        // StatusBarUI 생성은 Initialize()에서 처리합니다.
-        // Spawned()는 statusBarPrefab이 할당되기 전에 호출되므로 여기서는 생성하지 않습니다.
+        
+        if (_hasSpawned)
+        {
+            _hasLocalHealthValues = false;
+            _localHP = 0;
+            _localMaxHP = 0;
+            
+            if (Object != null && Object.HasStateAuthority)
+            {
+                NetworkedMaxHP = 0;
+                NetworkedHP = 0;
+            }
+            
+            var existingStatusBar = GetComponentInChildren<StatusBarUI>(true);
+            existingStatusBar?.ResetForReuse();
+        }
+        _hasSpawned = true;
     }
     
     /// <summary>
@@ -208,13 +221,24 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _hasPendingAttack = false;
         _pendingAttackTarget = null;
 
-        currentMaxHP = _monsterData.maxHealth;
-        currentHP = currentMaxHP;
+        // [Fix] 오브젝트 풀 재사용 시 HP 강제 리셋
+        // StateAuthority가 있으면 NetworkedHP에 직접 쓰기
+        float maxHp = _monsterData.maxHealth;
+        if (Object != null && Object.HasStateAuthority)
+        {
+            NetworkedMaxHP = maxHp;
+            NetworkedHP = maxHp;
+        }
+        // 로컬 값도 설정 (아직 Spawned 되지 않았을 경우를 위해)
+        _hasLocalHealthValues = true;
+        _localMaxHP = maxHp;
+        _localHP = maxHp;
         
         // StatusBarUI 생성 (statusBarPrefab이 이미 할당된 상태)
         EnsureStatusBarUI();
+        statusBarUI?.ResetForReuse();
         
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+        OnHealthChanged?.Invoke(maxHp, maxHp);
 
         manaController = GetComponent<ManaController>();
 
@@ -319,8 +343,43 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         // 필수 참조 설정
         this.ownerPlayer = owner;
-        this.goalTransform = owner.goalTransform;
         this.pathfinder = owner.astarGrid;
+        
+        if (owner.goalTransform != null)
+        {
+            this.goalTransform = owner.goalTransform;
+        }
+        else
+        {
+            int goalAttempts = 0;
+            while (owner.goalTransform == null && goalAttempts < 30)
+            {
+                yield return null;
+                goalAttempts++;
+            }
+            
+            if (owner.goalTransform != null)
+            {
+                this.goalTransform = owner.goalTransform;
+            }
+            else if (owner.fieldManager != null)
+            {
+                Vector2Int gridSize = owner.fieldManager.gridSize;
+                Vector3 gridOrigin = owner.fieldManager.gridOrigin;
+                float cellSize = owner.fieldManager.cellSize;
+                int centerX = gridSize.x / 2;
+                int centerY = gridSize.y / 2;
+                
+                GameObject fallbackGoal = new GameObject("FallbackGoal_Monster");
+                fallbackGoal.transform.position = new Vector3(
+                    gridOrigin.x + (centerX + 0.5f) * cellSize,
+                    gridOrigin.y,
+                    gridOrigin.z + (centerY + 0.5f) * cellSize
+                );
+                this.goalTransform = fallbackGoal.transform;
+                Debug.LogWarning($"[Monster] goalTransform fallback used - calculated from FieldManager center");
+            }
+        }
         
         if (_monsterData != null)
         {
@@ -329,14 +388,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             baseMoveSpeed = _monsterData.moveSpeed;
             currentMoveSpeed = baseMoveSpeed;
             currentAttackDamage = _monsterData.attackDamage; // 초기화
-            currentMaxHP = _monsterData.maxHealth;
-            currentHP = currentMaxHP;
+            // currentMaxHP, currentHP는 설정하지 않음 - 서버에서 동기화된 NetworkedHP/NetworkedMaxHP 사용
         }
         
         // StatusBarUI 생성
         EnsureStatusBarUI();
         
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+        // 서버에서 동기화된 HP 값을 UI에 반영
+        OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
         
         manaController = GetComponent<ManaController>();
         if (manaController != null && _monsterData != null)

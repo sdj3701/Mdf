@@ -630,6 +630,9 @@ public class GameManagers : NetworkBehaviour
             var opponent = GetPlayer(opponentId);
             if (opponent != null)
             {
+                // opponentManager 설정 (클라이언트에서도 보스 풀 추가를 위해 필요)
+                localPlayer.opponentManager = opponent;
+                
                 // 클라이언트에서도 AttackMonsterPool 갱신 (UI 표시를 위해)
                 localPlayer.RefreshAttackMonsterPool(currentRound);
                 

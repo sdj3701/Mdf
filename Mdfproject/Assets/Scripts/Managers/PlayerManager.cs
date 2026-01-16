@@ -675,10 +675,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
         
         // 3. 대기 중인 보스 증강 추가 (이번 턴에 뽑은 보스)
-        // 공격자가 상대에게 보스를 소환하므로, 현재 상대 ID를 기준으로 필터링
         int currentOpponentId = opponentManager?.playerId ?? -1;
         var bossesToAdd = _pendingBossAugments
-            .Where(b => b.TargetPlayerId == currentOpponentId)
+            .Where(b => MatchesBossTarget(b.TargetPlayerId, currentOpponentId))
             .ToList();
         
         foreach (var pending in bossesToAdd)
@@ -701,7 +700,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
         
         // 추가된 보스는 대기 목록에서 제거 (1회성)
-        _pendingBossAugments.RemoveAll(b => b.TargetPlayerId == currentOpponentId);
+        _pendingBossAugments.RemoveAll(b => MatchesBossTarget(b.TargetPlayerId, currentOpponentId));
 
         Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 공격 몬스터 풀 갱신 완료 ({AttackMonsterPool.Count}종류, 보스: {bossesToAdd.Count}마리)</color>");
         
@@ -726,6 +725,14 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
         return true;
+    }
+    
+    private bool MatchesBossTarget(int bossTargetId, int currentOpponentId)
+    {
+        if (bossTargetId == currentOpponentId) return true;
+        if (bossTargetId == -1) return true;
+        if (currentOpponentId == -1) return true;
+        return false;
     }
     #endregion
 

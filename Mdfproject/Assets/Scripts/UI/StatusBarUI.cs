@@ -53,6 +53,35 @@ public class StatusBarUI : MonoBehaviour
 
     private IHealth healthComponent;
     private IMana manaComponent;
+    
+    public void ResetForReuse()
+    {
+        if (healthComponent != null)
+        {
+            healthComponent.OnHealthChanged -= UpdateHealth;
+            healthComponent = null;
+        }
+        if (manaComponent != null)
+        {
+            manaComponent.OnManaChanged -= UpdateMana;
+            manaComponent = null;
+        }
+        
+        isInitialized = false;
+        isCombatPhase = false;
+        
+        SetHealthBarVisibility(false);
+        SetManaBarVisibility(false);
+        if (skillButton != null)
+        {
+            skillButton.gameObject.SetActive(false);
+        }
+        
+        if (GameManagers.Instance != null)
+        {
+            Initialize();
+        }
+    }
     private Unit unitComponent;
     private GraphicRaycaster graphicRaycaster;
     private Canvas cachedCanvas;
@@ -206,7 +235,9 @@ public class StatusBarUI : MonoBehaviour
         }
         else
         {
-            shouldShow = isCombatPhase && (current > 0 && current < max);
+            // 몬스터: 피해를 받아서 current < max일 때만 표시
+            // max가 0 이하이면 아직 초기화되지 않은 상태이므로 숨김
+            shouldShow = isCombatPhase && max > 0 && current > 0 && current < max;
         }
 
         SetHealthBarVisibility(shouldShow);
