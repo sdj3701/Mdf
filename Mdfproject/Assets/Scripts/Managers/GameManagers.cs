@@ -613,6 +613,67 @@ public class GameManagers : NetworkBehaviour
         var pos = new Vector3Int(x, y, 0);
         GameEvents.TriggerWallRemovalSucceeded(playerID, pos);
     }
+    
+    /// <summary>
+    /// 전투 시작을 모든 클라이언트에 알립니다.
+    /// 각 클라이언트는 자신이 해당 플레이어인 경우 카메라/UI 처리를 수행합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_NotifyBattleStart(int playerId, bool isAttacker, int opponentId)
+    {
+        // 로컬 플레이어가 아니면 무시
+        if (localPlayer == null || localPlayer.playerId != playerId) return;
+        
+        // 공격자인 경우
+        if (isAttacker && opponentId != -1)
+        {
+            var opponent = GetPlayer(opponentId);
+            if (opponent != null)
+            {
+                // AttackSequenceManager 시작
+                var attackSeqMgr = localPlayer.GetComponent<AttackSequenceManager>();
+                if (attackSeqMgr != null)
+                {
+                    attackSeqMgr.StartAttackSequence(opponent);
+                }
+                
+                // 카메라를 상대 필드로 이동 (공격 모드)
+                if (CameraManager.Instance != null)
+                {
+                    CameraManager.Instance.MoveToPlayerField(opponent, isAttackMode: true).Forget();
+                }
+                
+                // 공격 시퀀스 UI 표시
+                AttackSequenceUIController.Instance?.Show(true);
+                
+                Debug.Log($"<color=green>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 공격자 (상대: Player {opponentId})</color>");
+            }
+        }
+        else
+        {
+            // 수비자인 경우
+            // AttackSequenceManager 종료
+            var attackSeqMgr = localPlayer.GetComponent<AttackSequenceManager>();
+            if (attackSeqMgr != null)
+            {
+                attackSeqMgr.EndAttackSequence();
+            }
+            
+            // 공격 시퀀스 UI 숨김
+            AttackSequenceUIController.Instance?.Hide();
+            
+            // 카메라 본인 필드 복귀
+            if (CameraManager.Instance != null)
+            {
+                CameraManager.Instance.ReturnToOwnField();
+            }
+            
+            Debug.Log($"<color=blue>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 수비자</color>");
+        }
+        
+        // 전투 시작 이벤트 발생
+        GameEvents.TriggerBattleSequenceStarted(isAttacker);
+    }
     #endregion
 
     /// <summary>
@@ -975,22 +1036,7 @@ public class GameManagers : NetworkBehaviour
                     else
                     {
                         // 유저 공격자: 수동 소환 모드 시작
-                        // AttackSequenceManager 시작
-                        var attackSeqMgr = player.GetComponent<AttackSequenceManager>();
-                        if (attackSeqMgr != null && opponent != null)
-                        {
-                            attackSeqMgr.StartAttackSequence(opponent);
-                        }
-                        
-                        // 카메라를 상대 필드로 이동 (공격 모드 - 더 멀리, 위에서 조망)
-                        if (CameraManager.Instance != null && opponent != null)
-                        {
-                            CameraManager.Instance.MoveToPlayerField(opponent, isAttackMode: true).Forget();
-                        }
-                        
-                        // 공격 시퀀스 UI 표시
-                        AttackSequenceUIController.Instance?.Show(true);
-                        
+                        // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
                         Debug.Log($"<color=green>[StartBattle] Player {player.playerId}: 공격자 (수동 소환 모드, 상대: Player {opponentId})</color>");
                     }
                 }
@@ -1005,27 +1051,7 @@ public class GameManagers : NetworkBehaviour
                         player.monsterSpawner.SpawnSurvivorBossesAsync().Forget();
                     }
                     
-                    // 유저 수비자: 이전 공격 시퀀스 종료 및 카메라 본인 필드 복귀
-                    bool isLocalPlayer = player.Object.HasInputAuthority;
-                    if (isLocalPlayer)
-                    {
-                        // AttackSequenceManager 종료
-                        var attackSeqMgr = player.GetComponent<AttackSequenceManager>();
-                        if (attackSeqMgr != null)
-                        {
-                            attackSeqMgr.EndAttackSequence();
-                        }
-                        
-                        // 공격 시퀀스 UI 숨김
-                        AttackSequenceUIController.Instance?.Hide();
-                        
-                        // 카메라 본인 필드 복귀
-                        if (CameraManager.Instance != null)
-                        {
-                            CameraManager.Instance.ReturnToOwnField();
-                        }
-                    }
-                    
+                    // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
                     Debug.Log($"<color=blue>[StartBattle] Player {player.playerId}: 수비자 (상대: Player {opponentId})</color>");
                 }
             }
@@ -1047,11 +1073,12 @@ public class GameManagers : NetworkBehaviour
             }
         }
 
-        // 로컬 플레이어에 대해 UI 이벤트 발생
-        if (localPlayer != null)
+        // 모든 클라이언트에 전투 시작 알림 (RPC)
+        foreach (var player in AllPlayers)
         {
-            bool localIsAttacker = localPlayer.IsAttackerInCurrentBattle;
-            GameEvents.TriggerBattleSequenceStarted(localIsAttacker);
+            if (player == null) continue;
+            int opponentId = _battleOpponents.TryGetValue(player.playerId, out int oppId) ? oppId : -1;
+            RPC_NotifyBattleStart(player.playerId, player.IsAttackerInCurrentBattle, opponentId);
         }
     }
 
