@@ -960,7 +960,7 @@ public class GameManagers : NetworkBehaviour
 
                     // AI 공격자: 상대 필드에 자동 소환
                     // 유저 공격자: 수동 소환 대기 (AttackSequenceManager에서 처리)
-                    bool isAI = !player.Object.HasInputAuthority;
+                    bool isAI = ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString());
                     var opponent = AllPlayers.FirstOrDefault(p => p != null && p.playerId == opponentId);
                     
                     if (isAI)

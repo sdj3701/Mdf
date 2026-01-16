@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 12b791e63b46fab4aa386d75dd5b687d, type: 3}
   m_Name: MonData_EvilMage
   m_EditorClassIdentifier: 
-  monsterName: Goblin
+  monsterName: EvilMage
   monsterType: 0
   monsterIcon: Spr_Port_Orc
   monsterPrefab: EvilMage
