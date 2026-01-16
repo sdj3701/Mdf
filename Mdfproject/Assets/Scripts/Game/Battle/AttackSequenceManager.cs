@@ -189,23 +189,54 @@ public class AttackSequenceManager : MonoBehaviour
     {
         if (_selectedMonster == null || _selectedMonster.IsEmpty) return;
         if (_monsterSpawner == null) return;
+        if (_opponentFieldManager == null) return;
 
-        // 풀에서 소비
+        // 몬스터 데이터 이름 저장 (RPC 전송용)
+        string monsterDataName = _selectedMonster.MonsterData?.name;
+        bool isBoss = _selectedMonster.IsBoss;
+        int bossUniqueId = _selectedMonster.BossUniqueId;
+        int originPlayerId = _selectedMonster.OriginPlayerId;
+        int defenderPlayerId = _opponentFieldManager.playerManager?.playerId ?? -1;
+        
+        // 풀에서 소비 (로컬 UI 업데이트용)
         if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
         {
             Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
             return;
         }
 
-        // 상대 필드에 몬스터 소환 (보스인 경우 보스 플래그 및 고유 ID 전달)
-        await _monsterSpawner.SpawnMonsterAtPositionAsync(
-            _selectedMonster.MonsterData,
-            position,
-            _opponentFieldManager,
-            _selectedMonster.IsBoss,
-            _selectedMonster.BossUniqueId,
-            _selectedMonster.OriginPlayerId
-        );
+        // 호스트(StateAuthority)인 경우 직접 스폰, 클라이언트인 경우 RPC 요청
+        bool isHost = _playerManager.Object != null && _playerManager.Object.HasStateAuthority;
+        
+        if (isHost)
+        {
+            // 호스트: 직접 스폰
+            await _monsterSpawner.SpawnMonsterAtPositionAsync(
+                _selectedMonster.MonsterData,
+                position,
+                _opponentFieldManager,
+                isBoss,
+                bossUniqueId,
+                originPlayerId
+            );
+        }
+        else
+        {
+            // 클라이언트: 서버에 RPC 요청
+            if (GameManagers.Instance != null)
+            {
+                GameManagers.Instance.RPC_RequestSpawnMonster(
+                    _playerManager.playerId,
+                    defenderPlayerId,
+                    monsterDataName,
+                    position,
+                    isBoss,
+                    bossUniqueId,
+                    originPlayerId
+                );
+                Debug.Log($"<color=yellow>[AttackSequenceManager] RPC 소환 요청: {monsterDataName} at {position}</color>");
+            }
+        }
 
         // 선택된 몬스터가 소진되면 선택 해제 (다음 몬스터 자동 선택 안 함)
         // 사용자가 직접 UI에서 다른 몬스터를 선택해야 소환 가능

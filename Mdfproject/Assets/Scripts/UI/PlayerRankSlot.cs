@@ -447,8 +447,24 @@
          else
          {
              // 다른 플레이어 슬롯 클릭 시 해당 필드로 이동
-             CameraManager.Instance.MoveToPlayerField(trackedPlayer).Forget();
+             // 공격 대상 필드면 공격 모드로 이동
+             bool isAttackMode = ShouldUseAttackModeCamera(trackedPlayer);
+             CameraManager.Instance.MoveToPlayerField(trackedPlayer, isAttackMode).Forget();
          }
+     }
+     
+     /// <summary>
+     /// 해당 플레이어 필드로 이동할 때 공격 모드 카메라를 사용해야 하는지 확인합니다.
+     /// </summary>
+     private bool ShouldUseAttackModeCamera(PlayerManager targetPlayer)
+     {
+         // 로컬 플레이어가 공격자인지 확인
+         var localPlayer = GameManagers.Instance?.localPlayer;
+         if (localPlayer == null || !localPlayer.IsAttackerInCurrentBattle) return false;
+         
+         // 현재 전투 상대가 해당 플레이어인지 확인
+         int opponentId = GameManagers.Instance.GetBattleOpponent(localPlayer.playerId);
+         return opponentId == targetPlayer.playerId;
      }
 
      /// <summary>

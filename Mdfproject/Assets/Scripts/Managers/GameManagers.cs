@@ -630,6 +630,9 @@ public class GameManagers : NetworkBehaviour
             var opponent = GetPlayer(opponentId);
             if (opponent != null)
             {
+                // 클라이언트에서도 AttackMonsterPool 갱신 (UI 표시를 위해)
+                localPlayer.RefreshAttackMonsterPool(currentRound);
+                
                 // AttackSequenceManager 시작
                 var attackSeqMgr = localPlayer.GetComponent<AttackSequenceManager>();
                 if (attackSeqMgr != null)
@@ -643,10 +646,10 @@ public class GameManagers : NetworkBehaviour
                     CameraManager.Instance.MoveToPlayerField(opponent, isAttackMode: true).Forget();
                 }
                 
-                // 공격 시퀀스 UI 표시
-                AttackSequenceUIController.Instance?.Show(true);
+                // 공격 시퀀스 UI 표시 (재초기화 후 표시)
+                ShowAttackSequenceUIAsync(attackSeqMgr).Forget();
                 
-                Debug.Log($"<color=green>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 공격자 (상대: Player {opponentId})</color>");
+                Debug.Log($"<color=green>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 공격자 (상대: Player {opponentId}, 라운드: {currentRound})</color>");
             }
         }
         else
@@ -673,6 +676,103 @@ public class GameManagers : NetworkBehaviour
         
         // 전투 시작 이벤트 발생
         GameEvents.TriggerBattleSequenceStarted(isAttacker);
+    }
+    
+    /// <summary>
+    /// 공격 시퀀스 UI를 비동기로 초기화하고 표시합니다.
+    /// </summary>
+    private async UniTask ShowAttackSequenceUIAsync(AttackSequenceManager attackSeqMgr)
+    {
+        if (localPlayer == null || attackSeqMgr == null) return;
+        
+        // UI 로드/초기화
+        var ui = await AttackSequenceUIController.GetOrCreateAsync(localPlayer, attackSeqMgr);
+        if (ui != null)
+        {
+            ui.Show(true);
+            Debug.Log($"<color=cyan>[ShowAttackSequenceUIAsync] 공격 시퀀스 UI 표시 완료</color>");
+        }
+        else
+        {
+            Debug.LogWarning("[ShowAttackSequenceUIAsync] UI 로드 실패");
+        }
+    }
+    
+    /// <summary>
+    /// 클라이언트가 서버에 몬스터 소환을 요청합니다.
+    /// </summary>
+    /// <param name="attackerPlayerId">공격자 플레이어 ID</param>
+    /// <param name="defenderPlayerId">수비자 플레이어 ID</param>
+    /// <param name="monsterDataName">소환할 몬스터 데이터 이름</param>
+    /// <param name="spawnPosition">소환 위치</param>
+    /// <param name="isBoss">보스 여부</param>
+    /// <param name="bossUniqueId">보스 고유 ID</param>
+    /// <param name="originPlayerId">보스 소환자 ID</param>
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestSpawnMonster(int attackerPlayerId, int defenderPlayerId, string monsterDataName, Vector3 spawnPosition, bool isBoss, int bossUniqueId, int originPlayerId)
+    {
+        // 서버만 처리
+        if (Object == null || !Object.HasStateAuthority) return;
+        
+        var attacker = GetPlayer(attackerPlayerId);
+        var defender = GetPlayer(defenderPlayerId);
+        
+        if (attacker == null || defender == null)
+        {
+            Debug.LogWarning($"[RPC_RequestSpawnMonster] 플레이어를 찾을 수 없음: attacker={attackerPlayerId}, defender={defenderPlayerId}");
+            return;
+        }
+        
+        // 몬스터 데이터 찾기
+        var pool = attacker.AttackMonsterPool;
+        MonsterPoolEntry targetEntry = null;
+        foreach (var entry in pool)
+        {
+            if (entry.MonsterData != null && entry.MonsterData.name == monsterDataName && !entry.IsEmpty)
+            {
+                targetEntry = entry;
+                break;
+            }
+        }
+        
+        if (targetEntry == null)
+        {
+            Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 풀에서 '{monsterDataName}'을 찾을 수 없음");
+            return;
+        }
+        
+        // 풀에서 소비
+        if (!attacker.TryConsumeMonsterFromPool(targetEntry.MonsterData))
+        {
+            Debug.LogWarning("[RPC_RequestSpawnMonster] 몬스터 풀에서 소비 실패");
+            return;
+        }
+        
+        // 서버에서 몬스터 소환
+        SpawnMonsterOnServerAsync(attacker, defender, targetEntry, spawnPosition).Forget();
+    }
+    
+    private async UniTask SpawnMonsterOnServerAsync(PlayerManager attacker, PlayerManager defender, MonsterPoolEntry entry, Vector3 spawnPosition)
+    {
+        if (attacker?.monsterSpawner == null || defender?.fieldManager == null) return;
+        
+        var monster = await attacker.monsterSpawner.SpawnMonsterAtPositionAsync(
+            entry.MonsterData,
+            spawnPosition,
+            defender.fieldManager,
+            entry.IsBoss,
+            entry.BossUniqueId,
+            entry.OriginPlayerId
+        );
+        
+        if (monster != null)
+        {
+            Debug.Log($"<color=green>[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 성공</color>");
+        }
+        else
+        {
+            Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 실패");
+        }
     }
     #endregion
 
