@@ -16,12 +16,12 @@ MonoBehaviour:
   monsterType: 0
   monsterIcon: Spr_Port_Orc
   monsterPrefab: BossA
-  attackDamage: 80
-  attackSpeed: 1
+  attackDamage: 120
+  attackSpeed: 1.2
   attackRange: 0
   damageType: 0
-  maxHealth: 500
-  defense: 0
-  magicResistance: 0
-  moveSpeed: 1
+  maxHealth: 800
+  defense: 15
+  magicResistance: 10
+  moveSpeed: 0.8
   skillData: {fileID: 0}

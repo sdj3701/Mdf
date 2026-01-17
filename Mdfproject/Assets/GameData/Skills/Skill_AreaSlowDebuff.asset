@@ -14,13 +14,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   skillName: Skill_AreaMagicDamage
   description: "\uC8FC\uBCC0 3\uBC94\uC704\uC758 \uC801\uB4E4\uC758 \uC18D\uB3C4\uB97C
-    5\uCD08\uAC04 50% \uB2A6\uCDA5\uB2C8\uB2E4"
+    5\uCD08\uAC04 30% \uB2A6\uCDA5\uB2C8\uB2E4"
   icon: {fileID: 21300000, guid: 1a488ad75fed8cf47aeff44454147552, type: 3}
-  manaCost: 50
+  manaCost: 60
   range: 3
   activationType: 1
   targetingStrategy: {fileID: 11400000, guid: ac91b01935cc0cb41ace8ebc9f3b1d08, type: 2}
   effects:
-  - {fileID: 11400000, guid: ea582019e5f54544a896a13b7ca3fb3d, type: 2}
+  - {fileID: 11400000, guid: 2770168e583417b41b763e460a06b1a5, type: 2}
   vfxPrefab: {fileID: 3178614178979242518, guid: 89f2776e47e86d44ea455ef0ac412247,
     type: 3}

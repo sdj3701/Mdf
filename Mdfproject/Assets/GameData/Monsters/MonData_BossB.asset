@@ -12,17 +12,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 12b791e63b46fab4aa386d75dd5b687d, type: 3}
   m_Name: MonData_BossB
   m_EditorClassIdentifier: 
-  monsterName: BossA
+  monsterName: BossB
   monsterType: 0
   monsterIcon: Spr_Port_Orc
   monsterPrefab: BossA
-  attackDamage: 80
-  attackSpeed: 1
+  attackDamage: 120
+  attackSpeed: 1.2
   attackRange: 0
   damageType: 0
-  maxHealth: 500
-  defense: 0
-  magicResistance: 0
-  moveSpeed: 1
+  maxHealth: 800
+  defense: 15
+  magicResistance: 10
+  moveSpeed: 0.8
   traits: -1
   skillData: {fileID: 0}

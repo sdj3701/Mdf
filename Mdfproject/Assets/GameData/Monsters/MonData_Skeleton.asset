@@ -16,12 +16,12 @@ MonoBehaviour:
   monsterType: 0
   monsterIcon: Spr_Port_Orc
   monsterPrefab: Skeleton
-  attackDamage: 25
-  attackSpeed: 1
+  attackDamage: 30
+  attackSpeed: 1.1
   attackRange: 0
   damageType: 0
-  maxHealth: 80
+  maxHealth: 120
   defense: 0
   magicResistance: 0
-  moveSpeed: 1.5
+  moveSpeed: 1.4
   skillData: {fileID: 0}

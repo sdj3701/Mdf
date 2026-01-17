@@ -16,16 +16,16 @@ MonoBehaviour:
   unitIcon: Spr_Port_Warrior
   cost: 3
   unitType: 0
-  baseHealth: 50
-  baseAttackDamage: 7
-  attackSpeed: 1.5
+  baseHealth: 100
+  baseAttackDamage: 25
+  attackSpeed: 1.8
   attackRange: 1
   damageType: 0
   defense: 0
   magicResistance: 0
   blockCount: 2
   manaRegenType: 0
-  manaOnAttack: 5
+  manaOnAttack: 8
   manaPerSecond: 5
   prefabsByStarLevel:
   - Fighter1

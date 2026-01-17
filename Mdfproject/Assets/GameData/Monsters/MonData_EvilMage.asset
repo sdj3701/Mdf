@@ -16,12 +16,12 @@ MonoBehaviour:
   monsterType: 0
   monsterIcon: Spr_Port_Orc
   monsterPrefab: EvilMage
-  attackDamage: 15
-  attackSpeed: 1
-  attackRange: 0
+  attackDamage: 25
+  attackSpeed: 0.8
+  attackRange: 2
   damageType: 1
-  maxHealth: 40
+  maxHealth: 70
   defense: 0
   magicResistance: 0
-  moveSpeed: 1
+  moveSpeed: 1.2
   skillData: {fileID: 0}

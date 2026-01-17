@@ -9,8 +9,10 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4dcfc6a8c57731e458773197a2cab832, type: 3}
-  m_Name: Effect_AreaDamage_100_Magic
+  m_Script: {fileID: 11500000, guid: 4a9d9873bdb3ae0408ff22a8455b98cb, type: 3}
+  m_Name: Effect_Buff_AtkSpeed_15Percent
   m_EditorClassIdentifier: 
-  damageAmount: 100
-  damageType: 1
+  statToBuff: 1
+  value: 0.15
+  isPercentage: 1
+  duration: 3

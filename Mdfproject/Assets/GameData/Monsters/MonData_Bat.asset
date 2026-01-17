@@ -16,12 +16,12 @@ MonoBehaviour:
   monsterType: 1
   monsterIcon: Spr_Port_Orc
   monsterPrefab: Bat
-  attackDamage: 15
-  attackSpeed: 1
+  attackDamage: 18
+  attackSpeed: 1.5
   attackRange: 0
   damageType: 0
-  maxHealth: 40
+  maxHealth: 45
   defense: 0
   magicResistance: 0
-  moveSpeed: 1.5
+  moveSpeed: 2.5
   skillData: {fileID: 0}

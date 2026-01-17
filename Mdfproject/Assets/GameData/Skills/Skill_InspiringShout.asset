@@ -14,9 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   skillName: InspiringShout_Skill
   description: "\uC8FC\uBCC0 \uC544\uAD70\uC720\uB2DB\uC758 \uACF5\uACA9\uC18D\uB3C4\uB97C
-    5\uCD08\uAC04 \uC99D\uAC00"
+    5\uCD08\uAC04 15% \uC99D\uAC00"
   icon: {fileID: 21300000, guid: df0ff31fb10285a40a309a00dc3a5fc9, type: 3}
-  manaCost: 50
+  manaCost: 70
   range: 4
   activationType: 1
   targetingStrategy: {fileID: 11400000, guid: 0a5a8f83e0e70bc418527186dff4b1f1, type: 2}

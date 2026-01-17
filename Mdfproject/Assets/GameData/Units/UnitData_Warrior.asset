@@ -16,12 +16,12 @@ MonoBehaviour:
   unitIcon: Spr_Port_Warrior
   cost: 1
   unitType: 0
-  baseHealth: 60
-  baseAttackDamage: 5
-  attackSpeed: 1
+  baseHealth: 80
+  baseAttackDamage: 8
+  attackSpeed: 0.9
   attackRange: 1
   damageType: 0
-  defense: 1
+  defense: 2
   magicResistance: 0
   blockCount: 2
   attackTargetType: 1

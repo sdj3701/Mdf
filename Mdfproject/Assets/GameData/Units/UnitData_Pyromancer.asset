@@ -16,16 +16,16 @@ MonoBehaviour:
   unitIcon: Spr_Port_Archer
   cost: 4
   unitType: 1
-  baseHealth: 10
-  baseAttackDamage: 10
-  attackSpeed: 0.8
+  baseHealth: 60
+  baseAttackDamage: 35
+  attackSpeed: 0.7
   attackRange: 2.5
   damageType: 1
   defense: 0
   magicResistance: 0
   blockCount: 1
   attackTargetType: 1
-  splashRadius: 2
+  splashRadius: 1
   manaRegenType: 1
   manaOnAttack: 5
   manaPerSecond: 5

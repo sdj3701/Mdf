@@ -16,12 +16,12 @@ MonoBehaviour:
   monsterType: 0
   monsterIcon: Spr_Port_Orc
   monsterPrefab: Spider
-  attackDamage: 15
-  attackSpeed: 1
+  attackDamage: 12
+  attackSpeed: 1.3
   attackRange: 0
   damageType: 0
-  maxHealth: 40
+  maxHealth: 50
   defense: 0
   magicResistance: 0
-  moveSpeed: 1.5
+  moveSpeed: 1.8
   skillData: {fileID: 0}

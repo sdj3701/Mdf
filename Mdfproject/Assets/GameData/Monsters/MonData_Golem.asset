@@ -16,12 +16,12 @@ MonoBehaviour:
   monsterType: 0
   monsterIcon: Spr_Port_Orc
   monsterPrefab: Golem
-  attackDamage: 50
+  attackDamage: 60
   attackSpeed: 0.5
   attackRange: 0
   damageType: 0
-  maxHealth: 200
-  defense: 0
+  maxHealth: 400
+  defense: 10
   magicResistance: 0
-  moveSpeed: 1
+  moveSpeed: 0.6
   skillData: {fileID: 0}
