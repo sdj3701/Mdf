@@ -18,6 +18,20 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     [Tooltip("StatusBar 프리팹 참조 (MonsterSpawner에서 전달받음)")]
     public GameObject statusBarPrefab;
 
+    #region 애니메이션 관련
+    [Header("Animation")]
+    [SerializeField] private Animator animator;
+    [SerializeField] private string attackTriggerParam = "AttackTrigger";
+    [SerializeField] private string isWalkingParam = "IsWalking";
+    [SerializeField] private string moveSpeedParam = "MoveSpeed";    // 이동 애니메이션 속도 배율
+    [SerializeField] private string attackSpeedParam = "AttackSpeed"; // 공격 애니메이션 속도 배율
+    [SerializeField] private float rotationSpeed = 10f;
+    
+    // 대기 중인 공격 정보 (애니메이션 이벤트 기반 데미지 적용용)
+    private bool _hasPendingAttack;
+    private IEnemy _pendingAttackTarget;
+    #endregion
+
     // === 현재 상태 (Networked) ===
     // [Networked] 속성으로 서버/클라이언트 간 HP 동기화
     [Networked] public float NetworkedHP { get; set; }
@@ -85,6 +99,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // 보스 몬스터 플래그 및 생존 시 다음 라운드 침공을 위한 정보
     private bool _isBoss = false;
     private int _originPlayerId = -1;
+    private int _bossUniqueId = -1; // 보스 고유 ID (턴당 1회 침공 추적용)
+    private bool _hasRegisteredAsSurvivor = false; // 중복 등록 방지 플래그
     #endregion
 
     private bool HasStateAuthorityOrNoNetwork()
@@ -102,11 +118,24 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public override void Spawned()
     {
         base.Spawned();
-        _hasSpawned = true;
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
-        TryApplyPendingHealthToNetworked();
-        // StatusBarUI 생성은 Initialize()에서 처리합니다.
-        // Spawned()는 statusBarPrefab이 할당되기 전에 호출되므로 여기서는 생성하지 않습니다.
+        
+        if (_hasSpawned)
+        {
+            _hasLocalHealthValues = false;
+            _localHP = 0;
+            _localMaxHP = 0;
+            
+            if (Object != null && Object.HasStateAuthority)
+            {
+                NetworkedMaxHP = 0;
+                NetworkedHP = 0;
+            }
+            
+            var existingStatusBar = GetComponentInChildren<StatusBarUI>(true);
+            existingStatusBar?.ResetForReuse();
+        }
+        _hasSpawned = true;
     }
     
     /// <summary>
@@ -189,14 +218,27 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             resumeCoroutine = null;
         }
         currentBlockerId = 0;
+        _hasPendingAttack = false;
+        _pendingAttackTarget = null;
 
-        currentMaxHP = _monsterData.maxHealth;
-        currentHP = currentMaxHP;
+        // [Fix] 오브젝트 풀 재사용 시 HP 강제 리셋
+        // StateAuthority가 있으면 NetworkedHP에 직접 쓰기
+        float maxHp = _monsterData.maxHealth;
+        if (Object != null && Object.HasStateAuthority)
+        {
+            NetworkedMaxHP = maxHp;
+            NetworkedHP = maxHp;
+        }
+        // 로컬 값도 설정 (아직 Spawned 되지 않았을 경우를 위해)
+        _hasLocalHealthValues = true;
+        _localMaxHP = maxHp;
+        _localHP = maxHp;
         
         // StatusBarUI 생성 (statusBarPrefab이 이미 할당된 상태)
         EnsureStatusBarUI();
+        statusBarUI?.ResetForReuse();
         
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+        OnHealthChanged?.Invoke(maxHp, maxHp);
 
         manaController = GetComponent<ManaController>();
 
@@ -207,6 +249,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             manaController.OnManaFull += ActivateSkill;
         }
         manaController.Initialize(maxMana);
+        
+        // 애니메이터 초기화
+        EnsureAnimator();
     }
     
     /// <summary>
@@ -298,8 +343,43 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         // 필수 참조 설정
         this.ownerPlayer = owner;
-        this.goalTransform = owner.goalTransform;
         this.pathfinder = owner.astarGrid;
+        
+        if (owner.goalTransform != null)
+        {
+            this.goalTransform = owner.goalTransform;
+        }
+        else
+        {
+            int goalAttempts = 0;
+            while (owner.goalTransform == null && goalAttempts < 30)
+            {
+                yield return null;
+                goalAttempts++;
+            }
+            
+            if (owner.goalTransform != null)
+            {
+                this.goalTransform = owner.goalTransform;
+            }
+            else if (owner.fieldManager != null)
+            {
+                Vector2Int gridSize = owner.fieldManager.gridSize;
+                Vector3 gridOrigin = owner.fieldManager.gridOrigin;
+                float cellSize = owner.fieldManager.cellSize;
+                int centerX = gridSize.x / 2;
+                int centerY = gridSize.y / 2;
+                
+                GameObject fallbackGoal = new GameObject("FallbackGoal_Monster");
+                fallbackGoal.transform.position = new Vector3(
+                    gridOrigin.x + (centerX + 0.5f) * cellSize,
+                    gridOrigin.y,
+                    gridOrigin.z + (centerY + 0.5f) * cellSize
+                );
+                this.goalTransform = fallbackGoal.transform;
+                Debug.LogWarning($"[Monster] goalTransform fallback used - calculated from FieldManager center");
+            }
+        }
         
         if (_monsterData != null)
         {
@@ -308,14 +388,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             baseMoveSpeed = _monsterData.moveSpeed;
             currentMoveSpeed = baseMoveSpeed;
             currentAttackDamage = _monsterData.attackDamage; // 초기화
-            currentMaxHP = _monsterData.maxHealth;
-            currentHP = currentMaxHP;
+            // currentMaxHP, currentHP는 설정하지 않음 - 서버에서 동기화된 NetworkedHP/NetworkedMaxHP 사용
         }
         
         // StatusBarUI 생성
         EnsureStatusBarUI();
         
-        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+        // 서버에서 동기화된 HP 값을 UI에 반영
+        OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
         
         manaController = GetComponent<ManaController>();
         if (manaController != null && _monsterData != null)
@@ -442,16 +522,23 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     /// <param name="isBoss">보스 여부</param>
     /// <param name="originPlayerId">보스를 소환한 플레이어 ID</param>
-    public void SetAsBoss(bool isBoss, int originPlayerId)
+    /// <param name="bossUniqueId">보스 고유 ID (턴당 1회 침공 추적용)</param>
+    public void SetAsBoss(bool isBoss, int originPlayerId, int bossUniqueId = -1)
     {
         _isBoss = isBoss;
         _originPlayerId = originPlayerId;
+        _bossUniqueId = bossUniqueId;
         
         if (isBoss)
         {
-            Debug.Log($"<color=red>[Monster] '{name}'이 보스로 설정됨 (OriginPlayer: {originPlayerId})</color>");
+            Debug.Log($"<color=red>[Monster] '{name}'이 보스로 설정됨 (OriginPlayer: {originPlayerId}, UniqueId: {bossUniqueId})</color>");
         }
     }
+    
+    /// <summary>
+    /// 보스 고유 ID를 반환합니다.
+    /// </summary>
+    public int GetBossUniqueId() => _bossUniqueId;
 
     /// <summary>
     /// 현재 체력을 직접 설정합니다. (생존 보스 재소환 시 사용)
@@ -542,6 +629,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             currentBlockerId = blocker.GetInstanceID();
         }
         isMoving = false;
+        
+        // 저지 상태: Idle 애니메이션으로 전환
+        SetWalkingAnimation(false);
+        
         attackCoroutine = StartCoroutine(AttackLoop(target));
     }
 
@@ -549,19 +640,57 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         while (target != null && (target as MonoBehaviour) != null)
         {
-            yield return new WaitForSeconds(1f / currentAttackSpeed); // Changed to currentAttackSpeed
+            yield return new WaitForSeconds(1f / currentAttackSpeed);
 
             if ((target as MonoBehaviour) == null) break;
 
-            string targetName = (target as MonoBehaviour).name;
-            target.TakeDamage(currentAttackDamage, _monsterData.damageType); // 스케일링된 공격력 사용
-            Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+            // 공격 애니메이션 트리거 + 대기 공격 설정
+            _pendingAttackTarget = target;
+            _hasPendingAttack = true;
+            TriggerAttackAnimation();
+            
+            // 애니메이션 이벤트가 없는 경우를 대비한 폴백 (0.5초 후에도 대기 중이면 직접 데미지)
+            yield return new WaitForSeconds(0.5f);
+            if (_hasPendingAttack && _pendingAttackTarget != null)
+            {
+                ExecutePendingAttack();
+            }
         }
 
         Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
         attackCoroutine = null;
+        _hasPendingAttack = false;
+        _pendingAttackTarget = null;
 
         ScheduleResumeFromBlocker();
+    }
+    
+    /// <summary>
+    /// 공격 애니메이션의 타격 시점에서 호출됩니다. (Animation Event)
+    /// </summary>
+    public void AnimEvent_AttackImpact()
+    {
+        ExecutePendingAttack();
+    }
+    
+    private void ExecutePendingAttack()
+    {
+        if (!_hasPendingAttack || _pendingAttackTarget == null) return;
+        
+        var targetMono = _pendingAttackTarget as MonoBehaviour;
+        if (targetMono == null) 
+        {
+            _hasPendingAttack = false;
+            _pendingAttackTarget = null;
+            return;
+        }
+        
+        string targetName = targetMono.name;
+        _pendingAttackTarget.TakeDamage(currentAttackDamage, _monsterData.damageType);
+        Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+        
+        _hasPendingAttack = false;
+        _pendingAttackTarget = null;
     }
 
     private void ScheduleResumeFromBlocker()
@@ -630,6 +759,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         StopAllCoroutines();
 
         isMoving = true;
+        
+        // 이동 시작: Walk 애니메이션으로 전환
+        SetWalkingAnimation(true);
+        
         if (_monsterData.monsterType == MonsterType.Flying)
         {
             movementCoroutine = StartCoroutine(FlyDirectlyCoroutine());
@@ -641,9 +774,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         else
         {
             isMoving = false;
+            SetWalkingAnimation(false);
             OnPathBlocked(null);
         }
     }
+
+
     private IEnumerator FlyDirectlyCoroutine()
     {
         Vector3 targetPosition = new Vector3(
@@ -663,6 +799,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             {
                 nextPos = pathfinder.ClampToGrid(nextPos);
             }
+            
+            // 이동 방향으로 회전
+            RotateTowardsMovementDirection(targetPosition, dt);
+            
             transform.position = nextPos;
             yield return null;
         }
@@ -703,6 +843,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 {
                     nextPos = pathfinder.ClampToGrid(nextPos);
                 }
+                
+                // 이동 방향으로 회전
+                RotateTowardsMovementDirection(currentTarget, dt);
+                
                 transform.position = nextPos;
 
                 if (!isBlocked && _monsterData.monsterType != MonsterType.Flying)
@@ -740,15 +884,20 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private void OnPathCompleted()
     {
         isMoving = false;
+        SetWalkingAnimation(false);
         
-        if (_isBoss && SurvivorBossManager.Instance != null)
+        // 보스가 목표 도달 시 생존 등록 (중복 등록 방지 플래그 체크)
+        if (_isBoss && !_hasRegisteredAsSurvivor && SurvivorBossManager.Instance != null)
         {
+            _hasRegisteredAsSurvivor = true;
             SurvivorBossManager.Instance.RegisterSurvivorBoss(
                 _monsterData,
                 currentHP,
                 currentMaxHP,
-                _originPlayerId
+                _originPlayerId,
+                _bossUniqueId
             );
+            Debug.Log($"<color=red>[Monster] 보스 '{name}' 목표 도달 → 생존 등록 (HP: {currentHP:F0}/{currentMaxHP:F0})</color>");
         }
         
         if (GameManagers.Instance != null && ownerPlayer != null)
@@ -839,16 +988,37 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         if (this == null || gameObject == null) return;
         
-        Debug.Log($"<color=red>[Monster] 보스 '{name}' 생존 등록 (전투 종료, HP: {currentHP:F0}/{currentMaxHP:F0})</color>");
+        // 이미 등록된 경우 중복 등록 방지 (목표 도달 시 이미 등록된 경우)
+        if (_hasRegisteredAsSurvivor)
+        {
+            Debug.Log($"<color=yellow>[Monster] 보스 '{name}' 이미 생존 등록됨 → 스킵</color>");
+            ForceRemoveWithoutPenalty();
+            return;
+        }
         
-        // SurvivorBossManager에 생존 등록
+        // 네트워크 상태와 관계없이 안전하게 HP 값 접근
+        float safeCurrentHP = _hasSpawned && CanWriteNetworkedHealth() ? NetworkedHP : _localHP;
+        float safeMaxHP = _hasSpawned && CanWriteNetworkedHealth() ? NetworkedMaxHP : _localMaxHP;
+        
+        // 유효하지 않은 HP 값이면 MonsterData에서 가져옴
+        if (safeMaxHP <= 0 && _monsterData != null)
+        {
+            safeMaxHP = _monsterData.maxHealth;
+            safeCurrentHP = safeMaxHP; // 기본값으로 풀피 사용
+        }
+        
+        Debug.Log($"<color=red>[Monster] 보스 '{name}' 생존 등록 (전투 종료, HP: {safeCurrentHP:F0}/{safeMaxHP:F0}, UniqueId: {_bossUniqueId})</color>");
+        
+        // SurvivorBossManager에 생존 등록 (고유 ID 유지)
         if (SurvivorBossManager.Instance != null && _monsterData != null)
         {
+            _hasRegisteredAsSurvivor = true;
             SurvivorBossManager.Instance.RegisterSurvivorBoss(
                 _monsterData,
-                currentHP,
-                currentMaxHP,
-                _originPlayerId
+                safeCurrentHP,
+                safeMaxHP,
+                _originPlayerId,
+                _bossUniqueId
             );
         }
         
@@ -867,6 +1037,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public void ApplyMoveSpeedModifier(float speedMultiplier)
     {
         currentMoveSpeed = baseMoveSpeed * speedMultiplier;
+        UpdateMoveAnimationSpeed(); // 애니메이션 속도도 업데이트
         Debug.Log($"<color=cyan>[Monster] '{name}' 이동속도 변경: {currentMoveSpeed:F2} (x{speedMultiplier:F2})</color>");
     }
 
@@ -890,7 +1061,112 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         currentMoveSpeed = baseMoveSpeed * 2f;
         currentAttackDamage = _monsterData.attackDamage * 1.5f;
         currentAttackSpeed = _monsterData.attackSpeed * 1.5f;
+        
+        // 애니메이션 속도 업데이트
+        UpdateMoveAnimationSpeed();
+        
         Debug.Log($"<color=red>[Monster] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배, 이속 2배)</color>");
+    }
+
+    #endregion
+
+    #region 애니메이션 헬퍼
+
+    /// <summary>
+    /// Animator 참조를 확인하고 MonsterAnimationEventProxy를 설정합니다.
+    /// </summary>
+    private void EnsureAnimator()
+    {
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>();
+            }
+        }
+
+        if (animator == null)
+        {
+            return;
+        }
+
+        // Animator가 자식 오브젝트에 있는 경우 EventProxy 설정
+        if (animator.gameObject != gameObject)
+        {
+            var proxy = animator.GetComponent<MonsterAnimationEventProxy>();
+            if (proxy == null)
+            {
+                proxy = animator.gameObject.AddComponent<MonsterAnimationEventProxy>();
+            }
+            proxy.Initialize(this);
+        }
+    }
+
+    /// <summary>
+    /// Walking 애니메이션 상태를 설정하고 이동속도에 따른 애니메이션 속도를 업데이트합니다.
+    /// </summary>
+    private void SetWalkingAnimation(bool isWalking)
+    {
+        if (animator == null || string.IsNullOrEmpty(isWalkingParam))
+        {
+            return;
+        }
+
+        animator.SetBool(isWalkingParam, isWalking);
+        
+        // 이동속도에 비례하여 애니메이션 속도 조절 (Walk/Idle 모두 적용)
+        UpdateMoveAnimationSpeed();
+    }
+    
+    /// <summary>
+    /// 이동속도에 비례하여 애니메이션 속도를 업데이트합니다.
+    /// </summary>
+    private void UpdateMoveAnimationSpeed()
+    {
+        if (animator == null || string.IsNullOrEmpty(moveSpeedParam)) return;
+        if (baseMoveSpeed <= 0f) return;
+        
+        float speedRatio = currentMoveSpeed / baseMoveSpeed;
+        animator.SetFloat(moveSpeedParam, speedRatio);
+    }
+
+    /// <summary>
+    /// 공격 애니메이션을 트리거하고 공격속도에 따른 애니메이션 속도를 적용합니다.
+    /// </summary>
+    private void TriggerAttackAnimation()
+    {
+        if (animator == null || string.IsNullOrEmpty(attackTriggerParam))
+        {
+            return;
+        }
+        
+        // 공격속도에 비례하여 애니메이션 속도 조절
+        if (!string.IsNullOrEmpty(attackSpeedParam) && _monsterData != null && _monsterData.attackSpeed > 0f)
+        {
+            float attackSpeedRatio = currentAttackSpeed / _monsterData.attackSpeed;
+            animator.SetFloat(attackSpeedParam, attackSpeedRatio);
+        }
+
+        animator.ResetTrigger(attackTriggerParam);
+        animator.SetTrigger(attackTriggerParam);
+    }
+
+    /// <summary>
+    /// 이동 방향을 바라보도록 몬스터를 회전시킵니다.
+    /// </summary>
+    private void RotateTowardsMovementDirection(Vector3 targetPosition, float deltaTime)
+    {
+        Vector3 direction = targetPosition - transform.position;
+        direction.y = 0f; // Y축 회전만 적용 (위에서 아래로 보는 시점)
+
+        if (direction.sqrMagnitude < 0.001f)
+        {
+            return;
+        }
+
+        Quaternion targetRotation = Quaternion.LookRotation(direction);
+        transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * deltaTime);
     }
 
     #endregion

@@ -51,8 +51,8 @@ MonoBehaviour:
   _singlePlayerModeCount: 0
   localPlayer: {fileID: 0}
   player1BasePosition: {x: 0, y: 0, z: 0}
-  playerOffset: {x: 0, y: 0, z: -10}
-  firstPreparePhaseTime: 35
+  playerOffset: {x: 0, y: 0, z: -14}
+  firstPreparePhaseTime: 10
   preparePhaseTime: 20
   combatTime: 20
   berserkTriggerTime: 7
@@ -62,6 +62,7 @@ MonoBehaviour:
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
+  _FirstAttackerPlayerId: 0
 --- !u!114 &1166691957424101667
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -45,7 +45,8 @@ public class AIPlayerController : MonoBehaviour
             case GameManagers.GameState.Prepare:
                 if (_preparePhaseBT != null) _preparePhaseBT.Tick();
                 break;
-            case GameManagers.GameState.Combat:
+            case GameManagers.GameState.Battle1:
+            case GameManagers.GameState.Battle2:
                 if (_combatPhaseBT != null) _combatPhaseBT.Tick();
                 break;
         }
@@ -108,7 +109,8 @@ public class AIPlayerController : MonoBehaviour
         {
             case GameManagers.GameState.Prepare:
                 return _preparePhaseBT;
-            case GameManagers.GameState.Combat:
+            case GameManagers.GameState.Battle1:
+            case GameManagers.GameState.Battle2:
                 return _combatPhaseBT;
             default:
                 return null;

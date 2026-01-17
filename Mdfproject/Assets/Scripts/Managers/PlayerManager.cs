@@ -46,18 +46,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     // 활성화된 몬스터 소환 증강 리스트 (일반 몬스터: 매 라운드 상대에게 추가 침공)
     private List<AugmentData> _activeMonsterSummonAugments = new List<AugmentData>();
     
-    // 대기 중인 보스 소환 증강 (1회성: 다음 전투에 소환 후 삭제)
-    private List<PendingBoss> _pendingBossAugments = new List<PendingBoss>();
-    
-    /// <summary>
-    /// 대기 중인 보스 증강 정보
-    /// </summary>
-    [System.Serializable]
-    public struct PendingBoss
-    {
-        public AugmentData Augment;
-        public int TargetPlayerId;
-    }
+    // 보유 중인 보스 증강 리스트 (영구 보유, 플레이어가 원할 때 소환)
+    private List<AugmentData> _ownedBossAugments = new List<AugmentData>();
 
     [Header("Permanent Augment Bonuses")]
     [Tooltip("영구 증강으로 인한 아군 공격력(%) 가산. 0.1 = +10%")]
@@ -78,6 +68,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public PlayerManager opponentManager;
 
     [Networked] public NetworkBool IsActivelyFighting { get; set; }
+
+    #region 공격 시퀀스 관련 필드
+    /// <summary>
+    /// 현재 전투에서 공격자인지 여부. GameManagers에서 설정됨.
+    /// </summary>
+    [Networked] public NetworkBool IsAttackerInCurrentBattle { get; set; }
+
+    /// <summary>
+    /// 공격 시퀀스에서 소환 가능한 몬스터 풀
+    /// </summary>
+    public List<MonsterPoolEntry> AttackMonsterPool { get; private set; } = new List<MonsterPoolEntry>();
+    #endregion
 
     private ChangeDetector _changeDetector;
 
@@ -186,14 +188,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
-        this.spawnPoint = gridInstance.transform.Find("SpawnPoint");
-        this.goalTransform = gridInstance.transform.Find("Goal");
 
         // 각 컴포넌트/오브젝트를 찾았는지 확인하는 로그
         Debug.Log($"[Player {playerId}]: 3D Ground 찾음? -> {(ground3D != null)}");
         Debug.Log($"[Player {playerId}]: AstarGrid 찾음? -> {(this.astarGrid != null)}");
-        Debug.Log($"[Player {playerId}]: SpawnPoint 찾음? -> {(this.spawnPoint != null)}");
-        Debug.Log($"[Player {playerId}]: Goal 찾음? -> {(this.goalTransform != null)}");
 
         // AstarGrid 초기화는 FieldManager 초기화 이후에 수행하여 3D 그리드 정보를 공유합니다.
 
@@ -211,6 +209,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 Debug.LogError($"[Player {playerId}]: FieldManager 초기화 실패 - Ground 오브젝트를 찾을 수 없습니다!");
             }
         }
+
+        // FieldManager 초기화 후 스폰/골 위치를 동적으로 설정
+        // - 골: 필드 정 가운데 그리드
+        // - 스폰: 동서남북 테두리 구멍 4곳 중 랜덤
+        SetupSpawnAndGoalPositions(gridInstance);
+        Debug.Log($"[Player {playerId}]: SpawnPoint 위치 -> {(this.spawnPoint != null ? this.spawnPoint.position.ToString() : "null")}");
+        Debug.Log($"[Player {playerId}]: Goal 위치 -> {(this.goalTransform != null ? this.goalTransform.position.ToString() : "null")}");
 
         // 이제 FieldManager가 준비되었으므로 AstarGrid를 FieldManager와 동기화하여 초기화합니다.
         if (this.astarGrid != null)
@@ -232,6 +237,26 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         if (augmentManager) augmentManager.playerManager = this;
+
+        // AttackSequenceManager 초기화
+        var attackSeqMgr = GetComponent<AttackSequenceManager>();
+        if (attackSeqMgr == null)
+        {
+            attackSeqMgr = gameObject.AddComponent<AttackSequenceManager>();
+        }
+        attackSeqMgr.Initialize(this);
+
+        // CameraManager 초기화 (로컬 플레이어만)
+        if (Object.HasInputAuthority && CameraManager.Instance != null)
+        {
+            CameraManager.Instance.Initialize(this);
+        }
+
+        // AttackSequenceUIController 동적 로드 (로컬 플레이어만)
+        if (Object.HasInputAuthority)
+        {
+            await AttackSequenceUIController.GetOrCreateAsync(this, attackSeqMgr);
+        }
 
         IsActivelyFighting = false;
         Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
@@ -502,12 +527,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public void SetFightingState(bool isFighting)
     {
-        // Networked 속성은 StateAuthority만 변경 가능
-        bool hasAuth = HasStateAuthorityOrNoNetwork();
-        Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: isFighting={isFighting}, hasAuth={hasAuth}, 이전값={IsActivelyFighting}</color>");
-        if (!hasAuth) return;
+        // StartBattleForPlayers에서 호스트가 호출하므로 권한 체크 없이 직접 설정
+        // (Networked 속성은 자동으로 동기화됨)
+        if (IsActivelyFighting == isFighting) return; // 변경 없으면 스킵
+        
         IsActivelyFighting = isFighting;
-        Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: 설정 후={IsActivelyFighting}</color>");
+        Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: isFighting={isFighting} 설정됨</color>");
     }
 
     #region Public Getters & Stat Modifiers
@@ -542,41 +567,132 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         return _activeMonsterSummonAugments;
     }
+    #endregion
 
-    /// <summary>
-    /// 보스 소환 증강을 등록합니다. (1회성: 다음 전투에 소환 후 자동 삭제)
-    /// </summary>
-    public void RegisterPendingBossAugment(AugmentData augment, int targetPlayerId)
+    #region 보유 보스 관리
+    public void AddOwnedBoss(AugmentData augment)
     {
-        if (augment != null)
+        if (augment?.bossMonsterData != null)
         {
-            _pendingBossAugments.Add(new PendingBoss { Augment = augment, TargetPlayerId = targetPlayerId });
-            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 증강 '{augment.augmentName}' 등록 (타겟: Player {targetPlayerId}, 다음 전투에 소환)</color>");
+            _ownedBossAugments.Add(augment);
+            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{augment.bossMonsterData.monsterName}' 보유 추가 (총 {_ownedBossAugments.Count}마리)</color>");
         }
     }
 
-    /// <summary>
-    /// 대기 중인 보스 증강 목록을 가져오고 초기화합니다. (1회성)
-    /// </summary>
-    [System.Obsolete("Use ExtractPendingBossesForTarget instead for proper multi-player support")]
-    public List<PendingBoss> GetAndClearPendingBossAugments()
+    public IReadOnlyList<AugmentData> GetOwnedBosses() => _ownedBossAugments;
+
+    public bool ConsumeOwnedBoss(MonsterData bossData)
     {
-        var result = new List<PendingBoss>(_pendingBossAugments);
-        _pendingBossAugments.Clear();
-        return result;
+        var augment = _ownedBossAugments.FirstOrDefault(a => a.bossMonsterData == bossData);
+        if (augment != null)
+        {
+            _ownedBossAugments.Remove(augment);
+            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{bossData.monsterName}' 소환 → 보유에서 제거 (남은 {_ownedBossAugments.Count}마리)</color>");
+            return true;
+        }
+        return false;
     }
-    
+    #endregion
+
+    #region 공격 시퀀스 몬스터 풀 관리
     /// <summary>
-    /// 특정 타겟 플레이어에 해당하는 대기 중인 보스만 가져오고 제거합니다.
-    /// 멀티플레이어 환경에서 각 플레이어의 MonsterSpawner가 자신에게 해당하는 보스만 추출합니다.
+    /// 라운드별 공격 몬스터 풀을 갱신합니다. (기본 웨이브 + 증강 공격 유닛 + 보스)
     /// </summary>
-    public List<PendingBoss> ExtractPendingBossesForTarget(int targetPlayerId)
+    /// <param name="round">현재 라운드</param>
+    /// <param name="currentBattleOpponentId">현재 전투에서 매칭된 상대 ID (-1이면 opponentManager 사용)</param>
+    public void RefreshAttackMonsterPool(int round, int currentBattleOpponentId = -1)
     {
-        var result = _pendingBossAugments
-            .Where(b => b.TargetPlayerId == targetPlayerId)
-            .ToList();
-        _pendingBossAugments.RemoveAll(b => b.TargetPlayerId == targetPlayerId);
-        return result;
+        AttackMonsterPool.Clear();
+        
+        // 1. 기본 웨이브 몬스터 가져오기
+        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        if (waveDatabase != null)
+        {
+            var waveData = waveDatabase.GetWaveForRound(round);
+            if (waveData?.monsters != null)
+            {
+                foreach (var entry in waveData.monsters)
+                {
+                    if (entry?.monsterData != null && entry.count > 0)
+                    {
+                        // 기존 풀에 같은 몬스터가 있으면 수량 추가
+                        var existing = AttackMonsterPool.Find(p => p.MonsterData == entry.monsterData && !p.IsBoss);
+                        if (existing != null)
+                        {
+                            existing.RemainingCount += entry.count;
+                            existing.MaxCount += entry.count;
+                        }
+                        else
+                        {
+                            AttackMonsterPool.Add(new MonsterPoolEntry(entry.monsterData, entry.count));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. 증강 공격 유닛 추가
+        foreach (var augment in _activeMonsterSummonAugments)
+        {
+            if (augment?.monsterSpawnEntries == null) continue;
+            
+            foreach (var entry in augment.monsterSpawnEntries)
+            {
+                if (entry?.monsterData != null && entry.count > 0)
+                {
+                    var existing = AttackMonsterPool.Find(p => p.MonsterData == entry.monsterData && !p.IsBoss);
+                    if (existing != null)
+                    {
+                        existing.RemainingCount += entry.count;
+                        existing.MaxCount += entry.count;
+                    }
+                    else
+                    {
+                        AttackMonsterPool.Add(new MonsterPoolEntry(entry.monsterData, entry.count));
+                    }
+                }
+            }
+        }
+        
+        // 3. 보유 보스 표시 (영구 보유, 소환 시에만 제거)
+        foreach (var augment in _ownedBossAugments)
+        {
+            if (augment?.bossMonsterData == null) continue;
+            
+            AttackMonsterPool.Add(new MonsterPoolEntry(
+                augment.bossMonsterData,
+                1,
+                -1,
+                -1,
+                this.playerId
+            ));
+            
+            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보유 보스 '{augment.bossMonsterData.monsterName}' 풀에 표시</color>");
+        }
+
+        Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 공격 몬스터 풀 갱신 완료 ({AttackMonsterPool.Count}종류, 보유 보스: {_ownedBossAugments.Count}마리)</color>");
+        
+        // 이벤트 발생 (UI 갱신용)
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+    }
+
+    /// <summary>
+    /// 풀에서 몬스터 1마리를 소비합니다.
+    /// </summary>
+    /// <param name="monsterData">소비할 몬스터 데이터</param>
+    /// <returns>성공 여부</returns>
+    public bool TryConsumeMonsterFromPool(MonsterData monsterData)
+    {
+        if (monsterData == null) return false;
+
+        var entry = AttackMonsterPool.Find(p => p.MonsterData == monsterData);
+        if (entry == null || entry.IsEmpty) return false;
+
+        entry.TryConsume();
+        
+        // 이벤트 발생 (UI 갱신용)
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        return true;
     }
     #endregion
 
@@ -645,14 +761,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (!HasStateAuthorityOrNoNetwork()) return;
         health -= damage;
 
-        if (health <= 0)
-        {
-            health = 0;
-            if (GameManagers.Instance != null)
-            {
-                GameManagers.Instance.GameOver(this);
-            }
-        }
+        // 체력 음수 허용: 라운드 종료 시 GameManagers에서 판정
+        // (더 이상 즉시 탈락하지 않음)
+
         if (Runner == null || !Runner.IsRunning)
         {
             GameEvents.TriggerPlayerStatsChanged(playerId, this.health, this.gold);
@@ -773,6 +884,74 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 Gizmos.DrawLine(from, to);
             }
         }
+    }
+
+    #endregion
+
+    #region Spawn/Goal 위치 설정
+
+    /// <summary>
+    /// 스폰 위치와 골 위치를 동적으로 설정합니다.
+    /// - 골: 필드 정 가운데 그리드
+    /// - 스폰: 남쪽(하단 가운데) 고정 - AI 웨이브 소환용
+    /// 참고: 플레이어 vs 플레이어 전투에서는 공격자가 직접 위치를 선택하여 소환
+    /// </summary>
+    private void SetupSpawnAndGoalPositions(GameObject gridInstance)
+    {
+        // FieldManager에서 gridSize와 gridOrigin을 가져옴
+        Vector2Int gridSize = fieldManager != null ? fieldManager.gridSize : new Vector2Int(10, 9);
+        Vector3 gridOrigin = fieldManager != null ? fieldManager.gridOrigin : Vector3.zero;
+        float cellSize = fieldManager != null ? fieldManager.cellSize : 1f;
+
+        // 골 위치: 필드 정 가운데 그리드
+        int centerX = gridSize.x / 2;
+        int centerY = gridSize.y / 2;
+        Vector3 goalWorldPos = new Vector3(
+            gridOrigin.x + (centerX + 0.5f) * cellSize,
+            gridOrigin.y,
+            gridOrigin.z + (centerY + 0.5f) * cellSize
+        );
+
+        // 스폰 위치: 남쪽(하단 가운데) 고정 - AI 웨이브 소환용
+        Vector2Int spawnGridPos = new Vector2Int(centerX, 0); // 남쪽 (하단 가운데)
+        Vector3 spawnWorldPos = new Vector3(
+            gridOrigin.x + (spawnGridPos.x + 0.5f) * cellSize,
+            gridOrigin.y,
+            gridOrigin.z + (spawnGridPos.y + 0.5f) * cellSize
+        );
+
+        // 기존 SpawnPoint/Goal 오브젝트를 찾아보고, 없으면 새로 생성
+        Transform existingSpawn = gridInstance.transform.Find("SpawnPoint");
+        Transform existingGoal = gridInstance.transform.Find("Goal");
+
+        if (existingSpawn != null)
+        {
+            existingSpawn.position = spawnWorldPos;
+            this.spawnPoint = existingSpawn;
+        }
+        else
+        {
+            GameObject spawnGO = new GameObject("SpawnPoint");
+            spawnGO.transform.SetParent(gridInstance.transform);
+            spawnGO.transform.position = spawnWorldPos;
+            this.spawnPoint = spawnGO.transform;
+        }
+
+        if (existingGoal != null)
+        {
+            existingGoal.position = goalWorldPos;
+            this.goalTransform = existingGoal;
+        }
+        else
+        {
+            GameObject goalGO = new GameObject("Goal");
+            goalGO.transform.SetParent(gridInstance.transform);
+            goalGO.transform.position = goalWorldPos;
+            this.goalTransform = goalGO.transform;
+        }
+
+        Debug.Log($"[Player {playerId}]: 스폰 위치 설정 -> 그리드({spawnGridPos.x}, {spawnGridPos.y}), 월드{spawnWorldPos} (남쪽 고정, AI용)");
+        Debug.Log($"[Player {playerId}]: 골 위치 설정 -> 그리드({centerX}, {centerY}), 월드{goalWorldPos}");
     }
 
     #endregion

@@ -75,8 +75,26 @@ public class FieldManager : MonoBehaviour
     [Tooltip("그리드 한 칸의 크기 (미터 단위)")]
     public float cellSize = 1f;
 
-    [Tooltip("그리드 크기 (X, Z 칸 수) - x는 3D의 X, y는 3D의 Z를 의미")]
-    public Vector2Int gridSize = new Vector2Int(10, 8);
+    [Tooltip("그리드 크기 (X, Z 칸 수) - x는 3D의 X, y는 3D의 Z를 의미. 이것이 수비자의 배치 가능 영역입니다.")]
+    public Vector2Int gridSize = new Vector2Int(10, 9);
+
+    [Tooltip("동서남북으로 확장할 외곽 셀 수 (몬스터 스폰 영역, 배치 불가)")]
+    [SerializeField] private int outerGridMargin = 2;
+
+    /// <summary>
+    /// 외곽 확장을 포함한 전체 그리드 크기 (A* 경로 탐색에 사용)
+    /// </summary>
+    public Vector2Int TotalGridSize => new Vector2Int(gridSize.x + outerGridMargin * 2, gridSize.y + outerGridMargin * 2);
+
+    /// <summary>
+    /// 전체 그리드의 원점 (외곽 확장 포함)
+    /// </summary>
+    public Vector3 TotalGridOrigin => new Vector3(gridOrigin.x - outerGridMargin * cellSize, gridOrigin.y, gridOrigin.z - outerGridMargin * cellSize);
+
+    /// <summary>
+    /// 외곽 확장 마진 (셀 단위)
+    /// </summary>
+    public int OuterGridMargin => outerGridMargin;
 
     [Tooltip("Ground Renderer의 Bounds로부터 그리드 Origin/Size를 자동 유도합니다. 끄면 인스펙터 설정값을 그대로 사용합니다.")]
     public bool deriveGridFromGroundBounds = false;
@@ -290,6 +308,9 @@ public class FieldManager : MonoBehaviour
         }
 
         GeneratePermanentWallsIfNeeded();
+
+        // 그리드 디버그 라인 생성 (showGridDebug가 true일 때만)
+        CreateGridLines();
     }
 
 
@@ -620,6 +641,9 @@ public class FieldManager : MonoBehaviour
             HandleUnitDragAndDrop();
         }
         // 즉시 갱신이 필요한 경우(벽/유닛 배치 변경)에는 _pathRefreshRoutine에서 처리
+
+        // 런타임 그리드 디버그 표시 (Game 뷰에서 Gizmos 버튼 ON 필요)
+        DrawGridDebugLines();
     }
 
     #region Public Methods for UI
@@ -661,7 +685,7 @@ public class FieldManager : MonoBehaviour
             }
         }
         // [수정] 게임 상태가 전투로 변경될 때의 처리
-        else if (newState == GameManagers.GameState.Combat)
+        else if (newState == GameManagers.GameState.Battle1 || newState == GameManagers.GameState.Battle2)
         {
             // 활성화된 배치 모드(유닛, 벽 등)가 있다면 강제로 종료합니다.
             if (placementManager.GetCurrentMode() != PlacementMode.None)
@@ -842,7 +866,7 @@ public class FieldManager : MonoBehaviour
 
 
 
-    // 영구(파괴 불가) 벽 생성
+    // 영구(파괴 불가) 벽 생성 - 테두리 + 필드 내부 랜덤
     private async void GeneratePermanentWallsIfNeeded()
     {
         if (permanentWallsGenerated) return;
@@ -855,8 +879,6 @@ public class FieldManager : MonoBehaviour
             // 클라이언트는 서버의 RPC를 통해 동기화 대기
             return;
         }
-
-        if (initialPermanentWallCount <= 0) { permanentWallsGenerated = true; return; }
 
         // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
         GameObject prefab = permanentWallPrefab;
@@ -874,43 +896,127 @@ public class FieldManager : MonoBehaviour
 
         // 스폰/골 목표 셀 계산 (3D)
         Vector3Int spawnCell = WorldToGridInt(playerManager.spawnPoint != null ? playerManager.spawnPoint.position : Vector3.zero);
-        Vector3Int goalCell = WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero);
-
-        // 후보 셀 수집
-        List<Vector3Int> candidates = new List<Vector3Int>();
-        for (int y = 0; y < gridSize.y; y++)
+        
+        // goalTransform이 null이면 필드 중앙 사용
+        Vector3Int goalCell;
+        if (playerManager.goalTransform != null)
         {
-            for (int x = 0; x < gridSize.x; x++)
+            goalCell = WorldToGridInt(playerManager.goalTransform.position);
+        }
+        else
+        {
+            // 폴백: 필드 중앙
+            goalCell = new Vector3Int(gridSize.x / 2, gridSize.y / 2, 0);
+            Debug.LogWarning($"[FieldManager] goalTransform이 null입니다. 필드 중앙 {goalCell}을 사용합니다.");
+        }
+
+        Debug.Log($"[FieldManager] 영구벽 생성 - spawnCell: {spawnCell}, goalCell: {goalCell}");
+
+        List<Vector3Int> selected = new List<Vector3Int>();
+        int centerX = gridSize.x / 2;
+        int centerY = gridSize.y / 2;
+
+        // === 1. 테두리 벽 생성 (동서남북 가운데는 뚫려있음) ===
+        for (int x = 0; x < gridSize.x; x++)
+        {
+            for (int y = 0; y < gridSize.y; y++)
             {
+                bool isLeftEdge = (x == 0);
+                bool isRightEdge = (x == gridSize.x - 1);
+                bool isBottomEdge = (y == 0);
+                bool isTopEdge = (y == gridSize.y - 1);
+
+                if (!isLeftEdge && !isRightEdge && !isBottomEdge && !isTopEdge)
+                    continue; // 테두리가 아니면 스킵
+
+                // 동서남북 가운데 뚫린 부분 확인 (스폰 포인트 입구)
+                bool isNorthGap = isTopEdge && (x == centerX);
+                bool isSouthGap = isBottomEdge && (x == centerX);
+                bool isEastGap = isRightEdge && (y == centerY);
+                bool isWestGap = isLeftEdge && (y == centerY);
+
+                if (isNorthGap || isSouthGap || isEastGap || isWestGap)
+                    continue; // 동서남북 가운데는 뚫려있음 (몬스터 입구)
+
                 var cell = new Vector3Int(x, y, 0);
                 if (!IsValidGridPosition(cell)) continue;
-                if (cell == spawnCell || cell == goalCell) continue; // 스폰/도착지 제외
-                if (HasWallAt(cell)) continue; // 기존 벽 제외
-                if (IsUnitAt(cell)) continue; // 유닛이 있는 칸 제외
-                candidates.Add(cell);
+                // 테두리는 spawnCell/goalCell 체크 없이 무조건 생성 (gap으로 이미 처리됨)
+                if (HasWallAt(cell)) continue;
+                if (IsUnitAt(cell)) continue;
+
+                selected.Add(cell);
+                CreatePermanentWallAt(cell, prefab);
             }
         }
 
-        if (candidates.Count == 0)
+        // === 2. 필드 내부 랜덤 고정벽 생성 ===
+        if (initialPermanentWallCount > 0)
         {
-            Debug.LogWarning($"[FieldManager] No valid cells found for permanent walls (Player={playerManager?.playerId}).");
-            permanentWallsGenerated = true;
-            return;
-        }
+            // 골 주변 상하좌우 4칸 (진입 경로로 반드시 1개 이상 열려있어야 함)
+            Vector3Int[] goalAdjacentCells = new Vector3Int[]
+            {
+                new Vector3Int(goalCell.x - 1, goalCell.y, 0),
+                new Vector3Int(goalCell.x + 1, goalCell.y, 0),
+                new Vector3Int(goalCell.x, goalCell.y - 1, 0),
+                new Vector3Int(goalCell.x, goalCell.y + 1, 0)
+            };
+            HashSet<Vector3Int> goalAdjacentSet = new HashSet<Vector3Int>(goalAdjacentCells);
 
-        int toPlace = Mathf.Min(initialPermanentWallCount, candidates.Count);
-        List<Vector3Int> selected = new List<Vector3Int>(toPlace);
-        for (int i = 0; i < toPlace; i++)
-        {
-            int idx = UnityEngine.Random.Range(0, candidates.Count);
-            var pos = candidates[idx];
-            candidates.RemoveAt(idx);
-            selected.Add(pos);
-            CreatePermanentWallAt(pos, prefab); // 서버/오프라인에서만 실제 배치
+            // 배치 가능한 내부 셀 수집 (테두리 제외)
+            List<Vector3Int> interiorCandidates = new List<Vector3Int>();
+            for (int x = 1; x < gridSize.x - 1; x++)
+            {
+                for (int y = 1; y < gridSize.y - 1; y++)
+                {
+                    var cell = new Vector3Int(x, y, 0);
+                    if (!IsValidGridPosition(cell)) continue;
+                    // 스폰과 골 위치는 절대 배치 불가
+                    if (cell == spawnCell || cell == goalCell) continue;
+                    if (HasWallAt(cell)) continue;
+                    if (IsUnitAt(cell)) continue;
+                    interiorCandidates.Add(cell);
+                }
+            }
+
+            // 랜덤 셔플
+            ShuffleList(interiorCandidates);
+
+            // 벽 배치 (상하좌우 완전 차단 방지 로직 포함)
+            int placedCount = 0;
+            foreach (var cell in interiorCandidates)
+            {
+                if (placedCount >= initialPermanentWallCount) break;
+
+                // 이 셀이 골 인접 4칸 중 하나라면, 배치 후 남은 열린 인접 칸이 1개 이상인지 확인
+                if (goalAdjacentSet.Contains(cell))
+                {
+                    // 현재 열린 인접 칸 수 계산 (이미 selected에 추가된 것도 벽으로 간주)
+                    int openAdjacentCount = 0;
+                    foreach (var adj in goalAdjacentCells)
+                    {
+                        if (!IsValidGridPosition(adj)) continue;
+                        bool isBlocked = HasWallAt(adj) || selected.Contains(adj) || adj == cell;
+                        if (!isBlocked) openAdjacentCount++;
+                    }
+
+                    // 배치하면 열린 인접 칸이 0개가 되는 경우 스킵
+                    if (openAdjacentCount < 1)
+                    {
+                        Debug.Log($"[FieldManager] 골 인접 셀 {cell} 스킵 - 완전 차단 방지");
+                        continue;
+                    }
+                }
+
+                selected.Add(cell);
+                CreatePermanentWallAt(cell, prefab);
+                placedCount++;
+            }
+
+            Debug.Log($"[FieldManager] 필드 내부 랜덤 고정벽 {placedCount}개 생성 완료");
         }
 
         // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트하여 동일 위치에 생성
-        if (runner != null && runner.IsRunning && runner.IsServer && playerManager != null)
+        if (runner != null && runner.IsRunning && runner.IsServer && playerManager != null && selected.Count > 0)
         {
             int[] flat = new int[selected.Count * 2];
             for (int i = 0; i < selected.Count; i++)
@@ -922,6 +1028,20 @@ public class FieldManager : MonoBehaviour
         }
 
         permanentWallsGenerated = true;
+    }
+
+    /// <summary>
+    /// 리스트를 랜덤하게 섞습니다.
+    /// </summary>
+    private void ShuffleList<T>(List<T> list)
+    {
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int j = UnityEngine.Random.Range(0, i + 1);
+            T temp = list[i];
+            list[i] = list[j];
+            list[j] = temp;
+        }
     }
 
     /// <summary>
@@ -2101,7 +2221,10 @@ public class FieldManager : MonoBehaviour
             return;
         }
         var gameState = GameManagers.Instance.GetGameState();
-        if (gameState != GameManagers.GameState.Prepare && gameState != GameManagers.GameState.Combat) return;
+        bool isActiveGameState = gameState == GameManagers.GameState.Prepare 
+            || gameState == GameManagers.GameState.Battle1 
+            || gameState == GameManagers.GameState.Battle2;
+        if (!isActiveGameState) return;
 
         if (playerCamera == null)
         {
@@ -2694,6 +2817,208 @@ public class FieldManager : MonoBehaviour
             }
         }
     }
+
+    #endregion
+
+    #region 그리드 시각화 (LineRenderer 기반 - 빌드에서도 보임)
+
+    [Header("그리드 디버그 시각화")]
+    [Tooltip("런타임에서 그리드 격자를 표시합니다.")]
+    public bool showGridDebug = true;
+    [Tooltip("그리드 라인 색상")]
+    public Color gridLineColor = new Color(0.5f, 0.5f, 0.5f, 0.8f);
+    [Tooltip("테두리 라인 색상 (영구 벽 위치)")]
+    public Color borderLineColor = new Color(1f, 0.5f, 0f, 1f);
+    [Tooltip("스폰/골 위치 표시 색상")]
+    public Color spawnGoalColor = new Color(0f, 1f, 0f, 1f);
+    [Tooltip("골 위치 표시 색상")]
+    public Color goalColor = Color.red;
+    [Tooltip("그리드 라인 Y 오프셋")]
+    public float gridLineYOffset = 0.05f;
+    [Tooltip("그리드 라인 두께")]
+    public float gridLineWidth = 0.02f;
+
+    private GameObject _gridLinesParent;
+    private bool _gridLinesCreated = false;
+
+    /// <summary>
+    /// 그리드 라인을 생성합니다. Initialize 후에 호출됩니다.
+    /// </summary>
+    public void CreateGridLines()
+    {
+        if (_gridLinesCreated) return;
+        if (!showGridDebug) return;
+
+        // 기존 라인 삭제
+        DestroyGridLines();
+
+        // 부모 오브젝트 생성
+        _gridLinesParent = new GameObject("GridLines_Debug");
+        _gridLinesParent.transform.SetParent(transform);
+        _gridLinesParent.transform.localPosition = Vector3.zero;
+
+        float y = gridOrigin.y + gridLineYOffset;
+        int centerX = gridSize.x / 2;
+        int centerY = gridSize.y / 2;
+
+        // 세로 라인 (X축)
+        for (int x = 0; x <= gridSize.x; x++)
+        {
+            Vector3 start = new Vector3(gridOrigin.x + x * cellSize, y, gridOrigin.z);
+            Vector3 end = new Vector3(gridOrigin.x + x * cellSize, y, gridOrigin.z + gridSize.y * cellSize);
+            CreateLine($"VertLine_{x}", start, end, gridLineColor);
+        }
+
+        // 가로 라인 (Z축)
+        for (int z = 0; z <= gridSize.y; z++)
+        {
+            Vector3 start = new Vector3(gridOrigin.x, y, gridOrigin.z + z * cellSize);
+            Vector3 end = new Vector3(gridOrigin.x + gridSize.x * cellSize, y, gridOrigin.z + z * cellSize);
+            CreateLine($"HorizLine_{z}", start, end, gridLineColor);
+        }
+
+        // 테두리 셀 표시
+        for (int x = 0; x < gridSize.x; x++)
+        {
+            for (int z = 0; z < gridSize.y; z++)
+            {
+                bool isLeftEdge = (x == 0);
+                bool isRightEdge = (x == gridSize.x - 1);
+                bool isBottomEdge = (z == 0);
+                bool isTopEdge = (z == gridSize.y - 1);
+
+                if (!isLeftEdge && !isRightEdge && !isBottomEdge && !isTopEdge)
+                    continue;
+
+                bool isNorthGap = isTopEdge && (x == centerX);
+                bool isSouthGap = isBottomEdge && (x == centerX);
+                bool isEastGap = isRightEdge && (z == centerY);
+                bool isWestGap = isLeftEdge && (z == centerY);
+
+                Color cellColor = (isNorthGap || isSouthGap || isEastGap || isWestGap)
+                    ? spawnGoalColor
+                    : borderLineColor;
+
+                CreateCellOutline(x, z, y, cellColor);
+            }
+        }
+
+        // 골 위치 표시 (X 마크)
+        float goalX = gridOrigin.x + (centerX + 0.5f) * cellSize;
+        float goalZ = gridOrigin.z + (centerY + 0.5f) * cellSize;
+        float goalSize = cellSize * 0.4f;
+        CreateLine("Goal_X1",
+            new Vector3(goalX - goalSize, y + 0.1f, goalZ - goalSize),
+            new Vector3(goalX + goalSize, y + 0.1f, goalZ + goalSize),
+            goalColor);
+        CreateLine("Goal_X2",
+            new Vector3(goalX - goalSize, y + 0.1f, goalZ + goalSize),
+            new Vector3(goalX + goalSize, y + 0.1f, goalZ - goalSize),
+            goalColor);
+
+        _gridLinesCreated = true;
+        Debug.Log($"[FieldManager] 그리드 라인 생성 완료: {gridSize.x}x{gridSize.y}");
+    }
+
+    private void CreateLine(string name, Vector3 start, Vector3 end, Color color)
+    {
+        GameObject lineObj = new GameObject(name);
+        lineObj.transform.SetParent(_gridLinesParent.transform);
+
+        LineRenderer lr = lineObj.AddComponent<LineRenderer>();
+        lr.positionCount = 2;
+        lr.SetPosition(0, start);
+        lr.SetPosition(1, end);
+        lr.startWidth = gridLineWidth;
+        lr.endWidth = gridLineWidth;
+        lr.material = GetLineMaterial();
+        lr.startColor = color;
+        lr.endColor = color;
+        lr.useWorldSpace = true;
+    }
+
+    private void CreateCellOutline(int x, int z, float y, Color color)
+    {
+        float padding = cellSize * 0.05f;
+        float size = cellSize * 0.9f;
+
+        Vector3 p0 = new Vector3(gridOrigin.x + x * cellSize + padding, y, gridOrigin.z + z * cellSize + padding);
+        Vector3 p1 = new Vector3(p0.x + size, y, p0.z);
+        Vector3 p2 = new Vector3(p0.x + size, y, p0.z + size);
+        Vector3 p3 = new Vector3(p0.x, y, p0.z + size);
+
+        GameObject lineObj = new GameObject($"Cell_{x}_{z}");
+        lineObj.transform.SetParent(_gridLinesParent.transform);
+
+        LineRenderer lr = lineObj.AddComponent<LineRenderer>();
+        lr.positionCount = 5;
+        lr.SetPosition(0, p0);
+        lr.SetPosition(1, p1);
+        lr.SetPosition(2, p2);
+        lr.SetPosition(3, p3);
+        lr.SetPosition(4, p0); // 닫힌 사각형
+        lr.startWidth = gridLineWidth * 1.5f;
+        lr.endWidth = gridLineWidth * 1.5f;
+        lr.material = GetLineMaterial();
+        lr.startColor = color;
+        lr.endColor = color;
+        lr.useWorldSpace = true;
+        lr.loop = false;
+    }
+
+    private Material _lineMaterial;
+    private Material GetLineMaterial()
+    {
+        if (_lineMaterial == null)
+        {
+            // 기본 Unlit 머티리얼 생성
+            _lineMaterial = new Material(Shader.Find("Sprites/Default"));
+            _lineMaterial.hideFlags = HideFlags.HideAndDontSave;
+        }
+        return _lineMaterial;
+    }
+
+    /// <summary>
+    /// 그리드 라인을 삭제합니다.
+    /// </summary>
+    public void DestroyGridLines()
+    {
+        if (_gridLinesParent != null)
+        {
+            DestroyImmediate(_gridLinesParent);
+            _gridLinesParent = null;
+        }
+        _gridLinesCreated = false;
+    }
+
+    /// <summary>
+    /// 그리드 라인 표시/숨김을 토글합니다.
+    /// </summary>
+    public void ToggleGridLines(bool show)
+    {
+        showGridDebug = show;
+        if (_gridLinesParent != null)
+        {
+            _gridLinesParent.SetActive(show);
+        }
+        else if (show && !_gridLinesCreated)
+        {
+            CreateGridLines();
+        }
+    }
+
+    void OnDestroy()
+    {
+        DestroyGridLines();
+        if (_lineMaterial != null)
+        {
+            DestroyImmediate(_lineMaterial);
+            _lineMaterial = null;
+        }
+    }
+
+    // 호환성을 위한 빈 메서드
+    public void DrawGridDebugLines() { }
 
     #endregion
 }

@@ -74,12 +74,12 @@ public class AstarGrid : MonoBehaviour
 
         if (useFieldManagerGrid && fieldManager != null && fieldManager.ground3D != null)
         {
-            // FieldManager의 그리드 정보를 사용
-            gridOrigin = fieldManager.gridOrigin;
+            // FieldManager의 확장된 그리드 정보를 사용 (외곽 스폰 영역 포함)
+            gridOrigin = fieldManager.TotalGridOrigin;
             cellSize = Mathf.Max(0.0001f, fieldManager.cellSize);
-            gridSize = fieldManager.gridSize;
+            gridSize = fieldManager.TotalGridSize;
 
-            // FieldManager 좌표계를 그대로 사용하기 위해 오프셋 없이 0..size-1 범위를 사용
+            // 확장된 좌표계를 사용: 외곽 마진을 포함한 0..TotalSize-1 범위
             worldBottomLeft = Vector2Int.zero; // 셀 좌표 기준
             worldTopRight = new Vector2Int(gridSize.x - 1, gridSize.y - 1);
         }
@@ -347,7 +347,7 @@ public class AstarGrid : MonoBehaviour
                pos.y >= worldBottomLeft.y && pos.y <= worldTopRight.y;
     }
 
-    private AstarNode GetNode(Vector2Int pos)
+    public AstarNode GetNode(Vector2Int pos)
     {
         if (!IsValidPosition(pos)) return null;
         // ✅ [수정] 셀 좌표를 배열 인덱스로 변환합니다.

@@ -148,6 +148,19 @@ public class AugmentManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 증강 이름으로 AugmentData를 검색합니다.
+    /// 모든 티어(Silver, Gold, Prismatic)에서 검색합니다.
+    /// </summary>
+    public AugmentData FindAugmentByName(string augmentName)
+    {
+        if (string.IsNullOrEmpty(augmentName)) return null;
+        
+        return silverAugments.FirstOrDefault(a => a.augmentName == augmentName)
+            ?? goldAugments.FirstOrDefault(a => a.augmentName == augmentName)
+            ?? prismaticAugments.FirstOrDefault(a => a.augmentName == augmentName);
+    }
+
     public void PresentAugments()
     {
         if (!isDataLoaded)
@@ -224,6 +237,31 @@ public class AugmentManager : MonoBehaviour
 
     private void ApplyEffect(PlayerManager target, AugmentData augment)
     {
+        switch (augment.effectType)
+        {
+            case EffectType.SpawnMonsterOnEnemyField:
+                if (augment.isBossSummon)
+                {
+                    if (augment.bossMonsterData != null)
+                    {
+                        playerManager.AddOwnedBoss(augment);
+                        Debug.Log($"<color=red>[AugmentManager] 보스 증강 등록! Player {playerManager.playerId}가 보스 '{augment.bossMonsterData.monsterName}' 보유</color>");
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[AugmentManager] bossMonsterData가 null입니다.");
+                    }
+                }
+                else
+                {
+                    playerManager.RegisterActiveMonsterSummonAugment(augment);
+                    Debug.Log($"<color=orange>[AugmentManager] Player {playerManager.playerId}의 일반 몬스터 소환 증강 '{augment.augmentName}' 등록 (매 라운드 상대 침공)</color>");
+                }
+                return;
+            default:
+                break;
+        }
+        
         if (target == null)
         {
             Debug.LogError($"증강 효과를 적용할 대상(Target)이 없습니다! (Augment: {augment.augmentName})");
@@ -250,27 +288,6 @@ public class AugmentManager : MonoBehaviour
             case EffectType.IncreaseMyUnitAttackSpeed:
                 target.AddPermanentAttackSpeedPercent(augment.value);
                 Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격속도 버프 적용 (+{augment.value:P0})");
-                break;
-            case EffectType.SpawnMonsterOnEnemyField:
-                if (augment.isBossSummon)
-                {
-                    // 보스 모드: 다음 전투 시퀀스에 소환되도록 등록 (1회성)
-                    if (augment.bossMonsterData != null)
-                    {
-                        playerManager.RegisterPendingBossAugment(augment, target.playerId);
-                        Debug.Log($"<color=red>[AugmentManager] 보스 증강 등록! Player {playerManager.playerId}가 Player {target.playerId}에게 다음 전투에 침공 예정</color>");
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"[AugmentManager] bossMonsterData가 null입니다.");
-                    }
-                }
-                else
-                {
-                    // 일반 몬스터 모드: 매 라운드 소환을 위해 증강 등록 (증강 선택자에게 등록)
-                    playerManager.RegisterActiveMonsterSummonAugment(augment);
-                    Debug.Log($"<color=orange>[AugmentManager] Player {playerManager.playerId}의 일반 몬스터 소환 증강 '{augment.augmentName}' 등록 (매 라운드 상대 침공)</color>");
-                }
                 break;
             case EffectType.IncreaseEnemyHealth:
             case EffectType.IncreaseEnemyMoveSpeed:

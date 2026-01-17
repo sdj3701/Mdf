@@ -204,8 +204,17 @@ public class AddressablesManager : MonoBehaviour
         {
             foreach (var key in locator.Keys)
             {
-                if (!locator.Locate(key, typeof(Object), out var locations))
+                IList<IResourceLocation> locations;
+                try
                 {
+                    if (!locator.Locate(key, typeof(Object), out locations))
+                    {
+                        continue;
+                    }
+                }
+                catch (System.Exception)
+                {
+                    // Missing Script 등의 문제가 있는 에셋은 건너뛰기
                     continue;
                 }
 

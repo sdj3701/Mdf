@@ -69,10 +69,7 @@ public static class MazePlanner
         var input = BuildPlanInput(fm, pm);
         var plan = PlanWallsFromInput(input, log: true);
 
-        if (!input.UseFixedEndpoints)
-        {
-            AlignSpawnAndGoal(pm, fm, plan.Start, plan.Goal);
-        }
+        // 고정 위치만 사용하므로 AlignSpawnAndGoal 호출 불필요
 
         return plan;
     }
@@ -124,7 +121,7 @@ public static class MazePlanner
         }
         else
         {
-            Debug.LogWarning("[MazePlanner] Spawn/Goal transforms missing. Falling back to random endpoints.");
+            Debug.LogError("[MazePlanner] Spawn/Goal transforms missing. Cannot plan maze without fixed endpoints.");
         }
 
         return new MazePlanInput
@@ -188,19 +185,9 @@ public static class MazePlanner
 
         if (input.WallBudget <= 0)
         {
-            Vector2Int start = Vector2Int.zero;
-            Vector2Int goal = Vector2Int.zero;
-
-            if (input.UseFixedEndpoints)
-            {
-                start = input.FixedStart;
-                goal = input.FixedGoal;
-            }
-            else
-            {
-                int minDistance = Mathf.Max(4, (input.Width + input.Height) / 3);
-                TryPickStartGoal(input.Width, input.Height, input.InitialWalls, rng, minDistance, out start, out goal);
-            }
+            // 고정 위치 사용 (랜덤 폴백 제거됨)
+            Vector2Int start = input.FixedStart;
+            Vector2Int goal = input.FixedGoal;
 
             var grid = BuildGrid(input.Width, input.Height, input.InitialWalls, null);
             var path = AStarSearch(grid, start, goal);
@@ -216,59 +203,33 @@ public static class MazePlanner
             return plan;
         }
 
-        if (input.UseFixedEndpoints)
+        // 항상 고정 위치 사용 (랜덤 폴백 제거됨)
+        generation = GenerateFlawlessMazeWithFixedEndpoints(
+            input.Width,
+            input.Height,
+            input.InitialWalls,
+            input.TargetMinLength,
+            rng,
+            input.FixedStart,
+            input.FixedGoal,
+            log);
+
+        if (generation == null && log)
         {
-            generation = GenerateFlawlessMazeWithFixedEndpoints(
+            Debug.LogWarning($"[MazePlanner] Fixed endpoint maze generation failed. Start={input.FixedStart}, Goal={input.FixedGoal}");
+        }
+
+        if (generation == null)
+        {
+            generation = GenerateBudgetedMaze(
                 input.Width,
                 input.Height,
                 input.InitialWalls,
-                input.TargetMinLength,
-                rng,
                 input.FixedStart,
                 input.FixedGoal,
+                input.WallBudget,
+                rng,
                 log);
-
-            if (generation == null && log)
-            {
-                Debug.LogWarning($"[MazePlanner] Fixed endpoint maze generation failed. Start={input.FixedStart}, Goal={input.FixedGoal}");
-            }
-
-            if (generation == null)
-            {
-                generation = GenerateBudgetedMaze(
-                    input.Width,
-                    input.Height,
-                    input.InitialWalls,
-                    input.FixedStart,
-                    input.FixedGoal,
-                    input.WallBudget,
-                    rng,
-                    log);
-            }
-        }
-        else
-        {
-            generation = GenerateFlawlessMaze(input.Width, input.Height, input.InitialWalls, input.TargetMinLength, rng, log);
-            if (generation == null && log)
-            {
-                Debug.LogWarning("[MazePlanner] Strict maze generation failed, using fallback path.");
-            }
-            if (generation == null)
-            {
-                int minDistance = Mathf.Max(4, (input.Width + input.Height) / 3);
-                if (TryPickStartGoal(input.Width, input.Height, input.InitialWalls, rng, minDistance, out var start, out var goal))
-                {
-                    generation = GenerateBudgetedMaze(
-                        input.Width,
-                        input.Height,
-                        input.InitialWalls,
-                        start,
-                        goal,
-                        input.WallBudget,
-                        rng,
-                        log);
-                }
-            }
         }
 
         if (generation == null)
@@ -311,19 +272,9 @@ public static class MazePlanner
         int width = input.Width;
         int height = input.Height;
 
-        Vector2Int start = Vector2Int.zero;
-        Vector2Int goal = Vector2Int.zero;
-
-        if (input.UseFixedEndpoints)
-        {
-            start = input.FixedStart;
-            goal = input.FixedGoal;
-        }
-        else
-        {
-            int minDistance = Mathf.Max(4, (width + height) / 3);
-            TryPickStartGoal(width, height, input.InitialWalls, rng, minDistance, out start, out goal);
-        }
+        // 고정 위치 사용 (랜덤 폴백 제거됨)
+        Vector2Int start = input.FixedStart;
+        Vector2Int goal = input.FixedGoal;
 
         if (!IsInside(start, width, height) || input.InitialWalls.Contains(start))
         {

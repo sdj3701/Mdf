@@ -19,7 +19,24 @@ MonoBehaviour:
       count: 1
     - monsterData: {fileID: 11400000, guid: 0306cf61f03caa14788271cd945bc75c, type: 2}
       count: 1
+    - monsterData: {fileID: 11400000, guid: 6c2b00d43e78aa34986b6826eb09d294, type: 2}
+      count: 1
     spawnInterval: 0.3
+  - roundNumber: 2
+    monsters:
+    - monsterData: {fileID: 11400000, guid: ae8a69e0ccd88974d8e8035798f0c066, type: 2}
+      count: 1
+    - monsterData: {fileID: 11400000, guid: 0306cf61f03caa14788271cd945bc75c, type: 2}
+      count: 1
+    - monsterData: {fileID: 11400000, guid: 38bd09580b24c144ebfb111f6b7a4580, type: 2}
+      count: 1
+    - monsterData: {fileID: 11400000, guid: 29cf65ff007c29842b0f94f054e2b808, type: 2}
+      count: 1
+    - monsterData: {fileID: 11400000, guid: 37c1410f39a37ce48baec7d335019032, type: 2}
+      count: 1
+    - monsterData: {fileID: 11400000, guid: 467e13ba307d4c44fa072f30306c41b2, type: 2}
+      count: 1
+    spawnInterval: 0.25
   additionalMonstersPerRound: 2
   enableAutoScaling: 1
   healthScalePerRound: 0.1

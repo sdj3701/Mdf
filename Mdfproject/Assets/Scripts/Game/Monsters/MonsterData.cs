@@ -8,6 +8,10 @@ public class MonsterData : ScriptableObject
     public string monsterName;
     public MonsterType monsterType; // 지상, 공중 구분
 
+    [Tooltip("UI에서 사용될 몬스터 아이콘입니다.")]
+    [AddressableKey(typeof(Sprite))]
+    public string monsterIcon;
+
     [Header("프리팹")]
     [Tooltip("몬스터 프리팹 (Addressable)")]
     [AddressableKey(typeof(GameObject))]

@@ -9,6 +9,7 @@ public class PlayerHUDController : MonoBehaviour
     public TextMeshProUGUI goldText;
     public TextMeshProUGUI roundText;
     public TextMeshProUGUI wallCountText;
+    public TextMeshProUGUI opponentNameText;
 
     [Header("Shop Controls")]
     public ShopUIController shopUIController;
@@ -23,6 +24,7 @@ public class PlayerHUDController : MonoBehaviour
     {
         GameEvents.OnGameManagersReady += OnGameManagersReady;
         GameEvents.OnGameStateChanged += HandleGameStateChange;
+        GameEvents.OnBattleSequenceStarted += HandleBattleSequenceStarted;
 
         if (shopToggleButton != null)
         {
@@ -36,6 +38,7 @@ public class PlayerHUDController : MonoBehaviour
     {
         GameEvents.OnGameManagersReady -= OnGameManagersReady;
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
+        GameEvents.OnBattleSequenceStarted -= HandleBattleSequenceStarted;
 
         if (shopToggleButton != null)
         {
@@ -148,7 +151,32 @@ public class PlayerHUDController : MonoBehaviour
             shopUIController.SetContentVisibility(false);
         }
 
+        // 전투 중이 아니면 상대 이름 숨김
+        if (isPreparePhase && opponentNameText != null)
+        {
+            opponentNameText.gameObject.SetActive(false);
+        }
+
         RefreshShopToggleText();
+    }
+
+    private void HandleBattleSequenceStarted(bool isAttacking)
+    {
+        if (opponentNameText == null) return;
+        if (localPlayer == null) return;
+
+        var opponent = localPlayer.opponentManager;
+        if (opponent != null)
+        {
+            string roleText = isAttacking ? "⚔️ 공격" : "🛡️ 수비";
+            opponentNameText.text = $"{roleText} VS Player {opponent.playerId}";
+            opponentNameText.gameObject.SetActive(true);
+        }
+        else
+        {
+            opponentNameText.text = isAttacking ? "관전 모드" : "AI 웨이브";
+            opponentNameText.gameObject.SetActive(true);
+        }
     }
 
     private void OnShopToggleButtonClicked()

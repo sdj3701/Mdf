@@ -49,4 +49,17 @@ public static class GameEvents
 
     public static event Action<int, Vector3Int> OnWallRemovalSucceeded;
     public static void TriggerWallRemovalSucceeded(int playerID, Vector3Int gridPosition) => OnWallRemovalSucceeded?.Invoke(playerID, gridPosition);
+
+    // --- 공격 시퀀스 이벤트 ---
+    /// <summary>
+    /// 공격 몬스터 풀이 변경되었을 때 (UI 갱신용)
+    /// </summary>
+    public static event Action<int, List<MonsterPoolEntry>> OnMonsterPoolChanged;
+    public static void TriggerMonsterPoolChanged(int playerID, List<MonsterPoolEntry> pool) => OnMonsterPoolChanged?.Invoke(playerID, pool);
+
+    /// <summary>
+    /// 전투 시퀀스가 시작되었을 때 (isAttacking: true면 공격, false면 수비)
+    /// </summary>
+    public static event Action<bool> OnBattleSequenceStarted;
+    public static void TriggerBattleSequenceStarted(bool isAttacking) => OnBattleSequenceStarted?.Invoke(isAttacking);
 }

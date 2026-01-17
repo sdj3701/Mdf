@@ -17,7 +17,7 @@ public class GameManagers : NetworkBehaviour
     private ChangeDetector _changeDetector;
 
     #region 인게임 관련 변수 (네트워크 동기화)
-    public enum GameState { Setup, DataLoading, Prepare, Combat, GameOver }
+    public enum GameState { Setup, DataLoading, Prepare, Battle1, Battle2, GameOver }
 
     // [수정] OnChanged 속성을 제거했습니다. Fusion 2에서는 ChangeDetector를 사용합니다.
     [Networked]
@@ -99,12 +99,25 @@ public class GameManagers : NetworkBehaviour
     private GameObject localPlayerShopUIGameObject;
     private AugmentUIController augmentSelectionUI;
     private bool _isSpawned;
-    private readonly HashSet<int> _spawnGoalRandomized = new HashSet<int>();
 
     private bool hasCombatBeenShortened = false;
     private bool firstPrepareDurationUsed = false;
     private bool isTransitioningRound = false; // 라운드 전환 중 중복 호출 방지
     private bool _hasBerserkTriggered = false;  // 폭주 모드 트리거 여부
+    private bool _hasBerserkTriggeredBattle2 = false;  // Battle2 폭주 모드 트리거 여부
+    private TickTimer _battleStartCheckDelay; // 전투 시작 후 상태 체크 딜레이
+
+    #region 전투 시퀀스 관련 필드
+    /// <summary>
+    /// 현재 라운드에서 선공(Battle1에서 공격)하는 플레이어 ID
+    /// </summary>
+    [Networked] public int FirstAttackerPlayerId { get; set; }
+
+    /// <summary>
+    /// 라운드별 매칭된 상대 정보. Key: PlayerId, Value: OpponentPlayerId (-1이면 상대 없음)
+    /// </summary>
+    private Dictionary<int, int> _battleOpponents = new Dictionary<int, int>();
+    #endregion
 
     /// <summary>
     /// 이 NetworkBehaviour가 네트워크 상에 스폰될 때 Fusion에 의해 호출됩니다.
@@ -167,9 +180,12 @@ public class GameManagers : NetworkBehaviour
             switch (currentState)
             {
                 case GameState.Prepare:
-                    StartCombatPhase();
+                    StartBattle1Phase();
                     break;
-                case GameState.Combat:
+                case GameState.Battle1:
+                    StartBattle2Phase();
+                    break;
+                case GameState.Battle2:
                     if (!isTransitioningRound)
                     {
                         isTransitioningRound = true;
@@ -178,17 +194,60 @@ public class GameManagers : NetworkBehaviour
                     break;
             }
         }
-        else if (currentState == GameState.Combat && !hasCombatBeenShortened && AllPlayers.All(p => p != null && !p.IsActivelyFighting))
+        // 전투 단축: 모든 플레이어의 전투가 끝났을 때 남은 시간을 3초로
+        // 전투 시작 후 1초 딜레이가 끝난 후부터 체크
+        else if ((currentState == GameState.Battle1 || currentState == GameState.Battle2) && 
+                 !hasCombatBeenShortened && 
+                 _battleStartCheckDelay.Expired(Runner))
         {
-            if (phaseTimer.RemainingTime(Runner) > 3f)
+            bool allFinished = true;
+            foreach (var player in AllPlayers)
+            {
+                if (player == null) continue;
+                
+                // 개별 플레이어의 전투 상태 체크 및 업데이트
+                bool playerFinished = IsPlayerBattleFinished(player);
+                
+                // 개별 플레이어 상태 업데이트 (전투 중 → 전투 종료)
+                if (playerFinished && player.IsActivelyFighting)
+                {
+                    player.SetFightingState(false);
+                    Debug.Log($"[빠른진행 체크] Player {player.playerId}: 전투 종료 → 방패");
+                    
+                    // 상대 플레이어도 함께 전투 종료 처리 (공격자-수비자 페어 동기화)
+                    int opponentId = GetBattleOpponent(player.playerId);
+                    if (opponentId != -1)
+                    {
+                        var opponent = GetPlayer(opponentId);
+                        if (opponent != null && opponent.IsActivelyFighting)
+                        {
+                            // 상대의 전투도 종료됐는지 확인
+                            bool opponentFinished = IsPlayerBattleFinished(opponent);
+                            if (opponentFinished)
+                            {
+                                opponent.SetFightingState(false);
+                                Debug.Log($"[빠른진행 체크] Player {opponent.playerId}: 상대 전투 종료로 함께 방패");
+                            }
+                        }
+                    }
+                }
+                
+                if (!playerFinished)
+                {
+                    allFinished = false;
+                }
+            }
+            
+            if (allFinished && phaseTimer.RemainingTime(Runner) > 3f)
             {
                 phaseTimer = TickTimer.CreateFromSeconds(Runner, 3f);
                 hasCombatBeenShortened = true;
+                Debug.Log("<color=cyan>[GameManagers] 모든 플레이어 전투 종료 - 빠른 진행 (3초)</color>");
             }
         }
         
-        // 폭주 모드: 전투 5초 남았을 때 트리거
-        if (currentState == GameState.Combat && !_hasBerserkTriggered)
+        // 폭주 모드: Battle1 또는 Battle2에서 5초 남았을 때 트리거
+        if (currentState == GameState.Battle1 && !_hasBerserkTriggered)
         {
             float remaining = phaseTimer.RemainingTime(Runner) ?? 0f;
             if (remaining <= berserkTriggerTime && remaining > 0f)
@@ -197,6 +256,82 @@ public class GameManagers : NetworkBehaviour
                 TriggerBerserkMode();
             }
         }
+        else if (currentState == GameState.Battle2 && !_hasBerserkTriggeredBattle2)
+        {
+            float remaining = phaseTimer.RemainingTime(Runner) ?? 0f;
+            if (remaining <= berserkTriggerTime && remaining > 0f)
+            {
+                _hasBerserkTriggeredBattle2 = true;
+                TriggerBerserkMode();
+            }
+        }
+        
+        // 각 플레이어의 전투 상태(IsActivelyFighting) 업데이트는 빠른 진행 체크에서 수행
+        // (매 틱 호출하면 상태가 불안정해짐)
+    }
+
+    /// <summary>
+    /// 해당 플레이어의 전투가 끝났는지 확인합니다.
+    /// - 공격자: 풀이 비어있고 모든 수비자 필드에 몬스터가 없으면 종료
+    /// - 수비자: 자기 필드에 몬스터가 없고 공격자의 풀도 비었으면 종료
+    /// </summary>
+    private bool IsPlayerBattleFinished(PlayerManager player)
+    {
+        if (player == null) return true;
+        
+        if (player.IsAttackerInCurrentBattle)
+        {
+            // 공격자: 풀이 비어있고 모든 수비자 필드에 몬스터가 없으면 종료
+            bool hasPool = player.AttackMonsterPool != null && 
+                           player.AttackMonsterPool.Exists(p => !p.IsEmpty);
+            bool anyDefenderHasMonsters = AllPlayers.Any(p => 
+                p != null && 
+                !p.IsAttackerInCurrentBattle && 
+                p.monsterSpawner != null && 
+                p.monsterSpawner.HasLivingMonsters());
+            
+            return !hasPool && !anyDefenderHasMonsters;
+        }
+        else
+        {
+            // 수비자: 자기 필드에 몬스터가 없고, 상대 공격자의 풀도 비었으면 종료
+            bool hasMonsters = player.monsterSpawner != null && 
+                               player.monsterSpawner.HasLivingMonsters();
+            
+            // 공격자의 풀에 몬스터가 남아있으면 아직 전투 중
+            bool anyAttackerHasPool = AllPlayers.Any(p => 
+                p != null && 
+                p.IsAttackerInCurrentBattle && 
+                p.AttackMonsterPool != null && 
+                p.AttackMonsterPool.Exists(e => !e.IsEmpty));
+            
+            return !hasMonsters && !anyAttackerHasPool;
+        }
+    }
+    
+    /// <summary>
+    /// 현재 전투에서 해당 공격자의 상대 수비자를 찾습니다.
+    /// (수비자 필드에 이 공격자가 소환한 몬스터가 있는 플레이어를 찾음)
+    /// </summary>
+    private PlayerManager GetOpponentForPlayer(PlayerManager attacker)
+    {
+        if (!attacker.IsAttackerInCurrentBattle) return null;
+        
+        // 수비자 역할인 플레이어 중 자기 필드에 몬스터가 있는 플레이어 반환
+        // (자기 자신이 아닌 다른 플레이어)
+        foreach (var player in AllPlayers)
+        {
+            if (player == null || player == attacker) continue;
+            
+            // 수비자이고 (공격자가 아님) 필드에 몬스터가 있으면 상대
+            if (!player.IsAttackerInCurrentBattle && 
+                player.monsterSpawner != null && 
+                player.monsterSpawner.HasLivingMonsters())
+            {
+                return player;
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -478,6 +613,170 @@ public class GameManagers : NetworkBehaviour
         var pos = new Vector3Int(x, y, 0);
         GameEvents.TriggerWallRemovalSucceeded(playerID, pos);
     }
+    
+    /// <summary>
+    /// 전투 시작을 모든 클라이언트에 알립니다.
+    /// 각 클라이언트는 자신이 해당 플레이어인 경우 카메라/UI 처리를 수행합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_NotifyBattleStart(int playerId, bool isAttacker, int opponentId)
+    {
+        // 로컬 플레이어가 아니면 무시
+        if (localPlayer == null || localPlayer.playerId != playerId) return;
+        
+        // 공격자인 경우
+        if (isAttacker && opponentId != -1)
+        {
+            var opponent = GetPlayer(opponentId);
+            if (opponent != null)
+            {
+                // opponentManager 설정 (클라이언트에서도 보스 풀 추가를 위해 필요)
+                localPlayer.opponentManager = opponent;
+                
+                // 클라이언트에서도 AttackMonsterPool 갱신 (UI 표시를 위해)
+                localPlayer.RefreshAttackMonsterPool(currentRound, opponentId);
+                
+                // AttackSequenceManager 시작
+                var attackSeqMgr = localPlayer.GetComponent<AttackSequenceManager>();
+                if (attackSeqMgr != null)
+                {
+                    attackSeqMgr.StartAttackSequence(opponent);
+                }
+                
+                // 카메라를 상대 필드로 이동 (공격 모드)
+                if (CameraManager.Instance != null)
+                {
+                    CameraManager.Instance.MoveToPlayerField(opponent, isAttackMode: true).Forget();
+                }
+                
+                // 공격 시퀀스 UI 표시 (재초기화 후 표시)
+                ShowAttackSequenceUIAsync(attackSeqMgr).Forget();
+                
+                Debug.Log($"<color=green>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 공격자 (상대: Player {opponentId}, 라운드: {currentRound})</color>");
+            }
+        }
+        else
+        {
+            // 수비자인 경우
+            // AttackSequenceManager 종료
+            var attackSeqMgr = localPlayer.GetComponent<AttackSequenceManager>();
+            if (attackSeqMgr != null)
+            {
+                attackSeqMgr.EndAttackSequence();
+            }
+            
+            // 공격 시퀀스 UI 숨김
+            AttackSequenceUIController.Instance?.Hide();
+            
+            // 카메라 본인 필드 복귀
+            if (CameraManager.Instance != null)
+            {
+                CameraManager.Instance.ReturnToOwnField();
+            }
+            
+            Debug.Log($"<color=blue>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 수비자</color>");
+        }
+        
+        // 전투 시작 이벤트 발생
+        GameEvents.TriggerBattleSequenceStarted(isAttacker);
+    }
+    
+    /// <summary>
+    /// 공격 시퀀스 UI를 비동기로 초기화하고 표시합니다.
+    /// </summary>
+    private async UniTask ShowAttackSequenceUIAsync(AttackSequenceManager attackSeqMgr)
+    {
+        if (localPlayer == null || attackSeqMgr == null) return;
+        
+        // UI 로드/초기화
+        var ui = await AttackSequenceUIController.GetOrCreateAsync(localPlayer, attackSeqMgr);
+        if (ui != null)
+        {
+            ui.Show(true);
+            Debug.Log($"<color=cyan>[ShowAttackSequenceUIAsync] 공격 시퀀스 UI 표시 완료</color>");
+        }
+        else
+        {
+            Debug.LogWarning("[ShowAttackSequenceUIAsync] UI 로드 실패");
+        }
+    }
+    
+    /// <summary>
+    /// 클라이언트가 서버에 몬스터 소환을 요청합니다.
+    /// </summary>
+    /// <param name="attackerPlayerId">공격자 플레이어 ID</param>
+    /// <param name="defenderPlayerId">수비자 플레이어 ID</param>
+    /// <param name="monsterDataName">소환할 몬스터 데이터 이름</param>
+    /// <param name="spawnPosition">소환 위치</param>
+    /// <param name="isBoss">보스 여부</param>
+    /// <param name="bossUniqueId">보스 고유 ID</param>
+    /// <param name="originPlayerId">보스 소환자 ID</param>
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestSpawnMonster(int attackerPlayerId, int defenderPlayerId, string monsterDataName, Vector3 spawnPosition, bool isBoss, int bossUniqueId, int originPlayerId)
+    {
+        // 서버만 처리
+        if (Object == null || !Object.HasStateAuthority) return;
+        
+        var attacker = GetPlayer(attackerPlayerId);
+        var defender = GetPlayer(defenderPlayerId);
+        
+        if (attacker == null || defender == null)
+        {
+            Debug.LogWarning($"[RPC_RequestSpawnMonster] 플레이어를 찾을 수 없음: attacker={attackerPlayerId}, defender={defenderPlayerId}");
+            return;
+        }
+        
+        // 몬스터 데이터 찾기
+        var pool = attacker.AttackMonsterPool;
+        MonsterPoolEntry targetEntry = null;
+        foreach (var entry in pool)
+        {
+            if (entry.MonsterData != null && entry.MonsterData.name == monsterDataName && !entry.IsEmpty)
+            {
+                targetEntry = entry;
+                break;
+            }
+        }
+        
+        if (targetEntry == null)
+        {
+            Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 풀에서 '{monsterDataName}'을 찾을 수 없음");
+            return;
+        }
+        
+        // 풀에서 소비
+        if (!attacker.TryConsumeMonsterFromPool(targetEntry.MonsterData))
+        {
+            Debug.LogWarning("[RPC_RequestSpawnMonster] 몬스터 풀에서 소비 실패");
+            return;
+        }
+        
+        // 서버에서 몬스터 소환
+        SpawnMonsterOnServerAsync(attacker, defender, targetEntry, spawnPosition).Forget();
+    }
+    
+    private async UniTask SpawnMonsterOnServerAsync(PlayerManager attacker, PlayerManager defender, MonsterPoolEntry entry, Vector3 spawnPosition)
+    {
+        if (attacker?.monsterSpawner == null || defender?.fieldManager == null) return;
+        
+        var monster = await attacker.monsterSpawner.SpawnMonsterAtPositionAsync(
+            entry.MonsterData,
+            spawnPosition,
+            defender.fieldManager,
+            entry.IsBoss,
+            entry.BossUniqueId,
+            entry.OriginPlayerId
+        );
+        
+        if (monster != null)
+        {
+            Debug.Log($"<color=green>[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 성공</color>");
+        }
+        else
+        {
+            Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 실패");
+        }
+    }
     #endregion
 
     /// <summary>
@@ -568,6 +867,12 @@ public class GameManagers : NetworkBehaviour
     {
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
+        
+        // 턴 시작 시 보스 침공 상태 리셋 (턴당 1회 침공 제한용)
+        if (SurvivorBossManager.Instance != null)
+        {
+            SurvivorBossManager.Instance.ResetTurnInvasionState();
+        }
 
         // 전투 종료 시 필드에 남은 몬스터 정리 (라운드 증가 전에 처리)
         foreach (var player in AllPlayers)
@@ -575,6 +880,37 @@ public class GameManagers : NetworkBehaviour
             if (player?.monsterSpawner != null)
             {
                 player.monsterSpawner.OnCombatPhaseEnded();
+            }
+            
+            // AttackSequenceManager 종료
+            var attackSeqMgr = player?.GetComponent<AttackSequenceManager>();
+            if (attackSeqMgr != null)
+            {
+                attackSeqMgr.EndAttackSequence();
+            }
+        }
+
+        // 로컬 플레이어 카메라 본인 필드로 복귀
+        if (CameraManager.Instance != null)
+        {
+            CameraManager.Instance.ReturnToOwnField();
+        }
+
+        // --- 라운드 종료 시 탈락 판정 ---
+        var eliminatedPlayers = CheckEliminatedPlayers();
+        if (eliminatedPlayers.Count > 0)
+        {
+            foreach (var eliminated in eliminatedPlayers)
+            {
+                Debug.Log($"<color=red>[GameManagers] Player {eliminated.playerId} 탈락! (체력: {eliminated.GetHealth()})</color>");
+                GameOver(eliminated);
+            }
+            
+            // 생존자가 1명 이하면 게임 종료
+            var survivors = AllPlayers.Where(p => p != null && !eliminatedPlayers.Contains(p) && p.GetHealth() > 0).ToList();
+            if (survivors.Count <= 1)
+            {
+                return; // GameOver에서 처리됨
             }
         }
 
@@ -610,12 +946,8 @@ public class GameManagers : NetworkBehaviour
             player.mazeConstructionComplete = false;
             player.unitPurchaseComplete = false;
 
-            // 스폰/도착 지점은 게임 시작 시 1회만 랜덤 지정
-            if (!_spawnGoalRandomized.Contains(player.playerId) && player.fieldManager != null)
-            {
-                MazePlanner.RandomizeSpawnAndGoal(player.fieldManager, player);
-                _spawnGoalRandomized.Add(player.playerId);
-            }
+            // 스폰/도착 지점은 이제 PlayerManager.SetupSpawnAndGoalPositions에서 초기화 시 고정 설정됨
+            // (도착: 필드 정 가운데, 스폰: 동서남북 테두리 구멍 중 랜덤)
             
             // 증강 생성 및 동기화 (한 루프에서 처리)
             player.augmentManager.PresentAugments();
@@ -638,7 +970,12 @@ public class GameManagers : NetworkBehaviour
         isTransitioningRound = false; // 라운드 전환 완료
     }
 
-    private void StartCombatPhase()
+    #region 전투 시퀀스 메서드
+
+    /// <summary>
+    /// Battle1 시퀀스를 시작합니다. 선공 플레이어가 공격, 상대가 수비.
+    /// </summary>
+    private void StartBattle1Phase()
     {
         if (!Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
@@ -651,43 +988,212 @@ public class GameManagers : NetworkBehaviour
             var presentedAugments = player.augmentManager?.GetPresentedAugments();
             if (presentedAugments != null && presentedAugments.Count > 0)
             {
-                // 아직 증강을 선택하지 않은 상태 → 첫 번째 증강 자동 선택
                 var firstAugment = presentedAugments[0];
-                Debug.Log($"<color=orange>[StartCombatPhase] Player {player.playerId}: 시간 초과로 인해 '{firstAugment.augmentName}' 증강 자동 선택</color>");
+                Debug.Log($"<color=orange>[StartBattle1Phase] Player {player.playerId}: 시간 초과로 인해 '{firstAugment.augmentName}' 증강 자동 선택</color>");
                 
                 player.augmentManager.SelectAndApplyAugment(firstAugment);
-                
-                // 모든 클라이언트에 증강 선택 알림
                 NotifyAugmentSelected(player.playerId, firstAugment.augmentName);
             }
         }
 
-        // UI 비활성화는 HandleNetworkStateChange → HandleUIForNewState에서 처리됨
-        // (currentState 변경 시 Render()에서 모든 클라이언트에서 호출)
+        // 상대 매칭 및 선공 플레이어 결정
+        AssignBattleOpponents();
 
-        currentState = GameState.Combat;
+        currentState = GameState.Battle1;
         hasCombatBeenShortened = false;
-        _hasBerserkTriggered = false;  // 폭주 모드 트리거 리셋
-        
-        // 서버(호스트)에서도 UI를 명시적으로 비활성화
-        // Render()의 ChangeDetector에만 의존하면 싱글플레이어나 타이밍 문제 발생 가능
+        _hasBerserkTriggered = false;
+        _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f); // 1초 딜레이
+
         HandleUIForNewState(currentState).Forget();
 
-        // 생존 보스 타겟 할당 (전투 시작 전에 한 번만 호출)
-        // 각 생존 보스에게 랜덤 타겟을 미리 할당하여 MonsterSpawner가 자신에게 해당하는 보스만 추출할 수 있도록 함
+        // 생존 보스 타겟 할당
         if (SurvivorBossManager.Instance != null)
         {
             SurvivorBossManager.Instance.AssignTargetsToSurvivors();
         }
 
+        // Battle1: 선공자가 공격, 후공자가 수비 (수비자 필드에 몬스터 스폰)
+        StartBattleForPlayers(isFirstBattle: true);
+
+        phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
+        Debug.Log($"<color=cyan>[GameManagers] Battle1 시작! 선공자: Player {FirstAttackerPlayerId}</color>");
+    }
+
+    /// <summary>
+    /// Battle2 시퀀스를 시작합니다. 공수 역할 교체.
+    /// </summary>
+    private void StartBattle2Phase()
+    {
+        if (!Object.HasStateAuthority) return;
+        if (currentState == GameState.GameOver) return;
+
+        // Battle1에서 남은 몬스터 정리
+        foreach (var player in AllPlayers)
+        {
+            if (player?.monsterSpawner != null)
+            {
+                player.monsterSpawner.OnCombatPhaseEnded();
+            }
+        }
+
+        currentState = GameState.Battle2;
+        hasCombatBeenShortened = false;
+        _hasBerserkTriggeredBattle2 = false;
+        _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f); // 1초 딜레이
+
+        HandleUIForNewState(currentState).Forget();
+
+        // Battle2: 공수 역할 교체 (후공자가 공격, 선공자가 수비)
+        StartBattleForPlayers(isFirstBattle: false);
+
+        phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
+        Debug.Log("<color=cyan>[GameManagers] Battle2 시작! 공수 역할 교체</color>");
+    }
+
+    /// <summary>
+    /// 라운드별 상대 매칭을 수행합니다.
+    /// 2명 플레이어: 서로 상대
+    /// 3명+ 플레이어: 2명씩 페어링, 홀수인 경우 1명은 상대 없음
+    /// </summary>
+    private void AssignBattleOpponents()
+    {
+        _battleOpponents.Clear();
+        
+        var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
+        
+        if (alivePlayers.Count == 0) return;
+
+        // 랜덤 셔플 (Fisher-Yates)
+        for (int i = alivePlayers.Count - 1; i > 0; i--)
+        {
+            int j = UnityEngine.Random.Range(0, i + 1);
+            var temp = alivePlayers[i];
+            alivePlayers[i] = alivePlayers[j];
+            alivePlayers[j] = temp;
+        }
+
+        // 선공 플레이어 결정 (라운드마다 교대)
+        FirstAttackerPlayerId = alivePlayers[currentRound % alivePlayers.Count].playerId;
+
+        // 2명씩 매칭
+        for (int i = 0; i < alivePlayers.Count; i += 2)
+        {
+            if (i + 1 < alivePlayers.Count)
+            {
+                // 양쪽 서로 상대로 지정
+                _battleOpponents[alivePlayers[i].playerId] = alivePlayers[i + 1].playerId;
+                _battleOpponents[alivePlayers[i + 1].playerId] = alivePlayers[i].playerId;
+            }
+            else
+            {
+                // 홀수: 마지막 사람은 상대 없음
+                _battleOpponents[alivePlayers[i].playerId] = -1;
+            }
+        }
+
+        Debug.Log($"<color=yellow>[AssignBattleOpponents] 매칭 완료: {string.Join(", ", _battleOpponents.Select(kv => $"P{kv.Key}↔P{kv.Value}"))}</color>");
+    }
+
+    /// <summary>
+    /// 전투를 시작합니다. 공격자는 수동 소환 대기, 수비자는 웨이브 자동 스폰.
+    /// </summary>
+    /// <param name="isFirstBattle">true면 Battle1 (선공자 공격), false면 Battle2 (후공자 공격)</param>
+    private void StartBattleForPlayers(bool isFirstBattle)
+    {
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
-            player.monsterSpawner.SpawnWave(currentRound);
+
+            int opponentId = _battleOpponents.TryGetValue(player.playerId, out int oppId) ? oppId : -1;
+            bool hasOpponent = opponentId != -1;
+
+            // Battle1: 선공자(FirstAttackerPlayerId)가 공격자
+            // Battle2: 선공자가 수비자 (역할 교체)
+            bool isAttackerFirstBattle = player.playerId == FirstAttackerPlayerId;
+            bool isAttackerInThisBattle = isFirstBattle ? isAttackerFirstBattle : !isAttackerFirstBattle;
+
+            player.IsAttackerInCurrentBattle = isAttackerInThisBattle;
+
+            if (hasOpponent)
+            {
+                if (isAttackerInThisBattle)
+                {
+                    // 공격자 역할
+                    player.RefreshAttackMonsterPool(currentRound, opponentId);
+                    player.SetFightingState(true);
+
+                    // AI 공격자: 상대 필드에 자동 소환
+                    // 유저 공격자: 수동 소환 대기 (AttackSequenceManager에서 처리)
+                    bool isAI = ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString());
+                    var opponent = AllPlayers.FirstOrDefault(p => p != null && p.playerId == opponentId);
+                    
+                    if (isAI)
+                    {
+                        // AI는 AttackMonsterPool에서 순차적으로 자동 소환
+                        if (player.monsterSpawner != null && opponent?.fieldManager != null)
+                        {
+                            player.monsterSpawner.StartAutoSpawnFromPool(opponent.fieldManager).Forget();
+                            Debug.Log($"<color=orange>[StartBattle] AI Player {player.playerId}: 공격자 - 상대 Player {opponentId} 필드에 AttackMonsterPool 자동 소환</color>");
+                        }
+                    }
+                    else
+                    {
+                        // 유저 공격자: 수동 소환 모드 시작
+                        // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
+                        Debug.Log($"<color=green>[StartBattle] Player {player.playerId}: 공격자 (수동 소환 모드, 상대: Player {opponentId})</color>");
+                    }
+                }
+                else
+                {
+                    // 수비자: 공격자가 소환할 때까지 대기
+                    player.SetFightingState(true);
+                    
+                    // 생존 보스 소환 (이전 라운드에서 살아남은 보스가 이 플레이어에게 침공)
+                    if (player.monsterSpawner != null)
+                    {
+                        player.monsterSpawner.SpawnSurvivorBossesAsync().Forget();
+                    }
+                    
+                    // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
+                    Debug.Log($"<color=blue>[StartBattle] Player {player.playerId}: 수비자 (상대: Player {opponentId})</color>");
+                }
+            }
+            else
+            {
+                // 상대 없음: 수비 모드에서 기본 웨이브만 AI 자동 소환
+                if (!isAttackerInThisBattle)
+                {
+                    // 수비 시퀀스: 기본 웨이브를 AI가 자동 소환 (증강 공격유닛 제외)
+                    player.monsterSpawner.SpawnWaveWithoutAugments(currentRound);
+                    Debug.Log($"<color=gray>[StartBattle] Player {player.playerId}: 상대 없음, 수비 (기본 웨이브만)</color>");
+                }
+                else
+                {
+                    // 공격 시퀀스: 관전 모드 (전투 참여 안 함)
+                    player.SetFightingState(false);
+                    Debug.Log($"<color=gray>[StartBattle] Player {player.playerId}: 상대 없음, 공격 (관전 모드)</color>");
+                }
+            }
         }
 
-        phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
+        // 모든 클라이언트에 전투 시작 알림 (RPC)
+        foreach (var player in AllPlayers)
+        {
+            if (player == null) continue;
+            int opponentId = _battleOpponents.TryGetValue(player.playerId, out int oppId) ? oppId : -1;
+            RPC_NotifyBattleStart(player.playerId, player.IsAttackerInCurrentBattle, opponentId);
+        }
     }
+
+    /// <summary>
+    /// 특정 플레이어의 현재 전투 상대 ID를 반환합니다. (-1이면 상대 없음)
+    /// </summary>
+    public int GetBattleOpponent(int playerId)
+    {
+        return _battleOpponents.TryGetValue(playerId, out int oppId) ? oppId : -1;
+    }
+
+    #endregion
 
     /// <summary>
     /// 폭주 모드를 트리거합니다. (전투 종료 5초 전)
@@ -703,6 +1209,47 @@ public class GameManagers : NetworkBehaviour
             player.monsterSpawner?.ApplyBerserkModeToAllMonsters();
             player.fieldManager?.ApplyBerserkModeToAllUnits();
         }
+    }
+
+    /// <summary>
+    /// 라운드 종료 시 탈락 대상 플레이어를 확인합니다.
+    /// - 한 명만 0 이하: 해당 플레이어 탈락
+    /// - 둘 다 0 이하: 체력 더 낮은 플레이어 탈락
+    /// </summary>
+    /// <returns>탈락 대상 플레이어 목록</returns>
+    private List<PlayerManager> CheckEliminatedPlayers()
+    {
+        var eliminated = new List<PlayerManager>();
+        var playersAtOrBelowZero = AllPlayers
+            .Where(p => p != null && p.GetHealth() <= 0)
+            .ToList();
+
+        if (playersAtOrBelowZero.Count == 0)
+        {
+            return eliminated; // 탈락자 없음
+        }
+
+        if (playersAtOrBelowZero.Count == 1)
+        {
+            // 한 명만 0 이하: 해당 플레이어 탈락
+            eliminated.Add(playersAtOrBelowZero[0]);
+        }
+        else
+        {
+            // 둘 다 0 이하: 체력 더 낮은 플레이어 탈락
+            // 동점인 경우 둘 다 탈락 (무승부는 없음)
+            int minHealth = playersAtOrBelowZero.Min(p => p.GetHealth());
+            var lowestHealthPlayers = playersAtOrBelowZero
+                .Where(p => p.GetHealth() == minHealth)
+                .ToList();
+
+            foreach (var loser in lowestHealthPlayers)
+            {
+                eliminated.Add(loser);
+            }
+        }
+
+        return eliminated;
     }
 
     private async UniTask HandleUIForNewState(GameState newState)
@@ -730,10 +1277,10 @@ public class GameManagers : NetworkBehaviour
                     localPlayerShopUIGameObject.SetActive(false);
                 }
                 break;
-            case GameState.Combat:
+            case GameState.Battle1:
+            case GameState.Battle2:
                 // 전투 단계 진입 시 모든 UI 비활성화
-                Debug.Log("<color=yellow>[HandleUIForNewState] Combat 단계 - UI 비활성화</color>");
-                // 증강 UI가 활성 상태일 때만 반환
+                Debug.Log($"<color=yellow>[HandleUIForNewState] {newState} 단계 - UI 비활성화</color>");
                 if (UIManagers.Instance.IsUIElementActive("UI_Pnl_Augment"))
                 {
                     UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
@@ -742,6 +1289,7 @@ public class GameManagers : NetworkBehaviour
                 {
                     localPlayerShopUIGameObject.SetActive(false);
                 }
+                // TODO: 공격 시퀀스 UI 활성화 (공격자인 경우)
                 break;
             case GameState.GameOver:
                 PlayerManager winner = AllPlayers.FirstOrDefault(p => p != null && p.GetHealth() > 0);
