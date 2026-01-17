@@ -11,6 +11,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     [SerializeField] private MonsterData _monsterData;
     public MonsterData Data => _monsterData;
 
+    public bool HasTrait(MonsterTraits trait)
+    {
+        if (_monsterData == null) return false;
+        return (_monsterData.traits & trait) != 0;
+    }
+    
+    private BuffManager _buffManager;
+
     [Tooltip("벽 레이어 마스크")]
     public LayerMask wallLayerMask;
 
@@ -241,6 +249,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         OnHealthChanged?.Invoke(maxHp, maxHp);
 
         manaController = GetComponent<ManaController>();
+        _buffManager = GetComponent<BuffManager>();
 
         int maxMana = 0;
         if (_monsterData.skillData != null)
@@ -425,10 +434,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     private void ActivateSkill()
     {
-        if (!HasStateAuthorityOrNoNetwork())
-        {
-            return;
-        }
+        if (!HasStateAuthorityOrNoNetwork()) return;
+        
+        if (_buffManager != null && !_buffManager.CanUseSkill) return;
+        
         SkillData skillData = _monsterData.skillData;
 
         if (skillData == null || skillData.targetingStrategy == null || skillData.effects.Count == 0)
@@ -640,16 +649,20 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         while (target != null && (target as MonoBehaviour) != null)
         {
+            if (_buffManager != null && !_buffManager.CanAttack)
+            {
+                yield return null;
+                continue;
+            }
+            
             yield return new WaitForSeconds(1f / currentAttackSpeed);
 
             if ((target as MonoBehaviour) == null) break;
 
-            // 공격 애니메이션 트리거 + 대기 공격 설정
             _pendingAttackTarget = target;
             _hasPendingAttack = true;
             TriggerAttackAnimation();
             
-            // 애니메이션 이벤트가 없는 경우를 대비한 폴백 (0.5초 후에도 대기 중이면 직접 데미지)
             yield return new WaitForSeconds(0.5f);
             if (_hasPendingAttack && _pendingAttackTarget != null)
             {
@@ -789,6 +802,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         );
         while (Vector3.Distance(transform.position, targetPosition) > 0.1f && isMoving)
         {
+            if (_buffManager != null && !_buffManager.CanMove)
+            {
+                yield return null;
+                continue;
+            }
+            
             float dt = (Runner != null) ? Runner.DeltaTime : Time.deltaTime;
             Vector3 nextPos = Vector3.MoveTowards(
                 transform.position,
@@ -800,7 +819,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 nextPos = pathfinder.ClampToGrid(nextPos);
             }
             
-            // 이동 방향으로 회전
             RotateTowardsMovementDirection(targetPosition, dt);
             
             transform.position = nextPos;
@@ -837,6 +855,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
             while (Vector3.Distance(transform.position, currentTarget) > 0.1f && isMoving)
             {
+                if (_buffManager != null && !_buffManager.CanMove)
+                {
+                    SetWalkingAnimation(false);
+                    yield return null;
+                    continue;
+                }
+                
                 float dt = (Runner != null) ? Runner.DeltaTime : Time.deltaTime;
                 Vector3 nextPos = Vector3.MoveTowards(transform.position, currentTarget, currentMoveSpeed * dt);
                 if (pathfinder != null)
@@ -844,12 +869,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                     nextPos = pathfinder.ClampToGrid(nextPos);
                 }
                 
-                // 이동 방향으로 회전
                 RotateTowardsMovementDirection(currentTarget, dt);
                 
                 transform.position = nextPos;
 
-                if (!isBlocked && _monsterData.monsterType != MonsterType.Flying)
+                if (!isBlocked && _monsterData.monsterType != MonsterType.Flying && !HasTrait(MonsterTraits.Unblockable))
                 {
                     float moveDistance = currentMoveSpeed * dt;
                     float detectionRadius = Mathf.Max(0.6f, moveDistance + 0.3f);

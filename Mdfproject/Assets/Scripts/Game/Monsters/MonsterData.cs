@@ -31,6 +31,10 @@ public class MonsterData : ScriptableObject
     [Header("이동 스탯")]
     public float moveSpeed = 2f;    // 이동 속도
 
+    [Header("특성")]
+    [Tooltip("몬스터의 고유 특성입니다.")]
+    public MonsterTraits traits = MonsterTraits.None;
+
     [Header("마나 & 스킬")]
     // ✅ [수정] 불필요해진 maxMana 필드를 완전히 삭제했습니다.
     // public int maxMana; 

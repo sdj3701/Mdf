@@ -5,18 +5,32 @@ using System.Linq;
 
 public class BuffManager : MonoBehaviour
 {
-    private readonly List<ActiveBuff> activeBuffs = new List<ActiveBuff>();
+    private readonly List<ActiveBuff> _activeBuffs = new List<ActiveBuff>();
+    private readonly List<ActiveStatusEffect> _activeStatusEffects = new List<ActiveStatusEffect>();
+    
+    private Unit _unit;
+    private Monster _monster;
+    
+    private StatusEffectType _currentEffects = StatusEffectType.None;
 
-    private Unit unit;
-    private Monster monster;
+    public StatusEffectType CurrentEffects => _currentEffects;
+    
+    public bool HasEffect(StatusEffectType effect) => (_currentEffects & effect) != 0;
+    
+    public bool IsStunned => HasEffect(StatusEffectType.Stunned);
+    
+    public bool CanMove => !HasEffect(StatusEffectType.Stunned | StatusEffectType.Rooted);
+    
+    public bool CanAttack => !HasEffect(StatusEffectType.Stunned);
+    
+    public bool CanUseSkill => !HasEffect(StatusEffectType.Stunned | StatusEffectType.Silenced);
 
     private void Awake()
     {
-        unit = GetComponent<Unit>();
-        monster = GetComponent<Monster>();
+        _unit = GetComponent<Unit>();
+        _monster = GetComponent<Monster>();
     }
 
-    // ✅ [수정] 게임 상태 변경 이벤트를 구독/해지하는 로직 추가
     private void OnEnable()
     {
         GameEvents.OnGameStateChanged += HandleGameStateChange;
@@ -29,81 +43,61 @@ public class BuffManager : MonoBehaviour
 
     private void Update()
     {
-        if (activeBuffs.Count == 0) return;
-
-        for (int i = activeBuffs.Count - 1; i >= 0; i--)
-        {
-            var buff = activeBuffs[i];
-            buff.timer -= Time.deltaTime;
-            if (buff.timer <= 0)
-            {
-                activeBuffs.RemoveAt(i);
-                RecalculateStats();
-            }
-        }
+        float deltaTime = Time.deltaTime;
+        UpdateBuffs(deltaTime);
+        UpdateStatusEffects(deltaTime);
     }
     
-    // ✅ [수정] 전투 종료 시 모든 버프를 제거하는 이벤트 핸들러 추가
     private void HandleGameStateChange(GameManagers.GameState newState)
     {
-        // 새로운 상태가 'Prepare' 단계라면 모든 버프를 제거합니다.
         if (newState == GameManagers.GameState.Prepare)
         {
             ClearAllBuffs();
+            ClearAllStatusEffects();
         }
     }
 
-    /// <summary>
-    /// 이 컴포넌트가 관리하는 모든 버프와 디버프를 제거하고 스탯을 초기화합니다.
-    /// </summary>
+    #region Buff System
+    
+    private void UpdateBuffs(float deltaTime)
+    {
+        if (_activeBuffs.Count == 0) return;
+
+        bool needsRecalc = false;
+        for (int i = _activeBuffs.Count - 1; i >= 0; i--)
+        {
+            _activeBuffs[i].timer -= deltaTime;
+            if (_activeBuffs[i].timer <= 0)
+            {
+                _activeBuffs.RemoveAt(i);
+                needsRecalc = true;
+            }
+        }
+        
+        if (needsRecalc) RecalculateStats();
+    }
+
     public void ClearAllBuffs()
     {
-        if (activeBuffs.Count > 0)
+        if (_activeBuffs.Count > 0)
         {
-            activeBuffs.Clear();
+            _activeBuffs.Clear();
             RecalculateStats();
-            Debug.Log($"<color=orange>{gameObject.name}의 모든 버프/디버프 효과가 제거되었습니다.</color>");
         }
     }
-
 
     public void ApplyBuff(BuffStatEffect buffEffect, GameObject caster)
     {
-        if (caster == null)
-        {
-            Debug.LogError("버프 시전자(caster)가 null입니다. 버프를 적용할 수 없습니다.");
-            return;
-        }
-        
-        var existingBuff = activeBuffs.FirstOrDefault(b => b.Source == buffEffect && b.Caster == caster);
-
-        if (existingBuff != null)
-        {
-            existingBuff.timer = buffEffect.duration;
-            Debug.Log($"{caster.name}가 {gameObject.name}에게 건 {buffEffect.name} 버프 지속시간 갱신!");
-        }
-        else
-        {
-            activeBuffs.Add(new ActiveBuff(buffEffect, buffEffect.duration, caster));
-            Debug.Log($"{caster.name}가 {gameObject.name}에게 {buffEffect.name} 버프 신규 적용!");
-        }
-        
-        RecalculateStats();
-    }
-    
-    public void ApplyDebuff(SlowDebuffEffect debuffEffect, GameObject caster)
-    {
         if (caster == null) return;
-
-        var existingDebuff = activeBuffs.FirstOrDefault(b => b.Source == debuffEffect && b.Caster == caster);
-
-        if (existingDebuff != null)
+        
+        var existing = _activeBuffs.FirstOrDefault(b => b.Source == buffEffect && b.Caster == caster);
+        if (existing != null)
         {
-            existingDebuff.timer = debuffEffect.duration;
+            existing.timer = buffEffect.duration;
         }
         else
         {
-            activeBuffs.Add(new ActiveBuff(debuffEffect, debuffEffect.duration, caster));
+            _activeBuffs.Add(new ActiveBuff(buffEffect, buffEffect.duration, caster));
         }
         
         RecalculateStats();
@@ -111,62 +105,182 @@ public class BuffManager : MonoBehaviour
 
     public void RecalculateStats()
     {
-        if (unit != null)
+        if (_unit != null)
         {
-            float baseAttackDamage = unit.GetPermanentAdjustedBaseAttackDamage();
-            float baseAttackSpeed = unit.GetPermanentAdjustedBaseAttackSpeed();
-
+            float baseAttackDamage = _unit.GetPermanentAdjustedBaseAttackDamage();
+            float baseAttackSpeed = _unit.GetPermanentAdjustedBaseAttackSpeed();
             float attackDamageBonus = 0;
             float attackSpeedBonusPercent = 0;
 
-            foreach (var buff in activeBuffs)
+            foreach (var buff in _activeBuffs)
             {
                 if (buff.Source is BuffStatEffect buffEffect)
                 {
                     if (buffEffect.statToBuff == StatType.AttackDamage)
-                    {
                         attackDamageBonus += buffEffect.value;
-                    }
                     else if (buffEffect.statToBuff == StatType.AttackSpeed && buffEffect.isPercentage)
-                    {
                         attackSpeedBonusPercent += buffEffect.value;
-                    }
                 }
             }
 
             float finalAttackDamage = baseAttackDamage + attackDamageBonus;
             float finalAttackSpeed = baseAttackSpeed * (1 + attackSpeedBonusPercent);
-            
-            unit.ApplyStatModifiers(finalAttackDamage, finalAttackSpeed);
-            
-            Debug.Log($"<color=cyan>{gameObject.name} 스탯 재계산 완료: ATK {finalAttackDamage:F1}, ASPD {finalAttackSpeed:F2}</color>");
+            _unit.ApplyStatModifiers(finalAttackDamage, finalAttackSpeed);
         }
         
-        if (monster != null)
+        if (_monster != null)
         {
-            // 슬로우 디버프 효과 계산
-            float moveSpeedMultiplier = 1f;
-            
-            foreach (var buff in activeBuffs)
-            {
-                if (buff.Source is SlowDebuffEffect slowEffect)
-                {
-                    // 슬로우 효과 누적 (곱연산)
-                    moveSpeedMultiplier *= slowEffect.moveSpeedMultiplier;
-                }
-            }
-            
-            // 최소 이동속도 10%로 제한
+            float moveSpeedMultiplier = CalculateTotalSlowMultiplier();
             moveSpeedMultiplier = Mathf.Max(0.1f, moveSpeedMultiplier);
-            
-            monster.ApplyMoveSpeedModifier(moveSpeedMultiplier);
-            
-            if (moveSpeedMultiplier < 1f)
-            {
-                Debug.Log($"<color=purple>{gameObject.name} 슬로우 적용: 이동속도 x{moveSpeedMultiplier:F2}</color>");
-            }
+            _monster.ApplyMoveSpeedModifier(moveSpeedMultiplier);
         }
     }
+    
+    #endregion
+
+    #region Status Effect System
+    
+    private void UpdateStatusEffects(float deltaTime)
+    {
+        if (_activeStatusEffects.Count == 0) return;
+        
+        bool needsRecalc = false;
+        float currentTime = Time.time;
+        
+        for (int i = _activeStatusEffects.Count - 1; i >= 0; i--)
+        {
+            var effect = _activeStatusEffects[i];
+            
+            if (effect.TickInterval > 0 && effect.DamagePerTick > 0 && currentTime >= effect.NextTickTime)
+            {
+                ApplyDotDamage(effect);
+                effect.NextTickTime = currentTime + effect.TickInterval;
+            }
+            
+            effect.RemainingDuration -= deltaTime;
+            
+            if (effect.RemainingDuration <= 0)
+            {
+                _activeStatusEffects.RemoveAt(i);
+                needsRecalc = true;
+            }
+        }
+        
+        if (needsRecalc)
+        {
+            RefreshEffectFlags();
+            RecalculateStats();
+        }
+    }
+    
+    private void ApplyDotDamage(ActiveStatusEffect effect)
+    {
+        if (TryGetComponent<IEnemy>(out var enemy))
+        {
+            enemy.TakeDamage(effect.DamagePerTick, effect.DamageType);
+        }
+    }
+    
+    public void ApplyStatusEffect(
+        StatusEffectType type,
+        float duration,
+        GameObject caster,
+        float tickInterval = 0f,
+        float damagePerTick = 0f,
+        float slowMultiplier = 1f,
+        DamageType damageType = DamageType.Physical)
+    {
+        var existing = _activeStatusEffects.FirstOrDefault(e => e.Type == type && e.Caster == caster);
+        
+        if (existing != null)
+        {
+            existing.RemainingDuration = Mathf.Max(existing.RemainingDuration, duration);
+        }
+        else
+        {
+            var newEffect = new ActiveStatusEffect(
+                type, duration, caster, 
+                tickInterval, damagePerTick, slowMultiplier, damageType);
+            _activeStatusEffects.Add(newEffect);
+        }
+        
+        RefreshEffectFlags();
+        RecalculateStats();
+    }
+    
+    public void RemoveStatusEffect(StatusEffectType type)
+    {
+        int removed = _activeStatusEffects.RemoveAll(e => e.Type == type);
+        if (removed > 0)
+        {
+            RefreshEffectFlags();
+            RecalculateStats();
+        }
+    }
+    
+    public void ClearAllStatusEffects()
+    {
+        if (_activeStatusEffects.Count > 0)
+        {
+            _activeStatusEffects.Clear();
+            RefreshEffectFlags();
+            RecalculateStats();
+        }
+    }
+    
+    private void RefreshEffectFlags()
+    {
+        _currentEffects = StatusEffectType.None;
+        foreach (var effect in _activeStatusEffects)
+        {
+            _currentEffects |= effect.Type;
+        }
+    }
+    
+    private float CalculateTotalSlowMultiplier()
+    {
+        float multiplier = 1f;
+        
+        foreach (var effect in _activeStatusEffects)
+        {
+            if (effect.SlowMultiplier < 1f)
+            {
+                multiplier *= effect.SlowMultiplier;
+            }
+        }
+        
+        return multiplier;
+    }
+    
+    #endregion
+
+    #region Convenience Methods
+
+    public void ApplyStun(float duration, GameObject caster)
+        => ApplyStatusEffect(StatusEffectType.Stunned, duration, caster);
+
+    public void ApplySlow(float duration, float slowMultiplier, GameObject caster)
+        => ApplyStatusEffect(StatusEffectType.Slowed, duration, caster, slowMultiplier: slowMultiplier);
+
+    public void ApplyRoot(float duration, GameObject caster)
+        => ApplyStatusEffect(StatusEffectType.Rooted, duration, caster);
+
+    public void ApplySilence(float duration, GameObject caster)
+        => ApplyStatusEffect(StatusEffectType.Silenced, duration, caster);
+
+    public void ApplyBurn(float duration, float damagePerTick, float tickInterval, GameObject caster)
+        => ApplyStatusEffect(StatusEffectType.Burning, duration, caster, tickInterval, damagePerTick, 1f, DamageType.Magic);
+
+    public void ApplyFrostbite(float duration, float damagePerTick, float tickInterval, float slowMultiplier, GameObject caster)
+        => ApplyStatusEffect(StatusEffectType.Frostbitten, duration, caster, tickInterval, damagePerTick, slowMultiplier, DamageType.Magic);
+
+    public void ApplyBleed(float duration, float damagePerTick, float tickInterval, GameObject caster)
+        => ApplyStatusEffect(StatusEffectType.Bleeding, duration, caster, tickInterval, damagePerTick, 1f, DamageType.Physical);
+
+    public void ApplyPoison(float duration, float damagePerTick, float tickInterval, GameObject caster)
+        => ApplyStatusEffect(StatusEffectType.Poisoned, duration, caster, tickInterval, damagePerTick, 1f, DamageType.Magic);
+
+    #endregion
 }
 
 public class ActiveBuff

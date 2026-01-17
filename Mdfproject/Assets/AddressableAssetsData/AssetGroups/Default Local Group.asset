@@ -407,6 +407,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - Augment
+  - m_GUID: 15d29adc601e6a44fbc4a3e009ddd7d1
+    m_Address: MonData_BossB
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:
