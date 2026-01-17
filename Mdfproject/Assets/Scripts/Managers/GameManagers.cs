@@ -634,7 +634,7 @@ public class GameManagers : NetworkBehaviour
                 localPlayer.opponentManager = opponent;
                 
                 // 클라이언트에서도 AttackMonsterPool 갱신 (UI 표시를 위해)
-                localPlayer.RefreshAttackMonsterPool(currentRound);
+                localPlayer.RefreshAttackMonsterPool(currentRound, opponentId);
                 
                 // AttackSequenceManager 시작
                 var attackSeqMgr = localPlayer.GetComponent<AttackSequenceManager>();
@@ -1119,7 +1119,7 @@ public class GameManagers : NetworkBehaviour
                 if (isAttackerInThisBattle)
                 {
                     // 공격자 역할
-                    player.RefreshAttackMonsterPool(currentRound);
+                    player.RefreshAttackMonsterPool(currentRound, opponentId);
                     player.SetFightingState(true);
 
                     // AI 공격자: 상대 필드에 자동 소환

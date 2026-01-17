@@ -19,8 +19,6 @@ MonoBehaviour:
       count: 1
     - monsterData: {fileID: 11400000, guid: 0306cf61f03caa14788271cd945bc75c, type: 2}
       count: 1
-    - monsterData: {fileID: 11400000, guid: ae8a69e0ccd88974d8e8035798f0c066, type: 2}
-      count: 1
     - monsterData: {fileID: 11400000, guid: 6c2b00d43e78aa34986b6826eb09d294, type: 2}
       count: 1
     spawnInterval: 0.3

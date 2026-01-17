@@ -231,9 +231,8 @@ public class AugmentManager : MonoBehaviour
                 {
                     if (augment.bossMonsterData != null)
                     {
-                        int targetId = target?.playerId ?? -1;
-                        playerManager.RegisterPendingBossAugment(augment, targetId);
-                        Debug.Log($"<color=red>[AugmentManager] 보스 증강 등록! Player {playerManager.playerId}가 Player {targetId}에게 다음 전투에 침공 예정</color>");
+                        playerManager.AddOwnedBoss(augment);
+                        Debug.Log($"<color=red>[AugmentManager] 보스 증강 등록! Player {playerManager.playerId}가 보스 '{augment.bossMonsterData.monsterName}' 보유</color>");
                     }
                     else
                     {

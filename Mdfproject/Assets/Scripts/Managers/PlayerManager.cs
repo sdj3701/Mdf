@@ -46,18 +46,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     // 활성화된 몬스터 소환 증강 리스트 (일반 몬스터: 매 라운드 상대에게 추가 침공)
     private List<AugmentData> _activeMonsterSummonAugments = new List<AugmentData>();
     
-    // 대기 중인 보스 소환 증강 (1회성: 다음 전투에 소환 후 삭제)
-    private List<PendingBoss> _pendingBossAugments = new List<PendingBoss>();
-    
-    /// <summary>
-    /// 대기 중인 보스 증강 정보
-    /// </summary>
-    [System.Serializable]
-    public struct PendingBoss
-    {
-        public AugmentData Augment;
-        public int TargetPlayerId;
-    }
+    // 보유 중인 보스 증강 리스트 (영구 보유, 플레이어가 원할 때 소환)
+    private List<AugmentData> _ownedBossAugments = new List<AugmentData>();
 
     [Header("Permanent Augment Bonuses")]
     [Tooltip("영구 증강으로 인한 아군 공격력(%) 가산. 0.1 = +10%")]
@@ -577,40 +567,53 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         return _activeMonsterSummonAugments;
     }
+    #endregion
 
-    /// <summary>
-    /// 보스 소환 증강을 등록합니다. (1회성: 다음 전투에 소환 후 자동 삭제)
-    /// </summary>
-    public void RegisterPendingBossAugment(AugmentData augment, int targetPlayerId)
+    #region 보유 보스 관리
+    public void AddOwnedBoss(AugmentData augment)
     {
-        if (augment != null)
+        if (augment?.bossMonsterData != null)
         {
-            _pendingBossAugments.Add(new PendingBoss { Augment = augment, TargetPlayerId = targetPlayerId });
-            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 증강 '{augment.augmentName}' 등록 (타겟: Player {targetPlayerId}, 다음 전투에 소환)</color>");
+            _ownedBossAugments.Add(augment);
+            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{augment.bossMonsterData.monsterName}' 보유 추가 (총 {_ownedBossAugments.Count}마리)</color>");
         }
     }
 
-    /// <summary>
-    /// 대기 중인 보스 증강 목록을 가져오고 초기화합니다. (1회성)
-    /// </summary>
-    [System.Obsolete("Use ExtractPendingBossesForTarget instead for proper multi-player support")]
-    public List<PendingBoss> GetAndClearPendingBossAugments()
+    public IReadOnlyList<AugmentData> GetOwnedBosses() => _ownedBossAugments;
+
+    public bool ConsumeOwnedBoss(MonsterData bossData)
     {
-        var result = new List<PendingBoss>(_pendingBossAugments);
-        _pendingBossAugments.Clear();
-        return result;
+        var augment = _ownedBossAugments.FirstOrDefault(a => a.bossMonsterData == bossData);
+        if (augment != null)
+        {
+            _ownedBossAugments.Remove(augment);
+            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{bossData.monsterName}' 소환 → 보유에서 제거 (남은 {_ownedBossAugments.Count}마리)</color>");
+            return true;
+        }
+        return false;
     }
-    
+
     /// <summary>
-    /// 특정 타겟 플레이어에 해당하는 대기 중인 보스만 가져오고 제거합니다.
-    /// 멀티플레이어 환경에서 각 플레이어의 MonsterSpawner가 자신에게 해당하는 보스만 추출합니다.
+    /// 이 플레이어가 targetPlayerId를 상대로 공격할 때 사용할 대기 중인 보스 목록을 반환하고 목록에서 제거합니다.
+    /// (현재 상대가 targetPlayerId와 일치할 때만 동작)
     /// </summary>
-    public List<PendingBoss> ExtractPendingBossesForTarget(int targetPlayerId)
+    public List<AugmentData> ExtractPendingBossesForTarget(int targetPlayerId)
     {
-        var result = _pendingBossAugments
-            .Where(b => b.TargetPlayerId == targetPlayerId)
-            .ToList();
-        _pendingBossAugments.RemoveAll(b => b.TargetPlayerId == targetPlayerId);
+        var result = new List<AugmentData>();
+        
+        // 현재 매칭된 상대가 targetPlayerId가 아니면 빈 리스트 반환
+        if (opponentManager == null || opponentManager.playerId != targetPlayerId)
+        {
+            return result;
+        }
+
+        if (_ownedBossAugments.Count > 0)
+        {
+            result.AddRange(_ownedBossAugments);
+            _ownedBossAugments.Clear();
+            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: {result.Count}마리의 보스를 Player {targetPlayerId}에게 방출!</color>");
+        }
+
         return result;
     }
     #endregion
@@ -620,7 +623,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// 라운드별 공격 몬스터 풀을 갱신합니다. (기본 웨이브 + 증강 공격 유닛 + 보스)
     /// </summary>
     /// <param name="round">현재 라운드</param>
-    public void RefreshAttackMonsterPool(int round)
+    /// <param name="currentBattleOpponentId">현재 전투에서 매칭된 상대 ID (-1이면 opponentManager 사용)</param>
+    public void RefreshAttackMonsterPool(int round, int currentBattleOpponentId = -1)
     {
         AttackMonsterPool.Clear();
         
@@ -674,35 +678,23 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
         }
         
-        // 3. 대기 중인 보스 증강 추가 (이번 턴에 뽑은 보스)
-        int currentOpponentId = opponentManager?.playerId ?? -1;
-        var bossesToAdd = _pendingBossAugments
-            .Where(b => MatchesBossTarget(b.TargetPlayerId, currentOpponentId))
-            .ToList();
-        
-        foreach (var pending in bossesToAdd)
+        // 3. 보유 보스 표시 (영구 보유, 소환 시에만 제거)
+        foreach (var augment in _ownedBossAugments)
         {
-            if (pending.Augment?.bossMonsterData == null) continue;
+            if (augment?.bossMonsterData == null) continue;
             
-            // 보스 고유 ID 발급
-            int bossUniqueId = SurvivorBossManager.Instance?.GetNextBossUniqueId() ?? -1;
-            
-            // 보스 엔트리 추가 (1마리)
             AttackMonsterPool.Add(new MonsterPoolEntry(
-                pending.Augment.bossMonsterData,
+                augment.bossMonsterData,
                 1,
-                bossUniqueId,
-                pending.TargetPlayerId,
+                -1,
+                -1,
                 this.playerId
             ));
             
-            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{pending.Augment.bossMonsterData.monsterName}' 풀에 추가 (ID:{bossUniqueId}, 타겟: Player {pending.TargetPlayerId})</color>");
+            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보유 보스 '{augment.bossMonsterData.monsterName}' 풀에 표시</color>");
         }
-        
-        // 추가된 보스는 대기 목록에서 제거 (1회성)
-        _pendingBossAugments.RemoveAll(b => MatchesBossTarget(b.TargetPlayerId, currentOpponentId));
 
-        Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 공격 몬스터 풀 갱신 완료 ({AttackMonsterPool.Count}종류, 보스: {bossesToAdd.Count}마리)</color>");
+        Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 공격 몬스터 풀 갱신 완료 ({AttackMonsterPool.Count}종류, 보유 보스: {_ownedBossAugments.Count}마리)</color>");
         
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
@@ -725,14 +717,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
         return true;
-    }
-    
-    private bool MatchesBossTarget(int bossTargetId, int currentOpponentId)
-    {
-        if (bossTargetId == currentOpponentId) return true;
-        if (bossTargetId == -1) return true;
-        if (currentOpponentId == -1) return true;
-        return false;
     }
     #endregion
 

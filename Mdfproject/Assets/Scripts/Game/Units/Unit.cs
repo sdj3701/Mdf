@@ -171,6 +171,20 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (animator != null && Object != null && !Object.HasStateAuthority)
         {
+            float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
+            if (animRate > 0f)
+            {
+                float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
+                animator.speed = Mathf.Max(0.01f, speed);
+                
+                float minInterval = 1f / animRate;
+                if (animSpeedResetRoutine != null)
+                {
+                    StopCoroutine(animSpeedResetRoutine);
+                }
+                animSpeedResetRoutine = StartCoroutine(ResetAnimatorSpeedAfter(minInterval));
+            }
+            
             animator.ResetTrigger(attackTriggerParam);
             animator.SetTrigger(attackTriggerParam);
         }

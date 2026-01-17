@@ -343,9 +343,9 @@ public class MonsterSpawner : MonoBehaviour
             var pendingBosses = sourcePlayer.ExtractPendingBossesForTarget(_playerManager.playerId);
             foreach (var pending in pendingBosses)
             {
-                if (pending.Augment?.bossMonsterData == null) continue;
+                if (pending?.bossMonsterData == null) continue;
 
-                var spawnTask = SpawnMonsterInternalAsync(pending.Augment.bossMonsterData);
+                var spawnTask = SpawnMonsterInternalAsync(pending.bossMonsterData);
                 yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
                 
                 Monster monster = spawnTask.GetAwaiter().GetResult();

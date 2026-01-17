@@ -194,9 +194,17 @@ public class AttackSequenceManager : MonoBehaviour
         // 몬스터 데이터 이름 저장 (RPC 전송용)
         string monsterDataName = _selectedMonster.MonsterData?.name;
         bool isBoss = _selectedMonster.IsBoss;
-        int bossUniqueId = _selectedMonster.BossUniqueId;
         int originPlayerId = _selectedMonster.OriginPlayerId;
         int defenderPlayerId = _opponentFieldManager.playerManager?.playerId ?? -1;
+        
+        // 보스인 경우 소환 시점에 고유 ID 발급 + 보유 리스트에서 제거
+        int bossUniqueId = -1;
+        if (isBoss)
+        {
+            bossUniqueId = SurvivorBossManager.Instance?.GetNextBossUniqueId() ?? -1;
+            _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
+            Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
+        }
         
         // 풀에서 소비 (로컬 UI 업데이트용)
         if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
