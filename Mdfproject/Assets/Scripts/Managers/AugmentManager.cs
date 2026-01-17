@@ -148,6 +148,19 @@ public class AugmentManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 증강 이름으로 AugmentData를 검색합니다.
+    /// 모든 티어(Silver, Gold, Prismatic)에서 검색합니다.
+    /// </summary>
+    public AugmentData FindAugmentByName(string augmentName)
+    {
+        if (string.IsNullOrEmpty(augmentName)) return null;
+        
+        return silverAugments.FirstOrDefault(a => a.augmentName == augmentName)
+            ?? goldAugments.FirstOrDefault(a => a.augmentName == augmentName)
+            ?? prismaticAugments.FirstOrDefault(a => a.augmentName == augmentName);
+    }
+
     public void PresentAugments()
     {
         if (!isDataLoaded)

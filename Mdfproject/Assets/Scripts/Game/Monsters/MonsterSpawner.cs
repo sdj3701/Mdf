@@ -183,13 +183,10 @@ public class MonsterSpawner : MonoBehaviour
         // 1. 기본 웨이브 몬스터 소환 (WaveDatabase 기반 + 자동 스케일링)
         yield return StartCoroutine(SpawnBaseWaveFromDataCoroutine(round, waveData));
 
-        // 2. 대기 중인 보스 증강 소환 (1회성, 상대의 증강에서 온 보스)
-        yield return StartCoroutine(SpawnPendingBossesCoroutine());
-
-        // 3. 이전 라운드에서 살아남은 보스 소환 (전체 유저 중 랜덤 타겟)
+        // 2. 이전 라운드에서 살아남은 보스 소환 (전체 유저 중 랜덤 타겟)
         yield return StartCoroutine(SpawnSurvivorBossesCoroutine());
 
-        // 4. 상대의 일반 몬스터 소환 증강에 의한 추가 몬스터 소환
+        // 3. 상대의 일반 몬스터 소환 증강에 의한 추가 몬스터 소환
         yield return StartCoroutine(SpawnAugmentMonstersCoroutine());
 
         _isSpawningWave = false;
@@ -322,41 +319,6 @@ public class MonsterSpawner : MonoBehaviour
         {
             monster.SetAsBoss(true, originPlayerId);
             Debug.Log($"<color=red>[MonsterSpawner] 보스 '{monster.name}' 소환 완료! (OriginPlayer: {originPlayerId})</color>");
-        }
-    }
-
-    /// <summary>
-    /// 대기 중인 보스 증강을 코루틴으로 소환합니다. (1회성, 상대의 증강에서 온 보스)
-    /// 모든 플레이어를 확인하여 이 플레이어를 타겟으로 한 보스만 추출하여 소환합니다.
-    /// </summary>
-    IEnumerator SpawnPendingBossesCoroutine()
-    {
-        // 모든 플레이어의 대기 중인 보스 증강 확인
-        var allPlayers = GameManagers.Instance?.AllPlayers;
-        if (allPlayers == null) yield break;
-
-        foreach (var sourcePlayer in allPlayers)
-        {
-            if (sourcePlayer == null) continue;
-            
-            // 이 플레이어(타겟)에 해당하는 보스만 추출 (다른 플레이어의 데이터는 건드리지 않음)
-            var pendingBosses = sourcePlayer.ExtractPendingBossesForTarget(_playerManager.playerId);
-            foreach (var pending in pendingBosses)
-            {
-                if (pending?.bossMonsterData == null) continue;
-
-                var spawnTask = SpawnMonsterInternalAsync(pending.bossMonsterData);
-                yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
-                
-                Monster monster = spawnTask.GetAwaiter().GetResult();
-                if (monster != null)
-                {
-                    monster.SetAsBoss(true, sourcePlayer.playerId);
-                    Debug.Log($"<color=red>[MonsterSpawner] 보스 '{monster.name}' 소환! (소환자: Player {sourcePlayer.playerId} → 타겟: Player {_playerManager.playerId})</color>");
-                }
-
-                yield return new WaitForSeconds(0.5f);
-            }
         }
     }
 

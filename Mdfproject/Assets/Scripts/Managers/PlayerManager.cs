@@ -592,30 +592,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
         return false;
     }
-
-    /// <summary>
-    /// 이 플레이어가 targetPlayerId를 상대로 공격할 때 사용할 대기 중인 보스 목록을 반환하고 목록에서 제거합니다.
-    /// (현재 상대가 targetPlayerId와 일치할 때만 동작)
-    /// </summary>
-    public List<AugmentData> ExtractPendingBossesForTarget(int targetPlayerId)
-    {
-        var result = new List<AugmentData>();
-        
-        // 현재 매칭된 상대가 targetPlayerId가 아니면 빈 리스트 반환
-        if (opponentManager == null || opponentManager.playerId != targetPlayerId)
-        {
-            return result;
-        }
-
-        if (_ownedBossAugments.Count > 0)
-        {
-            result.AddRange(_ownedBossAugments);
-            _ownedBossAugments.Clear();
-            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: {result.Count}마리의 보스를 Player {targetPlayerId}에게 방출!</color>");
-        }
-
-        return result;
-    }
     #endregion
 
     #region 공격 시퀀스 몬스터 풀 관리
