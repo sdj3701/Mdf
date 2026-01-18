@@ -48,6 +48,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 3. 상태 변경 이벤트를 정의 (Action 델리게이트 사용)
     public static event Action<ConnectionState> OnStateChanged;
 
+    // 4. 세션 목록 업데이트 이벤트 (방 목록 갱신 알림용)
+    public static event Action<List<SessionInfo>> OnSessionListUpdatedEvent;
+
     public bool IsGameRunnerActive => _runner != null && _runner.IsRunning;
 
     private int playerCount;
@@ -302,6 +305,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         Debug.Log("Session list updated. Found " + sessionList.Count + " sessions.");
         // 받은 목록으로 로컬 목록을 갱신합니다.
         _sessionList = sessionList;
+        
+        // 세션 목록 업데이트 이벤트 발생 (UI 갱신용)
+        OnSessionListUpdatedEvent?.Invoke(sessionList);
     }
 
     // 플레이어가 게임 세션에 성공적으로 참여했을 때 호출됩니다.
