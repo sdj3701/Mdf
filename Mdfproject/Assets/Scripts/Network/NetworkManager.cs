@@ -51,6 +51,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 4. 세션 목록 업데이트 이벤트 (방 목록 갱신 알림용)
     public static event Action<List<SessionInfo>> OnSessionListUpdatedEvent;
 
+    // 5. 플레이어 참가/퇴장 이벤트 (UI 갱신용)
+    public static event Action<PlayerRef> OnPlayerJoinedEvent;
+    public static event Action<PlayerRef> OnPlayerLeftEvent;
+
     public bool IsGameRunnerActive => _runner != null && _runner.IsRunning;
 
     private int playerCount;
@@ -324,6 +328,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, Vector3.zero, Quaternion.identity, player);
             _spawnedCharacters.Add(player, networkPlayerObject);
         }
+
+        // 플레이어 참가 이벤트 발생
+        OnPlayerJoinedEvent?.Invoke(player);
     }
 
     // 플레이어가 게임 세션을 떠났을 때 호출됩니다.
@@ -335,6 +342,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             runner.Despawn(networkObject);
             _spawnedCharacters.Remove(player);
         }
+
+        // 플레이어 퇴장 이벤트 발생
+        OnPlayerLeftEvent?.Invoke(player);
     }
 
     // Runner가 종료되었을 때 호출됩니다. (연결 끊김, 스스로 나가기 등)

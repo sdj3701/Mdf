@@ -64,6 +64,35 @@ public class JoinLobbyUI : MonoBehaviour
         {
             UpdatePlayerList();
         }
+
+        // 플레이어 참가/퇴장 이벤트 구독
+        NetworkManager.OnPlayerJoinedEvent += OnPlayerJoinedHandler;
+        NetworkManager.OnPlayerLeftEvent += OnPlayerLeftHandler;
+    }
+
+    private void OnDisable()
+    {
+        // 이벤트 구독 해제 (메모리 누수 방지)
+        NetworkManager.OnPlayerJoinedEvent -= OnPlayerJoinedHandler;
+        NetworkManager.OnPlayerLeftEvent -= OnPlayerLeftHandler;
+    }
+
+    /// <summary>
+    /// 플레이어가 참가했을 때 호출되는 핸들러
+    /// </summary>
+    private void OnPlayerJoinedHandler(PlayerRef player)
+    {
+        // 약간의 지연 후 업데이트 (NetworkPlayer가 완전히 스폰된 후)
+        Invoke(nameof(UpdatePlayerList), 0.1f);
+    }
+
+    /// <summary>
+    /// 플레이어가 퇴장했을 때 호출되는 핸들러
+    /// </summary>
+    private void OnPlayerLeftHandler(PlayerRef player)
+    {
+        // 약간의 지연 후 업데이트 (NetworkPlayer가 완전히 제거된 후)
+        Invoke(nameof(UpdatePlayerList), 0.1f);
     }
 
     private void ALLButtonListener()
