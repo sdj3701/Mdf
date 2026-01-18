@@ -53,7 +53,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // 로컬 접근용 프로퍼티 (IHealth 인터페이스 호환성 유지)
     public float currentHP
     {
-        get => _hasSpawned ? NetworkedHP : _localHP;
+        get => CanReadNetworkedHealth() ? NetworkedHP : _localHP;
         set
         {
             _hasLocalHealthValues = true;
@@ -66,7 +66,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     }
     private float currentMaxHP
     {
-        get => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+        get => CanReadNetworkedHealth() ? NetworkedMaxHP : _localMaxHP;
         set
         {
             _hasLocalHealthValues = true;
@@ -78,8 +78,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
     }
 
-    public float CurrentHealth => _hasSpawned ? NetworkedHP : _localHP;
-    public float MaxHealth => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+    public float CurrentHealth => CanReadNetworkedHealth() ? NetworkedHP : _localHP;
+    public float MaxHealth => CanReadNetworkedHealth() ? NetworkedMaxHP : _localMaxHP;
     public event System.Action<float, float> OnHealthChanged;
 
     private ManaController manaController;
@@ -172,6 +172,18 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             && Runner.IsRunning
             && Object != null
             && Object.HasStateAuthority;
+    }
+
+    /// <summary>
+    /// Networked 프로퍼티를 안전하게 읽을 수 있는지 확인합니다.
+    /// 싱글플레이(Runner == null)나 Spawned() 전에는 false를 반환합니다.
+    /// </summary>
+    private bool CanReadNetworkedHealth()
+    {
+        return _hasSpawned
+            && Runner != null
+            && Runner.IsRunning
+            && Object != null;
     }
 
     private void TryApplyPendingHealthToNetworked()

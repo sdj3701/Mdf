@@ -672,11 +672,19 @@ public class MonsterSpawner : MonoBehaviour
         {
             while (!entry.IsEmpty)
             {
-                // 몬스터 소환
-                await SpawnMonsterAtPositionAsync(entry.MonsterData, spawnPosition, targetFieldManager);
+                // 몬스터 소환 (보스 플래그 포함)
+                await SpawnMonsterAtPositionAsync(
+                    entry.MonsterData, 
+                    spawnPosition, 
+                    targetFieldManager,
+                    entry.IsBoss,
+                    entry.BossUniqueId,
+                    entry.OriginPlayerId
+                );
                 
-                // 풀에서 소비
-                _playerManager.TryConsumeMonsterFromPool(entry.MonsterData);
+                // 풀에서 직접 소비 (Find 로직 우회하여 무한루프 방지)
+                entry.TryConsume();
+                GameEvents.TriggerMonsterPoolChanged(_playerManager.playerId, pool);
                 
                 // 소환 간격
                 await UniTask.Delay(300); // 0.3초 간격
