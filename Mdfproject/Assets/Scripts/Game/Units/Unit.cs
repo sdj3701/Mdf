@@ -170,6 +170,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     private void HandleNetworkedAttackStateChanged()
     {
+        if (!gameObject.activeInHierarchy) return;
+        
         if (animator != null && Object != null && !Object.HasStateAuthority)
         {
             float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);

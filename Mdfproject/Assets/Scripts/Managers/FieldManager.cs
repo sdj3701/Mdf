@@ -1,4 +1,4 @@
-﻿// Assets/Scripts/Managers/FieldManager.cs
+// Assets/Scripts/Managers/FieldManager.cs
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -1427,6 +1427,12 @@ public class FieldManager : MonoBehaviour
 
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
+            if (placedUnits.ContainsKey(to))
+            {
+                Debug.LogWarning($"[FieldManager] MoveUnit 무시: 목표 위치 {to}에 이미 유닛이 있음 (from={from})");
+                return;
+            }
+            
             string uName = (unit != null && unit.Data != null) ? unit.Data.unitName : (unit != null ? unit.name : "Unit");
             placedUnits.Remove(from);
 
