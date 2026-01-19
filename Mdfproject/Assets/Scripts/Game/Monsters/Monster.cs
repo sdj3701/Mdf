@@ -45,6 +45,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private float _nextRangedAttackTime;
     private bool _isRangedAttacking;         // 원거리 공격 중 플래그
     [SerializeField] private LayerMask unitLayerMask; // Unit 레이어
+    [SerializeField] private float postRangedAttackDelay = 0.5f; // 원거리 공격 후 정지 시간
     #endregion
 
     // === 현재 상태 (Networked) ===
@@ -486,21 +487,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         Unit target = FindBestTargetUnit();
         if (target == null) return;
         
-        // 쿨타임은 공격 종료 시점에 설정 (PauseAndRangedAttack 내부)
-        
-        // 이동 중이면 잠시 멈추고 공격
-        if (isMoving)
-        {
-            StartCoroutine(PauseAndRangedAttack(target));
-        }
-        else
-        {
-            PerformRangedAttack(target);
-        }
+        // 원거리 몬스터는 항상 정지 후 공격
+        StartCoroutine(PauseAndRangedAttack(target));
     }
     
     /// <summary>
-    /// 이동을 일시 정지하고 원거리 공격 후 이동 재개
+    /// 정지하고 원거리 공격 후 이동 재개
     /// </summary>
     private IEnumerator PauseAndRangedAttack(Unit target)
     {
@@ -518,23 +510,38 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             transform.rotation = targetRotation;
         }
         
-        // 공격 수행
-        PerformRangedAttack(target);
+        // 공격 수행 (애니메이션 트리거 + pendingAttack 설정)
+        if (target == null || target.IsDead)
+        {
+            _isRangedAttacking = false;
+            if (isMoving) SetWalkingAnimation(true);
+            yield break;
+        }
         
-        // 공격 애니메이션 대기 (투사체 발사까지의 시간, fallback용)
-        yield return new WaitForSeconds(0.4f);
+        _rangedTarget = target;
+        _hasPendingAttack = true;
+        _pendingAttackTarget = target;
+        TriggerAttackAnimation();
+        
+        // 공격 애니메이션 전체 시간 대기 (Animation Event가 중간에 발사)
+        // fallback용 대기 시간: 애니메이션 이벤트 타이밍보다 충분히 길게 설정
+        float attackAnimDuration = 1f / currentAttackSpeed; // 공격 애니메이션 총 길이
+        float fallbackWaitTime = Mathf.Max(attackAnimDuration * 0.9f, 0.8f); // 애니메이션의 90% 또는 최소 0.8초
+        yield return new WaitForSeconds(fallbackWaitTime);
         
         // Animation Event가 호출되지 않았으면 직접 실행 (fallback)
         if (_hasPendingAttack && _pendingAttackTarget != null)
         {
+            Debug.LogWarning($"[Monster] '{name}' 원거리 공격 Animation Event fallback 실행 - 애니메이션 이벤트 설정을 확인하세요!");
             ExecutePendingAttack();
         }
         
-        // 공격 애니메이션 완료 대기 (나머지 애니메이션 시간)
-        yield return new WaitForSeconds(0.4f);
+        // 공격 애니메이션 완료 대기 (나머지 시간)
+        float remainingAnimTime = Mathf.Max(attackAnimDuration - fallbackWaitTime, 0.1f);
+        yield return new WaitForSeconds(remainingAnimTime);
         
-        // 공격 후 추가 정지 시간 (0.5초)
-        yield return new WaitForSeconds(0.5f);
+        // 공격 후 추가 정지 시간
+        yield return new WaitForSeconds(postRangedAttackDelay);
         
         // 원거리 공격 중 플래그 해제
         _isRangedAttacking = false;
@@ -546,41 +553,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (isMoving)
         {
             SetWalkingAnimation(true);
-        }
-    }
-    
-    /// <summary>
-    /// 원거리 공격을 수행합니다.
-    /// </summary>
-    private void PerformRangedAttack(Unit target)
-    {
-        if (target == null || target.IsDead) return;
-        
-        _rangedTarget = target;
-        _hasPendingAttack = true;
-        _pendingAttackTarget = target;
-        
-        TriggerAttackAnimation();
-        
-        // Animation Event fallback 코루틴 시작 (이동 중이 아닐 때)
-        if (!isMoving)
-        {
-            StartCoroutine(RangedAttackFallback());
-        }
-    }
-    
-    /// <summary>
-    /// 원거리 공격 Animation Event fallback
-    /// </summary>
-    private IEnumerator RangedAttackFallback()
-    {
-        float attackAnimTime = Mathf.Max(0.3f, 1f / currentAttackSpeed * 0.4f);
-        yield return new WaitForSeconds(attackAnimTime);
-        
-        if (_hasPendingAttack && _pendingAttackTarget != null)
-        {
-            Debug.Log($"<color=orange>[Monster] '{name}' Animation Event fallback (정지 상태) - 직접 공격 실행</color>");
-            ExecutePendingAttack();
         }
     }
     

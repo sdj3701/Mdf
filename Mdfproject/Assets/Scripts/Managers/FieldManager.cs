@@ -1353,14 +1353,18 @@ public class FieldManager : MonoBehaviour
             {
                 newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
             }
-            // Attach orientation fixer to ensure rig local rotation and face camera on spawn
-            var orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
-            orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs
-            orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
-            orientationFixer.faceCameraOnSpawn = true;
-            orientationFixer.enforceEveryLateUpdate = true;
-            orientationFixer.targetCamera = playerCamera; // avoid ComponentRegistry lookup warnings
-            orientationFixer.yawOffsetDeg = 180f; // compensate if model's visual forward is flipped
+            // Attach orientation fixer to ensure rig local rotation and face camera on spawn (이미 존재하면 생성하지 않음)
+            var orientationFixer = newUnitGO.GetComponent<UnitOrientationFixer>();
+            if (orientationFixer == null)
+            {
+                orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
+                orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs
+                orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
+                orientationFixer.faceCameraOnSpawn = true;
+                orientationFixer.enforceEveryLateUpdate = true;
+                orientationFixer.targetCamera = playerCamera; // avoid ComponentRegistry lookup warnings
+                orientationFixer.yawOffsetDeg = 180f; // compensate if model's visual forward is flipped
+            }
             Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
 
             if (newUnitComponent != null)
@@ -1983,14 +1987,18 @@ public class FieldManager : MonoBehaviour
             unitGO = Instantiate(prefab, worldPos, Quaternion.identity, unitParent);
         }
 
-        // CreateUnitAt과 동일한 초기 스폰 보정 컴포넌트 부착
-        var orientationFixer = unitGO.AddComponent<UnitOrientationFixer>();
-        orientationFixer.rigRootName = "Armature";
-        orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
-        orientationFixer.faceCameraOnSpawn = true;
-        orientationFixer.enforceEveryLateUpdate = true;
-        orientationFixer.targetCamera = playerCamera;
-        orientationFixer.yawOffsetDeg = 180f;
+        // CreateUnitAt과 동일한 초기 스폰 보정 컴포넌트 부착 (이미 존재하면 생성하지 않음)
+        var orientationFixer = unitGO.GetComponent<UnitOrientationFixer>();
+        if (orientationFixer == null)
+        {
+            orientationFixer = unitGO.AddComponent<UnitOrientationFixer>();
+            orientationFixer.rigRootName = "Armature";
+            orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
+            orientationFixer.faceCameraOnSpawn = true;
+            orientationFixer.enforceEveryLateUpdate = true;
+            orientationFixer.targetCamera = playerCamera;
+            orientationFixer.yawOffsetDeg = 180f;
+        }
 
         Unit newUnit = unitGO.GetComponent<Unit>();
         if (newUnit == null)
