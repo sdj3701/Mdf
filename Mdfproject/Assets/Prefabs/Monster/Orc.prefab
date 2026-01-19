@@ -59,7 +59,12 @@ MonoBehaviour:
   animator: {fileID: 0}
   attackTriggerParam: AttackTrigger
   isWalkingParam: IsWalking
+  moveSpeedParam: MoveSpeed
+  attackSpeedParam: AttackSpeed
   rotationSpeed: 10
+  unitLayerMask:
+    serializedVersion: 2
+    m_Bits: 16384
   _NetworkedHP: 0
   _NetworkedMaxHP: 0
 --- !u!114 &3270167375977648020

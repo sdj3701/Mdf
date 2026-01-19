@@ -425,15 +425,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        if (animator.gameObject == gameObject)
-        {
-            return;
-        }
-
-        var proxy = animator.GetComponent<UnitAnimationEventProxy>();
+        // UnitAnimationEventProxy 설정 (Animator가 어디에 있든 설정)
+        GameObject animatorObj = animator.gameObject;
+        var proxy = animatorObj.GetComponent<UnitAnimationEventProxy>();
         if (proxy == null)
         {
-            proxy = animator.gameObject.AddComponent<UnitAnimationEventProxy>();
+            proxy = animatorObj.AddComponent<UnitAnimationEventProxy>();
         }
         proxy.Initialize(this);
     }

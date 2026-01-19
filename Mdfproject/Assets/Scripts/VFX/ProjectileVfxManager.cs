@@ -181,15 +181,27 @@ public class ProjectileVfxManager : MonoBehaviour
             return false;
         }
 
+        // Unit 투사체 시도
         var unit = evt.Attacker.GetComponent<Unit>();
-        if (unit == null || unit.Data == null || unit.Data.projectilePrefabsByStarLevel == null)
+        if (unit != null && unit.Data != null && unit.Data.projectilePrefabsByStarLevel != null)
         {
-            return false;
+            int starIndex = Mathf.Clamp(unit.starLevel - 1, 0, unit.Data.projectilePrefabsByStarLevel.Length - 1);
+            projectileKey = unit.Data.projectilePrefabsByStarLevel[starIndex];
+            if (!string.IsNullOrEmpty(projectileKey))
+            {
+                return true;
+            }
         }
 
-        int starIndex = Mathf.Clamp(unit.starLevel - 1, 0, unit.Data.projectilePrefabsByStarLevel.Length - 1);
-        projectileKey = unit.Data.projectilePrefabsByStarLevel[starIndex];
-        return !string.IsNullOrEmpty(projectileKey);
+        // Monster 투사체 시도
+        var monster = evt.Attacker.GetComponent<Monster>();
+        if (monster != null && monster.Data != null)
+        {
+            projectileKey = monster.Data.projectilePrefab;
+            return !string.IsNullOrEmpty(projectileKey);
+        }
+
+        return false;
     }
 
     // Fire position is resolved from the attacker to keep network payload small.
@@ -200,10 +212,18 @@ public class ProjectileVfxManager : MonoBehaviour
             return Vector3.zero;
         }
 
+        // Unit 발사 위치
         var unit = evt.Attacker.GetComponent<Unit>();
         if (unit != null && unit.firePoint != null)
         {
             return unit.firePoint.position;
+        }
+
+        // Monster 발사 위치 (약간 위쪽 오프셋)
+        var monster = evt.Attacker.GetComponent<Monster>();
+        if (monster != null)
+        {
+            return evt.Attacker.transform.position + Vector3.up * 0.5f;
         }
 
         return evt.Attacker.transform.position;

@@ -52,11 +52,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9915cbddb82ab42b692c9af7fd694cc2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  monsterData: {fileID: 11400000, guid: ae8a69e0ccd88974d8e8035798f0c066, type: 2}
+  _monsterData: {fileID: 0}
   wallLayerMask:
     serializedVersion: 2
     m_Bits: 32768
   statusBarPrefab: {fileID: 0}
+  animator: {fileID: 0}
+  attackTriggerParam: AttackTrigger
+  isWalkingParam: IsWalking
+  moveSpeedParam: MoveSpeed
+  attackSpeedParam: AttackSpeed
+  rotationSpeed: 10
+  unitLayerMask:
+    serializedVersion: 2
+    m_Bits: 16384
   _NetworkedHP: 0
   _NetworkedMaxHP: 0
 --- !u!114 &3270167375977648020
