@@ -15,7 +15,7 @@ MonoBehaviour:
   monsterName: BossB
   monsterType: 0
   monsterIcon: Spr_Port_Orc
-  monsterPrefab: BossA
+  monsterPrefab: BossB
   attackDamage: 120
   attackSpeed: 1.2
   attackRange: 0

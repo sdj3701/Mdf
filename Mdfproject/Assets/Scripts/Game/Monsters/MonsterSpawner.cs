@@ -820,6 +820,13 @@ public class MonsterSpawner : MonoBehaviour
         if (targetGrid.FindPath(startPos, endPos))
         {
             monster.StartFollowingPath(targetGrid.FinalPath);
+            
+            // 버서커 모드가 활성화되어 있으면 신규 소환 몬스터에도 적용
+            if (GameManagers.Instance != null && GameManagers.Instance.IsBerserkModeActive)
+            {
+                monster.ApplyBerserkMode();
+                Debug.Log($"<color=red>[MonsterSpawner] 신규 소환 몬스터 '{monsterData.monsterName}'에 버서커 모드 적용!</color>");
+            }
         }
         else
         {

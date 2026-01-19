@@ -105,6 +105,14 @@ public class GameManagers : NetworkBehaviour
     private bool isTransitioningRound = false; // 라운드 전환 중 중복 호출 방지
     private bool _hasBerserkTriggered = false;  // 폭주 모드 트리거 여부
     private bool _hasBerserkTriggeredBattle2 = false;  // Battle2 폭주 모드 트리거 여부
+    
+    /// <summary>
+    /// 현재 버서커 모드가 활성화되어 있는지 반환합니다.
+    /// 신규 소환 몬스터에 자동으로 버서커 모드를 적용하기 위해 사용됩니다.
+    /// </summary>
+    public bool IsBerserkModeActive => 
+        (currentState == GameState.Battle1 && _hasBerserkTriggered) || 
+        (currentState == GameState.Battle2 && _hasBerserkTriggeredBattle2);
     private TickTimer _battleStartCheckDelay; // 전투 시작 후 상태 체크 딜레이
 
     #region 전투 시퀀스 관련 필드
@@ -383,7 +391,11 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     private async UniTask GameFlow()
     {
-        currentState = GameState.Setup;
+        // Networked 속성은 StateAuthority(서버)만 설정 가능
+        if (Object.HasStateAuthority)
+        {
+            currentState = GameState.Setup;
+        }
         
         // 프리팹 로드
         await AddressablesManager.Instance.LoadGamePrefabsAsync();

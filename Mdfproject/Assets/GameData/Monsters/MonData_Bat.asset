@@ -23,5 +23,6 @@ MonoBehaviour:
   maxHealth: 45
   defense: 0
   magicResistance: 0
-  moveSpeed: 2.5
+  moveSpeed: 0.8
+  traits: 0
   skillData: {fileID: 0}
