@@ -278,7 +278,7 @@ MonoBehaviour:
     m_SerializedLabels:
     - Augment
   - m_GUID: 48090dba299458547bf77e7afbc859aa
-    m_Address: Aug_Spawn_BossA_Normal
+    m_Address: Aug_Spawn_Elemental_Normal
     m_ReadOnly: 0
     m_SerializedLabels:
     - Augment
@@ -303,7 +303,7 @@ MonoBehaviour:
     m_SerializedLabels:
     - WaveData
   - m_GUID: b9ad52bb50cfab741bb309010e961c5b
-    m_Address: MonData_BossA
+    m_Address: MonData_Elemental
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterData
@@ -408,47 +408,47 @@ MonoBehaviour:
     m_SerializedLabels:
     - Augment
   - m_GUID: 15d29adc601e6a44fbc4a3e009ddd7d1
-    m_Address: MonData_BossB
+    m_Address: MonData_Boss_Reaper
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterData
   - m_GUID: 55cedd373805ec944b895da26b2ac445
-    m_Address: Aug_Spawn_BossB_Normal
+    m_Address: Aug_Spawn_Dragon_Normal
     m_ReadOnly: 0
     m_SerializedLabels:
     - Augment
   - m_GUID: f74a1ee7d8968b0498e9a2d2bc17a5ce
-    m_Address: BossB
+    m_Address: Boss_Dragon
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterPrepab
   - m_GUID: 60771a57612dd2d469c6ac2495ecdf7e
-    m_Address: BossC
+    m_Address: Boss_Reaper
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterPrepab
   - m_GUID: de424966012fe7e409174b2afc10c29f
-    m_Address: MonData_BossC
+    m_Address: MonData_Boss_Dragon
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterData
   - m_GUID: 6e0512849bf4db54180209869b86ad71
-    m_Address: MonData_BossD
+    m_Address: MonData_Boss_Juggernaut
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterData
   - m_GUID: 3e685ca6a6ddc5140b855a637ff026b9
-    m_Address: BossD
+    m_Address: Boss_Juggernaut
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterPrepab
   - m_GUID: aaf738fef05309749a7d06fed1e9b54c
-    m_Address: Aug_Spawn_BossC_Normal
+    m_Address: Aug_Spawn_Juggernaut_Normal
     m_ReadOnly: 0
     m_SerializedLabels:
     - Augment
   - m_GUID: 715d899c73d37ae449e8abfbc23569c9
-    m_Address: Aug_Spawn_BossD_Normal
+    m_Address: Aug_Spawn_Reaper_Normal
     m_ReadOnly: 0
     m_SerializedLabels:
     - Augment
