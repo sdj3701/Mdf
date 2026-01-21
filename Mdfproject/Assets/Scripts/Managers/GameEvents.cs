@@ -55,7 +55,11 @@ public static class GameEvents
     /// 몬스터들이 경로를 재탐색하기 위해 사용
     /// </summary>
     public static event Action<Vector3Int, FieldManager> OnWallDestroyed;
-    public static void TriggerWallDestroyed(Vector3Int gridPosition, FieldManager field) => OnWallDestroyed?.Invoke(gridPosition, field);
+    public static void TriggerWallDestroyed(Vector3Int gridPosition, FieldManager field)
+    {
+        Debug.Log($"<color=orange>[GameEvents] TriggerWallDestroyed 호출됨! 위치: {gridPosition}, 구독자 수: {OnWallDestroyed?.GetInvocationList().Length ?? 0}</color>");
+        OnWallDestroyed?.Invoke(gridPosition, field);
+    }
 
     // --- 공격 시퀀스 이벤트 ---
     /// <summary>
