@@ -50,6 +50,13 @@ public static class GameEvents
     public static event Action<int, Vector3Int> OnWallRemovalSucceeded;
     public static void TriggerWallRemovalSucceeded(int playerID, Vector3Int gridPosition) => OnWallRemovalSucceeded?.Invoke(playerID, gridPosition);
 
+    /// <summary>
+    /// 벽이 파괴(전투 중 몬스터/유닛에 의해)되었을 때
+    /// 몬스터들이 경로를 재탐색하기 위해 사용
+    /// </summary>
+    public static event Action<Vector3Int, FieldManager> OnWallDestroyed;
+    public static void TriggerWallDestroyed(Vector3Int gridPosition, FieldManager field) => OnWallDestroyed?.Invoke(gridPosition, field);
+
     // --- 공격 시퀀스 이벤트 ---
     /// <summary>
     /// 공격 몬스터 풀이 변경되었을 때 (UI 갱신용)

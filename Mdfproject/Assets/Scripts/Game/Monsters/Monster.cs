@@ -211,6 +211,23 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     }
 
     void OnApplicationQuit() { isQuitting = true; }
+    
+    private void OnEnable()
+    {
+        // 일반 몬스터만 벽 파괴 이벤트 구독 (파괴자는 이미 최단 경로로 이동)
+        if (_monsterData != null && !HasTrait(MonsterTraits.Destroyer))
+        {
+            GameEvents.OnWallDestroyed += OnWallDestroyed;
+        }
+    }
+    
+    private void OnDisable()
+    {
+        if (_monsterData != null && !HasTrait(MonsterTraits.Destroyer))
+        {
+            GameEvents.OnWallDestroyed -= OnWallDestroyed;
+        }
+    }
 
     public void SetStatusBar(StatusBarUI ui)
     {
@@ -805,6 +822,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (blocker != null)
         {
             currentBlockerId = blocker.GetInstanceID();
+            
+            // 공격 대상(벽/유닛)을 바라보도록 회전
+            Vector3 direction = (blocker.transform.position - transform.position).normalized;
+            if (direction != Vector3.zero)
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(direction);
+                transform.rotation = targetRotation;
+            }
         }
         isMoving = false;
         
@@ -957,9 +982,33 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         Vector2Int currentGridPos = pathfinder.WorldToCell(pathfinder.ClampToGrid(transform.position));
         Vector2Int targetGridPos = pathfinder.WorldToCell(pathfinder.ClampToGrid(goalTransform.position));
 
-        if (pathfinder.FindPath(currentGridPos, targetGridPos))
+        // 파괴자 특성이 있으면 파괴 가능한 벽을 무시하고 최단 경로 탐색
+        bool isDestroyer = HasTrait(MonsterTraits.Destroyer);
+        
+        if (isDestroyer)
+        {
+            Debug.Log($"<color=red>[Monster] {_monsterData.monsterName}은(는) 파괴자 특성을 가지고 있습니다. 파괴 가능한 벽을 무시하고 경로 탐색합니다.</color>");
+        }
+        
+        if (pathfinder.FindPath(currentGridPos, targetGridPos, ignoreWalls: false, ignoreBreakableWalls: isDestroyer))
         {
             List<AstarNode> newPath = pathfinder.FinalPath;
+            
+            // 경로에 벽이 포함되어 있는지 확인
+            int wallCount = 0;
+            foreach (var node in newPath)
+            {
+                if (node.isWall && node.isBreakable)
+                {
+                    wallCount++;
+                }
+            }
+            
+            if (isDestroyer && wallCount > 0)
+            {
+                Debug.Log($"<color=yellow>[Monster] {_monsterData.monsterName}의 경로에 파괴 가능한 벽 {wallCount}개가 포함되어 있습니다.</color>");
+            }
+            
             StartFollowingPath(newPath);
         }
         else
@@ -967,6 +1016,23 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
              Debug.LogWarning($"{_monsterData.monsterName}이(가) 경로를 찾지 못했습니다. 소멸합니다.");
              DespawnOrDestroy();
         }
+    }
+    
+    /// <summary>
+    /// 벽이 파괴되었을 때 호출되는 이벤트 핸들러.
+    /// 일반 몬스터는 더 짧은 경로가 생겼는지 확인하고 경로를 재탐색합니다.
+    /// </summary>
+    private void OnWallDestroyed(Vector3Int destroyedWallPosition, FieldManager field)
+    {
+        // 자신이 속한 필드에서 벽이 파괴된 경우만 처리
+        if (ownerPlayer == null || ownerPlayer.fieldManager != field) return;
+        
+        // 이동 중이거나 저지되지 않은 상태에서만 경로 재탐색
+        if (!isMoving || isBlocked) return;
+        
+        // 현재 경로상에 있거나 근처에서 벽이 부서진 경우 경로 재탐색
+        // 단순화: 벽이 부서지면 무조건 경로 재탐색 (더 짧은 경로가 있을 수 있음)
+        FindNewPathToGoal();
     }
 
     public void StartFollowingPath(List<AstarNode> path)

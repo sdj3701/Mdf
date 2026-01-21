@@ -625,7 +625,10 @@ public class MonsterSpawner : MonoBehaviour
         Vector2Int startPos = _pathfinder.WorldToCell(clampedSpawn);
         Vector2Int endPos = _pathfinder.WorldToCell(clampedGoal);
 
-        if (_pathfinder.FindPath(startPos, endPos))
+        // 파괴자 특성 확인
+        bool isDestroyer = monsterData != null && (monsterData.traits & MonsterTraits.Destroyer) != 0;
+        
+        if (_pathfinder.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: isDestroyer))
         {
             List<AstarNode> path = _pathfinder.FinalPath;
             monster.StartFollowingPath(path);
@@ -817,7 +820,10 @@ public class MonsterSpawner : MonoBehaviour
         Vector3 clampedGoal = targetGrid.ClampToGrid(targetGoal.position);
         Vector2Int endPos = targetGrid.WorldToCell(clampedGoal);
 
-        if (targetGrid.FindPath(startPos, endPos))
+        // 파괴자 특성 확인
+        bool isDestroyer = monsterData != null && (monsterData.traits & MonsterTraits.Destroyer) != 0;
+        
+        if (targetGrid.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: isDestroyer))
         {
             monster.StartFollowingPath(targetGrid.FinalPath);
             

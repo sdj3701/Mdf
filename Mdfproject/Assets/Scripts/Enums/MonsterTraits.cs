@@ -16,7 +16,13 @@ public enum MonsterTraits
     /// </summary>
     Unblockable = 1 << 0,
     
+    /// <summary>
+    /// 파괴자: 파괴 가능한 벽을 없는 것처럼 최단 경로로 이동.
+    /// 벽을 만나면 멈춰서 공격 애니메이션과 함께 부수고 지나감.
+    /// </summary>
+    Destroyer = 1 << 1,
+    
     // === 향후 확장 예시 ===
-    // Armored = 1 << 1,      // 갑옷: 물리 피해 감소
-    // MagicImmune = 1 << 2,  // 마법 면역
+    // Armored = 1 << 2,      // 갑옷: 물리 피해 감소
+    // MagicImmune = 1 << 3,  // 마법 면역
 }
