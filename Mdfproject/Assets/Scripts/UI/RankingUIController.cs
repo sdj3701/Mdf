@@ -47,6 +47,13 @@
 
      void Update()
      {
+         // GameOver 상태이면 네트워크 프로퍼티 접근 안함 (씬 전환 대기 중)
+         if (GameManagers.Instance != null && 
+             GameManagers.Instance.GetGameState() == GameManagers.GameState.GameOver)
+         {
+             return;
+         }
+         
          if (isInitialized)
          {
              // 플레이어 수 또는 체력 상태가 변경되었을 때만 정렬

@@ -104,6 +104,12 @@ public class PlayerHUDController : MonoBehaviour
                 return;
             }
         }
+        
+        // GameOver 상태이면 네트워크 프로퍼티 접근 안함 (씬 전환 대기 중)
+        if (gameManager.GetGameState() == GameManagers.GameState.GameOver)
+        {
+            return;
+        }
 
         // localPlayer가 없으면 매 프레임 시도
         if (localPlayer == null)

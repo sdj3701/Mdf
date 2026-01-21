@@ -48,6 +48,13 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 3. 상태 변경 이벤트를 정의 (Action 델리게이트 사용)
     public static event Action<ConnectionState> OnStateChanged;
 
+    // 4. 세션 목록 업데이트 이벤트 (방 목록 갱신 알림용)
+    public static event Action<List<SessionInfo>> OnSessionListUpdatedEvent;
+
+    // 5. 플레이어 참가/퇴장 이벤트 (UI 갱신용)
+    public static event Action<PlayerRef> OnPlayerJoinedEvent;
+    public static event Action<PlayerRef> OnPlayerLeftEvent;
+
     public bool IsGameRunnerActive => _runner != null && _runner.IsRunning;
 
     private int playerCount;
@@ -309,6 +316,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         Debug.Log("Session list updated. Found " + sessionList.Count + " sessions.");
         // 받은 목록으로 로컬 목록을 갱신합니다.
         _sessionList = sessionList;
+        
+        // 세션 목록 업데이트 이벤트 발생 (UI 갱신용)
+        OnSessionListUpdatedEvent?.Invoke(sessionList);
     }
 
     // 플레이어가 게임 세션에 성공적으로 참여했을 때 호출됩니다.
@@ -325,6 +335,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, Vector3.zero, Quaternion.identity, player);
             _spawnedCharacters.Add(player, networkPlayerObject);
         }
+
+        // 플레이어 참가 이벤트 발생
+        OnPlayerJoinedEvent?.Invoke(player);
     }
 
     // 플레이어가 게임 세션을 떠났을 때 호출됩니다.
@@ -336,6 +349,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             runner.Despawn(networkObject);
             _spawnedCharacters.Remove(player);
         }
+
+        // 플레이어 퇴장 이벤트 발생
+        OnPlayerLeftEvent?.Invoke(player);
     }
 
     // Runner가 종료되었을 때 호출됩니다. (연결 끊김, 스스로 나가기 등)
@@ -345,10 +361,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _state = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
         _sessionList.Clear(); // 방 목록 초기화
 
-        // Runner 오브젝트를 파괴하여 정리합니다.
-        if (runner != null && runner.gameObject != null)
+        // NetworkRunner 컴포넌트만 제거합니다. (gameObject 전체를 파괴하면 NetworkManager도 사라짐!)
+        if (runner != null)
         {
-            Destroy(runner.gameObject);
+            Destroy(runner);
         }
         _runner = null; // 참조를 null로 설정하여 중복 생성을 방지합니다.
     }

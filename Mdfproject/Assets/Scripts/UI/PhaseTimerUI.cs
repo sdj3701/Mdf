@@ -58,13 +58,26 @@ public class PhaseTimerUI : MonoBehaviour
                 return;
             }
         }
+        
+        // GameOver 상태이면 네트워크 프로퍼티 접근 안함 (씬 전환 대기 중)
+        try
+        {
+            GameManagers.GameState currentState = gameManager.GetGameState();
+            if (currentState == GameManagers.GameState.GameOver)
+            {
+                return;
+            }
+            
+            float remainingTime = gameManager.currentPhaseTimer;
 
-        // GameManager로부터 현재 게임 상태와 남은 시간을 가져옵니다.
-        GameManagers.GameState currentState = gameManager.GetGameState();
-        float remainingTime = gameManager.currentPhaseTimer;
-
-        // 텍스트 UI의 내용을 업데이트합니다.
-        // 정수로 올림하여 표시합니다.
-        timerText.text = $"{Mathf.CeilToInt(remainingTime)}";
+            // 텍스트 UI의 내용을 업데이트합니다.
+            // 정수로 올림하여 표시합니다.
+            timerText.text = $"{Mathf.CeilToInt(remainingTime)}";
+        }
+        catch (System.InvalidOperationException)
+        {
+            // 네트워크 객체가 파괴된 경우 무시 (씬 전환 중)
+            return;
+        }
     }
 }
