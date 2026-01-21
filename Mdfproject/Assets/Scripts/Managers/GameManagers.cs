@@ -134,6 +134,12 @@ public class GameManagers : NetworkBehaviour
             Runner.Despawn(Object);
             return;
         }
+        
+        // Game 씬 진입 시 UIManagers 활성화 (이전 게임 종료 시 비활성화되었을 수 있음)
+        if (UIManagers.Instance != null)
+        {
+            UIManagers.Instance.gameObject.SetActive(true);
+        }
 
         if (LoadManager.Instance == null)
         {
@@ -1323,6 +1329,35 @@ public class GameManagers : NetworkBehaviour
             phaseTimer = TickTimer.None;
 
             PlayerManager winner = alivePlayers.FirstOrDefault();
+            
+            // 안전한 씬 전환을 위해 비동기로 처리 (UI 표시 후 딜레이)
+            SafeSceneTransitionAsync().Forget();
+        }
+    }
+    
+    /// <summary>
+    /// 게임 종료 후 안전하게 씬을 전환합니다.
+    /// 승리/패배 UI를 표시하고 일정 시간 후 MatchingLobby로 이동합니다.
+    /// </summary>
+    private async UniTask SafeSceneTransitionAsync()
+    {
+        // 승리/패배 UI가 표시될 시간을 줌 (3초 대기)
+        await UniTask.Delay(3000);
+        
+        // 씬 전환 전 UIManagers 비활성화 (네트워크 프로퍼티 접근 에러 방지)
+        if (UIManagers.Instance != null)
+        {
+            UIManagers.Instance.gameObject.SetActive(false);
+        }
+        
+        // 게임 종료 후 MatchingLobby 씬으로 전환
+        if (NetworkManager.Instance != null)
+        {
+            NetworkManager.Instance.LeaveAndLoad("MatchingLobby");
+        }
+        else
+        {
+            UnityEngine.SceneManagement.SceneManager.LoadScene("MatchingLobby");
         }
     }
 
