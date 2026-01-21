@@ -222,11 +222,6 @@ public class AstarGrid : MonoBehaviour
                 }
             }
         }
-        
-        if (showDebugInfo)
-        {
-            Debug.Log($"[AstarGrid] 벽 인식 완료 - 파괴 가능: {breakableWallCount}, 파괴 불가: {permanentWallCount}");
-        }
     }
 
 

@@ -2762,48 +2762,7 @@ public class FieldManager : MonoBehaviour
 
     #region AI 디버그 시각화
 
-    void OnGUI()
-    {
-        // AI 플레이어가 아니면 디버그 표시하지 않음
-        bool isAIPlayer = ComponentRegistry.Has<AIPlayerController>(playerManager.playerId.ToString());
-        if (!isAIPlayer) return;
 
-        if (!_showDebugScores || _debugScoreBreakdowns.Count == 0) return;
-
-        // 카메라가 없으면 표시하지 않음
-        if (Camera.main == null) return;
-
-        foreach (var kvp in _debugScoreBreakdowns)
-        {
-            Vector3Int tilePos = kvp.Key;
-            var breakdown = kvp.Value;
-
-            // AI 필드의 실제 월드 좌표 계산 (3D 그리드 기준)
-            Vector3 worldPos = GridToWorld(tilePos, checkForWall: false);
-
-            Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPos);
-
-            if (screenPos.z > 0) // 카메라 앞에 있는 경우만 표시
-            {
-                screenPos.y = Screen.height - screenPos.y; // Unity GUI 좌표계 변환
-
-                // P점수/A점수를 한 줄로 표시 (Path/Ally)
-                GUI.color = Color.white;
-                GUI.Label(new Rect(screenPos.x - 25, screenPos.y - 10, 50, 20), $"{breakdown.pathScore:F1}/{breakdown.allyScore:F1}");
-            }
-        }
-
-        GUI.color = Color.white; // 색상 리셋
-
-        // 디버그 정보 표시
-        if (_debugUnitData != null)
-        {
-            GUI.color = Color.white;
-            GUI.Label(new Rect(10, 10, 300, 20), $"Player {playerManager.playerId} AI 배치 디버그: {_debugUnitData.unitName} ({_debugUnitData.unitType})");
-            GUI.Label(new Rect(10, 30, 300, 20), $"후보 타일 수: {_debugScoreBreakdowns.Count}");
-            GUI.Label(new Rect(10, 50, 300, 20), "형식: Path점수/Ally점수");
-        }
-    }
 
     // 디버그 표시를 끄는 메서드 (배치 완료 후 호출)
     public void ClearDebugScores()

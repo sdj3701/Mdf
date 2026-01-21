@@ -41,8 +41,6 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
         {
             if (fieldManager != null)
             {
-                Debug.Log($"<color=red>[DestructibleWall] 벽 파괴됨! 위치: {wallGridPosition}, GameEvents.TriggerWallDestroyed 호출</color>");
-                
                 // GameObject를 즉시 비활성화 (경로탐색에서 즉시 제외되도록)
                 gameObject.SetActive(false);
                 

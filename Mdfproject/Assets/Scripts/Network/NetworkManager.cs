@@ -221,6 +221,13 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 테스트를 위해 간단히 OnGUI를 사용합니다.
     private void OnGUI()
     {
+        // 게임씬에서는 표시하지 않음
+        string currentSceneName = SceneManager.GetActiveScene().name;
+        if (currentSceneName == "Game")
+        {
+            return;
+        }
+
         GUI.skin.button.fontSize = 20;
         GUI.skin.textField.fontSize = 20;
         GUI.skin.label.fontSize = 20;

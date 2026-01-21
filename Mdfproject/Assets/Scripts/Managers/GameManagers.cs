@@ -1370,13 +1370,5 @@ public class GameManagers : NetworkBehaviour
     }
     #endregion
 
-    void OnGUI()
-    {
-        if (!_isSpawned)
-        {
-            return;
-        }
-        GUI.Label(new Rect(20, 270, 180, 40), $"현재 상태: {currentState}");
-        GUI.Label(new Rect(20, 290, 180, 40), $"남은 시간: {currentPhaseTimer:F1}");
-    }
+
 }
