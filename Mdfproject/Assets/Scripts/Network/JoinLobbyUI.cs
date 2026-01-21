@@ -48,8 +48,8 @@ public class JoinLobbyUI : MonoBehaviour
 
         if (_networkManager == null)
         {
-            Debug.LogError("[JoinLobbyUI] NetworkManager를 찾을 수 없습니다. Title 씬으로 돌아갑니다.");
-            SceneManager.LoadScene("Title");
+            Debug.LogError("[JoinLobbyUI] NetworkManager를 찾을 수 없습니다. MatchingLobby 씬으로 돌아갑니다.");
+            SceneManager.LoadScene("MatchingLobby");
             return;
         }
         

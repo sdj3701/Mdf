@@ -354,10 +354,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _state = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
         _sessionList.Clear(); // 방 목록 초기화
 
-        // Runner 오브젝트를 파괴하여 정리합니다.
-        if (runner != null && runner.gameObject != null)
+        // NetworkRunner 컴포넌트만 제거합니다. (gameObject 전체를 파괴하면 NetworkManager도 사라짐!)
+        if (runner != null)
         {
-            Destroy(runner.gameObject);
+            Destroy(runner);
         }
         _runner = null; // 참조를 null로 설정하여 중복 생성을 방지합니다.
     }
