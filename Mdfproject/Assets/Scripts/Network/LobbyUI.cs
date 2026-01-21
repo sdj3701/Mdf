@@ -9,6 +9,7 @@ using UnityEngine.UI;
 using TMPro;
 using Fusion;
 using UnityEngine.SceneManagement;
+using GameCore.Enums;
 
 public class LobbyUI : MonoBehaviour
 {
@@ -37,6 +38,14 @@ public class LobbyUI : MonoBehaviour
             SceneManager.LoadScene("Title");
             return;
         }
+        
+        // 게임 종료 후 돌아온 경우: Disconnected 상태이면 로비에 다시 참여
+        if (_networkManager.State == ConnectionState.Disconnected)
+        {
+            Debug.Log("[LobbyUI] Disconnected 상태 감지. 로비에 다시 참여합니다.");
+            _networkManager.JoinLobby();
+        }
+        
         ALLButtonListener();
         // 로비에 처음 들어왔을 때 방 목록을 한번 갱신합니다.
         UpdateRoomListUI();
