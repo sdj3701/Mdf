@@ -168,7 +168,7 @@ public class PlayerHUDController : MonoBehaviour
         var opponent = localPlayer.opponentManager;
         if (opponent != null)
         {
-            string roleText = isAttacking ? "⚔️ 공격" : "🛡️ 수비";
+            string roleText = isAttacking ? "공격" : "수비";
             opponentNameText.text = $"{roleText} VS Player {opponent.playerId}";
             opponentNameText.gameObject.SetActive(true);
         }
