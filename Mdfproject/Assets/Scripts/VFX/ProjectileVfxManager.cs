@@ -293,10 +293,14 @@ public class ProjectileVfxManager : MonoBehaviour
             return unit.firePoint.position;
         }
 
-        // Monster 발사 위치 (약간 위쪽 오프셋)
+        // Monster 발사 위치 (firePoint가 있으면 사용, 없으면 오프셋)
         var monster = evt.Attacker.GetComponent<Monster>();
         if (monster != null)
         {
+            if (monster.firePoint != null)
+            {
+                return monster.firePoint.position;
+            }
             return evt.Attacker.transform.position + Vector3.up * 0.5f;
         }
 

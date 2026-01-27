@@ -4,6 +4,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Fusion;
+using Cysharp.Threading.Tasks;
 
 public class Monster : NetworkBehaviour, IEnemy, IHealth
 {
@@ -40,6 +41,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private IEnemy _pendingAttackTarget;
     
     // 원거리 공격 관련
+    [Header("원거리 공격 설정")]
+    [Tooltip("원거리 몬스터의 투사체 발사 위치입니다. 비어있으면 몬스터 위치 + Vector3.up * 0.5f를 사용합니다.")]
+    public Transform firePoint;
     private Unit _rangedTarget;              // 원거리 공격 대상 유닛
     private Coroutine _rangedAttackCoroutine;
     private float _nextRangedAttackTime;
@@ -398,10 +402,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         Debug.Log($"<color=yellow>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 시작 (monsterDataName={monsterDataName})</color>");
         
-        StartCoroutine(InitializeOnClientCoroutine(ownerPlayerId, monsterDataName));
+        InitializeOnClientAsync(ownerPlayerId, monsterDataName).Forget();
     }
     
-    private System.Collections.IEnumerator InitializeOnClientCoroutine(NetworkId ownerPlayerId, string monsterDataName)
+    private async UniTaskVoid InitializeOnClientAsync(NetworkId ownerPlayerId, string monsterDataName)
     {
         // ownerPlayer 찾기
         NetworkObject ownerNO = null;
@@ -414,7 +418,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             }
             if (ownerNO == null)
             {
-                yield return null;
+                await UniTask.Yield();
                 attempts++;
             }
         }
@@ -426,17 +430,22 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             Debug.LogWarning($"[Monster.RPC_InitializeOnClient] ownerPlayer를 찾을 수 없습니다.");
             // StatusBarUI만이라도 생성
             EnsureStatusBarUI();
-            yield break;
+            return;
         }
         
-        // MonsterData 로드 (프리팩에 이미 할당되어 있거나 Addressables에서 로드)
+        // MonsterData 로드 (Addressables에서 로드)
         if (_monsterData == null && !string.IsNullOrEmpty(monsterDataName))
         {
-            // 프리팩의 _monsterData가 있으면 사용
-            var prefabMonster = GetComponent<Monster>();
-            if (prefabMonster != null && prefabMonster._monsterData != null)
+            // AssetLoader를 통해 MonsterData 로드
+            _monsterData = await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
+            
+            if (_monsterData == null)
             {
-                _monsterData = prefabMonster._monsterData;
+                Debug.LogError($"[Monster.InitializeOnClientAsync] MonsterData '{monsterDataName}'를 로드할 수 없습니다!");
+            }
+            else
+            {
+                Debug.Log($"<color=green>[Monster.InitializeOnClientAsync] MonsterData '{monsterDataName}' 로드 성공!</color>");
             }
         }
         
@@ -453,7 +462,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             int goalAttempts = 0;
             while (owner.goalTransform == null && goalAttempts < 30)
             {
-                yield return null;
+                await UniTask.Yield();
                 goalAttempts++;
             }
             
@@ -955,7 +964,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             
             if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && targetNo != null)
             {
-                Vector3 firePos = transform.position + Vector3.up * 0.5f; // 발사 위치 오프셋
+                // firePoint가 있으면 사용, 없으면 기본 오프셋
+                Vector3 firePos = firePoint != null ? firePoint.position : transform.position + Vector3.up * 0.5f;
                 float projectileSpeed = _monsterData.projectileSpeed > 0 ? _monsterData.projectileSpeed : 20f;
                 
                 scheduler.ScheduleHit(

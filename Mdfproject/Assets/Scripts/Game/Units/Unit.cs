@@ -683,6 +683,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
+        // UnitData에 projectileSpeed가 설정되어 있으면 해당 값을 우선 사용
+        if (unitData.projectileSpeed > 0f)
+        {
+            _cachedProjectileSpeed = unitData.projectileSpeed;
+            return;
+        }
+
+        // projectileSpeed가 0이면 프리팹에서 속도를 가져옴
         if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
         {
             return;
