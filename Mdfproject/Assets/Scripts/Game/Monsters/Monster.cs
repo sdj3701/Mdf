@@ -477,7 +477,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             manaController.Initialize(maxMana);
         }
         
-        Debug.Log($"<color=cyan>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 완료</color>");
+        // 애니메이터 초기화 (클라이언트에서도 필요)
+        EnsureAnimator();
+        
+        Debug.Log($"<color=cyan>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 완료 (animator={animator != null})</color>");
     }
 
     void Update()
@@ -1425,6 +1428,33 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         // 이동속도에 비례하여 애니메이션 속도 조절 (Walk/Idle 모두 적용)
         UpdateMoveAnimationSpeed();
+        
+        // 네트워크 환경에서 클라이언트에게 이동 애니메이션 동기화
+        if (Object != null && Runner != null && Runner.IsRunning && Object.HasStateAuthority)
+        {
+            float speedRatio = (baseMoveSpeed > 0f) ? currentMoveSpeed / baseMoveSpeed : 1f;
+            RPC_SetWalkingAnimation(isWalking, speedRatio);
+        }
+    }
+    
+    /// <summary>
+    /// 이동 애니메이션을 모든 클라이언트에 동기화합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_SetWalkingAnimation(bool isWalking, float speedRatio)
+    {
+        // 서버/호스트는 이미 SetWalkingAnimation()에서 실행했으므로 무시
+        if (Object != null && Object.HasStateAuthority) return;
+        
+        if (animator == null || string.IsNullOrEmpty(isWalkingParam)) return;
+        
+        animator.SetBool(isWalkingParam, isWalking);
+        
+        // 이동속도 설정
+        if (!string.IsNullOrEmpty(moveSpeedParam))
+        {
+            animator.SetFloat(moveSpeedParam, speedRatio);
+        }
     }
     
     /// <summary>
@@ -1450,12 +1480,40 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         
         // 공격속도에 비례하여 애니메이션 속도 조절
+        float attackSpeedRatio = 1f;
         if (!string.IsNullOrEmpty(attackSpeedParam) && _monsterData != null && _monsterData.attackSpeed > 0f)
         {
-            float attackSpeedRatio = currentAttackSpeed / _monsterData.attackSpeed;
+            attackSpeedRatio = currentAttackSpeed / _monsterData.attackSpeed;
             animator.SetFloat(attackSpeedParam, attackSpeedRatio);
         }
 
+        animator.ResetTrigger(attackTriggerParam);
+        animator.SetTrigger(attackTriggerParam);
+        
+        // 네트워크 환경에서 클라이언트에게 공격 애니메이션 동기화
+        if (Object != null && Runner != null && Runner.IsRunning && Object.HasStateAuthority)
+        {
+            RPC_TriggerAttackAnimation(attackSpeedRatio);
+        }
+    }
+    
+    /// <summary>
+    /// 공격 애니메이션을 모든 클라이언트에 동기화합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_TriggerAttackAnimation(float attackSpeedRatio)
+    {
+        // 서버/호스트는 이미 TriggerAttackAnimation()에서 실행했으므로 무시
+        if (Object != null && Object.HasStateAuthority) return;
+        
+        if (animator == null || string.IsNullOrEmpty(attackTriggerParam)) return;
+        
+        // 공격속도 설정
+        if (!string.IsNullOrEmpty(attackSpeedParam))
+        {
+            animator.SetFloat(attackSpeedParam, attackSpeedRatio);
+        }
+        
         animator.ResetTrigger(attackTriggerParam);
         animator.SetTrigger(attackTriggerParam);
     }
