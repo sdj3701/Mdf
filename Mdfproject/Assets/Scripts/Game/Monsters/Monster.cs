@@ -52,6 +52,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // [Networked] 속성으로 서버/클라이언트 간 HP 동기화
     [Networked] public float NetworkedHP { get; set; }
     [Networked] public float NetworkedMaxHP { get; set; }
+    
+    // [Networked] 공격 애니메이션 동기화 (RPC 대체로 네트워크 부하 감소)
+    // 서버에서 값을 변경하면 ChangeDetector가 감지하여 클라이언트에서 애니메이션 재생
+    [Networked] public int NetworkedAttackTrigger { get; set; } // 값 변경 시 애니메이션 트리거
+    [Networked] public float NetworkedAttackSpeedRatio { get; set; } // 공격속도 비율
 
     private bool _hasSpawned;
     private bool _hasLocalHealthValues;
@@ -170,7 +175,32 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             {
                 OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
             }
+            // 공격 애니메이션 동기화 (클라이언트에서만 실행)
+            else if (propertyName == nameof(NetworkedAttackTrigger))
+            {
+                HandleNetworkedAttackTriggered();
+            }
         }
+    }
+    
+    /// <summary>
+    /// 클라이언트에서 공격 애니메이션을 재생합니다. (ChangeDetector 콜백)
+    /// </summary>
+    private void HandleNetworkedAttackTriggered()
+    {
+        // 서버/호스트는 이미 TriggerAttackAnimation()에서 실행했으므로 무시
+        if (Object != null && Object.HasStateAuthority) return;
+        
+        if (animator == null || string.IsNullOrEmpty(attackTriggerParam)) return;
+        
+        // 공격속도 설정
+        if (!string.IsNullOrEmpty(attackSpeedParam))
+        {
+            animator.SetFloat(attackSpeedParam, NetworkedAttackSpeedRatio);
+        }
+        
+        animator.ResetTrigger(attackTriggerParam);
+        animator.SetTrigger(attackTriggerParam);
     }
 
     private bool CanWriteNetworkedHealth()
@@ -1403,6 +1433,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             return;
         }
+        
+        // 화면 밖 오브젝트의 CPU 부하 감소 (Transform 업데이트만 건너뜀, 상태머신은 계속 실행)
+        animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
 
         // MonsterAnimationEventProxy 설정 (Animator가 어디에 있든 설정)
         GameObject animatorObj = animator.gameObject;
@@ -1471,6 +1504,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     /// <summary>
     /// 공격 애니메이션을 트리거하고 공격속도에 따른 애니메이션 속도를 적용합니다.
+    /// RPC 대신 Networked 속성을 사용하여 네트워크 부하를 감소시킵니다.
     /// </summary>
     private void TriggerAttackAnimation()
     {
@@ -1490,32 +1524,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         animator.ResetTrigger(attackTriggerParam);
         animator.SetTrigger(attackTriggerParam);
         
-        // 네트워크 환경에서 클라이언트에게 공격 애니메이션 동기화
+        // 네트워크 환경에서 Networked 속성 변경으로 클라이언트에 동기화
+        // ChangeDetector가 자동 감지하여 HandleNetworkedAttackTriggered() 호출
         if (Object != null && Runner != null && Runner.IsRunning && Object.HasStateAuthority)
         {
-            RPC_TriggerAttackAnimation(attackSpeedRatio);
+            NetworkedAttackSpeedRatio = attackSpeedRatio;
+            NetworkedAttackTrigger++; // 값 변경으로 ChangeDetector 트리거
         }
-    }
-    
-    /// <summary>
-    /// 공격 애니메이션을 모든 클라이언트에 동기화합니다.
-    /// </summary>
-    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    private void RPC_TriggerAttackAnimation(float attackSpeedRatio)
-    {
-        // 서버/호스트는 이미 TriggerAttackAnimation()에서 실행했으므로 무시
-        if (Object != null && Object.HasStateAuthority) return;
-        
-        if (animator == null || string.IsNullOrEmpty(attackTriggerParam)) return;
-        
-        // 공격속도 설정
-        if (!string.IsNullOrEmpty(attackSpeedParam))
-        {
-            animator.SetFloat(attackSpeedParam, attackSpeedRatio);
-        }
-        
-        animator.ResetTrigger(attackTriggerParam);
-        animator.SetTrigger(attackTriggerParam);
     }
 
     /// <summary>

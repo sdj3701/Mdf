@@ -522,6 +522,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             animator = GetComponent<Animator>();
             if (animator == null) animator = GetComponentInChildren<Animator>();
         }
+        
+        // 화면 밖 오브젝트의 CPU 부하 감소 (Transform 업데이트만 건너뜀, 상태머신은 계속 실행)
+        if (animator != null)
+        {
+            animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+        }
+        
         CacheAttackClipDurationFromController();
         EnsureAnimationEventProxy();
 
