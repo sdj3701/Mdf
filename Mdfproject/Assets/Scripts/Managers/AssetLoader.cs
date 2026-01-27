@@ -48,6 +48,27 @@ public static class AssetLoader
         }
     }
 
+    /// <summary>
+    /// 이미 캐시에 로드된 에셋을 동기적으로 반환합니다. 캐시에 없으면 null 반환.
+    /// </summary>
+    /// <typeparam name="T">에셋 타입</typeparam>
+    /// <param name="key">어드레서블 주소(키)</param>
+    /// <returns>캐시된 에셋 또는 null</returns>
+    public static T GetCachedAsset<T>(string key) where T : class
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            return null;
+        }
+
+        if (_assetCache.TryGetValue(key, out object cachedAsset))
+        {
+            return cachedAsset as T;
+        }
+
+        return null;
+    }
+
     // 참고: 씬이 바뀔 때 캐시를 비워주는 로직을 추가할 수도 있습니다.
     public static void ClearCache()
     {
