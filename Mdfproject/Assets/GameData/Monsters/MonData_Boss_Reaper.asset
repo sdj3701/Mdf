@@ -27,5 +27,5 @@ MonoBehaviour:
   defense: 15
   magicResistance: 10
   moveSpeed: 0.8
-  traits: -1
+  traits: 1
   skillData: {fileID: 0}

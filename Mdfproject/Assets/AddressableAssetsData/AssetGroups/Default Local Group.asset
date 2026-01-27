@@ -288,12 +288,12 @@ MonoBehaviour:
     m_SerializedLabels:
     - MonsterPrepab
   - m_GUID: 041bf3e4e89d553478a214ce02b26a28
-    m_Address: BossA
+    m_Address: Boss_Elemental
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterPrepab
   - m_GUID: 846ceacbafaaf9c4fbb35cebdc99bf63
-    m_Address: Aug_Spawn_MonA_Normal
+    m_Address: Aug_Spawn_Skelton_Normal
     m_ReadOnly: 0
     m_SerializedLabels:
     - Augment
