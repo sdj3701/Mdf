@@ -41,3 +41,4 @@ MonoBehaviour:
   - ArrowProjectile
   - ArrowProjectile
   - ArrowProjectile
+  projectileSpeed: 10

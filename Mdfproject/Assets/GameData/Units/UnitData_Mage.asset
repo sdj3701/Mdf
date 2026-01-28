@@ -41,3 +41,4 @@ MonoBehaviour:
   - BaseProjectile
   - BaseProjectile
   - BaseProjectile
+  projectileSpeed: 10
