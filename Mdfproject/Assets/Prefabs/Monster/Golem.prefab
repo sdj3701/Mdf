@@ -62,6 +62,10 @@ MonoBehaviour:
   moveSpeedParam: MoveSpeed
   attackSpeedParam: AttackSpeed
   rotationSpeed: 10
+  unitLayerMask:
+    serializedVersion: 2
+    m_Bits: 16384
+  postRangedAttackDelay: 0.5
   _NetworkedHP: 0
   _NetworkedMaxHP: 0
 --- !u!114 &3270167375977648020
@@ -211,6 +215,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 4353710160343206, guid: 642da47e7eb2d1d46b95a788e3632619, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 95429706837762770, guid: 642da47e7eb2d1d46b95a788e3632619,
+        type: 3}
+      propertyPath: m_ApplyRootMotion
       value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []

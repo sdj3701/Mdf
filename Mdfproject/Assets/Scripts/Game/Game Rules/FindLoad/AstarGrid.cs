@@ -102,10 +102,10 @@ public class AstarGrid : MonoBehaviour
         initialized = true;
     }
 
-    public bool FindPath(Vector2Int start, Vector2Int end, bool ignoreWalls = false)
+    public bool FindPath(Vector2Int start, Vector2Int end, bool ignoreWalls = false, bool ignoreBreakableWalls = false)
     {
         // 런타임에 벽 정보가 바뀔 수 있으므로, 경로 탐색 시마다 벽 상태를 다시 확인합니다.
-        // 벽을 무시하는 경우, 이 업데이斯特를 건너뛰어 성능을 최적화하고 그리드를 '깨끗한' 상태로 둡니다.
+        // 벽을 무시하는 경우, 이 업데이트를 건너뛰어 성능을 최적화하고 그리드를 '깨끗한' 상태로 둡니다.
         if (!ignoreWalls)
         {
             UpdateGridWallStatus();
@@ -156,7 +156,7 @@ public class AstarGrid : MonoBehaviour
                 return true;
             }
 
-            ExploreNeighbors(CurNode, TargetNode, OpenList, ClosedList, ignoreWalls);
+            ExploreNeighbors(CurNode, TargetNode, OpenList, ClosedList, ignoreWalls, ignoreBreakableWalls);
         }
 
         Debug.LogWarning($"[AstarGrid] 경로를 찾을 수 없습니다: {start} -> {end}");
@@ -187,6 +187,9 @@ public class AstarGrid : MonoBehaviour
     {
         if (NodeArray == null) InitializeGrid();
 
+        int breakableWallCount = 0;
+        int permanentWallCount = 0;
+        
         for (int i = 0; i < sizeX; i++)
         {
             for (int j = 0; j < sizeY; j++)
@@ -203,6 +206,15 @@ public class AstarGrid : MonoBehaviour
                     // 벽 중에서 breakableWallLayer에 속한 것만 파괴 가능으로 설정
                     bool isBreakable = Physics.CheckBox(checkWorldPos, halfExtents, Quaternion.identity, breakableWallLayer);
                     NodeArray[i, j].isBreakable = isBreakable;
+                    
+                    if (isBreakable)
+                    {
+                        breakableWallCount++;
+                    }
+                    else
+                    {
+                        permanentWallCount++;
+                    }
                 }
                 else
                 {
@@ -213,7 +225,7 @@ public class AstarGrid : MonoBehaviour
     }
 
 
-    private void ExploreNeighbors(AstarNode CurNode, AstarNode TargetNode, List<AstarNode> OpenList, HashSet<AstarNode> ClosedList, bool ignoreWalls)
+    private void ExploreNeighbors(AstarNode CurNode, AstarNode TargetNode, List<AstarNode> OpenList, HashSet<AstarNode> ClosedList, bool ignoreWalls, bool ignoreBreakableWalls)
     {
         for (int x = -1; x <= 1; x++)
         {
@@ -228,7 +240,26 @@ public class AstarGrid : MonoBehaviour
                 AstarNode NeighborNode = GetNode(neighborPos);
                 if (ClosedList.Contains(NeighborNode)) continue;
 
-                if (!ignoreWalls && NeighborNode.isWall && !NeighborNode.isBreakable) continue;
+                // ignoreWalls가 true이면 모든 벽 무시
+                // ignoreBreakableWalls가 true이면 파괴 가능한 벽만 무시
+                if (!ignoreWalls)
+                {
+                    if (NeighborNode.isWall)
+                    {
+                        // 파괴 가능한 벽이고 ignoreBreakableWalls가 true면 통과
+                        if (NeighborNode.isBreakable && ignoreBreakableWalls)
+                        {
+                            // 파괴 가능 벽을 무시 - 일반 타일로 취급
+                        }
+                        // 파괴 불가능한 벽이면 항상 차단
+                        else if (!NeighborNode.isBreakable)
+                        {
+                            continue;
+                        }
+                        // 파괴 가능한 벽이지만 ignoreBreakableWalls가 false인 경우
+                        // 아래에서 높은 비용으로 처리됨
+                    }
+                }
 
                 if (!ignoreWalls && dontCrossCorner && x != 0 && y != 0)
                 {
@@ -239,9 +270,14 @@ public class AstarGrid : MonoBehaviour
                 int distanceCost = (x == 0 || y == 0) ? 10 : 14;
                 int tentativeGCost = CurNode.G + distanceCost;
 
+                // 파괴 가능 벽 비용 처리
                 if (!ignoreWalls && NeighborNode.isWall)
                 {
-                    tentativeGCost += wallBreakCost;
+                    // ignoreBreakableWalls가 true이고 파괴 가능한 벽이면 비용 추가 안함
+                    if (!(ignoreBreakableWalls && NeighborNode.isBreakable))
+                    {
+                        tentativeGCost += wallBreakCost;
+                    }
                 }
 
                 // 이웃 노드까지의 새로운 G 비용이 기존보다 저렴하거나, OpenList에 아직 없다면 정보를 갱신합니다.

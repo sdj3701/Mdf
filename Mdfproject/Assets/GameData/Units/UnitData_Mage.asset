@@ -16,9 +16,9 @@ MonoBehaviour:
   unitIcon: Spr_Port_Archer
   cost: 3
   unitType: 1
-  baseHealth: 10
-  baseAttackDamage: 6
-  attackSpeed: 0.8
+  baseHealth: 50
+  baseAttackDamage: 20
+  attackSpeed: 0.75
   attackRange: 2.5
   damageType: 1
   defense: 0

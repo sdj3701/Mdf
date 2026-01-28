@@ -10,6 +10,10 @@ public class ProjectileVfxManager : MonoBehaviour
     [SerializeField] private float minRemainingSeconds = 0.02f;
     [SerializeField] private float maxSpeed = 200f;
     [SerializeField] private bool alignToDirection = true;
+    
+    [Header("Network Compensation")]
+    [Tooltip("네트워크 지연이 있어도 투사체가 발사 위치에서 스폰되도록 progress를 제한합니다. 0이면 항상 발사 위치, 1이면 제한 없음")]
+    [SerializeField, Range(0f, 1f)] private float maxSpawnProgress = 0.3f;
 
     private CombatScheduler _scheduler;
     private int _lastProcessedSeq;
@@ -45,6 +49,7 @@ public class ProjectileVfxManager : MonoBehaviour
             {
                 return;
             }
+            Debug.Log($"[ProjectileVfxManager] Scheduler found: {_scheduler.name}, HasStateAuthority: {_scheduler.Object?.HasStateAuthority}");
         }
 
         if (_scheduler.Runner == null || !_scheduler.Runner.IsRunning)
@@ -84,10 +89,16 @@ public class ProjectileVfxManager : MonoBehaviour
         int minSeq = Mathf.Max(1, currentSeq - _scheduler.EventCapacity + 1);
         int startSeq = Mathf.Max(_lastProcessedSeq + 1, minSeq);
 
+        if (startSeq <= currentSeq)
+        {
+            Debug.Log($"[ProjectileVfxManager] Processing events {startSeq} to {currentSeq}");
+        }
+
         for (int seq = startSeq; seq <= currentSeq; seq++)
         {
             if (_scheduler.TryGetEvent(seq, out var evt))
             {
+                Debug.Log($"[ProjectileVfxManager] Handling event seq={seq}, Attacker={(evt.Attacker != null ? evt.Attacker.name : "null")}, Target={(evt.Target != null ? evt.Target.name : "null")}");
                 HandleProjectileEvent(evt);
             }
         }
@@ -110,6 +121,7 @@ public class ProjectileVfxManager : MonoBehaviour
         var runner = _scheduler.Runner;
         if (runner == null)
         {
+            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Runner is null (seq={evt.Sequence})");
             return;
         }
 
@@ -117,33 +129,49 @@ public class ProjectileVfxManager : MonoBehaviour
         float hitTime = evt.HitTick * runner.DeltaTime;
         if (hitTime <= nowTime)
         {
+            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
             return;
         }
 
         if (!TryResolveProjectileKey(evt, out var projectileKey))
         {
+            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Could not resolve projectile key (seq={evt.Sequence}, Attacker={(evt.Attacker != null ? evt.Attacker.name : "null")})");
             return;
         }
+
+        Debug.Log($"[ProjectileVfxManager] Loading projectile: {projectileKey} (seq={evt.Sequence})");
 
         GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
         nowTime = GetRenderTime(runner);
         hitTime = evt.HitTick * runner.DeltaTime;
-        if (prefab == null || hitTime <= nowTime)
+        if (prefab == null)
         {
+            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Prefab load returned null for key '{projectileKey}' (seq={evt.Sequence})");
+            return;
+        }
+        if (hitTime <= nowTime)
+        {
+            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED after load: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
             return;
         }
 
         Vector3 firePos = ResolveFirePosition(evt);
         float fireTime = evt.FireTick * runner.DeltaTime;
         Vector3 spawnPos = CalculateSpawnPosition(firePos, evt, fireTime, hitTime, nowTime);
+        
+        Debug.Log($"[ProjectileVfxManager] Spawning projectile at {spawnPos}, pool={(pool != null ? "exists" : "null")}, vfxRoot={(vfxRoot != null ? vfxRoot.name : "null")} (seq={evt.Sequence})");
+        
         GameObject instance = pool != null
             ? pool.Spawn(prefab, spawnPos, Quaternion.identity, vfxRoot)
             : Instantiate(prefab, spawnPos, Quaternion.identity, vfxRoot);
 
         if (instance == null)
         {
+            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Instance is null after spawn (seq={evt.Sequence})");
             return;
         }
+
+        Debug.Log($"[ProjectileVfxManager] Projectile spawned successfully: {instance.name} (seq={evt.Sequence})");
 
         var projectile = instance.GetComponent<Projectile>();
         if (projectile != null)
@@ -168,7 +196,12 @@ public class ProjectileVfxManager : MonoBehaviour
     private Vector3 CalculateSpawnPosition(Vector3 firePos, CombatScheduler.ProjectileEventData evt, float fireTime, float hitTime, float nowTime)
     {
         float totalTime = Mathf.Max(0.0001f, hitTime - fireTime);
-        float progress = Mathf.Clamp01((nowTime - fireTime) / totalTime);
+        float rawProgress = Mathf.Clamp01((nowTime - fireTime) / totalTime);
+        
+        // 네트워크 지연이 있어도 발사 위치 근처에서 스폰되도록 progress 제한
+        // maxSpawnProgress=0.3이면 최대 30% 위치에서 스폰 (나머지는 빠르게 따라잡음)
+        float progress = Mathf.Min(rawProgress, maxSpawnProgress);
+        
         Vector3 targetPos = evt.Target != null ? evt.Target.transform.position : firePos;
         return Vector3.Lerp(firePos, targetPos, progress);
     }
@@ -181,15 +214,68 @@ public class ProjectileVfxManager : MonoBehaviour
             return false;
         }
 
+        // Unit 투사체 시도
         var unit = evt.Attacker.GetComponent<Unit>();
-        if (unit == null || unit.Data == null || unit.Data.projectilePrefabsByStarLevel == null)
+        if (unit != null && unit.Data != null && unit.Data.projectilePrefabsByStarLevel != null)
         {
-            return false;
+            int starIndex = Mathf.Clamp(unit.starLevel - 1, 0, unit.Data.projectilePrefabsByStarLevel.Length - 1);
+            projectileKey = unit.Data.projectilePrefabsByStarLevel[starIndex];
+            if (!string.IsNullOrEmpty(projectileKey))
+            {
+                return true;
+            }
         }
 
-        int starIndex = Mathf.Clamp(unit.starLevel - 1, 0, unit.Data.projectilePrefabsByStarLevel.Length - 1);
-        projectileKey = unit.Data.projectilePrefabsByStarLevel[starIndex];
-        return !string.IsNullOrEmpty(projectileKey);
+        // Monster 투사체 시도
+        var monster = evt.Attacker.GetComponent<Monster>();
+        if (monster != null)
+        {
+            // Data가 있으면 바로 사용
+            if (monster.Data != null)
+            {
+                projectileKey = monster.Data.projectilePrefab;
+                if (!string.IsNullOrEmpty(projectileKey))
+                {
+                    return true;
+                }
+                Debug.LogWarning($"[ProjectileVfxManager] Monster '{monster.name}' has Data but projectilePrefab is empty!");
+            }
+            else
+            {
+                // 클라이언트에서 Data가 아직 초기화 안된 경우 (RPC 지연)
+                // 게임오브젝트 이름에서 프리팹 키 추론하여 프리팹의 MonsterData 참조
+                string monsterName = evt.Attacker.name.Replace("(Clone)", "").Trim();
+                Debug.Log($"[ProjectileVfxManager] Monster '{monsterName}' Data is null, trying prefab cache fallback...");
+                
+                // 이미 로드된 프리팹에서 MonsterData 가져오기 시도
+                // AssetLoader의 캐시에서 동기적으로 가져옴 (이미 로드된 경우만)
+                var prefab = AssetLoader.GetCachedAsset<GameObject>(monsterName);
+                if (prefab != null)
+                {
+                    var prefabMonster = prefab.GetComponent<Monster>();
+                    if (prefabMonster != null && prefabMonster.Data != null)
+                    {
+                        projectileKey = prefabMonster.Data.projectilePrefab;
+                        if (!string.IsNullOrEmpty(projectileKey))
+                        {
+                            Debug.Log($"[ProjectileVfxManager] Monster Data fallback from prefab: {monsterName} -> {projectileKey}");
+                            return true;
+                        }
+                        Debug.LogWarning($"[ProjectileVfxManager] Prefab monster '{monsterName}' has Data but projectilePrefab is empty!");
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"[ProjectileVfxManager] Prefab '{monsterName}' found but Monster component or Data is null");
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"[ProjectileVfxManager] Monster '{monsterName}' prefab not found in AssetLoader cache");
+                }
+            }
+        }
+
+        return false;
     }
 
     // Fire position is resolved from the attacker to keep network payload small.
@@ -200,10 +286,22 @@ public class ProjectileVfxManager : MonoBehaviour
             return Vector3.zero;
         }
 
+        // Unit 발사 위치
         var unit = evt.Attacker.GetComponent<Unit>();
         if (unit != null && unit.firePoint != null)
         {
             return unit.firePoint.position;
+        }
+
+        // Monster 발사 위치 (firePoint가 있으면 사용, 없으면 오프셋)
+        var monster = evt.Attacker.GetComponent<Monster>();
+        if (monster != null)
+        {
+            if (monster.firePoint != null)
+            {
+                return monster.firePoint.position;
+            }
+            return evt.Attacker.transform.position + Vector3.up * 0.5f;
         }
 
         return evt.Attacker.transform.position;

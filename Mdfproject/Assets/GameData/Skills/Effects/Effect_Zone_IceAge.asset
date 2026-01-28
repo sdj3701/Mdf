@@ -13,9 +13,9 @@ MonoBehaviour:
   m_Name: Effect_Zone_IceAge
   m_EditorClassIdentifier: 
   zoneDuration: 5
-  tickInterval: 1
+  tickInterval: 3
   effectsPerTick:
-  - {fileID: 11400000, guid: c75afebbee563ea45bf0be3121736749, type: 2}
+  - {fileID: 11400000, guid: 2770168e583417b41b763e460a06b1a5, type: 2}
   - {fileID: 11400000, guid: 432954f573e6d5441bdf95f913e864cf, type: 2}
   zonePrefab: {fileID: 3178614178979242518, guid: 89f2776e47e86d44ea455ef0ac412247,
     type: 3}

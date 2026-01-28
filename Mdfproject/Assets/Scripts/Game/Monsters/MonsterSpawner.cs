@@ -625,7 +625,10 @@ public class MonsterSpawner : MonoBehaviour
         Vector2Int startPos = _pathfinder.WorldToCell(clampedSpawn);
         Vector2Int endPos = _pathfinder.WorldToCell(clampedGoal);
 
-        if (_pathfinder.FindPath(startPos, endPos))
+        // 파괴자 특성 확인
+        bool isDestroyer = monsterData != null && (monsterData.traits & MonsterTraits.Destroyer) != 0;
+        
+        if (_pathfinder.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: isDestroyer))
         {
             List<AstarNode> path = _pathfinder.FinalPath;
             monster.StartFollowingPath(path);
@@ -672,11 +675,19 @@ public class MonsterSpawner : MonoBehaviour
         {
             while (!entry.IsEmpty)
             {
-                // 몬스터 소환
-                await SpawnMonsterAtPositionAsync(entry.MonsterData, spawnPosition, targetFieldManager);
+                // 몬스터 소환 (보스 플래그 포함)
+                await SpawnMonsterAtPositionAsync(
+                    entry.MonsterData, 
+                    spawnPosition, 
+                    targetFieldManager,
+                    entry.IsBoss,
+                    entry.BossUniqueId,
+                    entry.OriginPlayerId
+                );
                 
-                // 풀에서 소비
-                _playerManager.TryConsumeMonsterFromPool(entry.MonsterData);
+                // 풀에서 직접 소비 (Find 로직 우회하여 무한루프 방지)
+                entry.TryConsume();
+                GameEvents.TriggerMonsterPoolChanged(_playerManager.playerId, pool);
                 
                 // 소환 간격
                 await UniTask.Delay(300); // 0.3초 간격
@@ -809,9 +820,19 @@ public class MonsterSpawner : MonoBehaviour
         Vector3 clampedGoal = targetGrid.ClampToGrid(targetGoal.position);
         Vector2Int endPos = targetGrid.WorldToCell(clampedGoal);
 
-        if (targetGrid.FindPath(startPos, endPos))
+        // 파괴자 특성 확인
+        bool isDestroyer = monsterData != null && (monsterData.traits & MonsterTraits.Destroyer) != 0;
+        
+        if (targetGrid.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: isDestroyer))
         {
             monster.StartFollowingPath(targetGrid.FinalPath);
+            
+            // 버서커 모드가 활성화되어 있으면 신규 소환 몬스터에도 적용
+            if (GameManagers.Instance != null && GameManagers.Instance.IsBerserkModeActive)
+            {
+                monster.ApplyBerserkMode();
+                Debug.Log($"<color=red>[MonsterSpawner] 신규 소환 몬스터 '{monsterData.monsterName}'에 버서커 모드 적용!</color>");
+            }
         }
         else
         {

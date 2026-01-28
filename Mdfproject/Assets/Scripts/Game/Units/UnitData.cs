@@ -101,4 +101,7 @@ public class UnitData : ScriptableObject
     [Tooltip("원거리 유닛이 발사할 투사체 프리팹입니다. Element 0은 1성, 1은 2성, 2는 3성에 해당합니다. 투사체가 같다면 같은 프리팹을 넣어주세요.")]
     [AddressableKey(typeof(GameObject))]
     public string[] projectilePrefabsByStarLevel = new string[3];
+
+    [Tooltip("투사체 속도입니다. 0이면 투사체 프리팹의 기본 속도를 사용합니다.")]
+    public float projectileSpeed = 0f;
 }

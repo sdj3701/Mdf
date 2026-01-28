@@ -41,7 +41,17 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
         {
             if (fieldManager != null)
             {
+                // GameObject를 즉시 비활성화 (경로탐색에서 즉시 제외되도록)
+                gameObject.SetActive(false);
+                
+                // 벽 파괴 이벤트 발생 (몬스터들의 경로 재탐색용)
+                GameEvents.TriggerWallDestroyed(wallGridPosition, fieldManager);
+                
+                // FieldManager에서 벽 제거
                 fieldManager.RemoveWallAt(wallGridPosition);
+                
+                // GameObject 파괴 (나중에 메모리 정리)
+                Destroy(gameObject);
             }
             else
             {

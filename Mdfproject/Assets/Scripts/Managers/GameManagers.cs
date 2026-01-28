@@ -105,6 +105,14 @@ public class GameManagers : NetworkBehaviour
     private bool isTransitioningRound = false; // 라운드 전환 중 중복 호출 방지
     private bool _hasBerserkTriggered = false;  // 폭주 모드 트리거 여부
     private bool _hasBerserkTriggeredBattle2 = false;  // Battle2 폭주 모드 트리거 여부
+    
+    /// <summary>
+    /// 현재 버서커 모드가 활성화되어 있는지 반환합니다.
+    /// 신규 소환 몬스터에 자동으로 버서커 모드를 적용하기 위해 사용됩니다.
+    /// </summary>
+    public bool IsBerserkModeActive => 
+        (currentState == GameState.Battle1 && _hasBerserkTriggered) || 
+        (currentState == GameState.Battle2 && _hasBerserkTriggeredBattle2);
     private TickTimer _battleStartCheckDelay; // 전투 시작 후 상태 체크 딜레이
 
     #region 전투 시퀀스 관련 필드
@@ -389,7 +397,11 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     private async UniTask GameFlow()
     {
-        currentState = GameState.Setup;
+        // Networked 속성은 StateAuthority(서버)만 설정 가능
+        if (Object.HasStateAuthority)
+        {
+            currentState = GameState.Setup;
+        }
         
         // 프리팹 로드
         await AddressablesManager.Instance.LoadGamePrefabsAsync();
@@ -1217,44 +1229,40 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
-    /// <summary>
-    /// 라운드 종료 시 탈락 대상 플레이어를 확인합니다.
-    /// - 한 명만 0 이하: 해당 플레이어 탈락
-    /// - 둘 다 0 이하: 체력 더 낮은 플레이어 탈락
-    /// </summary>
-    /// <returns>탈락 대상 플레이어 목록</returns>
     private List<PlayerManager> CheckEliminatedPlayers()
     {
         var eliminated = new List<PlayerManager>();
-        var playersAtOrBelowZero = AllPlayers
-            .Where(p => p != null && p.GetHealth() <= 0)
+        var allAlivePlayers = AllPlayers.Where(p => p != null).ToList();
+        var playersAtOrBelowZero = allAlivePlayers
+            .Where(p => p.GetHealth() <= 0)
             .ToList();
 
         if (playersAtOrBelowZero.Count == 0)
         {
-            return eliminated; // 탈락자 없음
+            return eliminated;
         }
 
-        if (playersAtOrBelowZero.Count == 1)
+        var survivors = allAlivePlayers.Where(p => p.GetHealth() > 0).ToList();
+        
+        if (survivors.Count > 0)
         {
-            // 한 명만 0 이하: 해당 플레이어 탈락
-            eliminated.Add(playersAtOrBelowZero[0]);
+            eliminated.AddRange(playersAtOrBelowZero);
         }
         else
         {
-            // 둘 다 0 이하: 체력 더 낮은 플레이어 탈락
-            // 동점인 경우 둘 다 탈락 (무승부는 없음)
-            int minHealth = playersAtOrBelowZero.Min(p => p.GetHealth());
-            var lowestHealthPlayers = playersAtOrBelowZero
-                .Where(p => p.GetHealth() == minHealth)
-                .ToList();
-
-            foreach (var loser in lowestHealthPlayers)
+            // 전멸 상황: 체력 최고인 플레이어만 생존, 나머지 탈락
+            int maxHealth = playersAtOrBelowZero.Max(p => p.GetHealth());
+            var winner = playersAtOrBelowZero.First(p => p.GetHealth() == maxHealth);
+            
+            foreach (var player in playersAtOrBelowZero)
             {
-                eliminated.Add(loser);
+                if (player != winner)
+                {
+                    eliminated.Add(player);
+                }
             }
         }
-
+        
         return eliminated;
     }
 
@@ -1298,9 +1306,24 @@ public class GameManagers : NetworkBehaviour
                 // TODO: 공격 시퀀스 UI 활성화 (공격자인 경우)
                 break;
             case GameState.GameOver:
-                PlayerManager winner = AllPlayers.FirstOrDefault(p => p != null && p.GetHealth() > 0);
-                if (localPlayer != null && localPlayer.GetHealth() <= 0) await UIManagers.Instance.GetUIElement("UI_Pnl_Defeat");
-                else if (localPlayer == winner) await UIManagers.Instance.GetUIElement("UI_Pnl_Victory");
+                // 승자 판정: 체력이 가장 높은 플레이어 (0 이하여도 덜 마이너스인 쪽이 승리)
+                PlayerManager winner = AllPlayers
+                    .Where(p => p != null)
+                    .OrderByDescending(p => p.GetHealth())
+                    .FirstOrDefault();
+                
+                // 로컬 플레이어의 승패 UI 표시
+                if (localPlayer != null)
+                {
+                    if (localPlayer == winner)
+                    {
+                        await UIManagers.Instance.GetUIElement("UI_Pnl_Victory");
+                    }
+                    else
+                    {
+                        await UIManagers.Instance.GetUIElement("UI_Pnl_Defeat");
+                    }
+                }
                 break;
         }
     }
@@ -1382,13 +1405,5 @@ public class GameManagers : NetworkBehaviour
     }
     #endregion
 
-    void OnGUI()
-    {
-        if (!_isSpawned)
-        {
-            return;
-        }
-        GUI.Label(new Rect(20, 270, 180, 40), $"현재 상태: {currentState}");
-        GUI.Label(new Rect(20, 290, 180, 40), $"남은 시간: {currentPhaseTimer:F1}");
-    }
+
 }

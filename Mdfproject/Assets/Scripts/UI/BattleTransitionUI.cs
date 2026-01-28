@@ -138,7 +138,7 @@ public class BattleTransitionUI : MonoBehaviour
         // 텍스트 표시
         if (transitionText != null)
         {
-            transitionText.text = "⚔️ 공격!";
+            transitionText.text = "공격!";
             transitionText.gameObject.SetActive(true);
         }
 
@@ -223,7 +223,7 @@ public class BattleTransitionUI : MonoBehaviour
         // 텍스트 표시
         if (transitionText != null)
         {
-            transitionText.text = "🛡️ 수비!";
+            transitionText.text = "수비!";
             transitionText.gameObject.SetActive(true);
         }
 

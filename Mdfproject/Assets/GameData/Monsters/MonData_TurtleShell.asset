@@ -16,12 +16,12 @@ MonoBehaviour:
   monsterType: 0
   monsterIcon: Spr_Port_Orc
   monsterPrefab: TurtleShell
-  attackDamage: 15
-  attackSpeed: 1
+  attackDamage: 8
+  attackSpeed: 0.6
   attackRange: 0
   damageType: 0
-  maxHealth: 40
-  defense: 5
+  maxHealth: 100
+  defense: 8
   magicResistance: 0
-  moveSpeed: 1.5
+  moveSpeed: 0.8
   skillData: {fileID: 0}

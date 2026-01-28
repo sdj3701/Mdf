@@ -4,12 +4,21 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Fusion;
+using Cysharp.Threading.Tasks;
 
 public class Monster : NetworkBehaviour, IEnemy, IHealth
 {
     [Header("참조 데이터")]
     [SerializeField] private MonsterData _monsterData;
     public MonsterData Data => _monsterData;
+
+    public bool HasTrait(MonsterTraits trait)
+    {
+        if (_monsterData == null) return false;
+        return (_monsterData.traits & trait) != 0;
+    }
+    
+    private BuffManager _buffManager;
 
     [Tooltip("벽 레이어 마스크")]
     public LayerMask wallLayerMask;
@@ -30,12 +39,28 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // 대기 중인 공격 정보 (애니메이션 이벤트 기반 데미지 적용용)
     private bool _hasPendingAttack;
     private IEnemy _pendingAttackTarget;
+    
+    // 원거리 공격 관련
+    [Header("원거리 공격 설정")]
+    [Tooltip("원거리 몬스터의 투사체 발사 위치입니다. 비어있으면 몬스터 위치 + Vector3.up * 0.5f를 사용합니다.")]
+    public Transform firePoint;
+    private Unit _rangedTarget;              // 원거리 공격 대상 유닛
+    private Coroutine _rangedAttackCoroutine;
+    private float _nextRangedAttackTime;
+    private bool _isRangedAttacking;         // 원거리 공격 중 플래그
+    [SerializeField] private LayerMask unitLayerMask; // Unit 레이어
+    [SerializeField] private float postRangedAttackDelay = 0.5f; // 원거리 공격 후 정지 시간
     #endregion
 
     // === 현재 상태 (Networked) ===
     // [Networked] 속성으로 서버/클라이언트 간 HP 동기화
     [Networked] public float NetworkedHP { get; set; }
     [Networked] public float NetworkedMaxHP { get; set; }
+    
+    // [Networked] 공격 애니메이션 동기화 (RPC 대체로 네트워크 부하 감소)
+    // 서버에서 값을 변경하면 ChangeDetector가 감지하여 클라이언트에서 애니메이션 재생
+    [Networked] public int NetworkedAttackTrigger { get; set; } // 값 변경 시 애니메이션 트리거
+    [Networked] public float NetworkedAttackSpeedRatio { get; set; } // 공격속도 비율
 
     private bool _hasSpawned;
     private bool _hasLocalHealthValues;
@@ -45,7 +70,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // 로컬 접근용 프로퍼티 (IHealth 인터페이스 호환성 유지)
     public float currentHP
     {
-        get => _hasSpawned ? NetworkedHP : _localHP;
+        get => CanReadNetworkedHealth() ? NetworkedHP : _localHP;
         set
         {
             _hasLocalHealthValues = true;
@@ -58,7 +83,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     }
     private float currentMaxHP
     {
-        get => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+        get => CanReadNetworkedHealth() ? NetworkedMaxHP : _localMaxHP;
         set
         {
             _hasLocalHealthValues = true;
@@ -70,8 +95,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
     }
 
-    public float CurrentHealth => _hasSpawned ? NetworkedHP : _localHP;
-    public float MaxHealth => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+    public float CurrentHealth => CanReadNetworkedHealth() ? NetworkedHP : _localHP;
+    public float MaxHealth => CanReadNetworkedHealth() ? NetworkedMaxHP : _localMaxHP;
     public event System.Action<float, float> OnHealthChanged;
 
     private ManaController manaController;
@@ -154,7 +179,32 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             {
                 OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
             }
+            // 공격 애니메이션 동기화 (클라이언트에서만 실행)
+            else if (propertyName == nameof(NetworkedAttackTrigger))
+            {
+                HandleNetworkedAttackTriggered();
+            }
         }
+    }
+    
+    /// <summary>
+    /// 클라이언트에서 공격 애니메이션을 재생합니다. (ChangeDetector 콜백)
+    /// </summary>
+    private void HandleNetworkedAttackTriggered()
+    {
+        // 서버/호스트는 이미 TriggerAttackAnimation()에서 실행했으므로 무시
+        if (Object != null && Object.HasStateAuthority) return;
+        
+        if (animator == null || string.IsNullOrEmpty(attackTriggerParam)) return;
+        
+        // 공격속도 설정
+        if (!string.IsNullOrEmpty(attackSpeedParam))
+        {
+            animator.SetFloat(attackSpeedParam, NetworkedAttackSpeedRatio);
+        }
+        
+        animator.ResetTrigger(attackTriggerParam);
+        animator.SetTrigger(attackTriggerParam);
     }
 
     private bool CanWriteNetworkedHealth()
@@ -164,6 +214,18 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             && Runner.IsRunning
             && Object != null
             && Object.HasStateAuthority;
+    }
+
+    /// <summary>
+    /// Networked 프로퍼티를 안전하게 읽을 수 있는지 확인합니다.
+    /// 싱글플레이(Runner == null)나 Spawned() 전에는 false를 반환합니다.
+    /// </summary>
+    private bool CanReadNetworkedHealth()
+    {
+        return _hasSpawned
+            && Runner != null
+            && Runner.IsRunning
+            && Object != null;
     }
 
     private void TryApplyPendingHealthToNetworked()
@@ -183,6 +245,23 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     }
 
     void OnApplicationQuit() { isQuitting = true; }
+    
+    private void OnEnable()
+    {
+        // 일반 몬스터만 벽 파괴 이벤트 구독 (파괴자는 이미 최단 경로로 이동)
+        if (_monsterData != null && !HasTrait(MonsterTraits.Destroyer))
+        {
+            GameEvents.OnWallDestroyed += OnWallDestroyed;
+        }
+    }
+    
+    private void OnDisable()
+    {
+        if (_monsterData != null && !HasTrait(MonsterTraits.Destroyer))
+        {
+            GameEvents.OnWallDestroyed -= OnWallDestroyed;
+        }
+    }
 
     public void SetStatusBar(StatusBarUI ui)
     {
@@ -241,6 +320,15 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         OnHealthChanged?.Invoke(maxHp, maxHp);
 
         manaController = GetComponent<ManaController>();
+        _buffManager = GetComponent<BuffManager>();
+
+        // 일반 몬스터만 벽 파괴 이벤트 구독 (Initialize에서 _monsterData가 설정된 후)
+        if (_monsterData != null && !HasTrait(MonsterTraits.Destroyer))
+        {
+            // 중복 구독 방지를 위해 먼저 해제
+            GameEvents.OnWallDestroyed -= OnWallDestroyed;
+            GameEvents.OnWallDestroyed += OnWallDestroyed;
+        }
 
         int maxMana = 0;
         if (_monsterData.skillData != null)
@@ -249,6 +337,21 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             manaController.OnManaFull += ActivateSkill;
         }
         manaController.Initialize(maxMana);
+        
+        // 원거리 몬스터: unitLayerMask 자동 설정
+        if (_monsterData.attackType == MonsterAttackType.Ranged && unitLayerMask == 0)
+        {
+            int unitLayer = LayerMask.NameToLayer("Unit");
+            if (unitLayer >= 0)
+            {
+                unitLayerMask = 1 << unitLayer;
+                Debug.Log($"<color=yellow>[Monster] '{name}' unitLayerMask 자동 설정: {unitLayerMask.value}</color>");
+            }
+            else
+            {
+                Debug.LogWarning($"[Monster] '{name}' Unit 레이어를 찾을 수 없습니다. 원거리 공격이 작동하지 않을 수 있습니다.");
+            }
+        }
         
         // 애니메이터 초기화
         EnsureAnimator();
@@ -299,10 +402,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         Debug.Log($"<color=yellow>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 시작 (monsterDataName={monsterDataName})</color>");
         
-        StartCoroutine(InitializeOnClientCoroutine(ownerPlayerId, monsterDataName));
+        InitializeOnClientAsync(ownerPlayerId, monsterDataName).Forget();
     }
     
-    private System.Collections.IEnumerator InitializeOnClientCoroutine(NetworkId ownerPlayerId, string monsterDataName)
+    private async UniTaskVoid InitializeOnClientAsync(NetworkId ownerPlayerId, string monsterDataName)
     {
         // ownerPlayer 찾기
         NetworkObject ownerNO = null;
@@ -315,7 +418,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             }
             if (ownerNO == null)
             {
-                yield return null;
+                await UniTask.Yield();
                 attempts++;
             }
         }
@@ -327,17 +430,22 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             Debug.LogWarning($"[Monster.RPC_InitializeOnClient] ownerPlayer를 찾을 수 없습니다.");
             // StatusBarUI만이라도 생성
             EnsureStatusBarUI();
-            yield break;
+            return;
         }
         
-        // MonsterData 로드 (프리팩에 이미 할당되어 있거나 Addressables에서 로드)
+        // MonsterData 로드 (Addressables에서 로드)
         if (_monsterData == null && !string.IsNullOrEmpty(monsterDataName))
         {
-            // 프리팩의 _monsterData가 있으면 사용
-            var prefabMonster = GetComponent<Monster>();
-            if (prefabMonster != null && prefabMonster._monsterData != null)
+            // AssetLoader를 통해 MonsterData 로드
+            _monsterData = await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
+            
+            if (_monsterData == null)
             {
-                _monsterData = prefabMonster._monsterData;
+                Debug.LogError($"[Monster.InitializeOnClientAsync] MonsterData '{monsterDataName}'를 로드할 수 없습니다!");
+            }
+            else
+            {
+                Debug.Log($"<color=green>[Monster.InitializeOnClientAsync] MonsterData '{monsterDataName}' 로드 성공!</color>");
             }
         }
         
@@ -354,7 +462,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             int goalAttempts = 0;
             while (owner.goalTransform == null && goalAttempts < 30)
             {
-                yield return null;
+                await UniTask.Yield();
                 goalAttempts++;
             }
             
@@ -408,27 +516,164 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             manaController.Initialize(maxMana);
         }
         
-        Debug.Log($"<color=cyan>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 완료</color>");
+        // 애니메이터 초기화 (클라이언트에서도 필요)
+        EnsureAnimator();
+        
+        Debug.Log($"<color=cyan>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 완료 (animator={animator != null})</color>");
     }
 
     void Update()
     {
+        if (!HasStateAuthorityOrNoNetwork()) return;
+        
+        // 마나 회복 (스킬이 있는 경우)
         if (_monsterData != null && _monsterData.skillData != null)
         {
-            if (!HasStateAuthorityOrNoNetwork())
-            {
-                return;
-            }
             manaController.GainManaOverTime(10f);
         }
+        
+        // 원거리 몬스터: 이동 중에도 범위 내 적 탐색 및 공격
+        if (_monsterData != null && _monsterData.attackType == MonsterAttackType.Ranged)
+        {
+            TryRangedAttack();
+        }
     }
+    
+    #region 원거리 공격 로직
+    
+    /// <summary>
+    /// 원거리 몬스터의 공격을 시도합니다.
+    /// </summary>
+    private void TryRangedAttack()
+    {
+        // 이미 공격 중이면 리턴
+        if (_isRangedAttacking) return;
+        if (_buffManager != null && !_buffManager.CanAttack) return;
+        if (Time.time < _nextRangedAttackTime) return;
+        
+        Unit target = FindBestTargetUnit();
+        if (target == null) return;
+        
+        // 원거리 몬스터는 항상 정지 후 공격
+        StartCoroutine(PauseAndRangedAttack(target));
+    }
+    
+    /// <summary>
+    /// 정지하고 원거리 공격 후 이동 재개
+    /// </summary>
+    private IEnumerator PauseAndRangedAttack(Unit target)
+    {
+        // 원거리 공격 중 플래그 설정
+        _isRangedAttacking = true;
+        
+        // Idle 상태로 전환
+        SetWalkingAnimation(false);
+        
+        // 대상 방향으로 회전
+        Vector3 direction = (target.transform.position - transform.position).normalized;
+        if (direction != Vector3.zero)
+        {
+            Quaternion targetRotation = Quaternion.LookRotation(direction);
+            transform.rotation = targetRotation;
+        }
+        
+        // 공격 수행 (애니메이션 트리거 + pendingAttack 설정)
+        if (target == null || target.IsDead)
+        {
+            _isRangedAttacking = false;
+            if (isMoving) SetWalkingAnimation(true);
+            yield break;
+        }
+        
+        _rangedTarget = target;
+        _hasPendingAttack = true;
+        _pendingAttackTarget = target;
+        TriggerAttackAnimation();
+        
+        // 공격 애니메이션 전체 시간 대기 (Animation Event가 중간에 발사)
+        // fallback용 대기 시간: 애니메이션 이벤트 타이밍보다 충분히 길게 설정
+        float attackAnimDuration = 1f / currentAttackSpeed; // 공격 애니메이션 총 길이
+        float fallbackWaitTime = Mathf.Max(attackAnimDuration * 0.9f, 0.8f); // 애니메이션의 90% 또는 최소 0.8초
+        yield return new WaitForSeconds(fallbackWaitTime);
+        
+        // Animation Event가 호출되지 않았으면 직접 실행 (fallback)
+        if (_hasPendingAttack && _pendingAttackTarget != null)
+        {
+            Debug.LogWarning($"[Monster] '{name}' 원거리 공격 Animation Event fallback 실행 - 애니메이션 이벤트 설정을 확인하세요!");
+            ExecutePendingAttack();
+        }
+        
+        // 공격 애니메이션 완료 대기 (나머지 시간)
+        float remainingAnimTime = Mathf.Max(attackAnimDuration - fallbackWaitTime, 0.1f);
+        yield return new WaitForSeconds(remainingAnimTime);
+        
+        // 공격 후 추가 정지 시간
+        yield return new WaitForSeconds(postRangedAttackDelay);
+        
+        // 원거리 공격 중 플래그 해제
+        _isRangedAttacking = false;
+        
+        // 공격 쿨타임 설정 (공격 종료 시점 기준)
+        _nextRangedAttackTime = Time.time + 1f / currentAttackSpeed;
+        
+        // 다시 Walk 상태로
+        if (isMoving)
+        {
+            SetWalkingAnimation(true);
+        }
+    }
+    
+    /// <summary>
+    /// 원거리 몬스터의 타겟 우선순위에 따라 최적의 타겟을 찾습니다.
+    /// 우선순위: 원거리 유닛 > 근접 유닛, 같은 타입이면 가까운 순
+    /// </summary>
+    private Unit FindBestTargetUnit()
+    {
+        Collider[] unitsInRange = Physics.OverlapSphere(transform.position, _monsterData.attackRange, unitLayerMask);
+        if (unitsInRange.Length == 0) return null;
+        
+        Unit bestRangedUnit = null;
+        Unit bestMeleeUnit = null;
+        float closestRangedDist = float.MaxValue;
+        float closestMeleeDist = float.MaxValue;
+        
+        foreach (var col in unitsInRange)
+        {
+            if (!col.TryGetComponent<Unit>(out var unit)) continue;
+            if (unit.IsDead || unit.Data == null) continue;
+            
+            float distance = Vector3.Distance(transform.position, unit.transform.position);
+            
+            if (unit.Data.unitType == UnitType.Ranged)
+            {
+                if (distance < closestRangedDist)
+                {
+                    closestRangedDist = distance;
+                    bestRangedUnit = unit;
+                }
+            }
+            else // Melee
+            {
+                if (distance < closestMeleeDist)
+                {
+                    closestMeleeDist = distance;
+                    bestMeleeUnit = unit;
+                }
+            }
+        }
+        
+        // 원거리 유닛 우선
+        return bestRangedUnit != null ? bestRangedUnit : bestMeleeUnit;
+    }
+    
+    #endregion
 
     private void ActivateSkill()
     {
-        if (!HasStateAuthorityOrNoNetwork())
-        {
-            return;
-        }
+        if (!HasStateAuthorityOrNoNetwork()) return;
+        
+        if (_buffManager != null && !_buffManager.CanUseSkill) return;
+        
         SkillData skillData = _monsterData.skillData;
 
         if (skillData == null || skillData.targetingStrategy == null || skillData.effects.Count == 0)
@@ -627,6 +872,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (blocker != null)
         {
             currentBlockerId = blocker.GetInstanceID();
+            
+            // 공격 대상(벽/유닛)을 바라보도록 회전
+            Vector3 direction = (blocker.transform.position - transform.position).normalized;
+            if (direction != Vector3.zero)
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(direction);
+                transform.rotation = targetRotation;
+            }
         }
         isMoving = false;
         
@@ -640,16 +893,32 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         while (target != null && (target as MonoBehaviour) != null)
         {
+            if (_buffManager != null && !_buffManager.CanAttack)
+            {
+                yield return null;
+                continue;
+            }
+            
+            // 벽의 체력이 0 이하이면 즉시 종료 (Destroy 전에 감지)
+            if (target is IHealth healthTarget && healthTarget.CurrentHealth <= 0)
+            {
+                break;
+            }
+            
             yield return new WaitForSeconds(1f / currentAttackSpeed);
 
             if ((target as MonoBehaviour) == null) break;
+            
+            // 다시 한번 체력 확인
+            if (target is IHealth healthCheck && healthCheck.CurrentHealth <= 0)
+            {
+                break;
+            }
 
-            // 공격 애니메이션 트리거 + 대기 공격 설정
             _pendingAttackTarget = target;
             _hasPendingAttack = true;
             TriggerAttackAnimation();
             
-            // 애니메이션 이벤트가 없는 경우를 대비한 폴백 (0.5초 후에도 대기 중이면 직접 데미지)
             yield return new WaitForSeconds(0.5f);
             if (_hasPendingAttack && _pendingAttackTarget != null)
             {
@@ -686,11 +955,50 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         
         string targetName = targetMono.name;
-        _pendingAttackTarget.TakeDamage(currentAttackDamage, _monsterData.damageType);
-        Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+        
+        // 원거리 몬스터: CombatScheduler를 통해 투사체 예약
+        if (_monsterData.attackType == MonsterAttackType.Ranged)
+        {
+            var scheduler = CombatScheduler.Instance;
+            var targetNo = targetMono.GetComponentInParent<NetworkObject>();
+            
+            if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && targetNo != null)
+            {
+                // firePoint가 있으면 사용, 없으면 기본 오프셋
+                Vector3 firePos = firePoint != null ? firePoint.position : transform.position + Vector3.up * 0.5f;
+                float projectileSpeed = _monsterData.projectileSpeed > 0 ? _monsterData.projectileSpeed : 20f;
+                
+                scheduler.ScheduleHit(
+                    Object,           // attacker
+                    targetNo,         // target
+                    firePos,          // 발사 위치
+                    currentAttackDamage,
+                    _monsterData.damageType,
+                    true,             // isRanged
+                    true,             // emitVfx
+                    projectileSpeed,  // 투사체 속도
+                    0f,               // splashRadius (단일 대상)
+                    unitLayerMask     // enemyLayerMask
+                );
+                Debug.Log($"<color=magenta>{_monsterData.monsterName}이(가) {targetName}을(를) 향해 투사체 발사!</color>");
+            }
+            else
+            {
+                // CombatScheduler가 없으면 즉시 데미지
+                _pendingAttackTarget.TakeDamage(currentAttackDamage, _monsterData.damageType);
+                Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+            }
+        }
+        else
+        {
+            // 근접 몬스터: 기존 로직 (즉시 데미지)
+            _pendingAttackTarget.TakeDamage(currentAttackDamage, _monsterData.damageType);
+            Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+        }
         
         _hasPendingAttack = false;
         _pendingAttackTarget = null;
+        _rangedTarget = null;
     }
 
     private void ScheduleResumeFromBlocker()
@@ -737,9 +1045,23 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         Vector2Int currentGridPos = pathfinder.WorldToCell(pathfinder.ClampToGrid(transform.position));
         Vector2Int targetGridPos = pathfinder.WorldToCell(pathfinder.ClampToGrid(goalTransform.position));
 
-        if (pathfinder.FindPath(currentGridPos, targetGridPos))
+        // 파괴자 특성이 있으면 파괴 가능한 벽을 무시하고 최단 경로 탐색
+        bool isDestroyer = HasTrait(MonsterTraits.Destroyer);
+        
+        if (pathfinder.FindPath(currentGridPos, targetGridPos, ignoreWalls: false, ignoreBreakableWalls: isDestroyer))
         {
             List<AstarNode> newPath = pathfinder.FinalPath;
+            
+            // 경로에 벽이 포함되어 있는지 확인
+            int wallCount = 0;
+            foreach (var node in newPath)
+            {
+                if (node.isWall && node.isBreakable)
+                {
+                    wallCount++;
+                }
+            }
+            
             StartFollowingPath(newPath);
         }
         else
@@ -747,6 +1069,23 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
              Debug.LogWarning($"{_monsterData.monsterName}이(가) 경로를 찾지 못했습니다. 소멸합니다.");
              DespawnOrDestroy();
         }
+    }
+    
+    /// <summary>
+    /// 벽이 파괴되었을 때 호출되는 이벤트 핸들러.
+    /// 일반 몬스터는 더 짧은 경로가 생겼는지 확인하고 경로를 재탐색합니다.
+    /// </summary>
+    private void OnWallDestroyed(Vector3Int destroyedWallPosition, FieldManager field)
+    {
+        // 자신이 속한 필드에서 벽이 파괴된 경우만 처리
+        if (ownerPlayer == null || ownerPlayer.fieldManager != field) return;
+        
+        // 이동 중이고 저지되지 않은 상태에서만 경로 재탐색
+        if (!isMoving || isBlocked) return;
+        
+        // 현재 경로상에 있거나 근처에서 벽이 부서진 경우 경로 재탐색
+        // 단순화: 벽이 부서지면 무조건 경로 재탐색 (더 짧은 경로가 있을 수 있음)
+        FindNewPathToGoal();
     }
 
     public void StartFollowingPath(List<AstarNode> path)
@@ -789,6 +1128,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         );
         while (Vector3.Distance(transform.position, targetPosition) > 0.1f && isMoving)
         {
+            // 버프로 이동 불가 또는 원거리 공격 중이면 대기
+            if ((_buffManager != null && !_buffManager.CanMove) || _isRangedAttacking)
+            {
+                SetWalkingAnimation(false);
+                yield return null;
+                continue;
+            }
+            
             float dt = (Runner != null) ? Runner.DeltaTime : Time.deltaTime;
             Vector3 nextPos = Vector3.MoveTowards(
                 transform.position,
@@ -800,7 +1147,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 nextPos = pathfinder.ClampToGrid(nextPos);
             }
             
-            // 이동 방향으로 회전
             RotateTowardsMovementDirection(targetPosition, dt);
             
             transform.position = nextPos;
@@ -837,6 +1183,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
             while (Vector3.Distance(transform.position, currentTarget) > 0.1f && isMoving)
             {
+                // 버프로 이동 불가 또는 원거리 공격 중이면 대기
+                if ((_buffManager != null && !_buffManager.CanMove) || _isRangedAttacking)
+                {
+                    SetWalkingAnimation(false);
+                    yield return null;
+                    continue;
+                }
+                
                 float dt = (Runner != null) ? Runner.DeltaTime : Time.deltaTime;
                 Vector3 nextPos = Vector3.MoveTowards(transform.position, currentTarget, currentMoveSpeed * dt);
                 if (pathfinder != null)
@@ -844,12 +1198,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                     nextPos = pathfinder.ClampToGrid(nextPos);
                 }
                 
-                // 이동 방향으로 회전
                 RotateTowardsMovementDirection(currentTarget, dt);
                 
                 transform.position = nextPos;
 
-                if (!isBlocked && _monsterData.monsterType != MonsterType.Flying)
+                if (!isBlocked && _monsterData.monsterType != MonsterType.Flying && !HasTrait(MonsterTraits.Unblockable))
                 {
                     float moveDistance = currentMoveSpeed * dt;
                     float detectionRadius = Mathf.Max(0.6f, moveDistance + 0.3f);
@@ -1090,17 +1443,18 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             return;
         }
+        
+        // 화면 밖 오브젝트의 CPU 부하 감소 (Transform 업데이트만 건너뜀, 상태머신은 계속 실행)
+        animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
 
-        // Animator가 자식 오브젝트에 있는 경우 EventProxy 설정
-        if (animator.gameObject != gameObject)
+        // MonsterAnimationEventProxy 설정 (Animator가 어디에 있든 설정)
+        GameObject animatorObj = animator.gameObject;
+        var proxy = animatorObj.GetComponent<MonsterAnimationEventProxy>();
+        if (proxy == null)
         {
-            var proxy = animator.GetComponent<MonsterAnimationEventProxy>();
-            if (proxy == null)
-            {
-                proxy = animator.gameObject.AddComponent<MonsterAnimationEventProxy>();
-            }
-            proxy.Initialize(this);
+            proxy = animatorObj.AddComponent<MonsterAnimationEventProxy>();
         }
+        proxy.Initialize(this);
     }
 
     /// <summary>
@@ -1117,6 +1471,33 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         // 이동속도에 비례하여 애니메이션 속도 조절 (Walk/Idle 모두 적용)
         UpdateMoveAnimationSpeed();
+        
+        // 네트워크 환경에서 클라이언트에게 이동 애니메이션 동기화
+        if (Object != null && Runner != null && Runner.IsRunning && Object.HasStateAuthority)
+        {
+            float speedRatio = (baseMoveSpeed > 0f) ? currentMoveSpeed / baseMoveSpeed : 1f;
+            RPC_SetWalkingAnimation(isWalking, speedRatio);
+        }
+    }
+    
+    /// <summary>
+    /// 이동 애니메이션을 모든 클라이언트에 동기화합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_SetWalkingAnimation(bool isWalking, float speedRatio)
+    {
+        // 서버/호스트는 이미 SetWalkingAnimation()에서 실행했으므로 무시
+        if (Object != null && Object.HasStateAuthority) return;
+        
+        if (animator == null || string.IsNullOrEmpty(isWalkingParam)) return;
+        
+        animator.SetBool(isWalkingParam, isWalking);
+        
+        // 이동속도 설정
+        if (!string.IsNullOrEmpty(moveSpeedParam))
+        {
+            animator.SetFloat(moveSpeedParam, speedRatio);
+        }
     }
     
     /// <summary>
@@ -1133,6 +1514,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     /// <summary>
     /// 공격 애니메이션을 트리거하고 공격속도에 따른 애니메이션 속도를 적용합니다.
+    /// RPC 대신 Networked 속성을 사용하여 네트워크 부하를 감소시킵니다.
     /// </summary>
     private void TriggerAttackAnimation()
     {
@@ -1142,14 +1524,23 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         
         // 공격속도에 비례하여 애니메이션 속도 조절
+        float attackSpeedRatio = 1f;
         if (!string.IsNullOrEmpty(attackSpeedParam) && _monsterData != null && _monsterData.attackSpeed > 0f)
         {
-            float attackSpeedRatio = currentAttackSpeed / _monsterData.attackSpeed;
+            attackSpeedRatio = currentAttackSpeed / _monsterData.attackSpeed;
             animator.SetFloat(attackSpeedParam, attackSpeedRatio);
         }
 
         animator.ResetTrigger(attackTriggerParam);
         animator.SetTrigger(attackTriggerParam);
+        
+        // 네트워크 환경에서 Networked 속성 변경으로 클라이언트에 동기화
+        // ChangeDetector가 자동 감지하여 HandleNetworkedAttackTriggered() 호출
+        if (Object != null && Runner != null && Runner.IsRunning && Object.HasStateAuthority)
+        {
+            NetworkedAttackSpeedRatio = attackSpeedRatio;
+            NetworkedAttackTrigger++; // 값 변경으로 ChangeDetector 트리거
+        }
     }
 
     /// <summary>

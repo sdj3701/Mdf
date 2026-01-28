@@ -16,9 +16,9 @@ MonoBehaviour:
   unitIcon: Spr_Port_Archer
   cost: 2
   unitType: 1
-  baseHealth: 10
-  baseAttackDamage: 2
-  attackSpeed: 1
+  baseHealth: 40
+  baseAttackDamage: 12
+  attackSpeed: 1.2
   attackRange: 2.5
   damageType: 0
   defense: 0
@@ -27,7 +27,7 @@ MonoBehaviour:
   attackTargetType: 0
   splashRadius: 0
   manaRegenType: 0
-  manaOnAttack: 5
+  manaOnAttack: 10
   manaPerSecond: 5
   prefabsByStarLevel:
   - Archer1

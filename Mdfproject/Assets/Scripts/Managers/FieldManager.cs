@@ -1,4 +1,4 @@
-﻿// Assets/Scripts/Managers/FieldManager.cs
+// Assets/Scripts/Managers/FieldManager.cs
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -1353,14 +1353,18 @@ public class FieldManager : MonoBehaviour
             {
                 newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
             }
-            // Attach orientation fixer to ensure rig local rotation and face camera on spawn
-            var orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
-            orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs
-            orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
-            orientationFixer.faceCameraOnSpawn = true;
-            orientationFixer.enforceEveryLateUpdate = true;
-            orientationFixer.targetCamera = playerCamera; // avoid ComponentRegistry lookup warnings
-            orientationFixer.yawOffsetDeg = 180f; // compensate if model's visual forward is flipped
+            // Attach orientation fixer to ensure rig local rotation and face camera on spawn (이미 존재하면 생성하지 않음)
+            var orientationFixer = newUnitGO.GetComponent<UnitOrientationFixer>();
+            if (orientationFixer == null)
+            {
+                orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
+                orientationFixer.rigRootName = "Armature"; // adjust if your rig root name differs
+                orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
+                orientationFixer.faceCameraOnSpawn = true;
+                orientationFixer.enforceEveryLateUpdate = true;
+                orientationFixer.targetCamera = playerCamera; // avoid ComponentRegistry lookup warnings
+                orientationFixer.yawOffsetDeg = 180f; // compensate if model's visual forward is flipped
+            }
             Unit newUnitComponent = newUnitGO.GetComponent<Unit>();
 
             if (newUnitComponent != null)
@@ -1427,6 +1431,12 @@ public class FieldManager : MonoBehaviour
 
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
+            if (placedUnits.ContainsKey(to))
+            {
+                Debug.LogWarning($"[FieldManager] MoveUnit 무시: 목표 위치 {to}에 이미 유닛이 있음 (from={from})");
+                return;
+            }
+            
             string uName = (unit != null && unit.Data != null) ? unit.Data.unitName : (unit != null ? unit.name : "Unit");
             placedUnits.Remove(from);
 
@@ -1977,14 +1987,18 @@ public class FieldManager : MonoBehaviour
             unitGO = Instantiate(prefab, worldPos, Quaternion.identity, unitParent);
         }
 
-        // CreateUnitAt과 동일한 초기 스폰 보정 컴포넌트 부착
-        var orientationFixer = unitGO.AddComponent<UnitOrientationFixer>();
-        orientationFixer.rigRootName = "Armature";
-        orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
-        orientationFixer.faceCameraOnSpawn = true;
-        orientationFixer.enforceEveryLateUpdate = true;
-        orientationFixer.targetCamera = playerCamera;
-        orientationFixer.yawOffsetDeg = 180f;
+        // CreateUnitAt과 동일한 초기 스폰 보정 컴포넌트 부착 (이미 존재하면 생성하지 않음)
+        var orientationFixer = unitGO.GetComponent<UnitOrientationFixer>();
+        if (orientationFixer == null)
+        {
+            orientationFixer = unitGO.AddComponent<UnitOrientationFixer>();
+            orientationFixer.rigRootName = "Armature";
+            orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
+            orientationFixer.faceCameraOnSpawn = true;
+            orientationFixer.enforceEveryLateUpdate = true;
+            orientationFixer.targetCamera = playerCamera;
+            orientationFixer.yawOffsetDeg = 180f;
+        }
 
         Unit newUnit = unitGO.GetComponent<Unit>();
         if (newUnit == null)
@@ -2748,48 +2762,7 @@ public class FieldManager : MonoBehaviour
 
     #region AI 디버그 시각화
 
-    void OnGUI()
-    {
-        // AI 플레이어가 아니면 디버그 표시하지 않음
-        bool isAIPlayer = ComponentRegistry.Has<AIPlayerController>(playerManager.playerId.ToString());
-        if (!isAIPlayer) return;
 
-        if (!_showDebugScores || _debugScoreBreakdowns.Count == 0) return;
-
-        // 카메라가 없으면 표시하지 않음
-        if (Camera.main == null) return;
-
-        foreach (var kvp in _debugScoreBreakdowns)
-        {
-            Vector3Int tilePos = kvp.Key;
-            var breakdown = kvp.Value;
-
-            // AI 필드의 실제 월드 좌표 계산 (3D 그리드 기준)
-            Vector3 worldPos = GridToWorld(tilePos, checkForWall: false);
-
-            Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPos);
-
-            if (screenPos.z > 0) // 카메라 앞에 있는 경우만 표시
-            {
-                screenPos.y = Screen.height - screenPos.y; // Unity GUI 좌표계 변환
-
-                // P점수/A점수를 한 줄로 표시 (Path/Ally)
-                GUI.color = Color.white;
-                GUI.Label(new Rect(screenPos.x - 25, screenPos.y - 10, 50, 20), $"{breakdown.pathScore:F1}/{breakdown.allyScore:F1}");
-            }
-        }
-
-        GUI.color = Color.white; // 색상 리셋
-
-        // 디버그 정보 표시
-        if (_debugUnitData != null)
-        {
-            GUI.color = Color.white;
-            GUI.Label(new Rect(10, 10, 300, 20), $"Player {playerManager.playerId} AI 배치 디버그: {_debugUnitData.unitName} ({_debugUnitData.unitType})");
-            GUI.Label(new Rect(10, 30, 300, 20), $"후보 타일 수: {_debugScoreBreakdowns.Count}");
-            GUI.Label(new Rect(10, 50, 300, 20), "형식: Path점수/Ally점수");
-        }
-    }
 
     // 디버그 표시를 끄는 메서드 (배치 완료 후 호출)
     public void ClearDebugScores()

@@ -105,6 +105,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private bool _isSkillCasting;
     private Coroutine _skillCastingRoutine;
     private ChangeDetector _changeDetector;
+    private BuffManager _buffManager;
 
     private struct PendingAttack
     {
@@ -169,6 +170,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     private void HandleNetworkedAttackStateChanged()
     {
+        if (!gameObject.activeInHierarchy) return;
+        
         if (animator != null && Object != null && !Object.HasStateAuthority)
         {
             float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
@@ -422,15 +425,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        if (animator.gameObject == gameObject)
-        {
-            return;
-        }
-
-        var proxy = animator.GetComponent<UnitAnimationEventProxy>();
+        // UnitAnimationEventProxy 설정 (Animator가 어디에 있든 설정)
+        GameObject animatorObj = animator.gameObject;
+        var proxy = animatorObj.GetComponent<UnitAnimationEventProxy>();
         if (proxy == null)
         {
-            proxy = animator.gameObject.AddComponent<UnitAnimationEventProxy>();
+            proxy = animatorObj.AddComponent<UnitAnimationEventProxy>();
         }
         proxy.Initialize(this);
     }
@@ -516,11 +516,19 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         this.starLevel = initialStarLevel;
         manaController = GetComponent<ManaController>();
+        _buffManager = GetComponent<BuffManager>();
         if (animator == null)
         {
             animator = GetComponent<Animator>();
             if (animator == null) animator = GetComponentInChildren<Animator>();
         }
+        
+        // 화면 밖 오브젝트의 CPU 부하 감소 (Transform 업데이트만 건너뜀, 상태머신은 계속 실행)
+        if (animator != null)
+        {
+            animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
+        }
+        
         CacheAttackClipDurationFromController();
         EnsureAnimationEventProxy();
 
@@ -675,6 +683,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
+        // UnitData에 projectileSpeed가 설정되어 있으면 해당 값을 우선 사용
+        if (unitData.projectileSpeed > 0f)
+        {
+            _cachedProjectileSpeed = unitData.projectileSpeed;
+            return;
+        }
+
+        // projectileSpeed가 0이면 프리팹에서 속도를 가져옴
         if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
         {
             return;
@@ -767,6 +783,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (!isCombatPhase || !DoesHaveSkill()) return;
         if (!HasStateAuthorityOrNoNetwork()) return;
         if (IsSkillCasting()) return;
+        
+        // 상태 효과로 스킬 사용 불가 상태 체크 (침묵, 기절 등)
+        if (_buffManager != null && !_buffManager.CanUseSkill) return;
         
         // 스킬 데이터가 로드되었는지 다시 한번 확인합니다.
         if (_loadedSkillData == null)
@@ -932,27 +951,31 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 yield return null;
                 continue;
             }
+            
+            // 상태 효과로 공격 불가 상태 체크 (기절 등)
+            if (_buffManager != null && !_buffManager.CanAttack)
+            {
+                yield return null;
+                continue;
+            }
 
             bool hasTarget;
             
             if (isMelee)
             {
-                // 근접 유닛: 저지 중인 몬스터가 있으면 공격 가능
-                // 죽은 몬스터는 리스트에서 제거
                 blockedMonsters.RemoveAll(m => m == null || m.currentHP <= 0);
-                hasTarget = blockedMonsters.Count > 0;
                 
-                if (hasTarget)
+                if (blockedMonsters.Count > 0)
                 {
-                    // 첫 번째 저지 몬스터를 타겟으로 설정
                     var firstBlocked = blockedMonsters[0];
                     targetEnemy = firstBlocked;
                     targetTransform = firstBlocked.transform;
+                    hasTarget = true;
                 }
                 else
                 {
-                    targetEnemy = null;
-                    targetTransform = null;
+                    FindNearestGroundMonster();
+                    hasTarget = targetEnemy != null;
                 }
             }
             else
@@ -1015,6 +1038,34 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         targetEnemy = nearestEnemy;
         targetTransform = nearestTransform;
+    }
+    
+    private void FindNearestGroundMonster()
+    {
+        Collider[] monstersInRange = Physics.OverlapSphere(transform.position, currentAttackRange, enemyLayerMask);
+        float closestDistanceSqr = float.MaxValue;
+        Monster nearestMonster = null;
+        
+        foreach (var col in monstersInRange)
+        {
+            if (col.TryGetComponent<Monster>(out var monster))
+            {
+                if (monster.Data == null || monster.Data.monsterType == MonsterType.Flying || monster.currentHP <= 0)
+                {
+                    continue;
+                }
+                
+                float distanceSqr = (transform.position - col.transform.position).sqrMagnitude;
+                if (distanceSqr < closestDistanceSqr)
+                {
+                    closestDistanceSqr = distanceSqr;
+                    nearestMonster = monster;
+                }
+            }
+        }
+        
+        targetEnemy = nearestMonster;
+        targetTransform = nearestMonster != null ? nearestMonster.transform : null;
     }
     private void Attack()
     {
@@ -1240,6 +1291,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             if (monster.Data == null || Data == null) return;
             
             if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
+                monster.HasTrait(MonsterTraits.Unblockable) ||
                 monster.Data.monsterType == MonsterType.Flying || Data.blockCount <= 0 ||
                 blockedMonsters.Count >= Data.blockCount)
             {
@@ -1264,6 +1316,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public bool TryBlockMonster(Monster monster)
     {
         if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
+            monster.HasTrait(MonsterTraits.Unblockable) ||
             monster.Data.monsterType == MonsterType.Flying ||
             Data.blockCount <= 0 || blockedMonsters.Count >= Data.blockCount)
         {
