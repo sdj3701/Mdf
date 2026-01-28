@@ -44,5 +44,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f12e954eddeca274a9a982b1b5ed40b9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _maxPlayers: 2
-  _networkPlayerPrefab: {fileID: 0}
+  NickNameInput: {fileID: 0}
+  PassWordInput: {fileID: 0}
+  _NetworkJoinPanel: {fileID: 5073311461297450011, guid: 9d16c131c3ce2e543b085429695996f9,
+    type: 3}
+  _playerPrefab: {fileID: 0}
+  maxSessionPlayers: 2
