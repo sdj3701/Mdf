@@ -62,11 +62,15 @@ MonoBehaviour:
   moveSpeedParam: MoveSpeed
   attackSpeedParam: AttackSpeed
   rotationSpeed: 10
+  firePoint: {fileID: 0}
   unitLayerMask:
     serializedVersion: 2
     m_Bits: 16384
+  postRangedAttackDelay: 0.5
   _NetworkedHP: 0
   _NetworkedMaxHP: 0
+  _NetworkedAttackTrigger: 0
+  _NetworkedAttackSpeedRatio: 0
 --- !u!114 &3270167375977648020
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -125,7 +129,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   SortKey: 58688800
   ObjectInterest: 1
-  Flags: 262145
+  Flags: 524289
   NestedObjects: []
   NetworkedBehaviours:
   - {fileID: 2020015458557610381}

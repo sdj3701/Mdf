@@ -105,6 +105,12 @@ public class PlayerHUDController : MonoBehaviour
             }
         }
         
+        // Host Migration 중이거나 Spawned 되지 않은 경우 네트워크 프로퍼티 접근 안함
+        if (!gameManager.IsReadyForNetworkAccess)
+        {
+            return;
+        }
+        
         // GameOver 상태이면 네트워크 프로퍼티 접근 안함 (씬 전환 대기 중)
         if (gameManager.GetGameState() == GameManagers.GameState.GameOver)
         {

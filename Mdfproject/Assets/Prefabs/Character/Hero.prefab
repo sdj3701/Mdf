@@ -123,6 +123,10 @@ MonoBehaviour:
   m_starLevel: 1
   _NetworkedHP: 0
   _NetworkedMaxHP: 0
+  _NetworkedIsDead:
+    _value: 0
+  _NetworkedIsAttacking:
+    _value: 0
   blockedMonsters: []
   enemyLayerMask:
     serializedVersion: 2
@@ -239,7 +243,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   SortKey: 2610181621
   ObjectInterest: 1
-  Flags: 262145
+  Flags: 1
   NestedObjects: []
   NetworkedBehaviours:
   - {fileID: -4950746016226421887}

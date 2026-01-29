@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using Fusion;
 using Fusion.Sockets;
 using UnityEngine;
@@ -69,6 +70,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             Instance = this;
             // 씬이 전환되어도 이 게임 오브젝트가 파괴되지 않도록 설정
             DontDestroyOnLoad(gameObject);
+            
+            // HostMigrationHandler 초기화 (Host Migration 지원을 위해 필수)
+            if (HostMigrationHandler.Instance == null)
+            {
+                gameObject.AddComponent<HostMigrationHandler>();
+            }
         }
         else
         {
@@ -163,6 +170,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         // StartGameArgs를 설정하여 게임을 시작합니다.
+        // 참고: Host Migration은 Fusion > Network Project Config에서 활성화해야 합니다.
         await _runner.StartGame(new StartGameArgs()
         {
             GameMode = mode,
@@ -170,7 +178,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             Scene = scene, // Fusion이 이 씬을 로드하도록 지정합니다.
             SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
             ObjectProvider = objectProvider,
-            PlayerCount = maxSessionPlayers // Inspector에서 설정한 최대 플레이어 수
+            PlayerCount = maxSessionPlayers, // Inspector에서 설정한 최대 플레이어 수
+            
+            // 플레이어 식별용 연결 토큰 (재참여 시 사용)
+            ConnectionToken = GetConnectionToken(),
         });
     }
 
@@ -358,6 +369,14 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
         Debug.Log("OnShutdown: " + shutdownReason);
+        
+        // Host Migration 중에는 Runner를 파괴하지 않음
+        if (HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating)
+        {
+            Debug.Log("[NetworkManager] Host Migration 진행 중 - Runner 유지");
+            return;
+        }
+        
         _state = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
         _sessionList.Clear(); // 방 목록 초기화
 
@@ -375,7 +394,25 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason) { }
-    public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
+    /// <summary>
+    /// Host가 나갔을 때 호출됩니다. Client 중 하나가 새 Host가 됩니다.
+    /// </summary>
+    public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken)
+    {
+        Debug.Log("<color=yellow>[NetworkManager] OnHostMigration 호출됨!</color>");
+        
+        // HostMigrationHandler에 처리 위임
+        if (HostMigrationHandler.Instance != null)
+        {
+            HostMigrationHandler.Instance.StartMigration(runner, hostMigrationToken);
+        }
+        else
+        {
+            Debug.LogError("[NetworkManager] HostMigrationHandler가 없습니다! Host Migration 실패.");
+            // 폴백: 로비로 돌아가기
+            LeaveAndLoad("MatchingLobby");
+        }
+    }
     public void OnInput(NetworkRunner runner, NetworkInput input) { }
     public void OnInputMissing(NetworkRunner runner, PlayerRef player, NetworkInput input) { }
     public void OnObjectEnterAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
@@ -388,9 +425,32 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     #endregion
 
     #region 외부 클래스 접근 함수
-    public void SetRunner()
+    
+    /// <summary>
+    /// 플레이어 고유 연결 토큰을 생성합니다. (재참여 식별용)
+    /// </summary>
+    private byte[] GetConnectionToken()
     {
-
+        // 유저 고유 ID 생성 또는 기존 ID 사용
+        string uniqueId = PlayerPrefs.GetString("PlayerUUID", "");
+        if (string.IsNullOrEmpty(uniqueId))
+        {
+            uniqueId = Guid.NewGuid().ToString();
+            PlayerPrefs.SetString("PlayerUUID", uniqueId);
+            PlayerPrefs.Save();
+        }
+        
+        return Encoding.UTF8.GetBytes(uniqueId);
+    }
+    
+    /// <summary>
+    /// Host Migration 후 새 Runner를 설정합니다.
+    /// </summary>
+    public void SetRunnerAfterMigration(NetworkRunner newRunner)
+    {
+        _runner = newRunner;
+        State = ConnectionState.InGame;
+        Debug.Log("[NetworkManager] Host Migration 후 새 Runner 설정 완료.");
     }
 
     // 외부 클래스에서 플레이어 몇명 생성 해야하는지 확인할 떄 필요한 함수

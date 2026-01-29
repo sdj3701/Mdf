@@ -99,6 +99,12 @@ public class GameManagers : NetworkBehaviour
     private GameObject localPlayerShopUIGameObject;
     private AugmentUIController augmentSelectionUI;
     private bool _isSpawned;
+    
+    /// <summary>
+    /// Host Migration 중 또는 Spawned 전에는 Networked 속성에 접근할 수 없습니다.
+    /// 이 프로퍼티로 안전하게 체크해서 접근하세요.
+    /// </summary>
+    public bool IsReadyForNetworkAccess => Object != null && Object.IsValid && _isSpawned;
 
     private bool hasCombatBeenShortened = false;
     private bool firstPrepareDurationUsed = false;
@@ -1328,7 +1334,18 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
-    public GameState GetGameState() => currentState;
+    /// <summary>
+    /// 현재 게임 상태를 반환합니다. Spawned 상태가 아니면 Setup을 반환합니다.
+    /// </summary>
+    public GameState GetGameState()
+    {
+        // Host Migration 중이거나 Spawned 되지 않은 경우 안전하게 기본값 반환
+        if (!IsReadyForNetworkAccess)
+        {
+            return GameState.Setup;
+        }
+        return currentState;
+    }
     public PlayerManager GetPlayer(int id) => AllPlayers.FirstOrDefault(p => p.playerId == id);
 
     public void OnMonsterReachedGoal(PlayerManager failedPlayer)
@@ -1405,5 +1422,85 @@ public class GameManagers : NetworkBehaviour
     }
     #endregion
 
+    #region Host Migration 지원
+    /// <summary>
+    /// Host Migration 후 게임 상태를 복원합니다.
+    /// Networked 속성들 (currentState, currentRound, phaseTimer)은 Fusion이 자동 복원합니다.
+    /// 이 메서드는 로컬 상태만 복원합니다.
+    /// </summary>
+    public void RestoreAfterHostMigration()
+    {
+        // Spawned 상태가 아니면 대기 후 재시도
+        if (!IsReadyForNetworkAccess)
+        {
+            Debug.LogWarning("[GameManagers] 아직 Spawned 상태가 아닙니다. 복원을 건너뜁니다.");
+            return;
+        }
+        
+        Debug.Log($"<color=cyan>[GameManagers] Host Migration 복원 시작 - Round: {currentRound}, State: {currentState}</color>");
+        
+        // 1. ChangeDetector 재초기화
+        if (Object != null)
+        {
+            _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+        }
+        
+        // 2. 로컬 플레이어 참조 재연결
+        RelinkLocalPlayer();
+        
+        // 3. CommandProcessor 재초기화 (필요한 경우)
+        if (CommandProcessor == null)
+        {
+            CommandProcessor = new CommandProcessor();
+        }
+        
+        // 4. UI 상태 복원
+        if (localPlayer != null)
+        {
+            HandleUIForNewState(currentState).Forget();
+        }
+        
+        // 5. 싱글톤 인스턴스 재설정
+        if (Instance == null || Instance != this)
+        {
+            Instance = this;
+        }
+        
+        Debug.Log($"<color=green>[GameManagers] Host Migration 복원 완료!</color>");
+    }
+    
+    /// <summary>
+    /// Host Migration 후 로컬 플레이어 참조를 다시 연결합니다.
+    /// </summary>
+    private void RelinkLocalPlayer()
+    {
+        // InputAuthority를 가진 플레이어 찾기
+        localPlayer = AllPlayers.FirstOrDefault(p => 
+            p != null && p.Object != null && p.Object.HasInputAuthority);
+        
+        if (localPlayer != null)
+        {
+            Debug.Log($"[GameManagers] 로컬 플레이어 재연결 성공: Player {localPlayer.playerId}");
+            
+            // opponentManager 재연결 (2인 게임의 경우)
+            var allPlayersList = AllPlayers.ToList();
+            if (allPlayersList.Count == 2)
+            {
+                var opponent = allPlayersList.FirstOrDefault(p => p != localPlayer);
+                if (opponent != null)
+                {
+                    localPlayer.opponentManager = opponent;
+                    opponent.opponentManager = localPlayer;
+                }
+            }
+        }
+        else
+        {
+            Debug.LogWarning("[GameManagers] 로컬 플레이어를 찾을 수 없습니다!");
+        }
+    }
+    #endregion
+
 
 }
+
