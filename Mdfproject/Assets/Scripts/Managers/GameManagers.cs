@@ -1136,29 +1136,18 @@ public class GameManagers : NetworkBehaviour
             {
                 if (isAttackerInThisBattle)
                 {
-                    // 공격자 역할
+                    // 공격자 역할: 기본 웨이브 + AttackMonsterPool 소환
                     player.RefreshAttackMonsterPool(currentRound, opponentId);
                     player.SetFightingState(true);
 
-                    // AI 공격자: 상대 필드에 자동 소환
-                    // 유저 공격자: 수동 소환 대기 (AttackSequenceManager에서 처리)
-                    bool isAI = ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString());
                     var opponent = AllPlayers.FirstOrDefault(p => p != null && p.playerId == opponentId);
+                    bool isAI = ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString());
                     
-                    if (isAI)
+                    if (player.monsterSpawner != null && opponent?.fieldManager != null)
                     {
-                        // AI는 AttackMonsterPool에서 순차적으로 자동 소환
-                        if (player.monsterSpawner != null && opponent?.fieldManager != null)
-                        {
-                            player.monsterSpawner.StartAutoSpawnFromPool(opponent.fieldManager).Forget();
-                            Debug.Log($"<color=orange>[StartBattle] AI Player {player.playerId}: 공격자 - 상대 Player {opponentId} 필드에 AttackMonsterPool 자동 소환</color>");
-                        }
-                    }
-                    else
-                    {
-                        // 유저 공격자: 수동 소환 모드 시작
-                        // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
-                        Debug.Log($"<color=green>[StartBattle] Player {player.playerId}: 공격자 (수동 소환 모드, 상대: Player {opponentId})</color>");
+                        // [공격자가 모든 몬스터 소환] 기본 웨이브 + 증강체 몬스터
+                        player.monsterSpawner.SpawnAllMonstersToTargetField(currentRound, opponent.fieldManager, isAI).Forget();
+                        Debug.Log($"<color=orange>[StartBattle] Player {player.playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
                     }
                 }
                 else

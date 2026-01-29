@@ -812,13 +812,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     #region 3단계 스탯 버프 메서드
     
     /// <summary>
-    /// [2단계] 증강체 효과를 Permanent 스탯에 적용합니다.
+    /// [2단계] 증강체/웨이브 스케일링을 Permanent 스탯에 적용합니다.
     /// 호출 후 Final 스탯도 자동 갱신됩니다.
+    /// 주의: 보스 몬스터도 적용받음 (버서커만 면역)
     /// </summary>
     public void ApplyAugmentBuffs(float healthMultiplier, float speedMultiplier, float damageMultiplier = 1f)
     {
-        // 보스는 모든 버프에 면역
-        if (_isBoss) return;
+        // 보스도 증강체/웨이브 스케일링은 적용받음 (버서커만 면역)
         
         // 2단계: Permanent = Base × 증강체 배수
         _permanentMaxHealth = _baseMaxHealth * healthMultiplier;

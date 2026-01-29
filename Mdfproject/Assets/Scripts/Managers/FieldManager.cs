@@ -2473,6 +2473,14 @@ public class FieldManager : MonoBehaviour
                     Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
                     SnapbackSelectedUnit(originalWorldPos);
                 }
+                // 죽은 유닛인 경우 UI 표시 건너뛰기
+                if (selectedUnit.IsDead)
+                {
+                    selectedUnit = null;
+                    selectedUnitNetworkTransform = null;
+                    isDragStarted = false;
+                    return;
+                }
                 ShowUnitDetailPanel(selectedUnit);
                 ShowUnitSellPanel(selectedUnit);
                 // 유닛이 서 있는 그리드에 벽이 있으면 벽 제거 패널도 표시
@@ -2492,6 +2500,9 @@ public class FieldManager : MonoBehaviour
 
     private async void ShowUnitDetailPanel(Unit unit)
     {
+        // 죽은 유닛인 경우 패널을 표시하지 않음
+        if (unit == null || unit.IsDead) return;
+
         // 패널 인스턴스가 없으면 UIManagers를 통해 가져옵니다.
         // 이는 씬에 미리 배치된 패널을 찾거나, 없을 경우 새로 생성하는 역할을 합니다.
         if (unitDetailPanelInstance == null)
@@ -2657,7 +2668,8 @@ public class FieldManager : MonoBehaviour
     /// </summary>
     public async void ShowRanges(Unit unit)
     {
-        if (unit == null) return;
+        // 유닛이 없거나 죽은 경우 범위 표시하지 않음
+        if (unit == null || unit.IsDead) return;
 
         ClearRanges();
 

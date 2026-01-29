@@ -20,6 +20,9 @@ public class MonsterSpawner : MonoBehaviour
 
     [Header("정리용 부모 오브젝트")]
     public Transform monsterParent;
+    
+    // 공격 시퀀스용 타겟 필드 (임시 저장)
+    private FieldManager _targetFieldManager;
 
     private bool _isSpawningWave = false;
 
@@ -227,28 +230,25 @@ public class MonsterSpawner : MonoBehaviour
                 
                 if (monster != null)
                 {
-                    // [2단계] 상대 증강체 + 웨이브 스케일링을 함께 적용 (영구 버프)
-                    // 순서: 증강체 배수 계산 → 웨이브 스케일링 곱하기
+                    // [2단계] 웨이브 스케일링 + 소환자 증강체 적용 (영구 버프)
+                    // 공격자가 소환하므로 자신(_playerManager)의 증강체 사용
                     float healthMult = autoHealthScale;
                     float speedMult = autoSpeedScale;
                     float damageMult = autoDamageScale;
                     
-                    // 상대(opponentManager)의 증강체 효과 누적
-                    if (_playerManager.opponentManager != null)
+                    // 소환자(공격자) 자신의 증강체 효과 누적
+                    foreach (var augment in _playerManager.chosenAugments)
                     {
-                        foreach (var augment in _playerManager.opponentManager.chosenAugments)
+                        if (augment.targetType == TargetType.Opponent)
                         {
-                            if (augment.targetType == TargetType.Opponent)
+                            switch(augment.effectType)
                             {
-                                switch(augment.effectType)
-                                {
-                                    case EffectType.IncreaseEnemyHealth:
-                                        healthMult += augment.value * autoHealthScale; // 웨이브 스케일링 기준으로 적용
-                                        break;
-                                    case EffectType.IncreaseEnemyMoveSpeed:
-                                        speedMult += augment.value * autoSpeedScale;
-                                        break;
-                                }
+                                case EffectType.IncreaseEnemyHealth:
+                                    healthMult += augment.value * autoHealthScale;
+                                    break;
+                                case EffectType.IncreaseEnemyMoveSpeed:
+                                    speedMult += augment.value * autoSpeedScale;
+                                    break;
                             }
                         }
                     }
@@ -749,9 +749,109 @@ public class MonsterSpawner : MonoBehaviour
                 // 소환 간격
                 await UniTask.Delay(300); // 0.3초 간격
             }
-        }
+    }
 
         Debug.Log($"<color=orange>[MonsterSpawner] AI 자동 소환 완료</color>");
+    }
+    
+    /// <summary>
+    /// 공격자가 수비자 필드에 몬스터를 소환합니다.
+    /// 기본 웨이브는 AttackMonsterPool에 포함되어 있으므로 별도 소환 불필요.
+    /// AI: AttackMonsterPool에서 순차 자동 소환
+    /// 유저: UI를 통해 AttackMonsterPool에서 수동 선택 소환
+    /// </summary>
+    /// <param name="round">현재 라운드</param>
+    /// <param name="targetFieldManager">수비자 필드</param>
+    /// <param name="isAI">AI 공격자 여부</param>
+    public async UniTask SpawnAllMonstersToTargetField(int round, FieldManager targetFieldManager, bool isAI)
+    {
+        if (targetFieldManager == null)
+        {
+            Debug.LogError("[MonsterSpawner] SpawnAllMonstersToTargetField: targetFieldManager가 null입니다!");
+            return;
+        }
+        
+        _targetFieldManager = targetFieldManager; // 임시 저장
+        
+        // AI만 AttackMonsterPool에서 자동 소환
+        // 유저는 UI를 통해 수동 소환 (기존 로직 유지)
+        if (isAI)
+        {
+            Debug.Log($"<color=cyan>[MonsterSpawner] AI 공격자: AttackMonsterPool 자동 소환 시작</color>");
+            await StartAutoSpawnFromPool(targetFieldManager);
+        }
+        else
+        {
+            // 유저 공격자: AttackMonsterPool은 UI를 통해 수동 선택
+            // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
+            Debug.Log($"<color=green>[MonsterSpawner] 유저 공격자: AttackMonsterPool 수동 소환 대기</color>");
+        }
+        
+        _targetFieldManager = null; // 정리
+    }
+    
+    /// <summary>
+    /// 기본 웨이브를 지정 위치에 소환합니다. (비동기)
+    /// </summary>
+    private async UniTask SpawnBaseWaveToPositionAsync(int round, RoundWaveData waveData, Vector3 spawnPosition, FieldManager targetFieldManager)
+    {
+        if (waveData.monsters == null || waveData.monsters.Count == 0)
+        {
+            Debug.LogWarning("[MonsterSpawner] 웨이브에 몬스터가 정의되지 않았습니다.");
+            return;
+        }
+        
+        // 자동 스케일링 배율 계산
+        float autoHealthScale = _waveDatabase.GetHealthScaleForRound(round);
+        float autoSpeedScale = _waveDatabase.GetSpeedScaleForRound(round);
+        float autoDamageScale = _waveDatabase.GetDamageScaleForRound(round);
+        
+        foreach (var entry in waveData.monsters)
+        {
+            if (entry == null || entry.monsterData == null) continue;
+            
+            for (int i = 0; i < entry.count; i++)
+            {
+                // 수비자 필드에 소환
+                var monster = await SpawnMonsterAtPositionAsync(
+                    entry.monsterData,
+                    spawnPosition,
+                    targetFieldManager,
+                    false, // isBoss
+                    -1,    // bossUniqueId
+                    _playerManager?.playerId ?? -1 // originPlayerId
+                );
+                
+                if (monster != null)
+                {
+                    // [2단계] 웨이브 스케일링 + 공격자 증강체 적용
+                    float healthMult = autoHealthScale;
+                    float speedMult = autoSpeedScale;
+                    float damageMult = autoDamageScale;
+                    
+                    // 소환자(공격자) 자신의 증강체 효과 누적
+                    foreach (var augment in _playerManager.chosenAugments)
+                    {
+                        if (augment.targetType == TargetType.Opponent)
+                        {
+                            switch(augment.effectType)
+                            {
+                                case EffectType.IncreaseEnemyHealth:
+                                    healthMult += augment.value * autoHealthScale;
+                                    break;
+                                case EffectType.IncreaseEnemyMoveSpeed:
+                                    speedMult += augment.value * autoSpeedScale;
+                                    break;
+                            }
+                        }
+                    }
+                    
+                    monster.ApplyAugmentBuffs(healthMult, speedMult, damageMult);
+                }
+                
+                await UniTask.Delay((int)(waveData.spawnInterval * 1000));
+            }
+        }
     }
     
     #endregion

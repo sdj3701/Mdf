@@ -30,7 +30,7 @@ public class UnitDetailPanelController : MonoBehaviour
     /// <param name="unit">정보를 표시할 유닛</param>
     public async void DisplayUnitInfo(Unit unit)
     {
-        if (unit == null || unit.Data == null)
+        if (unit == null || unit.IsDead || unit.Data == null)
         {
             Debug.LogError("UnitDetailPanel에 유효하지 않은 유닛 데이터가 전달되었습니다.");
             gameObject.SetActive(false);

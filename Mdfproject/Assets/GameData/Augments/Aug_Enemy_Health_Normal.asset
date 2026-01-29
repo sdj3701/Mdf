@@ -19,7 +19,7 @@ MonoBehaviour:
   tier: 0
   targetType: 1
   effectType: 4
-  value: 10.25
+  value: 0.25
   isBossSummon: 0
   bossMonsterData: {fileID: 0}
   monsterSpawnEntries: []
