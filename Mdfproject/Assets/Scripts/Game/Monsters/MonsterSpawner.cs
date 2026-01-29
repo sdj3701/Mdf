@@ -227,14 +227,34 @@ public class MonsterSpawner : MonoBehaviour
                 
                 if (monster != null)
                 {
-                    // 자동 스케일링 배율 적용 (1.0이 아닌 경우에만)
-                    if (autoHealthScale != 1f || autoSpeedScale != 1f || autoDamageScale != 1f)
+                    // [2단계] 상대 증강체 + 웨이브 스케일링을 함께 적용 (영구 버프)
+                    // 순서: 증강체 배수 계산 → 웨이브 스케일링 곱하기
+                    float healthMult = autoHealthScale;
+                    float speedMult = autoSpeedScale;
+                    float damageMult = autoDamageScale;
+                    
+                    // 상대(opponentManager)의 증강체 효과 누적
+                    if (_playerManager.opponentManager != null)
                     {
-                        monster.ApplyBuff(autoHealthScale, autoSpeedScale, autoDamageScale);
+                        foreach (var augment in _playerManager.opponentManager.chosenAugments)
+                        {
+                            if (augment.targetType == TargetType.Opponent)
+                            {
+                                switch(augment.effectType)
+                                {
+                                    case EffectType.IncreaseEnemyHealth:
+                                        healthMult += augment.value * autoHealthScale; // 웨이브 스케일링 기준으로 적용
+                                        break;
+                                    case EffectType.IncreaseEnemyMoveSpeed:
+                                        speedMult += augment.value * autoSpeedScale;
+                                        break;
+                                }
+                            }
+                        }
                     }
                     
-                    // 상대 증강에 의한 디버프 적용
-                    ApplyOpponentDebuffs(monster);
+                    // 최종 영구 버프 적용 (웨이브 + 증강체)
+                    monster.ApplyAugmentBuffs(healthMult, speedMult, damageMult);
                 }
 
                 yield return new WaitForSeconds(waveData.spawnInterval);
@@ -271,7 +291,44 @@ public class MonsterSpawner : MonoBehaviour
 
         if(healthMultiplier > 1f || speedMultiplier > 1f)
         {
-            monster.ApplyBuff(healthMultiplier, speedMultiplier);
+            monster.ApplyAugmentBuffs(healthMultiplier, speedMultiplier, 1f);
+        }
+    }
+
+    /// <summary>
+    /// 공격팀(소환자)의 몬스터 버프 증강체 효과를 적용합니다.
+    /// SpawnMonsterAtPositionAsync에서 호출됩니다.
+    /// </summary>
+    private void ApplyAttackerAugmentBuffs(Monster monster)
+    {
+        if (_playerManager == null) return;
+
+        float healthMultiplier = 1f;
+        float speedMultiplier = 1f;
+        float damageMultiplier = 1f;
+
+        foreach (var augment in _playerManager.chosenAugments)
+        {
+            // 상대 필드에 적용되는 몬스터 강화 증강체
+            if (augment.targetType == TargetType.Opponent)
+            {
+                switch(augment.effectType)
+                {
+                    case EffectType.IncreaseEnemyHealth:
+                        healthMultiplier += augment.value;
+                        break;
+                    case EffectType.IncreaseEnemyMoveSpeed:
+                        speedMultiplier += augment.value;
+                        break;
+                    // 추가 가능한 효과들...
+                }
+            }
+        }
+
+        if (healthMultiplier > 1f || speedMultiplier > 1f || damageMultiplier > 1f)
+        {
+            monster.ApplyAugmentBuffs(healthMultiplier, speedMultiplier, damageMultiplier);
+            Debug.Log($"<color=cyan>[MonsterSpawner] 공격팀 증강체 [2단계] 적용: HP x{healthMultiplier:F2}, Speed x{speedMultiplier:F2}</color>");
         }
     }
 
@@ -796,6 +853,9 @@ public class MonsterSpawner : MonoBehaviour
 
         // 몬스터 초기화 (상대 필드 목표 사용)
         monster.Initialize(targetFieldManager.playerManager, targetGoal, monsterData, targetGrid);
+        
+        // 공격팀(소환자)의 몬스터 버프 증강체 효과 적용
+        ApplyAttackerAugmentBuffs(monster);
         
         // 보스 플래그 설정
         if (isBoss)

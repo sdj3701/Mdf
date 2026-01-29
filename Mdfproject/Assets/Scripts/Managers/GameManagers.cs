@@ -1215,7 +1215,9 @@ public class GameManagers : NetworkBehaviour
 
     /// <summary>
     /// 폭주 모드를 트리거합니다. (전투 종료 5초 전)
-    /// 모든 메스터와 유닛에 공격속도/공격력 1.5배, 이동속도 2배 적용
+    /// 공격팀의 몬스터 + 수비팀의 유닛에 공격속도/공격력 1.5배, 이동속도 2배 적용
+    /// [중요] 공격팀이 소환한 몬스터는 수비팀의 필드(monsterParent)에 존재하므로,
+    ///        수비팀의 monsterSpawner에서 버프를 적용해야 합니다.
     /// </summary>
     private void TriggerBerserkMode()
     {
@@ -1224,8 +1226,18 @@ public class GameManagers : NetworkBehaviour
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
-            player.monsterSpawner?.ApplyBerserkModeToAllMonsters();
-            player.fieldManager?.ApplyBerserkModeToAllUnits();
+            if (!player.IsActivelyFighting) continue;  // 전투 중인 플레이어만
+            
+            bool isDefender = !player.IsAttackerInCurrentBattle;
+            
+            if (isDefender)
+            {
+                // 수비팀: 자신 필드의 몬스터(공격팀이 소환) + 유닛 모두에 버프 적용
+                player.monsterSpawner?.ApplyBerserkModeToAllMonsters();
+                player.fieldManager?.ApplyBerserkModeToAllUnits();
+                Debug.Log($"<color=red>[TriggerBerserkMode] Player {player.playerId}: 수비팀 - 몬스터+유닛 버서커 버프</color>");
+            }
+            // 공격팀은 자신의 필드에 전투가 없으므로 버프 적용 불필요
         }
     }
 

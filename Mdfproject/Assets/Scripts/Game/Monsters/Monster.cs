@@ -111,10 +111,47 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private Coroutine attackCoroutine;
     private static bool isQuitting = false;
     private bool isMoving = false;
-    private float baseMoveSpeed;
-    private float currentMoveSpeed;
-    private float currentAttackDamage; // 공격력 스케일링 지원
-    private float currentAttackSpeed;  // 공격속도 스케일링 지원
+    
+    #region 3단계 스탯 시스템
+    // ========================================
+    // 1단계: Base (MonsterData 기본값)
+    // ========================================
+    private float _baseMaxHealth;
+    private float _baseMoveSpeed;
+    private float _baseAttackDamage;
+    private float _baseAttackSpeed;
+    
+    // ========================================
+    // 2단계: Permanent (증강체 효과 적용)
+    // ========================================
+    private float _permanentMaxHealth;
+    private float _permanentMoveSpeed;
+    private float _permanentAttackDamage;
+    private float _permanentAttackSpeed;
+    
+    // ========================================
+    // 3단계: Final (버서커, 스킬 버프, 웨이브 스케일링)
+    // ========================================
+    private float _currentMoveSpeed;
+    private float _currentAttackDamage;
+    private float _currentAttackSpeed;
+    
+    // 공개 프로퍼티 (읽기 전용)
+    public float BaseMaxHealth => _baseMaxHealth;
+    public float BaseMoveSpeed => _baseMoveSpeed;
+    public float BaseAttackDamage => _baseAttackDamage;
+    public float BaseAttackSpeed => _baseAttackSpeed;
+    
+    public float PermanentMaxHealth => _permanentMaxHealth;
+    public float PermanentMoveSpeed => _permanentMoveSpeed;
+    public float PermanentAttackDamage => _permanentAttackDamage;
+    public float PermanentAttackSpeed => _permanentAttackSpeed;
+    
+    public float currentMoveSpeed => _currentMoveSpeed;
+    public float currentAttackDamage => _currentAttackDamage;
+    public float currentAttackSpeed => _currentAttackSpeed;
+    #endregion
+    
     private MonsterReleaseScheduler releaseScheduler;
     private Coroutine resumeCoroutine;
     private int currentBlockerId = 0;
@@ -277,10 +314,29 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         this.releaseScheduler = owner != null ? owner.GetComponentInChildren<MonsterReleaseScheduler>(true) : null;
         this.name = _monsterData.monsterName;
         this.wallLayerMask = pathfinder.wallLayers;
-        baseMoveSpeed = _monsterData.moveSpeed;
-        currentMoveSpeed = baseMoveSpeed;
-        currentAttackDamage = _monsterData.attackDamage; // 초기화
-        currentAttackSpeed = _monsterData.attackSpeed;   // 초기화
+        
+        // ========================================
+        // 1단계: Base 초기화 (MonsterData 기본값)
+        // ========================================
+        _baseMaxHealth = _monsterData.maxHealth;
+        _baseMoveSpeed = _monsterData.moveSpeed;
+        _baseAttackDamage = _monsterData.attackDamage;
+        _baseAttackSpeed = _monsterData.attackSpeed;
+        
+        // ========================================
+        // 2단계: Permanent 초기화 (증강체 적용 전 = Base와 동일)
+        // ========================================
+        _permanentMaxHealth = _baseMaxHealth;
+        _permanentMoveSpeed = _baseMoveSpeed;
+        _permanentAttackDamage = _baseAttackDamage;
+        _permanentAttackSpeed = _baseAttackSpeed;
+        
+        // ========================================
+        // 3단계: Final 초기화 (버프 적용 전 = Permanent와 동일)
+        // ========================================
+        _currentMoveSpeed = _permanentMoveSpeed;
+        _currentAttackDamage = _permanentAttackDamage;
+        _currentAttackSpeed = _permanentAttackSpeed;
 
         // [Fix] 오브젝트 재사용 시 이전 상태 초기화
         isBlocked = false;
@@ -493,9 +549,16 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             this.name = _monsterData.monsterName;
             this.wallLayerMask = pathfinder != null ? pathfinder.wallLayers : default;
-            baseMoveSpeed = _monsterData.moveSpeed;
-            currentMoveSpeed = baseMoveSpeed;
-            currentAttackDamage = _monsterData.attackDamage; // 초기화
+            // 클라이언트 초기화: 3단계 스탯 설정 (증강체/버프는 서버에서 동기화)
+            _baseMoveSpeed = _monsterData.moveSpeed;
+            _baseAttackDamage = _monsterData.attackDamage;
+            _baseAttackSpeed = _monsterData.attackSpeed;
+            _permanentMoveSpeed = _baseMoveSpeed;
+            _permanentAttackDamage = _baseAttackDamage;
+            _permanentAttackSpeed = _baseAttackSpeed;
+            _currentMoveSpeed = _permanentMoveSpeed;
+            _currentAttackDamage = _permanentAttackDamage;
+            _currentAttackSpeed = _permanentAttackSpeed;
             // currentMaxHP, currentHP는 설정하지 않음 - 서버에서 동기화된 NetworkedHP/NetworkedMaxHP 사용
         }
         
@@ -746,20 +809,65 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (currentHP <= 0) Die();
     }
 
+    #region 3단계 스탯 버프 메서드
+    
+    /// <summary>
+    /// [2단계] 증강체 효과를 Permanent 스탯에 적용합니다.
+    /// 호출 후 Final 스탯도 자동 갱신됩니다.
+    /// </summary>
+    public void ApplyAugmentBuffs(float healthMultiplier, float speedMultiplier, float damageMultiplier = 1f)
+    {
+        // 보스는 모든 버프에 면역
+        if (_isBoss) return;
+        
+        // 2단계: Permanent = Base × 증강체 배수
+        _permanentMaxHealth = _baseMaxHealth * healthMultiplier;
+        _permanentMoveSpeed = _baseMoveSpeed * speedMultiplier;
+        _permanentAttackDamage = _baseAttackDamage * damageMultiplier;
+        _permanentAttackSpeed = _baseAttackSpeed; // 공격속도 증강은 현재 없음
+        
+        // 3단계: Final = Permanent (버프 초기화)
+        RefreshFinalStats();
+        
+        // HP 비율 유지하면서 MaxHP 갱신
+        float healthPercentage = currentHP / currentMaxHP;
+        currentMaxHP = _permanentMaxHealth;
+        currentHP = currentMaxHP * healthPercentage;
+        
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
+        Debug.Log($"<color=cyan>[Monster] '{name}' 증강체 적용: HP {currentMaxHP:F0}, 속도 {_permanentMoveSpeed:F1}, 공격력 {_permanentAttackDamage:F1}</color>");
+    }
+    
+    /// <summary>
+    /// [3단계] 웨이브 스케일링 버프를 Final 스탯에 적용합니다. (기존 ApplyBuff 호환용)
+    /// </summary>
     public void ApplyBuff(float healthMultiplier, float speedMultiplier, float damageMultiplier = 1f)
     {
         // 보스는 모든 버프에 면역
         if (_isBoss) return;
         
+        // 3단계: Final = Permanent × 버프 배수
         float healthPercentage = currentHP / currentMaxHP;
-        currentMaxHP = _monsterData.maxHealth * healthMultiplier;
+        currentMaxHP = _permanentMaxHealth * healthMultiplier;
         currentHP = currentMaxHP * healthPercentage;
-        currentMoveSpeed = baseMoveSpeed * speedMultiplier;
-        currentAttackDamage = _monsterData.attackDamage * damageMultiplier; // 공격력 스케일링 적용
+        _currentMoveSpeed = _permanentMoveSpeed * speedMultiplier;
+        _currentAttackDamage = _permanentAttackDamage * damageMultiplier;
         
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-        Debug.Log($"<color=orange>{gameObject.name} 강화: HP {currentHP:F0}/{currentMaxHP:F0}, 속도 {currentMoveSpeed:F1}, 공격력 {currentAttackDamage:F1}</color>");
+        Debug.Log($"<color=orange>[Monster] '{name}' 웨이브 버프: HP {currentMaxHP:F0}, 속도 {_currentMoveSpeed:F1}, 공격력 {_currentAttackDamage:F1}</color>");
     }
+    
+    /// <summary>
+    /// Final 스탯을 Permanent 기준으로 초기화합니다. (버프 리셋)
+    /// </summary>
+    private void RefreshFinalStats()
+    {
+        _currentMoveSpeed = _permanentMoveSpeed;
+        _currentAttackDamage = _permanentAttackDamage;
+        _currentAttackSpeed = _permanentAttackSpeed;
+    }
+    
+    #endregion
 
     #region 보스 몬스터 메서드
     /// <summary>
@@ -1389,15 +1497,15 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// <param name="speedMultiplier">이동속도 배율 (1.0 = 기본, 0.5 = 50% 감소)</param>
     public void ApplyMoveSpeedModifier(float speedMultiplier)
     {
-        currentMoveSpeed = baseMoveSpeed * speedMultiplier;
+        _currentMoveSpeed = _permanentMoveSpeed * speedMultiplier;
         UpdateMoveAnimationSpeed(); // 애니메이션 속도도 업데이트
-        Debug.Log($"<color=cyan>[Monster] '{name}' 이동속도 변경: {currentMoveSpeed:F2} (x{speedMultiplier:F2})</color>");
+        Debug.Log($"<color=cyan>[Monster] '{name}' 이동속도 변경: {_currentMoveSpeed:F2} (x{speedMultiplier:F2})</color>");
     }
 
     /// <summary>
     /// 기본 이동속도를 반환합니다. (BuffManager 스탯 계산용)
     /// </summary>
-    public float GetBaseMoveSpeed() => baseMoveSpeed;
+    public float GetBaseMoveSpeed() => _permanentMoveSpeed;
 
     #endregion
 
@@ -1405,15 +1513,17 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     /// <summary>
     /// 폭주 모드를 적용합니다. (전투 종료 5초 전)
+    /// [수정] 기본값이 아닌 현재값 기준으로 배수 적용 (증강체 버프 유지)
     /// </summary>
     public void ApplyBerserkMode()
     {
         // 보스는 모든 버프에 면역
         if (_isBoss) return;
         
-        currentMoveSpeed = baseMoveSpeed * 2f;
-        currentAttackDamage = _monsterData.attackDamage * 1.5f;
-        currentAttackSpeed = _monsterData.attackSpeed * 1.5f;
+        // [3단계] Permanent 기준으로 버서커 배수 적용
+        _currentMoveSpeed = _permanentMoveSpeed * 2f;
+        _currentAttackDamage = _permanentAttackDamage * 1.5f;
+        _currentAttackSpeed = _permanentAttackSpeed * 1.5f;
         
         // 애니메이션 속도 업데이트
         UpdateMoveAnimationSpeed();
@@ -1475,7 +1585,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 네트워크 환경에서 클라이언트에게 이동 애니메이션 동기화
         if (Object != null && Runner != null && Runner.IsRunning && Object.HasStateAuthority)
         {
-            float speedRatio = (baseMoveSpeed > 0f) ? currentMoveSpeed / baseMoveSpeed : 1f;
+            float speedRatio = (_permanentMoveSpeed > 0f) ? _currentMoveSpeed / _permanentMoveSpeed : 1f;
             RPC_SetWalkingAnimation(isWalking, speedRatio);
         }
     }
@@ -1506,9 +1616,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private void UpdateMoveAnimationSpeed()
     {
         if (animator == null || string.IsNullOrEmpty(moveSpeedParam)) return;
-        if (baseMoveSpeed <= 0f) return;
+        if (_permanentMoveSpeed <= 0f) return;
         
-        float speedRatio = currentMoveSpeed / baseMoveSpeed;
+        float speedRatio = _currentMoveSpeed / _permanentMoveSpeed;
         animator.SetFloat(moveSpeedParam, speedRatio);
     }
 
