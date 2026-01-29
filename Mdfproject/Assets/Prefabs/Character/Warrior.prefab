@@ -1498,6 +1498,10 @@ MonoBehaviour:
   m_starLevel: 1
   _NetworkedHP: 0
   _NetworkedMaxHP: 0
+  _NetworkedIsDead:
+    _value: 0
+  _NetworkedIsAttacking:
+    _value: 0
   blockedMonsters: []
   enemyLayerMask:
     serializedVersion: 2
@@ -1521,8 +1525,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d2618c7a27fc7b449baf0693c04e7b8b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  currentMana: 0
-  maxMana: 0
 --- !u!114 &8600717809176061307
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1620,6 +1622,7 @@ MonoBehaviour:
   NestedObjects: []
   NetworkedBehaviours:
   - {fileID: 5549372104706249478}
+  - {fileID: 2084538407560891114}
   - {fileID: 7977580183871893373}
   ForceRemoteRenderTimeframe: 0
 --- !u!114 &7977580183871893373

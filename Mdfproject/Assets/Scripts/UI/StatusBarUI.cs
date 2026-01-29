@@ -265,7 +265,8 @@ public class StatusBarUI : MonoBehaviour
             bool isManualSkill = unitComponent.currentSkillActivationType == SkillActivationType.Manual;
             
             bool shouldShowButton = false;
-            if (isManualSkill && max > 0)
+            // [핵심 수정] 로컬 플레이어가 소유한 유닛에만 스킬 버튼 표시
+            if (isManualSkill && max > 0 && unitComponent.IsLocalPlayerOwned)
             {
                 bool isManaFull = current >= max;
                 shouldShowButton = isCombatPhase && isManaFull;
@@ -306,13 +307,30 @@ public class StatusBarUI : MonoBehaviour
                 skillIconImage.sprite = currentSkill.icon;
             }
             skillButton.onClick.RemoveAllListeners();
-            skillButton.onClick.AddListener(owner.ActivateSkill);
+            // [수정] 직접 호출 대신 커맨드 패턴으로 네트워크 동기화
+            skillButton.onClick.AddListener(() => RequestSkillActivation(owner));
         }
         else
         {
             if (graphicRaycaster != null) graphicRaycaster.enabled = false;
             skillButton.gameObject.SetActive(false);
         }
+    }
+
+    /// <summary>
+    /// 스킬 활성화를 커맨드 패턴으로 서버에 요청합니다.
+    /// </summary>
+    private void RequestSkillActivation(Unit owner)
+    {
+        if (owner == null || owner.Object == null) return;
+        if (owner.Owner == null) return;
+        
+        var gm = GameManagers.Instance;
+        if (gm == null || gm.CommandProcessor == null) return;
+        
+        uint networkId = owner.Object.Id.Raw;
+        var command = new ActivateSkillCommand(owner.Owner.playerId, networkId);
+        gm.CommandProcessor.RequestCommandExecution(command);
     }
 
     private Camera ResolveCamera()

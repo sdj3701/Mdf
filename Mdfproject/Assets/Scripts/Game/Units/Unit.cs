@@ -107,6 +107,38 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private ChangeDetector _changeDetector;
     private BuffManager _buffManager;
 
+    /// <summary>
+    /// 이 유닛의 소유자(PlayerManager)에 대한 외부 접근자.
+    /// StatusBarUI에서 커맨드 전송 시 playerId를 얻기 위해 사용됩니다.
+    /// </summary>
+    public PlayerManager Owner => owner;
+
+    /// <summary>
+    /// 이 유닛이 로컬 플레이어가 소유한 유닛인지 확인합니다.
+    /// 멀티플레이어에서 스킬 버튼 등 자신의 유닛에만 표시되어야 하는 UI에 사용합니다.
+    /// </summary>
+    public bool IsLocalPlayerOwned
+    {
+        get
+        {
+            if (owner == null) return false;
+            var gm = GameManagers.Instance;
+            if (gm == null) return false;
+            
+            // 방법 1: localPlayer 참조 비교
+            if (gm.localPlayer != null && gm.localPlayer == owner) return true;
+            
+            // 방법 2: playerId 비교 (객체가 다르지만 같은 플레이어일 경우)
+            if (gm.localPlayer != null && gm.localPlayer.playerId == owner.playerId) return true;
+            
+            // 방법 3: InputAuthority 확인 (Fusion 네트워크 권한)
+            if (owner.Object != null && owner.Object.HasInputAuthority) return true;
+            
+            return false;
+        }
+    }
+
+
     private struct PendingAttack
     {
         public NetworkObject Target;

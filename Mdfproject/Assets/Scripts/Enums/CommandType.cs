@@ -13,6 +13,8 @@ public enum CommandType
     SelectAugment = 7,
     SwapUnit = 8,
     SellUnit = 9,
+    ActivateSkill = 10,
+
 
     // ===== Sync Commands (100-199) =====
     // 서버 → 클라이언트 상태 동기화
