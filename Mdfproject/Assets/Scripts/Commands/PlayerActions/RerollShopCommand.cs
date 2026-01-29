@@ -32,7 +32,9 @@ public class RerollShopCommand : ICommand
         var items = player.shopManager.GetCurrentShopItems();
         string[] names = items.Select(i => i.UnitData?.name ?? "").ToArray();
         int[] stars = items.Select(i => i.StarLevel).ToArray();
+        #pragma warning disable CS0618 // Legacy RPC - 마이그레이션 대기 중
         player.RPC_SyncShopItems(names, stars);
+        #pragma warning restore CS0618
         
         Debug.Log($"[RerollShopCommand] Player {PlayerId}: 리롤 완료, {items.Count}개 아이템 동기화");
     }

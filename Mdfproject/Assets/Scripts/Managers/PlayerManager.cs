@@ -704,7 +704,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // 클라이언트에 동기화
         if (Object != null && Object.HasStateAuthority)
         {
+            #pragma warning disable CS0618 // Legacy RPC - 마이그레이션 대기 중
             RPC_SyncPermanentBonuses(permanentAttackDamagePercent, permanentAttackSpeedPercent);
+            #pragma warning restore CS0618
         }
     }
 
@@ -716,7 +718,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // 클라이언트에 동기화
         if (Object != null && Object.HasStateAuthority)
         {
+            #pragma warning disable CS0618 // Legacy RPC - 마이그레이션 대기 중
             RPC_SyncPermanentBonuses(permanentAttackDamagePercent, permanentAttackSpeedPercent);
+            #pragma warning restore CS0618
         }
     }
 

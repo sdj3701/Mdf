@@ -861,7 +861,15 @@ public class GameManagers : NetworkBehaviour
             UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
         }
         
-        // 2. 상점 UI 활성화
+        // 2. 상점 UI 활성화 - 준비 단계에서만 열도록 체크
+        // [버그 수정] 플레이어가 잠수해서 증강이 자동 선택된 경우, 이미 전투 상태일 수 있음
+        // 전투 중에는 상점 UI를 열지 않음
+        if (currentState != GameState.Prepare)
+        {
+            Debug.Log($"<color=yellow>[HandleAugmentChosen] 현재 {currentState} 상태이므로 상점 UI를 열지 않음 (잠수 플레이어 자동 선택)</color>");
+            return;
+        }
+        
         if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
         {
             Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 활성화</color>");

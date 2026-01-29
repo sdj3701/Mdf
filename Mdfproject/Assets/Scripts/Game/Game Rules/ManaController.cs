@@ -97,7 +97,7 @@ public class ManaController : NetworkBehaviour, IMana
         return false;
     }
 
-    private bool HasStateAuthority()
+    private new bool HasStateAuthority()
     {
         if (Object == null || Runner == null || !Runner.IsRunning)
         {

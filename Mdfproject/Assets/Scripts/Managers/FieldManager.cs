@@ -163,7 +163,7 @@ public class FieldManager : MonoBehaviour
     // AI 배치 디버그용 변수들
     private Dictionary<Vector3Int, float> _debugTileScores = new Dictionary<Vector3Int, float>();
     private Dictionary<Vector3Int, DebugScoreBreakdown> _debugScoreBreakdowns = new Dictionary<Vector3Int, DebugScoreBreakdown>();
-    private bool _showDebugScores = false;
+    // _showDebugScores 제거됨 (CS0414)
     private UnitData _debugUnitData;
 
     // 디버그용 점수 세부사항 구조체
@@ -1024,7 +1024,9 @@ public class FieldManager : MonoBehaviour
                 flat[i * 2] = selected[i].x;
                 flat[i * 2 + 1] = selected[i].y;
             }
+            #pragma warning disable CS0618 // Legacy RPC - 마이그레이션 대기 중
             playerManager.RPC_ApplyPermanentWalls(flat);
+            #pragma warning restore CS0618
         }
 
         permanentWallsGenerated = true;
@@ -1346,7 +1348,9 @@ public class FieldManager : MonoBehaviour
                 // 클라이언트들의 placedUnits 등록을 위해 브로드캐스트
                 if (playerManager != null)
                 {
+                    #pragma warning disable CS0618 // Legacy RPC - 마이그레이션 대기 중
                     playerManager.RPC_RegisterUnitAt(spawned.Id, gridPosition.x, gridPosition.y, data.name, starLevel);
+                    #pragma warning restore CS0618
                 }
             }
             else
@@ -1980,7 +1984,9 @@ public class FieldManager : MonoBehaviour
                 unitGO.transform.SetParent(unitParent, true);
             }
 
+            #pragma warning disable CS0618 // Legacy RPC - 마이그레이션 대기 중
             playerManager.RPC_RegisterUnitAt(spawnedNO.Id, currentPos.x, currentPos.y, unitData.name, newStarLevel);
+            #pragma warning restore CS0618
         }
         else
         {
@@ -2418,8 +2424,8 @@ public class FieldManager : MonoBehaviour
                     Unit target = GetUnitAt(bestGrid);
                     if (target != null)
                     {
-                        bool destWallForSelected = GetWallAt(bestGrid) != null;
-                        bool destWallForTarget = GetWallAt(originalUnitPosition) != null;
+                        bool destWallForSelected = HasWallAt(bestGrid);
+                        bool destWallForTarget = HasWallAt(originalUnitPosition);
                         bool invalidForSelected = selectedUnit.Data.unitType == UnitType.Melee && destWallForSelected;
                         bool invalidForTarget = target.Data.unitType == UnitType.Melee && destWallForTarget;
                         if (!invalidForSelected && !invalidForTarget)

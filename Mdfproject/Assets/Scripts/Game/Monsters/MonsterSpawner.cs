@@ -24,7 +24,7 @@ public class MonsterSpawner : MonoBehaviour
     // 공격 시퀀스용 타겟 필드 (임시 저장)
     private FieldManager _targetFieldManager;
 
-    private bool _isSpawningWave = false;
+    // _isSpawningWave 제거됨 (CS0414 - 사용되지 않음)
 
     #endregion
 
@@ -150,7 +150,7 @@ public class MonsterSpawner : MonoBehaviour
             yield break;
         }
 
-        _isSpawningWave = true;
+
         _playerManager.SetFightingState(true);
 
         int totalMonsters = waveData.GetTotalMonsterCount();
@@ -159,7 +159,7 @@ public class MonsterSpawner : MonoBehaviour
         // 기본 웨이브 몬스터만 소환 (증강, 보스 제외)
         yield return StartCoroutine(SpawnBaseWaveFromDataCoroutine(round, waveData));
 
-        _isSpawningWave = false;
+
     }
 
     /// <summary>
@@ -173,7 +173,7 @@ public class MonsterSpawner : MonoBehaviour
             yield break;
         }
 
-        _isSpawningWave = true;
+
         _playerManager.SetFightingState(true);
 
         int totalMonsters = waveData.GetTotalMonsterCount();
@@ -192,7 +192,7 @@ public class MonsterSpawner : MonoBehaviour
         // 3. 상대의 일반 몬스터 소환 증강에 의한 추가 몬스터 소환
         yield return StartCoroutine(SpawnAugmentMonstersCoroutine());
 
-        _isSpawningWave = false;
+
     }
 
     /// <summary>
