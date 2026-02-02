@@ -523,6 +523,10 @@
       <HintPath>Library\PackageCache\com.unity.collab-proxy@2.5.2\Lib\Editor\PlasticSCM\unityplastic.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>Library\PackageCache\com.unity.nuget.newtonsoft-json@3.2.1\Runtime\Newtonsoft.Json.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="Firebase.Editor">
       <HintPath>Assets\Firebase\Editor\Firebase.Editor.dll</HintPath>
       <Private>False</Private>
@@ -1323,9 +1327,18 @@
       <HintPath>Library\ScriptAssemblies\Unity.VisualScripting.State.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="Unity.Localization.Editor">
+      <HintPath>Library\ScriptAssemblies\Unity.Localization.Editor.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.Localization">
+      <HintPath>Library\ScriptAssemblies\Unity.Localization.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Assembly-CSharp.csproj" />
+    <ProjectReference Include="MCPForUnity.Runtime.csproj" />
     <ProjectReference Include="ToonyColorsPro.Demo.Editor.csproj" />
     <ProjectReference Include="Fusion.Unity.csproj" />
     <ProjectReference Include="Fusion.Unity.Editor.csproj" />
@@ -1333,6 +1346,7 @@
     <ProjectReference Include="ToonyColorsPro.Editor.csproj" />
     <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
     <ProjectReference Include="KinoBloom.Runtime.csproj" />
+    <ProjectReference Include="MCPForUnity.Editor.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <ItemGroup>
