@@ -117,6 +117,7 @@ public class GameManagers : NetworkBehaviour
 
     #region 전투 시퀀스 관련 필드
     /// <summary>
+    /// [더 이상 사용하지 않음 - 호환성을 위해 유지]
     /// 현재 라운드에서 선공(Battle1에서 공격)하는 플레이어 ID
     /// </summary>
     [Networked] public int FirstAttackerPlayerId { get; set; }
@@ -125,6 +126,12 @@ public class GameManagers : NetworkBehaviour
     /// 라운드별 매칭된 상대 정보. Key: PlayerId, Value: OpponentPlayerId (-1이면 상대 없음)
     /// </summary>
     private Dictionary<int, int> _battleOpponents = new Dictionary<int, int>();
+    
+    /// <summary>
+    /// 각 플레이어별 매칭에서의 선공자 ID. Key: PlayerId, Value: FirstAttackerPlayerId in this match
+    /// 각 매칭 쌍마다 독립적으로 선공자를 랜덤으로 결정하여 공정성 보장
+    /// </summary>
+    private Dictionary<int, int> _matchFirstAttacker = new Dictionary<int, int>();
     #endregion
 
     /// <summary>
@@ -1042,7 +1049,7 @@ public class GameManagers : NetworkBehaviour
         StartBattleForPlayers(isFirstBattle: true);
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
-        Debug.Log($"<color=cyan>[GameManagers] Battle1 시작! 선공자: Player {FirstAttackerPlayerId}</color>");
+        Debug.Log($"<color=cyan>[GameManagers] Battle1 시작! 각 매칭마다 선공자 랜덤 결정됨</color>");
     }
 
     /// <summary>
@@ -1080,10 +1087,12 @@ public class GameManagers : NetworkBehaviour
     /// 라운드별 상대 매칭을 수행합니다.
     /// 2명 플레이어: 서로 상대
     /// 3명+ 플레이어: 2명씩 페어링, 홀수인 경우 1명은 상대 없음
+    /// 각 매칭마다 독립적으로 선공자를 랜덤 결정하여 공정성 보장
     /// </summary>
     private void AssignBattleOpponents()
     {
         _battleOpponents.Clear();
+        _matchFirstAttacker.Clear();
         
         var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
         
@@ -1098,22 +1107,41 @@ public class GameManagers : NetworkBehaviour
             alivePlayers[j] = temp;
         }
 
-        // 선공 플레이어 결정 (라운드마다 교대)
-        FirstAttackerPlayerId = alivePlayers[currentRound % alivePlayers.Count].playerId;
-
-        // 2명씩 매칭
+        // 2명씩 매칭하고, 각 매칭마다 선공자 랜덤 결정
         for (int i = 0; i < alivePlayers.Count; i += 2)
         {
             if (i + 1 < alivePlayers.Count)
             {
+                var player1 = alivePlayers[i];
+                var player2 = alivePlayers[i + 1];
+                
                 // 양쪽 서로 상대로 지정
-                _battleOpponents[alivePlayers[i].playerId] = alivePlayers[i + 1].playerId;
-                _battleOpponents[alivePlayers[i + 1].playerId] = alivePlayers[i].playerId;
+                _battleOpponents[player1.playerId] = player2.playerId;
+                _battleOpponents[player2.playerId] = player1.playerId;
+                
+                // 이 매칭의 선공자를 50% 확률로 랜덤 결정
+                bool player1IsFirstAttacker = UnityEngine.Random.value > 0.5f;
+                int matchFirstAttackerId = player1IsFirstAttacker ? player1.playerId : player2.playerId;
+                
+                // 양쪽 플레이어에게 이 매칭의 선공자 ID 저장
+                _matchFirstAttacker[player1.playerId] = matchFirstAttackerId;
+                _matchFirstAttacker[player2.playerId] = matchFirstAttackerId;
+                
+                // [호환성] 첫 번째 매칭의 선공자를 FirstAttackerPlayerId에 저장 (디버그 로그용)
+                if (i == 0)
+                {
+                    FirstAttackerPlayerId = matchFirstAttackerId;
+                }
+                
+                Debug.Log($"<color=yellow>[AssignBattleOpponents] 매칭: P{player1.playerId} vs P{player2.playerId}, 선공자: P{matchFirstAttackerId}</color>");
             }
             else
             {
                 // 홀수: 마지막 사람은 상대 없음
                 _battleOpponents[alivePlayers[i].playerId] = -1;
+                _matchFirstAttacker[alivePlayers[i].playerId] = -1; // 상대 없으면 선공자도 없음
+                
+                Debug.Log($"<color=gray>[AssignBattleOpponents] P{alivePlayers[i].playerId}: 상대 없음 (혼자)</color>");
             }
         }
 
@@ -1123,7 +1151,7 @@ public class GameManagers : NetworkBehaviour
     /// <summary>
     /// 전투를 시작합니다. 공격자는 수동 소환 대기, 수비자는 웨이브 자동 스폰.
     /// </summary>
-    /// <param name="isFirstBattle">true면 Battle1 (선공자 공격), false면 Battle2 (후공자 공격)</param>
+    /// <param name="isFirstBattle">true면 Battle1 (매칭별 선공자 공격), false면 Battle2 (매칭별 후공자 공격)</param>
     private void StartBattleForPlayers(bool isFirstBattle)
     {
         foreach (var player in AllPlayers)
@@ -1133,9 +1161,12 @@ public class GameManagers : NetworkBehaviour
             int opponentId = _battleOpponents.TryGetValue(player.playerId, out int oppId) ? oppId : -1;
             bool hasOpponent = opponentId != -1;
 
-            // Battle1: 선공자(FirstAttackerPlayerId)가 공격자
-            // Battle2: 선공자가 수비자 (역할 교체)
-            bool isAttackerFirstBattle = player.playerId == FirstAttackerPlayerId;
+            // 이 플레이어의 매칭에서 선공자가 누구인지 확인
+            int matchFirstAttackerId = _matchFirstAttacker.TryGetValue(player.playerId, out int firstId) ? firstId : -1;
+            
+            // Battle1: 매칭별 선공자가 공격자
+            // Battle2: 매칭별 선공자가 수비자 (역할 교체)
+            bool isAttackerFirstBattle = player.playerId == matchFirstAttackerId;
             bool isAttackerInThisBattle = isFirstBattle ? isAttackerFirstBattle : !isAttackerFirstBattle;
 
             player.IsAttackerInCurrentBattle = isAttackerInThisBattle;

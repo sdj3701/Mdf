@@ -140,8 +140,8 @@ MonoBehaviour:
     y: 0
     width: 462
     height: 939
-  m_MinSize: {x: 101, y: 121}
-  m_MaxSize: {x: 4001, y: 4021}
+  m_MinSize: {x: 100, y: 100}
+  m_MaxSize: {x: 4000, y: 4000}
   m_ActualView: {fileID: 4}
   m_Panes:
   - {fileID: 4}
@@ -353,7 +353,7 @@ MonoBehaviour:
       floating: 0
       collapsed: 0
       displayed: 0
-      snapOffset: {x: 0, y: 0}
+      snapOffset: {x: 0, y: 25}
       snapOffsetDelta: {x: 0, y: 0}
       snapCorner: 0
       id: Scene View/Camera
@@ -797,7 +797,7 @@ MonoBehaviour:
   m_MinSize: {x: 100, y: 200}
   m_MaxSize: {x: 8096, y: 16192}
   vertical: 1
-  controlID: 1137
+  controlID: 3115
 --- !u!114 &13
 MonoBehaviour:
   m_ObjectHideFlags: 52
@@ -857,9 +857,9 @@ MonoBehaviour:
   m_SceneHierarchy:
     m_TreeViewState:
       scrollPos: {x: 0, y: 0}
-      m_SelectedIDs: d0de0000
+      m_SelectedIDs: 
       m_LastClickedID: 0
-      m_ExpandedIDs: 78b5feff
+      m_ExpandedIDs: e4b5fcffbcb6fcff08bbfcff1ebbfcff38bbfcff4cbbfcffdeacfdff78b5feff
       m_RenameOverlay:
         m_UserAcceptedRename: 0
         m_Name: 
@@ -950,23 +950,23 @@ MonoBehaviour:
     m_SkipHidden: 0
     m_SearchArea: 1
     m_Folders:
-    - Assets/Resource/Image/Portrait/Unit
+    - Assets/AddressableAssetsData
     m_Globs: []
     m_OriginalText: 
     m_FilterByTypeIntersection: 0
   m_ViewMode: 1
   m_StartGridSize: 16
   m_LastFolders:
-  - Assets/Resource/Image/Portrait/Unit
+  - Assets/AddressableAssetsData
   m_LastFoldersGridSize: 16
   m_LastProjectPath: E:\UnityProjects\mdf\Mdfproject
   m_LockTracker:
     m_IsLocked: 0
   m_FolderTreeState:
-    scrollPos: {x: 0, y: 74}
-    m_SelectedIDs: 18a90200
-    m_LastClickedID: 174360
-    m_ExpandedIDs: 00000000ce5c0200d05c0200d25c0200d45c0200d65c0200d85c0200da5c0200dc5c0200de5c0200e05c0200e25c0200e45c0200e65c0200e85c0200ea5c0200ec5c0200ee5c0200f05c0200f25c0200f45c0200f65c0200f85c0200fa5c0200025d02000c5d0200185d02002a5d0200d88f0200da8f0200dc8f0200de8f0200e08f02000aa90200
+    scrollPos: {x: 0, y: 0}
+    m_SelectedIDs: 025d0200
+    m_LastClickedID: 154882
+    m_ExpandedIDs: 00000000ce5c0200d05c0200d25c0200d45c0200d65c0200d85c0200da5c0200dc5c0200de5c0200e05c0200e25c0200e45c0200e65c0200e85c0200ea5c0200ec5c0200ee5c0200f05c0200f25c0200f45c0200f65c0200f85c0200fa5c0200025d02002a5d020084800200d88f0200da8f0200dc8f0200de8f0200e08f02000aa9020038cf020052cf0200
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -994,7 +994,7 @@ MonoBehaviour:
     scrollPos: {x: 0, y: 0}
     m_SelectedIDs: 
     m_LastClickedID: 0
-    m_ExpandedIDs: 00000000ce5c0200d05c0200d25c0200d45c0200d65c0200d85c0200da5c0200dc5c0200de5c0200e05c0200e25c0200e45c0200e65c0200e85c0200ea5c0200ec5c0200ee5c0200f05c0200f25c0200f45c0200f65c0200f85c0200fa5c0200
+    m_ExpandedIDs: 00000000ce5c0200d05c0200d25c0200d45c0200d65c0200d85c0200da5c0200dc5c0200de5c0200e05c0200e25c0200e45c0200e65c0200e85c0200ea5c0200ec5c0200ee5c0200f05c0200f25c0200f45c0200f65c0200f85c0200fa5c0200185d0200d88f0200da8f0200dc8f0200de8f0200e08f0200
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -1019,9 +1019,9 @@ MonoBehaviour:
       m_Icon: {fileID: 0}
       m_ResourceFile: 
   m_ListAreaState:
-    m_SelectedInstanceIDs: d0de0000
-    m_LastClickedInstanceID: 57040
-    m_HadKeyboardFocusLastEvent: 1
+    m_SelectedInstanceIDs: 
+    m_LastClickedInstanceID: 0
+    m_HadKeyboardFocusLastEvent: 0
     m_ExpandedInstanceIDs: b4a0020066a30000dac00000f6c40000a6820000669f00002e1901000e190100e2180100aa1801000ce600004ce800000ee800006ad000002cd000008ad00000c8d00000e8d000000ed100002ed1000052d1000002890000d01b01000e8900002aa4000096a30000d0de0000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
