@@ -20,6 +20,9 @@ MonoBehaviour:
   attackSpeed: 1.5
   attackRange: 0
   damageType: 0
+  attackType: 0
+  projectilePrefab: 
+  projectileSpeed: 20
   maxHealth: 45
   defense: 0
   magicResistance: 0

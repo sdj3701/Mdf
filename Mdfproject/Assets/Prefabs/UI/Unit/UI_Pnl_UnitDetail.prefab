@@ -3891,8 +3891,6 @@ MonoBehaviour:
   manaRegenText: {fileID: 762962542980830407}
   skillDescriptionText: {fileID: 6865810972061457112}
   skillActivationToggle: {fileID: 1519975380095538446}
-  sellButton: {fileID: 0}
-  sellPriceText: {fileID: 0}
 --- !u!1 &8826233836817898403
 GameObject:
   m_ObjectHideFlags: 0

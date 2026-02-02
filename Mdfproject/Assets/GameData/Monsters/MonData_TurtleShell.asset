@@ -20,8 +20,12 @@ MonoBehaviour:
   attackSpeed: 0.6
   attackRange: 0
   damageType: 0
+  attackType: 0
+  projectilePrefab: 
+  projectileSpeed: 20
   maxHealth: 100
   defense: 8
   magicResistance: 0
   moveSpeed: 0.8
+  traits: 0
   skillData: {fileID: 0}

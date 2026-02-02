@@ -107,8 +107,8 @@ public class BuffManager : MonoBehaviour
     {
         if (_unit != null)
         {
-            float baseAttackDamage = _unit.GetPermanentAdjustedBaseAttackDamage();
-            float baseAttackSpeed = _unit.GetPermanentAdjustedBaseAttackSpeed();
+            float baseAttackDamage = _unit.PermanentAttackDamage;
+            float baseAttackSpeed = _unit.PermanentAttackSpeed;
             float attackDamageBonus = 0;
             float attackSpeedBonusPercent = 0;
 

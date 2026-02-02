@@ -44,6 +44,10 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 79f89cde8fbf51d45a32accc62b0d055, type: 2}
   - {fileID: 11400000, guid: e789eb02bc22a324ebc18e265752883a, type: 2}
   - {fileID: 11400000, guid: 22f3d4e5e2a067f43b83a57537f69368, type: 2}
+  - {fileID: 11400000, guid: 2b1780730767e2b479e939eccd65b42e, type: 2}
+  - {fileID: 11400000, guid: 6c680c6581adace4083d14a9543cdbbe, type: 2}
+  - {fileID: 11400000, guid: 976fecd8cb2f4854daf721a93732b8b5, type: 2}
+  - {fileID: 11400000, guid: d13899aee1c0b874284edebb996a4e30, type: 2}
   m_BuildSettings:
     m_CompileScriptsInVirtualMode: 0
     m_CleanupStreamingAssetsAfterBuilds: 1
@@ -100,6 +104,10 @@ MonoBehaviour:
     - TileBase
     - WaveData
     - MonsterPortrait
+    - Locale
+    - Locale-en-US
+    - Preload
+    - Locale-ko-KR
   m_SchemaTemplates: []
   m_GroupTemplateObjects:
   - {fileID: 11400000, guid: 296fe4b267b8c2b49955d16e6a872c12, type: 2}

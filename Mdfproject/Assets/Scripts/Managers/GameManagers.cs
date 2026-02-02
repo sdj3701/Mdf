@@ -861,7 +861,15 @@ public class GameManagers : NetworkBehaviour
             UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
         }
         
-        // 2. 상점 UI 활성화
+        // 2. 상점 UI 활성화 - 준비 단계에서만 열도록 체크
+        // [버그 수정] 플레이어가 잠수해서 증강이 자동 선택된 경우, 이미 전투 상태일 수 있음
+        // 전투 중에는 상점 UI를 열지 않음
+        if (currentState != GameState.Prepare)
+        {
+            Debug.Log($"<color=yellow>[HandleAugmentChosen] 현재 {currentState} 상태이므로 상점 UI를 열지 않음 (잠수 플레이어 자동 선택)</color>");
+            return;
+        }
+        
         if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
         {
             Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 활성화</color>");
@@ -1136,29 +1144,18 @@ public class GameManagers : NetworkBehaviour
             {
                 if (isAttackerInThisBattle)
                 {
-                    // 공격자 역할
+                    // 공격자 역할: 기본 웨이브 + AttackMonsterPool 소환
                     player.RefreshAttackMonsterPool(currentRound, opponentId);
                     player.SetFightingState(true);
 
-                    // AI 공격자: 상대 필드에 자동 소환
-                    // 유저 공격자: 수동 소환 대기 (AttackSequenceManager에서 처리)
-                    bool isAI = ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString());
                     var opponent = AllPlayers.FirstOrDefault(p => p != null && p.playerId == opponentId);
+                    bool isAI = ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString());
                     
-                    if (isAI)
+                    if (player.monsterSpawner != null && opponent?.fieldManager != null)
                     {
-                        // AI는 AttackMonsterPool에서 순차적으로 자동 소환
-                        if (player.monsterSpawner != null && opponent?.fieldManager != null)
-                        {
-                            player.monsterSpawner.StartAutoSpawnFromPool(opponent.fieldManager).Forget();
-                            Debug.Log($"<color=orange>[StartBattle] AI Player {player.playerId}: 공격자 - 상대 Player {opponentId} 필드에 AttackMonsterPool 자동 소환</color>");
-                        }
-                    }
-                    else
-                    {
-                        // 유저 공격자: 수동 소환 모드 시작
-                        // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
-                        Debug.Log($"<color=green>[StartBattle] Player {player.playerId}: 공격자 (수동 소환 모드, 상대: Player {opponentId})</color>");
+                        // [공격자가 모든 몬스터 소환] 기본 웨이브 + 증강체 몬스터
+                        player.monsterSpawner.SpawnAllMonstersToTargetField(currentRound, opponent.fieldManager, isAI).Forget();
+                        Debug.Log($"<color=orange>[StartBattle] Player {player.playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
                     }
                 }
                 else
@@ -1215,7 +1212,9 @@ public class GameManagers : NetworkBehaviour
 
     /// <summary>
     /// 폭주 모드를 트리거합니다. (전투 종료 5초 전)
-    /// 모든 메스터와 유닛에 공격속도/공격력 1.5배, 이동속도 2배 적용
+    /// 공격팀의 몬스터 + 수비팀의 유닛에 공격속도/공격력 1.5배, 이동속도 2배 적용
+    /// [중요] 공격팀이 소환한 몬스터는 수비팀의 필드(monsterParent)에 존재하므로,
+    ///        수비팀의 monsterSpawner에서 버프를 적용해야 합니다.
     /// </summary>
     private void TriggerBerserkMode()
     {
@@ -1224,8 +1223,18 @@ public class GameManagers : NetworkBehaviour
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
-            player.monsterSpawner?.ApplyBerserkModeToAllMonsters();
-            player.fieldManager?.ApplyBerserkModeToAllUnits();
+            if (!player.IsActivelyFighting) continue;  // 전투 중인 플레이어만
+            
+            bool isDefender = !player.IsAttackerInCurrentBattle;
+            
+            if (isDefender)
+            {
+                // 수비팀: 자신 필드의 몬스터(공격팀이 소환) + 유닛 모두에 버프 적용
+                player.monsterSpawner?.ApplyBerserkModeToAllMonsters();
+                player.fieldManager?.ApplyBerserkModeToAllUnits();
+                Debug.Log($"<color=red>[TriggerBerserkMode] Player {player.playerId}: 수비팀 - 몬스터+유닛 버서커 버프</color>");
+            }
+            // 공격팀은 자신의 필드에 전투가 없으므로 버프 적용 불필요
         }
     }
 

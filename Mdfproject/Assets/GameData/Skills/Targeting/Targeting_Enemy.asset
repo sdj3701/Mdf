@@ -12,4 +12,3 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 19b56f3e6ea35ae4798311ab63589360, type: 3}
   m_Name: Targeting_Enemy
   m_EditorClassIdentifier: 
-  radius: 5

@@ -77,16 +77,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
-  - m_GUID: 677b8480bf63037499a7e15aa29695ec
-    m_Address: BreakWall
-    m_ReadOnly: 0
-    m_SerializedLabels:
-    - TileBase
-  - m_GUID: 619dde12077e168499d7ebc380344c79
-    m_Address: Spr_Port_Warrior
-    m_ReadOnly: 0
-    m_SerializedLabels:
-    - CharacterSprite
   - m_GUID: 4c6372d922041704baa139ba979b9205
     m_Address: Hero
     m_ReadOnly: 0
@@ -117,11 +107,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UI
-  - m_GUID: a311745136f3110429e1f14b2e628a0e
-    m_Address: Spr_Port_Archer
-    m_ReadOnly: 0
-    m_SerializedLabels:
-    - CharacterSprite
   - m_GUID: 0336ce3939b88d84baa6095048c203eb
     m_Address: DestructibleWallPrefab
     m_ReadOnly: 0
@@ -332,11 +317,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - SkillData
-  - m_GUID: 00590282d59019f49a8ca4cf02a99f77
-    m_Address: Spr_Port_Orc
-    m_ReadOnly: 0
-    m_SerializedLabels:
-    - MonsterPortrait
   - m_GUID: bf572c069c8749f4f8a01c64f98f463f
     m_Address: UI_Pnl_MonsterSlotUI
     m_ReadOnly: 0

@@ -70,11 +70,45 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
     }
 
-    public float currentAttackDamage { get; private set; }
-    public float currentAttackSpeed { get; private set; }
-    public float currentAttackRange { get; private set; }
-    public float currentDefense { get; private set; }
-    public float currentMagicResistance { get; private set; }
+    // === 핵심 스탯 (Networked - 호스트/클라이언트 동기화) ===
+    [Networked] private float _networkedAttackDamage { get; set; }
+    [Networked] private float _networkedAttackSpeed { get; set; }
+    [Networked] private float _networkedAttackRange { get; set; }
+    [Networked] private float _networkedDefense { get; set; }
+    [Networked] private float _networkedMagicResistance { get; set; }
+
+    // 로컬 폴백 값 (네트워크 미연결 시 사용)
+    private float _localAttackDamage;
+    private float _localAttackSpeed;
+    private float _localAttackRange;
+    private float _localDefense;
+    private float _localMagicResistance;
+
+    // === 최종 스탯 프로퍼티 (3단계: 버프 적용된 최종값) ===
+    public float currentAttackDamage => _hasSpawned ? _networkedAttackDamage : _localAttackDamage;
+    public float currentAttackSpeed => _hasSpawned ? _networkedAttackSpeed : _localAttackSpeed;
+    public float currentAttackRange => _hasSpawned ? _networkedAttackRange : _localAttackRange;
+    public float currentDefense => _hasSpawned ? _networkedDefense : _localDefense;
+    public float currentMagicResistance => _hasSpawned ? _networkedMagicResistance : _localMagicResistance;
+
+    #region 3단계 스탯 시스템
+    // 1단계: 기본 스탯 (UnitData + 성급 배수)
+    public float BaseAttackDamage => unitData != null ? unitData.baseAttackDamage * Mathf.Pow(1.8f, starLevel - 1) : 0f;
+    public float BaseAttackSpeed => unitData?.attackSpeed ?? 0f;
+    public float BaseAttackRange => unitData?.attackRange ?? 0f;
+    public float BaseDefense => unitData?.defense ?? 0f;
+    public float BaseMagicResistance => unitData?.magicResistance ?? 0f;
+
+    // 2단계: 영구 효과 적용 스탯 (증강체 등)
+    private float PermanentDamageBonus => owner?.permanentAttackDamagePercent ?? 0f;
+    private float PermanentSpeedBonus => owner?.permanentAttackSpeedPercent ?? 0f;
+    public float PermanentAttackDamage => BaseAttackDamage * (1f + PermanentDamageBonus);
+    public float PermanentAttackSpeed => BaseAttackSpeed * (1f + PermanentSpeedBonus);
+    // 공격범위, 방어력, 마저는 현재 영구 버프 없음
+    public float PermanentAttackRange => BaseAttackRange;
+    public float PermanentDefense => BaseDefense;
+    public float PermanentMagicResistance => BaseMagicResistance;
+    #endregion
     
     public SkillActivationType currentSkillActivationType { get; set; }
     private SkillData _loadedSkillData;
@@ -106,6 +140,38 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private Coroutine _skillCastingRoutine;
     private ChangeDetector _changeDetector;
     private BuffManager _buffManager;
+
+    /// <summary>
+    /// 이 유닛의 소유자(PlayerManager)에 대한 외부 접근자.
+    /// StatusBarUI에서 커맨드 전송 시 playerId를 얻기 위해 사용됩니다.
+    /// </summary>
+    public PlayerManager Owner => owner;
+
+    /// <summary>
+    /// 이 유닛이 로컬 플레이어가 소유한 유닛인지 확인합니다.
+    /// 멀티플레이어에서 스킬 버튼 등 자신의 유닛에만 표시되어야 하는 UI에 사용합니다.
+    /// </summary>
+    public bool IsLocalPlayerOwned
+    {
+        get
+        {
+            if (owner == null) return false;
+            var gm = GameManagers.Instance;
+            if (gm == null) return false;
+            
+            // 방법 1: localPlayer 참조 비교
+            if (gm.localPlayer != null && gm.localPlayer == owner) return true;
+            
+            // 방법 2: playerId 비교 (객체가 다르지만 같은 플레이어일 경우)
+            if (gm.localPlayer != null && gm.localPlayer.playerId == owner.playerId) return true;
+            
+            // 방법 3: InputAuthority 확인 (Fusion 네트워크 권한)
+            if (owner.Object != null && owner.Object.HasInputAuthority) return true;
+            
+            return false;
+        }
+    }
+
 
     private struct PendingAttack
     {
@@ -460,8 +526,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             buffManager.RecalculateStats();
             return;
         }
-        float baseDmg = GetPermanentAdjustedBaseAttackDamage();
-        float baseSpd = GetPermanentAdjustedBaseAttackSpeed();
+        float baseDmg = PermanentAttackDamage;
+        float baseSpd = PermanentAttackSpeed;
         ApplyStatModifiers(baseDmg, baseSpd);
     }
 
@@ -619,6 +685,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             
             // 폭주 모드 해제
             ClearBerserkMode();
+            
+            // [안전장치] 준비 시퀀스 진입 시 모든 일시 버프 해제 후 2단계(Permanent) 스탯으로 초기화
+            ResetToPermanentStats();
         }
     }
 
@@ -630,11 +699,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         maxHP = unitData.baseHealth * statMultiplier;
         currentHP = maxHP;
         OnHealthChanged?.Invoke(currentHP, maxHP);
-        currentAttackDamage = GetPermanentAdjustedBaseAttackDamage();
-        currentAttackSpeed = GetPermanentAdjustedBaseAttackSpeed();
-        currentAttackRange = unitData.attackRange;
-        currentDefense = unitData.defense;
-        currentMagicResistance = unitData.magicResistance;
+        // 스탯 초기화 (Networked 값 설정)
+        SetStatsDirect(
+            PermanentAttackDamage,
+            PermanentAttackSpeed,
+            PermanentAttackRange,
+            PermanentDefense,
+            PermanentMagicResistance
+        );
 
         int newMaxMana = 0;
         
@@ -1405,8 +1477,63 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     public void ApplyStatModifiers(float attackDamage, float attackSpeed)
     {
-        this.currentAttackDamage = attackDamage;
-        this.currentAttackSpeed = attackSpeed;
+        if (HasStateAuthorityOrNoNetwork())
+        {
+            _networkedAttackDamage = attackDamage;
+            _networkedAttackSpeed = attackSpeed;
+        }
+        else
+        {
+            _localAttackDamage = attackDamage;
+            _localAttackSpeed = attackSpeed;
+        }
+    }
+
+    /// <summary>
+    /// 모든 스탯을 직접 설정합니다. (InitializeStats용)
+    /// </summary>
+    private void SetStatsDirect(float damage, float speed, float range, float defense, float magicRes)
+    {
+        if (HasStateAuthorityOrNoNetwork())
+        {
+            _networkedAttackDamage = damage;
+            _networkedAttackSpeed = speed;
+            _networkedAttackRange = range;
+            _networkedDefense = defense;
+            _networkedMagicResistance = magicRes;
+        }
+        else
+        {
+            _localAttackDamage = damage;
+            _localAttackSpeed = speed;
+            _localAttackRange = range;
+            _localDefense = defense;
+            _localMagicResistance = magicRes;
+        }
+    }
+
+    /// <summary>
+    /// 모든 일시 버프를 해제하고 2단계(Permanent) 스탯으로 초기화합니다.
+    /// 준비 시퀀스 진입 시 안전장치로 사용됩니다.
+    /// </summary>
+    public void ResetToPermanentStats()
+    {
+        if (!HasStateAuthorityOrNoNetwork()) return;
+        
+        // BuffManager의 일시 버프 모두 해제
+        if (_buffManager != null)
+        {
+            _buffManager.ClearAllBuffs();
+        }
+        
+        // 2단계(Permanent) 스탯으로 초기화 (증강체 적용, 버프 미적용)
+        SetStatsDirect(
+            PermanentAttackDamage,
+            PermanentAttackSpeed,
+            PermanentAttackRange,
+            PermanentDefense,
+            PermanentMagicResistance
+        );
     }
 
     #endregion
@@ -1421,10 +1548,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public void ApplyBerserkMode()
     {
         if (_isBerserk) return;
+        if (!HasStateAuthorityOrNoNetwork()) return;  // 서버에서만 적용
+        
         _isBerserk = true;
         
-        currentAttackDamage *= 1.5f;
-        currentAttackSpeed *= 1.5f;
+        _networkedAttackDamage *= 1.5f;
+        _networkedAttackSpeed *= 1.5f;
         Debug.Log($"<color=red>[Unit] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배)</color>");
     }
 
@@ -1433,7 +1562,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public void ClearBerserkMode()
     {
+        if (!_isBerserk) return;  // 폭주 모드가 아니면 무시
+        
         _isBerserk = false;
+        
+        // 스탯을 원래대로 복구 (증강체 + 버프 적용된 정상 스탯)
+        if (HasStateAuthorityOrNoNetwork())
+        {
+            RefreshPermanentBonuses();
+            Debug.Log($"<color=green>[Unit] '{name}' 폭주 모드 해제! 스탯 복구됨.</color>");
+        }
     }
 
     #endregion
