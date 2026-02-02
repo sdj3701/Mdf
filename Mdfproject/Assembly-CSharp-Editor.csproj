@@ -70,6 +70,7 @@
     <Compile Include="Assets\Scripts\Editor\DataExporter.cs" />
     <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeViewer.cs" />
     <Compile Include="Assets\Scripts\Editor\AddressableKeyDrawer.cs" />
+    <Compile Include="Assets\Scripts\Editor\MissingScriptFinder.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Firebase\Editor\FirebaseCrashlytics_version-13.2.0_manifest.txt" />
@@ -1340,14 +1341,14 @@
   <ItemGroup>
     <ProjectReference Include="Assembly-CSharp.csproj" />
     <ProjectReference Include="MCPForUnity.Runtime.csproj" />
+    <ProjectReference Include="ToonyColorsPro.Demo.Editor.csproj" />
     <ProjectReference Include="Fusion.Unity.csproj" />
     <ProjectReference Include="Fusion.Unity.Editor.csproj" />
-    <ProjectReference Include="MCPForUnity.Editor.csproj" />
-    <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
-    <ProjectReference Include="ToonyColorsPro.Demo.Editor.csproj" />
-    <ProjectReference Include="KinoBloom.Runtime.csproj" />
     <ProjectReference Include="ToonyColorsPro.Runtime.csproj" />
     <ProjectReference Include="ToonyColorsPro.Editor.csproj" />
+    <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
+    <ProjectReference Include="KinoBloom.Runtime.csproj" />
+    <ProjectReference Include="MCPForUnity.Editor.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <ItemGroup>
