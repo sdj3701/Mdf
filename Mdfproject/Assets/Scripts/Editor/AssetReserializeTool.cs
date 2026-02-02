@@ -27,6 +27,13 @@ public class AssetReserializeTool
     private static void OnEditorStartup()
     {
         EditorApplication.delayCall -= OnEditorStartup;
+        
+        // 플레이 모드에서는 리시리얼라이즈 불가
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
+        {
+            return;
+        }
+        
         ReserializeTargetFolders();
     }
 

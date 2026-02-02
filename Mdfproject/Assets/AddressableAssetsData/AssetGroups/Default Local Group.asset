@@ -438,6 +438,21 @@ MonoBehaviour:
     m_SerializedLabels:
     - UI
     - Manager
+  - m_GUID: 00590282d59019f49a8ca4cf02a99f77
+    m_Address: Spr_Port_Orc
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterPortrait
+  - m_GUID: a311745136f3110429e1f14b2e628a0e
+    m_Address: Spr_Port_Archer
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitPortrait
+  - m_GUID: 619dde12077e168499d7ebc380344c79
+    m_Address: Spr_Port_Warrior
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitPortrait
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:
