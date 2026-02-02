@@ -1415,22 +1415,20 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1dc4269197ee346ffb1ee49d9022301a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  currentState: 0
-  currentRound: 1
-  _currentPhaseTimer: 0
-  player1: {fileID: 0}
-  player2: {fileID: 0}
+  _currentState: 0
+  _currentRound: 0
+  _singlePlayerModeCount: 0
   localPlayer: {fileID: 0}
-  playerManagerPrefab: {fileID: 0}
-  gridPrefab: {fileID: 0}
-  defaultMonsterPrefab: {fileID: 0}
   player1BasePosition: {x: 0, y: 0, z: 0}
   playerOffset: {x: 0, y: 10, z: 0}
+  firstPreparePhaseTime: 60
   preparePhaseTime: 45
   combatTime: 60
+  berserkTriggerTime: 5
   baseGoldPerRound: 5
   maxInterest: 5
   SelectCharacterButton: []
+  _FirstAttackerPlayerId: 0
 --- !u!1 &739510118
 GameObject:
   m_ObjectHideFlags: 0

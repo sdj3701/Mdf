@@ -15,4 +15,3 @@ MonoBehaviour:
   targetLayers:
     serializedVersion: 2
     m_Bits: 49152
-  radius: 5

@@ -297,9 +297,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d3d5f0a454fded40972a205f228f082, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  destructionTime: 1
-  destructionEffect: {fileID: 0}
-  destructionSound: {fileID: 0}
+  maxHealth: 200
+  defense: 10
+  magicResistance: 0
 --- !u!114 &41498339
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2410,7 +2410,7 @@ RectTransform:
   m_Children:
   - {fileID: 47154336}
   m_Father: {fileID: 641353397}
-  m_RootOrder: 6
+  m_RootOrder: 5
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
@@ -2745,6 +2745,28 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4899e616a48886d42b4696e3f88fd470, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  autoPreloadAllOnStart: 1
+  logPreloadProgress: 1
+  playerManagerPrefabRef:
+    m_AssetGUID: 
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
+  gridPrefabRef:
+    m_AssetGUID: 
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
+  defaultMonsterPrefabRef:
+    m_AssetGUID: 
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
+  waveDatabaseRef:
+    m_AssetGUID: 
+    m_SubObjectName: 
+    m_SubObjectType: 
+    m_EditorAssetChanged: 0
 --- !u!4 &1329380063
 Transform:
   m_ObjectHideFlags: 0
@@ -2772,6 +2794,7 @@ GameObject:
   - component: {fileID: 1369327686}
   - component: {fileID: 1369327685}
   - component: {fileID: 1369327684}
+  - component: {fileID: 1369327687}
   m_Layer: 0
   m_Name: PlacementManager
   m_TagString: Untagged
@@ -2830,13 +2853,62 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d1dbf1efe359760498ccb8a4ef18f96b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  componentId: 
-  autoRegister: 1
-  PlacementTime: 10
-  CharacterSortingOrder: 5
-  ShowPreview: 1
-  PreviewColor: {r: 0, g: 1, b: 0, a: 1}
-  tilemapType: 0
+  showPreview: 1
+  validPreviewColor: {r: 0, g: 1, b: 0, a: 0.5}
+  invalidPreviewColor: {r: 1, g: 0, b: 0, a: 0.5}
+--- !u!114 &1369327687
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1369327681}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 79af24853b6a04c40b8077c316553c78, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  playerManager: {fileID: 0}
+  unitParent: {fileID: 0}
+  wallParent: {fileID: 0}
+  destructibleWallPrefab: {fileID: 0}
+  statusBarPrefab: {fileID: 0}
+  permanentWallPrefab: {fileID: 0}
+  permanentWallAddressKey: PermanentWallPrefab
+  initialPermanentWallCount: 0
+  wallLayerName: Wall
+  attackRangeIndicatorPrefab: {fileID: 0}
+  skillRangeIndicatorPrefab: {fileID: 0}
+  rangeIndicatorYOffset: 0.15
+  rangeIndicatorSortingOrder: 200
+  useMovingPathMarkers: 1
+  pathMarkerPrefab: {fileID: 0}
+  pathMarkerYOffset: 0.05
+  pathMarkerSpeed: 4
+  pathMarkerSpawnInterval: 0.25
+  pathMarkerPoolSize: 32
+  pathMarkerSize: 1
+  showPathInPrepare: 1
+  sellPenalty: 1
+  gridOrigin: {x: 0, y: 0, z: 0}
+  cellSize: 1
+  gridSize: {x: 10, y: 9}
+  outerGridMargin: 2
+  deriveGridFromGroundBounds: 0
+  groundYOffset: 0
+  wallYOffset: 1
+  dragLiftHeight: 3
+  dragFollowSpeed: 20
+  dragPickMaxScreenDistance: 80
+  useWorldDistanceFallback: 0
+  clickPickMaxWorldDistance: 0.6
+  showGridDebug: 1
+  gridLineColor: {r: 0.5, g: 0.5, b: 0.5, a: 0.8}
+  borderLineColor: {r: 1, g: 0.5, b: 0, a: 1}
+  spawnGoalColor: {r: 0, g: 1, b: 0, a: 1}
+  goalColor: {r: 1, g: 0, b: 0, a: 1}
+  gridLineYOffset: 0.05
+  gridLineWidth: 0.02
 --- !u!1 &1384442848
 GameObject:
   m_ObjectHideFlags: 0
@@ -3025,6 +3097,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7f25f99964c2baa41b5283c482343b90, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  sceneNameToLoad: Lobby
 --- !u!114 &1527815226
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3204,7 +3277,7 @@ RectTransform:
   m_Children:
   - {fileID: 1319966507}
   m_Father: {fileID: 2022889685}
-  m_RootOrder: 3
+  m_RootOrder: 1
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
@@ -3489,20 +3562,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1dc4269197ee346ffb1ee49d9022301a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  currentState: 0
-  currentRound: 1
-  _currentPhaseTimer: 0
-  player1: {fileID: 0}
-  player2: {fileID: 0}
+  _currentState: 0
+  _currentRound: 0
+  _singlePlayerModeCount: 0
   localPlayer: {fileID: 0}
-  prepareTime: 20
+  player1BasePosition: {x: 0, y: 0, z: 0}
+  playerOffset: {x: 0, y: 10, z: 0}
+  firstPreparePhaseTime: 60
+  preparePhaseTime: 45
   combatTime: 60
-  augmentTime: 15
+  berserkTriggerTime: 5
   baseGoldPerRound: 5
+  maxInterest: 5
   SelectCharacterButton:
   - {fileID: 0}
   - {fileID: 0}
   - {fileID: 0}
+  _FirstAttackerPlayerId: 0
 --- !u!4 &2022889685 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 1137746741065607854, guid: 1c3ab47bb8c28fe4f9589b1349892d82,
@@ -3527,23 +3603,27 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 13af32c410712468aa7f2b47ae1f3fbd, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  bottomLeft: {x: -6, y: -4}
-  topRight: {x: 5, y: 4}
-  startPos: {x: 4, y: 0}
-  targetPos: {x: -5, y: 0}
-  FinalNodeList: []
-  allowDiagonal: 0
-  dontCrossCorner: 0
-  showDebugInfo: 1
-  detailedWallDebugging: 0
-  detectionRadius: 0.4
-  allowWallBreaking: 1
-  maxWallsToBreak: 999
-  useSmartWallSelection: 1
+  useFieldManagerGrid: 1
+  fieldManager: {fileID: 0}
+  gridOrigin: {x: 0, y: 0, z: 0}
+  cellSize: 1
+  gridSize: {x: 10, y: 10}
+  startOffset: {x: 0, y: 0}
   wallLayers:
     serializedVersion: 2
     m_Bits: 32896
-  monsterPrefab: {fileID: 2040238213}
+  breakableWallLayer:
+    serializedVersion: 2
+    m_Bits: 0
+  detectionRadius: 0.4
+  wallBreakCost: 10000
+  sampleY: 0.5
+  sampleHeight: 2
+  allowDiagonal: 0
+  dontCrossCorner: 0
+  showDebugInfo: 1
+  debugStartPos: {x: 0, y: 0}
+  debugTargetPos: {x: 0, y: 0}
 --- !u!1 &2094997697
 GameObject:
   m_ObjectHideFlags: 0
@@ -4324,7 +4404,7 @@ RectTransform:
   m_Children:
   - {fileID: 250592927}
   m_Father: {fileID: 641353397}
-  m_RootOrder: 7
+  m_RootOrder: 6
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}

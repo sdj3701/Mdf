@@ -2768,7 +2768,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: "Language / \uC5B8\uC5B4"
+  m_text: Language
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 9e1b99d6ccc96bf4cbda19a0d93f4879, type: 2}
   m_sharedMaterial: {fileID: -4605728146157214406, guid: 9e1b99d6ccc96bf4cbda19a0d93f4879,
