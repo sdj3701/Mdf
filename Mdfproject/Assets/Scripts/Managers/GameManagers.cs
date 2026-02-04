@@ -190,13 +190,34 @@ public class GameManagers : NetworkBehaviour
     /// <summary>
     /// Fusion의 네트워크/물리 틱마다 호출됩니다. 게임 로직 처리에 적합합니다.
     /// </summary>
+    // Host Migration 디버깅용 - StateAuthority 상태 추적
+    private float _lastStateAuthorityLogTime = 0f;
+    private bool _wasStateAuthorityLastFrame = false;
+    
     public override void FixedUpdateNetwork()
     {
-        if (!Object.HasStateAuthority) return;
+        bool hasAuth = Object.HasStateAuthority;
+        
+        // StateAuthority 상태 변경 감지
+        if (hasAuth != _wasStateAuthorityLastFrame)
+        {
+            Debug.Log($"<color=magenta>[GameManagers.FixedUpdateNetwork] StateAuthority 변경: {_wasStateAuthorityLastFrame} → {hasAuth}</color>");
+            _wasStateAuthorityLastFrame = hasAuth;
+        }
+        
+        // 5초마다 상태 로깅 (Host Migration 디버깅용)
+        if (Time.time - _lastStateAuthorityLogTime > 5f)
+        {
+            _lastStateAuthorityLogTime = Time.time;
+            Debug.Log($"[GameManagers.FixedUpdateNetwork] 주기적 상태 - StateAuth: {hasAuth}, State: {currentState}, Round: {currentRound}, Timer: {currentPhaseTimer:F1}s");
+        }
+        
+        if (!hasAuth) return;
 
         if (phaseTimer.Expired(Runner))
         {
             phaseTimer = TickTimer.None;
+            Debug.Log($"<color=yellow>[GameManagers] 타이머 만료! 상태: {currentState}</color>");
             switch (currentState)
             {
                 case GameState.Prepare:
@@ -1430,43 +1451,102 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     public void RestoreAfterHostMigration()
     {
+        Debug.Log("<color=yellow>═══════════════════════════════════════════</color>");
+        Debug.Log("<color=yellow>[GameManagers] RestoreAfterHostMigration 시작!</color>");
+        Debug.Log("<color=yellow>═══════════════════════════════════════════</color>");
+        
+        // 상태 체크 로깅
+        Debug.Log($"[복원] Object 유효: {Object != null}");
+        Debug.Log($"[복원] Object.IsValid: {Object?.IsValid}");
+        Debug.Log($"[복원] _isSpawned: {_isSpawned}");
+        Debug.Log($"[복원] IsReadyForNetworkAccess: {IsReadyForNetworkAccess}");
+        Debug.Log($"[복원] HasStateAuthority: {Object?.HasStateAuthority}");
+        
         // Spawned 상태가 아니면 대기 후 재시도
         if (!IsReadyForNetworkAccess)
         {
-            Debug.LogWarning("[GameManagers] 아직 Spawned 상태가 아닙니다. 복원을 건너뜁니다.");
+            Debug.LogWarning("<color=red>[GameManagers] 아직 Spawned 상태가 아닙니다. 복원을 건너뜁니다.</color>");
             return;
         }
         
-        Debug.Log($"<color=cyan>[GameManagers] Host Migration 복원 시작 - Round: {currentRound}, State: {currentState}</color>");
+        Debug.Log($"<color=cyan>[복원] 현재 게임 상태 - Round: {currentRound}, State: {currentState}, Timer: {currentPhaseTimer:F1}s</color>");
         
         // 1. ChangeDetector 재초기화
+        Debug.Log("[복원] 1. ChangeDetector 재초기화...");
         if (Object != null)
         {
             _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+            Debug.Log("[복원] ChangeDetector 재초기화 완료");
         }
         
         // 2. 로컬 플레이어 참조 재연결
+        Debug.Log("[복원] 2. 로컬 플레이어 재연결...");
         RelinkLocalPlayer();
+        Debug.Log($"[복원] localPlayer: {(localPlayer != null ? $"Player {localPlayer.playerId}" : "null")}");
         
         // 3. CommandProcessor 재초기화 (필요한 경우)
+        Debug.Log("[복원] 3. CommandProcessor 체크...");
         if (CommandProcessor == null)
         {
             CommandProcessor = new CommandProcessor();
+            Debug.Log("[복원] CommandProcessor 새로 생성");
+        }
+        else
+        {
+            Debug.Log("[복원] CommandProcessor 이미 존재");
         }
         
         // 4. UI 상태 복원
+        Debug.Log("[복원] 4. UI 상태 복원...");
         if (localPlayer != null)
         {
+            Debug.Log($"[복원] HandleUIForNewState 호출 (State: {currentState})");
             HandleUIForNewState(currentState).Forget();
+        }
+        else
+        {
+            Debug.LogWarning("[복원] localPlayer가 null이어서 UI 복원 건너뜀");
         }
         
         // 5. 싱글톤 인스턴스 재설정
+        Debug.Log("[복원] 5. 싱글톤 인스턴스 체크...");
         if (Instance == null || Instance != this)
         {
             Instance = this;
+            Debug.Log("[복원] 싱글톤 인스턴스 재설정 완료");
         }
         
-        Debug.Log($"<color=green>[GameManagers] Host Migration 복원 완료!</color>");
+        // 6. 상점/증강 데이터 재동기화 (새 Host인 경우)
+        Debug.Log("[복원] 6. 상점/증강 데이터 동기화 체크...");
+        if (Object != null && Object.HasStateAuthority)
+        {
+            Debug.Log("<color=green>[복원] 새 Host - 상점 데이터 재동기화 시작</color>");
+            foreach (var player in AllPlayers)
+            {
+                if (player?.shopManager != null)
+                {
+                    var items = player.shopManager.GetCurrentShopItems();
+                    Debug.Log($"[복원] Player {player.playerId} 상점 아이템: {items?.Count ?? 0}개");
+                    
+                    if (items != null && items.Count > 0)
+                    {
+                        string[] names = items.Select(i => i.UnitData?.name ?? "").ToArray();
+                        int[] stars = items.Select(i => i.StarLevel).ToArray();
+                        var cmd = new SyncShopItemsCommand(player.playerId, names, stars);
+                        CommandProcessor.RequestCommandExecution(cmd);
+                    }
+                }
+            }
+        }
+        else if (Object != null && !Object.HasStateAuthority && localPlayer != null)
+        {
+            Debug.Log("<color=cyan>[복원] 클라이언트 - 서버에 데이터 동기화 요청</color>");
+            localPlayer.RPC_RequestSyncData();
+        }
+        
+        Debug.Log("<color=green>═══════════════════════════════════════════</color>");
+        Debug.Log("<color=green>[GameManagers] Host Migration 복원 완료!</color>");
+        Debug.Log("<color=green>═══════════════════════════════════════════</color>");
     }
     
     /// <summary>

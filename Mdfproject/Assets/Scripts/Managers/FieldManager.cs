@@ -2246,11 +2246,134 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
-        // [3D] 초기화 확인
+        // [3D] 초기화 확인 - Host Migration 후 재할당 필요할 수 있음
         if (ground3D == null)
         {
-            Debug.LogWarning("[FieldManager] ground3D is null - not initialized yet!");
-            return;
+            Debug.Log($"[FieldManager] ground3D null 감지, fallback 시도... playerManager={playerManager?.name}");
+            
+            // 방법 1: 부모 계층에서 Ground 찾기
+            var parentTransform = transform.parent;
+            Debug.Log($"[FieldManager] parentTransform={parentTransform?.name}");
+            
+            if (parentTransform != null)
+            {
+                var groundTransform = parentTransform.Find("Ground") ?? parentTransform.Find("Field");
+                if (groundTransform != null)
+                {
+                    ground3D = groundTransform.gameObject;
+                    Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법1: parent.Find)");
+                }
+                else
+                {
+                    var meshRenderer = parentTransform.GetComponentInChildren<MeshRenderer>(true);
+                    if (meshRenderer != null)
+                    {
+                        ground3D = meshRenderer.gameObject;
+                        Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법2: MeshRenderer)");
+                    }
+                }
+            }
+            
+            // 방법 2: playerManager.astarGrid에서 찾기
+            if (ground3D == null && playerManager != null && playerManager.astarGrid != null)
+            {
+                var gridParent = playerManager.astarGrid.transform.parent;
+                Debug.Log($"[FieldManager] astarGrid.parent={gridParent?.name}");
+                
+                if (gridParent != null)
+                {
+                    var groundTransform = gridParent.Find("Ground") ?? gridParent.Find("Field");
+                    if (groundTransform != null)
+                    {
+                        ground3D = groundTransform.gameObject;
+                        Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법3: astarGrid.parent)");
+                    }
+                    else
+                    {
+                        // 자식 전체 순회
+                        foreach (Transform child in gridParent)
+                        {
+                            if (child.name.Contains("Ground") || child.name.Contains("Field"))
+                            {
+                                ground3D = child.gameObject;
+                                Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법4: 자식 순회)");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 방법 3: GameManagers.localPlayer에서 찾기
+            if (ground3D == null && GameManagers.Instance != null)
+            {
+                var localPlayer = GameManagers.Instance.localPlayer;
+                Debug.Log($"[FieldManager] GameManagers.localPlayer={localPlayer?.name}");
+                
+                if (localPlayer != null && localPlayer.astarGrid != null)
+                {
+                    var gridParent = localPlayer.astarGrid.transform.parent;
+                    if (gridParent != null)
+                    {
+                        var groundTransform = gridParent.Find("Ground") ?? gridParent.Find("Field");
+                        if (groundTransform != null)
+                        {
+                            ground3D = groundTransform.gameObject;
+                            Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법5: GameManagers)");
+                        }
+                    }
+                }
+            }
+            
+            // 방법 4: FindObjectOfType으로 AstarGrid 찾아서 parent에서 Ground 찾기
+            if (ground3D == null)
+            {
+                Debug.Log("[FieldManager] 방법6 시도: FindObjectOfType<AstarGrid>");
+                var allGrids = UnityEngine.Object.FindObjectsOfType<AstarGrid>(true);
+                Debug.Log($"[FieldManager] 발견된 AstarGrid 수: {allGrids.Length}");
+                
+                foreach (var grid in allGrids)
+                {
+                    var gridParent = grid.transform.parent;
+                    if (gridParent != null)
+                    {
+                        var groundTransform = gridParent.Find("Ground") ?? gridParent.Find("Field");
+                        if (groundTransform != null)
+                        {
+                            ground3D = groundTransform.gameObject;
+                            
+                            // astarGrid도 복구
+                            if (playerManager != null && playerManager.astarGrid == null)
+                            {
+                                playerManager.astarGrid = grid;
+                                Debug.Log($"[FieldManager] astarGrid도 재할당: {grid.name}");
+                            }
+                            
+                            Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법6: FindObjectOfType)");
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // 방법 5: 마지막으로 Ground 이름이 포함된 모든 오브젝트 찾기
+            if (ground3D == null)
+            {
+                Debug.Log("[FieldManager] 방법7 시도: GameObject.Find");
+                var foundGround = GameObject.Find("Ground");
+                if (foundGround != null)
+                {
+                    ground3D = foundGround;
+                    Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법7: GameObject.Find)");
+                }
+            }
+            
+            // 그래도 못 찾으면 에러
+            if (ground3D == null)
+            {
+                Debug.LogWarning("[FieldManager] ground3D is null - 모든 fallback 실패!");
+                return;
+            }
         }
 
         // [3D Migration] 마우스 월드 좌표 및 그리드 좌표 계산

@@ -92,6 +92,25 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         _roomNameInput = roomname;
     }
+    
+    /// <summary>
+    /// Host Migration 후 새 Runner를 설정합니다.
+    /// </summary>
+    public void SetRunnerAfterMigration(NetworkRunner newRunner)
+    {
+        Debug.Log($"<color=cyan>[NetworkManager] SetRunnerAfterMigration - 새 Runner 설정</color>");
+        _runner = newRunner;
+        
+        // 콜백 다시 등록
+        if (!newRunner.IsRunning)
+        {
+            Debug.LogWarning("[NetworkManager] 새 Runner가 실행 중이 아닙니다!");
+        }
+        else
+        {
+            Debug.Log($"[NetworkManager] 새 Runner 상태: GameMode={newRunner.GameMode}, IsServer={newRunner.IsServer}");
+        }
+    }
 
     public string GetRoomNameInput()
     {
@@ -442,16 +461,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         
         return Encoding.UTF8.GetBytes(uniqueId);
     }
-    
-    /// <summary>
-    /// Host Migration 후 새 Runner를 설정합니다.
-    /// </summary>
-    public void SetRunnerAfterMigration(NetworkRunner newRunner)
-    {
-        _runner = newRunner;
-        State = ConnectionState.InGame;
-        Debug.Log("[NetworkManager] Host Migration 후 새 Runner 설정 완료.");
-    }
+
 
     // 외부 클래스에서 플레이어 몇명 생성 해야하는지 확인할 떄 필요한 함수
     public int GetPlayerCount()
