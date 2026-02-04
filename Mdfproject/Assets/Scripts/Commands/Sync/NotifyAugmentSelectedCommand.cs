@@ -47,6 +47,34 @@ public class NotifyAugmentSelectedCommand : ICommand
             }
         }
 
+        // 클라이언트에서도 스탯 버프 효과 적용 (호스트와 동기화)
+        if (!isServer)
+        {
+            PlayerManager target = (chosenAugment.targetType == TargetType.Player)
+                ? player
+                : player.opponentManager;
+
+            switch (chosenAugment.effectType)
+            {
+                case EffectType.IncreaseMyUnitAttack:
+                    if (target != null)
+                    {
+                        target.permanentAttackDamagePercent += chosenAugment.value;
+                        target.ApplyPermanentBonusesToUnitsOnField();
+                        Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {target.playerId}: 공격력 버프 +{chosenAugment.value:P0} 적용</color>");
+                    }
+                    break;
+                case EffectType.IncreaseMyUnitAttackSpeed:
+                    if (target != null)
+                    {
+                        target.permanentAttackSpeedPercent += chosenAugment.value;
+                        target.ApplyPermanentBonusesToUnitsOnField();
+                        Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {target.playerId}: 공격속도 버프 +{chosenAugment.value:P0} 적용</color>");
+                    }
+                    break;
+            }
+        }
+
         GameEvents.TriggerAugmentApplied(player, chosenAugment);
         Debug.Log($"<color=green>[NotifyAugmentSelectedCommand] Player {PlayerId}: '{AugmentName}' 선택 알림</color>");
     }

@@ -46,7 +46,5 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   NickNameInput: {fileID: 0}
   PassWordInput: {fileID: 0}
-  _NetworkJoinPanel: {fileID: 5073311461297450011, guid: 9d16c131c3ce2e543b085429695996f9,
-    type: 3}
   _playerPrefab: {fileID: 0}
   maxSessionPlayers: 2

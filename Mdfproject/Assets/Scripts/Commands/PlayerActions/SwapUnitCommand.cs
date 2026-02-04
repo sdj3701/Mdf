@@ -30,8 +30,8 @@ public class SwapUnitCommand : ICommand
         var unitB = fm.GetUnitAt(PosB);
         if (unitA == null || unitB == null) return;
 
-        bool destWallForA = fm.GetWallAt(PosB) != null;
-        bool destWallForB = fm.GetWallAt(PosA) != null;
+        bool destWallForA = fm.HasWallAt(PosB);
+        bool destWallForB = fm.HasWallAt(PosA);
 
         if (unitA.Data.unitType == UnitType.Melee && destWallForA) return;
         if (unitB.Data.unitType == UnitType.Melee && destWallForB) return;

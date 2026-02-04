@@ -556,5 +556,7 @@ MonoBehaviour:
   healthText: {fileID: 6424225068809312169}
   playerPortraitImage: {fileID: 6424225068467706636}
   battleStatusImage: {fileID: 6424225068589664531}
+  legacyPlayerNameText: {fileID: 0}
+  legacyHealthText: {fileID: 0}
   combatSprite: {fileID: 21300000, guid: 529b60433540edb4a9bf116e9330b0a5, type: 3}
   waitingSprite: {fileID: 21300000, guid: f37ed53b57fe3624e9b31dc8779169a7, type: 3}

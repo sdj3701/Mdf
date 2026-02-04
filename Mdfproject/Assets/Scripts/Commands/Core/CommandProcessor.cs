@@ -105,6 +105,8 @@ public class CommandProcessor
                 return (CommandType.RerollShop, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
             case SelectAugmentCommand cmd:
                 return (CommandType.SelectAugment, new int[] { cmd.PlayerId, cmd.AugmentIndex }, Array.Empty<string>(), Array.Empty<Vector3>());
+            case ActivateSkillCommand cmd:
+                return (CommandType.ActivateSkill, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkId }, Array.Empty<string>(), Array.Empty<Vector3>());
 
             // ===== Sync Commands (서버 → 클라이언트) =====
             case SyncShopItemsCommand cmd:
@@ -198,6 +200,8 @@ public class CommandProcessor
             
             case CommandType.SelectAugment:
                 return new SelectAugmentCommand(intParams[0], intParams[1]);
+            case CommandType.ActivateSkill:
+                return new ActivateSkillCommand(intParams[0], (uint)intParams[1]);
 
             // ===== Sync Commands (서버 → 클라이언트) =====
             case CommandType.SyncShopItems:

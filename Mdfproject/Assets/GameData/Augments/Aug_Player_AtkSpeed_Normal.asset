@@ -19,4 +19,6 @@ MonoBehaviour:
   targetType: 0
   effectType: 1
   value: 0.2
-  prefabToSpawn: {fileID: 0}
+  isBossSummon: 0
+  bossMonsterData: {fileID: 0}
+  monsterSpawnEntries: []

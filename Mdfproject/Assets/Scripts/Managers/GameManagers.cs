@@ -123,6 +123,7 @@ public class GameManagers : NetworkBehaviour
 
     #region 전투 시퀀스 관련 필드
     /// <summary>
+    /// [더 이상 사용하지 않음 - 호환성을 위해 유지]
     /// 현재 라운드에서 선공(Battle1에서 공격)하는 플레이어 ID
     /// </summary>
     [Networked] public int FirstAttackerPlayerId { get; set; }
@@ -131,6 +132,12 @@ public class GameManagers : NetworkBehaviour
     /// 라운드별 매칭된 상대 정보. Key: PlayerId, Value: OpponentPlayerId (-1이면 상대 없음)
     /// </summary>
     private Dictionary<int, int> _battleOpponents = new Dictionary<int, int>();
+    
+    /// <summary>
+    /// 각 플레이어별 매칭에서의 선공자 ID. Key: PlayerId, Value: FirstAttackerPlayerId in this match
+    /// 각 매칭 쌍마다 독립적으로 선공자를 랜덤으로 결정하여 공정성 보장
+    /// </summary>
+    private Dictionary<int, int> _matchFirstAttacker = new Dictionary<int, int>();
     #endregion
 
     /// <summary>
@@ -888,7 +895,15 @@ public class GameManagers : NetworkBehaviour
             UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
         }
         
-        // 2. 상점 UI 활성화
+        // 2. 상점 UI 활성화 - 준비 단계에서만 열도록 체크
+        // [버그 수정] 플레이어가 잠수해서 증강이 자동 선택된 경우, 이미 전투 상태일 수 있음
+        // 전투 중에는 상점 UI를 열지 않음
+        if (currentState != GameState.Prepare)
+        {
+            Debug.Log($"<color=yellow>[HandleAugmentChosen] 현재 {currentState} 상태이므로 상점 UI를 열지 않음 (잠수 플레이어 자동 선택)</color>");
+            return;
+        }
+        
         if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
         {
             Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 활성화</color>");
@@ -1061,7 +1076,7 @@ public class GameManagers : NetworkBehaviour
         StartBattleForPlayers(isFirstBattle: true);
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
-        Debug.Log($"<color=cyan>[GameManagers] Battle1 시작! 선공자: Player {FirstAttackerPlayerId}</color>");
+        Debug.Log($"<color=cyan>[GameManagers] Battle1 시작! 각 매칭마다 선공자 랜덤 결정됨</color>");
     }
 
     /// <summary>
@@ -1099,10 +1114,12 @@ public class GameManagers : NetworkBehaviour
     /// 라운드별 상대 매칭을 수행합니다.
     /// 2명 플레이어: 서로 상대
     /// 3명+ 플레이어: 2명씩 페어링, 홀수인 경우 1명은 상대 없음
+    /// 각 매칭마다 독립적으로 선공자를 랜덤 결정하여 공정성 보장
     /// </summary>
     private void AssignBattleOpponents()
     {
         _battleOpponents.Clear();
+        _matchFirstAttacker.Clear();
         
         var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
         
@@ -1117,22 +1134,41 @@ public class GameManagers : NetworkBehaviour
             alivePlayers[j] = temp;
         }
 
-        // 선공 플레이어 결정 (라운드마다 교대)
-        FirstAttackerPlayerId = alivePlayers[currentRound % alivePlayers.Count].playerId;
-
-        // 2명씩 매칭
+        // 2명씩 매칭하고, 각 매칭마다 선공자 랜덤 결정
         for (int i = 0; i < alivePlayers.Count; i += 2)
         {
             if (i + 1 < alivePlayers.Count)
             {
+                var player1 = alivePlayers[i];
+                var player2 = alivePlayers[i + 1];
+                
                 // 양쪽 서로 상대로 지정
-                _battleOpponents[alivePlayers[i].playerId] = alivePlayers[i + 1].playerId;
-                _battleOpponents[alivePlayers[i + 1].playerId] = alivePlayers[i].playerId;
+                _battleOpponents[player1.playerId] = player2.playerId;
+                _battleOpponents[player2.playerId] = player1.playerId;
+                
+                // 이 매칭의 선공자를 50% 확률로 랜덤 결정
+                bool player1IsFirstAttacker = UnityEngine.Random.value > 0.5f;
+                int matchFirstAttackerId = player1IsFirstAttacker ? player1.playerId : player2.playerId;
+                
+                // 양쪽 플레이어에게 이 매칭의 선공자 ID 저장
+                _matchFirstAttacker[player1.playerId] = matchFirstAttackerId;
+                _matchFirstAttacker[player2.playerId] = matchFirstAttackerId;
+                
+                // [호환성] 첫 번째 매칭의 선공자를 FirstAttackerPlayerId에 저장 (디버그 로그용)
+                if (i == 0)
+                {
+                    FirstAttackerPlayerId = matchFirstAttackerId;
+                }
+                
+                Debug.Log($"<color=yellow>[AssignBattleOpponents] 매칭: P{player1.playerId} vs P{player2.playerId}, 선공자: P{matchFirstAttackerId}</color>");
             }
             else
             {
                 // 홀수: 마지막 사람은 상대 없음
                 _battleOpponents[alivePlayers[i].playerId] = -1;
+                _matchFirstAttacker[alivePlayers[i].playerId] = -1; // 상대 없으면 선공자도 없음
+                
+                Debug.Log($"<color=gray>[AssignBattleOpponents] P{alivePlayers[i].playerId}: 상대 없음 (혼자)</color>");
             }
         }
 
@@ -1142,7 +1178,7 @@ public class GameManagers : NetworkBehaviour
     /// <summary>
     /// 전투를 시작합니다. 공격자는 수동 소환 대기, 수비자는 웨이브 자동 스폰.
     /// </summary>
-    /// <param name="isFirstBattle">true면 Battle1 (선공자 공격), false면 Battle2 (후공자 공격)</param>
+    /// <param name="isFirstBattle">true면 Battle1 (매칭별 선공자 공격), false면 Battle2 (매칭별 후공자 공격)</param>
     private void StartBattleForPlayers(bool isFirstBattle)
     {
         foreach (var player in AllPlayers)
@@ -1152,9 +1188,12 @@ public class GameManagers : NetworkBehaviour
             int opponentId = _battleOpponents.TryGetValue(player.playerId, out int oppId) ? oppId : -1;
             bool hasOpponent = opponentId != -1;
 
-            // Battle1: 선공자(FirstAttackerPlayerId)가 공격자
-            // Battle2: 선공자가 수비자 (역할 교체)
-            bool isAttackerFirstBattle = player.playerId == FirstAttackerPlayerId;
+            // 이 플레이어의 매칭에서 선공자가 누구인지 확인
+            int matchFirstAttackerId = _matchFirstAttacker.TryGetValue(player.playerId, out int firstId) ? firstId : -1;
+            
+            // Battle1: 매칭별 선공자가 공격자
+            // Battle2: 매칭별 선공자가 수비자 (역할 교체)
+            bool isAttackerFirstBattle = player.playerId == matchFirstAttackerId;
             bool isAttackerInThisBattle = isFirstBattle ? isAttackerFirstBattle : !isAttackerFirstBattle;
 
             player.IsAttackerInCurrentBattle = isAttackerInThisBattle;
@@ -1163,29 +1202,18 @@ public class GameManagers : NetworkBehaviour
             {
                 if (isAttackerInThisBattle)
                 {
-                    // 공격자 역할
+                    // 공격자 역할: 기본 웨이브 + AttackMonsterPool 소환
                     player.RefreshAttackMonsterPool(currentRound, opponentId);
                     player.SetFightingState(true);
 
-                    // AI 공격자: 상대 필드에 자동 소환
-                    // 유저 공격자: 수동 소환 대기 (AttackSequenceManager에서 처리)
-                    bool isAI = ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString());
                     var opponent = AllPlayers.FirstOrDefault(p => p != null && p.playerId == opponentId);
+                    bool isAI = ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString());
                     
-                    if (isAI)
+                    if (player.monsterSpawner != null && opponent?.fieldManager != null)
                     {
-                        // AI는 AttackMonsterPool에서 순차적으로 자동 소환
-                        if (player.monsterSpawner != null && opponent?.fieldManager != null)
-                        {
-                            player.monsterSpawner.StartAutoSpawnFromPool(opponent.fieldManager).Forget();
-                            Debug.Log($"<color=orange>[StartBattle] AI Player {player.playerId}: 공격자 - 상대 Player {opponentId} 필드에 AttackMonsterPool 자동 소환</color>");
-                        }
-                    }
-                    else
-                    {
-                        // 유저 공격자: 수동 소환 모드 시작
-                        // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
-                        Debug.Log($"<color=green>[StartBattle] Player {player.playerId}: 공격자 (수동 소환 모드, 상대: Player {opponentId})</color>");
+                        // [공격자가 모든 몬스터 소환] 기본 웨이브 + 증강체 몬스터
+                        player.monsterSpawner.SpawnAllMonstersToTargetField(currentRound, opponent.fieldManager, isAI).Forget();
+                        Debug.Log($"<color=orange>[StartBattle] Player {player.playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
                     }
                 }
                 else
@@ -1242,7 +1270,9 @@ public class GameManagers : NetworkBehaviour
 
     /// <summary>
     /// 폭주 모드를 트리거합니다. (전투 종료 5초 전)
-    /// 모든 메스터와 유닛에 공격속도/공격력 1.5배, 이동속도 2배 적용
+    /// 공격팀의 몬스터 + 수비팀의 유닛에 공격속도/공격력 1.5배, 이동속도 2배 적용
+    /// [중요] 공격팀이 소환한 몬스터는 수비팀의 필드(monsterParent)에 존재하므로,
+    ///        수비팀의 monsterSpawner에서 버프를 적용해야 합니다.
     /// </summary>
     private void TriggerBerserkMode()
     {
@@ -1251,8 +1281,18 @@ public class GameManagers : NetworkBehaviour
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
-            player.monsterSpawner?.ApplyBerserkModeToAllMonsters();
-            player.fieldManager?.ApplyBerserkModeToAllUnits();
+            if (!player.IsActivelyFighting) continue;  // 전투 중인 플레이어만
+            
+            bool isDefender = !player.IsAttackerInCurrentBattle;
+            
+            if (isDefender)
+            {
+                // 수비팀: 자신 필드의 몬스터(공격팀이 소환) + 유닛 모두에 버프 적용
+                player.monsterSpawner?.ApplyBerserkModeToAllMonsters();
+                player.fieldManager?.ApplyBerserkModeToAllUnits();
+                Debug.Log($"<color=red>[TriggerBerserkMode] Player {player.playerId}: 수비팀 - 몬스터+유닛 버서커 버프</color>");
+            }
+            // 공격팀은 자신의 필드에 전투가 없으므로 버프 적용 불필요
         }
     }
 

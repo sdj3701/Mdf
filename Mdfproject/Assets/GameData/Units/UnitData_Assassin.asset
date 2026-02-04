@@ -24,6 +24,8 @@ MonoBehaviour:
   defense: 0
   magicResistance: 0
   blockCount: 2
+  attackTargetType: 0
+  splashRadius: 0
   manaRegenType: 0
   manaOnAttack: 8
   manaPerSecond: 5
@@ -39,3 +41,4 @@ MonoBehaviour:
   - 
   - 
   - 
+  projectileSpeed: 0

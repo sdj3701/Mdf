@@ -649,6 +649,7 @@ MonoBehaviour:
   minRemainingSeconds: 0.02
   maxSpeed: 0
   alignToDirection: 1
+  maxSpawnProgress: 0.3
 --- !u!4 &1423344283
 Transform:
   m_ObjectHideFlags: 0
