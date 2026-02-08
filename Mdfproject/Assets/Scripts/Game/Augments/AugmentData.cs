@@ -17,7 +17,9 @@ public enum EffectType
     // 상대 필드 약화 (몬스터 강화)
     IncreaseEnemyHealth,
     IncreaseEnemyMoveSpeed,
-    SpawnMonsterOnEnemyField
+    SpawnMonsterOnEnemyField,
+    // 마법 스크롤 획득
+    GrantMagicScroll
 }
 
 // ✅ [추가] 증강의 등급을 정의하는 열거형
@@ -65,5 +67,11 @@ public class AugmentData : ScriptableObject
     
     [Tooltip("일반 모드: 매 라운드 소환할 몬스터와 수량 목록")]
     public List<MonsterSpawnEntry> monsterSpawnEntries;
+    #endregion
+
+    #region 마법 스크롤 설정
+    [Header("마법 스크롤 설정")]
+    [Tooltip("마법 스크롤 모드: 획득할 스크롤 데이터")]
+    public MagicScrollData magicScrollData;
     #endregion
 }

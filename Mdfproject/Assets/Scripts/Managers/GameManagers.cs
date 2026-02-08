@@ -804,6 +804,103 @@ public class GameManagers : NetworkBehaviour
     }
     #endregion
 
+    #region 마법 스크롤 RPC
+    /// <summary>
+    /// 클라이언트가 서버에 마법 스크롤 사용을 요청합니다.
+    /// </summary>
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestUseMagicScroll(int attackerPlayerId, string scrollDataName, Vector3 position)
+    {
+        // 서버만 처리
+        if (Object == null || !Object.HasStateAuthority) return;
+        
+        var attacker = GetPlayer(attackerPlayerId);
+        if (attacker == null)
+        {
+            Debug.LogWarning($"[RPC_RequestUseMagicScroll] 플레이어를 찾을 수 없음: {attackerPlayerId}");
+            return;
+        }
+        
+        // 스크롤 보유 확인 및 소비
+        MagicScrollData targetScroll = null;
+        foreach (var scroll in attacker.OwnedScrolls)
+        {
+            if (scroll != null && scroll.name == scrollDataName)
+            {
+                targetScroll = scroll;
+                break;
+            }
+        }
+        
+        if (targetScroll == null)
+        {
+            Debug.LogWarning($"[RPC_RequestUseMagicScroll] 스크롤 '{scrollDataName}'을 보유하고 있지 않음");
+            return;
+        }
+        
+        // 스크롤 소비
+        if (!attacker.TryConsumeMagicScroll(targetScroll))
+        {
+            Debug.LogWarning($"[RPC_RequestUseMagicScroll] 스크롤 '{scrollDataName}' 소비 실패");
+            return;
+        }
+        
+        Debug.Log($"<color=magenta>[RPC_RequestUseMagicScroll] Player {attackerPlayerId}가 스크롤 '{scrollDataName}' 사용 → 브로드캐스트</color>");
+        
+        // 모든 클라이언트에 브로드캐스트
+        RPC_BroadcastMagicScrollUsed(attackerPlayerId, scrollDataName, position);
+    }
+    
+    /// <summary>
+    /// 서버가 모든 클라이언트에 마법 스크롤 사용 결과를 브로드캐스트합니다.
+    /// 모든 클라이언트에서 동일한 위치에 ScrollCaster를 생성하여 효과를 발동합니다.
+    /// </summary>
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_BroadcastMagicScrollUsed(int attackerPlayerId, string scrollDataName, Vector3 position)
+    {
+        Debug.Log($"<color=magenta>[RPC_BroadcastMagicScrollUsed] Player {attackerPlayerId}가 스크롤 '{scrollDataName}' 사용 at {position}</color>");
+        
+        // 로컬에서 ScrollCaster 생성 및 효과 발동
+        CreateScrollCasterLocal(attackerPlayerId, scrollDataName, position).Forget();
+        
+        // 이벤트 트리거 (AttackSequenceUIController 등에서 사용)
+        GameEvents.TriggerMagicScrollUsed(attackerPlayerId, scrollDataName, position);
+    }
+    
+    /// <summary>
+    /// 로컬에서 ScrollCaster를 생성하고 스킬을 발동합니다.
+    /// </summary>
+    private async UniTask CreateScrollCasterLocal(int attackerPlayerId, string scrollDataName, Vector3 position)
+    {
+        // MagicScrollData 로드 (Addressables)
+        var scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
+        if (scrollData == null)
+        {
+            Debug.LogWarning($"[CreateScrollCasterLocal] 스크롤 데이터 '{scrollDataName}' 로드 실패");
+            return;
+        }
+        
+        if (scrollData.skillData == null)
+        {
+            Debug.LogWarning($"[CreateScrollCasterLocal] 스크롤 '{scrollDataName}'에 SkillData가 설정되지 않음");
+            return;
+        }
+        
+        // ScrollCaster GameObject 생성
+        var casterGO = new GameObject($"ScrollCaster_{scrollDataName}");
+        casterGO.transform.position = position;
+        
+        // ScrollCaster 컴포넌트 추가 및 초기화
+        var caster = casterGO.AddComponent<ScrollCaster>();
+        caster.Initialize();
+        
+        // 스킬 발동
+        caster.CastSkill(scrollData.skillData);
+        
+        Debug.Log($"<color=magenta>[CreateScrollCasterLocal] 스크롤 '{scrollDataName}' 효과 발동 완료 at {position}</color>");
+    }
+    #endregion
+
     /// <summary>
     /// UI 요소를 로드하고 참조를 저장합니다. 상태 관리는 각 UIController가 담당합니다.
     /// </summary>

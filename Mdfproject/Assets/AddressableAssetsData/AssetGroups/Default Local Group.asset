@@ -453,6 +453,31 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UnitPortrait
+  - m_GUID: 8125813b9a9dc0043967b37a1fb16fca
+    m_Address: Aug_Scroll_Heal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+  - m_GUID: 4cee3b6dee459f346bfb9ecb624a665d
+    m_Address: Scroll_Heal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+  - m_GUID: eedb831abf1e4a04aa48f442a1a0e4d2
+    m_Address: Aug_Scroll_Heal 3
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+  - m_GUID: 477ccf48d3c6b9942a226534e221cc6b
+    m_Address: Aug_Scroll_Heal 2
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+  - m_GUID: 670e9a593343a4149bc03fdce975499e
+    m_Address: Aug_Scroll_Heal 1
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

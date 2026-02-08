@@ -258,6 +258,17 @@ public class AugmentManager : MonoBehaviour
                     Debug.Log($"<color=orange>[AugmentManager] Player {playerManager.playerId}의 일반 몬스터 소환 증강 '{augment.augmentName}' 등록 (매 라운드 상대 침공)</color>");
                 }
                 return;
+            case EffectType.GrantMagicScroll:
+                if (augment.magicScrollData != null)
+                {
+                    playerManager.AddMagicScroll(augment.magicScrollData);
+                    Debug.Log($"<color=magenta>[AugmentManager] Player {playerManager.playerId}가 마법 스크롤 '{augment.magicScrollData.scrollName}' 획득!</color>");
+                }
+                else
+                {
+                    Debug.LogWarning($"[AugmentManager] 마법 스크롤 증강 '{augment.augmentName}'에 magicScrollData가 설정되지 않았습니다.");
+                }
+                return;
             default:
                 break;
         }

@@ -12,4 +12,20 @@ public class Allegiance : MonoBehaviour
 
     [Tooltip("이 오브젝트가 아군으로 간주하는 대상들의 레이어 마스크입니다.")]
     public LayerMask AllyLayer;
+
+    #region 마법 스크롤 지원
+    /// <summary>
+    /// 이 오브젝트를 몬스터 진영으로 설정합니다.
+    /// 마법 스크롤 사용 시 호출되어 TargetingStrategy가 올바르게 작동하도록 합니다.
+    /// - 아군(AllyLayer) = Monster 레이어
+    /// - 적군(EnemyLayer) = Unit 레이어
+    /// </summary>
+    public void SetAsMonster()
+    {
+        // Monster 레이어: 몬스터가 배치되는 레이어
+        // Unit 레이어: 플레이어 유닛이 배치되는 레이어
+        AllyLayer = LayerMask.GetMask("Monster");
+        EnemyLayer = LayerMask.GetMask("Unit");
+    }
+    #endregion
 }

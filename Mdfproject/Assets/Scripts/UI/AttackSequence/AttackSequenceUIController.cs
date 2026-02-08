@@ -65,20 +65,27 @@ public class AttackSequenceUIController : MonoBehaviour
     #endregion
 
     #region UI 요소
-    [Header("UI 참조")]
+    [Header("UI 참조 - 몬스터")]
     [SerializeField] private GameObject panelRoot;
     [SerializeField] private Transform slotContainer;
     [SerializeField] private MonsterSlotUI slotPrefab;
     
+    [Header("UI 참조 - 마법 스크롤 (몬스터 상단)")]
+    [SerializeField] private Transform scrollSlotContainer;
+    [SerializeField] private MagicScrollSlotUI scrollSlotPrefab;
+    
     [Header("설정")]
     [SerializeField] private int maxSlots = 9;
+    [SerializeField] private int maxScrollSlots = 5;
     #endregion
 
     #region 필드
     private List<MonsterSlotUI> _slots = new List<MonsterSlotUI>();
+    private List<MagicScrollSlotUI> _scrollSlots = new List<MagicScrollSlotUI>();
     private AttackSequenceManager _attackSequenceManager;
     private PlayerManager _playerManager;
     private int _selectedSlotIndex = -1;
+    private int _selectedScrollSlotIndex = -1;
     #endregion
 
     #region 초기화
@@ -97,6 +104,7 @@ public class AttackSequenceUIController : MonoBehaviour
     private void OnEnable()
     {
         GameEvents.OnMonsterPoolChanged += HandleMonsterPoolChanged;
+        GameEvents.OnMagicScrollPoolChanged += HandleMagicScrollPoolChanged;
         GameEvents.OnBattleSequenceStarted += HandleBattleSequenceStarted;
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
@@ -104,6 +112,7 @@ public class AttackSequenceUIController : MonoBehaviour
     private void OnDisable()
     {
         GameEvents.OnMonsterPoolChanged -= HandleMonsterPoolChanged;
+        GameEvents.OnMagicScrollPoolChanged -= HandleMagicScrollPoolChanged;
         GameEvents.OnBattleSequenceStarted -= HandleBattleSequenceStarted;
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
     }
@@ -124,26 +133,40 @@ public class AttackSequenceUIController : MonoBehaviour
 
     private void CreateSlots()
     {
-        if (slotContainer == null || slotPrefab == null)
+        // 몬스터 슬롯 생성
+        if (slotContainer != null && slotPrefab != null)
         {
-            Debug.LogWarning("[AttackSequenceUIController] slotContainer 또는 slotPrefab이 null입니다");
-            return;
+            foreach (var slot in _slots)
+            {
+                if (slot != null) Destroy(slot.gameObject);
+            }
+            _slots.Clear();
+
+            for (int i = 0; i < maxSlots; i++)
+            {
+                MonsterSlotUI slot = Instantiate(slotPrefab, slotContainer);
+                slot.Initialize(this, i);
+                slot.gameObject.SetActive(false);
+                _slots.Add(slot);
+            }
         }
 
-        // 기존 슬롯 정리
-        foreach (var slot in _slots)
+        // 마법 스크롤 슬롯 생성
+        if (scrollSlotContainer != null && scrollSlotPrefab != null)
         {
-            if (slot != null) Destroy(slot.gameObject);
-        }
-        _slots.Clear();
+            foreach (var slot in _scrollSlots)
+            {
+                if (slot != null) Destroy(slot.gameObject);
+            }
+            _scrollSlots.Clear();
 
-        // 새 슬롯 생성
-        for (int i = 0; i < maxSlots; i++)
-        {
-            MonsterSlotUI slot = Instantiate(slotPrefab, slotContainer);
-            slot.Initialize(this, i);
-            slot.gameObject.SetActive(false);
-            _slots.Add(slot);
+            for (int i = 0; i < maxScrollSlots; i++)
+            {
+                MagicScrollSlotUI slot = Instantiate(scrollSlotPrefab, scrollSlotContainer);
+                slot.Initialize(this, i);
+                slot.gameObject.SetActive(false);
+                _scrollSlots.Add(slot);
+            }
         }
     }
     #endregion
@@ -160,10 +183,12 @@ public class AttackSequenceUIController : MonoBehaviour
         if (isAttacking && _playerManager != null)
         {
             RefreshSlots(_playerManager.AttackMonsterPool);
+            RefreshScrollSlots(_playerManager.OwnedScrolls);
         }
         else
         {
             HideAllSlots();
+            HideAllScrollSlots();
         }
     }
 
@@ -178,6 +203,17 @@ public class AttackSequenceUIController : MonoBehaviour
     private void HideAllSlots()
     {
         foreach (var slot in _slots)
+        {
+            if (slot != null)
+            {
+                slot.gameObject.SetActive(false);
+            }
+        }
+    }
+
+    private void HideAllScrollSlots()
+    {
+        foreach (var slot in _scrollSlots)
         {
             if (slot != null)
             {
@@ -299,6 +335,66 @@ public class AttackSequenceUIController : MonoBehaviour
         if (newState == GameManagers.GameState.Prepare || newState == GameManagers.GameState.GameOver)
         {
             Hide();
+        }
+    }
+
+    private void HandleMagicScrollPoolChanged(int playerId, IReadOnlyList<MagicScrollData> scrolls)
+    {
+        if (_playerManager == null || playerId != _playerManager.playerId) return;
+        
+        System.Collections.Generic.List<MagicScrollData> scrollList = new System.Collections.Generic.List<MagicScrollData>(scrolls);
+        RefreshScrollSlots(scrollList);
+    }
+    #endregion
+
+    #region 마법 스크롤 슬롯 관리
+    private void RefreshScrollSlots(IReadOnlyList<MagicScrollData> scrolls)
+    {
+        for (int i = 0; i < _scrollSlots.Count; i++)
+        {
+            if (i < scrolls.Count && scrolls[i] != null)
+            {
+                _scrollSlots[i].gameObject.SetActive(true);
+                _scrollSlots[i].UpdateSlot(scrolls[i]).Forget();
+            }
+            else
+            {
+                _scrollSlots[i].gameObject.SetActive(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 스크롤 슬롯 클릭 시 호출됨 (MagicScrollSlotUI에서 호출)
+    /// </summary>
+    public void OnScrollSlotSelected(int slotIndex, MagicScrollData scrollData)
+    {
+        SelectScrollSlot(slotIndex);
+        
+        // AttackSequenceManager에 선택 알림
+        _attackSequenceManager?.SelectMagicScroll(scrollData);
+    }
+
+    private void SelectScrollSlot(int slotIndex)
+    {
+        // 몬스터 슬롯 선택 해제
+        if (_selectedSlotIndex >= 0 && _selectedSlotIndex < _slots.Count)
+        {
+            _slots[_selectedSlotIndex].SetSelected(false);
+        }
+        _selectedSlotIndex = -1;
+
+        // 이전 스크롤 슬롯 선택 해제
+        if (_selectedScrollSlotIndex >= 0 && _selectedScrollSlotIndex < _scrollSlots.Count)
+        {
+            _scrollSlots[_selectedScrollSlotIndex].SetSelected(false);
+        }
+
+        // 새 스크롤 슬롯 선택
+        _selectedScrollSlotIndex = slotIndex;
+        if (slotIndex >= 0 && slotIndex < _scrollSlots.Count)
+        {
+            _scrollSlots[slotIndex].SetSelected(true);
         }
     }
     #endregion

@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
+  m_Name: Aug_Scroll_Heal 3
+  m_EditorClassIdentifier: 
+  augmentName: "\uB9C8\uBC95\uC2A4\uD06C\uB864(\uD68C\uBCF5)"
+  description: "\uC544\uAD70 \uBAAC\uC2A4\uD130\uB4E4\uC744 \uD68C\uBCF5\uD558\uB294
+    \uB9C8\uBC95 \uC2A4\uD06C\uB864\uC785\uB2C8\uB2E4."
+  icon: {fileID: 21300000, guid: 65dbd69fe392da54baae96f1e9535149, type: 3}
+  tier: 0
+  targetType: 0
+  effectType: 7
+  value: 0
+  isBossSummon: 0
+  bossMonsterData: {fileID: 0}
+  monsterSpawnEntries: []
+  magicScrollData: {fileID: 11400000, guid: 4cee3b6dee459f346bfb9ecb624a665d, type: 2}

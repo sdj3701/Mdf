@@ -594,7 +594,53 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     }
     #endregion
 
-    #region 공격 시퀀스 몬스터 풀 관리
+    #region 마법 스크롤 관리
+    // 보유 중인 마법 스크롤 리스트
+    private List<MagicScrollData> _ownedScrolls = new List<MagicScrollData>();
+    
+    /// <summary>
+    /// 보유 중인 마법 스크롤 목록 (읽기 전용)
+    /// </summary>
+    public IReadOnlyList<MagicScrollData> OwnedScrolls => _ownedScrolls;
+
+    /// <summary>
+    /// 마법 스크롤을 플레이어 인벤토리에 추가합니다.
+    /// </summary>
+    public void AddMagicScroll(MagicScrollData scrollData)
+    {
+        if (scrollData != null)
+        {
+            _ownedScrolls.Add(scrollData);
+            Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 획득 (총 {_ownedScrolls.Count}개)</color>");
+            
+            // UI 갱신 이벤트
+            GameEvents.TriggerMagicScrollPoolChanged(playerId, _ownedScrolls);
+        }
+    }
+
+    /// <summary>
+    /// 마법 스크롤 사용 시 인벤토리에서 제거합니다.
+    /// </summary>
+    /// <returns>스크롤 보유 시 true, 미보유 시 false</returns>
+    public bool TryConsumeMagicScroll(MagicScrollData scrollData)
+    {
+        if (scrollData == null) return false;
+        
+        // 같은 종류의 스크롤이 있는지 확인
+        var found = _ownedScrolls.Find(s => s == scrollData || s.name == scrollData.name);
+        if (found != null)
+        {
+            _ownedScrolls.Remove(found);
+            Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 사용 (남은 {_ownedScrolls.Count}개)</color>");
+            
+            // UI 갱신 이벤트
+            GameEvents.TriggerMagicScrollPoolChanged(playerId, _ownedScrolls);
+            return true;
+        }
+        
+        return false;
+    }
+    #endregion
     /// <summary>
     /// 라운드별 공격 몬스터 풀을 갱신합니다. (기본 웨이브 + 증강 공격 유닛 + 보스)
     /// </summary>
@@ -696,6 +742,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     }
     #endregion
 
+    #region 스탯 및 자원 관리
     public void AddPermanentAttackDamagePercent(float percent)
     {
         permanentAttackDamagePercent += percent;

@@ -48,7 +48,7 @@ MonoBehaviour:
     m_Tooltip: 
   m_Pos:
     serializedVersion: 2
-    x: 462
+    x: 460
     y: 554
     width: 645
     height: 437
@@ -138,7 +138,7 @@ MonoBehaviour:
     serializedVersion: 2
     x: 0
     y: 0
-    width: 462
+    width: 460
     height: 939
   m_MinSize: {x: 100, y: 100}
   m_MaxSize: {x: 4000, y: 4000}
@@ -170,7 +170,7 @@ MonoBehaviour:
     serializedVersion: 2
     x: 0
     y: 73
-    width: 461
+    width: 459
     height: 918
   m_ViewDataDictionary: {fileID: 0}
   m_OverlayCanvas:
@@ -194,7 +194,7 @@ MonoBehaviour:
   - {fileID: 11}
   m_Position:
     serializedVersion: 2
-    x: 462
+    x: 460
     y: 0
     width: 647
     height: 939
@@ -252,7 +252,7 @@ MonoBehaviour:
     m_Tooltip: 
   m_Pos:
     serializedVersion: 2
-    x: 462
+    x: 460
     y: 73
     width: 645
     height: 460
@@ -524,9 +524,9 @@ MonoBehaviour:
   m_PlayAudio: 0
   m_AudioPlay: 0
   m_Position:
-    m_Target: {x: 311.7516, y: 389, z: 0}
+    m_Target: {x: 272.09787, y: 388.18982, z: 0.86932373}
     speed: 2
-    m_Value: {x: 311.7516, y: 389, z: 0}
+    m_Value: {x: 272.09787, y: 388.18982, z: 0.86932373}
   m_RenderMode: 0
   m_CameraMode:
     drawMode: 0
@@ -573,9 +573,9 @@ MonoBehaviour:
     m_GridAxis: 1
     m_gridOpacity: 0.5
   m_Rotation:
-    m_Target: {x: 0.013484123, y: 0.04797747, z: -0.00065063144, w: 0.998763}
+    m_Target: {x: 0.014994864, y: -0.025494527, z: 0.00037957978, w: 0.9995682}
     speed: 2
-    m_Value: {x: 0.013484044, y: 0.04797719, z: -0.00065062765, w: 0.9987572}
+    m_Value: {x: 0.014994779, y: -0.025494382, z: 0.0003795776, w: 0.9995625}
   m_Size:
     m_Target: 135.0838
     speed: 2
@@ -790,14 +790,14 @@ MonoBehaviour:
   - {fileID: 15}
   m_Position:
     serializedVersion: 2
-    x: 1109
+    x: 1107
     y: 0
-    width: 401
+    width: 402
     height: 939
   m_MinSize: {x: 100, y: 200}
   m_MaxSize: {x: 8096, y: 16192}
   vertical: 1
-  controlID: 3115
+  controlID: 8569
 --- !u!114 &13
 MonoBehaviour:
   m_ObjectHideFlags: 52
@@ -815,7 +815,7 @@ MonoBehaviour:
     serializedVersion: 2
     x: 0
     y: 0
-    width: 401
+    width: 402
     height: 460
   m_MinSize: {x: 200, y: 200}
   m_MaxSize: {x: 4000, y: 4000}
@@ -845,9 +845,9 @@ MonoBehaviour:
     m_Tooltip: 
   m_Pos:
     serializedVersion: 2
-    x: 1109
+    x: 1107
     y: 73
-    width: 399
+    width: 400
     height: 439
   m_ViewDataDictionary: {fileID: 0}
   m_OverlayCanvas:
@@ -859,7 +859,7 @@ MonoBehaviour:
       scrollPos: {x: 0, y: 0}
       m_SelectedIDs: 
       m_LastClickedID: 0
-      m_ExpandedIDs: e4b5fcffbcb6fcff08bbfcff1ebbfcff38bbfcff4cbbfcffdeacfdff78b5feff
+      m_ExpandedIDs: 6876fcffec79fcffd6a4fcff04fbffff
       m_RenameOverlay:
         m_UserAcceptedRename: 0
         m_Name: 
@@ -900,7 +900,7 @@ MonoBehaviour:
     serializedVersion: 2
     x: 0
     y: 460
-    width: 401
+    width: 402
     height: 479
   m_MinSize: {x: 232, y: 271}
   m_MaxSize: {x: 10002, y: 10021}
@@ -930,9 +930,9 @@ MonoBehaviour:
     m_Tooltip: 
   m_Pos:
     serializedVersion: 2
-    x: 1109
+    x: 1107
     y: 533
-    width: 399
+    width: 400
     height: 458
   m_ViewDataDictionary: {fileID: 0}
   m_OverlayCanvas:
@@ -950,23 +950,23 @@ MonoBehaviour:
     m_SkipHidden: 0
     m_SearchArea: 1
     m_Folders:
-    - Assets/AddressableAssetsData
+    - Assets/Prefabs/UI/AttackSequence
     m_Globs: []
     m_OriginalText: 
     m_FilterByTypeIntersection: 0
   m_ViewMode: 1
   m_StartGridSize: 16
   m_LastFolders:
-  - Assets/AddressableAssetsData
+  - Assets/Prefabs/UI/AttackSequence
   m_LastFoldersGridSize: 16
   m_LastProjectPath: E:\UnityProjects\mdf\Mdfproject
   m_LockTracker:
     m_IsLocked: 0
   m_FolderTreeState:
-    scrollPos: {x: 0, y: 0}
-    m_SelectedIDs: 025d0200
-    m_LastClickedID: 154882
-    m_ExpandedIDs: 00000000ce5c0200d05c0200d25c0200d45c0200d65c0200d85c0200da5c0200dc5c0200de5c0200e05c0200e25c0200e45c0200e65c0200e85c0200ea5c0200ec5c0200ee5c0200f05c0200f25c0200f45c0200f65c0200f85c0200fa5c0200025d02002a5d020084800200d88f0200da8f0200dc8f0200de8f0200e08f02000aa9020038cf020052cf0200
+    scrollPos: {x: 0, y: 238}
+    m_SelectedIDs: 36f30000
+    m_LastClickedID: 62262
+    m_ExpandedIDs: 000000001c8400001e84000020840000228400002484000026840000288400002a8400002c8400002e84000030840000328400003484000036840000388400003a8400003c8400003e84000040840000428400004484000046840000488400004a8400004c8400004e84000050840000528400005484000056840000588400005a8400007c84000032f30000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -994,7 +994,7 @@ MonoBehaviour:
     scrollPos: {x: 0, y: 0}
     m_SelectedIDs: 
     m_LastClickedID: 0
-    m_ExpandedIDs: 00000000ce5c0200d05c0200d25c0200d45c0200d65c0200d85c0200da5c0200dc5c0200de5c0200e05c0200e25c0200e45c0200e65c0200e85c0200ea5c0200ec5c0200ee5c0200f05c0200f25c0200f45c0200f65c0200f85c0200fa5c0200185d0200d88f0200da8f0200dc8f0200de8f0200e08f0200
+    m_ExpandedIDs: 000000001c8400001e84000020840000228400002484000026840000288400002a8400002c8400002e84000030840000328400003484000036840000388400003a8400003c8400003e84000040840000428400004484000046840000488400004a8400004c8400004e84000050840000528400005484000056840000588400005a840000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
       m_Name: 
@@ -1021,22 +1021,22 @@ MonoBehaviour:
   m_ListAreaState:
     m_SelectedInstanceIDs: 
     m_LastClickedInstanceID: 0
-    m_HadKeyboardFocusLastEvent: 0
-    m_ExpandedInstanceIDs: b4a0020066a30000dac00000f6c40000a6820000669f00002e1901000e190100e2180100aa1801000ce600004ce800000ee800006ad000002cd000008ad00000c8d00000e8d000000ed100002ed1000052d1000002890000d01b01000e8900002aa4000096a30000d0de0000
+    m_HadKeyboardFocusLastEvent: 1
+    m_ExpandedInstanceIDs: b4a0020066a30000dac00000f6c40000a6820000669f00002e1901000e190100e2180100aa1801000ce600004ce800000ee800006ad000002cd000008ad00000c8d00000e8d000000ed100002ed1000052d1000002890000d01b01000e8900002aa4000096a30000d0de0000b6ef0000
     m_RenameOverlay:
       m_UserAcceptedRename: 0
-      m_Name: 
-      m_OriginalName: 
+      m_Name: UI_Pnl_ScrollSlotUI
+      m_OriginalName: UI_Pnl_ScrollSlotUI
       m_EditFieldRect:
         serializedVersion: 2
         x: 0
         y: 0
         width: 0
         height: 0
-      m_UserData: 0
+      m_UserData: 62314
       m_IsWaitingForDelay: 0
       m_IsRenaming: 0
-      m_OriginalEventType: 11
+      m_OriginalEventType: 0
       m_IsRenamingFilename: 1
       m_ClientGUIView: {fileID: 15}
     m_CreateAssetUtility:
@@ -1065,9 +1065,9 @@ MonoBehaviour:
   m_Children: []
   m_Position:
     serializedVersion: 2
-    x: 1510
+    x: 1509
     y: 0
-    width: 410
+    width: 411
     height: 939
   m_MinSize: {x: 275, y: 50}
   m_MaxSize: {x: 4000, y: 4000}
@@ -1097,9 +1097,9 @@ MonoBehaviour:
     m_Tooltip: 
   m_Pos:
     serializedVersion: 2
-    x: 1510
+    x: 1509
     y: 73
-    width: 409
+    width: 410
     height: 918
   m_ViewDataDictionary: {fileID: 0}
   m_OverlayCanvas:

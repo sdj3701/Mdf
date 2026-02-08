@@ -18,6 +18,9 @@ public class AttackSequenceManager : MonoBehaviour
     [Header("소환 설정")]
     [Tooltip("현재 선택된 몬스터")]
     private MonsterPoolEntry _selectedMonster;
+
+    [Tooltip("현재 선택된 마법 스크롤")]
+    private MagicScrollData _selectedScroll;
     
     [Tooltip("홀드 소환 간격 (초)")]
     [SerializeField] private float holdSpawnInterval = 0.3f;
@@ -29,6 +32,13 @@ public class AttackSequenceManager : MonoBehaviour
     [Header("스폰 영역 설정")]
     [Tooltip("스폰 가능 영역 레이어")]
     [SerializeField] private LayerMask spawnAreaLayerMask;
+    #endregion
+
+    #region 각종 플래그
+    /// <summary>
+    /// 현재 스크롤 모드인지 여부 (true: 스크롤, false: 몬스터)
+    /// </summary>
+    public bool IsScrollMode { get; private set; }
     #endregion
 
     #region 초기화
@@ -88,10 +98,33 @@ public class AttackSequenceManager : MonoBehaviour
         }
 
         _selectedMonster = entry;
+        _selectedScroll = null; // 몬스터 선택 시 스크롤 선택 해제
+        IsScrollMode = false;
         Debug.Log($"<color=yellow>[AttackSequenceManager] 몬스터 선택: {entry.MonsterData.monsterName} (남은 수량: {entry.RemainingCount})</color>");
     }
 
     public MonsterPoolEntry GetSelectedMonster() => _selectedMonster;
+    #endregion
+
+    #region 마법 스크롤 선택
+    /// <summary>
+    /// UI에서 스크롤 슬롯 클릭 시 호출
+    /// </summary>
+    public void SelectMagicScroll(MagicScrollData scrollData)
+    {
+        if (scrollData == null)
+        {
+            Debug.LogWarning("[AttackSequenceManager] 선택할 수 없는 스크롤입니다");
+            return;
+        }
+
+        _selectedScroll = scrollData;
+        _selectedMonster = null; // 스크롤 선택 시 몬스터 선택 해제
+        IsScrollMode = true;
+        Debug.Log($"<color=magenta>[AttackSequenceManager] 마법 스크롤 선택: {scrollData.scrollName}</color>");
+    }
+
+    public MagicScrollData GetSelectedScroll() => _selectedScroll;
     #endregion
 
     #region 업데이트 (입력 처리)
@@ -114,9 +147,17 @@ public class AttackSequenceManager : MonoBehaviour
         {
             if (!isPointerOverUI)
             {
-                TrySpawnMonsterAtMousePosition();
+                // 스크롤 모드인지 몬스터 모드인지에 따라 다른 처리
+                if (IsScrollMode && _selectedScroll != null)
+                {
+                    TryUseMagicScrollAtMousePosition();
+                }
+                else
+                {
+                    TrySpawnMonsterAtMousePosition();
+                }
             }
-            _isHolding = !isPointerOverUI;
+            _isHolding = !isPointerOverUI && !IsScrollMode; // 스크롤은 홀드 불가
             _lastSpawnTime = Time.time;
         }
         else if (Input.GetMouseButton(0) && _isHolding)
@@ -289,6 +330,90 @@ public class AttackSequenceManager : MonoBehaviour
         // 그리드 바깥이면 소환 가능
         Debug.Log($"[AttackSequenceManager] 그리드 바깥 위치 (소환 가능): ({rawGridX}, {rawGridY})");
         return true;
+    }
+    #endregion
+
+    #region 마법 스크롤 사용
+    /// <summary>
+    /// 마우스 위치에 마법 스크롤을 사용합니다.
+    /// </summary>
+    private void TryUseMagicScrollAtMousePosition()
+    {
+        if (_selectedScroll == null)
+        {
+            Debug.Log("[AttackSequenceManager] 선택된 스크롤이 없습니다");
+            return;
+        }
+
+        if (_playerCamera == null)
+        {
+            Debug.LogWarning("[AttackSequenceManager] 카메라가 없습니다");
+            return;
+        }
+
+        // 마우스 위치에서 레이캐스트
+        Ray ray = _playerCamera.ScreenPointToRay(Input.mousePosition);
+        if (Physics.Raycast(ray, out RaycastHit hit, 100f, spawnAreaLayerMask))
+        {
+            Vector3 targetPosition = hit.point;
+            UseMagicScrollAsync(targetPosition).Forget();
+        }
+    }
+
+    /// <summary>
+    /// 지정된 위치에 마법 스크롤을 사용합니다.
+    /// </summary>
+    private async UniTask UseMagicScrollAsync(Vector3 position)
+    {
+        if (_selectedScroll == null) return;
+
+        string scrollDataName = _selectedScroll.name;
+
+        // 호스트(StateAuthority)인 경우 직접 처리, 클라이언트인 경우 RPC 요청
+        bool isHost = _playerManager.Object != null && _playerManager.Object.HasStateAuthority;
+
+        if (isHost)
+        {
+            // 호스트: 스크롤 소비 후 직접 효과 발동
+            if (!_playerManager.TryConsumeMagicScroll(_selectedScroll))
+            {
+                Debug.LogWarning("[AttackSequenceManager] 스크롤 소비 실패");
+                return;
+            }
+
+            // 모든 클라이언트에 브로드캐스트 (호스트도 포함)
+            if (GameManagers.Instance != null)
+            {
+                GameManagers.Instance.RPC_BroadcastMagicScrollUsed(
+                    _playerManager.playerId,
+                    scrollDataName,
+                    position
+                );
+            }
+        }
+        else
+        {
+            // 클라이언트: 서버에 RPC 요청
+            if (GameManagers.Instance != null)
+            {
+                GameManagers.Instance.RPC_RequestUseMagicScroll(
+                    _playerManager.playerId,
+                    scrollDataName,
+                    position
+                );
+                Debug.Log($"<color=magenta>[AttackSequenceManager] RPC 스크롤 사용 요청: {scrollDataName} at {position}</color>");
+            }
+        }
+
+        // 스크롤 사용 후 선택 해제
+        Debug.Log($"<color=magenta>[AttackSequenceManager] 스크롤 '{_selectedScroll.scrollName}' 사용 완료!</color>");
+        _selectedScroll = null;
+        IsScrollMode = false;
+
+        // UI 갱신
+        AttackSequenceUIController.Instance?.RefreshUI();
+        
+        await UniTask.CompletedTask;
     }
     #endregion
 }
