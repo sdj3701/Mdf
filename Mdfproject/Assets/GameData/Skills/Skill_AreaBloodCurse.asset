@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1ce8c3f4810fbf84eb609f7a2c04e854, type: 3}
+  m_Name: Skill_AreaBloodCurse
+  m_EditorClassIdentifier: 
+  skillName: Skill_Stun
+  description: "\uC8FC\uBCC0 5\uBC94\uC704\uC758 \uC801\uB4E4\uC5D0\uAC8C \uCD9C\uD608\uC744
+    \uC77C\uC73C\uD0B5\uB2C8\uB2E4."
+  icon: {fileID: 21300000, guid: 4db3a0d22236b7542a789ac2ecbffcad, type: 3}
+  manaCost: 70
+  range: 5
+  activationType: 1
+  targetingStrategy: {fileID: 11400000, guid: ac91b01935cc0cb41ace8ebc9f3b1d08, type: 2}
+  effects:
+  - {fileID: 11400000, guid: b67154dd8cde79c449d2ee0d6e1ab9e1, type: 2}
+  vfxPrefab: {fileID: 3178614178979242518, guid: 89f2776e47e86d44ea455ef0ac412247,
+    type: 3}

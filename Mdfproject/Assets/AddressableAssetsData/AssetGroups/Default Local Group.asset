@@ -464,17 +464,52 @@ MonoBehaviour:
     m_SerializedLabels:
     - Scroll
   - m_GUID: eedb831abf1e4a04aa48f442a1a0e4d2
-    m_Address: Aug_Scroll_Heal 3
+    m_Address: Aug_Scroll_BloodCurse
     m_ReadOnly: 0
     m_SerializedLabels:
     - Scroll
   - m_GUID: 477ccf48d3c6b9942a226534e221cc6b
-    m_Address: Aug_Scroll_Heal 2
+    m_Address: Aug_Scroll_Stun
     m_ReadOnly: 0
     m_SerializedLabels:
     - Scroll
   - m_GUID: 670e9a593343a4149bc03fdce975499e
-    m_Address: Aug_Scroll_Heal 1
+    m_Address: Aug_Scroll_Berserk
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+  - m_GUID: 023e86bb5d5919544951bbfa65ef4240
+    m_Address: UI_Pnl_ScrollSlotUI
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+  - m_GUID: aa8a54f103477b740a66a45bea14b2fa
+    m_Address: Scroll_Stun
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+  - m_GUID: d35d515c57c2ce2408cc2b04eec16b2d
+    m_Address: Skill_AreaStun
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+  - m_GUID: 641f4a70a81c61546a57eef7a31924cd
+    m_Address: Skill_Berserk
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+  - m_GUID: b996bcb97ea2b924983d9cd16effc5ae
+    m_Address: Scroll_Berserk
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+  - m_GUID: 1e1d728767c586b4e9f1f9e036aa34a5
+    m_Address: Skill_AreaBloodCurse
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+  - m_GUID: de225fb811fb15144a69da7580433d59
+    m_Address: Scroll_BloodCurse
     m_ReadOnly: 0
     m_SerializedLabels:
     - Scroll
