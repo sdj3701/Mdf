@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using System.Linq;
@@ -10,7 +11,8 @@ using System.Threading.Tasks;
 public class GameManagers : NetworkBehaviour
 {
     // 싱글톤 패턴은 유지하되, 초기화는 Spawned()에서 수행합니다.
-    public static GameManagers Instance { get; private set; }
+    // ★ Host Migration 지원을 위해 internal set 사용
+    public static GameManagers Instance { get; internal set; }
     public CommandProcessor CommandProcessor { get; private set; }
 
     // [수정] Fusion 2의 변경 감지를 위한 ChangeDetector 인스턴스
@@ -1584,9 +1586,113 @@ public class GameManagers : NetworkBehaviour
             localPlayer.RPC_RequestSyncData();
         }
         
-        Debug.Log("<color=green>═══════════════════════════════════════════</color>");
-        Debug.Log("<color=green>[GameManagers] Host Migration 복원 완료!</color>");
-        Debug.Log("<color=green>═══════════════════════════════════════════</color>");
+        // ★ 7. [NEW] StateAuthority 획득 대기 후 타이머 복원
+        Debug.Log("<color=magenta>═══ [STEP 6] 게임 흐름 재개 체크 ═══</color>");
+        
+        // 현재 StateAuthority 상태 확인
+        bool hasAuthority = Object != null && Object.HasStateAuthority;
+        Debug.Log($"[STEP 6] 현재 StateAuthority: {hasAuthority}");
+        
+        if (hasAuthority)
+        {
+            // 이미 Authority 있으면 바로 복원
+            ResumeGameFlowFromCurrentState();
+        }
+        else
+        {
+            // Authority가 없으면 잠시 대기 후 재확인 (코루틴으로 처리)
+            Debug.Log("[STEP 6] StateAuthority 없음 - 대기 후 재확인 예정");
+            StartCoroutine(WaitForStateAuthorityAndResume());
+        }
+        
+        // ★ 8. [Observer Pattern] 상태 복원 완료 이벤트 발행
+        GameEvents.TriggerGameStateRestored(currentState);
+        
+        Debug.Log("<color=magenta>═══ [STEP 7] Host Migration 완료 ═══</color>");
+        Debug.Log($"<color=green>[STEP 7] 최종 상태 확인:</color>");
+        Debug.Log($"  GameState: {currentState}");
+        Debug.Log($"  라운드: {currentRound}");
+        Debug.Log($"  타이머 실행 중: {phaseTimer.IsRunning}");
+        Debug.Log($"  남은 시간: {currentPhaseTimer:F1}초");
+        Debug.Log($"  StateAuthority: {Object?.HasStateAuthority}");
+        
+        // Battle 상태 확인
+        bool isInBattle = currentState == GameState.Battle1 || currentState == GameState.Battle2;
+        if (isInBattle)
+        {
+            Debug.Log($"<color=cyan>[STEP 7] ✓ Battle 상태 복원 성공! ({currentState})</color>");
+        }
+    }
+    
+    /// <summary>
+    /// StateAuthority 획득을 기다린 후 게임 흐름을 재개합니다.
+    /// </summary>
+    private IEnumerator WaitForStateAuthorityAndResume()
+    {
+        float waitTime = 0f;
+        const float maxWaitTime = 3f;
+        
+        Debug.Log("[STEP 6] StateAuthority 획득 대기 시작...");
+        
+        while (waitTime < maxWaitTime)
+        {
+            if (Object != null && Object.HasStateAuthority)
+            {
+                Debug.Log($"<color=green>[STEP 6] StateAuthority 획득 완료! ({waitTime:F1}초 후)</color>");
+                ResumeGameFlowFromCurrentState();
+                yield break;
+            }
+            
+            yield return new WaitForSeconds(0.1f);
+            waitTime += 0.1f;
+        }
+        
+        Debug.LogWarning($"<color=orange>[STEP 6] StateAuthority 획득 시간 초과 ({maxWaitTime}초) - 클라이언트로 유지됨</color>");
+    }
+    
+    /// <summary>
+    /// [State Machine Pattern]
+    /// 현재 상태에서 게임 흐름을 재개합니다 (새 Host 전용).
+    /// 타이머가 없거나 만료되었으면 현재 상태에 맞게 재설정합니다.
+    /// </summary>
+    private void ResumeGameFlowFromCurrentState()
+    {
+        bool timerRunning = phaseTimer.IsRunning;
+        bool timerExpired = timerRunning && phaseTimer.Expired(Runner);
+        float remainingTime = timerRunning ? (phaseTimer.RemainingTime(Runner) ?? 0f) : 0f;
+        
+        Debug.Log($"<color=yellow>[STEP 6] 현재 상태: {currentState}</color>");
+        Debug.Log($"[STEP 6] 타이머 상태:");
+        Debug.Log($"  - Running: {timerRunning}");
+        Debug.Log($"  - Expired: {timerExpired}");
+        Debug.Log($"  - Remaining: {remainingTime:F1}초");
+        
+        // 타이머가 정상 동작 중이면 유지
+        if (timerRunning && !timerExpired && remainingTime > 0.5f)
+        {
+            Debug.Log($"<color=green>[STEP 6] ✓ 기존 타이머 유지 ({remainingTime:F1}초 남음) - 게임 재개!</color>");
+            return;
+        }
+        
+        // 타이머가 없거나 만료되었으면 현재 상태에 맞게 재설정
+        float newDuration = currentState switch
+        {
+            GameState.Prepare => firstPrepareDurationUsed ? preparePhaseTime : firstPreparePhaseTime,
+            GameState.Battle1 => combatTime,
+            GameState.Battle2 => combatTime,
+            _ => 0f
+        };
+        
+        if (newDuration > 0f)
+        {
+            phaseTimer = TickTimer.CreateFromSeconds(Runner, newDuration);
+            Debug.Log($"<color=cyan>[STEP 6] ✓ 타이머 재설정: {newDuration}초 - 게임 재개!</color>");
+            Debug.Log($"<color=cyan>[STEP 6] 현재 상태 ({currentState})에서 계속 진행됩니다.</color>");
+        }
+        else
+        {
+            Debug.Log($"[STEP 6] {currentState} 상태는 타이머가 필요 없음");
+        }
     }
     
     /// <summary>
@@ -1594,9 +1700,29 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     private void RelinkLocalPlayer()
     {
-        // InputAuthority를 가진 플레이어 찾기
+        Debug.Log($"[GameManagers] RelinkLocalPlayer 시작 - AllPlayers 수: {AllPlayers.Count()}");
+        
+        // 방법 1: AllPlayers에서 InputAuthority 가진 플레이어 찾기
         localPlayer = AllPlayers.FirstOrDefault(p => 
             p != null && p.Object != null && p.Object.HasInputAuthority);
+        
+        // 방법 2: AllPlayers에 없으면 FindObjectsOfType으로 폴백
+        if (localPlayer == null)
+        {
+            Debug.Log("[GameManagers] AllPlayers에서 못 찾음, FindObjectsOfType 시도...");
+            var allPlayerManagers = FindObjectsOfType<PlayerManager>();
+            Debug.Log($"[GameManagers] 발견된 PlayerManager 수: {allPlayerManagers.Length}");
+            
+            foreach (var pm in allPlayerManagers)
+            {
+                Debug.Log($"  - {pm.name}: Object={pm.Object != null}, HasInputAuthority={pm.Object?.HasInputAuthority}");
+                if (pm != null && pm.Object != null && pm.Object.HasInputAuthority)
+                {
+                    localPlayer = pm;
+                    break;
+                }
+            }
+        }
         
         if (localPlayer != null)
         {
@@ -1604,6 +1730,13 @@ public class GameManagers : NetworkBehaviour
             
             // opponentManager 재연결 (2인 게임의 경우)
             var allPlayersList = AllPlayers.ToList();
+            
+            // AllPlayers가 비어있으면 FindObjectsOfType 사용
+            if (allPlayersList.Count == 0)
+            {
+                allPlayersList = FindObjectsOfType<PlayerManager>().ToList();
+            }
+            
             if (allPlayersList.Count == 2)
             {
                 var opponent = allPlayersList.FirstOrDefault(p => p != localPlayer);
@@ -1611,6 +1744,7 @@ public class GameManagers : NetworkBehaviour
                 {
                     localPlayer.opponentManager = opponent;
                     opponent.opponentManager = localPlayer;
+                    Debug.Log($"[GameManagers] opponentManager 재연결: Player {opponent.playerId}");
                 }
             }
         }

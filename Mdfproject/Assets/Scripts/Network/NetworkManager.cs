@@ -359,11 +359,33 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         if (runner.IsServer)
         {
-            Debug.Log("Spawning player character...");
-            // 서버(호스트)는 새로 참여한 플레이어의 캐릭터를 스폰합니다.
-            // ✅ 아래 줄의 주석이 해제되어 있는지 확인하세요.
-            NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, Vector3.zero, Quaternion.identity, player);
-            _spawnedCharacters.Add(player, networkPlayerObject);
+            // Host Migration 중에는 이미 복원된 플레이어가 있으므로 스폰하지 않음
+            if (HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating)
+            {
+                Debug.Log($"[NetworkManager] Host Migration 중 - Player {player} 스폰 건너뜀 (이미 복원됨)");
+                
+                // 이미 복원된 PlayerManager 찾아서 등록
+                var existingPlayers = FindObjectsOfType<PlayerManager>();
+                foreach (var pm in existingPlayers)
+                {
+                    if (pm.Object != null && pm.Object.InputAuthority == player)
+                    {
+                        if (!_spawnedCharacters.ContainsKey(player))
+                        {
+                            _spawnedCharacters.Add(player, pm.Object);
+                            Debug.Log($"[NetworkManager] 복원된 Player {player} 등록 완료");
+                        }
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                Debug.Log("Spawning player character...");
+                // 서버(호스트)는 새로 참여한 플레이어의 캐릭터를 스폰합니다.
+                NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, Vector3.zero, Quaternion.identity, player);
+                _spawnedCharacters.Add(player, networkPlayerObject);
+            }
         }
 
         // 플레이어 참가 이벤트 발생
