@@ -140,6 +140,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private Coroutine _skillCastingRoutine;
     private ChangeDetector _changeDetector;
     private BuffManager _buffManager;
+    private float _lastRecoverFailureLogTime;
+    private float _lastMissingUnitDataLogTime;
 
     /// <summary>
     /// 이 유닛의 소유자(PlayerManager)에 대한 외부 접근자.
@@ -292,6 +294,92 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return true;
         }
         return Object.HasStateAuthority;
+    }
+
+    private bool EnsureRuntimeReferences(string context, bool verboseFailure)
+    {
+        if (owner == null)
+        {
+            owner = GetComponentInParent<PlayerManager>();
+        }
+
+        if (manaController == null)
+        {
+            manaController = GetComponent<ManaController>();
+        }
+
+        if (_buffManager == null)
+        {
+            _buffManager = GetComponent<BuffManager>();
+        }
+
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>();
+            }
+        }
+
+        if (unitData == null)
+        {
+            TryRecoverUnitData(context);
+        }
+
+        bool ready = unitData != null;
+        if (!ready && verboseFailure && Time.unscaledTime - _lastRecoverFailureLogTime > 0.5f)
+        {
+            _lastRecoverFailureLogTime = Time.unscaledTime;
+            Debug.LogWarning($"[Unit] Runtime 참조 미복구 ({context}) name={name}, owner={(owner != null ? owner.playerId.ToString() : "null")}, hasObject={(Object != null)}, hasRunner={(Runner != null)}");
+        }
+
+        return ready;
+    }
+
+    private void TryRecoverUnitData(string context)
+    {
+        var lm = LoadManager.Instance;
+        if (lm == null || !lm.IsReady)
+        {
+            return;
+        }
+
+        var all = lm.GetAllUnitData();
+        if (all == null || all.Count == 0)
+        {
+            return;
+        }
+
+        string rawName = gameObject != null ? gameObject.name : string.Empty;
+        string normalized = rawName.Replace("(Clone)", string.Empty).Trim();
+
+        UnitData resolved = all.FirstOrDefault(d =>
+            d != null && (
+                string.Equals(d.name, normalized, System.StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(d.unitName, normalized, System.StringComparison.OrdinalIgnoreCase)));
+
+        if (resolved == null)
+        {
+            var fuzzy = all.Where(d => d != null && (
+                d.name.IndexOf(normalized, System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                (d.unitName != null && d.unitName.IndexOf(normalized, System.StringComparison.OrdinalIgnoreCase) >= 0))).ToList();
+            if (fuzzy.Count == 1)
+            {
+                resolved = fuzzy[0];
+            }
+        }
+
+        if (resolved != null)
+        {
+            unitData = resolved;
+            Debug.LogWarning($"[Unit] HostMigration 후 UnitData 자동 복구 성공 ({context}) name={name}, resolved={resolved.name}, owner={(owner != null ? owner.playerId.ToString() : "null")}");
+        }
+        else if (Time.unscaledTime - _lastMissingUnitDataLogTime > 1f)
+        {
+            _lastMissingUnitDataLogTime = Time.unscaledTime;
+            Debug.LogWarning($"[Unit] UnitData 복구 실패 ({context}) name={name}, normalized={normalized}");
+        }
     }
 
     void OnEnable()
@@ -643,6 +731,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             // [Fix] 전투 시작 시 공격 쿨다운 초기화 - 첫 공격 즉시 실행
             lastAttackAnimTime = -999f;
             _hasPendingAttack = false;
+            EnsureRuntimeReferences("HandleGameStateChanged(BattleEnter)", false);
             
             StartAttackLoop();
             _nextProjectileVfxTime = Time.time;
@@ -1001,6 +1090,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public void StartAttackLoop()
     {
         if (attackCoroutine != null) StopCoroutine(attackCoroutine);
+        EnsureRuntimeReferences("StartAttackLoop", false);
         attackCoroutine = StartCoroutine(AttackLoop());
     }
 
@@ -1008,10 +1098,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         float nextAttackTime = 0f;
         bool hadTargetLastFrame = false;
-        bool isMelee = unitData.unitType == UnitType.Melee;
         
         while (isCombatPhase)
         {
+            if (!EnsureRuntimeReferences("AttackLoop", true))
+            {
+                yield return null;
+                continue;
+            }
+
+            bool isMelee = unitData.unitType == UnitType.Melee;
+
             if (currentAttackSpeed <= 0)
             {
                 yield return null;
@@ -1379,6 +1476,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public bool IsBlockingFull()
     {
+        if (Data == null) return false;
         return blockedMonsters.Count >= Data.blockCount;
     }
 
@@ -1387,6 +1485,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public bool TryBlockMonster(Monster monster)
     {
+        if (Data == null) return false;
         if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
             monster.HasTrait(MonsterTraits.Unblockable) ||
             monster.Data.monsterType == MonsterType.Flying ||
@@ -1409,6 +1508,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     private void OnDestroy()
     {
+        GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+
         // [수정됨] 오브젝트 파괴 시 이벤트 구독을 확실히 해제합니다.
         if (manaController != null)
         {
@@ -1455,7 +1556,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         gameObject.SetActive(false);
-        Debug.Log($"<color=red>{unitData.unitName}이(가) 전투에서 쓰러졌습니다.</color>");
+        string deadUnitName = unitData != null ? unitData.unitName : name;
+        Debug.Log($"<color=red>{deadUnitName}이(가) 전투에서 쓰러졌습니다.</color>");
     }
 
     public void Heal(float amount)

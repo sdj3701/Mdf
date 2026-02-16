@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using Cysharp.Threading.Tasks;
 using Fusion;
+using System.Linq;
 
 /// <summary>
 /// 공격 시퀀스를 관리하는 매니저.
@@ -14,6 +15,7 @@ public class AttackSequenceManager : MonoBehaviour
     private PlayerManager _playerManager;
     private MonsterSpawner _monsterSpawner;
     private FieldManager _opponentFieldManager;
+    private float _lastMissingRefLogTime;
     
     [Header("소환 설정")]
     [Tooltip("현재 선택된 몬스터")]
@@ -29,6 +31,8 @@ public class AttackSequenceManager : MonoBehaviour
     [Header("스폰 영역 설정")]
     [Tooltip("스폰 가능 영역 레이어")]
     [SerializeField] private LayerMask spawnAreaLayerMask;
+
+    public PlayerManager Owner => _playerManager;
     #endregion
 
     #region 초기화
@@ -36,12 +40,9 @@ public class AttackSequenceManager : MonoBehaviour
     {
         _playerManager = owner;
         _monsterSpawner = owner?.monsterSpawner;
-        
-        // 카메라 찾기
-        _playerCamera = ComponentRegistry.Get<Camera>("Main Camera", false);
-        if (_playerCamera == null) _playerCamera = Camera.main;
 
-        Debug.Log($"<color=cyan>[AttackSequenceManager] Player {owner?.playerId} 초기화 완료</color>");
+        EnsureRuntimeReferences("Initialize", true);
+        Debug.Log($"<color=cyan>[AttackSequenceManager] Player {owner?.playerId} 초기화 완료 ({DescribeRuntimeState()})</color>");
     }
 
     /// <summary>
@@ -55,16 +56,31 @@ public class AttackSequenceManager : MonoBehaviour
             return;
         }
 
+        if (!EnsureRuntimeReferences("StartAttackSequence", true))
+        {
+            Debug.LogError($"[AttackSequenceManager] StartAttackSequence 중단: 필수 참조 누락 ({DescribeRuntimeState()})");
+            return;
+        }
+
         _opponentFieldManager = opponent.fieldManager;
         _selectedMonster = null;
         
         // 첫 번째 몬스터 자동 선택
-        if (_playerManager.AttackMonsterPool.Count > 0)
+        var pool = _playerManager.AttackMonsterPool;
+        if (pool != null && pool.Count > 0)
         {
-            SelectMonster(_playerManager.AttackMonsterPool[0]);
+            var firstValid = pool.FirstOrDefault(entry => entry != null && !entry.IsEmpty);
+            if (firstValid != null)
+            {
+                SelectMonster(firstValid);
+            }
+        }
+        else
+        {
+            Debug.LogWarning($"[AttackSequenceManager] 공격 시퀀스 시작 시 몬스터 풀 비어있음. player={_playerManager.playerId}");
         }
 
-        Debug.Log($"<color=green>[AttackSequenceManager] 공격 시퀀스 시작! 상대: Player {opponent.playerId}</color>");
+        Debug.Log($"<color=green>[AttackSequenceManager] 공격 시퀀스 시작! 상대: Player {opponent.playerId} ({DescribeRuntimeState()})</color>");
     }
 
     public void EndAttackSequence()
@@ -97,7 +113,7 @@ public class AttackSequenceManager : MonoBehaviour
     #region 업데이트 (입력 처리)
     void Update()
     {
-        if (_playerManager == null) return;
+        if (!EnsureRuntimeReferences("Update", false)) return;
         if (!_playerManager.IsAttackerInCurrentBattle) return;
         if (_opponentFieldManager == null) return;
 
@@ -155,6 +171,11 @@ public class AttackSequenceManager : MonoBehaviour
     #region 몬스터 소환
     private void TrySpawnMonsterAtMousePosition()
     {
+        if (!EnsureRuntimeReferences("TrySpawnMonsterAtMousePosition", true))
+        {
+            return;
+        }
+
         if (_selectedMonster == null || _selectedMonster.IsEmpty)
         {
             Debug.Log("[AttackSequenceManager] 선택된 몬스터가 없거나 수량이 0입니다");
@@ -187,9 +208,19 @@ public class AttackSequenceManager : MonoBehaviour
 
     private async UniTask SpawnMonsterAsync(Vector3 position)
     {
+        if (!EnsureRuntimeReferences("SpawnMonsterAsync", true))
+        {
+            return;
+        }
+
         if (_selectedMonster == null || _selectedMonster.IsEmpty) return;
         if (_monsterSpawner == null) return;
         if (_opponentFieldManager == null) return;
+        if (_selectedMonster.MonsterData == null)
+        {
+            Debug.LogWarning("[AttackSequenceManager] SpawnMonsterAsync 중단: 선택 몬스터 데이터 null");
+            return;
+        }
 
         // 몬스터 데이터 이름 저장 (RPC 전송용)
         string monsterDataName = _selectedMonster.MonsterData?.name;
@@ -256,6 +287,60 @@ public class AttackSequenceManager : MonoBehaviour
             // UI 갱신 이벤트 발생
             AttackSequenceUIController.Instance?.RefreshUI();
         }
+    }
+    #endregion
+
+    #region 참조 복구
+    private bool EnsureRuntimeReferences(string context, bool verboseFailure)
+    {
+        if (_playerManager == null)
+        {
+            _playerManager = GetComponent<PlayerManager>();
+        }
+
+        if (_monsterSpawner == null && _playerManager != null)
+        {
+            _monsterSpawner = _playerManager.monsterSpawner;
+            if (_monsterSpawner == null)
+            {
+                _monsterSpawner = _playerManager.GetComponentInChildren<MonsterSpawner>(true);
+            }
+        }
+
+        if (_playerCamera == null)
+        {
+            _playerCamera = ComponentRegistry.Get<Camera>("Main Camera", false);
+            if (_playerCamera == null)
+            {
+                _playerCamera = Camera.main;
+            }
+        }
+
+        bool ready = _playerManager != null && _monsterSpawner != null;
+        if (!ready && verboseFailure && Time.unscaledTime - _lastMissingRefLogTime > 0.5f)
+        {
+            _lastMissingRefLogTime = Time.unscaledTime;
+            Debug.LogWarning($"[AttackSequenceManager] 참조 복구 실패 ({context}) {DescribeRuntimeState()}");
+        }
+
+        return ready;
+    }
+
+    private string DescribeRuntimeState()
+    {
+        string ownerState = _playerManager == null
+            ? "owner=null"
+            : $"owner=Player({_playerManager.playerId}, name={_playerManager.name}, hasObject={_playerManager.Object != null})";
+        string spawnerState = _monsterSpawner == null
+            ? "spawner=null"
+            : $"spawner={_monsterSpawner.name}";
+        string opponentState = _opponentFieldManager == null
+            ? "opponentField=null"
+            : $"opponentField={_opponentFieldManager.name}";
+        string cameraState = _playerCamera == null
+            ? "camera=null"
+            : $"camera={_playerCamera.name}";
+        return $"{ownerState}, {spawnerState}, {opponentState}, {cameraState}";
     }
     #endregion
 

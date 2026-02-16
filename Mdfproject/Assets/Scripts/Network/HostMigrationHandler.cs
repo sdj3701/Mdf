@@ -9,6 +9,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using Fusion;
 using System.Linq;
+using System.Text;
 
 /// <summary>
 /// Host Migration 중 저장되는 게임 상태 데이터
@@ -58,6 +59,11 @@ public class HostMigrationHandler : MonoBehaviour
     // 마이그레이션 상태
     private bool _isMigrating = false;
     public bool IsMigrating => _isMigrating;
+    private bool _migrationRecoverySucceeded = false;
+
+    // HostMigrationResume에서 스폰된 GameManagers 캐시 (복원 대기 루틴 폴백용)
+    private GameManagers _restoredGameManagersCandidate;
+    private float _lastResolveDebugLogTime = -10f;
 
     private void Awake()
     {
@@ -119,7 +125,10 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.Log("<color=yellow>═══════════════════════════════════════════</color>");
         Debug.Log("<color=yellow>[HostMigrationHandler] Host Migration 시작! (세션 재시작 방식)</color>");
         Debug.Log("<color=yellow>═══════════════════════════════════════════</color>");
+        Debug.Log($"[HostMigrationHandler] StartMigration 입력 runner: {DescribeRunner(runner)}");
+        Debug.Log($"[HostMigrationHandler] StartMigration 시점 GameManagers: {DescribeGameManagers(GameManagers.Instance)}");
         _isMigrating = true;
+        _migrationRecoverySucceeded = false;
 
         // [Observer Pattern] Migration 시작 이벤트 발행
         GameEvents.TriggerHostMigrationStarted();
@@ -241,9 +250,7 @@ public class HostMigrationHandler : MonoBehaviour
         
         Debug.Log("<color=magenta>═══ [STEP 4] 새 Host 등록 완료 ═══</color>");
         Debug.Log($"<color=green>[STEP 4] 새 Host로 세션 재시작 성공!</color>");
-        Debug.Log($"  - Runner.GameMode: {newRunner.GameMode}");
-        Debug.Log($"  - Runner.IsServer: {newRunner.IsServer}");
-        Debug.Log($"  - Runner.IsRunning: {newRunner.IsRunning}");
+        Debug.Log($"  - {DescribeRunner(newRunner)}");
         
         // NetworkManager에 새 Runner 설정
         if (NetworkManager.Instance != null)
@@ -259,7 +266,7 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.Log("[STEP 5] 기존 Runner 비활성화 전에 복원 먼저 실행!");
         
         // GameManagers Spawned 대기 및 복원
-        yield return WaitAndRestoreGameManagers();
+        yield return WaitAndRestoreGameManagers(newRunner);
         
         Debug.Log("[STEP 5] 복원 완료 - 이제 기존 Runner 비활성화");
         
@@ -390,8 +397,7 @@ public class HostMigrationHandler : MonoBehaviour
     
     /// <summary>
     /// Host Migration 시 네트워크 오브젝트 복원 콜백
-    /// Fusion이 GetResumeSnapshotNetworkObjects 호출 시 자동으로 인스턴스를 생성합니다.
-    /// 여기서는 추가 Spawn 없이 복원된 오브젝트를 확인하고 필요한 초기화만 수행합니다.
+    /// Fusion 스냅샷에서 받은 resume 오브젝트를 새 Runner에 Spawn하고 상태를 복사합니다.
     /// </summary>
     private void HostMigrationResume(NetworkRunner runner)
     {
@@ -402,8 +408,6 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.Log($"  - IsServer: {runner?.IsServer}");
         
         // Resume Snapshot 오브젝트 가져오기
-        // ★ 중요: 이 호출만으로 Fusion이 자동으로 인스턴스를 생성합니다!
-        // 추가로 runner.Spawn을 호출하면 중복 생성됩니다.
         var resumeObjects = runner.GetResumeSnapshotNetworkObjects().ToList();
         Debug.Log($"<color=yellow>[HostMigrationHandler] Resume Snapshot 오브젝트 수: {resumeObjects.Count}</color>");
         
@@ -414,29 +418,56 @@ public class HostMigrationHandler : MonoBehaviour
         
         GameManagers restoredGM = null;  // ★ 복원된 GameManagers 저장
         
-        // 복원된 오브젝트 카테고리별 카운트 및 확인
+        // 복원된 오브젝트를 실제로 Spawn + 상태 복사
         foreach (var resumeNO in resumeObjects)
         {
             if (resumeNO == null) continue;
             
-            Debug.Log($"<color=orange>[HostMigrationHandler] 복원됨: {resumeNO.name} (Id: {resumeNO.Id})</color>");
-            
+            // 클로저 캡처 안전성 확보
+            NetworkObject resumeSource = resumeNO;
+            NetworkObject spawnedNO = null;
+
+            try
+            {
+                spawnedNO = runner.Spawn(
+                    resumeSource,
+                    position: resumeSource.transform.position,
+                    rotation: resumeSource.transform.rotation,
+                    inputAuthority: resumeSource.InputAuthority,
+                    onBeforeSpawned: (r, no) =>
+                    {
+                        no.CopyStateFrom(resumeSource);
+                    });
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"<color=red>[HostMigrationHandler] Resume Spawn 실패: {resumeSource.name} - {e.Message}</color>");
+            }
+
+            if (spawnedNO == null)
+            {
+                Debug.LogWarning($"<color=orange>[HostMigrationHandler] Spawn 결과 null: {resumeSource.name}</color>");
+                continue;
+            }
+
+            Debug.Log($"<color=orange>[HostMigrationHandler] 복원됨: {spawnedNO.name} (Id: {spawnedNO.Id})</color>");
+
             // GameManagers 확인
-            if (resumeNO.TryGetComponent<GameManagers>(out var gm))
+            if (spawnedNO.TryGetComponent<GameManagers>(out var gm))
             {
                 gameManagerCount++;
                 restoredGM = gm;  // ★ 복원된 GameManagers 저장
                 Debug.Log($"<color=green>[HostMigrationHandler] GameManagers 복원됨: {gm.currentRound} 라운드, 상태: {gm.currentState}</color>");
-                Debug.Log($"<color=green>  - HasStateAuthority: {resumeNO.HasStateAuthority}</color>");
+                Debug.Log($"<color=green>  - HasStateAuthority: {spawnedNO.HasStateAuthority}</color>");
             }
             // PlayerManager 확인
-            else if (resumeNO.TryGetComponent<PlayerManager>(out var pm))
+            else if (spawnedNO.TryGetComponent<PlayerManager>(out var pm))
             {
                 playerCount++;
-                Debug.Log($"  - Player {pm.playerId}, InputAuthority: {resumeNO.InputAuthority}");
+                Debug.Log($"  - Player {pm.playerId}, InputAuthority: {spawnedNO.InputAuthority}");
             }
             // Unit 확인
-            else if (resumeNO.TryGetComponent<Unit>(out var unit))
+            else if (spawnedNO.TryGetComponent<Unit>(out var unit))
             {
                 unitCount++;
             }
@@ -460,6 +491,7 @@ public class HostMigrationHandler : MonoBehaviour
             Debug.Log($"  - 새 Instance: {restoredGM.GetHashCode()}");
             
             GameManagers.Instance = restoredGM;
+            _restoredGameManagersCandidate = restoredGM;
             
             // 새 Host라면 StateAuthority 요청
             if (runner.IsServer && restoredGM.Object != null && !restoredGM.Object.HasStateAuthority)
@@ -486,6 +518,7 @@ public class HostMigrationHandler : MonoBehaviour
         // 현재 존재하는 오브젝트 수 확인
         var allObjects = runner.GetAllNetworkObjects();
         Debug.Log($"<color=green>[HostMigrationHandler] 총 NetworkObject 수: {allObjects?.Count ?? 0}</color>");
+        Debug.Log($"[HostMigrationHandler][Resume 상세]\n{BuildGameManagersDump(runner, restoredGM)}");
         Debug.Log("<color=cyan>═══════════════════════════════════════════</color>");
     }
     
@@ -665,68 +698,57 @@ public class HostMigrationHandler : MonoBehaviour
     /// <summary>
     /// GameManagers가 준비될 때까지 대기 후 로컬 상태를 복원합니다.
     /// </summary>
-    private IEnumerator WaitAndRestoreGameManagers()
+    private IEnumerator WaitAndRestoreGameManagers(NetworkRunner expectedRunner)
     {
         Debug.Log("<color=yellow>[STEP 5.1] WaitAndRestoreGameManagers 코루틴 시작</color>");
         
         float waitTime = 0f;
         const float maxWaitTime = 5f;
         
+        if (expectedRunner == null)
+        {
+            Debug.LogError("[STEP 5.1] expectedRunner가 null입니다. 복원 중단");
+            yield break;
+        }
+
         Debug.Log("[STEP 5.1] GameManagers 복원 대기 시작...");
         Debug.Log($"[STEP 5.1] GameManagers.Instance: {(GameManagers.Instance != null ? "exists" : "NULL")}");
-        
+
         // GameManagers가 준비될 때까지 대기
         while (waitTime < maxWaitTime)
         {
-            bool instanceExists = GameManagers.Instance != null;
-            bool isReady = instanceExists && GameManagers.Instance.IsReadyForNetworkAccess;
+            var gm = ResolveGameManagersForRunner(expectedRunner);
+            bool instanceExists = gm != null;
+            bool isReady = instanceExists && gm.IsReadyForNetworkAccess;
+            bool runnerMatched = instanceExists && gm.Runner == expectedRunner;
+            bool hasAuthority = !expectedRunner.IsServer || (instanceExists && gm.Object != null && gm.Object.HasStateAuthority);
             
             // 0.5초마다만 로그 출력 (너무 많은 로그 방지)
             if (waitTime == 0 || (int)(waitTime * 10) % 5 == 0)
             {
-                Debug.Log($"[STEP 5.2] 대기 중... ({waitTime:F1}s) - Instance: {instanceExists}, Ready: {isReady}");
+                Debug.Log($"[STEP 5.2] 대기 중... ({waitTime:F1}s) - Instance: {instanceExists}, Ready: {isReady}, RunnerMatched: {runnerMatched}, HasAuthority: {hasAuthority}");
+                Debug.Log($"[STEP 5.2][DETAIL]\n{BuildGameManagersDump(expectedRunner, gm)}");
             }
             
-            if (isReady)
+            if (instanceExists && expectedRunner.IsServer && gm.Object != null && !gm.Object.HasStateAuthority)
+            {
+                gm.Object.RequestStateAuthority();
+            }
+
+            if (isReady && runnerMatched && hasAuthority)
             {
                 Debug.Log("<color=cyan>[STEP 5.3] GameManagers 준비 완료!</color>");
                 
                 // 추가 상태 정보 로깅
-                var gm = GameManagers.Instance;
                 Debug.Log($"[STEP 5.3] 복원 전 상태:");
                 Debug.Log($"  - Round: {gm.currentRound}");
                 Debug.Log($"  - State: {gm.currentState}");
                 Debug.Log($"  - Timer: {gm.currentPhaseTimer:F1}s");
                 Debug.Log($"  - HasStateAuthority: {gm.Object?.HasStateAuthority}");
                 
-                // ★★★ 새 Host라면 StateAuthority 먼저 요청 ★★★
-                bool isNewHost = NetworkManager.Instance?._runner?.IsServer ?? false;
-                if (isNewHost && gm.Object != null && !gm.Object.HasStateAuthority)
-                {
-                    Debug.Log("<color=yellow>[STEP 5.3] 새 Host - GameManagers StateAuthority 요청</color>");
-                    gm.Object.RequestStateAuthority();
-                    
-                    // StateAuthority 획득 대기 (최대 2초)
-                    float authWait = 0f;
-                    while (authWait < 2f)
-                    {
-                        if (gm.Object.HasStateAuthority)
-                        {
-                            Debug.Log($"<color=green>[STEP 5.3] StateAuthority 획득 성공! ({authWait:F1}초)</color>");
-                            break;
-                        }
-                        yield return new WaitForSeconds(0.1f);
-                        authWait += 0.1f;
-                    }
-                    
-                    if (!gm.Object.HasStateAuthority)
-                    {
-                        Debug.LogWarning("<color=orange>[STEP 5.3] StateAuthority 획득 대기 시간 초과</color>");
-                    }
-                }
-                
                 Debug.Log("[STEP 5.3] RestoreAfterHostMigration 호출...");
-                GameManagers.Instance.RestoreAfterHostMigration();
+                gm.RestoreAfterHostMigration();
+                _migrationRecoverySucceeded = true;
                 
                 Debug.Log("<color=green>[STEP 5.4] GameManagers 로컬 상태 복원 완료!</color>");
                 yield break;
@@ -740,19 +762,22 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.LogWarning("<color=orange>[STEP 5] GameManagers 대기 시간 초과! (5초)</color>");
         Debug.LogWarning("[STEP 5] 수동 복원 시도...");
         
-        if (GameManagers.Instance != null)
+        var timeoutGM = ResolveGameManagersForRunner(expectedRunner);
+        if (timeoutGM != null)
         {
             Debug.Log("[STEP 5] GameManagers.Instance 존재 - IsReadyForNetworkAccess 무시하고 강제 복원");
             
             // IsReadyForNetworkAccess가 false여도 강제 복원 시도
             try
             {
-                GameManagers.Instance.RestoreAfterHostMigration();
+                timeoutGM.RestoreAfterHostMigration();
                 Debug.Log("<color=yellow>[STEP 5] 강제 복원 완료 (IsReadyForNetworkAccess 무시)</color>");
+                _migrationRecoverySucceeded = true;
             }
             catch (Exception e)
             {
                 Debug.LogError($"[STEP 5] 강제 복원 중 예외: {e.Message}");
+                _migrationRecoverySucceeded = false;
             }
             
             // 캐싱된 게임 데이터로 UI 및 상태 복원
@@ -769,60 +794,151 @@ public class HostMigrationHandler : MonoBehaviour
             {
                 if (pm != null && pm.Object != null && pm.Object.HasInputAuthority)
                 {
-                    GameManagers.Instance.localPlayer = pm;
+                    timeoutGM.localPlayer = pm;
                     Debug.Log($"[STEP 5] localPlayer 수동 설정: Player {pm.playerId}");
                     break;
                 }
             }
             
             // CommandProcessor 확인
-            if (GameManagers.Instance.CommandProcessor == null)
+            if (timeoutGM.CommandProcessor == null)
             {
                 Debug.LogWarning("[STEP 5] CommandProcessor가 null입니다!");
             }
         }
         else
         {
-            Debug.LogError("<color=red>[STEP 5] GameManagers.Instance가 null! 복원 불가!</color>");
-            
-            // Scene에서 GameManagers 찾기 시도
-            var foundGM = UnityEngine.Object.FindObjectOfType<GameManagers>();
-            if (foundGM != null)
-            {
-                Debug.Log($"<color=cyan>[STEP 5] Scene에서 GameManagers 발견: {foundGM.name}</color>");
-                Debug.Log("[STEP 5] Instance에 수동 할당!");
-                
-                // ★★★ 수동으로 Instance 할당 ★★★
-                GameManagers.Instance = foundGM;
-                
-                Debug.Log($"[STEP 5] Instance 할당 완료! Object: {foundGM.Object != null}");
-                
-                // StateAuthority 요청
-                bool isNewHost = NetworkManager.Instance?._runner?.IsServer ?? false;
-                if (isNewHost && foundGM.Object != null && !foundGM.Object.HasStateAuthority)
-                {
-                    Debug.Log("<color=yellow>[STEP 5] 새 Host - StateAuthority 요청</color>");
-                    foundGM.Object.RequestStateAuthority();
-                }
-                
-                // 복원 호출
-                if (foundGM.IsReadyForNetworkAccess)
-                {
-                    Debug.Log("[STEP 5] RestoreAfterHostMigration 호출...");
-                    foundGM.RestoreAfterHostMigration();
-                }
-                else
-                {
-                    Debug.LogWarning("[STEP 5] IsReadyForNetworkAccess가 False - 복원 건너뜀");
-                }
-            }
-            else
-            {
-                Debug.LogError("<color=red>[STEP 5] Scene에서도 GameManagers를 찾을 수 없음!</color>");
-            }
+            Debug.LogError("<color=red>[STEP 5] 새 Runner 소속 GameManagers를 찾지 못했습니다. 복원 중단</color>");
+            _migrationRecoverySucceeded = false;
+        }
+
+        if (expectedRunner.IsServer && timeoutGM != null && timeoutGM.Object != null && !timeoutGM.Object.HasStateAuthority)
+        {
+            Debug.LogError("<color=red>[STEP 5] 새 Host인데 GameManagers StateAuthority를 획득하지 못했습니다. GameFlow 재개 중단</color>");
+            _migrationRecoverySucceeded = false;
+            yield break;
         }
         
         Debug.Log("<color=yellow>[STEP 5] WaitAndRestoreGameManagers 코루틴 종료</color>");
+    }
+
+    /// <summary>
+    /// 새 Runner 기준으로 복원 대상 GameManagers를 결정하고, Instance를 강제로 재바인딩합니다.
+    /// 재개 조건 1: GameManagers.Instance.Runner == expectedRunner 를 보장합니다.
+    /// </summary>
+    private GameManagers ResolveGameManagersForRunner(NetworkRunner expectedRunner)
+    {
+        if (expectedRunner == null) return null;
+
+        if (GameManagers.Instance != null && GameManagers.Instance.Runner == expectedRunner)
+        {
+            return GameManagers.Instance;
+        }
+
+        GameManagers candidate = null;
+        foreach (var no in expectedRunner.GetAllNetworkObjects())
+        {
+            if (no != null && no.TryGetComponent<GameManagers>(out var gm))
+            {
+                candidate = gm;
+                break;
+            }
+        }
+
+        if (candidate == null)
+        {
+            var allGameManagers = UnityEngine.Object.FindObjectsOfType<GameManagers>(true);
+            candidate = allGameManagers.FirstOrDefault(gm => gm != null && gm.Runner == expectedRunner);
+        }
+
+        if (candidate == null
+            && _restoredGameManagersCandidate != null
+            && _restoredGameManagersCandidate.Runner == expectedRunner
+            && _restoredGameManagersCandidate.Object != null
+            && _restoredGameManagersCandidate.Object.IsValid)
+        {
+            candidate = _restoredGameManagersCandidate;
+        }
+
+        if (candidate != null && GameManagers.Instance != candidate)
+        {
+            Debug.Log($"<color=magenta>[HostMigrationHandler] GameManagers.Instance 재바인딩: oldRunner={(GameManagers.Instance?.Runner != null ? GameManagers.Instance.Runner.name : "null")} -> newRunner={expectedRunner.name}</color>");
+            GameManagers.Instance = candidate;
+        }
+
+        if (candidate == null && (Time.unscaledTime - _lastResolveDebugLogTime) > 0.5f)
+        {
+            _lastResolveDebugLogTime = Time.unscaledTime;
+            Debug.LogWarning($"[HostMigrationHandler] ResolveGameManagersForRunner 실패\n{BuildGameManagersDump(expectedRunner, null)}");
+        }
+
+        return candidate;
+    }
+
+    private static string DescribeRunner(NetworkRunner runner)
+    {
+        if (runner == null)
+        {
+            return "Runner=NULL";
+        }
+
+        string sceneManagerType = runner.SceneManager != null ? runner.SceneManager.GetType().Name : "null";
+        string goName = runner.gameObject != null ? runner.gameObject.name : "null";
+        bool goActive = runner.gameObject != null && runner.gameObject.activeInHierarchy;
+        return $"Runner(name={runner.name}, isRunning={runner.IsRunning}, mode={runner.GameMode}, isServer={runner.IsServer}, sceneManager={sceneManagerType}, go={goName}, active={goActive})";
+    }
+
+    private static string DescribeGameManagers(GameManagers gm)
+    {
+        if (gm == null)
+        {
+            return "GameManagers=NULL";
+        }
+
+        var obj = gm.Object;
+        var runner = gm.Runner;
+        string runnerName = runner != null ? runner.name : "null";
+        bool runnerRunning = runner != null && runner.IsRunning;
+        bool objectValid = obj != null && obj.IsValid;
+        string stateAuth = obj != null ? obj.HasStateAuthority.ToString() : "null";
+        return $"GM(name={gm.name}, instanceId={gm.GetInstanceID()}, hash={gm.GetHashCode()}, runner={runnerName}, runnerRunning={runnerRunning}, objectValid={objectValid}, stateAuth={stateAuth}, ready={gm.IsReadyForNetworkAccess}, active={gm.gameObject.activeInHierarchy})";
+    }
+
+    private string BuildGameManagersDump(NetworkRunner expectedRunner, GameManagers resolved)
+    {
+        var sb = new StringBuilder(512);
+        sb.AppendLine($"expectedRunner: {DescribeRunner(expectedRunner)}");
+        sb.AppendLine($"resolved: {DescribeGameManagers(resolved)}");
+        sb.AppendLine($"staticInstance: {DescribeGameManagers(GameManagers.Instance)}");
+        sb.AppendLine($"restoredCandidate: {DescribeGameManagers(_restoredGameManagersCandidate)}");
+
+        var allGameManagers = UnityEngine.Object.FindObjectsOfType<GameManagers>(true);
+        sb.AppendLine($"sceneGameManagersCount: {allGameManagers.Length}");
+        for (int i = 0; i < allGameManagers.Length; i++)
+        {
+            sb.AppendLine($"  [{i}] {DescribeGameManagers(allGameManagers[i])}");
+        }
+
+        if (expectedRunner != null)
+        {
+            var allObjects = expectedRunner.GetAllNetworkObjects();
+            sb.AppendLine($"runnerNetworkObjectsCount: {allObjects?.Count ?? -1}");
+            if (allObjects != null)
+            {
+                int gmCount = 0;
+                foreach (var no in allObjects)
+                {
+                    if (no != null && no.TryGetComponent<GameManagers>(out var gm))
+                    {
+                        gmCount++;
+                        sb.AppendLine($"  runnerGM[{gmCount}] NO(name={no.name}, id={no.Id}, stateAuth={no.HasStateAuthority}) => {DescribeGameManagers(gm)}");
+                    }
+                }
+                sb.AppendLine($"runnerGameManagersCount: {gmCount}");
+            }
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>
@@ -833,6 +949,8 @@ public class HostMigrationHandler : MonoBehaviour
         _isMigrating = false;
         ShowMigrationUI(false);
 
+        _restoredGameManagersCandidate = null;
+
         // 캐시 클리어
         _cachedPlayerData.Clear();
 
@@ -840,11 +958,21 @@ public class HostMigrationHandler : MonoBehaviour
         bool isNewHost = NetworkManager.Instance?._runner?.IsServer ?? false;
         GameEvents.TriggerHostMigrationCompleted(isNewHost);
 
-        Debug.Log("<color=green>═══════════════════════════════════════════</color>");
-        Debug.Log($"<color=green>[MIGRATION COMPLETE] Host Migration 성공!</color>");
-        Debug.Log($"<color=green>  역할: {(isNewHost ? "새 Host" : "클라이언트")}</color>");
-        Debug.Log("<color=green>  게임이 계속됩니다!</color>");
-        Debug.Log("<color=green>═══════════════════════════════════════════</color>");
+        if (_migrationRecoverySucceeded)
+        {
+            Debug.Log("<color=green>═══════════════════════════════════════════</color>");
+            Debug.Log($"<color=green>[MIGRATION COMPLETE] Host Migration 성공!</color>");
+            Debug.Log($"<color=green>  역할: {(isNewHost ? "새 Host" : "클라이언트")}</color>");
+            Debug.Log("<color=green>  게임이 계속됩니다!</color>");
+            Debug.Log("<color=green>═══════════════════════════════════════════</color>");
+        }
+        else
+        {
+            Debug.Log("<color=red>═══════════════════════════════════════════</color>");
+            Debug.Log("<color=red>[MIGRATION COMPLETE] 마이그레이션은 끝났지만 게임 복원은 실패했습니다.</color>");
+            Debug.Log("<color=red>  새 Runner/권한/복원 오브젝트 상태를 확인하세요.</color>");
+            Debug.Log("<color=red>═══════════════════════════════════════════</color>");
+        }
     }
 
     /// <summary>

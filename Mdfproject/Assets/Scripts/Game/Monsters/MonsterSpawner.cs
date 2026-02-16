@@ -12,6 +12,7 @@ public class MonsterSpawner : MonoBehaviour
     private PlayerManager _playerManager;
     private AstarGrid _pathfinder;
     private WaveDatabase _waveDatabase;
+    private float _lastRuntimeResolveLogTime;
 
     [Header("스폰 설정 (자동 할당됨)")]
     [SerializeField] private Transform spawnPoint;
@@ -59,6 +60,62 @@ public class MonsterSpawner : MonoBehaviour
             parentObject.transform.SetParent(transform.parent);
             monsterParent = parentObject.transform;
         }
+    }
+
+    public bool EnsureRuntimeReferencesForMigration(string context, bool verboseFailure = true)
+    {
+        return EnsureRuntimeReferences(context, verboseFailure);
+    }
+
+    private bool EnsureRuntimeReferences(string context, bool verboseFailure)
+    {
+        if (_playerManager == null)
+        {
+            _playerManager = GetComponentInParent<PlayerManager>();
+        }
+
+        if (_playerManager != null)
+        {
+            if (_pathfinder == null)
+            {
+                _pathfinder = _playerManager.astarGrid != null ? _playerManager.astarGrid : GetComponentInChildren<AstarGrid>(true);
+            }
+
+            if (spawnPoint == null)
+            {
+                spawnPoint = _playerManager.spawnPoint;
+            }
+
+            if (goalTransform == null)
+            {
+                goalTransform = _playerManager.goalTransform;
+            }
+
+            if (_waveDatabase == null)
+            {
+                _waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+            }
+        }
+
+        bool ready = _playerManager != null;
+        if (!ready && verboseFailure && Time.unscaledTime - _lastRuntimeResolveLogTime > 0.5f)
+        {
+            _lastRuntimeResolveLogTime = Time.unscaledTime;
+            Debug.LogWarning($"[MonsterSpawner] 참조 복구 실패 ({context}) {DescribeRuntimeState()}");
+        }
+
+        return ready;
+    }
+
+    private string DescribeRuntimeState()
+    {
+        string ownerState = _playerManager == null
+            ? "owner=null"
+            : $"owner=Player({_playerManager.playerId}, name={_playerManager.name})";
+        string pathState = _pathfinder == null ? "pathfinder=null" : $"pathfinder={_pathfinder.name}";
+        string spawnState = spawnPoint == null ? "spawnPoint=null" : $"spawnPoint={spawnPoint.name}";
+        string goalState = goalTransform == null ? "goal=null" : $"goal={goalTransform.name}";
+        return $"{ownerState}, {pathState}, {spawnState}, {goalState}, waveDb={(_waveDatabase != null)}";
     }
 
     #endregion
@@ -386,7 +443,17 @@ public class MonsterSpawner : MonoBehaviour
     /// </summary>
     public async UniTask SpawnSurvivorBossesAsync()
     {
+        if (!EnsureRuntimeReferences("SpawnSurvivorBossesAsync", true))
+        {
+            return;
+        }
+
         if (SurvivorBossManager.Instance == null) return;
+        if (_playerManager == null)
+        {
+            Debug.LogError($"[MonsterSpawner] SpawnSurvivorBossesAsync 중단: playerManager null ({DescribeRuntimeState()})");
+            return;
+        }
         
         // 이 플레이어를 타겟으로 하는 생존 보스 중 이번 턴에 침공하지 않은 보스만 추출
         var pendingBosses = SurvivorBossManager.Instance.ExtractBossesForBattleSequence(_playerManager.playerId);
@@ -430,8 +497,18 @@ public class MonsterSpawner : MonoBehaviour
     /// </summary>
     IEnumerator SpawnSurvivorBossesCoroutine()
     {
+        if (!EnsureRuntimeReferences("SpawnSurvivorBossesCoroutine", true))
+        {
+            yield break;
+        }
+
         if (SurvivorBossManager.Instance == null)
         {
+            yield break;
+        }
+        if (_playerManager == null)
+        {
+            Debug.LogError($"[MonsterSpawner] SpawnSurvivorBossesCoroutine 중단: playerManager null ({DescribeRuntimeState()})");
             yield break;
         }
 
@@ -473,6 +550,8 @@ public class MonsterSpawner : MonoBehaviour
     /// </summary>
     private Vector3 GetRandomOuterGridPosition()
     {
+        EnsureRuntimeReferences("GetRandomOuterGridPosition", false);
+
         var field = _playerManager?.fieldManager;
         if (field == null)
         {
@@ -547,6 +626,11 @@ public class MonsterSpawner : MonoBehaviour
     /// </summary>
     IEnumerator SpawnAugmentMonstersCoroutine()
     {
+        if (!EnsureRuntimeReferences("SpawnAugmentMonstersCoroutine", true))
+        {
+            yield break;
+        }
+
         if (_playerManager.opponentManager == null) yield break;
 
         // 상대(opponentManager)가 등록한 일반 몬스터 소환 증강들을 가져옴
@@ -585,7 +669,18 @@ public class MonsterSpawner : MonoBehaviour
     /// <returns>생성된 Monster 컴포넌트</returns>
     private async UniTask<Monster> SpawnMonsterInternalAsync(MonsterData monsterData)
     {
-        if (_pathfinder == null || monsterData == null) return null;
+        if (!EnsureRuntimeReferences("SpawnMonsterInternalAsync", true))
+        {
+            return null;
+        }
+
+        if (_pathfinder == null || spawnPoint == null || goalTransform == null)
+        {
+            Debug.LogError($"[MonsterSpawner] SpawnMonsterInternalAsync 중단: 경로/지점 참조 누락 ({DescribeRuntimeState()})");
+            return null;
+        }
+
+        if (monsterData == null) return null;
         
         // MonsterData에서 프리팹 Addressable 키를 가져와 로드
         if (string.IsNullOrEmpty(monsterData.monsterPrefab))
@@ -607,7 +702,7 @@ public class MonsterSpawner : MonoBehaviour
 
         GameObject monsterGO = null;
         var runner = _playerManager != null ? _playerManager.Runner : null;
-        if (runner != null && _playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
+        if (runner != null && _playerManager.Object != null && _playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
         {
             var spawned = runner.Spawn(netPrefab, spawnPos, Quaternion.identity, PlayerRef.None);
             if (spawned == null)
@@ -708,9 +803,14 @@ public class MonsterSpawner : MonoBehaviour
     /// <param name="targetFieldManager">소환할 대상 필드 (수비자 필드)</param>
     public async UniTask StartAutoSpawnFromPool(FieldManager targetFieldManager)
     {
+        if (!EnsureRuntimeReferences("StartAutoSpawnFromPool", true))
+        {
+            return;
+        }
+
         if (_playerManager == null || targetFieldManager == null)
         {
-            Debug.LogError("[MonsterSpawner] AI 자동 소환 실패: PlayerManager 또는 targetFieldManager가 null");
+            Debug.LogError($"[MonsterSpawner] AI 자동 소환 실패: PlayerManager 또는 targetFieldManager가 null ({DescribeRuntimeState()})");
             return;
         }
 
@@ -765,6 +865,17 @@ public class MonsterSpawner : MonoBehaviour
     /// <param name="isAI">AI 공격자 여부</param>
     public async UniTask SpawnAllMonstersToTargetField(int round, FieldManager targetFieldManager, bool isAI)
     {
+        if (!EnsureRuntimeReferences("SpawnAllMonstersToTargetField", true))
+        {
+            return;
+        }
+
+        if (_playerManager == null)
+        {
+            Debug.LogError($"[MonsterSpawner] SpawnAllMonstersToTargetField 중단: playerManager null ({DescribeRuntimeState()})");
+            return;
+        }
+
         if (targetFieldManager == null)
         {
             Debug.LogError("[MonsterSpawner] SpawnAllMonstersToTargetField: targetFieldManager가 null입니다!");
@@ -875,6 +986,11 @@ public class MonsterSpawner : MonoBehaviour
         int bossUniqueId = -1,
         int originPlayerId = -1)
     {
+        if (!EnsureRuntimeReferences("SpawnMonsterAtPositionAsync", true))
+        {
+            return null;
+        }
+
         if (monsterData == null || targetFieldManager == null)
         {
             Debug.LogError("[MonsterSpawner] SpawnMonsterAtPositionAsync 실패: monsterData 또는 targetFieldManager가 null");
@@ -909,7 +1025,7 @@ public class MonsterSpawner : MonoBehaviour
         // 몬스터 생성
         GameObject monsterGO = null;
         var runner = _playerManager?.Runner;
-        if (runner != null && _playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
+        if (runner != null && _playerManager.Object != null && _playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
         {
             var spawned = runner.Spawn(netPrefab, adjustedSpawnPos, Quaternion.identity, PlayerRef.None);
             if (spawned == null)

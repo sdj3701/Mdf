@@ -147,15 +147,33 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     public override void Spawned()
     {
-        if (Instance == null)
+        bool isHostMigration = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
+        Debug.Log($"<color=cyan>[GameManagers.Spawned] ENTER this={BuildDebugSummary(this)} | static={BuildDebugSummary(Instance)} | isHostMigration={isHostMigration}</color>");
+
+        // Host Migration 중에는 old/new Runner의 GameManagers가 잠시 공존할 수 있음.
+        // 기존 인스턴스가 다른 Runner 소속이면 새 인스턴스를 유지하고 교체해야 한다.
+        if (Instance != null && Instance != this)
         {
-            Instance = this;
-            CommandProcessor = new CommandProcessor();
+            bool existingValid = Instance.Object != null && Instance.Object.IsValid;
+            bool sameRunner = existingValid && Instance.Runner == Runner;
+
+            if (sameRunner)
+            {
+                Debug.LogWarning($"<color=orange>[GameManagers] 동일 Runner의 중복 인스턴스 감지 - 현재 인스턴스 제거\n  existing={BuildDebugSummary(Instance)}\n  current={BuildDebugSummary(this)}</color>");
+                Runner.Despawn(Object);
+                return;
+            }
+
+            Debug.LogWarning($"<color=yellow>[GameManagers] 다른 Runner의 기존 Instance 감지 - 새 Runner 인스턴스로 교체\n  existing={BuildDebugSummary(Instance)}\n  current={BuildDebugSummary(this)}</color>");
         }
-        else
+
+        Instance = this;
+        Debug.Log($"[GameManagers.Spawned] static Instance 재설정 완료: {BuildDebugSummary(Instance)}");
+
+        if (CommandProcessor == null)
         {
-            Runner.Despawn(Object);
-            return;
+            CommandProcessor = new CommandProcessor();
+            Debug.Log("[GameManagers.Spawned] CommandProcessor 생성");
         }
         
         // Game 씬 진입 시 UIManagers 활성화 (이전 게임 종료 시 비활성화되었을 수 있음)
@@ -179,8 +197,47 @@ public class GameManagers : NetworkBehaviour
 
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
-        // 초기화 완료 후 GameFlow 시작
+        // Host Migration 복원 객체는 GameFlow를 다시 시작하면 중복 스폰/상태 리셋이 발생함.
+        // 스냅샷 상태를 유지한 채 로컬 참조만 복원하도록 최소 초기화만 수행한다.
+        if (isHostMigration)
+        {
+            Debug.Log($"<color=cyan>[GameManagers] Host Migration 복원 스폰 감지 - GameFlow 재시작 생략\n  state={currentState}, round={currentRound}, timer={currentPhaseTimer:F1}, hasAuth={Object?.HasStateAuthority}</color>");
+            _isSpawned = true;
+            GameEvents.TriggerGameManagersReady();
+            return;
+        }
+
+        // 일반 시작 경로
         InitializeAndStartGame().Forget();
+    }
+
+    private void OnDestroy()
+    {
+        bool wasStaticInstance = Instance == this;
+        bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
+        Debug.LogWarning($"<color=orange>[GameManagers.OnDestroy] 파괴됨: {BuildDebugSummary(this)} | wasStaticInstance={wasStaticInstance} | isMigrating={isMigrating}</color>");
+
+        if (Instance == this)
+        {
+            Instance = null;
+            Debug.LogWarning("[GameManagers.OnDestroy] static Instance를 null로 정리");
+        }
+    }
+
+    private static string BuildDebugSummary(GameManagers gm)
+    {
+        if (gm == null)
+        {
+            return "GM=NULL";
+        }
+
+        var runner = gm.Runner;
+        var obj = gm.Object;
+        string runnerName = runner != null ? runner.name : "null";
+        bool runnerRunning = runner != null && runner.IsRunning;
+        bool objectValid = obj != null && obj.IsValid;
+        string stateAuth = obj != null ? obj.HasStateAuthority.ToString() : "null";
+        return $"name={gm.name}, instanceId={gm.GetInstanceID()}, hash={gm.GetHashCode()}, runner={runnerName}, runnerRunning={runnerRunning}, objectValid={objectValid}, stateAuth={stateAuth}, ready={gm.IsReadyForNetworkAccess}, active={gm.gameObject.activeInHierarchy}";
     }
 
     /// <summary>
@@ -677,6 +734,8 @@ public class GameManagers : NetworkBehaviour
     {
         // 로컬 플레이어가 아니면 무시
         if (localPlayer == null || localPlayer.playerId != playerId) return;
+
+        localPlayer.monsterSpawner?.EnsureRuntimeReferencesForMigration("RPC_NotifyBattleStart(local)");
         
         // 공격자인 경우
         if (isAttacker && opponentId != -1)
@@ -692,6 +751,18 @@ public class GameManagers : NetworkBehaviour
                 
                 // AttackSequenceManager 시작
                 var attackSeqMgr = localPlayer.GetComponent<AttackSequenceManager>();
+                if (attackSeqMgr == null)
+                {
+                    attackSeqMgr = localPlayer.gameObject.AddComponent<AttackSequenceManager>();
+                    Debug.LogWarning($"[RPC_NotifyBattleStart] AttackSequenceManager 누락으로 동적 생성: Player {playerId}");
+                }
+
+                if (attackSeqMgr.Owner != localPlayer)
+                {
+                    attackSeqMgr.Initialize(localPlayer);
+                    Debug.Log($"[RPC_NotifyBattleStart] AttackSequenceManager 재초기화: Player {playerId}");
+                }
+
                 if (attackSeqMgr != null)
                 {
                     attackSeqMgr.StartAttackSequence(opponent);
@@ -1186,6 +1257,20 @@ public class GameManagers : NetworkBehaviour
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
+
+            player.monsterSpawner?.EnsureRuntimeReferencesForMigration($"StartBattleForPlayers(Player {player.playerId})", false);
+            var battleAttackSeqMgr = player.GetComponent<AttackSequenceManager>();
+            if (battleAttackSeqMgr == null)
+            {
+                battleAttackSeqMgr = player.gameObject.AddComponent<AttackSequenceManager>();
+                battleAttackSeqMgr.Initialize(player);
+                Debug.LogWarning($"[StartBattleForPlayers] AttackSequenceManager 동적 생성: Player {player.playerId}");
+            }
+            else if (battleAttackSeqMgr.Owner != player)
+            {
+                battleAttackSeqMgr.Initialize(player);
+                Debug.Log($"[StartBattleForPlayers] AttackSequenceManager 재초기화: Player {player.playerId}");
+            }
 
             int opponentId = _battleOpponents.TryGetValue(player.playerId, out int oppId) ? oppId : -1;
             bool hasOpponent = opponentId != -1;
@@ -1757,4 +1842,3 @@ public class GameManagers : NetworkBehaviour
 
 
 }
-

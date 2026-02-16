@@ -122,6 +122,20 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+
+        // Host Migration 후 Rpc_InitializePlayer 이전에도 런타임 참조가 비지 않도록 최소 재결선
+        monsterSpawner = monsterSpawner != null ? monsterSpawner : GetComponentInChildren<MonsterSpawner>(true);
+        monsterSpawner?.EnsureRuntimeReferencesForMigration("PlayerManager.Spawned", false);
+
+        var attackSeqMgr = GetComponent<AttackSequenceManager>();
+        if (attackSeqMgr == null)
+        {
+            attackSeqMgr = gameObject.AddComponent<AttackSequenceManager>();
+        }
+        if (attackSeqMgr.Owner != this)
+        {
+            attackSeqMgr.Initialize(this);
+        }
     }
 
     public override void Render()
