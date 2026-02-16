@@ -233,15 +233,6 @@ public class AttackSequenceManager : MonoBehaviour
         if (isBoss)
         {
             bossUniqueId = SurvivorBossManager.Instance?.GetNextBossUniqueId() ?? -1;
-            _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
-            Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
-        }
-        
-        // 풀에서 소비 (로컬 UI 업데이트용)
-        if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
-        {
-            Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
-            return;
         }
 
         // 호스트(StateAuthority)인 경우 직접 스폰, 클라이언트인 경우 RPC 요청
@@ -250,7 +241,7 @@ public class AttackSequenceManager : MonoBehaviour
         if (isHost)
         {
             // 호스트: 직접 스폰
-            await _monsterSpawner.SpawnMonsterAtPositionAsync(
+            var spawnedMonster = await _monsterSpawner.SpawnMonsterAtPositionAsync(
                 _selectedMonster.MonsterData,
                 position,
                 _opponentFieldManager,
@@ -258,9 +249,39 @@ public class AttackSequenceManager : MonoBehaviour
                 bossUniqueId,
                 originPlayerId
             );
+
+            if (spawnedMonster == null)
+            {
+                Debug.LogWarning($"[AttackSequenceManager] 스폰 실패 - 풀 소모 생략: {_selectedMonster.MonsterData.monsterName}");
+                return;
+            }
+
+            if (isBoss)
+            {
+                _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
+                Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
+            }
+
+            if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
+            {
+                Debug.LogWarning("[AttackSequenceManager] 호스트 소환 성공 후 몬스터 풀 소비 실패");
+            }
         }
         else
         {
+            if (isBoss)
+            {
+                _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
+                Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
+            }
+
+            // 클라이언트 경로는 기존 동작 유지 (로컬 UI 즉시 반영)
+            if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
+            {
+                Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
+                return;
+            }
+
             // 클라이언트: 서버에 RPC 요청
             if (GameManagers.Instance != null)
             {

@@ -123,9 +123,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
 
-        // Host Migration 후 Rpc_InitializePlayer 이전에도 런타임 참조가 비지 않도록 최소 재결선
-        monsterSpawner = monsterSpawner != null ? monsterSpawner : GetComponentInChildren<MonsterSpawner>(true);
-        monsterSpawner?.EnsureRuntimeReferencesForMigration("PlayerManager.Spawned", false);
+        // Host Migration 복원 직후에도 런타임 참조가 비지 않도록 즉시 재결선
+        RebindRuntimeReferencesAfterMigration("PlayerManager.Spawned", false);
 
         var attackSeqMgr = GetComponent<AttackSequenceManager>();
         if (attackSeqMgr == null)
@@ -259,6 +258,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             attackSeqMgr = gameObject.AddComponent<AttackSequenceManager>();
         }
         attackSeqMgr.Initialize(this);
+        RebindRuntimeReferencesAfterMigration("Rpc_InitializePlayer", true);
 
         // CameraManager 초기화 (로컬 플레이어만)
         if (Object.HasInputAuthority && CameraManager.Instance != null)
@@ -286,6 +286,400 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 await RPC_RegisterUnitAt_Internal(p.unitNO, p.x, p.y, p.unitDataKey, p.starLevel);
             }
         }
+    }
+
+    public void RebindRuntimeReferencesAfterMigration(string context, bool verboseFailure = true)
+    {
+        fieldManager = fieldManager != null ? fieldManager : GetComponentInChildren<FieldManager>(true);
+        shopManager = shopManager != null ? shopManager : GetComponentInChildren<ShopManager>(true);
+        monsterSpawner = monsterSpawner != null ? monsterSpawner : GetComponentInChildren<MonsterSpawner>(true);
+        augmentManager = augmentManager != null ? augmentManager : GetComponentInChildren<AugmentManager>(true);
+
+        if (fieldManager != null)
+        {
+            fieldManager.playerManager = this;
+        }
+
+        if (shopManager != null)
+        {
+            shopManager.playerManager = this;
+        }
+
+        if (augmentManager != null)
+        {
+            augmentManager.playerManager = this;
+        }
+
+        bool gridRebound = false;
+        if (astarGrid == null || !IsGridOwnedByCurrentRunner(astarGrid))
+        {
+            // 1차: 자기 하위에서 탐색
+            var childGrid = GetComponentInChildren<AstarGrid>(true);
+            if (IsGridOwnedByCurrentRunner(childGrid))
+            {
+                astarGrid = childGrid;
+                gridRebound = true;
+            }
+            else
+            {
+                astarGrid = null;
+            }
+        }
+
+        GameObject gridRoot = ResolveGridRootObject(context, verboseFailure);
+        if ((astarGrid == null || !IsGridOwnedByCurrentRunner(astarGrid))
+            && TryResolveGridFromRunner(context, verboseFailure, out var resolvedGridRoot))
+        {
+            gridRoot = resolvedGridRoot != null ? resolvedGridRoot : gridRoot;
+            gridRebound = true;
+        }
+
+        if (gridRoot == null)
+        {
+            gridRoot = ResolveGridRootObject(context, verboseFailure);
+        }
+
+        bool fieldReinitialized = false;
+        GameObject ground3D = fieldManager != null ? fieldManager.ground3D : null;
+        if (ground3D != null && !IsGameObjectOwnedByCurrentRunner(ground3D))
+        {
+            ground3D = null;
+        }
+        if (ground3D == null)
+        {
+            ground3D = ResolveGroundObject(gridRoot);
+        }
+
+        if (fieldManager != null && ground3D != null
+            && (fieldManager.ground3D == null || fieldManager.ground3D != ground3D))
+        {
+            fieldManager.Initialize(this, ground3D);
+            fieldReinitialized = true;
+        }
+
+        bool spawnInvalid = spawnPoint == null || !IsTransformOwnedByCurrentRunner(spawnPoint);
+        bool goalInvalid = goalTransform == null || !IsTransformOwnedByCurrentRunner(goalTransform);
+        if (fieldManager != null && gridRoot != null && (spawnInvalid || goalInvalid))
+        {
+            SetupSpawnAndGoalPositions(gridRoot);
+        }
+
+        if (astarGrid != null && fieldManager != null)
+        {
+            bool needAstarRebind = astarGrid.fieldManager != fieldManager
+                                   || !astarGrid.useFieldManagerGrid
+                                   || fieldReinitialized
+                                   || gridRebound;
+            if (needAstarRebind)
+            {
+                astarGrid.fieldManager = fieldManager;
+                astarGrid.useFieldManagerGrid = true;
+                astarGrid.Initialize();
+            }
+        }
+
+        if (monsterSpawner != null)
+        {
+            // monsterParent가 비어 있으면 최소 한 번은 Initialize를 수행해 부모를 생성합니다.
+            if (monsterSpawner.monsterParent == null && astarGrid != null && spawnPoint != null && goalTransform != null)
+            {
+                var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+                monsterSpawner.Initialize(this, astarGrid, waveDatabase, spawnPoint, goalTransform);
+            }
+
+            monsterSpawner.EnsureRuntimeReferencesForMigration(context, verboseFailure);
+        }
+
+        if (verboseFailure && !IsRuntimeReady(out string reason))
+        {
+            Debug.LogWarning($"[PlayerManager] 런타임 참조 재결선 미완료 ({context}) player={playerId}, reason={reason}");
+        }
+    }
+
+    public bool IsRuntimeReady(out string reason)
+    {
+        if (fieldManager == null)
+        {
+            reason = "fieldManager=null";
+            return false;
+        }
+
+        if (fieldManager.ground3D == null)
+        {
+            reason = "fieldManager.ground3D=null";
+            return false;
+        }
+
+        if (astarGrid == null)
+        {
+            reason = "astarGrid=null";
+            return false;
+        }
+
+        if (spawnPoint == null)
+        {
+            reason = "spawnPoint=null";
+            return false;
+        }
+
+        if (goalTransform == null)
+        {
+            reason = "goalTransform=null";
+            return false;
+        }
+
+        if (monsterSpawner == null)
+        {
+            reason = "monsterSpawner=null";
+            return false;
+        }
+
+        if (!monsterSpawner.IsRuntimeReady(out string spawnerReason))
+        {
+            reason = $"monsterSpawnerNotReady({spawnerReason})";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private GameObject ResolveGridRootObject(string context, bool verboseFailure)
+    {
+        if (IsGridOwnedByCurrentRunner(astarGrid))
+        {
+            var rootFromGrid = GetGridRootFromAstar(astarGrid);
+            if (rootFromGrid != null)
+            {
+                return rootFromGrid;
+            }
+        }
+
+        if (spawnPoint != null && IsTransformOwnedByCurrentRunner(spawnPoint))
+        {
+            return spawnPoint.parent != null ? spawnPoint.parent.gameObject : spawnPoint.gameObject;
+        }
+
+        if (goalTransform != null && IsTransformOwnedByCurrentRunner(goalTransform))
+        {
+            return goalTransform.parent != null ? goalTransform.parent.gameObject : goalTransform.gameObject;
+        }
+
+        if (TryResolveGridFromRunner(context, verboseFailure, out var resolvedGridRoot))
+        {
+            return resolvedGridRoot;
+        }
+
+        return null;
+    }
+
+    private bool TryResolveGridFromRunner(string context, bool verboseFailure, out GameObject resolvedGridRoot)
+    {
+        resolvedGridRoot = null;
+
+        if (Runner == null || !Runner.IsRunning)
+        {
+            return false;
+        }
+
+        AstarGrid bestGrid = null;
+        NetworkObject bestGridNO = null;
+        float bestScore = float.MinValue;
+
+        var runnerObjects = Runner.GetAllNetworkObjects();
+        if (runnerObjects != null)
+        {
+            foreach (var no in runnerObjects)
+            {
+                if (no == null || !no.IsValid || no.gameObject == null)
+                {
+                    continue;
+                }
+
+                if (Object != null && no == Object)
+                {
+                    continue;
+                }
+
+                var candidateGrid = no.GetComponentInChildren<AstarGrid>(true);
+                if (candidateGrid == null)
+                {
+                    continue;
+                }
+
+                float score = 0f;
+
+                if (Object != null && Object.InputAuthority != PlayerRef.None && no.InputAuthority == Object.InputAuthority)
+                {
+                    score += 500f;
+                }
+
+                float sqrDistance = (no.transform.position - transform.position).sqrMagnitude;
+                score += Mathf.Clamp(100f - (sqrDistance * 5f), 0f, 100f);
+
+                if (fieldManager != null && candidateGrid.fieldManager == fieldManager)
+                {
+                    score += 80f;
+                }
+
+                if (spawnPoint != null && spawnPoint.parent == no.transform)
+                {
+                    score += 40f;
+                }
+
+                if (goalTransform != null && goalTransform.parent == no.transform)
+                {
+                    score += 40f;
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestGrid = candidateGrid;
+                    bestGridNO = no;
+                }
+            }
+        }
+
+        if (bestGrid == null)
+        {
+            var allGrids = UnityEngine.Object.FindObjectsOfType<AstarGrid>(true);
+            foreach (var grid in allGrids)
+            {
+                if (grid == null)
+                {
+                    continue;
+                }
+
+                var no = grid.GetComponentInParent<NetworkObject>();
+                if (no != null && no.Runner != Runner)
+                {
+                    continue;
+                }
+
+                float score = 0f;
+                if (Object != null && Object.InputAuthority != PlayerRef.None && no != null && no.InputAuthority == Object.InputAuthority)
+                {
+                    score += 500f;
+                }
+
+                Vector3 anchorPos = no != null ? no.transform.position : grid.transform.position;
+                float sqrDistance = (anchorPos - transform.position).sqrMagnitude;
+                score += Mathf.Clamp(100f - (sqrDistance * 5f), 0f, 100f);
+
+                if (fieldManager != null && grid.fieldManager == fieldManager)
+                {
+                    score += 80f;
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestGrid = grid;
+                    bestGridNO = no;
+                }
+            }
+        }
+
+        if (bestGrid == null)
+        {
+            return false;
+        }
+
+        astarGrid = bestGrid;
+        resolvedGridRoot = bestGridNO != null ? bestGridNO.gameObject : GetGridRootFromAstar(bestGrid);
+
+        if (verboseFailure)
+        {
+            Debug.Log($"[PlayerManager] AstarGrid 재결선 성공 ({context}) player={playerId}, grid={bestGrid.name}, root={resolvedGridRoot?.name ?? "null"}");
+        }
+
+        return true;
+    }
+
+    private bool IsGridOwnedByCurrentRunner(AstarGrid grid)
+    {
+        if (grid == null)
+        {
+            return false;
+        }
+
+        if (Runner == null || !Runner.IsRunning)
+        {
+            return true;
+        }
+
+        var no = grid.GetComponentInParent<NetworkObject>();
+        return no == null || no.Runner == Runner;
+    }
+
+    private bool IsTransformOwnedByCurrentRunner(Transform target)
+    {
+        if (target == null)
+        {
+            return false;
+        }
+
+        if (Runner == null || !Runner.IsRunning)
+        {
+            return true;
+        }
+
+        var no = target.GetComponentInParent<NetworkObject>();
+        return no == null || no.Runner == Runner;
+    }
+
+    private bool IsGameObjectOwnedByCurrentRunner(GameObject target)
+    {
+        if (target == null)
+        {
+            return false;
+        }
+
+        if (Runner == null || !Runner.IsRunning)
+        {
+            return true;
+        }
+
+        var no = target.GetComponentInParent<NetworkObject>();
+        return no == null || no.Runner == Runner;
+    }
+
+    private static GameObject GetGridRootFromAstar(AstarGrid grid)
+    {
+        if (grid == null)
+        {
+            return null;
+        }
+
+        var gridNetworkObject = grid.GetComponentInParent<NetworkObject>();
+        if (gridNetworkObject != null)
+        {
+            return gridNetworkObject.gameObject;
+        }
+
+        if (grid.transform.parent != null)
+        {
+            return grid.transform.parent.gameObject;
+        }
+
+        return grid.gameObject;
+    }
+
+    private static GameObject ResolveGroundObject(GameObject gridRoot)
+    {
+        if (gridRoot == null)
+        {
+            return null;
+        }
+
+        var candidates = gridRoot.GetComponentsInChildren<Transform>(true)
+            .Where(t => t != null && (t.name == "Ground" || t.name == "Field"))
+            .Select(t => t.gameObject)
+            .ToList();
+
+        var activeGround = candidates.FirstOrDefault(go => go != null && go.activeInHierarchy);
+        return activeGround ?? candidates.FirstOrDefault();
     }
 
     #region RPC Methods (네트워크 동기화)

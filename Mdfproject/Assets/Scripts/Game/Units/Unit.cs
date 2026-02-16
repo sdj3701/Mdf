@@ -296,11 +296,72 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return Object.HasStateAuthority;
     }
 
+    private static string StripTrailingDigits(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        int end = value.Length;
+        while (end > 0 && char.IsDigit(value[end - 1]))
+        {
+            end--;
+        }
+
+        return end > 0 ? value.Substring(0, end) : value;
+    }
+
+    private static string RemoveUnitDataPrefix(string value)
+    {
+        const string prefix = "UnitData_";
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        return value.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase)
+            ? value.Substring(prefix.Length)
+            : value;
+    }
+
+    private void TryRecoverOwnerReference(string context)
+    {
+        if (owner != null)
+        {
+            return;
+        }
+
+        owner = GetComponentInParent<PlayerManager>();
+
+        if (owner == null && Object != null)
+        {
+            var allPlayers = FindObjectsOfType<PlayerManager>();
+            owner = allPlayers.FirstOrDefault(pm =>
+                pm != null &&
+                pm.Object != null &&
+                pm.Object.InputAuthority == Object.InputAuthority);
+        }
+
+        if (owner == null && GameManagers.Instance != null)
+        {
+            owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
+                pm != null &&
+                pm.ownedUnits != null &&
+                pm.ownedUnits.Contains(this));
+        }
+
+        if (owner != null && owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
+        {
+            owner.ownedUnits.Add(this);
+        }
+    }
+
     private bool EnsureRuntimeReferences(string context, bool verboseFailure)
     {
         if (owner == null)
         {
-            owner = GetComponentInParent<PlayerManager>();
+            TryRecoverOwnerReference(context);
         }
 
         if (manaController == null)
@@ -339,6 +400,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     private void TryRecoverUnitData(string context)
     {
+        TryRecoverOwnerReference(context);
+
         var lm = LoadManager.Instance;
         if (lm == null || !lm.IsReady)
         {
@@ -353,17 +416,46 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
         string rawName = gameObject != null ? gameObject.name : string.Empty;
         string normalized = rawName.Replace("(Clone)", string.Empty).Trim();
+        string normalizedWithoutDigits = StripTrailingDigits(normalized);
+
+        var candidates = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        void AddCandidate(string value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                candidates.Add(value.Trim());
+            }
+        }
+
+        AddCandidate(normalized);
+        AddCandidate(normalizedWithoutDigits);
+        AddCandidate(RemoveUnitDataPrefix(normalized));
+        AddCandidate(RemoveUnitDataPrefix(normalizedWithoutDigits));
+        AddCandidate($"UnitData_{normalized}");
+        AddCandidate($"UnitData_{normalizedWithoutDigits}");
 
         UnitData resolved = all.FirstOrDefault(d =>
-            d != null && (
-                string.Equals(d.name, normalized, System.StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(d.unitName, normalized, System.StringComparison.OrdinalIgnoreCase)));
+            d != null && candidates.Any(candidate =>
+                string.Equals(d.name, candidate, System.StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(RemoveUnitDataPrefix(d.name), candidate, System.StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(d.unitName, candidate, System.StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(RemoveUnitDataPrefix(d.unitName), candidate, System.StringComparison.OrdinalIgnoreCase)));
 
         if (resolved == null)
         {
-            var fuzzy = all.Where(d => d != null && (
-                d.name.IndexOf(normalized, System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-                (d.unitName != null && d.unitName.IndexOf(normalized, System.StringComparison.OrdinalIgnoreCase) >= 0))).ToList();
+            var fuzzy = all.Where(d => d != null && candidates.Any(candidate =>
+            {
+                if (string.IsNullOrWhiteSpace(candidate))
+                {
+                    return false;
+                }
+
+                bool inName = d.name != null && d.name.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                bool inUnitName = d.unitName != null && d.unitName.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                bool inNameNoPrefix = RemoveUnitDataPrefix(d.name)?.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                bool inUnitNameNoPrefix = RemoveUnitDataPrefix(d.unitName)?.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                return inName || inUnitName || inNameNoPrefix || inUnitNameNoPrefix;
+            })).ToList();
             if (fuzzy.Count == 1)
             {
                 resolved = fuzzy[0];
@@ -378,7 +470,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         else if (Time.unscaledTime - _lastMissingUnitDataLogTime > 1f)
         {
             _lastMissingUnitDataLogTime = Time.unscaledTime;
-            Debug.LogWarning($"[Unit] UnitData 복구 실패 ({context}) name={name}, normalized={normalized}");
+            Debug.LogWarning($"[Unit] UnitData 복구 실패 ({context}) name={name}, normalized={normalized}, candidates=[{string.Join(", ", candidates)}]");
         }
     }
 

@@ -54,6 +54,7 @@ public class HostMigrationHandler : MonoBehaviour
 
     // 마이그레이션 중 캐싱되는 데이터
     private GameMigrationData _cachedGameData;
+    private float _cachedGameDataCapturedRealtime = -1f;
     private Dictionary<string, PlayerMigrationData> _cachedPlayerData = new Dictionary<string, PlayerMigrationData>();
     
     // 마이그레이션 상태
@@ -151,6 +152,7 @@ public class HostMigrationHandler : MonoBehaviour
     private void CacheCurrentGameState(NetworkRunner runner)
     {
         Debug.Log("<color=magenta>═══ [STEP 1] 상태 캐싱 시작 ═══</color>");
+        _cachedGameDataCapturedRealtime = Time.realtimeSinceStartup;
         
         _cachedGameData = new GameMigrationData
         {
@@ -169,6 +171,7 @@ public class HostMigrationHandler : MonoBehaviour
             Debug.Log($"  라운드: {_cachedGameData.CurrentRound}");
             Debug.Log($"  남은 시간: {_cachedGameData.RemainingPhaseTime:F1}초");
             Debug.Log($"  씨: {_cachedGameData.CurrentSceneName}");
+            Debug.Log($"  캐시 시각: {_cachedGameDataCapturedRealtime:F3}s");
         }
         else
         {
@@ -722,12 +725,23 @@ public class HostMigrationHandler : MonoBehaviour
             bool isReady = instanceExists && gm.IsReadyForNetworkAccess;
             bool runnerMatched = instanceExists && gm.Runner == expectedRunner;
             bool hasAuthority = !expectedRunner.IsServer || (instanceExists && gm.Object != null && gm.Object.HasStateAuthority);
+            bool verboseProbe = waitTime == 0 || (int)(waitTime * 10) % 5 == 0;
+            string playersNotReadyReason = string.Empty;
+            bool playersReady = instanceExists && EnsurePlayersRuntimeReady(
+                expectedRunner,
+                "WaitAndRestoreGameManagers",
+                verboseProbe,
+                out playersNotReadyReason);
             
             // 0.5초마다만 로그 출력 (너무 많은 로그 방지)
-            if (waitTime == 0 || (int)(waitTime * 10) % 5 == 0)
+            if (verboseProbe)
             {
-                Debug.Log($"[STEP 5.2] 대기 중... ({waitTime:F1}s) - Instance: {instanceExists}, Ready: {isReady}, RunnerMatched: {runnerMatched}, HasAuthority: {hasAuthority}");
+                Debug.Log($"[STEP 5.2] 대기 중... ({waitTime:F1}s) - Instance: {instanceExists}, Ready: {isReady}, RunnerMatched: {runnerMatched}, HasAuthority: {hasAuthority}, PlayersReady: {playersReady}");
                 Debug.Log($"[STEP 5.2][DETAIL]\n{BuildGameManagersDump(expectedRunner, gm)}");
+                if (!playersReady && !string.IsNullOrEmpty(playersNotReadyReason))
+                {
+                    Debug.LogWarning($"[STEP 5.2][PLAYERS] 런타임 준비 대기 중: {playersNotReadyReason}");
+                }
             }
             
             if (instanceExists && expectedRunner.IsServer && gm.Object != null && !gm.Object.HasStateAuthority)
@@ -735,7 +749,7 @@ public class HostMigrationHandler : MonoBehaviour
                 gm.Object.RequestStateAuthority();
             }
 
-            if (isReady && runnerMatched && hasAuthority)
+            if (isReady && runnerMatched && hasAuthority && playersReady)
             {
                 Debug.Log("<color=cyan>[STEP 5.3] GameManagers 준비 완료!</color>");
                 
@@ -746,6 +760,7 @@ public class HostMigrationHandler : MonoBehaviour
                 Debug.Log($"  - Timer: {gm.currentPhaseTimer:F1}s");
                 Debug.Log($"  - HasStateAuthority: {gm.Object?.HasStateAuthority}");
                 
+                TryApplyCachedStateBeforeRestore(gm, "WaitAndRestoreGameManagers.Ready");
                 Debug.Log("[STEP 5.3] RestoreAfterHostMigration 호출...");
                 gm.RestoreAfterHostMigration();
                 _migrationRecoverySucceeded = true;
@@ -766,10 +781,12 @@ public class HostMigrationHandler : MonoBehaviour
         if (timeoutGM != null)
         {
             Debug.Log("[STEP 5] GameManagers.Instance 존재 - IsReadyForNetworkAccess 무시하고 강제 복원");
+            EnsurePlayersRuntimeReady(expectedRunner, "WaitAndRestoreGameManagers.Timeout", true, out _);
             
             // IsReadyForNetworkAccess가 false여도 강제 복원 시도
             try
             {
+                TryApplyCachedStateBeforeRestore(timeoutGM, "WaitAndRestoreGameManagers.Timeout");
                 timeoutGM.RestoreAfterHostMigration();
                 Debug.Log("<color=yellow>[STEP 5] 강제 복원 완료 (IsReadyForNetworkAccess 무시)</color>");
                 _migrationRecoverySucceeded = true;
@@ -820,6 +837,63 @@ public class HostMigrationHandler : MonoBehaviour
         }
         
         Debug.Log("<color=yellow>[STEP 5] WaitAndRestoreGameManagers 코루틴 종료</color>");
+    }
+
+    private bool EnsurePlayersRuntimeReady(NetworkRunner expectedRunner, string context, bool verboseLog, out string notReadySummary)
+    {
+        notReadySummary = string.Empty;
+        if (expectedRunner == null)
+        {
+            notReadySummary = "expectedRunner=null";
+            return false;
+        }
+
+        var players = UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
+            .Where(player => player != null && player.Runner == expectedRunner)
+            .Where(player => player.Object != null && player.Object.IsValid)
+            .Where(player => player.playerId >= 0)
+            .GroupBy(player => player.playerId)
+            .Select(group => group
+                .OrderByDescending(player => player.Object != null && player.Object.HasStateAuthority)
+                .First())
+            .ToList();
+
+        if (players.Count == 0)
+        {
+            notReadySummary = "runnerPlayers=0(valid)";
+            if (verboseLog)
+            {
+                Debug.LogWarning($"[HostMigrationHandler] {context}: expectedRunner 소속 PlayerManager가 없습니다.");
+            }
+            return false;
+        }
+
+        var notReady = new List<string>();
+        foreach (var player in players)
+        {
+            if (player.Object == null || !player.Object.IsValid)
+            {
+                continue;
+            }
+
+            player.RebindRuntimeReferencesAfterMigration($"HostMigrationHandler.{context}", verboseLog);
+            if (!player.IsRuntimeReady(out string reason))
+            {
+                notReady.Add($"P{player.playerId}:{reason}");
+            }
+        }
+
+        if (notReady.Count > 0)
+        {
+            notReadySummary = string.Join(", ", notReady);
+            if (verboseLog)
+            {
+                Debug.LogWarning($"[HostMigrationHandler] {context}: 플레이어 런타임 준비 미완료 - {notReadySummary}");
+            }
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1009,5 +1083,34 @@ public class HostMigrationHandler : MonoBehaviour
     public GameMigrationData GetCachedGameData()
     {
         return _cachedGameData;
+    }
+
+    private void TryApplyCachedStateBeforeRestore(GameManagers gm, string context)
+    {
+        if (gm == null)
+        {
+            return;
+        }
+
+        if (_cachedGameData.CurrentRound <= 0)
+        {
+            return;
+        }
+
+        float elapsedSinceCache = 0f;
+        if (_cachedGameDataCapturedRealtime >= 0f)
+        {
+            elapsedSinceCache = Mathf.Max(0f, Time.realtimeSinceStartup - _cachedGameDataCapturedRealtime);
+        }
+
+        bool applied = gm.TryApplyCachedStateForMigration(
+            _cachedGameData,
+            elapsedSinceCache,
+            context);
+
+        if (applied)
+        {
+            Debug.Log($"<color=magenta>[HostMigrationHandler] 캐시 상태 적용 성공 ({context}) - elapsed={elapsedSinceCache:F2}s</color>");
+        }
     }
 }

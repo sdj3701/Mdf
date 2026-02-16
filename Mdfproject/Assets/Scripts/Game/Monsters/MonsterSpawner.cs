@@ -13,6 +13,7 @@ public class MonsterSpawner : MonoBehaviour
     private AstarGrid _pathfinder;
     private WaveDatabase _waveDatabase;
     private float _lastRuntimeResolveLogTime;
+    private static int _spawnTraceSeq;
 
     [Header("스폰 설정 (자동 할당됨)")]
     [SerializeField] private Transform spawnPoint;
@@ -67,6 +68,42 @@ public class MonsterSpawner : MonoBehaviour
         return EnsureRuntimeReferences(context, verboseFailure);
     }
 
+    public bool IsRuntimeReady(out string reason)
+    {
+        if (_playerManager == null)
+        {
+            reason = "owner=null";
+            return false;
+        }
+
+        if (_pathfinder == null)
+        {
+            reason = "pathfinder=null";
+            return false;
+        }
+
+        if (spawnPoint == null)
+        {
+            reason = "spawnPoint=null";
+            return false;
+        }
+
+        if (goalTransform == null)
+        {
+            reason = "goalTransform=null";
+            return false;
+        }
+
+        if (_waveDatabase == null)
+        {
+            reason = "waveDatabase=null";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
     private bool EnsureRuntimeReferences(string context, bool verboseFailure)
     {
         if (_playerManager == null)
@@ -97,11 +134,11 @@ public class MonsterSpawner : MonoBehaviour
             }
         }
 
-        bool ready = _playerManager != null;
+        bool ready = IsRuntimeReady(out string notReadyReason);
         if (!ready && verboseFailure && Time.unscaledTime - _lastRuntimeResolveLogTime > 0.5f)
         {
             _lastRuntimeResolveLogTime = Time.unscaledTime;
-            Debug.LogWarning($"[MonsterSpawner] 참조 복구 실패 ({context}) {DescribeRuntimeState()}");
+            Debug.LogWarning($"[MonsterSpawner] 참조 복구 실패 ({context}) reason={notReadyReason} {DescribeRuntimeState()}");
         }
 
         return ready;
@@ -116,6 +153,93 @@ public class MonsterSpawner : MonoBehaviour
         string spawnState = spawnPoint == null ? "spawnPoint=null" : $"spawnPoint={spawnPoint.name}";
         string goalState = goalTransform == null ? "goal=null" : $"goal={goalTransform.name}";
         return $"{ownerState}, {pathState}, {spawnState}, {goalState}, waveDb={(_waveDatabase != null)}";
+    }
+
+    private string DescribeRunnerState(NetworkRunner runner)
+    {
+        if (runner == null)
+        {
+            return "runner=null";
+        }
+
+        return $"runner={runner.name},running={runner.IsRunning},mode={runner.GameMode},isServer={runner.IsServer}";
+    }
+
+    private string DescribePlayerState(PlayerManager player, string label)
+    {
+        if (player == null)
+        {
+            return $"{label}=null";
+        }
+
+        bool hasObject = player.Object != null;
+        bool objectValid = hasObject && player.Object.IsValid;
+        bool hasAuthority = hasObject && player.Object.HasStateAuthority;
+        string gridName = player.astarGrid != null ? player.astarGrid.name : "null";
+        string goalName = player.goalTransform != null ? player.goalTransform.name : "null";
+        string fieldName = player.fieldManager != null ? player.fieldManager.name : "null";
+
+        return $"{label}=Player(id={player.playerId},name={player.name},active={player.isActiveAndEnabled}," +
+               $"hasObject={hasObject},objectValid={objectValid},stateAuth={hasAuthority}," +
+               $"grid={gridName},goal={goalName},field={fieldName})";
+    }
+
+    private string DescribeFieldState(FieldManager field, string label)
+    {
+        if (field == null)
+        {
+            return $"{label}=null";
+        }
+
+        string ownerId = field.playerManager != null ? field.playerManager.playerId.ToString() : "null";
+        string groundName = field.ground3D != null ? field.ground3D.name : "null";
+        return $"{label}=Field(name={field.name},active={field.isActiveAndEnabled},owner={ownerId},ground={groundName})";
+    }
+
+    private string BuildAllPlayersSnapshot()
+    {
+        var players = UnityEngine.Object.FindObjectsOfType<PlayerManager>(true);
+        if (players == null || players.Length == 0)
+        {
+            return "allPlayers=0";
+        }
+
+        var chunks = new List<string>(players.Length);
+        for (int i = 0; i < players.Length; i++)
+        {
+            chunks.Add($"[{i}] {DescribePlayerState(players[i], "player")}");
+        }
+
+        return $"allPlayers={players.Length} {string.Join(" || ", chunks)}";
+    }
+
+    private string BuildAllFieldsSnapshot()
+    {
+        var fields = UnityEngine.Object.FindObjectsOfType<FieldManager>(true);
+        if (fields == null || fields.Length == 0)
+        {
+            return "allFields=0";
+        }
+
+        var chunks = new List<string>(fields.Length);
+        for (int i = 0; i < fields.Length; i++)
+        {
+            chunks.Add($"[{i}] {DescribeFieldState(fields[i], "field")}");
+        }
+
+        return $"allFields={fields.Length} {string.Join(" || ", chunks)}";
+    }
+
+    private void LogSpawnTrace(string step, MonsterData monsterData, Vector3 spawnPosition, FieldManager targetFieldManager, string extra = null)
+    {
+        PlayerManager targetPlayer = targetFieldManager != null ? targetFieldManager.playerManager : null;
+        string monsterName = monsterData != null ? monsterData.monsterName : "null";
+        string suffix = string.IsNullOrEmpty(extra) ? string.Empty : $" | {extra}";
+
+        Debug.Log(
+            $"[SPAWN-TRACE #{++_spawnTraceSeq}] {step} | monster={monsterName} spawn={spawnPosition} | " +
+            $"{DescribePlayerState(_playerManager, "attacker")} | {DescribeFieldState(targetFieldManager, "targetField")} | " +
+            $"{DescribePlayerState(targetPlayer, "defender")} | {DescribeRunnerState(_playerManager?.Runner)}{suffix}");
     }
 
     #endregion
@@ -986,14 +1110,23 @@ public class MonsterSpawner : MonoBehaviour
         int bossUniqueId = -1,
         int originPlayerId = -1)
     {
+        LogSpawnTrace(
+            "SpawnMonsterAtPositionAsync:ENTER",
+            monsterData,
+            spawnPosition,
+            targetFieldManager,
+            $"isBoss={isBoss},bossUniqueId={bossUniqueId},originPlayerId={originPlayerId}");
+
         if (!EnsureRuntimeReferences("SpawnMonsterAtPositionAsync", true))
         {
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_RUNTIME_REF", monsterData, spawnPosition, targetFieldManager);
             return null;
         }
 
         if (monsterData == null || targetFieldManager == null)
         {
             Debug.LogError("[MonsterSpawner] SpawnMonsterAtPositionAsync 실패: monsterData 또는 targetFieldManager가 null");
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_INVALID_INPUT", monsterData, spawnPosition, targetFieldManager);
             return null;
         }
 
@@ -1001,6 +1134,7 @@ public class MonsterSpawner : MonoBehaviour
         if (string.IsNullOrEmpty(monsterData.monsterPrefab))
         {
             Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 monsterPrefab 주소가 설정되지 않았습니다!", monsterData);
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_EMPTY_PREFAB_KEY", monsterData, spawnPosition, targetFieldManager);
             return null;
         }
 
@@ -1008,6 +1142,7 @@ public class MonsterSpawner : MonoBehaviour
         if (prefab == null)
         {
             Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 프리팹 로드 실패!", monsterData);
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_PREFAB_LOAD_FAIL", monsterData, spawnPosition, targetFieldManager, $"prefabKey={monsterData.monsterPrefab}");
             return null;
         }
 
@@ -1027,10 +1162,12 @@ public class MonsterSpawner : MonoBehaviour
         var runner = _playerManager?.Runner;
         if (runner != null && _playerManager.Object != null && _playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
         {
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:SPAWN_NETWORK", monsterData, adjustedSpawnPos, targetFieldManager, $"prefab={prefab.name}");
             var spawned = runner.Spawn(netPrefab, adjustedSpawnPos, Quaternion.identity, PlayerRef.None);
             if (spawned == null)
             {
                 Debug.LogError($"Runner.Spawn 실패: {prefab.name}", this);
+                LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_RUNNER_SPAWN_FAIL", monsterData, adjustedSpawnPos, targetFieldManager, $"prefab={prefab.name}");
                 return null;
             }
             monsterGO = spawned.gameObject;
@@ -1041,6 +1178,7 @@ public class MonsterSpawner : MonoBehaviour
         }
         else
         {
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:SPAWN_LOCAL_INSTANTIATE", monsterData, adjustedSpawnPos, targetFieldManager, $"prefab={prefab.name}");
             monsterGO = Instantiate(prefab, adjustedSpawnPos, Quaternion.identity, targetMonsterParent);
         }
 
@@ -1063,6 +1201,14 @@ public class MonsterSpawner : MonoBehaviour
         if (targetGrid == null || targetGoal == null)
         {
             Debug.LogError("[MonsterSpawner] 대상 필드의 AstarGrid 또는 goalTransform이 null");
+            LogSpawnTrace(
+                "SpawnMonsterAtPositionAsync:ABORT_TARGET_GRID_OR_GOAL_NULL",
+                monsterData,
+                adjustedSpawnPos,
+                targetFieldManager,
+                $"targetGrid={(targetGrid != null ? targetGrid.name : "null")},targetGoal={(targetGoal != null ? targetGoal.name : "null")}");
+            Debug.LogWarning($"[SPAWN-TRACE] {BuildAllPlayersSnapshot()}");
+            Debug.LogWarning($"[SPAWN-TRACE] {BuildAllFieldsSnapshot()}");
             Destroy(monsterGO);
             return null;
         }
@@ -1113,12 +1259,14 @@ public class MonsterSpawner : MonoBehaviour
         else
         {
             Debug.LogWarning($"[MonsterSpawner] 수동 소환 몬스터 경로 찾기 실패: {startPos} → {endPos}");
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_PATH_FAIL", monsterData, adjustedSpawnPos, targetFieldManager, $"start={startPos},end={endPos}");
             Destroy(monsterGO);
             return null;
         }
 
         string bossTag = isBoss ? " [BOSS]" : "";
         Debug.Log($"<color=green>[MonsterSpawner] 수동 소환: {monsterData.monsterName}{bossTag} at {spawnPosition}, 경로 시작: {startPos}</color>");
+        LogSpawnTrace("SpawnMonsterAtPositionAsync:SUCCESS", monsterData, adjustedSpawnPos, targetFieldManager, $"start={startPos},end={endPos},isBoss={isBoss}");
         return monster;
     }
 
