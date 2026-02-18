@@ -28,11 +28,31 @@ public class ShopManager : MonoBehaviour
         var runner = playerManager.Runner;
         bool hasObject = playerManager.Object != null;
         bool hasAuthority = hasObject && playerManager.Object.HasStateAuthority;
+        string playerIdLabel = TryGetSafePlayerId(out int safePlayerId) ? safePlayerId.ToString() : "unspawned";
         string runnerSummary = runner == null
             ? "runner=null"
             : $"runner={runner.name},running={runner.IsRunning},server={runner.IsServer}";
 
-        return $"player={playerManager.playerId},name={playerManager.name},hasObject={hasObject},stateAuth={hasAuthority},{runnerSummary}";
+        return $"player={playerIdLabel},name={playerManager.name},hasObject={hasObject},stateAuth={hasAuthority},{runnerSummary}";
+    }
+
+    private bool TryGetSafePlayerId(out int playerId)
+    {
+        playerId = -1;
+        if (playerManager == null || playerManager.Object == null || !playerManager.Object.IsValid)
+        {
+            return false;
+        }
+
+        try
+        {
+            playerId = playerManager.playerId;
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private void LogShopTrace(string step, string extra = null)
@@ -158,7 +178,8 @@ public class ShopManager : MonoBehaviour
 
         if (!isFree && !playerManager.SpendGold(rerollCost))
         {
-            Debug.LogWarning($"Player {playerManager.playerId}: 골드가 부족하여 리롤할 수 없습니다.");
+            string playerIdLabel = TryGetSafePlayerId(out int safePlayerId) ? safePlayerId.ToString() : "unspawned";
+            Debug.LogWarning($"Player {playerIdLabel}: 골드가 부족하여 리롤할 수 없습니다.");
             LogShopTrace("Reroll:ABORT_NOT_ENOUGH_GOLD", $"gold={playerManager.GetGold()},cost={rerollCost}");
             return;
         }

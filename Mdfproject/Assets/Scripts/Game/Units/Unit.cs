@@ -434,12 +434,59 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         AddCandidate($"UnitData_{normalized}");
         AddCandidate($"UnitData_{normalizedWithoutDigits}");
 
+        bool MatchesPrefabKey(UnitData data, string candidate, bool fuzzy)
+        {
+            if (data?.prefabsByStarLevel == null || string.IsNullOrWhiteSpace(candidate))
+            {
+                return false;
+            }
+
+            string candidateTrimmed = candidate.Trim();
+            string candidateNoDigits = StripTrailingDigits(candidateTrimmed);
+            for (int i = 0; i < data.prefabsByStarLevel.Length; i++)
+            {
+                string prefabKey = data.prefabsByStarLevel[i];
+                if (string.IsNullOrWhiteSpace(prefabKey))
+                {
+                    continue;
+                }
+
+                string prefabTrimmed = prefabKey.Trim();
+                string prefabNoClone = prefabTrimmed.Replace("(Clone)", string.Empty).Trim();
+                string prefabNoDigits = StripTrailingDigits(prefabNoClone);
+
+                if (!fuzzy)
+                {
+                    if (string.Equals(prefabTrimmed, candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(prefabNoClone, candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(prefabNoDigits, candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(prefabNoDigits, candidateNoDigits, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                if (prefabTrimmed.IndexOf(candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    prefabNoClone.IndexOf(candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    (!string.IsNullOrWhiteSpace(candidateNoDigits) &&
+                     prefabNoDigits.IndexOf(candidateNoDigits, System.StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         UnitData resolved = all.FirstOrDefault(d =>
             d != null && candidates.Any(candidate =>
                 string.Equals(d.name, candidate, System.StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(RemoveUnitDataPrefix(d.name), candidate, System.StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(d.unitName, candidate, System.StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(RemoveUnitDataPrefix(d.unitName), candidate, System.StringComparison.OrdinalIgnoreCase)));
+                string.Equals(RemoveUnitDataPrefix(d.unitName), candidate, System.StringComparison.OrdinalIgnoreCase) ||
+                MatchesPrefabKey(d, candidate, false)));
 
         if (resolved == null)
         {
@@ -454,7 +501,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 bool inUnitName = d.unitName != null && d.unitName.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
                 bool inNameNoPrefix = RemoveUnitDataPrefix(d.name)?.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
                 bool inUnitNameNoPrefix = RemoveUnitDataPrefix(d.unitName)?.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
-                return inName || inUnitName || inNameNoPrefix || inUnitNameNoPrefix;
+                bool inPrefabKey = MatchesPrefabKey(d, candidate, true);
+                return inName || inUnitName || inNameNoPrefix || inUnitNameNoPrefix || inPrefabKey;
             })).ToList();
             if (fuzzy.Count == 1)
             {

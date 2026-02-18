@@ -1107,6 +1107,33 @@ public class GameManagers : NetworkBehaviour
                         await player.shopManager.WaitUntilDatabaseLoaded();
                     }
 
+                    // Host Migration 복원 중 Prepare 단계에서 상점이 비어 있으면
+                    // 새 Host가 즉시 무료 리롤 + 동기화하여 클라이언트 대기 타임아웃을 방지한다.
+                    if (_migrationRestoreInProgress &&
+                        currentState == GameState.Prepare &&
+                        Object != null &&
+                        Object.HasStateAuthority &&
+                        player.shopManager != null)
+                    {
+                        var migratedShopItems = player.shopManager.GetCurrentShopItems();
+                        if (migratedShopItems == null || migratedShopItems.Count == 0)
+                        {
+                            player.shopManager.Reroll(true);
+                            migratedShopItems = player.shopManager.GetCurrentShopItems();
+
+                            Debug.Log($"[복원/UI] Host 보정 리롤 실행: Player {player.playerId}, itemCount={migratedShopItems?.Count ?? 0}");
+
+                            if (CommandProcessor != null && migratedShopItems != null && migratedShopItems.Count > 0)
+                            {
+                                string[] shopNames = migratedShopItems.Select(i => i.UnitData?.name ?? string.Empty).ToArray();
+                                int[] shopStars = migratedShopItems.Select(i => i.StarLevel).ToArray();
+                                var syncShopCmd = new SyncShopItemsCommand(player.playerId, shopNames, shopStars);
+                                CommandProcessor.RequestCommandExecution(syncShopCmd);
+                                Debug.Log($"[복원/UI] Host 상점 동기화 커맨드 전송: Player {player.playerId}, itemCount={migratedShopItems.Count}");
+                            }
+                        }
+                    }
+
                     if (_activeMigrationTraceId >= 0)
                     {
                         int shopCount = player.shopManager != null ? player.shopManager.GetCurrentShopItems().Count : -1;
@@ -1985,12 +2012,30 @@ public class GameManagers : NetworkBehaviour
         Debug.Log($"[복원] _isSpawned: {_isSpawned}");
         Debug.Log($"[복원] IsReadyForNetworkAccess: {IsReadyForNetworkAccess}");
         Debug.Log($"[복원] HasStateAuthority: {Object?.HasStateAuthority}");
+        bool runnerMatched = IsBoundToActiveRunner();
+        Debug.Log($"[복원] RunnerMatched: {runnerMatched}");
         
         // Spawned 상태가 아니면 대기 후 재시도
         if (!IsReadyForNetworkAccess)
         {
             Debug.LogWarning("<color=red>[GameManagers] 아직 Spawned 상태가 아닙니다. 복원을 건너뜁니다.</color>");
             LogMigrationTrace("RestoreAfterHostMigration:ABORT_NOT_READY");
+            _migrationRestoreInProgress = false;
+            return;
+        }
+
+        if (!runnerMatched)
+        {
+            Debug.LogError("<color=red>[GameManagers] 활성 Runner와 불일치하여 복원을 중단합니다.</color>");
+            LogMigrationTrace("RestoreAfterHostMigration:ABORT_RUNNER_MISMATCH");
+            _migrationRestoreInProgress = false;
+            return;
+        }
+
+        if (Runner != null && Runner.IsServer && (Object == null || !Object.HasStateAuthority))
+        {
+            Debug.LogError("<color=red>[GameManagers] 새 Host인데 StateAuthority가 없어 복원을 중단합니다.</color>");
+            LogMigrationTrace("RestoreAfterHostMigration:ABORT_NO_STATE_AUTH");
             _migrationRestoreInProgress = false;
             return;
         }
@@ -2125,12 +2170,13 @@ public class GameManagers : NetworkBehaviour
         while (waitTime < maxWaitTime)
         {
             bool hasAuthority = Object != null && Object.HasStateAuthority;
+            bool runnerMatched = IsBoundToActiveRunner();
             bool uiReady = _migrationUiRestoreCompleted;
             bool playersReady = AreAllPlayersRuntimeReadyForMigration(out string notReadyReason);
 
-            if (hasAuthority && uiReady && playersReady)
+            if (hasAuthority && runnerMatched && uiReady && playersReady)
             {
-                Debug.Log($"<color=green>[STEP 6] 재개 조건 충족 ({waitTime:F1}s): authority={hasAuthority}, uiReady={uiReady}, playersReady={playersReady}</color>");
+                Debug.Log($"<color=green>[STEP 6] 재개 조건 충족 ({waitTime:F1}s): authority={hasAuthority}, runnerMatched={runnerMatched}, uiReady={uiReady}, playersReady={playersReady}</color>");
                 LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:READY", $"waited={waitTime:F1}s");
                 ResumeGameFlowFromCurrentState();
                 yield break;
@@ -2138,10 +2184,14 @@ public class GameManagers : NetworkBehaviour
 
             if (waitTime == 0f || Mathf.Abs((waitTime * 10f) % 10f) < 0.001f)
             {
-                Debug.Log($"[STEP 6] 조건 대기 중... ({waitTime:F1}s) authority={hasAuthority}, uiReady={uiReady}, playersReady={playersReady}");
+                Debug.Log($"[STEP 6] 조건 대기 중... ({waitTime:F1}s) authority={hasAuthority}, runnerMatched={runnerMatched}, uiReady={uiReady}, playersReady={playersReady}");
                 if (!playersReady && !string.IsNullOrEmpty(notReadyReason))
                 {
                     Debug.LogWarning($"[STEP 6] 플레이어 런타임 준비 미완료: {notReadyReason}");
+                }
+                if (!runnerMatched)
+                {
+                    Debug.LogWarning("[STEP 6] GameManagers.Runner가 현재 활성 Runner와 다릅니다.");
                 }
             }
 
@@ -2152,10 +2202,21 @@ public class GameManagers : NetworkBehaviour
         Debug.LogWarning($"<color=orange>[STEP 6] 재개 조건 대기 시간 초과 ({maxWaitTime:F1}s)</color>");
         LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:TIMEOUT", $"waited={maxWaitTime:F1}s");
 
-        if (Object != null && Object.HasStateAuthority)
+        if (Object != null && Object.HasStateAuthority && IsBoundToActiveRunner())
         {
             ResumeGameFlowFromCurrentState();
         }
+    }
+
+    private bool IsBoundToActiveRunner()
+    {
+        if (Runner == null)
+        {
+            return false;
+        }
+
+        var activeRunner = NetworkManager.Instance?._runner;
+        return activeRunner != null && activeRunner == Runner;
     }
 
     private bool AreAllPlayersRuntimeReadyForMigration(out string reason)
@@ -2474,6 +2535,26 @@ public class GameManagers : NetworkBehaviour
         {
             LogMigrationTrace("ShowLocalShopFallback:ABORT_UI_REF_NULL");
             return;
+        }
+
+        if (Object != null && Object.HasStateAuthority && currentState == GameState.Prepare)
+        {
+            var hostShopItems = localPlayer.shopManager.GetCurrentShopItems();
+            if (hostShopItems == null || hostShopItems.Count == 0)
+            {
+                localPlayer.shopManager.Reroll(true);
+                hostShopItems = localPlayer.shopManager.GetCurrentShopItems();
+                Debug.Log($"[복원/UI] 로컬 Host 상점 긴급 리롤: Player {localPlayer.playerId}, itemCount={hostShopItems?.Count ?? 0}");
+
+                if (CommandProcessor != null && hostShopItems != null && hostShopItems.Count > 0)
+                {
+                    string[] shopNames = hostShopItems.Select(i => i.UnitData?.name ?? string.Empty).ToArray();
+                    int[] shopStars = hostShopItems.Select(i => i.StarLevel).ToArray();
+                    var syncShopCmd = new SyncShopItemsCommand(localPlayer.playerId, shopNames, shopStars);
+                    CommandProcessor.RequestCommandExecution(syncShopCmd);
+                    Debug.Log($"[복원/UI] 로컬 Host 상점 동기화 전송: Player {localPlayer.playerId}, itemCount={hostShopItems.Count}");
+                }
+            }
         }
 
         await localPlayer.shopManager.EnsureShopRerolledAsync();

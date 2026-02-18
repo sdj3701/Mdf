@@ -350,18 +350,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             ground3D = ResolveGroundObject(gridRoot);
         }
 
+        bool spawnInvalid = spawnPoint == null || !IsTransformOwnedByCurrentRunner(spawnPoint);
+        bool goalInvalid = goalTransform == null || !IsTransformOwnedByCurrentRunner(goalTransform);
+        if (fieldManager != null && gridRoot != null && (spawnInvalid || goalInvalid))
+        {
+            // Ensure spawn/goal references exist before FieldManager.Initialize() reads them.
+            SetupSpawnAndGoalPositions(gridRoot);
+        }
+
         if (fieldManager != null && ground3D != null
             && (fieldManager.ground3D == null || fieldManager.ground3D != ground3D))
         {
             fieldManager.Initialize(this, ground3D);
             fieldReinitialized = true;
-        }
-
-        bool spawnInvalid = spawnPoint == null || !IsTransformOwnedByCurrentRunner(spawnPoint);
-        bool goalInvalid = goalTransform == null || !IsTransformOwnedByCurrentRunner(goalTransform);
-        if (fieldManager != null && gridRoot != null && (spawnInvalid || goalInvalid))
-        {
-            SetupSpawnAndGoalPositions(gridRoot);
         }
 
         if (astarGrid != null && fieldManager != null)

@@ -199,7 +199,7 @@ public class HostMigrationHandler : MonoBehaviour
         // 대신 oldRunner 참조만 저장하고, 새 Runner 시작 후에 정리
         NetworkRunner runnerToCleanup = oldRunner;
         
-        Debug.Log("<color=magenta>═══ [STEP 3] 새 Host로 세션 재시작 ═══</color>");
+        Debug.Log("<color=magenta>═══ [STEP 3] 새 Runner로 세션 재시작 ═══</color>");
         
         // async 메서드를 별도로 실행하고 완료를 기다림
         NetworkRunner newRunner = null;
@@ -250,9 +250,18 @@ public class HostMigrationHandler : MonoBehaviour
             OnMigrationComplete();
             yield break;
         }
-        
-        Debug.Log("<color=magenta>═══ [STEP 4] 새 Host 등록 완료 ═══</color>");
-        Debug.Log($"<color=green>[STEP 4] 새 Host로 세션 재시작 성공!</color>");
+
+        var expectedMode = hostMigrationToken.GameMode;
+        if (newRunner.GameMode != expectedMode)
+        {
+            Debug.LogError($"<color=red>[HostMigrationHandler] GameMode 불일치: expected={expectedMode}, actual={newRunner.GameMode}</color>");
+            _migrationRecoverySucceeded = false;
+            OnMigrationComplete();
+            yield break;
+        }
+
+        Debug.Log("<color=magenta>═══ [STEP 4] 새 Runner 등록 완료 ═══</color>");
+        Debug.Log($"<color=green>[STEP 4] 세션 재시작 성공! role={newRunner.GameMode}</color>");
         Debug.Log($"  - {DescribeRunner(newRunner)}");
         
         // NetworkManager에 새 Runner 설정
@@ -270,6 +279,13 @@ public class HostMigrationHandler : MonoBehaviour
         
         // GameManagers Spawned 대기 및 복원
         yield return WaitAndRestoreGameManagers(newRunner);
+
+        if (!_migrationRecoverySucceeded)
+        {
+            Debug.LogError("<color=red>[STEP 5] GameManagers 복원 게이트 실패 - 이후 단계 진행 중단</color>");
+            OnMigrationComplete();
+            yield break;
+        }
         
         Debug.Log("[STEP 5] 복원 완료 - 이제 기존 Runner 비활성화");
         
@@ -367,10 +383,13 @@ public class HostMigrationHandler : MonoBehaviour
             // SceneManager 설정
             var sceneManager = newRunnerGO.AddComponent<NetworkSceneManagerDefault>();
             
-            // 새 Host로 게임 시작 (HostMigrationToken 사용)
+            var requestedMode = hostMigrationToken.GameMode;
+            Debug.Log($"[HostMigrationHandler] HostMigrationToken.GameMode={requestedMode}");
+
+            // HostMigrationToken 기반으로 역할(Host/Client) 확정 후 시작
             var result = await newRunner.StartGame(new StartGameArgs()
             {
-                GameMode = GameMode.Host,  // ★ 새 Host가 됨!
+                GameMode = requestedMode,
                 HostMigrationToken = hostMigrationToken,  // ★ 기존 상태 복원
                 SceneManager = sceneManager,
                 ObjectProvider = objectProvider,
@@ -724,7 +743,8 @@ public class HostMigrationHandler : MonoBehaviour
             bool instanceExists = gm != null;
             bool isReady = instanceExists && gm.IsReadyForNetworkAccess;
             bool runnerMatched = instanceExists && gm.Runner == expectedRunner;
-            bool hasAuthority = !expectedRunner.IsServer || (instanceExists && gm.Object != null && gm.Object.HasStateAuthority);
+            bool hasAuthority = !expectedRunner.IsServer || (instanceExists && gm.Object != null && gm.Object.IsValid && gm.Object.HasStateAuthority);
+            bool resumeGateSatisfied = runnerMatched && hasAuthority;
             bool verboseProbe = waitTime == 0 || (int)(waitTime * 10) % 5 == 0;
             string playersNotReadyReason = string.Empty;
             bool playersReady = instanceExists && EnsurePlayersRuntimeReady(
@@ -736,11 +756,15 @@ public class HostMigrationHandler : MonoBehaviour
             // 0.5초마다만 로그 출력 (너무 많은 로그 방지)
             if (verboseProbe)
             {
-                Debug.Log($"[STEP 5.2] 대기 중... ({waitTime:F1}s) - Instance: {instanceExists}, Ready: {isReady}, RunnerMatched: {runnerMatched}, HasAuthority: {hasAuthority}, PlayersReady: {playersReady}");
+                Debug.Log($"[STEP 5.2] 대기 중... ({waitTime:F1}s) - Instance: {instanceExists}, Ready: {isReady}, RunnerMatched: {runnerMatched}, HasAuthority: {hasAuthority}, ResumeGate: {resumeGateSatisfied}, PlayersReady: {playersReady}");
                 Debug.Log($"[STEP 5.2][DETAIL]\n{BuildGameManagersDump(expectedRunner, gm)}");
                 if (!playersReady && !string.IsNullOrEmpty(playersNotReadyReason))
                 {
                     Debug.LogWarning($"[STEP 5.2][PLAYERS] 런타임 준비 대기 중: {playersNotReadyReason}");
+                }
+                if (!resumeGateSatisfied)
+                {
+                    Debug.LogWarning($"[STEP 5.2][GATE] 재개 조건 미충족: runnerMatched={runnerMatched}, hasAuthority={hasAuthority}");
                 }
             }
             
@@ -749,7 +773,7 @@ public class HostMigrationHandler : MonoBehaviour
                 gm.Object.RequestStateAuthority();
             }
 
-            if (isReady && runnerMatched && hasAuthority && playersReady)
+            if (isReady && resumeGateSatisfied && playersReady)
             {
                 Debug.Log("<color=cyan>[STEP 5.3] GameManagers 준비 완료!</color>");
                 
@@ -782,6 +806,16 @@ public class HostMigrationHandler : MonoBehaviour
         {
             Debug.Log("[STEP 5] GameManagers.Instance 존재 - IsReadyForNetworkAccess 무시하고 강제 복원");
             EnsurePlayersRuntimeReady(expectedRunner, "WaitAndRestoreGameManagers.Timeout", true, out _);
+
+            bool timeoutRunnerMatched = timeoutGM.Runner == expectedRunner;
+            bool timeoutHasAuthority = !expectedRunner.IsServer
+                || (timeoutGM.Object != null && timeoutGM.Object.IsValid && timeoutGM.Object.HasStateAuthority);
+            if (!timeoutRunnerMatched || !timeoutHasAuthority)
+            {
+                Debug.LogError($"<color=red>[STEP 5] 강제 복원 중단: runnerMatched={timeoutRunnerMatched}, hasAuthority={timeoutHasAuthority}</color>");
+                _migrationRecoverySucceeded = false;
+                yield break;
+            }
             
             // IsReadyForNetworkAccess가 false여도 강제 복원 시도
             try

@@ -13,7 +13,10 @@ public static class GameAssets
     #region Cameras
     public static class Cameras
     {
-        public static Camera MainCamera => ComponentRegistry.Get<Camera>("Main Camera");
+        public static Camera MainCamera =>
+            ComponentRegistry.Get<Camera>("Main Camera", false) ??
+            Camera.main ??
+            Object.FindObjectOfType<Camera>();
     }
     #endregion
 
@@ -23,4 +26,4 @@ public static class GameAssets
         public static TMP_Text CurrentBreakWall => ComponentRegistry.Get<TMP_Text>("CurrentBreakWall");
     }
     #endregion
-}
+}
