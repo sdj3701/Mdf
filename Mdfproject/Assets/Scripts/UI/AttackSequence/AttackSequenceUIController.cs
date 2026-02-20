@@ -81,6 +81,84 @@ public class AttackSequenceUIController : MonoBehaviour
     private int _selectedSlotIndex = -1;
     #endregion
 
+    #region 안전 유틸
+    private static bool IsPlayerReadable(PlayerManager player)
+    {
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm != null && gm.Runner != null && player.Runner != null && player.Runner != gm.Runner)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryGetPlayerIdSafe(PlayerManager player, out int playerId)
+    {
+        playerId = -1;
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            playerId = player.playerId;
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetAttackerStateSafe(PlayerManager player, out bool isAttacker)
+    {
+        isAttacker = false;
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            isAttacker = player.IsAttackerInCurrentBattle;
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private bool TryRebindPlayerReference(string context, bool verboseLog)
+    {
+        if (IsPlayerReadable(_playerManager))
+        {
+            return true;
+        }
+
+        var candidate = GameManagers.Instance?.localPlayer;
+        if (!IsPlayerReadable(candidate))
+        {
+            return false;
+        }
+
+        _playerManager = candidate;
+        if (verboseLog)
+        {
+            Debug.Log($"[AttackSequenceUIController] _playerManager 재바인딩 완료 ({context})");
+        }
+
+        return true;
+    }
+    #endregion
+
     #region 초기화
     private void Awake()
     {
@@ -112,11 +190,13 @@ public class AttackSequenceUIController : MonoBehaviour
     {
         _playerManager = playerManager;
         _attackSequenceManager = attackSequenceManager;
-        
-        Debug.Log($"<color=cyan>[AttackSequenceUIController] 초기화 완료. Player {playerManager?.playerId}</color>");
-        
+
+        TryRebindPlayerReference("Initialize", false);
+        string playerIdLabel = TryGetPlayerIdSafe(_playerManager, out int safeId) ? safeId.ToString() : "unspawned";
+        Debug.Log($"<color=cyan>[AttackSequenceUIController] 초기화 완료. Player {playerIdLabel}</color>");
+
         // 현재 공격자 상태면 바로 UI 표시
-        if (_playerManager != null && _playerManager.IsAttackerInCurrentBattle)
+        if (TryGetAttackerStateSafe(_playerManager, out bool isAttacker) && isAttacker)
         {
             Show(true);
         }
@@ -157,7 +237,7 @@ public class AttackSequenceUIController : MonoBehaviour
         }
 
         // 공격 모드일 때만 슬롯 표시
-        if (isAttacking && _playerManager != null)
+        if (isAttacking && TryRebindPlayerReference("Show", false) && _playerManager.AttackMonsterPool != null)
         {
             RefreshSlots(_playerManager.AttackMonsterPool);
         }
@@ -190,6 +270,12 @@ public class AttackSequenceUIController : MonoBehaviour
     #region 슬롯 업데이트
     private void RefreshSlots(List<MonsterPoolEntry> pool)
     {
+        if (pool == null)
+        {
+            HideAllSlots();
+            return;
+        }
+
         for (int i = 0; i < _slots.Count; i++)
         {
             if (i < pool.Count)
@@ -223,7 +309,7 @@ public class AttackSequenceUIController : MonoBehaviour
     /// </summary>
     public void RefreshUI()
     {
-        if (_playerManager == null) return;
+        if (!TryRebindPlayerReference("RefreshUI", false) || _playerManager.AttackMonsterPool == null) return;
         
         // 모든 슬롯의 수량 업데이트
         for (int i = 0; i < _slots.Count && i < _playerManager.AttackMonsterPool.Count; i++)
@@ -284,8 +370,9 @@ public class AttackSequenceUIController : MonoBehaviour
     #region 이벤트 핸들러
     private void HandleMonsterPoolChanged(int playerId, List<MonsterPoolEntry> pool)
     {
-        if (_playerManager == null || playerId != _playerManager.playerId) return;
-        
+        if (!TryRebindPlayerReference("HandleMonsterPoolChanged", false)) return;
+        if (!TryGetPlayerIdSafe(_playerManager, out int localPlayerId) || playerId != localPlayerId) return;
+
         RefreshSlots(pool);
     }
 

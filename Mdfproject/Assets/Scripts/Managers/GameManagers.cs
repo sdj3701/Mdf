@@ -63,7 +63,8 @@ public class GameManagers : NetworkBehaviour
                 if (playerNO.TryGetComponent<PlayerManager>(out var playerManager)
                     && playerManager != null
                     && playerManager.Object != null
-                    && playerManager.Object.IsValid)
+                    && playerManager.Object.IsValid
+                    && (Runner == null || playerManager.Runner == Runner))
                 {
                     yield return playerManager;
                 }
@@ -73,9 +74,18 @@ public class GameManagers : NetworkBehaviour
 
     private static bool IsPlayerReadable(PlayerManager player)
     {
-        return player != null
-            && player.Object != null
-            && player.Object.IsValid;
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return false;
+        }
+
+        var gm = Instance;
+        if (gm != null && gm.Runner != null && player.Runner != null && player.Runner != gm.Runner)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private static bool TryGetPlayerIdSafe(PlayerManager player, out int playerId)
@@ -1555,22 +1565,24 @@ public class GameManagers : NetworkBehaviour
         var battleReadyMap = new Dictionary<int, bool>();
         foreach (var player in AllPlayers)
         {
-            if (player == null || player.playerId < 0 || player.Object == null || !player.Object.IsValid) continue;
+            if (player == null || player.Object == null || !player.Object.IsValid) continue;
+            if (!TryGetPlayerIdSafe(player, out int playerId) || playerId < 0) continue;
 
-            player.RebindRuntimeReferencesAfterMigration($"StartBattleForPlayers(Player {player.playerId})", false);
+            player.RebindRuntimeReferencesAfterMigration($"StartBattleForPlayers(Player {playerId})", false);
             bool ready = player.IsRuntimeReady(out string readyReason);
-            battleReadyMap[player.playerId] = ready;
+            battleReadyMap[playerId] = ready;
             if (!ready)
             {
-                Debug.LogError($"[StartBattleForPlayers] Player {player.playerId} 런타임 준비 미완료 - 전투 시작 스킵 (reason={readyReason})");
+                Debug.LogError($"[StartBattleForPlayers] Player {playerId} 런타임 준비 미완료 - 전투 시작 스킵 (reason={readyReason})");
                 player.SetFightingState(false);
             }
         }
 
         foreach (var player in AllPlayers)
         {
-            if (player == null || player.playerId < 0 || player.Object == null || !player.Object.IsValid) continue;
-            if (!battleReadyMap.TryGetValue(player.playerId, out bool playerReady) || !playerReady)
+            if (player == null || player.Object == null || !player.Object.IsValid) continue;
+            if (!TryGetPlayerIdSafe(player, out int playerId) || playerId < 0) continue;
+            if (!battleReadyMap.TryGetValue(playerId, out bool playerReady) || !playerReady)
             {
                 continue;
             }
@@ -1580,15 +1592,15 @@ public class GameManagers : NetworkBehaviour
             {
                 battleAttackSeqMgr = player.gameObject.AddComponent<AttackSequenceManager>();
                 battleAttackSeqMgr.Initialize(player);
-                Debug.LogWarning($"[StartBattleForPlayers] AttackSequenceManager 동적 생성: Player {player.playerId}");
+                Debug.LogWarning($"[StartBattleForPlayers] AttackSequenceManager 동적 생성: Player {playerId}");
             }
             else if (battleAttackSeqMgr.Owner != player)
             {
                 battleAttackSeqMgr.Initialize(player);
-                Debug.Log($"[StartBattleForPlayers] AttackSequenceManager 재초기화: Player {player.playerId}");
+                Debug.Log($"[StartBattleForPlayers] AttackSequenceManager 재초기화: Player {playerId}");
             }
 
-            int opponentId = _battleOpponents.TryGetValue(player.playerId, out int oppId) ? oppId : -1;
+            int opponentId = _battleOpponents.TryGetValue(playerId, out int oppId) ? oppId : -1;
             bool hasOpponent = opponentId != -1;
 
             if (hasOpponent)
@@ -1596,18 +1608,18 @@ public class GameManagers : NetworkBehaviour
                 bool opponentReady = battleReadyMap.TryGetValue(opponentId, out bool value) && value;
                 if (!opponentReady)
                 {
-                    Debug.LogError($"[StartBattleForPlayers] 상대 Player {opponentId} 런타임 준비 미완료 - Player {player.playerId} 전투 시작 스킵");
+                    Debug.LogError($"[StartBattleForPlayers] 상대 Player {opponentId} 런타임 준비 미완료 - Player {playerId} 전투 시작 스킵");
                     player.SetFightingState(false);
                     continue;
                 }
             }
 
             // 이 플레이어의 매칭에서 선공자가 누구인지 확인
-            int matchFirstAttackerId = _matchFirstAttacker.TryGetValue(player.playerId, out int firstId) ? firstId : -1;
+            int matchFirstAttackerId = _matchFirstAttacker.TryGetValue(playerId, out int firstId) ? firstId : -1;
             
             // Battle1: 매칭별 선공자가 공격자
             // Battle2: 매칭별 선공자가 수비자 (역할 교체)
-            bool isAttackerFirstBattle = player.playerId == matchFirstAttackerId;
+            bool isAttackerFirstBattle = playerId == matchFirstAttackerId;
             bool isAttackerInThisBattle = isFirstBattle ? isAttackerFirstBattle : !isAttackerFirstBattle;
 
             player.IsAttackerInCurrentBattle = isAttackerInThisBattle;
@@ -1617,17 +1629,24 @@ public class GameManagers : NetworkBehaviour
                 if (isAttackerInThisBattle)
                 {
                     // 공격자 역할: 기본 웨이브 + AttackMonsterPool 소환
-                    player.RefreshAttackMonsterPool(currentRound, opponentId);
+                    try
+                    {
+                        player.RefreshAttackMonsterPool(currentRound, opponentId);
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogError($"[StartBattleForPlayers] Player {playerId} AttackMonsterPool 갱신 중 예외: {e.Message}");
+                    }
                     player.SetFightingState(true);
 
-                    var opponent = AllPlayers.FirstOrDefault(p => p != null && p.playerId == opponentId);
-                    bool isAI = ComponentRegistry.Has<AIPlayerController>(player.playerId.ToString());
+                    var opponent = GetPlayer(opponentId);
+                    bool isAI = ComponentRegistry.Has<AIPlayerController>(playerId.ToString());
                     
                     if (player.monsterSpawner != null && opponent?.fieldManager != null)
                     {
                         // [공격자가 모든 몬스터 소환] 기본 웨이브 + 증강체 몬스터
                         player.monsterSpawner.SpawnAllMonstersToTargetField(currentRound, opponent.fieldManager, isAI).Forget();
-                        Debug.Log($"<color=orange>[StartBattle] Player {player.playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
+                        Debug.Log($"<color=orange>[StartBattle] Player {playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
                     }
                 }
                 else
@@ -1642,7 +1661,7 @@ public class GameManagers : NetworkBehaviour
                     }
                     
                     // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
-                    Debug.Log($"<color=blue>[StartBattle] Player {player.playerId}: 수비자 (상대: Player {opponentId})</color>");
+                    Debug.Log($"<color=blue>[StartBattle] Player {playerId}: 수비자 (상대: Player {opponentId})</color>");
                 }
             }
             else
@@ -1652,13 +1671,13 @@ public class GameManagers : NetworkBehaviour
                 {
                     // 수비 시퀀스: 기본 웨이브를 AI가 자동 소환 (증강 공격유닛 제외)
                     player.monsterSpawner.SpawnWaveWithoutAugments(currentRound);
-                    Debug.Log($"<color=gray>[StartBattle] Player {player.playerId}: 상대 없음, 수비 (기본 웨이브만)</color>");
+                    Debug.Log($"<color=gray>[StartBattle] Player {playerId}: 상대 없음, 수비 (기본 웨이브만)</color>");
                 }
                 else
                 {
                     // 공격 시퀀스: 관전 모드 (전투 참여 안 함)
                     player.SetFightingState(false);
-                    Debug.Log($"<color=gray>[StartBattle] Player {player.playerId}: 상대 없음, 공격 (관전 모드)</color>");
+                    Debug.Log($"<color=gray>[StartBattle] Player {playerId}: 상대 없음, 공격 (관전 모드)</color>");
                 }
             }
         }
@@ -1666,13 +1685,14 @@ public class GameManagers : NetworkBehaviour
         // 모든 클라이언트에 전투 시작 알림 (RPC)
         foreach (var player in AllPlayers)
         {
-            if (player == null || player.playerId < 0 || player.Object == null || !player.Object.IsValid) continue;
-            if (!battleReadyMap.TryGetValue(player.playerId, out bool playerReady) || !playerReady)
+            if (player == null || player.Object == null || !player.Object.IsValid) continue;
+            if (!TryGetPlayerIdSafe(player, out int playerId) || playerId < 0) continue;
+            if (!battleReadyMap.TryGetValue(playerId, out bool playerReady) || !playerReady)
             {
                 continue;
             }
 
-            int opponentId = _battleOpponents.TryGetValue(player.playerId, out int oppId) ? oppId : -1;
+            int opponentId = _battleOpponents.TryGetValue(playerId, out int oppId) ? oppId : -1;
             if (opponentId != -1)
             {
                 bool opponentReady = battleReadyMap.TryGetValue(opponentId, out bool value) && value;
@@ -1682,7 +1702,17 @@ public class GameManagers : NetworkBehaviour
                 }
             }
 
-            RPC_NotifyBattleStart(player.playerId, player.IsAttackerInCurrentBattle, opponentId);
+            bool isAttackerFlag = false;
+            try
+            {
+                isAttackerFlag = player.IsAttackerInCurrentBattle;
+            }
+            catch (System.InvalidOperationException)
+            {
+                // Spawned 이전 객체는 기본값(false)로 처리
+            }
+
+            RPC_NotifyBattleStart(playerId, isAttackerFlag, opponentId);
         }
     }
 

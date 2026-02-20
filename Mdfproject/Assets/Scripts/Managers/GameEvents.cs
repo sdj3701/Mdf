@@ -62,7 +62,27 @@ public static class GameEvents
     /// 공격 몬스터 풀이 변경되었을 때 (UI 갱신용)
     /// </summary>
     public static event Action<int, List<MonsterPoolEntry>> OnMonsterPoolChanged;
-    public static void TriggerMonsterPoolChanged(int playerID, List<MonsterPoolEntry> pool) => OnMonsterPoolChanged?.Invoke(playerID, pool);
+    public static void TriggerMonsterPoolChanged(int playerID, List<MonsterPoolEntry> pool)
+    {
+        var handlers = OnMonsterPoolChanged;
+        if (handlers == null)
+        {
+            return;
+        }
+
+        foreach (Action<int, List<MonsterPoolEntry>> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(playerID, pool);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[GameEvents] OnMonsterPoolChanged 핸들러 예외: {handler.Method.DeclaringType?.Name}.{handler.Method.Name}");
+                Debug.LogException(ex);
+            }
+        }
+    }
 
     /// <summary>
     /// 전투 시퀀스가 시작되었을 때 (isAttacking: true면 공격, false면 수비)
