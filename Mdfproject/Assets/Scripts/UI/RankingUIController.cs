@@ -20,6 +20,51 @@
      // 플레이어 상태 변경을 감지하기 위한 데이터 보관
      private List<int> lastPlayerHealths = new List<int>();
 
+     private static bool IsPlayerReadable(PlayerManager player)
+     {
+         return player != null
+             && player.Object != null
+             && player.Object.IsValid;
+     }
+
+     private static bool TryGetHealthSafe(PlayerManager player, out int health)
+     {
+         health = 0;
+         if (!IsPlayerReadable(player))
+         {
+             return false;
+         }
+
+         try
+         {
+             health = player.GetHealth();
+             return true;
+         }
+         catch (System.InvalidOperationException)
+         {
+             return false;
+         }
+     }
+
+     private static bool TryGetPlayerIdSafe(PlayerManager player, out int playerId)
+     {
+         playerId = int.MaxValue;
+         if (!IsPlayerReadable(player))
+         {
+             return false;
+         }
+
+         try
+         {
+             playerId = player.playerId;
+             return true;
+         }
+         catch (System.InvalidOperationException)
+         {
+             return false;
+         }
+     }
+
      void OnEnable()
      {
          GameManagers.OnPlayersDataReady += OnPlayersDataReady;
@@ -90,7 +135,7 @@
 
          for (int i = 0; i < allPlayers.Count; i++)
          {
-             if (allPlayers[i] != null && lastPlayerHealths[i] != allPlayers[i].GetHealth())
+             if (TryGetHealthSafe(allPlayers[i], out int health) && lastPlayerHealths[i] != health)
              {
                  // 플레이어 체력이 변경됨
                  UpdateLastPlayerHealths();
@@ -107,14 +152,7 @@
          lastPlayerHealths.Clear();
          for (int i = 0; i < allPlayers.Count; i++)
          {
-             if (allPlayers[i] != null)
-             {
-                 lastPlayerHealths.Add(allPlayers[i].GetHealth());
-             }
-             else
-             {
-                 lastPlayerHealths.Add(0); // null 플레이어는 0으로 처리
-             }
+             lastPlayerHealths.Add(TryGetHealthSafe(allPlayers[i], out int health) ? health : 0);
          }
      }
 
@@ -134,7 +172,7 @@
          
          // 유효한 플레이어만 필터링 (null이 아니고, playerId가 유효한 플레이어만)
          var validPlayers = allGamePlayers
-             .Where(p => p != null)
+             .Where(IsPlayerReadable)
              .ToList();
          
          Debug.Log($"GameManagers로부터 받은 플레이어 수: {allGamePlayers.Count}, 유효한 플레이어 수: {validPlayers.Count}");
@@ -230,8 +268,8 @@
      private void SortAndDisplayPlayers()
      {
          var sortedPlayers = allPlayers
-             .OrderByDescending(p => p != null ? p.GetHealth() : 0) // null 플레이어는 체력이 0으로 간주
-             .ThenBy(p => p != null ? p.playerId : int.MaxValue)
+             .OrderByDescending(p => TryGetHealthSafe(p, out int health) ? health : 0)
+             .ThenBy(p => TryGetPlayerIdSafe(p, out int playerId) ? playerId : int.MaxValue)
              .ToList();
 
          for (int i = 0; i < allSlots.Count; i++)
@@ -280,6 +318,6 @@
 
      private bool IsHostPlayer(PlayerManager player)
      {
-         return player != null && player.playerId == 0;
+         return TryGetPlayerIdSafe(player, out int playerId) && playerId == 0;
      }
  }

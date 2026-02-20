@@ -55,11 +55,45 @@ public class GameManagers : NetworkBehaviour
             if (NetworkPlayers.Length == 0) yield break;
             foreach (var playerNO in NetworkPlayers)
             {
-                if (playerNO != null && playerNO.TryGetComponent<PlayerManager>(out var playerManager))
+                if (playerNO == null || !playerNO.IsValid)
+                {
+                    continue;
+                }
+
+                if (playerNO.TryGetComponent<PlayerManager>(out var playerManager)
+                    && playerManager != null
+                    && playerManager.Object != null
+                    && playerManager.Object.IsValid)
                 {
                     yield return playerManager;
                 }
             }
+        }
+    }
+
+    private static bool IsPlayerReadable(PlayerManager player)
+    {
+        return player != null
+            && player.Object != null
+            && player.Object.IsValid;
+    }
+
+    private static bool TryGetPlayerIdSafe(PlayerManager player, out int playerId)
+    {
+        playerId = -1;
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            playerId = player.playerId;
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
         }
     }
     #endregion
@@ -809,7 +843,7 @@ public class GameManagers : NetworkBehaviour
     public void RPC_NotifyBattleStart(int playerId, bool isAttacker, int opponentId)
     {
         // 로컬 플레이어가 아니면 무시
-        if (localPlayer == null || localPlayer.playerId != playerId) return;
+        if (!TryGetPlayerIdSafe(localPlayer, out int localPlayerId) || localPlayerId != playerId) return;
 
         localPlayer.monsterSpawner?.EnsureRuntimeReferencesForMigration("RPC_NotifyBattleStart(local)");
         
@@ -1825,7 +1859,30 @@ public class GameManagers : NetworkBehaviour
         }
         return currentState;
     }
-    public PlayerManager GetPlayer(int id) => AllPlayers.FirstOrDefault(p => p.playerId == id);
+    public PlayerManager GetPlayer(int id)
+    {
+        foreach (var player in AllPlayers)
+        {
+            if (player == null || player.Object == null || !player.Object.IsValid)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (player.playerId == id)
+                {
+                    return player;
+                }
+            }
+            catch (System.InvalidOperationException)
+            {
+                // Host Migration 중 Spawned 전 객체는 건너뛴다.
+            }
+        }
+
+        return null;
+    }
 
     public void OnMonsterReachedGoal(PlayerManager failedPlayer)
     {
