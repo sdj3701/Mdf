@@ -35,7 +35,7 @@
     },
     "HostMigration": {
         "EnableAutoUpdate": true,
-        "UpdateDelay": 10
+        "UpdateDelay": 2
     },
     "EncryptionConfig": {
         "EnableEncryption": false

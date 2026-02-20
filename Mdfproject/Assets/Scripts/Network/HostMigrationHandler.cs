@@ -287,32 +287,47 @@ public class HostMigrationHandler : MonoBehaviour
             yield break;
         }
         
-        Debug.Log("[STEP 5] 복원 완료 - 이제 기존 Runner 비활성화");
+        Debug.Log("[STEP 5] 복원 완료 - 이제 기존 Runner 정리");
         
-        // 기존 Runner 정리 - 절대 파괴하지 않음!
-        // ★ 중요: NetworkRunner.OnDestroy()가 내부적으로 Shutdown()을 호출함
-        // Shutdown이 호출되면 Photon Cloud 연결이 끊어지므로 파괴하면 안 됨
+        // 기존 Runner 정리
+        // HostMigration 사유로 정상 Shutdown하여 old Runner 시뮬레이션을 확실히 종료한다.
+        // (NetworkManager가 붙은 GameObject를 보존하기 위해 destroyGameObject=false)
         if (runnerToCleanup != null && runnerToCleanup != newRunner)
         {
-            Debug.Log("[STEP 5] 기존 Runner 비활성화 (파괴 안 함!)...");
+            Debug.Log("[STEP 5] 기존 Runner Shutdown(HostMigration)...");
+            System.Threading.Tasks.Task shutdownTask = null;
             try
             {
                 // 콜백 제거
-                runnerToCleanup.RemoveCallbacks(NetworkManager.Instance);
-                
-                // ★ GameObject를 비활성화만! 절대 파괴하지 않음!
-                // 게임이 종료될 때 자연스럽게 정리됨
-                if (runnerToCleanup.gameObject != null)
+                if (NetworkManager.Instance != null)
                 {
-                    runnerToCleanup.gameObject.SetActive(false);
-                    runnerToCleanup.gameObject.name = "NetworkManager_OLD_DISABLED";
+                    runnerToCleanup.RemoveCallbacks(NetworkManager.Instance);
                 }
-                Debug.Log("[STEP 5] 기존 Runner 비활성화 완료");
+
+                // old Runner 종료 (NetworkManager GO는 유지)
+                shutdownTask = runnerToCleanup.Shutdown(false, ShutdownReason.HostMigration, false);
             }
             catch (Exception e)
             {
                 Debug.LogWarning($"[HostMigrationHandler] 기존 Runner 정리 중 예외 (무시됨): {e.Message}");
             }
+
+            while (shutdownTask != null && !shutdownTask.IsCompleted)
+            {
+                yield return null;
+            }
+
+            if (shutdownTask != null && shutdownTask.IsFaulted)
+            {
+                Debug.LogWarning($"[HostMigrationHandler] 기존 Runner Shutdown Task 실패: {shutdownTask.Exception?.GetBaseException().Message}");
+            }
+
+            if (runnerToCleanup != null)
+            {
+                runnerToCleanup.enabled = false;
+            }
+
+            Debug.Log("[STEP 5] 기존 Runner Shutdown 완료");
         }
         
         // 완료!

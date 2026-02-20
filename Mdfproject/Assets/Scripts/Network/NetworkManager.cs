@@ -409,12 +409,34 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // Runner가 종료되었을 때 호출됩니다. (연결 끊김, 스스로 나가기 등)
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
-        Debug.Log("OnShutdown: " + shutdownReason);
-        
-        // Host Migration 중에는 Runner를 파괴하지 않음
-        if (HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating)
+        string runnerName = runner != null ? runner.name : "null";
+        string activeRunnerName = _runner != null ? _runner.name : "null";
+        bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
+        Debug.Log($"OnShutdown: reason={shutdownReason}, runner={runnerName}, activeRunner={activeRunnerName}, isMigrating={isMigrating}");
+
+        // Host Migration 중에는 연결 상태를 유지한다.
+        if (isMigrating)
         {
-            Debug.Log("[NetworkManager] Host Migration 진행 중 - Runner 유지");
+            Debug.Log("[NetworkManager] Host Migration 진행 중 - OnShutdown 기본 처리 생략");
+            return;
+        }
+
+        // HostMigration 사유의 종료 콜백은 상태 리셋 대상으로 취급하지 않는다.
+        if (shutdownReason == ShutdownReason.HostMigration)
+        {
+            Debug.Log("[NetworkManager] HostMigration 종료 콜백 수신 - 연결 상태 유지");
+            if (runner != null && runner != _runner)
+            {
+                Destroy(runner);
+            }
+            return;
+        }
+
+        // 현재 활성 Runner가 아닌 경우(구 Runner 정리 콜백)는 무시한다.
+        if (runner != null && _runner != null && runner != _runner)
+        {
+            Debug.LogWarning("[NetworkManager] 활성 Runner가 아닌 OnShutdown 콜백 무시");
+            Destroy(runner);
             return;
         }
         
@@ -422,9 +444,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _sessionList.Clear(); // 방 목록 초기화
 
         // NetworkRunner 컴포넌트만 제거합니다. (gameObject 전체를 파괴하면 NetworkManager도 사라짐!)
-        if (runner != null)
+        if (_runner != null)
         {
-            Destroy(runner);
+            Destroy(_runner);
         }
         _runner = null; // 참조를 null로 설정하여 중복 생성을 방지합니다.
     }
