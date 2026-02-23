@@ -287,6 +287,9 @@ public class HostMigrationHandler : MonoBehaviour
             yield break;
         }
         
+        // New host must take over disconnected player slots with server-driven AI.
+        EnsureAIControllersAfterMigration(newRunner);
+        
         Debug.Log("[STEP 5] 복원 완료 - 이제 기존 Runner 정리");
         
         // 기존 Runner 정리
@@ -463,13 +466,30 @@ public class HostMigrationHandler : MonoBehaviour
             // 클로저 캡처 안전성 확보
             NetworkObject resumeSource = resumeNO;
             NetworkObject spawnedNO = null;
+            Vector3 resumePosition = resumeSource.transform.position;
+            Quaternion resumeRotation = resumeSource.transform.rotation;
+
+            // Fusion 권장 패턴: NetworkTRSP에서 네트워크 스냅샷 위치/회전을 직접 읽어 복원 정확도를 높인다.
+            var trsp = resumeSource.GetComponent<NetworkTRSP>();
+            if (trsp != null)
+            {
+                try
+                {
+                    resumePosition = trsp.Data.Position;
+                    resumeRotation = trsp.Data.Rotation;
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[HostMigrationHandler] TRSP pose read fallback ({resumeSource.name}): {e.Message}");
+                }
+            }
 
             try
             {
                 spawnedNO = runner.Spawn(
                     resumeSource,
-                    position: resumeSource.transform.position,
-                    rotation: resumeSource.transform.rotation,
+                    position: resumePosition,
+                    rotation: resumeRotation,
                     inputAuthority: resumeSource.InputAuthority,
                     onBeforeSpawned: (r, no) =>
                     {
@@ -513,6 +533,9 @@ public class HostMigrationHandler : MonoBehaviour
                 otherCount++;
             }
         }
+
+        // Scene NetworkObject는 Spawn 대상이 아니므로, 기존 scene object에 snapshot state를 복사한다.
+        RestoreSceneObjectsFromSnapshot(runner);
         
         Debug.Log($"<color=cyan>[HostMigrationHandler] 복원 요약:</color>");
         Debug.Log($"  - GameManagers: {gameManagerCount}");
@@ -943,6 +966,87 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Host Migration 직후, 입력 권한 소유자가 사라진 슬롯을 AI가 이어받도록 보정합니다.
+    /// </summary>
+    private void EnsureAIControllersAfterMigration(NetworkRunner runner)
+    {
+        if (runner == null || !runner.IsRunning || !runner.IsServer)
+        {
+            return;
+        }
+
+        var gm = ResolveGameManagersForRunner(runner);
+        if (gm == null)
+        {
+            Debug.LogWarning("[HostMigrationHandler] EnsureAIControllersAfterMigration skipped: GameManagers is null.");
+            return;
+        }
+
+        if (gm.CommandProcessor == null)
+        {
+            Debug.LogWarning("[HostMigrationHandler] EnsureAIControllersAfterMigration skipped: CommandProcessor is null.");
+            return;
+        }
+
+        var activePlayers = new HashSet<PlayerRef>(runner.ActivePlayers);
+        var players = UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
+            .Where(player => player != null && player.Runner == runner)
+            .Where(player => player.Object != null && player.Object.IsValid)
+            .Where(player => player.playerId >= 0)
+            .ToList();
+
+        int attached = 0;
+        int removed = 0;
+
+        foreach (var player in players)
+        {
+            var no = player.Object;
+            if (no == null || !no.IsValid)
+            {
+                continue;
+            }
+
+            bool hasInput = no.InputAuthority != PlayerRef.None;
+            bool inputOwnerDisconnected = hasInput && !activePlayers.Contains(no.InputAuthority);
+
+            if (inputOwnerDisconnected)
+            {
+                try
+                {
+                    no.AssignInputAuthority(PlayerRef.None);
+                    Debug.Log($"[HostMigrationHandler] Player {player.playerId} input owner left; AI takeover enabled.");
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[HostMigrationHandler] Failed to clear input authority for Player {player.playerId}: {e.Message}");
+                }
+            }
+
+            bool shouldRunAI = no.InputAuthority == PlayerRef.None;
+            var aiController = player.GetComponent<AIPlayerController>();
+
+            if (shouldRunAI)
+            {
+                if (aiController == null)
+                {
+                    aiController = player.gameObject.AddComponent<AIPlayerController>();
+                    aiController.Initialize(player, gm.CommandProcessor);
+                    attached++;
+                    Debug.Log($"[HostMigrationHandler] AI controller attached to Player {player.playerId}.");
+                }
+            }
+            else if (aiController != null)
+            {
+                UnityEngine.Object.Destroy(aiController);
+                removed++;
+                Debug.Log($"[HostMigrationHandler] AI controller removed from human Player {player.playerId}.");
+            }
+        }
+
+        Debug.Log($"[HostMigrationHandler] AI takeover pass complete. attached={attached}, removed={removed}, activePlayers={activePlayers.Count}");
     }
 
     /// <summary>

@@ -352,17 +352,30 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         bool spawnInvalid = spawnPoint == null || !IsTransformOwnedByCurrentRunner(spawnPoint);
         bool goalInvalid = goalTransform == null || !IsTransformOwnedByCurrentRunner(goalTransform);
-        if (fieldManager != null && gridRoot != null && (spawnInvalid || goalInvalid))
-        {
-            // Ensure spawn/goal references exist before FieldManager.Initialize() reads them.
-            SetupSpawnAndGoalPositions(gridRoot);
-        }
+        bool spawnParentMismatch = gridRoot != null && spawnPoint != null && spawnPoint.parent != gridRoot.transform;
+        bool goalParentMismatch = gridRoot != null && goalTransform != null && goalTransform.parent != gridRoot.transform;
 
         if (fieldManager != null && ground3D != null
             && (fieldManager.ground3D == null || fieldManager.ground3D != ground3D))
         {
             fieldManager.Initialize(this, ground3D);
             fieldReinitialized = true;
+        }
+
+        bool spawnGoalRefreshed = false;
+        bool requireSpawnGoalRefresh = spawnInvalid
+                                       || goalInvalid
+                                       || spawnParentMismatch
+                                       || goalParentMismatch
+                                       || fieldReinitialized
+                                       || gridRebound;
+        if (fieldManager != null
+            && fieldManager.ground3D != null
+            && gridRoot != null
+            && requireSpawnGoalRefresh)
+        {
+            SetupSpawnAndGoalPositions(gridRoot);
+            spawnGoalRefreshed = true;
         }
 
         if (astarGrid != null && fieldManager != null)
@@ -381,8 +394,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (monsterSpawner != null)
         {
-            // monsterParent가 비어 있으면 최소 한 번은 Initialize를 수행해 부모를 생성합니다.
-            if (monsterSpawner.monsterParent == null && astarGrid != null && spawnPoint != null && goalTransform != null)
+            bool shouldReinitializeSpawner = monsterSpawner.monsterParent == null
+                                             || fieldReinitialized
+                                             || gridRebound
+                                             || spawnGoalRefreshed;
+            if (shouldReinitializeSpawner && astarGrid != null && spawnPoint != null && goalTransform != null)
             {
                 var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
                 monsterSpawner.Initialize(this, astarGrid, waveDatabase, spawnPoint, goalTransform);
@@ -483,6 +499,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
+        bool hasExpectedAnchor = TryGetExpectedFieldAnchor(out var expectedAnchor);
+        if (verboseFailure && hasExpectedAnchor)
+        {
+            Debug.Log($"[PlayerManager] Grid resolve anchor ({context}) player={playerId}, expected={expectedAnchor}");
+        }
+
         AstarGrid bestGrid = null;
         NetworkObject bestGridNO = null;
         float bestScore = float.MinValue;
@@ -513,6 +535,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 if (Object != null && Object.InputAuthority != PlayerRef.None && no.InputAuthority == Object.InputAuthority)
                 {
                     score += 500f;
+                }
+
+                // Host migration 이후에도 playerId 슬롯 기준으로 같은 필드를 재결선한다.
+                if (hasExpectedAnchor)
+                {
+                    float slotDistance = (no.transform.position - expectedAnchor).sqrMagnitude;
+                    score += Mathf.Clamp(1500f - (slotDistance * 120f), 0f, 1500f);
                 }
 
                 float sqrDistance = (no.transform.position - transform.position).sqrMagnitude;
@@ -565,6 +594,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 }
 
                 Vector3 anchorPos = no != null ? no.transform.position : grid.transform.position;
+
+                if (hasExpectedAnchor)
+                {
+                    float slotDistance = (anchorPos - expectedAnchor).sqrMagnitude;
+                    score += Mathf.Clamp(1500f - (slotDistance * 120f), 0f, 1500f);
+                }
+
                 float sqrDistance = (anchorPos - transform.position).sqrMagnitude;
                 score += Mathf.Clamp(100f - (sqrDistance * 5f), 0f, 100f);
 
@@ -595,6 +631,25 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             Debug.Log($"[PlayerManager] AstarGrid 재결선 성공 ({context}) player={playerId}, grid={bestGrid.name}, root={resolvedGridRoot?.name ?? "null"}");
         }
 
+        return true;
+    }
+
+    private bool TryGetExpectedFieldAnchor(out Vector3 expectedPosition)
+    {
+        expectedPosition = Vector3.zero;
+
+        if (playerId < 0)
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            return false;
+        }
+
+        expectedPosition = gm.player1BasePosition + gm.playerOffset * playerId;
         return true;
     }
 
@@ -1307,6 +1362,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// </summary>
     private void SetupSpawnAndGoalPositions(GameObject gridInstance)
     {
+        if (gridInstance == null)
+        {
+            Debug.LogWarning($"[Player {playerId}]: SetupSpawnAndGoalPositions skipped - gridInstance is null.");
+            return;
+        }
+
         // FieldManager에서 gridSize와 gridOrigin을 가져옴
         Vector2Int gridSize = fieldManager != null ? fieldManager.gridSize : new Vector2Int(10, 9);
         Vector3 gridOrigin = fieldManager != null ? fieldManager.gridOrigin : Vector3.zero;
@@ -1332,9 +1393,21 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // 기존 SpawnPoint/Goal 오브젝트를 찾아보고, 없으면 새로 생성
         Transform existingSpawn = gridInstance.transform.Find("SpawnPoint");
         Transform existingGoal = gridInstance.transform.Find("Goal");
+        if (existingSpawn == null)
+        {
+            existingSpawn = FindChildByNameRecursive(gridInstance.transform, "SpawnPoint");
+        }
+        if (existingGoal == null)
+        {
+            existingGoal = FindChildByNameRecursive(gridInstance.transform, "Goal");
+        }
 
         if (existingSpawn != null)
         {
+            if (existingSpawn.parent != gridInstance.transform)
+            {
+                existingSpawn.SetParent(gridInstance.transform, true);
+            }
             existingSpawn.position = spawnWorldPos;
             this.spawnPoint = existingSpawn;
         }
@@ -1348,6 +1421,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (existingGoal != null)
         {
+            if (existingGoal.parent != gridInstance.transform)
+            {
+                existingGoal.SetParent(gridInstance.transform, true);
+            }
             existingGoal.position = goalWorldPos;
             this.goalTransform = existingGoal;
         }
@@ -1361,6 +1438,17 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         Debug.Log($"[Player {playerId}]: 스폰 위치 설정 -> 그리드({spawnGridPos.x}, {spawnGridPos.y}), 월드{spawnWorldPos} (남쪽 고정, AI용)");
         Debug.Log($"[Player {playerId}]: 골 위치 설정 -> 그리드({centerX}, {centerY}), 월드{goalWorldPos}");
+    }
+
+    private static Transform FindChildByNameRecursive(Transform root, string childName)
+    {
+        if (root == null || string.IsNullOrEmpty(childName))
+        {
+            return null;
+        }
+
+        return root.GetComponentsInChildren<Transform>(true)
+            .FirstOrDefault(t => t != null && t.name == childName);
     }
 
     #endregion
