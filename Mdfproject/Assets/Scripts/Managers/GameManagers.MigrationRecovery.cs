@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Fusion;
 using UnityEngine;
@@ -97,9 +98,8 @@ public partial class GameManagers
     public void RestoreAfterHostMigration()
     {
         _activeMigrationTraceId = ++_hostMigrationTraceSeq;
-        _migrationRestoreInProgress = true;
-        _migrationUiRestoreCompleted = false;
-        _migrationSetupUiCompleted = false;
+        ResetMigrationCancellationToken();
+        SetMigrationRestoreStage(MigrationRestoreStage.Preparing, "RestoreAfterHostMigration.Begin");
         _migrationWarnedPrepareExpiryRace = false;
         _migrationRestoreStartedRealtime = Time.realtimeSinceStartup;
         _migrationRestoreStartFrame = Time.frameCount;
@@ -125,7 +125,7 @@ public partial class GameManagers
         {
             Debug.LogWarning("<color=red>[GameManagers] 아직 Spawned 상태가 아닙니다. 복원을 건너뜁니다.</color>");
             LogMigrationTrace("RestoreAfterHostMigration:ABORT_NOT_READY");
-            _migrationRestoreInProgress = false;
+            SetMigrationRestoreStage(MigrationRestoreStage.Failed, "RestoreAfterHostMigration.NotReady");
             return;
         }
 
@@ -133,7 +133,7 @@ public partial class GameManagers
         {
             Debug.LogError("<color=red>[GameManagers] 활성 Runner와 불일치하여 복원을 중단합니다.</color>");
             LogMigrationTrace("RestoreAfterHostMigration:ABORT_RUNNER_MISMATCH");
-            _migrationRestoreInProgress = false;
+            SetMigrationRestoreStage(MigrationRestoreStage.Failed, "RestoreAfterHostMigration.RunnerMismatch");
             return;
         }
 
@@ -141,7 +141,7 @@ public partial class GameManagers
         {
             Debug.LogError("<color=red>[GameManagers] 새 Host인데 StateAuthority가 없어 복원을 중단합니다.</color>");
             LogMigrationTrace("RestoreAfterHostMigration:ABORT_NO_STATE_AUTH");
-            _migrationRestoreInProgress = false;
+            SetMigrationRestoreStage(MigrationRestoreStage.Failed, "RestoreAfterHostMigration.NoStateAuthority");
             return;
         }
         
@@ -176,7 +176,8 @@ public partial class GameManagers
         // 4. UI 상태 복원
         Debug.Log("[복원] 4. UI 상태 복원...");
         LogMigrationTrace("RestoreAfterHostMigration:KickRestoreLocalUI");
-        RestoreLocalUIAfterMigrationAsync().Forget();
+        SetMigrationRestoreStage(MigrationRestoreStage.UiRestoreRunning, "RestoreAfterHostMigration.KickRestoreUI");
+        RunMigrationTask(RestoreLocalUIAfterMigrationAsync(), "RestoreAfterHostMigration/RestoreLocalUIAfterMigrationAsync");
         
         // 5. 싱글톤 인스턴스 재설정
         Debug.Log("[복원] 5. 싱글톤 인스턴스 체크...");
@@ -275,15 +276,22 @@ public partial class GameManagers
 
         while (waitTime < maxWaitTime)
         {
+            if (_migrationCts != null && _migrationCts.IsCancellationRequested)
+            {
+                LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:CANCELED");
+                yield break;
+            }
+
             bool hasAuthority = Object != null && Object.HasStateAuthority;
             bool runnerMatched = IsBoundToActiveRunner();
-            bool uiReady = _migrationUiRestoreCompleted;
+            bool uiReady = IsMigrationUiRestoreCompleted;
             bool playersReady = AreAllPlayersRuntimeReadyForMigration(out string notReadyReason);
 
             if (hasAuthority && runnerMatched && uiReady && playersReady)
             {
                 Debug.Log($"<color=green>[STEP 6] 재개 조건 충족 ({waitTime:F1}s): authority={hasAuthority}, runnerMatched={runnerMatched}, uiReady={uiReady}, playersReady={playersReady}</color>");
                 LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:READY", $"waited={waitTime:F1}s");
+                SetMigrationRestoreStage(MigrationRestoreStage.WaitingForFlowResume, "WaitForRestoreDependenciesAndResumeFlow.Ready");
                 ResumeGameFlowFromCurrentState();
                 yield break;
             }
@@ -310,7 +318,12 @@ public partial class GameManagers
 
         if (Object != null && Object.HasStateAuthority && IsBoundToActiveRunner())
         {
+            SetMigrationRestoreStage(MigrationRestoreStage.WaitingForFlowResume, "WaitForRestoreDependenciesAndResumeFlow.TimeoutFallback");
             ResumeGameFlowFromCurrentState();
+        }
+        else
+        {
+            SetMigrationRestoreStage(MigrationRestoreStage.Failed, "WaitForRestoreDependenciesAndResumeFlow.TimeoutNoGate");
         }
     }
 
@@ -391,6 +404,7 @@ public partial class GameManagers
         {
             Debug.Log($"<color=green>[STEP 6] ✓ 기존 타이머 유지 ({remainingTime:F1}초 남음) - 게임 재개!</color>");
             LogMigrationTrace("ResumeGameFlowFromCurrentState:KEEP_TIMER");
+            SetMigrationRestoreStage(MigrationRestoreStage.FlowResumed, "ResumeGameFlowFromCurrentState.KeepTimer");
             return;
         }
         
@@ -409,11 +423,13 @@ public partial class GameManagers
             Debug.Log($"<color=cyan>[STEP 6] ✓ 타이머 재설정: {newDuration}초 - 게임 재개!</color>");
             Debug.Log($"<color=cyan>[STEP 6] 현재 상태 ({currentState})에서 계속 진행됩니다.</color>");
             LogMigrationTrace("ResumeGameFlowFromCurrentState:RESET_TIMER", $"newDuration={newDuration:F1}");
+            SetMigrationRestoreStage(MigrationRestoreStage.FlowResumed, "ResumeGameFlowFromCurrentState.ResetTimer");
         }
         else
         {
             Debug.Log($"[STEP 6] {currentState} 상태는 타이머가 필요 없음");
             LogMigrationTrace("ResumeGameFlowFromCurrentState:NO_TIMER");
+            SetMigrationRestoreStage(MigrationRestoreStage.FlowResumed, "ResumeGameFlowFromCurrentState.NoTimer");
         }
     }
     
@@ -468,6 +484,10 @@ public partial class GameManagers
             completed = true;
             LogMigrationTrace("RestoreLocalUI:END_SHOP_FALLBACK");
         }
+        catch (System.OperationCanceledException)
+        {
+            LogMigrationTrace("RestoreLocalUI:CANCELED");
+        }
         catch (System.Exception ex)
         {
             Debug.LogError($"[복원/UI] RestoreLocalUIAfterMigrationAsync 예외: {ex.Message}");
@@ -476,8 +496,19 @@ public partial class GameManagers
         }
         finally
         {
-            _migrationUiRestoreCompleted = completed;
-            _migrationRestoreInProgress = false;
+            if (completed)
+            {
+                // flow 재개 전에 UI 복원이 먼저 끝났다면 UiRestored로 유지하고, 이미 재개된 경우 FlowResumed를 유지한다.
+                if (_migrationRestoreStage != MigrationRestoreStage.FlowResumed)
+                {
+                    SetMigrationRestoreStage(MigrationRestoreStage.UiRestored, "RestoreLocalUIAfterMigrationAsync.Completed");
+                }
+            }
+            else if (_migrationRestoreStage != MigrationRestoreStage.FlowResumed)
+            {
+                SetMigrationRestoreStage(MigrationRestoreStage.Failed, "RestoreLocalUIAfterMigrationAsync.Incomplete");
+            }
+
             LogMigrationTrace("RestoreLocalUI:FINALLY", $"completed={completed}");
         }
     }

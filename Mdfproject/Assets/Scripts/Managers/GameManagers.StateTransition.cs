@@ -8,8 +8,7 @@ public partial class GameManagers
     /// </summary>
     /// <param name="nextState">전이할 상태</param>
     /// <param name="reason">전이 이유(로그)</param>
-    /// <param name="raiseStateChangedEvent">상태 변경 이벤트 발행 여부</param>
-    private void TransitionToState(GameState nextState, string reason, bool raiseStateChangedEvent = false)
+    private void TransitionToState(GameState nextState, string reason)
     {
         var prevState = currentState;
         bool changed = prevState != nextState;
@@ -20,10 +19,6 @@ public partial class GameManagers
             // Debug.Log($"[GameManagers] State Transition: {prevState} -> {nextState} ({reason})");
         }
 
-        if (raiseStateChangedEvent)
-        {
-            GameEvents.TriggerGameStateChanged(nextState);
-        }
     }
 
     private void TransitionToSetupState(string reason)
@@ -31,9 +26,9 @@ public partial class GameManagers
         TransitionToState(GameState.Setup, reason);
     }
 
-    private void TransitionToPrepareState(string reason, bool raiseStateChangedEvent = true)
+    private void TransitionToPrepareState(string reason)
     {
-        TransitionToState(GameState.Prepare, reason, raiseStateChangedEvent);
+        TransitionToState(GameState.Prepare, reason);
     }
 
     private void TransitionToBattle1State(string reason)

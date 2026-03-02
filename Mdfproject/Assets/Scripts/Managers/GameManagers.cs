@@ -5,6 +5,7 @@ using System.Linq;
 using UnityEngine.UI;
 using Cysharp.Threading.Tasks;
 using Fusion;
+using System.Threading;
 using System.Threading.Tasks;
 
 // MonoBehaviour 대신 NetworkBehaviour를 상속받아 네트워크 객체로 만듭니다.
@@ -109,21 +110,41 @@ public partial class GameManagers : NetworkBehaviour
     private bool _hasCompletedGameUISetup;
     private static int _hostMigrationTraceSeq;
     private int _activeMigrationTraceId = -1;
-    private bool _migrationRestoreInProgress;
-    private bool _migrationUiRestoreCompleted;
-    private bool _migrationSetupUiCompleted;
+    private enum MigrationRestoreStage
+    {
+        None,
+        Preparing,
+        UiRestoreRunning,
+        UiRestored,
+        WaitingForFlowResume,
+        FlowResumed,
+        Failed
+    }
+    private MigrationRestoreStage _migrationRestoreStage = MigrationRestoreStage.None;
     private bool _migrationWarnedPrepareExpiryRace;
     private float _migrationRestoreStartedRealtime;
     private int _migrationRestoreStartFrame = -1;
     private bool _migrationTimerPaused;
     private float _migrationPausedTimerRemainingSeconds;
     private bool _isSpawned;
+    private CancellationTokenSource _lifecycleCts;
+    private CancellationTokenSource _migrationCts;
     
     /// <summary>
     /// Host Migration 중 또는 Spawned 전에는 Networked 속성에 접근할 수 없습니다.
     /// 이 프로퍼티로 안전하게 체크해서 접근하세요.
     /// </summary>
     public bool IsReadyForNetworkAccess => Object != null && Object.IsValid && _isSpawned;
+
+    private bool IsMigrationRestoreInProgress =>
+        _migrationRestoreStage != MigrationRestoreStage.None &&
+        _migrationRestoreStage != MigrationRestoreStage.FlowResumed &&
+        _migrationRestoreStage != MigrationRestoreStage.Failed;
+
+    private bool IsMigrationUiRestoreCompleted =>
+        _migrationRestoreStage == MigrationRestoreStage.UiRestored ||
+        _migrationRestoreStage == MigrationRestoreStage.WaitingForFlowResume ||
+        _migrationRestoreStage == MigrationRestoreStage.FlowResumed;
 
     private bool hasCombatBeenShortened = false;
     private bool firstPrepareDurationUsed = false;
@@ -164,6 +185,8 @@ public partial class GameManagers : NetworkBehaviour
     /// </summary>
     public override void Spawned()
     {
+        EnsureLifecycleCancellationToken();
+
         bool isHostMigration = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
         Debug.Log($"<color=cyan>[GameManagers.Spawned] ENTER this={BuildDebugSummary(this)} | static={BuildDebugSummary(Instance)} | isHostMigration={isHostMigration}</color>");
 
@@ -222,7 +245,7 @@ public partial class GameManagers : NetworkBehaviour
             if (LoadManager.Instance != null && !LoadManager.Instance.IsReady)
             {
                 Debug.LogWarning("[GameManagers] Host Migration 복원 경로에서 LoadManager가 미준비 상태라 초기화를 재시도합니다.");
-                LoadManager.Instance.InitializeAsync().Forget();
+                RunLifecycleTask(LoadManager.Instance.InitializeAsync(), "Spawned/LoadManager.InitializeAsync");
             }
             _isSpawned = true;
             GameEvents.TriggerGameManagersReady();
@@ -230,7 +253,7 @@ public partial class GameManagers : NetworkBehaviour
         }
 
         // 일반 시작 경로
-        InitializeAndStartGame().Forget();
+        RunLifecycleTask(InitializeAndStartGame(), "Spawned/InitializeAndStartGame");
     }
 
     private void OnDestroy()
@@ -243,6 +266,99 @@ public partial class GameManagers : NetworkBehaviour
         {
             Instance = null;
             // Debug.LogWarning("[GameManagers.OnDestroy] static Instance를 null로 정리");
+        }
+
+        CancelAndDisposeToken(ref _migrationCts);
+        CancelAndDisposeToken(ref _lifecycleCts);
+    }
+
+    private void EnsureLifecycleCancellationToken()
+    {
+        if (_lifecycleCts == null || _lifecycleCts.IsCancellationRequested)
+        {
+            CancelAndDisposeToken(ref _lifecycleCts);
+            _lifecycleCts = new CancellationTokenSource();
+        }
+    }
+
+    private CancellationToken GetLifecycleCancellationToken()
+    {
+        EnsureLifecycleCancellationToken();
+        return _lifecycleCts.Token;
+    }
+
+    private void ResetMigrationCancellationToken()
+    {
+        CancelAndDisposeToken(ref _migrationCts);
+        _migrationCts = new CancellationTokenSource();
+    }
+
+    private CancellationToken GetMigrationCancellationToken()
+    {
+        if (_migrationCts == null || _migrationCts.IsCancellationRequested)
+        {
+            ResetMigrationCancellationToken();
+        }
+
+        return _migrationCts.Token;
+    }
+
+    private static void CancelAndDisposeToken(ref CancellationTokenSource cts)
+    {
+        if (cts == null)
+        {
+            return;
+        }
+
+        try
+        {
+            cts.Cancel();
+        }
+        catch
+        {
+            // 이미 취소/해제된 경우 무시
+        }
+        finally
+        {
+            cts.Dispose();
+            cts = null;
+        }
+    }
+
+    private void RunLifecycleTask(UniTask task, string context)
+    {
+        task.AttachExternalCancellation(GetLifecycleCancellationToken()).Forget(ex => HandleTaskException(ex, context));
+    }
+
+    private void RunMigrationTask(UniTask task, string context)
+    {
+        task.AttachExternalCancellation(GetMigrationCancellationToken()).Forget(ex => HandleTaskException(ex, context));
+    }
+
+    private static void HandleTaskException(System.Exception ex, string context)
+    {
+        if (ex is System.OperationCanceledException)
+        {
+            return;
+        }
+
+        Debug.LogError($"[GameManagers/Async] {context} 실패: {ex.Message}");
+    }
+
+    private void SetMigrationRestoreStage(MigrationRestoreStage nextStage, string reason = null)
+    {
+        if (_migrationRestoreStage == nextStage)
+        {
+            return;
+        }
+
+        var prevStage = _migrationRestoreStage;
+        _migrationRestoreStage = nextStage;
+        LogMigrationTrace("MigrationStage", $"from={prevStage}, to={nextStage}, reason={reason ?? "n/a"}");
+
+        if (nextStage == MigrationRestoreStage.FlowResumed || nextStage == MigrationRestoreStage.Failed)
+        {
+            CancelAndDisposeToken(ref _migrationCts);
         }
     }
 
@@ -323,7 +439,7 @@ public partial class GameManagers : NetworkBehaviour
         Debug.Log(
             $"[HM-TRACE #{_activeMigrationTraceId}] {step} | frame={Time.frameCount} elapsed={(elapsed >= 0f ? elapsed.ToString("F2") : "N/A")}s " +
             $"| state={currentState} round={currentRound} timerRunning={timerRunning} timerExpired={timerExpired} remain={remaining:F1} " +
-            $"| restoreInProgress={_migrationRestoreInProgress} setupUI={_migrationSetupUiCompleted} uiDone={_migrationUiRestoreCompleted} " +
+            $"| migrationStage={_migrationRestoreStage} restoreInProgress={IsMigrationRestoreInProgress} setupUI={_hasCompletedGameUISetup} uiDone={IsMigrationUiRestoreCompleted} " +
             $"| {BuildMigrationPlayerSnapshot()}" +
             $"{(string.IsNullOrEmpty(extra) ? string.Empty : $" | {extra}")}");
     }
@@ -422,7 +538,7 @@ public partial class GameManagers : NetworkBehaviour
         
         if (!hasAuth) return;
 
-        if (_migrationRestoreInProgress && currentState == GameState.Prepare && phaseTimer.IsRunning && !_migrationUiRestoreCompleted)
+        if (IsMigrationRestoreInProgress && currentState == GameState.Prepare && phaseTimer.IsRunning && !IsMigrationUiRestoreCompleted)
         {
             float remain = phaseTimer.RemainingTime(Runner) ?? 0f;
             if (remain <= 2f && !_migrationWarnedPrepareExpiryRace)
@@ -435,7 +551,7 @@ public partial class GameManagers : NetworkBehaviour
 
         if (phaseTimer.Expired(Runner))
         {
-            if (_migrationRestoreInProgress && !_migrationUiRestoreCompleted && currentState == GameState.Prepare)
+            if (IsMigrationRestoreInProgress && !IsMigrationUiRestoreCompleted && currentState == GameState.Prepare)
             {
                 Debug.LogError($"[HM-TRACE #{_activeMigrationTraceId}] Prepare 타이머 만료 시점에도 UI 복원이 완료되지 않았습니다.");
                 LogMigrationTrace("FixedUpdateNetwork:PrepareExpiredBeforeUI");
@@ -455,7 +571,7 @@ public partial class GameManagers : NetworkBehaviour
                     if (!isTransitioningRound)
                     {
                         isTransitioningRound = true;
-                        StartNextRound().Forget();
+                        RunLifecycleTask(StartNextRound(), "FixedUpdateNetwork/StartNextRound");
                     }
                     break;
             }
@@ -931,11 +1047,13 @@ public partial class GameManagers : NetworkBehaviour
                 // 카메라를 상대 필드로 이동 (공격 모드)
                 if (CameraManager.Instance != null)
                 {
-                    CameraManager.Instance.MoveToPlayerField(opponent, isAttackMode: true).Forget();
+                    RunLifecycleTask(
+                        CameraManager.Instance.MoveToPlayerField(opponent, isAttackMode: true),
+                        "RPC_NotifyBattleStart/MoveToPlayerField");
                 }
                 
                 // 공격 시퀀스 UI 표시 (재초기화 후 표시)
-                ShowAttackSequenceUIAsync(attackSeqMgr).Forget();
+                RunLifecycleTask(ShowAttackSequenceUIAsync(attackSeqMgr), "RPC_NotifyBattleStart/ShowAttackSequenceUI");
                 
                 // Debug.Log($"<color=green>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 공격자 (상대: Player {opponentId}, 라운드: {currentRound})</color>");
             }
@@ -1010,7 +1128,9 @@ public partial class GameManagers : NetworkBehaviour
         }
         
         // 서버에서 몬스터 소환
-        SpawnMonsterOnServerAsync(attacker, defender, targetEntry, spawnPosition).Forget();
+        RunLifecycleTask(
+            SpawnMonsterOnServerAsync(attacker, defender, targetEntry, spawnPosition),
+            "RPC_RequestSpawnMonster/SpawnMonsterOnServerAsync");
     }
     
     private async UniTask SpawnMonsterOnServerAsync(PlayerManager attacker, PlayerManager defender, MonsterPoolEntry entry, Vector3 spawnPosition)
@@ -1119,7 +1239,7 @@ public partial class GameManagers : NetworkBehaviour
             currentRound = 1;
         }
 
-        TransitionToPrepareState("StartNextRound", raiseStateChangedEvent: true);
+        TransitionToPrepareState("StartNextRound");
 
         foreach (var player in AllPlayers)
         {
@@ -1250,7 +1370,6 @@ public partial class GameManagers : NetworkBehaviour
         _hasBerserkTriggered = false;
         _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f); // 1초 딜레이
 
-        HandleUIForNewState(currentState).Forget();
 
         // 생존 보스 타겟 할당
         if (SurvivorBossManager.Instance != null)
@@ -1290,7 +1409,6 @@ public partial class GameManagers : NetworkBehaviour
         _hasBerserkTriggeredBattle2 = false;
         _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f); // 1초 딜레이
 
-        HandleUIForNewState(currentState).Forget();
 
         // Battle2: 공수 역할 교체 (후공자가 공격, 선공자가 수비)
         StartBattleForPlayers(isFirstBattle: false);
@@ -1456,7 +1574,9 @@ public partial class GameManagers : NetworkBehaviour
                     if (player.monsterSpawner != null && opponent?.fieldManager != null)
                     {
                         // [공격자가 모든 몬스터 소환] 기본 웨이브 + 증강체 몬스터
-                        player.monsterSpawner.SpawnAllMonstersToTargetField(currentRound, opponent.fieldManager, isAI).Forget();
+                        RunLifecycleTask(
+                            player.monsterSpawner.SpawnAllMonstersToTargetField(currentRound, opponent.fieldManager, isAI),
+                            "StartBattleForPlayers/SpawnAllMonstersToTargetField");
                         // Debug.Log($"<color=orange>[StartBattle] Player {playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
                     }
                 }
@@ -1468,7 +1588,9 @@ public partial class GameManagers : NetworkBehaviour
                     // 생존 보스 소환 (이전 라운드에서 살아남은 보스가 이 플레이어에게 침공)
                     if (player.monsterSpawner != null)
                     {
-                        player.monsterSpawner.SpawnSurvivorBossesAsync().Forget();
+                        RunLifecycleTask(
+                            player.monsterSpawner.SpawnSurvivorBossesAsync(),
+                            "StartBattleForPlayers/SpawnSurvivorBossesAsync");
                     }
                     
                     // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
@@ -1629,7 +1751,7 @@ public partial class GameManagers : NetworkBehaviour
             PlayerManager winner = alivePlayers.FirstOrDefault();
             
             // 안전한 씬 전환을 위해 비동기로 처리 (UI 표시 후 딜레이)
-            SafeSceneTransitionAsync().Forget();
+            RunLifecycleTask(SafeSceneTransitionAsync(), "GameOver/SafeSceneTransitionAsync");
         }
     }
     

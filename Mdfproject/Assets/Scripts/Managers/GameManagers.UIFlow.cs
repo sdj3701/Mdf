@@ -31,7 +31,7 @@ public partial class GameManagers
         // UI 업데이트 및 이벤트 발송은 UniTask의 'Fire-and-Forget' 패턴으로 처리
         // Render()는 async/await을 할 수 없습니다.
         GameEvents.TriggerGameStateChanged(newState);
-        HandleUIForNewState(newState).Forget();
+        RunLifecycleTask(HandleUIForNewState(newState), "HandleNetworkStateChange/HandleUIForNewState");
     }
 
     /// <summary>
@@ -229,7 +229,7 @@ public partial class GameManagers
 
                     // Host Migration 복원 중 Prepare 단계에서 상점이 비어 있으면
                     // 새 Host가 즉시 무료 리롤 + 동기화하여 클라이언트 대기 타임아웃을 방지한다.
-                    if (_migrationRestoreInProgress &&
+                    if (IsMigrationRestoreInProgress &&
                         currentState == GameState.Prepare &&
                         Object != null &&
                         Object.HasStateAuthority &&
@@ -269,7 +269,6 @@ public partial class GameManagers
             }
 
             _hasCompletedGameUISetup = localPlayerShopUI != null && augmentSelectionUI != null;
-            _migrationSetupUiCompleted = _hasCompletedGameUISetup;
             // Debug.Log("<color=green>[SetupGameUI] 모든 플레이어의 상점/증강 데이터 로딩 완료</color>");
             LogMigrationTrace("SetupGameUI:SUCCESS", $"hasCompleted={_hasCompletedGameUISetup}");
         }

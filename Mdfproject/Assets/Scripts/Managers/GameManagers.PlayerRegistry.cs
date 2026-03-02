@@ -182,6 +182,18 @@ public partial class GameManagers
             return;
         }
 
+        int staleCleared = 0;
+        for (int i = 0; i < NetworkPlayers.Length; i++)
+        {
+            var stale = NetworkPlayers[i];
+            if (stale != null && stale.IsValid)
+            {
+                staleCleared++;
+            }
+
+            NetworkPlayers.Set(i, null);
+        }
+
         var runnerPlayers = FindObjectsOfType<PlayerManager>(true)
             .Where(player => player != null)
             .Where(player => player.Runner == Runner)
@@ -195,12 +207,14 @@ public partial class GameManagers
 
         if (runnerPlayers.Count == 0)
         {
-            Debug.LogWarning($"[복원] NetworkPlayers 재구성 스킵 ({context}) - runnerPlayers=0");
+            Debug.LogWarning($"[복원] NetworkPlayers 재구성 스킵 ({context}) - runnerPlayers=0, staleCleared={staleCleared}");
             return;
         }
 
         int assigned = 0;
         int outOfRange = 0;
+        var usedSlots = new HashSet<int>();
+
         foreach (var player in runnerPlayers)
         {
             if (player == null || player.Object == null || !player.Object.IsValid)
@@ -211,17 +225,20 @@ public partial class GameManagers
             int preferredSlot = player.playerId;
             int slot = -1;
 
-            if (preferredSlot >= 0 && preferredSlot < NetworkPlayers.Length)
+            if (preferredSlot >= 0 && preferredSlot < NetworkPlayers.Length && !usedSlots.Contains(preferredSlot))
             {
                 slot = preferredSlot;
             }
             else
             {
-                outOfRange++;
+                if (preferredSlot < 0 || preferredSlot >= NetworkPlayers.Length)
+                {
+                    outOfRange++;
+                }
+
                 for (int i = 0; i < NetworkPlayers.Length; i++)
                 {
-                    var existing = NetworkPlayers[i];
-                    if (existing == null || !existing.IsValid)
+                    if (!usedSlots.Contains(i))
                     {
                         slot = i;
                         break;
@@ -234,15 +251,125 @@ public partial class GameManagers
                 continue;
             }
 
-            var current = NetworkPlayers[slot];
-            if (current != player.Object)
-            {
-                NetworkPlayers.Set(slot, player.Object);
-            }
+            NetworkPlayers.Set(slot, player.Object);
+            usedSlots.Add(slot);
             assigned++;
         }
 
-        Debug.Log($"[복원] NetworkPlayers 재구성 완료 ({context}) assigned={assigned}, outOfRange={outOfRange}, capacity={NetworkPlayers.Length}");
+        int expected = runnerPlayers.Count;
+        int dropped = expected - assigned;
+        if (assigned != expected)
+        {
+            Debug.LogError($"[복원] NetworkPlayers 재구성 무결성 실패 ({context}) assigned={assigned}, expected={expected}, dropped={dropped}, outOfRange={outOfRange}, staleCleared={staleCleared}, capacity={NetworkPlayers.Length}");
+            return;
+        }
+
+        Debug.Log($"[복원] NetworkPlayers 재구성 완료 ({context}) assigned={assigned}, expected={expected}, outOfRange={outOfRange}, staleCleared={staleCleared}, capacity={NetworkPlayers.Length}");
+    }
+
+    public void CaptureBattleSnapshotForMigration(out string battleOpponentsSnapshot, out string matchFirstAttackerSnapshot, out int firstAttackerPlayerId)
+    {
+        battleOpponentsSnapshot = SerializeIntMap(_battleOpponents);
+        matchFirstAttackerSnapshot = SerializeIntMap(_matchFirstAttacker);
+        firstAttackerPlayerId = FirstAttackerPlayerId;
+    }
+
+    public bool TryRestoreBattleSnapshotForMigration(
+        string battleOpponentsSnapshot,
+        string matchFirstAttackerSnapshot,
+        int firstAttackerPlayerId,
+        string context)
+    {
+        var restoredOpponents = DeserializeIntMap(battleOpponentsSnapshot);
+        if (restoredOpponents.Count == 0)
+        {
+            return false;
+        }
+
+        var restoredFirstAttackers = DeserializeIntMap(matchFirstAttackerSnapshot);
+
+        _battleOpponents.Clear();
+        foreach (var kv in restoredOpponents)
+        {
+            if (kv.Key < 0)
+            {
+                continue;
+            }
+
+            _battleOpponents[kv.Key] = kv.Value;
+        }
+
+        _matchFirstAttacker.Clear();
+        foreach (var kv in restoredFirstAttackers)
+        {
+            if (kv.Key < 0 || !_battleOpponents.ContainsKey(kv.Key))
+            {
+                continue;
+            }
+
+            _matchFirstAttacker[kv.Key] = kv.Value;
+        }
+
+        if (_matchFirstAttacker.Count == 0 && firstAttackerPlayerId >= 0)
+        {
+            foreach (var key in _battleOpponents.Keys)
+            {
+                _matchFirstAttacker[key] = firstAttackerPlayerId;
+            }
+        }
+
+        if (firstAttackerPlayerId >= 0)
+        {
+            FirstAttackerPlayerId = firstAttackerPlayerId;
+        }
+
+        Debug.Log($"[복원/매칭] 캐시 스냅샷 복원 완료 ({context}) opponents={_battleOpponents.Count}, firstAttackers={_matchFirstAttacker.Count}, firstAttackerId={FirstAttackerPlayerId}");
+        return _battleOpponents.Count > 0;
+    }
+
+    private static string SerializeIntMap(Dictionary<int, int> source)
+    {
+        if (source == null || source.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        return string.Join(";", source
+            .OrderBy(kv => kv.Key)
+            .Select(kv => $"{kv.Key}:{kv.Value}"));
+    }
+
+    private static Dictionary<int, int> DeserializeIntMap(string snapshot)
+    {
+        var result = new Dictionary<int, int>();
+        if (string.IsNullOrWhiteSpace(snapshot))
+        {
+            return result;
+        }
+
+        var pairs = snapshot.Split(';');
+        foreach (var pair in pairs)
+        {
+            if (string.IsNullOrWhiteSpace(pair))
+            {
+                continue;
+            }
+
+            var tokens = pair.Split(':');
+            if (tokens.Length != 2)
+            {
+                continue;
+            }
+
+            if (!int.TryParse(tokens[0], out int key) || !int.TryParse(tokens[1], out int value))
+            {
+                continue;
+            }
+
+            result[key] = value;
+        }
+
+        return result;
     }
 
     private void EnsureBattleMappingAfterMigration()

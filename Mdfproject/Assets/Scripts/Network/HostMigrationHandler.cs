@@ -21,6 +21,9 @@ public struct GameMigrationData
     public int GameStateValue;
     public float RemainingPhaseTime;
     public string CurrentSceneName;
+    public int FirstAttackerPlayerId;
+    public string BattleOpponentsSnapshot;
+    public string MatchFirstAttackerSnapshot;
 }
 
 /// <summary>
@@ -165,11 +168,16 @@ public class HostMigrationHandler : MonoBehaviour
             _cachedGameData.CurrentRound = GameManagers.Instance.currentRound;
             _cachedGameData.GameStateValue = (int)GameManagers.Instance.currentState;
             _cachedGameData.RemainingPhaseTime = GameManagers.Instance.currentPhaseTimer;
+            GameManagers.Instance.CaptureBattleSnapshotForMigration(
+                out _cachedGameData.BattleOpponentsSnapshot,
+                out _cachedGameData.MatchFirstAttackerSnapshot,
+                out _cachedGameData.FirstAttackerPlayerId);
             
             Debug.Log($"<color=cyan>[STEP 1] 캐싱된 상태:</color>");
             // Debug.Log($"  상태: {(GameManagers.GameState)_cachedGameData.GameStateValue}");
             // Debug.Log($"  라운드: {_cachedGameData.CurrentRound}");
             // Debug.Log($"  남은 시간: {_cachedGameData.RemainingPhaseTime:F1}초");
+            // Debug.Log($"  선공자: {_cachedGameData.FirstAttackerPlayerId}");
             // Debug.Log($"  씨: {_cachedGameData.CurrentSceneName}");
             // Debug.Log($"  캐시 시각: {_cachedGameDataCapturedRealtime:F3}s");
         }
@@ -1143,6 +1151,8 @@ public class HostMigrationHandler : MonoBehaviour
 
         if (_migrationRecoverySucceeded)
         {
+            StartCoroutine(RunMigrationSmokeChecksCoroutine());
+
             // Debug.Log("<color=green>═══════════════════════════════════════════</color>");
             Debug.Log($"<color=green>[MIGRATION COMPLETE] Host Migration 성공!</color>");
             // Debug.Log($"<color=green>  역할: {(isNewHost ? "새 Host" : "클라이언트")}</color>");
@@ -1155,6 +1165,63 @@ public class HostMigrationHandler : MonoBehaviour
             Debug.Log("<color=red>[MIGRATION COMPLETE] 마이그레이션은 끝났지만 게임 복원은 실패했습니다.</color>");
             Debug.Log("<color=red>  새 Runner/권한/복원 오브젝트 상태를 확인하세요.</color>");
             // Debug.Log("<color=red>═══════════════════════════════════════════</color>");
+        }
+    }
+
+    /// <summary>
+    /// Host Migration 복원 직후 핵심 불변조건을 자동 점검하는 최소 smoke 루틴입니다.
+    /// </summary>
+    private IEnumerator RunMigrationSmokeChecksCoroutine()
+    {
+        const float timeout = 5f;
+        float waited = 0f;
+
+        NetworkRunner expectedRunner = NetworkManager.Instance?._runner;
+        GameManagers gm = ResolveGameManagersForRunner(expectedRunner);
+
+        while (waited < timeout && (gm == null || !gm.IsReadyForNetworkAccess))
+        {
+            yield return new WaitForSeconds(0.1f);
+            waited += 0.1f;
+            expectedRunner = NetworkManager.Instance?._runner;
+            gm = ResolveGameManagersForRunner(expectedRunner);
+        }
+
+        var errors = new List<string>();
+        if (expectedRunner == null)
+        {
+            errors.Add("expectedRunner=null");
+        }
+
+        if (gm == null)
+        {
+            errors.Add("gameManagers=null");
+        }
+        else
+        {
+            if (gm.Runner != expectedRunner)
+            {
+                errors.Add("gameManagers.runner mismatch");
+            }
+
+            var allPlayers = gm.AllPlayers?.Where(p => p != null).ToList() ?? new List<PlayerManager>();
+            var runtimePlayers = UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
+                .Where(p => p != null && p.Object != null && p.Object.IsValid && p.Runner == expectedRunner)
+                .ToList();
+
+            if (allPlayers.Count != runtimePlayers.Count)
+            {
+                errors.Add($"allPlayers mismatch gm={allPlayers.Count}, runtime={runtimePlayers.Count}");
+            }
+        }
+
+        if (errors.Count == 0)
+        {
+            Debug.Log($"<color=green>[HM-SMOKE] PASS waited={waited:F1}s runner={DescribeRunner(expectedRunner)} gm={DescribeGameManagers(gm)}</color>");
+        }
+        else
+        {
+            Debug.LogError($"<color=red>[HM-SMOKE] FAIL waited={waited:F1}s errors={string.Join(" | ", errors)}</color>");
         }
     }
 
@@ -1217,9 +1284,15 @@ public class HostMigrationHandler : MonoBehaviour
             elapsedSinceCache,
             context);
 
-        if (applied)
+        bool battleApplied = gm.TryRestoreBattleSnapshotForMigration(
+            _cachedGameData.BattleOpponentsSnapshot,
+            _cachedGameData.MatchFirstAttackerSnapshot,
+            _cachedGameData.FirstAttackerPlayerId,
+            context);
+
+        if (applied || battleApplied)
         {
-            Debug.Log($"<color=magenta>[HostMigrationHandler] 캐시 상태 적용 성공 ({context}) - elapsed={elapsedSinceCache:F2}s</color>");
+            Debug.Log($"<color=magenta>[HostMigrationHandler] 캐시 상태 적용 성공 ({context}) - elapsed={elapsedSinceCache:F2}s, stateApplied={applied}, battleApplied={battleApplied}</color>");
         }
     }
 }
