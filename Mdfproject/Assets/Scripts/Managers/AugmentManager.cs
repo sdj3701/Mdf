@@ -17,12 +17,68 @@ public class AugmentManager : MonoBehaviour
     private bool isDataLoaded = false;
     private bool isDataLoading = false;
     private List<AugmentData> presentedAugments = new List<AugmentData>();
+    private const float AugmentDataWaitTimeoutSeconds = 12f;
+    private const int AugmentDataPollMilliseconds = 100;
 
     public bool IsDataLoaded => isDataLoaded;
 
-    public Cysharp.Threading.Tasks.UniTask WaitUntilAugmentDataLoaded()
+    private bool TryGetOwnerId(out int ownerId)
     {
-        return Cysharp.Threading.Tasks.UniTask.WaitUntil(() => isDataLoaded);
+        ownerId = -1;
+        if (playerManager == null || playerManager.Object == null || !playerManager.Object.IsValid)
+        {
+            return false;
+        }
+
+        try
+        {
+            ownerId = playerManager.playerId;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private async UniTask<bool> WaitUntilAugmentDataLoadedInternal(float timeoutSeconds = AugmentDataWaitTimeoutSeconds)
+    {
+        if (isDataLoaded)
+        {
+            return true;
+        }
+
+        float waited = 0f;
+        int startAttempts = 0;
+        float nextRetryAt = 0f;
+
+        while (!isDataLoaded && waited < timeoutSeconds)
+        {
+            if (!isDataLoading && startAttempts < 3 && waited >= nextRetryAt)
+            {
+                startAttempts++;
+                nextRetryAt = waited + 1.5f;
+                LoadAllAugmentsAsync().Forget();
+            }
+
+            await UniTask.Delay(AugmentDataPollMilliseconds);
+            waited += AugmentDataPollMilliseconds / 1000f;
+        }
+
+        if (isDataLoaded)
+        {
+            return true;
+        }
+
+        string owner = TryGetOwnerId(out int ownerId) ? ownerId.ToString() : "unknown";
+        Debug.LogError($"[AugmentManager] Augment data wait timeout. owner={owner}, waited={waited:F1}s, loading={isDataLoading}");
+        BuildDebugGUI.LogClient($"[AugmentManager] data wait timeout owner={owner}, waited={waited:F1}s");
+        return false;
+    }
+
+    public async UniTask WaitUntilAugmentDataLoaded()
+    {
+        await WaitUntilAugmentDataLoadedInternal();
     }
 
     public List<AugmentData> GetPresentedAugments()
@@ -37,7 +93,11 @@ public class AugmentManager : MonoBehaviour
     public async UniTask EnsureAugmentsPresentedAsync(IEnumerable<string> augmentNamesFromServer = null)
     {
         // 1. 증강 데이터(Addressables) 로드가 완료될 때까지 기다림
-        await WaitUntilAugmentDataLoaded();
+        bool loaded = await WaitUntilAugmentDataLoadedInternal();
+        if (!loaded)
+        {
+            return;
+        }
 
         // 2. 서버에서 이름 목록을 받았으면 적용
         if (augmentNamesFromServer != null && augmentNamesFromServer.Any())
@@ -77,7 +137,12 @@ public class AugmentManager : MonoBehaviour
         int ownerId = playerManager != null ? playerManager.playerId : -1;
 
         // 데이터 로딩 완료 대기
-        await WaitUntilAugmentDataLoaded();
+        bool loaded = await WaitUntilAugmentDataLoadedInternal();
+        if (!loaded)
+        {
+            presentedAugments.Clear();
+            return;
+        }
 
         Debug.Log($"SetPresentedAugmentsByNamesAsync: 데이터 로딩 완료, 동기화 시작 (Player {ownerId})");
 

@@ -340,12 +340,7 @@ public class FieldManager : MonoBehaviour
         int ownerId = playerManager != null ? playerManager.playerId : -1;
         if (ownerId >= 0)
         {
-            Debug.Log($"[WallFlow-Auto] Initialize -> GeneratePermanentWallsIfNeeded request. owner={BuildWallOwnerTag()}, {BuildRunnerTag()}, gridOrigin={gridOrigin}, gridSize={gridSize}");
             GeneratePermanentWallsIfNeeded();
-        }
-        else
-        {
-            Debug.Log($"[WallFlow-Auto] Initialize -> defer auto generation until playerId resolves. owner={BuildWallOwnerTag()}, {BuildRunnerTag()}, gridOrigin={gridOrigin}, gridSize={gridSize}");
         }
 
         // 그리드 디버그 라인 생성 (showGridDebug가 true일 때만)

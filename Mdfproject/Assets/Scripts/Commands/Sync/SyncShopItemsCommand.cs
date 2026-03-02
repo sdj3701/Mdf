@@ -12,6 +12,11 @@ public class SyncShopItemsCommand : ICommand
     public string[] UnitDataNames { get; private set; }
     public int[] StarLevels { get; private set; }
 
+    private static void TraceClient(string message)
+    {
+        BuildDebugGUI.LogClient($"[SyncShop] {message}");
+    }
+
     public SyncShopItemsCommand(int playerId, string[] unitDataNames, int[] starLevels)
     {
         PlayerId = playerId;
@@ -21,7 +26,7 @@ public class SyncShopItemsCommand : ICommand
 
     private async UniTask<PlayerManager> WaitForPlayerAsync(GameManagers gm)
     {
-        const float timeoutSeconds = 6f;
+        const float timeoutSeconds = 12f;
         float waited = 0f;
 
         while (waited < timeoutSeconds)
@@ -36,6 +41,7 @@ public class SyncShopItemsCommand : ICommand
             waited += 0.1f;
         }
 
+        TraceClient($"WaitForPlayer timeout target={PlayerId}");
         return null;
     }
 
@@ -47,10 +53,23 @@ public class SyncShopItemsCommand : ICommand
         // 서버는 이미 원본 데이터를 가지고 있으므로 클라이언트에서만 적용
         if (gm.Object != null && gm.Object.HasStateAuthority) return;
 
+        TraceClient($"Execute enter target={PlayerId}, items={UnitDataNames.Length}");
+        bool uiReady = await gm.EnsureGameUIReadyForSyncCommands();
+        if (!uiReady)
+        {
+            Debug.LogWarning($"[SyncShopItemsCommand] UI readiness timeout before sync. target={PlayerId}");
+            TraceClient($"UI readiness timeout before sync. target={PlayerId}");
+        }
+        else
+        {
+            TraceClient("UI readiness confirmed.");
+        }
+
         var player = await WaitForPlayerAsync(gm);
         if (player == null)
         {
             // Debug.LogWarning($"[SyncShopItemsCommand] Player {PlayerId} not ready. Sync skipped.");
+            TraceClient($"Player not ready timeout. target={PlayerId}");
             return;
         }
 
@@ -62,6 +81,7 @@ public class SyncShopItemsCommand : ICommand
         if (player.shopManager == null)
         {
             // Debug.LogWarning($"[SyncShopItemsCommand] Player {PlayerId} shopManager is null. Sync skipped.");
+            TraceClient($"shopManager null. target={PlayerId}");
             return;
         }
 
@@ -71,6 +91,7 @@ public class SyncShopItemsCommand : ICommand
         }
 
         await player.shopManager.SetShopItemsFromServerAsync(UnitDataNames, StarLevels);
+        TraceClient($"SetShopItems applied target={PlayerId}, items={UnitDataNames.Length}");
         // Debug.Log($"<color=cyan>[SyncShopItemsCommand] Player {PlayerId}: {UnitDataNames.Length}개 상점 아이템 동기화 완료</color>");
     }
 }

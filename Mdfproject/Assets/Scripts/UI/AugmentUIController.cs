@@ -17,10 +17,28 @@ public class AugmentUIController : MonoBehaviour
     private List<AugmentData> currentChoices;
     public event Action<bool> OnContentVisibilityChanged;
 
+    private static string SafePlayerId(PlayerManager player)
+    {
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return "null";
+        }
+
+        try
+        {
+            return player.playerId.ToString();
+        }
+        catch (System.InvalidOperationException)
+        {
+            return "?";
+        }
+    }
+
     void Awake()
     {
         // [수정] Awake에서 구독하여 GameObject 비활성화 시에도 이벤트를 수신
         GameEvents.OnAugmentPhaseStart += HandleAugmentPhaseStart;
+        BuildDebugGUI.LogClient("[AugmentUI] Awake: subscribed OnAugmentPhaseStart");
         // Debug.Log($"<color=lime>[AugmentUIController] Awake: OnAugmentPhaseStart 이벤트 구독 완료</color>");
     }
 
@@ -37,9 +55,11 @@ public class AugmentUIController : MonoBehaviour
     {        
         // 이 UI는 로컬 플레이어의 것만 처리합니다.
         var localPlayer = GameManagers.Instance?.localPlayer;
+        BuildDebugGUI.LogClient($"[AugmentUI] Event received local={SafePlayerId(localPlayer)} target={SafePlayerId(player)} choices={choices?.Count ?? 0}");
         
         if (localPlayer != player)
         {
+            BuildDebugGUI.LogClient("[AugmentUI] Event ignored: target is not local player.");
             return;
         }
 
@@ -51,6 +71,7 @@ public class AugmentUIController : MonoBehaviour
         // 이후 ReturnUIElement가 동작하지 않는 문제 발생
         if (!gameObject.activeSelf)
         {
+            BuildDebugGUI.LogClient("[AugmentUI] Panel inactive -> requesting UI_Pnl_Augment");
             await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
         }
 
@@ -58,6 +79,7 @@ public class AugmentUIController : MonoBehaviour
         SetContentVisibility(true);
         
         SetAugmentChoices(choices);
+        BuildDebugGUI.LogClient($"[AugmentUI] Panel shown with choices={choices?.Count ?? 0}");
     }
 
     /// <summary>

@@ -57,6 +57,49 @@ public partial class GameManagers
     /// <summary>
     /// UI 요소를 로드하고 참조를 저장합니다. 상태 관리는 각 UIController가 담당합니다.
     /// </summary>
+    internal async UniTask<bool> EnsureGameUIReadyForSyncCommands()
+    {
+        const float timeoutSeconds = 8f;
+        float waited = 0f;
+        BuildDebugGUI.LogClient("EnsureGameUIReadyForSyncCommands: enter");
+
+        while (waited < timeoutSeconds)
+        {
+            if (UIManagers.Instance == null)
+            {
+                var resolvedUIManager = FindObjectOfType<UIManagers>(true);
+                if (resolvedUIManager != null)
+                {
+                    UIManagers.Instance = resolvedUIManager;
+                    if (!resolvedUIManager.gameObject.activeSelf)
+                    {
+                        resolvedUIManager.gameObject.SetActive(true);
+                    }
+                }
+            }
+
+            await SetupGameUI();
+
+            if (_hasCompletedGameUISetup && localPlayerShopUI != null && augmentSelectionUI != null)
+            {
+                BuildDebugGUI.LogClient($"EnsureGameUIReadyForSyncCommands: ready in {waited:F1}s");
+                return true;
+            }
+
+            BuildDebugGUI.LogClientThrottled(
+                "ui_sync_wait",
+                $"EnsureGameUIReadyForSyncCommands: waiting {waited:F1}s (setup={_hasCompletedGameUISetup},shopUI={(localPlayerShopUI != null)},augmentUI={(augmentSelectionUI != null)})",
+                0.8f);
+
+            await UniTask.Delay(100);
+            waited += 0.1f;
+        }
+
+        Debug.LogWarning($"[GameManagers] EnsureGameUIReadyForSyncCommands timeout. hasSetup={_hasCompletedGameUISetup}, shopUI={(localPlayerShopUI != null)}, augmentUI={(augmentSelectionUI != null)}");
+        BuildDebugGUI.LogClient($"EnsureGameUIReadyForSyncCommands: timeout {timeoutSeconds:F1}s");
+        return false;
+    }
+
     private async UniTask SetupGameUI(bool forceRefresh = false)
     {
         LogMigrationTrace("SetupGameUI:ENTER", $"forceRefresh={forceRefresh}");
@@ -264,6 +307,20 @@ public partial class GameManagers
         {
             // Debug.Log($"<color=yellow>[HandleAugmentChosen] 현재 {currentState} 상태이므로 상점 UI를 열지 않음 (잠수 플레이어 자동 선택)</color>");
             return;
+        }
+
+        if ((localPlayerShopUIGameObject == null || localPlayerShopUI == null) && UIManagers.Instance != null)
+        {
+            var resolvedShopPanel = await UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
+            if (resolvedShopPanel != null)
+            {
+                localPlayerShopUIGameObject = resolvedShopPanel;
+                localPlayerShopUI = resolvedShopPanel.GetComponent<ShopUIController>();
+                if (localPlayerShopUI != null)
+                {
+                    localPlayerShopUI.InitializeAndHide();
+                }
+            }
         }
 
         if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
