@@ -8,7 +8,7 @@ using Fusion;
 using System.Threading.Tasks;
 
 // MonoBehaviour 대신 NetworkBehaviour를 상속받아 네트워크 객체로 만듭니다.
-public class GameManagers : NetworkBehaviour
+public partial class GameManagers : NetworkBehaviour
 {
     // 싱글톤 패턴은 유지하되, 초기화는 Spawned()에서 수행합니다.
     // ★ Host Migration 지원을 위해 internal set 사용
@@ -47,65 +47,6 @@ public class GameManagers : NetworkBehaviour
 
     // 플레이어 데이터가 모두 준비되었을 때 발생시키는 이벤트
     public static System.Action OnPlayersDataReady;
-
-    public IEnumerable<PlayerManager> AllPlayers
-    {
-        get
-        {
-            if (NetworkPlayers.Length == 0) yield break;
-            foreach (var playerNO in NetworkPlayers)
-            {
-                if (playerNO == null || !playerNO.IsValid)
-                {
-                    continue;
-                }
-
-                if (playerNO.TryGetComponent<PlayerManager>(out var playerManager)
-                    && playerManager != null
-                    && playerManager.Object != null
-                    && playerManager.Object.IsValid
-                    && (Runner == null || playerManager.Runner == Runner))
-                {
-                    yield return playerManager;
-                }
-            }
-        }
-    }
-
-    private static bool IsPlayerReadable(PlayerManager player)
-    {
-        if (player == null || player.Object == null || !player.Object.IsValid)
-        {
-            return false;
-        }
-
-        var gm = Instance;
-        if (gm != null && gm.Runner != null && player.Runner != null && player.Runner != gm.Runner)
-        {
-            return false;
-        }
-
-        return true;
-    }
-
-    private static bool TryGetPlayerIdSafe(PlayerManager player, out int playerId)
-    {
-        playerId = -1;
-        if (!IsPlayerReadable(player))
-        {
-            return false;
-        }
-
-        try
-        {
-            playerId = player.playerId;
-            return true;
-        }
-        catch (System.InvalidOperationException)
-        {
-            return false;
-        }
-    }
     #endregion
 
     // 프리팹은 AddressablesManager에서 관리
@@ -116,6 +57,26 @@ public class GameManagers : NetworkBehaviour
     [Header("자동 생성 위치 설정")]
     public Vector3 player1BasePosition = new Vector3(0, 0, 0);
     public Vector3 playerOffset = new Vector3(0, 10, 0);
+    private bool _loggedOffsetNormalization;
+
+    public Vector3 GetResolvedPlayerOffset()
+    {
+        // 기본값 그대로 사용하되, 레거시(Y축만 사용) 설정은 한 번만 경고하고 Z축 기준으로 보정한다.
+        bool needsNormalization = Mathf.Abs(playerOffset.z) < 0.001f && Mathf.Abs(playerOffset.y) > 0.001f;
+        if (!needsNormalization)
+        {
+            return playerOffset;
+        }
+
+        Vector3 normalized = new Vector3(playerOffset.x, 0f, -Mathf.Abs(playerOffset.y));
+        if (!_loggedOffsetNormalization)
+        {
+            _loggedOffsetNormalization = true;
+            // Debug.LogWarning($"[GameManagers] playerOffset is Y-axis based ({playerOffset}). Normalized to {normalized}.");
+        }
+
+        return normalized;
+    }
 
     #region 단계별 시간 및 보상
     [Header("단계별 시간 설정 (초)")]
@@ -215,21 +176,21 @@ public class GameManagers : NetworkBehaviour
 
             if (sameRunner)
             {
-                Debug.LogWarning($"<color=orange>[GameManagers] 동일 Runner의 중복 인스턴스 감지 - 현재 인스턴스 제거\n  existing={BuildDebugSummary(Instance)}\n  current={BuildDebugSummary(this)}</color>");
+                // Debug.LogWarning($"<color=orange>[GameManagers] 동일 Runner의 중복 인스턴스 감지 - 현재 인스턴스 제거\n  existing={BuildDebugSummary(Instance)}\n  current={BuildDebugSummary(this)}</color>");
                 Runner.Despawn(Object);
                 return;
             }
 
-            Debug.LogWarning($"<color=yellow>[GameManagers] 다른 Runner의 기존 Instance 감지 - 새 Runner 인스턴스로 교체\n  existing={BuildDebugSummary(Instance)}\n  current={BuildDebugSummary(this)}</color>");
+            // Debug.LogWarning($"<color=yellow>[GameManagers] 다른 Runner의 기존 Instance 감지 - 새 Runner 인스턴스로 교체\n  existing={BuildDebugSummary(Instance)}\n  current={BuildDebugSummary(this)}</color>");
         }
 
         Instance = this;
-        Debug.Log($"[GameManagers.Spawned] static Instance 재설정 완료: {BuildDebugSummary(Instance)}");
+        // Debug.Log($"[GameManagers.Spawned] static Instance 재설정 완료: {BuildDebugSummary(Instance)}");
 
         if (CommandProcessor == null)
         {
             CommandProcessor = new CommandProcessor();
-            Debug.Log("[GameManagers.Spawned] CommandProcessor 생성");
+            // Debug.Log("[GameManagers.Spawned] CommandProcessor 생성");
         }
         
         // Game 씬 진입 시 UIManagers 활성화 (이전 게임 종료 시 비활성화되었을 수 있음)
@@ -276,12 +237,12 @@ public class GameManagers : NetworkBehaviour
     {
         bool wasStaticInstance = Instance == this;
         bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
-        Debug.LogWarning($"<color=orange>[GameManagers.OnDestroy] 파괴됨: {BuildDebugSummary(this)} | wasStaticInstance={wasStaticInstance} | isMigrating={isMigrating}</color>");
+        // Debug.LogWarning($"<color=orange>[GameManagers.OnDestroy] 파괴됨: {BuildDebugSummary(this)} | wasStaticInstance={wasStaticInstance} | isMigrating={isMigrating}</color>");
 
         if (Instance == this)
         {
             Instance = null;
-            Debug.LogWarning("[GameManagers.OnDestroy] static Instance를 null로 정리");
+            // Debug.LogWarning("[GameManagers.OnDestroy] static Instance를 null로 정리");
         }
     }
 
@@ -348,6 +309,8 @@ public class GameManagers : NetworkBehaviour
         await GameFlow();
 
         _isSpawned = true;
+        RelinkLocalPlayer();
+        RebuildNetworkPlayersAfterMigration("InitializeAndStartGame");
         // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
         GameEvents.TriggerGameManagersReady();
     }
@@ -366,7 +329,7 @@ public class GameManagers : NetworkBehaviour
         // StateAuthority 상태 변경 감지
         if (hasAuth != _wasStateAuthorityLastFrame)
         {
-            Debug.Log($"<color=magenta>[GameManagers.FixedUpdateNetwork] StateAuthority 변경: {_wasStateAuthorityLastFrame} → {hasAuth}</color>");
+            // Debug.Log($"<color=magenta>[GameManagers.FixedUpdateNetwork] StateAuthority 변경: {_wasStateAuthorityLastFrame} → {hasAuth}</color>");
             _wasStateAuthorityLastFrame = hasAuth;
         }
         
@@ -374,7 +337,7 @@ public class GameManagers : NetworkBehaviour
         if (Time.time - _lastStateAuthorityLogTime > 5f)
         {
             _lastStateAuthorityLogTime = Time.time;
-            Debug.Log($"[GameManagers.FixedUpdateNetwork] 주기적 상태 - StateAuth: {hasAuth}, State: {currentState}, Round: {currentRound}, Timer: {currentPhaseTimer:F1}s");
+            // Debug.Log($"[GameManagers.FixedUpdateNetwork] 주기적 상태 - StateAuth: {hasAuth}, State: {currentState}, Round: {currentRound}, Timer: {currentPhaseTimer:F1}s");
         }
         
         if (!hasAuth) return;
@@ -399,7 +362,7 @@ public class GameManagers : NetworkBehaviour
             }
 
             phaseTimer = TickTimer.None;
-            Debug.Log($"<color=yellow>[GameManagers] 타이머 만료! 상태: {currentState}</color>");
+            // Debug.Log($"<color=yellow>[GameManagers] 타이머 만료! 상태: {currentState}</color>");
             switch (currentState)
             {
                 case GameState.Prepare:
@@ -435,7 +398,7 @@ public class GameManagers : NetworkBehaviour
                 if (playerFinished && player.IsActivelyFighting)
                 {
                     player.SetFightingState(false);
-                    Debug.Log($"[빠른진행 체크] Player {player.playerId}: 전투 종료 → 방패");
+                    // Debug.Log($"[빠른진행 체크] Player {player.playerId}: 전투 종료 → 방패");
                     
                     // 상대 플레이어도 함께 전투 종료 처리 (공격자-수비자 페어 동기화)
                     int opponentId = GetBattleOpponent(player.playerId);
@@ -449,7 +412,7 @@ public class GameManagers : NetworkBehaviour
                             if (opponentFinished)
                             {
                                 opponent.SetFightingState(false);
-                                Debug.Log($"[빠른진행 체크] Player {opponent.playerId}: 상대 전투 종료로 함께 방패");
+                                // Debug.Log($"[빠른진행 체크] Player {opponent.playerId}: 상대 전투 종료로 함께 방패");
                             }
                         }
                     }
@@ -465,7 +428,7 @@ public class GameManagers : NetworkBehaviour
             {
                 phaseTimer = TickTimer.CreateFromSeconds(Runner, 3f);
                 hasCombatBeenShortened = true;
-                Debug.Log("<color=cyan>[GameManagers] 모든 플레이어 전투 종료 - 빠른 진행 (3초)</color>");
+                // Debug.Log("<color=cyan>[GameManagers] 모든 플레이어 전투 종료 - 빠른 진행 (3초)</color>");
             }
         }
         
@@ -576,35 +539,6 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
-    private void OnEnable()
-    {
-        GameEvents.OnAugmentApplied += HandleAugmentChosen;
-    }
-
-    private void OnDisable()
-    {
-        GameEvents.OnAugmentApplied -= HandleAugmentChosen;
-    }
-
-    // [새로 추가] 네트워크 상태가 변경될 때 모든 클라이언트에서 반응하는 함수 (Render에서 호출됨)
-    private void HandleNetworkStateChange(GameState newState)
-    {
-        // UI 초기화가 완료되기 전에는 처리하지 않음
-        if (!_isSpawned) return;
-        
-        // 로컬 플레이어의 UI만 업데이트해야 하므로, 로컬 플레이어 확인 후 비동기 UI 로직 호출
-        if (localPlayer == null)
-        {
-            RelinkLocalPlayer();
-            if (localPlayer == null) return;
-        }
-
-        // UI 업데이트 및 이벤트 발송은 UniTask의 'Fire-and-Forget' 패턴으로 처리
-        // Render()는 async/await을 할 수 없습니다.
-        GameEvents.TriggerGameStateChanged(newState);
-        HandleUIForNewState(newState).Forget();
-    }
-
     /// <summary>
     /// 게임 시작 및 설정 플로우입니다. Host와 Client 모두 실행되며, 내부에서 역할을 분기합니다.
     /// </summary>
@@ -613,7 +547,7 @@ public class GameManagers : NetworkBehaviour
         // Networked 속성은 StateAuthority(서버)만 설정 가능
         if (Object.HasStateAuthority)
         {
-            currentState = GameState.Setup;
+            TransitionToSetupState("GameFlow.Initialize");
         }
         
         // 프리팹 로드
@@ -636,7 +570,7 @@ public class GameManagers : NetworkBehaviour
     {
         if (!Runner.IsServer)
         {
-            Debug.LogWarning("[SetupPlayersAndGrids] 서버가 아니므로 플레이어 생성을 건너뜁니다.");
+            // Debug.LogWarning("[SetupPlayersAndGrids] 서버가 아니므로 플레이어 생성을 건너뜁니다.");
             return;
         }
 
@@ -646,7 +580,7 @@ public class GameManagers : NetworkBehaviour
         
         if (gridPrefab == null || playerManagerPrefab == null)
         {
-            Debug.LogError("❌ 프리팹이 로드되지 않았습니다! AddressablesManager를 확인하세요.");
+            // Debug.LogError("❌ 프리팹이 로드되지 않았습니다! AddressablesManager를 확인하세요.");
             return;
         }
 
@@ -667,7 +601,7 @@ public class GameManagers : NetworkBehaviour
             NetworkObject gridNO = await Runner.SpawnAsync(gridPrefab, playerPosition, Quaternion.identity);
             if (gridNO == null)
             {
-                Debug.LogError($"❌ Player {i}의 Grid 생성 실패!");
+                // Debug.LogError($"❌ Player {i}의 Grid 생성 실패!");
                 continue;
             }
 
@@ -675,7 +609,7 @@ public class GameManagers : NetworkBehaviour
             NetworkObject playerNO = await Runner.SpawnAsync(playerManagerPrefab, playerPosition, Quaternion.identity, inputAuthority);
             if (playerNO == null)
             {
-                Debug.LogError($"❌ Player {i}의 PlayerManager 생성 실패!");
+                // Debug.LogError($"❌ Player {i}의 PlayerManager 생성 실패!");
                 continue;
             }
 
@@ -824,7 +758,7 @@ public class GameManagers : NetworkBehaviour
             if (chosenAugment != null)
             {
                 GameEvents.TriggerAugmentApplied(player, chosenAugment);
-                Debug.Log($"<color=green>[RPC_NotifyAugmentSelected] Player {playerID}: '{augmentName}' 선택 알림</color>");
+                // Debug.Log($"<color=green>[RPC_NotifyAugmentSelected] Player {playerID}: '{augmentName}' 선택 알림</color>");
             }
         }
     }
@@ -874,13 +808,13 @@ public class GameManagers : NetworkBehaviour
                 if (attackSeqMgr == null)
                 {
                     attackSeqMgr = localPlayer.gameObject.AddComponent<AttackSequenceManager>();
-                    Debug.LogWarning($"[RPC_NotifyBattleStart] AttackSequenceManager 누락으로 동적 생성: Player {playerId}");
+                    // Debug.LogWarning($"[RPC_NotifyBattleStart] AttackSequenceManager 누락으로 동적 생성: Player {playerId}");
                 }
 
                 if (attackSeqMgr.Owner != localPlayer)
                 {
                     attackSeqMgr.Initialize(localPlayer);
-                    Debug.Log($"[RPC_NotifyBattleStart] AttackSequenceManager 재초기화: Player {playerId}");
+                    // Debug.Log($"[RPC_NotifyBattleStart] AttackSequenceManager 재초기화: Player {playerId}");
                 }
 
                 if (attackSeqMgr != null)
@@ -897,7 +831,7 @@ public class GameManagers : NetworkBehaviour
                 // 공격 시퀀스 UI 표시 (재초기화 후 표시)
                 ShowAttackSequenceUIAsync(attackSeqMgr).Forget();
                 
-                Debug.Log($"<color=green>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 공격자 (상대: Player {opponentId}, 라운드: {currentRound})</color>");
+                // Debug.Log($"<color=green>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 공격자 (상대: Player {opponentId}, 라운드: {currentRound})</color>");
             }
         }
         else
@@ -919,31 +853,11 @@ public class GameManagers : NetworkBehaviour
                 CameraManager.Instance.ReturnToOwnField();
             }
             
-            Debug.Log($"<color=blue>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 수비자</color>");
+            // Debug.Log($"<color=blue>[RPC_NotifyBattleStart] 로컬 Player {playerId}: 수비자</color>");
         }
         
         // 전투 시작 이벤트 발생
         GameEvents.TriggerBattleSequenceStarted(isAttacker);
-    }
-    
-    /// <summary>
-    /// 공격 시퀀스 UI를 비동기로 초기화하고 표시합니다.
-    /// </summary>
-    private async UniTask ShowAttackSequenceUIAsync(AttackSequenceManager attackSeqMgr)
-    {
-        if (localPlayer == null || attackSeqMgr == null) return;
-        
-        // UI 로드/초기화
-        var ui = await AttackSequenceUIController.GetOrCreateAsync(localPlayer, attackSeqMgr);
-        if (ui != null)
-        {
-            ui.Show(true);
-            Debug.Log($"<color=cyan>[ShowAttackSequenceUIAsync] 공격 시퀀스 UI 표시 완료</color>");
-        }
-        else
-        {
-            Debug.LogWarning("[ShowAttackSequenceUIAsync] UI 로드 실패");
-        }
     }
     
     /// <summary>
@@ -967,7 +881,7 @@ public class GameManagers : NetworkBehaviour
         
         if (attacker == null || defender == null)
         {
-            Debug.LogWarning($"[RPC_RequestSpawnMonster] 플레이어를 찾을 수 없음: attacker={attackerPlayerId}, defender={defenderPlayerId}");
+            // Debug.LogWarning($"[RPC_RequestSpawnMonster] 플레이어를 찾을 수 없음: attacker={attackerPlayerId}, defender={defenderPlayerId}");
             return;
         }
         
@@ -985,7 +899,7 @@ public class GameManagers : NetworkBehaviour
         
         if (targetEntry == null)
         {
-            Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 풀에서 '{monsterDataName}'을 찾을 수 없음");
+            // Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 풀에서 '{monsterDataName}'을 찾을 수 없음");
             return;
         }
         
@@ -1010,247 +924,16 @@ public class GameManagers : NetworkBehaviour
         {
             if (!attacker.TryConsumeMonsterFromPool(entry.MonsterData))
             {
-                Debug.LogWarning($"[RPC_RequestSpawnMonster] 소환 성공 후 풀 소비 실패: '{entry.MonsterData.monsterName}'");
+                // Debug.LogWarning($"[RPC_RequestSpawnMonster] 소환 성공 후 풀 소비 실패: '{entry.MonsterData.monsterName}'");
             }
-            Debug.Log($"<color=green>[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 성공</color>");
+            // Debug.Log($"<color=green>[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 성공</color>");
         }
         else
         {
-            Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 실패");
+            // Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 실패");
         }
     }
     #endregion
-
-    /// <summary>
-    /// UI 요소를 로드하고 참조를 저장합니다. 상태 관리는 각 UIController가 담당합니다.
-    /// </summary>
-    private async UniTask SetupGameUI(bool forceRefresh = false)
-    {
-        LogMigrationTrace("SetupGameUI:ENTER", $"forceRefresh={forceRefresh}");
-
-        if (UIManagers.Instance == null)
-        {
-            var resolvedUIManager = FindObjectOfType<UIManagers>(true);
-            if (resolvedUIManager != null)
-            {
-                UIManagers.Instance = resolvedUIManager;
-                if (!resolvedUIManager.gameObject.activeSelf)
-                {
-                    resolvedUIManager.gameObject.SetActive(true);
-                }
-                Debug.LogWarning("[SetupGameUI] UIManagers.Instance가 null이어서 FindObjectOfType로 복구했습니다.");
-            }
-        }
-
-        if (UIManagers.Instance == null)
-        {
-            Debug.LogWarning("[SetupGameUI] UIManagers.Instance가 null입니다.");
-            return;
-        }
-
-        if (_isSettingUpGameUI)
-        {
-            LogMigrationTrace("SetupGameUI:WAIT_OTHER_TASK");
-            await UniTask.WaitUntil(() => !_isSettingUpGameUI);
-            return;
-        }
-
-        if (_hasCompletedGameUISetup && !forceRefresh && localPlayerShopUI != null && augmentSelectionUI != null)
-        {
-            LogMigrationTrace("SetupGameUI:SKIP_ALREADY_DONE");
-            return;
-        }
-
-        _isSettingUpGameUI = true;
-
-        try
-        {
-            var shopPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Shop");
-            var augmentPanelTask = UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
-            var (shopPanelInstance, augmentPanelInstance) = await UniTask.WhenAll(shopPanelTask, augmentPanelTask);
-
-            // 참조 저장 후 Controller의 초기화 메서드 호출
-            if (shopPanelInstance != null)
-            {
-                localPlayerShopUI = shopPanelInstance.GetComponent<ShopUIController>();
-                localPlayerShopUIGameObject = shopPanelInstance;
-                if (localPlayerShopUI != null)
-                {
-                    localPlayerShopUI.InitializeAndHide();
-                }
-                else
-                {
-                    Debug.LogError("[SetupGameUI] UI_Pnl_Shop에 ShopUIController가 없습니다.");
-                }
-            }
-            else
-            {
-                Debug.LogError("[SetupGameUI] UI_Pnl_Shop 로드 실패 (null)");
-            }
-            
-            if (augmentPanelInstance != null)
-            {
-                augmentSelectionUI = augmentPanelInstance.GetComponent<AugmentUIController>();
-                if (augmentSelectionUI != null)
-                {
-                    augmentSelectionUI.InitializeAndHide();
-                }
-                else
-                {
-                    Debug.LogError("[SetupGameUI] UI_Pnl_Augment에 AugmentUIController가 없습니다.");
-                }
-            }
-            else
-            {
-                Debug.LogError("[SetupGameUI] UI_Pnl_Augment 로드 실패 (null)");
-            }
-            
-            // 모든 플레이어의 상점/증강 데이터 로딩
-            var playersSnapshot = AllPlayers?.Where(p => p != null).ToList() ?? new List<PlayerManager>();
-            if (playersSnapshot.Count == 0)
-            {
-                playersSnapshot = FindObjectsOfType<PlayerManager>(true)
-                    .Where(p => p != null && p.Object != null && p.Runner == Runner)
-                    .ToList();
-                Debug.LogWarning($"[SetupGameUI] AllPlayers 스냅샷이 비어 FindObjectsOfType 폴백 사용: count={playersSnapshot.Count}");
-            }
-
-            foreach (var player in playersSnapshot)
-            {
-                try
-                {
-                    if (player.shopManager == null)
-                    {
-                        player.shopManager = player.GetComponentInChildren<ShopManager>(true);
-                    }
-
-                    if (player.augmentManager == null)
-                    {
-                        player.augmentManager = player.GetComponentInChildren<AugmentManager>(true);
-                    }
-
-                    if (player.shopManager != null && player.shopManager.playerManager == null)
-                    {
-                        player.shopManager.playerManager = player;
-                    }
-
-                    if (player.augmentManager != null && player.augmentManager.playerManager == null)
-                    {
-                        player.augmentManager.playerManager = player;
-                    }
-
-                    // 증강 데이터 로딩 (명시적 호출 + 대기)
-                    if (player.augmentManager != null && !player.augmentManager.IsDataLoaded)
-                    {
-                        await player.augmentManager.LoadAllAugmentsAsync();
-                    }
-                    
-                    // 상점 데이터 로딩 (ShopManager.Start에서 이미 시작됨, 대기만)
-                    if (player.shopManager != null)
-                    {
-                        await player.shopManager.WaitUntilDatabaseLoaded();
-                    }
-
-                    // Host Migration 복원 중 Prepare 단계에서 상점이 비어 있으면
-                    // 새 Host가 즉시 무료 리롤 + 동기화하여 클라이언트 대기 타임아웃을 방지한다.
-                    if (_migrationRestoreInProgress &&
-                        currentState == GameState.Prepare &&
-                        Object != null &&
-                        Object.HasStateAuthority &&
-                        player.shopManager != null)
-                    {
-                        var migratedShopItems = player.shopManager.GetCurrentShopItems();
-                        if (migratedShopItems == null || migratedShopItems.Count == 0)
-                        {
-                            player.shopManager.Reroll(true);
-                            migratedShopItems = player.shopManager.GetCurrentShopItems();
-
-                            Debug.Log($"[복원/UI] Host 보정 리롤 실행: Player {player.playerId}, itemCount={migratedShopItems?.Count ?? 0}");
-
-                            if (CommandProcessor != null && migratedShopItems != null && migratedShopItems.Count > 0)
-                            {
-                                string[] shopNames = migratedShopItems.Select(i => i.UnitData?.name ?? string.Empty).ToArray();
-                                int[] shopStars = migratedShopItems.Select(i => i.StarLevel).ToArray();
-                                var syncShopCmd = new SyncShopItemsCommand(player.playerId, shopNames, shopStars);
-                                CommandProcessor.RequestCommandExecution(syncShopCmd);
-                                Debug.Log($"[복원/UI] Host 상점 동기화 커맨드 전송: Player {player.playerId}, itemCount={migratedShopItems.Count}");
-                            }
-                        }
-                    }
-
-                    if (_activeMigrationTraceId >= 0)
-                    {
-                        int shopCount = player.shopManager != null ? player.shopManager.GetCurrentShopItems().Count : -1;
-                        int augmentCount = player.augmentManager?.GetPresentedAugments()?.Count ?? -1;
-                        Debug.Log($"[HM-TRACE #{_activeMigrationTraceId}] SetupGameUI:PLAYER_READY P{player.playerId} shopCount={shopCount} shopDbLoaded={(player.shopManager != null && player.shopManager.IsDatabaseLoaded)} augmentChoices={augmentCount} augmentLoaded={(player.augmentManager != null && player.augmentManager.IsDataLoaded)}");
-                    }
-                }
-                catch (System.Exception playerEx)
-                {
-                    Debug.LogError($"[SetupGameUI] Player {(player != null ? player.playerId.ToString() : "null")} 처리 중 예외: {playerEx.Message}");
-                    Debug.LogException(playerEx);
-                }
-            }
-            
-            _hasCompletedGameUISetup = localPlayerShopUI != null && augmentSelectionUI != null;
-            _migrationSetupUiCompleted = _hasCompletedGameUISetup;
-            Debug.Log("<color=green>[SetupGameUI] 모든 플레이어의 상점/증강 데이터 로딩 완료</color>");
-            LogMigrationTrace("SetupGameUI:SUCCESS", $"hasCompleted={_hasCompletedGameUISetup}");
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError($"UI 설정 중 심각한 에러 발생: {ex.Message}");
-            Debug.LogException(ex);
-            Debug.LogError($"[SetupGameUI] 상태 덤프: state={currentState}, round={currentRound}, localPlayer={(localPlayer != null ? localPlayer.playerId.ToString() : "null")}, runner={(Runner != null ? Runner.name : "null")}");
-            if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("UI 설정 중 심각한 에러 발생");
-            LogMigrationTrace("SetupGameUI:EXCEPTION", $"error={ex.Message}");
-        }
-        finally
-        {
-            _isSettingUpGameUI = false;
-            LogMigrationTrace("SetupGameUI:EXIT");
-        }
-    }
-
-    private async void HandleAugmentChosen(PlayerManager selectingPlayer, AugmentData chosenAugment)
-    {
-        if (selectingPlayer != localPlayer) return;
-
-        Debug.Log($"<color=cyan>[HandleAugmentChosen] 증강 '{chosenAugment?.augmentName}' 선택됨 → 증강 UI 비활성화</color>");
-        
-        // 1. 증강 UI 비활성화 (부모 GameObject 비활성화) - 활성 상태일 때만
-        if (UIManagers.Instance != null && UIManagers.Instance.IsUIElementActive("UI_Pnl_Augment"))
-        {
-            UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
-        }
-        
-        // 2. 상점 UI 활성화 - 준비 단계에서만 열도록 체크
-        // [버그 수정] 플레이어가 잠수해서 증강이 자동 선택된 경우, 이미 전투 상태일 수 있음
-        // 전투 중에는 상점 UI를 열지 않음
-        if (currentState != GameState.Prepare)
-        {
-            Debug.Log($"<color=yellow>[HandleAugmentChosen] 현재 {currentState} 상태이므로 상점 UI를 열지 않음 (잠수 플레이어 자동 선택)</color>");
-            return;
-        }
-        
-        if (localPlayerShopUIGameObject != null && localPlayerShopUI != null)
-        {
-            Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 활성화</color>");
-            localPlayerShopUIGameObject.SetActive(true);  // 부모 GameObject 활성화
-            localPlayerShopUI.SetContentVisibility(true);  // 콘텐츠 표시
-            
-            // 상점 UI를 표시하기 전에, 데이터베이스 로드를 기다리고 상점을 채우는 것을 보장합니다.
-            await localPlayer.shopManager.EnsureShopRerolledAsync();
-            var shopItems = localPlayer.shopManager.GetCurrentShopItems();
-            localPlayerShopUI.DisplayShopItems(shopItems);
-            
-            Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 표시 완료 (아이템 수: {shopItems?.Count ?? 0})</color>");
-        }
-        else
-        {
-            Debug.LogWarning("[HandleAugmentChosen] 상점 UI 참조가 null입니다!");
-        }
-    }
 
     private async UniTask StartNextRound()
     {
@@ -1291,7 +974,7 @@ public class GameManagers : NetworkBehaviour
         {
             foreach (var eliminated in eliminatedPlayers)
             {
-                Debug.Log($"<color=red>[GameManagers] Player {eliminated.playerId} 탈락! (체력: {eliminated.GetHealth()})</color>");
+                // Debug.Log($"<color=red>[GameManagers] Player {eliminated.playerId} 탈락! (체력: {eliminated.GetHealth()})</color>");
                 GameOver(eliminated);
             }
             
@@ -1313,8 +996,7 @@ public class GameManagers : NetworkBehaviour
             currentRound = 1;
         }
 
-        currentState = GameState.Prepare;
-        GameEvents.TriggerGameStateChanged(currentState);
+        TransitionToPrepareState("StartNextRound", raiseStateChangedEvent: true);
 
         foreach (var player in AllPlayers)
         {
@@ -1346,7 +1028,7 @@ public class GameManagers : NetworkBehaviour
             }
             else
             {
-                Debug.LogWarning($"[StartNextRound] Player {player.playerId}: shopManager가 null이라 리롤을 건너뜁니다.");
+                // Debug.LogWarning($"[StartNextRound] Player {player.playerId}: shopManager가 null이라 리롤을 건너뜁니다.");
             }
 
             // 상점 아이템 동기화 (Command Pattern 사용)
@@ -1374,7 +1056,7 @@ public class GameManagers : NetworkBehaviour
 
                 if (!player.augmentManager.IsDataLoaded)
                 {
-                    Debug.LogWarning($"[StartNextRound] Player {player.playerId}: 증강 데이터 로딩 실패/미완료");
+                    // Debug.LogWarning($"[StartNextRound] Player {player.playerId}: 증강 데이터 로딩 실패/미완료");
                     continue;
                 }
 
@@ -1383,7 +1065,7 @@ public class GameManagers : NetworkBehaviour
             }
             else
             {
-                Debug.LogWarning($"[StartNextRound] Player {player.playerId}: augmentManager가 null입니다. 빈 증강 목록으로 동기화합니다.");
+                // Debug.LogWarning($"[StartNextRound] Player {player.playerId}: augmentManager가 null입니다. 빈 증강 목록으로 동기화합니다.");
             }
             
             var augmentNames = presentedAugments
@@ -1424,7 +1106,7 @@ public class GameManagers : NetworkBehaviour
             if (presentedAugments != null && presentedAugments.Count > 0)
             {
                 var firstAugment = presentedAugments[0];
-                Debug.Log($"<color=orange>[StartBattle1Phase] Player {player.playerId}: 시간 초과로 인해 '{firstAugment.augmentName}' 증강 자동 선택</color>");
+                // Debug.Log($"<color=orange>[StartBattle1Phase] Player {player.playerId}: 시간 초과로 인해 '{firstAugment.augmentName}' 증강 자동 선택</color>");
                 
                 player.augmentManager.SelectAndApplyAugment(firstAugment);
                 NotifyAugmentSelected(player.playerId, firstAugment.augmentName);
@@ -1434,7 +1116,7 @@ public class GameManagers : NetworkBehaviour
         // 상대 매칭 및 선공 플레이어 결정
         AssignBattleOpponents();
 
-        currentState = GameState.Battle1;
+        TransitionToBattle1State("StartBattle1Phase");
         hasCombatBeenShortened = false;
         _hasBerserkTriggered = false;
         _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f); // 1초 딜레이
@@ -1451,7 +1133,7 @@ public class GameManagers : NetworkBehaviour
         StartBattleForPlayers(isFirstBattle: true);
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
-        Debug.Log($"<color=cyan>[GameManagers] Battle1 시작! 각 매칭마다 선공자 랜덤 결정됨</color>");
+        // Debug.Log($"<color=cyan>[GameManagers] Battle1 시작! 각 매칭마다 선공자 랜덤 결정됨</color>");
     }
 
     /// <summary>
@@ -1474,7 +1156,7 @@ public class GameManagers : NetworkBehaviour
             }
         }
 
-        currentState = GameState.Battle2;
+        TransitionToBattle2State("StartBattle2Phase");
         hasCombatBeenShortened = false;
         _hasBerserkTriggeredBattle2 = false;
         _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f); // 1초 딜레이
@@ -1485,7 +1167,7 @@ public class GameManagers : NetworkBehaviour
         StartBattleForPlayers(isFirstBattle: false);
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
-        Debug.Log("<color=cyan>[GameManagers] Battle2 시작! 공수 역할 교체</color>");
+        // Debug.Log("<color=cyan>[GameManagers] Battle2 시작! 공수 역할 교체</color>");
     }
 
     /// <summary>
@@ -1538,7 +1220,7 @@ public class GameManagers : NetworkBehaviour
                     FirstAttackerPlayerId = matchFirstAttackerId;
                 }
                 
-                Debug.Log($"<color=yellow>[AssignBattleOpponents] 매칭: P{player1.playerId} vs P{player2.playerId}, 선공자: P{matchFirstAttackerId}</color>");
+                // Debug.Log($"<color=yellow>[AssignBattleOpponents] 매칭: P{player1.playerId} vs P{player2.playerId}, 선공자: P{matchFirstAttackerId}</color>");
             }
             else
             {
@@ -1546,11 +1228,11 @@ public class GameManagers : NetworkBehaviour
                 _battleOpponents[alivePlayers[i].playerId] = -1;
                 _matchFirstAttacker[alivePlayers[i].playerId] = -1; // 상대 없으면 선공자도 없음
                 
-                Debug.Log($"<color=gray>[AssignBattleOpponents] P{alivePlayers[i].playerId}: 상대 없음 (혼자)</color>");
+                // Debug.Log($"<color=gray>[AssignBattleOpponents] P{alivePlayers[i].playerId}: 상대 없음 (혼자)</color>");
             }
         }
 
-        Debug.Log($"<color=yellow>[AssignBattleOpponents] 매칭 완료: {string.Join(", ", _battleOpponents.Select(kv => $"P{kv.Key}↔P{kv.Value}"))}</color>");
+        // Debug.Log($"<color=yellow>[AssignBattleOpponents] 매칭 완료: {string.Join(", ", _battleOpponents.Select(kv => $"P{kv.Key}↔P{kv.Value}"))}</color>");
     }
 
     /// <summary>
@@ -1573,7 +1255,7 @@ public class GameManagers : NetworkBehaviour
             battleReadyMap[playerId] = ready;
             if (!ready)
             {
-                Debug.LogError($"[StartBattleForPlayers] Player {playerId} 런타임 준비 미완료 - 전투 시작 스킵 (reason={readyReason})");
+                // Debug.LogError($"[StartBattleForPlayers] Player {playerId} 런타임 준비 미완료 - 전투 시작 스킵 (reason={readyReason})");
                 player.SetFightingState(false);
             }
         }
@@ -1592,12 +1274,12 @@ public class GameManagers : NetworkBehaviour
             {
                 battleAttackSeqMgr = player.gameObject.AddComponent<AttackSequenceManager>();
                 battleAttackSeqMgr.Initialize(player);
-                Debug.LogWarning($"[StartBattleForPlayers] AttackSequenceManager 동적 생성: Player {playerId}");
+                // Debug.LogWarning($"[StartBattleForPlayers] AttackSequenceManager 동적 생성: Player {playerId}");
             }
             else if (battleAttackSeqMgr.Owner != player)
             {
                 battleAttackSeqMgr.Initialize(player);
-                Debug.Log($"[StartBattleForPlayers] AttackSequenceManager 재초기화: Player {playerId}");
+                // Debug.Log($"[StartBattleForPlayers] AttackSequenceManager 재초기화: Player {playerId}");
             }
 
             int opponentId = _battleOpponents.TryGetValue(playerId, out int oppId) ? oppId : -1;
@@ -1608,7 +1290,7 @@ public class GameManagers : NetworkBehaviour
                 bool opponentReady = battleReadyMap.TryGetValue(opponentId, out bool value) && value;
                 if (!opponentReady)
                 {
-                    Debug.LogError($"[StartBattleForPlayers] 상대 Player {opponentId} 런타임 준비 미완료 - Player {playerId} 전투 시작 스킵");
+                    // Debug.LogError($"[StartBattleForPlayers] 상대 Player {opponentId} 런타임 준비 미완료 - Player {playerId} 전투 시작 스킵");
                     player.SetFightingState(false);
                     continue;
                 }
@@ -1635,7 +1317,7 @@ public class GameManagers : NetworkBehaviour
                     }
                     catch (System.Exception e)
                     {
-                        Debug.LogError($"[StartBattleForPlayers] Player {playerId} AttackMonsterPool 갱신 중 예외: {e.Message}");
+                        // Debug.LogError($"[StartBattleForPlayers] Player {playerId} AttackMonsterPool 갱신 중 예외: {e.Message}");
                     }
                     player.SetFightingState(true);
 
@@ -1646,7 +1328,7 @@ public class GameManagers : NetworkBehaviour
                     {
                         // [공격자가 모든 몬스터 소환] 기본 웨이브 + 증강체 몬스터
                         player.monsterSpawner.SpawnAllMonstersToTargetField(currentRound, opponent.fieldManager, isAI).Forget();
-                        Debug.Log($"<color=orange>[StartBattle] Player {playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
+                        // Debug.Log($"<color=orange>[StartBattle] Player {playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
                     }
                 }
                 else
@@ -1661,7 +1343,7 @@ public class GameManagers : NetworkBehaviour
                     }
                     
                     // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
-                    Debug.Log($"<color=blue>[StartBattle] Player {playerId}: 수비자 (상대: Player {opponentId})</color>");
+                    // Debug.Log($"<color=blue>[StartBattle] Player {playerId}: 수비자 (상대: Player {opponentId})</color>");
                 }
             }
             else
@@ -1671,13 +1353,13 @@ public class GameManagers : NetworkBehaviour
                 {
                     // 수비 시퀀스: 기본 웨이브를 AI가 자동 소환 (증강 공격유닛 제외)
                     player.monsterSpawner.SpawnWaveWithoutAugments(currentRound);
-                    Debug.Log($"<color=gray>[StartBattle] Player {playerId}: 상대 없음, 수비 (기본 웨이브만)</color>");
+                    // Debug.Log($"<color=gray>[StartBattle] Player {playerId}: 상대 없음, 수비 (기본 웨이브만)</color>");
                 }
                 else
                 {
                     // 공격 시퀀스: 관전 모드 (전투 참여 안 함)
                     player.SetFightingState(false);
-                    Debug.Log($"<color=gray>[StartBattle] Player {playerId}: 상대 없음, 공격 (관전 모드)</color>");
+                    // Debug.Log($"<color=gray>[StartBattle] Player {playerId}: 상대 없음, 공격 (관전 모드)</color>");
                 }
             }
         }
@@ -1716,32 +1398,6 @@ public class GameManagers : NetworkBehaviour
         }
     }
 
-    /// <summary>
-    /// 특정 플레이어의 현재 전투 상대 ID를 반환합니다. (-1이면 상대 없음)
-    /// </summary>
-    public int GetBattleOpponent(int playerId)
-    {
-        if (_battleOpponents.TryGetValue(playerId, out int oppId))
-        {
-            return oppId;
-        }
-
-        var player = GetPlayer(playerId);
-        if (player?.opponentManager != null)
-        {
-            int fallbackOpp = player.opponentManager.playerId;
-            _battleOpponents[playerId] = fallbackOpp;
-            if (!_battleOpponents.ContainsKey(fallbackOpp))
-            {
-                _battleOpponents[fallbackOpp] = playerId;
-            }
-            Debug.LogWarning($"[GetBattleOpponent] 딕셔너리 누락으로 opponentManager 폴백 사용: P{playerId} -> P{fallbackOpp}");
-            return fallbackOpp;
-        }
-
-        return -1;
-    }
-
     #endregion
 
     /// <summary>
@@ -1752,7 +1408,7 @@ public class GameManagers : NetworkBehaviour
     /// </summary>
     private void TriggerBerserkMode()
     {
-        Debug.Log("<color=red>[GameManagers] ⚡ 폭주 모드 발동! (남은 시간: 5초)</color>");
+        // Debug.Log("<color=red>[GameManagers] ⚡ 폭주 모드 발동! (남은 시간: 5초)</color>");
         
         foreach (var player in AllPlayers)
         {
@@ -1766,7 +1422,7 @@ public class GameManagers : NetworkBehaviour
                 // 수비팀: 자신 필드의 몬스터(공격팀이 소환) + 유닛 모두에 버프 적용
                 player.monsterSpawner?.ApplyBerserkModeToAllMonsters();
                 player.fieldManager?.ApplyBerserkModeToAllUnits();
-                Debug.Log($"<color=red>[TriggerBerserkMode] Player {player.playerId}: 수비팀 - 몬스터+유닛 버서커 버프</color>");
+                // Debug.Log($"<color=red>[TriggerBerserkMode] Player {player.playerId}: 수비팀 - 몬스터+유닛 버서커 버프</color>");
             }
             // 공격팀은 자신의 필드에 전투가 없으므로 버프 적용 불필요
         }
@@ -1809,74 +1465,6 @@ public class GameManagers : NetworkBehaviour
         return eliminated;
     }
 
-    private async UniTask HandleUIForNewState(GameState newState)
-    {
-        // [수정] 싱글플레이 모드 지원: 서버(호스트)이거나 로컬 플레이어가 있을 때만 UI 처리
-        if (localPlayer == null)
-        {
-            if (!Runner.IsServer)
-            {
-                return; // 클라이언트인데 로컬 플레이어가 없으면 UI 처리 안함
-            }
-            else
-            {
-                Debug.LogWarning("[HandleUIForNewState] 로컬 플레이어가 아직 설정되지 않았습니다. UI 처리를 건너뜁니다.");
-                return;
-            }
-        }
-
-        switch (newState)
-        {
-            case GameState.Prepare:
-                // 상점 UI 숨김 (증강 UI는 SyncAugmentsCommand에서 활성화)
-                if (localPlayerShopUIGameObject != null)
-                {
-                    localPlayerShopUIGameObject.SetActive(false);
-                }
-                break;
-            case GameState.Battle1:
-            case GameState.Battle2:
-                // 전투 단계 진입 시 모든 UI 비활성화
-                Debug.Log($"<color=yellow>[HandleUIForNewState] {newState} 단계 - UI 비활성화</color>");
-                if (UIManagers.Instance != null && UIManagers.Instance.IsUIElementActive("UI_Pnl_Augment"))
-                {
-                    UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
-                }
-                if (localPlayerShopUIGameObject != null)
-                {
-                    localPlayerShopUIGameObject.SetActive(false);
-                }
-                // TODO: 공격 시퀀스 UI 활성화 (공격자인 경우)
-                break;
-            case GameState.GameOver:
-                if (UIManagers.Instance == null)
-                {
-                    Debug.LogWarning("[HandleUIForNewState] GameOver UI를 표시할 UIManagers.Instance가 없습니다.");
-                    break;
-                }
-
-                // 승자 판정: 체력이 가장 높은 플레이어 (0 이하여도 덜 마이너스인 쪽이 승리)
-                PlayerManager winner = AllPlayers
-                    .Where(p => p != null)
-                    .OrderByDescending(p => p.GetHealth())
-                    .FirstOrDefault();
-                
-                // 로컬 플레이어의 승패 UI 표시
-                if (localPlayer != null)
-                {
-                    if (localPlayer == winner)
-                    {
-                        await UIManagers.Instance.GetUIElement("UI_Pnl_Victory");
-                    }
-                    else
-                    {
-                        await UIManagers.Instance.GetUIElement("UI_Pnl_Defeat");
-                    }
-                }
-                break;
-        }
-    }
-
     /// <summary>
     /// 현재 게임 상태를 반환합니다. Spawned 상태가 아니면 Setup을 반환합니다.
     /// </summary>
@@ -1889,31 +1477,6 @@ public class GameManagers : NetworkBehaviour
         }
         return currentState;
     }
-    public PlayerManager GetPlayer(int id)
-    {
-        foreach (var player in AllPlayers)
-        {
-            if (player == null || player.Object == null || !player.Object.IsValid)
-            {
-                continue;
-            }
-
-            try
-            {
-                if (player.playerId == id)
-                {
-                    return player;
-                }
-            }
-            catch (System.InvalidOperationException)
-            {
-                // Host Migration 중 Spawned 전 객체는 건너뛴다.
-            }
-        }
-
-        return null;
-    }
-
     public void OnMonsterReachedGoal(PlayerManager failedPlayer)
     {
         if (Runner.IsServer)
@@ -1931,7 +1494,7 @@ public class GameManagers : NetworkBehaviour
         var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
         if (alivePlayers.Count <= 1)
         {
-            currentState = GameState.GameOver;
+            TransitionToGameOverState("GameOver");
             phaseTimer = TickTimer.None;
 
             PlayerManager winner = alivePlayers.FirstOrDefault();
@@ -1987,671 +1550,4 @@ public class GameManagers : NetworkBehaviour
         selectCharacterName.Add(name);
     }
     #endregion
-
-    #region Host Migration 지원
-    /// <summary>
-    /// Host Migration 복원 전에 캐시된 상태가 더 앞선 상태라면 역행을 방지하기 위해 적용합니다.
-    /// </summary>
-    public bool TryApplyCachedStateForMigration(GameMigrationData cachedData, float elapsedSinceCacheSeconds, string context)
-    {
-        if (!IsReadyForNetworkAccess || Runner == null || Object == null || !Object.HasStateAuthority)
-        {
-            return false;
-        }
-
-        if (cachedData.CurrentRound <= 0)
-        {
-            return false;
-        }
-
-        if (cachedData.GameStateValue < (int)GameState.Setup || cachedData.GameStateValue > (int)GameState.GameOver)
-        {
-            Debug.LogWarning($"[GameManagers] 캐시 상태 값이 유효하지 않아 적용하지 않습니다. stateValue={cachedData.GameStateValue}, context={context}");
-            return false;
-        }
-
-        GameState cachedState = (GameState)cachedData.GameStateValue;
-        int cachedRank = GetMigrationStateRank(cachedState);
-        int currentRank = GetMigrationStateRank(currentState);
-
-        bool roundBehind = currentRound < cachedData.CurrentRound;
-        bool stateBehind = currentRound == cachedData.CurrentRound && currentRank < cachedRank;
-        bool shouldPromoteState = roundBehind || stateBehind;
-
-        float elapsed = Mathf.Max(0f, elapsedSinceCacheSeconds);
-        float adjustedCachedRemaining = Mathf.Max(0f, cachedData.RemainingPhaseTime - elapsed);
-        float currentRemaining = phaseTimer.IsRunning ? (phaseTimer.RemainingTime(Runner) ?? 0f) : 0f;
-        bool sameRoundSameState = currentRound == cachedData.CurrentRound && currentRank == cachedRank;
-        bool shouldPromoteTimerOnly = !shouldPromoteState && sameRoundSameState && adjustedCachedRemaining > currentRemaining + 1f;
-
-        if (!shouldPromoteState && !shouldPromoteTimerOnly)
-        {
-            return false;
-        }
-
-        int beforeRound = currentRound;
-        GameState beforeState = currentState;
-        float beforeRemaining = currentRemaining;
-
-        if (shouldPromoteState)
-        {
-            currentRound = cachedData.CurrentRound;
-            currentState = cachedState;
-        }
-
-        bool timerRequired =
-            cachedState == GameState.Prepare ||
-            cachedState == GameState.Battle1 ||
-            cachedState == GameState.Battle2;
-
-        if (timerRequired && adjustedCachedRemaining > 0.25f)
-        {
-            phaseTimer = TickTimer.CreateFromSeconds(Runner, adjustedCachedRemaining);
-        }
-        else if (timerRequired && shouldPromoteState)
-        {
-            phaseTimer = TickTimer.None;
-        }
-
-        Debug.Log($"<color=magenta>[GameManagers] HostMigration 캐시 상태 적용 ({context})\n  before=R{beforeRound}/{beforeState} {beforeRemaining:F1}s\n  cached=R{cachedData.CurrentRound}/{cachedState} {cachedData.RemainingPhaseTime:F1}s (elapsed={elapsed:F1})\n  after=R{currentRound}/{currentState} {currentPhaseTimer:F1}s</color>");
-        return true;
-    }
-
-    private static int GetMigrationStateRank(GameState state)
-    {
-        return state switch
-        {
-            GameState.Setup => 0,
-            GameState.DataLoading => 1,
-            GameState.Prepare => 2,
-            GameState.Battle1 => 3,
-            GameState.Battle2 => 4,
-            GameState.GameOver => 5,
-            _ => -1
-        };
-    }
-
-    /// <summary>
-    /// Host Migration 후 게임 상태를 복원합니다.
-    /// Networked 속성들 (currentState, currentRound, phaseTimer)은 Fusion이 자동 복원합니다.
-    /// 이 메서드는 로컬 상태만 복원합니다.
-    /// </summary>
-    public void RestoreAfterHostMigration()
-    {
-        _activeMigrationTraceId = ++_hostMigrationTraceSeq;
-        _migrationRestoreInProgress = true;
-        _migrationUiRestoreCompleted = false;
-        _migrationSetupUiCompleted = false;
-        _migrationWarnedPrepareExpiryRace = false;
-        _migrationRestoreStartedRealtime = Time.realtimeSinceStartup;
-        _migrationRestoreStartFrame = Time.frameCount;
-        _migrationTimerPaused = false;
-        _migrationPausedTimerRemainingSeconds = 0f;
-
-        Debug.Log("<color=yellow>═══════════════════════════════════════════</color>");
-        Debug.Log("<color=yellow>[GameManagers] RestoreAfterHostMigration 시작!</color>");
-        Debug.Log("<color=yellow>═══════════════════════════════════════════</color>");
-        LogMigrationTrace("RestoreAfterHostMigration:BEGIN", $"startFrame={_migrationRestoreStartFrame}");
-        
-        // 상태 체크 로깅
-        Debug.Log($"[복원] Object 유효: {Object != null}");
-        Debug.Log($"[복원] Object.IsValid: {Object?.IsValid}");
-        Debug.Log($"[복원] _isSpawned: {_isSpawned}");
-        Debug.Log($"[복원] IsReadyForNetworkAccess: {IsReadyForNetworkAccess}");
-        Debug.Log($"[복원] HasStateAuthority: {Object?.HasStateAuthority}");
-        bool runnerMatched = IsBoundToActiveRunner();
-        Debug.Log($"[복원] RunnerMatched: {runnerMatched}");
-        
-        // Spawned 상태가 아니면 대기 후 재시도
-        if (!IsReadyForNetworkAccess)
-        {
-            Debug.LogWarning("<color=red>[GameManagers] 아직 Spawned 상태가 아닙니다. 복원을 건너뜁니다.</color>");
-            LogMigrationTrace("RestoreAfterHostMigration:ABORT_NOT_READY");
-            _migrationRestoreInProgress = false;
-            return;
-        }
-
-        if (!runnerMatched)
-        {
-            Debug.LogError("<color=red>[GameManagers] 활성 Runner와 불일치하여 복원을 중단합니다.</color>");
-            LogMigrationTrace("RestoreAfterHostMigration:ABORT_RUNNER_MISMATCH");
-            _migrationRestoreInProgress = false;
-            return;
-        }
-
-        if (Runner != null && Runner.IsServer && (Object == null || !Object.HasStateAuthority))
-        {
-            Debug.LogError("<color=red>[GameManagers] 새 Host인데 StateAuthority가 없어 복원을 중단합니다.</color>");
-            LogMigrationTrace("RestoreAfterHostMigration:ABORT_NO_STATE_AUTH");
-            _migrationRestoreInProgress = false;
-            return;
-        }
-        
-        Debug.Log($"<color=cyan>[복원] 현재 게임 상태 - Round: {currentRound}, State: {currentState}, Timer: {currentPhaseTimer:F1}s</color>");
-        
-        // 1. ChangeDetector 재초기화
-        Debug.Log("[복원] 1. ChangeDetector 재초기화...");
-        if (Object != null)
-        {
-            _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
-            Debug.Log("[복원] ChangeDetector 재초기화 완료");
-        }
-        
-        // 2. 로컬 플레이어 참조 재연결
-        Debug.Log("[복원] 2. 로컬 플레이어 재연결...");
-        RelinkLocalPlayer();
-        Debug.Log($"[복원] localPlayer: {(localPlayer != null ? $"Player {localPlayer.playerId}" : "null")}");
-        
-        // 3. CommandProcessor 재초기화 (필요한 경우)
-        Debug.Log("[복원] 3. CommandProcessor 체크...");
-        if (CommandProcessor == null)
-        {
-            CommandProcessor = new CommandProcessor();
-            Debug.Log("[복원] CommandProcessor 새로 생성");
-        }
-        else
-        {
-            Debug.Log("[복원] CommandProcessor 이미 존재");
-        }
-        
-        // 4. UI 상태 복원
-        Debug.Log("[복원] 4. UI 상태 복원...");
-        LogMigrationTrace("RestoreAfterHostMigration:KickRestoreLocalUI");
-        RestoreLocalUIAfterMigrationAsync().Forget();
-        
-        // 5. 싱글톤 인스턴스 재설정
-        Debug.Log("[복원] 5. 싱글톤 인스턴스 체크...");
-        if (Instance == null || Instance != this)
-        {
-            Instance = this;
-            Debug.Log("[복원] 싱글톤 인스턴스 재설정 완료");
-        }
-        
-        // 6. 상점/증강 데이터 재동기화 (새 Host인 경우)
-        Debug.Log("[복원] 6. 상점/증강 데이터 동기화 체크...");
-        if (Object != null && Object.HasStateAuthority)
-        {
-            Debug.Log("<color=green>[복원] 새 Host - 상점 데이터 재동기화 시작</color>");
-            foreach (var player in AllPlayers)
-            {
-                if (player?.shopManager != null)
-                {
-                    var items = player.shopManager.GetCurrentShopItems();
-                    Debug.Log($"[복원] Player {player.playerId} 상점 아이템: {items?.Count ?? 0}개");
-                    
-                    if (items != null && items.Count > 0)
-                    {
-                        string[] names = items.Select(i => i.UnitData?.name ?? "").ToArray();
-                        int[] stars = items.Select(i => i.StarLevel).ToArray();
-                        var cmd = new SyncShopItemsCommand(player.playerId, names, stars);
-                        CommandProcessor.RequestCommandExecution(cmd);
-                    }
-                }
-            }
-        }
-        else if (Object != null && !Object.HasStateAuthority && localPlayer != null)
-        {
-            Debug.Log("<color=cyan>[복원] 클라이언트 - 서버에 데이터 동기화 요청</color>");
-            localPlayer.RPC_RequestSyncData();
-        }
-        
-        // 7. 게임 흐름 재개는 "권한 + 플레이어 런타임 준비 + UI 복원 완료" 이후에 수행
-        PausePhaseTimerForMigrationIfNeeded();
-        Debug.Log("<color=magenta>═══ [STEP 6] 게임 흐름 재개 조건 대기 시작 ═══</color>");
-        StartCoroutine(WaitForRestoreDependenciesAndResumeFlow());
-        
-        // ★ 8. [Observer Pattern] 상태 복원 완료 이벤트 발행
-        GameEvents.TriggerGameStateRestored(currentState);
-        
-        Debug.Log("<color=magenta>═══ [STEP 7] Host Migration 완료 ═══</color>");
-        Debug.Log($"<color=green>[STEP 7] 최종 상태 확인:</color>");
-        Debug.Log($"  GameState: {currentState}");
-        Debug.Log($"  라운드: {currentRound}");
-        Debug.Log($"  타이머 실행 중: {phaseTimer.IsRunning}");
-        Debug.Log($"  남은 시간: {currentPhaseTimer:F1}초");
-        Debug.Log($"  StateAuthority: {Object?.HasStateAuthority}");
-        
-        // Battle 상태 확인
-        bool isInBattle = currentState == GameState.Battle1 || currentState == GameState.Battle2;
-        if (isInBattle)
-        {
-            Debug.Log($"<color=cyan>[STEP 7] ✓ Battle 상태 복원 성공! ({currentState})</color>");
-        }
-
-        LogMigrationTrace("RestoreAfterHostMigration:END");
-    }
-
-    private void PausePhaseTimerForMigrationIfNeeded()
-    {
-        if (Runner == null || Object == null || !Object.HasStateAuthority)
-        {
-            return;
-        }
-
-        if (!phaseTimer.IsRunning)
-        {
-            return;
-        }
-
-        float remaining = phaseTimer.RemainingTime(Runner) ?? 0f;
-        if (remaining <= 0f)
-        {
-            return;
-        }
-
-        _migrationTimerPaused = true;
-        _migrationPausedTimerRemainingSeconds = remaining;
-        phaseTimer = TickTimer.None;
-
-        Debug.Log($"[STEP 6] Host Migration 복원 중 타이머 일시 정지: {remaining:F1}초");
-        LogMigrationTrace("PausePhaseTimerForMigrationIfNeeded", $"remaining={remaining:F1}");
-    }
-
-    private IEnumerator WaitForRestoreDependenciesAndResumeFlow()
-    {
-        float waitTime = 0f;
-        const float maxWaitTime = 8f;
-
-        LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:BEGIN");
-
-        while (waitTime < maxWaitTime)
-        {
-            bool hasAuthority = Object != null && Object.HasStateAuthority;
-            bool runnerMatched = IsBoundToActiveRunner();
-            bool uiReady = _migrationUiRestoreCompleted;
-            bool playersReady = AreAllPlayersRuntimeReadyForMigration(out string notReadyReason);
-
-            if (hasAuthority && runnerMatched && uiReady && playersReady)
-            {
-                Debug.Log($"<color=green>[STEP 6] 재개 조건 충족 ({waitTime:F1}s): authority={hasAuthority}, runnerMatched={runnerMatched}, uiReady={uiReady}, playersReady={playersReady}</color>");
-                LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:READY", $"waited={waitTime:F1}s");
-                ResumeGameFlowFromCurrentState();
-                yield break;
-            }
-
-            if (waitTime == 0f || Mathf.Abs((waitTime * 10f) % 10f) < 0.001f)
-            {
-                Debug.Log($"[STEP 6] 조건 대기 중... ({waitTime:F1}s) authority={hasAuthority}, runnerMatched={runnerMatched}, uiReady={uiReady}, playersReady={playersReady}");
-                if (!playersReady && !string.IsNullOrEmpty(notReadyReason))
-                {
-                    Debug.LogWarning($"[STEP 6] 플레이어 런타임 준비 미완료: {notReadyReason}");
-                }
-                if (!runnerMatched)
-                {
-                    Debug.LogWarning("[STEP 6] GameManagers.Runner가 현재 활성 Runner와 다릅니다.");
-                }
-            }
-
-            yield return new WaitForSeconds(0.1f);
-            waitTime += 0.1f;
-        }
-
-        Debug.LogWarning($"<color=orange>[STEP 6] 재개 조건 대기 시간 초과 ({maxWaitTime:F1}s)</color>");
-        LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:TIMEOUT", $"waited={maxWaitTime:F1}s");
-
-        if (Object != null && Object.HasStateAuthority && IsBoundToActiveRunner())
-        {
-            ResumeGameFlowFromCurrentState();
-        }
-    }
-
-    private bool IsBoundToActiveRunner()
-    {
-        if (Runner == null)
-        {
-            return false;
-        }
-
-        var activeRunner = NetworkManager.Instance?._runner;
-        return activeRunner != null && activeRunner == Runner;
-    }
-
-    private bool AreAllPlayersRuntimeReadyForMigration(out string reason)
-    {
-        reason = string.Empty;
-
-        var players = AllPlayers
-            .Where(p => p != null && p.playerId >= 0 && p.Object != null && p.Object.IsValid)
-            .ToList();
-        if (players.Count == 0)
-        {
-            reason = "players=0(valid)";
-            return false;
-        }
-
-        var notReady = new List<string>();
-        foreach (var player in players)
-        {
-            player.RebindRuntimeReferencesAfterMigration("GameManagers.WaitForRestoreDependencies", false);
-            if (!player.IsRuntimeReady(out string playerReason))
-            {
-                notReady.Add($"P{player.playerId}:{playerReason}");
-            }
-        }
-
-        if (notReady.Count > 0)
-        {
-            reason = string.Join(", ", notReady);
-            return false;
-        }
-
-        return true;
-    }
-    
-    /// <summary>
-    /// [State Machine Pattern]
-    /// 현재 상태에서 게임 흐름을 재개합니다 (새 Host 전용).
-    /// 타이머가 없거나 만료되었으면 현재 상태에 맞게 재설정합니다.
-    /// </summary>
-    private void ResumeGameFlowFromCurrentState()
-    {
-        LogMigrationTrace("ResumeGameFlowFromCurrentState:ENTER");
-
-        if (_migrationTimerPaused && Runner != null && Object != null && Object.HasStateAuthority)
-        {
-            float restoreSeconds = Mathf.Max(0.25f, _migrationPausedTimerRemainingSeconds);
-            phaseTimer = TickTimer.CreateFromSeconds(Runner, restoreSeconds);
-            Debug.Log($"[STEP 6] 일시 정지된 타이머 복원: {restoreSeconds:F1}초");
-            LogMigrationTrace("ResumeGameFlowFromCurrentState:RESTORE_PAUSED_TIMER", $"restoreSeconds={restoreSeconds:F1}");
-            _migrationTimerPaused = false;
-            _migrationPausedTimerRemainingSeconds = 0f;
-        }
-
-        bool timerRunning = phaseTimer.IsRunning;
-        bool timerExpired = timerRunning && phaseTimer.Expired(Runner);
-        float remainingTime = timerRunning ? (phaseTimer.RemainingTime(Runner) ?? 0f) : 0f;
-        
-        Debug.Log($"<color=yellow>[STEP 6] 현재 상태: {currentState}</color>");
-        Debug.Log($"[STEP 6] 타이머 상태:");
-        Debug.Log($"  - Running: {timerRunning}");
-        Debug.Log($"  - Expired: {timerExpired}");
-        Debug.Log($"  - Remaining: {remainingTime:F1}초");
-        
-        // 타이머가 정상 동작 중이면 유지
-        if (timerRunning && !timerExpired && remainingTime > 0.5f)
-        {
-            Debug.Log($"<color=green>[STEP 6] ✓ 기존 타이머 유지 ({remainingTime:F1}초 남음) - 게임 재개!</color>");
-            LogMigrationTrace("ResumeGameFlowFromCurrentState:KEEP_TIMER");
-            return;
-        }
-        
-        // 타이머가 없거나 만료되었으면 현재 상태에 맞게 재설정
-        float newDuration = currentState switch
-        {
-            GameState.Prepare => firstPrepareDurationUsed ? preparePhaseTime : firstPreparePhaseTime,
-            GameState.Battle1 => combatTime,
-            GameState.Battle2 => combatTime,
-            _ => 0f
-        };
-        
-        if (newDuration > 0f)
-        {
-            phaseTimer = TickTimer.CreateFromSeconds(Runner, newDuration);
-            Debug.Log($"<color=cyan>[STEP 6] ✓ 타이머 재설정: {newDuration}초 - 게임 재개!</color>");
-            Debug.Log($"<color=cyan>[STEP 6] 현재 상태 ({currentState})에서 계속 진행됩니다.</color>");
-            LogMigrationTrace("ResumeGameFlowFromCurrentState:RESET_TIMER", $"newDuration={newDuration:F1}");
-        }
-        else
-        {
-            Debug.Log($"[STEP 6] {currentState} 상태는 타이머가 필요 없음");
-            LogMigrationTrace("ResumeGameFlowFromCurrentState:NO_TIMER");
-        }
-    }
-    
-    /// <summary>
-    /// Host Migration 후 로컬 플레이어 참조를 다시 연결합니다.
-    /// </summary>
-    private void RelinkLocalPlayer()
-    {
-        Debug.Log($"[GameManagers] RelinkLocalPlayer 시작 - AllPlayers 수: {AllPlayers.Count()}");
-        
-        // 방법 1: AllPlayers에서 InputAuthority 가진 플레이어 찾기
-        localPlayer = AllPlayers.FirstOrDefault(p => 
-            p != null && p.Object != null && p.Object.HasInputAuthority);
-        
-        // 방법 2: AllPlayers에 없으면 FindObjectsOfType으로 폴백
-        if (localPlayer == null)
-        {
-            Debug.Log("[GameManagers] AllPlayers에서 못 찾음, FindObjectsOfType 시도...");
-            var allPlayerManagers = FindObjectsOfType<PlayerManager>();
-            Debug.Log($"[GameManagers] 발견된 PlayerManager 수: {allPlayerManagers.Length}");
-            
-            foreach (var pm in allPlayerManagers)
-            {
-                Debug.Log($"  - {pm.name}: Object={pm.Object != null}, HasInputAuthority={pm.Object?.HasInputAuthority}");
-                if (pm != null && pm.Object != null && pm.Object.HasInputAuthority)
-                {
-                    localPlayer = pm;
-                    break;
-                }
-            }
-        }
-        
-        if (localPlayer != null)
-        {
-            Debug.Log($"[GameManagers] 로컬 플레이어 재연결 성공: Player {localPlayer.playerId}");
-            
-            // opponentManager 재연결 (2인 게임의 경우)
-            var allPlayersList = AllPlayers.ToList();
-            
-            // AllPlayers가 비어있으면 FindObjectsOfType 사용
-            if (allPlayersList.Count == 0)
-            {
-                allPlayersList = FindObjectsOfType<PlayerManager>().ToList();
-            }
-            
-            if (allPlayersList.Count == 2)
-            {
-                var opponent = allPlayersList.FirstOrDefault(p => p != localPlayer);
-                if (opponent != null)
-                {
-                    localPlayer.opponentManager = opponent;
-                    opponent.opponentManager = localPlayer;
-                    Debug.Log($"[GameManagers] opponentManager 재연결: Player {opponent.playerId}");
-                }
-            }
-        }
-        else
-        {
-            Debug.LogWarning("[GameManagers] 로컬 플레이어를 찾을 수 없습니다!");
-        }
-    }
-
-    private void EnsureBattleMappingAfterMigration()
-    {
-        if (_battleOpponents.Count > 0 && _matchFirstAttacker.Count > 0)
-        {
-            return;
-        }
-
-        var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
-        if (alivePlayers.Count == 0)
-        {
-            return;
-        }
-
-        _battleOpponents.Clear();
-        _matchFirstAttacker.Clear();
-
-        if (alivePlayers.Count == 2)
-        {
-            var a = alivePlayers[0];
-            var b = alivePlayers[1];
-            _battleOpponents[a.playerId] = b.playerId;
-            _battleOpponents[b.playerId] = a.playerId;
-
-            int firstAttacker = ResolveFirstAttackerForResumePair(a, b);
-            _matchFirstAttacker[a.playerId] = firstAttacker;
-            _matchFirstAttacker[b.playerId] = firstAttacker;
-            FirstAttackerPlayerId = firstAttacker;
-
-            Debug.LogWarning($"[복원/매칭] 2인 폴백 재구성 완료: P{a.playerId}↔P{b.playerId}, 선공자=P{firstAttacker}, state={currentState}");
-            return;
-        }
-
-        var processed = new HashSet<int>();
-        foreach (var player in alivePlayers)
-        {
-            if (processed.Contains(player.playerId))
-            {
-                continue;
-            }
-
-            var opponent = player.opponentManager;
-            if (opponent != null && alivePlayers.Contains(opponent))
-            {
-                _battleOpponents[player.playerId] = opponent.playerId;
-                _battleOpponents[opponent.playerId] = player.playerId;
-
-                int firstAttacker = ResolveFirstAttackerForResumePair(player, opponent);
-                _matchFirstAttacker[player.playerId] = firstAttacker;
-                _matchFirstAttacker[opponent.playerId] = firstAttacker;
-
-                processed.Add(player.playerId);
-                processed.Add(opponent.playerId);
-            }
-            else
-            {
-                _battleOpponents[player.playerId] = -1;
-                _matchFirstAttacker[player.playerId] = -1;
-                processed.Add(player.playerId);
-            }
-        }
-
-        Debug.LogWarning($"[복원/매칭] opponentManager 기반 재구성 완료: {string.Join(", ", _battleOpponents.Select(kv => $"P{kv.Key}↔P{kv.Value}"))}");
-    }
-
-    private int ResolveFirstAttackerForResumePair(PlayerManager a, PlayerManager b)
-    {
-        if (currentState == GameState.Battle1)
-        {
-            if (a.IsAttackerInCurrentBattle && !b.IsAttackerInCurrentBattle) return a.playerId;
-            if (b.IsAttackerInCurrentBattle && !a.IsAttackerInCurrentBattle) return b.playerId;
-        }
-        else if (currentState == GameState.Battle2)
-        {
-            // Battle2는 Battle1의 공수 반대이므로, 현재 수비자가 Battle1 선공자
-            if (!a.IsAttackerInCurrentBattle && b.IsAttackerInCurrentBattle) return a.playerId;
-            if (!b.IsAttackerInCurrentBattle && a.IsAttackerInCurrentBattle) return b.playerId;
-        }
-
-        if (FirstAttackerPlayerId == a.playerId || FirstAttackerPlayerId == b.playerId)
-        {
-            return FirstAttackerPlayerId;
-        }
-
-        return a.playerId;
-    }
-
-    private async UniTask RestoreLocalUIAfterMigrationAsync()
-    {
-        bool completed = false;
-        LogMigrationTrace("RestoreLocalUI:ENTER");
-
-        try
-        {
-            await SetupGameUI(forceRefresh: true);
-            LogMigrationTrace("RestoreLocalUI:AFTER_SETUP_UI");
-
-            if (localPlayer == null)
-            {
-                RelinkLocalPlayer();
-            }
-
-            if (localPlayer == null)
-            {
-                Debug.LogWarning("[복원/UI] localPlayer를 찾지 못해 UI 이벤트를 재발행할 수 없습니다.");
-                LogMigrationTrace("RestoreLocalUI:ABORT_NO_LOCAL_PLAYER");
-                return;
-            }
-
-            Debug.Log($"[복원/UI] UI 이벤트 재발행 시작 - State: {currentState}, LocalPlayer: {localPlayer.playerId}");
-
-            GameEvents.TriggerGameManagersReady();
-            GameEvents.TriggerGameStateChanged(currentState);
-            await HandleUIForNewState(currentState);
-            LogMigrationTrace("RestoreLocalUI:AFTER_STATE_EVENTS");
-
-            if (currentState != GameState.Prepare)
-            {
-                completed = true;
-                LogMigrationTrace("RestoreLocalUI:END_NON_PREPARE");
-                return;
-            }
-
-            var augmentChoices = localPlayer.augmentManager?.GetPresentedAugments();
-            if (augmentChoices != null && augmentChoices.Count > 0)
-            {
-                GameEvents.TriggerAugmentPhaseStart(localPlayer, augmentChoices);
-                Debug.Log($"[복원/UI] 증강 UI 이벤트 재발행 완료 (선택지: {augmentChoices.Count})");
-                completed = true;
-                LogMigrationTrace("RestoreLocalUI:END_AUGMENT_EVENT", $"choiceCount={augmentChoices.Count}");
-                return;
-            }
-
-            Debug.LogWarning("[복원/UI] 증강 선택지가 없어 상점 UI 폴백을 시도합니다.");
-            await ShowLocalShopFallbackAsync();
-            completed = true;
-            LogMigrationTrace("RestoreLocalUI:END_SHOP_FALLBACK");
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError($"[복원/UI] RestoreLocalUIAfterMigrationAsync 예외: {ex.Message}");
-            Debug.LogException(ex);
-            LogMigrationTrace("RestoreLocalUI:EXCEPTION", $"error={ex.Message}");
-        }
-        finally
-        {
-            _migrationUiRestoreCompleted = completed;
-            _migrationRestoreInProgress = false;
-            LogMigrationTrace("RestoreLocalUI:FINALLY", $"completed={completed}");
-        }
-    }
-
-    private async UniTask ShowLocalShopFallbackAsync()
-    {
-        LogMigrationTrace("ShowLocalShopFallback:ENTER");
-
-        if (localPlayer == null || localPlayer.shopManager == null)
-        {
-            LogMigrationTrace("ShowLocalShopFallback:ABORT_NO_PLAYER_OR_SHOP");
-            return;
-        }
-
-        if (localPlayerShopUIGameObject == null || localPlayerShopUI == null)
-        {
-            LogMigrationTrace("ShowLocalShopFallback:ABORT_UI_REF_NULL");
-            return;
-        }
-
-        if (Object != null && Object.HasStateAuthority && currentState == GameState.Prepare)
-        {
-            var hostShopItems = localPlayer.shopManager.GetCurrentShopItems();
-            if (hostShopItems == null || hostShopItems.Count == 0)
-            {
-                localPlayer.shopManager.Reroll(true);
-                hostShopItems = localPlayer.shopManager.GetCurrentShopItems();
-                Debug.Log($"[복원/UI] 로컬 Host 상점 긴급 리롤: Player {localPlayer.playerId}, itemCount={hostShopItems?.Count ?? 0}");
-
-                if (CommandProcessor != null && hostShopItems != null && hostShopItems.Count > 0)
-                {
-                    string[] shopNames = hostShopItems.Select(i => i.UnitData?.name ?? string.Empty).ToArray();
-                    int[] shopStars = hostShopItems.Select(i => i.StarLevel).ToArray();
-                    var syncShopCmd = new SyncShopItemsCommand(localPlayer.playerId, shopNames, shopStars);
-                    CommandProcessor.RequestCommandExecution(syncShopCmd);
-                    Debug.Log($"[복원/UI] 로컬 Host 상점 동기화 전송: Player {localPlayer.playerId}, itemCount={hostShopItems.Count}");
-                }
-            }
-        }
-
-        await localPlayer.shopManager.EnsureShopRerolledAsync();
-        localPlayerShopUIGameObject.SetActive(true);
-        localPlayerShopUI.SetContentVisibility(true);
-        localPlayerShopUI.DisplayShopItems(localPlayer.shopManager.GetCurrentShopItems());
-        Debug.Log("[복원/UI] 상점 UI 폴백 표시 완료");
-        LogMigrationTrace("ShowLocalShopFallback:SUCCESS", $"shopCount={localPlayer.shopManager.GetCurrentShopItems().Count}");
-    }
-    #endregion
-
-
 }

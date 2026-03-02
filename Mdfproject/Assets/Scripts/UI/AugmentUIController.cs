@@ -1,4 +1,4 @@
-// Assets/Scripts/UI/AugmentUIController.cs
+﻿// Assets/Scripts/UI/AugmentUIController.cs
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -21,7 +21,7 @@ public class AugmentUIController : MonoBehaviour
     {
         // [수정] Awake에서 구독하여 GameObject 비활성화 시에도 이벤트를 수신
         GameEvents.OnAugmentPhaseStart += HandleAugmentPhaseStart;
-        Debug.Log($"<color=lime>[AugmentUIController] Awake: OnAugmentPhaseStart 이벤트 구독 완료</color>");
+        // Debug.Log($"<color=lime>[AugmentUIController] Awake: OnAugmentPhaseStart 이벤트 구독 완료</color>");
     }
 
     void OnDestroy()
@@ -93,7 +93,7 @@ public class AugmentUIController : MonoBehaviour
     /// </summary>
     private void OnAugmentButtonClicked(int index)
     {
-        Debug.Log("<color=yellow>OnAugmentButtonClicked 호출</color>");
+        // Debug.Log("<color=yellow>OnAugmentButtonClicked 호출</color>");
         // [핵심 변경점]
         // 이제 이벤트를 직접 발생시키는 대신, SelectAugmentCommand를 생성하여 실행합니다.
         // 이를 통해 플레이어의 행동과 AI의 행동이 동일한 로직을 타게 됩니다.
@@ -109,7 +109,7 @@ public class AugmentUIController : MonoBehaviour
         }
         else
         {
-            Debug.LogError($"증강 선택 처리 중 오류 발생: LocalPlayer: {localPlayer}, Choices: {currentChoices}, Index: {index}");
+            // Debug.LogError($"증강 선택 처리 중 오류 발생: LocalPlayer: {localPlayer}, Choices: {currentChoices}, Index: {index}");
         }
     }
 

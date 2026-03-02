@@ -1,4 +1,4 @@
-// Assets/Scripts/Managers/FieldManager.cs
+﻿// Assets/Scripts/Managers/FieldManager.cs
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -719,17 +719,17 @@ public class FieldManager : MonoBehaviour
     {
         if (destructibleWallPrefab == null)
         {
-            Debug.LogError($"[FieldManager] CreateWallAt failed: destructibleWallPrefab is null (Player={playerManager?.playerId}) at {gridPosition}");
+            // Debug.LogError($"[FieldManager] CreateWallAt failed: destructibleWallPrefab is null (Player={playerManager?.playerId}) at {gridPosition}");
             return;
         }
         if (HasWallAt(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateWallAt ignored: wall already exists at {gridPosition} (Player={playerManager?.playerId})");
+            // Debug.LogWarning($"[FieldManager] CreateWallAt ignored: wall already exists at {gridPosition} (Player={playerManager?.playerId})");
             return;
         }
         if (!IsValidGridPosition(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateWallAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            // Debug.LogWarning($"[FieldManager] CreateWallAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
 
@@ -741,7 +741,7 @@ public class FieldManager : MonoBehaviour
                 Vector3Int? alt = FindFirstEmptySlot(occupant.Data);
                 if (!alt.HasValue)
                 {
-                    Debug.LogWarning($"[FieldManager] CreateWallAt aborted: no empty slot to relocate melee unit at {gridPosition} (Player={playerManager?.playerId})");
+                    // Debug.LogWarning($"[FieldManager] CreateWallAt aborted: no empty slot to relocate melee unit at {gridPosition} (Player={playerManager?.playerId})");
                     return;
                 }
                 MoveUnit(gridPosition, alt.Value);
@@ -763,7 +763,7 @@ public class FieldManager : MonoBehaviour
             var spawned = runner.Spawn(netPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
             if (spawned == null)
             {
-                Debug.LogError($"[FieldManager] Runner.Spawn 실패: {destructibleWallPrefab.name} (Player={playerManager?.playerId})");
+                // Debug.LogError($"[FieldManager] Runner.Spawn 실패: {destructibleWallPrefab.name} (Player={playerManager?.playerId})");
                 return;
             }
             wallGO = spawned.gameObject;
@@ -794,7 +794,7 @@ public class FieldManager : MonoBehaviour
         }
         else
         {
-            Debug.LogError($"{destructibleWallPrefab.name} 프리팹에 DestructibleWall 컴포넌트가 없습니다!", wallGO);
+            // Debug.LogError($"{destructibleWallPrefab.name} 프리팹에 DestructibleWall 컴포넌트가 없습니다!", wallGO);
             Destroy(wallGO);
         }
     }
@@ -891,7 +891,7 @@ public class FieldManager : MonoBehaviour
 
         if (prefab == null)
         {
-            Debug.LogError($"[FieldManager] Permanent wall prefab not set and failed to load '{permanentWallAddressKey}'. Skipping generation.");
+            // Debug.LogError($"[FieldManager] Permanent wall prefab not set and failed to load '{permanentWallAddressKey}'. Skipping generation.");
             permanentWallsGenerated = true;
             return;
         }
@@ -909,10 +909,10 @@ public class FieldManager : MonoBehaviour
         {
             // 폴백: 필드 중앙
             goalCell = new Vector3Int(gridSize.x / 2, gridSize.y / 2, 0);
-            Debug.LogWarning($"[FieldManager] goalTransform이 null입니다. 필드 중앙 {goalCell}을 사용합니다.");
+            // Debug.LogWarning($"[FieldManager] goalTransform이 null입니다. 필드 중앙 {goalCell}을 사용합니다.");
         }
 
-        Debug.Log($"[FieldManager] 영구벽 생성 - spawnCell: {spawnCell}, goalCell: {goalCell}");
+        // Debug.Log($"[FieldManager] 영구벽 생성 - spawnCell: {spawnCell}, goalCell: {goalCell}");
 
         List<Vector3Int> selected = new List<Vector3Int>();
         int centerX = gridSize.x / 2;
@@ -1004,7 +1004,7 @@ public class FieldManager : MonoBehaviour
                     // 배치하면 열린 인접 칸이 0개가 되는 경우 스킵
                     if (openAdjacentCount < 1)
                     {
-                        Debug.Log($"[FieldManager] 골 인접 셀 {cell} 스킵 - 완전 차단 방지");
+                        // Debug.Log($"[FieldManager] 골 인접 셀 {cell} 스킵 - 완전 차단 방지");
                         continue;
                     }
                 }
@@ -1014,7 +1014,7 @@ public class FieldManager : MonoBehaviour
                 placedCount++;
             }
 
-            Debug.Log($"[FieldManager] 필드 내부 랜덤 고정벽 {placedCount}개 생성 완료");
+            // Debug.Log($"[FieldManager] 필드 내부 랜덤 고정벽 {placedCount}개 생성 완료");
         }
 
         // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트하여 동일 위치에 생성
@@ -1062,7 +1062,7 @@ public class FieldManager : MonoBehaviour
 
         if (prefab == null)
         {
-            Debug.LogError($"[FieldManager] Permanent wall prefab not available on client for ApplyPermanentWallsFromServer. Key='{permanentWallAddressKey}'");
+            // Debug.LogError($"[FieldManager] Permanent wall prefab not available on client for ApplyPermanentWallsFromServer. Key='{permanentWallAddressKey}'");
             return;
         }
 
@@ -1247,7 +1247,7 @@ public class FieldManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning("[FieldManager] 필드에 빈 공간이 없어 유닛을 배치할 수 없습니다! 골드를 환불합니다.");
+            // Debug.LogWarning("[FieldManager] 필드에 빈 공간이 없어 유닛을 배치할 수 없습니다! 골드를 환불합니다.");
             int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
             playerManager.AddGold(refundCost);
         }
@@ -1266,7 +1266,7 @@ public class FieldManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"[FieldManager (AI)] {unitData.unitName}을(를) 배치할 유효한 위치를 찾지 못했습니다. 골드를 환불합니다.");
+            // Debug.LogWarning($"[FieldManager (AI)] {unitData.unitName}을(를) 배치할 유효한 위치를 찾지 못했습니다. 골드를 환불합니다.");
             int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
             playerManager.AddGold(refundCost);
         }
@@ -1276,38 +1276,38 @@ public class FieldManager : MonoBehaviour
     {
         if (!IsValidGridPosition(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            // Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
         if (data == null)
         {
-            Debug.LogError("[FieldManager] CreateUnitAt 실패: UnitData가 null입니다.");
+            // Debug.LogError("[FieldManager] CreateUnitAt 실패: UnitData가 null입니다.");
             return;
         }
         if (IsUnitAt(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 해당 위치에 이미 유닛이 존재합니다. pos={gridPosition}");
+            // Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 해당 위치에 이미 유닛이 존재합니다. pos={gridPosition}");
             return;
         }
         if (data.prefabsByStarLevel == null || data.prefabsByStarLevel.Length == 0)
         {
-            Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 prefabsByStarLevel이 비어있습니다.");
+            // Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 prefabsByStarLevel이 비어있습니다.");
             return;
         }
         if (starLevel < 1 || starLevel > data.prefabsByStarLevel.Length)
         {
-            Debug.LogError($"[FieldManager] CreateUnitAt 실패: 잘못된 성급({starLevel}). 허용 범위: 1~{data.prefabsByStarLevel.Length}");
+            // Debug.LogError($"[FieldManager] CreateUnitAt 실패: 잘못된 성급({starLevel}). 허용 범위: 1~{data.prefabsByStarLevel.Length}");
             return;
         }
         string prefabKey = data.prefabsByStarLevel[starLevel - 1];
         if (string.IsNullOrEmpty(prefabKey))
         {
-            Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 성급 {starLevel} 프리팹 키가 비어있습니다.");
+            // Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 성급 {starLevel} 프리팹 키가 비어있습니다.");
             return;
         }
         if (!TryReserveUnitPosition(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already reserved. pos={gridPosition}");
+            // Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already reserved. pos={gridPosition}");
             return;
         }
 
@@ -1317,7 +1317,7 @@ public class FieldManager : MonoBehaviour
 
             if (prefabToCreate == null)
             {
-                Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹({prefabKey})을 로드할 수 없습니다!");
+                // Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹({prefabKey})을 로드할 수 없습니다!");
                 return;
             }
 
@@ -1337,7 +1337,7 @@ public class FieldManager : MonoBehaviour
                 var spawned = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
                 if (spawned == null)
                 {
-                    Debug.LogError($"[FieldManager] Runner.Spawn 실패: {prefabToCreate.name} (Player={playerManager?.playerId})");
+                    // Debug.LogError($"[FieldManager] Runner.Spawn 실패: {prefabToCreate.name} (Player={playerManager?.playerId})");
                     return;
                 }
                 newUnitGO = spawned.gameObject;
@@ -1376,7 +1376,7 @@ public class FieldManager : MonoBehaviour
                 await newUnitComponent.Initialize(data, starLevel, playerManager);
                 if (placedUnits.ContainsKey(gridPosition))
                 {
-                    Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already occupied after spawn. pos={gridPosition}");
+                    // Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already occupied after spawn. pos={gridPosition}");
                     var netObj = newUnitGO.GetComponent<NetworkObject>();
                     if (runner != null && runner.IsRunning && netObj != null && (playerManager?.Object == null || playerManager.Object.HasStateAuthority))
                     {
@@ -1393,7 +1393,7 @@ public class FieldManager : MonoBehaviour
             }
             else
             {
-                Debug.LogError($"{prefabToCreate.name} 프리팹에 Unit 컴포넌트가 없습니다!", newUnitGO);
+                // Debug.LogError($"{prefabToCreate.name} 프리팹에 Unit 컴포넌트가 없습니다!", newUnitGO);
                 Destroy(newUnitGO);
             }
         }
@@ -1427,7 +1427,7 @@ public class FieldManager : MonoBehaviour
     {
         if (!IsValidGridPosition(from) || !IsValidGridPosition(to))
         {
-            Debug.LogWarning($"[FieldManager] MoveUnit 무시: 범위를 벗어난 이동 {from} -> {to} (GridSize={gridSize})");
+            // Debug.LogWarning($"[FieldManager] MoveUnit 무시: 범위를 벗어난 이동 {from} -> {to} (GridSize={gridSize})");
             return;
         }
 
@@ -1435,7 +1435,7 @@ public class FieldManager : MonoBehaviour
         {
             if (placedUnits.ContainsKey(to))
             {
-                Debug.LogWarning($"[FieldManager] MoveUnit 무시: 목표 위치 {to}에 이미 유닛이 있음 (from={from})");
+                // Debug.LogWarning($"[FieldManager] MoveUnit 무시: 목표 위치 {to}에 이미 유닛이 있음 (from={from})");
                 return;
             }
             
@@ -1450,7 +1450,7 @@ public class FieldManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"<color=red>[FieldManager] MoveUnit: '{from}' 위치에서 유닛을 찾을 수 없습니다.</color>");
+            // Debug.LogWarning($"<color=red>[FieldManager] MoveUnit: '{from}' 위치에서 유닛을 찾을 수 없습니다.</color>");
         }
     }
 
@@ -1458,12 +1458,12 @@ public class FieldManager : MonoBehaviour
     {
         if (!IsValidGridPosition(a) || !IsValidGridPosition(b))
         {
-            Debug.LogWarning($"[FieldManager] SwapUnits 무시: 범위를 벗어남 {a} <-> {b} (GridSize={gridSize})");
+            // Debug.LogWarning($"[FieldManager] SwapUnits 무시: 범위를 벗어남 {a} <-> {b} (GridSize={gridSize})");
             return;
         }
         if (!placedUnits.TryGetValue(a, out Unit unitA) || !placedUnits.TryGetValue(b, out Unit unitB))
         {
-            Debug.LogWarning($"[FieldManager] SwapUnits 실패: 대상 유닛을 찾을 수 없음 {a} <-> {b}");
+            // Debug.LogWarning($"[FieldManager] SwapUnits 실패: 대상 유닛을 찾을 수 없음 {a} <-> {b}");
             return;
         }
 
@@ -1681,12 +1681,12 @@ public class FieldManager : MonoBehaviour
     {
         if (unit == null)
         {
-            Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: unit이 null입니다. pos={gridPosition}");
+            // Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: unit이 null입니다. pos={gridPosition}");
             return;
         }
         if (!IsValidGridPosition(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            // Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
         ReleaseReservedUnitPosition(gridPosition);
@@ -1725,7 +1725,7 @@ public class FieldManager : MonoBehaviour
         var allValidTiles = GetValidPlacementTiles(unitData.unitType);
         if (allValidTiles == null || allValidTiles.Count == 0)
         {
-            Debug.LogWarning($"AI가 {unitData.unitType} 타입의 유닛을 배치할 유효한 타일을 찾지 못했습니다.");
+            // Debug.LogWarning($"AI가 {unitData.unitType} 타입의 유닛을 배치할 유효한 타일을 찾지 못했습니다.");
             return null;
         }
 
@@ -1901,7 +1901,7 @@ public class FieldManager : MonoBehaviour
         // 현재 위치를 먼저 저장 (UnitDied 전에)
         if (!placedUnits.ContainsValue(unitToReplace))
         {
-            Debug.LogError("[FieldManager] ReplaceUnitPrefab: 유닛이 placedUnits에 없습니다.");
+            // Debug.LogError("[FieldManager] ReplaceUnitPrefab: 유닛이 placedUnits에 없습니다.");
             return;
         }
         Vector3Int currentPos = placedUnits.First(kvp => kvp.Value == unitToReplace).Key;
@@ -1912,7 +1912,7 @@ public class FieldManager : MonoBehaviour
             && runner.IsRunning
             && (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority))
         {
-            Debug.LogWarning("[FieldManager] ReplaceUnitPrefab ignored: no state authority.");
+            // Debug.LogWarning("[FieldManager] ReplaceUnitPrefab ignored: no state authority.");
             return;
         }
 
@@ -1936,26 +1936,26 @@ public class FieldManager : MonoBehaviour
         // 새 유닛 강제 배치 (IsUnitAt 체크 없이 직접 배치)
         if (unitData == null || unitData.prefabsByStarLevel == null || unitData.prefabsByStarLevel.Length == 0)
         {
-            Debug.LogError("[FieldManager] ReplaceUnitPrefab: UnitData 또는 프리팹이 없습니다.");
+            // Debug.LogError("[FieldManager] ReplaceUnitPrefab: UnitData 또는 프리팹이 없습니다.");
             return;
         }
         if (newStarLevel < 1 || newStarLevel > unitData.prefabsByStarLevel.Length)
         {
-            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 잘못된 성급({newStarLevel})");
+            // Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 잘못된 성급({newStarLevel})");
             return;
         }
 
         string prefabKey = unitData.prefabsByStarLevel[newStarLevel - 1];
         if (string.IsNullOrEmpty(prefabKey))
         {
-            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 키가 비어있습니다.");
+            // Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 키가 비어있습니다.");
             return;
         }
 
         var prefab = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
         if (prefab == null)
         {
-            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 로드 실패 ({prefabKey})");
+            // Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 로드 실패 ({prefabKey})");
             return;
         }
 
@@ -1972,7 +1972,7 @@ public class FieldManager : MonoBehaviour
             spawnedNO = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
             if (spawnedNO == null)
             {
-                Debug.LogError($"[FieldManager] Runner.Spawn failed: {prefab.name} (Player={playerManager?.playerId})");
+                // Debug.LogError($"[FieldManager] Runner.Spawn failed: {prefab.name} (Player={playerManager?.playerId})");
                 return;
             }
 
@@ -2005,7 +2005,7 @@ public class FieldManager : MonoBehaviour
         Unit newUnit = unitGO.GetComponent<Unit>();
         if (newUnit == null)
         {
-            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 생성된 프리팹에 Unit 컴포넌트 없음");
+            // Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 생성된 프리팹에 Unit 컴포넌트 없음");
             if (spawnedNO != null
                 && runner != null
                 && runner.IsRunning
@@ -2244,18 +2244,18 @@ public class FieldManager : MonoBehaviour
 
         if (playerCamera == null)
         {
-            Debug.LogWarning("[FieldManager] playerCamera is null!");
+            // Debug.LogWarning("[FieldManager] playerCamera is null!");
             return;
         }
 
         // [3D] 초기화 확인 - Host Migration 후 재할당 필요할 수 있음
         if (ground3D == null)
         {
-            Debug.Log($"[FieldManager] ground3D null 감지, fallback 시도... playerManager={playerManager?.name}");
+            // Debug.Log($"[FieldManager] ground3D null 감지, fallback 시도... playerManager={playerManager?.name}");
             
             // 방법 1: 부모 계층에서 Ground 찾기
             var parentTransform = transform.parent;
-            Debug.Log($"[FieldManager] parentTransform={parentTransform?.name}");
+            // Debug.Log($"[FieldManager] parentTransform={parentTransform?.name}");
             
             if (parentTransform != null)
             {
@@ -2263,7 +2263,7 @@ public class FieldManager : MonoBehaviour
                 if (groundTransform != null)
                 {
                     ground3D = groundTransform.gameObject;
-                    Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법1: parent.Find)");
+                    // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법1: parent.Find)");
                 }
                 else
                 {
@@ -2271,7 +2271,7 @@ public class FieldManager : MonoBehaviour
                     if (meshRenderer != null)
                     {
                         ground3D = meshRenderer.gameObject;
-                        Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법2: MeshRenderer)");
+                        // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법2: MeshRenderer)");
                     }
                 }
             }
@@ -2280,7 +2280,7 @@ public class FieldManager : MonoBehaviour
             if (ground3D == null && playerManager != null && playerManager.astarGrid != null)
             {
                 var gridParent = playerManager.astarGrid.transform.parent;
-                Debug.Log($"[FieldManager] astarGrid.parent={gridParent?.name}");
+                // Debug.Log($"[FieldManager] astarGrid.parent={gridParent?.name}");
                 
                 if (gridParent != null)
                 {
@@ -2288,7 +2288,7 @@ public class FieldManager : MonoBehaviour
                     if (groundTransform != null)
                     {
                         ground3D = groundTransform.gameObject;
-                        Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법3: astarGrid.parent)");
+                        // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법3: astarGrid.parent)");
                     }
                     else
                     {
@@ -2298,7 +2298,7 @@ public class FieldManager : MonoBehaviour
                             if (child.name.Contains("Ground") || child.name.Contains("Field"))
                             {
                                 ground3D = child.gameObject;
-                                Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법4: 자식 순회)");
+                                // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법4: 자식 순회)");
                                 break;
                             }
                         }
@@ -2310,7 +2310,7 @@ public class FieldManager : MonoBehaviour
             if (ground3D == null && GameManagers.Instance != null)
             {
                 var localPlayer = GameManagers.Instance.localPlayer;
-                Debug.Log($"[FieldManager] GameManagers.localPlayer={localPlayer?.name}");
+                // Debug.Log($"[FieldManager] GameManagers.localPlayer={localPlayer?.name}");
                 
                 if (localPlayer != null && localPlayer.astarGrid != null)
                 {
@@ -2321,7 +2321,7 @@ public class FieldManager : MonoBehaviour
                         if (groundTransform != null)
                         {
                             ground3D = groundTransform.gameObject;
-                            Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법5: GameManagers)");
+                            // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법5: GameManagers)");
                         }
                     }
                 }
@@ -2330,9 +2330,9 @@ public class FieldManager : MonoBehaviour
             // 방법 4: FindObjectOfType으로 AstarGrid 찾아서 parent에서 Ground 찾기
             if (ground3D == null)
             {
-                Debug.Log("[FieldManager] 방법6 시도: FindObjectOfType<AstarGrid>");
+                // Debug.Log("[FieldManager] 방법6 시도: FindObjectOfType<AstarGrid>");
                 var allGrids = UnityEngine.Object.FindObjectsOfType<AstarGrid>(true);
-                Debug.Log($"[FieldManager] 발견된 AstarGrid 수: {allGrids.Length}");
+                // Debug.Log($"[FieldManager] 발견된 AstarGrid 수: {allGrids.Length}");
                 
                 foreach (var grid in allGrids)
                 {
@@ -2348,10 +2348,10 @@ public class FieldManager : MonoBehaviour
                             if (playerManager != null && playerManager.astarGrid == null)
                             {
                                 playerManager.astarGrid = grid;
-                                Debug.Log($"[FieldManager] astarGrid도 재할당: {grid.name}");
+                                // Debug.Log($"[FieldManager] astarGrid도 재할당: {grid.name}");
                             }
                             
-                            Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법6: FindObjectOfType)");
+                            // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법6: FindObjectOfType)");
                             break;
                         }
                     }
@@ -2361,19 +2361,19 @@ public class FieldManager : MonoBehaviour
             // 방법 5: 마지막으로 Ground 이름이 포함된 모든 오브젝트 찾기
             if (ground3D == null)
             {
-                Debug.Log("[FieldManager] 방법7 시도: GameObject.Find");
+                // Debug.Log("[FieldManager] 방법7 시도: GameObject.Find");
                 var foundGround = GameObject.Find("Ground");
                 if (foundGround != null)
                 {
                     ground3D = foundGround;
-                    Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법7: GameObject.Find)");
+                    // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법7: GameObject.Find)");
                 }
             }
             
             // 그래도 못 찾으면 에러
             if (ground3D == null)
             {
-                Debug.LogWarning("[FieldManager] ground3D is null - 모든 fallback 실패!");
+                // Debug.LogWarning("[FieldManager] ground3D is null - 모든 fallback 실패!");
                 return;
             }
         }
@@ -3027,7 +3027,7 @@ public class FieldManager : MonoBehaviour
             goalColor);
 
         _gridLinesCreated = true;
-        Debug.Log($"[FieldManager] 그리드 라인 생성 완료: {gridSize.x}x{gridSize.y}");
+        // Debug.Log($"[FieldManager] 그리드 라인 생성 완료: {gridSize.x}x{gridSize.y}");
     }
 
     private void CreateLine(string name, Vector3 start, Vector3 end, Color color)

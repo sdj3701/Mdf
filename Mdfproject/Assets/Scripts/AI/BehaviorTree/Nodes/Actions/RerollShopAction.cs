@@ -1,4 +1,4 @@
-using AI.BehaviorTree.Nodes;
+﻿using AI.BehaviorTree.Nodes;
 using UnityEngine;
 
 namespace AI.BehaviorTree.Nodes.Actions
@@ -21,7 +21,7 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (currentGold >= rerollCost)
             {
-                Debug.Log($"<color=yellow>[RerollShopAction] Player {_playerManager.playerId} 리롤 실행 (골드: {currentGold} → {currentGold - rerollCost})</color>");
+                // Debug.Log($"<color=yellow>[RerollShopAction] Player {_playerManager.playerId} 리롤 실행 (골드: {currentGold} → {currentGold - rerollCost})</color>");
                 _commandProcessor.RequestCommandExecution(new RerollShopCommand(_playerManager.playerId));
                 return status = NodeStatus.Success;
             }

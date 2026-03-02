@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 using UnityEngine;
 
 public class RerollShopCommand : ICommand
@@ -18,7 +18,7 @@ public class RerollShopCommand : ICommand
         // 서버에서만 실행 (중요!)
         if (!gm.Runner.IsServer)
         {
-            Debug.Log($"[RerollShopCommand] Client에서 무시됨. Player={PlayerId}");
+            // Debug.Log($"[RerollShopCommand] Client에서 무시됨. Player={PlayerId}");
             return;
         }
         
@@ -34,6 +34,6 @@ public class RerollShopCommand : ICommand
         int[] stars = items.Select(i => i.StarLevel).ToArray();
         player.RPC_SyncShopItems(names, stars);
         
-        Debug.Log($"[RerollShopCommand] Player {PlayerId}: 리롤 완료, {items.Count}개 아이템 동기화");
+        // Debug.Log($"[RerollShopCommand] Player {PlayerId}: 리롤 완료, {items.Count}개 아이템 동기화");
     }
 }

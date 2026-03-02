@@ -1,4 +1,4 @@
-// Assets/Scripts/Managers/ShopManager.cs
+﻿// Assets/Scripts/Managers/ShopManager.cs
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
@@ -60,9 +60,9 @@ public class ShopManager : MonoBehaviour
         GameManagers gm = GameManagers.Instance;
         string gmState = gm == null ? "gmState=NoGameManagers" : $"gmState={gm.GetGameState()}";
         string suffix = string.IsNullOrEmpty(extra) ? string.Empty : $" | {extra}";
-        Debug.Log(
-            $"[SHOP-TRACE #{++_shopTraceSeq}] {step} | {BuildShopTraceOwner()} | " +
-            $"dbLoaded={IsDatabaseLoaded} dbCount={allUnitDatabase.Count} shopCount={currentShopItems.Count} {gmState}{suffix}");
+        // Debug.Log(
+            // $"[SHOP-TRACE #{++_shopTraceSeq}] {step} | {BuildShopTraceOwner()} | " +
+            // $"dbLoaded={IsDatabaseLoaded} dbCount={allUnitDatabase.Count} shopCount={currentShopItems.Count} {gmState}{suffix}");
     }
 
     /// <summary>
@@ -95,7 +95,7 @@ public class ShopManager : MonoBehaviour
         catch (System.Exception ex)
         {
             databaseLoadTask.TrySetException(ex);
-            Debug.LogError($"[ShopManager] InitializeFromLoadManager 예외: {ex}");
+            // Debug.LogError($"[ShopManager] InitializeFromLoadManager 예외: {ex}");
             LogShopTrace("InitializeFromLoadManager:EXCEPTION", $"error={ex.Message}");
         }
     }
@@ -129,7 +129,7 @@ public class ShopManager : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning($"[ShopManager] 유닛 데이터를 찾을 수 없음: {unitDataNames[i]} (slot={i})");
+                // Debug.LogWarning($"[ShopManager] 유닛 데이터를 찾을 수 없음: {unitDataNames[i]} (slot={i})");
             }
         }
 
@@ -171,7 +171,7 @@ public class ShopManager : MonoBehaviour
 
         if (!IsDatabaseLoaded)
         {
-            Debug.LogWarning("유닛 데이터베이스가 아직 로드되지 않아 리롤할 수 없습니다.");
+            // Debug.LogWarning("유닛 데이터베이스가 아직 로드되지 않아 리롤할 수 없습니다.");
             LogShopTrace("Reroll:ABORT_DB_NOT_READY");
             return;
         }
@@ -179,7 +179,7 @@ public class ShopManager : MonoBehaviour
         if (!isFree && !playerManager.SpendGold(rerollCost))
         {
             string playerIdLabel = TryGetSafePlayerId(out int safePlayerId) ? safePlayerId.ToString() : "unspawned";
-            Debug.LogWarning($"Player {playerIdLabel}: 골드가 부족하여 리롤할 수 없습니다.");
+            // Debug.LogWarning($"Player {playerIdLabel}: 골드가 부족하여 리롤할 수 없습니다.");
             LogShopTrace("Reroll:ABORT_NOT_ENOUGH_GOLD", $"gold={playerManager.GetGold()},cost={rerollCost}");
             return;
         }
@@ -258,7 +258,7 @@ public class ShopManager : MonoBehaviour
         
         if (currentShopItems.Count == 0)
         {
-            UnityEngine.Debug.LogWarning("[ShopManager] 상점 아이템 대기 타임아웃");
+            // UnityEngine.Debug.LogWarning("[ShopManager] 상점 아이템 대기 타임아웃");
             LogShopTrace("EnsureShopRerolledAsync:TIMEOUT", $"waited={waited:F1}s");
         }
         else

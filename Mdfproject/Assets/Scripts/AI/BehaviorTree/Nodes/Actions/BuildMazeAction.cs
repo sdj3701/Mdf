@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 using AI.BehaviorTree.Nodes;
@@ -37,7 +37,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             // Basic safety
             if (_playerManager == null || _playerManager.fieldManager == null || _playerManager.astarGrid == null)
             {
-                Debug.LogWarning($"<color=red>[BuildMazeAction] Missing refs: PM={_playerManager != null}, FM={_playerManager?.fieldManager != null}, Grid={_playerManager?.astarGrid != null}</color>");
+                // Debug.LogWarning($"<color=red>[BuildMazeAction] Missing refs: PM={_playerManager != null}, FM={_playerManager?.fieldManager != null}, Grid={_playerManager?.astarGrid != null}</color>");
                 return status = NodeStatus.Failure;
             }
             if (GameManagers.Instance == null || GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare)
@@ -67,7 +67,7 @@ namespace AI.BehaviorTree.Nodes.Actions
 
                 if (_planTask.IsFaulted || _planTask.IsCanceled)
                 {
-                    Debug.LogWarning($"<color=red>[BuildMazeAction] Maze planning failed: {_planTask.Exception?.GetBaseException().Message}</color>");
+                    // Debug.LogWarning($"<color=red>[BuildMazeAction] Maze planning failed: {_planTask.Exception?.GetBaseException().Message}</color>");
                     _planTask = null;
                     return status = NodeStatus.Failure;
                 }
@@ -84,9 +84,9 @@ namespace AI.BehaviorTree.Nodes.Actions
                     int budget = Mathf.Max(0, planningStock - planningReserve);
                     int pathLen = planResult?.ValidatedPath?.Count ?? 0;
                     int blueprintWalls = planResult?.BlueprintWalls?.Count ?? 0;
-                    Debug.LogWarning(
-                        $"<color=yellow>[BuildMazeAction] Empty maze plan; retrying ({_planRetryCount}/{MaxPlanRetries}) " +
-                        $"Start={planResult?.Start}, Goal={planResult?.Goal}, PathLen={pathLen}, BlueprintWalls={blueprintWalls}, Budget={budget}</color>");
+                    // Debug.LogWarning(
+                        // $"<color=yellow>[BuildMazeAction] Empty maze plan; retrying ({_planRetryCount}/{MaxPlanRetries}) " +
+                        // $"Start={planResult?.Start}, Goal={planResult?.Goal}, PathLen={pathLen}, BlueprintWalls={blueprintWalls}, Budget={budget}</color>");
                     return status = NodeStatus.Running;
                 }
 
@@ -97,9 +97,9 @@ namespace AI.BehaviorTree.Nodes.Actions
                     int budget = Mathf.Max(0, planningStock - planningReserve);
                     int pathLen = planResult?.ValidatedPath?.Count ?? 0;
                     int blueprintWalls = planResult?.BlueprintWalls?.Count ?? 0;
-                    Debug.LogWarning(
-                        $"<color=yellow>[BuildMazeAction] Empty maze plan after retries; proceeding with 0 walls. " +
-                        $"Start={planResult?.Start}, Goal={planResult?.Goal}, PathLen={pathLen}, BlueprintWalls={blueprintWalls}, Budget={budget}</color>");
+                    // Debug.LogWarning(
+                        // $"<color=yellow>[BuildMazeAction] Empty maze plan after retries; proceeding with 0 walls. " +
+                        // $"Start={planResult?.Start}, Goal={planResult?.Goal}, PathLen={pathLen}, BlueprintWalls={blueprintWalls}, Budget={budget}</color>");
                 }
 
                 _planRetryCount = 0;
@@ -113,7 +113,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _extendPlanTask = null;
                 _lastExtendBudgetTried = -1;
                 _activeExtendBudget = -1;
-                Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned {_playerManager.mazePlannedOrder.Count} walls</color>");
+                // Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned {_playerManager.mazePlannedOrder.Count} walls</color>");
                 return status = NodeStatus.Success;
             }
 
@@ -127,7 +127,7 @@ namespace AI.BehaviorTree.Nodes.Actions
 
                 if (_extendPlanTask.IsFaulted || _extendPlanTask.IsCanceled)
                 {
-                    Debug.LogWarning($"<color=red>[BuildMazeAction] Maze extension planning failed: {_extendPlanTask.Exception?.GetBaseException().Message}</color>");
+                    // Debug.LogWarning($"<color=red>[BuildMazeAction] Maze extension planning failed: {_extendPlanTask.Exception?.GetBaseException().Message}</color>");
                     _extendPlanTask = null;
                     _activeExtendBudget = -1;
                     _playerManager.mazeConstructionComplete = true;
@@ -146,7 +146,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                     }
                     _activeExtendBudget = -1;
                     _playerManager.mazeConstructionComplete = true;
-                    Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} maze fully optimized; no extension walls</color>");
+                    // Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} maze fully optimized; no extension walls</color>");
                     return status = NodeStatus.Failure;
                 }
 
@@ -170,7 +170,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _nextBuildAt = Time.time + Random.Range(_minInterval, _maxInterval);
                 _lastExtendBudgetTried = -1;
                 _activeExtendBudget = -1;
-                Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned maze extension (+{added} walls)</color>");
+                // Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned maze extension (+{added} walls)</color>");
                 return status = NodeStatus.Success;
             }
 
@@ -246,7 +246,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                 if (!_playerManager.mazeConstructionComplete)
                 {
                     _playerManager.mazeConstructionComplete = true;
-                    Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} blueprint complete ({_playerManager.mazePlannedOrder.Count} walls)</color>");
+                    // Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} blueprint complete ({_playerManager.mazePlannedOrder.Count} walls)</color>");
                 }
                 return status = NodeStatus.Failure;
             }
@@ -256,7 +256,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                 if (!_playerManager.mazeConstructionComplete)
                 {
                     _playerManager.mazeConstructionComplete = true;
-                    Debug.Log($"<color=yellow>[BuildMazeAction] Player {_playerManager.playerId} no stock for new builds this round (stock={stock}, reserve={reserve})</color>");
+                    // Debug.Log($"<color=yellow>[BuildMazeAction] Player {_playerManager.playerId} no stock for new builds this round (stock={stock}, reserve={reserve})</color>");
                 }
                 return status = NodeStatus.Failure;
             }

@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using AI.BehaviorTree.Nodes.Actions;
 public class BuyUnitCommand : ICommand
 {
@@ -16,7 +16,7 @@ public class BuyUnitCommand : ICommand
         var gm = GameManagers.Instance;
         if (gm == null || gm.Runner == null || !gm.Runner.IsServer)
         {
-            Debug.Log($"[BuyUnitCommand] Ignored on non-server peer. Player={PlayerId}, Slot={ShopSlotIndex}");
+            // Debug.Log($"[BuyUnitCommand] Ignored on non-server peer. Player={PlayerId}, Slot={ShopSlotIndex}");
             return;
         }
 
@@ -43,7 +43,7 @@ public class BuyUnitCommand : ICommand
         }
         else
         {
-            Debug.Log($"Player {PlayerId}: 골드가 부족하여 구매에 실패했습니다.");
+            // Debug.Log($"Player {PlayerId}: 골드가 부족하여 구매에 실패했습니다.");
             // (선택적) 골드 부족 이벤트 발생
             GameEvents.TriggerPurchaseFailed(PlayerId, "골드 부족");
         }

@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class SelectAugmentCommand : ICommand
 {
@@ -19,7 +19,7 @@ public class SelectAugmentCommand : ICommand
         // 서버에서만 실행 (중요!)
         if (!gm.Runner.IsServer)
         {
-            Debug.Log($"[SelectAugmentCommand] Client에서 무시됨. Player={PlayerId}");
+            // Debug.Log($"[SelectAugmentCommand] Client에서 무시됨. Player={PlayerId}");
             return;
         }
         
@@ -36,7 +36,7 @@ public class SelectAugmentCommand : ICommand
             // 모든 클라이언트에 알림 (Command Pattern 사용)
             gm.NotifyAugmentSelected(PlayerId, chosenAugment.augmentName);
             
-            Debug.Log($"[SelectAugmentCommand] Player {PlayerId}: '{chosenAugment.augmentName}' 선택 완료");
+            // Debug.Log($"[SelectAugmentCommand] Player {PlayerId}: '{chosenAugment.augmentName}' 선택 완료");
         }
     }
 }

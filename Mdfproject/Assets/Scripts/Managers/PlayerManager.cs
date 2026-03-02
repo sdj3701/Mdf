@@ -1,4 +1,4 @@
-// Assets/Scripts/Managers/PlayerManager.cs
+﻿// Assets/Scripts/Managers/PlayerManager.cs
 
 using System.Collections.Generic;
 using UnityEngine;
@@ -178,7 +178,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
         if (gridNO == null)
         {
-            Debug.LogError($"[Player {playerId}]: gridNetworkObject resolve 실패");
+            // Debug.LogError($"[Player {playerId}]: gridNetworkObject resolve 실패");
             return;
         }
         //Debug.Log($"[Player {playerId}]: gridNetworkObject를 성공적으로 받았습니다. (ID: {gridNetworkObject.Id})");
@@ -203,8 +203,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         this.astarGrid = gridInstance.GetComponentInChildren<AstarGrid>();
 
         // 각 컴포넌트/오브젝트를 찾았는지 확인하는 로그
-        Debug.Log($"[Player {playerId}]: 3D Ground 찾음? -> {(ground3D != null)}");
-        Debug.Log($"[Player {playerId}]: AstarGrid 찾음? -> {(this.astarGrid != null)}");
+        // Debug.Log($"[Player {playerId}]: 3D Ground 찾음? -> {(ground3D != null)}");
+        // Debug.Log($"[Player {playerId}]: AstarGrid 찾음? -> {(this.astarGrid != null)}");
 
         // AstarGrid 초기화는 FieldManager 초기화 이후에 수행하여 3D 그리드 정보를 공유합니다.
 
@@ -214,12 +214,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             if (ground3D != null)
             {
-                Debug.Log($"[Player {playerId}]: FieldManager를 3D 모드로 초기화합니다.");
+                // Debug.Log($"[Player {playerId}]: FieldManager를 3D 모드로 초기화합니다.");
                 fieldManager.Initialize(this, ground3D);
             }
             else
             {
-                Debug.LogError($"[Player {playerId}]: FieldManager 초기화 실패 - Ground 오브젝트를 찾을 수 없습니다!");
+                // Debug.LogError($"[Player {playerId}]: FieldManager 초기화 실패 - Ground 오브젝트를 찾을 수 없습니다!");
             }
         }
 
@@ -227,8 +227,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // - 골: 필드 정 가운데 그리드
         // - 스폰: 동서남북 테두리 구멍 4곳 중 랜덤
         SetupSpawnAndGoalPositions(gridInstance);
-        Debug.Log($"[Player {playerId}]: SpawnPoint 위치 -> {(this.spawnPoint != null ? this.spawnPoint.position.ToString() : "null")}");
-        Debug.Log($"[Player {playerId}]: Goal 위치 -> {(this.goalTransform != null ? this.goalTransform.position.ToString() : "null")}");
+        // Debug.Log($"[Player {playerId}]: SpawnPoint 위치 -> {(this.spawnPoint != null ? this.spawnPoint.position.ToString() : "null")}");
+        // Debug.Log($"[Player {playerId}]: Goal 위치 -> {(this.goalTransform != null ? this.goalTransform.position.ToString() : "null")}");
 
         // 이제 FieldManager가 준비되었으므로 AstarGrid를 FieldManager와 동기화하여 초기화합니다.
         if (this.astarGrid != null)
@@ -239,7 +239,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
         else
         {
-            Debug.LogError($"[Player {playerId}]: AstarGrid 컴포넌트를 찾지 못해 경로 탐색을 초기화할 수 없습니다.");
+            // Debug.LogError($"[Player {playerId}]: AstarGrid 컴포넌트를 찾지 못해 경로 탐색을 초기화할 수 없습니다.");
         }
         if (shopManager) shopManager.playerManager = this;
 
@@ -273,7 +273,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         IsActivelyFighting = false;
-        Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
+        // Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
 
         // Process any unit registrations that arrived early
         if (_pendingUnitRegs.Count > 0)
@@ -409,7 +409,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (verboseFailure && !IsRuntimeReady(out string reason))
         {
-            Debug.LogWarning($"[PlayerManager] 런타임 참조 재결선 미완료 ({context}) player={playerId}, reason={reason}");
+            // Debug.LogWarning($"[PlayerManager] 런타임 참조 재결선 미완료 ({context}) player={playerId}, reason={reason}");
         }
     }
 
@@ -502,7 +502,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         bool hasExpectedAnchor = TryGetExpectedFieldAnchor(out var expectedAnchor);
         if (verboseFailure && hasExpectedAnchor)
         {
-            Debug.Log($"[PlayerManager] Grid resolve anchor ({context}) player={playerId}, expected={expectedAnchor}");
+            // Debug.Log($"[PlayerManager] Grid resolve anchor ({context}) player={playerId}, expected={expectedAnchor}");
         }
 
         AstarGrid bestGrid = null;
@@ -628,7 +628,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (verboseFailure)
         {
-            Debug.Log($"[PlayerManager] AstarGrid 재결선 성공 ({context}) player={playerId}, grid={bestGrid.name}, root={resolvedGridRoot?.name ?? "null"}");
+            // Debug.Log($"[PlayerManager] AstarGrid 재결선 성공 ({context}) player={playerId}, grid={bestGrid.name}, root={resolvedGridRoot?.name ?? "null"}");
         }
 
         return true;
@@ -649,7 +649,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
-        expectedPosition = gm.player1BasePosition + gm.playerOffset * playerId;
+        expectedPosition = gm.player1BasePosition + gm.GetResolvedPlayerOffset() * playerId;
         return true;
     }
 
@@ -752,7 +752,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (shopManager != null)
         {
             await shopManager.SetShopItemsFromServerAsync(unitDataNames, starLevels);
-            Debug.Log($"<color=cyan>[RPC_SyncShopItems] Player {playerId}: {unitDataNames.Length}개 상점 아이템 동기화 완료</color>");
+            // Debug.Log($"<color=cyan>[RPC_SyncShopItems] Player {playerId}: {unitDataNames.Length}개 상점 아이템 동기화 완료</color>");
         }
     }
 
@@ -769,7 +769,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augmentManager != null)
         {
             await augmentManager.SetPresentedAugmentsByNamesAsync(augmentNames);
-            Debug.Log($"<color=magenta>[RPC_SyncPresentedAugments] Player {playerId}: {augmentNames.Length}개 증강체 동기화 완료</color>");
+            // Debug.Log($"<color=magenta>[RPC_SyncPresentedAugments] Player {playerId}: {augmentNames.Length}개 증강체 동기화 완료</color>");
         }
     }
 
@@ -783,7 +783,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // 서버만 처리
         if (Object == null || !Object.HasStateAuthority) return;
         
-        Debug.Log($"<color=yellow>[RPC_RequestSyncData] Player {playerId}에게 데이터 동기화 요청 수신</color>");
+        // Debug.Log($"<color=yellow>[RPC_RequestSyncData] Player {playerId}에게 데이터 동기화 요청 수신</color>");
         
         // 상점 동기화
         if (shopManager != null)
@@ -819,7 +819,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         this.permanentAttackDamagePercent = attackDamagePercent;
         this.permanentAttackSpeedPercent = attackSpeedPercent;
         ApplyPermanentBonusesToUnitsOnField();
-        Debug.Log($"<color=cyan>[RPC_SyncPermanentBonuses] Player {playerId}: AttackDmg={attackDamagePercent:P0}, AttackSpd={attackSpeedPercent:P0}</color>");
+        // Debug.Log($"<color=cyan>[RPC_SyncPermanentBonuses] Player {playerId}: AttackDmg={attackDamagePercent:P0}, AttackSpd={attackSpeedPercent:P0}</color>");
     }
 
 
@@ -838,7 +838,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         try
         {
-            Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] recv pos=({x},{y}) key='{unitDataKey}' star={starLevel} stateAuth={(Object != null && Object.HasStateAuthority)} id={unitId}</color>");
+            // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] recv pos=({x},{y}) key='{unitDataKey}' star={starLevel} stateAuth={(Object != null && Object.HasStateAuthority)} id={unitId}</color>");
             if (Object != null && Object.HasStateAuthority) return;
             NetworkObject unitNO = null;
             bool resolved = false;
@@ -857,13 +857,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             } while (!resolved && attempts < 300);
             if (!resolved || unitNO == null)
             {
-                Debug.LogWarning($"<color=yellow>[RPC_RegisterUnitAt] failed to resolve NetworkObject by NetworkId='{unitId}' key='{unitDataKey}'</color>");
+                // Debug.LogWarning($"<color=yellow>[RPC_RegisterUnitAt] failed to resolve NetworkObject by NetworkId='{unitId}' key='{unitDataKey}'</color>");
                 return;
             }
 
             if (fieldManager == null || fieldManager.ground3D == null)
             {
-                Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] queued. fieldManagerReady={(fieldManager != null)} groundReady={(fieldManager != null && fieldManager.ground3D != null)}</color>");
+                // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] queued. fieldManagerReady={(fieldManager != null)} groundReady={(fieldManager != null && fieldManager.ground3D != null)}</color>");
                 _pendingUnitRegs.Add(new PendingUnitReg
                 {
                     unitNO = unitNO,
@@ -876,11 +876,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
 
             await RPC_RegisterUnitAt_Internal(unitNO, x, y, unitDataKey, starLevel);
-            Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] dispatched to Internal for pos=({x},{y})</color>");
+            // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] dispatched to Internal for pos=({x},{y})</color>");
         }
         catch (System.Exception ex)
         {
-            Debug.LogError($"[RPC_RegisterUnitAt] exception: {ex.Message}");
+            // Debug.LogError($"[RPC_RegisterUnitAt] exception: {ex.Message}");
         }
     }
 
@@ -890,23 +890,23 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             if (fieldManager == null)
             {
-                Debug.LogWarning($"<color=yellow>[RPC_Internal] fieldManager null</color>");
+                // Debug.LogWarning($"<color=yellow>[RPC_Internal] fieldManager null</color>");
                 return;
             }
             var unit = unitNO.GetComponent<Unit>();
             if (unit == null)
             {
-                Debug.LogWarning($"<color=yellow>[RPC_Internal] Unit component missing on '{unitNO?.name}'</color>");
+                // Debug.LogWarning($"<color=yellow>[RPC_Internal] Unit component missing on '{unitNO?.name}'</color>");
                 return;
             }
             var pos = new Vector3Int(x, y, 0);
-            Debug.Log($"<color=yellow>[RPC_Internal] start pos={pos} currentData={(unit.Data != null ? unit.Data.name : "null")} key='{unitDataKey}'</color>");
+            // Debug.Log($"<color=yellow>[RPC_Internal] start pos={pos} currentData={(unit.Data != null ? unit.Data.name : "null")} key='{unitDataKey}'</color>");
             if (fieldManager.IsUnitAt(pos))
             {
                 var existingAtPos = fieldManager.GetUnitAt(pos);
                 if (existingAtPos != null && existingAtPos != unit)
                 {
-                    Debug.LogWarning($"<color=yellow>[RPC_Internal] position already occupied by another unit. Replacing. pos={pos}</color>");
+                    // Debug.LogWarning($"<color=yellow>[RPC_Internal] position already occupied by another unit. Replacing. pos={pos}</color>");
                 }
             }
 
@@ -937,24 +937,24 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                     var lmReady = LoadManager.Instance.IsReady;
                     if (!lmReady)
                     {
-                        Debug.Log($"<color=yellow>[RPC_Internal] waiting LoadManager ready...</color>");
+                        // Debug.Log($"<color=yellow>[RPC_Internal] waiting LoadManager ready...</color>");
                         await LoadManager.Instance.WaitUntilReady();
                     }
                     data = LoadManager.Instance.GetUnitData(unitDataKey);
                     if (data == null)
                     {
-                        Debug.Log($"<color=yellow>[RPC_Internal] LoadManager miss for key='{unitDataKey}'. Trying Addressables fallback...</color>");
+                        // Debug.Log($"<color=yellow>[RPC_Internal] LoadManager miss for key='{unitDataKey}'. Trying Addressables fallback...</color>");
                         data = await AssetLoader.LoadAssetAsync<UnitData>(unitDataKey);
                     }
                 }
                 if (data != null)
                 {
                     await unit.Initialize(data, starLevel, this);
-                    Debug.Log($"<color=yellow>[RPC_Internal] unit.Initialize OK data='{unit.Data?.name}' star={starLevel}</color>");
+                    // Debug.Log($"<color=yellow>[RPC_Internal] unit.Initialize OK data='{unit.Data?.name}' star={starLevel}</color>");
                 }
                 else
                 {
-                    Debug.LogError($"[Player {playerId}] RPC_RegisterUnitAt could not resolve UnitData for key '{unitDataKey}'.");
+                    // Debug.LogError($"[Player {playerId}] RPC_RegisterUnitAt could not resolve UnitData for key '{unitDataKey}'.");
                 }
             }
 
@@ -973,15 +973,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
             if (unit.Data == null)
             {
-                Debug.LogWarning($"<color=yellow>[RPC_Internal] unit.Data still null after resolve. Skip Register. key='{unitDataKey}', pos={pos}</color>");
+                // Debug.LogWarning($"<color=yellow>[RPC_Internal] unit.Data still null after resolve. Skip Register. key='{unitDataKey}', pos={pos}</color>");
                 return;
             }
             fieldManager.RegisterUnitAt(unit, pos);
-            Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId}) data='{unit.Data?.name}'</color>");
+            // Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId}) data='{unit.Data?.name}'</color>");
         }
         catch (System.Exception ex)
         {
-            Debug.LogError($"[RPC_Internal] exception: {ex.Message}");
+            // Debug.LogError($"[RPC_Internal] exception: {ex.Message}");
         }
     }
 
@@ -996,7 +996,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (IsActivelyFighting == isFighting) return; // 변경 없으면 스킵
         
         IsActivelyFighting = isFighting;
-        Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: isFighting={isFighting} 설정됨</color>");
+        // Debug.Log($"<color=magenta>[SetFightingState] Player {playerId}: isFighting={isFighting} 설정됨</color>");
     }
 
     #region Public Getters & Stat Modifiers
@@ -1020,7 +1020,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augment != null)
         {
             _activeMonsterSummonAugments.Add(augment);
-            Debug.Log($"<color=orange>[PlayerManager] Player {playerId}: 몬스터 소환 증강 '{augment.augmentName}' 등록 (누적 {_activeMonsterSummonAugments.Count}개)</color>");
+            // Debug.Log($"<color=orange>[PlayerManager] Player {playerId}: 몬스터 소환 증강 '{augment.augmentName}' 등록 (누적 {_activeMonsterSummonAugments.Count}개)</color>");
         }
     }
 
@@ -1039,7 +1039,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augment?.bossMonsterData != null)
         {
             _ownedBossAugments.Add(augment);
-            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{augment.bossMonsterData.monsterName}' 보유 추가 (총 {_ownedBossAugments.Count}마리)</color>");
+            // Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{augment.bossMonsterData.monsterName}' 보유 추가 (총 {_ownedBossAugments.Count}마리)</color>");
         }
     }
 
@@ -1051,7 +1051,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augment != null)
         {
             _ownedBossAugments.Remove(augment);
-            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{bossData.monsterName}' 소환 → 보유에서 제거 (남은 {_ownedBossAugments.Count}마리)</color>");
+            // Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{bossData.monsterName}' 소환 → 보유에서 제거 (남은 {_ownedBossAugments.Count}마리)</color>");
             return true;
         }
         return false;
@@ -1131,10 +1131,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 this.playerId
             ));
             
-            Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보유 보스 '{augment.bossMonsterData.monsterName}' 풀에 표시</color>");
+            // Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보유 보스 '{augment.bossMonsterData.monsterName}' 풀에 표시</color>");
         }
 
-        Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 공격 몬스터 풀 갱신 완료 ({AttackMonsterPool.Count}종류, 보유 보스: {_ownedBossAugments.Count}마리)</color>");
+        // Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 공격 몬스터 풀 갱신 완료 ({AttackMonsterPool.Count}종류, 보유 보스: {_ownedBossAugments.Count}마리)</color>");
         
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
@@ -1295,10 +1295,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             gm = FindObjectOfType<GameManagers>();
             if (gm == null)
             {
-                Debug.LogWarning("<color=green>[NetFlow] GameManagers not found on server yet. Dropping command.</color>");
+                // Debug.LogWarning("<color=green>[NetFlow] GameManagers not found on server yet. Dropping command.</color>");
                 return;
             }
-            Debug.Log("<color=green>[NetFlow] GameManagers resolved via FindObjectOfType on server.</color>");
+            // Debug.Log("<color=green>[NetFlow] GameManagers resolved via FindObjectOfType on server.</color>");
         }
         gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
     }
@@ -1364,7 +1364,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         if (gridInstance == null)
         {
-            Debug.LogWarning($"[Player {playerId}]: SetupSpawnAndGoalPositions skipped - gridInstance is null.");
+            // Debug.LogWarning($"[Player {playerId}]: SetupSpawnAndGoalPositions skipped - gridInstance is null.");
             return;
         }
 
@@ -1436,8 +1436,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             this.goalTransform = goalGO.transform;
         }
 
-        Debug.Log($"[Player {playerId}]: 스폰 위치 설정 -> 그리드({spawnGridPos.x}, {spawnGridPos.y}), 월드{spawnWorldPos} (남쪽 고정, AI용)");
-        Debug.Log($"[Player {playerId}]: 골 위치 설정 -> 그리드({centerX}, {centerY}), 월드{goalWorldPos}");
+        // Debug.Log($"[Player {playerId}]: 스폰 위치 설정 -> 그리드({spawnGridPos.x}, {spawnGridPos.y}), 월드{spawnWorldPos} (남쪽 고정, AI용)");
+        // Debug.Log($"[Player {playerId}]: 골 위치 설정 -> 그리드({centerX}, {centerY}), 월드{goalWorldPos}");
     }
 
     private static Transform FindChildByNameRecursive(Transform root, string childName)

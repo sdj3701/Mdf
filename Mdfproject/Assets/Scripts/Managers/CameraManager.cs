@@ -1,4 +1,4 @@
-// Assets/Scripts/Managers/CameraManager.cs
+﻿// Assets/Scripts/Managers/CameraManager.cs
 using UnityEngine;
 using Cysharp.Threading.Tasks;
 
@@ -106,7 +106,7 @@ public class CameraManager : MonoBehaviour
             _currentViewingField = candidate;
         }
 
-        Debug.Log($"[CameraManager] ownField 재바인딩 완료 ({context})");
+        // Debug.Log($"[CameraManager] ownField 재바인딩 완료 ({context})");
         return true;
     }
     #endregion
@@ -173,8 +173,8 @@ public class CameraManager : MonoBehaviour
             mainCamera.transform.position = _originalPosition;
             mainCamera.transform.rotation = _originalRotation;
             
-            Debug.Log($"<color=cyan>[CameraManager] 초기화 완료. Player {ownId}, " +
-                $"z오프셋: {zOffset}, 카메라 위치: {_originalPosition}</color>");
+            // Debug.Log($"<color=cyan>[CameraManager] 초기화 완료. Player {ownId}, " +
+                // $"z오프셋: {zOffset}, 카메라 위치: {_originalPosition}</color>");
         }
     }
     #endregion
@@ -223,7 +223,7 @@ public class CameraManager : MonoBehaviour
         {
             // Host Migration 직후 Spawned 전 객체가 섞이는 구간에서는 월드 좌표 차이로 폴백한다.
             zOffset = GetFieldCenter(targetPlayer).z - GetFieldCenter(_ownField).z;
-            Debug.LogWarning($"[CameraManager] playerId 접근 불가로 월드 좌표 폴백 사용. zOffset={zOffset:F2}");
+            // Debug.LogWarning($"[CameraManager] playerId 접근 불가로 월드 좌표 폴백 사용. zOffset={zOffset:F2}");
         }
         
         Vector3 targetPosition;
@@ -264,7 +264,7 @@ public class CameraManager : MonoBehaviour
         _isTransitioning = false;
 
         string targetIdText = TryGetPlayerId(targetPlayer, out int targetId) ? targetId.ToString() : "unknown";
-        Debug.Log($"<color=yellow>[CameraManager] Player {targetIdText} 필드로 이동 완료 (공격모드: {isAttackMode}, 위치: {targetPosition})</color>");
+        // Debug.Log($"<color=yellow>[CameraManager] Player {targetIdText} 필드로 이동 완료 (공격모드: {isAttackMode}, 위치: {targetPosition})</color>");
     }
 
     /// <summary>
@@ -294,7 +294,7 @@ public class CameraManager : MonoBehaviour
         
         _isAttackMode = false;
         MoveToPlayerField(_ownField, isAttackMode: false).Forget();
-        Debug.Log("<color=green>[CameraManager] 본인 필드로 복귀 (수비 모드)</color>");
+        // Debug.Log("<color=green>[CameraManager] 본인 필드로 복귀 (수비 모드)</color>");
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-// Assets/Scripts/UI/AttackSequence/AttackSequenceUIController.cs
+﻿// Assets/Scripts/UI/AttackSequence/AttackSequenceUIController.cs
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -30,14 +30,14 @@ public class AttackSequenceUIController : MonoBehaviour
 
         if (UIManagers.Instance == null)
         {
-            Debug.LogWarning("[AttackSequenceUIController] UIManagers.Instance가 없습니다");
+            // Debug.LogWarning("[AttackSequenceUIController] UIManagers.Instance가 없습니다");
             return null;
         }
 
         var uiObject = await UIManagers.Instance.GetUIElement(UI_NAME);
         if (uiObject == null)
         {
-            Debug.LogWarning($"[AttackSequenceUIController] '{UI_NAME}' UI를 로드할 수 없습니다");
+            // Debug.LogWarning($"[AttackSequenceUIController] '{UI_NAME}' UI를 로드할 수 없습니다");
             return null;
         }
 
@@ -152,7 +152,7 @@ public class AttackSequenceUIController : MonoBehaviour
         _playerManager = candidate;
         if (verboseLog)
         {
-            Debug.Log($"[AttackSequenceUIController] _playerManager 재바인딩 완료 ({context})");
+            // Debug.Log($"[AttackSequenceUIController] _playerManager 재바인딩 완료 ({context})");
         }
 
         return true;
@@ -193,7 +193,7 @@ public class AttackSequenceUIController : MonoBehaviour
 
         TryRebindPlayerReference("Initialize", false);
         string playerIdLabel = TryGetPlayerIdSafe(_playerManager, out int safeId) ? safeId.ToString() : "unspawned";
-        Debug.Log($"<color=cyan>[AttackSequenceUIController] 초기화 완료. Player {playerIdLabel}</color>");
+        // Debug.Log($"<color=cyan>[AttackSequenceUIController] 초기화 완료. Player {playerIdLabel}</color>");
 
         // 현재 공격자 상태면 바로 UI 표시
         if (TryGetAttackerStateSafe(_playerManager, out bool isAttacker) && isAttacker)
@@ -206,7 +206,7 @@ public class AttackSequenceUIController : MonoBehaviour
     {
         if (slotContainer == null || slotPrefab == null)
         {
-            Debug.LogWarning("[AttackSequenceUIController] slotContainer 또는 slotPrefab이 null입니다");
+            // Debug.LogWarning("[AttackSequenceUIController] slotContainer 또는 slotPrefab이 null입니다");
             return;
         }
 
@@ -324,7 +324,7 @@ public class AttackSequenceUIController : MonoBehaviour
         }
         _selectedSlotIndex = -1;
         
-        Debug.Log("<color=yellow>[AttackSequenceUIController] UI 갱신 및 선택 해제</color>");
+        // Debug.Log("<color=yellow>[AttackSequenceUIController] UI 갱신 및 선택 해제</color>");
     }
 
 

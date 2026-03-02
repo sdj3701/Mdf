@@ -1,4 +1,4 @@
-// Assets/Scripts/Game/Battle/AttackSequenceManager.cs
+﻿// Assets/Scripts/Game/Battle/AttackSequenceManager.cs
 using UnityEngine;
 using UnityEngine.EventSystems;
 using Cysharp.Threading.Tasks;
@@ -42,7 +42,7 @@ public class AttackSequenceManager : MonoBehaviour
         _monsterSpawner = owner?.monsterSpawner;
 
         EnsureRuntimeReferences("Initialize", true);
-        Debug.Log($"<color=cyan>[AttackSequenceManager] Player {owner?.playerId} 초기화 완료 ({DescribeRuntimeState()})</color>");
+        // Debug.Log($"<color=cyan>[AttackSequenceManager] Player {owner?.playerId} 초기화 완료 ({DescribeRuntimeState()})</color>");
     }
 
     /// <summary>
@@ -52,13 +52,13 @@ public class AttackSequenceManager : MonoBehaviour
     {
         if (opponent == null)
         {
-            Debug.LogWarning("[AttackSequenceManager] 상대가 없습니다 (관전 모드)");
+            // Debug.LogWarning("[AttackSequenceManager] 상대가 없습니다 (관전 모드)");
             return;
         }
 
         if (!EnsureRuntimeReferences("StartAttackSequence", true))
         {
-            Debug.LogError($"[AttackSequenceManager] StartAttackSequence 중단: 필수 참조 누락 ({DescribeRuntimeState()})");
+            // Debug.LogError($"[AttackSequenceManager] StartAttackSequence 중단: 필수 참조 누락 ({DescribeRuntimeState()})");
             return;
         }
 
@@ -77,10 +77,10 @@ public class AttackSequenceManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"[AttackSequenceManager] 공격 시퀀스 시작 시 몬스터 풀 비어있음. player={_playerManager.playerId}");
+            // Debug.LogWarning($"[AttackSequenceManager] 공격 시퀀스 시작 시 몬스터 풀 비어있음. player={_playerManager.playerId}");
         }
 
-        Debug.Log($"<color=green>[AttackSequenceManager] 공격 시퀀스 시작! 상대: Player {opponent.playerId} ({DescribeRuntimeState()})</color>");
+        // Debug.Log($"<color=green>[AttackSequenceManager] 공격 시퀀스 시작! 상대: Player {opponent.playerId} ({DescribeRuntimeState()})</color>");
     }
 
     public void EndAttackSequence()
@@ -99,12 +99,12 @@ public class AttackSequenceManager : MonoBehaviour
     {
         if (entry == null || entry.IsEmpty)
         {
-            Debug.LogWarning("[AttackSequenceManager] 선택할 수 없는 몬스터입니다");
+            // Debug.LogWarning("[AttackSequenceManager] 선택할 수 없는 몬스터입니다");
             return;
         }
 
         _selectedMonster = entry;
-        Debug.Log($"<color=yellow>[AttackSequenceManager] 몬스터 선택: {entry.MonsterData.monsterName} (남은 수량: {entry.RemainingCount})</color>");
+        // Debug.Log($"<color=yellow>[AttackSequenceManager] 몬스터 선택: {entry.MonsterData.monsterName} (남은 수량: {entry.RemainingCount})</color>");
     }
 
     public MonsterPoolEntry GetSelectedMonster() => _selectedMonster;
@@ -178,13 +178,13 @@ public class AttackSequenceManager : MonoBehaviour
 
         if (_selectedMonster == null || _selectedMonster.IsEmpty)
         {
-            Debug.Log("[AttackSequenceManager] 선택된 몬스터가 없거나 수량이 0입니다");
+            // Debug.Log("[AttackSequenceManager] 선택된 몬스터가 없거나 수량이 0입니다");
             return;
         }
 
         if (_playerCamera == null)
         {
-            Debug.LogWarning("[AttackSequenceManager] 카메라가 없습니다");
+            // Debug.LogWarning("[AttackSequenceManager] 카메라가 없습니다");
             return;
         }
 
@@ -201,7 +201,7 @@ public class AttackSequenceManager : MonoBehaviour
             }
             else
             {
-                Debug.Log("[AttackSequenceManager] 유효하지 않은 스폰 영역입니다");
+                // Debug.Log("[AttackSequenceManager] 유효하지 않은 스폰 영역입니다");
             }
         }
     }
@@ -218,7 +218,7 @@ public class AttackSequenceManager : MonoBehaviour
         if (_opponentFieldManager == null) return;
         if (_selectedMonster.MonsterData == null)
         {
-            Debug.LogWarning("[AttackSequenceManager] SpawnMonsterAsync 중단: 선택 몬스터 데이터 null");
+            // Debug.LogWarning("[AttackSequenceManager] SpawnMonsterAsync 중단: 선택 몬스터 데이터 null");
             return;
         }
 
@@ -252,19 +252,19 @@ public class AttackSequenceManager : MonoBehaviour
 
             if (spawnedMonster == null)
             {
-                Debug.LogWarning($"[AttackSequenceManager] 스폰 실패 - 풀 소모 생략: {_selectedMonster.MonsterData.monsterName}");
+                // Debug.LogWarning($"[AttackSequenceManager] 스폰 실패 - 풀 소모 생략: {_selectedMonster.MonsterData.monsterName}");
                 return;
             }
 
             if (isBoss)
             {
                 _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
-                Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
+                // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
             }
 
             if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
             {
-                Debug.LogWarning("[AttackSequenceManager] 호스트 소환 성공 후 몬스터 풀 소비 실패");
+                // Debug.LogWarning("[AttackSequenceManager] 호스트 소환 성공 후 몬스터 풀 소비 실패");
             }
         }
         else
@@ -272,13 +272,13 @@ public class AttackSequenceManager : MonoBehaviour
             if (isBoss)
             {
                 _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
-                Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
+                // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
             }
 
             // 클라이언트 경로는 기존 동작 유지 (로컬 UI 즉시 반영)
             if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
             {
-                Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
+                // Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
                 return;
             }
 
@@ -294,7 +294,7 @@ public class AttackSequenceManager : MonoBehaviour
                     bossUniqueId,
                     originPlayerId
                 );
-                Debug.Log($"<color=yellow>[AttackSequenceManager] RPC 소환 요청: {monsterDataName} at {position}</color>");
+                // Debug.Log($"<color=yellow>[AttackSequenceManager] RPC 소환 요청: {monsterDataName} at {position}</color>");
             }
         }
 
@@ -302,7 +302,7 @@ public class AttackSequenceManager : MonoBehaviour
         // 사용자가 직접 UI에서 다른 몬스터를 선택해야 소환 가능
         if (_selectedMonster.IsEmpty)
         {
-            Debug.Log($"<color=orange>[AttackSequenceManager] '{_selectedMonster.MonsterData.monsterName}' 소진! 다른 몬스터를 선택해주세요.</color>");
+            // Debug.Log($"<color=orange>[AttackSequenceManager] '{_selectedMonster.MonsterData.monsterName}' 소진! 다른 몬스터를 선택해주세요.</color>");
             _selectedMonster = null;
             
             // UI 갱신 이벤트 발생
@@ -341,7 +341,7 @@ public class AttackSequenceManager : MonoBehaviour
         if (!ready && verboseFailure && Time.unscaledTime - _lastMissingRefLogTime > 0.5f)
         {
             _lastMissingRefLogTime = Time.unscaledTime;
-            Debug.LogWarning($"[AttackSequenceManager] 참조 복구 실패 ({context}) {DescribeRuntimeState()}");
+            // Debug.LogWarning($"[AttackSequenceManager] 참조 복구 실패 ({context}) {DescribeRuntimeState()}");
         }
 
         return ready;
@@ -388,12 +388,12 @@ public class AttackSequenceManager : MonoBehaviour
 
         if (isInsideGrid)
         {
-            Debug.Log($"[AttackSequenceManager] 그리드 안쪽 위치 (소환 불가): ({rawGridX}, {rawGridY})");
+            // Debug.Log($"[AttackSequenceManager] 그리드 안쪽 위치 (소환 불가): ({rawGridX}, {rawGridY})");
             return false;
         }
 
         // 그리드 바깥이면 소환 가능
-        Debug.Log($"[AttackSequenceManager] 그리드 바깥 위치 (소환 가능): ({rawGridX}, {rawGridY})");
+        // Debug.Log($"[AttackSequenceManager] 그리드 바깥 위치 (소환 가능): ({rawGridX}, {rawGridY})");
         return true;
     }
     #endregion
