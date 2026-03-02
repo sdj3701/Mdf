@@ -280,6 +280,34 @@ public partial class GameManagers : NetworkBehaviour
         }));
     }
 
+    private string BuildRoundTransitionSnapshot()
+    {
+        string localInfo = TryGetPlayerIdSafe(localPlayer, out int localPlayerId) ? localPlayerId.ToString() : "null";
+        var players = AllPlayers?.Where(p => p != null).ToList();
+        if (players == null || players.Count == 0)
+        {
+            return $"local={localInfo}, players=0";
+        }
+
+        var details = new List<string>(players.Count);
+        foreach (var player in players)
+        {
+            if (!TryGetPlayerIdSafe(player, out int playerId))
+            {
+                details.Add("P?:unreadable");
+                continue;
+            }
+
+            string inputAuthority = player.Object != null && player.Object.IsValid
+                ? player.Object.InputAuthority.ToString()
+                : "invalid";
+            bool hasInputAuthority = player.Object != null && player.Object.IsValid && player.Object.HasInputAuthority;
+            details.Add($"P{playerId}(ready={player.IsReadyForPlayerActions},hasInput={hasInputAuthority},input={inputAuthority})");
+        }
+
+        return $"local={localInfo}, players={string.Join(" | ", details)}";
+    }
+
     private void LogMigrationTrace(string step, string extra = null)
     {
         if (_activeMigrationTraceId < 0)
@@ -305,8 +333,23 @@ public partial class GameManagers : NetworkBehaviour
     /// </summary>
     private async UniTask InitializeAndStartGame()
     {
+        if (LoadManager.Instance == null)
+        {
+            Debug.LogError("[GameManagers] LoadManager.Instance is null.");
+            return;
+        }
+
         await LoadManager.Instance.InitializeAsync();
+        if (Object == null || !Object.IsValid || Instance != this)
+        {
+            return;
+        }
+
         await GameFlow();
+        if (Object == null || !Object.IsValid || Instance != this)
+        {
+            return;
+        }
 
         _isSpawned = true;
         RelinkLocalPlayer();
@@ -319,6 +362,43 @@ public partial class GameManagers : NetworkBehaviour
     /// Fusion의 네트워크/물리 틱마다 호출됩니다. 게임 로직 처리에 적합합니다.
     /// </summary>
     // Host Migration 디버깅용 - StateAuthority 상태 추적
+    private async UniTask WaitForPlayerInitializationAsync()
+    {
+        if (Runner == null || !Runner.IsServer)
+        {
+            return;
+        }
+
+        const float timeoutSeconds = 5f;
+        float startTime = Time.realtimeSinceStartup;
+
+        while (Time.realtimeSinceStartup - startTime < timeoutSeconds)
+        {
+            if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+            {
+                return;
+            }
+
+            var players = AllPlayers.Where(p => p != null).ToList();
+            if (players.Count > 0 && players.All(p => p.IsReadyForPlayerActions))
+            {
+                return;
+            }
+
+            await UniTask.Delay(100);
+        }
+
+        var pending = AllPlayers
+            .Where(p => p != null && !p.IsReadyForPlayerActions)
+            .Select(p => $"P{p.playerId}")
+            .ToArray();
+
+        if (pending.Length > 0)
+        {
+            Debug.LogWarning($"[StartNextRound] Player initialization timeout: {string.Join(", ", pending)}");
+        }
+    }
+
     private float _lastStateAuthorityLogTime = 0f;
     private bool _wasStateAuthorityLastFrame = false;
     
@@ -545,22 +625,47 @@ public partial class GameManagers : NetworkBehaviour
     private async UniTask GameFlow()
     {
         // Networked 속성은 StateAuthority(서버)만 설정 가능
-        if (Object.HasStateAuthority)
+        if (Object == null || !Object.IsValid || Instance != this)
+        {
+            return;
+        }
+
+        if (Object != null && Object.IsValid && Object.HasStateAuthority)
         {
             TransitionToSetupState("GameFlow.Initialize");
         }
         
         // 프리팹 로드
+        if (AddressablesManager.Instance == null)
+        {
+            Debug.LogError("[GameManagers] AddressablesManager.Instance is null.");
+            return;
+        }
         await AddressablesManager.Instance.LoadGamePrefabsAsync();
+        if (Object == null || !Object.IsValid || Instance != this)
+        {
+            return;
+        }
         
         // 플레이어/그리드 생성 (서버만 실행, 내부에서 Rpc_LinkSpawnedObjects 호출)
         await SetupPlayersAndGrids();
+        if (Object == null || !Object.IsValid || Instance != this)
+        {
+            return;
+        }
+
+        // 첫 라운드 UI(증강/상점) 전에 로컬 플레이어 참조를 선반영한다.
+        RelinkLocalPlayer();
         
         // UI 설정 및 데이터 로딩 (SetupGameUI에서 데이터 로딩까지 처리)
         await SetupGameUI();
+        if (Object == null || !Object.IsValid || Instance != this)
+        {
+            return;
+        }
 
         // 서버: 첫 라운드 시작 (Reroll은 StartNextRound에서 처리)
-        if (Runner.IsServer)
+        if (Runner != null && Runner.IsServer)
         {
             await StartNextRound();
         }
@@ -661,10 +766,11 @@ public partial class GameManagers : NetworkBehaviour
         if (BuildDebugGUI.Instance != null) BuildDebugGUI.Instance.Log("생성된 네트워크 객체들을 연결하는 중...");
 
         // InputAuthority를 가진 플레이어를 찾아 로컬 플레이어로 설정
-        localPlayer = AllPlayers.FirstOrDefault(p => p != null && p.Object.HasInputAuthority);
+        localPlayer = AllPlayers.FirstOrDefault(p => p != null && p.Object != null && p.Object.HasInputAuthority);
 
-        // 싱글플레이 모드에서는 InputAuthority가 없을 수 있으므로, 첫 번째 플레이어를 로컬 플레이어로 설정
-        if (localPlayer == null && AllPlayers.Any())
+        // 멀티플레이에서는 첫 번째 플레이어 폴백이 원격 플레이어 오인을 만들 수 있으므로 금지.
+        // 싱글플레이에서만 마지막 폴백으로 허용한다.
+        if (localPlayer == null && Runner != null && Runner.GameMode == GameMode.Single && AllPlayers.Any())
         {
             localPlayer = AllPlayers.First(p => p != null);
         }
@@ -937,10 +1043,27 @@ public partial class GameManagers : NetworkBehaviour
 
     private async UniTask StartNextRound()
     {
-        if (!Object.HasStateAuthority) return;
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority) return;
         if (currentState == GameState.GameOver) return;
+
+        // 첫 Prepare 진입 시점(local UI 표시 이전)에 로컬 플레이어 참조를 보강한다.
+        await WaitForPlayerInitializationAsync();
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority) return;
+
+        RelinkLocalPlayer();
+        Debug.Log($"[StartNextRound] Begin round transition. state={currentState}, round={currentRound}, {BuildRoundTransitionSnapshot()}");
+        if (localPlayer == null)
+        {
+            Debug.LogWarning("[StartNextRound] localPlayer could not be resolved before Prepare sync.");
+        }
         
         // 턴 시작 시 보스 침공 상태 리셋 (턴당 1회 침공 제한용)
+        if (CommandProcessor == null)
+        {
+            Debug.LogWarning("[StartNextRound] CommandProcessor is null.");
+            return;
+        }
+
         if (SurvivorBossManager.Instance != null)
         {
             SurvivorBossManager.Instance.ResetTurnInvasionState();
@@ -1001,6 +1124,11 @@ public partial class GameManagers : NetworkBehaviour
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
+            if (!player.IsReadyForPlayerActions)
+            {
+                Debug.LogWarning($"[StartNextRound] Skip sync for uninitialized player. playerId={player.playerId}");
+                continue;
+            }
 
             if (player.shopManager == null)
             {
@@ -1082,6 +1210,7 @@ public partial class GameManagers : NetworkBehaviour
         float prepDuration = (!firstPrepareDurationUsed && currentRound == 1) ? firstPreparePhaseTime : preparePhaseTime;
         firstPrepareDurationUsed = true;
         phaseTimer = TickTimer.CreateFromSeconds(Runner, prepDuration);
+        Debug.Log($"[StartNextRound] Prepare phase armed. round={currentRound}, prepDuration={prepDuration:F1}, {BuildRoundTransitionSnapshot()}");
         isTransitioningRound = false; // 라운드 전환 완료
     }
 

@@ -82,6 +82,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     #endregion
 
     private ChangeDetector _changeDetector;
+    private bool _runtimeInitialized;
+    public bool IsReadyForPlayerActions => _runtimeInitialized && playerId >= 0 && fieldManager != null;
 
     private bool HasStateAuthorityOrNoNetwork()
     {
@@ -114,6 +116,16 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public override void Spawned()
     {
+        bool isHostMigration = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
+        _runtimeInitialized = isHostMigration;
+
+        // Rpc_InitializePlayer 이전에는 playerId가 미확정 상태임을 명시하여
+        // Spawned 단계의 재바인딩에서 잘못된 슬롯/필드 매칭을 방지합니다.
+        if (!isHostMigration && Object != null && Object.HasStateAuthority)
+        {
+            playerId = -1;
+        }
+
         if (Object != null && Object.HasStateAuthority)
         {
             health = initialHealth;
@@ -160,6 +172,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void Rpc_InitializePlayer(int id, NetworkId gridId)
     {
+        _runtimeInitialized = false;
         playerId = id;
 
         NetworkObject gridNO = null;
@@ -286,6 +299,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 await RPC_RegisterUnitAt_Internal(p.unitNO, p.x, p.y, p.unitDataKey, p.starLevel);
             }
         }
+
+        _runtimeInitialized = true;
     }
 
     public void RebindRuntimeReferencesAfterMigration(string context, bool verboseFailure = true)
@@ -1289,6 +1304,30 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public void RPC_RequestCommandToServer(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams, RpcInfo info = default)
     {
         if (Runner == null || !Runner.IsServer) return; // 서버에서만 처리
+        if (!IsReadyForPlayerActions)
+        {
+            Debug.LogWarning($"[RPC_RequestCommandToServer] Player init not ready. command={type}, playerId={playerId}");
+            return;
+        }
+
+        if (intParams != null && intParams.Length > 0)
+        {
+            if (intParams[0] != playerId)
+            {
+                Debug.LogWarning($"[RPC_RequestCommandToServer] PlayerId mismatch corrected. cmd={type}, requested={intParams[0]}, authoritative={playerId}");
+            }
+            intParams[0] = playerId;
+        }
+
+        if (type == CommandType.PlaceWall || type == CommandType.RemoveWall)
+        {
+            string requestedPos = (vectorParams != null && vectorParams.Length > 0)
+                ? Vector3Int.RoundToInt(vectorParams[0]).ToString()
+                : "none";
+            string source = info.Source != PlayerRef.None ? info.Source.ToString() : "None";
+            Debug.Log($"[RPC_RequestCommandToServer] {type} accepted. authoritativePlayer={playerId}, requestedPos={requestedPos}, source={source}");
+        }
+
         var gm = GameManagers.Instance;
         if (gm == null)
         {

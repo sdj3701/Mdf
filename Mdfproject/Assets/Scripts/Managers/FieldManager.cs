@@ -123,6 +123,34 @@ public class FieldManager : MonoBehaviour
     private int wallLayer = -1;
     private bool permanentWallsGenerated = false;
 
+    private string BuildWallOwnerTag()
+    {
+        if (playerManager == null)
+        {
+            return "P?";
+        }
+
+        try
+        {
+            int ownerId = playerManager.playerId;
+            return ownerId >= 0 ? $"P{ownerId}" : "P?";
+        }
+        catch (InvalidOperationException)
+        {
+            return "P?";
+        }
+    }
+
+    private string BuildRunnerTag()
+    {
+        if (playerManager == null || playerManager.Runner == null || !playerManager.Runner.IsRunning)
+        {
+            return "runner=offline";
+        }
+
+        return $"runner={playerManager.Runner.name},isServer={playerManager.Runner.IsServer},isClient={playerManager.Runner.IsClient}";
+    }
+
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
     private Vector3 offset;
@@ -309,7 +337,16 @@ public class FieldManager : MonoBehaviour
             wallParent = parentObject.transform;
         }
 
-        GeneratePermanentWallsIfNeeded();
+        int ownerId = playerManager != null ? playerManager.playerId : -1;
+        if (ownerId >= 0)
+        {
+            Debug.Log($"[WallFlow-Auto] Initialize -> GeneratePermanentWallsIfNeeded request. owner={BuildWallOwnerTag()}, {BuildRunnerTag()}, gridOrigin={gridOrigin}, gridSize={gridSize}");
+            GeneratePermanentWallsIfNeeded();
+        }
+        else
+        {
+            Debug.Log($"[WallFlow-Auto] Initialize -> defer auto generation until playerId resolves. owner={BuildWallOwnerTag()}, {BuildRunnerTag()}, gridOrigin={gridOrigin}, gridSize={gridSize}");
+        }
 
         // 그리드 디버그 라인 생성 (showGridDebug가 true일 때만)
         CreateGridLines();
@@ -717,18 +754,23 @@ public class FieldManager : MonoBehaviour
 
     public void CreateWallAt(Vector3Int gridPosition)
     {
+        Debug.Log($"[WallFlow-Create] CreateWallAt ENTER owner={BuildWallOwnerTag()}, pos={gridPosition}, hasStateAuth={(playerManager != null && playerManager.Object != null && playerManager.Object.IsValid && playerManager.Object.HasStateAuthority)}, {BuildRunnerTag()}");
+
         if (destructibleWallPrefab == null)
         {
+            Debug.LogWarning($"[WallFlow-Create] abort: destructibleWallPrefab is null. owner={BuildWallOwnerTag()}, pos={gridPosition}");
             // Debug.LogError($"[FieldManager] CreateWallAt failed: destructibleWallPrefab is null (Player={playerManager?.playerId}) at {gridPosition}");
             return;
         }
         if (HasWallAt(gridPosition))
         {
+            Debug.LogWarning($"[WallFlow-Create] abort: wall already exists. owner={BuildWallOwnerTag()}, pos={gridPosition}");
             // Debug.LogWarning($"[FieldManager] CreateWallAt ignored: wall already exists at {gridPosition} (Player={playerManager?.playerId})");
             return;
         }
         if (!IsValidGridPosition(gridPosition))
         {
+            Debug.LogWarning($"[WallFlow-Create] abort: invalid grid position. owner={BuildWallOwnerTag()}, pos={gridPosition}, gridSize={gridSize}");
             // Debug.LogWarning($"[FieldManager] CreateWallAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
@@ -741,6 +783,7 @@ public class FieldManager : MonoBehaviour
                 Vector3Int? alt = FindFirstEmptySlot(occupant.Data);
                 if (!alt.HasValue)
                 {
+                    Debug.LogWarning($"[WallFlow-Create] abort: no empty slot to relocate melee unit. owner={BuildWallOwnerTag()}, pos={gridPosition}");
                     // Debug.LogWarning($"[FieldManager] CreateWallAt aborted: no empty slot to relocate melee unit at {gridPosition} (Player={playerManager?.playerId})");
                     return;
                 }
@@ -758,11 +801,13 @@ public class FieldManager : MonoBehaviour
         {
             if (!playerManager.Object.HasStateAuthority)
             {
+                Debug.LogWarning($"[WallFlow-Create] abort: no state authority for network wall spawn. owner={BuildWallOwnerTag()}, pos={gridPosition}");
                 return;
             }
             var spawned = runner.Spawn(netPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
             if (spawned == null)
             {
+                Debug.LogError($"[WallFlow-Create] abort: Runner.Spawn failed. owner={BuildWallOwnerTag()}, pos={gridPosition}");
                 // Debug.LogError($"[FieldManager] Runner.Spawn 실패: {destructibleWallPrefab.name} (Player={playerManager?.playerId})");
                 return;
             }
@@ -791,9 +836,12 @@ public class FieldManager : MonoBehaviour
                 Vector3 atopPos = GridToWorld(gridPosition, checkForWall: true);
                 MoveUnitImmediate(unitOnCell, atopPos);
             }
+
+            Debug.Log($"[WallFlow-Create] CreateWallAt SUCCESS owner={BuildWallOwnerTag()}, pos={gridPosition}, worldPos={worldPos}, totalWalls={placedWalls.Count}");
         }
         else
         {
+            Debug.LogError($"[WallFlow-Create] abort: spawned wall has no DestructibleWall component. owner={BuildWallOwnerTag()}, pos={gridPosition}");
             // Debug.LogError($"{destructibleWallPrefab.name} 프리팹에 DestructibleWall 컴포넌트가 없습니다!", wallGO);
             Destroy(wallGO);
         }
@@ -871,26 +919,48 @@ public class FieldManager : MonoBehaviour
     // 영구(파괴 불가) 벽 생성 - 테두리 + 필드 내부 랜덤
     private async void GeneratePermanentWallsIfNeeded()
     {
-        if (permanentWallsGenerated) return;
-        if (playerManager == null) return; // Initialize 미완료
+        Debug.Log($"[WallFlow-Auto] GeneratePermanentWallsIfNeeded ENTER owner={BuildWallOwnerTag()}, generated={permanentWallsGenerated}, {BuildRunnerTag()}, initialPermanentWallCount={initialPermanentWallCount}");
+
+        if (permanentWallsGenerated)
+        {
+            Debug.Log($"[WallFlow-Auto] skip: already generated. owner={BuildWallOwnerTag()}");
+            return;
+        }
+        if (playerManager == null)
+        {
+            Debug.LogWarning("[WallFlow-Auto] skip: playerManager is null (Initialize not ready).");
+            return; // Initialize 미완료
+        }
+
+        int ownerId = playerManager.playerId;
+        if (ownerId < 0)
+        {
+            Debug.Log($"[WallFlow-Auto] skip: unresolved playerId ({ownerId}). owner={BuildWallOwnerTag()}");
+            return;
+        }
 
         // 네트워크 환경에서는 서버(호스트)만 초기 랜덤 생성 수행
         var runner = playerManager != null ? playerManager.Runner : null;
         if (runner != null && runner.IsRunning && !runner.IsServer)
         {
+            Debug.Log($"[WallFlow-Auto] skip: client peer waits for server sync. owner={BuildWallOwnerTag()}, runner={runner.name}");
             // 클라이언트는 서버의 RPC를 통해 동기화 대기
             return;
         }
+
+        Debug.Log($"[WallFlow-Auto] server path confirmed. owner={BuildWallOwnerTag()}, runner={(runner != null ? runner.name : "offline")}");
 
         // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
         GameObject prefab = permanentWallPrefab;
         if (prefab == null && !string.IsNullOrEmpty(permanentWallAddressKey))
         {
             prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey);
+            Debug.Log($"[WallFlow-Auto] prefab loaded from addressables. key={permanentWallAddressKey}, success={prefab != null}");
         }
 
         if (prefab == null)
         {
+            Debug.LogError($"[WallFlow-Auto] abort: permanent wall prefab unavailable. key={permanentWallAddressKey}");
             // Debug.LogError($"[FieldManager] Permanent wall prefab not set and failed to load '{permanentWallAddressKey}'. Skipping generation.");
             permanentWallsGenerated = true;
             return;
@@ -912,7 +982,7 @@ public class FieldManager : MonoBehaviour
             // Debug.LogWarning($"[FieldManager] goalTransform이 null입니다. 필드 중앙 {goalCell}을 사용합니다.");
         }
 
-        // Debug.Log($"[FieldManager] 영구벽 생성 - spawnCell: {spawnCell}, goalCell: {goalCell}");
+        Debug.Log($"[WallFlow-Auto] spawn/goal resolved. owner={BuildWallOwnerTag()}, spawnCell={spawnCell}, goalCell={goalCell}, gridSize={gridSize}");
 
         List<Vector3Int> selected = new List<Vector3Int>();
         int centerX = gridSize.x / 2;
@@ -1027,9 +1097,11 @@ public class FieldManager : MonoBehaviour
                 flat[i * 2 + 1] = selected[i].y;
             }
             playerManager.RPC_ApplyPermanentWalls(flat);
+            Debug.Log($"[WallFlow-Auto] broadcast permanent walls to clients. owner={BuildWallOwnerTag()}, count={selected.Count}");
         }
 
         permanentWallsGenerated = true;
+        Debug.Log($"[WallFlow-Auto] GeneratePermanentWallsIfNeeded SUCCESS owner={BuildWallOwnerTag()}, totalSelected={selected.Count}, permanentWalls={placedPermanentWalls.Count}");
     }
 
     /// <summary>

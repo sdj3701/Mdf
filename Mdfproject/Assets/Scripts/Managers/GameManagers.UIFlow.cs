@@ -287,6 +287,11 @@ public partial class GameManagers
 
     private async UniTask HandleUIForNewState(GameState newState)
     {
+        if (localPlayer == null)
+        {
+            RelinkLocalPlayer();
+        }
+
         // [수정] 싱글플레이 모드 지원: 서버(호스트)이거나 로컬 플레이어가 있을 때만 UI 처리
         if (localPlayer == null)
         {
