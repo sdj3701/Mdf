@@ -25,6 +25,8 @@ public class MonsterSpawner : MonoBehaviour
     
     // 공격 시퀀스용 타겟 필드 (임시 저장)
     private FieldManager _targetFieldManager;
+    private readonly HashSet<string> _activeAutoSpawnKeys = new HashSet<string>();
+    private readonly HashSet<string> _completedAutoSpawnKeys = new HashSet<string>();
 
     // _isSpawningWave 제거됨 (CS0414 - 사용되지 않음)
 
@@ -240,6 +242,55 @@ public class MonsterSpawner : MonoBehaviour
             // $"[SPAWN-TRACE #{++_spawnTraceSeq}] {step} | monster={monsterName} spawn={spawnPosition} | " +
             // $"{DescribePlayerState(_playerManager, "attacker")} | {DescribeFieldState(targetFieldManager, "targetField")} | " +
             // $"{DescribePlayerState(targetPlayer, "defender")} | {DescribeRunnerState(_playerManager?.Runner)}{suffix}");
+    }
+
+    public bool IsAutoSpawnRunningForKey(string battleBootstrapKey)
+    {
+        if (string.IsNullOrWhiteSpace(battleBootstrapKey))
+        {
+            return false;
+        }
+
+        return _activeAutoSpawnKeys.Contains(battleBootstrapKey);
+    }
+
+    private bool TryBeginAutoSpawnForKey(string battleBootstrapKey, out string reason)
+    {
+        reason = string.Empty;
+        if (string.IsNullOrWhiteSpace(battleBootstrapKey))
+        {
+            return true;
+        }
+
+        if (_activeAutoSpawnKeys.Contains(battleBootstrapKey))
+        {
+            reason = "alreadyRunning";
+            return false;
+        }
+
+        if (_completedAutoSpawnKeys.Contains(battleBootstrapKey))
+        {
+            reason = "alreadyCompleted";
+            return false;
+        }
+
+        _activeAutoSpawnKeys.Add(battleBootstrapKey);
+        reason = "acquired";
+        return true;
+    }
+
+    private void EndAutoSpawnForKey(string battleBootstrapKey, bool completed)
+    {
+        if (string.IsNullOrWhiteSpace(battleBootstrapKey))
+        {
+            return;
+        }
+
+        _activeAutoSpawnKeys.Remove(battleBootstrapKey);
+        if (completed)
+        {
+            _completedAutoSpawnKeys.Add(battleBootstrapKey);
+        }
     }
 
     #endregion
@@ -925,57 +976,82 @@ public class MonsterSpawner : MonoBehaviour
     /// AI 공격자가 AttackMonsterPool에서 순차적으로 몬스터를 자동 소환합니다.
     /// </summary>
     /// <param name="targetFieldManager">소환할 대상 필드 (수비자 필드)</param>
-    public async UniTask StartAutoSpawnFromPool(FieldManager targetFieldManager)
+    public async UniTask StartAutoSpawnFromPool(FieldManager targetFieldManager, string battleBootstrapKey = null)
     {
-        if (!EnsureRuntimeReferences("StartAutoSpawnFromPool", true))
+        bool keyAcquired = false;
+        bool completed = false;
+        try
         {
-            return;
-        }
-
-        if (_playerManager == null || targetFieldManager == null)
-        {
-            // Debug.LogError($"[MonsterSpawner] AI 자동 소환 실패: PlayerManager 또는 targetFieldManager가 null ({DescribeRuntimeState()})");
-            return;
-        }
-
-        var pool = _playerManager.AttackMonsterPool;
-        if (pool == null || pool.Count == 0)
-        {
-            // Debug.LogWarning("[MonsterSpawner] AI 자동 소환: 몬스터 풀이 비어있음");
-            return;
-        }
-
-        // Debug.Log($"<color=orange>[MonsterSpawner] AI 자동 소환 시작: {pool.Count}종류의 몬스터</color>");
-
-        // 스폰 포인트 위치 (수비자 필드의 스폰 포인트)
-        Vector3 spawnPosition = targetFieldManager.playerManager?.spawnPoint?.position ?? 
-                                targetFieldManager.gridOrigin;
-
-        // 풀에 있는 모든 몬스터를 순차적으로 소환
-        foreach (var entry in pool)
-        {
-            while (!entry.IsEmpty)
+            if (!TryBeginAutoSpawnForKey(battleBootstrapKey, out string keyReason))
             {
-                // 몬스터 소환 (보스 플래그 포함)
-                await SpawnMonsterAtPositionAsync(
-                    entry.MonsterData, 
-                    spawnPosition, 
+                LogSpawnTrace(
+                    "StartAutoSpawnFromPool:SKIP_DUPLICATE_KEY",
+                    null,
+                    targetFieldManager != null ? targetFieldManager.gridOrigin : Vector3.zero,
                     targetFieldManager,
-                    entry.IsBoss,
-                    entry.BossUniqueId,
-                    entry.OriginPlayerId
-                );
-                
-                // 풀에서 직접 소비 (Find 로직 우회하여 무한루프 방지)
-                entry.TryConsume();
-                GameEvents.TriggerMonsterPoolChanged(_playerManager.playerId, pool);
-                
-                // 소환 간격
-                await UniTask.Delay(300); // 0.3초 간격
+                    $"key={battleBootstrapKey},reason={keyReason}");
+                return;
             }
-    }
+            keyAcquired = !string.IsNullOrWhiteSpace(battleBootstrapKey);
 
-        // Debug.Log($"<color=orange>[MonsterSpawner] AI 자동 소환 완료</color>");
+            if (!EnsureRuntimeReferences("StartAutoSpawnFromPool", true))
+            {
+                return;
+            }
+
+            if (_playerManager == null || targetFieldManager == null)
+            {
+                // Debug.LogError($"[MonsterSpawner] AI 자동 소환 실패: PlayerManager 또는 targetFieldManager가 null ({DescribeRuntimeState()})");
+                return;
+            }
+
+            var pool = _playerManager.AttackMonsterPool;
+            if (pool == null || pool.Count == 0)
+            {
+                // Debug.LogWarning("[MonsterSpawner] AI 자동 소환: 몬스터 풀이 비어있음");
+                return;
+            }
+
+            // Debug.Log($"<color=orange>[MonsterSpawner] AI 자동 소환 시작: {pool.Count}종류의 몬스터</color>");
+
+            // 스폰 포인트 위치 (수비자 필드의 스폰 포인트)
+            Vector3 spawnPosition = targetFieldManager.playerManager?.spawnPoint?.position ??
+                                    targetFieldManager.gridOrigin;
+
+            // 풀에 있는 모든 몬스터를 순차적으로 소환
+            foreach (var entry in pool)
+            {
+                while (!entry.IsEmpty)
+                {
+                    // 몬스터 소환 (보스 플래그 포함)
+                    await SpawnMonsterAtPositionAsync(
+                        entry.MonsterData,
+                        spawnPosition,
+                        targetFieldManager,
+                        entry.IsBoss,
+                        entry.BossUniqueId,
+                        entry.OriginPlayerId
+                    );
+
+                    // 풀에서 직접 소비 (Find 로직 우회하여 무한루프 방지)
+                    entry.TryConsume();
+                    GameEvents.TriggerMonsterPoolChanged(_playerManager.playerId, pool);
+
+                    // 소환 간격
+                    await UniTask.Delay(300); // 0.3초 간격
+                }
+            }
+
+            completed = true;
+            // Debug.Log($"<color=orange>[MonsterSpawner] AI 자동 소환 완료</color>");
+        }
+        finally
+        {
+            if (keyAcquired)
+            {
+                EndAutoSpawnForKey(battleBootstrapKey, completed);
+            }
+        }
     }
     
     /// <summary>
@@ -987,7 +1063,7 @@ public class MonsterSpawner : MonoBehaviour
     /// <param name="round">현재 라운드</param>
     /// <param name="targetFieldManager">수비자 필드</param>
     /// <param name="isAI">AI 공격자 여부</param>
-    public async UniTask SpawnAllMonstersToTargetField(int round, FieldManager targetFieldManager, bool isAI)
+    public async UniTask SpawnAllMonstersToTargetField(int round, FieldManager targetFieldManager, bool isAI, string battleBootstrapKey = null)
     {
         if (!EnsureRuntimeReferences("SpawnAllMonstersToTargetField", true))
         {
@@ -1013,7 +1089,7 @@ public class MonsterSpawner : MonoBehaviour
         if (isAI)
         {
             // Debug.Log($"<color=cyan>[MonsterSpawner] AI 공격자: AttackMonsterPool 자동 소환 시작</color>");
-            await StartAutoSpawnFromPool(targetFieldManager);
+            await StartAutoSpawnFromPool(targetFieldManager, battleBootstrapKey);
         }
         else
         {
@@ -1312,6 +1388,9 @@ public class MonsterSpawner : MonoBehaviour
     /// </summary>
     public void OnCombatPhaseEnded()
     {
+        _activeAutoSpawnKeys.Clear();
+        _completedAutoSpawnKeys.Clear();
+
         if (monsterParent == null) return;
         
         var monstersToRemove = new List<Monster>();

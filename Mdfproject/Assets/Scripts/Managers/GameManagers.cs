@@ -129,6 +129,7 @@ public partial class GameManagers : NetworkBehaviour
     private bool _migrationReadyEventPublished;
     private readonly HashSet<int> _migrationPublishedStateEvents = new HashSet<int>();
     private readonly HashSet<string> _migrationPrepareShopRecoveryKeys = new HashSet<string>();
+    private readonly HashSet<string> _migrationBattleRebootstrapKeys = new HashSet<string>();
     private float _lastMigrationCommandHoldLogRealtime = -10f;
     private bool _isSpawned;
     private CancellationTokenSource _lifecycleCts;
@@ -453,6 +454,7 @@ public partial class GameManagers : NetworkBehaviour
         _migrationReadyEventPublished = false;
         _migrationPublishedStateEvents.Clear();
         _migrationPrepareShopRecoveryKeys.Clear();
+        _migrationBattleRebootstrapKeys.Clear();
     }
 
     private void TriggerMigrationReadyEventOnce(string context)
@@ -493,6 +495,28 @@ public partial class GameManagers : NetworkBehaviour
         key = $"{_activeMigrationTraceId}:{playerId}:{currentRound}:{currentState}";
         bool acquired = _migrationPrepareShopRecoveryKeys.Add(key);
         LogMigrationTrace("PrepareShopRecoveryKey", $"context={context}, key={key}, acquired={acquired}");
+        return acquired;
+    }
+
+    private bool TryAcquireBattleRebootstrapKey(PlayerManager attacker, PlayerManager defender, string context, out string key)
+    {
+        key = string.Empty;
+        if (attacker == null || defender == null)
+        {
+            return false;
+        }
+
+        if (currentState != GameState.Battle1 && currentState != GameState.Battle2)
+        {
+            return false;
+        }
+
+        int attackerId = TryGetPlayerIdSafe(attacker, out int safeAttackerId) ? safeAttackerId : -1;
+        int defenderId = TryGetPlayerIdSafe(defender, out int safeDefenderId) ? safeDefenderId : -1;
+        key = $"{_activeMigrationTraceId}:{currentRound}:{currentState}:A{attackerId}:D{defenderId}";
+
+        bool acquired = _migrationBattleRebootstrapKeys.Add(key);
+        LogMigrationTrace("BattleRebootstrapKey", $"context={context}, key={key}, acquired={acquired}");
         return acquired;
     }
 

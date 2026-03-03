@@ -1333,6 +1333,29 @@ public class HostMigrationHandler : MonoBehaviour
                 {
                     errors.Add($"shopSnapshotMissing: P{runtimePlayer.playerId}");
                 }
+
+                bool battleState = gm != null &&
+                                   (gm.GetGameState() == GameManagers.GameState.Battle1 ||
+                                    gm.GetGameState() == GameManagers.GameState.Battle2);
+                if (battleState && runtimePlayer.IsAttackerInCurrentBattle)
+                {
+                    int opponentId = gm.GetBattleOpponent(runtimePlayer.playerId);
+                    if (opponentId >= 0)
+                    {
+                        var defender = gm.GetPlayer(opponentId);
+                        bool aiAttacker = ComponentRegistry.Has<AIPlayerController>(runtimePlayer.playerId.ToString());
+                        bool attackerHasPool = runtimePlayer.AttackMonsterPool != null &&
+                                               runtimePlayer.AttackMonsterPool.Any(entry => entry != null && !entry.IsEmpty);
+                        bool defenderHasMonsters = defender != null &&
+                                                   defender.monsterSpawner != null &&
+                                                   defender.monsterSpawner.HasLivingMonsters();
+
+                        if (aiAttacker && attackerHasPool && !defenderHasMonsters)
+                        {
+                            errors.Add($"battleSpawnPending: A{runtimePlayer.playerId}->D{opponentId}");
+                        }
+                    }
+                }
             }
         }
 

@@ -514,6 +514,150 @@ public partial class GameManagers
 
         return true;
     }
+
+    private static bool HasRemainingAttackPool(PlayerManager player)
+    {
+        return player != null &&
+               player.AttackMonsterPool != null &&
+               player.AttackMonsterPool.Exists(entry => entry != null && !entry.IsEmpty);
+    }
+
+    /// <summary>
+    /// Battle 상태 복원 직후, 전투 시작 부트스트랩(side effect)이 누락된 페어를 1회 보정합니다.
+    /// </summary>
+    private void RebootstrapBattleAfterMigrationIfNeeded(string context)
+    {
+        if (currentState != GameState.Battle1 && currentState != GameState.Battle2)
+        {
+            return;
+        }
+
+        if (Runner == null || Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        EnsureBattleMappingAfterMigration();
+
+        float remaining = phaseTimer.IsRunning ? (phaseTimer.RemainingTime(Runner) ?? 0f) : 0f;
+        bool allowPoolRefresh = !phaseTimer.IsRunning || remaining >= Mathf.Max(3f, combatTime - 8f);
+
+        var attackers = AllPlayers
+            .Where(player => player != null && player.Object != null && player.Object.IsValid)
+            .Where(player => player.IsAttackerInCurrentBattle)
+            .ToList();
+
+        if (attackers.Count == 0)
+        {
+            LogMigrationTrace("BATTLE-REBOOTSTRAP:SKIP_NO_ATTACKER", $"context={context}");
+            return;
+        }
+
+        LogMigrationTrace(
+            "BATTLE-REBOOTSTRAP:ENTER",
+            $"context={context}, attackerCount={attackers.Count}, state={currentState}, remain={remaining:F1}, allowPoolRefresh={allowPoolRefresh}");
+
+        foreach (var attacker in attackers)
+        {
+            if (!TryGetPlayerIdSafe(attacker, out int attackerId) || attackerId < 0)
+            {
+                continue;
+            }
+
+            int defenderId = GetBattleOpponent(attackerId);
+            if (defenderId < 0)
+            {
+                continue;
+            }
+
+            var defender = GetPlayer(defenderId);
+            if (defender == null || defender.Object == null || !defender.Object.IsValid)
+            {
+                LogMigrationTrace("BATTLE-REBOOTSTRAP:SKIP_DEFENDER_NULL", $"context={context}, attacker={attackerId}, defender={defenderId}");
+                continue;
+            }
+
+            attacker.RebindRuntimeReferencesAfterMigration($"BattleRebootstrap.A{attackerId}", false);
+            defender.RebindRuntimeReferencesAfterMigration($"BattleRebootstrap.D{defenderId}", false);
+
+            bool attackerReady = attacker.IsRuntimeReady(out string attackerReason);
+            bool defenderReady = defender.IsRuntimeReady(out string defenderReason);
+            if (!attackerReady || !defenderReady)
+            {
+                LogMigrationTrace(
+                    "BATTLE-REBOOTSTRAP:SKIP_RUNTIME_NOT_READY",
+                    $"context={context}, attacker={attackerId}({attackerReason}), defender={defenderId}({defenderReason})");
+                continue;
+            }
+
+            bool defenderHasLivingMonsters =
+                defender.monsterSpawner != null &&
+                defender.monsterSpawner.HasLivingMonsters();
+            bool attackerHasPool = HasRemainingAttackPool(attacker);
+
+            if (!attackerHasPool && allowPoolRefresh)
+            {
+                attacker.RefreshAttackMonsterPool(currentRound, defenderId);
+                attackerHasPool = HasRemainingAttackPool(attacker);
+                LogMigrationTrace(
+                    "BATTLE-REBOOTSTRAP:POOL_REFRESH",
+                    $"context={context}, attacker={attackerId}, defender={defenderId}, poolReady={attackerHasPool}");
+            }
+
+            if (!TryAcquireBattleRebootstrapKey(attacker, defender, context, out string battleKey))
+            {
+                LogMigrationTrace(
+                    "BATTLE-REBOOTSTRAP:SKIP_DUPLICATE",
+                    $"context={context}, attacker={attackerId}, defender={defenderId}");
+                continue;
+            }
+
+            if (defenderHasLivingMonsters)
+            {
+                LogMigrationTrace(
+                    "BATTLE-REBOOTSTRAP:SKIP_ALREADY_ACTIVE",
+                    $"context={context}, attacker={attackerId}, defender={defenderId}, key={battleKey}");
+                continue;
+            }
+
+            attacker.SetFightingState(true);
+            defender.SetFightingState(true);
+
+            // Battle 시작 RPC를 재발행해서 로컬 공격 UI/카메라/입력 경로를 재정렬한다.
+            RPC_NotifyBattleStart(attackerId, true, defenderId);
+            RPC_NotifyBattleStart(defenderId, false, attackerId);
+
+            bool isAiAttacker = ComponentRegistry.Has<AIPlayerController>(attackerId.ToString());
+            if (isAiAttacker)
+            {
+                if (!attackerHasPool)
+                {
+                    LogMigrationTrace(
+                        "BATTLE-REBOOTSTRAP:FAIL_POOL_EMPTY",
+                        $"context={context}, attacker={attackerId}, defender={defenderId}, key={battleKey}");
+                    continue;
+                }
+
+                RunLifecycleTask(
+                    attacker.monsterSpawner.SpawnAllMonstersToTargetField(
+                        currentRound,
+                        defender.fieldManager,
+                        true,
+                        battleKey),
+                    $"BattleRebootstrap/SpawnAllMonstersToTargetField/A{attackerId}->D{defenderId}");
+
+                LogMigrationTrace(
+                    "BATTLE-REBOOTSTRAP:APPLIED",
+                    $"context={context}, key={battleKey}, attacker={attackerId}, defender={defenderId}, mode=AI");
+            }
+            else
+            {
+                LogMigrationTrace(
+                    "BATTLE-REBOOTSTRAP:APPLIED",
+                    $"context={context}, key={battleKey}, attacker={attackerId}, defender={defenderId}, mode=HumanNotify");
+            }
+        }
+    }
     
     /// <summary>
     /// [State Machine Pattern]
@@ -533,6 +677,8 @@ public partial class GameManagers
             _migrationTimerPaused = false;
             _migrationPausedTimerRemainingSeconds = 0f;
         }
+
+        RebootstrapBattleAfterMigrationIfNeeded("ResumeGameFlowFromCurrentState");
 
         bool timerRunning = phaseTimer.IsRunning;
         bool timerExpired = timerRunning && phaseTimer.Expired(Runner);
