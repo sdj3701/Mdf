@@ -1322,6 +1322,17 @@ public class HostMigrationHandler : MonoBehaviour
                 {
                     errors.Add($"unitAnimProxyMissing: P{runtimePlayer.playerId} count={missingProxyCount}");
                 }
+
+                bool prepareState = gm != null && gm.GetGameState() == GameManagers.GameState.Prepare;
+                if (prepareState && !runtimePlayer.TryGetShopSnapshot(
+                        out _,
+                        out _,
+                        out _,
+                        out _,
+                        out _))
+                {
+                    errors.Add($"shopSnapshotMissing: P{runtimePlayer.playerId}");
+                }
             }
         }
 

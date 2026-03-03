@@ -25,6 +25,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Networked] private int health { get; set; }
     [Networked] private int gold { get; set; }
     [Networked] private int wallCount { get; set; }
+    private const int SHOP_SNAPSHOT_CAPACITY = 5;
+    [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> ShopSnapshotUnitKeys { get; }
+    [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<int> ShopSnapshotStarLevels { get; }
+    [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<int> ShopSnapshotSoldFlags { get; }
+    [Networked] private int ShopSnapshotRevision { get; set; }
+    [Networked] private int ShopSnapshotCount { get; set; }
+    [Networked] private int ShopSnapshotRound { get; set; }
     private const int MAX_WALL_COUNT = 5;
     [SerializeField] private int wallReserveK = 2;
     [SerializeField] private Vector2 wallBuildDelayRange = new Vector2(0.3f, 0.8f);
@@ -92,6 +99,93 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return true;
         }
         return Object.HasStateAuthority;
+    }
+
+    private static string NormalizeShopUnitKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
+        return key.Replace("(Clone)", string.Empty).Trim();
+    }
+
+    public void PublishShopSnapshot(IReadOnlyList<ShopItem> items, bool[] soldFlags, string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        int count = Mathf.Clamp(items?.Count ?? 0, 0, SHOP_SNAPSHOT_CAPACITY);
+        for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
+        {
+            ShopSnapshotUnitKeys.Set(i, string.Empty);
+            ShopSnapshotStarLevels.Set(i, 0);
+            ShopSnapshotSoldFlags.Set(i, 0);
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            var item = items[i];
+            string unitKey = NormalizeShopUnitKey(item.UnitData != null ? item.UnitData.name : string.Empty);
+            int starLevel = item.StarLevel > 0 ? item.StarLevel : 1;
+            int sold = soldFlags != null && i < soldFlags.Length && soldFlags[i] ? 1 : 0;
+
+            ShopSnapshotUnitKeys.Set(i, unitKey);
+            ShopSnapshotStarLevels.Set(i, starLevel);
+            ShopSnapshotSoldFlags.Set(i, sold);
+        }
+
+        ShopSnapshotCount = count;
+        ShopSnapshotRound = (GameManagers.Instance != null && GameManagers.Instance.IsReadyForNetworkAccess)
+            ? GameManagers.Instance.currentRound
+            : 0;
+
+        if (ShopSnapshotRevision >= int.MaxValue - 1)
+        {
+            ShopSnapshotRevision = 1;
+        }
+        else
+        {
+            ShopSnapshotRevision++;
+        }
+    }
+
+    public bool TryGetShopSnapshot(out string[] unitKeys, out int[] starLevels, out bool[] soldFlags, out int revision, out int round)
+    {
+        unitKeys = System.Array.Empty<string>();
+        starLevels = System.Array.Empty<int>();
+        soldFlags = System.Array.Empty<bool>();
+        revision = 0;
+        round = 0;
+
+        if (Object == null || !Object.IsValid)
+        {
+            return false;
+        }
+
+        revision = ShopSnapshotRevision;
+        round = ShopSnapshotRound;
+        int count = Mathf.Clamp(ShopSnapshotCount, 0, SHOP_SNAPSHOT_CAPACITY);
+        if (revision <= 0 || count <= 0)
+        {
+            return false;
+        }
+
+        unitKeys = new string[count];
+        starLevels = new int[count];
+        soldFlags = new bool[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            unitKeys[i] = NormalizeShopUnitKey(ShopSnapshotUnitKeys[i].ToString());
+            starLevels[i] = Mathf.Max(1, ShopSnapshotStarLevels[i]);
+            soldFlags[i] = ShopSnapshotSoldFlags[i] != 0;
+        }
+
+        return true;
     }
 
     // Pending unit registrations received before FieldManager is ready

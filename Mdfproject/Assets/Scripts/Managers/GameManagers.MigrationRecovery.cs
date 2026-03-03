@@ -692,6 +692,14 @@ public partial class GameManagers
         }
 
         await targetPlayer.shopManager.WaitUntilDatabaseLoaded();
+        bool snapshotApplied = await targetPlayer.shopManager.ApplySnapshotFromNetworkAsync(
+            $"{context}.NetworkSnapshot",
+            triggerRefreshedEvent: false);
+        if (snapshotApplied)
+        {
+            LogMigrationTrace("PrepareShopRecovery:APPLIED_SNAPSHOT", $"context={context}, player={targetPlayer.playerId}");
+            return;
+        }
 
         bool canMutatePrepareShop =
             Object != null &&
@@ -711,15 +719,6 @@ public partial class GameManagers
                     items = targetPlayer.shopManager.GetCurrentShopItems();
                     Debug.Log($"[복원/UI] Prepare 상점 단일 복원 리롤: key={key}, player={targetPlayer.playerId}, itemCount={items?.Count ?? 0}");
                 }
-
-                if (CommandProcessor != null && items != null && items.Count > 0)
-                {
-                    string[] shopNames = items.Select(i => i.UnitData?.name ?? string.Empty).ToArray();
-                    int[] shopStars = items.Select(i => i.StarLevel).ToArray();
-                    var syncShopCmd = new SyncShopItemsCommand(targetPlayer.playerId, shopNames, shopStars);
-                    CommandProcessor.RequestCommandExecution(syncShopCmd);
-                    Debug.Log($"[복원/UI] Prepare 상점 복원 동기화: key={key}, player={targetPlayer.playerId}, itemCount={items.Count}");
-                }
             }
             else
             {
@@ -728,5 +727,8 @@ public partial class GameManagers
         }
 
         await targetPlayer.shopManager.EnsureShopRerolledAsync();
+        await targetPlayer.shopManager.ApplySnapshotFromNetworkAsync(
+            $"{context}.NetworkSnapshotRetry",
+            triggerRefreshedEvent: false);
     }
 }

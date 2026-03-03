@@ -233,8 +233,11 @@ public partial class GameManagers
                         currentState == GameState.Prepare &&
                         player.shopManager != null)
                     {
+                        bool appliedSnapshot = await player.shopManager.ApplySnapshotFromNetworkAsync(
+                            $"SetupGameUI.P{player.playerId}",
+                            triggerRefreshedEvent: false);
                         var migratedShopItems = player.shopManager.GetCurrentShopItems();
-                        if (migratedShopItems == null || migratedShopItems.Count == 0)
+                        if (!appliedSnapshot && (migratedShopItems == null || migratedShopItems.Count == 0))
                         {
                             LogMigrationTrace("SetupGameUI:SHOP_EMPTY_DEFER_TO_RECOVERY", $"player={player.playerId}");
                         }

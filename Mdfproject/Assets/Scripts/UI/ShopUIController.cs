@@ -201,6 +201,10 @@ public class ShopUIController : MonoBehaviour
             if (i < items.Count)
             {
                 shopSlots[i].DisplayUnit(items[i]);
+                if (localPlayerShopManager != null && localPlayerShopManager.IsSlotSold(i))
+                {
+                    shopSlots[i].SetPurchased();
+                }
             }
             else
             {

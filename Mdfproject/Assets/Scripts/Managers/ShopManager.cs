@@ -13,6 +13,7 @@ public class ShopManager : MonoBehaviour
     // [변경됨] 이제 UnitData가 아닌 ShopItem 리스트를 관리합니다.
     private List<ShopItem> currentShopItems = new List<ShopItem>();
     private bool[] _isSlotSold = new bool[5];
+    private int _lastAppliedSnapshotRevision = -1;
     
     public bool IsDatabaseLoaded { get; private set; } = false;
     private UniTaskCompletionSource<bool> databaseLoadTask = new UniTaskCompletionSource<bool>();
@@ -154,6 +155,106 @@ public class ShopManager : MonoBehaviour
         // 자동 리롤 제거 - 서버에서 RPC로 동기화해야 함
         return currentShopItems;
     }
+
+    public bool IsSlotSold(int slotIndex)
+    {
+        return slotIndex >= 0 && slotIndex < _isSlotSold.Length && _isSlotSold[slotIndex];
+    }
+
+    public bool[] GetSoldSlotSnapshot()
+    {
+        var copy = new bool[_isSlotSold.Length];
+        System.Array.Copy(_isSlotSold, copy, _isSlotSold.Length);
+        return copy;
+    }
+
+    private void PublishNetworkShopSnapshotIfAuthority(string context)
+    {
+        if (playerManager == null || playerManager.Object == null || !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        playerManager.PublishShopSnapshot(currentShopItems, _isSlotSold, context);
+
+        if (playerManager.Runner != null && playerManager.Runner.IsRunning && playerManager.Runner.IsServer)
+        {
+            string playerIdLabel = TryGetSafePlayerId(out int safePlayerId) ? safePlayerId.ToString() : "unspawned";
+            HostMigrationHandler.Instance?.TryPushHostMigrationSnapshot(
+                playerManager.Runner,
+                $"ShopSnapshot:{context}:P{playerIdLabel}");
+        }
+    }
+
+    public async UniTask<bool> ApplySnapshotFromNetworkAsync(string context, bool triggerRefreshedEvent = true)
+    {
+        LogShopTrace("ApplySnapshotFromNetworkAsync:ENTER", $"context={context}");
+        if (playerManager == null)
+        {
+            LogShopTrace("ApplySnapshotFromNetworkAsync:ABORT_NO_PLAYER", $"context={context}");
+            return false;
+        }
+
+        await WaitUntilDatabaseLoaded();
+
+        if (!playerManager.TryGetShopSnapshot(out string[] unitKeys, out int[] starLevels, out bool[] soldFlags, out int revision, out int round))
+        {
+            LogShopTrace("ApplySnapshotFromNetworkAsync:NO_SNAPSHOT", $"context={context}");
+            return false;
+        }
+
+        // 이미 같은 리비전을 적용했고 상점 데이터가 살아있다면 중복 적용을 생략한다.
+        if (_lastAppliedSnapshotRevision == revision && currentShopItems.Count > 0)
+        {
+            LogShopTrace("ApplySnapshotFromNetworkAsync:SKIP_DUPLICATE_REV", $"context={context},revision={revision}");
+            return true;
+        }
+
+        currentShopItems.Clear();
+        for (int i = 0; i < _isSlotSold.Length; i++)
+        {
+            _isSlotSold[i] = false;
+        }
+
+        int count = Mathf.Min(unitKeys.Length, starLevels.Length);
+        for (int i = 0; i < count; i++)
+        {
+            string unitKey = unitKeys[i];
+            if (string.IsNullOrEmpty(unitKey))
+            {
+                continue;
+            }
+
+            UnitData unitData = LoadManager.Instance?.GetUnitData(unitKey);
+            if (unitData == null)
+            {
+                unitData = await AssetLoader.LoadAssetAsync<UnitData>(unitKey);
+            }
+
+            if (unitData == null)
+            {
+                continue;
+            }
+
+            int star = Mathf.Max(1, starLevels[i]);
+            currentShopItems.Add(new ShopItem(unitData, star));
+            if (i < soldFlags.Length)
+            {
+                _isSlotSold[i] = soldFlags[i];
+            }
+        }
+
+        _lastAppliedSnapshotRevision = revision;
+        LogShopTrace("ApplySnapshotFromNetworkAsync:APPLIED", $"context={context},revision={revision},round={round},count={currentShopItems.Count}");
+
+        if (triggerRefreshedEvent)
+        {
+            GameEvents.TriggerShopRefreshed(playerManager);
+        }
+
+        return currentShopItems.Count > 0;
+    }
+
     /// <summary>
     /// 상점 리롤에 필요한 골드 비용을 반환합니다.
     /// </summary>
@@ -219,6 +320,7 @@ public class ShopManager : MonoBehaviour
         string snapshot = string.Join(", ", currentShopItems.Select(item =>
             item.UnitData != null ? $"{item.UnitData.name}*{item.StarLevel}" : "null"));
         LogShopTrace("Reroll:SUCCESS", $"goldAfter={goldAfter},items=[{snapshot}]");
+        PublishNetworkShopSnapshotIfAuthority("ShopManager.Reroll");
 
         GameEvents.TriggerShopRefreshed(playerManager);
     }
@@ -276,6 +378,7 @@ public class ShopManager : MonoBehaviour
         if (slotIndex >= 0 && slotIndex < _isSlotSold.Length)
         {
             _isSlotSold[slotIndex] = true;
+            PublishNetworkShopSnapshotIfAuthority("ShopManager.MarkSlotAsPurchased");
         }
     }
 
