@@ -7,6 +7,15 @@ using UnityEngine.UI;
 
 public class ShopUIController : MonoBehaviour
 {
+    private enum UiLifecycleState
+    {
+        Hidden,
+        Loading,
+        DataBinding,
+        Visible,
+        Closing
+    }
+
     [Header("Shop UI")]
     public ShopSlot[] shopSlots;
     public Button rerollButton;
@@ -18,6 +27,16 @@ public class ShopUIController : MonoBehaviour
 
     private ShopManager localPlayerShopManager;
     public event Action<bool> OnContentVisibilityChanged;
+    private CanvasGroup _rootCanvasGroup;
+    private UiLifecycleState _uiState = UiLifecycleState.Hidden;
+    private string _lastDisplaySignature = string.Empty;
+    private float _lastDisplayRealtime = -10f;
+
+    private void Awake()
+    {
+        EnsureRootCanvasGroup();
+        SetPanelRootVisibility(false);
+    }
 
     private string SafeOwnerId()
     {
@@ -38,6 +57,9 @@ public class ShopUIController : MonoBehaviour
 
     private void OnEnable()
     {
+        _uiState = UiLifecycleState.Loading;
+        SetContentVisibility(false);
+
         if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null)
         {
             localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
@@ -62,6 +84,8 @@ public class ShopUIController : MonoBehaviour
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
         GameEvents.OnShopRefreshed -= HandleShopRefreshed;
         GameEvents.OnUnitPurchaseSucceeded -= HandleUnitPurchaseSucceeded;
+        _uiState = UiLifecycleState.Hidden;
+        SetContentVisibility(false);
     }
 
     private void HandleGameStateChange(GameManagers.GameState newState)
@@ -164,9 +188,12 @@ public class ShopUIController : MonoBehaviour
         {
             Debug.LogError("[ShopUIController] DisplayShopItems: items is null.");
             BuildDebugGUI.LogClient("[ShopUI] DisplayShopItems: items is null");
+            _uiState = UiLifecycleState.Hidden;
+            SetContentVisibility(false);
             return;
         }
 
+        _uiState = UiLifecycleState.DataBinding;
         BuildDebugGUI.LogClient($"[ShopUI] DisplayShopItems count={items.Count}");
 
         for (int i = 0; i < shopSlots.Length; i++)
@@ -179,6 +206,18 @@ public class ShopUIController : MonoBehaviour
             {
                 shopSlots[i].DisplayUnit(new ShopItem());
             }
+        }
+
+        string signature = BuildShopSignature(items);
+        float now = Time.unscaledTime;
+        if (signature == _lastDisplaySignature && now - _lastDisplayRealtime < 1f)
+        {
+            BuildDebugGUI.LogClient($"[ShopUI] Duplicate display signature ignored: {signature}");
+        }
+        else
+        {
+            _lastDisplaySignature = signature;
+            _lastDisplayRealtime = now;
         }
     }
 
@@ -214,11 +253,72 @@ public class ShopUIController : MonoBehaviour
             rerollButtonObject.SetActive(isVisible);
         }
 
+        SetPanelRootVisibility(isVisible);
+        _uiState = isVisible ? UiLifecycleState.Visible : UiLifecycleState.Hidden;
         OnContentVisibilityChanged?.Invoke(isVisible);
     }
 
     public void InitializeAndHide()
     {
+        _uiState = UiLifecycleState.Hidden;
         SetContentVisibility(false);
+    }
+
+    public void ShowWithItems(List<ShopItem> items)
+    {
+        _uiState = UiLifecycleState.DataBinding;
+        SetContentVisibility(false);
+        DisplayShopItems(items ?? new List<ShopItem>());
+        SetContentVisibility(true);
+    }
+
+    private void EnsureRootCanvasGroup()
+    {
+        if (_rootCanvasGroup == null)
+        {
+            _rootCanvasGroup = GetComponent<CanvasGroup>();
+            if (_rootCanvasGroup == null)
+            {
+                _rootCanvasGroup = gameObject.AddComponent<CanvasGroup>();
+            }
+        }
+    }
+
+    private void SetPanelRootVisibility(bool isVisible)
+    {
+        EnsureRootCanvasGroup();
+        _rootCanvasGroup.alpha = isVisible ? 1f : 0f;
+        _rootCanvasGroup.interactable = isVisible;
+        _rootCanvasGroup.blocksRaycasts = isVisible;
+    }
+
+    private static string BuildShopSignature(List<ShopItem> items)
+    {
+        int round = -1;
+        if (GameManagers.Instance != null)
+        {
+            try
+            {
+                round = GameManagers.Instance.currentRound;
+            }
+            catch (InvalidOperationException)
+            {
+                round = -1;
+            }
+        }
+        if (items == null || items.Count == 0)
+        {
+            return $"r={round}|empty";
+        }
+
+        var tokens = new List<string>(items.Count);
+        foreach (var item in items)
+        {
+            string unit = item.UnitData != null ? item.UnitData.name : "null";
+            int star = item.StarLevel;
+            tokens.Add($"{unit}:{star}");
+        }
+
+        return $"r={round}|{string.Join(",", tokens)}";
     }
 }

@@ -10,6 +10,7 @@ using UnityEngine.SceneManagement;
 using Fusion;
 using System.Linq;
 using System.Text;
+using System.Reflection;
 
 /// <summary>
 /// Host Migration 중 저장되는 게임 상태 데이터
@@ -68,6 +69,12 @@ public class HostMigrationHandler : MonoBehaviour
     // HostMigrationResume에서 스폰된 GameManagers 캐시 (복원 대기 루틴 폴백용)
     private GameManagers _restoredGameManagersCandidate;
     private float _lastResolveDebugLogTime = -10f;
+    private MethodInfo _pushHostMigrationSnapshotMethod;
+    private bool _pushHostMigrationSnapshotMethodResolved;
+    private bool _pushHostMigrationSnapshotUnsupportedLogged;
+    private Coroutine _aiReconciliationCoroutine;
+    private bool _aiTakeoverReady = true;
+    public bool IsAiTakeoverReady => _aiTakeoverReady;
 
     private void Awake()
     {
@@ -133,6 +140,12 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.Log($"[HostMigrationHandler] StartMigration 시점 GameManagers: {DescribeGameManagers(GameManagers.Instance)}");
         _isMigrating = true;
         _migrationRecoverySucceeded = false;
+        _aiTakeoverReady = false;
+        if (_aiReconciliationCoroutine != null)
+        {
+            StopCoroutine(_aiReconciliationCoroutine);
+            _aiReconciliationCoroutine = null;
+        }
 
         // [Observer Pattern] Migration 시작 이벤트 발행
         GameEvents.TriggerHostMigrationStarted();
@@ -194,6 +207,7 @@ public class HostMigrationHandler : MonoBehaviour
     private IEnumerator RestartAsNewHostCoroutine(NetworkRunner oldRunner, HostMigrationToken hostMigrationToken)
     {
         Debug.Log("<color=magenta>═══ [STEP 2] 세션 재시작 준비 ═══</color>");
+        int migrationStartFrame = Time.frameCount;
         
         // 기존 Runner 정리를 위해 잠시 대기
         yield return new WaitForSeconds(0.5f);
@@ -202,10 +216,13 @@ public class HostMigrationHandler : MonoBehaviour
         // Debug.Log($"  - oldRunner null? {oldRunner == null}");
         // Debug.Log($"  - oldRunner.IsRunning? {oldRunner?.IsRunning}");
         
-        // ★ 중요: Shutdown을 호출하지 않음!
-        // Shutdown을 호출하면 코루틴이 중단될 수 있음
-        // 대신 oldRunner 참조만 저장하고, 새 Runner 시작 후에 정리
+        // 문서 권장 수순: old runner를 먼저 정리하고 새 runner를 시작한다.
         NetworkRunner runnerToCleanup = oldRunner;
+        int oldRunnerShutdownCompletedFrame = -1;
+
+        Debug.Log("<color=magenta>═══ [STEP 2.5] 기존 Runner 정리 ═══</color>");
+        yield return ShutdownRunnerForMigration(runnerToCleanup, null, "STEP 2.5");
+        oldRunnerShutdownCompletedFrame = Time.frameCount;
         
         Debug.Log("<color=magenta>═══ [STEP 3] 새 Runner로 세션 재시작 ═══</color>");
         
@@ -264,9 +281,14 @@ public class HostMigrationHandler : MonoBehaviour
             NetworkManager.Instance.SetRunnerAfterMigration(newRunner);
             Debug.Log("[STEP 4] NetworkManager에 새 Runner 설정 완료");
         }
-        
-        // 문서 권장 수순: old Runner를 먼저 정리한 뒤 복원 게이트에 진입
-        yield return ShutdownRunnerForMigration(runnerToCleanup, newRunner, "STEP 4.5");
+
+        int newRunnerReadyFrame = Time.frameCount;
+        int coexistFrames = 0;
+        if (oldRunnerShutdownCompletedFrame >= 0)
+        {
+            coexistFrames = Mathf.Max(0, oldRunnerShutdownCompletedFrame - newRunnerReadyFrame);
+        }
+        Debug.Log($"[STEP 4] migrationFrames total={newRunnerReadyFrame - migrationStartFrame}, oldRunnerShutdownFrame={oldRunnerShutdownCompletedFrame}, newRunnerReadyFrame={newRunnerReadyFrame}, coexistFrames={coexistFrames}");
 
         Debug.Log("<color=magenta>═══ [STEP 5] GameManagers 복원 시작 ═══</color>");
         
@@ -281,7 +303,13 @@ public class HostMigrationHandler : MonoBehaviour
         }
         
         // New host must take over disconnected player slots with server-driven AI.
-        EnsureAIControllersAfterMigration(newRunner);
+        if (_aiReconciliationCoroutine != null)
+        {
+            StopCoroutine(_aiReconciliationCoroutine);
+            _aiReconciliationCoroutine = null;
+        }
+
+        _aiReconciliationCoroutine = StartCoroutine(ReconcileAIControllersAfterMigrationCoroutine(newRunner));
         
         // 완료!
         Debug.Log("[STEP 6] OnMigrationComplete 호출...");
@@ -933,26 +961,73 @@ public class HostMigrationHandler : MonoBehaviour
     }
 
     /// <summary>
-    /// Host Migration 직후, 입력 권한 소유자가 사라진 슬롯을 AI가 이어받도록 보정합니다.
+    /// Host Migration 직후, 입력 권한 소유자가 사라진 슬롯을 AI가 이어받도록 반복 보정합니다.
     /// </summary>
-    private void EnsureAIControllersAfterMigration(NetworkRunner runner)
+    private IEnumerator ReconcileAIControllersAfterMigrationCoroutine(NetworkRunner runner)
     {
         if (runner == null || !runner.IsRunning || !runner.IsServer)
         {
-            return;
+            _aiTakeoverReady = true;
+            _aiReconciliationCoroutine = null;
+            yield break;
+        }
+
+        _aiTakeoverReady = false;
+        float elapsed = 0f;
+        const float passInterval = 0.5f;
+        const float maxDuration = 8f;
+        int stablePasses = 0;
+
+        while (elapsed < maxDuration)
+        {
+            bool pending = EnsureAIControllersAfterMigration(runner);
+            if (pending)
+            {
+                stablePasses = 0;
+            }
+            else
+            {
+                stablePasses++;
+                if (stablePasses >= 2)
+                {
+                    _aiTakeoverReady = true;
+                    _aiReconciliationCoroutine = null;
+                    Debug.Log($"[HostMigrationHandler] AI takeover reconciliation complete. elapsed={elapsed:F1}s");
+                    yield break;
+                }
+            }
+
+            yield return new WaitForSeconds(passInterval);
+            elapsed += passInterval;
+        }
+
+        _aiTakeoverReady = true;
+        _aiReconciliationCoroutine = null;
+        Debug.LogWarning("[HostMigrationHandler] AI takeover reconciliation timeout. Proceeding with best-effort state.");
+    }
+
+    /// <summary>
+    /// 입력 권한 소유자가 사라진 슬롯을 AI가 이어받도록 보정합니다.
+    /// true를 반환하면 아직 추가 reconciliation이 필요함을 의미합니다.
+    /// </summary>
+    private bool EnsureAIControllersAfterMigration(NetworkRunner runner)
+    {
+        if (runner == null || !runner.IsRunning || !runner.IsServer)
+        {
+            return false;
         }
 
         var gm = ResolveGameManagersForRunner(runner);
         if (gm == null)
         {
             Debug.LogWarning("[HostMigrationHandler] EnsureAIControllersAfterMigration skipped: GameManagers is null.");
-            return;
+            return true;
         }
 
         if (gm.CommandProcessor == null)
         {
             Debug.LogWarning("[HostMigrationHandler] EnsureAIControllersAfterMigration skipped: CommandProcessor is null.");
-            return;
+            return true;
         }
 
         var activePlayers = new HashSet<PlayerRef>(runner.ActivePlayers);
@@ -964,6 +1039,7 @@ public class HostMigrationHandler : MonoBehaviour
 
         int attached = 0;
         int removed = 0;
+        bool pending = false;
 
         foreach (var player in players)
         {
@@ -986,6 +1062,7 @@ public class HostMigrationHandler : MonoBehaviour
                 catch (Exception e)
                 {
                     Debug.LogWarning($"[HostMigrationHandler] Failed to clear input authority for Player {player.playerId}: {e.Message}");
+                    pending = true;
                 }
             }
 
@@ -1011,6 +1088,7 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         Debug.Log($"[HostMigrationHandler] AI takeover pass complete. attached={attached}, removed={removed}, activePlayers={activePlayers.Count}");
+        return pending;
     }
 
     /// <summary>
@@ -1161,6 +1239,7 @@ public class HostMigrationHandler : MonoBehaviour
         }
         else
         {
+            _aiTakeoverReady = true;
             // Debug.Log("<color=red>═══════════════════════════════════════════</color>");
             Debug.Log("<color=red>[MIGRATION COMPLETE] 마이그레이션은 끝났지만 게임 복원은 실패했습니다.</color>");
             Debug.Log("<color=red>  새 Runner/권한/복원 오브젝트 상태를 확인하세요.</color>");
@@ -1213,6 +1292,26 @@ public class HostMigrationHandler : MonoBehaviour
             {
                 errors.Add($"allPlayers mismatch gm={allPlayers.Count}, runtime={runtimePlayers.Count}");
             }
+
+            foreach (var runtimePlayer in runtimePlayers)
+            {
+                if (runtimePlayer == null || runtimePlayer.fieldManager == null)
+                {
+                    errors.Add($"runtimePlayer fieldManager missing: P{runtimePlayer?.playerId}");
+                    continue;
+                }
+
+                runtimePlayer.fieldManager.RebuildWallMapsAfterMigration("HM-SMOKE", false, out string wallSummary);
+                if (!runtimePlayer.fieldManager.IsWallMapReady)
+                {
+                    errors.Add($"wallMap not ready: P{runtimePlayer.playerId} ({wallSummary})");
+                }
+            }
+        }
+
+        if (expectedRunner != null && expectedRunner.IsServer && !_aiTakeoverReady)
+        {
+            errors.Add("aiTakeoverReady=false");
         }
 
         if (errors.Count == 0)
@@ -1243,6 +1342,67 @@ public class HostMigrationHandler : MonoBehaviour
     {
         _cachedPlayerData[connectionToken] = data;
         Debug.Log($"[HostMigrationHandler] 플레이어 데이터 캐싱: {connectionToken}");
+    }
+
+    /// <summary>
+    /// Host Migration snapshot gap을 줄이기 위해 중요 전환 직전에 수동 snapshot push를 시도합니다.
+    /// Fusion 버전별 API 차이를 고려해 reflection으로 안전 호출합니다.
+    /// </summary>
+    public bool TryPushHostMigrationSnapshot(NetworkRunner runner, string reason)
+    {
+        if (runner == null || !runner.IsRunning || !runner.IsServer)
+        {
+            return false;
+        }
+
+        if (!_pushHostMigrationSnapshotMethodResolved)
+        {
+            _pushHostMigrationSnapshotMethodResolved = true;
+            var methods = typeof(NetworkRunner)
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .Where(m => m.Name == "PushHostMigrationSnapshot")
+                .ToList();
+
+            _pushHostMigrationSnapshotMethod =
+                methods.FirstOrDefault(m => m.GetParameters().Length == 0) ??
+                methods.FirstOrDefault(m =>
+                {
+                    var p = m.GetParameters();
+                    return p.Length == 1 && p[0].ParameterType == typeof(bool);
+                });
+        }
+
+        if (_pushHostMigrationSnapshotMethod == null)
+        {
+            if (!_pushHostMigrationSnapshotUnsupportedLogged)
+            {
+                _pushHostMigrationSnapshotUnsupportedLogged = true;
+                Debug.LogWarning("[HostMigrationHandler] PushHostMigrationSnapshot API를 찾지 못했습니다. AutoUpdate snapshot에만 의존합니다.");
+            }
+            return false;
+        }
+
+        try
+        {
+            var parameters = _pushHostMigrationSnapshotMethod.GetParameters();
+            if (parameters.Length == 0)
+            {
+                _pushHostMigrationSnapshotMethod.Invoke(runner, null);
+            }
+            else
+            {
+                object arg = parameters[0].HasDefaultValue ? parameters[0].DefaultValue : false;
+                _pushHostMigrationSnapshotMethod.Invoke(runner, new object[] { arg });
+            }
+
+            Debug.Log($"[HostMigrationHandler] HostMigration snapshot push 성공 ({reason})");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] HostMigration snapshot push 실패 ({reason}): {e.Message}");
+            return false;
+        }
     }
 
     /// <summary>

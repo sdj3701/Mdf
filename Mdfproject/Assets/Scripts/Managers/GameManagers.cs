@@ -126,6 +126,7 @@ public partial class GameManagers : NetworkBehaviour
     private int _migrationRestoreStartFrame = -1;
     private bool _migrationTimerPaused;
     private float _migrationPausedTimerRemainingSeconds;
+    private float _lastMigrationCommandHoldLogRealtime = -10f;
     private bool _isSpawned;
     private CancellationTokenSource _lifecycleCts;
     private CancellationTokenSource _migrationCts;
@@ -731,7 +732,18 @@ public partial class GameManagers : NetworkBehaviour
 
         if (CommandProcessor != null)
         {
-            CommandProcessor.ProcessCommands();
+            if (IsMigrationRestoreInProgress)
+            {
+                if (Time.realtimeSinceStartup - _lastMigrationCommandHoldLogRealtime > 1f)
+                {
+                    _lastMigrationCommandHoldLogRealtime = Time.realtimeSinceStartup;
+                    Debug.Log($"[HM-TRACE #{_activeMigrationTraceId}] CommandProcessor 보류: stage={_migrationRestoreStage}");
+                }
+            }
+            else
+            {
+                CommandProcessor.ProcessCommands();
+            }
         }
     }
 
@@ -1239,6 +1251,7 @@ public partial class GameManagers : NetworkBehaviour
             currentRound = 1;
         }
 
+        TryPushMigrationSnapshotForCriticalTransition($"StartNextRound:BeforePrepareTransition:R{currentRound}");
         TransitionToPrepareState("StartNextRound");
 
         foreach (var player in AllPlayers)
@@ -1334,6 +1347,96 @@ public partial class GameManagers : NetworkBehaviour
         isTransitioningRound = false; // 라운드 전환 완료
     }
 
+    private bool TryRunBattleStartPrecheck(string context, out string reason)
+    {
+        bool hasAuthority = Object != null && Object.HasStateAuthority;
+        bool runnerMatched = IsBoundToActiveRunner();
+        bool uiReady = !IsMigrationRestoreInProgress || IsMigrationUiRestoreCompleted;
+        bool playersReady = AreAllPlayersRuntimeReadyForMigration(out string playersReason);
+        bool mappingReady = IsMigrationBattleMappingReady(out string mappingReason);
+        bool wallMapReady = AreWallMapsReadyForMigration(out string wallReason);
+        bool aiTakeoverReady = IsMigrationAiTakeoverReady(out string aiReason);
+        bool spawnerReady = AreBattleSpawnerTargetsReady(out string spawnerReason);
+
+        if (hasAuthority && runnerMatched && uiReady && playersReady && mappingReady && wallMapReady && aiTakeoverReady && spawnerReady)
+        {
+            reason = string.Empty;
+            return true;
+        }
+
+        reason =
+            $"authority={hasAuthority},runnerMatched={runnerMatched},uiReady={uiReady},playersReady={playersReady},mappingReady={mappingReady},wallMapReady={wallMapReady},aiTakeoverReady={aiTakeoverReady},spawnerReady={spawnerReady}" +
+            $" | playersReason={playersReason},mappingReason={mappingReason},wallReason={wallReason},aiReason={aiReason},spawnerReason={spawnerReason}";
+        return false;
+    }
+
+    private bool AreBattleSpawnerTargetsReady(out string reason)
+    {
+        reason = string.Empty;
+        var players = AllPlayers
+            .Where(player => player != null && player.Object != null && player.Object.IsValid)
+            .ToList();
+        if (players.Count == 0)
+        {
+            reason = "players=0";
+            return false;
+        }
+
+        foreach (var player in players)
+        {
+            if (!TryGetPlayerIdSafe(player, out int playerId) || playerId < 0)
+            {
+                continue;
+            }
+
+            if (player.monsterSpawner == null)
+            {
+                reason = $"P{playerId}:monsterSpawner=null";
+                return false;
+            }
+
+            if (!player.monsterSpawner.IsRuntimeReady(out string spawnerReason))
+            {
+                reason = $"P{playerId}:spawnerNotReady({spawnerReason})";
+                return false;
+            }
+
+            int opponentId = GetBattleOpponent(playerId);
+            if (opponentId < 0)
+            {
+                continue;
+            }
+
+            var opponent = GetPlayer(opponentId);
+            if (opponent == null)
+            {
+                reason = $"P{playerId}:opponentNull({opponentId})";
+                return false;
+            }
+
+            if (opponent.fieldManager == null || opponent.astarGrid == null || opponent.goalTransform == null)
+            {
+                reason = $"P{playerId}:opponentRuntimeNotReady({opponentId})";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void RearmBattleTransitionRetryTimer(string context, string reason)
+    {
+        if (Runner == null)
+        {
+            return;
+        }
+
+        const float retrySeconds = 0.75f;
+        phaseTimer = TickTimer.CreateFromSeconds(Runner, retrySeconds);
+        Debug.LogWarning($"[{context}] BattleStartPrecheck failed. retryIn={retrySeconds:F2}s, detail={reason}");
+        LogMigrationTrace($"{context}:BattleStartPrecheckRetry", reason);
+    }
+
     #region 전투 시퀀스 메서드
 
     /// <summary>
@@ -1365,6 +1468,13 @@ public partial class GameManagers : NetworkBehaviour
         // 상대 매칭 및 선공 플레이어 결정
         AssignBattleOpponents();
 
+        if (!TryRunBattleStartPrecheck("StartBattle1Phase", out string precheckReason))
+        {
+            RearmBattleTransitionRetryTimer("StartBattle1Phase", precheckReason);
+            return;
+        }
+
+        TryPushMigrationSnapshotForCriticalTransition($"StartBattle1Phase:BeforeBattle1Transition:R{currentRound}");
         TransitionToBattle1State("StartBattle1Phase");
         hasCombatBeenShortened = false;
         _hasBerserkTriggered = false;
@@ -1395,6 +1505,12 @@ public partial class GameManagers : NetworkBehaviour
         LogMigrationTrace("StartBattle2Phase:ENTER");
         EnsureBattleMappingAfterMigration();
 
+        if (!TryRunBattleStartPrecheck("StartBattle2Phase", out string precheckReason))
+        {
+            RearmBattleTransitionRetryTimer("StartBattle2Phase", precheckReason);
+            return;
+        }
+
         // Battle1에서 남은 몬스터 정리
         foreach (var player in AllPlayers)
         {
@@ -1404,6 +1520,7 @@ public partial class GameManagers : NetworkBehaviour
             }
         }
 
+        TryPushMigrationSnapshotForCriticalTransition($"StartBattle2Phase:BeforeBattle2Transition:R{currentRound}");
         TransitionToBattle2State("StartBattle2Phase");
         hasCombatBeenShortened = false;
         _hasBerserkTriggeredBattle2 = false;

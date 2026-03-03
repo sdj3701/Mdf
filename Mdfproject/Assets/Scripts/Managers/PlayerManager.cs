@@ -422,6 +422,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             monsterSpawner.EnsureRuntimeReferencesForMigration(context, verboseFailure);
         }
 
+        if (fieldManager != null)
+        {
+            fieldManager.RebuildWallMapsAfterMigration($"PlayerManager.{context}", verboseFailure, out _);
+        }
+
         if (verboseFailure && !IsRuntimeReady(out string reason))
         {
             // Debug.LogWarning($"[PlayerManager] 런타임 참조 재결선 미완료 ({context}) player={playerId}, reason={reason}");
@@ -439,6 +444,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (fieldManager.ground3D == null)
         {
             reason = "fieldManager.ground3D=null";
+            return false;
+        }
+
+        if (!fieldManager.IsWallMapReady)
+        {
+            reason = "fieldManager.wallMapNotReady";
             return false;
         }
 

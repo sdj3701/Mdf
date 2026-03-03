@@ -326,12 +326,11 @@ public partial class GameManagers
         {
             // Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 활성화</color>");
             localPlayerShopUIGameObject.SetActive(true);  // 부모 GameObject 활성화
-            localPlayerShopUI.SetContentVisibility(true);  // 콘텐츠 표시
 
             // 상점 UI를 표시하기 전에, 데이터베이스 로드를 기다리고 상점을 채우는 것을 보장합니다.
             await localPlayer.shopManager.EnsureShopRerolledAsync();
             var shopItems = localPlayer.shopManager.GetCurrentShopItems();
-            localPlayerShopUI.DisplayShopItems(shopItems);
+            localPlayerShopUI.ShowWithItems(shopItems);
 
             // Debug.Log($"<color=cyan>[HandleAugmentChosen] 상점 UI 표시 완료 (아이템 수: {shopItems?.Count ?? 0})</color>");
         }

@@ -122,6 +122,10 @@ public class FieldManager : MonoBehaviour
     private Dictionary<Vector3Int, GameObject> placedPermanentWalls = new Dictionary<Vector3Int, GameObject>();
     private int wallLayer = -1;
     private bool permanentWallsGenerated = false;
+    private int _lastWallMapRebuildFrame = -1;
+    private string _lastWallMapRebuildSummary = "wallMap:notBuilt";
+    public bool IsWallMapReady => _lastWallMapRebuildFrame >= 0;
+    private Coroutine _awaitNetworkPermanentWallsCoroutine;
 
     private string BuildWallOwnerTag()
     {
@@ -337,6 +341,9 @@ public class FieldManager : MonoBehaviour
             wallParent = parentObject.transform;
         }
 
+        // 먼저 현재 씬/복원 오브젝트 기준으로 벽 맵을 재구성해 기존 영구벽 존재 여부를 반영합니다.
+        RebuildWallMapsAfterMigration("FieldManager.Initialize.PreGenerate", false, out _);
+
         int ownerId = playerManager != null ? playerManager.playerId : -1;
         if (ownerId >= 0)
         {
@@ -345,6 +352,7 @@ public class FieldManager : MonoBehaviour
 
         // 그리드 디버그 라인 생성 (showGridDebug가 true일 때만)
         CreateGridLines();
+        RebuildWallMapsAfterMigration("FieldManager.Initialize.PostGenerate", false, out _);
     }
 
 
@@ -891,6 +899,203 @@ public class FieldManager : MonoBehaviour
         return placedWalls.ContainsKey(gridPosition) || placedPermanentWalls.ContainsKey(gridPosition);
     }
 
+    /// <summary>
+    /// Host Migration 이후 런타임 벽 딕셔너리를 월드 오브젝트 기준으로 재구성합니다.
+    /// </summary>
+    public bool RebuildWallMapsAfterMigration(string context, bool verboseLog, out string summary)
+    {
+        if (_lastWallMapRebuildFrame == Time.frameCount)
+        {
+            summary = _lastWallMapRebuildSummary;
+            return true;
+        }
+
+        var oldDestructibleCells = new HashSet<Vector3Int>(placedWalls.Keys);
+        var oldPermanentCells = new HashSet<Vector3Int>(placedPermanentWalls.Keys);
+        var rebuiltDestructible = new Dictionary<Vector3Int, DestructibleWall>();
+        var rebuiltPermanent = new Dictionary<Vector3Int, GameObject>();
+
+        int destructibleCandidates = 0;
+        int permanentCandidates = 0;
+        int duplicates = 0;
+        int outOfBounds = 0;
+
+        IEnumerable<DestructibleWall> destructibleWalls;
+        if (wallParent != null)
+        {
+            destructibleWalls = wallParent.GetComponentsInChildren<DestructibleWall>(true);
+        }
+        else
+        {
+            destructibleWalls = UnityEngine.Object.FindObjectsOfType<DestructibleWall>(true)
+                .Where(wall => wall != null && IsWorldPositionInsideOwnedGrid(wall.transform.position));
+        }
+
+        foreach (var wall in destructibleWalls.Where(wall => wall != null).Distinct())
+        {
+            destructibleCandidates++;
+            Vector3Int cell = WorldToGridInt(wall.transform.position);
+            if (!IsValidGridPosition(cell))
+            {
+                outOfBounds++;
+                continue;
+            }
+
+            wall.RebindAfterMigration(this, cell);
+            if (!rebuiltDestructible.TryAdd(cell, wall))
+            {
+                duplicates++;
+            }
+        }
+
+        var permanentObjects = new List<GameObject>();
+        if (wallParent != null)
+        {
+            foreach (Transform child in wallParent)
+            {
+                if (child != null)
+                {
+                    permanentObjects.Add(child.gameObject);
+                }
+            }
+        }
+
+        foreach (var kv in placedPermanentWalls)
+        {
+            if (kv.Value != null)
+            {
+                permanentObjects.Add(kv.Value);
+            }
+        }
+
+        // Network Spawn된 영구벽은 wallParent에 속하지 않을 수 있으므로 전역 후보도 포함합니다.
+        var globalPermanentCandidates = UnityEngine.Object.FindObjectsOfType<NetworkObject>(true)
+            .Where(no => no != null && no.gameObject != null)
+            .Select(no => no.gameObject)
+            .Where(IsLikelyPermanentWallObject)
+            .Where(obj => IsWorldPositionInsideOwnedGrid(obj.transform.position));
+
+        foreach (var candidate in globalPermanentCandidates)
+        {
+            permanentObjects.Add(candidate);
+        }
+
+        foreach (var wallObj in permanentObjects.Where(obj => obj != null).Distinct())
+        {
+            if (wallObj.GetComponent<DestructibleWall>() != null)
+            {
+                continue;
+            }
+
+            permanentCandidates++;
+            Vector3Int cell = WorldToGridInt(wallObj.transform.position);
+            if (!IsValidGridPosition(cell))
+            {
+                outOfBounds++;
+                continue;
+            }
+
+            if (rebuiltDestructible.ContainsKey(cell))
+            {
+                continue;
+            }
+
+            if (!rebuiltPermanent.TryAdd(cell, wallObj))
+            {
+                duplicates++;
+            }
+        }
+
+        placedWalls = rebuiltDestructible;
+        placedPermanentWalls = rebuiltPermanent;
+
+        // 로컬 플래그가 초기값(false)인 상태로 복원될 수 있으므로,
+        // 재구성 결과에 영구벽이 있으면 즉시 생성 완료 상태로 승격합니다.
+        if (!permanentWallsGenerated && placedPermanentWalls.Count > 0)
+        {
+            permanentWallsGenerated = true;
+            if (verboseLog)
+            {
+                Debug.Log($"[WallFlow-Migration] promoted permanentWallsGenerated=true from rebuilt map. owner={BuildWallOwnerTag()}, permanentWalls={placedPermanentWalls.Count}, ctx={context}");
+            }
+        }
+
+        bool destructibleChanged = !oldDestructibleCells.SetEquals(placedWalls.Keys);
+        bool permanentChanged = !oldPermanentCells.SetEquals(placedPermanentWalls.Keys);
+        bool wallMapChanged = destructibleChanged || permanentChanged;
+        if (wallMapChanged)
+        {
+            SchedulePathRefresh();
+        }
+
+        _lastWallMapRebuildFrame = Time.frameCount;
+        _lastWallMapRebuildSummary =
+            $"ctx={context},destructible={placedWalls.Count}/{destructibleCandidates},permanent={placedPermanentWalls.Count}/{permanentCandidates},outOfBounds={outOfBounds},duplicates={duplicates},changed={wallMapChanged}";
+        summary = _lastWallMapRebuildSummary;
+
+        if (verboseLog)
+        {
+            Debug.Log($"[WallFlow-Migration] RebuildWallMapsAfterMigration {_lastWallMapRebuildSummary}");
+        }
+
+        return true;
+    }
+
+    public string BuildWallCellHash()
+    {
+        var destructible = placedWalls.Keys
+            .OrderBy(cell => cell.x)
+            .ThenBy(cell => cell.y)
+            .ThenBy(cell => cell.z)
+            .Select(cell => $"D{cell.x},{cell.y},{cell.z}");
+        var permanent = placedPermanentWalls.Keys
+            .OrderBy(cell => cell.x)
+            .ThenBy(cell => cell.y)
+            .ThenBy(cell => cell.z)
+            .Select(cell => $"P{cell.x},{cell.y},{cell.z}");
+        return string.Join("|", destructible.Concat(permanent));
+    }
+
+    private bool IsWorldPositionInsideOwnedGrid(Vector3 worldPos)
+    {
+        float epsilon = Mathf.Max(1e-3f, cellSize * 0.1f);
+        float minX = gridOrigin.x - epsilon;
+        float minZ = gridOrigin.z - epsilon;
+        float maxX = gridOrigin.x + (gridSize.x * cellSize) + epsilon;
+        float maxZ = gridOrigin.z + (gridSize.y * cellSize) + epsilon;
+        return worldPos.x >= minX && worldPos.x <= maxX && worldPos.z >= minZ && worldPos.z <= maxZ;
+    }
+
+    private bool IsLikelyPermanentWallObject(GameObject obj)
+    {
+        if (obj == null)
+        {
+            return false;
+        }
+
+        if (obj.GetComponent<DestructibleWall>() != null)
+        {
+            return false;
+        }
+
+        if (obj.GetComponent<Unit>() != null)
+        {
+            return false;
+        }
+
+        if (obj.name.IndexOf("PermanentWall", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return true;
+        }
+
+        // 이름 기반 필터가 실패할 때를 대비한 보수적 폴백
+        return wallLayer >= 0
+               && obj.layer == wallLayer
+               && obj.GetComponent<NetworkObject>() != null
+               && obj.GetComponent<BoxCollider>() != null
+               && obj.GetComponent<MeshRenderer>() != null;
+    }
+
     private void UpdateWallYOffsetFromPrefab()
     {
         if (destructibleWallPrefab != null)
@@ -914,7 +1119,27 @@ public class FieldManager : MonoBehaviour
     // 영구(파괴 불가) 벽 생성 - 테두리 + 필드 내부 랜덤
     private async void GeneratePermanentWallsIfNeeded()
     {
-        Debug.Log($"[WallFlow-Auto] GeneratePermanentWallsIfNeeded ENTER owner={BuildWallOwnerTag()}, generated={permanentWallsGenerated}, {BuildRunnerTag()}, initialPermanentWallCount={initialPermanentWallCount}");
+        bool adoptedExistingWalls = TryAdoptExistingPermanentWallsBeforeGeneration(
+            "GeneratePermanentWallsIfNeeded.Precheck",
+            out int existingPermanentWalls);
+        bool migrationInProgress = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
+
+        Debug.Log($"[WallFlow-Auto] GeneratePermanentWallsIfNeeded ENTER owner={BuildWallOwnerTag()}, generated={permanentWallsGenerated}, existingPermanentWalls={existingPermanentWalls}, migrationInProgress={migrationInProgress}, {BuildRunnerTag()}, initialPermanentWallCount={initialPermanentWallCount}");
+
+        // Host Migration 복원 경로에서는 랜덤 생성을 금지합니다.
+        // 기존 영구벽(복원/동기화 결과)이 있으면 그것을 채택하고, 없으면 동기화 도착을 기다립니다.
+        if (migrationInProgress)
+        {
+            if (adoptedExistingWalls)
+            {
+                Debug.Log($"[WallFlow-Auto] skip: migration in progress and existing permanent walls adopted. owner={BuildWallOwnerTag()}, count={existingPermanentWalls}");
+            }
+            else
+            {
+                Debug.Log($"[WallFlow-Auto] skip: migration in progress. wait for restored/synced permanent walls. owner={BuildWallOwnerTag()}");
+            }
+            return;
+        }
 
         if (permanentWallsGenerated)
         {
@@ -1082,7 +1307,8 @@ public class FieldManager : MonoBehaviour
             // Debug.Log($"[FieldManager] 필드 내부 랜덤 고정벽 {placedCount}개 생성 완료");
         }
 
-        // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트하여 동일 위치에 생성
+        // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트합니다.
+        // 영구벽을 NetworkObject로 운용할 때는 생성이 아니라 "복원/검증 힌트"로 사용됩니다.
         if (runner != null && runner.IsRunning && runner.IsServer && playerManager != null && selected.Count > 0)
         {
             int[] flat = new int[selected.Count * 2];
@@ -1097,6 +1323,24 @@ public class FieldManager : MonoBehaviour
 
         permanentWallsGenerated = true;
         Debug.Log($"[WallFlow-Auto] GeneratePermanentWallsIfNeeded SUCCESS owner={BuildWallOwnerTag()}, totalSelected={selected.Count}, permanentWalls={placedPermanentWalls.Count}");
+    }
+
+    private bool TryAdoptExistingPermanentWallsBeforeGeneration(string context, out int existingPermanentWalls)
+    {
+        RebuildWallMapsAfterMigration($"FieldManager.{context}", false, out _);
+        existingPermanentWalls = placedPermanentWalls.Count;
+        if (existingPermanentWalls <= 0)
+        {
+            return false;
+        }
+
+        if (!permanentWallsGenerated)
+        {
+            permanentWallsGenerated = true;
+            Debug.Log($"[WallFlow-Migration] adopt existing permanent walls. owner={BuildWallOwnerTag()}, count={existingPermanentWalls}, ctx={context}");
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1114,11 +1358,28 @@ public class FieldManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 서버가 선택한 영구 벽 좌표 목록을 받아, 클라이언트에서 동일하게 생성합니다.
+    /// 서버가 선택한 영구 벽 좌표 목록을 받아 클라이언트에 동기화합니다.
     /// </summary>
     public async void ApplyPermanentWallsFromServer(int[] flatPositions)
     {
         if (flatPositions == null || flatPositions.Length == 0) return;
+
+        var requestedCells = new List<Vector3Int>(flatPositions.Length / 2);
+        int count = flatPositions.Length / 2;
+        for (int i = 0; i < count; i++)
+        {
+            var pos = new Vector3Int(flatPositions[i * 2], flatPositions[i * 2 + 1], 0);
+            if (!IsValidGridPosition(pos))
+            {
+                continue;
+            }
+            requestedCells.Add(pos);
+        }
+
+        if (requestedCells.Count == 0)
+        {
+            return;
+        }
 
         // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
         GameObject prefab = permanentWallPrefab;
@@ -1133,11 +1394,28 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
-        int count = flatPositions.Length / 2;
-        for (int i = 0; i < count; i++)
+        var runner = playerManager != null ? playerManager.Runner : null;
+        bool usesNetworkPermanentWall = runner != null
+                                        && runner.IsRunning
+                                        && prefab.TryGetComponent<NetworkObject>(out _);
+
+        if (usesNetworkPermanentWall)
         {
-            var pos = new Vector3Int(flatPositions[i * 2], flatPositions[i * 2 + 1], 0);
-            if (!IsValidGridPosition(pos)) continue;
+            // 영구벽을 NetworkObject로 운용하는 경우, RPC는 "셀 목록 힌트"로만 사용합니다.
+            // 실제 오브젝트 생성은 서버 Spawn 결과를 기다리고, 클라이언트는 재구성 루틴으로 딕셔너리를 복원합니다.
+            if (_awaitNetworkPermanentWallsCoroutine != null)
+            {
+                StopCoroutine(_awaitNetworkPermanentWallsCoroutine);
+                _awaitNetworkPermanentWallsCoroutine = null;
+            }
+
+            _awaitNetworkPermanentWallsCoroutine = StartCoroutine(
+                WaitForNetworkPermanentWallsAndRebuildCoroutine(requestedCells));
+            return;
+        }
+
+        foreach (var pos in requestedCells)
+        {
             if (HasWallAt(pos)) continue;
             CreatePermanentWallAt(pos, prefab);
         }
@@ -1145,16 +1423,102 @@ public class FieldManager : MonoBehaviour
         permanentWallsGenerated = true;
     }
 
+    private System.Collections.IEnumerator WaitForNetworkPermanentWallsAndRebuildCoroutine(List<Vector3Int> expectedCells)
+    {
+        const float timeout = 5f;
+        float waited = 0f;
+        int expectedCount = expectedCells != null ? expectedCells.Count : 0;
+
+        while (waited < timeout)
+        {
+            RebuildWallMapsAfterMigration("FieldManager.ApplyPermanentWallsFromServer.NetworkSync", false, out _);
+
+            int matched = 0;
+            if (expectedCells != null)
+            {
+                foreach (var cell in expectedCells)
+                {
+                    if (placedPermanentWalls.ContainsKey(cell))
+                    {
+                        matched++;
+                    }
+                }
+            }
+
+            if (expectedCount == 0 || matched >= expectedCount)
+            {
+                permanentWallsGenerated = true;
+                _awaitNetworkPermanentWallsCoroutine = null;
+                yield break;
+            }
+
+            yield return new WaitForSeconds(0.1f);
+            waited += 0.1f;
+        }
+
+        RebuildWallMapsAfterMigration("FieldManager.ApplyPermanentWallsFromServer.NetworkSyncTimeout", true, out string summary);
+
+        int finalMatched = 0;
+        if (expectedCells != null)
+        {
+            foreach (var cell in expectedCells)
+            {
+                if (placedPermanentWalls.ContainsKey(cell))
+                {
+                    finalMatched++;
+                }
+            }
+        }
+
+        if (expectedCount > 0 && finalMatched < expectedCount)
+        {
+            Debug.LogWarning($"[WallFlow-Migration] network permanent wall sync timeout. owner={BuildWallOwnerTag()}, matched={finalMatched}/{expectedCount}, summary={summary}");
+        }
+
+        permanentWallsGenerated = permanentWallsGenerated || placedPermanentWalls.Count > 0;
+        _awaitNetworkPermanentWallsCoroutine = null;
+    }
+
     private void CreatePermanentWallAt(Vector3Int gridPosition, GameObject prefab)
     {
         if (!IsValidGridPosition(gridPosition)) return;
         if (HasWallAt(gridPosition)) return;
+        if (prefab == null) return;
 
         Vector3 worldPos = GridToWorld(gridPosition);
         float halfH = GetPrefabHeight(prefab) * 0.5f;
         worldPos.y += halfH;
 
-        GameObject wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+        GameObject wallGO = null;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null
+            && runner.IsRunning
+            && prefab.TryGetComponent<NetworkObject>(out var networkPrefab))
+        {
+            if (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority)
+            {
+                Debug.LogWarning($"[WallFlow-Auto] skip network permanent wall spawn without state authority. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                return;
+            }
+
+            var spawned = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
+            if (spawned == null)
+            {
+                Debug.LogError($"[WallFlow-Auto] abort: Runner.Spawn failed for permanent wall. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                return;
+            }
+
+            wallGO = spawned.gameObject;
+            if (wallParent != null)
+            {
+                wallGO.transform.SetParent(wallParent, true);
+            }
+        }
+        else
+        {
+            wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+        }
+
         // 레이어 지정 (자식 포함)
         if (wallLayer >= 0) SetLayerRecursively(wallGO, wallLayer);
 

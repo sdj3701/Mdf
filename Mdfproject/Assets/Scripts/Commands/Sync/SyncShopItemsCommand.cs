@@ -2,6 +2,8 @@
 
 using UnityEngine;
 using Cysharp.Threading.Tasks;
+using System.Collections.Generic;
+using System.Linq;
 
 /// <summary>
 /// 서버에서 생성한 상점 아이템을 클라이언트에 동기화하는 커맨드입니다.
@@ -11,6 +13,8 @@ public class SyncShopItemsCommand : ICommand
     public int PlayerId { get; set; }
     public string[] UnitDataNames { get; private set; }
     public int[] StarLevels { get; private set; }
+    private static readonly Dictionary<string, float> RecentSyncPayloads = new Dictionary<string, float>();
+    private const float SyncPayloadDedupWindowSeconds = 1.5f;
 
     private static void TraceClient(string message)
     {
@@ -90,8 +94,61 @@ public class SyncShopItemsCommand : ICommand
             player.shopManager.playerManager = player;
         }
 
+        string payloadKey = BuildPayloadKey(gm);
+        if (IsDuplicatePayload(payloadKey))
+        {
+            TraceClient($"Skip duplicate shop sync key={payloadKey}");
+            return;
+        }
+
         await player.shopManager.SetShopItemsFromServerAsync(UnitDataNames, StarLevels);
         TraceClient($"SetShopItems applied target={PlayerId}, items={UnitDataNames.Length}");
         // Debug.Log($"<color=cyan>[SyncShopItemsCommand] Player {PlayerId}: {UnitDataNames.Length}개 상점 아이템 동기화 완료</color>");
+    }
+
+    private string BuildPayloadKey(GameManagers gm)
+    {
+        int round = -1;
+        if (gm != null)
+        {
+            try
+            {
+                round = gm.currentRound;
+            }
+            catch (System.InvalidOperationException)
+            {
+                round = -1;
+            }
+        }
+        string names = UnitDataNames != null ? string.Join(",", UnitDataNames) : "none";
+        string stars = StarLevels != null ? string.Join(",", StarLevels.Select(star => star.ToString())) : "none";
+        return $"round={round}|player={PlayerId}|items={names}|stars={stars}";
+    }
+
+    private static bool IsDuplicatePayload(string key)
+    {
+        float now = Time.unscaledTime;
+        lock (RecentSyncPayloads)
+        {
+            var staleKeys = RecentSyncPayloads
+                .Where(kv => now - kv.Value > SyncPayloadDedupWindowSeconds * 4f)
+                .Select(kv => kv.Key)
+                .ToList();
+            foreach (var stale in staleKeys)
+            {
+                RecentSyncPayloads.Remove(stale);
+            }
+
+            if (RecentSyncPayloads.TryGetValue(key, out float lastAt))
+            {
+                if (now - lastAt <= SyncPayloadDedupWindowSeconds)
+                {
+                    return true;
+                }
+            }
+
+            RecentSyncPayloads[key] = now;
+            return false;
+        }
     }
 }

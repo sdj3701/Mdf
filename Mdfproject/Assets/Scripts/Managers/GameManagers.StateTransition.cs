@@ -4,6 +4,19 @@ using UnityEngine;
 public partial class GameManagers
 {
     /// <summary>
+    /// Host Migration snapshot gap을 줄이기 위해 중요 전환 직전 수동 snapshot push를 시도합니다.
+    /// </summary>
+    private void TryPushMigrationSnapshotForCriticalTransition(string reason)
+    {
+        if (Runner == null || Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        HostMigrationHandler.Instance?.TryPushHostMigrationSnapshot(Runner, reason);
+    }
+
+    /// <summary>
     /// 상태 전이를 단일 경로로 관리합니다.
     /// </summary>
     /// <param name="nextState">전이할 상태</param>

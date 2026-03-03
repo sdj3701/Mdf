@@ -4,6 +4,7 @@ using UnityEngine;
 using Cysharp.Threading.Tasks;
 using Fusion;
 using System.Linq;
+using System.Collections.Generic;
 
 /// <summary>
 /// 서버에서 생성한 증강체 목록을 클라이언트에 동기화하는 커맨드입니다.
@@ -13,6 +14,8 @@ public class SyncAugmentsCommand : ICommand
 {
     public int PlayerId { get; set; }
     public string[] AugmentNames { get; private set; }
+    private static readonly Dictionary<string, float> RecentUiTriggerKeys = new Dictionary<string, float>();
+    private const float UiTriggerDedupWindowSeconds = 1.5f;
 
     private static void TraceClient(string message)
     {
@@ -306,6 +309,13 @@ public class SyncAugmentsCommand : ICommand
         }
 
         var presentedAugments = player.augmentManager.GetPresentedAugments();
+        string triggerKey = BuildUiTriggerKey(gm);
+        if (IsDuplicateUiTrigger(triggerKey))
+        {
+            TraceClient($"Skip duplicate augment UI trigger key={triggerKey}");
+            return;
+        }
+
         Debug.Log($"[SyncAugmentsCommand] TriggerAugmentPhaseStart {BuildLocalDebugSnapshot(gm, player, PlayerId)}, choices={presentedAugments?.Count ?? 0}");
         TraceClient($"TriggerAugmentPhaseStart choices={presentedAugments?.Count ?? 0}");
         GameEvents.TriggerAugmentPhaseStart(player, presentedAugments);
@@ -327,5 +337,51 @@ public class SyncAugmentsCommand : ICommand
             }
         }
         // Debug.Log($"<color=cyan>[SyncAugmentsCommand] Player {PlayerId} augment UI event triggered. choices={presentedAugments?.Count ?? 0}</color>");
+    }
+
+    private string BuildUiTriggerKey(GameManagers gm)
+    {
+        int round = -1;
+        if (gm != null)
+        {
+            try
+            {
+                round = gm.currentRound;
+            }
+            catch (System.InvalidOperationException)
+            {
+                round = -1;
+            }
+        }
+        string state = gm != null ? gm.currentState.ToString() : "Unknown";
+        string names = AugmentNames != null ? string.Join(",", AugmentNames) : "none";
+        return $"round={round}|state={state}|player={PlayerId}|augments={names}";
+    }
+
+    private static bool IsDuplicateUiTrigger(string key)
+    {
+        float now = Time.unscaledTime;
+        lock (RecentUiTriggerKeys)
+        {
+            var staleKeys = RecentUiTriggerKeys
+                .Where(kv => now - kv.Value > UiTriggerDedupWindowSeconds * 4f)
+                .Select(kv => kv.Key)
+                .ToList();
+            foreach (var stale in staleKeys)
+            {
+                RecentUiTriggerKeys.Remove(stale);
+            }
+
+            if (RecentUiTriggerKeys.TryGetValue(key, out float lastAt))
+            {
+                if (now - lastAt <= UiTriggerDedupWindowSeconds)
+                {
+                    return true;
+                }
+            }
+
+            RecentUiTriggerKeys[key] = now;
+            return false;
+        }
     }
 }

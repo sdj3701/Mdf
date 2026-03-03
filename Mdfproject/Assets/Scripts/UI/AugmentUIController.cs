@@ -1,10 +1,20 @@
 ﻿// Assets/Scripts/UI/AugmentUIController.cs
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 public class AugmentUIController : MonoBehaviour
 {
+    private enum UiLifecycleState
+    {
+        Hidden,
+        Loading,
+        DataBinding,
+        Visible,
+        Closing
+    }
+
     [Header("슬롯 설정")]
     public AugmentSlot[] augmentSlots;
 
@@ -16,6 +26,11 @@ public class AugmentUIController : MonoBehaviour
     private PlayerManager localPlayer;
     private List<AugmentData> currentChoices;
     public event Action<bool> OnContentVisibilityChanged;
+    private UiLifecycleState _uiState = UiLifecycleState.Hidden;
+    private CanvasGroup _rootCanvasGroup;
+    private string _lastAugmentTriggerKey = string.Empty;
+    private float _lastAugmentTriggerRealtime = -10f;
+    private int _presentationVersion;
 
     private static string SafePlayerId(PlayerManager player)
     {
@@ -39,7 +54,16 @@ public class AugmentUIController : MonoBehaviour
         // [수정] Awake에서 구독하여 GameObject 비활성화 시에도 이벤트를 수신
         GameEvents.OnAugmentPhaseStart += HandleAugmentPhaseStart;
         BuildDebugGUI.LogClient("[AugmentUI] Awake: subscribed OnAugmentPhaseStart");
+        EnsureRootCanvasGroup();
+        SetPanelRootVisibility(false);
         // Debug.Log($"<color=lime>[AugmentUIController] Awake: OnAugmentPhaseStart 이벤트 구독 완료</color>");
+    }
+
+    private void OnDisable()
+    {
+        SetContentVisibility(false);
+        SetPanelRootVisibility(false);
+        _uiState = UiLifecycleState.Hidden;
     }
 
     void OnDestroy()
@@ -65,6 +89,22 @@ public class AugmentUIController : MonoBehaviour
 
         this.localPlayer = player;
         this.currentChoices = choices;
+        _presentationVersion++;
+        int version = _presentationVersion;
+
+        string triggerKey = BuildAugmentTriggerKey(player, choices);
+        float now = Time.unscaledTime;
+        if (triggerKey == _lastAugmentTriggerKey && now - _lastAugmentTriggerRealtime < 1.5f)
+        {
+            BuildDebugGUI.LogClient($"[AugmentUI] Duplicate trigger ignored key={triggerKey}");
+            return;
+        }
+
+        _lastAugmentTriggerKey = triggerKey;
+        _lastAugmentTriggerRealtime = now;
+        _uiState = UiLifecycleState.Loading;
+        SetContentVisibility(false);
+        SetPanelRootVisibility(false);
 
         // [핵심 수정] UIPool.activeObject와 동기화되도록 GetUIElement를 통해 활성화
         // 직접 SetActive(true)를 호출하면 activeObject가 설정되지 않아
@@ -72,14 +112,28 @@ public class AugmentUIController : MonoBehaviour
         if (!gameObject.activeSelf)
         {
             BuildDebugGUI.LogClient("[AugmentUI] Panel inactive -> requesting UI_Pnl_Augment");
+            if (UIManagers.Instance == null)
+            {
+                BuildDebugGUI.LogClient("[AugmentUI] UIManagers.Instance is null. Abort trigger.");
+                return;
+            }
+
             await UIManagers.Instance.GetUIElement("UI_Pnl_Augment");
         }
 
-        // 증강 선택 UI 표시
-        SetContentVisibility(true);
-        
-        SetAugmentChoices(choices);
-        BuildDebugGUI.LogClient($"[AugmentUI] Panel shown with choices={choices?.Count ?? 0}");
+        if (version != _presentationVersion)
+        {
+            return;
+        }
+
+        _uiState = UiLifecycleState.DataBinding;
+        SetAugmentChoices(choices ?? new List<AugmentData>());
+
+        bool hasChoices = choices != null && choices.Count > 0;
+        SetContentVisibility(hasChoices);
+        SetPanelRootVisibility(hasChoices);
+        _uiState = hasChoices ? UiLifecycleState.Visible : UiLifecycleState.Hidden;
+        BuildDebugGUI.LogClient($"[AugmentUI] Panel state={_uiState} choices={choices?.Count ?? 0}");
     }
 
     /// <summary>
@@ -123,6 +177,9 @@ public class AugmentUIController : MonoBehaviour
         {
             var command = new SelectAugmentCommand(localPlayer.playerId, index);
             GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+            _uiState = UiLifecycleState.Closing;
+            SetContentVisibility(false);
+            SetPanelRootVisibility(false);
             
             // 증강 선택 후 UI 숨김 - UIPool 상태 동기화를 위해 ReturnUIElement 사용
             // 직접 SetActive(false)를 호출하면 UIPool.activeObject가 불일치하여 
@@ -158,6 +215,61 @@ public class AugmentUIController : MonoBehaviour
     /// </summary>
     public void InitializeAndHide()
     {
+        EnsureRootCanvasGroup();
+        _uiState = UiLifecycleState.Hidden;
         SetContentVisibility(false);
+        SetPanelRootVisibility(false);
+    }
+
+    private void EnsureRootCanvasGroup()
+    {
+        if (_rootCanvasGroup == null)
+        {
+            _rootCanvasGroup = GetComponent<CanvasGroup>();
+            if (_rootCanvasGroup == null)
+            {
+                _rootCanvasGroup = gameObject.AddComponent<CanvasGroup>();
+            }
+        }
+    }
+
+    private void SetPanelRootVisibility(bool isVisible)
+    {
+        EnsureRootCanvasGroup();
+        _rootCanvasGroup.alpha = isVisible ? 1f : 0f;
+        _rootCanvasGroup.interactable = isVisible;
+        _rootCanvasGroup.blocksRaycasts = isVisible;
+    }
+
+    private static string BuildAugmentTriggerKey(PlayerManager player, List<AugmentData> choices)
+    {
+        int playerId = -1;
+        if (player != null && player.Object != null && player.Object.IsValid)
+        {
+            try
+            {
+                playerId = player.playerId;
+            }
+            catch (InvalidOperationException)
+            {
+                playerId = -1;
+            }
+        }
+        int round = -1;
+        if (GameManagers.Instance != null)
+        {
+            try
+            {
+                round = GameManagers.Instance.currentRound;
+            }
+            catch (InvalidOperationException)
+            {
+                round = -1;
+            }
+        }
+        string choiceSig = choices == null
+            ? "none"
+            : string.Join(",", choices.Select(choice => choice != null ? choice.augmentName : "null"));
+        return $"r={round}|p={playerId}|choices={choiceSig}";
     }
 }

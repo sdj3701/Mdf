@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using System.Reflection;
@@ -12,6 +13,13 @@ using TMPro;
 
 public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 {
+    private enum ConnectionLossPolicyMode
+    {
+        AutoReconnectThenFallback,
+        ImmediateFallback,
+        ObserveOnly
+    }
+
     public static NetworkManager Instance { get; private set; }
 
     public NetworkRunner _runner { get; private set; }
@@ -63,6 +71,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     private EventInfo _cloudConnectionLostEventInfo;
     private Delegate _cloudConnectionLostHandlerDelegate;
     private MethodInfo _getPlayerConnectionTokenMethod;
+    [Header("Connection Loss Policy")]
+    [SerializeField] private ConnectionLossPolicyMode _connectionLossPolicy = ConnectionLossPolicyMode.AutoReconnectThenFallback;
+    [SerializeField, Range(1f, 15f)] private float _cloudReconnectFallbackDelaySeconds = 5f;
+    private Coroutine _pendingConnectionLossFallback;
 
     private void Awake()
     {
@@ -98,6 +110,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (Instance == this)
         {
+            CancelPendingConnectionLossFallback();
             UnregisterCloudConnectionLostHandlerIfAvailable();
         }
     }
@@ -494,7 +507,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     }
 
     // --- 이하 콜백들은 이 예제에서 사용되지 않지만, 인터페이스 구현을 위해 필요합니다. ---
-    public void OnConnectedToServer(NetworkRunner runner) { }
+    public void OnConnectedToServer(NetworkRunner runner)
+    {
+        CancelPendingConnectionLossFallback();
+    }
     public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason) { }
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
@@ -519,13 +535,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        State = ConnectionState.Disconnected;
-        _sessionList.Clear();
-
-        if (SceneManager.GetActiveScene().name != "MatchingLobby")
-        {
-            SceneManager.LoadScene("MatchingLobby");
-        }
+        ApplyConnectionLossPolicy(
+            source: $"OnDisconnectedFromServer:{reason}",
+            reconnectingHint: false);
     }
     /// <summary>
     /// Host가 나갔을 때 호출됩니다. Client 중 하나가 새 Host가 됩니다.
@@ -802,24 +814,114 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         string runnerName = runner != null ? runner.name : "null";
         // Debug.LogWarning($"[NetworkManager] CloudConnectionLost: reason={reason}, reconnecting={reconnecting}, runner={runnerName}");
 
-        if (reconnecting)
-        {
-            return;
-        }
-
         bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
         if (isMigrating)
         {
             return;
         }
 
+        ApplyConnectionLossPolicy(
+            source: $"CloudConnectionLost:{reason}:runner={runnerName}",
+            reconnectingHint: reconnecting);
+    }
+
+    private void ApplyConnectionLossPolicy(string source, bool reconnectingHint)
+    {
+        bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
+        if (isMigrating)
+        {
+            return;
+        }
+
+        Debug.LogWarning(BuildConnectionLossTrace(
+            "ApplyPolicy",
+            $"source={source}, reconnectingHint={reconnectingHint}"));
+
+        switch (_connectionLossPolicy)
+        {
+            case ConnectionLossPolicyMode.ObserveOnly:
+                Debug.LogWarning(BuildConnectionLossTrace(
+                    "ObserveOnly",
+                    $"source={source}, reconnectingHint={reconnectingHint}"));
+                break;
+
+            case ConnectionLossPolicyMode.ImmediateFallback:
+                ExecuteConnectionLossFallback($"ImmediateFallback:{source}");
+                break;
+
+            case ConnectionLossPolicyMode.AutoReconnectThenFallback:
+            default:
+                if (reconnectingHint)
+                {
+                    ScheduleConnectionLossFallback(source, _cloudReconnectFallbackDelaySeconds);
+                    return;
+                }
+
+                ExecuteConnectionLossFallback($"ReconnectUnavailable:{source}");
+                break;
+        }
+    }
+
+    private void ScheduleConnectionLossFallback(string source, float delaySeconds)
+    {
+        CancelPendingConnectionLossFallback();
+        _pendingConnectionLossFallback = StartCoroutine(ConnectionLossFallbackCoroutine(source, delaySeconds));
+        Debug.LogWarning(BuildConnectionLossTrace(
+            "ScheduleFallback",
+            $"delay={delaySeconds:F1}, source={source}"));
+    }
+
+    private IEnumerator ConnectionLossFallbackCoroutine(string source, float delaySeconds)
+    {
+        float delay = Mathf.Max(0f, delaySeconds);
+        if (delay > 0f)
+        {
+            yield return new WaitForSeconds(delay);
+        }
+
+        // reconnect가 성공해 runner가 정상 동작 중이면 fallback을 취소한다.
+        if (_runner != null && _runner.IsRunning)
+        {
+            _pendingConnectionLossFallback = null;
+            Debug.Log(BuildConnectionLossTrace("CancelFallbackReconnected", $"source={source}"));
+            yield break;
+        }
+
+        _pendingConnectionLossFallback = null;
+        ExecuteConnectionLossFallback($"DelayedFallback:{source}");
+    }
+
+    private void CancelPendingConnectionLossFallback()
+    {
+        if (_pendingConnectionLossFallback == null)
+        {
+            return;
+        }
+
+        StopCoroutine(_pendingConnectionLossFallback);
+        _pendingConnectionLossFallback = null;
+    }
+
+    private void ExecuteConnectionLossFallback(string source)
+    {
+        CancelPendingConnectionLossFallback();
         State = ConnectionState.Disconnected;
         _sessionList.Clear();
+
+        Debug.LogWarning(BuildConnectionLossTrace("ExecuteFallback", $"source={source}"));
 
         if (SceneManager.GetActiveScene().name != "MatchingLobby")
         {
             SceneManager.LoadScene("MatchingLobby");
         }
+    }
+
+    private string BuildConnectionLossTrace(string step, string extra = null)
+    {
+        string runnerName = _runner != null ? _runner.name : "null";
+        bool runnerRunning = _runner != null && _runner.IsRunning;
+        bool migrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
+        return $"[LC-TRACE] step={step} policy={_connectionLossPolicy} state={State} runner={runnerName} runnerRunning={runnerRunning} migrating={migrating}{(string.IsNullOrEmpty(extra) ? string.Empty : $" | {extra}")}";
     }
     #endregion
 
@@ -895,3 +997,5 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
 
 }
+
+
