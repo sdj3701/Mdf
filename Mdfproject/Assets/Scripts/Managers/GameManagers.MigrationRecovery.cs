@@ -105,6 +105,7 @@ public partial class GameManagers
         _migrationRestoreStartFrame = Time.frameCount;
         _migrationTimerPaused = false;
         _migrationPausedTimerRemainingSeconds = 0f;
+        ResetMigrationOneShotGuards();
 
         Debug.Log("<color=yellow>[GameManagers] RestoreAfterHostMigration 시작!</color>");
         LogMigrationTrace("RestoreAfterHostMigration:BEGIN", $"startFrame={_migrationRestoreStartFrame}");
@@ -601,8 +602,8 @@ public partial class GameManagers
 
             Debug.Log($"[복원/UI] UI 이벤트 재발행 시작 - State: {currentState}, LocalPlayer: {localPlayer.playerId}");
 
-            GameEvents.TriggerGameManagersReady();
-            GameEvents.TriggerGameStateChanged(currentState);
+            TriggerMigrationReadyEventOnce("RestoreLocalUIAfterMigrationAsync");
+            TriggerMigrationStateChangedOnce(currentState, "RestoreLocalUIAfterMigrationAsync");
             await HandleUIForNewState(currentState);
             LogMigrationTrace("RestoreLocalUI:AFTER_STATE_EVENTS");
 
@@ -673,30 +674,59 @@ public partial class GameManagers
             return;
         }
 
-        if (Object != null && Object.HasStateAuthority && currentState == GameState.Prepare)
-        {
-            var hostShopItems = localPlayer.shopManager.GetCurrentShopItems();
-            if (hostShopItems == null || hostShopItems.Count == 0)
-            {
-                localPlayer.shopManager.Reroll(true);
-                hostShopItems = localPlayer.shopManager.GetCurrentShopItems();
-                Debug.Log($"[복원/UI] 로컬 Host 상점 긴급 리롤: Player {localPlayer.playerId}, itemCount={hostShopItems?.Count ?? 0}");
+        await EnsurePrepareShopRecoveredAndSyncedAsync(localPlayer, "ShowLocalShopFallback");
 
-                if (CommandProcessor != null && hostShopItems != null && hostShopItems.Count > 0)
+        localPlayerShopUIGameObject.SetActive(true);
+        var shopItems = localPlayer.shopManager.GetCurrentShopItems();
+        localPlayerShopUI.ShowWithItems(shopItems);
+        Debug.Log("[복원/UI] 상점 UI 폴백 표시 완료");
+        LogMigrationTrace("ShowLocalShopFallback:SUCCESS", $"shopCount={shopItems?.Count ?? 0}");
+    }
+
+    private async UniTask EnsurePrepareShopRecoveredAndSyncedAsync(PlayerManager targetPlayer, string context)
+    {
+        if (targetPlayer == null || targetPlayer.shopManager == null)
+        {
+            LogMigrationTrace("PrepareShopRecovery:ABORT_NO_PLAYER_OR_SHOP", $"context={context}");
+            return;
+        }
+
+        await targetPlayer.shopManager.WaitUntilDatabaseLoaded();
+
+        bool canMutatePrepareShop =
+            Object != null &&
+            Object.HasStateAuthority &&
+            currentState == GameState.Prepare;
+
+        if (canMutatePrepareShop)
+        {
+            string key;
+            bool acquired = TryAcquirePrepareShopRecoveryKey(targetPlayer, context, out key);
+            if (acquired)
+            {
+                var items = targetPlayer.shopManager.GetCurrentShopItems();
+                if (items == null || items.Count == 0)
                 {
-                    string[] shopNames = hostShopItems.Select(i => i.UnitData?.name ?? string.Empty).ToArray();
-                    int[] shopStars = hostShopItems.Select(i => i.StarLevel).ToArray();
-                    var syncShopCmd = new SyncShopItemsCommand(localPlayer.playerId, shopNames, shopStars);
-                    CommandProcessor.RequestCommandExecution(syncShopCmd);
-                    Debug.Log($"[복원/UI] 로컬 Host 상점 동기화 전송: Player {localPlayer.playerId}, itemCount={hostShopItems.Count}");
+                    targetPlayer.shopManager.Reroll(true);
+                    items = targetPlayer.shopManager.GetCurrentShopItems();
+                    Debug.Log($"[복원/UI] Prepare 상점 단일 복원 리롤: key={key}, player={targetPlayer.playerId}, itemCount={items?.Count ?? 0}");
                 }
+
+                if (CommandProcessor != null && items != null && items.Count > 0)
+                {
+                    string[] shopNames = items.Select(i => i.UnitData?.name ?? string.Empty).ToArray();
+                    int[] shopStars = items.Select(i => i.StarLevel).ToArray();
+                    var syncShopCmd = new SyncShopItemsCommand(targetPlayer.playerId, shopNames, shopStars);
+                    CommandProcessor.RequestCommandExecution(syncShopCmd);
+                    Debug.Log($"[복원/UI] Prepare 상점 복원 동기화: key={key}, player={targetPlayer.playerId}, itemCount={items.Count}");
+                }
+            }
+            else
+            {
+                LogMigrationTrace("PrepareShopRecovery:SKIP_DUPLICATE", $"context={context}, player={targetPlayer.playerId}");
             }
         }
 
-        await localPlayer.shopManager.EnsureShopRerolledAsync();
-        localPlayerShopUIGameObject.SetActive(true);
-        localPlayerShopUI.ShowWithItems(localPlayer.shopManager.GetCurrentShopItems());
-        Debug.Log("[복원/UI] 상점 UI 폴백 표시 완료");
-        LogMigrationTrace("ShowLocalShopFallback:SUCCESS", $"shopCount={localPlayer.shopManager.GetCurrentShopItems().Count}");
+        await targetPlayer.shopManager.EnsureShopRerolledAsync();
     }
 }

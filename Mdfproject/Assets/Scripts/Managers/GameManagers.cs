@@ -126,6 +126,9 @@ public partial class GameManagers : NetworkBehaviour
     private int _migrationRestoreStartFrame = -1;
     private bool _migrationTimerPaused;
     private float _migrationPausedTimerRemainingSeconds;
+    private bool _migrationReadyEventPublished;
+    private readonly HashSet<int> _migrationPublishedStateEvents = new HashSet<int>();
+    private readonly HashSet<string> _migrationPrepareShopRecoveryKeys = new HashSet<string>();
     private float _lastMigrationCommandHoldLogRealtime = -10f;
     private bool _isSpawned;
     private CancellationTokenSource _lifecycleCts;
@@ -443,6 +446,127 @@ public partial class GameManagers : NetworkBehaviour
             $"| migrationStage={_migrationRestoreStage} restoreInProgress={IsMigrationRestoreInProgress} setupUI={_hasCompletedGameUISetup} uiDone={IsMigrationUiRestoreCompleted} " +
             $"| {BuildMigrationPlayerSnapshot()}" +
             $"{(string.IsNullOrEmpty(extra) ? string.Empty : $" | {extra}")}");
+    }
+
+    private void ResetMigrationOneShotGuards()
+    {
+        _migrationReadyEventPublished = false;
+        _migrationPublishedStateEvents.Clear();
+        _migrationPrepareShopRecoveryKeys.Clear();
+    }
+
+    private void TriggerMigrationReadyEventOnce(string context)
+    {
+        if (_migrationReadyEventPublished)
+        {
+            LogMigrationTrace("MigrationReadyEvent:SKIP_DUPLICATE", $"context={context}");
+            return;
+        }
+
+        _migrationReadyEventPublished = true;
+        GameEvents.TriggerGameManagersReady();
+        LogMigrationTrace("MigrationReadyEvent:FIRED", $"context={context}");
+    }
+
+    private void TriggerMigrationStateChangedOnce(GameState state, string context)
+    {
+        int key = (int)state;
+        if (!_migrationPublishedStateEvents.Add(key))
+        {
+            LogMigrationTrace("MigrationStateChanged:SKIP_DUPLICATE", $"state={state}, context={context}");
+            return;
+        }
+
+        GameEvents.TriggerGameStateChanged(state);
+        LogMigrationTrace("MigrationStateChanged:FIRED", $"state={state}, context={context}");
+    }
+
+    private bool TryAcquirePrepareShopRecoveryKey(PlayerManager player, string context, out string key)
+    {
+        key = string.Empty;
+        if (player == null || currentState != GameState.Prepare)
+        {
+            return false;
+        }
+
+        int playerId = TryGetPlayerIdSafe(player, out int safePlayerId) ? safePlayerId : -1;
+        key = $"{_activeMigrationTraceId}:{playerId}:{currentRound}:{currentState}";
+        bool acquired = _migrationPrepareShopRecoveryKeys.Add(key);
+        LogMigrationTrace("PrepareShopRecoveryKey", $"context={context}, key={key}, acquired={acquired}");
+        return acquired;
+    }
+
+    public bool IsPrepareInteractionReadyForField(PlayerManager fieldOwner, out string reason)
+    {
+        reason = string.Empty;
+
+        if (fieldOwner == null)
+        {
+            reason = "fieldOwner=null";
+            return false;
+        }
+
+        if (currentState != GameState.Prepare)
+        {
+            return true;
+        }
+
+        if (!IsBoundToActiveRunner())
+        {
+            reason = "runnerMismatch";
+            return false;
+        }
+
+        bool fieldOwnerHasInputAuthority =
+            fieldOwner.Object != null &&
+            fieldOwner.Object.IsValid &&
+            fieldOwner.Object.HasInputAuthority;
+
+        if (localPlayer == null ||
+            localPlayer.Object == null ||
+            !localPlayer.Object.IsValid)
+        {
+            RelinkLocalPlayer();
+        }
+
+        bool localHasInputAuthority =
+            localPlayer != null &&
+            localPlayer.Object != null &&
+            localPlayer.Object.IsValid &&
+            localPlayer.Object.HasInputAuthority;
+
+        if (!localHasInputAuthority && !fieldOwnerHasInputAuthority)
+        {
+            reason = "localInputAuthority=false";
+            return false;
+        }
+
+        bool ownerMatchesLocal = fieldOwnerHasInputAuthority ||
+                                 localPlayer == null ||
+                                 fieldOwner == localPlayer;
+        if (!ownerMatchesLocal)
+        {
+            int ownerId = TryGetPlayerIdSafe(fieldOwner, out int safeOwnerId) ? safeOwnerId : -1;
+            int localId = TryGetPlayerIdSafe(localPlayer, out int safeLocalId) ? safeLocalId : -1;
+            reason = $"fieldOwnerMismatch(owner={ownerId},local={localId})";
+            return false;
+        }
+
+        if (IsMigrationRestoreInProgress && !IsMigrationUiRestoreCompleted)
+        {
+            reason = $"migrationStage={_migrationRestoreStage}";
+            return false;
+        }
+
+        if (localPlayerShopUI != null &&
+            !localPlayerShopUI.IsContentVisible() &&
+            localPlayerShopUI.IsRootRaycastBlocking())
+        {
+            localPlayerShopUI.InitializeAndHide();
+            LogMigrationTrace("PrepareInteractionGate:FIX_HIDDEN_SHOP_RAYCAST");
+        }
+
+        return true;
     }
 
     /// <summary>

@@ -266,9 +266,18 @@ public class ShopUIController : MonoBehaviour
 
     public void ShowWithItems(List<ShopItem> items)
     {
+        var resolvedItems = items ?? new List<ShopItem>();
+        string signature = BuildShopSignature(resolvedItems);
+        float now = Time.unscaledTime;
+        if (IsContentVisible() && signature == _lastDisplaySignature && now - _lastDisplayRealtime < 1f)
+        {
+            BuildDebugGUI.LogClient($"[ShopUI] ShowWithItems skipped duplicate signature: {signature}");
+            return;
+        }
+
         _uiState = UiLifecycleState.DataBinding;
         SetContentVisibility(false);
-        DisplayShopItems(items ?? new List<ShopItem>());
+        DisplayShopItems(resolvedItems);
         SetContentVisibility(true);
     }
 
@@ -290,6 +299,12 @@ public class ShopUIController : MonoBehaviour
         _rootCanvasGroup.alpha = isVisible ? 1f : 0f;
         _rootCanvasGroup.interactable = isVisible;
         _rootCanvasGroup.blocksRaycasts = isVisible;
+    }
+
+    public bool IsRootRaycastBlocking()
+    {
+        EnsureRootCanvasGroup();
+        return _rootCanvasGroup.blocksRaycasts && _rootCanvasGroup.alpha > 0f;
     }
 
     private static string BuildShopSignature(List<ShopItem> items)

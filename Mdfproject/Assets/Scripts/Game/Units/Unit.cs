@@ -32,6 +32,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     // === 상태 동기화 (클라이언트 애니메이션/사망 처리용) ===
     [Networked] public NetworkBool NetworkedIsDead { get; set; }
     [Networked] public NetworkBool NetworkedIsAttacking { get; set; }
+    [Networked] private int NetworkedStarLevel { get; set; }
+    [Networked] private NetworkString<_64> NetworkedUnitDataKey { get; set; }
 
     private bool _hasSpawned;
     private bool _hasLocalHealthValues;
@@ -198,6 +200,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         _hasSpawned = true;
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
         TryApplyPendingHealthToNetworked();
+        RebindAfterMigration(owner, "Unit.Spawned", false);
     }
     
     /// <summary>
@@ -394,6 +397,116 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             _lastRecoverFailureLogTime = Time.unscaledTime;
             Debug.LogWarning($"[Unit] Runtime 참조 미복구 ({context}) name={name}, owner={(owner != null ? owner.playerId.ToString() : "null")}, hasObject={(Object != null)}, hasRunner={(Runner != null)}");
         }
+
+        return ready;
+    }
+
+    private static string NormalizeUnitDataKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
+        return key.Replace("(Clone)", string.Empty).Trim();
+    }
+
+    private void SyncNetworkIdentityFromLocalData()
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (starLevel > 0)
+        {
+            NetworkedStarLevel = starLevel;
+        }
+
+        string key = unitData != null ? NormalizeUnitDataKey(unitData.name) : string.Empty;
+        if (!string.IsNullOrEmpty(key))
+        {
+            NetworkedUnitDataKey = key;
+        }
+    }
+
+    private void TryRecoverUnitDataFromNetworkIdentity(string context)
+    {
+        if (unitData != null)
+        {
+            return;
+        }
+
+        string key = NormalizeUnitDataKey(NetworkedUnitDataKey.ToString());
+        if (string.IsNullOrEmpty(key))
+        {
+            return;
+        }
+
+        var lm = LoadManager.Instance;
+        if (lm == null || !lm.IsReady)
+        {
+            return;
+        }
+
+        UnitData resolved = lm.GetUnitData(key);
+        if (resolved == null)
+        {
+            string stripped = RemoveUnitDataPrefix(key);
+            resolved = lm.GetUnitData(stripped);
+            if (resolved == null)
+            {
+                var all = lm.GetAllUnitData();
+                resolved = all.FirstOrDefault(d =>
+                    d != null &&
+                    (string.Equals(NormalizeUnitDataKey(d.name), key, System.StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(NormalizeUnitDataKey(d.unitName), key, System.StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(NormalizeUnitDataKey(d.name), stripped, System.StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(NormalizeUnitDataKey(d.unitName), stripped, System.StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+
+        if (resolved != null)
+        {
+            unitData = resolved;
+            if (Time.unscaledTime - _lastMissingUnitDataLogTime > 0.5f)
+            {
+                _lastMissingUnitDataLogTime = Time.unscaledTime;
+                Debug.Log($"[Unit] Network identity로 UnitData 복구 ({context}) name={name}, key={key}, resolved={resolved.name}");
+            }
+        }
+    }
+
+    public bool RebindAfterMigration(PlayerManager expectedOwner, string context, bool verboseFailure = false)
+    {
+        if (expectedOwner != null)
+        {
+            owner = expectedOwner;
+            if (owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
+            {
+                owner.ownedUnits.Add(this);
+            }
+        }
+
+        if (starLevel <= 0)
+        {
+            starLevel = NetworkedStarLevel > 0 ? NetworkedStarLevel : 1;
+        }
+
+        TryRecoverUnitDataFromNetworkIdentity(context);
+        bool ready = EnsureRuntimeReferences(context, verboseFailure);
+
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>(true);
+            }
+        }
+        CacheAttackClipDurationFromController();
+        EnsureAnimationEventProxy();
+        SyncNetworkIdentityFromLocalData();
 
         return ready;
     }
@@ -729,6 +842,25 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         proxy.Initialize(this);
     }
 
+    public bool HasAnimationEventProxy()
+    {
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>(true);
+            }
+        }
+
+        if (animator == null)
+        {
+            return false;
+        }
+
+        return animator.GetComponent<UnitAnimationEventProxy>() != null;
+    }
+
     public float GetPermanentAdjustedBaseAttackDamage()
     {
         if (unitData == null) return 0f;
@@ -809,6 +941,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
         this.starLevel = initialStarLevel;
+        SyncNetworkIdentityFromLocalData();
         manaController = GetComponent<ManaController>();
         _buffManager = GetComponent<BuffManager>();
         if (animator == null)

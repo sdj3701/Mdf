@@ -524,8 +524,6 @@ public class HostMigrationHandler : MonoBehaviour
                 continue;
             }
 
-            Debug.Log($"<color=orange>[HostMigrationHandler] 복원됨: {spawnedNO.name} (Id: {spawnedNO.Id})</color>");
-
             // GameManagers 확인
             if (spawnedNO.TryGetComponent<GameManagers>(out var gm))
             {
@@ -1305,6 +1303,24 @@ public class HostMigrationHandler : MonoBehaviour
                 if (!runtimePlayer.fieldManager.IsWallMapReady)
                 {
                     errors.Add($"wallMap not ready: P{runtimePlayer.playerId} ({wallSummary})");
+                }
+
+                runtimePlayer.fieldManager.RebuildUnitMapAfterMigration("HM-SMOKE", false, out string unitSummary);
+                if (!runtimePlayer.fieldManager.IsUnitMapReady)
+                {
+                    errors.Add($"unitMap not ready: P{runtimePlayer.playerId} ({unitSummary})");
+                }
+
+                var units = runtimePlayer.fieldManager.GetAlliedUnitsOnField();
+                int missingDataCount = units.Count(unit => unit != null && unit.Data == null);
+                int missingProxyCount = units.Count(unit => unit != null && !unit.HasAnimationEventProxy());
+                if (missingDataCount > 0)
+                {
+                    errors.Add($"unitDataMissing: P{runtimePlayer.playerId} count={missingDataCount}");
+                }
+                if (missingProxyCount > 0)
+                {
+                    errors.Add($"unitAnimProxyMissing: P{runtimePlayer.playerId} count={missingProxyCount}");
                 }
             }
         }

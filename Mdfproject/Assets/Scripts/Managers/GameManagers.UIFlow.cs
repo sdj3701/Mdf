@@ -227,30 +227,16 @@ public partial class GameManagers
                         await player.shopManager.WaitUntilDatabaseLoaded();
                     }
 
-                    // Host Migration 복원 중 Prepare 단계에서 상점이 비어 있으면
-                    // 새 Host가 즉시 무료 리롤 + 동기화하여 클라이언트 대기 타임아웃을 방지한다.
+                    // Host Migration 복원 중에는 SetupGameUI가 상점 데이터를 변경하지 않는다.
+                    // (Single Writer: Prepare 상점 write는 MigrationRecovery 경로에서만 수행)
                     if (IsMigrationRestoreInProgress &&
                         currentState == GameState.Prepare &&
-                        Object != null &&
-                        Object.HasStateAuthority &&
                         player.shopManager != null)
                     {
                         var migratedShopItems = player.shopManager.GetCurrentShopItems();
                         if (migratedShopItems == null || migratedShopItems.Count == 0)
                         {
-                            player.shopManager.Reroll(true);
-                            migratedShopItems = player.shopManager.GetCurrentShopItems();
-
-                            Debug.Log($"[복원/UI] Host 보정 리롤 실행: Player {player.playerId}, itemCount={migratedShopItems?.Count ?? 0}");
-
-                            if (CommandProcessor != null && migratedShopItems != null && migratedShopItems.Count > 0)
-                            {
-                                string[] shopNames = migratedShopItems.Select(i => i.UnitData?.name ?? string.Empty).ToArray();
-                                int[] shopStars = migratedShopItems.Select(i => i.StarLevel).ToArray();
-                                var syncShopCmd = new SyncShopItemsCommand(player.playerId, shopNames, shopStars);
-                                CommandProcessor.RequestCommandExecution(syncShopCmd);
-                                Debug.Log($"[복원/UI] Host 상점 동기화 커맨드 전송: Player {player.playerId}, itemCount={migratedShopItems.Count}");
-                            }
+                            LogMigrationTrace("SetupGameUI:SHOP_EMPTY_DEFER_TO_RECOVERY", $"player={player.playerId}");
                         }
                     }
 

@@ -66,6 +66,7 @@ public class FieldManager : MonoBehaviour
     private Coroutine _pathRefreshRoutine;
     private readonly List<GameObject> _activeMarkers = new List<GameObject>();
     private readonly Dictionary<GameObject, Coroutine> _markerRoutines = new Dictionary<GameObject, Coroutine>();
+    private float _lastInteractionGateBlockLogRealtime = -10f;
 
     // [3D Migration] 논리 그리드 설정
     [Header("3D 그리드 설정")]
@@ -125,6 +126,9 @@ public class FieldManager : MonoBehaviour
     private int _lastWallMapRebuildFrame = -1;
     private string _lastWallMapRebuildSummary = "wallMap:notBuilt";
     public bool IsWallMapReady => _lastWallMapRebuildFrame >= 0;
+    private int _lastUnitMapRebuildFrame = -1;
+    private string _lastUnitMapRebuildSummary = "unitMap:notBuilt";
+    public bool IsUnitMapReady => _lastUnitMapRebuildFrame >= 0;
     private Coroutine _awaitNetworkPermanentWallsCoroutine;
 
     private string BuildWallOwnerTag()
@@ -462,6 +466,33 @@ public class FieldManager : MonoBehaviour
         return gm != null && gm.localPlayer == playerManager;
     }
 
+    private bool CanProcessLocalFieldInput()
+    {
+        if (!IsLocalControlledField())
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            return false;
+        }
+
+        if (!gm.IsPrepareInteractionReadyForField(playerManager, out string reason))
+        {
+            if (Time.realtimeSinceStartup - _lastInteractionGateBlockLogRealtime > 1f)
+            {
+                _lastInteractionGateBlockLogRealtime = Time.realtimeSinceStartup;
+                Debug.Log($"[HM-INPUT-GATE] blocked owner={BuildWallOwnerTag()} reason={reason}");
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
     private void SchedulePathRefresh()
     {
         if (!showPathInPrepare) return;
@@ -678,7 +709,7 @@ public class FieldManager : MonoBehaviour
 
     void Update()
     {
-        if (placementManager.GetCurrentMode() == PlacementMode.None)
+        if (placementManager.GetCurrentMode() == PlacementMode.None && CanProcessLocalFieldInput())
         {
             HandleUnitDragAndDrop();
         }
@@ -1036,6 +1067,117 @@ public class FieldManager : MonoBehaviour
         if (verboseLog)
         {
             Debug.Log($"[WallFlow-Migration] RebuildWallMapsAfterMigration {_lastWallMapRebuildSummary}");
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Host Migration 이후 런타임 유닛 맵(placedUnits)을 월드 오브젝트 기준으로 재구성합니다.
+    /// </summary>
+    public bool RebuildUnitMapAfterMigration(string context, bool verboseLog, out string summary)
+    {
+        if (_lastUnitMapRebuildFrame == Time.frameCount)
+        {
+            summary = _lastUnitMapRebuildSummary;
+            return true;
+        }
+
+        var oldCells = new HashSet<Vector3Int>(placedUnits.Keys);
+        var rebuiltUnits = new Dictionary<Vector3Int, Unit>();
+
+        int candidates = 0;
+        int registered = 0;
+        int duplicates = 0;
+        int outOfBounds = 0;
+        int missingData = 0;
+
+        var unitCandidates = new List<Unit>();
+
+        foreach (var unit in placedUnits.Values)
+        {
+            if (unit != null)
+            {
+                unitCandidates.Add(unit);
+            }
+        }
+
+        if (playerManager != null && playerManager.ownedUnits != null)
+        {
+            foreach (var unit in playerManager.ownedUnits)
+            {
+                if (unit != null)
+                {
+                    unitCandidates.Add(unit);
+                }
+            }
+        }
+
+        if (unitParent != null)
+        {
+            unitCandidates.AddRange(unitParent.GetComponentsInChildren<Unit>(true));
+        }
+
+        var globalCandidates = UnityEngine.Object.FindObjectsOfType<Unit>(true)
+            .Where(unit => unit != null)
+            .Where(unit =>
+                playerManager == null ||
+                playerManager.Runner == null ||
+                !playerManager.Runner.IsRunning ||
+                unit.Runner == playerManager.Runner)
+            .Where(unit => IsWorldPositionInsideOwnedGrid(unit.transform.position));
+        unitCandidates.AddRange(globalCandidates);
+
+        foreach (var unit in unitCandidates.Where(u => u != null).Distinct())
+        {
+            if (!unit.gameObject.activeInHierarchy || unit.IsDead)
+            {
+                continue;
+            }
+
+            candidates++;
+            unit.RebindAfterMigration(playerManager, $"FieldManager.{context}", verboseLog);
+
+            if (unit.Data == null)
+            {
+                missingData++;
+            }
+
+            Vector3Int cell = WorldToGridInt(unit.transform.position);
+            if (!IsValidGridPosition(cell))
+            {
+                outOfBounds++;
+                continue;
+            }
+
+            if (rebuiltUnits.TryGetValue(cell, out Unit existing))
+            {
+                bool replace = existing == null || (existing.Data == null && unit.Data != null);
+                if (replace)
+                {
+                    rebuiltUnits[cell] = unit;
+                }
+
+                duplicates++;
+                continue;
+            }
+
+            rebuiltUnits[cell] = unit;
+            registered++;
+        }
+
+        placedUnits = rebuiltUnits;
+        pendingUnitPositions.Clear();
+
+        bool unitMapChanged = !oldCells.SetEquals(placedUnits.Keys);
+        _lastUnitMapRebuildFrame = Time.frameCount;
+        _lastUnitMapRebuildSummary =
+            $"ctx={context},units={placedUnits.Count}/{candidates},registered={registered},missingData={missingData},outOfBounds={outOfBounds},duplicates={duplicates},changed={unitMapChanged}";
+        summary = _lastUnitMapRebuildSummary;
+
+        if (verboseLog)
+        {
+            Debug.Log($"[UnitFlow-Migration] RebuildUnitMapAfterMigration {_lastUnitMapRebuildSummary}");
         }
 
         return true;
@@ -1547,11 +1689,30 @@ public class FieldManager : MonoBehaviour
         var gmInst = GameManagers.Instance;
         if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning)
         {
-            var lp = gmInst.localPlayer;
-            if (lp == null || lp.Object == null || !lp.Object.HasInputAuthority)
+            if (playerManager != null &&
+                playerManager.Object != null &&
+                playerManager.Object.IsValid &&
+                playerManager.Object.HasInputAuthority)
             {
-                return false;
+                return true;
             }
+
+            var lp = gmInst.localPlayer;
+            if (lp != null &&
+                lp.Object != null &&
+                lp.Object.IsValid &&
+                lp.Object.HasInputAuthority)
+            {
+                return true;
+            }
+
+            if (Time.realtimeSinceStartup - _lastInteractionGateBlockLogRealtime > 1f)
+            {
+                _lastInteractionGateBlockLogRealtime = Time.realtimeSinceStartup;
+                Debug.Log($"[HM-INPUT-GATE] command blocked owner={BuildWallOwnerTag()} reason=networkInputAuthorityMissing");
+            }
+
+            return false;
         }
         return true;
     }
@@ -2976,8 +3137,8 @@ public class FieldManager : MonoBehaviour
                     {
                         bool destWallForSelected = HasWallAt(bestGrid);
                         bool destWallForTarget = HasWallAt(originalUnitPosition);
-                        bool invalidForSelected = selectedUnit.Data.unitType == UnitType.Melee && destWallForSelected;
-                        bool invalidForTarget = target.Data.unitType == UnitType.Melee && destWallForTarget;
+                        bool invalidForSelected = selectedUnit.Data != null && selectedUnit.Data.unitType == UnitType.Melee && destWallForSelected;
+                        bool invalidForTarget = target.Data != null && target.Data.unitType == UnitType.Melee && destWallForTarget;
                         if (!invalidForSelected && !invalidForTarget)
                         {
                             // 네트워크 준비 상태 확인

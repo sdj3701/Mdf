@@ -123,9 +123,14 @@ public partial class GameManagers
     {
         // Debug.Log($"[GameManagers] RelinkLocalPlayer 시작 - AllPlayers 수: {AllPlayers.Count()}");
 
-        // 방법 1: AllPlayers에서 InputAuthority 가진 플레이어 찾기
+        PlayerRef localRef = Runner != null ? Runner.LocalPlayer : PlayerRef.None;
+
+        // 방법 1: AllPlayers에서 Runner.LocalPlayer 기준으로 우선 탐색
         localPlayer = AllPlayers.FirstOrDefault(p =>
-            p != null && p.Object != null && p.Object.HasInputAuthority);
+            p != null &&
+            p.Object != null &&
+            p.Object.IsValid &&
+            ((localRef != PlayerRef.None && p.Object.InputAuthority == localRef) || p.Object.HasInputAuthority));
 
         // 방법 2: AllPlayers에 없으면 FindObjectsOfType으로 폴백
         if (localPlayer == null)
@@ -137,7 +142,11 @@ public partial class GameManagers
             foreach (var pm in allPlayerManagers)
             {
                 // Debug.Log($"  - {pm.name}: Object={pm.Object != null}, HasInputAuthority={pm.Object?.HasInputAuthority}");
-                if (pm != null && pm.Object != null && pm.Object.HasInputAuthority)
+                if (pm != null &&
+                    pm.Object != null &&
+                    pm.Object.IsValid &&
+                    pm.Runner == Runner &&
+                    ((localRef != PlayerRef.None && pm.Object.InputAuthority == localRef) || pm.Object.HasInputAuthority))
                 {
                     localPlayer = pm;
                     break;

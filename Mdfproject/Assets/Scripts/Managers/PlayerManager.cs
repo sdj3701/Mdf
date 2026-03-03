@@ -425,6 +425,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (fieldManager != null)
         {
             fieldManager.RebuildWallMapsAfterMigration($"PlayerManager.{context}", verboseFailure, out _);
+            fieldManager.RebuildUnitMapAfterMigration($"PlayerManager.{context}", verboseFailure, out _);
         }
 
         if (verboseFailure && !IsRuntimeReady(out string reason))
@@ -450,6 +451,27 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (!fieldManager.IsWallMapReady)
         {
             reason = "fieldManager.wallMapNotReady";
+            return false;
+        }
+
+        if (!fieldManager.IsUnitMapReady)
+        {
+            reason = "fieldManager.unitMapNotReady";
+            return false;
+        }
+
+        var units = fieldManager.GetAlliedUnitsOnField();
+        var missingDataUnit = units.FirstOrDefault(unit => unit != null && unit.Data == null);
+        if (missingDataUnit != null)
+        {
+            reason = $"unitDataMissing:{missingDataUnit.name}";
+            return false;
+        }
+
+        var missingProxyUnit = units.FirstOrDefault(unit => unit != null && !unit.HasAnimationEventProxy());
+        if (missingProxyUnit != null)
+        {
+            reason = $"unitAnimProxyMissing:{missingProxyUnit.name}";
             return false;
         }
 
