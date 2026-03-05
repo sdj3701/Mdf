@@ -7,8 +7,8 @@ public class PlaceWallCommand : ICommand
 
     public PlaceWallCommand(int playerId, Vector3Int position)
     {
-        this.PlayerId = playerId;
-        this.Position = position;
+        PlayerId = playerId;
+        Position = position;
     }
 
     public void Execute()
@@ -34,6 +34,35 @@ public class PlaceWallCommand : ICommand
             return;
         }
 
+        if (!player.IsReadyForPlayerActions)
+        {
+            Debug.LogWarning($"[PlaceWallCommand] Player {PlayerId} is not ready for placement commands.");
+            return;
+        }
+
+        if (fm.playerManager == null || fm.playerManager != player)
+        {
+            Debug.LogError($"[PlaceWallCommand] Field ownership mismatch. playerId={PlayerId}");
+            return;
+        }
+
+        int fieldOwnerId = -1;
+        if (fm.playerManager != null)
+        {
+            try
+            {
+                fieldOwnerId = fm.playerManager.playerId;
+            }
+            catch (System.InvalidOperationException)
+            {
+                fieldOwnerId = -1;
+            }
+        }
+
+        bool hasInputAuthority = player.Object != null && player.Object.IsValid && player.Object.HasInputAuthority;
+        string inputAuthority = player.Object != null && player.Object.IsValid ? player.Object.InputAuthority.ToString() : "invalid";
+        Debug.Log($"[PlaceWallCommand] Execute request. cmdPlayer={PlayerId}, resolvedPlayer={player.playerId}, fieldOwner={fieldOwnerId}, pos={Position}, hasInputAuthority={hasInputAuthority}, inputAuthority={inputAuthority}");
+
         if (!fm.IsValidGridPosition(Position))
         {
             Debug.LogWarning($"[PlaceWallCommand] Invalid grid position {Position} for Player {PlayerId}");
@@ -46,7 +75,6 @@ public class PlaceWallCommand : ICommand
             return;
         }
 
-        // 스폰/골 위치에는 벽 금지 (3D 전용)
         Vector3Int spawnCell = fm.WorldToGridInt(player.spawnPoint != null ? player.spawnPoint.position : Vector3.zero);
         Vector3Int goalCell = fm.WorldToGridInt(player.goalTransform != null ? player.goalTransform.position : Vector3.zero);
         if (Position == spawnCell || Position == goalCell)
@@ -65,7 +93,7 @@ public class PlaceWallCommand : ICommand
 
         if (fm.GetWallAt(Position) != null)
         {
-            // 서버가 성공을 모든 피어에 알림 (Command Pattern 사용)
+            Debug.Log($"[PlaceWallCommand] SUCCESS player={player.playerId}, fieldOwner={fieldOwnerId}, pos={Position}");
             gm.NotifyWallPlacementSucceeded(player.playerId, Position.x, Position.y);
         }
         else

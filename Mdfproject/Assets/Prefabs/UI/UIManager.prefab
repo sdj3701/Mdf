@@ -850,6 +850,8 @@ MonoBehaviour:
   - {fileID: 37613086633180501, guid: 6eaa42a01ce5cac4bb0de7380bb59d26, type: 3}
   - {fileID: 5554514500885127117, guid: 023e86bb5d5919544951bbfa65ef4240, type: 3}
   mainCanvas: {fileID: 2218765290028887320}
+  preferredMainCanvasName: MainCanvas
+  preferredMainCanvasTag: MainCanvas
 --- !u!1 &2218765290905468326
 GameObject:
   m_ObjectHideFlags: 0

@@ -1,73 +1,108 @@
 // Assets/Scripts/UI/ShopUIController.cs
 using System;
+using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
-using TMPro;
-using System.Collections.Generic;
 
 public class ShopUIController : MonoBehaviour
 {
-    [Header("UI 요소 연결")]
+    private enum UiLifecycleState
+    {
+        Hidden,
+        Loading,
+        DataBinding,
+        Visible,
+        Closing
+    }
+
+    [Header("Shop UI")]
     public ShopSlot[] shopSlots;
     public Button rerollButton;
     public TextMeshProUGUI rerollCostText;
 
-    [Header("슬롯 컨테이너 관련 설정")]
+    [Header("Containers")]
     public GameObject slotsContainer;
     public GameObject rerollButtonObject;
 
     private ShopManager localPlayerShopManager;
     public event Action<bool> OnContentVisibilityChanged;
+    private CanvasGroup _rootCanvasGroup;
+    private UiLifecycleState _uiState = UiLifecycleState.Hidden;
+    private string _lastDisplaySignature = string.Empty;
+    private float _lastDisplayRealtime = -10f;
 
-    void OnEnable()
+    private void Awake()
     {
-        // 패널이 활성화될 때 로컬 플레이어 정보를 찾아 UI를 설정합니다.
+        EnsureRootCanvasGroup();
+        SetPanelRootVisibility(false);
+    }
+
+    private string SafeOwnerId()
+    {
+        if (localPlayerShopManager == null || localPlayerShopManager.playerManager == null)
+        {
+            return "null";
+        }
+
+        try
+        {
+            return localPlayerShopManager.playerManager.playerId.ToString();
+        }
+        catch (InvalidOperationException)
+        {
+            return "?";
+        }
+    }
+
+    private void OnEnable()
+    {
+        _uiState = UiLifecycleState.Loading;
+        SetContentVisibility(false);
+
         if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null)
         {
             localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
             SetupUI();
+            BuildDebugGUI.LogClient($"[ShopUI] OnEnable local={SafeOwnerId()}");
 
-            // 현재 게임 상태에 맞춰 UI를 즉시 갱신합니다.
             HandleGameStateChange(GameManagers.Instance.GetGameState());
         }
         else
         {
-            Debug.LogWarning("[ShopUIController] 로컬 플레이어가 아직 지정되지 않았습니다. 이벤트 구독 후 재시도합니다.");
+            Debug.LogWarning("[ShopUIController] Local player is not ready on OnEnable.");
+            BuildDebugGUI.LogClient("[ShopUI] OnEnable without local player.");
         }
 
-        // 게임 상태 변경, 상점 갱신, 구매 성공 이벤트를 구독합니다.
         GameEvents.OnGameStateChanged += HandleGameStateChange;
         GameEvents.OnShopRefreshed += HandleShopRefreshed;
         GameEvents.OnUnitPurchaseSucceeded += HandleUnitPurchaseSucceeded;
     }
 
-    void OnDisable()
+    private void OnDisable()
     {
-        // 패널 비활성화 시 이벤트 구독을 해제하여 메모리를 보호합니다.
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
         GameEvents.OnShopRefreshed -= HandleShopRefreshed;
         GameEvents.OnUnitPurchaseSucceeded -= HandleUnitPurchaseSucceeded;
+        _uiState = UiLifecycleState.Hidden;
+        SetContentVisibility(false);
     }
 
-    /// <summary>
-    /// 게임 상태 변경 이벤트가 발생했을 때 호출되는 핸들러입니다.
-    /// </summary>
     private void HandleGameStateChange(GameManagers.GameState newState)
     {
-        // [예외처리] 로컬 플레이어가 아직 지정되지 않았다면 초기화를 시도
         if (localPlayerShopManager == null && GameManagers.Instance != null && GameManagers.Instance.localPlayer != null)
         {
             localPlayerShopManager = GameManagers.Instance.localPlayer.shopManager;
             SetupUI();
-            Debug.Log("[ShopUIController] 로컬 플레이어가 설정되어 UI를 초기화했습니다.");
+            Debug.Log("[ShopUIController] Local player resolved and UI initialized.");
         }
 
-        // 여전히 로컬 플레이어가 없으면 처리하지 않음
-        if (localPlayerShopManager == null) return;
+        if (localPlayerShopManager == null)
+        {
+            return;
+        }
 
-        bool isPreparePhase = (newState == GameManagers.GameState.Prepare);
-
-        // 버튼들의 활성/비활성 여부를 게임 상태에 따라 결정합니다.
+        bool isPreparePhase = newState == GameManagers.GameState.Prepare;
         rerollButton.interactable = isPreparePhase;
 
         foreach (var slot in shopSlots)
@@ -78,7 +113,6 @@ public class ShopUIController : MonoBehaviour
             }
         }
 
-        // 전투 페이즈로 넘어가면 상점 UI를 자동으로 닫습니다.
         if (!isPreparePhase)
         {
             SetContentVisibility(false);
@@ -87,14 +121,17 @@ public class ShopUIController : MonoBehaviour
 
     private void SetupUI()
     {
-        if (localPlayerShopManager == null) return;
+        if (localPlayerShopManager == null)
+        {
+            return;
+        }
 
         rerollButton.onClick.RemoveAllListeners();
         rerollButton.onClick.AddListener(OnRerollButtonClick);
 
         for (int i = 0; i < shopSlots.Length; i++)
         {
-            shopSlots[i].Initialize(localPlayerShopManager, i); // 슬롯별 인덱스도 전달
+            shopSlots[i].Initialize(localPlayerShopManager, i);
         }
 
         UpdateInfoText();
@@ -102,17 +139,20 @@ public class ShopUIController : MonoBehaviour
 
     private void OnRerollButtonClick()
     {
-        if (localPlayerShopManager != null)
+        if (localPlayerShopManager == null)
         {
-            var command = new RerollShopCommand(localPlayerShopManager.playerManager.playerId);
-            GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+            return;
         }
+
+        var command = new RerollShopCommand(localPlayerShopManager.playerManager.playerId);
+        GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
     }
 
     private void HandleShopRefreshed(PlayerManager refreshedPlayer)
     {
         if (localPlayerShopManager != null && refreshedPlayer == localPlayerShopManager.playerManager)
         {
+            BuildDebugGUI.LogClient($"[ShopUI] OnShopRefreshed local={SafeOwnerId()}");
             UpdateShopSlots();
             UpdateInfoText();
         }
@@ -120,20 +160,24 @@ public class ShopUIController : MonoBehaviour
 
     private void HandleUnitPurchaseSucceeded(int playerID, ShopItem purchasedItem, int slotIndex)
     {
-        // 이벤트가 로컬 플레이어에 해당하는지 확인
-        if (localPlayerShopManager != null && localPlayerShopManager.playerManager.playerId == playerID)
+        if (localPlayerShopManager == null || localPlayerShopManager.playerManager.playerId != playerID)
         {
-            // 해당 슬롯의 '구매 완료' 상태로 변경
-            if (slotIndex >= 0 && slotIndex < shopSlots.Length)
-            {
-                shopSlots[slotIndex].SetPurchased();
-            }
+            return;
+        }
+
+        if (slotIndex >= 0 && slotIndex < shopSlots.Length)
+        {
+            shopSlots[slotIndex].SetPurchased();
         }
     }
 
     public void UpdateShopSlots()
     {
-        if (localPlayerShopManager == null) return;
+        if (localPlayerShopManager == null)
+        {
+            return;
+        }
+
         List<ShopItem> currentItems = localPlayerShopManager.GetCurrentShopItems();
         DisplayShopItems(currentItems);
     }
@@ -142,20 +186,42 @@ public class ShopUIController : MonoBehaviour
     {
         if (items == null)
         {
-            Debug.LogError("표시할 리스트가 null입니다.");
+            Debug.LogError("[ShopUIController] DisplayShopItems: items is null.");
+            BuildDebugGUI.LogClient("[ShopUI] DisplayShopItems: items is null");
+            _uiState = UiLifecycleState.Hidden;
+            SetContentVisibility(false);
             return;
         }
+
+        _uiState = UiLifecycleState.DataBinding;
+        BuildDebugGUI.LogClient($"[ShopUI] DisplayShopItems count={items.Count}");
 
         for (int i = 0; i < shopSlots.Length; i++)
         {
             if (i < items.Count)
             {
                 shopSlots[i].DisplayUnit(items[i]);
+                if (localPlayerShopManager != null && localPlayerShopManager.IsSlotSold(i))
+                {
+                    shopSlots[i].SetPurchased();
+                }
             }
             else
             {
                 shopSlots[i].DisplayUnit(new ShopItem());
             }
+        }
+
+        string signature = BuildShopSignature(items);
+        float now = Time.unscaledTime;
+        if (signature == _lastDisplaySignature && now - _lastDisplayRealtime < 1f)
+        {
+            BuildDebugGUI.LogClient($"[ShopUI] Duplicate display signature ignored: {signature}");
+        }
+        else
+        {
+            _lastDisplaySignature = signature;
+            _lastDisplayRealtime = now;
         }
     }
 
@@ -181,16 +247,97 @@ public class ShopUIController : MonoBehaviour
 
     public void SetContentVisibility(bool isVisible)
     {
-        if (slotsContainer != null) slotsContainer.SetActive(isVisible);
-        if (rerollButtonObject != null) rerollButtonObject.SetActive(isVisible);
+        if (slotsContainer != null)
+        {
+            slotsContainer.SetActive(isVisible);
+        }
+
+        if (rerollButtonObject != null)
+        {
+            rerollButtonObject.SetActive(isVisible);
+        }
+
+        SetPanelRootVisibility(isVisible);
+        _uiState = isVisible ? UiLifecycleState.Visible : UiLifecycleState.Hidden;
         OnContentVisibilityChanged?.Invoke(isVisible);
     }
 
-    /// <summary>
-    /// GameManagers에서 호출. 초기화 후 UI를 숨깁니다.
-    /// </summary>
     public void InitializeAndHide()
     {
+        _uiState = UiLifecycleState.Hidden;
         SetContentVisibility(false);
+    }
+
+    public void ShowWithItems(List<ShopItem> items)
+    {
+        var resolvedItems = items ?? new List<ShopItem>();
+        string signature = BuildShopSignature(resolvedItems);
+        float now = Time.unscaledTime;
+        if (IsContentVisible() && signature == _lastDisplaySignature && now - _lastDisplayRealtime < 1f)
+        {
+            BuildDebugGUI.LogClient($"[ShopUI] ShowWithItems skipped duplicate signature: {signature}");
+            return;
+        }
+
+        _uiState = UiLifecycleState.DataBinding;
+        SetContentVisibility(false);
+        DisplayShopItems(resolvedItems);
+        SetContentVisibility(true);
+    }
+
+    private void EnsureRootCanvasGroup()
+    {
+        if (_rootCanvasGroup == null)
+        {
+            _rootCanvasGroup = GetComponent<CanvasGroup>();
+            if (_rootCanvasGroup == null)
+            {
+                _rootCanvasGroup = gameObject.AddComponent<CanvasGroup>();
+            }
+        }
+    }
+
+    private void SetPanelRootVisibility(bool isVisible)
+    {
+        EnsureRootCanvasGroup();
+        _rootCanvasGroup.alpha = isVisible ? 1f : 0f;
+        _rootCanvasGroup.interactable = isVisible;
+        _rootCanvasGroup.blocksRaycasts = isVisible;
+    }
+
+    public bool IsRootRaycastBlocking()
+    {
+        EnsureRootCanvasGroup();
+        return _rootCanvasGroup.blocksRaycasts && _rootCanvasGroup.alpha > 0f;
+    }
+
+    private static string BuildShopSignature(List<ShopItem> items)
+    {
+        int round = -1;
+        if (GameManagers.Instance != null)
+        {
+            try
+            {
+                round = GameManagers.Instance.currentRound;
+            }
+            catch (InvalidOperationException)
+            {
+                round = -1;
+            }
+        }
+        if (items == null || items.Count == 0)
+        {
+            return $"r={round}|empty";
+        }
+
+        var tokens = new List<string>(items.Count);
+        foreach (var item in items)
+        {
+            string unit = item.UnitData != null ? item.UnitData.name : "null";
+            int star = item.StarLevel;
+            tokens.Add($"{unit}:{star}");
+        }
+
+        return $"r={round}|{string.Join(",", tokens)}";
     }
 }

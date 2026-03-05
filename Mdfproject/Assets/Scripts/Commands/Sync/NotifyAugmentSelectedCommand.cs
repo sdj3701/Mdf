@@ -1,4 +1,4 @@
-// Assets/Scripts/Commands/Sync/NotifyAugmentSelectedCommand.cs
+﻿// Assets/Scripts/Commands/Sync/NotifyAugmentSelectedCommand.cs
 
 using UnityEngine;
 
@@ -27,7 +27,7 @@ public class NotifyAugmentSelectedCommand : ICommand
         var chosenAugment = player.augmentManager.FindAugmentByName(AugmentName);
         if (chosenAugment == null)
         {
-            Debug.LogWarning($"[NotifyAugmentSelectedCommand] 증강 '{AugmentName}'을 찾을 수 없습니다.");
+            // Debug.LogWarning($"[NotifyAugmentSelectedCommand] 증강 '{AugmentName}'을 찾을 수 없습니다.");
             return;
         }
 
@@ -38,12 +38,12 @@ public class NotifyAugmentSelectedCommand : ICommand
             if (chosenAugment.isBossSummon && chosenAugment.bossMonsterData != null)
             {
                 player.AddOwnedBoss(chosenAugment);
-                Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {PlayerId}: 보스 '{chosenAugment.bossMonsterData.monsterName}' 보유 등록</color>");
+                // Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {PlayerId}: 보스 '{chosenAugment.bossMonsterData.monsterName}' 보유 등록</color>");
             }
             else if (chosenAugment.monsterSpawnEntries != null && chosenAugment.monsterSpawnEntries.Count > 0)
             {
                 player.RegisterActiveMonsterSummonAugment(chosenAugment);
-                Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {PlayerId}: 일반 몬스터 소환 증강 '{AugmentName}' 등록</color>");
+                // Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {PlayerId}: 일반 몬스터 소환 증강 '{AugmentName}' 등록</color>");
             }
         }
 
@@ -61,7 +61,7 @@ public class NotifyAugmentSelectedCommand : ICommand
                     {
                         target.permanentAttackDamagePercent += chosenAugment.value;
                         target.ApplyPermanentBonusesToUnitsOnField();
-                        Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {target.playerId}: 공격력 버프 +{chosenAugment.value:P0} 적용</color>");
+                        // Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {target.playerId}: 공격력 버프 +{chosenAugment.value:P0} 적용</color>");
                     }
                     break;
                 case EffectType.IncreaseMyUnitAttackSpeed:
@@ -69,13 +69,13 @@ public class NotifyAugmentSelectedCommand : ICommand
                     {
                         target.permanentAttackSpeedPercent += chosenAugment.value;
                         target.ApplyPermanentBonusesToUnitsOnField();
-                        Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {target.playerId}: 공격속도 버프 +{chosenAugment.value:P0} 적용</color>");
+                        // Debug.Log($"<color=cyan>[NotifyAugmentSelectedCommand] 클라이언트 Player {target.playerId}: 공격속도 버프 +{chosenAugment.value:P0} 적용</color>");
                     }
                     break;
             }
         }
 
         GameEvents.TriggerAugmentApplied(player, chosenAugment);
-        Debug.Log($"<color=green>[NotifyAugmentSelectedCommand] Player {PlayerId}: '{AugmentName}' 선택 알림</color>");
+        // Debug.Log($"<color=green>[NotifyAugmentSelectedCommand] Player {PlayerId}: '{AugmentName}' 선택 알림</color>");
     }
 }

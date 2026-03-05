@@ -1,4 +1,4 @@
-// Assets/Scripts/Game/Monsters/Monster.cs
+﻿// Assets/Scripts/Game/Monsters/Monster.cs
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -401,11 +401,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             if (unitLayer >= 0)
             {
                 unitLayerMask = 1 << unitLayer;
-                Debug.Log($"<color=yellow>[Monster] '{name}' unitLayerMask 자동 설정: {unitLayerMask.value}</color>");
+                // Debug.Log($"<color=yellow>[Monster] '{name}' unitLayerMask 자동 설정: {unitLayerMask.value}</color>");
             }
             else
             {
-                Debug.LogWarning($"[Monster] '{name}' Unit 레이어를 찾을 수 없습니다. 원거리 공격이 작동하지 않을 수 있습니다.");
+                // Debug.LogWarning($"[Monster] '{name}' Unit 레이어를 찾을 수 없습니다. 원거리 공격이 작동하지 않을 수 있습니다.");
             }
         }
         
@@ -443,7 +443,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             GameObject statusBarGO = Instantiate(statusBarPrefab, transform);
             statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
-            Debug.Log($"<color=cyan>[Monster] {name}: StatusBarUI 생성 (HasStateAuthority={(Object != null ? Object.HasStateAuthority.ToString() : "N/A")})</color>");
+            // Debug.Log($"<color=cyan>[Monster] {name}: StatusBarUI 생성 (HasStateAuthority={(Object != null ? Object.HasStateAuthority.ToString() : "N/A")})</color>");
         }
     }
     
@@ -456,7 +456,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 서버는 이미 Initialize()로 초기화되었으므로 무시
         if (Object != null && Object.HasStateAuthority) return;
         
-        Debug.Log($"<color=yellow>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 시작 (monsterDataName={monsterDataName})</color>");
+        // Debug.Log($"<color=yellow>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 시작 (monsterDataName={monsterDataName})</color>");
         
         InitializeOnClientAsync(ownerPlayerId, monsterDataName).Forget();
     }
@@ -483,7 +483,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         if (owner == null)
         {
-            Debug.LogWarning($"[Monster.RPC_InitializeOnClient] ownerPlayer를 찾을 수 없습니다.");
+            // Debug.LogWarning($"[Monster.RPC_InitializeOnClient] ownerPlayer를 찾을 수 없습니다.");
             // StatusBarUI만이라도 생성
             EnsureStatusBarUI();
             return;
@@ -497,11 +497,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             
             if (_monsterData == null)
             {
-                Debug.LogError($"[Monster.InitializeOnClientAsync] MonsterData '{monsterDataName}'를 로드할 수 없습니다!");
+                // Debug.LogError($"[Monster.InitializeOnClientAsync] MonsterData '{monsterDataName}'를 로드할 수 없습니다!");
             }
             else
             {
-                Debug.Log($"<color=green>[Monster.InitializeOnClientAsync] MonsterData '{monsterDataName}' 로드 성공!</color>");
+                // Debug.Log($"<color=green>[Monster.InitializeOnClientAsync] MonsterData '{monsterDataName}' 로드 성공!</color>");
             }
         }
         
@@ -541,7 +541,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                     gridOrigin.z + (centerY + 0.5f) * cellSize
                 );
                 this.goalTransform = fallbackGoal.transform;
-                Debug.LogWarning($"[Monster] goalTransform fallback used - calculated from FieldManager center");
+                // Debug.LogWarning($"[Monster] goalTransform fallback used - calculated from FieldManager center");
             }
         }
         
@@ -582,7 +582,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 애니메이터 초기화 (클라이언트에서도 필요)
         EnsureAnimator();
         
-        Debug.Log($"<color=cyan>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 완료 (animator={animator != null})</color>");
+        // Debug.Log($"<color=cyan>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 완료 (animator={animator != null})</color>");
     }
 
     void Update()
@@ -662,7 +662,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // Animation Event가 호출되지 않았으면 직접 실행 (fallback)
         if (_hasPendingAttack && _pendingAttackTarget != null)
         {
-            Debug.LogWarning($"[Monster] '{name}' 원거리 공격 Animation Event fallback 실행 - 애니메이션 이벤트 설정을 확인하세요!");
+            // Debug.LogWarning($"[Monster] '{name}' 원거리 공격 Animation Event fallback 실행 - 애니메이션 이벤트 설정을 확인하세요!");
             ExecutePendingAttack();
         }
         
@@ -741,7 +741,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
         if (skillData == null || skillData.targetingStrategy == null || skillData.effects.Count == 0)
         {
-            Debug.LogError($"{_monsterData.monsterName}의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
+            // Debug.LogError($"{_monsterData.monsterName}의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
             return;
         }
 
@@ -749,7 +749,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
         if (manaController.UseMana(skillData.manaCost))
         {
-            Debug.Log($"<color=magenta>{_monsterData.monsterName} 스킬 발동: {skillData.skillName}</color>");
+            // Debug.Log($"<color=magenta>{_monsterData.monsterName} 스킬 발동: {skillData.skillName}</color>");
 
             List<GameObject> targets = skillData.targetingStrategy.FindTargets(this.gameObject, transform.position, skillData.range);
 
@@ -785,7 +785,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 }
                 else
                 {
-                    Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
+                    // Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
                 }
             }
         }
@@ -835,7 +835,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         currentHP = currentMaxHP * healthPercentage;
         
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-        Debug.Log($"<color=cyan>[Monster] '{name}' 증강체 적용: HP {currentMaxHP:F0}, 속도 {_permanentMoveSpeed:F1}, 공격력 {_permanentAttackDamage:F1}</color>");
+        // Debug.Log($"<color=cyan>[Monster] '{name}' 증강체 적용: HP {currentMaxHP:F0}, 속도 {_permanentMoveSpeed:F1}, 공격력 {_permanentAttackDamage:F1}</color>");
     }
     
     /// <summary>
@@ -854,7 +854,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _currentAttackDamage = _permanentAttackDamage * damageMultiplier;
         
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
-        Debug.Log($"<color=orange>[Monster] '{name}' 웨이브 버프: HP {currentMaxHP:F0}, 속도 {_currentMoveSpeed:F1}, 공격력 {_currentAttackDamage:F1}</color>");
+        // Debug.Log($"<color=orange>[Monster] '{name}' 웨이브 버프: HP {currentMaxHP:F0}, 속도 {_currentMoveSpeed:F1}, 공격력 {_currentAttackDamage:F1}</color>");
     }
     
     /// <summary>
@@ -884,7 +884,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         if (isBoss)
         {
-            Debug.Log($"<color=red>[Monster] '{name}'이 보스로 설정됨 (OriginPlayer: {originPlayerId}, UniqueId: {bossUniqueId})</color>");
+            // Debug.Log($"<color=red>[Monster] '{name}'이 보스로 설정됨 (OriginPlayer: {originPlayerId}, UniqueId: {bossUniqueId})</color>");
         }
     }
     
@@ -914,7 +914,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 이미 파괴 중인 오브젝트면 무시
         if (this == null || gameObject == null) return;
         
-        Debug.Log($"{_monsterData.monsterName}이(가) 죽었습니다!");
+        // Debug.Log($"{_monsterData.monsterName}이(가) 죽었습니다!");
         
         // 보스가 죽으면 SurvivorBossManager에 알림 (더 이상 다음 라운드에 소환되지 않음)
         if (_isBoss && SurvivorBossManager.Instance != null)
@@ -1034,7 +1034,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             }
         }
 
-        Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
+        // Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
         attackCoroutine = null;
         _hasPendingAttack = false;
         _pendingAttackTarget = null;
@@ -1088,20 +1088,20 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                     0f,               // splashRadius (단일 대상)
                     unitLayerMask     // enemyLayerMask
                 );
-                Debug.Log($"<color=magenta>{_monsterData.monsterName}이(가) {targetName}을(를) 향해 투사체 발사!</color>");
+                // Debug.Log($"<color=magenta>{_monsterData.monsterName}이(가) {targetName}을(를) 향해 투사체 발사!</color>");
             }
             else
             {
                 // CombatScheduler가 없으면 즉시 데미지
                 _pendingAttackTarget.TakeDamage(currentAttackDamage, _monsterData.damageType);
-                Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+                // Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
             }
         }
         else
         {
             // 근접 몬스터: 기존 로직 (즉시 데미지)
             _pendingAttackTarget.TakeDamage(currentAttackDamage, _monsterData.damageType);
-            Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
+            // Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
         }
         
         _hasPendingAttack = false;
@@ -1174,7 +1174,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         else
         {
-             Debug.LogWarning($"{_monsterData.monsterName}이(가) 경로를 찾지 못했습니다. 소멸합니다.");
+             // Debug.LogWarning($"{_monsterData.monsterName}이(가) 경로를 찾지 못했습니다. 소멸합니다.");
              DespawnOrDestroy();
         }
     }
@@ -1358,7 +1358,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 _originPlayerId,
                 _bossUniqueId
             );
-            Debug.Log($"<color=red>[Monster] 보스 '{name}' 목표 도달 → 생존 등록 (HP: {currentHP:F0}/{currentMaxHP:F0})</color>");
+            // Debug.Log($"<color=red>[Monster] 보스 '{name}' 목표 도달 → 생존 등록 (HP: {currentHP:F0}/{currentMaxHP:F0})</color>");
         }
         
         if (GameManagers.Instance != null && ownerPlayer != null)
@@ -1415,7 +1415,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         if (this == null || gameObject == null) return;
         
-        Debug.Log($"<color=gray>[Monster] '{name}' 강제 제거 (전투 종료)</color>");
+        // Debug.Log($"<color=gray>[Monster] '{name}' 강제 제거 (전투 종료)</color>");
         
         // 블로킹 상태 해제
         if (isBlocked && blockingUnit != null)
@@ -1452,7 +1452,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 이미 등록된 경우 중복 등록 방지 (목표 도달 시 이미 등록된 경우)
         if (_hasRegisteredAsSurvivor)
         {
-            Debug.Log($"<color=yellow>[Monster] 보스 '{name}' 이미 생존 등록됨 → 스킵</color>");
+            // Debug.Log($"<color=yellow>[Monster] 보스 '{name}' 이미 생존 등록됨 → 스킵</color>");
             ForceRemoveWithoutPenalty();
             return;
         }
@@ -1468,7 +1468,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             safeCurrentHP = safeMaxHP; // 기본값으로 풀피 사용
         }
         
-        Debug.Log($"<color=red>[Monster] 보스 '{name}' 생존 등록 (전투 종료, HP: {safeCurrentHP:F0}/{safeMaxHP:F0}, UniqueId: {_bossUniqueId})</color>");
+        // Debug.Log($"<color=red>[Monster] 보스 '{name}' 생존 등록 (전투 종료, HP: {safeCurrentHP:F0}/{safeMaxHP:F0}, UniqueId: {_bossUniqueId})</color>");
         
         // SurvivorBossManager에 생존 등록 (고유 ID 유지)
         if (SurvivorBossManager.Instance != null && _monsterData != null)
@@ -1499,7 +1499,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         _currentMoveSpeed = _permanentMoveSpeed * speedMultiplier;
         UpdateMoveAnimationSpeed(); // 애니메이션 속도도 업데이트
-        Debug.Log($"<color=cyan>[Monster] '{name}' 이동속도 변경: {_currentMoveSpeed:F2} (x{speedMultiplier:F2})</color>");
+        // Debug.Log($"<color=cyan>[Monster] '{name}' 이동속도 변경: {_currentMoveSpeed:F2} (x{speedMultiplier:F2})</color>");
     }
 
     /// <summary>
@@ -1528,7 +1528,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 애니메이션 속도 업데이트
         UpdateMoveAnimationSpeed();
         
-        Debug.Log($"<color=red>[Monster] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배, 이속 2배)</color>");
+        // Debug.Log($"<color=red>[Monster] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배, 이속 2배)</color>");
     }
 
     #endregion

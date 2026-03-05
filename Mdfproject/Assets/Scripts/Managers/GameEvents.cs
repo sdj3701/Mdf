@@ -62,7 +62,27 @@ public static class GameEvents
     /// 공격 몬스터 풀이 변경되었을 때 (UI 갱신용)
     /// </summary>
     public static event Action<int, List<MonsterPoolEntry>> OnMonsterPoolChanged;
-    public static void TriggerMonsterPoolChanged(int playerID, List<MonsterPoolEntry> pool) => OnMonsterPoolChanged?.Invoke(playerID, pool);
+    public static void TriggerMonsterPoolChanged(int playerID, List<MonsterPoolEntry> pool)
+    {
+        var handlers = OnMonsterPoolChanged;
+        if (handlers == null)
+        {
+            return;
+        }
+
+        foreach (Action<int, List<MonsterPoolEntry>> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(playerID, pool);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[GameEvents] OnMonsterPoolChanged 핸들러 예외: {handler.Method.DeclaringType?.Name}.{handler.Method.Name}");
+                Debug.LogException(ex);
+            }
+        }
+    }
 
     /// <summary>
     /// 마법 스크롤 보유 목록이 변경되었을 때 (UI 갱신용)
@@ -81,4 +101,26 @@ public static class GameEvents
     /// </summary>
     public static event Action<bool> OnBattleSequenceStarted;
     public static void TriggerBattleSequenceStarted(bool isAttacking) => OnBattleSequenceStarted?.Invoke(isAttacking);
+
+    // ========== Host Migration 이벤트 ==========
+    
+    /// <summary>
+    /// Host Migration 시작 시 발생 - UI 잠금 등 준비 작업용
+    /// </summary>
+    public static event Action OnHostMigrationStarted;
+    public static void TriggerHostMigrationStarted() => OnHostMigrationStarted?.Invoke();
+    
+    /// <summary>
+    /// Host Migration 완료 시 발생
+    /// </summary>
+    /// <param name="isNewHost">true면 새 Host가 됨, false면 일반 클라이언트</param>
+    public static event Action<bool> OnHostMigrationCompleted;
+    public static void TriggerHostMigrationCompleted(bool isNewHost) => OnHostMigrationCompleted?.Invoke(isNewHost);
+    
+    /// <summary>
+    /// Host Migration 후 게임 상태 복원 완료 시 발생
+    /// UI 갱신, 타이머 재시작 등 후처리용
+    /// </summary>
+    public static event Action<GameManagers.GameState> OnGameStateRestored;
+    public static void TriggerGameStateRestored(GameManagers.GameState state) => OnGameStateRestored?.Invoke(state);
 }

@@ -15,11 +15,70 @@ public class AugmentManager : MonoBehaviour
     private List<AugmentData> goldAugments = new List<AugmentData>();
     private List<AugmentData> prismaticAugments = new List<AugmentData>();
     private bool isDataLoaded = false;
+    private bool isDataLoading = false;
     private List<AugmentData> presentedAugments = new List<AugmentData>();
+    private const float AugmentDataWaitTimeoutSeconds = 12f;
+    private const int AugmentDataPollMilliseconds = 100;
 
-    public Cysharp.Threading.Tasks.UniTask WaitUntilAugmentDataLoaded()
+    public bool IsDataLoaded => isDataLoaded;
+
+    private bool TryGetOwnerId(out int ownerId)
     {
-        return Cysharp.Threading.Tasks.UniTask.WaitUntil(() => isDataLoaded);
+        ownerId = -1;
+        if (playerManager == null || playerManager.Object == null || !playerManager.Object.IsValid)
+        {
+            return false;
+        }
+
+        try
+        {
+            ownerId = playerManager.playerId;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private async UniTask<bool> WaitUntilAugmentDataLoadedInternal(float timeoutSeconds = AugmentDataWaitTimeoutSeconds)
+    {
+        if (isDataLoaded)
+        {
+            return true;
+        }
+
+        float waited = 0f;
+        int startAttempts = 0;
+        float nextRetryAt = 0f;
+
+        while (!isDataLoaded && waited < timeoutSeconds)
+        {
+            if (!isDataLoading && startAttempts < 3 && waited >= nextRetryAt)
+            {
+                startAttempts++;
+                nextRetryAt = waited + 1.5f;
+                LoadAllAugmentsAsync().Forget();
+            }
+
+            await UniTask.Delay(AugmentDataPollMilliseconds);
+            waited += AugmentDataPollMilliseconds / 1000f;
+        }
+
+        if (isDataLoaded)
+        {
+            return true;
+        }
+
+        string owner = TryGetOwnerId(out int ownerId) ? ownerId.ToString() : "unknown";
+        Debug.LogError($"[AugmentManager] Augment data wait timeout. owner={owner}, waited={waited:F1}s, loading={isDataLoading}");
+        BuildDebugGUI.LogClient($"[AugmentManager] data wait timeout owner={owner}, waited={waited:F1}s");
+        return false;
+    }
+
+    public async UniTask WaitUntilAugmentDataLoaded()
+    {
+        await WaitUntilAugmentDataLoadedInternal();
     }
 
     public List<AugmentData> GetPresentedAugments()
@@ -34,7 +93,11 @@ public class AugmentManager : MonoBehaviour
     public async UniTask EnsureAugmentsPresentedAsync(IEnumerable<string> augmentNamesFromServer = null)
     {
         // 1. 증강 데이터(Addressables) 로드가 완료될 때까지 기다림
-        await WaitUntilAugmentDataLoaded();
+        bool loaded = await WaitUntilAugmentDataLoadedInternal();
+        if (!loaded)
+        {
+            return;
+        }
 
         // 2. 서버에서 이름 목록을 받았으면 적용
         if (augmentNamesFromServer != null && augmentNamesFromServer.Any())
@@ -66,10 +129,22 @@ public class AugmentManager : MonoBehaviour
     /// </summary>
     public async UniTask SetPresentedAugmentsByNamesAsync(IEnumerable<string> augmentNames)
     {
-        // 데이터 로딩 완료 대기
-        await WaitUntilAugmentDataLoaded();
+        if (playerManager == null)
+        {
+            playerManager = GetComponentInParent<PlayerManager>();
+        }
 
-        Debug.Log("SetPresentedAugmentsByNamesAsync: 데이터 로딩 완료, 동기화 시작");
+        int ownerId = playerManager != null ? playerManager.playerId : -1;
+
+        // 데이터 로딩 완료 대기
+        bool loaded = await WaitUntilAugmentDataLoadedInternal();
+        if (!loaded)
+        {
+            presentedAugments.Clear();
+            return;
+        }
+
+        Debug.Log($"SetPresentedAugmentsByNamesAsync: 데이터 로딩 완료, 동기화 시작 (Player {ownerId})");
 
         // 가능한 모든 풀을 하나로 묶어 빠르게 조회할 수 있도록 딕셔너리 구성
         // 중복 이름이 없다는 전제(augmentName 유니크)를 가정합니다.
@@ -104,7 +179,7 @@ public class AugmentManager : MonoBehaviour
         if (presentedAugments.Count > 0)
         {
             string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
-            Debug.Log($"[동기화] Player {playerManager.playerId} 제시 증강 동기화: {presentedNames}");
+            Debug.Log($"[동기화] Player {ownerId} 제시 증강 동기화: {presentedNames}");
         }
     }
 
@@ -116,35 +191,64 @@ public class AugmentManager : MonoBehaviour
     /// </summary>
     public async UniTask LoadAllAugmentsAsync()
     {
-        Debug.Log($"Player {playerManager.playerId}: 어드레서블에서 증강 데이터 로딩을 시작합니다...");
-        
-        AsyncOperationHandle<IList<AugmentData>> handle = Addressables.LoadAssetsAsync<AugmentData>("Augment", null);
-        await handle.Task;
-
-        if (handle.Status == AsyncOperationStatus.Succeeded)
+        if (playerManager == null)
         {
-            foreach (var augment in handle.Result)
-            {
-                switch (augment.tier)
-                {
-                    case AugmentTier.Silver:
-                        silverAugments.Add(augment);
-                        break;
-                    case AugmentTier.Gold:
-                        goldAugments.Add(augment);
-                        break;
-                    case AugmentTier.Prismatic:
-                        prismaticAugments.Add(augment);
-                        break;
-                }
-            }
-            isDataLoaded = true;
-            Debug.Log($"<color=cyan>Player {playerManager.playerId}: 증강 데이터 로드 완료. " +
-                      $"실버: {silverAugments.Count}개, 골드: {goldAugments.Count}개, 프리즘: {prismaticAugments.Count}개</color>");
+            playerManager = GetComponentInParent<PlayerManager>();
         }
-        else
+
+        if (isDataLoaded)
         {
-            Debug.LogError($"어드레서블에서 증강 데이터 로딩 실패: {handle.OperationException}");
+            return;
+        }
+
+        if (isDataLoading)
+        {
+            await UniTask.WaitUntil(() => !isDataLoading);
+            return;
+        }
+
+        isDataLoading = true;
+        int ownerId = playerManager != null ? playerManager.playerId : -1;
+        Debug.Log($"Player {ownerId}: 어드레서블에서 증강 데이터 로딩을 시작합니다...");
+
+        try
+        {
+            AsyncOperationHandle<IList<AugmentData>> handle = Addressables.LoadAssetsAsync<AugmentData>("Augment", null);
+            await handle.Task;
+
+            if (handle.Status == AsyncOperationStatus.Succeeded)
+            {
+                silverAugments.Clear();
+                goldAugments.Clear();
+                prismaticAugments.Clear();
+
+                foreach (var augment in handle.Result)
+                {
+                    switch (augment.tier)
+                    {
+                        case AugmentTier.Silver:
+                            silverAugments.Add(augment);
+                            break;
+                        case AugmentTier.Gold:
+                            goldAugments.Add(augment);
+                            break;
+                        case AugmentTier.Prismatic:
+                            prismaticAugments.Add(augment);
+                            break;
+                    }
+                }
+                isDataLoaded = true;
+                Debug.Log($"<color=cyan>Player {ownerId}: 증강 데이터 로드 완료. " +
+                          $"실버: {silverAugments.Count}개, 골드: {goldAugments.Count}개, 프리즘: {prismaticAugments.Count}개</color>");
+            }
+            else
+            {
+                Debug.LogError($"어드레서블에서 증강 데이터 로딩 실패: {handle.OperationException}");
+            }
+        }
+        finally
+        {
+            isDataLoading = false;
         }
     }
 
@@ -204,6 +308,17 @@ public class AugmentManager : MonoBehaviour
 
     public void SelectAndApplyAugment(AugmentData chosenAugment)
     {
+        if (playerManager == null)
+        {
+            playerManager = GetComponentInParent<PlayerManager>();
+        }
+
+        if (playerManager == null)
+        {
+            Debug.LogError("[AugmentManager] playerManager가 null이라 증강을 적용할 수 없습니다.");
+            return;
+        }
+
         playerManager.chosenAugments.Add(chosenAugment);
         Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강을 선택했습니다.");
 

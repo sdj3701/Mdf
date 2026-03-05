@@ -48,3 +48,5 @@ MonoBehaviour:
   PassWordInput: {fileID: 0}
   _playerPrefab: {fileID: 0}
   maxSessionPlayers: 2
+  _connectionLossPolicy: 0
+  _cloudReconnectFallbackDelaySeconds: 5

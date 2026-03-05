@@ -2144,7 +2144,7 @@ namespace Fusion.CodeGen {
         try {
           if (TypeRegistry.GetInfo(property.PropertyType).IsTriviallyCopyable) {
             Log.Warn(property, $"Networked property {property} should be replaced with a regular field. For structs, " +
-              $"[Networked] attribute should to be applied only on collections, booleans, floats and vectors.");
+              $"[Networked] attribute should to be applied only on collections and booleans.");
           }
 
           int fieldIndex = type.Fields.Count;

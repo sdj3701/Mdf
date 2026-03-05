@@ -15,7 +15,7 @@ namespace Fusion.Editor {
 
     public override void OnImportAsset(AssetImportContext ctx) {
       ctx.DependsOnCustomDependency(DependencyHash.Name);
-      if (RunWeaverOnConfigChanges) {
+      if (RunWeaverOnConfigChanges && !Application.isBatchMode) {
         ILWeaverUtils.RunWeaver();
       }
     }

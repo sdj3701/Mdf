@@ -20,11 +20,19 @@ public class LobbyUI : MonoBehaviour
     [SerializeField] private Button _refreshButton;
     [SerializeField] private Button _backToTitleButton;
     [SerializeField] private TMP_InputField _roomNameInput;
+    [SerializeField] private TMP_InputField _directJoinInput;
     [SerializeField] private Button _confirmCreateButton;
     [SerializeField] private Button _cancelCreateButton;
+    [SerializeField] private Button _directJoinButtonButton;
     [SerializeField] private Transform _roomListContent;
     [SerializeField] private GameObject _roomItemPrefab;
     [SerializeField] private TMP_Text _noRoomsText;
+
+    [Header("Direct Join - Room Not Found Panel")]
+    [SerializeField] private GameObject _roomNotFoundPanel;
+    [SerializeField] private Button _roomNotFoundCloseButton;
+
+    public GameObject _networkJoinPanel;
 
     private NetworkManager _networkManager;
 
@@ -55,12 +63,15 @@ public class LobbyUI : MonoBehaviour
     {
         // 세션 목록 업데이트 이벤트 구독
         NetworkManager.OnSessionListUpdatedEvent += OnSessionListUpdatedHandler;
+        // 연결 상태 변경 이벤트 구독
+        NetworkManager.OnStateChanged += OnConnectionStateChanged;
     }
 
     private void OnDisable()
     {
         // 이벤트 구독 해제 (메모리 누수 방지)
         NetworkManager.OnSessionListUpdatedEvent -= OnSessionListUpdatedHandler;
+        NetworkManager.OnStateChanged -= OnConnectionStateChanged;
     }
 
     /// <summary>
@@ -72,12 +83,40 @@ public class LobbyUI : MonoBehaviour
         UpdateRoomListUI();
     }
 
+    /// <summary>
+    /// 네트워크 연결 상태가 변경될 때 호출되는 핸들러
+    /// </summary>
+    private void OnConnectionStateChanged(ConnectionState state)
+    {
+        switch (state)
+        {
+            case ConnectionState.Connecting:
+                // 연결 중 - 패널 표시
+                if (_networkJoinPanel != null)
+                    _networkJoinPanel.SetActive(true);
+                break;
+                
+            case ConnectionState.InLobby:
+                // 로비 입장 완료 - 패널 숨김
+                if (_networkJoinPanel != null)
+                    _networkJoinPanel.SetActive(false);
+                break;
+                
+            case ConnectionState.Disconnected:
+                // 연결 끊김 - 패널 숨김
+                if (_networkJoinPanel != null)
+                    _networkJoinPanel.SetActive(false);
+                break;
+        }
+    }
+
     private void ALLButtonListener()
     {
         // Panel 활성화 비활성화
         _createRoomButton.onClick.AddListener(() =>
         {
             _createRoomPanel.SetActive(true);
+            _networkJoinPanel.SetActive(true);
             _roomListPanel.SetActive(false);
         });
         // 방 생성 및 연결?
@@ -97,8 +136,53 @@ public class LobbyUI : MonoBehaviour
         // 타이틀로 돌아가기
         _backToTitleButton.onClick.AddListener(() =>
         {
-            Debug.Log("추후 타이틀로 돌아가기 기능 구현하기");
+            Debug.Log("[LobbyUI] 타이틀 화면으로 돌아갑니다.");
+            _networkManager.LeaveAndLoad("Title");
         });
+
+        // 직접 방 참여 (방 이름으로 검색하여 참여)
+        _directJoinButtonButton.onClick.AddListener(() =>
+        {
+            string roomName = _directJoinInput?.text?.Trim();
+            
+            if (string.IsNullOrWhiteSpace(roomName))
+            {
+                Debug.LogWarning("[LobbyUI] 방 이름을 입력해주세요.");
+                return;
+            }
+            
+            // 방 목록에서 해당 이름의 방을 찾아서 참여
+            SessionInfo targetSession = _networkManager._sessionList.Find(
+                session => session.Name == roomName && session.IsOpen && session.IsVisible
+            );
+            
+            if (targetSession != null)
+            {
+                Debug.Log($"[LobbyUI] '{roomName}' 방에 참여합니다.");
+                _networkManager.StartGame(GameMode.Client, roomName, "JoinLobby");
+            }
+            else
+            {
+                Debug.LogWarning($"[LobbyUI] '{roomName}' 방을 찾을 수 없습니다.");
+                // 방을 찾을 수 없을 때 알림 패널 표시
+                if (_roomNotFoundPanel != null)
+                {
+                    _roomNotFoundPanel.SetActive(true);
+                }
+            }
+        });
+
+        // 방 못 찾음 패널 닫기 버튼
+        if (_roomNotFoundCloseButton != null)
+        {
+            _roomNotFoundCloseButton.onClick.AddListener(() =>
+            {
+                if (_roomNotFoundPanel != null)
+                {
+                    _roomNotFoundPanel.SetActive(false);
+                }
+            });
+        }
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-// Assets/Scripts/Managers/FieldManager.cs
+﻿// Assets/Scripts/Managers/FieldManager.cs
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -66,6 +66,7 @@ public class FieldManager : MonoBehaviour
     private Coroutine _pathRefreshRoutine;
     private readonly List<GameObject> _activeMarkers = new List<GameObject>();
     private readonly Dictionary<GameObject, Coroutine> _markerRoutines = new Dictionary<GameObject, Coroutine>();
+    private float _lastInteractionGateBlockLogRealtime = -10f;
 
     // [3D Migration] 논리 그리드 설정
     [Header("3D 그리드 설정")]
@@ -122,6 +123,41 @@ public class FieldManager : MonoBehaviour
     private Dictionary<Vector3Int, GameObject> placedPermanentWalls = new Dictionary<Vector3Int, GameObject>();
     private int wallLayer = -1;
     private bool permanentWallsGenerated = false;
+    private int _lastWallMapRebuildFrame = -1;
+    private string _lastWallMapRebuildSummary = "wallMap:notBuilt";
+    public bool IsWallMapReady => _lastWallMapRebuildFrame >= 0;
+    private int _lastUnitMapRebuildFrame = -1;
+    private string _lastUnitMapRebuildSummary = "unitMap:notBuilt";
+    public bool IsUnitMapReady => _lastUnitMapRebuildFrame >= 0;
+    private Coroutine _awaitNetworkPermanentWallsCoroutine;
+
+    private string BuildWallOwnerTag()
+    {
+        if (playerManager == null)
+        {
+            return "P?";
+        }
+
+        try
+        {
+            int ownerId = playerManager.playerId;
+            return ownerId >= 0 ? $"P{ownerId}" : "P?";
+        }
+        catch (InvalidOperationException)
+        {
+            return "P?";
+        }
+    }
+
+    private string BuildRunnerTag()
+    {
+        if (playerManager == null || playerManager.Runner == null || !playerManager.Runner.IsRunning)
+        {
+            return "runner=offline";
+        }
+
+        return $"runner={playerManager.Runner.name},isServer={playerManager.Runner.IsServer},isClient={playerManager.Runner.IsClient}";
+    }
 
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
@@ -309,10 +345,18 @@ public class FieldManager : MonoBehaviour
             wallParent = parentObject.transform;
         }
 
-        GeneratePermanentWallsIfNeeded();
+        // 먼저 현재 씬/복원 오브젝트 기준으로 벽 맵을 재구성해 기존 영구벽 존재 여부를 반영합니다.
+        RebuildWallMapsAfterMigration("FieldManager.Initialize.PreGenerate", false, out _);
+
+        int ownerId = playerManager != null ? playerManager.playerId : -1;
+        if (ownerId >= 0)
+        {
+            GeneratePermanentWallsIfNeeded();
+        }
 
         // 그리드 디버그 라인 생성 (showGridDebug가 true일 때만)
         CreateGridLines();
+        RebuildWallMapsAfterMigration("FieldManager.Initialize.PostGenerate", false, out _);
     }
 
 
@@ -420,6 +464,33 @@ public class FieldManager : MonoBehaviour
         if (playerManager.Object == null) return true; // fallback in non-networked testing
         if (playerManager.Object.HasInputAuthority) return true;
         return gm != null && gm.localPlayer == playerManager;
+    }
+
+    private bool CanProcessLocalFieldInput()
+    {
+        if (!IsLocalControlledField())
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            return false;
+        }
+
+        if (!gm.IsPrepareInteractionReadyForField(playerManager, out string reason))
+        {
+            if (Time.realtimeSinceStartup - _lastInteractionGateBlockLogRealtime > 1f)
+            {
+                _lastInteractionGateBlockLogRealtime = Time.realtimeSinceStartup;
+                Debug.Log($"[HM-INPUT-GATE] blocked owner={BuildWallOwnerTag()} reason={reason}");
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private void SchedulePathRefresh()
@@ -638,7 +709,7 @@ public class FieldManager : MonoBehaviour
 
     void Update()
     {
-        if (placementManager.GetCurrentMode() == PlacementMode.None)
+        if (placementManager.GetCurrentMode() == PlacementMode.None && CanProcessLocalFieldInput())
         {
             HandleUnitDragAndDrop();
         }
@@ -717,19 +788,24 @@ public class FieldManager : MonoBehaviour
 
     public void CreateWallAt(Vector3Int gridPosition)
     {
+        Debug.Log($"[WallFlow-Create] CreateWallAt ENTER owner={BuildWallOwnerTag()}, pos={gridPosition}, hasStateAuth={(playerManager != null && playerManager.Object != null && playerManager.Object.IsValid && playerManager.Object.HasStateAuthority)}, {BuildRunnerTag()}");
+
         if (destructibleWallPrefab == null)
         {
-            Debug.LogError($"[FieldManager] CreateWallAt failed: destructibleWallPrefab is null (Player={playerManager?.playerId}) at {gridPosition}");
+            Debug.LogWarning($"[WallFlow-Create] abort: destructibleWallPrefab is null. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+            // Debug.LogError($"[FieldManager] CreateWallAt failed: destructibleWallPrefab is null (Player={playerManager?.playerId}) at {gridPosition}");
             return;
         }
         if (HasWallAt(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateWallAt ignored: wall already exists at {gridPosition} (Player={playerManager?.playerId})");
+            Debug.LogWarning($"[WallFlow-Create] abort: wall already exists. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+            // Debug.LogWarning($"[FieldManager] CreateWallAt ignored: wall already exists at {gridPosition} (Player={playerManager?.playerId})");
             return;
         }
         if (!IsValidGridPosition(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateWallAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            Debug.LogWarning($"[WallFlow-Create] abort: invalid grid position. owner={BuildWallOwnerTag()}, pos={gridPosition}, gridSize={gridSize}");
+            // Debug.LogWarning($"[FieldManager] CreateWallAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
 
@@ -741,7 +817,8 @@ public class FieldManager : MonoBehaviour
                 Vector3Int? alt = FindFirstEmptySlot(occupant.Data);
                 if (!alt.HasValue)
                 {
-                    Debug.LogWarning($"[FieldManager] CreateWallAt aborted: no empty slot to relocate melee unit at {gridPosition} (Player={playerManager?.playerId})");
+                    Debug.LogWarning($"[WallFlow-Create] abort: no empty slot to relocate melee unit. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                    // Debug.LogWarning($"[FieldManager] CreateWallAt aborted: no empty slot to relocate melee unit at {gridPosition} (Player={playerManager?.playerId})");
                     return;
                 }
                 MoveUnit(gridPosition, alt.Value);
@@ -758,12 +835,14 @@ public class FieldManager : MonoBehaviour
         {
             if (!playerManager.Object.HasStateAuthority)
             {
+                Debug.LogWarning($"[WallFlow-Create] abort: no state authority for network wall spawn. owner={BuildWallOwnerTag()}, pos={gridPosition}");
                 return;
             }
             var spawned = runner.Spawn(netPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
             if (spawned == null)
             {
-                Debug.LogError($"[FieldManager] Runner.Spawn 실패: {destructibleWallPrefab.name} (Player={playerManager?.playerId})");
+                Debug.LogError($"[WallFlow-Create] abort: Runner.Spawn failed. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                // Debug.LogError($"[FieldManager] Runner.Spawn 실패: {destructibleWallPrefab.name} (Player={playerManager?.playerId})");
                 return;
             }
             wallGO = spawned.gameObject;
@@ -791,10 +870,13 @@ public class FieldManager : MonoBehaviour
                 Vector3 atopPos = GridToWorld(gridPosition, checkForWall: true);
                 MoveUnitImmediate(unitOnCell, atopPos);
             }
+
+            Debug.Log($"[WallFlow-Create] CreateWallAt SUCCESS owner={BuildWallOwnerTag()}, pos={gridPosition}, worldPos={worldPos}, totalWalls={placedWalls.Count}");
         }
         else
         {
-            Debug.LogError($"{destructibleWallPrefab.name} 프리팹에 DestructibleWall 컴포넌트가 없습니다!", wallGO);
+            Debug.LogError($"[WallFlow-Create] abort: spawned wall has no DestructibleWall component. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+            // Debug.LogError($"{destructibleWallPrefab.name} 프리팹에 DestructibleWall 컴포넌트가 없습니다!", wallGO);
             Destroy(wallGO);
         }
     }
@@ -848,6 +930,314 @@ public class FieldManager : MonoBehaviour
         return placedWalls.ContainsKey(gridPosition) || placedPermanentWalls.ContainsKey(gridPosition);
     }
 
+    /// <summary>
+    /// Host Migration 이후 런타임 벽 딕셔너리를 월드 오브젝트 기준으로 재구성합니다.
+    /// </summary>
+    public bool RebuildWallMapsAfterMigration(string context, bool verboseLog, out string summary)
+    {
+        if (_lastWallMapRebuildFrame == Time.frameCount)
+        {
+            summary = _lastWallMapRebuildSummary;
+            return true;
+        }
+
+        var oldDestructibleCells = new HashSet<Vector3Int>(placedWalls.Keys);
+        var oldPermanentCells = new HashSet<Vector3Int>(placedPermanentWalls.Keys);
+        var rebuiltDestructible = new Dictionary<Vector3Int, DestructibleWall>();
+        var rebuiltPermanent = new Dictionary<Vector3Int, GameObject>();
+
+        int destructibleCandidates = 0;
+        int permanentCandidates = 0;
+        int duplicates = 0;
+        int outOfBounds = 0;
+
+        IEnumerable<DestructibleWall> destructibleWalls;
+        if (wallParent != null)
+        {
+            destructibleWalls = wallParent.GetComponentsInChildren<DestructibleWall>(true);
+        }
+        else
+        {
+            destructibleWalls = UnityEngine.Object.FindObjectsOfType<DestructibleWall>(true)
+                .Where(wall => wall != null && IsWorldPositionInsideOwnedGrid(wall.transform.position));
+        }
+
+        foreach (var wall in destructibleWalls.Where(wall => wall != null).Distinct())
+        {
+            destructibleCandidates++;
+            Vector3Int cell = WorldToGridInt(wall.transform.position);
+            if (!IsValidGridPosition(cell))
+            {
+                outOfBounds++;
+                continue;
+            }
+
+            wall.RebindAfterMigration(this, cell);
+            if (!rebuiltDestructible.TryAdd(cell, wall))
+            {
+                duplicates++;
+            }
+        }
+
+        var permanentObjects = new List<GameObject>();
+        if (wallParent != null)
+        {
+            foreach (Transform child in wallParent)
+            {
+                if (child != null)
+                {
+                    permanentObjects.Add(child.gameObject);
+                }
+            }
+        }
+
+        foreach (var kv in placedPermanentWalls)
+        {
+            if (kv.Value != null)
+            {
+                permanentObjects.Add(kv.Value);
+            }
+        }
+
+        // Network Spawn된 영구벽은 wallParent에 속하지 않을 수 있으므로 전역 후보도 포함합니다.
+        var globalPermanentCandidates = UnityEngine.Object.FindObjectsOfType<NetworkObject>(true)
+            .Where(no => no != null && no.gameObject != null)
+            .Select(no => no.gameObject)
+            .Where(IsLikelyPermanentWallObject)
+            .Where(obj => IsWorldPositionInsideOwnedGrid(obj.transform.position));
+
+        foreach (var candidate in globalPermanentCandidates)
+        {
+            permanentObjects.Add(candidate);
+        }
+
+        foreach (var wallObj in permanentObjects.Where(obj => obj != null).Distinct())
+        {
+            if (wallObj.GetComponent<DestructibleWall>() != null)
+            {
+                continue;
+            }
+
+            permanentCandidates++;
+            Vector3Int cell = WorldToGridInt(wallObj.transform.position);
+            if (!IsValidGridPosition(cell))
+            {
+                outOfBounds++;
+                continue;
+            }
+
+            if (rebuiltDestructible.ContainsKey(cell))
+            {
+                continue;
+            }
+
+            if (!rebuiltPermanent.TryAdd(cell, wallObj))
+            {
+                duplicates++;
+            }
+        }
+
+        placedWalls = rebuiltDestructible;
+        placedPermanentWalls = rebuiltPermanent;
+
+        // 로컬 플래그가 초기값(false)인 상태로 복원될 수 있으므로,
+        // 재구성 결과에 영구벽이 있으면 즉시 생성 완료 상태로 승격합니다.
+        if (!permanentWallsGenerated && placedPermanentWalls.Count > 0)
+        {
+            permanentWallsGenerated = true;
+            if (verboseLog)
+            {
+                Debug.Log($"[WallFlow-Migration] promoted permanentWallsGenerated=true from rebuilt map. owner={BuildWallOwnerTag()}, permanentWalls={placedPermanentWalls.Count}, ctx={context}");
+            }
+        }
+
+        bool destructibleChanged = !oldDestructibleCells.SetEquals(placedWalls.Keys);
+        bool permanentChanged = !oldPermanentCells.SetEquals(placedPermanentWalls.Keys);
+        bool wallMapChanged = destructibleChanged || permanentChanged;
+        if (wallMapChanged)
+        {
+            SchedulePathRefresh();
+        }
+
+        _lastWallMapRebuildFrame = Time.frameCount;
+        _lastWallMapRebuildSummary =
+            $"ctx={context},destructible={placedWalls.Count}/{destructibleCandidates},permanent={placedPermanentWalls.Count}/{permanentCandidates},outOfBounds={outOfBounds},duplicates={duplicates},changed={wallMapChanged}";
+        summary = _lastWallMapRebuildSummary;
+
+        if (verboseLog)
+        {
+            Debug.Log($"[WallFlow-Migration] RebuildWallMapsAfterMigration {_lastWallMapRebuildSummary}");
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Host Migration 이후 런타임 유닛 맵(placedUnits)을 월드 오브젝트 기준으로 재구성합니다.
+    /// </summary>
+    public bool RebuildUnitMapAfterMigration(string context, bool verboseLog, out string summary)
+    {
+        if (_lastUnitMapRebuildFrame == Time.frameCount)
+        {
+            summary = _lastUnitMapRebuildSummary;
+            return true;
+        }
+
+        var oldCells = new HashSet<Vector3Int>(placedUnits.Keys);
+        var rebuiltUnits = new Dictionary<Vector3Int, Unit>();
+
+        int candidates = 0;
+        int registered = 0;
+        int duplicates = 0;
+        int outOfBounds = 0;
+        int missingData = 0;
+
+        var unitCandidates = new List<Unit>();
+
+        foreach (var unit in placedUnits.Values)
+        {
+            if (unit != null)
+            {
+                unitCandidates.Add(unit);
+            }
+        }
+
+        if (playerManager != null && playerManager.ownedUnits != null)
+        {
+            foreach (var unit in playerManager.ownedUnits)
+            {
+                if (unit != null)
+                {
+                    unitCandidates.Add(unit);
+                }
+            }
+        }
+
+        if (unitParent != null)
+        {
+            unitCandidates.AddRange(unitParent.GetComponentsInChildren<Unit>(true));
+        }
+
+        var globalCandidates = UnityEngine.Object.FindObjectsOfType<Unit>(true)
+            .Where(unit => unit != null)
+            .Where(unit =>
+                playerManager == null ||
+                playerManager.Runner == null ||
+                !playerManager.Runner.IsRunning ||
+                unit.Runner == playerManager.Runner)
+            .Where(unit => IsWorldPositionInsideOwnedGrid(unit.transform.position));
+        unitCandidates.AddRange(globalCandidates);
+
+        foreach (var unit in unitCandidates.Where(u => u != null).Distinct())
+        {
+            if (!unit.gameObject.activeInHierarchy || unit.IsDead)
+            {
+                continue;
+            }
+
+            candidates++;
+            unit.RebindAfterMigration(playerManager, $"FieldManager.{context}", verboseLog);
+
+            if (unit.Data == null)
+            {
+                missingData++;
+            }
+
+            Vector3Int cell = WorldToGridInt(unit.transform.position);
+            if (!IsValidGridPosition(cell))
+            {
+                outOfBounds++;
+                continue;
+            }
+
+            if (rebuiltUnits.TryGetValue(cell, out Unit existing))
+            {
+                bool replace = existing == null || (existing.Data == null && unit.Data != null);
+                if (replace)
+                {
+                    rebuiltUnits[cell] = unit;
+                }
+
+                duplicates++;
+                continue;
+            }
+
+            rebuiltUnits[cell] = unit;
+            registered++;
+        }
+
+        placedUnits = rebuiltUnits;
+        pendingUnitPositions.Clear();
+
+        bool unitMapChanged = !oldCells.SetEquals(placedUnits.Keys);
+        _lastUnitMapRebuildFrame = Time.frameCount;
+        _lastUnitMapRebuildSummary =
+            $"ctx={context},units={placedUnits.Count}/{candidates},registered={registered},missingData={missingData},outOfBounds={outOfBounds},duplicates={duplicates},changed={unitMapChanged}";
+        summary = _lastUnitMapRebuildSummary;
+
+        if (verboseLog)
+        {
+            Debug.Log($"[UnitFlow-Migration] RebuildUnitMapAfterMigration {_lastUnitMapRebuildSummary}");
+        }
+
+        return true;
+    }
+
+    public string BuildWallCellHash()
+    {
+        var destructible = placedWalls.Keys
+            .OrderBy(cell => cell.x)
+            .ThenBy(cell => cell.y)
+            .ThenBy(cell => cell.z)
+            .Select(cell => $"D{cell.x},{cell.y},{cell.z}");
+        var permanent = placedPermanentWalls.Keys
+            .OrderBy(cell => cell.x)
+            .ThenBy(cell => cell.y)
+            .ThenBy(cell => cell.z)
+            .Select(cell => $"P{cell.x},{cell.y},{cell.z}");
+        return string.Join("|", destructible.Concat(permanent));
+    }
+
+    private bool IsWorldPositionInsideOwnedGrid(Vector3 worldPos)
+    {
+        float epsilon = Mathf.Max(1e-3f, cellSize * 0.1f);
+        float minX = gridOrigin.x - epsilon;
+        float minZ = gridOrigin.z - epsilon;
+        float maxX = gridOrigin.x + (gridSize.x * cellSize) + epsilon;
+        float maxZ = gridOrigin.z + (gridSize.y * cellSize) + epsilon;
+        return worldPos.x >= minX && worldPos.x <= maxX && worldPos.z >= minZ && worldPos.z <= maxZ;
+    }
+
+    private bool IsLikelyPermanentWallObject(GameObject obj)
+    {
+        if (obj == null)
+        {
+            return false;
+        }
+
+        if (obj.GetComponent<DestructibleWall>() != null)
+        {
+            return false;
+        }
+
+        if (obj.GetComponent<Unit>() != null)
+        {
+            return false;
+        }
+
+        if (obj.name.IndexOf("PermanentWall", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return true;
+        }
+
+        // 이름 기반 필터가 실패할 때를 대비한 보수적 폴백
+        return wallLayer >= 0
+               && obj.layer == wallLayer
+               && obj.GetComponent<NetworkObject>() != null
+               && obj.GetComponent<BoxCollider>() != null
+               && obj.GetComponent<MeshRenderer>() != null;
+    }
+
     private void UpdateWallYOffsetFromPrefab()
     {
         if (destructibleWallPrefab != null)
@@ -871,27 +1261,69 @@ public class FieldManager : MonoBehaviour
     // 영구(파괴 불가) 벽 생성 - 테두리 + 필드 내부 랜덤
     private async void GeneratePermanentWallsIfNeeded()
     {
-        if (permanentWallsGenerated) return;
-        if (playerManager == null) return; // Initialize 미완료
+        bool adoptedExistingWalls = TryAdoptExistingPermanentWallsBeforeGeneration(
+            "GeneratePermanentWallsIfNeeded.Precheck",
+            out int existingPermanentWalls);
+        bool migrationInProgress = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
+
+        Debug.Log($"[WallFlow-Auto] GeneratePermanentWallsIfNeeded ENTER owner={BuildWallOwnerTag()}, generated={permanentWallsGenerated}, existingPermanentWalls={existingPermanentWalls}, migrationInProgress={migrationInProgress}, {BuildRunnerTag()}, initialPermanentWallCount={initialPermanentWallCount}");
+
+        // Host Migration 복원 경로에서는 랜덤 생성을 금지합니다.
+        // 기존 영구벽(복원/동기화 결과)이 있으면 그것을 채택하고, 없으면 동기화 도착을 기다립니다.
+        if (migrationInProgress)
+        {
+            if (adoptedExistingWalls)
+            {
+                Debug.Log($"[WallFlow-Auto] skip: migration in progress and existing permanent walls adopted. owner={BuildWallOwnerTag()}, count={existingPermanentWalls}");
+            }
+            else
+            {
+                Debug.Log($"[WallFlow-Auto] skip: migration in progress. wait for restored/synced permanent walls. owner={BuildWallOwnerTag()}");
+            }
+            return;
+        }
+
+        if (permanentWallsGenerated)
+        {
+            Debug.Log($"[WallFlow-Auto] skip: already generated. owner={BuildWallOwnerTag()}");
+            return;
+        }
+        if (playerManager == null)
+        {
+            Debug.LogWarning("[WallFlow-Auto] skip: playerManager is null (Initialize not ready).");
+            return; // Initialize 미완료
+        }
+
+        int ownerId = playerManager.playerId;
+        if (ownerId < 0)
+        {
+            Debug.Log($"[WallFlow-Auto] skip: unresolved playerId ({ownerId}). owner={BuildWallOwnerTag()}");
+            return;
+        }
 
         // 네트워크 환경에서는 서버(호스트)만 초기 랜덤 생성 수행
         var runner = playerManager != null ? playerManager.Runner : null;
         if (runner != null && runner.IsRunning && !runner.IsServer)
         {
+            Debug.Log($"[WallFlow-Auto] skip: client peer waits for server sync. owner={BuildWallOwnerTag()}, runner={runner.name}");
             // 클라이언트는 서버의 RPC를 통해 동기화 대기
             return;
         }
+
+        Debug.Log($"[WallFlow-Auto] server path confirmed. owner={BuildWallOwnerTag()}, runner={(runner != null ? runner.name : "offline")}");
 
         // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
         GameObject prefab = permanentWallPrefab;
         if (prefab == null && !string.IsNullOrEmpty(permanentWallAddressKey))
         {
             prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey);
+            Debug.Log($"[WallFlow-Auto] prefab loaded from addressables. key={permanentWallAddressKey}, success={prefab != null}");
         }
 
         if (prefab == null)
         {
-            Debug.LogError($"[FieldManager] Permanent wall prefab not set and failed to load '{permanentWallAddressKey}'. Skipping generation.");
+            Debug.LogError($"[WallFlow-Auto] abort: permanent wall prefab unavailable. key={permanentWallAddressKey}");
+            // Debug.LogError($"[FieldManager] Permanent wall prefab not set and failed to load '{permanentWallAddressKey}'. Skipping generation.");
             permanentWallsGenerated = true;
             return;
         }
@@ -909,10 +1341,10 @@ public class FieldManager : MonoBehaviour
         {
             // 폴백: 필드 중앙
             goalCell = new Vector3Int(gridSize.x / 2, gridSize.y / 2, 0);
-            Debug.LogWarning($"[FieldManager] goalTransform이 null입니다. 필드 중앙 {goalCell}을 사용합니다.");
+            // Debug.LogWarning($"[FieldManager] goalTransform이 null입니다. 필드 중앙 {goalCell}을 사용합니다.");
         }
 
-        Debug.Log($"[FieldManager] 영구벽 생성 - spawnCell: {spawnCell}, goalCell: {goalCell}");
+        Debug.Log($"[WallFlow-Auto] spawn/goal resolved. owner={BuildWallOwnerTag()}, spawnCell={spawnCell}, goalCell={goalCell}, gridSize={gridSize}");
 
         List<Vector3Int> selected = new List<Vector3Int>();
         int centerX = gridSize.x / 2;
@@ -1004,7 +1436,7 @@ public class FieldManager : MonoBehaviour
                     // 배치하면 열린 인접 칸이 0개가 되는 경우 스킵
                     if (openAdjacentCount < 1)
                     {
-                        Debug.Log($"[FieldManager] 골 인접 셀 {cell} 스킵 - 완전 차단 방지");
+                        // Debug.Log($"[FieldManager] 골 인접 셀 {cell} 스킵 - 완전 차단 방지");
                         continue;
                     }
                 }
@@ -1014,10 +1446,11 @@ public class FieldManager : MonoBehaviour
                 placedCount++;
             }
 
-            Debug.Log($"[FieldManager] 필드 내부 랜덤 고정벽 {placedCount}개 생성 완료");
+            // Debug.Log($"[FieldManager] 필드 내부 랜덤 고정벽 {placedCount}개 생성 완료");
         }
 
-        // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트하여 동일 위치에 생성
+        // 네트워크 게임이라면, 선택된 좌표를 클라이언트에 브로드캐스트합니다.
+        // 영구벽을 NetworkObject로 운용할 때는 생성이 아니라 "복원/검증 힌트"로 사용됩니다.
         if (runner != null && runner.IsRunning && runner.IsServer && playerManager != null && selected.Count > 0)
         {
             int[] flat = new int[selected.Count * 2];
@@ -1027,9 +1460,29 @@ public class FieldManager : MonoBehaviour
                 flat[i * 2 + 1] = selected[i].y;
             }
             playerManager.RPC_ApplyPermanentWalls(flat);
+            Debug.Log($"[WallFlow-Auto] broadcast permanent walls to clients. owner={BuildWallOwnerTag()}, count={selected.Count}");
         }
 
         permanentWallsGenerated = true;
+        Debug.Log($"[WallFlow-Auto] GeneratePermanentWallsIfNeeded SUCCESS owner={BuildWallOwnerTag()}, totalSelected={selected.Count}, permanentWalls={placedPermanentWalls.Count}");
+    }
+
+    private bool TryAdoptExistingPermanentWallsBeforeGeneration(string context, out int existingPermanentWalls)
+    {
+        RebuildWallMapsAfterMigration($"FieldManager.{context}", false, out _);
+        existingPermanentWalls = placedPermanentWalls.Count;
+        if (existingPermanentWalls <= 0)
+        {
+            return false;
+        }
+
+        if (!permanentWallsGenerated)
+        {
+            permanentWallsGenerated = true;
+            Debug.Log($"[WallFlow-Migration] adopt existing permanent walls. owner={BuildWallOwnerTag()}, count={existingPermanentWalls}, ctx={context}");
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1047,11 +1500,28 @@ public class FieldManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 서버가 선택한 영구 벽 좌표 목록을 받아, 클라이언트에서 동일하게 생성합니다.
+    /// 서버가 선택한 영구 벽 좌표 목록을 받아 클라이언트에 동기화합니다.
     /// </summary>
     public async void ApplyPermanentWallsFromServer(int[] flatPositions)
     {
         if (flatPositions == null || flatPositions.Length == 0) return;
+
+        var requestedCells = new List<Vector3Int>(flatPositions.Length / 2);
+        int count = flatPositions.Length / 2;
+        for (int i = 0; i < count; i++)
+        {
+            var pos = new Vector3Int(flatPositions[i * 2], flatPositions[i * 2 + 1], 0);
+            if (!IsValidGridPosition(pos))
+            {
+                continue;
+            }
+            requestedCells.Add(pos);
+        }
+
+        if (requestedCells.Count == 0)
+        {
+            return;
+        }
 
         // 프리팹 확보 (Inspector 우선, 없으면 Addressables)
         GameObject prefab = permanentWallPrefab;
@@ -1062,15 +1532,32 @@ public class FieldManager : MonoBehaviour
 
         if (prefab == null)
         {
-            Debug.LogError($"[FieldManager] Permanent wall prefab not available on client for ApplyPermanentWallsFromServer. Key='{permanentWallAddressKey}'");
+            // Debug.LogError($"[FieldManager] Permanent wall prefab not available on client for ApplyPermanentWallsFromServer. Key='{permanentWallAddressKey}'");
             return;
         }
 
-        int count = flatPositions.Length / 2;
-        for (int i = 0; i < count; i++)
+        var runner = playerManager != null ? playerManager.Runner : null;
+        bool usesNetworkPermanentWall = runner != null
+                                        && runner.IsRunning
+                                        && prefab.TryGetComponent<NetworkObject>(out _);
+
+        if (usesNetworkPermanentWall)
         {
-            var pos = new Vector3Int(flatPositions[i * 2], flatPositions[i * 2 + 1], 0);
-            if (!IsValidGridPosition(pos)) continue;
+            // 영구벽을 NetworkObject로 운용하는 경우, RPC는 "셀 목록 힌트"로만 사용합니다.
+            // 실제 오브젝트 생성은 서버 Spawn 결과를 기다리고, 클라이언트는 재구성 루틴으로 딕셔너리를 복원합니다.
+            if (_awaitNetworkPermanentWallsCoroutine != null)
+            {
+                StopCoroutine(_awaitNetworkPermanentWallsCoroutine);
+                _awaitNetworkPermanentWallsCoroutine = null;
+            }
+
+            _awaitNetworkPermanentWallsCoroutine = StartCoroutine(
+                WaitForNetworkPermanentWallsAndRebuildCoroutine(requestedCells));
+            return;
+        }
+
+        foreach (var pos in requestedCells)
+        {
             if (HasWallAt(pos)) continue;
             CreatePermanentWallAt(pos, prefab);
         }
@@ -1078,16 +1565,102 @@ public class FieldManager : MonoBehaviour
         permanentWallsGenerated = true;
     }
 
+    private System.Collections.IEnumerator WaitForNetworkPermanentWallsAndRebuildCoroutine(List<Vector3Int> expectedCells)
+    {
+        const float timeout = 5f;
+        float waited = 0f;
+        int expectedCount = expectedCells != null ? expectedCells.Count : 0;
+
+        while (waited < timeout)
+        {
+            RebuildWallMapsAfterMigration("FieldManager.ApplyPermanentWallsFromServer.NetworkSync", false, out _);
+
+            int matched = 0;
+            if (expectedCells != null)
+            {
+                foreach (var cell in expectedCells)
+                {
+                    if (placedPermanentWalls.ContainsKey(cell))
+                    {
+                        matched++;
+                    }
+                }
+            }
+
+            if (expectedCount == 0 || matched >= expectedCount)
+            {
+                permanentWallsGenerated = true;
+                _awaitNetworkPermanentWallsCoroutine = null;
+                yield break;
+            }
+
+            yield return new WaitForSeconds(0.1f);
+            waited += 0.1f;
+        }
+
+        RebuildWallMapsAfterMigration("FieldManager.ApplyPermanentWallsFromServer.NetworkSyncTimeout", true, out string summary);
+
+        int finalMatched = 0;
+        if (expectedCells != null)
+        {
+            foreach (var cell in expectedCells)
+            {
+                if (placedPermanentWalls.ContainsKey(cell))
+                {
+                    finalMatched++;
+                }
+            }
+        }
+
+        if (expectedCount > 0 && finalMatched < expectedCount)
+        {
+            Debug.LogWarning($"[WallFlow-Migration] network permanent wall sync timeout. owner={BuildWallOwnerTag()}, matched={finalMatched}/{expectedCount}, summary={summary}");
+        }
+
+        permanentWallsGenerated = permanentWallsGenerated || placedPermanentWalls.Count > 0;
+        _awaitNetworkPermanentWallsCoroutine = null;
+    }
+
     private void CreatePermanentWallAt(Vector3Int gridPosition, GameObject prefab)
     {
         if (!IsValidGridPosition(gridPosition)) return;
         if (HasWallAt(gridPosition)) return;
+        if (prefab == null) return;
 
         Vector3 worldPos = GridToWorld(gridPosition);
         float halfH = GetPrefabHeight(prefab) * 0.5f;
         worldPos.y += halfH;
 
-        GameObject wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+        GameObject wallGO = null;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null
+            && runner.IsRunning
+            && prefab.TryGetComponent<NetworkObject>(out var networkPrefab))
+        {
+            if (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority)
+            {
+                Debug.LogWarning($"[WallFlow-Auto] skip network permanent wall spawn without state authority. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                return;
+            }
+
+            var spawned = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
+            if (spawned == null)
+            {
+                Debug.LogError($"[WallFlow-Auto] abort: Runner.Spawn failed for permanent wall. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                return;
+            }
+
+            wallGO = spawned.gameObject;
+            if (wallParent != null)
+            {
+                wallGO.transform.SetParent(wallParent, true);
+            }
+        }
+        else
+        {
+            wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+        }
+
         // 레이어 지정 (자식 포함)
         if (wallLayer >= 0) SetLayerRecursively(wallGO, wallLayer);
 
@@ -1116,11 +1689,30 @@ public class FieldManager : MonoBehaviour
         var gmInst = GameManagers.Instance;
         if (gmInst != null && gmInst.Runner != null && gmInst.Runner.IsRunning)
         {
-            var lp = gmInst.localPlayer;
-            if (lp == null || lp.Object == null || !lp.Object.HasInputAuthority)
+            if (playerManager != null &&
+                playerManager.Object != null &&
+                playerManager.Object.IsValid &&
+                playerManager.Object.HasInputAuthority)
             {
-                return false;
+                return true;
             }
+
+            var lp = gmInst.localPlayer;
+            if (lp != null &&
+                lp.Object != null &&
+                lp.Object.IsValid &&
+                lp.Object.HasInputAuthority)
+            {
+                return true;
+            }
+
+            if (Time.realtimeSinceStartup - _lastInteractionGateBlockLogRealtime > 1f)
+            {
+                _lastInteractionGateBlockLogRealtime = Time.realtimeSinceStartup;
+                Debug.Log($"[HM-INPUT-GATE] command blocked owner={BuildWallOwnerTag()} reason=networkInputAuthorityMissing");
+            }
+
+            return false;
         }
         return true;
     }
@@ -1247,7 +1839,7 @@ public class FieldManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning("[FieldManager] 필드에 빈 공간이 없어 유닛을 배치할 수 없습니다! 골드를 환불합니다.");
+            // Debug.LogWarning("[FieldManager] 필드에 빈 공간이 없어 유닛을 배치할 수 없습니다! 골드를 환불합니다.");
             int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
             playerManager.AddGold(refundCost);
         }
@@ -1266,7 +1858,7 @@ public class FieldManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"[FieldManager (AI)] {unitData.unitName}을(를) 배치할 유효한 위치를 찾지 못했습니다. 골드를 환불합니다.");
+            // Debug.LogWarning($"[FieldManager (AI)] {unitData.unitName}을(를) 배치할 유효한 위치를 찾지 못했습니다. 골드를 환불합니다.");
             int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
             playerManager.AddGold(refundCost);
         }
@@ -1276,38 +1868,38 @@ public class FieldManager : MonoBehaviour
     {
         if (!IsValidGridPosition(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            // Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
         if (data == null)
         {
-            Debug.LogError("[FieldManager] CreateUnitAt 실패: UnitData가 null입니다.");
+            // Debug.LogError("[FieldManager] CreateUnitAt 실패: UnitData가 null입니다.");
             return;
         }
         if (IsUnitAt(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 해당 위치에 이미 유닛이 존재합니다. pos={gridPosition}");
+            // Debug.LogWarning($"[FieldManager] CreateUnitAt 무시: 해당 위치에 이미 유닛이 존재합니다. pos={gridPosition}");
             return;
         }
         if (data.prefabsByStarLevel == null || data.prefabsByStarLevel.Length == 0)
         {
-            Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 prefabsByStarLevel이 비어있습니다.");
+            // Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 prefabsByStarLevel이 비어있습니다.");
             return;
         }
         if (starLevel < 1 || starLevel > data.prefabsByStarLevel.Length)
         {
-            Debug.LogError($"[FieldManager] CreateUnitAt 실패: 잘못된 성급({starLevel}). 허용 범위: 1~{data.prefabsByStarLevel.Length}");
+            // Debug.LogError($"[FieldManager] CreateUnitAt 실패: 잘못된 성급({starLevel}). 허용 범위: 1~{data.prefabsByStarLevel.Length}");
             return;
         }
         string prefabKey = data.prefabsByStarLevel[starLevel - 1];
         if (string.IsNullOrEmpty(prefabKey))
         {
-            Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 성급 {starLevel} 프리팹 키가 비어있습니다.");
+            // Debug.LogError($"[FieldManager] CreateUnitAt 실패: UnitData '{data.unitName}'의 성급 {starLevel} 프리팹 키가 비어있습니다.");
             return;
         }
         if (!TryReserveUnitPosition(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already reserved. pos={gridPosition}");
+            // Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already reserved. pos={gridPosition}");
             return;
         }
 
@@ -1317,7 +1909,7 @@ public class FieldManager : MonoBehaviour
 
             if (prefabToCreate == null)
             {
-                Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹({prefabKey})을 로드할 수 없습니다!");
+                // Debug.LogError($"{data.unitName}의 {starLevel}성에 해당하는 프리팹({prefabKey})을 로드할 수 없습니다!");
                 return;
             }
 
@@ -1337,7 +1929,7 @@ public class FieldManager : MonoBehaviour
                 var spawned = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
                 if (spawned == null)
                 {
-                    Debug.LogError($"[FieldManager] Runner.Spawn 실패: {prefabToCreate.name} (Player={playerManager?.playerId})");
+                    // Debug.LogError($"[FieldManager] Runner.Spawn 실패: {prefabToCreate.name} (Player={playerManager?.playerId})");
                     return;
                 }
                 newUnitGO = spawned.gameObject;
@@ -1376,7 +1968,7 @@ public class FieldManager : MonoBehaviour
                 await newUnitComponent.Initialize(data, starLevel, playerManager);
                 if (placedUnits.ContainsKey(gridPosition))
                 {
-                    Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already occupied after spawn. pos={gridPosition}");
+                    // Debug.LogWarning($"[FieldManager] CreateUnitAt ignored: position already occupied after spawn. pos={gridPosition}");
                     var netObj = newUnitGO.GetComponent<NetworkObject>();
                     if (runner != null && runner.IsRunning && netObj != null && (playerManager?.Object == null || playerManager.Object.HasStateAuthority))
                     {
@@ -1393,7 +1985,7 @@ public class FieldManager : MonoBehaviour
             }
             else
             {
-                Debug.LogError($"{prefabToCreate.name} 프리팹에 Unit 컴포넌트가 없습니다!", newUnitGO);
+                // Debug.LogError($"{prefabToCreate.name} 프리팹에 Unit 컴포넌트가 없습니다!", newUnitGO);
                 Destroy(newUnitGO);
             }
         }
@@ -1427,7 +2019,7 @@ public class FieldManager : MonoBehaviour
     {
         if (!IsValidGridPosition(from) || !IsValidGridPosition(to))
         {
-            Debug.LogWarning($"[FieldManager] MoveUnit 무시: 범위를 벗어난 이동 {from} -> {to} (GridSize={gridSize})");
+            // Debug.LogWarning($"[FieldManager] MoveUnit 무시: 범위를 벗어난 이동 {from} -> {to} (GridSize={gridSize})");
             return;
         }
 
@@ -1435,7 +2027,7 @@ public class FieldManager : MonoBehaviour
         {
             if (placedUnits.ContainsKey(to))
             {
-                Debug.LogWarning($"[FieldManager] MoveUnit 무시: 목표 위치 {to}에 이미 유닛이 있음 (from={from})");
+                // Debug.LogWarning($"[FieldManager] MoveUnit 무시: 목표 위치 {to}에 이미 유닛이 있음 (from={from})");
                 return;
             }
             
@@ -1450,7 +2042,7 @@ public class FieldManager : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"<color=red>[FieldManager] MoveUnit: '{from}' 위치에서 유닛을 찾을 수 없습니다.</color>");
+            // Debug.LogWarning($"<color=red>[FieldManager] MoveUnit: '{from}' 위치에서 유닛을 찾을 수 없습니다.</color>");
         }
     }
 
@@ -1458,12 +2050,12 @@ public class FieldManager : MonoBehaviour
     {
         if (!IsValidGridPosition(a) || !IsValidGridPosition(b))
         {
-            Debug.LogWarning($"[FieldManager] SwapUnits 무시: 범위를 벗어남 {a} <-> {b} (GridSize={gridSize})");
+            // Debug.LogWarning($"[FieldManager] SwapUnits 무시: 범위를 벗어남 {a} <-> {b} (GridSize={gridSize})");
             return;
         }
         if (!placedUnits.TryGetValue(a, out Unit unitA) || !placedUnits.TryGetValue(b, out Unit unitB))
         {
-            Debug.LogWarning($"[FieldManager] SwapUnits 실패: 대상 유닛을 찾을 수 없음 {a} <-> {b}");
+            // Debug.LogWarning($"[FieldManager] SwapUnits 실패: 대상 유닛을 찾을 수 없음 {a} <-> {b}");
             return;
         }
 
@@ -1681,12 +2273,12 @@ public class FieldManager : MonoBehaviour
     {
         if (unit == null)
         {
-            Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: unit이 null입니다. pos={gridPosition}");
+            // Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: unit이 null입니다. pos={gridPosition}");
             return;
         }
         if (!IsValidGridPosition(gridPosition))
         {
-            Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            // Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
         ReleaseReservedUnitPosition(gridPosition);
@@ -1725,7 +2317,7 @@ public class FieldManager : MonoBehaviour
         var allValidTiles = GetValidPlacementTiles(unitData.unitType);
         if (allValidTiles == null || allValidTiles.Count == 0)
         {
-            Debug.LogWarning($"AI가 {unitData.unitType} 타입의 유닛을 배치할 유효한 타일을 찾지 못했습니다.");
+            // Debug.LogWarning($"AI가 {unitData.unitType} 타입의 유닛을 배치할 유효한 타일을 찾지 못했습니다.");
             return null;
         }
 
@@ -1901,7 +2493,7 @@ public class FieldManager : MonoBehaviour
         // 현재 위치를 먼저 저장 (UnitDied 전에)
         if (!placedUnits.ContainsValue(unitToReplace))
         {
-            Debug.LogError("[FieldManager] ReplaceUnitPrefab: 유닛이 placedUnits에 없습니다.");
+            // Debug.LogError("[FieldManager] ReplaceUnitPrefab: 유닛이 placedUnits에 없습니다.");
             return;
         }
         Vector3Int currentPos = placedUnits.First(kvp => kvp.Value == unitToReplace).Key;
@@ -1912,7 +2504,7 @@ public class FieldManager : MonoBehaviour
             && runner.IsRunning
             && (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority))
         {
-            Debug.LogWarning("[FieldManager] ReplaceUnitPrefab ignored: no state authority.");
+            // Debug.LogWarning("[FieldManager] ReplaceUnitPrefab ignored: no state authority.");
             return;
         }
 
@@ -1936,26 +2528,26 @@ public class FieldManager : MonoBehaviour
         // 새 유닛 강제 배치 (IsUnitAt 체크 없이 직접 배치)
         if (unitData == null || unitData.prefabsByStarLevel == null || unitData.prefabsByStarLevel.Length == 0)
         {
-            Debug.LogError("[FieldManager] ReplaceUnitPrefab: UnitData 또는 프리팹이 없습니다.");
+            // Debug.LogError("[FieldManager] ReplaceUnitPrefab: UnitData 또는 프리팹이 없습니다.");
             return;
         }
         if (newStarLevel < 1 || newStarLevel > unitData.prefabsByStarLevel.Length)
         {
-            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 잘못된 성급({newStarLevel})");
+            // Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 잘못된 성급({newStarLevel})");
             return;
         }
 
         string prefabKey = unitData.prefabsByStarLevel[newStarLevel - 1];
         if (string.IsNullOrEmpty(prefabKey))
         {
-            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 키가 비어있습니다.");
+            // Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 키가 비어있습니다.");
             return;
         }
 
         var prefab = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
         if (prefab == null)
         {
-            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 로드 실패 ({prefabKey})");
+            // Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 로드 실패 ({prefabKey})");
             return;
         }
 
@@ -1972,7 +2564,7 @@ public class FieldManager : MonoBehaviour
             spawnedNO = runner.Spawn(networkPrefab, worldPos, Quaternion.identity, playerManager.Object.InputAuthority);
             if (spawnedNO == null)
             {
-                Debug.LogError($"[FieldManager] Runner.Spawn failed: {prefab.name} (Player={playerManager?.playerId})");
+                // Debug.LogError($"[FieldManager] Runner.Spawn failed: {prefab.name} (Player={playerManager?.playerId})");
                 return;
             }
 
@@ -2005,7 +2597,7 @@ public class FieldManager : MonoBehaviour
         Unit newUnit = unitGO.GetComponent<Unit>();
         if (newUnit == null)
         {
-            Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 생성된 프리팹에 Unit 컴포넌트 없음");
+            // Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 생성된 프리팹에 Unit 컴포넌트 없음");
             if (spawnedNO != null
                 && runner != null
                 && runner.IsRunning
@@ -2244,15 +2836,138 @@ public class FieldManager : MonoBehaviour
 
         if (playerCamera == null)
         {
-            Debug.LogWarning("[FieldManager] playerCamera is null!");
+            // Debug.LogWarning("[FieldManager] playerCamera is null!");
             return;
         }
 
-        // [3D] 초기화 확인
+        // [3D] 초기화 확인 - Host Migration 후 재할당 필요할 수 있음
         if (ground3D == null)
         {
-            Debug.LogWarning("[FieldManager] ground3D is null - not initialized yet!");
-            return;
+            // Debug.Log($"[FieldManager] ground3D null 감지, fallback 시도... playerManager={playerManager?.name}");
+            
+            // 방법 1: 부모 계층에서 Ground 찾기
+            var parentTransform = transform.parent;
+            // Debug.Log($"[FieldManager] parentTransform={parentTransform?.name}");
+            
+            if (parentTransform != null)
+            {
+                var groundTransform = parentTransform.Find("Ground") ?? parentTransform.Find("Field");
+                if (groundTransform != null)
+                {
+                    ground3D = groundTransform.gameObject;
+                    // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법1: parent.Find)");
+                }
+                else
+                {
+                    var meshRenderer = parentTransform.GetComponentInChildren<MeshRenderer>(true);
+                    if (meshRenderer != null)
+                    {
+                        ground3D = meshRenderer.gameObject;
+                        // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법2: MeshRenderer)");
+                    }
+                }
+            }
+            
+            // 방법 2: playerManager.astarGrid에서 찾기
+            if (ground3D == null && playerManager != null && playerManager.astarGrid != null)
+            {
+                var gridParent = playerManager.astarGrid.transform.parent;
+                // Debug.Log($"[FieldManager] astarGrid.parent={gridParent?.name}");
+                
+                if (gridParent != null)
+                {
+                    var groundTransform = gridParent.Find("Ground") ?? gridParent.Find("Field");
+                    if (groundTransform != null)
+                    {
+                        ground3D = groundTransform.gameObject;
+                        // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법3: astarGrid.parent)");
+                    }
+                    else
+                    {
+                        // 자식 전체 순회
+                        foreach (Transform child in gridParent)
+                        {
+                            if (child.name.Contains("Ground") || child.name.Contains("Field"))
+                            {
+                                ground3D = child.gameObject;
+                                // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법4: 자식 순회)");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 방법 3: GameManagers.localPlayer에서 찾기
+            if (ground3D == null && GameManagers.Instance != null)
+            {
+                var localPlayer = GameManagers.Instance.localPlayer;
+                // Debug.Log($"[FieldManager] GameManagers.localPlayer={localPlayer?.name}");
+                
+                if (localPlayer != null && localPlayer.astarGrid != null)
+                {
+                    var gridParent = localPlayer.astarGrid.transform.parent;
+                    if (gridParent != null)
+                    {
+                        var groundTransform = gridParent.Find("Ground") ?? gridParent.Find("Field");
+                        if (groundTransform != null)
+                        {
+                            ground3D = groundTransform.gameObject;
+                            // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법5: GameManagers)");
+                        }
+                    }
+                }
+            }
+            
+            // 방법 4: FindObjectOfType으로 AstarGrid 찾아서 parent에서 Ground 찾기
+            if (ground3D == null)
+            {
+                // Debug.Log("[FieldManager] 방법6 시도: FindObjectOfType<AstarGrid>");
+                var allGrids = UnityEngine.Object.FindObjectsOfType<AstarGrid>(true);
+                // Debug.Log($"[FieldManager] 발견된 AstarGrid 수: {allGrids.Length}");
+                
+                foreach (var grid in allGrids)
+                {
+                    var gridParent = grid.transform.parent;
+                    if (gridParent != null)
+                    {
+                        var groundTransform = gridParent.Find("Ground") ?? gridParent.Find("Field");
+                        if (groundTransform != null)
+                        {
+                            ground3D = groundTransform.gameObject;
+                            
+                            // astarGrid도 복구
+                            if (playerManager != null && playerManager.astarGrid == null)
+                            {
+                                playerManager.astarGrid = grid;
+                                // Debug.Log($"[FieldManager] astarGrid도 재할당: {grid.name}");
+                            }
+                            
+                            // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법6: FindObjectOfType)");
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // 방법 5: 마지막으로 Ground 이름이 포함된 모든 오브젝트 찾기
+            if (ground3D == null)
+            {
+                // Debug.Log("[FieldManager] 방법7 시도: GameObject.Find");
+                var foundGround = GameObject.Find("Ground");
+                if (foundGround != null)
+                {
+                    ground3D = foundGround;
+                    // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법7: GameObject.Find)");
+                }
+            }
+            
+            // 그래도 못 찾으면 에러
+            if (ground3D == null)
+            {
+                // Debug.LogWarning("[FieldManager] ground3D is null - 모든 fallback 실패!");
+                return;
+            }
         }
 
         // [3D Migration] 마우스 월드 좌표 및 그리드 좌표 계산
@@ -2422,8 +3137,8 @@ public class FieldManager : MonoBehaviour
                     {
                         bool destWallForSelected = HasWallAt(bestGrid);
                         bool destWallForTarget = HasWallAt(originalUnitPosition);
-                        bool invalidForSelected = selectedUnit.Data.unitType == UnitType.Melee && destWallForSelected;
-                        bool invalidForTarget = target.Data.unitType == UnitType.Melee && destWallForTarget;
+                        bool invalidForSelected = selectedUnit.Data != null && selectedUnit.Data.unitType == UnitType.Melee && destWallForSelected;
+                        bool invalidForTarget = target.Data != null && target.Data.unitType == UnitType.Melee && destWallForTarget;
                         if (!invalidForSelected && !invalidForTarget)
                         {
                             // 네트워크 준비 상태 확인
@@ -2904,7 +3619,7 @@ public class FieldManager : MonoBehaviour
             goalColor);
 
         _gridLinesCreated = true;
-        Debug.Log($"[FieldManager] 그리드 라인 생성 완료: {gridSize.x}x{gridSize.y}");
+        // Debug.Log($"[FieldManager] 그리드 라인 생성 완료: {gridSize.x}x{gridSize.y}");
     }
 
     private void CreateLine(string name, Vector3 start, Vector3 end, Color color)

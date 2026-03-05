@@ -1,8 +1,9 @@
-// Assets/Scripts/Game/Battle/AttackSequenceManager.cs
+﻿// Assets/Scripts/Game/Battle/AttackSequenceManager.cs
 using UnityEngine;
 using UnityEngine.EventSystems;
 using Cysharp.Threading.Tasks;
 using Fusion;
+using System.Linq;
 
 /// <summary>
 /// 공격 시퀀스를 관리하는 매니저.
@@ -14,13 +15,11 @@ public class AttackSequenceManager : MonoBehaviour
     private PlayerManager _playerManager;
     private MonsterSpawner _monsterSpawner;
     private FieldManager _opponentFieldManager;
+    private float _lastMissingRefLogTime;
     
     [Header("소환 설정")]
     [Tooltip("현재 선택된 몬스터")]
     private MonsterPoolEntry _selectedMonster;
-
-    [Tooltip("현재 선택된 마법 스크롤")]
-    private MagicScrollData _selectedScroll;
     
     [Tooltip("홀드 소환 간격 (초)")]
     [SerializeField] private float holdSpawnInterval = 0.3f;
@@ -32,13 +31,8 @@ public class AttackSequenceManager : MonoBehaviour
     [Header("스폰 영역 설정")]
     [Tooltip("스폰 가능 영역 레이어")]
     [SerializeField] private LayerMask spawnAreaLayerMask;
-    #endregion
 
-    #region 각종 플래그
-    /// <summary>
-    /// 현재 스크롤 모드인지 여부 (true: 스크롤, false: 몬스터)
-    /// </summary>
-    public bool IsScrollMode { get; private set; }
+    public PlayerManager Owner => _playerManager;
     #endregion
 
     #region 초기화
@@ -46,12 +40,9 @@ public class AttackSequenceManager : MonoBehaviour
     {
         _playerManager = owner;
         _monsterSpawner = owner?.monsterSpawner;
-        
-        // 카메라 찾기
-        _playerCamera = ComponentRegistry.Get<Camera>("Main Camera", false);
-        if (_playerCamera == null) _playerCamera = Camera.main;
 
-        Debug.Log($"<color=cyan>[AttackSequenceManager] Player {owner?.playerId} 초기화 완료</color>");
+        EnsureRuntimeReferences("Initialize", true);
+        // Debug.Log($"<color=cyan>[AttackSequenceManager] Player {owner?.playerId} 초기화 완료 ({DescribeRuntimeState()})</color>");
     }
 
     /// <summary>
@@ -61,7 +52,13 @@ public class AttackSequenceManager : MonoBehaviour
     {
         if (opponent == null)
         {
-            Debug.LogWarning("[AttackSequenceManager] 상대가 없습니다 (관전 모드)");
+            // Debug.LogWarning("[AttackSequenceManager] 상대가 없습니다 (관전 모드)");
+            return;
+        }
+
+        if (!EnsureRuntimeReferences("StartAttackSequence", true))
+        {
+            // Debug.LogError($"[AttackSequenceManager] StartAttackSequence 중단: 필수 참조 누락 ({DescribeRuntimeState()})");
             return;
         }
 
@@ -69,12 +66,21 @@ public class AttackSequenceManager : MonoBehaviour
         _selectedMonster = null;
         
         // 첫 번째 몬스터 자동 선택
-        if (_playerManager.AttackMonsterPool.Count > 0)
+        var pool = _playerManager.AttackMonsterPool;
+        if (pool != null && pool.Count > 0)
         {
-            SelectMonster(_playerManager.AttackMonsterPool[0]);
+            var firstValid = pool.FirstOrDefault(entry => entry != null && !entry.IsEmpty);
+            if (firstValid != null)
+            {
+                SelectMonster(firstValid);
+            }
+        }
+        else
+        {
+            // Debug.LogWarning($"[AttackSequenceManager] 공격 시퀀스 시작 시 몬스터 풀 비어있음. player={_playerManager.playerId}");
         }
 
-        Debug.Log($"<color=green>[AttackSequenceManager] 공격 시퀀스 시작! 상대: Player {opponent.playerId}</color>");
+        // Debug.Log($"<color=green>[AttackSequenceManager] 공격 시퀀스 시작! 상대: Player {opponent.playerId} ({DescribeRuntimeState()})</color>");
     }
 
     public void EndAttackSequence()
@@ -93,44 +99,21 @@ public class AttackSequenceManager : MonoBehaviour
     {
         if (entry == null || entry.IsEmpty)
         {
-            Debug.LogWarning("[AttackSequenceManager] 선택할 수 없는 몬스터입니다");
+            // Debug.LogWarning("[AttackSequenceManager] 선택할 수 없는 몬스터입니다");
             return;
         }
 
         _selectedMonster = entry;
-        _selectedScroll = null; // 몬스터 선택 시 스크롤 선택 해제
-        IsScrollMode = false;
-        Debug.Log($"<color=yellow>[AttackSequenceManager] 몬스터 선택: {entry.MonsterData.monsterName} (남은 수량: {entry.RemainingCount})</color>");
+        // Debug.Log($"<color=yellow>[AttackSequenceManager] 몬스터 선택: {entry.MonsterData.monsterName} (남은 수량: {entry.RemainingCount})</color>");
     }
 
     public MonsterPoolEntry GetSelectedMonster() => _selectedMonster;
     #endregion
 
-    #region 마법 스크롤 선택
-    /// <summary>
-    /// UI에서 스크롤 슬롯 클릭 시 호출
-    /// </summary>
-    public void SelectMagicScroll(MagicScrollData scrollData)
-    {
-        if (scrollData == null)
-        {
-            Debug.LogWarning("[AttackSequenceManager] 선택할 수 없는 스크롤입니다");
-            return;
-        }
-
-        _selectedScroll = scrollData;
-        _selectedMonster = null; // 스크롤 선택 시 몬스터 선택 해제
-        IsScrollMode = true;
-        Debug.Log($"<color=magenta>[AttackSequenceManager] 마법 스크롤 선택: {scrollData.scrollName}</color>");
-    }
-
-    public MagicScrollData GetSelectedScroll() => _selectedScroll;
-    #endregion
-
     #region 업데이트 (입력 처리)
     void Update()
     {
-        if (_playerManager == null) return;
+        if (!EnsureRuntimeReferences("Update", false)) return;
         if (!_playerManager.IsAttackerInCurrentBattle) return;
         if (_opponentFieldManager == null) return;
 
@@ -147,17 +130,9 @@ public class AttackSequenceManager : MonoBehaviour
         {
             if (!isPointerOverUI)
             {
-                // 스크롤 모드인지 몬스터 모드인지에 따라 다른 처리
-                if (IsScrollMode && _selectedScroll != null)
-                {
-                    TryUseMagicScrollAtMousePosition();
-                }
-                else
-                {
-                    TrySpawnMonsterAtMousePosition();
-                }
+                TrySpawnMonsterAtMousePosition();
             }
-            _isHolding = !isPointerOverUI && !IsScrollMode; // 스크롤은 홀드 불가
+            _isHolding = !isPointerOverUI;
             _lastSpawnTime = Time.time;
         }
         else if (Input.GetMouseButton(0) && _isHolding)
@@ -196,15 +171,20 @@ public class AttackSequenceManager : MonoBehaviour
     #region 몬스터 소환
     private void TrySpawnMonsterAtMousePosition()
     {
+        if (!EnsureRuntimeReferences("TrySpawnMonsterAtMousePosition", true))
+        {
+            return;
+        }
+
         if (_selectedMonster == null || _selectedMonster.IsEmpty)
         {
-            Debug.Log("[AttackSequenceManager] 선택된 몬스터가 없거나 수량이 0입니다");
+            // Debug.Log("[AttackSequenceManager] 선택된 몬스터가 없거나 수량이 0입니다");
             return;
         }
 
         if (_playerCamera == null)
         {
-            Debug.LogWarning("[AttackSequenceManager] 카메라가 없습니다");
+            // Debug.LogWarning("[AttackSequenceManager] 카메라가 없습니다");
             return;
         }
 
@@ -221,16 +201,26 @@ public class AttackSequenceManager : MonoBehaviour
             }
             else
             {
-                Debug.Log("[AttackSequenceManager] 유효하지 않은 스폰 영역입니다");
+                // Debug.Log("[AttackSequenceManager] 유효하지 않은 스폰 영역입니다");
             }
         }
     }
 
     private async UniTask SpawnMonsterAsync(Vector3 position)
     {
+        if (!EnsureRuntimeReferences("SpawnMonsterAsync", true))
+        {
+            return;
+        }
+
         if (_selectedMonster == null || _selectedMonster.IsEmpty) return;
         if (_monsterSpawner == null) return;
         if (_opponentFieldManager == null) return;
+        if (_selectedMonster.MonsterData == null)
+        {
+            // Debug.LogWarning("[AttackSequenceManager] SpawnMonsterAsync 중단: 선택 몬스터 데이터 null");
+            return;
+        }
 
         // 몬스터 데이터 이름 저장 (RPC 전송용)
         string monsterDataName = _selectedMonster.MonsterData?.name;
@@ -243,15 +233,6 @@ public class AttackSequenceManager : MonoBehaviour
         if (isBoss)
         {
             bossUniqueId = SurvivorBossManager.Instance?.GetNextBossUniqueId() ?? -1;
-            _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
-            Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
-        }
-        
-        // 풀에서 소비 (로컬 UI 업데이트용)
-        if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
-        {
-            Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
-            return;
         }
 
         // 호스트(StateAuthority)인 경우 직접 스폰, 클라이언트인 경우 RPC 요청
@@ -260,7 +241,7 @@ public class AttackSequenceManager : MonoBehaviour
         if (isHost)
         {
             // 호스트: 직접 스폰
-            await _monsterSpawner.SpawnMonsterAtPositionAsync(
+            var spawnedMonster = await _monsterSpawner.SpawnMonsterAtPositionAsync(
                 _selectedMonster.MonsterData,
                 position,
                 _opponentFieldManager,
@@ -268,9 +249,39 @@ public class AttackSequenceManager : MonoBehaviour
                 bossUniqueId,
                 originPlayerId
             );
+
+            if (spawnedMonster == null)
+            {
+                // Debug.LogWarning($"[AttackSequenceManager] 스폰 실패 - 풀 소모 생략: {_selectedMonster.MonsterData.monsterName}");
+                return;
+            }
+
+            if (isBoss)
+            {
+                _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
+                // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
+            }
+
+            if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
+            {
+                // Debug.LogWarning("[AttackSequenceManager] 호스트 소환 성공 후 몬스터 풀 소비 실패");
+            }
         }
         else
         {
+            if (isBoss)
+            {
+                _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
+                // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
+            }
+
+            // 클라이언트 경로는 기존 동작 유지 (로컬 UI 즉시 반영)
+            if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
+            {
+                // Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
+                return;
+            }
+
             // 클라이언트: 서버에 RPC 요청
             if (GameManagers.Instance != null)
             {
@@ -283,7 +294,7 @@ public class AttackSequenceManager : MonoBehaviour
                     bossUniqueId,
                     originPlayerId
                 );
-                Debug.Log($"<color=yellow>[AttackSequenceManager] RPC 소환 요청: {monsterDataName} at {position}</color>");
+                // Debug.Log($"<color=yellow>[AttackSequenceManager] RPC 소환 요청: {monsterDataName} at {position}</color>");
             }
         }
 
@@ -291,12 +302,66 @@ public class AttackSequenceManager : MonoBehaviour
         // 사용자가 직접 UI에서 다른 몬스터를 선택해야 소환 가능
         if (_selectedMonster.IsEmpty)
         {
-            Debug.Log($"<color=orange>[AttackSequenceManager] '{_selectedMonster.MonsterData.monsterName}' 소진! 다른 몬스터를 선택해주세요.</color>");
+            // Debug.Log($"<color=orange>[AttackSequenceManager] '{_selectedMonster.MonsterData.monsterName}' 소진! 다른 몬스터를 선택해주세요.</color>");
             _selectedMonster = null;
             
             // UI 갱신 이벤트 발생
             AttackSequenceUIController.Instance?.RefreshUI();
         }
+    }
+    #endregion
+
+    #region 참조 복구
+    private bool EnsureRuntimeReferences(string context, bool verboseFailure)
+    {
+        if (_playerManager == null)
+        {
+            _playerManager = GetComponent<PlayerManager>();
+        }
+
+        if (_monsterSpawner == null && _playerManager != null)
+        {
+            _monsterSpawner = _playerManager.monsterSpawner;
+            if (_monsterSpawner == null)
+            {
+                _monsterSpawner = _playerManager.GetComponentInChildren<MonsterSpawner>(true);
+            }
+        }
+
+        if (_playerCamera == null)
+        {
+            _playerCamera = ComponentRegistry.Get<Camera>("Main Camera", false);
+            if (_playerCamera == null)
+            {
+                _playerCamera = Camera.main;
+            }
+        }
+
+        bool ready = _playerManager != null && _monsterSpawner != null;
+        if (!ready && verboseFailure && Time.unscaledTime - _lastMissingRefLogTime > 0.5f)
+        {
+            _lastMissingRefLogTime = Time.unscaledTime;
+            // Debug.LogWarning($"[AttackSequenceManager] 참조 복구 실패 ({context}) {DescribeRuntimeState()}");
+        }
+
+        return ready;
+    }
+
+    private string DescribeRuntimeState()
+    {
+        string ownerState = _playerManager == null
+            ? "owner=null"
+            : $"owner=Player({_playerManager.playerId}, name={_playerManager.name}, hasObject={_playerManager.Object != null})";
+        string spawnerState = _monsterSpawner == null
+            ? "spawner=null"
+            : $"spawner={_monsterSpawner.name}";
+        string opponentState = _opponentFieldManager == null
+            ? "opponentField=null"
+            : $"opponentField={_opponentFieldManager.name}";
+        string cameraState = _playerCamera == null
+            ? "camera=null"
+            : $"camera={_playerCamera.name}";
+        return $"{ownerState}, {spawnerState}, {opponentState}, {cameraState}";
     }
     #endregion
 
@@ -323,97 +388,13 @@ public class AttackSequenceManager : MonoBehaviour
 
         if (isInsideGrid)
         {
-            Debug.Log($"[AttackSequenceManager] 그리드 안쪽 위치 (소환 불가): ({rawGridX}, {rawGridY})");
+            // Debug.Log($"[AttackSequenceManager] 그리드 안쪽 위치 (소환 불가): ({rawGridX}, {rawGridY})");
             return false;
         }
 
         // 그리드 바깥이면 소환 가능
-        Debug.Log($"[AttackSequenceManager] 그리드 바깥 위치 (소환 가능): ({rawGridX}, {rawGridY})");
+        // Debug.Log($"[AttackSequenceManager] 그리드 바깥 위치 (소환 가능): ({rawGridX}, {rawGridY})");
         return true;
-    }
-    #endregion
-
-    #region 마법 스크롤 사용
-    /// <summary>
-    /// 마우스 위치에 마법 스크롤을 사용합니다.
-    /// </summary>
-    private void TryUseMagicScrollAtMousePosition()
-    {
-        if (_selectedScroll == null)
-        {
-            Debug.Log("[AttackSequenceManager] 선택된 스크롤이 없습니다");
-            return;
-        }
-
-        if (_playerCamera == null)
-        {
-            Debug.LogWarning("[AttackSequenceManager] 카메라가 없습니다");
-            return;
-        }
-
-        // 마우스 위치에서 레이캐스트
-        Ray ray = _playerCamera.ScreenPointToRay(Input.mousePosition);
-        if (Physics.Raycast(ray, out RaycastHit hit, 100f, spawnAreaLayerMask))
-        {
-            Vector3 targetPosition = hit.point;
-            UseMagicScrollAsync(targetPosition).Forget();
-        }
-    }
-
-    /// <summary>
-    /// 지정된 위치에 마법 스크롤을 사용합니다.
-    /// </summary>
-    private async UniTask UseMagicScrollAsync(Vector3 position)
-    {
-        if (_selectedScroll == null) return;
-
-        string scrollDataName = _selectedScroll.name;
-
-        // 호스트(StateAuthority)인 경우 직접 처리, 클라이언트인 경우 RPC 요청
-        bool isHost = _playerManager.Object != null && _playerManager.Object.HasStateAuthority;
-
-        if (isHost)
-        {
-            // 호스트: 스크롤 소비 후 직접 효과 발동
-            if (!_playerManager.TryConsumeMagicScroll(_selectedScroll))
-            {
-                Debug.LogWarning("[AttackSequenceManager] 스크롤 소비 실패");
-                return;
-            }
-
-            // 모든 클라이언트에 브로드캐스트 (호스트도 포함)
-            if (GameManagers.Instance != null)
-            {
-                GameManagers.Instance.RPC_BroadcastMagicScrollUsed(
-                    _playerManager.playerId,
-                    scrollDataName,
-                    position
-                );
-            }
-        }
-        else
-        {
-            // 클라이언트: 서버에 RPC 요청
-            if (GameManagers.Instance != null)
-            {
-                GameManagers.Instance.RPC_RequestUseMagicScroll(
-                    _playerManager.playerId,
-                    scrollDataName,
-                    position
-                );
-                Debug.Log($"<color=magenta>[AttackSequenceManager] RPC 스크롤 사용 요청: {scrollDataName} at {position}</color>");
-            }
-        }
-
-        // 스크롤 사용 후 선택 해제
-        Debug.Log($"<color=magenta>[AttackSequenceManager] 스크롤 '{_selectedScroll.scrollName}' 사용 완료!</color>");
-        _selectedScroll = null;
-        IsScrollMode = false;
-
-        // UI 갱신
-        AttackSequenceUIController.Instance?.RefreshUI();
-        
-        await UniTask.CompletedTask;
     }
     #endregion
 }

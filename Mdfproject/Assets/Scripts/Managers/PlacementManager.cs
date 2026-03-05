@@ -52,9 +52,47 @@ public class PlacementManager : MonoBehaviour
         // FieldManager는 Awake에서 초기화되므로, Start에서 참조를 가져오면 안전합니다.
         this.playerManager = fieldManager.playerManager;
     }
+
+    private bool IsOwnedByLocalPlayer()
+    {
+        if (playerManager == null && fieldManager != null)
+        {
+            playerManager = fieldManager.playerManager;
+        }
+
+        if (playerManager == null)
+        {
+            return false;
+        }
+
+        if (playerManager.Object != null && playerManager.Object.IsValid)
+        {
+            return playerManager.Object.HasInputAuthority;
+        }
+
+        return GameManagers.Instance != null && GameManagers.Instance.localPlayer == playerManager;
+    }
+
+    private bool IsPlacementReady()
+    {
+        return IsOwnedByLocalPlayer() &&
+               playerManager != null &&
+               playerManager.IsReadyForPlayerActions &&
+               GameManagers.Instance != null &&
+               GameManagers.Instance.CommandProcessor != null;
+    }
     
     void Update()
     {
+        if (!IsPlacementReady())
+        {
+            if (previewObject != null && previewObject.activeSelf)
+            {
+                previewObject.SetActive(false);
+            }
+            return;
+        }
+
         if (currentMode == PlacementMode.None || !showPreview) return;
         
         // [3D] fieldManager가 초기화되었는지 확인
@@ -75,6 +113,7 @@ public class PlacementManager : MonoBehaviour
 
     public void StartPlacementMode(PlacementMode mode, GameObject unitPrefab = null)
     {
+        if (!IsPlacementReady()) return;
         if (GameManagers.Instance != null && GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare) return;
         currentMode = mode;
         unitPrefabToPlace = unitPrefab;
@@ -137,6 +176,9 @@ public class PlacementManager : MonoBehaviour
 
     private void TryPlace()
     {
+        if (!IsPlacementReady()) return;
+        if (playerManager.playerId < 0) return;
+
         UnitData dataToPlace = (currentMode == PlacementMode.Unit && unitPrefabToPlace != null)
             ? unitPrefabToPlace.GetComponent<Unit>().Data
             : null;
@@ -172,6 +214,9 @@ public class PlacementManager : MonoBehaviour
 
     private bool TryRemoveWall()
     {
+        if (!IsPlacementReady()) return false;
+        if (playerManager.playerId < 0) return false;
+
         if (currentMode == PlacementMode.Wall)
         {
             // 실제 벽이 있는지 여부는 PlayerManager에서 확인하므로, 여기서는 요청만 보냅니다.
