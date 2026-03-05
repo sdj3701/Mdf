@@ -732,6 +732,14 @@ public class MonsterSpawner : MonoBehaviour
         {
             while (!entry.IsEmpty)
             {
+                // 보스인 경우 보유 리스트에서 제거 (유저 소환과 동일하게 처리)
+                // 소환 전에 처리해야 다음 라운드 RefreshAttackMonsterPool에서 중복 추가 방지
+                if (entry.IsBoss)
+                {
+                    _playerManager.ConsumeOwnedBoss(entry.MonsterData);
+                    Debug.Log($"<color=red>[MonsterSpawner] AI 보스 소환: '{entry.MonsterData.monsterName}' 보유 리스트에서 제거</color>");
+                }
+                
                 // 몬스터 소환 (보스 플래그 포함)
                 await SpawnMonsterAtPositionAsync(
                     entry.MonsterData, 
