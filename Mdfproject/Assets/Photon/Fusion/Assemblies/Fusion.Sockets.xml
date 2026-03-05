@@ -1935,6 +1935,7 @@
             </summary>
             <param name="p">A pointer to the NetPeer instance.</param>
             <param name="socket">The socket used for network communication.</param>
+            /// <returns>The amount of fragments sent</returns>
         </member>
         <member name="M:Fusion.Sockets.NetPeer.Send(Fusion.Sockets.NetPeer*,Fusion.Sockets.INetSocket,System.Boolean*)">
             <summary>
@@ -1943,6 +1944,7 @@
             <param name="p">A pointer to the NetPeer instance.</param>
             <param name="socket">The socket used for network communication.</param>
             <param name="work">A pointer to a boolean indicating whether work was done.</param>
+            <returns>The amount of fragments sent</returns>
         </member>
         <member name="M:Fusion.Sockets.NetPeer.Initialize(Fusion.Sockets.NetConfig,Fusion.Sockets.INetSocket)">
             <summary>
@@ -1967,6 +1969,12 @@
             <param name="p">A pointer to the NetPeer instance.</param>
             <param name="socket">The socket used for network communication.</param>
             <param name="callbacks">The callbacks for the NetPeerGroup.</param>
+        </member>
+        <member name="M:Fusion.Sockets.NetPeer.SendInternal(Fusion.Sockets.NetPeer*,Fusion.Sockets.INetSocket,System.Boolean*)">
+            <returns>The amount of fragments sent</returns>
+        </member>
+        <member name="M:Fusion.Sockets.NetPeer.SendFromStack(Fusion.Sockets.NetPeer*,Fusion.Sockets.INetSocket,System.Boolean*)">
+            <returns>The amount of fragments sent</returns>
         </member>
         <member name="T:Fusion.Sockets.NetPeerGroup">
             <summary>
@@ -2053,6 +2061,7 @@
             </summary>
             <param name="g">Pointer to the network peer group.</param>
             <param name="cb">Callback interface for network peer group events.</param>
+            <returns>Amount of packets received</returns>
         </member>
         <member name="M:Fusion.Sockets.NetPeerGroup.SendReliable(Fusion.Sockets.NetPeerGroup*,Fusion.Sockets.NetConnection*,Fusion.Sockets.ReliableId,System.Byte*,System.Int32)">
             <summary>
@@ -2109,7 +2118,7 @@
             <param name="b">Output parameter that will point to the bit buffer containing the data to be sent.</param>
             <returns>True if the buffer was successfully acquired, otherwise false.</returns>
         </member>
-        <member name="M:Fusion.Sockets.NetPeerGroup.SendNotifyDataBuffer(Fusion.Sockets.NetPeerGroup*,Fusion.Sockets.NetConnection*,Fusion.Sockets.NetBitBuffer*,System.Void*)">
+        <member name="M:Fusion.Sockets.NetPeerGroup.SendNotifyDataBuffer(Fusion.Sockets.NetPeerGroup*,Fusion.Sockets.NetConnection*,Fusion.Sockets.NetBitBuffer*@,System.Void*)">
             <summary>
             Sends a notify data buffer for a given connection in the network peer group.
             </summary>
@@ -2118,6 +2127,9 @@
             <param name="b">Pointer to the bit buffer containing the data to be sent.</param>
             <param name="userData">Pointer to user data associated with the buffer.</param>
             <returns>True if the buffer was successfully sent, otherwise false.</returns>
+        </member>
+        <member name="M:Fusion.Sockets.NetPeerGroup.Receive(Fusion.Sockets.NetPeerGroup*,Fusion.Sockets.INetPeerGroupCallbacks)">
+            <returns>Amount of packets received</returns>
         </member>
         <member name="M:Fusion.Sockets.NetPeerGroup.GetConnectionIdleTime(Fusion.Sockets.NetPeerGroup*,Fusion.Sockets.NetConnection*)">
             <summary>
@@ -2406,6 +2418,32 @@
             <param name="key0">The first unsigned long key.</param>
             <param name="key1">The second unsigned long key.</param>
             <returns>A new ReliableKey instance.</returns>
+        </member>
+        <member name="M:Fusion.Sockets.ReliableKey.Equals(Fusion.Sockets.ReliableKey)">
+            <summary>
+            Returns <see langword="true"/> if the <see cref="F:Fusion.Sockets.ReliableKey.Data"/> is the same.
+            </summary>
+        </member>
+        <member name="M:Fusion.Sockets.ReliableKey.Equals(System.Object)">
+            <summary>
+            Returns <see langword="true"/> if obj is a ReliableKey and the <see cref="F:Fusion.Sockets.ReliableKey.Data"/> is the same.
+            </summary>
+        </member>
+        <member name="M:Fusion.Sockets.ReliableKey.op_Equality(Fusion.Sockets.ReliableKey,Fusion.Sockets.ReliableKey)">
+            <summary>
+            Returns <see langword="true"/> if the <see cref="F:Fusion.Sockets.ReliableKey.Data"/> is the same.
+            </summary>
+        </member>
+        <member name="M:Fusion.Sockets.ReliableKey.op_Inequality(Fusion.Sockets.ReliableKey,Fusion.Sockets.ReliableKey)">
+            <summary>
+            Returns <see langword="true"/> if the <see cref="F:Fusion.Sockets.ReliableKey.Data"/> is not the same.
+            </summary>
+        </member>
+        <member name="M:Fusion.Sockets.ReliableKey.GetHashCode">
+            <summary>
+            Returns a hash based on the <see cref="F:Fusion.Sockets.ReliableKey.Data"/>.
+            
+            </summary>
         </member>
         <member name="T:Fusion.Sockets.ReliableId">
             <summary>

@@ -203,7 +203,7 @@ namespace Fusion.Editor {
     private void DrawFooter() {
       GUILayout.BeginHorizontal(FusionHubSkin.window);
       {
-        GUILayout.Label("\u00A9 2022, Exit Games GmbH. All rights reserved.");
+        GUILayout.Label("\u00A9 2025, Exit Games GmbH. All rights reserved.");
       }
       GUILayout.EndHorizontal();
     }

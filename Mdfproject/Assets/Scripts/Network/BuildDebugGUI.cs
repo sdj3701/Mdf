@@ -1,26 +1,31 @@
-using UnityEngine;
+using System;
 using System.Collections.Generic;
+using System.Text;
+using UnityEngine;
 
 public class BuildDebugGUI : MonoBehaviour
 {
-    // 싱글톤 인스턴스
     public static BuildDebugGUI Instance { get; private set; }
 
-    // 로그 메시지를 저장할 리스트
-    private List<string> logMessages = new List<string>();
-    // 화면에 표시할 최대 로그 수
-    private int maxLogMessages = 20;
+    [SerializeField] private int maxLogMessages = 40;
+    [SerializeField] private bool visible = true;
+    [SerializeField] private KeyCode toggleKey = KeyCode.F8;
+    [SerializeField] private KeyCode copyKey = KeyCode.C;
+    [SerializeField] private KeyCode clearKey = KeyCode.K;
 
-    // GUI 스타일을 미리 설정하여 성능 저하 방지
-    private GUIStyle logStyle;
+    private readonly List<string> _logMessages = new List<string>();
+    private readonly Dictionary<string, float> _throttleTimes = new Dictionary<string, float>();
+    private GUIStyle _logStyle;
+    private GUIStyle _toolbarStyle;
+    private string _statusMessage = string.Empty;
+    private float _statusMessageUntil;
 
-    void Awake()
+    private void Awake()
     {
-        // 싱글톤 패턴 구현
         if (Instance == null)
         {
             Instance = this;
-            DontDestroyOnLoad(gameObject); // 씬이 바뀌어도 파괴되지 않도록 설정
+            DontDestroyOnLoad(gameObject);
         }
         else
         {
@@ -28,50 +33,222 @@ public class BuildDebugGUI : MonoBehaviour
         }
     }
 
-    // 다른 스크립트에서 로그를 추가할 때 호출할 함수
-    public void Log(string message)
+    private void Update()
     {
-        // 타임스탬프와 함께 메시지 추가
-        string formattedMessage = $"[{System.DateTime.Now:HH:mm:ss}] {message}";
-        logMessages.Add(formattedMessage);
-
-        // 최대 로그 수를 초과하면 가장 오래된 로그 삭제
-        while (logMessages.Count > maxLogMessages)
+        if (Input.GetKeyDown(toggleKey))
         {
-            logMessages.RemoveAt(0);
+            visible = !visible;
+        }
+
+        bool ctrlOrCmd =
+            Input.GetKey(KeyCode.LeftControl) ||
+            Input.GetKey(KeyCode.RightControl) ||
+            Input.GetKey(KeyCode.LeftCommand) ||
+            Input.GetKey(KeyCode.RightCommand);
+
+        if (visible && ctrlOrCmd && Input.GetKeyDown(copyKey))
+        {
+            CopyLogsToClipboard();
+        }
+
+        if (visible && ctrlOrCmd && Input.GetKeyDown(clearKey))
+        {
+            ClearLogs();
         }
     }
 
-    // GUI를 그리는 함수 (매 프레임 여러 번 호출될 수 있음)
-    void OnGUI()
+    public void Log(string message)
     {
-        // 개발 빌드 또는 유니티 에디터에서만 GUI를 표시하도록 제한
+        string formatted = $"[{DateTime.Now:HH:mm:ss}] {message}";
+        _logMessages.Add(formatted);
+
+        while (_logMessages.Count > maxLogMessages)
+        {
+            _logMessages.RemoveAt(0);
+        }
+    }
+
+    private void ClearLogs()
+    {
+        _logMessages.Clear();
+        SetStatus("Logs cleared.");
+    }
+
+    private void CopyLogsToClipboard()
+    {
+        var builder = new StringBuilder();
+        for (int i = 0; i < _logMessages.Count; i++)
+        {
+            if (i > 0)
+            {
+                builder.AppendLine();
+            }
+            builder.Append(_logMessages[i]);
+        }
+
+        GUIUtility.systemCopyBuffer = builder.ToString();
+        SetStatus($"Copied {_logMessages.Count} logs to clipboard.");
+    }
+
+    private void SetStatus(string message)
+    {
+        _statusMessage = message;
+        _statusMessageUntil = Time.realtimeSinceStartup + 2.5f;
+    }
+
+    public static void LogClient(string message)
+    {
 #if DEVELOPMENT_BUILD
-        // 스타일 초기화 (logStyle이 null일 때만 실행)
-        if (logStyle == null)
+        if (!TryGetClientTag(out string tag))
         {
-            logStyle = new GUIStyle(GUI.skin.label);
-            logStyle.fontSize = 20; // 폰트 크기 조절
-            logStyle.normal.textColor = Color.white; // 폰트 색상
+            return;
         }
 
-        // 화면 좌측 상단에 로그를 표시할 영역 설정
-        // new Rect(x, y, width, height)
-        Rect logArea = new Rect(10, 200, Screen.width - 20, Screen.height - 20);
-
-        // GUI 영역 시작
-        GUILayout.BeginArea(logArea);
-
-        // 배경을 반투명 검은색으로 그려서 가독성 높이기
-        GUI.Box(new Rect(0, 0, logArea.width, logArea.height), "");
-
-        // 저장된 모든 로그 메시지를 화면에 출력
-        foreach (string message in logMessages)
+        string line = $"{tag} {message}";
+        if (Instance != null)
         {
-            GUILayout.Label(message, logStyle);
+            Instance.Log(line);
         }
 
-        // GUI 영역 종료
+        Debug.Log(line);
+#endif
+    }
+
+    public static void LogClientThrottled(string key, string message, float minIntervalSeconds = 1f)
+    {
+#if DEVELOPMENT_BUILD
+        if (!TryGetClientTag(out _))
+        {
+            return;
+        }
+
+        if (Instance == null)
+        {
+            LogClient(message);
+            return;
+        }
+
+        float now = Time.realtimeSinceStartup;
+        if (Instance._throttleTimes.TryGetValue(key, out float last) && now - last < minIntervalSeconds)
+        {
+            return;
+        }
+
+        Instance._throttleTimes[key] = now;
+        LogClient(message);
+#endif
+    }
+
+    private static bool TryGetClientTag(out string tag)
+    {
+        tag = "[CLIENT]";
+        var gm = GameManagers.Instance;
+
+        var runner = gm != null ? gm.Runner : null;
+        if ((runner == null || !runner.IsRunning) && NetworkManager.Instance != null)
+        {
+            runner = NetworkManager.Instance._runner;
+        }
+
+        if (runner == null || !runner.IsRunning || runner.IsServer)
+        {
+            return false;
+        }
+
+        string round = "?";
+        string state = "?";
+        string local = "null";
+
+        try
+        {
+            if (gm != null)
+            {
+                round = gm.currentRound.ToString();
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        try
+        {
+            if (gm != null)
+            {
+                state = gm.currentState.ToString();
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        try
+        {
+            if (gm != null && gm.localPlayer != null && gm.localPlayer.Object != null && gm.localPlayer.Object.IsValid)
+            {
+                local = gm.localPlayer.playerId.ToString();
+            }
+        }
+        catch (Exception)
+        {
+            local = "?";
+        }
+
+        tag = $"[CLIENT r={round} s={state} lp={local}]";
+        return true;
+    }
+
+    private void OnGUI()
+    {
+#if DEVELOPMENT_BUILD
+        if (!visible)
+        {
+            return;
+        }
+
+        if (_logStyle == null)
+        {
+            _logStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 18,
+                richText = true
+            };
+            _logStyle.normal.textColor = Color.white;
+        }
+
+        if (_toolbarStyle == null)
+        {
+            _toolbarStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 14,
+                richText = false
+            };
+        }
+
+        Rect area = new Rect(10, 180, Screen.width - 20, Screen.height - 190);
+        GUILayout.BeginArea(area);
+        GUI.Box(new Rect(0, 0, area.width, area.height), "");
+
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("Copy Logs (Ctrl/Cmd+C)", _toolbarStyle, GUILayout.Height(28)))
+        {
+            CopyLogsToClipboard();
+        }
+        if (GUILayout.Button("Clear Logs (Ctrl/Cmd+K)", _toolbarStyle, GUILayout.Width(210), GUILayout.Height(28)))
+        {
+            ClearLogs();
+        }
+        GUILayout.EndHorizontal();
+
+        if (!string.IsNullOrEmpty(_statusMessage) && Time.realtimeSinceStartup <= _statusMessageUntil)
+        {
+            GUILayout.Label(_statusMessage, _logStyle);
+        }
+
+        foreach (string message in _logMessages)
+        {
+            GUILayout.Label(message, _logStyle);
+        }
+
         GUILayout.EndArea();
 #endif
     }

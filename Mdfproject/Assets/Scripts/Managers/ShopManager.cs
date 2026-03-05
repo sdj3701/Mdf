@@ -1,4 +1,4 @@
-// Assets/Scripts/Managers/ShopManager.cs
+﻿// Assets/Scripts/Managers/ShopManager.cs
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,15 +13,65 @@ public class ShopManager : MonoBehaviour
     // [변경됨] 이제 UnitData가 아닌 ShopItem 리스트를 관리합니다.
     private List<ShopItem> currentShopItems = new List<ShopItem>();
     private bool[] _isSlotSold = new bool[5];
+    private int _lastAppliedSnapshotRevision = -1;
     
     public bool IsDatabaseLoaded { get; private set; } = false;
     private UniTaskCompletionSource<bool> databaseLoadTask = new UniTaskCompletionSource<bool>();
+    private static int _shopTraceSeq;
+
+    private string BuildShopTraceOwner()
+    {
+        if (playerManager == null)
+        {
+            return "player=null";
+        }
+
+        var runner = playerManager.Runner;
+        bool hasObject = playerManager.Object != null;
+        bool hasAuthority = hasObject && playerManager.Object.HasStateAuthority;
+        string playerIdLabel = TryGetSafePlayerId(out int safePlayerId) ? safePlayerId.ToString() : "unspawned";
+        string runnerSummary = runner == null
+            ? "runner=null"
+            : $"runner={runner.name},running={runner.IsRunning},server={runner.IsServer}";
+
+        return $"player={playerIdLabel},name={playerManager.name},hasObject={hasObject},stateAuth={hasAuthority},{runnerSummary}";
+    }
+
+    private bool TryGetSafePlayerId(out int playerId)
+    {
+        playerId = -1;
+        if (playerManager == null || playerManager.Object == null || !playerManager.Object.IsValid)
+        {
+            return false;
+        }
+
+        try
+        {
+            playerId = playerManager.playerId;
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private void LogShopTrace(string step, string extra = null)
+    {
+        GameManagers gm = GameManagers.Instance;
+        string gmState = gm == null ? "gmState=NoGameManagers" : $"gmState={gm.GetGameState()}";
+        string suffix = string.IsNullOrEmpty(extra) ? string.Empty : $" | {extra}";
+        // Debug.Log(
+            // $"[SHOP-TRACE #{++_shopTraceSeq}] {step} | {BuildShopTraceOwner()} | " +
+            // $"dbLoaded={IsDatabaseLoaded} dbCount={allUnitDatabase.Count} shopCount={currentShopItems.Count} {gmState}{suffix}");
+    }
 
     /// <summary>
     /// Unity 생명주기 진입점으로, LoadManager를 통해 UnitData 로딩을 시작합니다.
     /// </summary>
     void Start()
     {
+        LogShopTrace("Start:InitializeRequested");
         InitializeFromLoadManager();
     }
 
@@ -30,11 +80,25 @@ public class ShopManager : MonoBehaviour
     /// </summary>
     private async void InitializeFromLoadManager()
     {
-        await Cysharp.Threading.Tasks.UniTask.WaitUntil(() => LoadManager.Instance != null);
-        await LoadManager.Instance.WaitUntilReady();
-        allUnitDatabase = LoadManager.Instance.GetAllUnitData().ToList();
-        IsDatabaseLoaded = true;
-        databaseLoadTask.TrySetResult(true);
+        LogShopTrace("InitializeFromLoadManager:ENTER", $"hasLoadManager={LoadManager.Instance != null}");
+        try
+        {
+            await Cysharp.Threading.Tasks.UniTask.WaitUntil(() => LoadManager.Instance != null);
+            LogShopTrace("InitializeFromLoadManager:LoadManagerResolved");
+
+            await LoadManager.Instance.WaitUntilReady();
+            allUnitDatabase = LoadManager.Instance.GetAllUnitData().ToList();
+            IsDatabaseLoaded = true;
+            databaseLoadTask.TrySetResult(true);
+
+            LogShopTrace("InitializeFromLoadManager:COMPLETE", $"loadedUnitCount={allUnitDatabase.Count}");
+        }
+        catch (System.Exception ex)
+        {
+            databaseLoadTask.TrySetException(ex);
+            // Debug.LogError($"[ShopManager] InitializeFromLoadManager 예외: {ex}");
+            LogShopTrace("InitializeFromLoadManager:EXCEPTION", $"error={ex.Message}");
+        }
     }
 
     /// <summary>
@@ -43,8 +107,13 @@ public class ShopManager : MonoBehaviour
     /// </summary>
     public async UniTask SetShopItemsFromServerAsync(string[] unitDataNames, int[] starLevels)
     {
+        int nameCount = unitDataNames?.Length ?? 0;
+        int starCount = starLevels?.Length ?? 0;
+        LogShopTrace("SetShopItemsFromServerAsync:ENTER", $"incomingNames={nameCount},incomingStars={starCount}");
+
         // 데이터베이스 로딩 완료 대기
         await WaitUntilDatabaseLoaded();
+        LogShopTrace("SetShopItemsFromServerAsync:DB_READY");
         
         currentShopItems.Clear();
         for (int i = 0; i < _isSlotSold.Length; i++)
@@ -61,9 +130,14 @@ public class ShopManager : MonoBehaviour
             }
             else
             {
-                Debug.LogWarning($"[ShopManager] 유닛 데이터를 찾을 수 없음: {unitDataNames[i]}");
+                // Debug.LogWarning($"[ShopManager] 유닛 데이터를 찾을 수 없음: {unitDataNames[i]} (slot={i})");
             }
         }
+
+        string snapshot = string.Join(", ", currentShopItems.Select(item =>
+            item.UnitData != null ? $"{item.UnitData.name}*{item.StarLevel}" : "null"));
+        LogShopTrace("SetShopItemsFromServerAsync:APPLIED", $"resolved={currentShopItems.Count},items=[{snapshot}]");
+
         GameEvents.TriggerShopRefreshed(playerManager);
     }
 
@@ -81,6 +155,106 @@ public class ShopManager : MonoBehaviour
         // 자동 리롤 제거 - 서버에서 RPC로 동기화해야 함
         return currentShopItems;
     }
+
+    public bool IsSlotSold(int slotIndex)
+    {
+        return slotIndex >= 0 && slotIndex < _isSlotSold.Length && _isSlotSold[slotIndex];
+    }
+
+    public bool[] GetSoldSlotSnapshot()
+    {
+        var copy = new bool[_isSlotSold.Length];
+        System.Array.Copy(_isSlotSold, copy, _isSlotSold.Length);
+        return copy;
+    }
+
+    private void PublishNetworkShopSnapshotIfAuthority(string context)
+    {
+        if (playerManager == null || playerManager.Object == null || !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        playerManager.PublishShopSnapshot(currentShopItems, _isSlotSold, context);
+
+        if (playerManager.Runner != null && playerManager.Runner.IsRunning && playerManager.Runner.IsServer)
+        {
+            string playerIdLabel = TryGetSafePlayerId(out int safePlayerId) ? safePlayerId.ToString() : "unspawned";
+            HostMigrationHandler.Instance?.TryPushHostMigrationSnapshot(
+                playerManager.Runner,
+                $"ShopSnapshot:{context}:P{playerIdLabel}");
+        }
+    }
+
+    public async UniTask<bool> ApplySnapshotFromNetworkAsync(string context, bool triggerRefreshedEvent = true)
+    {
+        LogShopTrace("ApplySnapshotFromNetworkAsync:ENTER", $"context={context}");
+        if (playerManager == null)
+        {
+            LogShopTrace("ApplySnapshotFromNetworkAsync:ABORT_NO_PLAYER", $"context={context}");
+            return false;
+        }
+
+        await WaitUntilDatabaseLoaded();
+
+        if (!playerManager.TryGetShopSnapshot(out string[] unitKeys, out int[] starLevels, out bool[] soldFlags, out int revision, out int round))
+        {
+            LogShopTrace("ApplySnapshotFromNetworkAsync:NO_SNAPSHOT", $"context={context}");
+            return false;
+        }
+
+        // 이미 같은 리비전을 적용했고 상점 데이터가 살아있다면 중복 적용을 생략한다.
+        if (_lastAppliedSnapshotRevision == revision && currentShopItems.Count > 0)
+        {
+            LogShopTrace("ApplySnapshotFromNetworkAsync:SKIP_DUPLICATE_REV", $"context={context},revision={revision}");
+            return true;
+        }
+
+        currentShopItems.Clear();
+        for (int i = 0; i < _isSlotSold.Length; i++)
+        {
+            _isSlotSold[i] = false;
+        }
+
+        int count = Mathf.Min(unitKeys.Length, starLevels.Length);
+        for (int i = 0; i < count; i++)
+        {
+            string unitKey = unitKeys[i];
+            if (string.IsNullOrEmpty(unitKey))
+            {
+                continue;
+            }
+
+            UnitData unitData = LoadManager.Instance?.GetUnitData(unitKey);
+            if (unitData == null)
+            {
+                unitData = await AssetLoader.LoadAssetAsync<UnitData>(unitKey);
+            }
+
+            if (unitData == null)
+            {
+                continue;
+            }
+
+            int star = Mathf.Max(1, starLevels[i]);
+            currentShopItems.Add(new ShopItem(unitData, star));
+            if (i < soldFlags.Length)
+            {
+                _isSlotSold[i] = soldFlags[i];
+            }
+        }
+
+        _lastAppliedSnapshotRevision = revision;
+        LogShopTrace("ApplySnapshotFromNetworkAsync:APPLIED", $"context={context},revision={revision},round={round},count={currentShopItems.Count}");
+
+        if (triggerRefreshedEvent)
+        {
+            GameEvents.TriggerShopRefreshed(playerManager);
+        }
+
+        return currentShopItems.Count > 0;
+    }
+
     /// <summary>
     /// 상점 리롤에 필요한 골드 비용을 반환합니다.
     /// </summary>
@@ -93,15 +267,21 @@ public class ShopManager : MonoBehaviour
     /// <param name="isFree">true이면 골드를 차감하지 않습니다.</param>
     public void Reroll(bool isFree = false)
     {
+        int goldBefore = playerManager != null ? playerManager.GetGold() : -1;
+        LogShopTrace("Reroll:ENTER", $"isFree={isFree},goldBefore={goldBefore}");
+
         if (!IsDatabaseLoaded)
         {
-            Debug.LogWarning("유닛 데이터베이스가 아직 로드되지 않아 리롤할 수 없습니다.");
+            // Debug.LogWarning("유닛 데이터베이스가 아직 로드되지 않아 리롤할 수 없습니다.");
+            LogShopTrace("Reroll:ABORT_DB_NOT_READY");
             return;
         }
 
         if (!isFree && !playerManager.SpendGold(rerollCost))
         {
-            Debug.LogWarning($"Player {playerManager.playerId}: 골드가 부족하여 리롤할 수 없습니다.");
+            string playerIdLabel = TryGetSafePlayerId(out int safePlayerId) ? safePlayerId.ToString() : "unspawned";
+            // Debug.LogWarning($"Player {playerIdLabel}: 골드가 부족하여 리롤할 수 없습니다.");
+            LogShopTrace("Reroll:ABORT_NOT_ENOUGH_GOLD", $"gold={playerManager.GetGold()},cost={rerollCost}");
             return;
         }
 
@@ -135,6 +315,13 @@ public class ShopManager : MonoBehaviour
                 currentShopItems.Add(new ShopItem(randomUnitData, starLevel));
             }
         }
+
+        int goldAfter = playerManager != null ? playerManager.GetGold() : -1;
+        string snapshot = string.Join(", ", currentShopItems.Select(item =>
+            item.UnitData != null ? $"{item.UnitData.name}*{item.StarLevel}" : "null"));
+        LogShopTrace("Reroll:SUCCESS", $"goldAfter={goldAfter},items=[{snapshot}]");
+        PublishNetworkShopSnapshotIfAuthority("ShopManager.Reroll");
+
         GameEvents.TriggerShopRefreshed(playerManager);
     }
 
@@ -144,22 +331,41 @@ public class ShopManager : MonoBehaviour
     /// </summary>
     public async UniTask EnsureShopRerolledAsync()
     {
+        LogShopTrace("EnsureShopRerolledAsync:ENTER");
         await WaitUntilDatabaseLoaded();
+        LogShopTrace("EnsureShopRerolledAsync:DB_READY");
         
         // 상점 아이템이 이미 있으면 대기 없이 반환
-        if (currentShopItems.Count > 0) return;
+        if (currentShopItems.Count > 0)
+        {
+            LogShopTrace("EnsureShopRerolledAsync:ALREADY_READY");
+            return;
+        }
         
         // 서버 데이터 도착을 최대 5초간 대기
         float waited = 0f;
+        int lastLoggedSecond = -1;
         while (currentShopItems.Count == 0 && waited < 5f)
         {
             await UniTask.Delay(100);
             waited += 0.1f;
+
+            int waitedSecond = Mathf.FloorToInt(waited);
+            if (waitedSecond > lastLoggedSecond)
+            {
+                lastLoggedSecond = waitedSecond;
+                LogShopTrace("EnsureShopRerolledAsync:WAITING", $"waited={waited:F1}s");
+            }
         }
         
         if (currentShopItems.Count == 0)
         {
-            UnityEngine.Debug.LogWarning("[ShopManager] 상점 아이템 대기 타임아웃");
+            // UnityEngine.Debug.LogWarning("[ShopManager] 상점 아이템 대기 타임아웃");
+            LogShopTrace("EnsureShopRerolledAsync:TIMEOUT", $"waited={waited:F1}s");
+        }
+        else
+        {
+            LogShopTrace("EnsureShopRerolledAsync:SUCCESS", $"waited={waited:F1}s");
         }
     }
 
@@ -172,6 +378,7 @@ public class ShopManager : MonoBehaviour
         if (slotIndex >= 0 && slotIndex < _isSlotSold.Length)
         {
             _isSlotSold[slotIndex] = true;
+            PublishNetworkShopSnapshotIfAuthority("ShopManager.MarkSlotAsPurchased");
         }
     }
 

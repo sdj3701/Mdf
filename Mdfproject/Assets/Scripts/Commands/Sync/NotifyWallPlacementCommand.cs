@@ -1,4 +1,4 @@
-// Assets/Scripts/Commands/Sync/NotifyWallPlacementCommand.cs
+﻿// Assets/Scripts/Commands/Sync/NotifyWallPlacementCommand.cs
 
 using UnityEngine;
 
@@ -22,6 +22,6 @@ public class NotifyWallPlacementCommand : ICommand
     {
         var pos = new Vector3Int(X, Y, 0);
         GameEvents.TriggerWallPlacementSucceeded(PlayerId, pos);
-        Debug.Log($"<color=green>[NotifyWallPlacementCommand] Player {PlayerId}: 벽 배치 성공 알림 {pos}</color>");
+        // Debug.Log($"<color=green>[NotifyWallPlacementCommand] Player {PlayerId}: 벽 배치 성공 알림 {pos}</color>");
     }
 }

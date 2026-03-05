@@ -9,10 +9,26 @@ public class PhaseTimerUI : MonoBehaviour
 
     private GameManagers gameManager;
 
+    private void RefreshGameManagerReference(bool verboseLog)
+    {
+        var latest = GameManagers.Instance;
+        if (latest == gameManager)
+        {
+            return;
+        }
+
+        gameManager = latest;
+        if (verboseLog && gameManager != null)
+        {
+            Debug.Log("[PhaseTimerUI] GameManagers 참조 재바인딩 완료");
+        }
+    }
+
     void OnEnable()
     {
         // GameManagers가 준비될 때 이벤트를 구독합니다.
         GameEvents.OnGameManagersReady += OnGameManagersReady;
+        RefreshGameManagerReference(false);
     }
 
     void OnDisable()
@@ -31,32 +47,22 @@ public class PhaseTimerUI : MonoBehaviour
         }
 
         // Start()에서도 시도해봅니다 (이미 준비되어 있을 수 있음)
-        if (gameManager == null)
-        {
-            gameManager = GameManagers.Instance;
-        }
+        RefreshGameManagerReference(false);
     }
 
     private void OnGameManagersReady()
     {
         // GameManagers가 준비되면 참조를 저장합니다.
-        if (gameManager == null)
-        {
-            gameManager = GameManagers.Instance;
-            Debug.Log("[PhaseTimerUI] GameManagers 참조 획득 완료");
-        }
+        RefreshGameManagerReference(true);
     }
 
     void Update()
     {
-        // GameManager가 없으면 다시 시도합니다.
+        // Host Migration 후 Instance 교체를 반영하기 위해 매 프레임 최신 참조를 확인합니다.
+        RefreshGameManagerReference(false);
         if (gameManager == null)
         {
-            gameManager = GameManagers.Instance;
-            if (gameManager == null)
-            {
-                return;
-            }
+            return;
         }
         
         // GameOver 상태이면 네트워크 프로퍼티 접근 안함 (씬 전환 대기 중)

@@ -17,6 +17,8 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
     private Vector3Int wallGridPosition;
     private FieldManager fieldManager;
     private StatusBarUI statusBarUI;
+    public Vector3Int GridPosition => wallGridPosition;
+    public FieldManager OwnerFieldManager => fieldManager;
 
     public void SetStatusBar(StatusBarUI ui)
     {
@@ -29,6 +31,20 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
         this.wallGridPosition = gridPosition;
         this.currentHealth = maxHealth;
         OnHealthChanged?.Invoke(currentHealth, maxHealth);
+    }
+
+    /// <summary>
+    /// Host Migration 이후 비네트워크 런타임 참조를 다시 연결합니다.
+    /// </summary>
+    public void RebindAfterMigration(FieldManager manager, Vector3Int gridPosition)
+    {
+        fieldManager = manager;
+        wallGridPosition = gridPosition;
+
+        if (currentHealth <= 0f)
+        {
+            currentHealth = maxHealth;
+        }
     }
 
     public void TakeDamage(float baseDamage, DamageType damageType)

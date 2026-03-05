@@ -27,6 +27,79 @@
 
     private PlayerManager trackedPlayer;
 
+    private static bool IsPlayerReadable(PlayerManager player)
+    {
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm != null && gm.Runner != null && player.Runner != null && player.Runner != gm.Runner)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryGetPlayerIdSafe(PlayerManager player, out int playerId)
+    {
+        playerId = -1;
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            playerId = player.playerId;
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetHealthSafe(PlayerManager player, out int health)
+    {
+        health = 0;
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            health = player.GetHealth();
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetFightStateSafe(PlayerManager player, out bool isFighting)
+    {
+        isFighting = false;
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            isFighting = player.IsActivelyFighting;
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Inspector에 바인딩되지 않은 UI 요소가 있으면 자식 오브젝트에서 자동으로 찾아 바인딩을 시도합니다.
     /// 순서:
@@ -336,7 +409,7 @@
          {
              // UI 요소들의 참조가 유효한지 확인
              string nickname = ResolveNickname(trackedPlayer);
-             string playerIdString = trackedPlayer != null ? trackedPlayer.playerId.ToString() : "Unknown";
+             string playerIdString = TryGetPlayerIdSafe(trackedPlayer, out int safePlayerId) ? safePlayerId.ToString() : "Unknown";
              string displayName = !string.IsNullOrEmpty(nickname) ? nickname : $"Player {playerIdString}";
              if (playerNameText != null)
              {
@@ -353,13 +426,12 @@
 
              if (healthText != null)
              {
-                 // 플레이어가 스폰된 상태에서 체력 가져오기
-                 int healthValue = trackedPlayer.GetHealth();
+                 int healthValue = TryGetHealthSafe(trackedPlayer, out int safeHealth) ? safeHealth : 0;
                  healthText.text = healthValue.ToString();
              }
              else if (legacyHealthText != null)
              {
-                 int healthValue = trackedPlayer.GetHealth();
+                 int healthValue = TryGetHealthSafe(trackedPlayer, out int safeHealth) ? safeHealth : 0;
                  legacyHealthText.text = healthValue.ToString();
              }
              else
@@ -372,7 +444,7 @@
                  // 초기 전투 상태 설정
                  battleStatusImage.gameObject.SetActive(true); // 이미지를 다시 활성화
                  // 플레이어의 전투 상태에 따라 표시 (HasStateAuthority 조건 제거 - 모든 플레이어 표시)
-                 if (trackedPlayer.IsActivelyFighting)
+                 if (TryGetFightStateSafe(trackedPlayer, out bool isFighting) && isFighting)
                  {
                      battleStatusImage.sprite = combatSprite; // 싸우는 중이면 칼 모양
                  }
@@ -389,7 +461,7 @@
 
          // 슬롯을 활성화 상태로 설정 (null 플레이어라도 슬롯은 보여야 함)
          gameObject.SetActive(true);
-         string logPlayerId = (trackedPlayer != null && trackedPlayer.HasStateAuthority) ? trackedPlayer.playerId.ToString() : "Unknown";
+         string logPlayerId = TryGetPlayerIdSafe(trackedPlayer, out int logSafeId) ? logSafeId.ToString() : "Unknown";
          Debug.Log($"PlayerRankSlot for Player {logPlayerId} activated. Active: {gameObject.activeInHierarchy}");
 
          // 클릭 이벤트 설정 (카메라 이동용)
@@ -425,9 +497,9 @@
      /// <summary>
      /// 슬롯 클릭 시 호출됩니다. 해당 플레이어의 필드로 카메라를 이동합니다.
      /// </summary>
-     private void OnSlotClicked()
-     {
-         if (trackedPlayer == null)
+    private void OnSlotClicked()
+    {
+         if (!IsPlayerReadable(trackedPlayer))
          {
              Debug.Log("[PlayerRankSlot] 추적 중인 플레이어가 없습니다");
              return;
@@ -456,16 +528,28 @@
      /// <summary>
      /// 해당 플레이어 필드로 이동할 때 공격 모드 카메라를 사용해야 하는지 확인합니다.
      /// </summary>
-     private bool ShouldUseAttackModeCamera(PlayerManager targetPlayer)
-     {
-         // 로컬 플레이어가 공격자인지 확인
-         var localPlayer = GameManagers.Instance?.localPlayer;
-         if (localPlayer == null || !localPlayer.IsAttackerInCurrentBattle) return false;
+    private bool ShouldUseAttackModeCamera(PlayerManager targetPlayer)
+    {
+        // 로컬 플레이어가 공격자인지 확인
+        var localPlayer = GameManagers.Instance?.localPlayer;
+        if (localPlayer == null || !IsPlayerReadable(localPlayer)) return false;
+        if (!TryGetFightStateSafe(localPlayer, out _)) return false;
+        try
+        {
+            if (!localPlayer.IsAttackerInCurrentBattle) return false;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
          
-         // 현재 전투 상대가 해당 플레이어인지 확인
-         int opponentId = GameManagers.Instance.GetBattleOpponent(localPlayer.playerId);
-         return opponentId == targetPlayer.playerId;
-     }
+        // 현재 전투 상대가 해당 플레이어인지 확인
+        if (!TryGetPlayerIdSafe(localPlayer, out int localPlayerId)) return false;
+        if (!TryGetPlayerIdSafe(targetPlayer, out int targetPlayerId)) return false;
+
+        int opponentId = GameManagers.Instance.GetBattleOpponent(localPlayerId);
+        return opponentId == targetPlayerId;
+    }
 
      /// <summary>
      /// 슬롯을 직접 데이터로 채우는 범용 메서드(테스트/디버깅용).
@@ -489,9 +573,14 @@
      /// <summary>
      /// 매 프레임 호출되어 UI를 최신 정보로 업데이트합니다.
      /// </summary>
-     public void UpdateUI()
-     {
+    public void UpdateUI()
+    {
          if (trackedPlayer == null || !gameObject.activeInHierarchy)
+         {
+             return;
+         }
+
+         if (!IsPlayerReadable(trackedPlayer))
          {
              return;
          }
@@ -502,17 +591,17 @@
          // 체력 업데이트
          if (healthText != null)
          {
-             healthText.text = trackedPlayer.GetHealth().ToString();
+             healthText.text = (TryGetHealthSafe(trackedPlayer, out int safeHealth) ? safeHealth : 0).ToString();
          }
          else if (legacyHealthText != null)
          {
-             legacyHealthText.text = trackedPlayer.GetHealth().ToString();
+             legacyHealthText.text = (TryGetHealthSafe(trackedPlayer, out int safeHealth) ? safeHealth : 0).ToString();
          }
 
          // 전투 상태 업데이트(개별 플레이어 기준)
          if (battleStatusImage != null)
          {
-             if (trackedPlayer.IsActivelyFighting)
+             if (TryGetFightStateSafe(trackedPlayer, out bool isFighting) && isFighting)
              {
                  battleStatusImage.sprite = combatSprite; // 싸우는 중이면 칼 모양
              }

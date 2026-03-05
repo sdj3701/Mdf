@@ -20,6 +20,30 @@ public class PlayerHUDController : MonoBehaviour
     private PlayerManager localPlayer;
     private GameManagers gameManager;
 
+    private void RefreshRuntimeReferences(bool verboseLog = false)
+    {
+        var latestGameManager = GameManagers.Instance;
+        if (latestGameManager != gameManager)
+        {
+            gameManager = latestGameManager;
+            localPlayer = null;
+
+            if (verboseLog && gameManager != null)
+            {
+                Debug.Log("[PlayerHUDController] GameManagers 참조 재바인딩 완료");
+            }
+        }
+
+        if (gameManager != null && gameManager.localPlayer != localPlayer)
+        {
+            localPlayer = gameManager.localPlayer;
+            if (verboseLog && localPlayer != null)
+            {
+                Debug.Log($"[PlayerHUDController] localPlayer 재바인딩 완료: Player {localPlayer.playerId}");
+            }
+        }
+    }
+
     void OnEnable()
     {
         GameEvents.OnGameManagersReady += OnGameManagersReady;
@@ -53,14 +77,7 @@ public class PlayerHUDController : MonoBehaviour
 
     void Start()
     {
-        if (gameManager == null)
-        {
-            gameManager = GameManagers.Instance;
-        }
-        if (gameManager != null && localPlayer == null)
-        {
-            localPlayer = gameManager.localPlayer;
-        }
+        RefreshRuntimeReferences();
 
         SubscribeToShopVisibility();
         RefreshShopToggleText();
@@ -73,14 +90,7 @@ public class PlayerHUDController : MonoBehaviour
 
     private void OnGameManagersReady()
     {
-        if (gameManager == null)
-        {
-            gameManager = GameManagers.Instance;
-        }
-        if (gameManager != null && localPlayer == null)
-        {
-            localPlayer = gameManager.localPlayer;
-        }
+        RefreshRuntimeReferences(true);
 
         SubscribeToShopVisibility();
         RefreshShopToggleText();
@@ -95,14 +105,17 @@ public class PlayerHUDController : MonoBehaviour
 
     void Update()
     {
-        // GameManager가 없으면 매 프레임 시도
+        // Host Migration 후 Instance 교체를 반영하기 위해 매 프레임 최신 참조를 확인합니다.
+        RefreshRuntimeReferences();
         if (gameManager == null)
         {
-            gameManager = GameManagers.Instance;
-            if (gameManager == null)
-            {
-                return;
-            }
+            return;
+        }
+        
+        // Host Migration 중이거나 Spawned 되지 않은 경우 네트워크 프로퍼티 접근 안함
+        if (!gameManager.IsReadyForNetworkAccess)
+        {
+            return;
         }
         
         // GameOver 상태이면 네트워크 프로퍼티 접근 안함 (씬 전환 대기 중)
@@ -111,14 +124,9 @@ public class PlayerHUDController : MonoBehaviour
             return;
         }
 
-        // localPlayer가 없으면 매 프레임 시도
         if (localPlayer == null)
         {
-            localPlayer = gameManager.localPlayer;
-            if (localPlayer == null)
-            {
-                return;
-            }
+            return;
         }
 
         // HUD UI 업데이트

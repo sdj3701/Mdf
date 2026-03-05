@@ -1076,6 +1076,8 @@ MonoBehaviour:
   _playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
   maxSessionPlayers: 2
+  _connectionLossPolicy: 0
+  _cloudReconnectFallbackDelaySeconds: 5
 --- !u!1 &740816618
 GameObject:
   m_ObjectHideFlags: 0
@@ -3156,7 +3158,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &1729066463
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3169,6 +3171,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 29fb8934b8675f642a959f813c9f4557, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  maxLogMessages: 40
+  visible: 1
+  toggleKey: 289
+  copyKey: 99
+  clearKey: 107
 --- !u!4 &1729066464
 Transform:
   m_ObjectHideFlags: 0

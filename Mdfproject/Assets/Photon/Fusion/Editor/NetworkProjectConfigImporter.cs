@@ -76,13 +76,13 @@ namespace Fusion.Editor {
       var paths = new List<string>();
 
       foreach (var it in AssetDatabaseUtils.IterateAssets<GameObject>(label: FusionPrefabTag)) {
-        var prefabPath = AssetDatabase.GetAssetPath(it.instanceID);
+        var prefabPath = AssetDatabase.GetAssetPath(it.GetObjectId());
         var context    = new NetworkAssetSourceFactoryContext(it);
 
         INetworkPrefabSource source = factory.TryCreatePrefabSource(context);
 
         if (source == null) {
-          ctx.LogImportError($"Unable to create prefab asset for {AssetDatabase.GetAssetPath(it.instanceID)} ({it.guid})");
+          ctx.LogImportError($"Unable to create prefab asset for {AssetDatabase.GetAssetPath(it.GetObjectId())} ({it.guid})");
           continue;
         }
 

@@ -32,6 +32,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     // === 상태 동기화 (클라이언트 애니메이션/사망 처리용) ===
     [Networked] public NetworkBool NetworkedIsDead { get; set; }
     [Networked] public NetworkBool NetworkedIsAttacking { get; set; }
+    [Networked] private int NetworkedStarLevel { get; set; }
+    [Networked] private NetworkString<_64> NetworkedUnitDataKey { get; set; }
 
     private bool _hasSpawned;
     private bool _hasLocalHealthValues;
@@ -140,6 +142,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private Coroutine _skillCastingRoutine;
     private ChangeDetector _changeDetector;
     private BuffManager _buffManager;
+    private float _lastRecoverFailureLogTime;
+    private float _lastMissingUnitDataLogTime;
 
     /// <summary>
     /// 이 유닛의 소유자(PlayerManager)에 대한 외부 접근자.
@@ -196,6 +200,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         _hasSpawned = true;
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
         TryApplyPendingHealthToNetworked();
+        RebindAfterMigration(owner, "Unit.Spawned", false);
     }
     
     /// <summary>
@@ -292,6 +297,342 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return true;
         }
         return Object.HasStateAuthority;
+    }
+
+    private static string StripTrailingDigits(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        int end = value.Length;
+        while (end > 0 && char.IsDigit(value[end - 1]))
+        {
+            end--;
+        }
+
+        return end > 0 ? value.Substring(0, end) : value;
+    }
+
+    private static string RemoveUnitDataPrefix(string value)
+    {
+        const string prefix = "UnitData_";
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        return value.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase)
+            ? value.Substring(prefix.Length)
+            : value;
+    }
+
+    private void TryRecoverOwnerReference(string context)
+    {
+        if (owner != null)
+        {
+            return;
+        }
+
+        owner = GetComponentInParent<PlayerManager>();
+
+        if (owner == null && Object != null)
+        {
+            var allPlayers = FindObjectsOfType<PlayerManager>();
+            owner = allPlayers.FirstOrDefault(pm =>
+                pm != null &&
+                pm.Object != null &&
+                pm.Object.InputAuthority == Object.InputAuthority);
+        }
+
+        if (owner == null && GameManagers.Instance != null)
+        {
+            owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
+                pm != null &&
+                pm.ownedUnits != null &&
+                pm.ownedUnits.Contains(this));
+        }
+
+        if (owner != null && owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
+        {
+            owner.ownedUnits.Add(this);
+        }
+    }
+
+    private bool EnsureRuntimeReferences(string context, bool verboseFailure)
+    {
+        if (owner == null)
+        {
+            TryRecoverOwnerReference(context);
+        }
+
+        if (manaController == null)
+        {
+            manaController = GetComponent<ManaController>();
+        }
+
+        if (_buffManager == null)
+        {
+            _buffManager = GetComponent<BuffManager>();
+        }
+
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>();
+            }
+        }
+
+        if (unitData == null)
+        {
+            TryRecoverUnitData(context);
+        }
+
+        bool ready = unitData != null;
+        if (!ready && verboseFailure && Time.unscaledTime - _lastRecoverFailureLogTime > 0.5f)
+        {
+            _lastRecoverFailureLogTime = Time.unscaledTime;
+            Debug.LogWarning($"[Unit] Runtime 참조 미복구 ({context}) name={name}, owner={(owner != null ? owner.playerId.ToString() : "null")}, hasObject={(Object != null)}, hasRunner={(Runner != null)}");
+        }
+
+        return ready;
+    }
+
+    private static string NormalizeUnitDataKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
+        return key.Replace("(Clone)", string.Empty).Trim();
+    }
+
+    private void SyncNetworkIdentityFromLocalData()
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (starLevel > 0)
+        {
+            NetworkedStarLevel = starLevel;
+        }
+
+        string key = unitData != null ? NormalizeUnitDataKey(unitData.name) : string.Empty;
+        if (!string.IsNullOrEmpty(key))
+        {
+            NetworkedUnitDataKey = key;
+        }
+    }
+
+    private void TryRecoverUnitDataFromNetworkIdentity(string context)
+    {
+        if (unitData != null)
+        {
+            return;
+        }
+
+        string key = NormalizeUnitDataKey(NetworkedUnitDataKey.ToString());
+        if (string.IsNullOrEmpty(key))
+        {
+            return;
+        }
+
+        var lm = LoadManager.Instance;
+        if (lm == null || !lm.IsReady)
+        {
+            return;
+        }
+
+        UnitData resolved = lm.GetUnitData(key);
+        if (resolved == null)
+        {
+            string stripped = RemoveUnitDataPrefix(key);
+            resolved = lm.GetUnitData(stripped);
+            if (resolved == null)
+            {
+                var all = lm.GetAllUnitData();
+                resolved = all.FirstOrDefault(d =>
+                    d != null &&
+                    (string.Equals(NormalizeUnitDataKey(d.name), key, System.StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(NormalizeUnitDataKey(d.unitName), key, System.StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(NormalizeUnitDataKey(d.name), stripped, System.StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(NormalizeUnitDataKey(d.unitName), stripped, System.StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+
+        if (resolved != null)
+        {
+            unitData = resolved;
+            if (Time.unscaledTime - _lastMissingUnitDataLogTime > 0.5f)
+            {
+                _lastMissingUnitDataLogTime = Time.unscaledTime;
+                Debug.Log($"[Unit] Network identity로 UnitData 복구 ({context}) name={name}, key={key}, resolved={resolved.name}");
+            }
+        }
+    }
+
+    public bool RebindAfterMigration(PlayerManager expectedOwner, string context, bool verboseFailure = false)
+    {
+        if (expectedOwner != null)
+        {
+            owner = expectedOwner;
+            if (owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
+            {
+                owner.ownedUnits.Add(this);
+            }
+        }
+
+        if (starLevel <= 0)
+        {
+            starLevel = NetworkedStarLevel > 0 ? NetworkedStarLevel : 1;
+        }
+
+        TryRecoverUnitDataFromNetworkIdentity(context);
+        bool ready = EnsureRuntimeReferences(context, verboseFailure);
+
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>(true);
+            }
+        }
+        CacheAttackClipDurationFromController();
+        EnsureAnimationEventProxy();
+        SyncNetworkIdentityFromLocalData();
+
+        return ready;
+    }
+
+    private void TryRecoverUnitData(string context)
+    {
+        TryRecoverOwnerReference(context);
+
+        var lm = LoadManager.Instance;
+        if (lm == null || !lm.IsReady)
+        {
+            return;
+        }
+
+        var all = lm.GetAllUnitData();
+        if (all == null || all.Count == 0)
+        {
+            return;
+        }
+
+        string rawName = gameObject != null ? gameObject.name : string.Empty;
+        string normalized = rawName.Replace("(Clone)", string.Empty).Trim();
+        string normalizedWithoutDigits = StripTrailingDigits(normalized);
+
+        var candidates = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        void AddCandidate(string value)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                candidates.Add(value.Trim());
+            }
+        }
+
+        AddCandidate(normalized);
+        AddCandidate(normalizedWithoutDigits);
+        AddCandidate(RemoveUnitDataPrefix(normalized));
+        AddCandidate(RemoveUnitDataPrefix(normalizedWithoutDigits));
+        AddCandidate($"UnitData_{normalized}");
+        AddCandidate($"UnitData_{normalizedWithoutDigits}");
+
+        bool MatchesPrefabKey(UnitData data, string candidate, bool fuzzy)
+        {
+            if (data?.prefabsByStarLevel == null || string.IsNullOrWhiteSpace(candidate))
+            {
+                return false;
+            }
+
+            string candidateTrimmed = candidate.Trim();
+            string candidateNoDigits = StripTrailingDigits(candidateTrimmed);
+            for (int i = 0; i < data.prefabsByStarLevel.Length; i++)
+            {
+                string prefabKey = data.prefabsByStarLevel[i];
+                if (string.IsNullOrWhiteSpace(prefabKey))
+                {
+                    continue;
+                }
+
+                string prefabTrimmed = prefabKey.Trim();
+                string prefabNoClone = prefabTrimmed.Replace("(Clone)", string.Empty).Trim();
+                string prefabNoDigits = StripTrailingDigits(prefabNoClone);
+
+                if (!fuzzy)
+                {
+                    if (string.Equals(prefabTrimmed, candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(prefabNoClone, candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(prefabNoDigits, candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(prefabNoDigits, candidateNoDigits, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
+                if (prefabTrimmed.IndexOf(candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    prefabNoClone.IndexOf(candidateTrimmed, System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    (!string.IsNullOrWhiteSpace(candidateNoDigits) &&
+                     prefabNoDigits.IndexOf(candidateNoDigits, System.StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        UnitData resolved = all.FirstOrDefault(d =>
+            d != null && candidates.Any(candidate =>
+                string.Equals(d.name, candidate, System.StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(RemoveUnitDataPrefix(d.name), candidate, System.StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(d.unitName, candidate, System.StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(RemoveUnitDataPrefix(d.unitName), candidate, System.StringComparison.OrdinalIgnoreCase) ||
+                MatchesPrefabKey(d, candidate, false)));
+
+        if (resolved == null)
+        {
+            var fuzzy = all.Where(d => d != null && candidates.Any(candidate =>
+            {
+                if (string.IsNullOrWhiteSpace(candidate))
+                {
+                    return false;
+                }
+
+                bool inName = d.name != null && d.name.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                bool inUnitName = d.unitName != null && d.unitName.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                bool inNameNoPrefix = RemoveUnitDataPrefix(d.name)?.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                bool inUnitNameNoPrefix = RemoveUnitDataPrefix(d.unitName)?.IndexOf(candidate, System.StringComparison.OrdinalIgnoreCase) >= 0;
+                bool inPrefabKey = MatchesPrefabKey(d, candidate, true);
+                return inName || inUnitName || inNameNoPrefix || inUnitNameNoPrefix || inPrefabKey;
+            })).ToList();
+            if (fuzzy.Count == 1)
+            {
+                resolved = fuzzy[0];
+            }
+        }
+
+        if (resolved != null)
+        {
+            unitData = resolved;
+            Debug.LogWarning($"[Unit] HostMigration 후 UnitData 자동 복구 성공 ({context}) name={name}, resolved={resolved.name}, owner={(owner != null ? owner.playerId.ToString() : "null")}");
+        }
+        else if (Time.unscaledTime - _lastMissingUnitDataLogTime > 1f)
+        {
+            _lastMissingUnitDataLogTime = Time.unscaledTime;
+            Debug.LogWarning($"[Unit] UnitData 복구 실패 ({context}) name={name}, normalized={normalized}, candidates=[{string.Join(", ", candidates)}]");
+        }
     }
 
     void OnEnable()
@@ -501,6 +842,25 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         proxy.Initialize(this);
     }
 
+    public bool HasAnimationEventProxy()
+    {
+        if (animator == null)
+        {
+            animator = GetComponent<Animator>();
+            if (animator == null)
+            {
+                animator = GetComponentInChildren<Animator>(true);
+            }
+        }
+
+        if (animator == null)
+        {
+            return false;
+        }
+
+        return animator.GetComponent<UnitAnimationEventProxy>() != null;
+    }
+
     public float GetPermanentAdjustedBaseAttackDamage()
     {
         if (unitData == null) return 0f;
@@ -581,6 +941,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
         this.starLevel = initialStarLevel;
+        SyncNetworkIdentityFromLocalData();
         manaController = GetComponent<ManaController>();
         _buffManager = GetComponent<BuffManager>();
         if (animator == null)
@@ -643,6 +1004,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             // [Fix] 전투 시작 시 공격 쿨다운 초기화 - 첫 공격 즉시 실행
             lastAttackAnimTime = -999f;
             _hasPendingAttack = false;
+            EnsureRuntimeReferences("HandleGameStateChanged(BattleEnter)", false);
             
             StartAttackLoop();
             _nextProjectileVfxTime = Time.time;
@@ -1001,6 +1363,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public void StartAttackLoop()
     {
         if (attackCoroutine != null) StopCoroutine(attackCoroutine);
+        EnsureRuntimeReferences("StartAttackLoop", false);
         attackCoroutine = StartCoroutine(AttackLoop());
     }
 
@@ -1008,10 +1371,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         float nextAttackTime = 0f;
         bool hadTargetLastFrame = false;
-        bool isMelee = unitData.unitType == UnitType.Melee;
         
         while (isCombatPhase)
         {
+            if (!EnsureRuntimeReferences("AttackLoop", true))
+            {
+                yield return null;
+                continue;
+            }
+
+            bool isMelee = unitData.unitType == UnitType.Melee;
+
             if (currentAttackSpeed <= 0)
             {
                 yield return null;
@@ -1379,6 +1749,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public bool IsBlockingFull()
     {
+        if (Data == null) return false;
         return blockedMonsters.Count >= Data.blockCount;
     }
 
@@ -1387,6 +1758,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public bool TryBlockMonster(Monster monster)
     {
+        if (Data == null) return false;
         if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
             monster.HasTrait(MonsterTraits.Unblockable) ||
             monster.Data.monsterType == MonsterType.Flying ||
@@ -1409,6 +1781,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     private void OnDestroy()
     {
+        GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+
         // [수정됨] 오브젝트 파괴 시 이벤트 구독을 확실히 해제합니다.
         if (manaController != null)
         {
@@ -1455,7 +1829,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         gameObject.SetActive(false);
-        Debug.Log($"<color=red>{unitData.unitName}이(가) 전투에서 쓰러졌습니다.</color>");
+        string deadUnitName = unitData != null ? unitData.unitName : name;
+        Debug.Log($"<color=red>{deadUnitName}이(가) 전투에서 쓰러졌습니다.</color>");
     }
 
     public void Heal(float amount)
