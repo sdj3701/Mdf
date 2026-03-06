@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 73835f266bc110d45b861166d5a327d1, type: 3}
+  m_Name: Scroll_Berserk
+  m_EditorClassIdentifier: 
+  scrollName: Berserk
+  description: 
+  icon: {fileID: 21300000, guid: 1a488ad75fed8cf47aeff44454147552, type: 3}
+  tier: 0
+  skillData: {fileID: 11400000, guid: 641f4a70a81c61546a57eef7a31924cd, type: 2}

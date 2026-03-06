@@ -85,6 +85,18 @@ public static class GameEvents
     }
 
     /// <summary>
+    /// 마법 스크롤 보유 목록이 변경되었을 때 (UI 갱신용)
+    /// </summary>
+    public static event Action<int, IReadOnlyList<MagicScrollData>> OnMagicScrollPoolChanged;
+    public static void TriggerMagicScrollPoolChanged(int playerID, IReadOnlyList<MagicScrollData> scrolls) => OnMagicScrollPoolChanged?.Invoke(playerID, scrolls);
+
+    /// <summary>
+    /// 마법 스크롤이 사용되었을 때 (네트워크 브로드캐스트 후 처리용)
+    /// </summary>
+    public static event Action<int, string, Vector3> OnMagicScrollUsed;
+    public static void TriggerMagicScrollUsed(int playerID, string scrollDataName, Vector3 position) => OnMagicScrollUsed?.Invoke(playerID, scrollDataName, position);
+
+    /// <summary>
     /// 전투 시퀀스가 시작되었을 때 (isAttacking: true면 공격, false면 수비)
     /// </summary>
     public static event Action<bool> OnBattleSequenceStarted;

@@ -848,6 +848,7 @@ MonoBehaviour:
   - {fileID: 5554514500885127117, guid: bf572c069c8749f4f8a01c64f98f463f, type: 3}
   - {fileID: 37613086633180501, guid: 18e65b521fc35fa4f9dbdb1d3461950b, type: 3}
   - {fileID: 37613086633180501, guid: 6eaa42a01ce5cac4bb0de7380bb59d26, type: 3}
+  - {fileID: 5554514500885127117, guid: 023e86bb5d5919544951bbfa65ef4240, type: 3}
   mainCanvas: {fileID: 2218765290028887320}
   preferredMainCanvasName: MainCanvas
   preferredMainCanvasTag: MainCanvas

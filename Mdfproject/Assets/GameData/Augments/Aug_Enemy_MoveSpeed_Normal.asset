@@ -23,3 +23,4 @@ MonoBehaviour:
   isBossSummon: 0
   bossMonsterData: {fileID: 0}
   monsterSpawnEntries: []
+  magicScrollData: {fileID: 0}

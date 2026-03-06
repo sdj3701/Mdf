@@ -25,3 +25,4 @@ MonoBehaviour:
   isBossSummon: 1
   bossMonsterData: {fileID: 11400000, guid: b9ad52bb50cfab741bb309010e961c5b, type: 2}
   monsterSpawnEntries: []
+  magicScrollData: {fileID: 0}

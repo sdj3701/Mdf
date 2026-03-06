@@ -116,6 +116,70 @@ public partial class GameManagers
         return null;
     }
 
+    private bool IsRpcSourceAuthorizedForPlayer(PlayerManager player, PlayerRef source)
+    {
+        if (!IsPlayerReadable(player) || source == PlayerRef.None)
+        {
+            return false;
+        }
+
+        return player.Object.InputAuthority == source;
+    }
+
+    private bool TryGetBattleDefenderField(PlayerManager attacker, out FieldManager defenderField)
+    {
+        defenderField = null;
+        if (!TryGetPlayerIdSafe(attacker, out int attackerId))
+        {
+            return false;
+        }
+
+        int defenderId = GetBattleOpponent(attackerId);
+        if (defenderId < 0)
+        {
+            return false;
+        }
+
+        var defender = GetPlayer(defenderId);
+        if (defender?.fieldManager == null)
+        {
+            return false;
+        }
+
+        defenderField = defender.fieldManager;
+        return true;
+    }
+
+    private static bool IsFiniteVector3(Vector3 value)
+    {
+        return float.IsFinite(value.x) &&
+               float.IsFinite(value.y) &&
+               float.IsFinite(value.z);
+    }
+
+    private static bool IsWithinFieldOuterBounds(FieldManager field, Vector3 worldPosition)
+    {
+        if (field == null || !IsFiniteVector3(worldPosition))
+        {
+            return false;
+        }
+
+        Vector3 totalOrigin = field.TotalGridOrigin;
+        Vector2Int totalGridSize = field.TotalGridSize;
+        float cellSize = field.cellSize;
+        float epsilon = Mathf.Max(0.01f, cellSize * 0.05f);
+
+        float minX = totalOrigin.x - epsilon;
+        float minZ = totalOrigin.z - epsilon;
+        float maxX = totalOrigin.x + (totalGridSize.x * cellSize) + epsilon;
+        float maxZ = totalOrigin.z + (totalGridSize.y * cellSize) + epsilon;
+
+        return worldPosition.x >= minX &&
+               worldPosition.x <= maxX &&
+               worldPosition.z >= minZ &&
+               worldPosition.z <= maxZ;
+    }
+
     /// <summary>
     /// Host Migration 후 로컬 플레이어 참조를 다시 연결합니다.
     /// </summary>

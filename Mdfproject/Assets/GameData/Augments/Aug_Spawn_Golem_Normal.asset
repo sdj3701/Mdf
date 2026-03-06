@@ -25,3 +25,4 @@ MonoBehaviour:
   monsterSpawnEntries:
   - monsterData: {fileID: 11400000, guid: 6c2b00d43e78aa34986b6826eb09d294, type: 2}
     count: 3
+  magicScrollData: {fileID: 0}
