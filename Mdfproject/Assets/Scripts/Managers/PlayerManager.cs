@@ -949,6 +949,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 RPC_SyncPresentedAugments(augNames);
             }
         }
+
+        RPC_SyncOwnedMagicScrolls(BuildOwnedMagicScrollNameArray());
     }
 
     /// <summary>
@@ -1218,9 +1220,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             _ownedScrolls.Add(scrollData);
             Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 획득 (총 {_ownedScrolls.Count}개)</color>");
-            
-            // UI 갱신 이벤트
-            GameEvents.TriggerMagicScrollPoolChanged(playerId, _ownedScrolls);
+
+            PublishOwnedMagicScrollsChanged();
+            SyncOwnedMagicScrollsToClientsIfAuthoritative();
         }
     }
 
@@ -1238,13 +1240,64 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             _ownedScrolls.Remove(found);
             Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 사용 (남은 {_ownedScrolls.Count}개)</color>");
-            
-            // UI 갱신 이벤트
-            GameEvents.TriggerMagicScrollPoolChanged(playerId, _ownedScrolls);
+
+            PublishOwnedMagicScrollsChanged();
+            SyncOwnedMagicScrollsToClientsIfAuthoritative();
             return true;
         }
         
         return false;
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public async void RPC_SyncOwnedMagicScrolls(string[] scrollDataNames)
+    {
+        if (Object != null && Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        var syncedScrolls = new List<MagicScrollData>(scrollDataNames?.Length ?? 0);
+        if (scrollDataNames != null)
+        {
+            foreach (string scrollDataName in scrollDataNames)
+            {
+                if (string.IsNullOrWhiteSpace(scrollDataName))
+                {
+                    continue;
+                }
+
+                MagicScrollData scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
+                if (scrollData != null)
+                {
+                    syncedScrolls.Add(scrollData);
+                }
+            }
+        }
+
+        _ownedScrolls = syncedScrolls;
+        PublishOwnedMagicScrollsChanged();
+    }
+
+    private string[] BuildOwnedMagicScrollNameArray()
+    {
+        return _ownedScrolls
+            .Where(scroll => scroll != null && !string.IsNullOrWhiteSpace(scroll.name))
+            .Select(scroll => scroll.name)
+            .ToArray();
+    }
+
+    private void PublishOwnedMagicScrollsChanged()
+    {
+        GameEvents.TriggerMagicScrollPoolChanged(playerId, _ownedScrolls);
+    }
+
+    private void SyncOwnedMagicScrollsToClientsIfAuthoritative()
+    {
+        if (Object != null && Object.HasStateAuthority)
+        {
+            RPC_SyncOwnedMagicScrolls(BuildOwnedMagicScrollNameArray());
+        }
     }
     #endregion
     /// <summary>

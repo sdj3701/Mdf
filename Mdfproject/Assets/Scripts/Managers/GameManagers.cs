@@ -1319,6 +1319,73 @@ public partial class GameManagers : NetworkBehaviour
             // Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 실패");
         }
     }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    public void RPC_RequestUseMagicScroll(int attackerPlayerId, string scrollDataName, Vector3 position, RpcInfo info = default)
+    {
+        if (Object == null || !Object.HasStateAuthority) return;
+        if (currentState != GameState.Battle1 && currentState != GameState.Battle2) return;
+        if (string.IsNullOrWhiteSpace(scrollDataName)) return;
+
+        var attacker = GetPlayer(attackerPlayerId);
+        if (attacker == null) 
+        {
+            return;
+        }
+
+        if (!IsRpcSourceAuthorizedForPlayer(attacker, info.Source)) return;
+        if (!attacker.IsAttackerInCurrentBattle) return;
+        if (!TryGetBattleDefenderField(attacker, out FieldManager defenderField)) return;
+        if (!IsWithinFieldOuterBounds(defenderField, position)) return;
+
+        MagicScrollData targetScroll = null;
+        foreach (var scroll in attacker.OwnedScrolls)
+        {
+            if (scroll != null && scroll.name == scrollDataName)
+            {
+                targetScroll = scroll;
+                break;
+            }
+        }
+
+        if (targetScroll == null)
+        {
+            return;
+        }
+
+        if (!attacker.TryConsumeMagicScroll(targetScroll))
+        {
+            return;
+        }
+
+        RPC_BroadcastMagicScrollUsed(attackerPlayerId, scrollDataName, position);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_BroadcastMagicScrollUsed(int attackerPlayerId, string scrollDataName, Vector3 position)
+    {
+        RunLifecycleTask(
+            CreateScrollCasterLocal(attackerPlayerId, scrollDataName, position),
+            "RPC_BroadcastMagicScrollUsed/CreateScrollCasterLocal");
+
+        GameEvents.TriggerMagicScrollUsed(attackerPlayerId, scrollDataName, position);
+    }
+
+    private async UniTask CreateScrollCasterLocal(int attackerPlayerId, string scrollDataName, Vector3 position)
+    {
+        var scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
+        if (scrollData == null || scrollData.skillData == null)
+        {
+            return;
+        }
+
+        var casterGO = new GameObject($"ScrollCaster_{attackerPlayerId}_{scrollDataName}");
+        casterGO.transform.position = position;
+
+        var caster = casterGO.AddComponent<ScrollCaster>();
+        caster.Initialize();
+        caster.CastSkill(scrollData.skillData);
+    }
     #endregion
 
     private async UniTask StartNextRound()

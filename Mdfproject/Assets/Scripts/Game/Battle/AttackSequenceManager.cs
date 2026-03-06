@@ -20,6 +20,9 @@ public class AttackSequenceManager : MonoBehaviour
     [Header("소환 설정")]
     [Tooltip("현재 선택된 몬스터")]
     private MonsterPoolEntry _selectedMonster;
+
+    [Tooltip("현재 선택된 마법 스크롤")]
+    private MagicScrollData _selectedScroll;
     
     [Tooltip("홀드 소환 간격 (초)")]
     [SerializeField] private float holdSpawnInterval = 0.3f;
@@ -33,6 +36,7 @@ public class AttackSequenceManager : MonoBehaviour
     [SerializeField] private LayerMask spawnAreaLayerMask;
 
     public PlayerManager Owner => _playerManager;
+    public bool IsScrollMode { get; private set; }
     #endregion
 
     #region 초기화
@@ -64,6 +68,8 @@ public class AttackSequenceManager : MonoBehaviour
 
         _opponentFieldManager = opponent.fieldManager;
         _selectedMonster = null;
+        _selectedScroll = null;
+        IsScrollMode = false;
         
         // 첫 번째 몬스터 자동 선택
         var pool = _playerManager.AttackMonsterPool;
@@ -86,8 +92,10 @@ public class AttackSequenceManager : MonoBehaviour
     public void EndAttackSequence()
     {
         _selectedMonster = null;
+        _selectedScroll = null;
         _opponentFieldManager = null;
         _isHolding = false;
+        IsScrollMode = false;
     }
     #endregion
 
@@ -104,10 +112,49 @@ public class AttackSequenceManager : MonoBehaviour
         }
 
         _selectedMonster = entry;
+        _selectedScroll = null;
+        IsScrollMode = false;
+        int slotIndex = _playerManager != null && _playerManager.AttackMonsterPool != null
+            ? _playerManager.AttackMonsterPool.IndexOf(entry)
+            : -1;
+        AttackSequenceUIController.Instance?.SyncMonsterSelectionFromManager(slotIndex);
         // Debug.Log($"<color=yellow>[AttackSequenceManager] 몬스터 선택: {entry.MonsterData.monsterName} (남은 수량: {entry.RemainingCount})</color>");
     }
 
     public MonsterPoolEntry GetSelectedMonster() => _selectedMonster;
+    #endregion
+
+    #region 마법 스크롤 선택
+    public void SelectMagicScroll(MagicScrollData scrollData)
+    {
+        if (scrollData == null)
+        {
+            return;
+        }
+
+        _selectedScroll = scrollData;
+        _selectedMonster = null;
+        IsScrollMode = true;
+
+        int slotIndex = -1;
+        var ownedScrolls = _playerManager?.OwnedScrolls;
+        if (ownedScrolls != null)
+        {
+            for (int i = 0; i < ownedScrolls.Count; i++)
+            {
+                var ownedScroll = ownedScrolls[i];
+                if (ownedScroll == scrollData || (ownedScroll != null && scrollData != null && ownedScroll.name == scrollData.name))
+                {
+                    slotIndex = i;
+                    break;
+                }
+            }
+        }
+
+        AttackSequenceUIController.Instance?.SyncScrollSelectionFromManager(slotIndex);
+    }
+
+    public MagicScrollData GetSelectedScroll() => _selectedScroll;
     #endregion
 
     #region 업데이트 (입력 처리)
@@ -130,9 +177,16 @@ public class AttackSequenceManager : MonoBehaviour
         {
             if (!isPointerOverUI)
             {
-                TrySpawnMonsterAtMousePosition();
+                if (IsScrollMode && _selectedScroll != null)
+                {
+                    TryUseMagicScrollAtMousePosition();
+                }
+                else
+                {
+                    TrySpawnMonsterAtMousePosition();
+                }
             }
-            _isHolding = !isPointerOverUI;
+            _isHolding = !isPointerOverUI && !IsScrollMode;
             _lastSpawnTime = Time.time;
         }
         else if (Input.GetMouseButton(0) && _isHolding)
@@ -165,6 +219,69 @@ public class AttackSequenceManager : MonoBehaviour
                 }
             }
         }
+    }
+    #endregion
+
+    #region 마법 스크롤 사용
+    private void TryUseMagicScrollAtMousePosition()
+    {
+        if (!EnsureRuntimeReferences("TryUseMagicScrollAtMousePosition", true))
+        {
+            return;
+        }
+
+        if (_selectedScroll == null || _playerCamera == null)
+        {
+            return;
+        }
+
+        Ray ray = _playerCamera.ScreenPointToRay(Input.mousePosition);
+        if (Physics.Raycast(ray, out RaycastHit hit, 100f, spawnAreaLayerMask))
+        {
+            UseMagicScrollAsync(hit.point).Forget();
+        }
+    }
+
+    private async UniTask UseMagicScrollAsync(Vector3 position)
+    {
+        if (!EnsureRuntimeReferences("UseMagicScrollAsync", true))
+        {
+            return;
+        }
+
+        if (_selectedScroll == null)
+        {
+            return;
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null)
+        {
+            return;
+        }
+
+        string scrollDataName = _selectedScroll.name;
+        bool isHost = _playerManager.Object != null && _playerManager.Object.HasStateAuthority;
+
+        if (isHost)
+        {
+            if (!_playerManager.TryConsumeMagicScroll(_selectedScroll))
+            {
+                return;
+            }
+
+            gameManagers.RPC_BroadcastMagicScrollUsed(_playerManager.playerId, scrollDataName, position);
+        }
+        else
+        {
+            gameManagers.RPC_RequestUseMagicScroll(_playerManager.playerId, scrollDataName, position);
+        }
+
+        _selectedScroll = null;
+        IsScrollMode = false;
+        AttackSequenceUIController.Instance?.RefreshUI();
+
+        await UniTask.CompletedTask;
     }
     #endregion
 
