@@ -32,6 +32,10 @@ public static class MazePlanner
         public bool UseFixedEndpoints;
         public Vector2Int FixedStart;
         public Vector2Int FixedGoal;
+        /// <summary>
+        /// AI가 우선적으로 막아야 할 구멍(gap) 위치 리스트 (BuildOrder 맨 앞에 삽입됨)
+        /// </summary>
+        public List<Vector2Int> GapWallsToSeal;
     }
 
     private static readonly Vector2Int[] Dir4 = new[]
@@ -53,6 +57,10 @@ public static class MazePlanner
         public HashSet<Vector2Int> BlueprintWalls = new HashSet<Vector2Int>();
         public Vector2Int Start;
         public Vector2Int Goal;
+        /// <summary>
+        /// AI가 막은 구멍(gap) 벽 위치 (디버깅/시각화용)
+        /// </summary>
+        public List<Vector2Int> GapWalls = new List<Vector2Int>();
     }
 
     /// <summary>
@@ -93,22 +101,68 @@ public static class MazePlanner
         int width = Mathf.Max(1, fm.gridSize.x);
         int height = Mathf.Max(1, fm.gridSize.y);
         var initialWalls = CollectInitialWalls(fm);
+
+        // === 구멍 막기: 동서남북 4개 구멍 중 1개만 남기고 나머지 3개를 벽으로 처리 ===
+        var rng = CreateRng();
+        var allGaps = FindGapPositions(width, height, initialWalls);
+        var gapWallsToSeal = new List<Vector2Int>();
+        Vector2Int chosenEntryGap = Vector2Int.zero;
+
+        if (allGaps.Count > 1)
+        {
+            int chosenIndex = rng.Next(allGaps.Count);
+            chosenEntryGap = allGaps[chosenIndex];
+
+            for (int i = 0; i < allGaps.Count; i++)
+            {
+                if (i != chosenIndex)
+                {
+                    var gapPos = allGaps[i];
+                    gapWallsToSeal.Add(gapPos);
+                    // 막힌 구멍은 초기 벽으로 취급하여 미로 생성 시 벽으로 인식
+                    initialWalls.Add(gapPos);
+                }
+            }
+
+            Debug.Log($"[MazePlanner] Gap sealing: entry={chosenEntryGap}, sealed={gapWallsToSeal.Count} gaps ({string.Join(", ", gapWallsToSeal)})");
+        }
+        else if (allGaps.Count == 1)
+        {
+            chosenEntryGap = allGaps[0];
+            Debug.Log($"[MazePlanner] Only 1 gap found at {chosenEntryGap}, no sealing needed.");
+        }
+        else
+        {
+            Debug.LogWarning("[MazePlanner] No gaps found in border walls.");
+        }
+
         int freeCells = Mathf.Max(1, width * height - initialWalls.Count);
         int maxPossiblePath = Mathf.Max(1, freeCells - 1);
         int minDesired = Mathf.Min(width + height + 2, maxPossiblePath);
         int targetMinLength = Mathf.Clamp((int)(freeCells * 0.4f), minDesired, maxPossiblePath);
 
         int wallBudget = Mathf.Max(0, pm.GetWallCount() - pm.GetWallReserveK());
+        // 구멍 막기에 사용되는 벽 수를 예산에서 차감
+        wallBudget = Mathf.Max(0, wallBudget - gapWallsToSeal.Count);
 
         bool useFixedEndpoints = pm.spawnPoint != null && pm.goalTransform != null;
         Vector2Int fixedStart = Vector2Int.zero;
         Vector2Int fixedGoal = Vector2Int.zero;
         if (useFixedEndpoints)
         {
-            var spawnCell = fm.WorldToGridInt(pm.spawnPoint.position);
             var goalCell = fm.WorldToGridInt(pm.goalTransform.position);
-            fixedStart = new Vector2Int(spawnCell.x, spawnCell.y);
             fixedGoal = new Vector2Int(goalCell.x, goalCell.y);
+
+            // 구멍이 감지되었으면 선택된 진입 구멍을 스폰 위치로 사용
+            if (allGaps.Count > 0)
+            {
+                fixedStart = chosenEntryGap;
+            }
+            else
+            {
+                var spawnCell = fm.WorldToGridInt(pm.spawnPoint.position);
+                fixedStart = new Vector2Int(spawnCell.x, spawnCell.y);
+            }
 
             if (fixedStart == fixedGoal)
             {
@@ -133,7 +187,8 @@ public static class MazePlanner
             WallBudget = wallBudget,
             UseFixedEndpoints = useFixedEndpoints,
             FixedStart = fixedStart,
-            FixedGoal = fixedGoal
+            FixedGoal = fixedGoal,
+            GapWallsToSeal = gapWallsToSeal
         };
     }
 
@@ -195,9 +250,20 @@ public static class MazePlanner
             plan.Goal = goal;
             plan.ValidatedPath = path ?? new List<Vector2Int>();
 
+            // 벽 예산이 0이어도 구멍 막기 벽은 BuildOrder에 추가 (최우선 건설)
+            if (input.GapWallsToSeal != null && input.GapWallsToSeal.Count > 0)
+            {
+                plan.GapWalls = new List<Vector2Int>(input.GapWallsToSeal);
+                foreach (var gapCell in input.GapWallsToSeal)
+                {
+                    plan.BuildOrder.Add(new Vector3Int(gapCell.x, gapCell.y, 0));
+                    plan.BlueprintWalls.Add(gapCell);
+                }
+            }
+
             if (log)
             {
-                Debug.Log($"[MazePlanner] Wall budget is 0. No build order generated. Start={plan.Start}, Goal={plan.Goal}, PathLen={plan.ValidatedPath.Count}");
+                Debug.Log($"[MazePlanner] Wall budget is 0. GapWalls={plan.GapWalls.Count}, BuildOrder={plan.BuildOrder.Count}. Start={plan.Start}, Goal={plan.Goal}, PathLen={plan.ValidatedPath.Count}");
             }
 
             return plan;
@@ -245,6 +311,16 @@ public static class MazePlanner
         plan.Goal = generation.Goal;
         plan.ValidatedPath = generation.FinalPath ?? new List<Vector2Int>();
 
+        // 구멍 막기 벽을 BuildOrder 맨 앞에 삽입 (최우선 건설)
+        if (input.GapWallsToSeal != null && input.GapWallsToSeal.Count > 0)
+        {
+            plan.GapWalls = new List<Vector2Int>(input.GapWallsToSeal);
+            foreach (var gapCell in input.GapWallsToSeal)
+            {
+                plan.BuildOrder.Add(new Vector3Int(gapCell.x, gapCell.y, 0));
+            }
+        }
+
         var orderedWalls = generation.AiWallsInBuildOrder
             ? generation.AiWalls
             : PrioritizeWalls(generation, input.InitialWalls, rng, input.WallBudget);
@@ -252,6 +328,14 @@ public static class MazePlanner
         plan.BlueprintWalls = generation.AiWalls != null
             ? new HashSet<Vector2Int>(generation.AiWalls)
             : new HashSet<Vector2Int>();
+        // 구멍 벽도 BlueprintWalls에 추가
+        if (input.GapWallsToSeal != null)
+        {
+            foreach (var gapCell in input.GapWallsToSeal)
+            {
+                plan.BlueprintWalls.Add(gapCell);
+            }
+        }
         foreach (var cell in orderedWalls)
         {
             plan.BuildOrder.Add(new Vector3Int(cell.x, cell.y, 0));
@@ -259,7 +343,7 @@ public static class MazePlanner
 
         if (log)
         {
-            Debug.Log($"[MazePlanner] Maze planned. Start={plan.Start}, Goal={plan.Goal}, Walls={plan.BuildOrder.Count}, PathLen={plan.ValidatedPath.Count}");
+            Debug.Log($"[MazePlanner] Maze planned. Start={plan.Start}, Goal={plan.Goal}, GapWalls={plan.GapWalls.Count}, MazeWalls={orderedWalls.Count}, TotalBuildOrder={plan.BuildOrder.Count}, PathLen={plan.ValidatedPath.Count}");
         }
 
         return plan;
@@ -1143,6 +1227,39 @@ public static class MazePlanner
     private static bool IsInside(Vector2Int pos, int width, int height)
     {
         return pos.x >= 0 && pos.x < width && pos.y >= 0 && pos.y < height;
+    }
+
+    /// <summary>
+    /// 필드 테두리의 동서남북 구멍(gap) 위치를 찾아 반환합니다.
+    /// FieldManager.GeneratePermanentWallsIfNeeded()의 gap 로직과 일치합니다.
+    /// </summary>
+    private static List<Vector2Int> FindGapPositions(int width, int height, HashSet<Vector2Int> currentWalls)
+    {
+        var gaps = new List<Vector2Int>();
+        int centerX = width / 2;
+        int centerY = height / 2;
+
+        // 북쪽 (상단 가운데)
+        var northGap = new Vector2Int(centerX, height - 1);
+        if (!currentWalls.Contains(northGap))
+            gaps.Add(northGap);
+
+        // 남쪽 (하단 가운데)
+        var southGap = new Vector2Int(centerX, 0);
+        if (!currentWalls.Contains(southGap))
+            gaps.Add(southGap);
+
+        // 동쪽 (우측 가운데)
+        var eastGap = new Vector2Int(width - 1, centerY);
+        if (!currentWalls.Contains(eastGap))
+            gaps.Add(eastGap);
+
+        // 서쪽 (좌측 가운데)
+        var westGap = new Vector2Int(0, centerY);
+        if (!currentWalls.Contains(westGap))
+            gaps.Add(westGap);
+
+        return gaps;
     }
 
     private static Vector2Int FindFirstEmptyCell(int width, int height, HashSet<Vector2Int> blocked, Vector2Int avoid)

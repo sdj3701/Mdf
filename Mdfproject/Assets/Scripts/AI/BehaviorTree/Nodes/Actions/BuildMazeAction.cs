@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 using AI.BehaviorTree.Nodes;
@@ -113,6 +113,28 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _extendPlanTask = null;
                 _lastExtendBudgetTried = -1;
                 _activeExtendBudget = -1;
+
+                // === 스폰 포인트를 선택된 진입 구멍으로 재설정 ===
+                if (planResult != null && _playerManager.spawnPoint != null)
+                {
+                    var newSpawnWorld = fm.GridToWorld(new Vector3Int(planResult.Start.x, planResult.Start.y, 0));
+                    _playerManager.spawnPoint.position = newSpawnWorld;
+
+                    // MonsterSpawner 재초기화 (새 스폰 위치 반영)
+                    if (_playerManager.monsterSpawner != null && _playerManager.astarGrid != null && _playerManager.goalTransform != null)
+                    {
+                        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+                        _playerManager.monsterSpawner.Initialize(
+                            _playerManager,
+                            _playerManager.astarGrid,
+                            waveDatabase,
+                            _playerManager.spawnPoint,
+                            _playerManager.goalTransform);
+                    }
+
+                    Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} spawn relocated to gap {planResult.Start}, gapWalls={planResult.GapWalls?.Count ?? 0}</color>");
+                }
+
                 // Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned {_playerManager.mazePlannedOrder.Count} walls</color>");
                 return status = NodeStatus.Success;
             }
