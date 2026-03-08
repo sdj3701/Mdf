@@ -1,4 +1,4 @@
-﻿// Assets/Scripts/Managers/FieldManager.cs
+// Assets/Scripts/Managers/FieldManager.cs
 using UnityEngine;
 using System;
 using System.Collections.Generic;
@@ -1396,11 +1396,11 @@ public class FieldManager : MonoBehaviour
             };
             HashSet<Vector3Int> goalAdjacentSet = new HashSet<Vector3Int>(goalAdjacentCells);
 
-            // 배치 가능한 내부 셀 수집 (테두리 제외)
+            // 배치 가능한 내부 셀 수집 (테두리 + 바깥 한 겹 제외)
             List<Vector3Int> interiorCandidates = new List<Vector3Int>();
-            for (int x = 1; x < gridSize.x - 1; x++)
+            for (int x = 2; x < gridSize.x - 2; x++)
             {
-                for (int y = 1; y < gridSize.y - 1; y++)
+                for (int y = 2; y < gridSize.y - 2; y++)
                 {
                     var cell = new Vector3Int(x, y, 0);
                     if (!IsValidGridPosition(cell)) continue;

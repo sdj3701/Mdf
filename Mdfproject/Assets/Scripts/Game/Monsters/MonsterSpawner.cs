@@ -1,4 +1,4 @@
-﻿// Assets/Scripts/Game/Monsters/MonsterSpawner.cs
+// Assets/Scripts/Game/Monsters/MonsterSpawner.cs
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -1001,55 +1001,84 @@ public class MonsterSpawner : MonoBehaviour
 
             if (_playerManager == null || targetFieldManager == null)
             {
-                // Debug.LogError($"[MonsterSpawner] AI 자동 소환 실패: PlayerManager 또는 targetFieldManager가 null ({DescribeRuntimeState()})");
                 return;
             }
 
             var pool = _playerManager.AttackMonsterPool;
             if (pool == null || pool.Count == 0)
             {
-                // Debug.LogWarning("[MonsterSpawner] AI 자동 소환: 몬스터 풀이 비어있음");
                 return;
             }
 
-            // Debug.Log($"<color=orange>[MonsterSpawner] AI 자동 소환 시작: {pool.Count}종류의 몬스터</color>");
-
-            // 스폰 포인트 위치 (수비자 필드의 스폰 포인트)
-            Vector3 spawnPosition = targetFieldManager.playerManager?.spawnPoint?.position ??
-                                    targetFieldManager.gridOrigin;
-
-            // 풀에 있는 모든 몬스터를 순차적으로 소환
-            foreach (var entry in pool)
+            // ★ AIAttackStrategy를 사용한 전략적 소환
+            // spawnAreaLayerMask를 AttackSequenceManager에서 가져옴
+            LayerMask spawnAreaLayer = default;
+            var attackSeqMgr = _playerManager.GetComponent<AttackSequenceManager>();
+            if (attackSeqMgr != null)
             {
-                while (!entry.IsEmpty)
-                {
-                    // 몬스터 소환 (보스 플래그 포함)
-                    await SpawnMonsterAtPositionAsync(
-                        entry.MonsterData,
-                        spawnPosition,
-                        targetFieldManager,
-                        entry.IsBoss,
-                        entry.BossUniqueId,
-                        entry.OriginPlayerId
-                    );
-
-                    // 풀에서 직접 소비 (Find 로직 우회하여 무한루프 방지)
-                    entry.TryConsume();
-                    GameEvents.TriggerMonsterPoolChanged(_playerManager.playerId, pool);
-
-                    // 소환 간격
-                    await UniTask.Delay(300); // 0.3초 간격
-                }
+                spawnAreaLayer = attackSeqMgr.SpawnAreaLayer;
             }
 
+            var strategy = new AI.BehaviorTree.Nodes.Actions.AIAttackStrategy(
+                targetFieldManager, _playerManager, spawnAreaLayer);
+            var plan = strategy.BuildSpawnPlan(pool);
+
+            // 계획에 따라 전략적 소환 실행
+            await ExecuteSpawnPlanAsync(plan, targetFieldManager);
+
             completed = true;
-            // Debug.Log($"<color=orange>[MonsterSpawner] AI 자동 소환 완료</color>");
         }
         finally
         {
             if (keyAcquired)
             {
                 EndAutoSpawnForKey(battleBootstrapKey, completed);
+            }
+        }
+    }
+
+    /// <summary>
+    /// AIAttackStrategy가 생성한 소환 계획을 페이즈별로 실행합니다.
+    /// </summary>
+    private async UniTask ExecuteSpawnPlanAsync(AI.BehaviorTree.Nodes.Actions.AISpawnPlan plan, FieldManager targetFieldManager)
+    {
+        if (plan == null || plan.Phases.Count == 0) return;
+
+        var pool = _playerManager.AttackMonsterPool;
+
+        foreach (var phase in plan.Phases)
+        {
+            // 페이즈 시작 전 대기
+            if (phase.DelayBeforePhase > 0)
+            {
+                await UniTask.Delay((int)(phase.DelayBeforePhase * 1000));
+            }
+
+            foreach (var order in phase.Orders)
+            {
+                if (order.PoolEntry == null || order.PoolEntry.IsEmpty) continue;
+
+                int spawnCount = Mathf.Min(order.Count, order.PoolEntry.RemainingCount);
+                for (int i = 0; i < spawnCount; i++)
+                {
+                    if (order.PoolEntry.IsEmpty) break;
+
+                    await SpawnMonsterAtPositionAsync(
+                        order.PoolEntry.MonsterData,
+                        order.SpawnPosition,
+                        targetFieldManager,
+                        order.PoolEntry.IsBoss,
+                        order.PoolEntry.BossUniqueId,
+                        order.PoolEntry.OriginPlayerId
+                    );
+
+                    // 풀에서 직접 소비 (Find 로직 우회하여 무한루프 방지)
+                    order.PoolEntry.TryConsume();
+                    GameEvents.TriggerMonsterPoolChanged(_playerManager.playerId, pool);
+
+                    // 소환 간격
+                    await UniTask.Delay(300); // 0.3초 간격
+                }
             }
         }
     }

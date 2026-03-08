@@ -1,4 +1,4 @@
-﻿// Assets/Scripts/Game/Monsters/Monster.cs
+// Assets/Scripts/Game/Monsters/Monster.cs
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -945,6 +945,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private void OnDestroy()
     {
         if (manaController != null) manaController.OnManaFull -= ActivateSkill;
+        
+        // 파괴 시 벽 파괴 이벤트 구독 해제 (이벤트 콜백에서 MissingReferenceException 방지)
+        GameEvents.OnWallDestroyed -= OnWallDestroyed;
     }
 
     /// <summary>
@@ -1147,6 +1150,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     private void FindNewPathToGoal()
     {
+        // 이미 파괴된 오브젝트에서 호출된 경우 무시
+        if (this == null || gameObject == null) return;
         if (!HasStateAuthorityOrNoNetwork()) return;
         if (pathfinder == null || goalTransform == null) return;
         
@@ -1185,6 +1190,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     private void OnWallDestroyed(Vector3Int destroyedWallPosition, FieldManager field)
     {
+        // 이미 파괴된 오브젝트에서 호출된 경우 무시
+        if (this == null || gameObject == null) return;
+        
         // 자신이 속한 필드에서 벽이 파괴된 경우만 처리
         if (ownerPlayer == null || ownerPlayer.fieldManager != field) return;
         

@@ -1,4 +1,4 @@
-﻿// Assets/Scripts/Game/Battle/AttackSequenceManager.cs
+// Assets/Scripts/Game/Battle/AttackSequenceManager.cs
 using UnityEngine;
 using UnityEngine.EventSystems;
 using Cysharp.Threading.Tasks;
@@ -34,6 +34,11 @@ public class AttackSequenceManager : MonoBehaviour
     [Header("스폰 영역 설정")]
     [Tooltip("스폰 가능 영역 레이어")]
     [SerializeField] private LayerMask spawnAreaLayerMask;
+
+    /// <summary>
+    /// AI에서 스폰 영역 검증에 사용할 수 있도록 레이어마스크를 노출합니다.
+    /// </summary>
+    public LayerMask SpawnAreaLayer => spawnAreaLayerMask;
 
     public PlayerManager Owner => _playerManager;
     public bool IsScrollMode { get; private set; }
