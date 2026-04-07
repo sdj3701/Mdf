@@ -39,7 +39,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 현재 로비에 있는 세션(방) 목록을 저장합니다.
     public List<SessionInfo> _sessionList = new List<SessionInfo>();
     // 유저가 입력할 방 제목을 저장하는 변수입니다.
-    private string _roomNameInput = "MyFusionRoom";
+    private string _roomNameInput = NetworkDefine.DefaultRoomName;
     // 현재 네트워크 상태를 관리합니다. (연결 끊김, 로비, 게임 중)
 
     // 2. 현재 상태를 저장하고, 변경 시 이벤트를 발생시키는 프로퍼티
@@ -184,7 +184,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (_state != ConnectionState.InLobby) return;
 
         string finalSessionName = string.IsNullOrWhiteSpace(sessionName)
-            ? PlayerPrefs.GetString("PlayerNickname", "Host")
+            ? PlayerPrefs.GetString(PlayerPrefsDefine.NicknameKey, NetworkDefine.DefaultHostName)
             : sessionName;
 
         // Debug.Log($"Starting Game with session name: {finalSessionName}, loading scene: {sceneName}");
@@ -287,7 +287,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         // 게임씬에서는 표시하지 않음
         string currentSceneName = SceneManager.GetActiveScene().name;
-        if (currentSceneName == "Game")
+        if (currentSceneName == SceneDefine.Game)
         {
             return;
         }
@@ -555,7 +555,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             Debug.LogError("[NetworkManager] HostMigrationHandler가 없습니다! Host Migration 실패.");
             // 폴백: 로비로 돌아가기
-            LeaveAndLoad("MatchingLobby");
+            LeaveAndLoad(SceneDefine.MatchingLobby);
         }
     }
     public void OnInput(NetworkRunner runner, NetworkInput input) { }
@@ -910,9 +910,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         Debug.LogWarning(BuildConnectionLossTrace("ExecuteFallback", $"source={source}"));
 
-        if (SceneManager.GetActiveScene().name != "MatchingLobby")
+        if (SceneManager.GetActiveScene().name != SceneDefine.MatchingLobby)
         {
-            SceneManager.LoadScene("MatchingLobby");
+            SceneManager.LoadScene(SceneDefine.MatchingLobby);
         }
     }
 
@@ -933,11 +933,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     private byte[] GetConnectionToken()
     {
         // 유저 고유 ID 생성 또는 기존 ID 사용
-        string uniqueId = PlayerPrefs.GetString("PlayerUUID", "");
+        string uniqueId = PlayerPrefs.GetString(PlayerPrefsDefine.PlayerUuidKey, "");
         if (string.IsNullOrEmpty(uniqueId))
         {
             uniqueId = Guid.NewGuid().ToString();
-            PlayerPrefs.SetString("PlayerUUID", uniqueId);
+            PlayerPrefs.SetString(PlayerPrefsDefine.PlayerUuidKey, uniqueId);
             PlayerPrefs.Save();
         }
         
