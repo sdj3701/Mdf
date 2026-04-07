@@ -29,7 +29,7 @@ public sealed class LocalStringAuthService : IAuthService
         }
         catch (Exception e)
         {
-            return AuthResult.Failed("LOCAL_AUTH_EXCEPTION", e.Message);
+            return AuthResult.Failed(AuthDefine.ErrorLocalAuthException, e.Message);
         }
     }
 }

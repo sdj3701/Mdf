@@ -800,6 +800,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7c42c984fa50f4aabaa4d429563dee9b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  nicknameInput: {fileID: 2109837510}
 --- !u!1 &548412987
 GameObject:
   m_ObjectHideFlags: 0
@@ -1071,8 +1072,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f12e954eddeca274a9a982b1b5ed40b9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  NickNameInput: {fileID: 2109837510}
-  PassWordInput: {fileID: 1542998652}
   _playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
   maxSessionPlayers: 2
@@ -3053,7 +3052,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &1660193866
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -8,7 +8,6 @@ using Fusion.Sockets;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using GameCore.Enums;
-using TMPro;
 
 
 public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
@@ -23,9 +22,6 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public static NetworkManager Instance { get; private set; }
 
     public NetworkRunner _runner { get; private set; }
-
-    public TMP_InputField NickNameInput;
-    public TMP_InputField PassWordInput;
 
     [Header("Player")]
     // 스폰할 플레이어 프리팹입니다. Inspector에서 할당해야 합니다.
