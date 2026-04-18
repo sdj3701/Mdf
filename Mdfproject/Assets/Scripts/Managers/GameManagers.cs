@@ -1518,7 +1518,7 @@ public partial class GameManagers : NetworkBehaviour
             player.mazeConstructionComplete = false;
             player.unitPurchaseComplete = false;
 
-            // 스폰/도착 지점은 이제 PlayerManager.SetupSpawnAndGoalPositions에서 초기화 시 고정 설정됨
+            // 도착 지점은 이제 PlayerManager.SetupGoalPosition에서 초기화 시 고정 설정됨
             // (도착: 필드 정 가운데, 스폰: 동서남북 테두리 구멍 중 랜덤)
             
             // 증강 생성 및 동기화 (한 루프에서 처리)

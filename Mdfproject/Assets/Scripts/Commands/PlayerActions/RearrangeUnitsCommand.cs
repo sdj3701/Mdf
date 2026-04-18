@@ -64,13 +64,13 @@ public class RearrangeUnitsCommand : ICommand
     private void RecalculateMonsterPath(PlayerManager player)
     {
         var grid = player.astarGrid;
-        var start = player.spawnPoint;
         var goal = player.goalTransform;
+        var fieldManager = player.fieldManager;
 
-        if (grid == null || start == null || goal == null) return;
+        if (grid == null || goal == null || fieldManager == null || !fieldManager.TryGetSingleOpenEntryCell(out var entryCell)) return;
 
-        Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(start.position.x), Mathf.FloorToInt(start.position.y));
-        Vector2Int goalPos = new Vector2Int(Mathf.FloorToInt(goal.position.x), Mathf.FloorToInt(goal.position.y));
+        Vector2Int startPos = new Vector2Int(entryCell.x, entryCell.y);
+        Vector2Int goalPos = grid.WorldToCell(grid.ClampToGrid(goal.position));
 
         bool pathFound = grid.FindPath(startPos, goalPos);
 

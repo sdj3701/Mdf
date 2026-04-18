@@ -45,7 +45,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 66aaf19f0669ce74089be945dec1b126, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  spawnPoint: {fileID: 0}
   goalTransform: {fileID: 0}
   statusBarPrefab: {fileID: 523785727660799067, guid: 1ce31d6300e00da47a20857d35fa5332,
     type: 3}

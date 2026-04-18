@@ -16,7 +16,6 @@ public class MonsterSpawner : MonoBehaviour
     private static int _spawnTraceSeq;
 
     [Header("스폰 설정 (자동 할당됨)")]
-    [SerializeField] private Transform spawnPoint;
     [SerializeField] private Transform goalTransform;
     public GameObject statusBarPrefab;
 
@@ -40,21 +39,18 @@ public class MonsterSpawner : MonoBehaviour
     /// <param name="owner">소유 플레이어</param>
     /// <param name="grid">경로 탐색용 그리드</param>
     /// <param name="waveDatabase">웨이브 데이터베이스</param>
-    /// <param name="spawnPoint">스폰 위치</param>
     /// <param name="goalTransform">목표 위치</param>
-    public void Initialize(PlayerManager owner, AstarGrid grid, WaveDatabase waveDatabase, Transform spawnPoint, Transform goalTransform)
+    public void Initialize(PlayerManager owner, AstarGrid grid, WaveDatabase waveDatabase, Transform goalTransform)
     {
         _playerManager = owner;
         _pathfinder = grid;
         _waveDatabase = waveDatabase;
-        this.spawnPoint = spawnPoint;
         this.goalTransform = goalTransform;
 
         string ownerName = owner != null ? owner.name : "NULL";
         // Debug.Log($"[MonsterSpawner] '{ownerName}' 초기화 완료. " +
                   // $"AstarGrid: {(grid != null)}, " +
                   // $"WaveDatabase: {(waveDatabase != null)}, " +
-                  // $"spawnPoint: {(spawnPoint != null)}, " +
                   // $"goalTransform: {(goalTransform != null)}");
 
         if (monsterParent == null)
@@ -81,12 +77,6 @@ public class MonsterSpawner : MonoBehaviour
         if (_pathfinder == null)
         {
             reason = "pathfinder=null";
-            return false;
-        }
-
-        if (spawnPoint == null)
-        {
-            reason = "spawnPoint=null";
             return false;
         }
 
@@ -120,11 +110,6 @@ public class MonsterSpawner : MonoBehaviour
                 _pathfinder = _playerManager.astarGrid != null ? _playerManager.astarGrid : GetComponentInChildren<AstarGrid>(true);
             }
 
-            if (spawnPoint == null)
-            {
-                spawnPoint = _playerManager.spawnPoint;
-            }
-
             if (goalTransform == null)
             {
                 goalTransform = _playerManager.goalTransform;
@@ -152,9 +137,8 @@ public class MonsterSpawner : MonoBehaviour
             ? "owner=null"
             : $"owner=Player({_playerManager.playerId}, name={_playerManager.name})";
         string pathState = _pathfinder == null ? "pathfinder=null" : $"pathfinder={_pathfinder.name}";
-        string spawnState = spawnPoint == null ? "spawnPoint=null" : $"spawnPoint={spawnPoint.name}";
         string goalState = goalTransform == null ? "goal=null" : $"goal={goalTransform.name}";
-        return $"{ownerState}, {pathState}, {spawnState}, {goalState}, waveDb={(_waveDatabase != null)}";
+        return $"{ownerState}, {pathState}, {goalState}, waveDb={(_waveDatabase != null)}";
     }
 
     private string DescribeRunnerState(NetworkRunner runner)
@@ -731,7 +715,7 @@ public class MonsterSpawner : MonoBehaviour
         if (field == null)
         {
             // 폴백: 기본 스폰 포인트
-            return _playerManager?.spawnPoint?.position ?? Vector3.zero;
+            return Vector3.zero;
         }
         
         int margin = field.OuterGridMargin;
@@ -782,7 +766,7 @@ public class MonsterSpawner : MonoBehaviour
         if (outerCells.Count == 0)
         {
             // 폴백: 기본 스폰 포인트
-            return _playerManager?.spawnPoint?.position ?? Vector3.zero;
+            return field.gridOrigin;
         }
         
         // 랜덤 셀 선택
@@ -849,7 +833,7 @@ public class MonsterSpawner : MonoBehaviour
             return null;
         }
 
-        if (_pathfinder == null || spawnPoint == null || goalTransform == null)
+        if (_playerManager == null || _playerManager.fieldManager == null)
         {
             // Debug.LogError($"[MonsterSpawner] SpawnMonsterInternalAsync 중단: 경로/지점 참조 누락 ({DescribeRuntimeState()})");
             return null;
@@ -871,7 +855,7 @@ public class MonsterSpawner : MonoBehaviour
             return null;
         }
 
-        Vector3 spawnPos = spawnPoint.position;
+        Vector3 spawnPos = GetRandomOuterGridPosition();
         float groundOffset = GetGroundMonsterHeightOffset(prefab);
         spawnPos.y += groundOffset;
 
@@ -909,7 +893,7 @@ public class MonsterSpawner : MonoBehaviour
                 // 밑면을 스폰포인트에 맞추려면 이 값을 빼줘야 함
                 float localBottomY = boxCol.center.y - boxCol.size.y * 0.5f;
                 Vector3 pos = monsterGO.transform.position;
-                pos.y = spawnPoint.position.y - localBottomY * monsterGO.transform.localScale.y;
+                pos.y = spawnPos.y - localBottomY * monsterGO.transform.localScale.y;
                 monsterGO.transform.position = pos;
             }
             else
@@ -919,7 +903,7 @@ public class MonsterSpawner : MonoBehaviour
                 if (col != null)
                 {
                     Vector3 pos = monsterGO.transform.position;
-                    pos.y = spawnPoint.position.y + col.bounds.extents.y;
+                    pos.y = spawnPos.y + col.bounds.extents.y;
                     monsterGO.transform.position = pos;
                 }
             }
@@ -947,7 +931,7 @@ public class MonsterSpawner : MonoBehaviour
         }
 
         // 경로 설정
-        Vector3 clampedSpawn = _pathfinder.ClampToGrid(spawnPoint.position);
+        Vector3 clampedSpawn = _pathfinder.ClampToGrid(spawnPos);
         Vector3 clampedGoal = _pathfinder.ClampToGrid(goalTransform.position);
         Vector2Int startPos = _pathfinder.WorldToCell(clampedSpawn);
         Vector2Int endPos = _pathfinder.WorldToCell(clampedGoal);

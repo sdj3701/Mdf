@@ -115,11 +115,8 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _activeExtendBudget = -1;
 
                 // === 스폰 포인트를 선택된 진입 구멍으로 재설정 ===
-                if (planResult != null && _playerManager.spawnPoint != null)
+                if (planResult != null)
                 {
-                    var newSpawnWorld = fm.GridToWorld(new Vector3Int(planResult.Start.x, planResult.Start.y, 0));
-                    _playerManager.spawnPoint.position = newSpawnWorld;
-
                     // MonsterSpawner 재초기화 (새 스폰 위치 반영)
                     if (_playerManager.monsterSpawner != null && _playerManager.astarGrid != null && _playerManager.goalTransform != null)
                     {
@@ -128,11 +125,10 @@ namespace AI.BehaviorTree.Nodes.Actions
                             _playerManager,
                             _playerManager.astarGrid,
                             waveDatabase,
-                            _playerManager.spawnPoint,
                             _playerManager.goalTransform);
                     }
 
-                    Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} spawn relocated to gap {planResult.Start}, gapWalls={planResult.GapWalls?.Count ?? 0}</color>");
+                    Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} entry gap fixed at {planResult.Start}, gapWalls={planResult.GapWalls?.Count ?? 0}</color>");
                 }
 
                 // Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned {_playerManager.mazePlannedOrder.Count} walls</color>");
@@ -296,9 +292,8 @@ namespace AI.BehaviorTree.Nodes.Actions
             var placeAt = target.Value;
 
             // 스폰/골 셀인지 확인 (안전장치)
-            Vector3Int spawnCell = fm.WorldToGridInt(_playerManager.spawnPoint != null ? _playerManager.spawnPoint.position : Vector3.zero);
             Vector3Int goalCell = fm.WorldToGridInt(_playerManager.goalTransform != null ? _playerManager.goalTransform.position : Vector3.zero);
-            if (placeAt == spawnCell || placeAt == goalCell)
+            if (placeAt == goalCell)
             {
                 // 스폰/골 위치는 건너뜀
                 _temporarilySkipped.Add(placeAt);

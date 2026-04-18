@@ -68,7 +68,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public MonsterSpawner monsterSpawner;
     public AugmentManager augmentManager;
     public AstarGrid astarGrid;
-    public Transform spawnPoint { get; private set; }
     public Transform goalTransform { get; private set; }
 
     [HideInInspector]
@@ -330,11 +329,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
         }
 
-        // FieldManager 초기화 후 스폰/골 위치를 동적으로 설정
-        // - 골: 필드 정 가운데 그리드
-        // - 스폰: 동서남북 테두리 구멍 4곳 중 랜덤
-        SetupSpawnAndGoalPositions(gridInstance);
-        // Debug.Log($"[Player {playerId}]: SpawnPoint 위치 -> {(this.spawnPoint != null ? this.spawnPoint.position.ToString() : "null")}");
+        // FieldManager 초기화 후 goal 위치를 동적으로 설정
+        SetupGoalPosition(gridInstance);
         // Debug.Log($"[Player {playerId}]: Goal 위치 -> {(this.goalTransform != null ? this.goalTransform.position.ToString() : "null")}");
 
         // 이제 FieldManager가 준비되었으므로 AstarGrid를 FieldManager와 동기화하여 초기화합니다.
@@ -353,7 +349,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (monsterSpawner)
         {
             var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-            monsterSpawner.Initialize(this, this.astarGrid, waveDatabase, this.spawnPoint, this.goalTransform);
+            monsterSpawner.Initialize(this, this.astarGrid, waveDatabase, this.goalTransform);
         }
 
         if (augmentManager) augmentManager.playerManager = this;
@@ -459,9 +455,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             ground3D = ResolveGroundObject(gridRoot);
         }
 
-        bool spawnInvalid = spawnPoint == null || !IsTransformOwnedByCurrentRunner(spawnPoint);
         bool goalInvalid = goalTransform == null || !IsTransformOwnedByCurrentRunner(goalTransform);
-        bool spawnParentMismatch = gridRoot != null && spawnPoint != null && spawnPoint.parent != gridRoot.transform;
         bool goalParentMismatch = gridRoot != null && goalTransform != null && goalTransform.parent != gridRoot.transform;
 
         if (fieldManager != null && ground3D != null
@@ -471,20 +465,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             fieldReinitialized = true;
         }
 
-        bool spawnGoalRefreshed = false;
-        bool requireSpawnGoalRefresh = spawnInvalid
-                                       || goalInvalid
-                                       || spawnParentMismatch
-                                       || goalParentMismatch
-                                       || fieldReinitialized
-                                       || gridRebound;
+        bool goalRefreshed = false;
+        bool requireGoalRefresh = goalInvalid
+                                  || goalParentMismatch
+                                  || fieldReinitialized
+                                  || gridRebound;
         if (fieldManager != null
             && fieldManager.ground3D != null
             && gridRoot != null
-            && requireSpawnGoalRefresh)
+            && requireGoalRefresh)
         {
-            SetupSpawnAndGoalPositions(gridRoot);
-            spawnGoalRefreshed = true;
+            SetupGoalPosition(gridRoot);
+            goalRefreshed = true;
         }
 
         if (astarGrid != null && fieldManager != null)
@@ -506,11 +498,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             bool shouldReinitializeSpawner = monsterSpawner.monsterParent == null
                                              || fieldReinitialized
                                              || gridRebound
-                                             || spawnGoalRefreshed;
-            if (shouldReinitializeSpawner && astarGrid != null && spawnPoint != null && goalTransform != null)
+                                             || goalRefreshed;
+            if (shouldReinitializeSpawner && astarGrid != null && goalTransform != null)
             {
                 var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-                monsterSpawner.Initialize(this, astarGrid, waveDatabase, spawnPoint, goalTransform);
+                monsterSpawner.Initialize(this, astarGrid, waveDatabase, goalTransform);
             }
 
             monsterSpawner.EnsureRuntimeReferencesForMigration(context, verboseFailure);
@@ -575,12 +567,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
-        if (spawnPoint == null)
-        {
-            reason = "spawnPoint=null";
-            return false;
-        }
-
         if (goalTransform == null)
         {
             reason = "goalTransform=null";
@@ -612,11 +598,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             {
                 return rootFromGrid;
             }
-        }
-
-        if (spawnPoint != null && IsTransformOwnedByCurrentRunner(spawnPoint))
-        {
-            return spawnPoint.parent != null ? spawnPoint.parent.gameObject : spawnPoint.gameObject;
         }
 
         if (goalTransform != null && IsTransformOwnedByCurrentRunner(goalTransform))
@@ -692,11 +673,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 if (fieldManager != null && candidateGrid.fieldManager == fieldManager)
                 {
                     score += 80f;
-                }
-
-                if (spawnPoint != null && spawnPoint.parent == no.transform)
-                {
-                    score += 40f;
                 }
 
                 if (goalTransform != null && goalTransform.parent == no.transform)
@@ -1618,19 +1594,17 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     #endregion
 
-    #region Spawn/Goal 위치 설정
+    #region Goal 위치 설정
 
     /// <summary>
-    /// 스폰 위치와 골 위치를 동적으로 설정합니다.
+    /// goal 위치를 동적으로 설정합니다.
     /// - 골: 필드 정 가운데 그리드
-    /// - 스폰: 남쪽(하단 가운데) 고정 - AI 웨이브 소환용
-    /// 참고: 플레이어 vs 플레이어 전투에서는 공격자가 직접 위치를 선택하여 소환
     /// </summary>
-    private void SetupSpawnAndGoalPositions(GameObject gridInstance)
+    private void SetupGoalPosition(GameObject gridInstance)
     {
         if (gridInstance == null)
         {
-            // Debug.LogWarning($"[Player {playerId}]: SetupSpawnAndGoalPositions skipped - gridInstance is null.");
+            // Debug.LogWarning($"[Player {playerId}]: SetupGoalPosition skipped - gridInstance is null.");
             return;
         }
 
@@ -1648,41 +1622,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             gridOrigin.z + (centerY + 0.5f) * cellSize
         );
 
-        // 스폰 위치: 남쪽(하단 가운데) 고정 - AI 웨이브 소환용
-        Vector2Int spawnGridPos = new Vector2Int(centerX, 0); // 남쪽 (하단 가운데)
-        Vector3 spawnWorldPos = new Vector3(
-            gridOrigin.x + (spawnGridPos.x + 0.5f) * cellSize,
-            gridOrigin.y,
-            gridOrigin.z + (spawnGridPos.y + 0.5f) * cellSize
-        );
-
-        // 기존 SpawnPoint/Goal 오브젝트를 찾아보고, 없으면 새로 생성
-        Transform existingSpawn = gridInstance.transform.Find("SpawnPoint");
+        // 기존 Goal 오브젝트를 찾아보고, 없으면 새로 생성
         Transform existingGoal = gridInstance.transform.Find("Goal");
-        if (existingSpawn == null)
-        {
-            existingSpawn = FindChildByNameRecursive(gridInstance.transform, "SpawnPoint");
-        }
         if (existingGoal == null)
         {
             existingGoal = FindChildByNameRecursive(gridInstance.transform, "Goal");
-        }
-
-        if (existingSpawn != null)
-        {
-            if (existingSpawn.parent != gridInstance.transform)
-            {
-                existingSpawn.SetParent(gridInstance.transform, true);
-            }
-            existingSpawn.position = spawnWorldPos;
-            this.spawnPoint = existingSpawn;
-        }
-        else
-        {
-            GameObject spawnGO = new GameObject("SpawnPoint");
-            spawnGO.transform.SetParent(gridInstance.transform);
-            spawnGO.transform.position = spawnWorldPos;
-            this.spawnPoint = spawnGO.transform;
         }
 
         if (existingGoal != null)
@@ -1702,7 +1646,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             this.goalTransform = goalGO.transform;
         }
 
-        // Debug.Log($"[Player {playerId}]: 스폰 위치 설정 -> 그리드({spawnGridPos.x}, {spawnGridPos.y}), 월드{spawnWorldPos} (남쪽 고정, AI용)");
         // Debug.Log($"[Player {playerId}]: 골 위치 설정 -> 그리드({centerX}, {centerY}), 월드{goalWorldPos}");
     }
 

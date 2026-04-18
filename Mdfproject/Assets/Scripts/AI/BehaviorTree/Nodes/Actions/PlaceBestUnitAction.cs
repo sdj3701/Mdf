@@ -130,10 +130,10 @@ namespace AI.BehaviorTree.Nodes.Actions
         private void RecalculateMonsterPath()
         {
             var grid = _playerManager.astarGrid;
-            var start = _playerManager.spawnPoint;
             var goal = _playerManager.goalTransform;
+            var fieldManager = _playerManager.fieldManager;
 
-            if (grid == null || start == null || goal == null) return;
+            if (grid == null || goal == null || fieldManager == null || !fieldManager.TryGetSingleOpenEntryCell(out var entryCell)) return;
 
             // 재배치 계획을 위해 현재 필드에 있는 모든 유닛의 3D 콜라이더를 일시적으로 비활성화합니다.
             var allUnits = _playerManager.fieldManager.GetAlliedUnitsOnField();
@@ -150,12 +150,11 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             // [3D Migration] FieldManager/AstarGrid 좌표 변환 사용 (origin/cellSize 반영)
             // 경계 밖일 수 있으므로 먼저 클램프 후 셀 변환
-            Vector3 startClamped = grid.ClampToGrid(start.position);
             Vector3 goalClamped = grid.ClampToGrid(goal.position);
-            Vector2Int startPos = grid.WorldToCell(startClamped);
+            Vector2Int startPos = new Vector2Int(entryCell.x, entryCell.y);
             Vector2Int goalPos = grid.WorldToCell(goalClamped);
 
-            Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - Start: {start.position} -> {startPos}, Goal: {goal.position} -> {goalPos}");
+            Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - Entry: {entryCell} -> {startPos}, Goal: {goal.position} -> {goalPos}");
 
             // 유닛이 없는 상태에서, 벽을 정상적으로 고려한 실제 몬스터 이동 경로를 계산합니다.
             // ignoreWalls=false로 설정하여 벽을 고려한 경로를 계산합니다.
@@ -176,7 +175,6 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _idealMonsterPath = new List<AstarNode>(grid.FinalPath);
 
                 // AI 필드 좌표계로 변환
-                var fieldManager = _playerManager.fieldManager;
                 if (fieldManager != null)
                 {
                     // AI 필드의 실제 타일 범위 확인

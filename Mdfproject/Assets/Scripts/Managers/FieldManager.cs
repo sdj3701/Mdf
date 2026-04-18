@@ -422,6 +422,43 @@ public class FieldManager : MonoBehaviour
         return new Vector3Int(grid2D.x, grid2D.y, 0);
     }
 
+    public List<Vector3Int> GetOpenBorderGaps()
+    {
+        var gaps = new List<Vector3Int>(4);
+        int centerX = gridSize.x / 2;
+        int centerY = gridSize.y / 2;
+
+        AddOpenBorderGap(gaps, new Vector3Int(centerX, gridSize.y - 1, 0));
+        AddOpenBorderGap(gaps, new Vector3Int(centerX, 0, 0));
+        AddOpenBorderGap(gaps, new Vector3Int(gridSize.x - 1, centerY, 0));
+        AddOpenBorderGap(gaps, new Vector3Int(0, centerY, 0));
+
+        return gaps;
+    }
+
+    public bool TryGetSingleOpenEntryCell(out Vector3Int entryCell)
+    {
+        var gaps = GetOpenBorderGaps();
+        if (gaps.Count == 1)
+        {
+            entryCell = gaps[0];
+            return true;
+        }
+
+        entryCell = default;
+        return false;
+    }
+
+    private void AddOpenBorderGap(List<Vector3Int> gaps, Vector3Int cell)
+    {
+        if (!IsValidGridPosition(cell) || HasWallAt(cell) || gaps.Contains(cell))
+        {
+            return;
+        }
+
+        gaps.Add(cell);
+    }
+
     /// <summary>
     /// 주어진 월드 좌표를 논리 그리드의 월드 경계 내로 클램프합니다. (X/Z만 제한, Y는 그대로)
     /// 최대 경계는 배타적으로 취급하여 최댓값에서의 내림으로 인한 유령 셀을 방지합니다.
@@ -520,14 +557,13 @@ public class FieldManager : MonoBehaviour
         }
 
         var grid = playerManager != null ? playerManager.astarGrid : null;
-        if (grid == null || playerManager.spawnPoint == null || playerManager.goalTransform == null)
+        if (grid == null || playerManager.goalTransform == null || !TryGetSingleOpenEntryCell(out var entryCell))
         {
             return;
         }
 
-        Vector3 clampedSpawn = grid.ClampToGrid(playerManager.spawnPoint.position);
         Vector3 clampedGoal = grid.ClampToGrid(playerManager.goalTransform.position);
-        Vector2Int startPos = grid.WorldToCell(clampedSpawn);
+        Vector2Int startPos = new Vector2Int(entryCell.x, entryCell.y);
         Vector2Int endPos = grid.WorldToCell(clampedGoal);
 
         if (!grid.FindPath(startPos, endPos))
@@ -1329,7 +1365,6 @@ public class FieldManager : MonoBehaviour
         }
 
         // 스폰/골 목표 셀 계산 (3D)
-        Vector3Int spawnCell = WorldToGridInt(playerManager.spawnPoint != null ? playerManager.spawnPoint.position : Vector3.zero);
         
         // goalTransform이 null이면 필드 중앙 사용
         Vector3Int goalCell;
@@ -1344,7 +1379,7 @@ public class FieldManager : MonoBehaviour
             // Debug.LogWarning($"[FieldManager] goalTransform이 null입니다. 필드 중앙 {goalCell}을 사용합니다.");
         }
 
-        Debug.Log($"[WallFlow-Auto] spawn/goal resolved. owner={BuildWallOwnerTag()}, spawnCell={spawnCell}, goalCell={goalCell}, gridSize={gridSize}");
+        Debug.Log($"[WallFlow-Auto] goal resolved. owner={BuildWallOwnerTag()}, goalCell={goalCell}, gridSize={gridSize}");
 
         List<Vector3Int> selected = new List<Vector3Int>();
         int centerX = gridSize.x / 2;
@@ -1405,7 +1440,7 @@ public class FieldManager : MonoBehaviour
                     var cell = new Vector3Int(x, y, 0);
                     if (!IsValidGridPosition(cell)) continue;
                     // 스폰과 골 위치는 절대 배치 불가
-                    if (cell == spawnCell || cell == goalCell) continue;
+                    if (cell == goalCell) continue;
                     if (HasWallAt(cell)) continue;
                     if (IsUnitAt(cell)) continue;
                     interiorCandidates.Add(cell);

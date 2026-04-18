@@ -145,7 +145,7 @@ public static class MazePlanner
         // 구멍 막기에 사용되는 벽 수를 예산에서 차감
         wallBudget = Mathf.Max(0, wallBudget - gapWallsToSeal.Count);
 
-        bool useFixedEndpoints = pm.spawnPoint != null && pm.goalTransform != null;
+        bool useFixedEndpoints = pm.goalTransform != null && allGaps.Count > 0;
         Vector2Int fixedStart = Vector2Int.zero;
         Vector2Int fixedGoal = Vector2Int.zero;
         if (useFixedEndpoints)
@@ -160,8 +160,7 @@ public static class MazePlanner
             }
             else
             {
-                var spawnCell = fm.WorldToGridInt(pm.spawnPoint.position);
-                fixedStart = new Vector2Int(spawnCell.x, spawnCell.y);
+                fixedStart = chosenEntryGap;
             }
 
             if (fixedStart == fixedGoal)
@@ -237,6 +236,16 @@ public static class MazePlanner
         var plan = new MazePlanResult();
         var rng = CreateRng();
         MazeGenerationResult generation = null;
+
+        if (!input.UseFixedEndpoints)
+        {
+            if (log)
+            {
+                Debug.LogWarning("[MazePlanner] No single entry gap available. Skipping maze plan.");
+            }
+
+            return plan;
+        }
 
         if (input.WallBudget <= 0)
         {
@@ -355,6 +364,16 @@ public static class MazePlanner
         var rng = CreateRng();
         int width = input.Width;
         int height = input.Height;
+
+        if (!input.UseFixedEndpoints)
+        {
+            if (log)
+            {
+                Debug.LogWarning("[MazePlanner] No single entry gap available. Skipping extension plan.");
+            }
+
+            return plan;
+        }
 
         // 고정 위치 사용 (랜덤 폴백 제거됨)
         Vector2Int start = input.FixedStart;
@@ -713,7 +732,9 @@ public static class MazePlanner
         int width = Mathf.Max(1, fm.gridSize.x);
         int height = Mathf.Max(1, fm.gridSize.y);
 
-        var start = fm.WorldToGridInt(pm.spawnPoint != null ? pm.spawnPoint.position : Vector3.zero);
+        var start = fm.TryGetSingleOpenEntryCell(out var entryCell)
+            ? entryCell
+            : new Vector3Int(-1, -1, 0);
         var goal = fm.WorldToGridInt(pm.goalTransform != null ? pm.goalTransform.position : Vector3.zero);
         var start2D = new Vector2Int(start.x, start.y);
         var goal2D = new Vector2Int(goal.x, goal.y);
@@ -1206,12 +1227,6 @@ public static class MazePlanner
 
     private static void AlignSpawnAndGoal(PlayerManager pm, FieldManager fm, Vector2Int start, Vector2Int goal)
     {
-        if (pm.spawnPoint != null)
-        {
-            var world = fm.GridToWorld(new Vector3Int(start.x, start.y, 0));
-            pm.spawnPoint.position = world;
-        }
-
         if (pm.goalTransform != null)
         {
             var world = fm.GridToWorld(new Vector3Int(goal.x, goal.y, 0));

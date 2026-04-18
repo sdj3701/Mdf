@@ -29,7 +29,7 @@ namespace AI.BehaviorTree.Nodes.Actions
         private readonly LayerMask _spawnAreaLayerMask;
 
         // 방향별 유효 스폰 지점 캐시
-        private Dictionary<SpawnDirection, List<Vector3>> _validSpawnPoints;
+        private Dictionary<SpawnDirection, List<Vector3>> _validSpawnPositions;
         #endregion
 
         #region 생성자
@@ -57,13 +57,13 @@ namespace AI.BehaviorTree.Nodes.Actions
             }
 
             // 1. 유효 스폰 지점 수집
-            CollectValidSpawnPoints();
+            CollectValidSpawnPositions();
 
-            if (_validSpawnPoints == null || _validSpawnPoints.Values.All(v => v.Count == 0))
+            if (_validSpawnPositions == null || _validSpawnPositions.Values.All(v => v.Count == 0))
             {
                 // 폴백: 기본 스폰 포인트에 전부 소환
                 Debug.LogWarning("[AIAttackStrategy] 유효한 스폰 지점을 찾지 못했습니다. 기본 위치에 소환합니다.");
-                Vector3 fallbackPos = _targetField.playerManager?.spawnPoint?.position ?? _targetField.gridOrigin;
+                Vector3 fallbackPos = GetFallbackSpawnPos();
                 var fallbackPhase = new AISpawnPhase();
                 foreach (var entry in pool)
                 {
@@ -78,9 +78,9 @@ namespace AI.BehaviorTree.Nodes.Actions
             ClassifyMonsterPool(pool, out var destroyers, out var tanks, out var normalGround, out var flying);
 
             // 3. 최적 스폰 지점 계산
-            Vector3 groundSpawnPos = EvaluateGroundSpawnPoint();
-            Vector3 flyingSpawnPos = EvaluateFlyingSpawnPoint();
-            Vector3 destroyerSpawnPos = EvaluateDestroyerSpawnPoint();
+            Vector3 groundSpawnPos = EvaluateGroundSpawnPosition();
+            Vector3 flyingSpawnPos = EvaluateFlyingSpawnPosition();
+            Vector3 destroyerSpawnPos = EvaluateDestroyerSpawnPosition();
 
             // 4. 전략 흐름에 따라 소환 계획 생성
             bool hasDestroyers = destroyers.Count > 0;
@@ -106,9 +106,9 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// 아우터 그리드 영역에서 유효한 스폰 지점을 수집하고 4방향으로 그룹핑합니다.
         /// 실제 플레이어가 클릭 소환하는 영역과 동일한 검증 절차를 적용합니다.
         /// </summary>
-        private void CollectValidSpawnPoints()
+        private void CollectValidSpawnPositions()
         {
-            _validSpawnPoints = new Dictionary<SpawnDirection, List<Vector3>>
+            _validSpawnPositions = new Dictionary<SpawnDirection, List<Vector3>>
             {
                 { SpawnDirection.North, new List<Vector3>() },
                 { SpawnDirection.South, new List<Vector3>() },
@@ -175,7 +175,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                     if (IsValidSpawnZone(spawnPos))
                     {
                         SpawnDirection dir = ClassifyDirection(cell, gridSize);
-                        _validSpawnPoints[dir].Add(spawnPos);
+                        _validSpawnPositions[dir].Add(spawnPos);
                     }
                 }
             }
@@ -217,13 +217,13 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// 모든 유효 스폰 포인트에서 골 지점까지 A* 경로 길이를 비교하여 가장 짧은 경로의 스폰 지점을 반환합니다.
         /// 성능 최적화: 각 방향에서 골에 가장 가까운 후보를 먼저 선별한 뒤 A* 비교합니다.
         /// </summary>
-        private Vector3 EvaluateGroundSpawnPoint()
+        private Vector3 EvaluateGroundSpawnPosition()
         {
             Vector3 bestSpawnPos = GetFallbackSpawnPos();
             int shortestPath = int.MaxValue;
             Vector3 goalPos = _goalTransform.position;
 
-            foreach (var kvp in _validSpawnPoints)
+            foreach (var kvp in _validSpawnPositions)
             {
                 if (kvp.Value.Count == 0) continue;
 
@@ -270,7 +270,7 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// <summary>
         /// 상대 원거리 유닛(벽 위 유닛)이 가장 적게 밀집된 방향에서 스폰 지점을 반환합니다.
         /// </summary>
-        private Vector3 EvaluateFlyingSpawnPoint()
+        private Vector3 EvaluateFlyingSpawnPosition()
         {
             // 방향별 원거리 유닛 수 카운트
             var rangedUnitCounts = new Dictionary<SpawnDirection, int>
@@ -306,7 +306,7 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             foreach (var kvp in rangedUnitCounts)
             {
-                if (_validSpawnPoints.ContainsKey(kvp.Key) && _validSpawnPoints[kvp.Key].Count > 0)
+                if (_validSpawnPositions.ContainsKey(kvp.Key) && _validSpawnPositions[kvp.Key].Count > 0)
                 {
                     if (kvp.Value < minCount)
                     {
@@ -316,7 +316,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                 }
             }
 
-            var candidates = _validSpawnPoints.ContainsKey(bestDir) ? _validSpawnPoints[bestDir] : null;
+            var candidates = _validSpawnPositions.ContainsKey(bestDir) ? _validSpawnPositions[bestDir] : null;
             if (candidates != null && candidates.Count > 0)
             {
                 return candidates[candidates.Count / 2];
@@ -350,13 +350,13 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// 수비 유닛이 적은 방향의 스폰 지점을 반환합니다.
         /// 모든 방향의 유효 스폰 포인트에서 골에 가장 가까운 후보를 비교합니다.
         /// </summary>
-        private Vector3 EvaluateDestroyerSpawnPoint()
+        private Vector3 EvaluateDestroyerSpawnPosition()
         {
             Vector3 bestSpawnPos = GetFallbackSpawnPos();
             float bestScore = float.MinValue;
             Vector3 goalPos = _goalTransform.position;
 
-            foreach (var kvp in _validSpawnPoints)
+            foreach (var kvp in _validSpawnPositions)
             {
                 if (kvp.Value.Count == 0) continue;
 
@@ -678,17 +678,22 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// </summary>
         private Vector3 GetFallbackSpawnPos()
         {
-            return _targetField.playerManager?.spawnPoint?.position ?? _targetField.gridOrigin;
+            if (_targetField != null && _targetField.TryGetSingleOpenEntryCell(out var entryCell))
+            {
+                return _targetField.GridToWorld(entryCell);
+            }
+
+            return _targetField != null ? _targetField.gridOrigin : Vector3.zero;
         }
 
         /// <summary>
         /// 아무 방향에서든 유효한 스폰 지점 하나를 가져옵니다.
         /// </summary>
-        public Vector3 GetAnyValidSpawnPoint()
+        public Vector3 GetAnyValidSpawnPosition()
         {
-            if (_validSpawnPoints == null) return GetFallbackSpawnPos();
+            if (_validSpawnPositions == null) return GetFallbackSpawnPos();
 
-            foreach (var kvp in _validSpawnPoints)
+            foreach (var kvp in _validSpawnPositions)
             {
                 if (kvp.Value.Count > 0)
                 {
