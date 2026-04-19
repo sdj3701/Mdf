@@ -133,7 +133,7 @@ namespace AI.BehaviorTree.Nodes.Actions
             var goal = _playerManager.goalTransform;
             var fieldManager = _playerManager.fieldManager;
 
-            if (grid == null || goal == null || fieldManager == null || !fieldManager.TryGetSingleOpenEntryCell(out var entryCell)) return;
+            if (grid == null || goal == null || fieldManager == null || !fieldManager.TryGetSingleOpenEntryNavigationCell(out var startPos)) return;
 
             // 재배치 계획을 위해 현재 필드에 있는 모든 유닛의 3D 콜라이더를 일시적으로 비활성화합니다.
             var allUnits = _playerManager.fieldManager.GetAlliedUnitsOnField();
@@ -148,60 +148,23 @@ namespace AI.BehaviorTree.Nodes.Actions
                 }
             }
 
-            // [3D Migration] FieldManager/AstarGrid 좌표 변환 사용 (origin/cellSize 반영)
-            // 경계 밖일 수 있으므로 먼저 클램프 후 셀 변환
-            Vector3 goalClamped = grid.ClampToGrid(goal.position);
-            Vector2Int startPos = new Vector2Int(entryCell.x, entryCell.y);
-            Vector2Int goalPos = grid.WorldToCell(goalClamped);
+            Vector2Int goalPos = fieldManager.WorldToNavigationCell(goal.position);
 
-            Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - Entry: {entryCell} -> {startPos}, Goal: {goal.position} -> {goalPos}");
+
+            Debug.Log($"[AI Path Debug] Player {_playerManager.playerId} - EntryNav: {startPos}, Goal: {goal.position} -> {goalPos}");
 
             // 유닛이 없는 상태에서, 벽을 정상적으로 고려한 실제 몬스터 이동 경로를 계산합니다.
-            // ignoreWalls=false로 설정하여 벽을 고려한 경로를 계산합니다.
             bool pathFound = grid.FindPath(startPos, goalPos, ignoreWalls: false);
 
-            // 경로 계산이 끝난 후, 모든 유닛의 콜라이더를 다시 활성화합니다.
             foreach (var collider in colliders)
             {
                 if (collider != null) collider.enabled = true;
             }
 
-            // 경로 처리 및 좌표계 변환
             if (pathFound && grid.FinalPath != null && grid.FinalPath.Count > 0)
             {
                 Debug.Log($"[AI Path Debug] 경로 찾기 성공! 경로 길이: {grid.FinalPath.Count}");
-
-                // 이상적인 경로를 복사하여 저장합니다. (재배치 중에 경로가 변경되지 않도록)
-                _idealMonsterPath = new List<AstarNode>(grid.FinalPath);
-
-                // AI 필드 좌표계로 변환
-                if (fieldManager != null)
-                {
-                    // AI 필드의 실제 타일 범위 확인
-                    var allValidTiles = fieldManager.GetValidPlacementTiles(UnitType.Melee);
-                    if (allValidTiles != null && allValidTiles.Count > 0)
-                    {
-                        // AI 필드의 y좌표 중심값 계산
-                        float fieldCenterY = (allValidTiles.Min(t => t.y) + allValidTiles.Max(t => t.y)) / 2.0f;
-
-                        // 몬스터 경로의 y좌표 중심값 계산
-                        float pathCenterY = (_idealMonsterPath.Min(n => n.y) + _idealMonsterPath.Max(n => n.y)) / 2.0f;
-
-                        // 오프셋 계산: 필드 중심 - 경로 중심
-                        int yOffset = Mathf.RoundToInt(fieldCenterY - pathCenterY);
-
-                        Debug.Log($"[AI Path Transform] 필드 중심 Y: {fieldCenterY}, 경로 중심 Y: {pathCenterY}, 오프셋: {yOffset}");
-
-                        // 경로의 모든 노드를 AI 필드 좌표계로 변환
-                        for (int i = 0; i < _idealMonsterPath.Count; i++)
-                        {
-                            var node = _idealMonsterPath[i];
-                            _idealMonsterPath[i] = new AstarNode(node.isWall, node.x, node.y + yOffset);
-                        }
-
-                        Debug.Log($"[AI Path Transform] 변환 후 첫 번째 노드: ({_idealMonsterPath[0].x}, {_idealMonsterPath[0].y}), 마지막 노드: ({_idealMonsterPath[_idealMonsterPath.Count-1].x}, {_idealMonsterPath[_idealMonsterPath.Count-1].y})");
-                    }
-                }
+                _idealMonsterPath = fieldManager.ConvertNavigationPathToInnerField(grid.FinalPath);
             }
             else
             {

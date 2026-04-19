@@ -104,7 +104,10 @@ public static class MazePlanner
 
         // === 구멍 막기: 동서남북 4개 구멍 중 1개만 남기고 나머지 3개를 벽으로 처리 ===
         var rng = CreateRng();
-        var allGaps = FindGapPositions(width, height, initialWalls);
+        var allGaps = fm.GetBorderGapCells()
+            .Select(cell => new Vector2Int(cell.x, cell.y))
+            .Where(cell => !initialWalls.Contains(cell))
+            .ToList();
         var gapWallsToSeal = new List<Vector2Int>();
         Vector2Int chosenEntryGap = Vector2Int.zero;
 
@@ -1242,39 +1245,6 @@ public static class MazePlanner
     private static bool IsInside(Vector2Int pos, int width, int height)
     {
         return pos.x >= 0 && pos.x < width && pos.y >= 0 && pos.y < height;
-    }
-
-    /// <summary>
-    /// 필드 테두리의 동서남북 구멍(gap) 위치를 찾아 반환합니다.
-    /// FieldManager.GeneratePermanentWallsIfNeeded()의 gap 로직과 일치합니다.
-    /// </summary>
-    private static List<Vector2Int> FindGapPositions(int width, int height, HashSet<Vector2Int> currentWalls)
-    {
-        var gaps = new List<Vector2Int>();
-        int centerX = width / 2;
-        int centerY = height / 2;
-
-        // 북쪽 (상단 가운데)
-        var northGap = new Vector2Int(centerX, height - 1);
-        if (!currentWalls.Contains(northGap))
-            gaps.Add(northGap);
-
-        // 남쪽 (하단 가운데)
-        var southGap = new Vector2Int(centerX, 0);
-        if (!currentWalls.Contains(southGap))
-            gaps.Add(southGap);
-
-        // 동쪽 (우측 가운데)
-        var eastGap = new Vector2Int(width - 1, centerY);
-        if (!currentWalls.Contains(eastGap))
-            gaps.Add(eastGap);
-
-        // 서쪽 (좌측 가운데)
-        var westGap = new Vector2Int(0, centerY);
-        if (!currentWalls.Contains(westGap))
-            gaps.Add(westGap);
-
-        return gaps;
     }
 
     private static Vector2Int FindFirstEmptyCell(int width, int height, HashSet<Vector2Int> blocked, Vector2Int avoid)

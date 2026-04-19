@@ -120,11 +120,9 @@ namespace AI.BehaviorTree.Nodes.Actions
                     // MonsterSpawner 재초기화 (새 스폰 위치 반영)
                     if (_playerManager.monsterSpawner != null && _playerManager.astarGrid != null && _playerManager.goalTransform != null)
                     {
-                        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
                         _playerManager.monsterSpawner.Initialize(
                             _playerManager,
                             _playerManager.astarGrid,
-                            waveDatabase,
                             _playerManager.goalTransform);
                     }
 

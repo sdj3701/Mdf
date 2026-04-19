@@ -7,11 +7,11 @@ using Cysharp.Threading.Tasks;
 
 public class MonsterSpawner : MonoBehaviour
 {
+
     #region 필드 및 참조
 
     private PlayerManager _playerManager;
     private AstarGrid _pathfinder;
-    private WaveDatabase _waveDatabase;
     private float _lastRuntimeResolveLogTime;
     private static int _spawnTraceSeq;
 
@@ -22,8 +22,6 @@ public class MonsterSpawner : MonoBehaviour
     [Header("정리용 부모 오브젝트")]
     public Transform monsterParent;
     
-    // 공격 시퀀스용 타겟 필드 (임시 저장)
-    private FieldManager _targetFieldManager;
     private readonly HashSet<string> _activeAutoSpawnKeys = new HashSet<string>();
     private readonly HashSet<string> _completedAutoSpawnKeys = new HashSet<string>();
 
@@ -38,19 +36,16 @@ public class MonsterSpawner : MonoBehaviour
     /// </summary>
     /// <param name="owner">소유 플레이어</param>
     /// <param name="grid">경로 탐색용 그리드</param>
-    /// <param name="waveDatabase">웨이브 데이터베이스</param>
     /// <param name="goalTransform">목표 위치</param>
-    public void Initialize(PlayerManager owner, AstarGrid grid, WaveDatabase waveDatabase, Transform goalTransform)
+    public void Initialize(PlayerManager owner, AstarGrid grid, Transform goalTransform)
     {
         _playerManager = owner;
         _pathfinder = grid;
-        _waveDatabase = waveDatabase;
         this.goalTransform = goalTransform;
 
         string ownerName = owner != null ? owner.name : "NULL";
         // Debug.Log($"[MonsterSpawner] '{ownerName}' 초기화 완료. " +
                   // $"AstarGrid: {(grid != null)}, " +
-                  // $"WaveDatabase: {(waveDatabase != null)}, " +
                   // $"goalTransform: {(goalTransform != null)}");
 
         if (monsterParent == null)
@@ -86,12 +81,6 @@ public class MonsterSpawner : MonoBehaviour
             return false;
         }
 
-        if (_waveDatabase == null)
-        {
-            reason = "waveDatabase=null";
-            return false;
-        }
-
         reason = null;
         return true;
     }
@@ -115,10 +104,6 @@ public class MonsterSpawner : MonoBehaviour
                 goalTransform = _playerManager.goalTransform;
             }
 
-            if (_waveDatabase == null)
-            {
-                _waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-            }
         }
 
         bool ready = IsRuntimeReady(out string notReadyReason);
@@ -138,7 +123,7 @@ public class MonsterSpawner : MonoBehaviour
             : $"owner=Player({_playerManager.playerId}, name={_playerManager.name})";
         string pathState = _pathfinder == null ? "pathfinder=null" : $"pathfinder={_pathfinder.name}";
         string goalState = goalTransform == null ? "goal=null" : $"goal={goalTransform.name}";
-        return $"{ownerState}, {pathState}, {goalState}, waveDb={(_waveDatabase != null)}";
+        return $"{ownerState}, {pathState}, {goalState}";
     }
 
     private string DescribeRunnerState(NetworkRunner runner)
@@ -314,169 +299,31 @@ public class MonsterSpawner : MonoBehaviour
     /// 특정 라운드의 웨이브를 소환합니다.
     /// </summary>
     /// <param name="round">라운드 번호</param>
-    public void SpawnWave(int round)
-    {
-        if (_waveDatabase == null)
-        {
-            // Debug.LogError("[MonsterSpawner] WaveDatabase가 설정되지 않았습니다!", this);
-            return;
-        }
 
-        RoundWaveData waveData = _waveDatabase.GetWaveForRound(round);
-        if (waveData == null)
-        {
-            // Debug.LogError($"[MonsterSpawner] 라운드 {round}의 웨이브 데이터를 찾을 수 없습니다!", this);
-            return;
-        }
-
-        StartCoroutine(SpawnAllMonstersCoroutine(round, waveData));
-    }
 
     /// <summary>
     /// 증강 몬스터 없이 기본 웨이브만 소환합니다. (상대 없는 플레이어의 수비 시퀀스용)
     /// AI가 순서대로 자동 소환합니다.
     /// </summary>
     /// <param name="round">라운드 번호</param>
-    public void SpawnWaveWithoutAugments(int round)
-    {
-        if (_waveDatabase == null)
-        {
-            // Debug.LogError("[MonsterSpawner] WaveDatabase가 설정되지 않았습니다!", this);
-            return;
-        }
 
-        RoundWaveData waveData = _waveDatabase.GetWaveForRound(round);
-        if (waveData == null)
-        {
-            // Debug.LogError($"[MonsterSpawner] 라운드 {round}의 웨이브 데이터를 찾을 수 없습니다!", this);
-            return;
-        }
-
-        StartCoroutine(SpawnBaseWaveOnlyCoroutine(round, waveData));
-    }
 
     /// <summary>
     /// 기본 웨이브만 소환하는 코루틴 (증강 몬스터, 보스 제외)
     /// </summary>
-    IEnumerator SpawnBaseWaveOnlyCoroutine(int round, RoundWaveData waveData)
-    {
-        if (_pathfinder == null)
-        {
-            // Debug.LogError("[MonsterSpawner] AstarGrid가 연결되지 않았습니다!", this);
-            yield break;
-        }
 
-
-        _playerManager.SetFightingState(true);
-
-        int totalMonsters = waveData.GetTotalMonsterCount();
-        // Debug.Log($"<color=gray>[MonsterSpawner] 라운드 {round} 기본 웨이브만 소환 (상대 없음): 총 {totalMonsters}마리</color>");
-
-        // 기본 웨이브 몬스터만 소환 (증강, 보스 제외)
-        yield return StartCoroutine(SpawnBaseWaveFromDataCoroutine(round, waveData));
-
-
-    }
 
     /// <summary>
     /// 기본 웨이브 → 대기 중인 보스 → 생존 보스 → 증강 몬스터 순으로 모두 간격 두고 소환
     /// </summary>
-    IEnumerator SpawnAllMonstersCoroutine(int round, RoundWaveData waveData)
-    {
-        if (_pathfinder == null)
-        {
-            // Debug.LogError("[MonsterSpawner] AstarGrid가 연결되지 않았습니다!", this);
-            yield break;
-        }
 
-
-        _playerManager.SetFightingState(true);
-
-        int totalMonsters = waveData.GetTotalMonsterCount();
-        
-        // 자동 스케일링 정보 로그
-        float autoHealthScale = _waveDatabase.GetHealthScaleForRound(round);
-        float autoSpeedScale = _waveDatabase.GetSpeedScaleForRound(round);
-        // Debug.Log($"<color=cyan>[MonsterSpawner] 라운드 {round} 웨이브 시작: 총 {totalMonsters}마리 (자동 스케일링: 체력 ×{autoHealthScale:F2}, 속도 ×{autoSpeedScale:F2})</color>");
-
-        // 1. 기본 웨이브 몬스터 소환 (WaveDatabase 기반 + 자동 스케일링)
-        yield return StartCoroutine(SpawnBaseWaveFromDataCoroutine(round, waveData));
-
-        // 2. 이전 라운드에서 살아남은 보스 소환 (전체 유저 중 랜덤 타겟)
-        yield return StartCoroutine(SpawnSurvivorBossesCoroutine());
-
-        // 3. 상대의 일반 몬스터 소환 증강에 의한 추가 몬스터 소환
-        yield return StartCoroutine(SpawnAugmentMonstersCoroutine());
-
-
-    }
 
     /// <summary>
     /// WaveDatabase의 RoundWaveData를 기반으로 몬스터를 소환합니다.
     /// </summary>
     /// <param name="round">현재 라운드 (자동 스케일링 계산용)</param>
     /// <param name="waveData">웨이브 데이터</param>
-    IEnumerator SpawnBaseWaveFromDataCoroutine(int round, RoundWaveData waveData)
-    {
-        if (waveData.monsters == null || waveData.monsters.Count == 0)
-        {
-            // Debug.LogWarning("[MonsterSpawner] 웨이브에 몬스터가 정의되지 않았습니다.");
-            yield break;
-        }
 
-        // 자동 스케일링 배율 계산
-        float autoHealthScale = _waveDatabase.GetHealthScaleForRound(round);
-        float autoSpeedScale = _waveDatabase.GetSpeedScaleForRound(round);
-        float autoDamageScale = _waveDatabase.GetDamageScaleForRound(round);
-
-        foreach (var entry in waveData.monsters)
-        {
-            if (entry == null || entry.monsterData == null)
-            {
-                // Debug.LogWarning("[MonsterSpawner] 웨이브 엔트리가 null이거나 MonsterData가 없습니다.");
-                continue;
-            }
-
-            for (int i = 0; i < entry.count; i++)
-            {
-                var spawnTask = SpawnMonsterInternalAsync(entry.monsterData);
-                yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
-                
-                Monster monster = spawnTask.GetAwaiter().GetResult();
-                
-                if (monster != null)
-                {
-                    // [2단계] 웨이브 스케일링 + 소환자 증강체 적용 (영구 버프)
-                    // 공격자가 소환하므로 자신(_playerManager)의 증강체 사용
-                    float healthMult = autoHealthScale;
-                    float speedMult = autoSpeedScale;
-                    float damageMult = autoDamageScale;
-                    
-                    // 소환자(공격자) 자신의 증강체 효과 누적
-                    foreach (var augment in _playerManager.chosenAugments)
-                    {
-                        if (augment.targetType == TargetType.Opponent)
-                        {
-                            switch(augment.effectType)
-                            {
-                                case EffectType.IncreaseEnemyHealth:
-                                    healthMult += augment.value * autoHealthScale;
-                                    break;
-                                case EffectType.IncreaseEnemyMoveSpeed:
-                                    speedMult += augment.value * autoSpeedScale;
-                                    break;
-                            }
-                        }
-                    }
-                    
-                    // 최종 영구 버프 적용 (웨이브 + 증강체)
-                    monster.ApplyAugmentBuffs(healthMult, speedMult, damageMult);
-                }
-
-                yield return new WaitForSeconds(waveData.spawnInterval);
-            }
-        }
-    }
 
     #endregion
 
@@ -579,21 +426,7 @@ public class MonsterSpawner : MonoBehaviour
     /// </summary>
     /// <param name="bossData">소환할 보스 데이터</param>
     /// <param name="originPlayerId">보스를 소환한 플레이어 ID (생존 시 추적용)</param>
-    public async void SpawnBossMonsterAsync(MonsterData bossData, int originPlayerId)
-    {
-        if (_pathfinder == null || bossData == null)
-        {
-            // Debug.LogError("[MonsterSpawner] 보스 소환 실패: _pathfinder 또는 bossData가 null");
-            return;
-        }
 
-        Monster monster = await SpawnMonsterInternalAsync(bossData);
-        if (monster != null)
-        {
-            monster.SetAsBoss(true, originPlayerId);
-            // Debug.Log($"<color=red>[MonsterSpawner] 보스 '{monster.name}' 소환 완료! (OriginPlayer: {originPlayerId})</color>");
-        }
-    }
 
     /// <summary>
     /// 생존 보스들을 비동기로 소환합니다. (외부 호출용)
@@ -654,55 +487,7 @@ public class MonsterSpawner : MonoBehaviour
     /// 타겟은 GameManagers에서 라운드 시작 전에 AssignTargetsToSurvivors()로 미리 할당됩니다.
     /// 턴당 1회 침공 제한: 이미 이번 턴에 침공한 보스는 제외됩니다.
     /// </summary>
-    IEnumerator SpawnSurvivorBossesCoroutine()
-    {
-        if (!EnsureRuntimeReferences("SpawnSurvivorBossesCoroutine", true))
-        {
-            yield break;
-        }
 
-        if (SurvivorBossManager.Instance == null)
-        {
-            yield break;
-        }
-        if (_playerManager == null)
-        {
-            // Debug.LogError($"[MonsterSpawner] SpawnSurvivorBossesCoroutine 중단: playerManager null ({DescribeRuntimeState()})");
-            yield break;
-        }
-
-        // 이 플레이어를 타겟으로 하는 생존 보스 중 이번 턴에 침공하지 않은 보스만 추출
-        var pendingBosses = SurvivorBossManager.Instance.ExtractBossesForBattleSequence(_playerManager.playerId);
-
-        foreach (var bossData in pendingBosses)
-        {
-            if (bossData.BossData == null) continue;
-
-            // 아우터 그리드 랜덤 위치에서 소환
-            Vector3 spawnPos = GetRandomOuterGridPosition();
-            
-            // SpawnMonsterAtPositionAsync 사용 (경로 설정 포함)
-            var spawnTask = SpawnMonsterAtPositionAsync(
-                bossData.BossData,
-                spawnPos,
-                _playerManager.fieldManager,
-                true, // isBoss
-                bossData.BossUniqueId,
-                bossData.OriginPlayerId
-            );
-            yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
-            
-            Monster monster = spawnTask.GetAwaiter().GetResult();
-            if (monster != null)
-            {
-                // 이전 라운드 HP 유지
-                monster.SetCurrentHP(bossData.RemainingHP, bossData.MaxHP);
-                // Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {_playerManager.playerId}에게 침공. 위치: {spawnPos}, HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}, ID: {bossData.BossUniqueId}</color>");
-            }
-
-            yield return new WaitForSeconds(0.5f);
-        }
-    }
     
     /// <summary>
     /// 아우터 그리드 영역(배치 불가, 스폰 가능)에서 랜덤 위치를 반환합니다.
@@ -712,247 +497,154 @@ public class MonsterSpawner : MonoBehaviour
         EnsureRuntimeReferences("GetRandomOuterGridPosition", false);
 
         var field = _playerManager?.fieldManager;
-        if (field == null)
+        return field != null ? field.GetRandomOuterSpawnWorldPosition() : Vector3.zero;
+    }
+
+    public async UniTask SpawnBaseWaveFromFastestOuterDirectionAsync(int round, FieldManager targetFieldManager)
+    {
+        if (!EnsureRuntimeReferences("SpawnBaseWaveFromFastestOuterDirectionAsync", true))
         {
-            // 폴백: 기본 스폰 포인트
-            return Vector3.zero;
+            return;
         }
-        
-        int margin = field.OuterGridMargin;
-        Vector2Int gridSize = field.gridSize;
-        Vector3 gridOrigin = field.gridOrigin;
-        float cellSize = field.cellSize;
-        
-        // 아우터 그리드 영역 정의 (그리드 바깥쪽 셀들)
-        // 4개 구역: 위쪽, 아래쪽, 왼쪽, 오른쪽
-        List<Vector2Int> outerCells = new List<Vector2Int>();
-        
-        // 위쪽 (y = gridSize.y ~ gridSize.y + margin - 1)
-        for (int y = gridSize.y; y < gridSize.y + margin; y++)
+
+        if (_playerManager == null || targetFieldManager == null)
         {
-            for (int x = -margin; x < gridSize.x + margin; x++)
+            return;
+        }
+
+        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        var waveData = waveDatabase?.GetWaveForRound(round);
+        if (waveData?.monsters == null || waveData.monsters.Count == 0)
+        {
+            return;
+        }
+
+        Vector3 spawnPosition = GetFastestOuterDirectionSpawnPosition(targetFieldManager);
+        int delayMs = Mathf.Max(100, Mathf.RoundToInt(Mathf.Max(0.1f, waveData.spawnInterval) * 1000f));
+
+        foreach (var entry in waveData.monsters)
+        {
+            if (entry?.monsterData == null || entry.count <= 0)
             {
-                outerCells.Add(new Vector2Int(x, y));
+                continue;
+            }
+
+            for (int i = 0; i < entry.count; i++)
+            {
+                await SpawnMonsterAtPositionAsync(
+                    entry.monsterData,
+                    spawnPosition,
+                    targetFieldManager);
+
+                await UniTask.Delay(delayMs);
             }
         }
-        
-        // 아래쪽 (y = -margin ~ -1)
-        for (int y = -margin; y < 0; y++)
+    }
+
+    private Vector3 GetFastestOuterDirectionSpawnPosition(FieldManager targetFieldManager)
+    {
+        var targetGrid = targetFieldManager?.playerManager?.astarGrid;
+        var targetGoal = targetFieldManager?.playerManager?.goalTransform;
+        Vector3 fallbackPosition = targetFieldManager != null
+            ? targetFieldManager.GetFallbackOuterSpawnWorldPosition()
+            : Vector3.zero;
+
+        if (targetFieldManager == null || targetGrid == null || targetGoal == null)
         {
-            for (int x = -margin; x < gridSize.x + margin; x++)
+            return fallbackPosition;
+        }
+
+        var candidatesByDirection = targetFieldManager.GetOuterSpawnWorldPositionsByDirection(ResolveSpawnAreaLayerMask());
+
+        Vector3 bestSpawnPosition = fallbackPosition;
+        int shortestPathLength = int.MaxValue;
+        bool foundPath = false;
+
+        foreach (var pair in candidatesByDirection)
+        {
+            Vector3 directionBestPosition = Vector3.zero;
+            int directionShortestPath = int.MaxValue;
+
+            foreach (var candidate in pair.Value)
             {
-                outerCells.Add(new Vector2Int(x, y));
+                int pathLength = CalculatePathLength(targetFieldManager, targetGrid, targetGoal, candidate, false);
+                if (pathLength > 0 && pathLength < directionShortestPath)
+                {
+                    directionShortestPath = pathLength;
+                    directionBestPosition = candidate;
+                }
+            }
+
+            if (directionShortestPath < shortestPathLength)
+            {
+                shortestPathLength = directionShortestPath;
+                bestSpawnPosition = directionBestPosition;
+                foundPath = true;
             }
         }
-        
-        // 왼쪽 (x = -margin ~ -1, 중간 y만)
-        for (int y = 0; y < gridSize.y; y++)
+
+        if (foundPath)
         {
-            for (int x = -margin; x < 0; x++)
+            return bestSpawnPosition;
+        }
+
+        foreach (var pair in candidatesByDirection)
+        {
+            if (pair.Value.Count > 0)
             {
-                outerCells.Add(new Vector2Int(x, y));
+                return pair.Value[pair.Value.Count / 2];
             }
         }
-        
-        // 오른쪽 (x = gridSize.x ~ gridSize.x + margin - 1, 중간 y만)
-        for (int y = 0; y < gridSize.y; y++)
+
+        return fallbackPosition;
+    }
+
+    private LayerMask ResolveSpawnAreaLayerMask()
+    {
+        var attackSequenceManager = _playerManager != null
+            ? _playerManager.GetComponent<AttackSequenceManager>()
+            : null;
+
+        return attackSequenceManager != null
+            ? attackSequenceManager.SpawnAreaLayer
+            : default;
+    }
+
+    private static int CalculatePathLength(
+        FieldManager targetFieldManager,
+        AstarGrid targetGrid,
+        Transform targetGoal,
+        Vector3 spawnWorldPosition,
+        bool ignoreBreakableWalls)
+    {
+        if (targetFieldManager == null || targetGrid == null || targetGoal == null)
         {
-            for (int x = gridSize.x; x < gridSize.x + margin; x++)
-            {
-                outerCells.Add(new Vector2Int(x, y));
-            }
+            return -1;
         }
-        
-        if (outerCells.Count == 0)
+
+        Vector2Int startPos = targetFieldManager.WorldToNavigationCell(spawnWorldPosition);
+        Vector2Int endPos = targetFieldManager.WorldToNavigationCell(targetGoal.position);
+
+        if (!targetGrid.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: ignoreBreakableWalls))
         {
-            // 폴백: 기본 스폰 포인트
-            return field.gridOrigin;
+            return -1;
         }
-        
-        // 랜덤 셀 선택
-        Vector2Int randomCell = outerCells[Random.Range(0, outerCells.Count)];
-        
-        // 월드 좌표로 변환 (셀 중심)
-        float worldX = gridOrigin.x + (randomCell.x + 0.5f) * cellSize;
-        float worldZ = gridOrigin.z + (randomCell.y + 0.5f) * cellSize;
-        
-        return new Vector3(worldX, gridOrigin.y, worldZ);
+
+        return targetGrid.FinalPath?.Count ?? -1;
     }
 
     /// <summary>
     /// 상대의 일반 몬스터 소환 증강에 따라 추가 몬스터를 소환합니다.
     /// 매 라운드 이 플레이어의 상대(opponentManager)의 증강 목록을 확인합니다.
     /// </summary>
-    IEnumerator SpawnAugmentMonstersCoroutine()
-    {
-        if (!EnsureRuntimeReferences("SpawnAugmentMonstersCoroutine", true))
-        {
-            yield break;
-        }
 
-        if (_playerManager.opponentManager == null) yield break;
-
-        // 상대(opponentManager)가 등록한 일반 몬스터 소환 증강들을 가져옴
-        var augments = _playerManager.opponentManager.GetActiveMonsterSummonAugments();
-
-        foreach (var augment in augments)
-        {
-            if (augment.monsterSpawnEntries == null || augment.monsterSpawnEntries.Count == 0) continue;
-
-            int totalSpawned = 0;
-            
-            // 각 MonsterSpawnEntry의 MonsterData를 count만큼 소환
-            foreach (var entry in augment.monsterSpawnEntries)
-            {
-                if (entry == null || entry.monsterData == null) continue;
-                
-                int spawnCount = Mathf.Max(0, entry.count);
-                for (int i = 0; i < spawnCount; i++)
-                {
-                    var spawnTask = SpawnMonsterInternalAsync(entry.monsterData);
-                    yield return new WaitUntil(() => spawnTask.Status.IsCompleted());
-                    spawnTask.GetAwaiter().GetResult();
-                    totalSpawned++;
-                    yield return new WaitForSeconds(0.5f);
-                }
-            }
-
-            // Debug.Log($"<color=orange>[MonsterSpawner] 증강 '{augment.augmentName}'에 의해 Player {_playerManager.playerId}에게 추가 몬스터 {totalSpawned}마리 소환</color>");
-        }
-    }
 
     /// <summary>
     /// 내부 몬스터 스폰 로직 (비동기). MonsterData에서 프리팹을 로드하여 소환합니다.
     /// </summary>
     /// <param name="monsterData">소환할 몬스터 데이터</param>
     /// <returns>생성된 Monster 컴포넌트</returns>
-    private async UniTask<Monster> SpawnMonsterInternalAsync(MonsterData monsterData)
-    {
-        if (!EnsureRuntimeReferences("SpawnMonsterInternalAsync", true))
-        {
-            return null;
-        }
 
-        if (_playerManager == null || _playerManager.fieldManager == null)
-        {
-            // Debug.LogError($"[MonsterSpawner] SpawnMonsterInternalAsync 중단: 경로/지점 참조 누락 ({DescribeRuntimeState()})");
-            return null;
-        }
-
-        if (monsterData == null) return null;
-        
-        // MonsterData에서 프리팹 Addressable 키를 가져와 로드
-        if (string.IsNullOrEmpty(monsterData.monsterPrefab))
-        {
-            // Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 monsterPrefab 주소가 설정되지 않았습니다!", monsterData);
-            return null;
-        }
-        
-        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(monsterData.monsterPrefab);
-        if (prefab == null)
-        {
-            // Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 프리팹 로드 실패! (주소: {monsterData.monsterPrefab})", monsterData);
-            return null;
-        }
-
-        Vector3 spawnPos = GetRandomOuterGridPosition();
-        float groundOffset = GetGroundMonsterHeightOffset(prefab);
-        spawnPos.y += groundOffset;
-
-        GameObject monsterGO = null;
-        var runner = _playerManager != null ? _playerManager.Runner : null;
-        if (runner != null && _playerManager.Object != null && _playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
-        {
-            var spawned = runner.Spawn(netPrefab, spawnPos, Quaternion.identity, PlayerRef.None);
-            if (spawned == null)
-            {
-                // Debug.LogError($"Runner.Spawn 실패: {prefab.name}", this);
-                return null;
-            }
-            monsterGO = spawned.gameObject;
-            if (monsterParent != null)
-            {
-                monsterGO.transform.SetParent(monsterParent, true);
-            }
-        }
-        else
-        {
-            monsterGO = Instantiate(prefab, spawnPos, Quaternion.identity, monsterParent);
-        }
-
-        Monster monster = monsterGO.GetComponent<Monster>();
-        if (monster == null) return null;
-
-        // 지상 몬스터의 경우 높이 조정 (BoxCollider 밑면이 스폰포인트에 닿도록)
-        if (monsterData.monsterType != MonsterType.Flying)
-        {
-            BoxCollider boxCol = monsterGO.GetComponent<BoxCollider>();
-            if (boxCol != null)
-            {
-                // BoxCollider의 로컬 밑면 오프셋: center.y - size.y/2
-                // 밑면을 스폰포인트에 맞추려면 이 값을 빼줘야 함
-                float localBottomY = boxCol.center.y - boxCol.size.y * 0.5f;
-                Vector3 pos = monsterGO.transform.position;
-                pos.y = spawnPos.y - localBottomY * monsterGO.transform.localScale.y;
-                monsterGO.transform.position = pos;
-            }
-            else
-            {
-                // BoxCollider가 없으면 일반 Collider 사용 (폴백)
-                Collider col = monsterGO.GetComponent<Collider>();
-                if (col != null)
-                {
-                    Vector3 pos = monsterGO.transform.position;
-                    pos.y = spawnPos.y + col.bounds.extents.y;
-                    monsterGO.transform.position = pos;
-                }
-            }
-        }
-
-        // StatusBarPrefab 설정
-        monster.statusBarPrefab = this.statusBarPrefab;
-
-        // BuffManager가 없으면 자동 추가 (디버프 시스템 지원)
-        if (monsterGO.GetComponent<BuffManager>() == null)
-        {
-            monsterGO.AddComponent<BuffManager>();
-        }
-
-        // 몬스터 초기화
-        monster.Initialize(_playerManager, this.goalTransform, monsterData, _pathfinder);
-
-        // 클라이언트에도 초기화 데이터 전송 (RPC)
-        if (_playerManager.Object != null)
-        {
-            monster.RPC_InitializeOnClient(
-                _playerManager.Object.Id,
-                monsterData != null ? monsterData.name : ""
-            );
-        }
-
-        // 경로 설정
-        Vector3 clampedSpawn = _pathfinder.ClampToGrid(spawnPos);
-        Vector3 clampedGoal = _pathfinder.ClampToGrid(goalTransform.position);
-        Vector2Int startPos = _pathfinder.WorldToCell(clampedSpawn);
-        Vector2Int endPos = _pathfinder.WorldToCell(clampedGoal);
-
-        // 파괴자 특성 확인
-        bool isDestroyer = monsterData != null && (monsterData.traits & MonsterTraits.Destroyer) != 0;
-        
-        if (_pathfinder.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: isDestroyer))
-        {
-            List<AstarNode> path = _pathfinder.FinalPath;
-            monster.StartFollowingPath(path);
-        }
-        else
-        {
-            // Debug.LogWarning($"{monsterGO.name}을(를) 위한 경로를 찾지 못했습니다.");
-            Destroy(monsterGO);
-            return null;
-        }
-
-        return monster;
-    }
 
     #region AI 자동 소환 (AttackMonsterPool 사용)
     
@@ -1095,8 +787,6 @@ public class MonsterSpawner : MonoBehaviour
             return;
         }
         
-        _targetFieldManager = targetFieldManager; // 임시 저장
-        
         // AI만 AttackMonsterPool에서 자동 소환
         // 유저는 UI를 통해 수동 소환 (기존 로직 유지)
         if (isAI)
@@ -1109,72 +799,6 @@ public class MonsterSpawner : MonoBehaviour
             // 유저 공격자: AttackMonsterPool은 UI를 통해 수동 선택
             // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
             // Debug.Log($"<color=green>[MonsterSpawner] 유저 공격자: AttackMonsterPool 수동 소환 대기</color>");
-        }
-        
-        _targetFieldManager = null; // 정리
-    }
-    
-    /// <summary>
-    /// 기본 웨이브를 지정 위치에 소환합니다. (비동기)
-    /// </summary>
-    private async UniTask SpawnBaseWaveToPositionAsync(int round, RoundWaveData waveData, Vector3 spawnPosition, FieldManager targetFieldManager)
-    {
-        if (waveData.monsters == null || waveData.monsters.Count == 0)
-        {
-            // Debug.LogWarning("[MonsterSpawner] 웨이브에 몬스터가 정의되지 않았습니다.");
-            return;
-        }
-        
-        // 자동 스케일링 배율 계산
-        float autoHealthScale = _waveDatabase.GetHealthScaleForRound(round);
-        float autoSpeedScale = _waveDatabase.GetSpeedScaleForRound(round);
-        float autoDamageScale = _waveDatabase.GetDamageScaleForRound(round);
-        
-        foreach (var entry in waveData.monsters)
-        {
-            if (entry == null || entry.monsterData == null) continue;
-            
-            for (int i = 0; i < entry.count; i++)
-            {
-                // 수비자 필드에 소환
-                var monster = await SpawnMonsterAtPositionAsync(
-                    entry.monsterData,
-                    spawnPosition,
-                    targetFieldManager,
-                    false, // isBoss
-                    -1,    // bossUniqueId
-                    _playerManager?.playerId ?? -1 // originPlayerId
-                );
-                
-                if (monster != null)
-                {
-                    // [2단계] 웨이브 스케일링 + 공격자 증강체 적용
-                    float healthMult = autoHealthScale;
-                    float speedMult = autoSpeedScale;
-                    float damageMult = autoDamageScale;
-                    
-                    // 소환자(공격자) 자신의 증강체 효과 누적
-                    foreach (var augment in _playerManager.chosenAugments)
-                    {
-                        if (augment.targetType == TargetType.Opponent)
-                        {
-                            switch(augment.effectType)
-                            {
-                                case EffectType.IncreaseEnemyHealth:
-                                    healthMult += augment.value * autoHealthScale;
-                                    break;
-                                case EffectType.IncreaseEnemyMoveSpeed:
-                                    speedMult += augment.value * autoSpeedScale;
-                                    break;
-                            }
-                        }
-                    }
-                    
-                    monster.ApplyAugmentBuffs(healthMult, speedMult, damageMult);
-                }
-                
-                await UniTask.Delay((int)(waveData.spawnInterval * 1000));
-            }
         }
     }
     
@@ -1327,9 +951,8 @@ public class MonsterSpawner : MonoBehaviour
 
         // 경로 설정: 스폰 위치 → 목표까지 A* 경로
         // (그리드가 확장되어 스폰 위치도 그리드 안에 있음)
-        Vector2Int startPos = targetGrid.WorldToCell(targetGrid.ClampToGrid(spawnPosition));
-        Vector3 clampedGoal = targetGrid.ClampToGrid(targetGoal.position);
-        Vector2Int endPos = targetGrid.WorldToCell(clampedGoal);
+        Vector2Int startPos = targetFieldManager.WorldToNavigationCell(spawnPosition);
+        Vector2Int endPos = targetFieldManager.WorldToNavigationCell(targetGoal.position);
 
         // 파괴자 특성 확인
         bool isDestroyer = monsterData != null && (monsterData.traits & MonsterTraits.Destroyer) != 0;

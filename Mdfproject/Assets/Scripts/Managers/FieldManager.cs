@@ -10,6 +10,14 @@ using AI.UtilitySystem.Considerations.Placement;
 [RequireComponent(typeof(PlacementManager))]
 public class FieldManager : MonoBehaviour
 {
+    public enum BorderDirection
+    {
+        North,
+        South,
+        East,
+        West
+    }
+
     // ✅ [수정] public 필드 제거, 이제 PlayerManager로부터 주입받음
     public PlayerManager playerManager;
 
@@ -422,16 +430,102 @@ public class FieldManager : MonoBehaviour
         return new Vector3Int(grid2D.x, grid2D.y, 0);
     }
 
-    public List<Vector3Int> GetOpenBorderGaps()
+    public Vector2Int InnerCellToNavigationCell(Vector2Int innerCell)
     {
-        var gaps = new List<Vector3Int>(4);
+        return new Vector2Int(innerCell.x + outerGridMargin, innerCell.y + outerGridMargin);
+    }
+
+    public Vector2Int InnerCellToNavigationCell(Vector3Int innerCell)
+    {
+        return InnerCellToNavigationCell(new Vector2Int(innerCell.x, innerCell.y));
+    }
+
+    public bool TryNavigationCellToInnerCell(Vector2Int navigationCell, out Vector3Int innerCell)
+    {
+        int innerX = navigationCell.x - outerGridMargin;
+        int innerY = navigationCell.y - outerGridMargin;
+        innerCell = new Vector3Int(innerX, innerY, 0);
+        return IsValidGridPosition(innerCell);
+    }
+
+    public bool IsValidNavigationCell(Vector2Int navigationCell)
+    {
+        Vector2Int totalGridSize = TotalGridSize;
+        return navigationCell.x >= 0 && navigationCell.x < totalGridSize.x &&
+               navigationCell.y >= 0 && navigationCell.y < totalGridSize.y;
+    }
+
+    public Vector2Int WorldToNavigationCell(Vector3 worldPos)
+    {
+        Vector3 totalGridOrigin = TotalGridOrigin;
+        Vector2Int totalGridSize = TotalGridSize;
+        int gridX = Mathf.FloorToInt((worldPos.x - totalGridOrigin.x) / cellSize);
+        int gridY = Mathf.FloorToInt((worldPos.z - totalGridOrigin.z) / cellSize);
+        gridX = Mathf.Clamp(gridX, 0, Mathf.Max(0, totalGridSize.x - 1));
+        gridY = Mathf.Clamp(gridY, 0, Mathf.Max(0, totalGridSize.y - 1));
+        return new Vector2Int(gridX, gridY);
+    }
+
+    public Vector3 NavigationCellToWorld(Vector2Int navigationCell, bool checkForWall = false)
+    {
+        Vector3 totalGridOrigin = TotalGridOrigin;
+        float worldX = totalGridOrigin.x + (navigationCell.x + 0.5f) * cellSize;
+        float worldZ = totalGridOrigin.z + (navigationCell.y + 0.5f) * cellSize;
+
+        float yOffset = gridOrigin.y + groundYOffset;
+        if (checkForWall && TryNavigationCellToInnerCell(navigationCell, out var innerCell) && HasWallAt(innerCell))
+        {
+            yOffset = gridOrigin.y + wallYOffset;
+        }
+
+        return new Vector3(worldX, yOffset, worldZ);
+    }
+
+    public List<AstarNode> ConvertNavigationPathToInnerField(List<AstarNode> navigationPath)
+    {
+        var innerPath = new List<AstarNode>();
+        if (navigationPath == null || navigationPath.Count == 0)
+        {
+            return innerPath;
+        }
+
+        foreach (var node in navigationPath)
+        {
+            if (node == null)
+            {
+                continue;
+            }
+
+            if (TryNavigationCellToInnerCell(new Vector2Int(node.x, node.y), out var innerCell))
+            {
+                innerPath.Add(new AstarNode(node.isWall, innerCell.x, innerCell.y));
+            }
+        }
+
+        return innerPath;
+    }
+
+    public List<Vector3Int> GetBorderGapCells()
+    {
         int centerX = gridSize.x / 2;
         int centerY = gridSize.y / 2;
 
-        AddOpenBorderGap(gaps, new Vector3Int(centerX, gridSize.y - 1, 0));
-        AddOpenBorderGap(gaps, new Vector3Int(centerX, 0, 0));
-        AddOpenBorderGap(gaps, new Vector3Int(gridSize.x - 1, centerY, 0));
-        AddOpenBorderGap(gaps, new Vector3Int(0, centerY, 0));
+        return new List<Vector3Int>(4)
+        {
+            new Vector3Int(centerX, gridSize.y - 1, 0),
+            new Vector3Int(centerX, 0, 0),
+            new Vector3Int(gridSize.x - 1, centerY, 0),
+            new Vector3Int(0, centerY, 0)
+        };
+    }
+
+    public List<Vector3Int> GetOpenBorderGaps()
+    {
+        var gaps = new List<Vector3Int>(4);
+        foreach (var gapCell in GetBorderGapCells())
+        {
+            AddOpenBorderGap(gaps, gapCell);
+        }
 
         return gaps;
     }
@@ -449,6 +543,91 @@ public class FieldManager : MonoBehaviour
         return false;
     }
 
+    public bool TryGetSingleOpenEntryNavigationCell(out Vector2Int entryCell)
+    {
+        if (TryGetSingleOpenEntryCell(out var innerEntryCell))
+        {
+            entryCell = InnerCellToNavigationCell(innerEntryCell);
+            return true;
+        }
+
+        entryCell = default;
+        return false;
+    }
+
+    public Dictionary<BorderDirection, List<Vector3>> GetOuterSpawnWorldPositionsByDirection(LayerMask spawnAreaLayerMask = default)
+    {
+        var positionsByDirection = new Dictionary<BorderDirection, List<Vector3>>
+        {
+            { BorderDirection.North, new List<Vector3>() },
+            { BorderDirection.South, new List<Vector3>() },
+            { BorderDirection.East, new List<Vector3>() },
+            { BorderDirection.West, new List<Vector3>() }
+        };
+
+        int margin = OuterGridMargin;
+        for (int y = gridSize.y; y < gridSize.y + margin; y++)
+        {
+            for (int x = -margin; x < gridSize.x + margin; x++)
+            {
+                AddOuterSpawnCandidate(positionsByDirection, spawnAreaLayerMask, new Vector2Int(x, y));
+            }
+        }
+
+        for (int y = -margin; y < 0; y++)
+        {
+            for (int x = -margin; x < gridSize.x + margin; x++)
+            {
+                AddOuterSpawnCandidate(positionsByDirection, spawnAreaLayerMask, new Vector2Int(x, y));
+            }
+        }
+
+        for (int y = 0; y < gridSize.y; y++)
+        {
+            for (int x = -margin; x < 0; x++)
+            {
+                AddOuterSpawnCandidate(positionsByDirection, spawnAreaLayerMask, new Vector2Int(x, y));
+            }
+        }
+
+        for (int y = 0; y < gridSize.y; y++)
+        {
+            for (int x = gridSize.x; x < gridSize.x + margin; x++)
+            {
+                AddOuterSpawnCandidate(positionsByDirection, spawnAreaLayerMask, new Vector2Int(x, y));
+            }
+        }
+
+        return positionsByDirection;
+    }
+
+    public Vector3 GetRandomOuterSpawnWorldPosition(LayerMask spawnAreaLayerMask = default)
+    {
+        var positionsByDirection = GetOuterSpawnWorldPositionsByDirection(spawnAreaLayerMask);
+        var allPositions = new List<Vector3>();
+        foreach (var pair in positionsByDirection)
+        {
+            allPositions.AddRange(pair.Value);
+        }
+
+        if (allPositions.Count == 0)
+        {
+            return GetFallbackOuterSpawnWorldPosition();
+        }
+
+        return allPositions[UnityEngine.Random.Range(0, allPositions.Count)];
+    }
+
+    public Vector3 GetFallbackOuterSpawnWorldPosition()
+    {
+        if (TryGetSingleOpenEntryCell(out var entryCell))
+        {
+            return OuterGridCellToWorld(GetAdjacentOuterCellForGap(entryCell));
+        }
+
+        return OuterGridCellToWorld(new Vector2Int(gridSize.x / 2, gridSize.y));
+    }
+
     private void AddOpenBorderGap(List<Vector3Int> gaps, Vector3Int cell)
     {
         if (!IsValidGridPosition(cell) || HasWallAt(cell) || gaps.Contains(cell))
@@ -457,6 +636,66 @@ public class FieldManager : MonoBehaviour
         }
 
         gaps.Add(cell);
+    }
+
+    private void AddOuterSpawnCandidate(
+        Dictionary<BorderDirection, List<Vector3>> positionsByDirection,
+        LayerMask spawnAreaLayerMask,
+        Vector2Int outerCell)
+    {
+        Vector3 spawnPosition = OuterGridCellToWorld(outerCell);
+
+        if (spawnAreaLayerMask.value != 0)
+        {
+            Vector3 rayOrigin = new Vector3(spawnPosition.x, 50f, spawnPosition.z);
+            if (!Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, 100f, spawnAreaLayerMask))
+            {
+                return;
+            }
+
+            spawnPosition = hit.point;
+        }
+
+        if (!IsOuterFieldWorldPosition(spawnPosition))
+        {
+            return;
+        }
+
+        positionsByDirection[ClassifyBorderDirection(outerCell)].Add(spawnPosition);
+    }
+
+    private BorderDirection ClassifyBorderDirection(Vector2Int outerCell)
+    {
+        if (outerCell.y >= gridSize.y) return BorderDirection.North;
+        if (outerCell.y < 0) return BorderDirection.South;
+        if (outerCell.x >= gridSize.x) return BorderDirection.East;
+        return BorderDirection.West;
+    }
+
+    private bool IsOuterFieldWorldPosition(Vector3 worldPosition)
+    {
+        int rawGridX = Mathf.FloorToInt((worldPosition.x - gridOrigin.x) / cellSize);
+        int rawGridY = Mathf.FloorToInt((worldPosition.z - gridOrigin.z) / cellSize);
+
+        bool isInsideGrid = rawGridX >= 0 && rawGridX < gridSize.x &&
+                            rawGridY >= 0 && rawGridY < gridSize.y;
+
+        return !isInsideGrid;
+    }
+
+    private Vector3 OuterGridCellToWorld(Vector2Int outerCell)
+    {
+        float worldX = gridOrigin.x + (outerCell.x + 0.5f) * cellSize;
+        float worldZ = gridOrigin.z + (outerCell.y + 0.5f) * cellSize;
+        return new Vector3(worldX, gridOrigin.y, worldZ);
+    }
+
+    private Vector2Int GetAdjacentOuterCellForGap(Vector3Int entryCell)
+    {
+        if (entryCell.y >= gridSize.y - 1) return new Vector2Int(entryCell.x, gridSize.y);
+        if (entryCell.y <= 0) return new Vector2Int(entryCell.x, -1);
+        if (entryCell.x >= gridSize.x - 1) return new Vector2Int(gridSize.x, entryCell.y);
+        return new Vector2Int(-1, entryCell.y);
     }
 
     /// <summary>
@@ -557,14 +796,12 @@ public class FieldManager : MonoBehaviour
         }
 
         var grid = playerManager != null ? playerManager.astarGrid : null;
-        if (grid == null || playerManager.goalTransform == null || !TryGetSingleOpenEntryCell(out var entryCell))
+        if (grid == null || playerManager.goalTransform == null || !TryGetSingleOpenEntryNavigationCell(out var startPos))
         {
             return;
         }
 
-        Vector3 clampedGoal = grid.ClampToGrid(playerManager.goalTransform.position);
-        Vector2Int startPos = new Vector2Int(entryCell.x, entryCell.y);
-        Vector2Int endPos = grid.WorldToCell(clampedGoal);
+        Vector2Int endPos = WorldToNavigationCell(playerManager.goalTransform.position);
 
         if (!grid.FindPath(startPos, endPos))
         {
@@ -582,8 +819,7 @@ public class FieldManager : MonoBehaviour
         for (int i = 0; i < path.Count; i++)
         {
             var node = path[i];
-            var cell = new Vector3Int(node.x, node.y, 0);
-            Vector3 pos = GridToWorld(cell);
+            Vector3 pos = NavigationCellToWorld(new Vector2Int(node.x, node.y));
             pos.y += pathMarkerYOffset;
             _pathWorldPoints.Add(pos);
         }

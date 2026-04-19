@@ -116,100 +116,33 @@ namespace AI.BehaviorTree.Nodes.Actions
                 { SpawnDirection.West, new List<Vector3>() }
             };
 
-            int margin = _targetField.OuterGridMargin;
-            Vector2Int gridSize = _targetField.gridSize;
-            Vector3 gridOrigin = _targetField.gridOrigin;
-            float cellSize = _targetField.cellSize;
-
-            // 아우터 그리드 영역의 모든 셀을 수집 (GetRandomOuterGridPosition 로직 재활용)
-            var outerCells = new List<Vector2Int>();
-
-            // 위쪽 (y = gridSize.y ~ gridSize.y + margin - 1)
-            for (int y = gridSize.y; y < gridSize.y + margin; y++)
+            if (_targetField == null)
             {
-                for (int x = -margin; x < gridSize.x + margin; x++)
-                {
-                    outerCells.Add(new Vector2Int(x, y));
-                }
+                return;
             }
 
-            // 아래쪽 (y = -margin ~ -1)
-            for (int y = -margin; y < 0; y++)
+            var fieldPositions = _targetField.GetOuterSpawnWorldPositionsByDirection(_spawnAreaLayerMask);
+            foreach (var pair in fieldPositions)
             {
-                for (int x = -margin; x < gridSize.x + margin; x++)
-                {
-                    outerCells.Add(new Vector2Int(x, y));
-                }
-            }
-
-            // 왼쪽 (x = -margin ~ -1, 중간 y만)
-            for (int y = 0; y < gridSize.y; y++)
-            {
-                for (int x = -margin; x < 0; x++)
-                {
-                    outerCells.Add(new Vector2Int(x, y));
-                }
-            }
-
-            // 오른쪽 (x = gridSize.x ~ gridSize.x + margin - 1, 중간 y만)
-            for (int y = 0; y < gridSize.y; y++)
-            {
-                for (int x = gridSize.x; x < gridSize.x + margin; x++)
-                {
-                    outerCells.Add(new Vector2Int(x, y));
-                }
-            }
-
-            // 각 셀에 대해 Physics.Raycast로 실제 스폰 영역 검증
-            foreach (var cell in outerCells)
-            {
-                float worldX = gridOrigin.x + (cell.x + 0.5f) * cellSize;
-                float worldZ = gridOrigin.z + (cell.y + 0.5f) * cellSize;
-                Vector3 rayOrigin = new Vector3(worldX, 50f, worldZ);
-
-                if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, 100f, _spawnAreaLayerMask))
-                {
-                    Vector3 spawnPos = hit.point;
-
-                    // IsValidSpawnZone 동일 검증: 내부 그리드 바깥인지 확인
-                    if (IsValidSpawnZone(spawnPos))
-                    {
-                        SpawnDirection dir = ClassifyDirection(cell, gridSize);
-                        _validSpawnPositions[dir].Add(spawnPos);
-                    }
-                }
+                _validSpawnPositions[ConvertDirection(pair.Key)].AddRange(pair.Value);
             }
         }
 
-        /// <summary>
-        /// AttackSequenceManager.IsValidSpawnZone과 동일한 로직.
-        /// 상대 필드의 내부 그리드 바깥인지 확인합니다.
-        /// </summary>
-        private bool IsValidSpawnZone(Vector3 worldPosition)
+        private static SpawnDirection ConvertDirection(FieldManager.BorderDirection direction)
         {
-            Vector3 gridOrigin = _targetField.gridOrigin;
-            float cellSize = _targetField.cellSize;
-            Vector2Int gridSize = _targetField.gridSize;
-
-            int rawGridX = Mathf.FloorToInt((worldPosition.x - gridOrigin.x) / cellSize);
-            int rawGridY = Mathf.FloorToInt((worldPosition.z - gridOrigin.z) / cellSize);
-
-            bool isInsideGrid = rawGridX >= 0 && rawGridX < gridSize.x &&
-                                rawGridY >= 0 && rawGridY < gridSize.y;
-
-            return !isInsideGrid;
+            switch (direction)
+            {
+                case FieldManager.BorderDirection.North:
+                    return SpawnDirection.North;
+                case FieldManager.BorderDirection.South:
+                    return SpawnDirection.South;
+                case FieldManager.BorderDirection.East:
+                    return SpawnDirection.East;
+                default:
+                    return SpawnDirection.West;
+            }
         }
 
-        /// <summary>
-        /// 셀 좌표를 기반으로 해당 셀이 어느 방향에 속하는지 분류합니다.
-        /// </summary>
-        private SpawnDirection ClassifyDirection(Vector2Int cell, Vector2Int gridSize)
-        {
-            if (cell.y >= gridSize.y) return SpawnDirection.North;
-            if (cell.y < 0) return SpawnDirection.South;
-            if (cell.x >= gridSize.x) return SpawnDirection.East;
-            return SpawnDirection.West;
-        }
         #endregion
 
         #region 지상 몬스터 최적 스폰 지점
@@ -421,9 +354,8 @@ namespace AI.BehaviorTree.Nodes.Actions
             if (_targetGrid == null || _goalTransform == null)
                 return spawnWorldPos;
 
-            Vector2Int startPos = _targetGrid.WorldToCell(_targetGrid.ClampToGrid(spawnWorldPos));
-            Vector3 clampedGoal = _targetGrid.ClampToGrid(_goalTransform.position);
-            Vector2Int endPos = _targetGrid.WorldToCell(clampedGoal);
+            Vector2Int startPos = _targetField.WorldToNavigationCell(spawnWorldPos);
+            Vector2Int endPos = _targetField.WorldToNavigationCell(_goalTransform.position);
 
             if (!_targetGrid.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: ignoreBreakableWalls))
                 return spawnWorldPos;
@@ -432,18 +364,17 @@ namespace AI.BehaviorTree.Nodes.Actions
             if (path == null || path.Count == 0) return spawnWorldPos;
 
             // 경로에서 내부 그리드에 해당하는 첫 번째 노드를 찾음
-            Vector2Int gridSize = _targetField.gridSize;
             foreach (var node in path)
             {
-                if (node.x >= 0 && node.x < gridSize.x && node.y >= 0 && node.y < gridSize.y)
+                if (_targetField.TryNavigationCellToInnerCell(new Vector2Int(node.x, node.y), out var innerCell))
                 {
-                    return _targetField.GridToWorld(new Vector3Int(node.x, node.y, 0));
+                    return _targetField.GridToWorld(innerCell);
                 }
             }
 
             // 내부 진입점을 못 찾으면 경로의 중간 지점 사용
             var midNode = path[path.Count / 2];
-            return _targetField.GridToWorld(new Vector3Int(midNode.x, midNode.y, 0));
+            return _targetField.NavigationCellToWorld(new Vector2Int(midNode.x, midNode.y));
         }
         #endregion
 
@@ -661,9 +592,8 @@ namespace AI.BehaviorTree.Nodes.Actions
         {
             if (_targetGrid == null || _goalTransform == null) return -1;
 
-            Vector2Int startPos = _targetGrid.WorldToCell(_targetGrid.ClampToGrid(spawnWorldPos));
-            Vector3 clampedGoal = _targetGrid.ClampToGrid(_goalTransform.position);
-            Vector2Int endPos = _targetGrid.WorldToCell(clampedGoal);
+            Vector2Int startPos = _targetField.WorldToNavigationCell(spawnWorldPos);
+            Vector2Int endPos = _targetField.WorldToNavigationCell(_goalTransform.position);
 
             if (_targetGrid.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: ignoreBreakableWalls))
             {
@@ -678,12 +608,12 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// </summary>
         private Vector3 GetFallbackSpawnPos()
         {
-            if (_targetField != null && _targetField.TryGetSingleOpenEntryCell(out var entryCell))
+            if (_targetField != null)
             {
-                return _targetField.GridToWorld(entryCell);
+                return _targetField.GetFallbackOuterSpawnWorldPosition();
             }
 
-            return _targetField != null ? _targetField.gridOrigin : Vector3.zero;
+            return Vector3.zero;
         }
 
         /// <summary>

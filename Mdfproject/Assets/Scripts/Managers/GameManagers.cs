@@ -1894,7 +1894,7 @@ public partial class GameManagers : NetworkBehaviour
                     {
                         player.RefreshAttackMonsterPool(currentRound, opponentId);
                     }
-                    catch (System.Exception e)
+                    catch (System.Exception)
                     {
                         // Debug.LogError($"[StartBattleForPlayers] Player {playerId} AttackMonsterPool 갱신 중 예외: {e.Message}");
                     }
@@ -1935,7 +1935,13 @@ public partial class GameManagers : NetworkBehaviour
                 if (!isAttackerInThisBattle)
                 {
                     // 수비 시퀀스: 기본 웨이브를 AI가 자동 소환 (증강 공격유닛 제외)
-                    player.monsterSpawner.SpawnWaveWithoutAugments(currentRound);
+                    player.SetFightingState(true);
+                    if (player.monsterSpawner != null && player.fieldManager != null)
+                    {
+                        RunLifecycleTask(
+                            player.monsterSpawner.SpawnBaseWaveFromFastestOuterDirectionAsync(currentRound, player.fieldManager),
+                            "StartBattleForPlayers/SpawnBaseWaveFromFastestOuterDirectionAsync");
+                    }
                     // Debug.Log($"<color=gray>[StartBattle] Player {playerId}: 상대 없음, 수비 (기본 웨이브만)</color>");
                 }
                 else

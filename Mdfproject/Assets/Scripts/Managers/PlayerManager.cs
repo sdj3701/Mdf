@@ -348,8 +348,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (monsterSpawner)
         {
-            var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-            monsterSpawner.Initialize(this, this.astarGrid, waveDatabase, this.goalTransform);
+            monsterSpawner.Initialize(this, this.astarGrid, this.goalTransform);
         }
 
         if (augmentManager) augmentManager.playerManager = this;
@@ -501,8 +500,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                                              || goalRefreshed;
             if (shouldReinitializeSpawner && astarGrid != null && goalTransform != null)
             {
-                var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-                monsterSpawner.Initialize(this, astarGrid, waveDatabase, goalTransform);
+                monsterSpawner.Initialize(this, astarGrid, goalTransform);
             }
 
             monsterSpawner.EnsureRuntimeReferencesForMigration(context, verboseFailure);
@@ -998,7 +996,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             await RPC_RegisterUnitAt_Internal(unitNO, x, y, unitDataKey, starLevel);
             // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] dispatched to Internal for pos=({x},{y})</color>");
         }
-        catch (System.Exception ex)
+        catch (System.Exception)
         {
             // Debug.LogError($"[RPC_RegisterUnitAt] exception: {ex.Message}");
         }
@@ -1099,7 +1097,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             fieldManager.RegisterUnitAt(unit, pos);
             // Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId}) data='{unit.Data?.name}'</color>");
         }
-        catch (System.Exception ex)
+        catch (System.Exception)
         {
             // Debug.LogError($"[RPC_Internal] exception: {ex.Message}");
         }

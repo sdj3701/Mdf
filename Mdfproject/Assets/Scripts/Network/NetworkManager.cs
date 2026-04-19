@@ -444,7 +444,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                         networkObject.AssignInputAuthority(PlayerRef.None);
                     }
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
                     // Debug.LogWarning($"[NetworkManager] Failed to clear input authority for left player {player}: {e.Message}");
                 }
@@ -611,7 +611,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
             return Encoding.UTF8.GetString(tokenBytes);
         }
-        catch (Exception e)
+        catch (Exception)
         {
             // Debug.LogWarning($"[NetworkManager] Failed to read connection token for {player}: {e.Message}");
             return null;
@@ -703,7 +703,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                 targetPlayer.Object.AssignInputAuthority(joinedPlayer);
             }
         }
-        catch (Exception e)
+        catch (Exception)
         {
             // Debug.LogWarning($"[NetworkManager] Failed to reassign input authority for reconnect player {joinedPlayer}: {e.Message}");
             return false;
@@ -779,7 +779,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             _cloudConnectionLostEventInfo.AddEventHandler(null, _cloudConnectionLostHandlerDelegate);
             // Debug.Log("[NetworkManager] CloudConnectionLost handler registered.");
         }
-        catch (Exception e)
+        catch (Exception)
         {
             // Debug.LogWarning($"[NetworkManager] CloudConnectionLost handler registration skipped: {e.Message}");
             _cloudConnectionLostEventInfo = null;
@@ -798,7 +798,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             _cloudConnectionLostEventInfo.RemoveEventHandler(null, _cloudConnectionLostHandlerDelegate);
         }
-        catch (Exception e)
+        catch (Exception)
         {
             // Debug.LogWarning($"[NetworkManager] CloudConnectionLost handler remove failed: {e.Message}");
         }
