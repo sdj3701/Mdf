@@ -32,6 +32,16 @@ namespace GameCore.Enums
         InLobby,
         InGame
     }
+
+    public enum NetworkUiBlockReason
+    {
+        None,
+        LobbyBootstrap,
+        CreateRoom,
+        JoinRoom,
+        LeaveRoom,
+        Recovery
+    }
 }
 
 
