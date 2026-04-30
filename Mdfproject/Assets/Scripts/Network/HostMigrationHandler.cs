@@ -1069,8 +1069,34 @@ public class HostMigrationHandler : MonoBehaviour
 
             if (shouldRunAI)
             {
+                player.RebindRuntimeReferencesAfterMigration("HostMigrationHandler.AITakeover", false);
+
+                if (player.fieldManager == null)
+                {
+                    pending = true;
+                    continue;
+                }
+
+                player.fieldManager.RebuildWallMapsAfterMigration(
+                    "HostMigrationHandler.AITakeover",
+                    false,
+                    out _,
+                    forceRebuild: true);
+
+                if (!player.IsRuntimeReady(out _) || !player.fieldManager.IsWallMapReady)
+                {
+                    pending = true;
+                    continue;
+                }
+
                 if (aiController == null)
                 {
+                    player.mazePlanned = false;
+                    player.mazePlannedOrder.Clear();
+                    player.mazeBuildCursor = 0;
+                    player.mazeConstructionComplete = false;
+                    player.unitPurchaseComplete = false;
+
                     aiController = player.gameObject.AddComponent<AIPlayerController>();
                     aiController.Initialize(player, gm.CommandProcessor);
                     attached++;

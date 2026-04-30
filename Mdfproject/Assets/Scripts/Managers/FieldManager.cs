@@ -1205,9 +1205,9 @@ public class FieldManager : MonoBehaviour
     /// <summary>
     /// Host Migration 이후 런타임 벽 딕셔너리를 월드 오브젝트 기준으로 재구성합니다.
     /// </summary>
-    public bool RebuildWallMapsAfterMigration(string context, bool verboseLog, out string summary)
+    public bool RebuildWallMapsAfterMigration(string context, bool verboseLog, out string summary, bool forceRebuild = false)
     {
-        if (_lastWallMapRebuildFrame == Time.frameCount)
+        if (!forceRebuild && _lastWallMapRebuildFrame == Time.frameCount)
         {
             summary = _lastWallMapRebuildSummary;
             return true;
@@ -1223,15 +1223,28 @@ public class FieldManager : MonoBehaviour
         int duplicates = 0;
         int outOfBounds = 0;
 
-        IEnumerable<DestructibleWall> destructibleWalls;
+        var destructibleWalls = new List<DestructibleWall>();
         if (wallParent != null)
         {
-            destructibleWalls = wallParent.GetComponentsInChildren<DestructibleWall>(true);
+            destructibleWalls.AddRange(wallParent.GetComponentsInChildren<DestructibleWall>(true));
         }
-        else
+
+        foreach (var wall in placedWalls.Values)
         {
-            destructibleWalls = UnityEngine.Object.FindObjectsOfType<DestructibleWall>(true)
-                .Where(wall => wall != null && IsWorldPositionInsideOwnedGrid(wall.transform.position));
+            if (wall != null)
+            {
+                destructibleWalls.Add(wall);
+            }
+        }
+
+        // Network Spawn된 파괴 가능 벽은 migration 이후 wallParent에 속하지 않을 수 있으므로
+        // 전역 후보도 함께 훑어 현재 필드 범위에 속한 벽을 다시 수집합니다.
+        var globalDestructibleCandidates = UnityEngine.Object.FindObjectsOfType<DestructibleWall>(true)
+            .Where(wall => wall != null && IsWorldPositionInsideOwnedGrid(wall.transform.position));
+
+        foreach (var wall in globalDestructibleCandidates)
+        {
+            destructibleWalls.Add(wall);
         }
 
         foreach (var wall in destructibleWalls.Where(wall => wall != null).Distinct())

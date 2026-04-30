@@ -53,6 +53,12 @@ public class AIPlayerController : MonoBehaviour
             return;
         }
 
+        var migrationHandler = HostMigrationHandler.Instance;
+        if (migrationHandler != null && migrationHandler.IsMigrating && !migrationHandler.IsAiTakeoverReady)
+        {
+            return;
+        }
+
         _decisionTimer += Time.deltaTime;
         if (_decisionTimer < DecisionCooldown)
         {
