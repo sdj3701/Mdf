@@ -13,8 +13,10 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
     private const string LastAccountInputKey = "ReLogin.LastAccountInput";
 
     [SerializeField] private UIDocument document;
-    [SerializeField] private string nextSceneName = SceneDefine.MatchingLobby;
     [SerializeField] private bool loadSceneOnLoginSuccess = true;
+    [SerializeField] private bool useTestMatchingScene;
+    [SerializeField] private string matchingLobbySceneName = SceneDefine.MatchingLobby;
+    [SerializeField] private string testMatchingSceneName = SceneDefine.TestMatching;
     [SerializeField] private bool requirePasswordForAccountLogin = true;
 
     private VisualElement root;
@@ -625,6 +627,8 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
     {
         ShowStatus($"로그인 성공: {result.DisplayName}", StatusKind.Success);
 
+        string nextSceneName = GetNextSceneName();
+
         if (!loadSceneOnLoginSuccess || string.IsNullOrEmpty(nextSceneName))
         {
             loginButton?.SetEnabled(true);
@@ -644,6 +648,11 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         }
 
         SceneManager.LoadScene(nextSceneName);
+    }
+
+    private string GetNextSceneName()
+    {
+        return useTestMatchingScene ? testMatchingSceneName : matchingLobbySceneName;
     }
 
     private void OnForgotPasswordPointerUp(PointerUpEvent evt)

@@ -205,8 +205,12 @@ public class AddressablesManager : MonoBehaviour
             foreach (var key in locator.Keys)
             {
                 IList<IResourceLocation> locations;
+                bool wasLogEnabled = Debug.unityLogger.logEnabled;
                 try
                 {
+                    // Unity Editor's AddressableAssetSettingsLocator can emit missing-script warnings
+                    // while probing keys. These entries are skipped below, so keep the console clean.
+                    Debug.unityLogger.logEnabled = false;
                     if (!locator.Locate(key, typeof(Object), out locations))
                     {
                         continue;
@@ -216,6 +220,10 @@ public class AddressablesManager : MonoBehaviour
                 {
                     // Missing Script 등의 문제가 있는 에셋은 건너뛰기
                     continue;
+                }
+                finally
+                {
+                    Debug.unityLogger.logEnabled = wasLogEnabled;
                 }
 
                 for (int i = 0; i < locations.Count; i++)

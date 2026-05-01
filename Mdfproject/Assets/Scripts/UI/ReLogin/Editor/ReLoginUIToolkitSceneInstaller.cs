@@ -42,6 +42,18 @@ public static class ReLoginUIToolkitSceneInstaller
             Undo.AddComponent<ReLoginUIToolkitController>(target);
         }
 
+        ReLoginUIToolkitController controller = target.GetComponent<ReLoginUIToolkitController>();
+        if (controller != null)
+        {
+            SerializedObject serializedController = new SerializedObject(controller);
+            serializedController.FindProperty("document").objectReferenceValue = uiDocument;
+            serializedController.FindProperty("loadSceneOnLoginSuccess").boolValue = true;
+            serializedController.FindProperty("useTestMatchingScene").boolValue = false;
+            serializedController.FindProperty("matchingLobbySceneName").stringValue = SceneDefine.MatchingLobby;
+            serializedController.FindProperty("testMatchingSceneName").stringValue = SceneDefine.TestMatching;
+            serializedController.ApplyModifiedProperties();
+        }
+
         EditorUtility.SetDirty(target);
         EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
         Selection.activeGameObject = target;

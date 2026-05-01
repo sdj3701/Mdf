@@ -1,0 +1,91 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/UI/TestMatching/TestMatching.uss?fileID=7433441132597879392&amp;guid=2d17d8cbb7094f2a86ebac58f75533f4&amp;type=3#TestMatching" />
+    <ui:VisualElement name="testmatching-root" class="tm-root">
+        <ui:VisualElement name="testmatching-design-space" class="tm-design-space">
+            <ui:VisualElement name="background" class="tm-background">
+                <ui:VisualElement class="tm-bg-sky" />
+                <ui:VisualElement class="tm-bg-horizon" />
+                <ui:VisualElement class="tm-bg-ground" />
+                <ui:VisualElement class="tm-bg-cloud tm-bg-cloud--left" />
+                <ui:VisualElement class="tm-bg-cloud tm-bg-cloud--right" />
+            </ui:VisualElement>
+
+            <ui:VisualElement name="header" class="tm-header">
+                <ui:Label text="*" class="tm-title-spark tm-title-spark--left" />
+                <ui:Label text="Room List" class="tm-title-label tm-title-label--shadow" />
+                <ui:Label text="Room List" class="tm-title-label" />
+                <ui:Label text="*" class="tm-title-spark tm-title-spark--right" />
+                <ui:VisualElement name="refreshButton" class="tm-clickable tm-small-button tm-refresh-button">
+                    <ui:Label text="↻" class="tm-button-icon tm-button-icon--refresh" />
+                    <ui:Label text="Refresh" class="tm-small-button-label" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement name="roomListPanel" class="tm-room-list-panel">
+                <ui:ScrollView name="roomListScroll" class="tm-room-list-scroll" horizontal-scroller-visibility="Hidden" vertical-scroller-visibility="Auto">
+                    <ui:VisualElement name="roomListContent" class="tm-room-list-content" />
+                </ui:ScrollView>
+                <ui:VisualElement name="emptyState" class="tm-empty-state">
+                    <ui:VisualElement class="tm-empty-title-row">
+                        <ui:VisualElement class="tm-empty-line" />
+                        <ui:Label text="No Rooms" class="tm-empty-title" />
+                        <ui:VisualElement class="tm-empty-line" />
+                    </ui:VisualElement>
+                    <ui:VisualElement class="tm-empty-body">
+                        <ui:Label text="?" class="tm-empty-mark" />
+                        <ui:VisualElement class="tm-empty-character">
+                            <ui:VisualElement class="tm-empty-face" />
+                        </ui:VisualElement>
+                        <ui:Label text="생성된 방이 없습니다." class="tm-empty-message" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement name="rightActions" class="tm-right-actions">
+                <ui:VisualElement name="createRoomButton" class="tm-clickable tm-action-button tm-create-room-button">
+                    <ui:Label text="+" class="tm-action-round-icon tm-create-round-icon" />
+                    <ui:Label text="Create Room" class="tm-action-button-label tm-create-room-label" />
+                </ui:VisualElement>
+
+                <ui:VisualElement name="backToTitleButton" class="tm-clickable tm-action-button tm-back-title-button">
+                    <ui:Label text="←" class="tm-back-icon" />
+                    <ui:Label text="Back to Title" class="tm-action-button-label tm-back-title-label" />
+                </ui:VisualElement>
+
+                <ui:VisualElement class="tm-right-divider" />
+
+                <ui:VisualElement name="roomNameInputWrap" class="tm-room-name-input-wrap">
+                    <ui:Label text="●" class="tm-input-user-icon" />
+                    <ui:TextField name="roomNameField" class="tm-room-name-field" />
+                    <ui:Label name="roomNamePlaceholder" text="Enter Room Name" class="tm-room-name-placeholder" />
+                </ui:VisualElement>
+
+                <ui:VisualElement name="directJoinButton" class="tm-clickable tm-action-button tm-direct-join-button">
+                    <ui:VisualElement class="tm-direct-join-icon">
+                        <ui:VisualElement class="tm-people-dot tm-people-dot--left" />
+                        <ui:VisualElement class="tm-people-dot tm-people-dot--right" />
+                        <ui:VisualElement class="tm-people-body tm-people-body--left" />
+                        <ui:VisualElement class="tm-people-body tm-people-body--right" />
+                    </ui:VisualElement>
+                    <ui:Label text="Direct Join" class="tm-action-button-label tm-direct-join-label" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:Label name="statusLabel" class="tm-status-label tm-hidden" />
+
+            <ui:VisualElement name="roomNotFoundModal" class="tm-modal tm-hidden">
+                <ui:VisualElement class="tm-modal-panel">
+                    <ui:Label text="방을 찾을 수 없습니다." class="tm-modal-title" />
+                    <ui:Label name="roomNotFoundMessage" text="입력한 방 이름을 다시 확인해 주세요." class="tm-modal-message" />
+                    <ui:VisualElement name="roomNotFoundCloseButton" class="tm-clickable tm-modal-close-button">
+                        <ui:Label text="확인" class="tm-modal-close-label" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement name="networkBlockOverlay" class="tm-network-block-overlay tm-hidden">
+                <ui:Label text="네트워크 처리 중입니다..." class="tm-network-block-label" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

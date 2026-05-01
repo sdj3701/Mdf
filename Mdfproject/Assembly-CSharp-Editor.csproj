@@ -70,6 +70,7 @@
     <Compile Include="Assets\Scripts\Editor\GoogleSheetDataImporter.cs" />
     <Compile Include="Assets\Scripts\Editor\DataExporter.cs" />
     <Compile Include="Assets\Scripts\UI\ReLogin\Editor\ReLoginUIToolkitSceneInstaller.cs" />
+    <Compile Include="Assets\Scripts\UI\TestMatching\Editor\TestMatchingUIToolkitSceneInstaller.cs" />
     <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeViewer.cs" />
     <Compile Include="Assets\Scripts\Editor\AddressableKeyDrawer.cs" />
   </ItemGroup>
@@ -1230,8 +1231,16 @@
       <HintPath>Library\ScriptAssemblies\Unity.Burst.Editor.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="UnityCliConnector.TestRunner">
+      <HintPath>Library\ScriptAssemblies\UnityCliConnector.TestRunner.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="Unity.2D.Sprite.Editor">
       <HintPath>Library\ScriptAssemblies\Unity.2D.Sprite.Editor.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityCliConnector.Editor">
+      <HintPath>Library\ScriptAssemblies\UnityCliConnector.Editor.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.RenderPipelines.Core.Runtime">
@@ -1329,7 +1338,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="Assembly-CSharp.csproj" />
-    <ProjectReference Include="MCPForUnity.Runtime.csproj" />
     <ProjectReference Include="ToonyColorsPro.Demo.Editor.csproj" />
     <ProjectReference Include="Fusion.Unity.csproj" />
     <ProjectReference Include="Fusion.Unity.Editor.csproj" />
@@ -1337,7 +1345,6 @@
     <ProjectReference Include="ToonyColorsPro.Editor.csproj" />
     <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
     <ProjectReference Include="KinoBloom.Runtime.csproj" />
-    <ProjectReference Include="MCPForUnity.Editor.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <ItemGroup>

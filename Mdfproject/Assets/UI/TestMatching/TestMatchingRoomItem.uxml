@@ -1,0 +1,26 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <ui:VisualElement name="room-card" class="tm-room-card">
+        <ui:Label name="rankIcon" text="1" class="tm-room-rank-icon" />
+        <ui:VisualElement class="tm-room-info">
+            <ui:Label name="roomNameLabel" text="Room Name" class="tm-room-name-label" />
+            <ui:VisualElement class="tm-room-meta-row">
+                <ui:Label text="P" class="tm-room-meta-icon tm-room-people-icon" />
+                <ui:Label name="playerCountLabel" text="0 / 8" class="tm-room-meta-label tm-player-count-label" />
+                <ui:VisualElement class="tm-room-meta-divider" />
+                <ui:Label text="W" class="tm-room-meta-icon tm-room-trophy-icon" />
+                <ui:Label name="ruleLabel" text="1승 선착" class="tm-room-meta-label tm-rule-label" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement name="roomThumbnail" class="tm-room-thumbnail">
+            <ui:VisualElement class="tm-thumb-sky" />
+            <ui:VisualElement class="tm-thumb-ground" />
+            <ui:VisualElement class="tm-thumb-tree tm-thumb-tree--left" />
+            <ui:VisualElement class="tm-thumb-tree tm-thumb-tree--right" />
+            <ui:VisualElement class="tm-thumb-house" />
+        </ui:VisualElement>
+        <ui:VisualElement name="statusWrap" class="tm-room-status-wrap">
+            <ui:VisualElement name="statusDot" class="tm-room-status-dot" />
+            <ui:Label name="statusLabel" text="Waiting" class="tm-room-status-label" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>
