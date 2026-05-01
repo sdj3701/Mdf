@@ -1,0 +1,31 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/UI/ReLogin/ReLogin.uss?fileID=7433441132597879392&amp;guid=f1b27abb9d1ad11428de6d5a91bf39da&amp;type=3#ReLogin" />
+    <ui:VisualElement name="relogin-root" class="relogin-root">
+        <ui:VisualElement name="relogin-design-space" class="relogin-design-space">
+            <ui:VisualElement name="relogin-background" class="relogin-background" />
+            <ui:VisualElement name="accountInputArea" class="input-area input-area--account">
+                <ui:TextField name="accountField" class="relogin-text-field relogin-text-field--account" />
+                <ui:Label name="accountPlaceholder" text="이메일 또는 계정 입력" class="input-placeholder" />
+                <ui:VisualElement name="accountInputHitbox" class="text-input-hitbox text-input-hitbox--account" />
+            </ui:VisualElement>
+            <ui:VisualElement name="passwordInputArea" class="input-area input-area--password">
+                <ui:TextField name="passwordField" class="relogin-text-field relogin-text-field--password" />
+                <ui:Label name="passwordPlaceholder" text="비밀번호 입력" class="input-placeholder" />
+                <ui:VisualElement name="passwordInputHitbox" class="text-input-hitbox text-input-hitbox--password" style="-unity-font-style: bold;" />
+                <ui:VisualElement name="passwordVisibilityButton" class="hitbox password-visibility-hitbox" />
+            </ui:VisualElement>
+            <ui:VisualElement name="rememberUncheckedCover" class="remember-unchecked-cover" />
+            <ui:VisualElement name="rememberButton" class="hitbox remember-hitbox" />
+            <ui:VisualElement name="forgotPasswordButton" class="hitbox forgot-password-hitbox" />
+            <ui:VisualElement name="loginButton" class="hitbox login-hitbox" />
+            <ui:VisualElement name="googleLoginButton" class="hitbox google-hitbox" />
+            <ui:VisualElement name="appleLoginButton" class="hitbox apple-hitbox" />
+            <ui:VisualElement name="guestLoginButton" class="hitbox guest-hitbox" />
+            <ui:VisualElement name="settingsButton" class="hitbox settings-hitbox" />
+            <ui:VisualElement name="customerCenterButton" class="hitbox customer-center-hitbox" />
+            <ui:VisualElement name="languageButton" class="hitbox language-hitbox" />
+            <ui:VisualElement name="accountFindButton" class="hitbox account-find-hitbox" />
+            <ui:Label name="statusLabel" class="status-label" />
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

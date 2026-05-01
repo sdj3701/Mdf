@@ -372,7 +372,19 @@ public class HostMigrationHandler : MonoBehaviour
 
         if (runnerToCleanup != null)
         {
+            GameObject runnerContainer = runnerToCleanup.gameObject;
             runnerToCleanup.enabled = false;
+
+            if (NetworkManager.Instance != null && runnerContainer == NetworkManager.Instance.gameObject)
+            {
+                Debug.Log($"[{stepLabel}] 기존 Runner 컴포넌트 제거: {DescribeRunner(runnerToCleanup)}");
+                UnityEngine.Object.Destroy(runnerToCleanup);
+            }
+            else if (runnerContainer != null)
+            {
+                Debug.Log($"[{stepLabel}] 기존 Runner 컨테이너 제거: {runnerContainer.name}");
+                UnityEngine.Object.Destroy(runnerContainer);
+            }
         }
 
         // Debug.Log($"[{stepLabel}] 기존 Runner Shutdown 완료");
@@ -589,6 +601,8 @@ public class HostMigrationHandler : MonoBehaviour
             }
         }
         // Debug.Log($"  - Scene Objects: {sceneCount}");
+
+        CleanupStaleRuntimeObjects(runner);
         
         // 현재 존재하는 오브젝트 수 확인
         var allObjects = runner.GetAllNetworkObjects();
@@ -701,6 +715,155 @@ public class HostMigrationHandler : MonoBehaviour
         }
         
         Debug.Log($"<color=yellow>[HostMigrationHandler] Scene 오브젝트 복원 완료: copied={count}, skipped={skipped}</color>");
+    }
+
+    /// <summary>
+    /// Host Migration 복원 후 새 Runner에 속하지 않는 runtime NetworkObject를 제거합니다.
+    /// resume snapshot 재스폰 전략에서는 old runner 소유 객체가 장면에 남아 있으면 더미/중복으로 보입니다.
+    /// </summary>
+    private void CleanupStaleRuntimeObjects(NetworkRunner activeRunner)
+    {
+        if (activeRunner == null)
+        {
+            Debug.LogWarning("[HostMigrationHandler] stale runtime cleanup 스킵 - activeRunner가 null입니다.");
+            return;
+        }
+
+        var activeInstanceIds = new HashSet<int>();
+        var activeNetworkObjects = activeRunner.GetAllNetworkObjects();
+        if (activeNetworkObjects != null)
+        {
+            foreach (var activeNO in activeNetworkObjects)
+            {
+                if (activeNO != null)
+                {
+                    activeInstanceIds.Add(activeNO.GetInstanceID());
+                }
+            }
+        }
+
+        foreach (var sceneTuple in activeRunner.GetResumeSnapshotNetworkSceneObjects())
+        {
+            NetworkObject sceneNO = sceneTuple.Item1;
+            if (sceneNO != null)
+            {
+                activeInstanceIds.Add(sceneNO.GetInstanceID());
+            }
+        }
+
+        var destroyedRoots = new HashSet<int>();
+        int staleCandidates = 0;
+
+        foreach (var no in UnityEngine.Object.FindObjectsOfType<NetworkObject>(true))
+        {
+            if (!ShouldCleanupStaleNetworkObject(no, activeRunner, activeInstanceIds))
+            {
+                continue;
+            }
+
+            staleCandidates++;
+            GameObject staleRoot = no.gameObject;
+            if (staleRoot == null || !destroyedRoots.Add(staleRoot.GetInstanceID()))
+            {
+                continue;
+            }
+
+            Debug.LogWarning($"<color=orange>[HostMigrationHandler] stale runtime object 제거: {DescribeNetworkObjectForCleanup(no, activeRunner)}</color>");
+            UnityEngine.Object.Destroy(staleRoot);
+        }
+
+        Debug.Log($"<color=yellow>[HostMigrationHandler] stale runtime cleanup 완료: active={activeInstanceIds.Count}, candidates={staleCandidates}, destroyedRoots={destroyedRoots.Count}</color>");
+    }
+
+    private static bool ShouldCleanupStaleNetworkObject(
+        NetworkObject no,
+        NetworkRunner activeRunner,
+        HashSet<int> activeInstanceIds)
+    {
+        if (no == null || no.gameObject == null || activeRunner == null)
+        {
+            return false;
+        }
+
+        if (activeInstanceIds != null && activeInstanceIds.Contains(no.GetInstanceID()))
+        {
+            return false;
+        }
+
+        if (no.gameObject == activeRunner.gameObject)
+        {
+            return false;
+        }
+
+        if (NetworkManager.Instance != null && no.gameObject == NetworkManager.Instance.gameObject)
+        {
+            return false;
+        }
+
+        if (no.Runner != null && no.Runner == activeRunner)
+        {
+            return false;
+        }
+
+        if (no.Runner != null && no.Runner != activeRunner)
+        {
+            return true;
+        }
+
+        return HasGameplayRuntimeMarker(no);
+    }
+
+    private static bool HasGameplayRuntimeMarker(NetworkObject no)
+    {
+        return no != null &&
+               (no.TryGetComponent<GameManagers>(out _) ||
+                no.TryGetComponent<PlayerManager>(out _) ||
+                no.TryGetComponent<NetworkPlayer>(out _) ||
+                no.TryGetComponent<Unit>(out _) ||
+                no.TryGetComponent<Monster>(out _) ||
+                no.TryGetComponent<CombatScheduler>(out _));
+    }
+
+    private static string DescribeNetworkObjectForCleanup(NetworkObject no, NetworkRunner activeRunner)
+    {
+        if (no == null)
+        {
+            return "NetworkObject=NULL";
+        }
+
+        string kind = "Other";
+        string extra = string.Empty;
+
+        if (no.TryGetComponent<GameManagers>(out var gm))
+        {
+            kind = "GameManagers";
+            extra = $", round={gm.currentRound}, state={gm.currentState}";
+        }
+        else if (no.TryGetComponent<PlayerManager>(out var player))
+        {
+            kind = "PlayerManager";
+            extra = $", playerId={player.playerId}";
+        }
+        else if (no.TryGetComponent<Unit>(out var unit))
+        {
+            kind = "Unit";
+            extra = $", unitName={unit.name}";
+        }
+        else if (no.TryGetComponent<Monster>(out var monster))
+        {
+            kind = "Monster";
+            extra = $", monsterName={monster.name}";
+        }
+        else if (no.TryGetComponent<NetworkPlayer>(out _))
+        {
+            kind = "NetworkPlayer";
+        }
+        else if (no.TryGetComponent<CombatScheduler>(out _))
+        {
+            kind = "CombatScheduler";
+        }
+
+        return $"name={no.name}, kind={kind}, runner={DescribeRunner(no.Runner)}, activeRunner={DescribeRunner(activeRunner)}, stateAuth={no.HasStateAuthority}, inputAuth={no.InputAuthority}{extra}";
     }
 
     /// <summary>
@@ -1285,6 +1448,30 @@ public class HostMigrationHandler : MonoBehaviour
             var runtimePlayers = UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
                 .Where(p => p != null && p.Object != null && p.Object.IsValid && p.Runner == expectedRunner)
                 .ToList();
+
+            var duplicatedPlayerManagers = UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
+                .Where(p => p != null && p.Object != null)
+                .GroupBy(p => p.playerId)
+                .Where(group => group.Count() > 1)
+                .ToList();
+
+            foreach (var duplicatedGroup in duplicatedPlayerManagers)
+            {
+                string runnerSummary = string.Join(", ", duplicatedGroup.Select(player => DescribeRunner(player.Runner)));
+                errors.Add($"duplicatePlayerManager: P{duplicatedGroup.Key} count={duplicatedGroup.Count()} runners=[{runnerSummary}]");
+            }
+
+            var staleGameplayObjects = UnityEngine.Object.FindObjectsOfType<NetworkObject>(true)
+                .Where(no => no != null && no.gameObject != null)
+                .Where(HasGameplayRuntimeMarker)
+                .Where(no => no.Runner != null && no.Runner != expectedRunner)
+                .ToList();
+
+            if (staleGameplayObjects.Count > 0)
+            {
+                string sample = string.Join(", ", staleGameplayObjects.Take(4).Select(no => no.name));
+                errors.Add($"staleGameplayObjects={staleGameplayObjects.Count} sample=[{sample}]");
+            }
 
             if (allPlayers.Count != runtimePlayers.Count)
             {
