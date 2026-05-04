@@ -86,12 +86,6 @@ Mdfproject/[Aa]ssets/Unity.VisualScripting.Generated/VisualScripting.Core/Proper
 # Temporarily ignoring Photon package until team decision is made.
 
 
-.aider*
-.qwen*
-*.md
-QWEN.md
 Mdfproject/Assets/StarterAssets
 Mdfproject/Assets/StarterAssets.meta
 nul
-error.txt
-Mdfproject/Assets/Scripts/AGENTS.md.meta
