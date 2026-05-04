@@ -1,0 +1,332 @@
+#if UNITY_EDITOR
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
+using Fusion;
+using GameCore.Enums;
+using Newtonsoft.Json.Linq;
+using UnityCliConnector;
+using UnityCliConnector.Tools;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+[UnityCliTool(Name = "mp_start_host", Description = "Start an MDF multiplayer host from the Editor side.")]
+public static class MPStartHostTool
+{
+    public class Parameters
+    {
+        [ToolParameter("Session name to create or join.", Required = true)]
+        public string Session { get; set; }
+
+        [ToolParameter("Scene to load with Fusion. Default: Game")]
+        public string Scene { get; set; }
+
+        [ToolParameter("Maximum players. Default: 2")]
+        public int MaxPlayers { get; set; }
+
+        [ToolParameter("Wait timeout in milliseconds. Default: 15000")]
+        public int TimeoutMs { get; set; }
+    }
+
+    public static Task<object> HandleCommand(JObject parameters)
+    {
+        return MPTestUnityCliTools.StartPeer(parameters, GameMode.Host);
+    }
+}
+
+[UnityCliTool(Name = "mp_join_client", Description = "Join an MDF multiplayer session as an Editor client.")]
+public static class MPJoinClientTool
+{
+    public class Parameters
+    {
+        [ToolParameter("Session name to join.", Required = true)]
+        public string Session { get; set; }
+
+        [ToolParameter("Scene to load with Fusion. Default: Game")]
+        public string Scene { get; set; }
+
+        [ToolParameter("Maximum players. Default: 2")]
+        public int MaxPlayers { get; set; }
+
+        [ToolParameter("Wait timeout in milliseconds. Default: 15000")]
+        public int TimeoutMs { get; set; }
+    }
+
+    public static Task<object> HandleCommand(JObject parameters)
+    {
+        return MPTestUnityCliTools.StartPeer(parameters, GameMode.Client);
+    }
+}
+
+[UnityCliTool(Name = "mp_load_game", Description = "Load an MDF scene through NetworkManager when possible.")]
+public static class MPLoadGameTool
+{
+    public class Parameters
+    {
+        [ToolParameter("Scene name. Default: Game")]
+        public string Scene { get; set; }
+    }
+
+    public static object HandleCommand(JObject parameters)
+    {
+        var p = new ToolParams(parameters ?? new JObject());
+        var scene = p.Get("scene", "Game");
+        var nm = NetworkManager.Instance;
+        if (nm == null)
+        {
+            return MPTestUnityCliTools.NotImplemented("network_manager_missing", "NetworkManager.Instance is not available. Enter Play Mode on a scene containing NetworkManager first.");
+        }
+
+        nm.LoadSceneSmart(scene);
+        return new SuccessResponse("Scene load requested.", MPTestUnityCliTools.BuildState("editor", "mp_load_game"));
+    }
+}
+
+[UnityCliTool(Name = "mp_dump_state", Description = "Dump an MDF Editor-side multiplayer state snapshot.")]
+public static class MPDumpStateTool
+{
+    public class Parameters
+    {
+        [ToolParameter("Role label to include in the snapshot.")]
+        public string Role { get; set; }
+
+        [ToolParameter("Case name to include in the snapshot.")]
+        public string CaseName { get; set; }
+    }
+
+    public static object HandleCommand(JObject parameters)
+    {
+        var p = new ToolParams(parameters ?? new JObject());
+        return new SuccessResponse("MDF state dumped.", MPTestUnityCliTools.BuildState(p.Get("role", "editor"), p.Get("case_name", "manual")));
+    }
+}
+
+[UnityCliTool(Name = "mp_assert_state", Description = "Assert basic MDF Editor-side multiplayer state.")]
+public static class MPAssertStateTool
+{
+    public class Parameters
+    {
+        [ToolParameter("Expected active player count.")]
+        public int ExpectedPlayers { get; set; }
+
+        [ToolParameter("Expected active scene name.")]
+        public string Scene { get; set; }
+
+        [ToolParameter("Expected GameManagers state.")]
+        public string GameState { get; set; }
+    }
+
+    public static object HandleCommand(JObject parameters)
+    {
+        var p = new ToolParams(parameters ?? new JObject());
+        var expectedPlayers = p.GetInt("expected_players", -1).Value;
+        var expectedScene = p.Get("scene");
+        var expectedState = p.Get("game_state");
+        var state = MPTestUnityCliTools.BuildState("editor", "mp_assert_state");
+        var assertion = MPTestAssertions.AssertBasic(state, expectedPlayers, expectedScene, expectedState);
+
+        if (!assertion.Success)
+        {
+            return new ErrorResponse("MDF state assertion failed.", new { assertion, state });
+        }
+
+        return new SuccessResponse("MDF state assertion passed.", new { assertion, state });
+    }
+}
+
+[UnityCliTool(Name = "mp_command", Description = "Run an MDF harness command from the Editor side.")]
+public static class MPCommandTool
+{
+    public class Parameters
+    {
+        [ToolParameter("Command name or type.")]
+        public string Command { get; set; }
+    }
+
+    public static object HandleCommand(JObject parameters)
+    {
+        return MPTestUnityCliTools.NotImplemented("runtime_command_not_ready", "Phase 4 only registers the tool. Durable command execution is implemented after runtime command/snapshot phases.");
+    }
+}
+
+[UnityCliTool(Name = "mp_screenshot", Description = "Capture an MDF Editor screenshot.")]
+public static class MPScreenshotTool
+{
+    public class Parameters
+    {
+        [ToolParameter("View to capture: scene or game. Default: game")]
+        public string View { get; set; }
+
+        [ToolParameter("Output file path, absolute or relative to project root.")]
+        public string OutputPath { get; set; }
+
+        [ToolParameter("Override width.")]
+        public int Width { get; set; }
+
+        [ToolParameter("Override height.")]
+        public int Height { get; set; }
+    }
+
+    public static object HandleCommand(JObject parameters)
+    {
+        var p = parameters ?? new JObject();
+        if (p["view"] == null)
+        {
+            p["view"] = "game";
+        }
+
+        return EditorScreenshot.HandleCommand(p);
+    }
+}
+
+[UnityCliTool(Name = "mp_stop", Description = "Stop MDF Editor multiplayer play mode and runner state.")]
+public static class MPStopTool
+{
+    public static object HandleCommand(JObject parameters)
+    {
+        var runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner != null && runner.IsRunning)
+        {
+            _ = runner.Shutdown();
+        }
+
+        if (EditorApplication.isPlaying)
+        {
+            EditorApplication.isPlaying = false;
+        }
+
+        return new SuccessResponse("MDF Editor multiplayer stop requested.", MPTestUnityCliTools.BuildState("editor", "mp_stop"));
+    }
+}
+
+[UnityCliTool(Name = "mp_start_prepare_smoke", Description = "Start or report prepare smoke status.")]
+public static class MPStartPrepareSmokeTool
+{
+    public static object HandleCommand(JObject parameters)
+    {
+        return MPTestUnityCliTools.NotImplemented("prepare_smoke_requires_runtime", "Prepare smoke control requires Phase 5+ runtime bootstrap and Phase 6 state assertions.");
+    }
+}
+
+[UnityCliTool(Name = "mp_start_battle_smoke", Description = "Start or report battle smoke status.")]
+public static class MPStartBattleSmokeTool
+{
+    public static object HandleCommand(JObject parameters)
+    {
+        return MPTestUnityCliTools.NotImplemented("battle_smoke_requires_runtime", "Battle smoke control requires Phase 5+ runtime bootstrap and Phase 6 state assertions.");
+    }
+}
+
+[UnityCliTool(Name = "mp_force_host_migration_probe", Description = "Run a host migration feasibility probe when supported.")]
+public static class MPForceHostMigrationProbeTool
+{
+    public static object HandleCommand(JObject parameters)
+    {
+        return MPTestUnityCliTools.NotImplemented("host_migration_probe_requires_e2e", "Host migration proof requires Phase 15 controlled host drop artifacts, not a Phase 4 Editor-only stub.");
+    }
+}
+
+internal static class MPTestUnityCliTools
+{
+    public static async Task<object> StartPeer(JObject parameters, GameMode mode)
+    {
+        var p = new ToolParams(parameters ?? new JObject());
+        string session = p.Get("session");
+        if (string.IsNullOrWhiteSpace(session))
+        {
+            return new ErrorResponse("'session' parameter is required.");
+        }
+
+        string scene = p.Get("scene", "Game");
+        int maxPlayers = Math.Max(2, p.GetInt("max_players", 2).Value);
+        int timeoutMs = Math.Max(1000, p.GetInt("timeout_ms", 15000).Value);
+
+        var nm = NetworkManager.Instance;
+        if (nm == null)
+        {
+            return NotImplemented("network_manager_missing", "NetworkManager.Instance is not available. Enter Play Mode on Title/MatchingLobby first.");
+        }
+
+        SetMaxPlayers(nm, maxPlayers);
+        nm.SetRoomNameInput(session);
+
+        if (nm._runner == null)
+        {
+            nm.JoinLobby();
+            bool lobbyReady = await WaitUntil(() => NetworkManager.Instance != null && NetworkManager.Instance.State == ConnectionState.InLobby, timeoutMs);
+            if (!lobbyReady)
+            {
+                return new ErrorResponse("Timed out waiting for Fusion lobby.", BuildState(mode.ToString().ToLowerInvariant(), "join_lobby_timeout"));
+            }
+        }
+
+        if (nm.State == ConnectionState.InLobby)
+        {
+            nm.StartGame(mode, session, scene);
+        }
+
+        bool runnerReady = await WaitUntil(() =>
+        {
+            var current = NetworkManager.Instance;
+            return current != null && current._runner != null && current._runner.IsRunning;
+        }, timeoutMs);
+
+        if (!runnerReady)
+        {
+            return new ErrorResponse("Timed out waiting for NetworkRunner to start.", BuildState(mode.ToString().ToLowerInvariant(), "runner_timeout"));
+        }
+
+        return new SuccessResponse($"{mode} start requested.", BuildState(mode.ToString().ToLowerInvariant(), "start_peer"));
+    }
+
+    public static MPTestStateSnapshot.Snapshot BuildState(string role, string caseName)
+    {
+        return MPTestStateSnapshot.Capture(role, caseName);
+    }
+
+    public static int GetActivePlayerCount()
+    {
+        var runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner != null && runner.IsRunning)
+        {
+            return runner.ActivePlayers.Count();
+        }
+
+        return UnityEngine.Object.FindObjectsOfType<PlayerManager>().Length;
+    }
+
+    public static ErrorResponse NotImplemented(string code, string message)
+    {
+        return new ErrorResponse("not_implemented", new { code, message });
+    }
+
+    private static async Task<bool> WaitUntil(Func<bool> predicate, int timeoutMs)
+    {
+        double start = EditorApplication.timeSinceStartup;
+        double timeoutSeconds = timeoutMs / 1000.0;
+        while (EditorApplication.timeSinceStartup - start < timeoutSeconds)
+        {
+            if (predicate())
+            {
+                return true;
+            }
+
+            await Task.Delay(100);
+        }
+
+        return predicate();
+    }
+
+    private static void SetMaxPlayers(NetworkManager nm, int maxPlayers)
+    {
+        var field = typeof(NetworkManager).GetField("maxSessionPlayers", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (field != null)
+        {
+            field.SetValue(nm, Mathf.Clamp(maxPlayers, 2, 4));
+        }
+    }
+}
+#endif

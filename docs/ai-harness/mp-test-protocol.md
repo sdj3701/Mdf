@@ -1,0 +1,180 @@
+# MDF Multiplayer Test Protocol
+
+## Roles
+
+The harness must test both host directions:
+
+1. Editor Host + Build Client.
+2. Build Host + Editor Client.
+3. Later: Build Host + Build Client.
+4. Later: 4-player matrix and host migration.
+
+## Runtime args
+
+```text
+--mpTest
+--mpRole host|client
+--mpSession <session>
+--mpMaxPlayers <2-4>
+--mpScene Game
+--mpAutoStart
+--mpLoadGame
+--mpExitAfterSeconds <seconds>
+--mpAutomationPort <port>
+--mpAutomationToken <token>
+--mpConnectionToken <token>
+--mpCase <caseName>
+--mpArtifactDir <path>
+--mpSeed <seed>
+--mpScenario <scenario>
+```
+
+In `--mpTest`, set `Application.runInBackground = true` and emit `[MPTEST]` logs.
+
+## MPTEST log format
+
+Every harness event starts with `[MPTEST]` and uses stable key/value fields.
+
+Example:
+
+```text
+[MPTEST] ts=2026-05-04T10:00:00.123Z case=editor-host-build-client role=host phase=start session=mp-abc scene=Title result=begin msg="start host"
+[MPTEST] ts=... role=client phase=connected session=mp-abc players=2 tick=123 result=pass
+[MPTEST] ts=... role=host phase=assert name=player_count expected=2 actual=2 result=pass
+[MPTEST] ts=... role=client phase=error code=scene_timeout result=fail msg="Game scene not loaded"
+```
+
+Required fields when available:
+
+- `ts`
+- `case`
+- `role`
+- `session`
+- `phase`
+- `scene`
+- `tick`
+- `playerId`
+- `result`
+- `code`
+- `msg`
+
+## Timeline vs snapshot
+
+`[MPTEST]` logs tell what happened and when.
+
+State snapshots prove that peers agree on durable game state.
+
+Never treat logs alone as synchronization PASS.
+
+## MVP scenarios
+
+### `lobby_smoke`
+
+- Start host/client.
+- Verify same session.
+- Verify expected active player count.
+- Verify `NetworkPlayer` ready/nickname state if available.
+
+### `game_smoke`
+
+- Load `Game` scene.
+- Verify `GameManagers` exists and is spawned.
+- Verify `PlayerManager` count.
+- Verify each player has `playerId >= 0`.
+- Verify local player can be relinked.
+
+### `prepare_smoke`
+
+- Wait for `GameManagers.currentState == Prepare` or trigger first prepare flow.
+- Verify shop snapshot exists for each active player.
+- Verify player HP/gold/walls have reasonable values.
+- Optionally run a deterministic command such as reroll or wall placement if safe.
+
+### `battle_smoke`
+
+- Advance or wait to `Battle1`/`Battle2`.
+- Verify battle opponents mapping.
+- Verify attacker/defender flags.
+- Verify monster spawner readiness.
+- Optionally spawn one test monster only through authority-gated test command.
+
+## E2E artifact layout
+
+```text
+artifacts/mp/<timestamp>-<case>/
+  run.json
+  command-transcript.log
+  editor.log
+  host.stdout.log
+  host.stderr.log
+  client-1.stdout.log
+  client-1.stderr.log
+  mptest.timeline.jsonl
+  snapshots/
+    host-pre.json
+    client-1-pre.json
+    host-post.json
+    client-1-post.json
+  screenshots/
+    editor.png
+    host.png
+    client-1.png
+  comparison.json
+  failure-summary.md
+```
+
+## Matrix flow: Editor Host + Build Client
+
+```text
+1. unity-cli status / compile / console check.
+2. Build Development player.
+3. Clear Editor console.
+4. Use `mp_start_host` with session/maxPlayers/scene/scenario.
+5. Launch build client with `--mpRole client` and automation server.
+6. Poll build `/ping` and Editor `mp_dump_state`.
+7. Wait for expected players and Game scene.
+8. Run scenario-specific command.
+9. Dump snapshots from both peers.
+10. Compare comparable fields.
+11. Capture screenshots and logs.
+12. Cleanup all processes and stop Editor play mode.
+```
+
+## Matrix flow: Build Host + Editor Client
+
+```text
+1. Build Development player.
+2. Launch build host with `--mpRole host` and automation server.
+3. Use `mp_join_client` from Editor.
+4. Wait for Game scene and expected players.
+5. Run scenario-specific command.
+6. Dump and compare snapshots.
+7. Collect artifacts and cleanup.
+```
+
+## Failure categories
+
+- `compile_error`
+- `console_error`
+- `player_launch_failed`
+- `automation_ping_timeout`
+- `session_join_timeout`
+- `scene_timeout`
+- `player_count_mismatch`
+- `gamemanagers_missing`
+- `snapshot_schema_error`
+- `snapshot_mismatch`
+- `authority_violation`
+- `host_migration_not_triggered`
+- `artifact_missing`
+
+## PASS rule
+
+A case passes only when:
+
+- all required peers launched,
+- both/control channels responded,
+- scenario assertions passed,
+- snapshots compared,
+- artifacts exist,
+- cleanup succeeded or failures were recorded.

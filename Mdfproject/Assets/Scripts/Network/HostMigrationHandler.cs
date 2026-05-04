@@ -65,6 +65,7 @@ public class HostMigrationHandler : MonoBehaviour
     private bool _isMigrating = false;
     public bool IsMigrating => _isMigrating;
     private bool _migrationRecoverySucceeded = false;
+    public bool MigrationRecoverySucceeded => _migrationRecoverySucceeded;
 
     // HostMigrationResume에서 스폰된 GameManagers 캐시 (복원 대기 루틴 폴백용)
     private GameManagers _restoredGameManagersCandidate;
@@ -138,6 +139,9 @@ public class HostMigrationHandler : MonoBehaviour
         // Debug.Log("<color=yellow>═══════════════════════════════════════════</color>");
         Debug.Log($"[HostMigrationHandler] StartMigration 입력 runner: {DescribeRunner(runner)}");
         Debug.Log($"[HostMigrationHandler] StartMigration 시점 GameManagers: {DescribeGameManagers(GameManagers.Instance)}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_start_migration", runner, hostMigrationToken);
+#endif
         _isMigrating = true;
         _migrationRecoverySucceeded = false;
         _aiTakeoverReady = false;
@@ -242,6 +246,9 @@ public class HostMigrationHandler : MonoBehaviour
         if (!startTask.IsCompleted)
         {
             Debug.LogError("<color=red>[HostMigrationHandler] 세션 재시작 타임아웃!</color>");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestHostMigrationEvents.Record("handler_restart_timeout", oldRunner, hostMigrationToken);
+#endif
             OnMigrationComplete();
             yield break;
         }
@@ -250,6 +257,12 @@ public class HostMigrationHandler : MonoBehaviour
         {
             string taskError = startTask.Exception?.GetBaseException()?.Message ?? "Unknown";
             Debug.LogError($"<color=red>[HostMigrationHandler] 세션 재시작 실패: {taskError}</color>");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestHostMigrationEvents.Record("handler_restart_fail_task", oldRunner, hostMigrationToken, new Dictionary<string, object>
+            {
+                { "error", taskError }
+            });
+#endif
             OnMigrationComplete();
             yield break;
         }
@@ -258,6 +271,9 @@ public class HostMigrationHandler : MonoBehaviour
         if (newRunner == null || !newRunner.IsRunning)
         {
             Debug.LogError("<color=red>[HostMigrationHandler] 새 Runner 시작 실패!</color>");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestHostMigrationEvents.Record("handler_restart_fail_new_runner", oldRunner, hostMigrationToken);
+#endif
             OnMigrationComplete();
             yield break;
         }
@@ -267,6 +283,13 @@ public class HostMigrationHandler : MonoBehaviour
         {
             Debug.LogError($"<color=red>[HostMigrationHandler] GameMode 불일치: expected={expectedMode}, actual={newRunner.GameMode}</color>");
             _migrationRecoverySucceeded = false;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestHostMigrationEvents.Record("handler_restart_fail_mode_mismatch", newRunner, hostMigrationToken, new Dictionary<string, object>
+            {
+                { "expectedMode", expectedMode },
+                { "actualMode", newRunner.GameMode }
+            });
+#endif
             OnMigrationComplete();
             yield break;
         }
@@ -289,6 +312,15 @@ public class HostMigrationHandler : MonoBehaviour
             coexistFrames = Mathf.Max(0, oldRunnerShutdownCompletedFrame - newRunnerReadyFrame);
         }
         Debug.Log($"[STEP 4] migrationFrames total={newRunnerReadyFrame - migrationStartFrame}, oldRunnerShutdownFrame={oldRunnerShutdownCompletedFrame}, newRunnerReadyFrame={newRunnerReadyFrame}, coexistFrames={coexistFrames}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_new_runner_ready", newRunner, hostMigrationToken, new Dictionary<string, object>
+        {
+            { "oldRunnerShutdownFrame", oldRunnerShutdownCompletedFrame },
+            { "migrationStartFrame", migrationStartFrame },
+            { "newRunnerReadyFrame", newRunnerReadyFrame },
+            { "coexistFrames", coexistFrames }
+        });
+#endif
 
         Debug.Log("<color=magenta>═══ [STEP 5] GameManagers 복원 시작 ═══</color>");
         
@@ -298,6 +330,9 @@ public class HostMigrationHandler : MonoBehaviour
         if (!_migrationRecoverySucceeded)
         {
             Debug.LogError("<color=red>[STEP 5] GameManagers 복원 게이트 실패 - 이후 단계 진행 중단</color>");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestHostMigrationEvents.Record("handler_restore_fail_gate", newRunner, hostMigrationToken);
+#endif
             OnMigrationComplete();
             yield break;
         }
@@ -436,17 +471,32 @@ public class HostMigrationHandler : MonoBehaviour
             if (result.Ok)
             {
                 Debug.Log("<color=green>[HostMigrationHandler] StartGame 성공!</color>");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                MPTestHostMigrationEvents.Record("handler_start_game_success", newRunner, hostMigrationToken);
+#endif
                 return newRunner;
             }
             else
             {
                 Debug.LogError($"<color=red>[HostMigrationHandler] StartGame 실패: {result.ShutdownReason}</color>");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                MPTestHostMigrationEvents.Record("handler_start_game_fail", newRunner, hostMigrationToken, new Dictionary<string, object>
+                {
+                    { "shutdownReason", result.ShutdownReason }
+                });
+#endif
                 return null;
             }
         }
         catch (Exception e)
         {
             Debug.LogError($"<color=red>[HostMigrationHandler] StartGame 예외: {e.Message}</color>");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestHostMigrationEvents.Record("handler_start_game_exception", null, hostMigrationToken, new Dictionary<string, object>
+            {
+                { "error", e.Message }
+            });
+#endif
             // Debug.LogException(e);
             return null;
         }
@@ -460,6 +510,9 @@ public class HostMigrationHandler : MonoBehaviour
     {
         // Debug.Log("<color=cyan>═══════════════════════════════════════════</color>");
         Debug.Log("<color=cyan>[HostMigrationHandler] HostMigrationResume 시작!</color>");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_host_migration_resume", runner);
+#endif
         // Debug.Log("<color=cyan>═══════════════════════════════════════════</color>");
         // Debug.Log($"  - Runner: {runner?.name}");
         // Debug.Log($"  - IsServer: {runner?.IsServer}");
@@ -467,6 +520,12 @@ public class HostMigrationHandler : MonoBehaviour
         // Resume Snapshot 오브젝트 가져오기
         var resumeObjects = runner.GetResumeSnapshotNetworkObjects().ToList();
         Debug.Log($"<color=yellow>[HostMigrationHandler] Resume Snapshot 오브젝트 수: {resumeObjects.Count}</color>");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_host_migration_resume_objects", runner, null, new Dictionary<string, object>
+        {
+            { "resumeObjects", resumeObjects.Count }
+        });
+#endif
         
         int gameManagerCount = 0;
         int playerCount = 0;
@@ -1250,6 +1309,17 @@ public class HostMigrationHandler : MonoBehaviour
         // [Observer Pattern] Migration 완료 이벤트 발행
         bool isNewHost = NetworkManager.Instance?._runner?.IsServer ?? false;
         GameEvents.TriggerHostMigrationCompleted(isNewHost);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record(
+            _migrationRecoverySucceeded ? "handler_migration_complete_success" : "handler_migration_complete_fail",
+            NetworkManager.Instance != null ? NetworkManager.Instance._runner : null,
+            null,
+            new Dictionary<string, object>
+            {
+                { "isNewHost", isNewHost },
+                { "aiTakeoverReady", _aiTakeoverReady }
+            });
+#endif
 
         if (_migrationRecoverySucceeded)
         {
@@ -1417,7 +1487,27 @@ public class HostMigrationHandler : MonoBehaviour
     public void CacheDisconnectedPlayer(string connectionToken, PlayerMigrationData data)
     {
         _cachedPlayerData[connectionToken] = data;
-        Debug.Log($"[HostMigrationHandler] 플레이어 데이터 캐싱: {connectionToken}");
+        Debug.Log($"[HostMigrationHandler] 플레이어 데이터 캐싱: tokenHash={BuildTokenHashForLog(connectionToken)}");
+    }
+
+    private static string BuildTokenHashForLog(string token)
+    {
+        if (string.IsNullOrEmpty(token))
+        {
+            return "empty";
+        }
+
+        unchecked
+        {
+            uint hash = 2166136261;
+            for (int i = 0; i < token.Length; i++)
+            {
+                hash ^= token[i];
+                hash *= 16777619;
+            }
+
+            return hash.ToString("X8");
+        }
     }
 
     /// <summary>
@@ -1454,6 +1544,12 @@ public class HostMigrationHandler : MonoBehaviour
             {
                 _pushHostMigrationSnapshotUnsupportedLogged = true;
                 Debug.LogWarning("[HostMigrationHandler] PushHostMigrationSnapshot API를 찾지 못했습니다. AutoUpdate snapshot에만 의존합니다.");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                MPTestHostMigrationEvents.Record("handler_snapshot_push_unsupported", runner, null, new Dictionary<string, object>
+                {
+                    { "reason", reason }
+                });
+#endif
             }
             return false;
         }
@@ -1472,11 +1568,24 @@ public class HostMigrationHandler : MonoBehaviour
             }
 
             Debug.Log($"[HostMigrationHandler] HostMigration snapshot push 성공 ({reason})");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestHostMigrationEvents.Record("handler_snapshot_push_success", runner, null, new Dictionary<string, object>
+            {
+                { "reason", reason }
+            });
+#endif
             return true;
         }
         catch (Exception e)
         {
             Debug.LogWarning($"[HostMigrationHandler] HostMigration snapshot push 실패 ({reason}): {e.Message}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestHostMigrationEvents.Record("handler_snapshot_push_fail", runner, null, new Dictionary<string, object>
+            {
+                { "reason", reason },
+                { "error", e.Message }
+            });
+#endif
             return false;
         }
     }

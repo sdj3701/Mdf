@@ -518,6 +518,16 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_RebindRuntimeStateAfterReconnect()
+    {
+        RebindRuntimeReferencesAfterMigration("RPC_RebindRuntimeStateAfterReconnect", false);
+        if (playerId >= 0 && fieldManager != null)
+        {
+            _runtimeInitialized = true;
+        }
+    }
+
     public bool IsRuntimeReady(out string reason)
     {
         if (fieldManager == null)
