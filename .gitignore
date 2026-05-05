@@ -76,6 +76,9 @@ artifacts/
 __pycache__/
 *.py[cod]
 
+# Codex local agent/session state #
+.codex/session-state/
+
 # Addressables default ignores #
 Mdfproject/ServerData/
 Mdfproject/[Aa]ssets/StreamingAssets/aa*

@@ -1255,10 +1255,12 @@ public partial class GameManagers : NetworkBehaviour
     /// <param name="bossUniqueId">보스 고유 ID</param>
     /// <param name="originPlayerId">보스 소환자 ID</param>
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    public void RPC_RequestSpawnMonster(int attackerPlayerId, int defenderPlayerId, string monsterDataName, Vector3 spawnPosition, bool isBoss, int bossUniqueId, int originPlayerId)
+    public void RPC_RequestSpawnMonster(int attackerPlayerId, int defenderPlayerId, string monsterDataName, Vector3 spawnPosition, bool isBoss, int bossUniqueId, int originPlayerId, RpcInfo info = default)
     {
         // 서버만 처리
         if (Object == null || !Object.HasStateAuthority) return;
+        if (currentState != GameState.Battle1 && currentState != GameState.Battle2) return;
+        if (string.IsNullOrWhiteSpace(monsterDataName)) return;
         
         var attacker = GetPlayer(attackerPlayerId);
         var defender = GetPlayer(defenderPlayerId);
@@ -1270,11 +1272,17 @@ public partial class GameManagers : NetworkBehaviour
         }
         
         // 몬스터 데이터 찾기
+        if (!IsRpcSourceAuthorizedForPlayer(attacker, info.Source)) return;
+        if (!attacker.IsAttackerInCurrentBattle) return;
+        if (!TryGetBattleDefenderField(attacker, out FieldManager defenderField)) return;
+        if (defenderField == null || defenderField.playerManager != defender) return;
+        if (!IsWithinFieldOuterBounds(defenderField, spawnPosition)) return;
+
         var pool = attacker.AttackMonsterPool;
         MonsterPoolEntry targetEntry = null;
         foreach (var entry in pool)
         {
-            if (entry.MonsterData != null && entry.MonsterData.name == monsterDataName && !entry.IsEmpty)
+            if (entry.MonsterData != null && entry.MonsterData.name == monsterDataName && entry.IsBoss == isBoss && !entry.IsEmpty)
             {
                 targetEntry = entry;
                 break;
@@ -1288,6 +1296,11 @@ public partial class GameManagers : NetworkBehaviour
         }
         
         // 서버에서 몬스터 소환
+        if (targetEntry.IsBoss && targetEntry.OriginPlayerId >= 0 && targetEntry.OriginPlayerId != originPlayerId)
+        {
+            return;
+        }
+
         RunLifecycleTask(
             SpawnMonsterOnServerAsync(attacker, defender, targetEntry, spawnPosition),
             "RPC_RequestSpawnMonster/SpawnMonsterOnServerAsync");

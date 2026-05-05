@@ -9,7 +9,7 @@ using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
 
-[UnityCliTool(Name = "mp_build_player", Description = "Build an MDF Development player for multiplayer harness runs.")]
+[UnityCliTool(Name = "mp_build_player", Description = "Build an MDF player for multiplayer harness runs. Development Build is enabled by default.")]
 public static class MPBuildPlayerTool
 {
     private static readonly string[] RequiredScenes =
@@ -31,6 +31,9 @@ public static class MPBuildPlayerTool
         [ToolParameter("Executable name. Default: MDF-MPTest")]
         public string PlayerName { get; set; }
 
+        [ToolParameter("Include Development Build. Default: true")]
+        public bool DevelopmentBuild { get; set; }
+
         [ToolParameter("Include AllowDebugging. Default: true")]
         public bool AllowDebugging { get; set; }
     }
@@ -41,6 +44,7 @@ public static class MPBuildPlayerTool
         var target = ResolveBuildTarget(p.Get("build_target"));
         var outputDir = ResolveOutputDir(p.Get("output_dir"));
         var playerName = p.Get("player_name", "MDF-MPTest");
+        var developmentBuild = p.GetBool("development_build", true);
         var allowDebugging = p.GetBool("allow_debugging", true);
         var scenes = EditorBuildSettings.scenes
             .Where(scene => scene.enabled)
@@ -60,8 +64,9 @@ public static class MPBuildPlayerTool
 
         Directory.CreateDirectory(outputDir);
         var locationPathName = Path.Combine(outputDir, BuildExecutableName(target, playerName));
-        var options = BuildOptions.Development;
-        if (allowDebugging)
+        var options = developmentBuild ? BuildOptions.Development : BuildOptions.None;
+        var effectiveAllowDebugging = developmentBuild && allowDebugging;
+        if (effectiveAllowDebugging)
         {
             options |= BuildOptions.AllowDebugging;
         }
@@ -100,10 +105,10 @@ public static class MPBuildPlayerTool
 
         if (summary.result == BuildResult.Succeeded)
         {
-            return new SuccessResponse("Development player build succeeded.", new { metadata, metadataPath });
+            return new SuccessResponse("Player build succeeded.", new { metadata, metadataPath });
         }
 
-        return new ErrorResponse("Development player build failed.", new { metadata, metadataPath });
+        return new ErrorResponse("Player build failed.", new { metadata, metadataPath });
     }
 
     private static BuildTarget ResolveBuildTarget(string raw)

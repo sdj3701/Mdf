@@ -23,6 +23,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public static NetworkManager Instance { get; private set; }
 
     public NetworkRunner _runner { get; private set; }
+    public string LastFusionSceneName { get; private set; }
 
     public TMP_InputField NickNameInput;
     public TMP_InputField PassWordInput;
@@ -208,6 +209,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             // Debug.LogError($"'{sceneName}' 씬을 빌드 설정에서 찾을 수 없습니다!");
             return;
         }
+        LastFusionSceneName = sceneName;
         var scene = SceneRef.FromIndex(sceneIndex);
 
         var objectProvider = gameObject.GetComponent<PooledNetworkObjectProvider>();
@@ -250,22 +252,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
     public void RPC_RequestCommandToServer(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams, RpcInfo info = default)
     {
-        // TODO: 여기서 서버는 커맨드의 유효성을 검사해야 합니다.
-        // 예: 플레이어가 골드가 충분한지, 유닛 배치가 유효한 위치인지 등.
-        // 유효성 검사는 보안(치팅 방지)에 매우 중요합니다.
-        // bool isValid = ValidateCommand(type, intParams, stringParams, vectorParams, info.Source);
-        bool isValid = true; // 지금은 모든 요청을 유효하다고 가정
-
-        if (isValid)
-        {
-            // 유효성 검사를 통과하면, 모든 클라이언트에게 이 커맨드를 실행하라고 브로드캐스팅합니다.
-            RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
-        }
-        else
-        {
-            // (선택적) 요청을 보낸 클라이언트에게만 실패를 알릴 수 있습니다.
-            // Debug.LogWarning($"Player {info.Source.PlayerId}의 {type} 커맨드 요청이 유효성 검사에 실패했습니다.");
-        }
+        Debug.LogWarning($"[NetworkManager] Rejected legacy command RPC {type}. Client commands must route through the owned PlayerManager authority gate.");
     }
 
     /// <summary>
@@ -589,7 +576,13 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
     public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
-    public void OnSceneLoadDone(NetworkRunner runner) { }
+    public void OnSceneLoadDone(NetworkRunner runner)
+    {
+        if (runner != null && runner == _runner)
+        {
+            LastFusionSceneName = SceneManager.GetActiveScene().name;
+        }
+    }
     public void OnSceneLoadStart(NetworkRunner runner) { }
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
 
@@ -904,7 +897,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         string token = GetCachedOrCurrentConnectionToken(runner, player);
         if (string.IsNullOrEmpty(token))
         {
-            token = $"playerRef:{player.PlayerId}";
+            Debug.LogWarning($"[NetworkManager] Disconnected player cache skipped: missing durable connection token for {player}.");
+            return;
         }
 
         var data = new PlayerMigrationData
@@ -1251,6 +1245,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         if (_runner != null && _runner.IsRunning)
         {
+            LastFusionSceneName = sceneName;
             if (_runner.SceneManager == null)
             {
                 // Debug.LogWarning("[NetworkManager] Runner.SceneManager is null. Falling back to Unity SceneManager. Ensure StartGame is called with a SceneManager.");

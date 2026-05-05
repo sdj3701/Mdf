@@ -300,6 +300,7 @@ def reconnect_ready(
     expected_token_hash: str,
     scene: str,
     expected_players: int,
+    require_full_world: bool,
 ) -> bool:
     host_state = normalize_snapshot_response(host_snapshot)
     client_state = normalize_snapshot_response(client_snapshot)
@@ -310,7 +311,7 @@ def reconnect_ready(
     if not snapshot_ready(host_snapshot, expected_players, scene) or not snapshot_ready(client_snapshot, expected_players, scene):
         return False
     assertions = reconnect_assertions(host_snapshot, client_snapshot, target_player_id, expected_token_hash)
-    return (
+    target_ready = (
         assertions["hostActivePlayerCount"] == 2
         and assertions["hostPlayerCount"] == expected_players
         and assertions["clientPlayerCount"] == expected_players
@@ -324,6 +325,10 @@ def reconnect_ready(
         and assertions["clientLocalTokenHash"] == expected_token_hash
         and assertions["targetComparison"]["success"] is True
     )
+    if not target_ready:
+        return False
+
+    return not require_full_world or assertions["fullComparison"]["success"] is True
 
 
 def wait_reconnect(
@@ -335,6 +340,7 @@ def wait_reconnect(
     timeout: int,
     scene: str,
     expected_players: int,
+    require_full_world: bool,
 ) -> tuple[dict[str, Any], dict[str, Any], bool]:
     deadline = time.time() + timeout
     host_state: dict[str, Any] = {}
@@ -344,14 +350,24 @@ def wait_reconnect(
         host_state = dump_state(host, artifact_dir, "build-host", "reconnect-latest")
         client_state = dump_state(client, artifact_dir, "build-client-b", "reconnect-latest")
         assertions = reconnect_assertions(host_state, client_state, target_player_id, expected_token_hash)
-        ready = reconnect_ready(host_state, client_state, target_player_id, expected_token_hash, scene, expected_players)
+        ready = reconnect_ready(host_state, client_state, target_player_id, expected_token_hash, scene, expected_players, require_full_world)
         write_json(artifact_dir / "reconnect-wait-latest.json", {
             "ready": ready,
             "assertions": assertions,
+            "requireFullWorld": require_full_world,
             "stableMatches": stable_matches,
         })
         write_json(artifact_dir / "comparison-latest.json", assertions["targetComparison"])
         write_json(artifact_dir / "full-comparison-latest.json", assertions["fullComparison"])
+        write_json(artifact_dir / "same-token-reconnect-target-assertions-latest.json", {
+            "success": assertions["targetComparison"]["success"],
+            "targetPlayerId": target_player_id,
+            "assertions": assertions,
+        })
+        write_json(artifact_dir / "same-token-reconnect-fullworld-assertions-latest.json", {
+            "success": assertions["fullComparison"]["success"],
+            "comparison": assertions["fullComparison"],
+        })
         if ready:
             stable_matches += 1
             if stable_matches >= 2:
@@ -545,15 +561,25 @@ def run(args: argparse.Namespace) -> int:
                 args.reconnect_timeout,
                 args.scene,
                 args.max_players,
+                not args.target_only,
             )
             write_json(artifact_dir / "snapshots" / "build-host-post-reconnect.json", host_final)
             write_json(artifact_dir / "snapshots" / "build-client-b-post-reconnect.json", client_final)
             assertions = reconnect_assertions(host_final, client_final, target_player_id, client_connection_hash)
             write_json(artifact_dir / "same-token-reconnect-assertions.json", assertions)
+            write_json(artifact_dir / "same-token-reconnect-target-assertions.json", {
+                "success": assertions["targetComparison"]["success"],
+                "targetPlayerId": target_player_id,
+                "assertions": assertions,
+            })
+            write_json(artifact_dir / "same-token-reconnect-fullworld-assertions.json", {
+                "success": assertions["fullComparison"]["success"],
+                "comparison": assertions["fullComparison"],
+            })
             write_json(artifact_dir / "comparison.json", assertions["targetComparison"])
             write_json(artifact_dir / "full-comparison.json", assertions["fullComparison"])
             if not reconnect_ok:
-                failures.append("same_token_reconnect_timeout")
+                failures.append("same_token_reconnect_full_world_timeout" if not args.target_only else "same_token_reconnect_timeout")
 
         write_json(artifact_dir / "build-host-screenshot.json", host.screenshot())
         if client_b_proc is not None:
@@ -612,6 +638,7 @@ def main() -> int:
     parser.add_argument("--reconnect-timeout", type=int, default=120)
     parser.add_argument("--lobby-scene", default="MatchingLobby")
     parser.add_argument("--max-players", type=int, default=3)
+    parser.add_argument("--target-only", action="store_true", help="Only require target identity reclaim. Default requires full-world comparison.")
     args = parser.parse_args()
     return run(args)
 

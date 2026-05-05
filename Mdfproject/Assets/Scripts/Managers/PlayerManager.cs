@@ -1,5 +1,6 @@
 ﻿// Assets/Scripts/Managers/PlayerManager.cs
 
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -197,6 +198,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         public int starLevel;
     }
     private List<PendingUnitReg> _pendingUnitRegs = new List<PendingUnitReg>();
+    private int[] _pendingPermanentWallFlatPositions;
+    private Coroutine _permanentWallSyncBroadcastCoroutine;
 
      void Awake()
     {
@@ -219,7 +222,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             playerId = -1;
         }
 
-        if (Object != null && Object.HasStateAuthority)
+        if (!isHostMigration && Object != null && Object.HasStateAuthority)
         {
             health = initialHealth;
             gold = initialGold;
@@ -265,7 +268,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void Rpc_InitializePlayer(int id, NetworkId gridId)
     {
-        _runtimeInitialized = false;
+        bool preserveRuntimeInitialized = _runtimeInitialized && playerId == id && fieldManager != null;
+        if (!preserveRuntimeInitialized)
+        {
+            _runtimeInitialized = false;
+        }
         playerId = id;
 
         NetworkObject gridNO = null;
@@ -285,6 +292,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (gridNO == null)
         {
             // Debug.LogError($"[Player {playerId}]: gridNetworkObject resolve 실패");
+            _runtimeInitialized = preserveRuntimeInitialized;
             return;
         }
         //Debug.Log($"[Player {playerId}]: gridNetworkObject를 성공적으로 받았습니다. (ID: {gridNetworkObject.Id})");
@@ -361,6 +369,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
         attackSeqMgr.Initialize(this);
         RebindRuntimeReferencesAfterMigration("Rpc_InitializePlayer", true);
+        DrainPendingPermanentWalls("Rpc_InitializePlayer");
+        QueuePermanentWallSyncBroadcast("Rpc_InitializePlayer");
+        _runtimeInitialized = playerId >= 0 && fieldManager != null;
 
         // CameraManager 초기화 (로컬 플레이어만)
         if (Object.HasInputAuthority && CameraManager.Instance != null)
@@ -389,7 +400,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
         }
 
-        _runtimeInitialized = true;
+        _runtimeInitialized = playerId >= 0 && fieldManager != null;
     }
 
     public void RebindRuntimeReferencesAfterMigration(string context, bool verboseFailure = true)
@@ -903,11 +914,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// 클라이언트가 서버에 상점 및 증강체 데이터 동기화를 요청합니다.
     /// </summary>
 
-    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    public void RPC_RequestSyncData()
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    public void RPC_RequestSyncData(RpcInfo info = default)
     {
         // 서버만 처리
         if (Object == null || !Object.HasStateAuthority) return;
+        if (info.Source == PlayerRef.None || Object.InputAuthority != info.Source) return;
         
         // Debug.Log($"<color=yellow>[RPC_RequestSyncData] Player {playerId}에게 데이터 동기화 요청 수신</color>");
         
@@ -954,10 +966,94 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_ApplyPermanentWalls(int[] flatPositions)
     {
+        if (flatPositions == null || flatPositions.Length == 0)
+        {
+            return;
+        }
+
+        if (fieldManager == null)
+        {
+            _pendingPermanentWallFlatPositions = flatPositions.ToArray();
+            RebindRuntimeReferencesAfterMigration("RPC_ApplyPermanentWalls.Pending", false);
+        }
+
         if (fieldManager != null)
         {
             fieldManager.ApplyPermanentWallsFromServer(flatPositions);
+            _pendingPermanentWallFlatPositions = null;
         }
+    }
+
+    private void DrainPendingPermanentWalls(string context)
+    {
+        if (_pendingPermanentWallFlatPositions == null || _pendingPermanentWallFlatPositions.Length == 0)
+        {
+            return;
+        }
+
+        if (fieldManager == null)
+        {
+            RebindRuntimeReferencesAfterMigration($"DrainPendingPermanentWalls.{context}", false);
+        }
+
+        if (fieldManager == null)
+        {
+            return;
+        }
+
+        var pending = _pendingPermanentWallFlatPositions;
+        _pendingPermanentWallFlatPositions = null;
+        fieldManager.ApplyPermanentWallsFromServer(pending);
+    }
+
+    private void QueuePermanentWallSyncBroadcast(string context)
+    {
+        if (Object == null
+            || !Object.HasStateAuthority
+            || Runner == null
+            || !Runner.IsRunning
+            || !Runner.IsServer
+            || fieldManager == null)
+        {
+            return;
+        }
+
+        if (_permanentWallSyncBroadcastCoroutine != null)
+        {
+            StopCoroutine(_permanentWallSyncBroadcastCoroutine);
+        }
+
+        _permanentWallSyncBroadcastCoroutine = StartCoroutine(BroadcastPermanentWallsForLatePeers(context));
+    }
+
+    private IEnumerator BroadcastPermanentWallsForLatePeers(string context)
+    {
+        const int attempts = 6;
+        const float intervalSeconds = 1f;
+
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            if (Object == null
+                || !Object.HasStateAuthority
+                || Runner == null
+                || !Runner.IsRunning
+                || !Runner.IsServer
+                || fieldManager == null)
+            {
+                break;
+            }
+
+            int[] flat = fieldManager.BuildPermanentWallSyncPayload(
+                $"PlayerManager.{context}.BroadcastPermanentWallsForLatePeers.{attempt + 1}");
+            if (flat != null && flat.Length > 0)
+            {
+                RPC_ApplyPermanentWalls(flat);
+            }
+
+            yield return new WaitForSeconds(intervalSeconds);
+        }
+
+        _permanentWallSyncBroadcastCoroutine = null;
     }
 
 
@@ -1136,6 +1232,66 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public Vector2 GetWallBuildDelayRange() => NormalizeDelayRange(wallBuildDelayRange);
     public Vector2 GetUnitPurchaseDelayRange() => NormalizeDelayRange(unitPurchaseDelayRange);
     public Vector2 GetUnitMoveDelayRange() => NormalizeDelayRange(unitMoveDelayRange);
+
+    public void RestoreDurableStateAfterHostMigration(
+        int restoredPlayerId,
+        int restoredHealth,
+        int restoredGold,
+        int restoredWallCount,
+        string[] shopUnitKeys,
+        int[] shopStarLevels,
+        bool[] shopSoldFlags,
+        int shopRevision,
+        int shopRound,
+        string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (restoredPlayerId >= 0 && playerId != restoredPlayerId)
+        {
+            playerId = restoredPlayerId;
+        }
+
+        health = Mathf.Max(0, restoredHealth);
+        gold = Mathf.Max(0, restoredGold);
+        wallCount = Mathf.Max(0, restoredWallCount);
+        _runtimeInitialized = true;
+
+        if (shopUnitKeys != null && shopUnitKeys.Length > 0)
+        {
+            int count = Mathf.Clamp(shopUnitKeys.Length, 0, SHOP_SNAPSHOT_CAPACITY);
+            for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
+            {
+                ShopSnapshotUnitKeys.Set(i, string.Empty);
+                ShopSnapshotStarLevels.Set(i, 0);
+                ShopSnapshotSoldFlags.Set(i, 0);
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                string unitKey = i < shopUnitKeys.Length ? NormalizeShopUnitKey(shopUnitKeys[i]) : string.Empty;
+                int starLevel = shopStarLevels != null && i < shopStarLevels.Length
+                    ? Mathf.Max(1, shopStarLevels[i])
+                    : 1;
+                int sold = shopSoldFlags != null && i < shopSoldFlags.Length && shopSoldFlags[i] ? 1 : 0;
+
+                ShopSnapshotUnitKeys.Set(i, unitKey);
+                ShopSnapshotStarLevels.Set(i, starLevel);
+                ShopSnapshotSoldFlags.Set(i, sold);
+            }
+
+            ShopSnapshotCount = count;
+            ShopSnapshotRound = Mathf.Max(0, shopRound);
+            ShopSnapshotRevision = Mathf.Max(1, shopRevision);
+        }
+
+        GameEvents.TriggerPlayerStatsChanged(playerId, health, gold);
+        GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
+        Debug.Log($"[PlayerManager] HostMigration durable restore complete ({context}) P{playerId} hp={health} gold={gold} walls={wallCount} shopRev={ShopSnapshotRevision} shopCount={ShopSnapshotCount}");
+    }
 
     #region 몬스터 소환 증강 관리
     /// <summary>
@@ -1515,28 +1671,28 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public void RPC_RequestCommandToServer(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams, RpcInfo info = default)
     {
         if (Runner == null || !Runner.IsServer) return; // 서버에서만 처리
-        if (!IsReadyForPlayerActions)
+        intParams = intParams != null ? intParams.ToArray() : System.Array.Empty<int>();
+        stringParams = stringParams != null ? stringParams.ToArray() : System.Array.Empty<string>();
+        vectorParams = vectorParams != null ? vectorParams.ToArray() : System.Array.Empty<Vector3>();
+
+        if (!ValidateClientCommandRequest(type, intParams, stringParams, vectorParams, info, out string rejectReason))
         {
-            Debug.LogWarning($"[RPC_RequestCommandToServer] Player init not ready. command={type}, playerId={playerId}");
+            Debug.LogWarning($"[RPC_RequestCommandToServer] Rejected command={type}, playerId={playerId}, reason={rejectReason}");
             return;
         }
 
-        if (intParams != null && intParams.Length > 0)
+        if (intParams.Length > 0)
         {
-            if (intParams[0] != playerId)
-            {
-                Debug.LogWarning($"[RPC_RequestCommandToServer] PlayerId mismatch corrected. cmd={type}, requested={intParams[0]}, authoritative={playerId}");
-            }
             intParams[0] = playerId;
         }
 
         if (type == CommandType.PlaceWall || type == CommandType.RemoveWall)
         {
-            string requestedPos = (vectorParams != null && vectorParams.Length > 0)
+            string wallPos = (vectorParams != null && vectorParams.Length > 0)
                 ? Vector3Int.RoundToInt(vectorParams[0]).ToString()
                 : "none";
             string source = info.Source != PlayerRef.None ? info.Source.ToString() : "None";
-            Debug.Log($"[RPC_RequestCommandToServer] {type} accepted. authoritativePlayer={playerId}, requestedPos={requestedPos}, source={source}");
+            Debug.Log($"[RPC_RequestCommandToServer] {type} accepted. authoritativePlayer={playerId}, wallPos={wallPos}, source={source}");
         }
 
         var gm = GameManagers.Instance;
@@ -1551,6 +1707,461 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             // Debug.Log("<color=green>[NetFlow] GameManagers resolved via FindObjectOfType on server.</color>");
         }
         gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+    }
+
+    private bool ValidateClientCommandRequest(
+        CommandType type,
+        int[] intParams,
+        string[] stringParams,
+        Vector3[] vectorParams,
+        RpcInfo info,
+        out string reason)
+    {
+        reason = null;
+
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            reason = "player_missing_state_authority";
+            return false;
+        }
+
+        if (info.Source == PlayerRef.None)
+        {
+            reason = "missing_rpc_source";
+            return false;
+        }
+
+        if (Object.InputAuthority != info.Source)
+        {
+            reason = "rpc_source_not_input_authority";
+            return false;
+        }
+
+        if (!IsReadyForPlayerActions)
+        {
+            reason = "player_not_ready";
+            return false;
+        }
+
+        if (intParams.Length == 0)
+        {
+            reason = "missing_player_id";
+            return false;
+        }
+
+        if (intParams[0] != playerId)
+        {
+            reason = $"player_id_mismatch:{intParams[0]}";
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            gm = FindObjectOfType<GameManagers>();
+        }
+
+        if (gm == null || gm.Runner == null || !gm.Runner.IsServer || gm.Object == null || !gm.Object.HasStateAuthority)
+        {
+            reason = "game_managers_not_authoritative";
+            return false;
+        }
+
+        switch (type)
+        {
+            case CommandType.BuyUnit:
+                return ValidateBuyUnitRequest(gm, intParams, out reason);
+            case CommandType.MoveUnit:
+                return ValidateMoveUnitRequest(gm, vectorParams, out reason);
+            case CommandType.SwapUnit:
+                return ValidateSwapUnitRequest(gm, vectorParams, out reason);
+            case CommandType.SellUnit:
+                return ValidateSellUnitRequest(gm, vectorParams, out reason);
+            case CommandType.PlaceUnit:
+                reason = "place_unit_requires_authoritative_inventory";
+                return false;
+            case CommandType.PlaceWall:
+                return ValidatePlaceWallRequest(gm, vectorParams, out reason);
+            case CommandType.RemoveWall:
+                return ValidateRemoveWallRequest(gm, vectorParams, out reason);
+            case CommandType.RerollShop:
+                return ValidateRerollShopRequest(gm, out reason);
+            case CommandType.SelectAugment:
+                return ValidateSelectAugmentRequest(gm, intParams, out reason);
+            case CommandType.ActivateSkill:
+                return ValidateActivateSkillRequest(gm, intParams, out reason);
+            case CommandType.RequestSyncData:
+                return true;
+            default:
+                reason = $"server_only_or_unknown_command:{type}";
+                return false;
+        }
+    }
+
+    private bool ValidatePreparePhase(GameManagers gm, out string reason)
+    {
+        if (gm == null || gm.currentState != GameManagers.GameState.Prepare)
+        {
+            reason = "command_requires_prepare_phase";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateBattlePhase(GameManagers gm, out string reason)
+    {
+        if (gm == null || (gm.currentState != GameManagers.GameState.Battle1 && gm.currentState != GameManagers.GameState.Battle2))
+        {
+            reason = "command_requires_battle_phase";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateBuyUnitRequest(GameManagers gm, int[] intParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (intParams.Length < 2)
+        {
+            reason = "missing_shop_slot";
+            return false;
+        }
+
+        if (shopManager == null || !shopManager.IsDatabaseLoaded)
+        {
+            reason = "shop_not_ready";
+            return false;
+        }
+
+        int slotIndex = intParams[1];
+        var items = shopManager.GetCurrentShopItems();
+        if (slotIndex < 0 || slotIndex >= items.Count)
+        {
+            reason = "shop_slot_out_of_range";
+            return false;
+        }
+
+        if (shopManager.IsSlotSold(slotIndex))
+        {
+            reason = "shop_slot_already_sold";
+            return false;
+        }
+
+        var item = items[slotIndex];
+        if (item.UnitData == null)
+        {
+            reason = "shop_item_missing_unit_data";
+            return false;
+        }
+
+        if (GetGold() < item.CalculatedCost)
+        {
+            reason = "insufficient_gold";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateMoveUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 2)
+        {
+            reason = "missing_move_positions";
+            return false;
+        }
+
+        Vector3Int from = Vector3Int.RoundToInt(vectorParams[0]);
+        Vector3Int to = Vector3Int.RoundToInt(vectorParams[1]);
+        if (!fieldManager.IsValidGridPosition(from) || !fieldManager.IsValidGridPosition(to))
+        {
+            reason = "move_position_out_of_range";
+            return false;
+        }
+
+        var unit = fieldManager.GetUnitAt(from);
+        if (unit == null)
+        {
+            reason = "move_source_empty";
+            return false;
+        }
+
+        if (fieldManager.GetUnitAt(to) != null)
+        {
+            reason = "move_destination_occupied";
+            return false;
+        }
+
+        if (unit.Data != null && unit.Data.unitType == UnitType.Melee && fieldManager.HasWallAt(to))
+        {
+            reason = "melee_unit_cannot_move_to_wall";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateSwapUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 2)
+        {
+            reason = "missing_swap_positions";
+            return false;
+        }
+
+        Vector3Int posA = Vector3Int.RoundToInt(vectorParams[0]);
+        Vector3Int posB = Vector3Int.RoundToInt(vectorParams[1]);
+        if (!fieldManager.IsValidGridPosition(posA) || !fieldManager.IsValidGridPosition(posB))
+        {
+            reason = "swap_position_out_of_range";
+            return false;
+        }
+
+        var unitA = fieldManager.GetUnitAt(posA);
+        var unitB = fieldManager.GetUnitAt(posB);
+        if (unitA == null || unitB == null)
+        {
+            reason = "swap_requires_two_units";
+            return false;
+        }
+
+        if (unitA.Data != null && unitA.Data.unitType == UnitType.Melee && fieldManager.HasWallAt(posB))
+        {
+            reason = "melee_unit_a_cannot_swap_to_wall";
+            return false;
+        }
+
+        if (unitB.Data != null && unitB.Data.unitType == UnitType.Melee && fieldManager.HasWallAt(posA))
+        {
+            reason = "melee_unit_b_cannot_swap_to_wall";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateSellUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 1)
+        {
+            reason = "missing_sell_position";
+            return false;
+        }
+
+        Vector3Int position = Vector3Int.RoundToInt(vectorParams[0]);
+        if (!fieldManager.IsValidGridPosition(position))
+        {
+            reason = "sell_position_out_of_range";
+            return false;
+        }
+
+        if (fieldManager.GetUnitAt(position) == null)
+        {
+            reason = "sell_position_empty";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidatePlaceWallRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 1)
+        {
+            reason = "missing_wall_position";
+            return false;
+        }
+
+        Vector3Int position = Vector3Int.RoundToInt(vectorParams[0]);
+        if (!fieldManager.IsValidGridPosition(position))
+        {
+            reason = "wall_position_out_of_range";
+            return false;
+        }
+
+        if (fieldManager.HasWallAt(position))
+        {
+            reason = "wall_position_occupied";
+            return false;
+        }
+
+        if (GetWallCount() <= 0)
+        {
+            reason = "insufficient_wall_stock";
+            return false;
+        }
+
+        if (goalTransform != null && position == fieldManager.WorldToGridInt(goalTransform.position))
+        {
+            reason = "wall_goal_cell_blocked";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateRemoveWallRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 1)
+        {
+            reason = "missing_remove_wall_position";
+            return false;
+        }
+
+        Vector3Int position = Vector3Int.RoundToInt(vectorParams[0]);
+        if (!fieldManager.IsValidGridPosition(position))
+        {
+            reason = "remove_wall_position_out_of_range";
+            return false;
+        }
+
+        if (fieldManager.GetWallAt(position) == null)
+        {
+            reason = "remove_wall_missing";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateRerollShopRequest(GameManagers gm, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (shopManager == null || !shopManager.IsDatabaseLoaded)
+        {
+            reason = "shop_not_ready";
+            return false;
+        }
+
+        int cost = shopManager.GetRerollCost();
+        if (GetGold() < cost)
+        {
+            reason = "insufficient_gold";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateSelectAugmentRequest(GameManagers gm, int[] intParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (intParams.Length < 2)
+        {
+            reason = "missing_augment_index";
+            return false;
+        }
+
+        if (augmentManager == null)
+        {
+            reason = "augment_manager_not_ready";
+            return false;
+        }
+
+        var presentedAugments = augmentManager.GetPresentedAugments();
+        int index = intParams[1];
+        if (presentedAugments == null || index < 0 || index >= presentedAugments.Count)
+        {
+            reason = "augment_index_out_of_range";
+            return false;
+        }
+
+        if (presentedAugments[index] == null)
+        {
+            reason = "augment_choice_missing";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateActivateSkillRequest(GameManagers gm, int[] intParams, out string reason)
+    {
+        if (!ValidateBattlePhase(gm, out reason)) return false;
+        if (intParams.Length < 2)
+        {
+            reason = "missing_skill_unit_id";
+            return false;
+        }
+
+        if (Runner == null)
+        {
+            reason = "runner_not_ready";
+            return false;
+        }
+
+        uint unitNetworkId = (uint)intParams[1];
+        Unit unit = null;
+        foreach (var networkObject in Runner.GetAllNetworkObjects())
+        {
+            if (networkObject != null && networkObject.Id.Raw == unitNetworkId)
+            {
+                unit = networkObject.GetComponent<Unit>();
+                break;
+            }
+        }
+
+        if (unit == null)
+        {
+            reason = "skill_unit_not_found";
+            return false;
+        }
+
+        if (unit.Owner != this && (fieldManager == null || !fieldManager.GetAlliedUnitsOnField().Contains(unit)))
+        {
+            reason = "skill_unit_not_owned";
+            return false;
+        }
+
+        reason = null;
+        return true;
     }
 
     private static Vector2 NormalizeDelayRange(Vector2 range)

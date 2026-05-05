@@ -107,8 +107,12 @@ public class CommandProcessor
                 return (CommandType.SelectAugment, new int[] { cmd.PlayerId, cmd.AugmentIndex }, Array.Empty<string>(), Array.Empty<Vector3>());
             case ActivateSkillCommand cmd:
                 return (CommandType.ActivateSkill, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkId }, Array.Empty<string>(), Array.Empty<Vector3>());
+            case RearrangeUnitsCommand cmd:
+                return (CommandType.RearrangeUnits, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
 
             // ===== Sync Commands (서버 → 클라이언트) =====
+            case InitializePlayerCommand cmd:
+                return (CommandType.InitializePlayer, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
             case SyncShopItemsCommand cmd:
                 // intParams: [playerId], stringParams: [unitDataNames..., starLevels as strings...]
                 var shopStrings = cmd.UnitDataNames.Concat(cmd.StarLevels.Select(s => s.ToString())).ToArray();
@@ -202,8 +206,12 @@ public class CommandProcessor
                 return new SelectAugmentCommand(intParams[0], intParams[1]);
             case CommandType.ActivateSkill:
                 return new ActivateSkillCommand(intParams[0], (uint)intParams[1]);
+            case CommandType.RearrangeUnits:
+                return new RearrangeUnitsCommand(intParams[0]);
 
             // ===== Sync Commands (서버 → 클라이언트) =====
+            case CommandType.InitializePlayer:
+                return new InitializePlayerCommand(intParams[0], default);
             case CommandType.SyncShopItems:
                 // intParams: [playerId, unitDataNamesCount], stringParams: [unitDataNames..., starLevels as strings...]
                 int namesCount = intParams[1];

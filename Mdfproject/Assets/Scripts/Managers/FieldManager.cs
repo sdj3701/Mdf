@@ -193,6 +193,36 @@ public class FieldManager : MonoBehaviour
         }
     }
 
+    public int[] BuildPermanentWallSyncPayload(string context)
+    {
+        RebuildWallMapsAfterMigration(context, false, out _);
+
+        IEnumerable<Vector3Int> sourceCells = authoritativePermanentWallCells.Count > 0
+            ? authoritativePermanentWallCells
+            : placedPermanentWalls.Keys;
+
+        var orderedCells = sourceCells
+            .Where(IsValidGridPosition)
+            .Distinct()
+            .OrderBy(cell => cell.x)
+            .ThenBy(cell => cell.y)
+            .ToList();
+
+        if (orderedCells.Count == 0)
+        {
+            return Array.Empty<int>();
+        }
+
+        int[] flat = new int[orderedCells.Count * 2];
+        for (int i = 0; i < orderedCells.Count; i++)
+        {
+            flat[i * 2] = orderedCells[i].x;
+            flat[i * 2 + 1] = orderedCells[i].y;
+        }
+
+        return flat;
+    }
+
     private Unit selectedUnit;
     private Vector3Int originalUnitPosition;
     private Vector3 offset;
@@ -1283,6 +1313,11 @@ public class FieldManager : MonoBehaviour
                 continue;
             }
 
+            if (authoritativePermanentWallCells.Count > 0 && authoritativePermanentWallCells.Contains(cell))
+            {
+                continue;
+            }
+
             wall.RebindAfterMigration(this, cell);
             if (!rebuiltDestructible.TryAdd(cell, wall))
             {
@@ -1904,7 +1939,7 @@ public class FieldManager : MonoBehaviour
             }
 
             _awaitNetworkPermanentWallsCoroutine = StartCoroutine(
-                WaitForNetworkPermanentWallsAndRebuildCoroutine(requestedCells));
+                WaitForNetworkPermanentWallsAndRebuildCoroutine(requestedCells, prefab));
             return;
         }
 
@@ -1917,7 +1952,66 @@ public class FieldManager : MonoBehaviour
         permanentWallsGenerated = true;
     }
 
-    private System.Collections.IEnumerator WaitForNetworkPermanentWallsAndRebuildCoroutine(List<Vector3Int> expectedCells)
+    public void RestorePermanentWallsAfterHostMigration(int[] flatPositions, string context)
+    {
+        if (flatPositions == null || flatPositions.Length == 0)
+        {
+            return;
+        }
+
+        var requestedCells = new List<Vector3Int>(flatPositions.Length / 2);
+        int count = flatPositions.Length / 2;
+        for (int i = 0; i < count; i++)
+        {
+            var pos = new Vector3Int(flatPositions[i * 2], flatPositions[i * 2 + 1], 0);
+            if (IsValidGridPosition(pos) && !requestedCells.Contains(pos))
+            {
+                requestedCells.Add(pos);
+            }
+        }
+
+        if (requestedCells.Count == 0)
+        {
+            return;
+        }
+
+        SetAuthoritativePermanentWallCells(requestedCells);
+        RebuildWallMapsAfterMigration($"FieldManager.RestorePermanentWallsAfterHostMigration.Pre.{context}", false, out _);
+
+        GameObject prefab = permanentWallPrefab;
+        if (prefab == null)
+        {
+            Debug.LogWarning($"[WallFlow-Migration] permanent wall restore skipped: prefab unavailable. owner={BuildWallOwnerTag()}, context={context}, requested={requestedCells.Count}");
+            return;
+        }
+
+        int created = 0;
+        foreach (var pos in requestedCells)
+        {
+            if (placedPermanentWalls.ContainsKey(pos))
+            {
+                continue;
+            }
+
+            if (HasWallAt(pos))
+            {
+                continue;
+            }
+
+            int beforeCount = placedPermanentWalls.Count;
+            CreatePermanentWallAt(pos, prefab);
+            if (placedPermanentWalls.Count > beforeCount)
+            {
+                created++;
+            }
+        }
+
+        permanentWallsGenerated = true;
+        RebuildWallMapsAfterMigration($"FieldManager.RestorePermanentWallsAfterHostMigration.Post.{context}", false, out string summary, true);
+        Debug.Log($"[WallFlow-Migration] durable permanent wall restore complete. owner={BuildWallOwnerTag()}, context={context}, requested={requestedCells.Count}, created={created}, summary={summary}");
+    }
+
+    private System.Collections.IEnumerator WaitForNetworkPermanentWallsAndRebuildCoroutine(List<Vector3Int> expectedCells, GameObject fallbackPrefab)
     {
         const float timeout = 5f;
         float waited = 0f;
@@ -1967,10 +2061,45 @@ public class FieldManager : MonoBehaviour
         if (expectedCount > 0 && finalMatched < expectedCount)
         {
             Debug.LogWarning($"[WallFlow-Migration] network permanent wall sync timeout. owner={BuildWallOwnerTag()}, matched={finalMatched}/{expectedCount}, summary={summary}");
+            TryCreateClientPermanentWallFallbacks(expectedCells, fallbackPrefab, "NetworkSyncTimeout");
         }
 
         permanentWallsGenerated = permanentWallsGenerated || placedPermanentWalls.Count > 0;
         _awaitNetworkPermanentWallsCoroutine = null;
+    }
+
+    private void TryCreateClientPermanentWallFallbacks(List<Vector3Int> expectedCells, GameObject fallbackPrefab, string context)
+    {
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner == null || !runner.IsRunning || runner.IsServer || fallbackPrefab == null || expectedCells == null)
+        {
+            return;
+        }
+
+        int created = 0;
+        foreach (var cell in expectedCells)
+        {
+            if (placedPermanentWalls.ContainsKey(cell) || HasWallAt(cell))
+            {
+                continue;
+            }
+
+            int before = placedPermanentWalls.Count;
+            CreateLocalPermanentWallAt(cell, fallbackPrefab);
+            if (placedPermanentWalls.Count > before)
+            {
+                created++;
+            }
+        }
+
+        if (created <= 0)
+        {
+            return;
+        }
+
+        permanentWallsGenerated = true;
+        RebuildWallMapsAfterMigration($"FieldManager.ClientPermanentWallFallback.{context}", true, out string fallbackSummary, true);
+        Debug.LogWarning($"[WallFlow-Migration] client permanent wall fallback created. owner={BuildWallOwnerTag()}, created={created}, expected={expectedCells.Count}, summary={fallbackSummary}");
     }
 
     private void CreatePermanentWallAt(Vector3Int gridPosition, GameObject prefab)
@@ -2019,6 +2148,33 @@ public class FieldManager : MonoBehaviour
         placedPermanentWalls[gridPosition] = wallGO;
 
         // 벽 위에 원거리 유닛이 있었다면 올려놓기
+        Unit unitOnCell = GetUnitAt(gridPosition);
+        if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
+        {
+            Vector3 atopPos = GridToWorld(gridPosition, checkForWall: true);
+            MoveUnitImmediate(unitOnCell, atopPos);
+        }
+    }
+
+    private void CreateLocalPermanentWallAt(Vector3Int gridPosition, GameObject prefab)
+    {
+        if (!IsValidGridPosition(gridPosition)) return;
+        if (HasWallAt(gridPosition)) return;
+        if (prefab == null) return;
+
+        Vector3 worldPos = GridToWorld(gridPosition);
+        float halfH = GetPrefabHeight(prefab) * 0.5f;
+        worldPos.y += halfH;
+
+        GameObject wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+        foreach (var networkObject in wallGO.GetComponentsInChildren<NetworkObject>(true))
+        {
+            Destroy(networkObject);
+        }
+
+        if (wallLayer >= 0) SetLayerRecursively(wallGO, wallLayer);
+        placedPermanentWalls[gridPosition] = wallGO;
+
         Unit unitOnCell = GetUnitAt(gridPosition);
         if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
         {

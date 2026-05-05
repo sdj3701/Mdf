@@ -131,6 +131,8 @@ def latest_player_path() -> pathlib.Path | None:
     for metadata in builds.glob("*/build-metadata.json"):
         try:
             data = read_json(metadata)
+            if data.get("developmentBuild") is False:
+                continue
             output = pathlib.Path(data.get("outputPath", ""))
             if output.exists():
                 candidates.append((metadata.stat().st_mtime, output))

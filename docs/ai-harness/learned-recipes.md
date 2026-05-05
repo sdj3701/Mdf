@@ -114,6 +114,7 @@ Verification:
 Pitfalls:
 - Do not assume Unity 6 test flags.
 - Runtime scripts live in predefined `Assembly-CSharp`; PlayMode tests that reference them are not practical without introducing an asmdef boundary. Prefer EditMode tests for harness internals and E2E scripts for runtime multiplayer behavior unless the project adopts asmdefs.
+- Treat `PlayMode total=0` as a documented limitation, not as runtime PASS by itself. Runtime multiplayer behavior is proven by Editor/build E2E artifacts until the project adopts test asmdefs.
 
 ## unity-cli-custom-tool-args: Invoke mp_* tools with CLI flags
 
@@ -164,6 +165,32 @@ Verification:
 
 Pitfalls:
 - Do not log token values. Log only `AutomationTokenHash`/`ConnectionTokenHash`.
+
+## mp-production-negative-automation: Prove normal builds do not expose /ping
+
+Status: verified-local
+Last verified: 2026-05-05
+Applies to: `tools/harness/mp/run_production_negative_automation.py`, `mp_build_player --development_build false`
+Triggers: production automation safety, Phase 7 hardening, normal build proof
+
+Problem:
+Static gates prove intent, but the harness should also be able to produce an artifact showing a normal non-development player does not expose the automation server even when launched with `--mpTest`, `--mpAutomationPort`, and `--mpAutomationToken`.
+
+Recipe:
+- Build a normal player with `unity-cli --project Mdfproject mp_build_player --development_build false --allow_debugging false`.
+- Launch that player with `--mpTest`, an automation port, a per-run token, and `--mpExitAfterSeconds`.
+- Poll `http://127.0.0.1:<port>/ping` with the token.
+- PASS only when `build-metadata.json` reports `developmentBuild=false`, `/ping` never responds, and the player exits without timeout.
+- Store `production-negative-automation.json`, redacted launch command, stdout/stderr, copied `Player.log` when available, and build wrapper metadata under `artifacts/mp/<timestamp>-production-negative-automation/`.
+
+Verification:
+- `artifacts/mp/20260505-110846-production-negative-automation/production-negative-automation.json` reported `success=true`, `productionAutomationDisabled=true`, `developmentBuild=false`, `/ping` did not respond, and the player exited with code `0`.
+- The paired build metadata under `artifacts/builds/20260505-110846-production-negative/build-metadata.json` reported `options=None`, `developmentBuild=false`, and `allowDebugging=false`.
+
+Pitfalls:
+- Do not reuse Development player builds for this proof.
+- Do not treat a missing token failure from a Development build as production-negative proof; the build metadata must show `developmentBuild=false`.
+- E2E helpers that auto-select the latest build must skip `developmentBuild=false` metadata, otherwise a production-negative proof build can accidentally become the next multiplayer test player.
 
 ## mp-build-player-artifacts: Development build and launch smoke
 
@@ -284,9 +311,12 @@ Recipe:
 Verification:
 - `artifacts/mp/20260504-231146-same-token-reconnect/same-token-reconnect-assertions.json` showed target `playerId=1`, `clientLocalPlayerId=1`, matching token hash `6163355D`, `hostTargetIsAI=false`, `hostTargetConnected=true`, and `targetComparison.success=true`.
 - `mptest.timeline.jsonl` includes `[MPTEST] same_token_reconnect result=pass joinedPlayerRef=[Player:3] playerId=1`.
+- `artifacts/mp/20260505-113304-same-token-reconnect/full-comparison.json` reported `success=true` with no errors after strict full-world reconnect assertions were enabled.
 
 Pitfalls:
-- `full-comparison.json` can still expose non-target late-join world drift; in the verified run player 0 had a wallHash mismatch. Do not use Phase 13 target identity PASS as proof that arbitrary late join fully reconstructs the whole match world.
+- Older `full-comparison.json` artifacts exposed non-target late-join wall drift. Do not use Phase 13 target identity PASS as proof that arbitrary late join fully reconstructs the whole match world.
+- Phase 13B requires `fullComparison.success=true`. Use `--target-only` only when intentionally rechecking identity reclaim separately from full-world sync.
+- When applying authoritative permanent-wall cells to late-join clients, destructible wall-map rebuilds must not classify objects in authoritative permanent cells as destructible walls.
 
 ## mp-four-player-real-room-flow: 4-player smoke must join before Game load
 
@@ -349,11 +379,16 @@ The surviving client can become the new Host through Fusion Host Migration, but 
 Evidence:
 - `artifacts/mp/20260504-211233-host-migration-e2e/host-migration-e2e-result.json` showed callback/token/resume/recovery success and `failureCount=0`.
 - The same artifact failed E2E on `no_connected_human_survivor_after_migration`, `player_0_gold_changed`, `player_0_field_wallHash_changed`, `player_1_gold_changed`, `player_1_wallCount_changed`, and `player_1_field_wallHash_changed`.
+- `artifacts/mp/20260505-113106-host-migration-e2e/host-migration-e2e-result.json` used the real `MatchingLobby -> Game` flow and preserved the active scene after migration, but still failed durable state: `GameManagers` restored as `Setup/R0`, both player gold values reset to `20`, shop snapshots were empty, and player 1 permanent wall hash changed.
+- Waiting an extra 3 seconds before killing the host (`--migration-settle-seconds 3`) produced `artifacts/mp/20260505-112939-host-migration-e2e`, which was worse: the token resumed only one player and lost the connected human survivor. Keep settle as an opt-in diagnostic, not the default.
 
 Recipe:
 - Treat Phase 15 as feasibility only.
 - Treat Phase 16 as blocked until durable human identity/control and pre/post gameplay state are preserved or explicitly paused with documented semantics.
 - Keep the host kill path; do not replace it with graceful `/quit`.
+- Host Migration E2E must follow the real room flow: start both peers in `MatchingLobby`, wait for both to join, then load `Game`.
+- `NetworkManager` on clients must remember the last Fusion scene from `OnSceneLoadDone`; otherwise migration restart can resume into `MatchingLobby`.
+- The next repair needs a real MDF durable migration snapshot or equivalent production recovery path for `GameManagers`, all `PlayerManager` state, shop snapshots, and permanent wall cells. Do not mark Phase 16 PASS from callback/token/resume alone.
 
 ## mp-reroll-command-soak: Use reroll_shop for focused durable command proof
 
@@ -370,15 +405,42 @@ Recipe:
 - Issue it to the server/host peer, validate `playerId`, runner/server state, `CommandProcessor`, shop DB readiness, and reroll cost.
 - Verify only command-relevant durable fields: target player gold decreases by cost, shop revision advances, and host/client agree on gold, shop revision, shop count, and shop items hash.
 - Launch peers with the same real room flow as E2E: `MatchingLobby` session first, then host loads `Game`.
+- Treat the 10-iteration run as the default full reroll soak. The report must include `iterationsRequested`, `iterationsCompleted`, `success`, and per-iteration mutation/agreement evidence.
 - Keep full snapshot comparisons separate; this proves the AI-style command path, not every gameplay action.
 
 Verification:
 - `artifacts/mp/20260504-211819-durable-command-soak/durable-command-report.json` passed 3 iterations for `playerId=0`.
 - Gold moved `27 -> 25 -> 23 -> 21`; host/client shop revisions matched `2`, `3`, `4`; host/client shop item hashes matched every iteration.
 - `artifacts/mp/20260504-221931-durable-command-soak/durable-command-report.json` passed 2 iterations on the real room flow with the new build. The pre-command snapshots showed both peers agreed on 36 permanent walls per player and matching `wallHash`.
+- `artifacts/mp/20260505-111707-durable-command-soak/durable-command-report.json` passed the full 10-iteration run for `playerId=0`.
+- Gold moved `27 -> 7`; host/client shop revisions matched `2..11`; every iteration recorded `goldMutated=true`, `revisionMonotonic=true`, and `peersAgree=true`.
+- `artifacts/mp/20260505-113356-durable-command-soak/durable-command-report.json` repeated the full 10-iteration run successfully on the latest build after Host Migration scene-tracking changes.
 
 Pitfalls:
 - This is a focused durable command proof, not a replacement for broader AI behavior coverage such as buy, place wall, move unit, augment selection, or combat spawn orders.
+
+## mp-editor-reroll-command-parity: Editor mp_command must run only on a host Play Mode peer
+
+Status: verified-compile
+Last verified: 2026-05-05
+Applies to: `unity-cli --project Mdfproject mp_command --command reroll_shop --player_id <id>`
+Triggers: Phase 4 hardening, Editor-side command parity
+
+Problem:
+Editor-side `mp_command` should match the build-side `/command` validation path without allowing accidental command execution from Edit Mode or a client peer.
+
+Recipe:
+- Register `mp_command` parameters as `command` and `player_id`.
+- Support only `reroll_shop` until broader gameplay commands are explicitly added.
+- Before queueing `RerollShopCommand`, require Editor Play Mode, `GameManagers` runner running, server/host peer, `GameManagers` State Authority, `CommandProcessor`, valid `playerId`, `ShopManager`, shop database readiness, and enough gold for the reroll cost.
+- Return the same practical JSON shape as build-side `/command`: `success`, `message`, `timestampUtc`, and either `data` or `error.code/error.details`.
+- Do not run `mp_command` as verification unless the Editor is already in a valid host Play Mode state.
+
+Verification:
+- `unity-cli --project Mdfproject editor refresh --compile` completed compilation.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject list` showed `mp_command` with `command` and `player_id` parameters.
+- Editor state probe reported `isPlaying=False`, `hasGameManagers=False`, so live command execution was skipped as `NEEDS_ENVIRONMENT`.
 
 ## harness-gitignore-artifacts: Commit harness sources, ignore generated proof output
 
@@ -398,3 +460,80 @@ Recipe:
 Verification:
 - Before ignore update, `git status --porcelain=v1 -uall` reported 2817 entries, including 2688 under `artifacts/` and 22 Python cache files.
 - After adding ignore rules, `git status --porcelain=v1 -uall` reported 108 entries, leaving only commit candidates and tracked modifications.
+
+## host-migration-durable-pass: Snapshot MDF state beyond Fusion token resume
+
+Status: verified-local
+Last verified: 2026-05-05
+Applies to: `HostMigrationHandler`, `PlayerManager`, `FieldManager`, `run_host_migration_e2e.py`
+Triggers: Phase 16, Host Migration durable E2E, wallHash/gold/shop/player identity drift
+
+Problem:
+Fusion Host Migration callback/token/resume can succeed while MDF gameplay state still drifts. In failing artifacts, `GameManagers.Instance` was null at migration start, so cached game state fell back to Setup/R0 and post-migration gold/shop/wall state changed. A later failure showed the survivor object could resume with the wrong durable `playerId` and no `InputAuthority`.
+
+Recipe:
+- Capture a durable MDF snapshot at `StartMigration` from the active runner, not only `GameManagers.Instance`.
+- Include `currentRound/currentState`, all `PlayerManager` HP/gold/wallCount/shop snapshot, permanent wall flat cells, wall hash, local input authority, and AI/connected observations.
+- Apply this snapshot on the new host before `RestoreAfterHostMigration`, matching players by local input authority first, wall hash second, then current `playerId`.
+- Reassign the survivor's transient `InputAuthority` to the new runner local player, but keep durable identity as MDF `playerId`.
+- Do not reset player HP/gold/wallCount in `PlayerManager.Spawned()` during Host Migration.
+- Restore permanent wall cells from the snapshot and rebuild wall maps before post-migration assertions.
+
+Verification:
+- `artifacts/mp/20260505-115931-host-migration-e2e/host-migration-e2e-result.json` passed with `failures=[]` after identity/control and durable state restore.
+- `artifacts/mp/20260505-123330-host-migration-e2e/host-migration-e2e-result.json` passed on the latest build after wall-sync hardening.
+- `durable-state-report.json` for the passing run reported no per-player mismatches.
+
+## mp-client-permanent-wall-sync-race: Queue and fallback permanent wall RPCs
+
+Status: verified-local
+Last verified: 2026-05-05
+Applies to: `PlayerManager.RPC_ApplyPermanentWalls`, `FieldManager.ApplyPermanentWallsFromServer`, `run_matrix.py`
+Triggers: matrix-only `build-host-editor-client` wallHash mismatch, `state_ready_timeout`, client permanentWallCount 0/1
+
+Problem:
+`build-host-editor-client` could pass alone but fail when run after `editor-host-build-client` in the matrix. The build host broadcast permanent wall coordinates while the Editor client was still initializing, and `RPC_ApplyPermanentWalls` dropped the message when `fieldManager` was null. In another timing path, the client had authoritative wall cells but never matched enough network wall objects, leaving `field.ready=false` and `wallHash=unknown`. A later standalone failure showed a stricter variant where the Editor client missed the one-time permanent wall coordinate RPC entirely and stayed at `permanentWallCount` 0/1 until timeout.
+
+Recipe:
+- Queue `RPC_ApplyPermanentWalls` payloads when `fieldManager` is not ready and drain them after `Rpc_InitializePlayer` rebinds runtime references.
+- On the State Authority, rebuild a deterministic permanent wall coordinate payload from authoritative cells and rebroadcast it for a short window after `Rpc_InitializePlayer`; one-shot RPC state is not enough for late or slow peers.
+- For clients only, if network permanent wall objects do not arrive by the sync timeout, create local non-authoritative placeholder walls from the authoritative cell list and rebuild wall maps.
+- Keep server generation authoritative; the fallback is only a client recovery path for missed/delayed network wall visuals/maps.
+- In `run_matrix.py`, clean the Editor between cases with `mp_stop`, `editor stop`, `unity-cli status`, and a short inter-case delay.
+
+Verification:
+- Before the fix, `artifacts/mp/20260505-120203-matrix` and `artifacts/mp/20260505-122021-matrix` failed only `build-host-editor-client` with `state_ready_timeout` and `player.0.field.wallHash` mismatch.
+- `artifacts/mp/20260505-122826-matrix/matrix-summary.json` passed all matrix cases: Editor Host + Build Client, Build Host + Editor Client, Build Host + Build Client, AI fill, disconnect AI takeover, same-token reconnect, and 4-player smoke.
+- `artifacts/mp/20260505-125052-build-host-editor-client` reproduced the standalone miss with `state_ready_timeout` and `snapshot_mismatch`.
+- `artifacts/mp/20260505-125705-build-host-editor-client` passed after adding the authority rebroadcast payload and rebuilding the Development player at `artifacts/builds/20260505-125616/MDF-MPTest.exe`.
+
+## authority-hardening-command-rpc-gate: Validate client commands on the owned PlayerManager
+
+Status: verified-local
+Last verified: 2026-05-05
+Applies to: `PlayerManager.RPC_RequestCommandToServer`, `GameManagers.RPC_RequestSpawnMonster`, `NetworkManager.CacheDisconnectedPlayerData`
+Triggers: precommit `client_trust`, `rpc_all`, `playerref_durable`, Authority Hardening
+
+Problem:
+Client command requests previously reached server broadcast with only the owned `PlayerManager` RPC source restriction. The legacy `NetworkManager.RPC_RequestCommandToServer` still contained a trust-all validation stub, monster spawn requests accepted client-supplied battle/spawn data without matching the RPC source to the attacker, and disconnect cache could fall back to transient `PlayerRef`.
+
+Recipe:
+- Route gameplay client requests through the `PlayerManager` object owned by the caller and require `RpcInfo.Source == Object.InputAuthority`.
+- Normalize RPC arrays before use, require the authoritative `playerId`, and reject sync/notify/server-only commands from clients.
+- Validate command-specific authority facts before queueing: Prepare/Battle phase, shop database readiness, gold/cost, shop slot state, augment choice, unit/wall ownership, grid bounds, wall stock, and skill unit ownership.
+- Treat client `PlaceUnit` as not authority-safe until an authoritative inventory/bench ownership model exists.
+- For battle monster spawn RPCs, require source ownership of the attacker, active attacker status, battle defender mapping, field bounds, matching monster pool entry, and boss origin consistency.
+- Never use `PlayerRef` as a durable disconnect/reconnect cache key; skip caching when the durable connection token is missing.
+- Keep gameplay readiness strict. If the harness needs to recognize a peer as snapshot-ready after late or duplicate initialization, compute that in `MPTestStateSnapshot`; do not broaden `PlayerManager.IsReadyForPlayerActions`, because Host Migration flow uses it as a resume gate.
+
+Verification:
+- `python tools/harness/precommit.py --all` reports `0 errors, 11 warnings` after hardening, down from the previous `0 errors, 17 warnings`.
+- `unity-cli --project Mdfproject editor refresh --compile` completed and `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` passed 8/8.
+- Rebuilt Development player at `artifacts/builds/20260505-141419/MDF-MPTest.exe`.
+- `artifacts/mp/20260505-142027-durable-command-soak/durable-command-report.json` passed 10/10 `reroll_shop` iterations.
+- `artifacts/mp/20260505-141541-matrix/matrix-summary.json` passed all default matrix cases.
+- `artifacts/mp/20260505-142056-host-migration-feasibility` and `artifacts/mp/20260505-141502-host-migration-e2e` passed after the token-cache hardening and snapshot readiness separation.
+
+Pitfalls:
+- Remaining precommit WARNs are heuristics or broader debt, not BLOCK errors. Keep `CommandProcessor` and command-level validation warnings until broader server-authoritative command coverage is added.

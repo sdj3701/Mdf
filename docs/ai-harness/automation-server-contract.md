@@ -141,4 +141,4 @@ Return recent `[MPTEST]` lines and optionally user logs. Do not return unbounded
 
 ## Production safety assertion
 
-Add a static/precommit test that fails if automation server code lacks both compile gate and runtime gate. A non-development build must not open any automation port.
+Add a static/precommit test that fails if automation server code lacks both compile gate and runtime gate. A non-development build must not open any automation port. Use `tools/harness/mp/run_production_negative_automation.py` to produce artifact proof that a normal build launched with `--mpTest --mpAutomationPort --mpAutomationToken` does not respond to `/ping`.

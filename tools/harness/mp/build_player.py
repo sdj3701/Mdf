@@ -99,6 +99,8 @@ def build_player(args: argparse.Namespace, output_dir: pathlib.Path) -> tuple[pa
     ]
     if args.build_target:
         cmd.extend(["--build_target", args.build_target])
+    if not args.development_build:
+        cmd.extend(["--development_build", "false"])
     if not args.allow_debugging:
         cmd.extend(["--allow_debugging", "false"])
 
@@ -219,6 +221,7 @@ def main() -> int:
     parser.add_argument("--output-dir")
     parser.add_argument("--player-name", default="MDF-MPTest")
     parser.add_argument("--build-target")
+    parser.add_argument("--development-build", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--allow-debugging", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--launch-smoke", action="store_true")
     parser.add_argument("--player-path")

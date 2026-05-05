@@ -144,11 +144,14 @@ public static class MPCommandTool
     {
         [ToolParameter("Command name or type.")]
         public string Command { get; set; }
+
+        [ToolParameter("Target durable playerId.")]
+        public int PlayerId { get; set; }
     }
 
     public static object HandleCommand(JObject parameters)
     {
-        return MPTestUnityCliTools.NotImplemented("runtime_command_not_ready", "Phase 4 only registers the tool. Durable command execution is implemented after runtime command/snapshot phases.");
+        return MPTestUnityCliTools.ExecuteCommand(parameters ?? new JObject());
     }
 }
 
@@ -301,6 +304,143 @@ internal static class MPTestUnityCliTools
     public static ErrorResponse NotImplemented(string code, string message)
     {
         return new ErrorResponse("not_implemented", new { code, message });
+    }
+
+    public static object ExecuteCommand(JObject parameters)
+    {
+        string commandName = GetString(parameters, "command", GetString(parameters, "name", "unknown"));
+        if (string.Equals(commandName, "reroll_shop", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "RerollShop", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteRerollShopCommand(parameters, commandName);
+        }
+
+        return CommandFail("unsupported_command", "Only reroll_shop is currently supported by the Editor command harness.", new
+        {
+            command = commandName
+        });
+    }
+
+    private static object ExecuteRerollShopCommand(JObject parameters, string commandName)
+    {
+        int playerId = GetInt(parameters, "player_id", GetInt(parameters, "playerId", -1));
+        if (playerId < 0)
+        {
+            return CommandFail("invalid_player_id", "playerId must be >= 0.", new { command = commandName, playerId });
+        }
+
+        if (!EditorApplication.isPlaying)
+        {
+            return CommandFail("editor_not_in_play_mode", "mp_command requires the Editor to be in Play Mode.", new { command = commandName, playerId });
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return CommandFail("game_managers_unavailable", "GameManagers runner is not available.", new { command = commandName, playerId });
+        }
+
+        if (!gameManagers.Runner.IsServer)
+        {
+            return CommandFail("command_requires_server_peer", "reroll_shop must be issued to the server/host peer.", new { command = commandName, playerId });
+        }
+
+        if (gameManagers.Object == null || !gameManagers.Object.IsValid || !gameManagers.Object.HasStateAuthority)
+        {
+            return CommandFail("command_requires_state_authority", "reroll_shop requires GameManagers State Authority.", new { command = commandName, playerId });
+        }
+
+        if (gameManagers.CommandProcessor == null)
+        {
+            return CommandFail("command_processor_missing", "GameManagers.CommandProcessor is not available.", new { command = commandName, playerId });
+        }
+
+        var player = gameManagers.GetPlayer(playerId);
+        if (player == null || player.shopManager == null)
+        {
+            return CommandFail("player_or_shop_missing", "Target player or ShopManager is missing.", new { command = commandName, playerId });
+        }
+
+        if (!player.shopManager.IsDatabaseLoaded)
+        {
+            return CommandFail("shop_database_not_loaded", "Shop database is not loaded yet.", new { command = commandName, playerId });
+        }
+
+        int goldBefore = player.GetGold();
+        int cost = player.shopManager.GetRerollCost();
+        if (goldBefore < cost)
+        {
+            return CommandFail("insufficient_gold", "Target player does not have enough gold for reroll_shop.", new
+            {
+                command = commandName,
+                playerId,
+                goldBefore,
+                cost
+            });
+        }
+
+        gameManagers.CommandProcessor.RequestCommandExecution(new RerollShopCommand(playerId));
+        MPTestLogger.Log("automation_command", "begin", "reroll_shop", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "goldBefore", goldBefore },
+            { "cost", cost }
+        });
+
+        return CommandOk("command queued", new
+        {
+            command = "reroll_shop",
+            playerId,
+            goldBefore,
+            cost
+        });
+    }
+
+    private static object CommandOk(string message, object data = null)
+    {
+        return new
+        {
+            success = true,
+            message,
+            timestampUtc = DateTime.UtcNow.ToString("o"),
+            data
+        };
+    }
+
+    private static object CommandFail(string code, string message, object details = null)
+    {
+        return new
+        {
+            success = false,
+            message,
+            timestampUtc = DateTime.UtcNow.ToString("o"),
+            error = new
+            {
+                code,
+                details
+            }
+        };
+    }
+
+    private static string GetString(JObject body, string key, string fallback)
+    {
+        if (body != null && body.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out JToken token))
+        {
+            string value = token.Type == JTokenType.Null ? null : token.ToString();
+            return string.IsNullOrEmpty(value) ? fallback : value;
+        }
+
+        return fallback;
+    }
+
+    private static int GetInt(JObject body, string key, int fallback)
+    {
+        if (body != null && body.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out JToken token) && int.TryParse(token.ToString(), out int value))
+        {
+            return value;
+        }
+
+        return fallback;
     }
 
     private static async Task<bool> WaitUntil(Func<bool> predicate, int timeoutMs)

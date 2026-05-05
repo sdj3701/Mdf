@@ -351,7 +351,10 @@ public static class MPTestStateSnapshot
 
         return new FieldSnapshot
         {
-            Ready = SafeBool(() => player.IsReadyForPlayerActions, false),
+            Ready = SafeBool(
+                () => player.IsReadyForPlayerActions ||
+                      (player.playerId >= 0 && player.fieldManager != null && player.astarGrid != null && player.goalTransform != null),
+                false),
             GridHash = HashStableString(SafeString(
                 () => $"{field.gridSize.x}x{field.gridSize.y}|cell={field.cellSize:F3}|origin={field.gridOrigin.x:F3},{field.gridOrigin.y:F3},{field.gridOrigin.z:F3}",
                 Unknown)),

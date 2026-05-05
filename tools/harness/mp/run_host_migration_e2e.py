@@ -9,7 +9,20 @@ from typing import Any
 
 from automation_client import AutomationClient
 from collect_artifacts import collect_player_log, write_timeline
-from common import failure_summary, free_port, latest_player_path, make_artifact_dir, new_session, new_token, normalize_snapshot_response, write_json
+from common import (
+    failure_summary,
+    free_port,
+    latest_player_path,
+    make_artifact_dir,
+    new_session,
+    new_token,
+    normalize_snapshot_response,
+    session_not_ready_reasons,
+    session_ready,
+    snapshot_ready,
+    wait_build_peer_started,
+    write_json,
+)
 from launch_player import PlayerProcess, launch_player
 from run_host_migration_probe import read_host_migration_config
 
@@ -28,15 +41,6 @@ def dump_state(client: AutomationClient, artifact_dir: pathlib.Path, peer: str, 
     return data
 
 
-def snapshot_ready(snapshot: dict[str, Any], expected_players: int, scene: str) -> bool:
-    state = snapshot_body(snapshot)
-    return (
-        state.get("scene") == scene
-        and len(state.get("players") or []) == expected_players
-        and (state.get("game") or {}).get("hasGameManagers") is True
-    )
-
-
 def wait_ready(
     host: AutomationClient,
     client: AutomationClient,
@@ -53,6 +57,39 @@ def wait_ready(
         if snapshot_ready(host_state, 2, scene) and snapshot_ready(client_state, 2, scene):
             return host_state, client_state, True
         time.sleep(2)
+    return host_state, client_state, False
+
+
+def wait_session_states(
+    host: AutomationClient,
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    timeout: int,
+    scene: str,
+) -> tuple[dict[str, Any], dict[str, Any], bool]:
+    deadline = time.time() + timeout
+    host_state: dict[str, Any] = {}
+    client_state: dict[str, Any] = {}
+    stable_matches = 0
+    while time.time() < deadline:
+        host_state = dump_state(host, artifact_dir, "build-host", "lobby-latest")
+        client_state = dump_state(client, artifact_dir, "survivor-client", "lobby-latest")
+        host_ready = session_ready(host_state, 2, scene)
+        client_ready = session_ready(client_state, 2, scene)
+        write_json(artifact_dir / "session-wait-latest.json", {
+            "hostReady": host_ready,
+            "clientReady": client_ready,
+            "hostReasons": session_not_ready_reasons(host_state, 2, scene),
+            "clientReasons": session_not_ready_reasons(client_state, 2, scene),
+            "stableMatches": stable_matches,
+        })
+        if host_ready and client_ready:
+            stable_matches += 1
+            if stable_matches >= 2:
+                return host_state, client_state, True
+        else:
+            stable_matches = 0
+        time.sleep(1)
     return host_state, client_state, False
 
 
@@ -113,6 +150,8 @@ def assert_durable_state(failures: list[str], pre: dict[str, Any], post: dict[st
     post_runner = post_state.get("runner") or {}
     if post_runner.get("gameMode") != "Host" or post_runner.get("isServer") is not True:
         failures.append("HOST_MIGRATION_E2E_FAIL:survivor_not_promoted_to_host")
+    if pre_state.get("scene") != post_state.get("scene"):
+        failures.append("HOST_MIGRATION_E2E_FAIL:scene_changed")
 
     post_game = post_state.get("game") or {}
     pre_game = pre_state.get("game") or {}
@@ -196,6 +235,7 @@ def run(args: argparse.Namespace) -> int:
         "hostPort": host_port,
         "clientPort": client_port,
         "scene": args.scene,
+        "lobbyScene": args.lobby_scene,
         "config": config,
         "dryRun": args.dry_run,
     })
@@ -217,10 +257,10 @@ def run(args: argparse.Namespace) -> int:
             artifact_dir,
             "build-host",
             max_players=2,
-            scene=args.scene,
+            scene=args.lobby_scene,
             case_name=CASE_NAME,
-            auto_start=True,
-            load_game=True,
+            auto_start=False,
+            load_game=False,
             seed=args.seed,
             scenario="host_migration_e2e",
         )
@@ -240,10 +280,10 @@ def run(args: argparse.Namespace) -> int:
             artifact_dir,
             "survivor-client",
             max_players=2,
-            scene=args.scene,
+            scene=args.lobby_scene,
             case_name=CASE_NAME,
-            auto_start=True,
-            load_game=True,
+            auto_start=False,
+            load_game=False,
             seed=args.seed + 1,
             scenario="host_migration_e2e",
         )
@@ -253,11 +293,34 @@ def run(args: argparse.Namespace) -> int:
         if not client_ping.get("success"):
             failures.append("client_automation_ping_timeout")
 
+        if not wait_build_peer_started(host.start_host, artifact_dir, "build-host", session, args.lobby_scene, 2, args.start_timeout):
+            failures.append("host_start_timeout")
+        if not wait_build_peer_started(client.join, artifact_dir, "survivor-client", session, args.lobby_scene, 2, args.start_timeout):
+            failures.append("client_join_timeout")
+
+        host_lobby, client_lobby, lobby_ready = wait_session_states(host, client, artifact_dir, args.lobby_timeout, args.lobby_scene)
+        write_json(artifact_dir / "snapshots" / "build-host-lobby.json", host_lobby)
+        write_json(artifact_dir / "snapshots" / "survivor-client-lobby.json", client_lobby)
+        if not lobby_ready:
+            failures.append("session_join_timeout")
+
+        load_result = host.load_game(args.scene)
+        write_json(artifact_dir / "build-host-load-game.json", load_result)
+        if not load_result.get("success"):
+            failures.append("host_load_game_failed")
+
         host_pre, client_pre, ready = wait_ready(host, client, artifact_dir, args.state_timeout, args.scene)
         write_json(artifact_dir / "snapshots" / "build-host-pre.json", host_pre)
         write_json(artifact_dir / "snapshots" / "survivor-client-pre.json", client_pre)
         if not ready:
             failures.append("pre_migration_state_ready_timeout")
+
+        if args.migration_settle_seconds > 0:
+            time.sleep(args.migration_settle_seconds)
+            host_pre = dump_state(host, artifact_dir, "build-host", "pre-settled")
+            client_pre = dump_state(client, artifact_dir, "survivor-client", "pre-settled")
+            write_json(artifact_dir / "snapshots" / "build-host-pre.json", host_pre)
+            write_json(artifact_dir / "snapshots" / "survivor-client-pre.json", client_pre)
 
         if host_proc is not None and host_proc.process.poll() is None:
             host_pid = host_proc.process.pid
@@ -326,7 +389,11 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=7101)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--ping-timeout", type=int, default=45)
+    parser.add_argument("--start-timeout", type=int, default=45)
+    parser.add_argument("--lobby-timeout", type=int, default=60)
     parser.add_argument("--state-timeout", type=int, default=90)
+    parser.add_argument("--lobby-scene", default="MatchingLobby")
+    parser.add_argument("--migration-settle-seconds", type=float, default=0.0)
     parser.add_argument("--migration-timeout", type=int, default=90)
     args = parser.parse_args()
     return run(args)

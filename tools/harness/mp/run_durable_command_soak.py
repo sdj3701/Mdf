@@ -144,8 +144,12 @@ def wait_command_agreement(
             "expectedGold": expected_gold,
             "hostGold": host_player.get("gold"),
             "clientGold": client_player.get("gold"),
+            "cost": cost,
+            "revisionBefore": revision_before,
             "hostRevision": host_shop.get("revision"),
             "clientRevision": client_shop.get("revision"),
+            "hostCount": host_shop.get("count"),
+            "clientCount": client_shop.get("count"),
             "hostItemsHash": host_shop.get("itemsHash"),
             "clientItemsHash": client_shop.get("itemsHash"),
         }
@@ -157,6 +161,9 @@ def wait_command_agreement(
             and host_shop.get("itemsHash") == client_shop.get("itemsHash")
             and host_shop.get("count") == client_shop.get("count")
         )
+        evidence["goldMutated"] = gold_mutated
+        evidence["revisionMonotonic"] = revision_mutated
+        evidence["peersAgree"] = peers_agree
         if gold_mutated and revision_mutated and peers_agree:
             return latest_host, latest_client, True, evidence
         time.sleep(0.5)
@@ -311,9 +318,13 @@ def run(args: argparse.Namespace) -> int:
                     failures.append(f"durable_command_iter_{iteration}_peer_agreement_timeout")
                     break
 
+        iterations_completed = sum(1 for report in iteration_reports if report.get("agreement") is True)
         write_json(artifact_dir / "durable-command-report.json", {
             "command": "reroll_shop",
             "iterations": args.iterations,
+            "iterationsRequested": args.iterations,
+            "iterationsCompleted": iterations_completed,
+            "success": not failures and iterations_completed == args.iterations,
             "targetPlayerId": target_player_id,
             "reports": iteration_reports,
             "failures": failures,
@@ -361,7 +372,7 @@ def main() -> int:
     parser.add_argument("--session")
     parser.add_argument("--scene", default="Game")
     parser.add_argument("--seed", type=int, default=8001)
-    parser.add_argument("--iterations", type=int, default=3)
+    parser.add_argument("--iterations", type=int, default=10)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--ping-timeout", type=int, default=45)
     parser.add_argument("--start-timeout", type=int, default=45)
