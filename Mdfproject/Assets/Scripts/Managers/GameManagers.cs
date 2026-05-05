@@ -687,6 +687,14 @@ public partial class GameManagers : NetworkBehaviour
         
         if (!hasAuth) return;
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var mpOptions = MPTestCommandLine.GetOptions();
+        if (mpOptions.Enabled && mpOptions.FreezeGameFlow)
+        {
+            return;
+        }
+#endif
+
         if (IsMigrationRestoreInProgress && currentState == GameState.Prepare && phaseTimer.IsRunning && !IsMigrationUiRestoreCompleted)
         {
             float remain = phaseTimer.RemainingTime(Runner) ?? 0f;
@@ -1031,6 +1039,15 @@ public partial class GameManagers : NetworkBehaviour
             return singlePlayerModeCount > 0 ? Mathf.Min(singlePlayerModeCount, MAX_PLAYERS) : 2;
         }
         
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var mpOptionsForPlayerCount = MPTestCommandLine.GetOptions();
+        if (mpOptionsForPlayerCount.Enabled && mpOptionsForPlayerCount.DisableAiFill)
+        {
+            int activePlayers = Runner.ActivePlayers.Count();
+            return Mathf.Clamp(activePlayers, 1, MAX_PLAYERS);
+        }
+#endif
+
         int sessionMaxPlayers = Runner.SessionInfo?.MaxPlayers ?? 2;
         return Mathf.Min(sessionMaxPlayers, MAX_PLAYERS);
     }
@@ -1560,6 +1577,7 @@ public partial class GameManagers : NetworkBehaviour
             var augmentNames = presentedAugments
                 .Select(a => a != null ? a.augmentName : string.Empty)
                 .ToArray();
+            player.PublishPresentedAugmentSnapshot(augmentNames);
             
             var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentNames);
             CommandProcessor.RequestCommandExecution(syncAugmentCmd);

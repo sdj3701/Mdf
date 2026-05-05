@@ -59,6 +59,15 @@ public sealed class MPTestBootstrap : MonoBehaviour
         {
             gameObject.AddComponent<MPTestAutomationServer>().StartServer(_options);
         }
+
+        if (_options.HumanBot)
+        {
+            var driver = gameObject.GetComponent<MPTestHumanBotDriver>() ?? gameObject.AddComponent<MPTestHumanBotDriver>();
+            if (!driver.StartDriver(_options, out string reason))
+            {
+                MPTestLogger.Fail("human_bot", "start_failed", reason);
+            }
+        }
 #endif
     }
 

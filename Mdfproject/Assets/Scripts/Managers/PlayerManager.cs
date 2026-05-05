@@ -33,6 +33,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Networked] private int ShopSnapshotRevision { get; set; }
     [Networked] private int ShopSnapshotCount { get; set; }
     [Networked] private int ShopSnapshotRound { get; set; }
+    private const int PRESENTED_AUGMENT_SNAPSHOT_CAPACITY = 3;
+    [Networked, Capacity(PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> PresentedAugmentSnapshotNames { get; }
+    [Networked] private int PresentedAugmentSnapshotCount { get; set; }
+    private const int SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 8;
+    [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> SelectedAugmentSnapshotNames { get; }
+    [Networked] private int SelectedAugmentSnapshotCount { get; set; }
     private const int MAX_WALL_COUNT = 5;
     [SerializeField] private int wallReserveK = 2;
     [SerializeField] private Vector2 wallBuildDelayRange = new Vector2(0.3f, 0.8f);
@@ -186,6 +192,103 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         return true;
+    }
+
+    public void PublishSelectedAugmentSnapshot(AugmentData augment)
+    {
+        PublishSelectedAugmentSnapshot(augment != null ? augment.augmentName : string.Empty);
+    }
+
+    public void PublishSelectedAugmentSnapshot(string augmentName)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(augmentName))
+        {
+            return;
+        }
+
+        if (SelectedAugmentSnapshotCount >= SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
+        {
+            Debug.LogWarning($"[PlayerManager] Selected augment snapshot capacity exceeded. playerId={playerId}, augment={augmentName}");
+            return;
+        }
+
+        SelectedAugmentSnapshotNames.Set(SelectedAugmentSnapshotCount, augmentName.Trim());
+        SelectedAugmentSnapshotCount++;
+    }
+
+    public void PublishPresentedAugmentSnapshot(IEnumerable<string> augmentNames)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        {
+            PresentedAugmentSnapshotNames.Set(i, string.Empty);
+        }
+
+        int count = 0;
+        foreach (var rawName in augmentNames ?? System.Array.Empty<string>())
+        {
+            if (count >= PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)
+            {
+                break;
+            }
+
+            string name = rawName != null ? rawName.Trim() : string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            PresentedAugmentSnapshotNames.Set(count, name);
+            count++;
+        }
+
+        PresentedAugmentSnapshotCount = count;
+    }
+
+    public void ClearPresentedAugmentSnapshot()
+    {
+        PublishPresentedAugmentSnapshot(System.Array.Empty<string>());
+    }
+
+    public string[] GetPresentedAugmentSnapshotNames()
+    {
+        int count = Mathf.Clamp(PresentedAugmentSnapshotCount, 0, PRESENTED_AUGMENT_SNAPSHOT_CAPACITY);
+        var names = new List<string>(count);
+        for (int i = 0; i < count; i++)
+        {
+            string name = PresentedAugmentSnapshotNames.Get(i).ToString();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names.ToArray();
+    }
+
+    public string[] GetSelectedAugmentSnapshotNames()
+    {
+        int count = Mathf.Clamp(SelectedAugmentSnapshotCount, 0, SELECTED_AUGMENT_SNAPSHOT_CAPACITY);
+        var names = new List<string>(count);
+        for (int i = 0; i < count; i++)
+        {
+            string name = SelectedAugmentSnapshotNames.Get(i).ToString();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names.ToArray();
     }
 
     // Pending unit registrations received before FieldManager is ready
@@ -1694,6 +1797,25 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             string source = info.Source != PlayerRef.None ? info.Source.ToString() : "None";
             Debug.Log($"[RPC_RequestCommandToServer] {type} accepted. authoritativePlayer={playerId}, wallPos={wallPos}, source={source}");
         }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsEnabled)
+        {
+            string source = info.Source != PlayerRef.None ? info.Source.ToString() : "None";
+            string firstVector = vectorParams != null && vectorParams.Length > 0
+                ? Vector3Int.RoundToInt(vectorParams[0]).ToString()
+                : "none";
+            MPTestLogger.Log("accepted_command", "pass", type.ToString(), null, new Dictionary<string, object>
+            {
+                { "playerId", playerId },
+                { "source", source },
+                { "intParamCount", intParams.Length },
+                { "stringParamCount", stringParams.Length },
+                { "vectorParamCount", vectorParams.Length },
+                { "firstVector", firstVector }
+            });
+        }
+#endif
 
         var gm = GameManagers.Instance;
         if (gm == null)

@@ -15,11 +15,23 @@ CASES = {
     "editor-host-build-client": "run_editor_host_build_client.py",
     "build-host-editor-client": "run_build_host_editor_client.py",
     "build-host-build-client": "run_build_host_build_client.py",
+    "human-bot-prepare": "run_human_bot_prepare_progression.py",
+    "human-bot-4p-progression": "run_human_bot_4p_progression.py",
     "ai-fill-smoke": "run_ai_fill_smoke.py",
     "disconnect-ai-takeover": "run_disconnect_ai_takeover.py",
     "same-token-reconnect": "run_same_token_reconnect.py",
     "four-player-smoke": "run_four_player_smoke.py",
 }
+
+DEFAULT_CASES = [
+    "editor-host-build-client",
+    "build-host-editor-client",
+    "build-host-build-client",
+    "ai-fill-smoke",
+    "disconnect-ai-takeover",
+    "same-token-reconnect",
+    "four-player-smoke",
+]
 
 
 def run_case(case: str, matrix_dir: pathlib.Path, args: argparse.Namespace) -> dict:
@@ -70,7 +82,7 @@ def main() -> int:
     args = parser.parse_args()
 
     matrix_dir = make_artifact_dir("matrix")
-    selected = list(CASES.keys()) if args.case == "all" else [args.case]
+    selected = DEFAULT_CASES if args.case == "all" else [args.case]
     cleanups: list[dict] = []
     results: list[dict] = []
     for index, case in enumerate(selected):

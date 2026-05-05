@@ -17,6 +17,7 @@ The goal is to prevent “compile-only PASS”. A feature is not done until Code
    - List files to change.
    - Identify network authority, command serialization, UI success events, data/Addressables dependencies, and test impact.
    - Identify which E2E case proves the feature.
+   - For randomized progression work, identify the same-player hashes/invariants to compare instead of expected random values.
 
 3. **Implement minimally**
    - Make the smallest targeted change.
@@ -40,6 +41,7 @@ The goal is to prevent “compile-only PASS”. A feature is not done until Code
      - Build Host + Editor Client
      - Build Host + Build Client when Editor state may hide the bug
    - Capture `[MPTEST]` logs, screenshots, stdout/stderr, Unity console, and state snapshots.
+   - For HumanBot or progressed-state scenarios, wait on state gates such as scene, player count, snapshot readiness, accepted command, round/state, and migration/reconnect events. Avoid wall-clock sleeps as proof.
 
 7. **Triage**
    - Compare snapshots.
@@ -49,6 +51,18 @@ The goal is to prevent “compile-only PASS”. A feature is not done until Code
 
 8. **Knowledge capture**
    - If a new stable command, timing, screenshot trick, build path, or failure pattern is found, update `learned-recipes.md` before the final response.
+
+## Randomized progression loop
+
+For Phase 18 and later random-aware harness work:
+
+1. Do one phase at a time.
+2. Stop after the phase's required verification commands.
+3. Do not advance to the next phase unless command output and artifacts prove PASS.
+4. Use HumanBotDriver to create progressed state before reconnect, disconnect, or Host Migration tests.
+5. Keep command journals as diagnostics, not as the primary reproduction engine.
+6. Compare host/client/build/editor snapshots by same-player hashes and invariants.
+7. Do not weaken Host Migration, reconnect, or field assertions because randomness exists. Randomness before a checkpoint is allowed; divergence after a checkpoint is not.
 
 ## Feature completion contract
 

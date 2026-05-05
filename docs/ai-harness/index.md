@@ -27,6 +27,16 @@ The v2 overlay adds these source-of-truth files:
 
 Do not ask Codex to implement all phases at once. Use `codex-full-phase-prompts.md` one phase at a time.
 
+## Phase 18+ random-aware docs
+
+New Phase 18+ source docs:
+
+- `randomized-progression-test-plan.md` - HumanBot-first random-aware progression doctrine.
+- `human-bot-driver-design.md` - test-only real-human-peer bot driver design and constraints.
+- `random-authority-audit.md` - Phase 25 classification of authoritative gameplay RNG, AI/bot randomness, client-only randomness, and remaining random-state risks.
+
+After Phase 17, command journals are diagnostics; HumanBot-driven real peer progression is the main path for mid/late-game sync tests.
+
 ## Harness goal
 
 The core MVP is not just “compile and unit test”. The MVP is:

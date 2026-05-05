@@ -1,0 +1,685 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import pathlib
+import time
+from typing import Any
+
+from automation_client import AutomationClient
+from collect_artifacts import collect_player_log, write_timeline
+from common import (
+    failure_summary,
+    free_port,
+    latest_player_path,
+    make_artifact_dir,
+    new_session,
+    new_token,
+    normalize_snapshot_response,
+    wait_build_peer_started,
+    write_json,
+)
+from compare_state_snapshots import compare_snapshots
+from launch_player import PlayerProcess, launch_player
+from progressed_human_bot_common import (
+    dump_state,
+    local_player,
+    mptest_failures,
+    nested,
+    player_by_id,
+    players,
+    random_outcome_summary,
+    unique_player_ids,
+    wait_bot_progression,
+    wait_session_states,
+    wait_stable_states,
+)
+from run_host_migration_probe import read_host_migration_config
+
+
+CASE_NAME = "progressed-host-migration-e2e"
+UNKNOWN = "unknown"
+
+
+def write_result(artifact_dir: pathlib.Path, failures: list[str]) -> None:
+    write_json(artifact_dir / "result.json", {
+        "case": CASE_NAME,
+        "artifactDir": str(artifact_dir),
+        "success": not failures,
+        "failures": failures,
+    })
+
+
+def snapshot_body(snapshot: Any) -> dict[str, Any]:
+    normalized = normalize_snapshot_response(snapshot)
+    return normalized if isinstance(normalized, dict) else {}
+
+
+def migration_state(snapshot: Any) -> dict[str, Any]:
+    migration = snapshot_body(snapshot).get("hostMigration")
+    return migration if isinstance(migration, dict) else {}
+
+
+def migration_proof_report(snapshot: Any) -> dict[str, Any]:
+    errors: list[str] = []
+    migration = migration_state(snapshot)
+    if migration.get("onHostMigrationCount", 0) <= 0:
+        errors.append("on_host_migration_not_observed")
+    if migration.get("nonNullTokenCount", 0) <= 0:
+        errors.append("host_migration_token_not_observed")
+    if migration.get("startGameSuccessCount", 0) <= 0:
+        errors.append("token_start_game_success_not_observed")
+    if migration.get("resumeCount", 0) <= 0:
+        errors.append("host_migration_resume_not_observed")
+    if migration.get("completeCount", 0) <= 0:
+        errors.append("migration_complete_not_observed")
+    if migration.get("failureCount", 0) > 0:
+        errors.append("migration_failure_event_observed")
+    if migration.get("recoverySucceeded") is not True:
+        errors.append("recovery_success_not_observed")
+    return {
+        "success": not errors,
+        "errors": errors,
+        "migration": migration,
+    }
+
+
+def known_hash(value: Any) -> bool:
+    return isinstance(value, str) and bool(value) and value != UNKNOWN
+
+
+def random_progression_evidence(snapshot: Any, progression: dict[str, Any]) -> dict[str, Any]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    random_entries: list[dict[str, Any]] = []
+    for player in players(snapshot):
+        entry = {
+            "playerId": player.get("playerId"),
+            "shopHash": nested(player, "shop", "itemsHash"),
+            "shopRevision": nested(player, "shop", "revision"),
+            "augmentPresentedHash": nested(player, "augment", "presentedHash"),
+            "augmentSelectedHash": nested(player, "augment", "selectedHash"),
+            "fieldWallHash": nested(player, "field", "wallHash"),
+            "fieldUnitsHash": nested(player, "field", "placedUnitsHash"),
+        }
+        random_entries.append(entry)
+
+    has_shop = any(known_hash(entry["shopHash"]) for entry in random_entries)
+    has_augment = any(
+        known_hash(entry["augmentPresentedHash"]) or known_hash(entry["augmentSelectedHash"])
+        for entry in random_entries
+    )
+    if not has_shop and not has_augment:
+        errors.append("no_random_shop_or_augment_outcome_hash")
+
+    deltas = progression.get("meaningfulDeltas") if isinstance(progression, dict) else []
+    field_delta = any(
+        isinstance(delta, dict) and str(delta.get("field", "")).startswith("field.")
+        for delta in deltas or []
+    )
+    if not field_delta:
+        warnings.append("no_field_or_unit_delta_before_migration")
+
+    return {
+        "success": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "randomOutcomes": random_entries,
+        "meaningfulDeltas": deltas or [],
+    }
+
+
+def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "playerId": player.get("playerId"),
+        "health": player.get("health"),
+        "gold": player.get("gold"),
+        "wallCount": player.get("wallCount"),
+        "isActivelyFighting": player.get("isActivelyFighting"),
+        "isAttackerInCurrentBattle": player.get("isAttackerInCurrentBattle"),
+        "shop": {
+            "available": nested(player, "shop", "available"),
+            "revision": nested(player, "shop", "revision"),
+            "round": nested(player, "shop", "round"),
+            "count": nested(player, "shop", "count"),
+            "itemsHash": nested(player, "shop", "itemsHash"),
+        },
+        "augment": {
+            "available": nested(player, "augment", "available"),
+            "presentedCount": nested(player, "augment", "presentedCount"),
+            "presentedHash": nested(player, "augment", "presentedHash"),
+            "selectedCount": nested(player, "augment", "selectedCount"),
+            "selectedHash": nested(player, "augment", "selectedHash"),
+        },
+        "field": {
+            "ready": nested(player, "field", "ready"),
+            "gridHash": nested(player, "field", "gridHash"),
+            "placedUnitCount": nested(player, "field", "placedUnitCount"),
+            "placedUnitsHash": nested(player, "field", "placedUnitsHash"),
+            "destructibleWallCount": nested(player, "field", "destructibleWallCount"),
+            "permanentWallCount": nested(player, "field", "permanentWallCount"),
+            "wallHash": nested(player, "field", "wallHash"),
+            "pathReady": nested(player, "field", "pathReady"),
+            "goalReady": nested(player, "field", "goalReady"),
+        },
+        "monsters": {
+            "ready": nested(player, "monsters", "ready"),
+            "aliveCount": nested(player, "monsters", "aliveCount"),
+            "livingHash": nested(player, "monsters", "livingHash"),
+        },
+    }
+
+
+def durable_fingerprint(snapshot: Any) -> dict[str, Any]:
+    body = snapshot_body(snapshot)
+    game = body.get("game") or {}
+    return {
+        "session": body.get("session"),
+        "scene": body.get("scene"),
+        "game": {
+            "currentState": game.get("currentState"),
+            "currentRound": game.get("currentRound"),
+            "battleOpponentsHash": game.get("battleOpponentsHash"),
+            "matchFirstAttackerHash": game.get("matchFirstAttackerHash"),
+        },
+        "players": [
+            durable_player_fingerprint(player)
+            for player in sorted(players(snapshot), key=lambda item: item.get("playerId", 9999))
+        ],
+    }
+
+
+def compare_values(errors: list[str], mismatches: list[dict[str, Any]], field: str, before: Any, after: Any) -> None:
+    if before != after:
+        errors.append(f"{field} before={before} after={after}")
+        mismatches.append({"field": field, "before": before, "after": after})
+
+
+def compare_nested(
+    errors: list[str],
+    mismatches: list[dict[str, Any]],
+    prefix: str,
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> None:
+    for key, value in before.items():
+        field = f"{prefix}.{key}" if prefix else key
+        after_value = after.get(key)
+        if isinstance(value, dict) and isinstance(after_value, dict):
+            compare_nested(errors, mismatches, field, value, after_value)
+        else:
+            compare_values(errors, mismatches, field, value, after_value)
+
+
+def progressed_migration_assertions(
+    checkpoint_snapshot: Any,
+    post_snapshot: Any,
+    bot_player_id: int,
+    expected_players: int,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    mismatches: list[dict[str, Any]] = []
+    post_body = snapshot_body(post_snapshot)
+    runner = post_body.get("runner") if isinstance(post_body, dict) else {}
+    game = post_body.get("game") if isinstance(post_body, dict) else {}
+
+    if runner.get("gameMode") != "Host" or runner.get("isServer") is not True:
+        errors.append("survivor_not_promoted_to_host")
+    if game.get("hasGameManagers") is not True:
+        errors.append("game_managers_missing_after_migration")
+    if len(players(post_snapshot)) != expected_players:
+        errors.append(f"player_count expected={expected_players} actual={len(players(post_snapshot))}")
+    if not unique_player_ids(post_snapshot):
+        errors.append("duplicate_player_id")
+    if not any(player.get("isConnected") is True and player.get("isAI") is False for player in players(post_snapshot)):
+        errors.append("no_connected_human_survivor")
+
+    bot_player = player_by_id(post_snapshot, bot_player_id)
+    if bot_player is None:
+        errors.append(f"bot_player_missing_after_migration:{bot_player_id}")
+    else:
+        if bot_player.get("isConnected") is not True:
+            errors.append(f"bot_player_not_connected_after_migration:{bot_player_id}")
+        if bot_player.get("isAI") is not False:
+            errors.append(f"bot_player_is_ai_after_migration:{bot_player_id}")
+        if nested(bot_player, "ai", "controllerRegistered") is not False:
+            errors.append(f"bot_ai_controller_registered_after_migration:{bot_player_id}")
+
+    pre_fp = durable_fingerprint(checkpoint_snapshot)
+    post_fp = durable_fingerprint(post_snapshot)
+    compare_nested(errors, mismatches, "", pre_fp, post_fp)
+
+    test = post_body.get("test") if isinstance(post_body, dict) else {}
+    bot_status = test.get("bot") if isinstance(test, dict) else None
+    if isinstance(bot_status, dict):
+        if bot_status.get("running") is True:
+            errors.append("bot_running_after_migration_without_explicit_resume")
+        if bot_status.get("lastError") not in (None, ""):
+            errors.append(f"bot_last_error_after_migration:{bot_status.get('lastError')}")
+    else:
+        warnings.append("bot_status_missing_after_migration")
+
+    return {
+        "success": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "mismatches": mismatches,
+        "botPlayerId": bot_player_id,
+        "preFingerprint": pre_fp,
+        "postFingerprint": post_fp,
+        "postRunner": runner,
+        "postGame": game,
+        "postBotStatus": bot_status,
+    }
+
+
+def wait_post_migration(
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    checkpoint_snapshot: dict[str, Any],
+    bot_player_id: int,
+    expected_players: int,
+    timeout: int,
+    stable_samples: int,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    deadline = time.time() + timeout
+    latest: dict[str, Any] = {}
+    latest_proof: dict[str, Any] = {"success": False, "errors": ["not_started"]}
+    latest_assertions: dict[str, Any] = {"success": False, "errors": ["not_started"]}
+    stable_matches = 0
+    while time.time() < deadline:
+        latest = dump_state(client, artifact_dir, "survivor-client", "post-migration-latest")
+        latest_proof = migration_proof_report(latest)
+        latest_assertions = progressed_migration_assertions(
+            checkpoint_snapshot,
+            latest,
+            bot_player_id,
+            expected_players,
+        )
+        ready = latest_proof["success"] and latest_assertions["success"]
+        write_json(artifact_dir / "host-migration-latest.json", latest_proof["migration"])
+        write_json(artifact_dir / "post-migration-wait-latest.json", {
+            "ready": ready,
+            "proof": latest_proof,
+            "assertions": latest_assertions,
+            "stableMatches": stable_matches,
+            "requiredStableSamples": stable_samples,
+        })
+        if migration_state(latest).get("failureCount", 0) > 0:
+            return latest, latest_proof, latest_assertions, False
+        if ready:
+            stable_matches += 1
+            if stable_matches >= stable_samples:
+                return latest, latest_proof, latest_assertions, True
+        else:
+            stable_matches = 0
+        time.sleep(1)
+    return latest, latest_proof, latest_assertions, False
+
+
+def bot_args(args: argparse.Namespace, journal_path: pathlib.Path, bot_seed: int) -> list[str]:
+    return [
+        "--mpFreezeGameFlow",
+        "--mpHumanBot",
+        "--mpBotPersona",
+        args.bot_persona,
+        "--mpBotSeed",
+        str(bot_seed),
+        "--mpBotDurationSeconds",
+        str(args.bot_duration_seconds),
+        "--mpBotStopAtRound",
+        str(args.bot_stop_at_round),
+        "--mpBotMaxCommands",
+        str(args.bot_max_commands),
+        "--mpBotRecordJournal",
+        str(journal_path),
+    ]
+
+
+def freeze_game_flow_args() -> list[str]:
+    return ["--mpFreezeGameFlow"]
+
+
+def run(args: argparse.Namespace) -> int:
+    player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
+    if player_path is None or not player_path.exists():
+        raise SystemExit("No built Development player found. Run tools/harness/mp/build_player.py or pass --player-path.")
+
+    artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
+    session = args.session or new_session("phm")
+    config = read_host_migration_config()
+    host_token = new_token()
+    client_token = new_token()
+    host_connection = new_token()
+    client_connection = new_token()
+    host_port = free_port()
+    client_port = free_port()
+    bot_seed = args.bot_seed if args.bot_seed is not None else args.seed
+    bot_journal_path = artifact_dir / "survivor-client-bot.jsonl"
+    host_proc: PlayerProcess | None = None
+    client_proc: PlayerProcess | None = None
+    host_was_killed = False
+    failures: list[str] = []
+    bot_player_id = -1
+
+    write_json(artifact_dir / "run.json", {
+        "case": CASE_NAME,
+        "session": session,
+        "playerPath": str(player_path),
+        "hostPort": host_port,
+        "clientPort": client_port,
+        "scene": args.scene,
+        "lobbyScene": args.lobby_scene,
+        "seed": args.seed,
+        "botSeed": bot_seed,
+        "botPersona": args.bot_persona,
+        "botJournalPath": str(bot_journal_path),
+        "config": config,
+        "dryRun": args.dry_run,
+    })
+    if not config["enableAutoUpdate"]:
+        failures.append("NEEDS_PROJECT_SUPPORT:host_migration_auto_update_disabled")
+
+    if args.dry_run:
+        print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True, "config": config}, indent=2))
+        return 0
+
+    try:
+        host_proc = launch_player(
+            player_path,
+            "host",
+            session,
+            host_port,
+            host_token,
+            host_connection,
+            artifact_dir,
+            "build-host",
+            max_players=2,
+            scene=args.lobby_scene,
+            case_name=CASE_NAME,
+            auto_start=False,
+            load_game=False,
+            seed=args.seed,
+            scenario="progressed_host_migration_e2e",
+            extra_args=freeze_game_flow_args(),
+        )
+        host = AutomationClient(host_port, host_token, timeout=args.request_timeout)
+        host_ping = host.wait_ping(timeout_seconds=args.ping_timeout)
+        write_json(artifact_dir / "build-host-ping.json", host_ping)
+        if not host_ping.get("success"):
+            failures.append("host_automation_ping_timeout")
+
+        client_proc = launch_player(
+            player_path,
+            "client",
+            session,
+            client_port,
+            client_token,
+            client_connection,
+            artifact_dir,
+            "survivor-client",
+            max_players=2,
+            scene=args.lobby_scene,
+            case_name=CASE_NAME,
+            auto_start=False,
+            load_game=False,
+            seed=args.seed + 1,
+            scenario="progressed_host_migration_e2e",
+            extra_args=bot_args(args, bot_journal_path, bot_seed),
+        )
+        client = AutomationClient(client_port, client_token, timeout=args.request_timeout)
+        client_ping = client.wait_ping(timeout_seconds=args.ping_timeout)
+        write_json(artifact_dir / "survivor-client-ping.json", client_ping)
+        if not client_ping.get("success"):
+            failures.append("client_automation_ping_timeout")
+
+        pause_result = client.bot_stop(reason="phase23_pre_checkpoint_pause")
+        write_json(artifact_dir / "survivor-client-bot-paused.json", pause_result)
+        if pause_result.get("success") is not True:
+            failures.append("bot_pause_failed")
+
+        if not wait_build_peer_started(host.start_host, artifact_dir, "build-host", session, args.lobby_scene, 2, args.start_timeout):
+            failures.append("host_start_timeout")
+        if not wait_build_peer_started(client.join, artifact_dir, "survivor-client", session, args.lobby_scene, 2, args.start_timeout):
+            failures.append("client_join_timeout")
+
+        host_lobby, client_lobby, lobby_ready = wait_session_states(
+            host,
+            client,
+            artifact_dir,
+            args.lobby_timeout,
+            args.lobby_scene,
+            2,
+            "survivor-client",
+        )
+        write_json(artifact_dir / "snapshots" / "build-host-lobby.json", host_lobby)
+        write_json(artifact_dir / "snapshots" / "survivor-client-lobby.json", client_lobby)
+        if not lobby_ready:
+            failures.append("session_join_timeout")
+
+        load_result = host.load_game(args.scene)
+        write_json(artifact_dir / "build-host-load-game.json", load_result)
+        if not load_result.get("success"):
+            failures.append("host_load_game_failed")
+
+        host_before, client_before, before_comparison, before_ready = wait_stable_states(
+            host,
+            client,
+            artifact_dir,
+            args.state_timeout,
+            args.scene,
+            2,
+            "before-bot",
+            "survivor-client",
+            args.stable_samples,
+        )
+        write_json(artifact_dir / "snapshots" / "build-host-before-bot.json", host_before)
+        write_json(artifact_dir / "snapshots" / "survivor-client-before-bot.json", client_before)
+        write_json(artifact_dir / "before-bot-comparison.json", before_comparison)
+        if not before_ready:
+            failures.append("before_bot_state_ready_timeout")
+            failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
+            write_result(artifact_dir, failures)
+            return 1
+
+        start_result = client.bot_start(
+            persona=args.bot_persona,
+            seed=bot_seed,
+            durationSeconds=args.bot_duration_seconds,
+            stopAtRound=args.bot_stop_at_round,
+            maxCommands=args.bot_max_commands,
+            journalPath=str(bot_journal_path),
+        )
+        write_json(artifact_dir / "survivor-client-bot-start.json", start_result)
+        if start_result.get("success") is not True:
+            failures.append("bot_start_failed")
+
+        host_progressed, client_progressed, progression, progressed = wait_bot_progression(
+            host,
+            client,
+            artifact_dir,
+            host_before,
+            args.bot_timeout,
+            args.scene,
+            2,
+            args.min_commands,
+            "survivor-client",
+            args.stable_samples,
+        )
+        write_json(artifact_dir / "snapshots" / "build-host-progressed-checkpoint.json", host_progressed)
+        write_json(artifact_dir / "snapshots" / "survivor-client-progressed-checkpoint.json", client_progressed)
+        write_json(artifact_dir / "human-bot-progressed-assertions.json", progression)
+        checkpoint_comparison = compare_snapshots(host_progressed, client_progressed)
+        write_json(artifact_dir / "progressed-checkpoint-comparison.json", checkpoint_comparison)
+        random_summary = random_outcome_summary(host_progressed, client_progressed)
+        write_json(artifact_dir / "random-outcome-summary.json", random_summary)
+        random_evidence = random_progression_evidence(host_progressed, progression)
+        write_json(artifact_dir / "progressed-random-evidence.json", random_evidence)
+        if not progressed:
+            failures.append("bot_no_meaningful_command")
+        if checkpoint_comparison.get("success") is not True:
+            failures.extend(f"progressed_checkpoint_comparison:{err}" for err in checkpoint_comparison.get("errors") or ["failed"])
+        if random_evidence.get("success") is not True:
+            failures.extend(f"progressed_random_evidence:{err}" for err in random_evidence.get("errors") or ["failed"])
+        if failures:
+            failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
+            write_result(artifact_dir, failures)
+            return 1
+
+        bot_player_id = int(progression.get("botPlayerId", -1)) if isinstance(progression, dict) else -1
+        survivor_local = local_player(client_progressed)
+        if bot_player_id < 0 and isinstance(survivor_local, dict):
+            bot_player_id = int(survivor_local.get("playerId", -1))
+        if bot_player_id < 0:
+            failures.append("bot_player_id_invalid")
+            failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
+            write_result(artifact_dir, failures)
+            return 1
+
+        stop_result = client.bot_stop(reason="phase23_pre_migration_checkpoint_reached")
+        write_json(artifact_dir / "survivor-client-bot-stop-before-migration.json", stop_result)
+
+        write_json(artifact_dir / "migration-target.json", {
+            "botPlayerId": bot_player_id,
+            "survivorConnectionTokenHash": survivor_local.get("connectionTokenHash") if isinstance(survivor_local, dict) else "unknown",
+        })
+        write_json(artifact_dir / "checkpoint-summary.json", {
+            "beforeBot": {
+                "host": "snapshots/build-host-before-bot.json",
+                "client": "snapshots/survivor-client-before-bot.json",
+                "comparison": "before-bot-comparison.json",
+            },
+            "afterFirstAccepted": {
+                "host": "snapshots/build-host-after-first-accepted.json",
+                "client": "snapshots/survivor-client-after-first-accepted.json",
+                "comparison": "after-first-accepted-comparison.json",
+                "evidence": "accepted-command-evidence.json",
+            },
+            "progressed": {
+                "host": "snapshots/build-host-progressed-checkpoint.json",
+                "client": "snapshots/survivor-client-progressed-checkpoint.json",
+                "comparison": "progressed-checkpoint-comparison.json",
+                "assertions": "human-bot-progressed-assertions.json",
+                "randomOutcomes": "random-outcome-summary.json",
+                "randomEvidence": "progressed-random-evidence.json",
+            },
+        })
+
+        if host_proc is not None and host_proc.process.poll() is None:
+            host_pid = host_proc.process.pid
+            host_proc.process.kill()
+            host_proc.process.wait(timeout=15)
+            host_proc.close_logs()
+            host_was_killed = True
+            write_json(artifact_dir / "host-killed.json", {
+                "pid": host_pid,
+                "exitCode": host_proc.process.returncode,
+                "method": "process.kill",
+            })
+        else:
+            failures.append("host_process_not_running_before_kill")
+
+        post, proof, migration_assertions, migrated = wait_post_migration(
+            client,
+            artifact_dir,
+            client_progressed,
+            bot_player_id,
+            2,
+            args.migration_timeout,
+            args.stable_samples,
+        )
+        write_json(artifact_dir / "snapshots" / "survivor-client-post-migration.json", post)
+        write_json(artifact_dir / "host-migration-proof.json", proof)
+        write_json(artifact_dir / "progressed-host-migration-assertions.json", migration_assertions)
+        write_json(artifact_dir / "durable-state-report.json", {
+            "success": migration_assertions.get("success") is True,
+            "mismatches": migration_assertions.get("mismatches") or [],
+            "preFingerprint": migration_assertions.get("preFingerprint"),
+            "postFingerprint": migration_assertions.get("postFingerprint"),
+        })
+        write_json(artifact_dir / "host-migration-e2e-result.json", {
+            "hostWasKilled": host_was_killed,
+            "config": config,
+            "migration": proof.get("migration"),
+            "proof": proof,
+            "assertions": migration_assertions,
+            "failures": failures,
+        })
+        if not migrated:
+            failures.append("progressed_host_migration_timeout")
+        failures.extend(f"host_migration_proof:{err}" for err in proof.get("errors") or [])
+        failures.extend(f"progressed_migration:{err}" for err in migration_assertions.get("errors") or [])
+        write_json(artifact_dir / "host-migration-e2e-result.json", {
+            "hostWasKilled": host_was_killed,
+            "config": config,
+            "migration": proof.get("migration"),
+            "proof": proof,
+            "assertions": migration_assertions,
+            "failures": failures,
+        })
+
+        write_json(artifact_dir / "survivor-client-screenshot.json", client.screenshot())
+        client_logs = client.logs_recent()
+        write_json(artifact_dir / "survivor-client-logs-recent.json", client_logs)
+        failures.extend(f"mptest_failure_log:{line}" for line in mptest_failures(client_logs))
+        if failures:
+            failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
+    finally:
+        if client_proc is not None:
+            try:
+                automation = AutomationClient(client_port, client_token, timeout=2.0)
+                write_json(artifact_dir / "survivor-client-quit.json", automation.quit())
+                client_proc.process.wait(timeout=10)
+                client_proc.close_logs()
+            except Exception:
+                client_proc.terminate()
+        if host_proc is not None and not host_was_killed:
+            host_proc.terminate()
+
+        player_log = collect_player_log(artifact_dir, "progressed-host-migration-last")
+        logs = [
+            artifact_dir / "build-host.stdout.log",
+            artifact_dir / "build-host.stderr.log",
+            artifact_dir / "survivor-client.stdout.log",
+            artifact_dir / "survivor-client.stderr.log",
+        ]
+        if player_log:
+            logs.append(player_log)
+        write_timeline(artifact_dir, logs)
+
+    write_result(artifact_dir, failures)
+    print(json.dumps({"artifactDir": str(artifact_dir), "failures": failures}, indent=2))
+    return 0 if not failures else 1
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--player-path")
+    parser.add_argument("--artifact-root")
+    parser.add_argument("--session")
+    parser.add_argument("--scene", default="Game")
+    parser.add_argument("--lobby-scene", default="MatchingLobby")
+    parser.add_argument("--seed", type=int, default=4001)
+    parser.add_argument("--bot-seed", type=int)
+    parser.add_argument("--bot-persona", default="balanced")
+    parser.add_argument("--bot-duration-seconds", type=int, default=90)
+    parser.add_argument("--bot-stop-at-round", type=int, default=2)
+    parser.add_argument("--bot-max-commands", type=int, default=2)
+    parser.add_argument("--min-commands", type=int, default=2)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--ping-timeout", type=int, default=45)
+    parser.add_argument("--start-timeout", type=int, default=60)
+    parser.add_argument("--lobby-timeout", type=int, default=60)
+    parser.add_argument("--state-timeout", type=int, default=90)
+    parser.add_argument("--bot-timeout", type=int, default=150)
+    parser.add_argument("--migration-timeout", type=int, default=120)
+    parser.add_argument("--request-timeout", type=float, default=20.0)
+    parser.add_argument("--stable-samples", type=int, default=2)
+    args = parser.parse_args()
+    return run(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

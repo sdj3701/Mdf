@@ -19,6 +19,8 @@ REQUIRED = [
     'docs/ai-harness/automation-server-contract.md',
     'docs/ai-harness/state-snapshot-schema.md',
     'docs/ai-harness/host-migration-test-plan.md',
+    'docs/ai-harness/randomized-progression-test-plan.md',
+    'docs/ai-harness/human-bot-driver-design.md',
     'docs/ai-harness/codex-full-phase-prompts.md',
     'docs/ai-harness/learned-recipes.md',
     '.codex/config.toml',

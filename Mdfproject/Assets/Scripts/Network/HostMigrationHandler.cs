@@ -656,7 +656,10 @@ public class HostMigrationHandler : MonoBehaviour
             {
                 gameManagerCount++;
                 restoredGM = gm;  // ★ 복원된 GameManagers 저장
-                Debug.Log($"<color=green>[HostMigrationHandler] GameManagers 복원됨: {gm.currentRound} 라운드, 상태: {gm.currentState}</color>");
+                string cachedStateName = Enum.IsDefined(typeof(GameManagers.GameState), _cachedGameData.GameStateValue)
+                    ? ((GameManagers.GameState)_cachedGameData.GameStateValue).ToString()
+                    : _cachedGameData.GameStateValue.ToString();
+                Debug.Log($"<color=green>[HostMigrationHandler] GameManagers restore candidate spawned from snapshot: cachedRound={_cachedGameData.CurrentRound}, cachedState={cachedStateName}</color>");
                 // Debug.Log($"<color=green>  - HasStateAuthority: {spawnedNO.HasStateAuthority}</color>");
             }
             // PlayerManager 확인

@@ -32,6 +32,22 @@ public class NotifyAugmentSelectedCommand : ICommand
         }
 
         bool isServer = gm.Runner != null && gm.Runner.IsServer;
+
+        if (!isServer)
+        {
+            bool alreadyRecorded = player.chosenAugments != null &&
+                                   player.chosenAugments.Exists(a => a != null && a.augmentName == chosenAugment.augmentName);
+            if (!alreadyRecorded)
+            {
+                player.chosenAugments.Add(chosenAugment);
+            }
+
+            var presentedAugments = player.augmentManager.GetPresentedAugments();
+            if (presentedAugments != null)
+            {
+                presentedAugments.Clear();
+            }
+        }
         
         if (!isServer && chosenAugment.effectType == EffectType.SpawnMonsterOnEnemyField)
         {

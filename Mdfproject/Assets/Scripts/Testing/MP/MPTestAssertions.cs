@@ -137,6 +137,7 @@ public static class MPTestAssertions
             CompareEqual(result, $"player.{left.PlayerId}.gold", left.Gold, right.Gold);
             CompareEqual(result, $"player.{left.PlayerId}.wallCount", left.WallCount, right.WallCount);
             CompareShop(result, left.PlayerId, left.Shop, right.Shop);
+            CompareAugment(result, left.PlayerId, left.Augment, right.Augment);
             CompareField(result, left.PlayerId, left.Field, right.Field);
             CompareMonsters(result, left.PlayerId, left.Monsters, right.Monsters);
             CompareEqual(result, $"player.{left.PlayerId}.isAI", left.IsAI, right.IsAI);
@@ -178,6 +179,25 @@ public static class MPTestAssertions
         CompareNullable(result, $"player.{playerId}.shop.round", expected.Round, actual.Round);
         CompareEqual(result, $"player.{playerId}.shop.count", expected.Count, actual.Count);
         CompareKnownHash(result, $"player.{playerId}.shop.itemsHash", expected.ItemsHash, actual.ItemsHash);
+    }
+
+    private static void CompareAugment(
+        AssertionResult result,
+        int playerId,
+        MPTestStateSnapshot.AugmentSnapshot expected,
+        MPTestStateSnapshot.AugmentSnapshot actual)
+    {
+        if (expected == null || actual == null)
+        {
+            result.AddError($"player.{playerId}.augment_missing");
+            return;
+        }
+
+        CompareEqual(result, $"player.{playerId}.augment.available", expected.Available, actual.Available);
+        CompareEqual(result, $"player.{playerId}.augment.selectedCount", expected.SelectedCount, actual.SelectedCount);
+        CompareEqual(result, $"player.{playerId}.augment.presentedCount", expected.PresentedCount, actual.PresentedCount);
+        CompareKnownHash(result, $"player.{playerId}.augment.presentedHash", expected.PresentedHash, actual.PresentedHash);
+        CompareKnownHash(result, $"player.{playerId}.augment.selectedHash", expected.SelectedHash, actual.SelectedHash);
     }
 
     private static void CompareField(

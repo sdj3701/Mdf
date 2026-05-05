@@ -28,7 +28,16 @@ public sealed class MPTestHarnessEditModeTests
             "--mpCase", "phase8",
             "--mpArtifactDir", "artifacts/mp/phase8",
             "--mpSeed", "1234",
-            "--mpScenario", "prepare_smoke"
+            "--mpScenario", "prepare_smoke",
+            "--mpDisableAiFill",
+            "--mpFreezeGameFlow",
+            "--mpHumanBot",
+            "--mpBotPersona", "maze",
+            "--mpBotSeed", "222",
+            "--mpBotDurationSeconds", "33",
+            "--mpBotStopAtRound", "2",
+            "--mpBotMaxCommands", "9",
+            "--mpBotRecordJournal", "artifacts/mp/phase8/bot.jsonl"
         });
 
         Assert.That(options.Enabled, Is.True);
@@ -45,6 +54,15 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(options.CaseName, Is.EqualTo("phase8"));
         Assert.That(options.Seed, Is.EqualTo(1234));
         Assert.That(options.Scenario, Is.EqualTo("prepare_smoke"));
+        Assert.That(options.DisableAiFill, Is.True);
+        Assert.That(options.FreezeGameFlow, Is.True);
+        Assert.That(options.HumanBot, Is.True);
+        Assert.That(options.BotPersona, Is.EqualTo("maze"));
+        Assert.That(options.BotSeed, Is.EqualTo(222));
+        Assert.That(options.BotDurationSeconds, Is.EqualTo(33));
+        Assert.That(options.BotStopAtRound, Is.EqualTo(2));
+        Assert.That(options.BotMaxCommands, Is.EqualTo(9));
+        Assert.That(options.BotRecordJournal, Is.EqualTo("artifacts/mp/phase8/bot.jsonl"));
     }
 
     [Test]
@@ -129,6 +147,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("IPAddress.Loopback"));
         Assert.That(source, Does.Contain("X-MPTest-Token"));
         Assert.That(source, Does.Contain("Authorization"));
+        Assert.That(source, Does.Contain("/bot/start"));
+        Assert.That(source, Does.Contain("/bot/status"));
     }
 
     [Test]
@@ -199,6 +219,14 @@ public sealed class MPTestHarnessEditModeTests
                         Count = 5,
                         ItemsHash = hash
                     },
+                    Augment = new MPTestStateSnapshot.AugmentSnapshot
+                    {
+                        Available = true,
+                        SelectedCount = 0,
+                        PresentedCount = 3,
+                        PresentedHash = hash,
+                        SelectedHash = "unknown"
+                    },
                     Field = new MPTestStateSnapshot.FieldSnapshot
                     {
                         Ready = true,
@@ -254,6 +282,24 @@ public sealed class MPTestHarnessEditModeTests
                 StartGameSuccessCount = 0,
                 CompleteCount = 0,
                 FailureCount = 0
+            },
+            Test = new MPTestStateSnapshot.TestSnapshot
+            {
+                Bot = new MPTestStateSnapshot.BotSnapshot
+                {
+                    Enabled = false,
+                    Running = false,
+                    Persona = "none",
+                    CommandsIssued = 0,
+                    LastDecision = null,
+                    LastCommandType = null,
+                    LastError = null,
+                    JournalPath = null,
+                    PlayerId = -1,
+                    HasLocalInputAuthority = false,
+                    StopReason = null
+                },
+                RandomOutcomes = new MPTestStateSnapshot.RandomOutcomesSnapshot()
             },
             Errors = new System.Collections.Generic.List<string>()
         };

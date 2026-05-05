@@ -37,6 +37,12 @@ public class ShopManager : MonoBehaviour
         return $"player={playerIdLabel},name={playerManager.name},hasObject={hasObject},stateAuth={hasAuthority},{runnerSummary}";
     }
 
+    private bool IsRunningClientPeerWithoutAuthority()
+    {
+        var runner = playerManager != null ? playerManager.Runner : null;
+        return runner != null && runner.IsRunning && !runner.IsServer;
+    }
+
     private bool TryGetSafePlayerId(out int playerId)
     {
         playerId = -1;
@@ -269,6 +275,12 @@ public class ShopManager : MonoBehaviour
     {
         int goldBefore = playerManager != null ? playerManager.GetGold() : -1;
         LogShopTrace("Reroll:ENTER", $"isFree={isFree},goldBefore={goldBefore}");
+
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            LogShopTrace("Reroll:ABORT_CLIENT_PEER", $"isFree={isFree}");
+            return;
+        }
 
         if (!IsDatabaseLoaded)
         {

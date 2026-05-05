@@ -53,6 +53,14 @@ public class AIPlayerController : MonoBehaviour
             return;
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var mpOptions = MPTestCommandLine.GetOptions();
+        if (mpOptions.Enabled && mpOptions.FreezeGameFlow)
+        {
+            return;
+        }
+#endif
+
         var migrationHandler = HostMigrationHandler.Instance;
         if (migrationHandler != null && migrationHandler.IsMigrating && !migrationHandler.IsAiTakeoverReady)
         {

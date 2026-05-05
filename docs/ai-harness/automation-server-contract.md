@@ -91,9 +91,21 @@ POST /scenario/spawnMonsterTest
 POST /scenario/useMagicScrollTest
 POST /scenario/hostMigrationProbe
 POST /scenario/simulateDisconnect
+POST /bot/start
+POST /bot/stop
+GET  /bot/status
+GET  /bot/journal
 ```
 
 Every domain endpoint must call the same authority-gated code path as real gameplay or be clearly marked `test_only_state_probe`.
+
+`/bot/*` endpoints are test-only control and observation endpoints for `MPTestHumanBotDriver`.
+
+- They must be compiled only for `UNITY_EDITOR || DEVELOPMENT_BUILD`.
+- They must require `--mpTest`, loopback bind, and per-run token auth like every other automation endpoint.
+- `/bot/start` must not attach `AIPlayerController` to a human player.
+- `/bot/status` must report the bot as test harness state, not as gameplay AI ownership.
+- `/bot/journal` must only expose bounded journal data from the current artifact path.
 
 ## `/dumpState`
 

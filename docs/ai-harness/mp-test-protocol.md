@@ -27,6 +27,15 @@ The harness must test both host directions:
 --mpArtifactDir <path>
 --mpSeed <seed>
 --mpScenario <scenario>
+--mpDisableAiFill
+--mpFreezeGameFlow
+--mpHumanBot
+--mpBotPersona balanced|maze|shop|unit|passive
+--mpBotSeed <int>
+--mpBotDurationSeconds <seconds>
+--mpBotStopAtRound <round>
+--mpBotMaxCommands <n>
+--mpBotRecordJournal <path>
 ```
 
 In `--mpTest`, set `Application.runInBackground = true` and emit `[MPTEST]` logs.
@@ -90,6 +99,21 @@ Never treat logs alone as synchronization PASS.
 - Verify player HP/gold/walls have reasonable values.
 - Optionally run a deterministic command such as reroll or wall placement if safe.
 
+### `human_bot_prepare_progression`
+
+- Start a real host/client session through the normal room flow.
+- Enable `--mpHumanBot` on at least one connected human client.
+- Confirm the bot player remains `isAI=false` and has no registered `AIPlayerController`.
+- Wait for at least one accepted meaningful command such as `SelectAugment`, `BuyUnit`, `PlaceWall`, `MoveUnit`, or `RerollShop`.
+- Compare host/client snapshots with random-aware rules:
+  - same player's shop hashes match,
+  - same player's augment hashes match when presented,
+  - same player's field wall/unit hashes match,
+  - no duplicate `playerId`,
+  - command sequence/revision is monotonic where available.
+
+Do not assert fixed shop item names, fixed wall hashes, or fixed augment names.
+
 ### `battle_smoke`
 
 - Advance or wait to `Battle1`/`Battle2`.
@@ -119,7 +143,11 @@ artifacts/mp/<timestamp>-<case>/
     editor.png
     host.png
     client-1.png
+  result.json
   comparison.json
+  bot-journal.jsonl
+  random-outcomes.jsonl
+  checkpoint-summary.json
   failure-summary.md
 ```
 
@@ -167,6 +195,11 @@ artifacts/mp/<timestamp>-<case>/
 - `authority_violation`
 - `host_migration_not_triggered`
 - `artifact_missing`
+- `bot_not_running`
+- `bot_misclassified_as_ai`
+- `bot_no_meaningful_command`
+- `random_outcome_mismatch`
+- `progressed_checkpoint_mismatch`
 
 ## PASS rule
 
@@ -176,5 +209,12 @@ A case passes only when:
 - both/control channels responded,
 - scenario assertions passed,
 - snapshots compared,
+- random-aware assertions passed for every same-player replicated outcome in scope,
 - artifacts exist,
 - cleanup succeeded or failures were recorded.
+
+## Progressed-state PASS rule
+
+Progressed-state reconnect, disconnect, and Host Migration tests must first save a synchronized HumanBot checkpoint. Later assertions compare against that checkpoint where the state should be preserved. Randomness before the checkpoint is allowed. Random divergence after the checkpoint is a failure unless the state transition is explicitly documented and gated under `--mpTest`.
+
+For same-token reconnect cases that need a spare Photon transport slot, use `--mpMaxPlayers 3 --mpDisableAiFill` so the room can accept the replacement client without creating an extra AI gameplay slot. Use `--mpFreezeGameFlow` only when the scenario's purpose is checkpoint preservation across disconnect/reconnect or migration; it must not be used to prove normal round progression.

@@ -56,6 +56,7 @@ def launch_player(
     exit_after_seconds: int = 0,
     seed: int = 0,
     scenario: str = "game_smoke",
+    extra_args: list[str] | None = None,
 ) -> PlayerProcess:
     stdout_path = artifact_dir / f"{peer_name}.stdout.log"
     stderr_path = artifact_dir / f"{peer_name}.stderr.log"
@@ -94,6 +95,8 @@ def launch_player(
         cmd.append("--mpLoadGame")
     if exit_after_seconds > 0:
         cmd.extend(["--mpExitAfterSeconds", str(exit_after_seconds)])
+    if extra_args:
+        cmd.extend(extra_args)
 
     redacted = ["<automation-token>" if part == token else "<connection-token>" if part == connection_token else part for part in cmd]
     command_path.write_text(

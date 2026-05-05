@@ -660,6 +660,318 @@ If no safe durable command exists, report NEEDS_GAMEPLAY_HOOK and propose minima
 Stop after Phase 17.
 ```
 
+## Phase 18 - Random-aware harness doctrine/docs
+
+```text
+Proceed with Phase 18 only: random-aware progression harness planning.
+
+Goal:
+Update the harness docs so future phases prioritize HumanBot-first random-aware testing instead of exact command replay.
+
+Read:
+- AGENTS.md
+- docs/ai-harness/index.md
+- docs/ai-harness/feature-implementation-loop.md
+- docs/ai-harness/fusion-sync-rules.md
+- docs/ai-harness/mp-test-protocol.md
+- docs/ai-harness/state-snapshot-schema.md
+- docs/ai-harness/learned-recipes.md
+- Mdfproject/Assets/Scripts/Commands/AI/AIPlayerController.cs
+- Mdfproject/Assets/Scripts/AI/BehaviorTree/**/*.cs
+- Mdfproject/Assets/Scripts/Commands/Core/CommandProcessor.cs
+- Mdfproject/Assets/Scripts/Managers/ShopManager.cs
+- Mdfproject/Assets/Scripts/Managers/AugmentManager.cs
+- Mdfproject/Assets/Scripts/Managers/FieldManager.cs
+- Mdfproject/Assets/Scripts/Managers/GameManagers.cs
+
+Implement docs only unless a tiny self-test update is necessary.
+
+Create or update:
+- docs/ai-harness/randomized-progression-test-plan.md
+- docs/ai-harness/human-bot-driver-design.md
+- docs/ai-harness/state-snapshot-schema.md
+- docs/ai-harness/mp-test-protocol.md
+- docs/ai-harness/automation-server-contract.md if endpoint docs are needed
+- docs/ai-harness/feature-implementation-loop.md
+- docs/ai-harness/learned-recipes.md
+
+Required content:
+- exact command replay is diagnostic, not the main progression strategy
+- HumanBotDriver is test-only, drives a real human peer, keeps `isAI=false`, never registers `AIPlayerController`, and uses real command request paths
+- random-aware assertions compare same-player hashes and invariants, not fixed random values
+- bot decision, accepted command, random outcome, and checkpoint journals
+- progressed-state prepare, battle entry, reconnect, disconnect, Host Migration, 4-player, and seed sweep scenarios
+- deterministic seed/RNG refactor is optional future work
+
+Verification:
+- python tools/harness/validate_overlay.py
+- python tools/harness/precommit.py --all
+
+Stop after Phase 18 and report files changed and the new phase plan.
+```
+
+## Phase 19 - HumanBotDriver core
+
+```text
+Proceed with Phase 19 only: MPTestHumanBotDriver core.
+
+Goal:
+Implement a test-only HumanBotDriver that drives a real connected human client using AI-like decision policies.
+
+Important:
+- Do not attach AIPlayerController to a human player.
+- Do not register the human bot in ComponentRegistry as AIPlayerController.
+- The snapshot must continue to report this peer as human/isAI=false.
+- Commands must go through CommandProcessor.RequestCommandExecution and server authority validation.
+
+Read:
+- docs/ai-harness/randomized-progression-test-plan.md
+- docs/ai-harness/human-bot-driver-design.md
+- docs/ai-harness/fusion-sync-rules.md
+- Mdfproject/Assets/Scripts/Commands/AI/AIPlayerController.cs
+- Mdfproject/Assets/Scripts/AI/BehaviorTree/Nodes/Actions/*.cs
+- Mdfproject/Assets/Scripts/AI/Planning/MazePlanner.cs
+- Mdfproject/Assets/Scripts/AI/BehaviorTree/AIPacer.cs
+- Mdfproject/Assets/Scripts/Commands/Core/CommandProcessor.cs
+- Mdfproject/Assets/Scripts/Testing/MP/MPTestBootstrap.cs
+- Mdfproject/Assets/Scripts/Testing/MP/MPTestAutomationServer.cs
+- Mdfproject/Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs
+
+Implement:
+- Mdfproject/Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs
+- Mdfproject/Assets/Scripts/Testing/MP/MPTestHumanBotPolicy.cs
+- Mdfproject/Assets/Scripts/Testing/MP/MPTestBotPersona.cs
+- Mdfproject/Assets/Scripts/Testing/MP/MPTestBotJournal.cs if useful
+- command-line args documented in human-bot-driver-design.md
+- /bot/start, /bot/stop, /bot/status, /bot/journal if practical
+- test-only snapshot bot status
+
+Verification:
+- python tools/harness/precommit.py --all
+- unity-cli --project Mdfproject editor refresh --compile
+- unity-cli --project Mdfproject console --type error --stacktrace user
+- unity-cli --project Mdfproject test --mode EditMode
+
+Use mdf_code_mapper if code paths are unclear, mdf_fusion_reviewer after command/networking changes, and mdf_unity_verifier before reporting.
+Stop after Phase 19. Do not claim gameplay progression PASS yet.
+```
+
+## Phase 20 - 2-peer HumanBot prepare progression
+
+```text
+Proceed with Phase 20 only: 2-peer HumanBot prepare progression E2E.
+
+Goal:
+Prove that a real connected client peer can progress Prepare phase using MPTestHumanBotDriver under randomized shop/wall/augment conditions.
+
+Implement:
+- tools/harness/mp/run_human_bot_prepare_progression.py
+- optional matrix case: human-bot-prepare
+
+Required assertions:
+- bot player is connected human, not AI
+- bot commandsIssued > 0
+- at least one meaningful command is accepted
+- no duplicate playerId
+- host/client shop, augment, field grid/wall/unit hashes agree for the same player
+- command sequence/revision monotonic where available
+- no MPTEST error phase or user console errors
+
+Verification:
+- python tools/harness/precommit.py --all
+- unity-cli --project Mdfproject editor refresh --compile
+- unity-cli --project Mdfproject console --type error --stacktrace user
+- unity-cli --project Mdfproject test --mode EditMode
+- python tools/harness/mp/run_human_bot_prepare_progression.py --seed 1001
+
+Use mdf_mp_test_runner and mdf_unity_verifier. Stop after Phase 20.
+```
+
+## Phase 21 - 4-player HumanBot progression smoke
+
+```text
+Proceed with Phase 21 only: 4-player HumanBot progression smoke.
+
+Goal:
+Extend HumanBot progression to a 4-player match.
+
+Implement:
+- tools/harness/mp/run_human_bot_4p_progression.py
+- matrix case: human-bot-4p-progression, not default-all until runtime is stable
+
+Required assertions:
+- activePlayerCount = 4
+- all four players remain human/isAI=false
+- each bot issues at least one command where possible
+- host snapshot agrees with every client for the same player's game, shop, augment, field, unit, battle, HP, gold, and command state
+- no duplicate playerId or command sequence divergence
+
+Verification:
+- python tools/harness/precommit.py --all
+- unity-cli --project Mdfproject editor refresh --compile
+- unity-cli --project Mdfproject console --type error --stacktrace user
+- python tools/harness/mp/run_human_bot_4p_progression.py --seed 2001
+
+Use mdf_mp_test_runner and mdf_unity_verifier. Stop after Phase 21.
+```
+
+## Phase 22 - Progressed-state reconnect / disconnect
+
+```text
+Proceed with Phase 22 only: progressed-state reconnect and disconnect tests.
+
+Goal:
+Run disconnect -> AI takeover and same-token reconnect after HumanBot has progressed the game state.
+
+Implement:
+- tools/harness/mp/run_progressed_disconnect_ai_takeover.py
+- tools/harness/mp/run_progressed_same_token_reconnect.py
+
+Shared setup:
+- build host + build client
+- enable --mpHumanBot on the client
+- wait for commandsIssued >= N, durable state changed, and host/client checkpoint equality
+
+Case A:
+- kill the client process
+- assert same playerId remains, isConnected=false, isAI=true, AI controller registered, and progressed field/shop/wall state preserved
+
+Case B:
+- relaunch with same --mpConnectionToken
+- assert same playerId reclaimed, isConnected=true, isAI=false, and progressed state is visible on the reconnected client
+
+Verification:
+- python tools/harness/precommit.py --all
+- unity-cli --project Mdfproject editor refresh --compile
+- unity-cli --project Mdfproject console --type error --stacktrace user
+- python tools/harness/mp/run_progressed_disconnect_ai_takeover.py --seed 3001
+- python tools/harness/mp/run_progressed_same_token_reconnect.py --seed 3002
+
+Use mdf_fusion_reviewer, mdf_mp_test_runner, and mdf_unity_verifier. Stop after Phase 22.
+```
+
+## Phase 23 - Progressed-state Host Migration
+
+```text
+Proceed with Phase 23 only: progressed-state Host Migration E2E.
+
+Goal:
+Prove Host Migration after randomized HumanBot progression.
+
+Implement:
+- tools/harness/mp/run_progressed_host_migration_e2e.py
+
+Required flow:
+- launch host plus at least one client
+- enable HumanBot on one or more human clients
+- progress until meaningful commands and pre-migration full comparison succeed
+- kill the host process
+- require OnHostMigration, non-null token, StartGame with migration token, HostMigrationResume, and recovery complete
+- compare pre/post durable state with random-aware rules
+
+Verification:
+- python tools/harness/precommit.py --all
+- unity-cli --project Mdfproject editor refresh --compile
+- unity-cli --project Mdfproject console --type error --stacktrace user
+- python tools/harness/mp/run_progressed_host_migration_e2e.py --seed 4001
+
+Use mdf_fusion_reviewer, mdf_mp_test_runner, and mdf_unity_verifier. Stop after Phase 23.
+```
+
+## Phase 24 - Random seed sweep / stochastic soak
+
+```text
+Proceed with Phase 24 only: stochastic HumanBot seed sweep.
+
+Goal:
+Run multiple randomized HumanBot progression cases to find sync bugs that one seed may miss.
+
+Implement:
+- tools/harness/mp/run_human_bot_seed_sweep.py
+
+Requirements:
+- accept --seeds or --seed-start/--seed-count
+- run 2-peer prepare progression per seed
+- optionally run 4-player progression with --include-4p
+- collect seed-specific journals, snapshots, comparisons, random outcome hashes, and screenshots
+- stop on first failure unless --continue-on-fail is set
+
+Verification:
+- python tools/harness/mp/run_human_bot_seed_sweep.py --seeds 5101,5102,5103
+- python tools/harness/precommit.py --all
+- unity-cli --project Mdfproject console --type error --stacktrace user
+
+Use mdf_mp_test_runner. Stop after Phase 24.
+```
+
+## Phase 25 - Random authority hardening
+
+```text
+Proceed with Phase 25 only: random authority hardening.
+
+Goal:
+Audit and harden authoritative random outcomes used by shop, augments, initial walls, battle mapping, and AI/bot progression.
+
+Read:
+- docs/ai-harness/randomized-progression-test-plan.md
+- docs/ai-harness/fusion-sync-rules.md
+- docs/ai-harness/state-snapshot-schema.md
+- Mdfproject/Assets/Scripts/Managers/ShopManager.cs
+- Mdfproject/Assets/Scripts/Managers/AugmentManager.cs
+- Mdfproject/Assets/Scripts/Managers/FieldManager.cs
+- Mdfproject/Assets/Scripts/Managers/GameManagers.cs
+- Mdfproject/Assets/Scripts/AI/Planning/MazePlanner.cs
+- Mdfproject/Assets/Scripts/AI/BehaviorTree/AIPacer.cs
+
+Audit:
+- find UnityEngine.Random, System.Random, Environment.TickCount usage
+- classify authoritative gameplay random, client visual/random delay, AI/bot decision pacing, or test-only
+- harden authoritative gameplay random with authority-only generation, outcome sync, snapshot hash/revision, optional test-only seed control, and optional random outcome journal
+
+Verification:
+- python tools/harness/precommit.py --all
+- unity-cli --project Mdfproject editor refresh --compile
+- unity-cli --project Mdfproject console --type error --stacktrace user
+- relevant HumanBot progression tests
+- progressed Host Migration if authoritative random paths changed
+
+Use mdf_code_mapper, mdf_fusion_reviewer, mdf_mp_test_runner, and mdf_unity_verifier. Stop after Phase 25 and report remaining RNG risks.
+```
+
+## Final random-aware audit
+
+```text
+Run final random-aware MDF harness audit. Do not add new features.
+
+Audit:
+- HumanBotDriver exists and is test-only.
+- HumanBotDriver does not register as AIPlayerController.
+- HumanBot player remains connected human/isAI=false in snapshots.
+- HumanBot commands go through the real client request path where required.
+- Random-aware assertions do not expect fixed shop/wall/augment values.
+- Same player's random outcomes are equal across host/client/build/editor snapshots.
+- Bot decision journal, accepted command journal, random outcome summary, and checkpoint snapshots are collected.
+- 2-peer, 4-player, progressed reconnect/disconnect, progressed Host Migration, and seed sweep artifacts exist or exact blockers are documented.
+- learned-recipes.md documents verified HumanBot and random-aware commands.
+
+Run:
+- python tools/harness/validate_overlay.py
+- python tools/harness/precommit.py --self-test
+- python tools/harness/precommit.py --all
+- unity-cli --project Mdfproject status
+- unity-cli --project Mdfproject editor refresh --compile
+- unity-cli --project Mdfproject console --type error --stacktrace user
+- unity-cli --project Mdfproject test --mode EditMode
+- python tools/harness/mp/run_human_bot_prepare_progression.py --seed 1001
+- python tools/harness/mp/run_human_bot_4p_progression.py --seed 2001
+- python tools/harness/mp/run_progressed_same_token_reconnect.py --seed 3002
+- python tools/harness/mp/run_progressed_host_migration_e2e.py --seed 4001
+- python tools/harness/mp/run_human_bot_seed_sweep.py --seeds 5101,5102,5103
+
+Use mdf_fusion_reviewer, mdf_mp_test_runner, and mdf_unity_verifier.
+Do not claim final PASS if any required command or artifact is missing.
+```
+
 ## Final audit
 
 ```text

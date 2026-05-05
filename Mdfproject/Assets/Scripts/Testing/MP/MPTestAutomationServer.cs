@@ -232,6 +232,28 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => ExecuteCommand(body)));
         }
 
+        if (path == "/bot/start")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => StartBot(body)));
+        }
+
+        if (path == "/bot/stop")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => StopBot(body)));
+        }
+
+        if (path == "/bot/status")
+        {
+            return await RequireMethod(request, "GET", () => MainThread(BotStatus));
+        }
+
+        if (path == "/bot/journal")
+        {
+            return await RequireMethod(request, "GET", () => MainThread(BotJournal));
+        }
+
         if (path == "/screenshot")
         {
             return await RequireMethod(request, "GET", () => MainThread(() => CaptureScreenshot(request)));
@@ -354,6 +376,95 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         return AutomationResponse.Fail("unsupported_command", "Only reroll_shop is currently supported by the runtime command harness.", new
         {
             command = commandName
+        });
+    }
+
+    private AutomationResponse StartBot(JObject body)
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("bot_requires_mptest", "HumanBot requires --mpTest.");
+        }
+
+        if (!_options.HumanBot)
+        {
+            return AutomationResponse.Fail("bot_requires_flag", "HumanBot requires --mpHumanBot.");
+        }
+
+        var driver = MPTestHumanBotDriver.Instance;
+        if (driver == null)
+        {
+            driver = gameObject.GetComponent<MPTestHumanBotDriver>() ?? gameObject.AddComponent<MPTestHumanBotDriver>();
+        }
+
+        string persona = GetString(body, "persona", _options.BotPersona);
+        int seed = GetInt(body, "seed", _options.BotSeed);
+        int durationSeconds = GetInt(body, "durationSeconds", GetInt(body, "duration_seconds", _options.BotDurationSeconds));
+        int stopAtRound = GetInt(body, "stopAtRound", GetInt(body, "stop_at_round", _options.BotStopAtRound));
+        int maxCommands = GetInt(body, "maxCommands", GetInt(body, "max_commands", _options.BotMaxCommands));
+        string journalPath = GetString(body, "journalPath", GetString(body, "journal_path", _options.BotRecordJournal));
+
+        if (!driver.StartDriver(
+            _options,
+            out string reason,
+            personaOverride: persona,
+            seedOverride: seed,
+            durationSecondsOverride: durationSeconds,
+            stopAtRoundOverride: stopAtRound,
+            maxCommandsOverride: maxCommands,
+            journalPathOverride: journalPath))
+        {
+            return AutomationResponse.Fail("bot_start_failed", reason, driver.Status);
+        }
+
+        return AutomationResponse.Ok("bot started", driver.Status);
+    }
+
+    private AutomationResponse StopBot(JObject body)
+    {
+        var driver = MPTestHumanBotDriver.Instance;
+        if (driver == null)
+        {
+            return AutomationResponse.Ok("bot not present", new { enabled = false, running = false });
+        }
+
+        string reason = GetString(body, "reason", "automation_stop");
+        driver.StopDriver(reason);
+        return AutomationResponse.Ok("bot stopped", driver.Status);
+    }
+
+    private AutomationResponse BotStatus()
+    {
+        var driver = MPTestHumanBotDriver.Instance;
+        if (driver == null)
+        {
+            return AutomationResponse.Ok("bot status", new
+            {
+                enabled = _options.Enabled && _options.HumanBot,
+                running = false,
+                persona = _options.BotPersona,
+                commandsIssued = 0,
+                lastDecision = (string)null,
+                lastCommandType = (string)null,
+                lastError = "driver_missing"
+            });
+        }
+
+        return AutomationResponse.Ok("bot status", driver.Status);
+    }
+
+    private AutomationResponse BotJournal()
+    {
+        var driver = MPTestHumanBotDriver.Instance;
+        if (driver == null)
+        {
+            return AutomationResponse.Fail("bot_missing", "HumanBot driver is not present.");
+        }
+
+        return AutomationResponse.Ok("bot journal", new
+        {
+            status = driver.Status,
+            recent = driver.RecentJournal
         });
     }
 

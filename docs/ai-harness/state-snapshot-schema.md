@@ -55,6 +55,13 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
         "count": 5,
         "itemsHash": "sha256:..."
       },
+      "augment": {
+        "available": true,
+        "selectedCount": 0,
+        "presentedCount": 3,
+        "presentedHash": "sha256:...",
+        "selectedHash": "sha256:..."
+      },
       "field": {
         "ready": true,
         "gridHash": "sha256:...",
@@ -104,6 +111,25 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
     "completeCount": 0,
     "failureCount": 0
   },
+  "test": {
+    "bot": {
+      "enabled": false,
+      "running": false,
+      "persona": "none",
+      "commandsIssued": 0,
+      "lastDecision": null,
+      "lastCommandType": null,
+      "lastError": null,
+      "journalPath": null
+    },
+    "randomOutcomes": {
+      "journalPath": null,
+      "lastCategory": null,
+      "lastPlayerId": null,
+      "lastHash": null,
+      "lastRevision": null
+    }
+  },
   "errors": []
 }
 ```
@@ -120,6 +146,7 @@ Exact or hash-equal after stable wait:
 - player ids and player count
 - player HP/gold/wall counts
 - shop snapshot hashes
+- augment presented/selected hashes when available
 - field unit/wall aggregate hashes
 - monster alive counts/hashes after battle stabilization
 - command sequence/last durable command
@@ -139,6 +166,13 @@ Never require equal:
 - raw `PlayerRef` after reconnect/migration
 - raw Unity instance IDs
 - transient VFX/projectile objects unless the scenario specifically tests them
+- fixed random shop item names, augment names, wall coordinates, or battle pairings across different runs
+
+Random-aware rule:
+
+- The same `playerId` must have the same replicated random outcome hash on every peer.
+- Different `playerId` values do not need identical shop, augment, wall, or battle outcomes.
+- A seed is a diagnostic label unless the specific random source is proven to be controlled.
 
 ## Required assertions
 
@@ -171,3 +205,11 @@ Host migration:
 - player/field/wall/shop/AI state restored
 - no duplicate `playerId`
 - stale `PlayerRef` not used as durable identity
+
+HumanBot progression:
+
+- bot-driven player remains a connected human and `isAI == false`
+- `ai.controllerRegistered == false` for the HumanBot player
+- `test.bot.commandsIssued > 0` after the progression target
+- host/client snapshots agree on the same player's shop, augment, field, wall, unit, battle, HP, gold, and command hashes
+- no fixed random shop, wall, or augment value is required

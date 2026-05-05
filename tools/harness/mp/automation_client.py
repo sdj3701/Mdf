@@ -72,6 +72,18 @@ class AutomationClient:
     def command(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/command", kwargs)
 
+    def bot_start(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/bot/start", kwargs)
+
+    def bot_stop(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/bot/stop", kwargs)
+
+    def bot_status(self) -> dict[str, Any]:
+        return self.request("GET", "/bot/status")
+
+    def bot_journal(self) -> dict[str, Any]:
+        return self.request("GET", "/bot/journal")
+
     def assert_state(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/assertState", kwargs)
 

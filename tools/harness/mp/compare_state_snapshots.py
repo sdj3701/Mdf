@@ -41,6 +41,11 @@ def compare_snapshots(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
         compare_equal(errors, f"player.{player_id}.gold", lp.get("gold"), rp.get("gold"))
         compare_equal(errors, f"player.{player_id}.wallCount", lp.get("wallCount"), rp.get("wallCount"))
         compare_known(errors, f"player.{player_id}.shop.itemsHash", nested(lp, "shop", "itemsHash"), nested(rp, "shop", "itemsHash"))
+        compare_equal(errors, f"player.{player_id}.augment.available", nested(lp, "augment", "available"), nested(rp, "augment", "available"))
+        compare_equal(errors, f"player.{player_id}.augment.selectedCount", nested(lp, "augment", "selectedCount"), nested(rp, "augment", "selectedCount"))
+        compare_equal(errors, f"player.{player_id}.augment.presentedCount", nested(lp, "augment", "presentedCount"), nested(rp, "augment", "presentedCount"))
+        compare_known(errors, f"player.{player_id}.augment.presentedHash", nested(lp, "augment", "presentedHash"), nested(rp, "augment", "presentedHash"))
+        compare_known(errors, f"player.{player_id}.augment.selectedHash", nested(lp, "augment", "selectedHash"), nested(rp, "augment", "selectedHash"))
         compare_known(errors, f"player.{player_id}.field.gridHash", nested(lp, "field", "gridHash"), nested(rp, "field", "gridHash"))
         compare_known(errors, f"player.{player_id}.field.placedUnitsHash", nested(lp, "field", "placedUnitsHash"), nested(rp, "field", "placedUnitsHash"))
         compare_known(errors, f"player.{player_id}.field.wallHash", nested(lp, "field", "wallHash"), nested(rp, "field", "wallHash"))
@@ -50,6 +55,12 @@ def compare_snapshots(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
     for side, snapshot in (("left", left), ("right", right)):
         if snapshot.get("errors"):
             warnings.extend(f"{side}.snapshot_error {err}" for err in snapshot["errors"])
+
+    lc = left.get("commands") or {}
+    rc = right.get("commands") or {}
+    compare_nullable(errors, "commands.lastSequence", lc.get("lastSequence"), rc.get("lastSequence"))
+    compare_nullable(errors, "commands.queueDepth", lc.get("queueDepth"), rc.get("queueDepth"))
+    compare_known(errors, "commands.lastCommand", lc.get("lastCommand"), rc.get("lastCommand"))
 
     return {"success": not errors, "errors": errors, "warnings": warnings}
 
@@ -70,6 +81,13 @@ def compare_equal(errors: list[str], field: str, left: Any, right: Any) -> None:
 
 def compare_known(errors: list[str], field: str, left: Any, right: Any) -> None:
     if left in (None, "", UNKNOWN) or right in (None, "", UNKNOWN):
+        return
+    if left != right:
+        errors.append(f"{field} left={left} right={right}")
+
+
+def compare_nullable(errors: list[str], field: str, left: Any, right: Any) -> None:
+    if left is None or right is None:
         return
     if left != right:
         errors.append(f"{field} left={left} right={right}")

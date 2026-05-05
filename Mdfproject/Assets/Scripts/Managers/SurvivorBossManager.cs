@@ -50,6 +50,13 @@ public class SurvivorBossManager : MonoBehaviour
             Destroy(gameObject);
         }
     }
+
+    private static bool IsRunningClientPeerWithoutAuthority()
+    {
+        var gm = GameManagers.Instance;
+        var runner = gm != null ? gm.Runner : null;
+        return runner != null && runner.IsRunning && !runner.IsServer;
+    }
     
     #region 보스 등록 및 타겟 할당
     
@@ -59,6 +66,12 @@ public class SurvivorBossManager : MonoBehaviour
     /// </summary>
     public void RegisterSurvivorBoss(MonsterData bossData, float remainingHP, float maxHP, int originPlayerId, int bossUniqueId = -1)
     {
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning("[SurvivorBossManager] RegisterSurvivorBoss ignored on client peer.");
+            return;
+        }
+
         // 기존 보스가 생존한 경우 기존 ID 유지, 아니면 새 ID 발급
         int uniqueId = bossUniqueId > 0 ? bossUniqueId : _nextBossUniqueId++;
         
@@ -81,6 +94,12 @@ public class SurvivorBossManager : MonoBehaviour
     /// </summary>
     public void AssignTargetsToSurvivors()
     {
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning("[SurvivorBossManager] AssignTargetsToSurvivors ignored on client peer.");
+            return;
+        }
+
         if (_pendingSurvivorBosses.Count == 0) return;
         
         var allPlayers = GameManagers.Instance?.AllPlayers.ToList();
@@ -256,6 +275,12 @@ public class SurvivorBossManager : MonoBehaviour
     public List<(int targetPlayerId, SurvivorBossData bossData)> GetPendingBossesWithTargets()
     {
         var result = new List<(int, SurvivorBossData)>();
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning("[SurvivorBossManager] GetPendingBossesWithTargets ignored on client peer.");
+            return result;
+        }
+
         var allPlayers = GameManagers.Instance?.AllPlayers.ToList();
         
         if (allPlayers == null || allPlayers.Count == 0)

@@ -34,6 +34,7 @@ public static class MPTestStateSnapshot
             Objects = CaptureObjects(),
             Commands = CaptureCommands(gameManagers),
             HostMigration = CaptureHostMigration(),
+            Test = CaptureTest(),
             Errors = errors
         };
 
@@ -233,6 +234,7 @@ public static class MPTestStateSnapshot
             IsActivelyFighting = SafeBool(() => player.IsActivelyFighting, false),
             IsAttackerInCurrentBattle = SafeBool(() => player.IsAttackerInCurrentBattle, false),
             Shop = CaptureShop(player),
+            Augment = CaptureAugment(player),
             Field = CaptureField(player, errors),
             Monsters = CaptureMonsters(player),
             Ai = CaptureAi(playerId, player)
@@ -307,6 +309,37 @@ public static class MPTestStateSnapshot
             Round = null,
             Count = 0,
             ItemsHash = Unknown
+        };
+    }
+
+    private static AugmentSnapshot CaptureAugment(PlayerManager player)
+    {
+        var presented = SafeRef(() => player.augmentManager != null ? player.augmentManager.GetPresentedAugments() : null, null);
+        var chosen = SafeRef(() => player.chosenAugments, null);
+        var presentedParts = presented != null && presented.Count > 0
+            ? presented.Select(augment => augment != null ? augment.augmentName ?? string.Empty : "null")
+            : Array.Empty<string>();
+        if (!presentedParts.Any())
+        {
+            presentedParts = SafeRef(() => player.GetPresentedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
+        }
+        var selectedParts = chosen != null && chosen.Count > 0
+            ? chosen.Select(augment => augment != null ? augment.augmentName ?? string.Empty : "null")
+            : Array.Empty<string>();
+        if (!selectedParts.Any())
+        {
+            selectedParts = SafeRef(() => player.GetSelectedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
+        }
+
+        int presentedCount = presentedParts.Count();
+        int selectedCount = selectedParts.Count();
+        return new AugmentSnapshot
+        {
+            Available = presentedCount > 0 || selectedCount > 0,
+            SelectedCount = selectedCount,
+            PresentedCount = presentedCount,
+            PresentedHash = presentedCount > 0 ? HashStableParts(presentedParts) : Unknown,
+            SelectedHash = selectedCount > 0 ? HashStableParts(selectedParts) : Unknown
         };
     }
 
@@ -505,6 +538,55 @@ public static class MPTestStateSnapshot
         };
     }
 
+    private static TestSnapshot CaptureTest()
+    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var driver = MPTestHumanBotDriver.Instance;
+        if (driver != null)
+        {
+            var status = driver.Status;
+            return new TestSnapshot
+            {
+                Bot = new BotSnapshot
+                {
+                    Enabled = status.Enabled,
+                    Running = status.Running,
+                    Persona = status.Persona,
+                    CommandsIssued = status.CommandsIssued,
+                    LastDecision = status.LastDecision,
+                    LastCommandType = status.LastCommandType,
+                    LastError = status.LastError,
+                    JournalPath = status.JournalPath,
+                    PlayerId = status.PlayerId,
+                    HasLocalInputAuthority = status.HasLocalInputAuthority,
+                    StopReason = status.StopReason
+                },
+                RandomOutcomes = new RandomOutcomesSnapshot()
+            };
+        }
+#endif
+
+        var options = MPTestCommandLine.GetOptions();
+        return new TestSnapshot
+        {
+            Bot = new BotSnapshot
+            {
+                Enabled = options.Enabled && options.HumanBot,
+                Running = false,
+                Persona = options.BotPersona,
+                CommandsIssued = 0,
+                LastDecision = null,
+                LastCommandType = null,
+                LastError = null,
+                JournalPath = options.BotRecordJournal,
+                PlayerId = -1,
+                HasLocalInputAuthority = false,
+                StopReason = null
+            },
+            RandomOutcomes = new RandomOutcomesSnapshot()
+        };
+    }
+
     private static int SafeInt(Func<int> getter, int fallback)
     {
         try
@@ -580,6 +662,7 @@ public static class MPTestStateSnapshot
         [JsonProperty("objects")] public ObjectsSnapshot Objects;
         [JsonProperty("commands")] public CommandsSnapshot Commands;
         [JsonProperty("hostMigration")] public HostMigrationSnapshot HostMigration;
+        [JsonProperty("test")] public TestSnapshot Test;
         [JsonProperty("errors")] public List<string> Errors;
     }
 
@@ -626,6 +709,7 @@ public static class MPTestStateSnapshot
         [JsonProperty("isActivelyFighting")] public bool IsActivelyFighting;
         [JsonProperty("isAttackerInCurrentBattle")] public bool IsAttackerInCurrentBattle;
         [JsonProperty("shop")] public ShopSnapshot Shop;
+        [JsonProperty("augment")] public AugmentSnapshot Augment;
         [JsonProperty("field")] public FieldSnapshot Field;
         [JsonProperty("monsters")] public MonsterSnapshot Monsters;
         [JsonProperty("ai")] public AiSnapshot Ai;
@@ -639,6 +723,16 @@ public static class MPTestStateSnapshot
         [JsonProperty("round")] public int? Round;
         [JsonProperty("count")] public int Count;
         [JsonProperty("itemsHash")] public string ItemsHash;
+    }
+
+    [Serializable]
+    public sealed class AugmentSnapshot
+    {
+        [JsonProperty("available")] public bool Available;
+        [JsonProperty("selectedCount")] public int SelectedCount;
+        [JsonProperty("presentedCount")] public int PresentedCount;
+        [JsonProperty("presentedHash")] public string PresentedHash;
+        [JsonProperty("selectedHash")] public string SelectedHash;
     }
 
     [Serializable]
@@ -705,5 +799,38 @@ public static class MPTestStateSnapshot
         [JsonProperty("startGameSuccessCount")] public int StartGameSuccessCount;
         [JsonProperty("completeCount")] public int CompleteCount;
         [JsonProperty("failureCount")] public int FailureCount;
+    }
+
+    [Serializable]
+    public sealed class TestSnapshot
+    {
+        [JsonProperty("bot")] public BotSnapshot Bot;
+        [JsonProperty("randomOutcomes")] public RandomOutcomesSnapshot RandomOutcomes;
+    }
+
+    [Serializable]
+    public sealed class BotSnapshot
+    {
+        [JsonProperty("enabled")] public bool Enabled;
+        [JsonProperty("running")] public bool Running;
+        [JsonProperty("persona")] public string Persona;
+        [JsonProperty("commandsIssued")] public int CommandsIssued;
+        [JsonProperty("lastDecision")] public string LastDecision;
+        [JsonProperty("lastCommandType")] public string LastCommandType;
+        [JsonProperty("lastError")] public string LastError;
+        [JsonProperty("journalPath")] public string JournalPath;
+        [JsonProperty("playerId")] public int PlayerId;
+        [JsonProperty("hasLocalInputAuthority")] public bool HasLocalInputAuthority;
+        [JsonProperty("stopReason")] public string StopReason;
+    }
+
+    [Serializable]
+    public sealed class RandomOutcomesSnapshot
+    {
+        [JsonProperty("journalPath")] public string JournalPath;
+        [JsonProperty("lastCategory")] public string LastCategory;
+        [JsonProperty("lastPlayerId")] public int? LastPlayerId;
+        [JsonProperty("lastHash")] public string LastHash;
+        [JsonProperty("lastRevision")] public int? LastRevision;
     }
 }

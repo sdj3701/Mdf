@@ -2,6 +2,36 @@
 
 This file starts intentionally small. Codex must update it when it verifies MDF-specific commands or workarounds.
 
+## mp-random-aware-human-bot-doctrine: Compare replicated outcomes, not fixed random values
+
+Status: verified-from-code
+Last verified: 2026-05-06
+Applies to: Phase 18+ HumanBot progression, randomized shop/wall/augment/battle state, snapshot comparison
+Triggers: HumanBot, random-aware, shop hash, augment hash, wallHash, Host Migration, reconnect
+
+Problem:
+MDF uses gameplay-critical randomness in shop rerolls, augment presentation, permanent wall selection, AI maze planning, and battle pairing. A command-only replay tape can issue the same commands against a different randomized state and therefore is not a reliable progression engine.
+
+Recipe:
+- Use a real connected human peer with test-only HumanBot policy to request commands through `CommandProcessor.RequestCommandExecution`.
+- Keep the player human: do not attach `AIPlayerController` and do not register it in `ComponentRegistry`.
+- Let State Authority decide persistent random outcomes.
+- Compare the same player's replicated `shop.itemsHash`, `augment.presentedHash`, `field.wallHash`, `field.placedUnitsHash`, battle mapping hash, HP, gold, and command/revision fields across peers.
+- Treat bot decisions, accepted commands, random outcomes, and checkpoint snapshots as diagnostic journals.
+
+Verification:
+- Code mapping confirmed `AIPlayerController` registers in `ComponentRegistry` and `MPTestStateSnapshot` reports `isAI` from `ComponentRegistry.Has<AIPlayerController>(playerId)`.
+- Code mapping confirmed client command requests route through `CommandProcessor.RequestCommandExecution` to `PlayerManager.RPC_RequestCommandToServer`, where phase/cost/grid/shop/augment/source validation is enforced.
+- Existing compare scripts already compare same-player shop and field hashes; Phase 18 docs extend that doctrine to HumanBot and augment/random outcome journals.
+- Phase 19 core verification confirmed `MPTestHumanBotDriver` compiles, stays test-only, does not register `AIPlayerController`, and emits bot status/journal data under the snapshot `test` section.
+
+Pitfalls:
+- Do not assert fixed shop items, fixed wall coordinates, fixed augment names, or fixed battle pairings across different runs.
+- Do not hide post-checkpoint mismatches as expected randomness.
+- `--mpBotSeed` is a diagnostic handle until each gameplay RNG source is explicitly controlled.
+- `test.bot.commandsIssued` counts HumanBot request submissions, not confirmed server acceptance. E2E tests must prove accepted commands through durable snapshot deltas, server accepted-command logs, or command/revision evidence.
+- A HumanBot running on the host uses the State Authority broadcast path. To prove real client request validation, run `--mpHumanBot` on a connected client peer.
+
 ## unity-cli-project-selector: Always target Mdfproject
 
 Status: verified-from-repo
@@ -215,6 +245,221 @@ Verification:
 
 Pitfalls:
 - On Windows, Python subprocess text capture can hit CP949 decode failures on unity-cli output. Use `encoding="utf-8", errors="replace"` in harness scripts that capture command output.
+
+## mp-human-bot-prepare-progression: Prove client bot progress by durable delta
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: `tools/harness/mp/run_human_bot_prepare_progression.py`, Phase 20 HumanBot prepare progression
+Triggers: HumanBot, `/bot/start`, `/bot/status`, selected augment hash, random-aware comparison
+
+Problem:
+`test.bot.commandsIssued` only proves the bot submitted a request. Phase 20 needs proof that State Authority accepted a meaningful command and that the resulting randomized state replicated to host and client.
+
+Recipe:
+- Launch build host and build client through the real lobby flow, not direct Game autostart.
+- Start the client with `--mpHumanBot --mpBotPersona balanced`, then pause it before Game load to capture a clean `before-bot` checkpoint.
+- Resume with `/bot/start` and bounded `--mpBotMaxCommands`; for first-command proof use `maxCommands=1` to avoid extra policy work after the accepted delta.
+- Treat a command as accepted only when a host snapshot shows a durable delta from the checkpoint, such as `augment.selectedCount/hash`, shop revision/hash, gold, wall count/hash, or placed-unit hash.
+- Require host/client snapshot comparison success after the delta, and require the bot player to remain `isConnected=true`, `isAI=false`, and `ai.controllerRegistered=false`.
+- Use longer automation request timeouts for this scenario; the main thread can be briefly busy while bot policy or Game scene setup runs.
+
+Verification:
+- `artifacts/mp/20260505-171515-human-bot-prepare/human-bot-prepare-assertions.json` reported `success=true`.
+- `accepted-command-evidence.json` proved `SelectAugment`, `commandsIssued=1`, and `augment.selectedCount 0 -> 1` for bot player `1`.
+- `comparison-latest.json` and `random-outcome-summary.json` showed host/client agreement for same-player shop, augment, and field hashes.
+- Build used `artifacts/builds/20260505-171218/MDF-MPTest.exe`, a Development Build with launch-smoke evidence.
+
+Pitfalls:
+- `NotifyAugmentSelectedCommand` must update non-server `chosenAugments`; otherwise host selected augment hashes diverge from client snapshots after an accepted selection.
+- `parse_mptest_logs.py` splits multiple `[MPTEST]` markers from the same Unity log line and tolerates truncated quoted values, so `mptest.timeline.jsonl` should not produce `parseError` rows from normal Unity log concatenation. It stores the artifact file path as `logSource` so event fields such as `source=[Player:2]` remain intact. Still check raw logs for `result=fail` or `phase=error`.
+- Current command sequence fields may be `null`; until accepted command journaling exists, use durable snapshot deltas as the acceptance proof.
+
+## mp-human-bot-4p-progression: Three client bots prove 4-player sync
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: `tools/harness/mp/run_human_bot_4p_progression.py`, Phase 21 HumanBot progression smoke
+Triggers: 4-player HumanBot, build host + 3 build clients, random-aware host-vs-client comparison
+
+Problem:
+4-player HumanBot progression must prove all slots remain human and that each same-player randomized outcome is equal across every observing peer. It should not use host-side bot commands as the primary proof because host commands bypass client request validation.
+
+Recipe:
+- Reuse the real room flow from `run_four_player_smoke.py`: launch host and all three clients into `MatchingLobby`, wait for `runner.activePlayerCount == 4` on every peer, then host-load `Game`.
+- Enable `--mpHumanBot` only on the three build clients, with distinct personas such as `balanced`, `maze`, and `shop`.
+- Pause client bots before Game load, capture a synchronized `before-bot` checkpoint, then start all bots with bounded `maxCommands=1`.
+- Require each client bot to issue at least one command where possible, and prove acceptance with durable host snapshot deltas for that bot's `playerId`.
+- Compare host against every client after progression. Keep same-player shop, augment, field wall/unit, battle, HP, gold, and known command fields strict.
+- Assert every `PlayerManager` remains `isConnected=true`, `isAI=false`, and `ai.controllerRegistered=false` on every peer.
+
+Verification:
+- `artifacts/mp/20260505-172826-human-bot-4p-progression/human-bot-4p-assertions.json` reported `success=true`, `totalBotCommands=3`, and one `SelectAugment` durable delta for each client bot.
+- `random-outcome-summary.json` showed matching same-player shop, augment, and field hashes from host to `client-1`, `client-2`, and `client-3`.
+- `bot-comparison-host-vs-client-1-latest.json`, `bot-comparison-host-vs-client-2-latest.json`, and `bot-comparison-host-vs-client-3-latest.json` all reported `success=true`.
+
+Pitfalls:
+- By round 1, the final checkpoint can naturally be `Battle1`; this is acceptable only if all peer game state/round/battle hashes match. Do not weaken mismatch checks.
+- If later phases require all four slots to issue bot commands, add a host bot deliberately and document that host-side `RequestCommandExecution` uses the State Authority path.
+
+## mp-human-bot-seed-sweep: Treat seeds as diagnostic labels
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: `tools/harness/mp/run_human_bot_seed_sweep.py`, Phase 24 stochastic HumanBot sweep
+Triggers: seed sweep, stochastic soak, multiple HumanBot prepare runs, random outcome hashes
+
+Problem:
+One HumanBot run can miss random-state sync bugs. A seed sweep should run the same random-aware scenario across several seeds and aggregate artifacts without claiming command replay or deterministic RNG control.
+
+Recipe:
+- Use `python tools/harness/mp/run_human_bot_seed_sweep.py --seeds 5101,5102,5103 --player-path <Development player>` for the default Phase 24 proof.
+- Alternatively pass `--seed-start <n> --seed-count <count>`.
+- The sweep creates a parent artifact with one `seed-<seed>/` child root per seed and passes that root to `run_human_bot_prepare_progression.py`.
+- By default, stop on the first failing seed. Use `--continue-on-fail` only when collecting multiple failures in one pass is more useful than preserving time.
+- Use `--include-4p` only for optional 4-player expansion; Phase 24's required proof is the 2-peer prepare sweep.
+- Review `seed-sweep-summary.json` and `result.json`, not just stdout. The summary records child artifact paths, commands issued, command types, bot journals, screenshot paths, random outcome hashes, comparisons, and the first failure path when a seed fails.
+- Keep `seedSemantics.deterministicReplayClaim=false`. A seed is a diagnostic run label unless each gameplay RNG source is explicitly controlled and replay-verified.
+
+Verification:
+- `artifacts/mp/20260505-190714-human-bot-seed-sweep/result.json` reported `success=true`, `failures=[]`, seeds `5101,5102,5103`.
+- Each seed child artifact passed `human-bot-prepare-assertions.json` with `commandsIssued=1`, `lastCommandType=SelectAugment`, and a durable selected augment hash delta.
+- Each seed's `comparison-latest.json` reported `success=true`.
+- Each seed's `random-outcome-summary.json` reported `matchesClient=true` for both players' shop, augment, and field hashes.
+- `rg "result=fail|phase=error|parseError" artifacts/mp/20260505-190714-human-bot-seed-sweep` found no matches.
+
+Pitfalls:
+- Do not infer deterministic replay from repeated seed labels. The summary deliberately records known uncontrolled sources such as non-ledgered `UnityEngine.Random`, wall-clock/process timing, and Photon scheduling.
+- Child runners from earlier phases may not persist their own `result.json`; the sweep must persist parent `result.json` and per-seed `seed-result.json` with child assertion evidence.
+- Use the latest Development player that includes HumanBot and augment snapshot support; do not accidentally select a production-negative build.
+
+## mp-random-authority-audit: Harden boundaries, not replay determinism
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: Phase 25, `docs/ai-harness/random-authority-audit.md`, shop/augment/wall/battle RNG
+Triggers: `UnityEngine.Random`, `System.Random`, `Environment.TickCount`, HumanBot random-aware sync, Host Migration random state
+
+Problem:
+Random-aware progression only works if durable random outcomes are decided by State Authority and then synced, snapshotted, and migrated. A seed sweep is useful evidence, but it does not prove deterministic replay while shop, augment, wall, battle, survivor boss, and AI planning randomness are still mixed across gameplay and policy code.
+
+Recipe:
+- Audit random and time-derived calls with:
+  `rg -n "UnityEngine\\.Random|Random\\.Range|Random\\.value|new System\\.Random|System\\.Random|Environment\\.TickCount|DateTime\\.UtcNow|DateTime\\.Now|Guid\\.NewGuid|Stopwatch|Time\\.realtimeSinceStartup" Mdfproject/Assets/Scripts -g "*.cs"`.
+- Classify each hit as authoritative gameplay random, client visual/identity random, AI/bot decision pacing, or test-only.
+- For authoritative gameplay random, verify the owner, sync path, reconnect path, Host Migration path, and snapshot hash/revision before claiming PASS.
+- Prefer narrow client-peer guards on authoritative outcome generators over broad RNG rewrites.
+- Keep `UnityEngine.Random.InitState` under `--mpTest` as a diagnostic seed tool; do not claim command replay unless every authoritative RNG source has a ledger or deterministic stream.
+- Document remaining un-hashed authoritative risks in `random-authority-audit.md` so later battle phases know what to target.
+
+Verification:
+- Phase 25 added `docs/ai-harness/random-authority-audit.md` and guarded shop reroll, augment presentation/selection, and survivor boss pending/target assignment against running non-server client peers.
+- `python tools/harness/precommit.py --all` reported `0 errors, 12 warnings`.
+- `unity-cli --project Mdfproject editor refresh --compile` completed compilation.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` passed `8/8`.
+- Rebuilt Development player at `artifacts/builds/20260505-192828/MDF-MPTest.exe`; launch smoke exited `0`.
+- `artifacts/mp/20260505-192927-human-bot-prepare` passed `run_human_bot_prepare_progression.py --seed 1001` with `lastCommandType=SelectAugment`, a durable selected augment hash delta, and no failures.
+- `artifacts/mp/20260505-193030-progressed-host-migration-e2e` passed progressed Host Migration after HumanBot state, with `failures=[]`.
+- `artifacts/mp/20260505-193157-human-bot-seed-sweep` passed seeds `5101,5102,5103` with `success=true` and `failures=[]`.
+
+Pitfalls:
+- Do not weaken Host Migration comparisons with "randomness changed" explanations. Randomness before migration is allowed; divergence after migration is a failure unless gameplay intentionally advanced under a documented test gate.
+- Survivor boss assignment and monster spawn positions still need deeper battle-state snapshot coverage if late-game HumanBot tests start exercising those paths.
+
+## mp-final-random-aware-audit: Pair accepted-command logs with durable deltas
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: final random-aware audit, HumanBot progression, progressed reconnect/disconnect, progressed Host Migration
+Triggers: final audit, `accepted_command`, bot journal, random outcome summary, snapshot comparison
+
+Problem:
+Bot command submission alone is not enough for final PASS. The final audit needs evidence that a real client request reached State Authority, passed validation, changed durable state, and replicated the same-player random-derived hashes across peers.
+
+Recipe:
+- Build or select a Development player that includes the latest C# changes.
+- Require `[MPTEST] phase=accepted_command result=pass` in the host timeline for client-request scenarios. This proves server-side RPC validation accepted the command after authoritative `playerId` correction.
+- Still require durable delta evidence such as selected augment hash, wall count/hash, shop revision/hash, or placed-unit hash. `accepted_command` is not enough by itself.
+- Require random outcome summaries where every same-player `matchesClient` or host-vs-client `matches` entry is true.
+- Require checkpoint snapshots and comparison JSONs for before-bot, after first accepted command, final progressed state, reconnect/disconnect, and Host Migration.
+- Run `rg "result=fail|phase=error|parseError" <artifact dirs>` and require no matches. `parse_mptest_logs.py` now splits concatenated `[MPTEST]` markers so normal Unity log concatenation should not create parser errors.
+
+Verification:
+- Build `artifacts/builds/20260505-201620/MDF-MPTest.exe` succeeded as a Development player and launch smoke exited `0`.
+- `artifacts/mp/20260505-201703-human-bot-prepare` passed with `SelectAugment`, `accepted_command`, durable selected augment hash delta, comparison success, and same-player random outcome matches.
+- `artifacts/mp/20260505-201737-human-bot-4p-progression` passed with three client bots, three `accepted_command` entries, total bot commands `3`, battle mapping hashes, and host-vs-client same-player matches.
+- `artifacts/mp/20260505-201824-progressed-same-token-reconnect` passed with target/full/role/progressed preservation assertions.
+- `artifacts/mp/20260505-201914-progressed-disconnect-ai-takeover` passed with the progressed target preserved after AI takeover.
+- `artifacts/mp/20260505-201956-progressed-host-migration-e2e` passed with `accepted_command` entries for `SelectAugment` and `PlaceWall`, Host Migration callback/token/resume proof, durable pre/post mismatches `[]`, and no raw `InvalidOperationException` or `Failed to free` log matches.
+- `artifacts/mp/20260505-202050-human-bot-seed-sweep` passed seeds `5101,5102,5103` with `deterministicReplayClaim=false` and random-aware comparisons.
+- `rg "result=fail|phase=error|parseError"` over the final artifact set found no matches. Accepted-command timeline events preserve RpcInfo `source=[Player:x]` and store the artifact file path separately as `logSource`.
+
+Pitfalls:
+- `accepted_command` is logged before the final `GameManagers` lookup and broadcast, so pair it with the durable snapshot delta and comparison result.
+- Do not treat a host-side HumanBot as proof of the real client request path. Use connected client bots for that evidence.
+
+## mp-progressed-reconnect-disconnect: Freeze progressed checkpoints without weakening comparisons
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: `tools/harness/mp/run_progressed_disconnect_ai_takeover.py`, `tools/harness/mp/run_progressed_same_token_reconnect.py`, Phase 22
+Triggers: HumanBot progressed checkpoint, same-token reconnect, disconnect AI takeover, randomized augment/shop/field state
+
+Problem:
+Progressed reconnect/disconnect tests need a synchronized HumanBot-created checkpoint before killing a client. Normal round timers and takeover AI can legitimately continue changing shop, augment, gold, wall, and unit state while the harness waits for reconnect, which makes checkpoint preservation impossible to assert. Same-token reconnect also needs a spare Photon transport slot, but raising `--mpMaxPlayers` normally creates an AI fill gameplay slot that can add random drift before the checkpoint.
+
+Recipe:
+- Use `--mpFreezeGameFlow` only in `--mpTest` Development/Editor runs when a test must preserve a checkpoint across disconnect/reconnect. It stops authority game-flow timer transitions and AI controller decisions; HumanBot still runs because it is a separate test-only driver.
+- For same-token reconnect, use transport `--mpMaxPlayers 3` but pair it with `--mpDisableAiFill` and an expected gameplay player count of 2. This leaves a Photon slot for client B without creating an extra AI `PlayerManager`.
+- Fail fast if the pre-bot checkpoint or HumanBot progressed checkpoint is not synchronized. Do not continue to kill/reconnect from a bad checkpoint.
+- Preserve and compare target fingerprints across events: HP, gold, wall count, shop revision/hash, presented and selected augment hashes, field grid/wall/unit hashes.
+- Selected and presented augment names must be published by State Authority into Networked snapshot arrays on `PlayerManager`; late-joining/reconnected clients use these arrays when local `AugmentManager` lists are empty.
+- Require `targetComparison.success`, `fullComparison.success`, `roleStateComparison.success`, and `progressedPreservation.success` for same-token reconnect.
+
+Verification:
+- `artifacts/mp/20260505-183104-progressed-disconnect-ai-takeover` passed with `failures=[]`. Its progressed checkpoint proved `SelectAugment`, and `progressed-preservation-assertions.json` preserved the target shop, augment, and field hashes after AI takeover.
+- `artifacts/mp/20260505-183145-progressed-same-token-reconnect` passed with `failures=[]`. `same-token-reconnect-assertions.json` showed target `playerId=1`, matching token hash, `hostTargetIsAI=false`, `hostTargetConnected=true`, full-world comparison success, role-state comparison success, and progressed preservation success.
+- Build used `artifacts/builds/20260505-183018/MDF-MPTest.exe`.
+- Persist the final runner verdict as `result.json` inside each artifact directory. Stdout `failures=[]` is useful but not enough for strict artifact review.
+
+Pitfalls:
+- A support human client consumes the spare Photon slot; do not use that as the same-token workaround.
+- `--mpFreezeGameFlow` is a test-only preservation tool, not a gameplay fix. Do not use it in normal progression tests that are meant to prove battle/round advancement.
+- A live `NotifyAugmentSelectedCommand` update is not enough for reconnect; reconnect clients need Networked selected/presented augment snapshot names.
+
+## mp-progressed-host-migration: Compare full durable fingerprints after host kill
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: `tools/harness/mp/run_progressed_host_migration_e2e.py`, Phase 23
+Triggers: progressed Host Migration, HumanBot checkpoint, process.kill, migration token, durable random state
+
+Problem:
+Basic Host Migration callback/token/resume proof does not prove that randomized HumanBot-created state survives migration. A progressed-state test must kill the host only after a synchronized client-bot checkpoint, then compare the new host's durable state against that exact checkpoint. Random mismatches after migration are failures, not expected randomness.
+
+Recipe:
+- Launch build host and one build client through `MatchingLobby`; enable `--mpFreezeGameFlow` on both peers so the progressed checkpoint does not drift while the host is killed and recovery completes.
+- Enable `--mpHumanBot` only on the survivor client. Pause it before Game load, then start it after a synchronized `before-bot` checkpoint.
+- Use at least two bounded HumanBot commands when practical. Seed `4001` with the balanced persona produced `SelectAugment` plus `PlaceWall`, proving both selected augment hash and field wall hash changed before migration.
+- Fail fast unless the pre-migration host/client progressed checkpoint comparison succeeds. Save `human-bot-progressed-assertions.json`, `progressed-checkpoint-comparison.json`, and `progressed-random-evidence.json`.
+- Kill the host process with `process.kill`, not `/quit`.
+- Require the survivor snapshot to prove `OnHostMigration`, non-null migration token, `StartGame` success with the token, `HostMigrationResume`, `completeCount > 0`, `failureCount == 0`, and `recoverySucceeded == true`.
+- Compare a full durable fingerprint from the survivor client's progressed checkpoint to the post-migration survivor snapshot: game state/round, battle hashes, HP, gold, wall count, shop revision/hash, presented and selected augment hashes, field grid/wall/unit hashes, and monster hashes.
+- Assert the survivor is promoted to Host/server, at least one connected non-AI human remains, player IDs stay unique, and the HumanBot is paused rather than silently resumed.
+
+Verification:
+- `python tools/harness/mp/run_progressed_host_migration_e2e.py --seed 4001 --player-path artifacts/builds/20260505-183018/MDF-MPTest.exe` passed with artifact `artifacts/mp/20260505-185323-progressed-host-migration-e2e`.
+- `host-migration-proof.json` reported callback/token/resume/startGame/complete success with `failureCount=0`.
+- `human-bot-progressed-assertions.json` reported `commandsIssued=2`, `lastCommandType=PlaceWall`, and durable deltas for `wallCount`, selected augment hash, and `field.wallHash`.
+- `progressed-host-migration-assertions.json` and `durable-state-report.json` reported `success=true` with `mismatches=[]`.
+- `result.json` reported `success=true` and `failures=[]`.
+
+Pitfalls:
+- Do not reuse the basic Host Migration durable report alone; it does not compare augment snapshots or all progressed random-state fields.
+- If game flow advances during migration, do not loosen comparisons. Use the test-only freeze or add a more explicit test-only migration freeze point.
+- A successful migration callback sequence is insufficient if the pre/post durable fingerprint diverges.
+- During `HostMigrationResume`, do not read Networked `GameManagers` properties immediately after resume-spawn just to log status. Use the cached migration snapshot label until the object is fully safe to access; the bad pattern caused `Error when accessing GameManagers.currentRound. Networked properties can only be accessed when Spawned() has been called` followed by Fusion cleanup noise in raw player logs.
 
 ## mp-e2e-mvp-start-order: Reproduce real room flow before Game load
 

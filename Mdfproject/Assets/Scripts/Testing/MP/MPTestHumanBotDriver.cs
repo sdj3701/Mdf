@@ -1,0 +1,336 @@
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Fusion;
+using Newtonsoft.Json;
+using UnityEngine;
+
+public sealed class MPTestHumanBotDriver : MonoBehaviour
+{
+    private const float DefaultDecisionIntervalSeconds = 0.5f;
+
+    public static MPTestHumanBotDriver Instance { get; private set; }
+
+    private MPTestCommandLine.Options _options;
+    private MPTestHumanBotPolicy _policy;
+    private MPTestBotJournal _journal;
+    private MPTestBotPersona _persona;
+    private bool _configured;
+    private bool _running;
+    private float _startedAt;
+    private float _nextDecisionAt;
+    private float _lastNoopLogAt;
+    private int _commandsIssued;
+    private string _lastDecision;
+    private string _lastCommandType;
+    private string _lastError;
+    private string _stopReason;
+    private int _lastPlayerId = -1;
+    private bool _lastHadInputAuthority;
+    private int _maxCommands;
+    private int _durationSeconds;
+    private int _stopAtRound;
+
+    public BotStatus Status => BuildStatus();
+    public object[] RecentJournal => _journal != null ? _journal.Recent : Array.Empty<object>();
+
+    private void Awake()
+    {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(this);
+            return;
+        }
+
+        Instance = this;
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
+
+    public void Configure(MPTestCommandLine.Options options)
+    {
+        _options = options;
+        _configured = true;
+    }
+
+    public bool StartDriver(
+        MPTestCommandLine.Options options,
+        out string reason,
+        string personaOverride = null,
+        int? seedOverride = null,
+        int? durationSecondsOverride = null,
+        int? stopAtRoundOverride = null,
+        int? maxCommandsOverride = null,
+        string journalPathOverride = null)
+    {
+        Configure(options);
+        if (!CanRun(options, out reason))
+        {
+            _lastError = reason;
+            return false;
+        }
+
+        _persona = MPTestBotPersonaParser.Parse(string.IsNullOrWhiteSpace(personaOverride) ? options.BotPersona : personaOverride);
+        int seed = seedOverride ?? options.BotSeed;
+        _durationSeconds = Mathf.Max(0, durationSecondsOverride ?? options.BotDurationSeconds);
+        _stopAtRound = Mathf.Max(0, stopAtRoundOverride ?? options.BotStopAtRound);
+        _maxCommands = Mathf.Max(0, maxCommandsOverride ?? options.BotMaxCommands);
+        string journalPath = ResolveJournalPath(options, journalPathOverride);
+
+        _policy = new MPTestHumanBotPolicy(_persona, seed);
+        _journal = new MPTestBotJournal(journalPath);
+        _commandsIssued = 0;
+        _lastDecision = null;
+        _lastCommandType = null;
+        _lastError = null;
+        _stopReason = null;
+        _running = true;
+        _startedAt = Time.realtimeSinceStartup;
+        _nextDecisionAt = 0f;
+
+        MPTestLogger.Log("human_bot", "begin", "start", null, new Dictionary<string, object>
+        {
+            { "persona", _persona.ToCliValue() },
+            { "seed", seed },
+            { "maxCommands", _maxCommands },
+            { "durationSeconds", _durationSeconds },
+            { "stopAtRound", _stopAtRound },
+            { "journal", string.IsNullOrEmpty(journalPath) ? "none" : journalPath }
+        });
+        _journal.Record(MPTestBotJournal.BuildStatusEntry("bot_start", BuildStatus()));
+        reason = null;
+        return true;
+    }
+
+    public void StopDriver(string reason = "stopped")
+    {
+        if (!_running)
+        {
+            _stopReason = reason;
+            return;
+        }
+
+        _running = false;
+        _stopReason = reason;
+        MPTestLogger.Log("human_bot", "pass", "stop", reason, new Dictionary<string, object>
+        {
+            { "commandsIssued", _commandsIssued },
+            { "persona", _persona.ToCliValue() }
+        });
+        _journal?.Record(MPTestBotJournal.BuildStatusEntry("bot_stop", BuildStatus(), reason));
+    }
+
+    private void Update()
+    {
+        if (!_running)
+        {
+            return;
+        }
+
+        if (ShouldStop())
+        {
+            return;
+        }
+
+        if (Time.realtimeSinceStartup < _nextDecisionAt)
+        {
+            return;
+        }
+
+        _nextDecisionAt = Time.realtimeSinceStartup + DefaultDecisionIntervalSeconds;
+        TickDecision();
+    }
+
+    private void TickDecision()
+    {
+        var gm = GameManagers.Instance;
+        if (gm == null || gm.CommandProcessor == null)
+        {
+            SetTransientError("game_managers_or_command_processor_missing");
+            return;
+        }
+
+        PlayerManager player = ResolveLocalInputPlayer(gm);
+        if (player == null)
+        {
+            SetTransientError("local_input_player_missing");
+            return;
+        }
+
+        _lastPlayerId = player.playerId;
+        _lastHadInputAuthority = player.Object != null && player.Object.IsValid && player.Object.HasInputAuthority;
+        if (!_lastHadInputAuthority)
+        {
+            SetTransientError("local_player_missing_input_authority");
+            return;
+        }
+
+        if (!_policy.TryChoose(player, out var decision) || decision == null || decision.Command == null)
+        {
+            _lastDecision = decision != null ? decision.Reason : "no_decision";
+            _lastCommandType = decision != null ? decision.CommandType : "Observe";
+            if (Time.realtimeSinceStartup - _lastNoopLogAt > 2f)
+            {
+                _lastNoopLogAt = Time.realtimeSinceStartup;
+                MPTestLogger.Log("human_bot_decision", "info", "observe", _lastDecision, new Dictionary<string, object>
+                {
+                    { "playerId", _lastPlayerId },
+                    { "persona", _persona.ToCliValue() }
+                });
+            }
+            return;
+        }
+
+        gm.CommandProcessor.RequestCommandExecution(decision.Command);
+        _commandsIssued++;
+        _lastDecision = decision.Reason;
+        _lastCommandType = decision.CommandType;
+        _lastError = null;
+
+        MPTestLogger.Log("human_bot_decision", "begin", decision.CommandType, decision.Reason, new Dictionary<string, object>
+        {
+            { "playerId", decision.PlayerId },
+            { "persona", _persona.ToCliValue() },
+            { "commandsIssued", _commandsIssued },
+            { "target", decision.Target ?? "none" }
+        });
+        _journal?.Record(MPTestBotJournal.BuildDecisionEntry(BuildStatus(), decision));
+    }
+
+    private bool ShouldStop()
+    {
+        if (_durationSeconds > 0 && Time.realtimeSinceStartup - _startedAt >= _durationSeconds)
+        {
+            StopDriver("duration_reached");
+            return true;
+        }
+
+        if (_maxCommands > 0 && _commandsIssued >= _maxCommands)
+        {
+            StopDriver("max_commands_reached");
+            return true;
+        }
+
+        var gm = GameManagers.Instance;
+        if (_stopAtRound > 0 && gm != null && gm.currentRound >= _stopAtRound && _commandsIssued > 0)
+        {
+            StopDriver("stop_round_reached");
+            return true;
+        }
+
+        return false;
+    }
+
+    private void SetTransientError(string error)
+    {
+        _lastError = error;
+        if (Time.realtimeSinceStartup - _lastNoopLogAt > 2f)
+        {
+            _lastNoopLogAt = Time.realtimeSinceStartup;
+            MPTestLogger.Log("human_bot", "info", error, null, new Dictionary<string, object>
+            {
+                { "persona", _persona.ToCliValue() },
+                { "commandsIssued", _commandsIssued }
+            });
+        }
+    }
+
+    private PlayerManager ResolveLocalInputPlayer(GameManagers gm)
+    {
+        if (gm.localPlayer != null &&
+            gm.localPlayer.Object != null &&
+            gm.localPlayer.Object.IsValid &&
+            gm.localPlayer.Object.HasInputAuthority)
+        {
+            return gm.localPlayer;
+        }
+
+        return gm.AllPlayers.FirstOrDefault(player =>
+            player != null &&
+            player.Object != null &&
+            player.Object.IsValid &&
+            player.Object.HasInputAuthority);
+    }
+
+    private BotStatus BuildStatus()
+    {
+        return new BotStatus
+        {
+            Enabled = _configured && _options.Enabled && _options.HumanBot,
+            Running = _running,
+            Persona = _persona.ToCliValue(),
+            CommandsIssued = _commandsIssued,
+            LastDecision = _lastDecision,
+            LastCommandType = _lastCommandType,
+            LastError = _lastError,
+            JournalPath = _journal != null ? _journal.Path : null,
+            PlayerId = _lastPlayerId,
+            HasLocalInputAuthority = _lastHadInputAuthority,
+            StopReason = _stopReason
+        };
+    }
+
+    public static bool CanRun(MPTestCommandLine.Options options, out string reason)
+    {
+        if (!options.Enabled)
+        {
+            reason = "missing --mpTest";
+            return false;
+        }
+
+        if (!options.HumanBot)
+        {
+            reason = "missing --mpHumanBot";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private static string ResolveJournalPath(MPTestCommandLine.Options options, string overridePath)
+    {
+        if (!string.IsNullOrWhiteSpace(overridePath))
+        {
+            return overridePath;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.BotRecordJournal))
+        {
+            return options.BotRecordJournal;
+        }
+
+        if (string.IsNullOrWhiteSpace(options.ArtifactDir))
+        {
+            return null;
+        }
+
+        string fileName = $"bot-{options.SafeRole}.jsonl";
+        return Path.Combine(options.ArtifactDir, fileName);
+    }
+
+    [Serializable]
+    public sealed class BotStatus
+    {
+        [JsonProperty("enabled")] public bool Enabled;
+        [JsonProperty("running")] public bool Running;
+        [JsonProperty("persona")] public string Persona;
+        [JsonProperty("commandsIssued")] public int CommandsIssued;
+        [JsonProperty("lastDecision")] public string LastDecision;
+        [JsonProperty("lastCommandType")] public string LastCommandType;
+        [JsonProperty("lastError")] public string LastError;
+        [JsonProperty("journalPath")] public string JournalPath;
+        [JsonProperty("playerId")] public int PlayerId;
+        [JsonProperty("hasLocalInputAuthority")] public bool HasLocalInputAuthority;
+        [JsonProperty("stopReason")] public string StopReason;
+    }
+}
+#endif

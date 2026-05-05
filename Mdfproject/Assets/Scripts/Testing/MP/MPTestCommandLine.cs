@@ -71,7 +71,16 @@ public static class MPTestCommandLine
             CaseName = Get(values, "--mpCase", "manual"),
             ArtifactDir = Get(values, "--mpArtifactDir", string.Empty),
             Seed = GetInt(values, "--mpSeed", 0),
-            Scenario = Get(values, "--mpScenario", "game_smoke")
+            Scenario = Get(values, "--mpScenario", "game_smoke"),
+            DisableAiFill = enabled && (flags.Contains("--mpDisableAiFill") || values.ContainsKey("--mpDisableAiFill")),
+            FreezeGameFlow = enabled && (flags.Contains("--mpFreezeGameFlow") || values.ContainsKey("--mpFreezeGameFlow")),
+            HumanBot = enabled && (flags.Contains("--mpHumanBot") || values.ContainsKey("--mpHumanBot")),
+            BotPersona = Get(values, "--mpBotPersona", "balanced"),
+            BotSeed = GetInt(values, "--mpBotSeed", GetInt(values, "--mpSeed", 0)),
+            BotDurationSeconds = Mathf.Max(0, GetInt(values, "--mpBotDurationSeconds", 0)),
+            BotStopAtRound = Mathf.Max(0, GetInt(values, "--mpBotStopAtRound", 0)),
+            BotMaxCommands = Mathf.Max(0, GetInt(values, "--mpBotMaxCommands", 0)),
+            BotRecordJournal = Get(values, "--mpBotRecordJournal", string.Empty)
         };
     }
 
@@ -107,6 +116,15 @@ public static class MPTestCommandLine
         public string ArtifactDir;
         public int Seed;
         public string Scenario;
+        public bool DisableAiFill;
+        public bool FreezeGameFlow;
+        public bool HumanBot;
+        public string BotPersona;
+        public int BotSeed;
+        public int BotDurationSeconds;
+        public int BotStopAtRound;
+        public int BotMaxCommands;
+        public string BotRecordJournal;
 
         public string SafeRole => string.IsNullOrEmpty(Role) ? "unknown" : Role.ToLowerInvariant();
         public string AutomationTokenHash => MPTestLogger.HashForLog(AutomationToken);

@@ -41,6 +41,17 @@ public class AugmentManager : MonoBehaviour
         }
     }
 
+    private string OwnerLabel()
+    {
+        return TryGetOwnerId(out int ownerId) ? ownerId.ToString() : "unknown";
+    }
+
+    private bool IsRunningClientPeerWithoutAuthority()
+    {
+        var runner = playerManager != null ? playerManager.Runner : null;
+        return runner != null && runner.IsRunning && !runner.IsServer;
+    }
+
     private async UniTask<bool> WaitUntilAugmentDataLoadedInternal(float timeoutSeconds = AugmentDataWaitTimeoutSeconds)
     {
         if (isDataLoaded)
@@ -267,6 +278,17 @@ public class AugmentManager : MonoBehaviour
 
     public void PresentAugments()
     {
+        if (playerManager == null)
+        {
+            playerManager = GetComponentInParent<PlayerManager>();
+        }
+
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning($"[AugmentManager] PresentAugments ignored on client peer. owner={OwnerLabel()}");
+            return;
+        }
+
         if (!isDataLoaded)
         {
             Debug.LogWarning("증강 데이터가 아직 로드되지 않았습니다.");
@@ -319,7 +341,15 @@ public class AugmentManager : MonoBehaviour
             return;
         }
 
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning($"[AugmentManager] SelectAndApplyAugment ignored on client peer. owner={OwnerLabel()}");
+            return;
+        }
+
         playerManager.chosenAugments.Add(chosenAugment);
+        playerManager.PublishSelectedAugmentSnapshot(chosenAugment);
+        playerManager.ClearPresentedAugmentSnapshot();
         Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강을 선택했습니다.");
 
         PlayerManager target;
