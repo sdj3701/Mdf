@@ -183,6 +183,9 @@ public partial class GameManagers : NetworkBehaviour
     /// 각 매칭 쌍마다 독립적으로 선공자를 랜덤으로 결정하여 공정성 보장
     /// </summary>
     private Dictionary<int, int> _matchFirstAttacker = new Dictionary<int, int>();
+
+    [Networked, Capacity(4)] private NetworkArray<int> BattleOpponentSnapshotIds { get; }
+    [Networked, Capacity(4)] private NetworkArray<int> BattleFirstAttackerSnapshotIds { get; }
     #endregion
 
     /// <summary>
@@ -449,6 +452,21 @@ public partial class GameManagers : NetworkBehaviour
             $"{(string.IsNullOrEmpty(extra) ? string.Empty : $" | {extra}")}");
     }
 
+    private static void LogMigrationMessage(string message)
+    {
+        Debug.Log(message);
+    }
+
+    private static void LogMigrationWarning(string message)
+    {
+        Debug.LogWarning(message);
+    }
+
+    private static void LogMigrationError(string message)
+    {
+        Debug.LogError(message);
+    }
+
     private void ResetMigrationOneShotGuards()
     {
         _migrationReadyEventPublished = false;
@@ -701,7 +719,7 @@ public partial class GameManagers : NetworkBehaviour
             if (remain <= 2f && !_migrationWarnedPrepareExpiryRace)
             {
                 _migrationWarnedPrepareExpiryRace = true;
-                Debug.LogWarning($"[HM-TRACE #{_activeMigrationTraceId}] Prepare 타이머({remain:F1}s)가 UI 복원 완료 전 만료될 위험이 있습니다.");
+                LogMigrationWarning($"[HM-TRACE #{_activeMigrationTraceId}] Prepare 타이머({remain:F1}s)가 UI 복원 완료 전 만료될 위험이 있습니다.");
                 LogMigrationTrace("FixedUpdateNetwork:PrepareRaceWarning");
             }
         }
@@ -710,7 +728,7 @@ public partial class GameManagers : NetworkBehaviour
         {
             if (IsMigrationRestoreInProgress && !IsMigrationUiRestoreCompleted && currentState == GameState.Prepare)
             {
-                Debug.LogError($"[HM-TRACE #{_activeMigrationTraceId}] Prepare 타이머 만료 시점에도 UI 복원이 완료되지 않았습니다.");
+                LogMigrationError($"[HM-TRACE #{_activeMigrationTraceId}] Prepare 타이머 만료 시점에도 UI 복원이 완료되지 않았습니다.");
                 LogMigrationTrace("FixedUpdateNetwork:PrepareExpiredBeforeUI");
             }
 
@@ -893,7 +911,7 @@ public partial class GameManagers : NetworkBehaviour
                 if (Time.realtimeSinceStartup - _lastMigrationCommandHoldLogRealtime > 1f)
                 {
                     _lastMigrationCommandHoldLogRealtime = Time.realtimeSinceStartup;
-                    Debug.Log($"[HM-TRACE #{_activeMigrationTraceId}] CommandProcessor 보류: stage={_migrationRestoreStage}");
+                    LogMigrationMessage($"[HM-TRACE #{_activeMigrationTraceId}] CommandProcessor 보류: stage={_migrationRestoreStage}");
                 }
             }
             else
@@ -1185,6 +1203,8 @@ public partial class GameManagers : NetworkBehaviour
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyBattleStart(int playerId, bool isAttacker, int opponentId)
     {
+        RecordBattleStartSnapshotFromRpc(playerId, isAttacker, opponentId);
+
         // 로컬 플레이어가 아니면 무시
         if (!TryGetPlayerIdSafe(localPlayer, out int localPlayerId) || localPlayerId != playerId) return;
 
@@ -1271,9 +1291,18 @@ public partial class GameManagers : NetworkBehaviour
     /// <param name="isBoss">보스 여부</param>
     /// <param name="bossUniqueId">보스 고유 ID</param>
     /// <param name="originPlayerId">보스 소환자 ID</param>
+    [System.Obsolete("Use RPC_RequestBattleSpawnMonster with an observed attack-pool revision.")]
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_RequestSpawnMonster(int attackerPlayerId, int defenderPlayerId, string monsterDataName, Vector3 spawnPosition, bool isBoss, int bossUniqueId, int originPlayerId, RpcInfo info = default)
     {
+        RejectDeprecatedSpawnMonsterRpc(
+            attackerPlayerId,
+            defenderPlayerId,
+            spawnPosition,
+            "legacy_spawn_rpc_deprecated_use_battle_spawn_command");
+        return;
+#if false
+
         // 서버만 처리
         if (Object == null || !Object.HasStateAuthority) return;
         if (currentState != GameState.Battle1 && currentState != GameState.Battle2) return;
@@ -1318,27 +1347,30 @@ public partial class GameManagers : NetworkBehaviour
             return;
         }
 
+        int poolSlotIndex = pool.IndexOf(targetEntry);
+        var command = new BattleSpawnMonsterCommand(
+            attackerPlayerId,
+            defenderPlayerId,
+            poolSlotIndex,
+            spawnPosition,
+            1,
+            "legacy_rpc_request_spawn_monster");
         RunLifecycleTask(
-            SpawnMonsterOnServerAsync(attacker, defender, targetEntry, spawnPosition),
-            "RPC_RequestSpawnMonster/SpawnMonsterOnServerAsync");
+            command.ExecuteAsync(CommandExecutionScope.ClientRequest, info.Source),
+            "RPC_RequestSpawnMonster/BattleSpawnMonsterCommand");
+#endif
     }
     
     private async UniTask SpawnMonsterOnServerAsync(PlayerManager attacker, PlayerManager defender, MonsterPoolEntry entry, Vector3 spawnPosition)
     {
         if (attacker?.monsterSpawner == null || defender?.fieldManager == null) return;
         
-        var monster = await attacker.monsterSpawner.SpawnMonsterAtPositionAsync(
-            entry.MonsterData,
-            spawnPosition,
-            defender.fieldManager,
-            entry.IsBoss,
-            entry.BossUniqueId,
-            entry.OriginPlayerId
-        );
+        Monster monster = null;
+        await UniTask.CompletedTask;
         
         if (monster != null)
         {
-            if (!attacker.TryConsumeMonsterFromPool(entry.MonsterData))
+            if (false)
             {
                 // Debug.LogWarning($"[RPC_RequestSpawnMonster] 소환 성공 후 풀 소비 실패: '{entry.MonsterData.monsterName}'");
             }
@@ -1350,58 +1382,81 @@ public partial class GameManagers : NetworkBehaviour
         }
     }
 
+    private void RejectDeprecatedSpawnMonsterRpc(
+        int attackerPlayerId,
+        int defenderPlayerId,
+        Vector3 spawnPosition,
+        string errorCode)
+    {
+        var command = new BattleSpawnMonsterCommand(
+            attackerPlayerId,
+            defenderPlayerId,
+            -1,
+            spawnPosition,
+            1,
+            "legacy_rpc_request_spawn_monster",
+            -1);
+        int sequence = BattleCommandTelemetry.RecordRejected(CommandType.BattleSpawnMonster);
+        var rejected = BattleCommandResult.Rejected(
+            CommandType.BattleSpawnMonster,
+            attackerPlayerId,
+            errorCode,
+            null,
+            defenderPlayerId,
+            CommandExecutionScope.ClientRequest,
+            "legacy_rpc_request_spawn_monster",
+            sequence);
+
+        BattleCommandMpTestLogger.Request(
+            CommandType.BattleSpawnMonster,
+            attackerPlayerId,
+            CommandExecutionScope.ClientRequest,
+            "deprecated legacy spawn rpc",
+            defenderPlayerId,
+            "legacy_rpc_request_spawn_monster");
+        BattleCommandMpTestLogger.Rejected(rejected);
+        BattleSpawnMonsterMpTestLogger.Request(command);
+        BattleSpawnMonsterMpTestLogger.Rejected(rejected, command);
+        SyncBattleCommandTelemetryToClientsIfAuthoritative();
+    }
+
+    [System.Obsolete("Use RPC_RequestUseMagicScrollCommand with a stable scroll slot and observed inventory revision.")]
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_RequestUseMagicScroll(int attackerPlayerId, string scrollDataName, Vector3 position, RpcInfo info = default)
     {
-        if (Object == null || !Object.HasStateAuthority) return;
-        if (currentState != GameState.Battle1 && currentState != GameState.Battle2) return;
-        if (string.IsNullOrWhiteSpace(scrollDataName)) return;
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
 
         var attacker = GetPlayer(attackerPlayerId);
-        if (attacker == null) 
+        if (attacker != null && !IsRpcSourceAuthorizedForPlayer(attacker, info.Source))
         {
+            RejectDeprecatedUseMagicScrollRpc(
+                attackerPlayerId,
+                position,
+                "legacy_scroll_rpc_source_not_attacker_input_authority");
             return;
         }
 
-        if (!IsRpcSourceAuthorizedForPlayer(attacker, info.Source)) return;
-        if (!attacker.IsAttackerInCurrentBattle) return;
-        if (!TryGetBattleDefenderField(attacker, out FieldManager defenderField)) return;
-        if (!IsWithinFieldOuterBounds(defenderField, position)) return;
-
-        MagicScrollData targetScroll = null;
-        foreach (var scroll in attacker.OwnedScrolls)
-        {
-            if (scroll != null && scroll.name == scrollDataName)
-            {
-                targetScroll = scroll;
-                break;
-            }
-        }
-
-        if (targetScroll == null)
-        {
-            return;
-        }
-
-        if (!attacker.TryConsumeMagicScroll(targetScroll))
-        {
-            return;
-        }
-
-        RPC_BroadcastMagicScrollUsed(attackerPlayerId, scrollDataName, position);
+        RejectDeprecatedUseMagicScrollRpc(
+            attackerPlayerId,
+            position,
+            "legacy_scroll_rpc_deprecated_use_use_magic_scroll_command");
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_BroadcastMagicScrollUsed(int attackerPlayerId, string scrollDataName, Vector3 position)
     {
+        UseMagicScrollMpTestLogger.Presentation(attackerPlayerId, scrollDataName, position);
         RunLifecycleTask(
-            CreateScrollCasterLocal(attackerPlayerId, scrollDataName, position),
-            "RPC_BroadcastMagicScrollUsed/CreateScrollCasterLocal");
+            CreateScrollPresentationLocal(attackerPlayerId, scrollDataName, position),
+            "RPC_BroadcastMagicScrollUsed/CreateScrollPresentationLocal");
 
         GameEvents.TriggerMagicScrollUsed(attackerPlayerId, scrollDataName, position);
     }
 
-    private async UniTask CreateScrollCasterLocal(int attackerPlayerId, string scrollDataName, Vector3 position)
+    private async UniTask CreateScrollPresentationLocal(int attackerPlayerId, string scrollDataName, Vector3 position)
     {
         var scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
         if (scrollData == null || scrollData.skillData == null)
@@ -1414,7 +1469,42 @@ public partial class GameManagers : NetworkBehaviour
 
         var caster = casterGO.AddComponent<ScrollCaster>();
         caster.Initialize();
-        caster.CastSkill(scrollData.skillData);
+        caster.PlayPresentation(scrollData.skillData);
+    }
+
+    private void RejectDeprecatedUseMagicScrollRpc(
+        int attackerPlayerId,
+        Vector3 position,
+        string errorCode)
+    {
+        var command = new UseMagicScrollCommand(
+            attackerPlayerId,
+            -1,
+            position,
+            "legacy_rpc_request_use_magic_scroll",
+            -1);
+        int sequence = BattleCommandTelemetry.RecordRejected(CommandType.UseMagicScroll);
+        var rejected = BattleCommandResult.Rejected(
+            CommandType.UseMagicScroll,
+            attackerPlayerId,
+            errorCode,
+            null,
+            -1,
+            CommandExecutionScope.ClientRequest,
+            "legacy_rpc_request_use_magic_scroll",
+            sequence);
+
+        BattleCommandMpTestLogger.Request(
+            CommandType.UseMagicScroll,
+            attackerPlayerId,
+            CommandExecutionScope.ClientRequest,
+            "deprecated legacy scroll rpc",
+            -1,
+            "legacy_rpc_request_use_magic_scroll");
+        BattleCommandMpTestLogger.Rejected(rejected);
+        UseMagicScrollMpTestLogger.Request(command);
+        UseMagicScrollMpTestLogger.Rejected(rejected, command);
+        SyncBattleCommandTelemetryToClientsIfAuthoritative();
     }
     #endregion
 
@@ -1793,7 +1883,11 @@ public partial class GameManagers : NetworkBehaviour
         
         var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
         
-        if (alivePlayers.Count == 0) return;
+        if (alivePlayers.Count == 0)
+        {
+            PublishBattleSnapshotMap();
+            return;
+        }
 
         // 랜덤 셔플 (Fisher-Yates)
         for (int i = alivePlayers.Count - 1; i > 0; i--)

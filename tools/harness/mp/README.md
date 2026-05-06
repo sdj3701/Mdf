@@ -21,6 +21,16 @@ Planned files:
 - `run_host_migration_probe.py` - feasibility probe.
 - `run_host_migration_e2e.py` - E2E only after feasibility passes.
 - `run_durable_command_soak.py` - repeated durable command consistency.
+- `run_battle_spawn_monster_command.py` - battle spawn command sync and monster snapshot coverage.
+- `run_magic_scroll_command.py` - magic scroll command sync and scroll/effect snapshot coverage.
+- `run_human_bot_battle_progression.py` - HumanBot battle progression through shared decision policies. The client peer observes by default; pass `--client-human-bot` only when the case specifically needs both peers driving bot decisions.
+- `run_progressed_host_migration_after_battle.py` - post-battle Host Migration harness entrypoint with frozen battle checkpoint preservation checks.
+- `run_progressed_reconnect_after_battle.py` - post-battle client drop, AI takeover, same-token reconnect, and full-world comparison.
+- `run_progressed_disconnect_after_battle.py` - post-battle client drop and AI takeover preservation check.
+- `run_battle_seed_sweep.py` - repeated HumanBot battle progression across diagnostic seeds with random-aware outcome summaries.
+
+Battle command scripts default to `--bot-prepare-mode augment-only` so the HumanBot can take a first augment without entering expensive maze wall planning before the battle command assertions. Use `--bot-prepare-mode full` only when prepare behavior itself is under test.
+Post-battle lifecycle scripts progress without `--mpFreezeGameFlow`, then call the `--mpTest` automation endpoint `/test/freezeGameFlow` immediately after the battle checkpoint so disconnect/reconnect/Host Migration assertions compare a stable durable state.
 - `run_production_negative_automation.py` - normal non-development build must not expose automation `/ping`.
 - `run_matrix.py` - orchestrate selected cases.
 

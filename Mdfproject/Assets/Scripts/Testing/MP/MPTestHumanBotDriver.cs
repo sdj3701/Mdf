@@ -14,7 +14,9 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
     public static MPTestHumanBotDriver Instance { get; private set; }
 
     private MPTestCommandLine.Options _options;
-    private MPTestHumanBotPolicy _policy;
+    private PrepareDecisionPolicy _preparePolicy;
+    private BattleDecisionPolicy _battlePolicy;
+    private HumanClientCommandEmitter _commandEmitter;
     private MPTestBotJournal _journal;
     private MPTestBotPersona _persona;
     private bool _configured;
@@ -32,6 +34,9 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
     private int _maxCommands;
     private int _durationSeconds;
     private int _stopAtRound;
+    private bool _skipPrepare;
+    private bool _prepareAugmentOnly;
+    private bool _preferScrollAugment;
 
     public BotStatus Status => BuildStatus();
     public object[] RecentJournal => _journal != null ? _journal.Recent : Array.Empty<object>();
@@ -69,6 +74,9 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         int? durationSecondsOverride = null,
         int? stopAtRoundOverride = null,
         int? maxCommandsOverride = null,
+        bool? skipPrepareOverride = null,
+        bool? prepareAugmentOnlyOverride = null,
+        bool? preferScrollAugmentOverride = null,
         string journalPathOverride = null)
     {
         Configure(options);
@@ -83,9 +91,14 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         _durationSeconds = Mathf.Max(0, durationSecondsOverride ?? options.BotDurationSeconds);
         _stopAtRound = Mathf.Max(0, stopAtRoundOverride ?? options.BotStopAtRound);
         _maxCommands = Mathf.Max(0, maxCommandsOverride ?? options.BotMaxCommands);
+        _skipPrepare = skipPrepareOverride ?? options.BotSkipPrepare;
+        _prepareAugmentOnly = prepareAugmentOnlyOverride ?? options.BotPrepareAugmentOnly;
+        _preferScrollAugment = preferScrollAugmentOverride ?? options.BotPreferScrollAugment;
         string journalPath = ResolveJournalPath(options, journalPathOverride);
 
-        _policy = new MPTestHumanBotPolicy(_persona, seed);
+        _preparePolicy = new PrepareDecisionPolicy(_persona.ToCliValue(), seed, _preferScrollAugment);
+        _battlePolicy = new BattleDecisionPolicy();
+        _commandEmitter = null;
         _journal = new MPTestBotJournal(journalPath);
         _commandsIssued = 0;
         _lastDecision = null;
@@ -103,6 +116,9 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             { "maxCommands", _maxCommands },
             { "durationSeconds", _durationSeconds },
             { "stopAtRound", _stopAtRound },
+            { "skipPrepare", _skipPrepare },
+            { "prepareAugmentOnly", _prepareAugmentOnly },
+            { "preferScrollAugment", _preferScrollAugment },
             { "journal", string.IsNullOrEmpty(journalPath) ? "none" : journalPath }
         });
         _journal.Record(MPTestBotJournal.BuildStatusEntry("bot_start", BuildStatus()));
@@ -173,10 +189,55 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             return;
         }
 
-        if (!_policy.TryChoose(player, out var decision) || decision == null || decision.Command == null)
+        _commandEmitter = new HumanClientCommandEmitter(gm, player, "human_bot_emitter");
+        var context = MdfDecisionContext.Create(
+            gm,
+            player,
+            CommandExecutionScope.ClientRequest,
+            _persona.ToCliValue(),
+            isHumanBot: true,
+            isServerAi: false,
+            isTestAutomation: true);
+
+        MdfDecision decision = null;
+        bool hasDecision;
+        switch (gm.GetGameState())
+        {
+            case GameManagers.GameState.Prepare:
+                if (_skipPrepare)
+                {
+                    decision = MdfDecision.Observe(context, "bot_skip_prepare");
+                    hasDecision = false;
+                }
+                else if (_prepareAugmentOnly && !HasPresentedAugment(player))
+                {
+                    decision = MdfDecision.Observe(context, "bot_prepare_augment_only_done");
+                    hasDecision = false;
+                }
+                else
+                {
+                    hasDecision = _preparePolicy != null && _preparePolicy.TryChoose(context, out decision);
+                    if (_prepareAugmentOnly && decision != null && decision.CommandType != CommandType.SelectAugment)
+                    {
+                        decision = MdfDecision.Observe(context, "bot_prepare_augment_only_blocked");
+                        hasDecision = false;
+                    }
+                }
+                break;
+            case GameManagers.GameState.Battle1:
+            case GameManagers.GameState.Battle2:
+                hasDecision = _battlePolicy != null && _battlePolicy.TryChoose(context, out decision);
+                break;
+            default:
+                decision = MdfDecision.Observe(context, "human_bot_observe_non_action_phase");
+                hasDecision = false;
+                break;
+        }
+
+        if (!hasDecision || decision == null || !decision.HasCommandPayload)
         {
             _lastDecision = decision != null ? decision.Reason : "no_decision";
-            _lastCommandType = decision != null ? decision.CommandType : "Observe";
+            _lastCommandType = decision != null ? decision.CommandTypeName : "Observe";
             if (Time.realtimeSinceStartup - _lastNoopLogAt > 2f)
             {
                 _lastNoopLogAt = Time.realtimeSinceStartup;
@@ -189,13 +250,28 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             return;
         }
 
-        gm.CommandProcessor.RequestCommandExecution(decision.Command);
+        if (!_commandEmitter.TryEmit(decision, out BattleCommandResult emitResult))
+        {
+            _lastDecision = decision.Reason;
+            _lastCommandType = decision.CommandTypeName;
+            _lastError = emitResult.ErrorCode;
+            MPTestLogger.Log("human_bot_decision", "fail", decision.CommandTypeName, emitResult.Message, new Dictionary<string, object>
+            {
+                { "playerId", decision.PlayerId },
+                { "persona", _persona.ToCliValue() },
+                { "errorCode", emitResult.ErrorCode },
+                { "target", decision.Target ?? "none" }
+            });
+            _journal?.Record(MPTestBotJournal.BuildDecisionEntry(BuildStatus(), decision));
+            return;
+        }
+
         _commandsIssued++;
         _lastDecision = decision.Reason;
-        _lastCommandType = decision.CommandType;
+        _lastCommandType = decision.CommandTypeName;
         _lastError = null;
 
-        MPTestLogger.Log("human_bot_decision", "begin", decision.CommandType, decision.Reason, new Dictionary<string, object>
+        MPTestLogger.Log("human_bot_decision", "begin", decision.CommandTypeName, decision.Reason, new Dictionary<string, object>
         {
             { "playerId", decision.PlayerId },
             { "persona", _persona.ToCliValue() },
@@ -274,8 +350,19 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             JournalPath = _journal != null ? _journal.Path : null,
             PlayerId = _lastPlayerId,
             HasLocalInputAuthority = _lastHadInputAuthority,
-            StopReason = _stopReason
+            StopReason = _stopReason,
+            SkipPrepare = _skipPrepare,
+            PrepareAugmentOnly = _prepareAugmentOnly,
+            PreferScrollAugment = _preferScrollAugment
         };
+    }
+
+    private static bool HasPresentedAugment(PlayerManager player)
+    {
+        var augments = player != null && player.augmentManager != null
+            ? player.augmentManager.GetPresentedAugments()
+            : null;
+        return augments != null && augments.Count > 0;
     }
 
     public static bool CanRun(MPTestCommandLine.Options options, out string reason)
@@ -331,6 +418,9 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         [JsonProperty("playerId")] public int PlayerId;
         [JsonProperty("hasLocalInputAuthority")] public bool HasLocalInputAuthority;
         [JsonProperty("stopReason")] public string StopReason;
+        [JsonProperty("skipPrepare")] public bool SkipPrepare;
+        [JsonProperty("prepareAugmentOnly")] public bool PrepareAugmentOnly;
+        [JsonProperty("preferScrollAugment")] public bool PreferScrollAugment;
     }
 }
 #endif

@@ -233,6 +233,8 @@ MonoBehaviour:
     _value: 0
   _IsAttackerInCurrentBattle:
     _value: 0
+  _AttackMonsterPoolRevision: 0
+  _OwnedMagicScrollRevision: 0
 --- !u!114 &-7495182607667504553
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -18,6 +18,15 @@ public static class MPTestCommandLine
         }
     }
 
+    public static bool IsGameFlowFrozen
+    {
+        get
+        {
+            var options = GetOptions();
+            return options.Enabled && options.FreezeGameFlow;
+        }
+    }
+
     public static Options GetOptions()
     {
         if (_parsed)
@@ -26,6 +35,20 @@ public static class MPTestCommandLine
         }
 
         _cachedOptions = Parse(Environment.GetCommandLineArgs());
+        _parsed = true;
+        return _cachedOptions;
+    }
+
+    public static Options SetFreezeGameFlowForRuntime(bool freeze)
+    {
+        var options = GetOptions();
+        if (!options.Enabled)
+        {
+            return options;
+        }
+
+        options.FreezeGameFlow = freeze;
+        _cachedOptions = options;
         _parsed = true;
         return _cachedOptions;
     }
@@ -80,6 +103,9 @@ public static class MPTestCommandLine
             BotDurationSeconds = Mathf.Max(0, GetInt(values, "--mpBotDurationSeconds", 0)),
             BotStopAtRound = Mathf.Max(0, GetInt(values, "--mpBotStopAtRound", 0)),
             BotMaxCommands = Mathf.Max(0, GetInt(values, "--mpBotMaxCommands", 0)),
+            BotSkipPrepare = enabled && (flags.Contains("--mpBotSkipPrepare") || values.ContainsKey("--mpBotSkipPrepare")),
+            BotPrepareAugmentOnly = enabled && (flags.Contains("--mpBotPrepareAugmentOnly") || values.ContainsKey("--mpBotPrepareAugmentOnly")),
+            BotPreferScrollAugment = enabled && (flags.Contains("--mpBotPreferScrollAugment") || values.ContainsKey("--mpBotPreferScrollAugment")),
             BotRecordJournal = Get(values, "--mpBotRecordJournal", string.Empty)
         };
     }
@@ -124,6 +150,9 @@ public static class MPTestCommandLine
         public int BotDurationSeconds;
         public int BotStopAtRound;
         public int BotMaxCommands;
+        public bool BotSkipPrepare;
+        public bool BotPrepareAugmentOnly;
+        public bool BotPreferScrollAugment;
         public string BotRecordJournal;
 
         public string SafeRole => string.IsNullOrEmpty(Role) ? "unknown" : Role.ToLowerInvariant();

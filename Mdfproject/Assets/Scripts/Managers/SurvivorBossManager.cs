@@ -254,6 +254,52 @@ public class SurvivorBossManager : MonoBehaviour
         }
         return bossList.Any(b => !_bossesInvadedThisTurn.Contains(b.BossUniqueId));
     }
+
+    public void CaptureStableSnapshot(
+        out string pendingSnapshot,
+        out string assignmentSnapshot,
+        out int pendingCount,
+        out int assignmentCount)
+    {
+        pendingCount = _pendingSurvivorBosses.Count;
+        pendingSnapshot = string.Join("|", _pendingSurvivorBosses
+            .Select(BuildBossSnapshotPart)
+            .OrderBy(part => part));
+
+        var assignmentParts = new List<string>();
+        foreach (var kv in _bossTargetAssignments.OrderBy(kv => kv.Key))
+        {
+            foreach (var boss in kv.Value ?? Enumerable.Empty<SurvivorBossData>())
+            {
+                bool invaded = _bossesInvadedThisTurn.Contains(boss.BossUniqueId);
+                assignmentParts.Add($"target={kv.Key};invaded={invaded};{BuildBossSnapshotPart(boss)}");
+            }
+        }
+
+        assignmentCount = assignmentParts.Count;
+        assignmentSnapshot = string.Join("|", assignmentParts.OrderBy(part => part));
+    }
+
+    private static string BuildBossSnapshotPart(SurvivorBossData boss)
+    {
+        string dataKey = boss.BossData != null
+            ? (!string.IsNullOrWhiteSpace(boss.BossData.monsterName) ? boss.BossData.monsterName : boss.BossData.name)
+            : "null";
+        int hpBucket = BuildHpBucket(boss.RemainingHP, boss.MaxHP);
+        int maxHpBucket = Mathf.Max(0, Mathf.RoundToInt(boss.MaxHP / 10f));
+        return $"id={boss.BossUniqueId};origin={boss.OriginPlayerId};type={dataKey};hpBucket={hpBucket};maxHpBucket={maxHpBucket}";
+    }
+
+    private static int BuildHpBucket(float currentHp, float maxHp)
+    {
+        if (maxHp <= 0f)
+        {
+            return Mathf.Max(0, Mathf.RoundToInt(currentHp / 10f));
+        }
+
+        float ratio = Mathf.Clamp01(currentHp / maxHp);
+        return Mathf.Clamp(Mathf.FloorToInt(ratio * 10f), 0, 10);
+    }
     
     /// <summary>
     /// 보스가 사망했을 때 호출됩니다. (정보 로깅용)

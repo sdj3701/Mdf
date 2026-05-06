@@ -27,11 +27,17 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
   "game": {
     "hasGameManagers": true,
     "currentState": "Prepare",
+    "battlePhase": "None|Battle1|Battle2",
     "currentRound": 1,
     "phaseTimerRemaining": 41.2,
     "firstAttackerPlayerId": 0,
     "battleOpponentsHash": "sha256:...",
-    "matchFirstAttackerHash": "sha256:..."
+    "matchFirstAttackerHash": "sha256:...",
+    "battleActiveHash": "sha256:...",
+    "survivorBossPendingHash": "sha256:...",
+    "survivorBossAssignmentHash": "sha256:...",
+    "survivorBossPendingCount": 0,
+    "survivorBossAssignmentCount": 0
   },
   "players": [
     {
@@ -49,6 +55,10 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
       "wallCount": 5,
       "isActivelyFighting": false,
       "isAttackerInCurrentBattle": false,
+      "attackMonsterPoolHash": "sha256:...",
+      "ownedScrollsHash": "sha256:...",
+      "ownedScrollRevision": 0,
+      "manualSkillReadyHash": "sha256:...",
       "shop": {
         "revision": 1,
         "round": 1,
@@ -60,7 +70,11 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
         "selectedCount": 0,
         "presentedCount": 3,
         "presentedHash": "sha256:...",
-        "selectedHash": "sha256:..."
+        "selectedHash": "sha256:...",
+        "activeEffectCount": 1,
+        "activeTargetCount": 1,
+        "activeEffectHash": "sha256:...",
+        "activeTargetHash": "sha256:..."
       },
       "field": {
         "ready": true,
@@ -76,6 +90,12 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
       "monsters": {
         "aliveCount": 0,
         "livingHash": "sha256:...",
+        "typeHash": "sha256:...",
+        "typeCountHpHash": "sha256:...",
+        "ownerOriginHash": "sha256:...",
+        "targetPlayerHash": "sha256:...",
+        "hpBucketHash": "sha256:...",
+        "bossPoolIdentityHash": "sha256:...",
         "autoSpawnRunning": false
       },
       "ai": {
@@ -92,10 +112,23 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
     "monsterCount": 0,
     "wallCount": 10
   },
+  "effects": {
+    "activeBuffCount": 0,
+    "activeStatusCount": 0,
+    "zoneCount": 0,
+    "activeBuffHash": "sha256:...",
+    "activeStatusHash": "sha256:...",
+    "zoneHash": "sha256:..."
+  },
   "commands": {
     "lastSequence": 3,
     "queueDepth": 0,
-    "lastCommand": "RerollShop"
+    "lastCommand": "RerollShop",
+    "acceptedBattleCommandSeq": 0,
+    "spawnMonsterSeq": 0,
+    "useMagicScrollSeq": 0,
+    "activateSkillSeq": 0,
+    "rejectedBattleCommandCount": 0
   },
   "hostMigration": {
     "handlerExists": true,
@@ -141,15 +174,21 @@ Exact or hash-equal after stable wait:
 - session
 - scene
 - `currentState`
+- `battlePhase` (`None`, `Battle1`, or `Battle2`)
 - `currentRound`
-- battle opponent/match mapping hashes
+- battle opponent/match/active-role mapping hashes
+- survivor boss pending/assignment counts and hashes when available; non-zero state on only one peer is a failure
 - player ids and player count
 - player HP/gold/wall counts
 - shop snapshot hashes
-- augment presented/selected hashes when available
+- augment presented/selected counts, active effect/target counts, and active effect/target hashes when available
 - field unit/wall aggregate hashes
-- monster alive counts/hashes after battle stabilization
-- command sequence/last durable command
+- monster alive counts, legacy living hashes, semantic type hashes, owner/origin hashes, type/count/HP-bucket hashes, target/player hashes, HP bucket hashes, and boss/pool identity hashes after battle stabilization
+- active buff/status/zone counts and semantic hashes after scroll or skill effects
+- command sequence/last durable command, including accepted battle command sequence, monster spawn sequence, magic scroll use sequence, and rejected battle command count
+- attack monster pool hash after authoritative spawn acceptance
+- manual/strategic skill readiness hashes after defender skill state stabilizes
+- For conditional Phase 10 required values such as battle hashes during `Battle1`/`Battle2`, survivor hashes with non-zero counts, and `commands.lastCommand` with advanced battle command counters, any `unknown`/missing value is a failure, including both peers missing the value. For optional absent state, such as no living boss monsters, both sides may remain `unknown`.
 
 Allowed differences:
 
@@ -195,8 +234,20 @@ Battle smoke:
 
 - `currentState` is `Battle1` or `Battle2`
 - attacker/defender mapping exists
+- `battleOpponentsHash` and `matchFirstAttackerHash` come from the state-authority battle map or its Networked read-only fallback, not from mutating lookup methods
 - active battle flags are consistent
+- `attackMonsterPoolHash` is deterministic for null, empty, and non-empty pools; empty-vs-nonempty pool drift must not be hidden behind `unknown`
+- `ownedScrollsHash` is deterministic for null, empty, and non-empty scroll inventories and includes the authoritative scroll revision
+- `useMagicScrollSeq` increments only when State Authority applies a scroll's gameplay effects
+- `activateSkillSeq` increments only when State Authority executes an accepted manual/strategic `ActivateSkillCommand`
+- `manualSkillReadyHash` compares manual/AI-strategic skill readiness with semantic unit data, grid position, skill key, mana bucket, status, casting/dead flags, and target availability
+- `effects.activeStatusHash`, `effects.activeBuffHash`, and `effects.zoneHash` compare active duration effects using semantic target keys. Unit targets include owner/data/star/grid; monster targets include owner/data/boss metadata/HP bucket/navigation or coarse position; wall targets include owner/grid/HP bucket. Do not fall back to raw Unity instance IDs or object names.
+- Phase 6 scroll effect coverage snapshots active buff/status/zone state for peer comparison; durable Host Migration restoration of active effect timers remains a later battle migration blocker until proven by artifacts
 - monster spawner readiness true for defenders
+- `game.battleActiveHash` is equal across peers after a stable wait
+- `players[].monsters.typeHash`, `ownerOriginHash`, `typeCountHpHash`, `hpBucketHash`, `targetPlayerHash`, and `bossPoolIdentityHash` are equal when living monsters exist
+- monster snapshot collection uses owner-id fallback over live replicated monsters, so a missed one-shot init RPC must not hide a living monster
+- survivor boss pending/assignment hashes are equal across comparable authority snapshots when pending or assigned survivor bosses exist
 
 Host migration:
 
@@ -211,5 +262,5 @@ HumanBot progression:
 - bot-driven player remains a connected human and `isAI == false`
 - `ai.controllerRegistered == false` for the HumanBot player
 - `test.bot.commandsIssued > 0` after the progression target
-- host/client snapshots agree on the same player's shop, augment, field, wall, unit, battle, HP, gold, and command hashes
+- host/client snapshots agree on the same player's shop, augment, field, wall, unit, battle, monster pool, HP, gold, and command hashes
 - no fixed random shop, wall, or augment value is required

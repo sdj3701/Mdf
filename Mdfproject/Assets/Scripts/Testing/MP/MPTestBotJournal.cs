@@ -69,6 +69,30 @@ public sealed class MPTestBotJournal
         };
     }
 
+    public static object BuildDecisionEntry(MPTestHumanBotDriver.BotStatus status, MdfDecision decision)
+    {
+        return new
+        {
+            kind = "bot_decision",
+            ts = DateTime.UtcNow.ToString("o"),
+            seq = status != null ? status.CommandsIssued + 1 : 0,
+            playerId = decision != null ? decision.PlayerId : -1,
+            persona = status != null ? status.Persona : "unknown",
+            gameState = decision != null ? decision.GameState : "unknown",
+            round = decision != null ? decision.Round : 0,
+            observed = decision != null ? decision.Observed : null,
+            decision = new
+            {
+                commandType = decision != null ? decision.CommandTypeName : "Observe",
+                reason = decision != null ? decision.Reason : "no_decision",
+                target = decision != null ? decision.Target : null,
+                score = decision != null ? decision.Score : 0f,
+                kind = decision != null ? decision.Kind.ToString() : "Observe",
+                fields = decision != null ? decision.JournalFields : null
+            }
+        };
+    }
+
     public static object BuildStatusEntry(string kind, MPTestHumanBotDriver.BotStatus status, string reason = null)
     {
         return new

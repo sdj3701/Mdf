@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
@@ -37,6 +38,8 @@ public sealed class MPTestHarnessEditModeTests
             "--mpBotDurationSeconds", "33",
             "--mpBotStopAtRound", "2",
             "--mpBotMaxCommands", "9",
+            "--mpBotPrepareAugmentOnly",
+            "--mpBotPreferScrollAugment",
             "--mpBotRecordJournal", "artifacts/mp/phase8/bot.jsonl"
         });
 
@@ -62,14 +65,25 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(options.BotDurationSeconds, Is.EqualTo(33));
         Assert.That(options.BotStopAtRound, Is.EqualTo(2));
         Assert.That(options.BotMaxCommands, Is.EqualTo(9));
+        Assert.That(options.BotPrepareAugmentOnly, Is.True);
+        Assert.That(options.BotPreferScrollAugment, Is.True);
+        Assert.That(options.BotSkipPrepare, Is.False);
         Assert.That(options.BotRecordJournal, Is.EqualTo("artifacts/mp/phase8/bot.jsonl"));
     }
 
     [Test]
     public void MPTestLoggerEmitsStablePrefixAndFields()
     {
-        LogAssert.Expect(LogType.Log, new Regex(@"\[MPTEST\].*phase=phase8_log_smoke.*result=pass"));
-        MPTestLogger.Pass("phase8_log_smoke");
+        try
+        {
+            MPTestLogger.EditorTestLoggingEnabled = true;
+            LogAssert.Expect(LogType.Log, new Regex(@"\[MPTEST\].*phase=phase8_log_smoke.*result=pass"));
+            MPTestLogger.Pass("phase8_log_smoke");
+        }
+        finally
+        {
+            MPTestLogger.EditorTestLoggingEnabled = false;
+        }
     }
 
     [Test]
@@ -82,8 +96,13 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(restored.Version, Is.EqualTo(1));
         Assert.That(restored.Scene, Is.EqualTo("Game"));
         Assert.That(restored.Game.CurrentState, Is.EqualTo("Prepare"));
+        Assert.That(restored.Game.BattlePhase, Is.EqualTo("None"));
         Assert.That(restored.Players.Length, Is.EqualTo(1));
         Assert.That(restored.Players[0].Shop.ItemsHash, Does.StartWith("sha256:"));
+        Assert.That(restored.Players[0].ManualSkillReadyHash, Does.StartWith("sha256:"));
+        Assert.That(restored.Players[0].Monsters.TypeHash, Does.StartWith("sha256:"));
+        Assert.That(restored.Effects.ActiveBuffHash, Does.StartWith("sha256:"));
+        Assert.That(restored.Commands.ActivateSkillSeq, Is.EqualTo(0));
     }
 
     [Test]
@@ -100,6 +119,144 @@ public sealed class MPTestHarnessEditModeTests
         var result = MPTestAssertions.CompareDurable(host, client);
 
         Assert.That(result.Success, Is.True, string.Join("\n", result.Errors));
+    }
+
+    [Test]
+    public void SnapshotComparisonRequiresBattleHashesWhenInBattle()
+    {
+        AssertComparisonFails((host, client) =>
+        {
+            string hash = MPTestStateSnapshot.HashStableString("battle");
+            host.Game.CurrentState = "Battle1";
+            client.Game.CurrentState = "Battle1";
+            host.Game.BattlePhase = "Battle1";
+            client.Game.BattlePhase = "Battle1";
+            host.Game.BattleOpponentsHash = hash;
+            host.Game.MatchFirstAttackerHash = hash;
+            host.Game.BattleActiveHash = hash;
+            client.Game.BattleOpponentsHash = "unknown";
+            client.Game.MatchFirstAttackerHash = "unknown";
+            client.Game.BattleActiveHash = "unknown";
+        }, "game.battleOpponentsHash");
+    }
+
+    [Test]
+    public void SnapshotComparisonRequiresBattleHashesEvenWhenBothPeersMissThem()
+    {
+        AssertComparisonFails((host, client) =>
+        {
+            host.Game.CurrentState = "Battle1";
+            client.Game.CurrentState = "Battle1";
+            host.Game.BattlePhase = "Battle1";
+            client.Game.BattlePhase = "Battle1";
+            host.Game.BattleOpponentsHash = "unknown";
+            client.Game.BattleOpponentsHash = "unknown";
+            host.Game.MatchFirstAttackerHash = "unknown";
+            client.Game.MatchFirstAttackerHash = "unknown";
+            host.Game.BattleActiveHash = "unknown";
+            client.Game.BattleActiveHash = "unknown";
+        }, "game.battleOpponentsHash");
+    }
+
+    [Test]
+    public void SnapshotComparisonRequiresSurvivorHashesWhenCountsAreNonZero()
+    {
+        AssertComparisonFails((host, client) =>
+        {
+            string hash = MPTestStateSnapshot.HashStableString("survivor-boss");
+            host.Game.SurvivorBossPendingCount = 1;
+            client.Game.SurvivorBossPendingCount = 1;
+            host.Game.SurvivorBossPendingHash = hash;
+            client.Game.SurvivorBossPendingHash = "unknown";
+        }, "game.survivorBossPendingHash");
+    }
+
+    [Test]
+    public void SnapshotComparisonRequiresSurvivorHashesEvenWhenBothPeersMissThem()
+    {
+        AssertComparisonFails((host, client) =>
+        {
+            host.Game.SurvivorBossPendingCount = 1;
+            client.Game.SurvivorBossPendingCount = 1;
+            host.Game.SurvivorBossPendingHash = "unknown";
+            client.Game.SurvivorBossPendingHash = "unknown";
+        }, "game.survivorBossPendingHash");
+
+        AssertComparisonFails((host, client) =>
+        {
+            host.Game.SurvivorBossAssignmentCount = 1;
+            client.Game.SurvivorBossAssignmentCount = 1;
+            host.Game.SurvivorBossAssignmentHash = "unknown";
+            client.Game.SurvivorBossAssignmentHash = "unknown";
+        }, "game.survivorBossAssignmentHash");
+    }
+
+    [Test]
+    public void SnapshotComparisonRequiresCommandNameWhenCommandCountersAdvance()
+    {
+        AssertComparisonFails((host, client) =>
+        {
+            host.Commands.AcceptedBattleCommandSeq = 1;
+            client.Commands.AcceptedBattleCommandSeq = 1;
+            host.Commands.LastCommand = CommandType.BattleSpawnMonster.ToString();
+            client.Commands.LastCommand = "unknown";
+        }, "commands.lastCommand");
+    }
+
+    [Test]
+    public void SnapshotComparisonRequiresCommandNameEvenWhenBothPeersMissIt()
+    {
+        AssertComparisonFails((host, client) =>
+        {
+            host.Commands.AcceptedBattleCommandSeq = 1;
+            client.Commands.AcceptedBattleCommandSeq = 1;
+            host.Commands.LastCommand = "unknown";
+            client.Commands.LastCommand = "unknown";
+        }, "commands.lastCommand");
+    }
+
+    [Test]
+    public void SnapshotComparisonRejectsOneSidedRequiredBattleHashes()
+    {
+        AssertComparisonFails((host, client) =>
+        {
+            client.Players[0].AttackMonsterPoolHash = "unknown";
+        }, "player.0.attackMonsterPoolHash");
+
+        AssertComparisonFails((host, client) =>
+        {
+            client.Players[0].OwnedScrollsHash = "unknown";
+        }, "player.0.ownedScrollsHash");
+
+        AssertComparisonFails((host, client) =>
+        {
+            client.Players[0].ManualSkillReadyHash = "unknown";
+        }, "player.0.manualSkillReadyHash");
+
+        AssertComparisonFails((host, client) =>
+        {
+            client.Players[0].Monsters.TypeHash = "unknown";
+        }, "player.0.monsters.typeHash");
+
+        AssertComparisonFails((host, client) =>
+        {
+            client.Players[0].Monsters.OwnerOriginHash = "unknown";
+        }, "player.0.monsters.ownerOriginHash");
+
+        AssertComparisonFails((host, client) =>
+        {
+            client.Players[0].Monsters.HpBucketHash = "unknown";
+        }, "player.0.monsters.hpBucketHash");
+
+        AssertComparisonFails((host, client) =>
+        {
+            client.Players[0].Monsters.BossPoolIdentityHash = "unknown";
+        }, "player.0.monsters.bossPoolIdentityHash");
+
+        AssertComparisonFails((host, client) =>
+        {
+            client.Effects.ActiveBuffHash = "unknown";
+        }, "effects.activeBuffHash");
     }
 
     [Test]
@@ -149,6 +306,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("Authorization"));
         Assert.That(source, Does.Contain("/bot/start"));
         Assert.That(source, Does.Contain("/bot/status"));
+        Assert.That(source, Does.Contain("/test/freezeGameFlow"));
     }
 
     [Test]
@@ -159,6 +317,343 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(unsafeServer, Does.Not.Contain("UNITY_EDITOR || DEVELOPMENT_BUILD"));
         Assert.That(unsafeServer, Does.Not.Contain("--mpTest"));
         Assert.That(unsafeServer, Does.Not.Contain("IPAddress.Loopback"));
+    }
+
+    [Test]
+    public void BattleCommandFoundationCarriesRequiredResultFields()
+    {
+        var result = BattleCommandResult.Rejected(
+            CommandType.ActivateSkill,
+            playerId: 2,
+            errorCode: "unit_not_ready",
+            message: "unit cannot act",
+            opponentPlayerId: 1,
+            scope: CommandExecutionScope.ClientRequest,
+            source: "editmode",
+            sequence: 7);
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.ErrorCode, Is.EqualTo("unit_not_ready"));
+        Assert.That(result.Message, Is.EqualTo("unit cannot act"));
+        Assert.That(result.CommandType, Is.EqualTo(CommandType.ActivateSkill));
+        Assert.That(result.PlayerId, Is.EqualTo(2));
+        Assert.That(result.OpponentPlayerId, Is.EqualTo(1));
+        Assert.That(result.Scope, Is.EqualTo(CommandExecutionScope.ClientRequest));
+        Assert.That(result.Source, Is.EqualTo("editmode"));
+        Assert.That(result.Sequence, Is.EqualTo(7));
+    }
+
+    [Test]
+    public void BattleCommandFoundationDefinesStableExecutionScopes()
+    {
+        Assert.That(CommandExecutionScope.ClientRequest.ToString(), Is.EqualTo("ClientRequest"));
+        Assert.That(CommandExecutionScope.ServerAuthorityOnly.ToString(), Is.EqualTo("ServerAuthorityOnly"));
+        Assert.That(CommandExecutionScope.PresentationOnly.ToString(), Is.EqualTo("PresentationOnly"));
+    }
+
+    [Test]
+    public void BattleCommandValidatorRejectsInvalidTargetPositions()
+    {
+        Assert.That(BattleCommandValidator.IsFiniteTargetPosition(Vector3.zero), Is.True);
+        Assert.That(BattleCommandValidator.IsFiniteTargetPosition(new Vector3(float.NaN, 0f, 0f)), Is.False);
+        Assert.That(BattleCommandValidator.IsFiniteTargetPosition(new Vector3(0f, float.PositiveInfinity, 0f)), Is.False);
+    }
+
+    [Test]
+    public void ServerBattleCommandExecutorRequiresExplicitDelegates()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Commands/Battle/ServerBattleCommandExecutor.cs");
+
+        Assert.That(source, Does.Contain("validation_delegate_required"));
+        Assert.That(source, Does.Contain("execution_delegate_required"));
+        Assert.That(source, Does.Not.Contain("no_validation_delegate"));
+        Assert.That(source, Does.Not.Contain("no_execution_delegate"));
+    }
+
+    [Test]
+    public void BattleCommandOpponentResolutionKeepsClientPathsReadOnly()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Commands/Battle/BattleCommandValidator.cs");
+
+        Assert.That(source, Does.Contain("battle_opponent_snapshot_missing"));
+        Assert.That(source, Does.Contain("CanUseAuthorityOpponentFallback"));
+        Assert.That(source, Does.Contain("scope == CommandExecutionScope.ServerAuthorityOnly"));
+    }
+
+    [Test]
+    public void ScrollTargetEvaluatorScoresDebuffNearDefenderClusterAndAlliedMonsters()
+    {
+        var scroll = CreateScrollForTest(
+            MagicScrollTacticalRole.Debuff,
+            MagicScrollTargetDomain.EnemyUnitsNearAlliedMonsters,
+            range: 2.5f,
+            aiMinValue: 0f);
+        var heatmap = new BattleHeatmap(
+            null,
+            null,
+            null,
+            new[]
+            {
+                new BattleHeatmap.UnitSample(null, new Vector3(2f, 0f, 2f), "unit=a", 5f, 1f, true, false, false),
+                new BattleHeatmap.UnitSample(null, new Vector3(2.4f, 0f, 2.1f), "unit=b", 7f, 0.3f, true, true, false),
+                new BattleHeatmap.UnitSample(null, new Vector3(8f, 0f, 8f), "unit=c", 4f, 1f, false, false, false)
+            },
+            new[]
+            {
+                new BattleHeatmap.MonsterSample(null, new Vector3(2.2f, 0f, 1.6f), "monster=ally-a", 20f, 1f, false, false, false, false),
+                new BattleHeatmap.MonsterSample(null, new Vector3(7.8f, 0f, 8.1f), "monster=ally-b", 15f, 1f, false, false, false, false)
+            },
+            false,
+            Vector3.zero);
+
+        try
+        {
+            var evaluator = new ScrollTargetEvaluator();
+            bool found = evaluator.TryFindBestTarget(scroll, heatmap, out var result);
+
+            Assert.That(found, Is.True, result.Reason);
+            Assert.That(result.GameplayPosition.x, Is.LessThan(4f));
+            Assert.That(result.GameplayPosition.z, Is.LessThan(4f));
+            Assert.That(result.VisualPosition.y, Is.GreaterThan(result.GameplayPosition.y));
+            Assert.That(result.JournalFields["defenderUnits"], Is.EqualTo(2));
+            Assert.That(result.JournalFields["alliedMonsters"], Is.EqualTo(1));
+        }
+        finally
+        {
+            Object.DestroyImmediate(scroll.skillData);
+            Object.DestroyImmediate(scroll);
+        }
+    }
+
+    [Test]
+    public void ScrollTargetEvaluatorScoresBuffOnAlliedMonsterCluster()
+    {
+        var scroll = CreateScrollForTest(
+            MagicScrollTacticalRole.Buff,
+            MagicScrollTargetDomain.AlliedMonsters,
+            range: 2.25f,
+            aiMinValue: 0f);
+        var heatmap = new BattleHeatmap(
+            null,
+            null,
+            null,
+            new BattleHeatmap.UnitSample[0],
+            new[]
+            {
+                new BattleHeatmap.MonsterSample(null, new Vector3(1f, 0f, 1f), "monster=boss", 80f, 1f, true, false, true, false),
+                new BattleHeatmap.MonsterSample(null, new Vector3(1.4f, 0f, 1.2f), "monster=destroyer", 50f, 0.5f, false, true, false, false),
+                new BattleHeatmap.MonsterSample(null, new Vector3(8f, 0f, 8f), "monster=lone", 15f, 1f, false, false, false, false)
+            },
+            true,
+            new Vector3(1.5f, 0f, 1.5f));
+
+        try
+        {
+            var evaluator = new ScrollTargetEvaluator();
+            bool found = evaluator.TryFindBestTarget(scroll, heatmap, out var result);
+
+            Assert.That(found, Is.True, result.Reason);
+            Assert.That(result.GameplayPosition.x, Is.LessThan(4f));
+            Assert.That(result.GameplayPosition.z, Is.LessThan(4f));
+            Assert.That(result.JournalFields["alliedMonsters"], Is.EqualTo(2));
+            Assert.That(result.JournalFields["highValue"], Is.EqualTo(3));
+        }
+        finally
+        {
+            Object.DestroyImmediate(scroll.skillData);
+            Object.DestroyImmediate(scroll);
+        }
+    }
+
+    [Test]
+    public void ScrollTargetEvaluatorHonorsAiMinimumValue()
+    {
+        var scroll = CreateScrollForTest(
+            MagicScrollTacticalRole.Debuff,
+            MagicScrollTargetDomain.EnemyUnits,
+            range: 2f,
+            aiMinValue: 9999f);
+        var heatmap = new BattleHeatmap(
+            null,
+            null,
+            null,
+            new[]
+            {
+                new BattleHeatmap.UnitSample(null, new Vector3(2f, 0f, 2f), "unit=a", 1f, 1f, false, false, false)
+            },
+            new BattleHeatmap.MonsterSample[0],
+            false,
+            Vector3.zero);
+
+        try
+        {
+            var evaluator = new ScrollTargetEvaluator();
+            bool found = evaluator.TryFindBestTarget(scroll, heatmap, out var result);
+
+            Assert.That(found, Is.False);
+            Assert.That(result.Reason, Does.Contain("below_min_value"));
+        }
+        finally
+        {
+            Object.DestroyImmediate(scroll.skillData);
+            Object.DestroyImmediate(scroll);
+        }
+    }
+
+    [Test]
+    public void ActivateSkillCommandSourceContainsStrategicManualSkillGuards()
+    {
+        string commandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/ActivateSkillCommand.cs");
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string loggerSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/SkillCommandMpTestLogger.cs");
+
+        Assert.That(commandSource, Does.Contain("skill_not_manual_or_ai_strategic"));
+        Assert.That(commandSource, Does.Contain("skill_mana_not_ready"));
+        Assert.That(commandSource, Does.Contain("skill_unit_disabled_or_silenced"));
+        Assert.That(commandSource, Does.Contain("skill_target_unavailable"));
+        Assert.That(unitSource, Does.Contain("HasSkillTargetsAvailable"));
+        Assert.That(loggerSource, Does.Contain("skill_command_request"));
+        Assert.That(loggerSource, Does.Contain("skill_command_accepted"));
+        Assert.That(loggerSource, Does.Contain("skill_command_rejected"));
+        Assert.That(loggerSource, Does.Contain("skill_command_executed"));
+    }
+
+    [Test]
+    public void DefenderSkillPolicyEmitsOnlyActivateSkillCommandDecision()
+    {
+        string policySource = File.ReadAllText("Assets/Scripts/AI/Planning/DefenderSkillPolicy.cs");
+
+        Assert.That(policySource, Does.Contain("new ActivateSkillCommand"));
+        Assert.That(policySource, Does.Contain("defender_skill_evaluated"));
+        Assert.That(policySource, Does.Contain("defender_skill_selected"));
+        Assert.That(policySource, Does.Not.Contain(".ActivateSkill("));
+        Assert.That(policySource, Does.Not.Contain("ApplyEffect("));
+    }
+
+    [Test]
+    public void BehaviorTreeV2WiresAiAndHumanBotThroughSharedPolicies()
+    {
+        string aiSource = File.ReadAllText("Assets/Scripts/Commands/AI/AIPlayerController.cs");
+        string humanBotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
+        string journalSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestBotJournal.cs");
+
+        Assert.That(aiSource, Does.Contain("PrepareDecisionPolicy"));
+        Assert.That(aiSource, Does.Contain("BattleDecisionPolicy"));
+        Assert.That(aiSource, Does.Contain("ServerAiCommandEmitter"));
+        Assert.That(aiSource, Does.Contain("MdfDecisionContext.Create"));
+        Assert.That(humanBotSource, Does.Contain("PrepareDecisionPolicy"));
+        Assert.That(humanBotSource, Does.Contain("BattleDecisionPolicy"));
+        Assert.That(humanBotSource, Does.Contain("HumanClientCommandEmitter"));
+        Assert.That(humanBotSource, Does.Contain("isHumanBot: true"));
+        Assert.That(humanBotSource, Does.Not.Contain("ComponentRegistry.Register<AIPlayerController>"));
+        Assert.That(journalSource, Does.Contain("BuildDecisionEntry(MPTestHumanBotDriver.BotStatus status, MdfDecision decision)"));
+    }
+
+    [Test]
+    public void PrepareDecisionPolicyPreservesExpectedActionOrder()
+    {
+        string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
+
+        Assert.That(source, Does.Contain("yield return TryChooseAugment"));
+        Assert.That(source.IndexOf("yield return TryChooseWall", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("yield return TryChooseBuy", System.StringComparison.Ordinal)));
+        Assert.That(source.IndexOf("yield return TryChooseBuy", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("yield return TryChooseMove", System.StringComparison.Ordinal)));
+        Assert.That(source.IndexOf("yield return TryChooseMove", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("yield return TryChooseReroll", System.StringComparison.Ordinal)));
+    }
+
+    [Test]
+    public void BattleDecisionLayerRoutesOnlyThroughCommandEmitters()
+    {
+        string policySource = File.ReadAllText("Assets/Scripts/AI/Planning/BattleDecisionPolicy.cs");
+        string emitterSource = File.ReadAllText("Assets/Scripts/AI/Planning/MdfCommandEmitter.cs");
+
+        Assert.That(policySource, Does.Contain("new BattleSpawnMonsterCommand"));
+        Assert.That(policySource, Does.Contain("new UseMagicScrollCommand"));
+        Assert.That(policySource, Does.Contain("DefenderSkillPolicy"));
+        Assert.That(policySource, Does.Not.Contain("SpawnMonsterAtPositionAsync"));
+        Assert.That(policySource, Does.Not.Contain("TryConsumeMonsterPoolSlot"));
+        Assert.That(policySource, Does.Not.Contain("TryConsumeMagicScrollSlot"));
+        Assert.That(policySource, Does.Not.Contain("CastGameplay"));
+        Assert.That(policySource, Does.Not.Contain(".ActivateSkill("));
+        Assert.That(emitterSource, Does.Contain("CommandProcessor.RequestCommandExecution"));
+        Assert.That(emitterSource, Does.Contain("ExecuteBattleSpawnMonsterCommandAsync"));
+        Assert.That(emitterSource, Does.Contain("RPC_RequestBattleSpawnMonster"));
+        Assert.That(emitterSource, Does.Contain("ExecuteUseMagicScrollCommandAsync"));
+        Assert.That(emitterSource, Does.Contain("RPC_RequestUseMagicScrollCommand"));
+    }
+
+    [Test]
+    public void BehaviorTreeV2DoesNotMutateDurableStateInPoliciesOrTestLogging()
+    {
+        string prepareSource = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
+        string loggerSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestLogger.cs");
+        string emitterSource = File.ReadAllText("Assets/Scripts/AI/Planning/MdfCommandEmitter.cs");
+
+        Assert.That(prepareSource, Does.Not.Contain("unitPurchaseComplete = true"));
+        Assert.That(loggerSource, Does.Contain("#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)"));
+        Assert.That(loggerSource, Does.Contain("!options.Enabled"));
+        Assert.That(emitterSource, Does.Contain("missing_mp_test"));
+    }
+
+    [Test]
+    public void NotificationDoesNotApplyPeerPersistentEffects()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Commands/Sync/NotifyAugmentSelectedCommand.cs");
+        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+
+        Assert.That(source, Does.Not.Contain("player.chosenAugments.Add"));
+        Assert.That(source, Does.Not.Contain("player.AddOwnedBoss"));
+        Assert.That(source, Does.Not.Contain("player.RegisterActiveMonsterSummonAugment"));
+        Assert.That(source, Does.Not.Contain("permanentAttackDamagePercent +="));
+        Assert.That(source, Does.Not.Contain("permanentAttackSpeedPercent +="));
+        Assert.That(source, Does.Not.Contain("GetPresentedAugments().Clear"));
+        Assert.That(source, Does.Not.Contain("presentedAugments.Clear"));
+        Assert.That(snapshotSource, Does.Contain("EnumerateSelectedAugmentsForSnapshot"));
+        Assert.That(snapshotSource, Does.Contain("GetSelectedAugmentSnapshotNames"));
+    }
+
+    [Test]
+    public void AttackMonsterPoolSnapshotApplyDoesNotDropUnresolvedEntries()
+    {
+        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string augmentSource = File.ReadAllText("Assets/Scripts/Managers/AugmentManager.cs");
+
+        Assert.That(playerSource, Does.Contain("ResolveAttackMonsterDataAsync"));
+        Assert.That(playerSource, Does.Contain("FindLoadedMonsterDataByName"));
+        Assert.That(playerSource, Does.Contain("FindWaveMonsterDataByName"));
+        Assert.That(playerSource, Does.Contain("AttackMonsterPool snapshot apply aborted"));
+        Assert.That(playerSource, Does.Not.Match(@"if \(monsterData == null\)\s*\{\s*continue;"));
+        Assert.That(augmentSource, Does.Contain("FindMonsterDataByName"));
+        Assert.That(augmentSource, Does.Contain("augment?.bossMonsterData"));
+        Assert.That(augmentSource, Does.Contain("augment?.monsterSpawnEntries"));
+    }
+
+    private static void AssertComparisonFails(System.Action<MPTestStateSnapshot.Snapshot, MPTestStateSnapshot.Snapshot> mutate, string expectedErrorField)
+    {
+        var host = BuildSnapshot("host");
+        var client = BuildSnapshot("client");
+        mutate(host, client);
+
+        var result = MPTestAssertions.CompareDurable(host, client);
+
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.Errors, Has.Some.Contains(expectedErrorField), string.Join("\n", result.Errors));
+    }
+
+    [Test]
+    public void BattleCommandTelemetryTracksActivateSkillSequence()
+    {
+        BattleCommandTelemetry.ApplySnapshot(0, 0, 0, 0, 0, "unknown");
+
+        int sequence = BattleCommandTelemetry.RecordActivateSkillExecuted();
+
+        Assert.That(sequence, Is.EqualTo(1));
+        Assert.That(BattleCommandTelemetry.ActivateSkillSeq, Is.EqualTo(1));
+        Assert.That(BattleCommandTelemetry.LastCommand, Is.EqualTo(CommandType.ActivateSkill.ToString()));
+
+        BattleCommandTelemetry.ApplySnapshot(0, 0, 0, 0, 0, "unknown");
     }
 
     private static MPTestStateSnapshot.Snapshot BuildSnapshot(string role)
@@ -187,6 +682,7 @@ public sealed class MPTestHarnessEditModeTests
             {
                 HasGameManagers = true,
                 CurrentState = "Prepare",
+                BattlePhase = "None",
                 CurrentRound = 1,
                 PhaseTimerRemaining = 12.5f,
                 FirstAttackerPlayerId = 0,
@@ -211,6 +707,10 @@ public sealed class MPTestHarnessEditModeTests
                     WallCount = 5,
                     IsActivelyFighting = false,
                     IsAttackerInCurrentBattle = false,
+                    AttackMonsterPoolHash = hash,
+                    OwnedScrollsHash = hash,
+                    OwnedScrollRevision = 0,
+                    ManualSkillReadyHash = hash,
                     Shop = new MPTestStateSnapshot.ShopSnapshot
                     {
                         Available = true,
@@ -244,6 +744,12 @@ public sealed class MPTestHarnessEditModeTests
                         Ready = true,
                         AliveCount = 0,
                         LivingHash = hash,
+                        TypeHash = hash,
+                        TypeCountHpHash = hash,
+                        OwnerOriginHash = hash,
+                        TargetPlayerHash = hash,
+                        HpBucketHash = hash,
+                        BossPoolIdentityHash = hash,
                         AutoSpawnRunning = null
                     },
                     Ai = new MPTestStateSnapshot.AiSnapshot
@@ -262,11 +768,25 @@ public sealed class MPTestHarnessEditModeTests
                 MonsterCount = 0,
                 WallCount = 0
             },
+            Effects = new MPTestStateSnapshot.EffectsSnapshot
+            {
+                ActiveBuffCount = 0,
+                ActiveStatusCount = 0,
+                ZoneCount = 0,
+                ActiveBuffHash = hash,
+                ActiveStatusHash = hash,
+                ZoneHash = hash
+            },
             Commands = new MPTestStateSnapshot.CommandsSnapshot
             {
                 LastSequence = null,
                 QueueDepth = 0,
-                LastCommand = "unknown"
+                LastCommand = "unknown",
+                AcceptedBattleCommandSeq = 0,
+                SpawnMonsterSeq = 0,
+                UseMagicScrollSeq = 0,
+                ActivateSkillSeq = 0,
+                RejectedBattleCommandCount = 0
             },
             HostMigration = new MPTestStateSnapshot.HostMigrationSnapshot
             {
@@ -303,6 +823,27 @@ public sealed class MPTestHarnessEditModeTests
             },
             Errors = new System.Collections.Generic.List<string>()
         };
+    }
+
+    private static MagicScrollData CreateScrollForTest(
+        MagicScrollTacticalRole role,
+        MagicScrollTargetDomain targetDomain,
+        float range,
+        float aiMinValue)
+    {
+        var skill = ScriptableObject.CreateInstance<SkillData>();
+        skill.skillName = "test_scroll_skill";
+        skill.range = range;
+        skill.effects = new List<SkillEffect>();
+
+        var scroll = ScriptableObject.CreateInstance<MagicScrollData>();
+        scroll.scrollName = "test_scroll";
+        scroll.canAiUse = true;
+        scroll.tacticalRole = role;
+        scroll.targetDomain = targetDomain;
+        scroll.aiMinValue = aiMinValue;
+        scroll.skillData = skill;
+        return scroll;
     }
 }
 #endif

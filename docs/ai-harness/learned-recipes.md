@@ -122,6 +122,82 @@ Verification:
 Pitfalls:
 - Fully scanning vendor folders can create noisy warnings from third-party sample code.
 
+## precommit-zero-warns-with-validated-rpc-rules: Reduce WARNs without hiding authority checks
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: `tools/harness/precommit.py`, command/RPC/tick-log WARN reduction
+Triggers: `client_trust`, `rpc_all`, `rpc_persistent_state`, `tick_debug_log`, warning cleanup
+
+Problem:
+File-wide regular expressions can keep reporting WARNs after authority hardening is already in place. The common false positives were commented-out logs, wire-format deserialization in `CommandProcessor`, guard log text such as "client peer", validated `RpcSources.All` request RPCs with `RpcInfo`, and migration diagnostics inside tick methods.
+
+Recipe:
+- Strip comments before warning scans so commented diagnostic logs do not count as active tick/debug or client-trust risks.
+- Inspect RPC methods by body instead of file-wide text. Keep warning on `RpcSources.All` unless the method signature includes `RpcInfo` and the body validates `info.Source`, `Object.InputAuthority`, `IsRpcSourceAuthorizedForPlayer`, or a dedicated request validator.
+- Skip persistent-state RPC warnings for `RpcSources.StateAuthority` broadcasts and manually validated request RPCs; those are the expected authority-to-peer sync path.
+- Inspect only the actual `Update`, `FixedUpdateNetwork`, and `Render` method bodies for direct `Debug.Log` calls. Move intentional diagnostics into helper methods outside tick bodies when the log is bounded and deliberate.
+- Avoid client-trust false positives in guard strings by saying `non-authority peer` instead of `client peer`, and avoid `requested` in neutral trace labels such as shop initialization.
+- Rename private wire-format arrays in `CommandProcessor.DeserializeCommand` away from `intParams`/`stringParams` when the arrays are already server-validated before broadcast.
+
+Verification:
+- `python tools/harness/precommit.py --self-test` passed, including explicit cases that an unvalidated `RpcSources.All` still warns while a source-validated one does not.
+- `python tools/harness/precommit.py --all` reported `0 errors, 0 warnings` after the cleanup.
+- `unity-cli --project Mdfproject editor refresh --compile` completed, `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`, and EditMode passed `8/8`.
+- Rebuilt Development player at `artifacts/builds/20260505-230726/MDF-MPTest.exe`; launch smoke exited `0`.
+- `artifacts/mp/20260505-230828-human-bot-prepare` passed with `SelectAugment`, `accepted_command`, durable selected augment hash delta, and same-player random outcome matches.
+
+Pitfalls:
+- Do not replace WARNs with blanket file allowlists. If a warning is suppressed by smarter logic, add or keep a self-test proving the unsafe shape still warns.
+- Do not remove Host Migration, command, or VFX diagnostics just to silence the hook; move bounded diagnostics behind helpers only when they remain intentional and verifiable.
+
+## content-baseline-regression-20260506: Freeze pre-content harness baseline
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: pre-content development baseline, Unity CLI, latest Development player, HumanBot/random-aware regression
+Triggers: content development start, baseline freeze, full harness regression, latest Development player
+
+Problem:
+Before content work, freeze a known-good harness baseline with static checks, Unity compile/tests, the default matrix, HumanBot progression, progressed reconnect/disconnect, progressed Host Migration, and seed sweep. Record the exact build and artifact paths so later content regressions have a concrete comparison point.
+
+Recipe:
+- Use the latest Development player that matches the current C# code. For this baseline: `artifacts/builds/20260505-230726/MDF-MPTest.exe`.
+- Run the baseline commands:
+  - `python tools/harness/validate_overlay.py`
+  - `python tools/harness/precommit.py --self-test`
+  - `python tools/harness/precommit.py --all`
+  - `unity-cli --project Mdfproject status`
+  - `unity-cli --project Mdfproject editor refresh --compile`
+  - `unity-cli --project Mdfproject console --type error --stacktrace user`
+  - `unity-cli --project Mdfproject test --mode EditMode`
+- Run the minimal multiplayer regression set with the same player path:
+  - `python tools/harness/mp/run_matrix.py --case all --player-path artifacts/builds/20260505-230726/MDF-MPTest.exe`
+  - `python tools/harness/mp/run_human_bot_prepare_progression.py --seed 1001 --player-path artifacts/builds/20260505-230726/MDF-MPTest.exe`
+  - `python tools/harness/mp/run_human_bot_4p_progression.py --seed 2001 --player-path artifacts/builds/20260505-230726/MDF-MPTest.exe`
+  - `python tools/harness/mp/run_progressed_same_token_reconnect.py --seed 3002 --player-path artifacts/builds/20260505-230726/MDF-MPTest.exe`
+  - `python tools/harness/mp/run_progressed_disconnect_ai_takeover.py --seed 3001 --player-path artifacts/builds/20260505-230726/MDF-MPTest.exe`
+  - `python tools/harness/mp/run_progressed_host_migration_e2e.py --seed 4001 --player-path artifacts/builds/20260505-230726/MDF-MPTest.exe`
+  - `python tools/harness/mp/run_human_bot_seed_sweep.py --seeds 5101,5102,5103 --player-path artifacts/builds/20260505-230726/MDF-MPTest.exe`
+
+Verification:
+- `validate_overlay.py` passed, `precommit.py --self-test` passed, and `precommit.py --all` reported `0 errors, 0 warnings`.
+- Unity status was ready, compile completed, console errors were `[]`, and EditMode passed `8/8`.
+- Build metadata for `artifacts/builds/20260505-230726/MDF-MPTest.exe` reported `result=Succeeded`, `developmentBuild=true`, and `allowDebugging=true`.
+- Matrix all passed at `artifacts/mp/20260505-231757-matrix` with `success=true` and all child cases exiting `0`.
+- HumanBot prepare passed at `artifacts/mp/20260505-232230-human-bot-prepare` with `SelectAugment`, host `accepted_command`, durable selected augment hash delta, and random outcome matches.
+- HumanBot 4p progression passed at `artifacts/mp/20260505-232307-human-bot-4p-progression` with three client bots, three `accepted_command` entries, and host-vs-client random-aware matches.
+- Progressed same-token reconnect passed at `artifacts/mp/20260505-232355-progressed-same-token-reconnect` with `success=true` and `failures=[]`.
+- Progressed disconnect AI takeover passed at `artifacts/mp/20260505-232449-progressed-disconnect-ai-takeover` with `success=true` and `failures=[]`.
+- Progressed Host Migration passed at `artifacts/mp/20260505-232529-progressed-host-migration-e2e` with `accepted_command` entries for `SelectAugment` and `PlaceWall`, callback/token/resume proof, and durable pre/post `mismatches=[]`.
+- Seed sweep passed at `artifacts/mp/20260505-232610-human-bot-seed-sweep` for seeds `5101,5102,5103` with `success=true` and `failures=[]`.
+- `rg "result=fail|phase=error|parseError" <baseline artifact dirs>` found no matches.
+- Scanning `*.Player.log` in the baseline artifact set for `InvalidOperationException`, `NullReferenceException`, `Error when accessing`, and `Failed to free` found no matches.
+
+Pitfalls:
+- The matrix command transcript can include cleanup-time `mp_stop` snapshot errors after the scenario already passed, for example `game.battleSnapshot:InvalidOperationException` and `players.allPlayers:InvalidOperationException` in the final Editor `mp_stop` response. Treat this as a cleanup snapshot caveat only when comparison JSONs, result JSONs, saved snapshots, and Player logs are clean.
+- Do not update `unity-cli` mid-baseline just because it reports a newer connector version.
+
 ## unity-2021-test-framework-fallback
 
 Status: verified-local
@@ -782,3 +858,305 @@ Verification:
 
 Pitfalls:
 - Remaining precommit WARNs are heuristics or broader debt, not BLOCK errors. Keep `CommandProcessor` and command-level validation warnings until broader server-authoritative command coverage is added.
+
+## battle-snapshot-coverage-v1: Hash late-game battle state semantically
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: `MPTestStateSnapshot`, `MPTestAssertions`, `compare_state_snapshots.py`, HumanBot/Host Migration battle progression
+Triggers: late-game sync drift, survivor boss assignment, active augment effects, monster spawn/combat divergence
+
+Problem:
+Prepare-phase HumanBot snapshots covered shops, augments, walls, and units, but battle progression still had blind spots. Monster snapshots mostly exposed alive count and a legacy living hash, survivor boss pending/assignment state was private manager state, and active augment effect/target state was not compared separately.
+
+Recipe:
+- Keep existing hashes and comparisons; add semantic hashes instead of replacing durable coverage.
+- Hash active battle role state as `game.battleActiveHash` from `playerId`, opponent id, first attacker id, fighting flag, and attacker flag.
+- Hash survivor boss pending/assignment state with gameplay IDs, origin player, boss data key, invasion flag, and coarse HP buckets; also compare pending/assignment counts so non-zero host-only state does not disappear behind `unknown`.
+- Hash augment active effects/targets from selected augments, active monster-summon augments, owned bosses, owned scrolls, permanent stat buckets, and resolved player/opponent target when available. Compare active effect/target counts as well as hashes.
+- Hash monsters by stable type/trait/boss key, count, coarse HP/max-HP bucket, defender/attacker player ids, and Networked boss gameplay id. Do not hash raw Unity instance IDs or exact interpolated transforms.
+- Hash manual/strategic defender skill readiness with semantic unit data, grid position, skill key, activation mode, AI strategic flag, mana bucket, status/casting/dead flags, and target count.
+- In `compare_state_snapshots.py`, use strict comparison for conditional required values. When battle phase, non-zero survivor counts, or command counters make a field required, any `unknown`/missing value fails, including both peers missing the value. For optional absent state, both peers may remain `unknown`.
+- Mirror the same strict comparison in `MPTestAssertions.CompareDurable` and add negative EditMode tests. Python-only strictness is not enough because custom Unity CLI assertions can use the C# path.
+- For active effect target keys, do not fall back to `NetworkObject.Id` or `GameObject.name`. Use semantic target keys: unit owner/data/star/grid cell, monster owner/data/boss metadata/HP bucket/navigation or coarse position, and wall owner/grid/HP bucket.
+- Use a read-only battle-map lookup for target hashes. Back it with the state-authority-published Networked battle map and battle-start RPC observations; do not call mutating fallback methods such as `GetBattleOpponent()` from snapshot capture.
+- Keep `FirstAttackerPlayerId` and battle-map publication authority-only. Client migration/readiness paths may cache `BattleOpponentSnapshotIds` and `BattleFirstAttackerSnapshotIds` into local dictionaries for comparison, but must not rebuild/publish or assign Networked fields.
+- If monster snapshots scan a player's `monsterParent`, also add a live `Monster` fallback filtered by Networked owner id. Client-side monster initialization should still reparent replicated monsters under the owner's monster parent, but the snapshot must not depend on a one-shot init RPC being observed.
+- Mirror monster owner id, monster data key, type, traits, and boss gameplay metadata into Networked fields so reconnect/Host Migration peers can rebind and hash living monsters from durable identity.
+- Mirror boss gameplay metadata into Networked fields and use those accessors for boss gameplay decisions, not only for snapshot hashes.
+
+Verification:
+- `python tools/harness/precommit.py --all` reported `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject editor refresh --compile` completed and `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` passed 8/8.
+- Rebuilt Development player at `artifacts/builds/20260506-004439/MDF-MPTest.exe`; launch smoke exited `0`.
+- `python tools/harness/mp/run_human_bot_prepare_progression.py --seed 1001 --player-path artifacts/builds/20260506-004439/MDF-MPTest.exe` passed with artifact `artifacts/mp/20260506-004520-human-bot-prepare`.
+- Direct CLI comparison now works: `python tools/harness/mp/compare_state_snapshots.py artifacts/mp/20260506-004520-human-bot-prepare/snapshots/build-host-prepare-progressed.json artifacts/mp/20260506-004520-human-bot-prepare/snapshots/build-client-prepare-progressed.json` returned `success: true`.
+- Phase 10 hardened `compare_state_snapshots.py` with one-sided-unknown failures for attack pool, owned scroll, manual skill readiness, semantic monster hashes, and active effect hashes.
+- Phase 10 reviewer follow-up aligned C# durable assertions with the Python comparator, made battle hashes required during `Battle1`/`Battle2`, required survivor hashes when survivor counts are non-zero, required `commands.lastCommand` once any battle command counter advances, and added both-one-sided and both-missing negative EditMode tests for those required values.
+
+## battle-command-foundation-authority-guards: Require explicit validation before battle execution
+
+Status: verified-local
+Last verified: 2026-05-06
+Applies to: `ServerBattleCommandExecutor`, `BattleCommandValidator`, future `BattleSpawnMonsterCommand`, future `UseMagicScrollCommand`
+Triggers: battle command foundation, client-requested battle commands, opponent resolution, State Authority validation
+
+Problem:
+A generic battle command executor can accidentally become a gameplay bypass if it accepts a missing validation delegate, or if shared opponent-resolution helpers rebuild battle pairings from client/presentation code. That makes future spawn/scroll commands look command-based while skipping source ownership, player role, opponent, target, inventory, or cost checks.
+
+Recipe:
+- Reject executable battle commands when validation or execution delegates are missing; do not treat `null` validation as accepted.
+- Reject `PresentationOnly` scope before any persistent execution path.
+- Require `GameManagers` State Authority and Battle1/Battle2 phase before the server authority executor can run command-specific validation.
+- Resolve opponents from the published battle snapshot for client/presentation paths.
+- Permit mutating opponent fallback such as `GetBattleOpponent()` only under `ServerAuthorityOnly` plus `HasStateAuthority`.
+- Keep `RpcInfo.Source` checks as transient live authorization only; durable gameplay identity remains MDF `playerId` and connection-token state.
+- Add edit-mode source guards for the reject codes and the authority-only opponent fallback so later command phases cannot weaken the foundation silently.
+
+Verification:
+- `python tools/harness/precommit.py --all` reported `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject editor refresh --compile` completed.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` passed 13/13 after adding the foundation guards.
+
+## battle-spawn-command-pool-reservation: Reserve attack pool before awaited network spawn
+
+Status: compile-and-smoke-verified; battle E2E still needs a dedicated runner
+Last verified: 2026-05-06
+Applies to: `BattleSpawnMonsterCommand`, `GameManagers.RPC_RequestBattleSpawnMonster`, `PlayerManager.AttackMonsterPool`, `MonsterSpawner.ExecuteSpawnPlanAsync`
+Triggers: strategic attack monster spawn command, duplicate spawn requests, async `Runner.Spawn`, attack pool hash drift
+
+Problem:
+Battle monster spawn validation can pass for multiple same-slot requests before an awaited network spawn finishes. If the pool is consumed only after spawn, duplicate requests can create extra durable monsters or leave host/client pool hashes inconsistent. Plain client-local pool rebuilds can also hide consumed slots during reconnect or Host Migration recovery.
+
+Recipe:
+- Validate command count as exactly one spawn per command. Do not clamp or silently trust client-provided batch counts.
+- Keep `RpcInfo.Source` authorization as an early RPC gate, then re-run command validation on State Authority.
+- Resolve attacker, defender, battle role, opponent mapping, finite target position, outer spawn zone, and authoritative pool slot before execution.
+- Consume or reserve the authoritative pool slot before any awaited spawn call. If `Runner.Spawn` or spawn initialization fails, refund the same slot immediately.
+- Use the authoritative pool entry to derive boss id and origin player. Do not trust client-supplied boss/origin fields.
+- Include the client's applied authoritative attack-pool snapshot revision in client-requested spawn commands. Do not use the replicated revision alone as proof that the client has applied the matching pool contents.
+- Reject missing or mismatched applied revisions and resend the authoritative pool snapshot before accepting another slot-index request.
+- Sync attack pool changes with a monotonic revision and ignore stale async client RPC completions.
+- Non-authority peers must not rebuild attack pools locally during battle start; request/resend the authority snapshot instead so slot indices always refer to server-owned contents.
+- Reconnect and late-join sync must proactively resend the attack-pool snapshot, not only shops/augments/scrolls/walls. Do not rely on the next client spawn click to request the missing pool.
+- Host Migration durable snapshots must carry attack-pool refs or stable keys plus counts/revision, and apply them before migration recovery decides whether to rebuild an attack pool.
+- If a Fusion `Runner.Spawn` succeeds but later initialization/path validation fails, cleanup must use `Runner.Despawn` for the spawned `NetworkObject`; `Destroy` alone can leave a replicated object alive.
+- During migration/recovery, do not refresh an empty attack pool over a positive consumed revision.
+- Snapshot `attackMonsterPoolHash`, accepted battle command sequence, spawn sequence, and rejected command count so peer comparisons can detect pool or command drift. Empty/null attack pools need deterministic hashes; required battle pool comparisons must not collapse to `unknown`.
+- Mark legacy spawn RPCs deprecated with explicit `battle_spawn_rejected` telemetry instead of leaving early-return reject paths.
+- Battle command telemetry is durable snapshot state. Resend it during reconnect/late-join sync and capture/apply it through Host Migration cache; do not leave it as command-time RPC-only state.
+
+Verification:
+- `python tools/harness/precommit.py --all` reported `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject editor refresh --compile` completed.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` passed 13/13.
+- Development build and launch smoke passed at `artifacts/builds/20260506-031706`.
+- Closest existing E2E passed at `artifacts/mp/20260506-031807-human-bot-prepare`, but it only proves prepare progression. A dedicated battle-spawn E2E runner is still required before claiming battle command sync PASS.
+
+## magic-scroll-command-authority-split: Keep scroll gameplay out of presentation RPCs
+
+Status: compile-verified; battle scroll E2E still needs a dedicated runner
+Last verified: 2026-05-06
+Applies to: `UseMagicScrollCommand`, `GameManagers.RPC_RequestUseMagicScrollCommand`, `PlayerManager.OwnedScrolls`, `ScrollCaster`, `MPTestStateSnapshot`
+Triggers: magic scroll use, client-side VFX broadcast, scroll inventory hash drift, buff/status/zone side effects
+
+Problem:
+Magic scroll presentation used to create a `ScrollCaster` on every peer and call `SkillEffect.ApplyEffect`. Damage/heal effects often self-guard on target authority, but buff, status, and zone effects can still create client-side durable behavior or snapshot drift if the broadcast path applies gameplay.
+
+Recipe:
+- Route scroll use through a State Authority battle command with `casterPlayerId`, stable `scrollSlotIndex`, target position, source reason, and the client's applied owned-scroll revision.
+- Validate battle phase, caster source authority, attacker/defender battle roles, finite target, authoritative scroll slot, scroll skill data, and target domain before consumption.
+- Consume the scroll only after validation on State Authority. If gameplay application fails, refund the same slot.
+- Split `ScrollCaster` into `CastGameplay` and `PlayPresentation`; `CastGameplay` rejects non-authority network peers and `PlayPresentation` only instantiates VFX.
+- Leave legacy name-based scroll RPCs as explicit deprecated rejects with `scroll_rejected` telemetry instead of silently returning.
+- Track `ownedScrollsHash`, `ownedScrollRevision`, and `useMagicScrollSeq` in snapshots/comparisons so inventory and effect application drift are visible.
+
+Verification:
+- `python tools/harness/precommit.py --all` reported `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject status` reported the Editor ready for `E:/UnityProjects/mdf/Mdfproject`.
+- `unity-cli --project Mdfproject editor refresh --compile` completed compilation.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` passed `13/13`.
+- `tools/harness/mp/run_magic_scroll_command.py` and `tools/harness/mp/run_human_bot_battle_progression.py` were not present yet, so scroll command sync still needs dedicated E2E harness implementation before claiming multiplayer artifact PASS.
+- Owned scroll RPC sync loads assets asynchronously. Track the latest received revision and recheck it before and after every await so a stale payload cannot overwrite a newer inventory.
+- Host Migration durable player snapshots must capture owned scroll asset refs/names plus `OwnedMagicScrollRevision`, restore them on the new State Authority, and resend them to clients before scroll-slot commands can be trusted.
+- Duration buff/status/zone effects from scrolls are authority-only after the command split, but they are not yet durable Host Migration state. Treat post-scroll Host Migration/effect preservation as a Phase 6/10/12 blocker until active effect hashes and restore semantics exist.
+
+## magic-scroll-asset-effect-audit-v1: Classify scroll assets and compare active effect hashes
+
+Status: compile-verified; dedicated battle scroll E2E still needs implementation
+Last verified: 2026-05-06
+Applies to: `MagicScrollData`, scroll `.asset` files, `BuffManager`, `ZoneController`, `MPTestStateSnapshot`, `compare_state_snapshots.py`
+Triggers: adding scroll AI metadata, editing scroll assets, auditing scroll buff/status/zone authority, Phase 6 scroll asset/effect audit
+
+Problem:
+Scroll asset metadata and runtime duration effects span Unity YAML, authority-only gameplay code, and snapshot comparison. It is easy to classify assets correctly but miss reserialization evidence, or to guard effect application while leaving clear/remove/recalculate paths able to mutate client-local durable effect state.
+
+Recipe:
+- Add AI metadata to `MagicScrollData` as serialized enum/bool/float fields, then classify every scroll asset explicitly.
+- After editing scroll `.asset` YAML, run `unity-cli --project Mdfproject reserialize <changed scroll asset paths>` and keep the command output in the phase evidence.
+- Do not only guard `ApplyBuff` or `ApplyStatusEffect`. Guard `Update`, clear/remove, and stat recalculation entry points too, because `GameEvents.OnGameStateChanged` can fire on non-authority peers from render/UI flow.
+- Snapshot active duration effects with semantic keys: target owner/data/star or boss id, effect asset/type, buckets for effect value/tick/damage/slow/range, and coarse zone position. Do not include raw Unity instance IDs.
+- Compare `effects.activeBuffCount`, `effects.activeStatusCount`, `effects.zoneCount`, `effects.activeBuffHash`, `effects.activeStatusHash`, and `effects.zoneHash` in both C# assertions and `tools/harness/mp/compare_state_snapshots.py`.
+- Treat active buff/status/zone Host Migration timer restoration as unproven until a post-scroll migration artifact exists. Hash comparison proves peer sync at capture time, not durable timer restore.
+
+Verification:
+- `unity-cli --project Mdfproject reserialize Mdfproject/Assets/GameData/Scrolls/Scroll_Berserk.asset Mdfproject/Assets/GameData/Scrolls/Scroll_BloodCurse.asset Mdfproject/Assets/GameData/Scrolls/Scroll_Heal.asset Mdfproject/Assets/GameData/Scrolls/Scroll_Stun.asset` returned all four paths.
+- `python tools/harness/precommit.py --all` reported `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject editor refresh --compile` completed compilation.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` passed `13/13`.
+- `tools/harness/mp/run_magic_scroll_command.py` is still missing, so battle scroll E2E remains `NEEDS_IMPLEMENTATION`.
+
+## unity-cli-editmode-filter-and-force-import-v1: Verify newly added EditMode tests by class filter
+
+Status: verified
+Last verified: 2026-05-06
+Applies to: `unity-cli --project Mdfproject test --mode EditMode`, newly added tests, forced AssetDatabase import
+Triggers: EditMode test runner returns `total=0` for a newly added method filter, Unity does not appear to pick up new test methods after compile
+
+Problem:
+After adding new methods to an existing EditMode test class, `unity-cli --project Mdfproject test --mode EditMode --filter <methodName>` can return `total=0` even though the methods are valid and the full/class test run will discover them. Treat a zero-count method-filter run as inconclusive, not PASS.
+
+Recipe:
+- Prefer a class filter when verifying new tests in `MPTestHarnessEditModeTests`:
+  - `unity-cli --project Mdfproject test --mode EditMode --filter MPTestHarnessEditModeTests`
+- If Unity appears stale, force import the changed test file by piping code through stdin to avoid PowerShell quoting problems:
+  - `@' ... '@ | unity-cli --project Mdfproject exec`
+  - Example body:
+    - `UnityEditor.AssetDatabase.ImportAsset("Assets/Scripts/Testing/MP/Editor/MPTestHarnessEditModeTests.cs", UnityEditor.ImportAssetOptions.ForceUpdate);`
+    - `UnityEditor.Compilation.CompilationPipeline.RequestScriptCompilation();`
+    - `return "forced";`
+- Then run:
+  - `unity-cli --project Mdfproject editor refresh --compile --force`
+  - `unity-cli --project Mdfproject test --mode EditMode --filter MPTestHarnessEditModeTests`
+- Do not rely on `total=0` method-filter output as evidence that a new test passed.
+
+Verification:
+- `unity-cli --project Mdfproject test --mode EditMode --filter ActivateSkillCommandSourceContainsStrategicManualSkillGuards` returned `total=0`.
+- `unity-cli --project Mdfproject test --mode EditMode --filter MPTestHarnessEditModeTests` then discovered the new Phase 8 tests and passed `19/19`.
+
+## human-bot-prepare-teardown-ai-takeover-v1: Keep prepare E2E snapshots from being polluted by teardown takeover
+
+Status: verified
+Last verified: 2026-05-06
+Applies to: `AIPlayerController`, `NetworkManager.TryEnableDisconnectedAiTakeover`, `run_human_bot_prepare_progression.py`, `run_human_bot_seed_sweep.py`
+Triggers: HumanBot prepare seed sweep fails late with host/client augment or active effect hash mismatch after the client process drops near the harness timeout
+
+Problem:
+`run_human_bot_prepare_progression.py` waits for stable host/client snapshots after the HumanBot issues a command. If the build client exits or disconnects near the wait timeout, `NetworkManager` can enable disconnected AI takeover for that durable `playerId`. The takeover AI may issue a new prepare command on the host before the final comparison, producing host-only deltas such as a second `SelectAugment` and `augment.activeEffectHash` mismatch. The failure can be mislabeled as `bot_no_meaningful_command` even though the assertions show meaningful deltas.
+
+Recipe:
+- Confirm the timeline contains `disconnect_cache` followed by `disconnect_ai_takeover` just before host-only `prepare_decision_policy` or `mdf_decision_emit` lines.
+- Confirm `bot-journal-latest.json` shows the HumanBot remained a real client command path before the teardown window.
+- In `--mpTest` prepare-only HumanBot scenarios, do not let an AI takeover controller with `InputAuthority == PlayerRef.None` continue prepare decisions that pollute the HumanBot host/client comparison.
+- Keep `NotifyAugmentSelectedCommand` presentation-only on clients. Do not add to `chosenAugments`, owned-boss lists, active summon lists, owned scroll lists, or permanent stat bonuses from the notification command; those must come from State Authority replication/sync paths.
+- Build augment active-effect snapshot hashes from replicated selected augment snapshots first, and avoid double-counting authority-side derived boss/summon lists as separate peer-equality requirements.
+- If a seed sweep fails on `attackMonsterPoolHash` after a boss augment, inspect logs for `InvalidKeyException` on the boss `MonsterData.name`. Attack-pool sync must not partially apply a snapshot when one entry cannot resolve; abort/resync or resolve from loaded `AugmentData`/wave/asset references. Also verify the Addressables address matches the `MonsterData` asset name, for example `MonData_Boss_Elemental`.
+- Rebuild the Development player after changing driver/controller code; stale player builds will still show the old bot journal schema and do not prove the current C# path.
+
+Verification:
+- Stale build detection: `bot-journal-latest.json` lacked `MdfDecision` fields until a new Development player was built.
+- `python tools/harness/mp/build_player.py` produced `artifacts/builds/20260506-053915/MDF-MPTest.exe` with `developmentBuild=true`.
+- `python tools/harness/mp/run_human_bot_prepare_progression.py --seed 1001 --player-path artifacts/builds/20260506-053915/MDF-MPTest.exe` passed and the journal included `score`, `kind`, `attackMonsterPoolHash`, and `ownedScrollsHash`.
+- After adding the takeover guard and rebuilding `artifacts/builds/20260506-054901/MDF-MPTest.exe`, `run_human_bot_prepare_progression.py --seed 1001` still passed.
+- After removing client-side persistent augment notification effects and duplicate active-effect snapshot counting, `python tools/harness/mp/build_player.py` produced `artifacts/builds/20260506-061424/MDF-MPTest.exe`.
+- `python tools/harness/mp/run_human_bot_prepare_progression.py --seed 1001 --player-path artifacts/builds/20260506-061424/MDF-MPTest.exe` passed with artifact `artifacts/mp/20260506-061500-human-bot-prepare`.
+- `python tools/harness/mp/run_human_bot_seed_sweep.py --seeds 5101,5102 --player-path artifacts/builds/20260506-061424/MDF-MPTest.exe` passed with artifact `artifacts/mp/20260506-061538-human-bot-seed-sweep`.
+- After removing the remaining presented-augment cache mutation, `artifacts/builds/20260506-062445/MDF-MPTest.exe` passed `run_human_bot_prepare_progression.py --seed 1001` with artifact `artifacts/mp/20260506-062528-human-bot-prepare`.
+- The same build's `run_human_bot_seed_sweep.py --seeds 5101,5102` passed seed 5101 but failed seed 5102 on `player.1.attackMonsterPoolHash` mismatch after a boss augment. This is a monster-pool replication blocker to handle in the command/snapshot phases, not a Behavior Tree v2 HumanBot routing failure.
+- Artifact inspection found `MonData_Boss_Elemental` failed Addressables resolution because the group address was `MonData_Elemental`; the client skipped that boss entry and applied a partial attack pool.
+- After adding read-only fallback resolution plus all-or-nothing attack-pool snapshot apply, `artifacts/builds/20260506-064820/MDF-MPTest.exe` passed `run_human_bot_prepare_progression.py --seed 1001` with artifact `artifacts/mp/20260506-064924-human-bot-prepare` and `run_human_bot_seed_sweep.py --seeds 5101,5102` with artifact `artifacts/mp/20260506-065043-human-bot-seed-sweep`.
+- After correcting the Addressables address for GUID `b9ad52bb50cfab741bb309010e961c5b` to `MonData_Boss_Elemental`, reserializing the group asset, and rebuilding, `artifacts/builds/20260506-065615/MDF-MPTest.exe` passed `run_human_bot_prepare_progression.py --seed 1001` with artifact `artifacts/mp/20260506-065647-human-bot-prepare` and `run_human_bot_seed_sweep.py --seeds 5101,5102` with artifact `artifacts/mp/20260506-065810-human-bot-seed-sweep`.
+
+## battle-command-e2e-observer-client-v1: Keep battle command E2E client stable while host HumanBot drives progression
+
+Status: verified
+Last verified: 2026-05-06
+Applies to: `tools/harness/mp/run_battle_spawn_monster_command.py`, `tools/harness/mp/run_magic_scroll_command.py`, `tools/harness/mp/run_human_bot_battle_progression.py`, battle command snapshot checks
+Triggers: battle E2E reaches command execution on the host, but the client returns to `MatchingLobby` or the final snapshot is back in `Prepare`
+
+Problem:
+Battle command tests need a connected client snapshot to prove replication. Running an unbounded HumanBot on both build peers can make the client repeatedly emit prepare decisions while scene/GameManagers are transitioning; a failed run showed host `BattleSpawnMonster` evidence advanced while the client returned to `MatchingLobby`, leaving `game_managers_or_command_processor_missing` bot logs and no comparable snapshot. Also, final snapshots can legitimately be in a later `Prepare` phase after battle commands already executed, so requiring the final state to still be `Battle1`/`Battle2` loses valid evidence.
+
+Recipe:
+- Default battle command E2E to a host HumanBot driver plus a connected build client observer. Enable `--client-human-bot` only for cases that specifically validate both peer emitters.
+- Pause bots before the pre-battle checkpoint, then start the host bot after host/client Game snapshots compare cleanly.
+- Use `--bot-prepare-mode augment-only` for battle command E2E. This allows the bot to take a first augment but avoids repeated maze `PlaceWall` planning, which can block the host simulation long enough for the observer client to hit Fusion `Timeout`.
+- Treat battle phase as reached if both peers were observed in `Battle1`/`Battle2` during polling, or if replicated battle command counters advanced and snapshot comparison succeeded.
+- Keep the success sample strict: host and client command counters must match, monster/scroll semantic hashes must be present when required, and `compare_state_snapshots.py` must pass.
+- Poll battle command snapshots frequently enough to catch short-lived battle monsters. Save the first strict host/client live monster semantic match as `snapshots/build-host-spawn-semantic.json`, `snapshots/build-client-spawn-semantic.json`, and `spawn-semantic-comparison.json`; the final snapshot may be later in the battle after the spawned monster has died or reached the goal.
+- Build augment snapshot comparisons from State Authority published presented/selected augment snapshots before local UI caches. Non-authority local presented augment lists can remain populated after a selected augment is already replicated, and should not become the durable comparison source.
+- For a dedicated magic-scroll command E2E, use the test-only HumanBot option `--mpBotPreferScrollAugment` / `preferScrollAugment=true` so the prepare policy picks a `GrantMagicScroll` augment when one is offered. This creates deterministic scroll inventory evidence without adding production grant hooks.
+- Save `battle-command-evidence-latest.json`, `battle-start-comparison.json` when observed, and final `battle-command-evidence.json`; use the final evidence file for PASS/FAIL.
+- In `--mpTest` player builds, disable stack traces for `Log` and `Warning` via `Application.SetStackTraceLogType`. Long battle command runs emit many MPTEST and gameplay diagnostics; full stack traces on every log can make Player.log explode and contribute to Fusion `Timeout` disconnects.
+- Launch build peers with explicit per-peer `-logFile <artifact>/<peer>.Player.log` so host/client disconnect reasons are not interleaved in the shared Unity Player.log.
+
+Verification:
+- Initial failure artifact `artifacts/mp/20260506-075006-battle-spawn-monster-command` showed host `spawnMonsterSeq=86`, client `scene=MatchingLobby`, and repeated client `game_managers_or_command_processor_missing`.
+- Follow-up failure artifact `artifacts/mp/20260506-080146-battle-spawn-monster-command` showed client fallback from `OnDisconnectedFromServer:Timeout`; the shared Player.log contained stack traces for routine `[MPTEST]`/gameplay logs.
+- Follow-up artifact `artifacts/mp/20260506-081229-battle-spawn-monster-command` used peer-specific Player logs and showed host tick stuck at `349` while wall planning ran between prepare decisions, followed by client `OnDisconnectedFromServer:Timeout`.
+- Final Phase 11 build `artifacts/builds/20260506-084532/MDF-MPTest.exe` passed launch smoke.
+- `artifacts/mp/20260506-084714-battle-spawn-monster-command` passed with `acceptedBattleCommandSeq=1`, `spawnMonsterSeq=1`, matching host/client command counters, `spawnSemanticsObserved=true`, and `spawn-semantic-comparison.json` success.
+- `artifacts/mp/20260506-084621-magic-scroll-command` passed with `acceptedBattleCommandSeq=2`, `spawnMonsterSeq=1`, `useMagicScrollSeq=1`, matching host/client command counters, `scroll_accepted`, `scroll_effect_applied`, and client `scroll_presentation` timeline entries. The bot selected `Aug_Scroll_Heal` with `preferScrollAugment=true`.
+- `artifacts/mp/20260506-084753-human-bot-battle-progression` passed with `acceptedBattleCommandSeq=2`, `spawnMonsterSeq=2`, matching host/client command counters, and no failures.
+
+## post-battle-lifecycle-freeze-checkpoint-v1: Freeze only after battle progression before reconnect, disconnect, or Host Migration assertions
+
+Status: provisional
+Last verified: 2026-05-06
+Applies to: `MPTestCommandLine`, `MPTestAutomationServer`, `battle_progression_common.py`, post-battle reconnect/disconnect/Host Migration runners
+Triggers: A post-battle lifecycle E2E must compare a progressed battle checkpoint across client disconnect, same-token reconnect, or Host Migration without hiding normal game-flow advancement as expected randomness
+
+Problem:
+Battle command E2E must run without `--mpFreezeGameFlow` at launch so timers can advance into `Battle1`/`Battle2` and HumanBot can emit `BattleSpawnMonsterCommand`/scroll decisions. After the battle checkpoint is captured, however, normal battle simulation can keep advancing while the harness kills a peer or waits for Host Migration. Weakening comparisons would hide real post-replication divergence.
+
+Recipe:
+- Launch post-battle lifecycle cases unfrozen and drive battle with the host HumanBot plus an observer client.
+- After strict battle command evidence is captured, stop the HumanBot and call the `--mpTest` automation endpoint `/test/freezeGameFlow` on both peers.
+- Re-dump a frozen host/client battle checkpoint and require `compare_state_snapshots.py` success before killing a client or host.
+- For client disconnect, compare the frozen host checkpoint with the post-takeover host snapshot using semantic battle/world fingerprints, while asserting the dropped durable `playerId` remains present, `isConnected=false`, `isAI=true`, and `ai.controllerRegistered=true`.
+- For same-token reconnect, use the same connection token for the replacement build client, assert the local `playerId` and token hash are reclaimed, require full host/client snapshot comparison, and compare the post-reconnect host snapshot against the frozen battle checkpoint.
+- For Host Migration, kill the host process, not `/quit`, then require `OnHostMigration`, non-null token, `StartGame` with token/resume/recovery, promoted survivor host/server, a connected non-AI survivor, unique `playerId`s, and frozen battle checkpoint preservation.
+- Keep event-time preservation strict. If active monster/effect timers still drift after freeze, report the exact fingerprint mismatch as a lifecycle blocker instead of relaxing the comparison.
+- Permanent augment bonuses cannot remain RPC-only. Publish attack damage/speed bonus buckets as Networked player state and compute snapshots from that replicated source; otherwise same-token reconnect can reclaim the player correctly but fail active-effect comparison because the reconnected client missed the original bonus RPC.
+- Attack monster pool contents cannot rely only on local lists plus one-shot RPCs during post-battle Host Migration. Publish slot names/counts/boss metadata into Networked snapshot arrays and use those arrays before local `AttackMonsterPool` when capturing migration snapshots or state hashes.
+
+Verification:
+- Dry-run coverage passed for `run_progressed_reconnect_after_battle.py --dry-run`, `run_progressed_disconnect_after_battle.py --dry-run`, `run_battle_seed_sweep.py --seeds 7101,7102,7103 --dry-run`, and `run_matrix.py --case progressed-reconnect-after-battle --dry-run`.
+- `artifacts/builds/20260506-095411/MDF-MPTest.exe` passed launch smoke after the post-battle lifecycle fixes.
+- `artifacts/mp/20260506-095518-progressed-host-migration-after-battle` passed with Host Migration callback/token/resume/start-game/recovery evidence and frozen battle checkpoint preservation.
+- `artifacts/mp/20260506-095609-progressed-reconnect-after-battle` passed same-token reconnect with reclaimed `playerId`, `isAI=false`, `ai.controllerRegistered=false`, full snapshot comparison, and battle preservation.
+- `artifacts/mp/20260506-095711-progressed-disconnect-after-battle` passed disconnect/AI takeover with the dropped `playerId` preserved as disconnected AI and frozen battle state preserved.
+- `artifacts/mp/20260506-095834-battle-seed-sweep` passed seeds `7101,7102,7103`.
+
+## battle-command-precommit-guardrails-v1: Block clear battle command bypasses
+
+Status: verified
+Last verified: 2026-05-06
+Applies to: `tools/harness/precommit.py`, battle command architecture, AI/HumanBot policies, scroll presentation, manual skill policy
+Triggers: future edits near monster spawn, magic scrolls, strategic skills, HumanBot, battle command validators
+
+Problem:
+Battle command architecture can regress even when E2E scripts exist if a future edit reintroduces direct AI monster spawn, client-side scroll gameplay effects, manual skill bypasses, or HumanBot-as-AI registration. These are cheaper and safer to catch statically before Unity/E2E runs.
+
+Recipe:
+- BLOCK clear unsafe patterns:
+  - HumanBot/test human files registering or attaching `AIPlayerController`.
+  - AI policy files calling `SpawnMonsterAtPositionAsync`, `.ActivateSkill(`, or `ApplyEffect(` directly.
+  - Testing HumanBot files calling `.ActivateSkill(` or `ApplyEffect(` directly.
+  - `RPC_BroadcastMagicScrollUsed`, `CreateScrollPresentationLocal`, or `PlayPresentation` calling gameplay effect or inventory-consumption methods.
+  - battle command classes missing required authority validation/execution tokens.
+- WARN review-only patterns:
+  - direct low-level `SpawnMonsterAtPositionAsync` outside the approved low-level mechanism/command files.
+  - legacy `RPC_RequestSpawnMonster` or `RPC_RequestUseMagicScroll` calls.
+  - direct scroll gameplay/inventory or attack-pool consumption outside command executor files.
+- Keep precommit output ASCII-only; Windows PowerShell may run under CP949.
+- Keep false positives low by excluding Editor test source from production bypass checks and stripping `#if false` disabled legacy blocks before scanning.
+
+Verification:
+- `python tools/harness/precommit.py --self-test` passed guardrail fixtures for HumanBot AI registration, scroll presentation gameplay, and AI direct monster spawn.
+- `python tools/harness/precommit.py --all` reported `0 errors, 0 warnings`.

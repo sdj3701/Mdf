@@ -15,6 +15,10 @@ public enum CommandType
     SellUnit = 9,
     ActivateSkill = 10,
     RearrangeUnits = 11,
+    // Routed through GameManagers.BattleCommands as a State Authority battle action, not CommandProcessor broadcast.
+    BattleSpawnMonster = 12,
+    // Routed through GameManagers.BattleCommands as a State Authority battle action, not CommandProcessor broadcast.
+    UseMagicScroll = 13,
 
 
     // ===== Sync Commands (100-199) =====

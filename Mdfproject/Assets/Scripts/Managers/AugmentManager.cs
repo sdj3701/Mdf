@@ -276,6 +276,69 @@ public class AugmentManager : MonoBehaviour
             ?? prismaticAugments.FirstOrDefault(a => a.augmentName == augmentName);
     }
 
+    public MonsterData FindMonsterDataByName(string monsterDataName)
+    {
+        if (string.IsNullOrWhiteSpace(monsterDataName))
+        {
+            return null;
+        }
+
+        foreach (var augment in EnumerateLoadedAugments())
+        {
+            if (MatchesMonsterData(augment?.bossMonsterData, monsterDataName))
+            {
+                return augment.bossMonsterData;
+            }
+
+            var entries = augment?.monsterSpawnEntries;
+            if (entries == null) continue;
+            foreach (var entry in entries)
+            {
+                if (MatchesMonsterData(entry?.monsterData, monsterDataName))
+                {
+                    return entry.monsterData;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private IEnumerable<AugmentData> EnumerateLoadedAugments()
+    {
+        foreach (var augment in silverAugments)
+        {
+            yield return augment;
+        }
+
+        foreach (var augment in goldAugments)
+        {
+            yield return augment;
+        }
+
+        foreach (var augment in prismaticAugments)
+        {
+            yield return augment;
+        }
+
+        foreach (var augment in presentedAugments)
+        {
+            yield return augment;
+        }
+    }
+
+    private static bool MatchesMonsterData(MonsterData data, string monsterDataName)
+    {
+        if (data == null || string.IsNullOrWhiteSpace(monsterDataName))
+        {
+            return false;
+        }
+
+        return string.Equals(data.name, monsterDataName, StringComparison.Ordinal)
+            || string.Equals(data.monsterName, monsterDataName, StringComparison.Ordinal)
+            || string.Equals(data.monsterPrefab, monsterDataName, StringComparison.Ordinal);
+    }
+
     public void PresentAugments()
     {
         if (playerManager == null)
@@ -285,7 +348,7 @@ public class AugmentManager : MonoBehaviour
 
         if (IsRunningClientPeerWithoutAuthority())
         {
-            Debug.LogWarning($"[AugmentManager] PresentAugments ignored on client peer. owner={OwnerLabel()}");
+            Debug.LogWarning($"[AugmentManager] PresentAugments ignored on non-authority peer. owner={OwnerLabel()}");
             return;
         }
 
@@ -343,7 +406,7 @@ public class AugmentManager : MonoBehaviour
 
         if (IsRunningClientPeerWithoutAuthority())
         {
-            Debug.LogWarning($"[AugmentManager] SelectAndApplyAugment ignored on client peer. owner={OwnerLabel()}");
+            Debug.LogWarning($"[AugmentManager] SelectAndApplyAugment ignored on non-authority peer. owner={OwnerLabel()}");
             return;
         }
 

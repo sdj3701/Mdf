@@ -107,9 +107,26 @@ public static class MPTestAssertions
         if (expected.Game != null && actual.Game != null)
         {
             CompareEqual(result, "game.currentState", expected.Game.CurrentState, actual.Game.CurrentState);
+            CompareEqual(result, "game.battlePhase", expected.Game.BattlePhase, actual.Game.BattlePhase);
             CompareEqual(result, "game.currentRound", expected.Game.CurrentRound, actual.Game.CurrentRound);
-            CompareKnownHash(result, "game.battleOpponentsHash", expected.Game.BattleOpponentsHash, actual.Game.BattleOpponentsHash);
-            CompareKnownHash(result, "game.matchFirstAttackerHash", expected.Game.MatchFirstAttackerHash, actual.Game.MatchFirstAttackerHash);
+            bool inBattle = IsBattlePhase(expected.Game.BattlePhase) || IsBattlePhase(actual.Game.BattlePhase);
+            CompareKnownOrRequired(result, "game.battleOpponentsHash", expected.Game.BattleOpponentsHash, actual.Game.BattleOpponentsHash, inBattle);
+            CompareKnownOrRequired(result, "game.matchFirstAttackerHash", expected.Game.MatchFirstAttackerHash, actual.Game.MatchFirstAttackerHash, inBattle);
+            CompareKnownOrRequired(result, "game.battleActiveHash", expected.Game.BattleActiveHash, actual.Game.BattleActiveHash, inBattle);
+            ComparePresenceCount(result, "game.survivorBossPendingCount", expected.Game.SurvivorBossPendingCount, actual.Game.SurvivorBossPendingCount);
+            ComparePresenceCount(result, "game.survivorBossAssignmentCount", expected.Game.SurvivorBossAssignmentCount, actual.Game.SurvivorBossAssignmentCount);
+            CompareKnownOrRequired(
+                result,
+                "game.survivorBossPendingHash",
+                expected.Game.SurvivorBossPendingHash,
+                actual.Game.SurvivorBossPendingHash,
+                CountPositive(expected.Game.SurvivorBossPendingCount) || CountPositive(actual.Game.SurvivorBossPendingCount));
+            CompareKnownOrRequired(
+                result,
+                "game.survivorBossAssignmentHash",
+                expected.Game.SurvivorBossAssignmentHash,
+                actual.Game.SurvivorBossAssignmentHash,
+                CountPositive(expected.Game.SurvivorBossAssignmentCount) || CountPositive(actual.Game.SurvivorBossAssignmentCount));
         }
         else
         {
@@ -136,16 +153,29 @@ public static class MPTestAssertions
             CompareEqual(result, $"player.{left.PlayerId}.health", left.Health, right.Health);
             CompareEqual(result, $"player.{left.PlayerId}.gold", left.Gold, right.Gold);
             CompareEqual(result, $"player.{left.PlayerId}.wallCount", left.WallCount, right.WallCount);
+            CompareKnownOrMissing(result, $"player.{left.PlayerId}.attackMonsterPoolHash", left.AttackMonsterPoolHash, right.AttackMonsterPoolHash);
+            CompareKnownOrMissing(result, $"player.{left.PlayerId}.ownedScrollsHash", left.OwnedScrollsHash, right.OwnedScrollsHash);
+            CompareEqual(result, $"player.{left.PlayerId}.ownedScrollRevision", left.OwnedScrollRevision, right.OwnedScrollRevision);
+            CompareKnownOrMissing(result, $"player.{left.PlayerId}.manualSkillReadyHash", left.ManualSkillReadyHash, right.ManualSkillReadyHash);
             CompareShop(result, left.PlayerId, left.Shop, right.Shop);
             CompareAugment(result, left.PlayerId, left.Augment, right.Augment);
             CompareField(result, left.PlayerId, left.Field, right.Field);
             CompareMonsters(result, left.PlayerId, left.Monsters, right.Monsters);
             CompareEqual(result, $"player.{left.PlayerId}.isAI", left.IsAI, right.IsAI);
+            CompareEqual(result, $"player.{left.PlayerId}.isActivelyFighting", left.IsActivelyFighting, right.IsActivelyFighting);
+            CompareEqual(result, $"player.{left.PlayerId}.isAttackerInCurrentBattle", left.IsAttackerInCurrentBattle, right.IsAttackerInCurrentBattle);
         }
 
         CompareNullable(result, "commands.lastSequence", expected.Commands?.LastSequence, actual.Commands?.LastSequence);
         CompareNullable(result, "commands.queueDepth", expected.Commands?.QueueDepth, actual.Commands?.QueueDepth);
-        CompareKnown(result, "commands.lastCommand", expected.Commands?.LastCommand, actual.Commands?.LastCommand);
+        bool hasCommandCounters = HasAnyCommandCounter(expected.Commands) || HasAnyCommandCounter(actual.Commands);
+        CompareKnownOrRequired(result, "commands.lastCommand", expected.Commands?.LastCommand, actual.Commands?.LastCommand, hasCommandCounters);
+        CompareEqual(result, "commands.acceptedBattleCommandSeq", expected.Commands?.AcceptedBattleCommandSeq ?? 0, actual.Commands?.AcceptedBattleCommandSeq ?? 0);
+        CompareEqual(result, "commands.spawnMonsterSeq", expected.Commands?.SpawnMonsterSeq ?? 0, actual.Commands?.SpawnMonsterSeq ?? 0);
+        CompareEqual(result, "commands.useMagicScrollSeq", expected.Commands?.UseMagicScrollSeq ?? 0, actual.Commands?.UseMagicScrollSeq ?? 0);
+        CompareEqual(result, "commands.activateSkillSeq", expected.Commands?.ActivateSkillSeq ?? 0, actual.Commands?.ActivateSkillSeq ?? 0);
+        CompareEqual(result, "commands.rejectedBattleCommandCount", expected.Commands?.RejectedBattleCommandCount ?? 0, actual.Commands?.RejectedBattleCommandCount ?? 0);
+        CompareEffects(result, expected.Effects, actual.Effects);
 
         return result;
     }
@@ -198,6 +228,10 @@ public static class MPTestAssertions
         CompareEqual(result, $"player.{playerId}.augment.presentedCount", expected.PresentedCount, actual.PresentedCount);
         CompareKnownHash(result, $"player.{playerId}.augment.presentedHash", expected.PresentedHash, actual.PresentedHash);
         CompareKnownHash(result, $"player.{playerId}.augment.selectedHash", expected.SelectedHash, actual.SelectedHash);
+        CompareEqual(result, $"player.{playerId}.augment.activeEffectCount", expected.ActiveEffectCount, actual.ActiveEffectCount);
+        CompareEqual(result, $"player.{playerId}.augment.activeTargetCount", expected.ActiveTargetCount, actual.ActiveTargetCount);
+        CompareKnownHash(result, $"player.{playerId}.augment.activeEffectHash", expected.ActiveEffectHash, actual.ActiveEffectHash);
+        CompareKnownHash(result, $"player.{playerId}.augment.activeTargetHash", expected.ActiveTargetHash, actual.ActiveTargetHash);
     }
 
     private static void CompareField(
@@ -238,6 +272,41 @@ public static class MPTestAssertions
         CompareEqual(result, $"player.{playerId}.monsters.ready", expected.Ready, actual.Ready);
         CompareEqual(result, $"player.{playerId}.monsters.aliveCount", expected.AliveCount, actual.AliveCount);
         CompareKnownHash(result, $"player.{playerId}.monsters.livingHash", expected.LivingHash, actual.LivingHash);
+        CompareKnownOrMissing(result, $"player.{playerId}.monsters.typeHash", expected.TypeHash, actual.TypeHash);
+        CompareKnownOrMissing(result, $"player.{playerId}.monsters.typeCountHpHash", expected.TypeCountHpHash, actual.TypeCountHpHash);
+        CompareKnownOrMissing(result, $"player.{playerId}.monsters.ownerOriginHash", expected.OwnerOriginHash, actual.OwnerOriginHash);
+        CompareKnownOrMissing(result, $"player.{playerId}.monsters.targetPlayerHash", expected.TargetPlayerHash, actual.TargetPlayerHash);
+        CompareKnownOrMissing(result, $"player.{playerId}.monsters.hpBucketHash", expected.HpBucketHash, actual.HpBucketHash);
+        CompareKnownOrMissing(result, $"player.{playerId}.monsters.bossPoolIdentityHash", expected.BossPoolIdentityHash, actual.BossPoolIdentityHash);
+    }
+
+    private static void CompareEffects(
+        AssertionResult result,
+        MPTestStateSnapshot.EffectsSnapshot expected,
+        MPTestStateSnapshot.EffectsSnapshot actual)
+    {
+        expected = NormalizeEffects(expected);
+        actual = NormalizeEffects(actual);
+
+        CompareEqual(result, "effects.activeBuffCount", expected.ActiveBuffCount, actual.ActiveBuffCount);
+        CompareEqual(result, "effects.activeStatusCount", expected.ActiveStatusCount, actual.ActiveStatusCount);
+        CompareEqual(result, "effects.zoneCount", expected.ZoneCount, actual.ZoneCount);
+        CompareKnownOrMissing(result, "effects.activeBuffHash", expected.ActiveBuffHash, actual.ActiveBuffHash);
+        CompareKnownOrMissing(result, "effects.activeStatusHash", expected.ActiveStatusHash, actual.ActiveStatusHash);
+        CompareKnownOrMissing(result, "effects.zoneHash", expected.ZoneHash, actual.ZoneHash);
+    }
+
+    private static MPTestStateSnapshot.EffectsSnapshot NormalizeEffects(MPTestStateSnapshot.EffectsSnapshot effects)
+    {
+        return effects ?? new MPTestStateSnapshot.EffectsSnapshot
+        {
+            ActiveBuffCount = 0,
+            ActiveStatusCount = 0,
+            ZoneCount = 0,
+            ActiveBuffHash = Unknown,
+            ActiveStatusHash = Unknown,
+            ZoneHash = Unknown
+        };
     }
 
     private static void CompareEqual<T>(AssertionResult result, string field, T expected, T actual)
@@ -256,6 +325,50 @@ public static class MPTestAssertions
         }
     }
 
+    private static void ComparePresenceCount(AssertionResult result, string field, int? expected, int? actual)
+    {
+        if (expected.HasValue && actual.HasValue)
+        {
+            if (expected.Value != actual.Value)
+            {
+                result.AddError($"{field} expected={expected.Value} actual={actual.Value}");
+            }
+
+            return;
+        }
+
+        if (expected.GetValueOrDefault() > 0 || actual.GetValueOrDefault() > 0)
+        {
+            result.AddError($"{field} expected={FormatNullable(expected)} actual={FormatNullable(actual)}");
+        }
+    }
+
+    private static string FormatNullable(int? value)
+    {
+        return value.HasValue ? value.Value.ToString() : "unknown";
+    }
+
+    private static bool IsBattlePhase(string value)
+    {
+        return string.Equals(value, "Battle1", StringComparison.Ordinal) ||
+               string.Equals(value, "Battle2", StringComparison.Ordinal);
+    }
+
+    private static bool CountPositive(int? value)
+    {
+        return value.HasValue && value.Value > 0;
+    }
+
+    private static bool HasAnyCommandCounter(MPTestStateSnapshot.CommandsSnapshot commands)
+    {
+        return commands != null &&
+               (commands.AcceptedBattleCommandSeq > 0 ||
+                commands.SpawnMonsterSeq > 0 ||
+                commands.UseMagicScrollSeq > 0 ||
+                commands.ActivateSkillSeq > 0 ||
+                commands.RejectedBattleCommandCount > 0);
+    }
+
     private static void CompareKnownHash(AssertionResult result, string field, string expected, string actual)
     {
         CompareKnown(result, field, expected, actual);
@@ -272,6 +385,59 @@ public static class MPTestAssertions
         {
             result.AddError($"{field} expected={expected} actual={actual}");
         }
+    }
+
+    private static void CompareKnownOrMissing(AssertionResult result, string field, string expected, string actual)
+    {
+        bool expectedUnknown = string.IsNullOrEmpty(expected) || expected == Unknown;
+        bool actualUnknown = string.IsNullOrEmpty(actual) || actual == Unknown;
+        if (expectedUnknown && actualUnknown)
+        {
+            return;
+        }
+
+        if (expectedUnknown || actualUnknown)
+        {
+            result.AddError($"{field} expected={FormatKnown(expected, expectedUnknown)} actual={FormatKnown(actual, actualUnknown)}");
+            return;
+        }
+
+        if (!string.Equals(expected, actual, StringComparison.Ordinal))
+        {
+            result.AddError($"{field} expected={expected} actual={actual}");
+        }
+    }
+
+    private static void CompareKnownOrRequired(AssertionResult result, string field, string expected, string actual, bool required)
+    {
+        if (required)
+        {
+            CompareRequiredKnown(result, field, expected, actual);
+            return;
+        }
+
+        CompareKnown(result, field, expected, actual);
+    }
+
+    private static void CompareRequiredKnown(AssertionResult result, string field, string expected, string actual)
+    {
+        bool expectedUnknown = string.IsNullOrEmpty(expected) || expected == Unknown;
+        bool actualUnknown = string.IsNullOrEmpty(actual) || actual == Unknown;
+        if (expectedUnknown || actualUnknown)
+        {
+            result.AddError($"{field} expected={FormatKnown(expected, expectedUnknown)} actual={FormatKnown(actual, actualUnknown)}");
+            return;
+        }
+
+        if (!string.Equals(expected, actual, StringComparison.Ordinal))
+        {
+            result.AddError($"{field} expected={expected} actual={actual}");
+        }
+    }
+
+    private static string FormatKnown(string value, bool unknown)
+    {
+        return unknown ? Unknown : value;
     }
 
     [Serializable]

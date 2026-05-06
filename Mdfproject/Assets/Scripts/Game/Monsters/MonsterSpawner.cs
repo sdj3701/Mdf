@@ -729,34 +729,73 @@ public class MonsterSpawner : MonoBehaviour
             {
                 await UniTask.Delay((int)(phase.DelayBeforePhase * 1000));
             }
+            await WaitWhileMpTestGameFlowFrozen();
 
             foreach (var order in phase.Orders)
             {
+                await WaitWhileMpTestGameFlowFrozen();
                 if (order.PoolEntry == null || order.PoolEntry.IsEmpty) continue;
 
                 int spawnCount = Mathf.Min(order.Count, order.PoolEntry.RemainingCount);
                 for (int i = 0; i < spawnCount; i++)
                 {
+                    await WaitWhileMpTestGameFlowFrozen();
                     if (order.PoolEntry.IsEmpty) break;
 
-                    await SpawnMonsterAtPositionAsync(
-                        order.PoolEntry.MonsterData,
+                    int poolSlotIndex = pool.IndexOf(order.PoolEntry);
+                    int defenderPlayerId = targetFieldManager?.playerManager != null
+                        ? targetFieldManager.playerManager.playerId
+                        : -1;
+                    if (poolSlotIndex < 0 || defenderPlayerId < 0)
+                    {
+                        break;
+                    }
+
+                    var gm = GameManagers.Instance;
+                    if (gm == null)
+                    {
+                        break;
+                    }
+
+                    var command = new BattleSpawnMonsterCommand(
+                        _playerManager.playerId,
+                        defenderPlayerId,
+                        poolSlotIndex,
                         order.SpawnPosition,
-                        targetFieldManager,
-                        order.PoolEntry.IsBoss,
-                        order.PoolEntry.BossUniqueId,
-                        order.PoolEntry.OriginPlayerId
-                    );
+                        1,
+                        "server_ai_spawn_plan",
+                        _playerManager.AttackMonsterPoolRevision);
+
+                    BattleCommandResult result = await gm.ExecuteBattleSpawnMonsterCommandAsync(
+                        command,
+                        CommandExecutionScope.ServerAuthorityOnly);
+                    if (!result.Success)
+                    {
+                        break;
+                    }
 
                     // 풀에서 직접 소비 (Find 로직 우회하여 무한루프 방지)
-                    order.PoolEntry.TryConsume();
-                    GameEvents.TriggerMonsterPoolChanged(_playerManager.playerId, pool);
+                    // Pool consumption is owned by BattleSpawnMonsterCommand.
+                    // Pool UI sync is triggered by authoritative pool consumption.
 
                     // 소환 간격
                     await UniTask.Delay(300); // 0.3초 간격
+                    await WaitWhileMpTestGameFlowFrozen();
                 }
             }
         }
+    }
+
+    private static async UniTask WaitWhileMpTestGameFlowFrozen()
+    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        while (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            await UniTask.Yield();
+        }
+#else
+        await UniTask.CompletedTask;
+#endif
     }
     
     /// <summary>
@@ -872,6 +911,7 @@ public class MonsterSpawner : MonoBehaviour
         
         // 몬스터 생성
         GameObject monsterGO = null;
+        NetworkObject spawnedNetworkObject = null;
         var runner = _playerManager?.Runner;
         if (runner != null && _playerManager.Object != null && _playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
         {
@@ -883,11 +923,17 @@ public class MonsterSpawner : MonoBehaviour
                 LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_RUNNER_SPAWN_FAIL", monsterData, adjustedSpawnPos, targetFieldManager, $"prefab={prefab.name}");
                 return null;
             }
+            spawnedNetworkObject = spawned;
             monsterGO = spawned.gameObject;
             if (targetMonsterParent != null)
             {
                 monsterGO.transform.SetParent(targetMonsterParent, true);
             }
+        }
+        else if (runner != null && runner.IsRunning)
+        {
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_NETWORK_PREFAB_REQUIRED", monsterData, adjustedSpawnPos, targetFieldManager, $"prefab={prefab.name}");
+            return null;
         }
         else
         {
@@ -896,7 +942,11 @@ public class MonsterSpawner : MonoBehaviour
         }
 
         Monster monster = monsterGO.GetComponent<Monster>();
-        if (monster == null) return null;
+        if (monster == null)
+        {
+            CleanupFailedSpawn(monsterGO, spawnedNetworkObject);
+            return null;
+        }
 
         // StatusBarPrefab 설정
         monster.statusBarPrefab = this.statusBarPrefab;
@@ -922,7 +972,7 @@ public class MonsterSpawner : MonoBehaviour
                 $"targetGrid={(targetGrid != null ? targetGrid.name : "null")},targetGoal={(targetGoal != null ? targetGoal.name : "null")}");
             // Debug.LogWarning($"[SPAWN-TRACE] {BuildAllPlayersSnapshot()}");
             // Debug.LogWarning($"[SPAWN-TRACE] {BuildAllFieldsSnapshot()}");
-            Destroy(monsterGO);
+            CleanupFailedSpawn(monsterGO, spawnedNetworkObject);
             return null;
         }
 
@@ -972,7 +1022,7 @@ public class MonsterSpawner : MonoBehaviour
         {
             // Debug.LogWarning($"[MonsterSpawner] 수동 소환 몬스터 경로 찾기 실패: {startPos} → {endPos}");
             LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_PATH_FAIL", monsterData, adjustedSpawnPos, targetFieldManager, $"start={startPos},end={endPos}");
-            Destroy(monsterGO);
+            CleanupFailedSpawn(monsterGO, spawnedNetworkObject);
             return null;
         }
 
@@ -980,6 +1030,24 @@ public class MonsterSpawner : MonoBehaviour
         // Debug.Log($"<color=green>[MonsterSpawner] 수동 소환: {monsterData.monsterName}{bossTag} at {spawnPosition}, 경로 시작: {startPos}</color>");
         LogSpawnTrace("SpawnMonsterAtPositionAsync:SUCCESS", monsterData, adjustedSpawnPos, targetFieldManager, $"start={startPos},end={endPos},isBoss={isBoss}");
         return monster;
+    }
+
+    private void CleanupFailedSpawn(GameObject monsterGO, NetworkObject spawnedNetworkObject)
+    {
+        if (spawnedNetworkObject != null && spawnedNetworkObject.IsValid)
+        {
+            var runner = _playerManager?.Runner;
+            if (runner != null && runner.IsRunning && _playerManager.Object != null && _playerManager.Object.HasStateAuthority)
+            {
+                runner.Despawn(spawnedNetworkObject);
+                return;
+            }
+        }
+
+        if (monsterGO != null)
+        {
+            Destroy(monsterGO);
+        }
     }
 
 

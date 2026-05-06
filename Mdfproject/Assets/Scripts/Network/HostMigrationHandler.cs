@@ -25,6 +25,12 @@ public struct GameMigrationData
     public int FirstAttackerPlayerId;
     public string BattleOpponentsSnapshot;
     public string MatchFirstAttackerSnapshot;
+    public int AcceptedBattleCommandSeq;
+    public int SpawnMonsterSeq;
+    public int UseMagicScrollSeq;
+    public int ActivateSkillSeq;
+    public int RejectedBattleCommandCount;
+    public string LastBattleCommand;
 }
 
 /// <summary>
@@ -70,6 +76,18 @@ public class HostMigrationHandler : MonoBehaviour
         public int ShopRound;
         public int[] PermanentWallFlatPositions;
         public string WallHash;
+        public int AttackPoolRevision;
+        public MonsterData[] AttackPoolMonsterDataRefs;
+        public string[] AttackPoolMonsterDataNames;
+        public int[] AttackPoolRemainingCounts;
+        public int[] AttackPoolMaxCounts;
+        public int[] AttackPoolIsBossValues;
+        public int[] AttackPoolBossUniqueIds;
+        public int[] AttackPoolTargetPlayerIds;
+        public int[] AttackPoolOriginPlayerIds;
+        public int OwnedScrollRevision;
+        public MagicScrollData[] OwnedScrollDataRefs;
+        public string[] OwnedScrollDataNames;
     }
 
     [Header("Migration Settings")]
@@ -196,7 +214,13 @@ public class HostMigrationHandler : MonoBehaviour
         
         _cachedGameData = new GameMigrationData
         {
-            CurrentSceneName = SceneManager.GetActiveScene().name
+            CurrentSceneName = SceneManager.GetActiveScene().name,
+            AcceptedBattleCommandSeq = BattleCommandTelemetry.AcceptedBattleCommandSeq,
+            SpawnMonsterSeq = BattleCommandTelemetry.SpawnMonsterSeq,
+            UseMagicScrollSeq = BattleCommandTelemetry.UseMagicScrollSeq,
+            ActivateSkillSeq = BattleCommandTelemetry.ActivateSkillSeq,
+            RejectedBattleCommandCount = BattleCommandTelemetry.RejectedBattleCommandCount,
+            LastBattleCommand = BattleCommandTelemetry.LastCommand
         };
 
         var sourceGameManagers = ResolveGameManagersForRunner(runner);
@@ -1393,7 +1417,19 @@ public class HostMigrationHandler : MonoBehaviour
                 ShopRevision = 0,
                 ShopRound = 0,
                 PermanentWallFlatPositions = Array.Empty<int>(),
-                WallHash = string.Empty
+                WallHash = string.Empty,
+                AttackPoolRevision = 0,
+                AttackPoolMonsterDataRefs = Array.Empty<MonsterData>(),
+                AttackPoolMonsterDataNames = Array.Empty<string>(),
+                AttackPoolRemainingCounts = Array.Empty<int>(),
+                AttackPoolMaxCounts = Array.Empty<int>(),
+                AttackPoolIsBossValues = Array.Empty<int>(),
+                AttackPoolBossUniqueIds = Array.Empty<int>(),
+                AttackPoolTargetPlayerIds = Array.Empty<int>(),
+                AttackPoolOriginPlayerIds = Array.Empty<int>(),
+                OwnedScrollRevision = 0,
+                OwnedScrollDataRefs = Array.Empty<MagicScrollData>(),
+                OwnedScrollDataNames = Array.Empty<string>()
             };
 
             if (player.TryGetShopSnapshot(
@@ -1415,6 +1451,38 @@ public class HostMigrationHandler : MonoBehaviour
                 player.fieldManager.RebuildWallMapsAfterMigration("HostMigrationHandler.CaptureDurablePlayerState", false, out _);
                 snapshot.PermanentWallFlatPositions = player.fieldManager.GetPermanentWallFlatPositions() ?? Array.Empty<int>();
                 snapshot.WallHash = player.fieldManager.BuildWallCellHash();
+            }
+
+            if (player.TryGetAttackMonsterPoolSnapshot(
+                    out int attackPoolRevision,
+                    out MonsterData[] attackPoolMonsterDataRefs,
+                    out string[] attackPoolMonsterDataNames,
+                    out int[] attackPoolRemainingCounts,
+                    out int[] attackPoolMaxCounts,
+                    out int[] attackPoolIsBossValues,
+                    out int[] attackPoolBossUniqueIds,
+                    out int[] attackPoolTargetPlayerIds,
+                    out int[] attackPoolOriginPlayerIds))
+            {
+                snapshot.AttackPoolRevision = attackPoolRevision;
+                snapshot.AttackPoolMonsterDataRefs = attackPoolMonsterDataRefs ?? Array.Empty<MonsterData>();
+                snapshot.AttackPoolMonsterDataNames = attackPoolMonsterDataNames ?? Array.Empty<string>();
+                snapshot.AttackPoolRemainingCounts = attackPoolRemainingCounts ?? Array.Empty<int>();
+                snapshot.AttackPoolMaxCounts = attackPoolMaxCounts ?? Array.Empty<int>();
+                snapshot.AttackPoolIsBossValues = attackPoolIsBossValues ?? Array.Empty<int>();
+                snapshot.AttackPoolBossUniqueIds = attackPoolBossUniqueIds ?? Array.Empty<int>();
+                snapshot.AttackPoolTargetPlayerIds = attackPoolTargetPlayerIds ?? Array.Empty<int>();
+                snapshot.AttackPoolOriginPlayerIds = attackPoolOriginPlayerIds ?? Array.Empty<int>();
+            }
+
+            if (player.TryGetOwnedMagicScrollSnapshot(
+                    out int ownedScrollRevision,
+                    out MagicScrollData[] ownedScrollDataRefs,
+                    out string[] ownedScrollDataNames))
+            {
+                snapshot.OwnedScrollRevision = ownedScrollRevision;
+                snapshot.OwnedScrollDataRefs = ownedScrollDataRefs ?? Array.Empty<MagicScrollData>();
+                snapshot.OwnedScrollDataNames = ownedScrollDataNames ?? Array.Empty<string>();
             }
 
             _cachedDurablePlayersById[playerId] = snapshot;
@@ -1494,6 +1562,22 @@ public class HostMigrationHandler : MonoBehaviour
                 snapshot.ShopSoldFlags,
                 snapshot.ShopRevision,
                 snapshot.ShopRound,
+                context);
+            player.RestoreAttackMonsterPoolFromMigrationSnapshot(
+                snapshot.AttackPoolRevision,
+                snapshot.AttackPoolMonsterDataRefs,
+                snapshot.AttackPoolMonsterDataNames,
+                snapshot.AttackPoolRemainingCounts,
+                snapshot.AttackPoolMaxCounts,
+                snapshot.AttackPoolIsBossValues,
+                snapshot.AttackPoolBossUniqueIds,
+                snapshot.AttackPoolTargetPlayerIds,
+                snapshot.AttackPoolOriginPlayerIds,
+                context);
+            player.RestoreOwnedMagicScrollsFromMigrationSnapshot(
+                snapshot.OwnedScrollRevision,
+                snapshot.OwnedScrollDataRefs,
+                snapshot.OwnedScrollDataNames,
                 context);
             restoredPlayers++;
 
@@ -2080,6 +2164,15 @@ public class HostMigrationHandler : MonoBehaviour
             _cachedGameData.MatchFirstAttackerSnapshot,
             _cachedGameData.FirstAttackerPlayerId,
             context);
+
+        BattleCommandTelemetry.ApplySnapshot(
+            _cachedGameData.AcceptedBattleCommandSeq,
+            _cachedGameData.SpawnMonsterSeq,
+            _cachedGameData.UseMagicScrollSeq,
+            _cachedGameData.ActivateSkillSeq,
+            _cachedGameData.RejectedBattleCommandCount,
+            _cachedGameData.LastBattleCommand);
+        gm.SyncBattleCommandTelemetryToClientsIfAuthoritative();
 
         if (applied || battleApplied)
         {

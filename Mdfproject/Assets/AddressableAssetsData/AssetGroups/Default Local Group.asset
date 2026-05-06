@@ -288,7 +288,7 @@ MonoBehaviour:
     m_SerializedLabels:
     - WaveData
   - m_GUID: b9ad52bb50cfab741bb309010e961c5b
-    m_Address: MonData_Elemental
+    m_Address: MonData_Boss_Elemental
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterData

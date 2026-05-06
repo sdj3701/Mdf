@@ -64,6 +64,12 @@ public class Projectile : MonoBehaviour
         {
             return;
         }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
 
         Vector3 currentTargetPosition;
         if (target != null)

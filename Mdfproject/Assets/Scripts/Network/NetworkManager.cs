@@ -767,6 +767,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         var candidates = FindObjectsOfType<PlayerManager>(true);
         int wallSyncs = 0;
+        int attackPoolSyncs = 0;
+        int battleCommandTelemetrySyncs = 0;
         int rebinds = 0;
         foreach (var player in candidates)
         {
@@ -777,6 +779,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
             player.RebindRuntimeReferencesAfterMigration("NetworkManager.ReconnectLateJoinSync", false);
             player.RPC_RebindRuntimeStateAfterReconnect();
+            player.ResendAttackMonsterPoolToClientsIfAuthoritative();
+            attackPoolSyncs++;
             rebinds++;
 
             if (player.fieldManager == null)
@@ -800,13 +804,28 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             wallSyncs++;
         }
 
+        var gameManagersCandidates = FindObjectsOfType<GameManagers>(true);
+        foreach (var gm in gameManagersCandidates)
+        {
+            if (gm == null || gm.Runner != runner)
+            {
+                continue;
+            }
+
+            gm.SyncBattleCommandTelemetryToClientsIfAuthoritative();
+            battleCommandTelemetrySyncs++;
+            break;
+        }
+
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestLogger.Log("same_token_reconnect_state_sync", "info", null, null, new Dictionary<string, object>
         {
             { "playerId", reconnectedPlayerId },
             { "attempt", attempt },
             { "rebinds", rebinds },
-            { "wallSyncs", wallSyncs }
+            { "wallSyncs", wallSyncs },
+            { "attackPoolSyncs", attackPoolSyncs },
+            { "battleCommandTelemetrySyncs", battleCommandTelemetrySyncs }
         });
 #endif
     }

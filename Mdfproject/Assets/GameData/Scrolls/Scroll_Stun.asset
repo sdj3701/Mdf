@@ -16,4 +16,8 @@ MonoBehaviour:
   description: 
   icon: {fileID: 21300000, guid: 1a488ad75fed8cf47aeff44454147552, type: 3}
   tier: 0
+  tacticalRole: 1
+  targetDomain: 2
+  canAiUse: 1
+  aiMinValue: 40
   skillData: {fileID: 11400000, guid: d35d515c57c2ce2408cc2b04eec16b2d, type: 2}

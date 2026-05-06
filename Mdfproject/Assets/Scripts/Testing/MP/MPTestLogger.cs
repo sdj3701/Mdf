@@ -11,10 +11,28 @@ public static class MPTestLogger
     private static readonly Queue<string> RecentLines = new Queue<string>();
 
     public static IReadOnlyCollection<string> Recent => RecentLines.ToArray();
+#if UNITY_EDITOR
+    public static bool EditorTestLoggingEnabled { get; set; }
+#endif
 
     public static void Log(string phase, string result = "info", string code = null, string message = null, IDictionary<string, object> fields = null)
     {
+#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+        return;
+#else
         var options = MPTestCommandLine.GetOptions();
+#if UNITY_EDITOR
+        if (!options.Enabled && !EditorTestLoggingEnabled)
+        {
+            return;
+        }
+#else
+        if (!options.Enabled)
+        {
+            return;
+        }
+#endif
+
         var builder = new StringBuilder();
         builder.Append("[MPTEST]");
         Append(builder, "ts", DateTime.UtcNow.ToString("o"));
@@ -61,6 +79,7 @@ public static class MPTestLogger
         }
 
         Debug.Log(line);
+#endif
     }
 
     public static void Pass(string phase, string message = null, IDictionary<string, object> fields = null)

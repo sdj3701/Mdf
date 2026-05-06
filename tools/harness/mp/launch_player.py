@@ -60,11 +60,14 @@ def launch_player(
 ) -> PlayerProcess:
     stdout_path = artifact_dir / f"{peer_name}.stdout.log"
     stderr_path = artifact_dir / f"{peer_name}.stderr.log"
+    player_log_path = artifact_dir / f"{peer_name}.Player.log"
     command_path = artifact_dir / f"{peer_name}.command.json"
     stdout_path.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         str(player_path),
+        "-logFile",
+        str(player_log_path),
         "--mpTest",
         "--mpRole",
         role,
@@ -108,6 +111,7 @@ def launch_player(
                 "port": port,
                 "role": role,
                 "session": session,
+                "playerLog": str(player_log_path),
             },
             indent=2,
         ),

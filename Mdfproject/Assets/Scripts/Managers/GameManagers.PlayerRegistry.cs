@@ -91,6 +91,187 @@ public partial class GameManagers
         return -1;
     }
 
+    public bool TryGetBattleOpponentSnapshot(int playerId, out int opponentId)
+    {
+        if (_battleOpponents.TryGetValue(playerId, out opponentId))
+        {
+            return true;
+        }
+
+        return TryReadNetworkedBattleOpponentSnapshot(playerId, out opponentId);
+    }
+
+    private bool TryGetMatchFirstAttackerSnapshot(int playerId, out int firstAttackerId)
+    {
+        if (_matchFirstAttacker.TryGetValue(playerId, out firstAttackerId))
+        {
+            return true;
+        }
+
+        return TryReadNetworkedMatchFirstAttackerSnapshot(playerId, out firstAttackerId);
+    }
+
+    private static int EncodeBattleSnapshotId(int id)
+    {
+        return id < -1 ? 0 : id + 2;
+    }
+
+    private static bool TryDecodeBattleSnapshotId(int value, out int id)
+    {
+        if (value == 0)
+        {
+            id = -1;
+            return false;
+        }
+
+        id = value - 2;
+        return true;
+    }
+
+    private void PublishBattleSnapshotMap()
+    {
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        int capacity = Mathf.Min(MAX_PLAYERS, Mathf.Min(BattleOpponentSnapshotIds.Length, BattleFirstAttackerSnapshotIds.Length));
+        for (int i = 0; i < capacity; i++)
+        {
+            BattleOpponentSnapshotIds.Set(i, 0);
+            BattleFirstAttackerSnapshotIds.Set(i, 0);
+        }
+
+        foreach (var kv in _battleOpponents)
+        {
+            if (kv.Key >= 0 && kv.Key < capacity)
+            {
+                BattleOpponentSnapshotIds.Set(kv.Key, EncodeBattleSnapshotId(kv.Value));
+            }
+        }
+
+        foreach (var kv in _matchFirstAttacker)
+        {
+            if (kv.Key >= 0 && kv.Key < capacity)
+            {
+                BattleFirstAttackerSnapshotIds.Set(kv.Key, EncodeBattleSnapshotId(kv.Value));
+            }
+        }
+    }
+
+    private bool HasBattleSnapshotWriteAuthority()
+    {
+        return Object != null && Object.HasStateAuthority;
+    }
+
+    private bool TryReadNetworkedBattleOpponentSnapshot(int playerId, out int opponentId)
+    {
+        opponentId = -1;
+        if (playerId < 0 || playerId >= BattleOpponentSnapshotIds.Length)
+        {
+            return false;
+        }
+
+        return TryDecodeBattleSnapshotId(BattleOpponentSnapshotIds.Get(playerId), out opponentId);
+    }
+
+    private bool TryReadNetworkedMatchFirstAttackerSnapshot(int playerId, out int firstAttackerId)
+    {
+        firstAttackerId = -1;
+        if (playerId < 0 || playerId >= BattleFirstAttackerSnapshotIds.Length)
+        {
+            return false;
+        }
+
+        return TryDecodeBattleSnapshotId(BattleFirstAttackerSnapshotIds.Get(playerId), out firstAttackerId);
+    }
+
+    private Dictionary<int, int> BuildBattleOpponentSnapshotMap()
+    {
+        var result = new Dictionary<int, int>(_battleOpponents);
+        int capacity = Mathf.Min(MAX_PLAYERS, BattleOpponentSnapshotIds.Length);
+        for (int i = 0; i < capacity; i++)
+        {
+            if (!result.ContainsKey(i) && TryReadNetworkedBattleOpponentSnapshot(i, out int opponentId))
+            {
+                result[i] = opponentId;
+            }
+        }
+
+        return result;
+    }
+
+    private Dictionary<int, int> BuildMatchFirstAttackerSnapshotMap()
+    {
+        var result = new Dictionary<int, int>(_matchFirstAttacker);
+        int capacity = Mathf.Min(MAX_PLAYERS, BattleFirstAttackerSnapshotIds.Length);
+        for (int i = 0; i < capacity; i++)
+        {
+            if (!result.ContainsKey(i) && TryReadNetworkedMatchFirstAttackerSnapshot(i, out int firstAttackerId))
+            {
+                result[i] = firstAttackerId;
+            }
+        }
+
+        return result;
+    }
+
+    private void CacheNetworkedBattleSnapshotMap()
+    {
+        int opponentCapacity = Mathf.Min(MAX_PLAYERS, BattleOpponentSnapshotIds.Length);
+        for (int i = 0; i < opponentCapacity; i++)
+        {
+            if (!_battleOpponents.ContainsKey(i) && TryReadNetworkedBattleOpponentSnapshot(i, out int opponentId))
+            {
+                _battleOpponents[i] = opponentId;
+            }
+        }
+
+        int firstAttackerCapacity = Mathf.Min(MAX_PLAYERS, BattleFirstAttackerSnapshotIds.Length);
+        for (int i = 0; i < firstAttackerCapacity; i++)
+        {
+            if (!_matchFirstAttacker.ContainsKey(i) && TryReadNetworkedMatchFirstAttackerSnapshot(i, out int firstAttackerId))
+            {
+                _matchFirstAttacker[i] = firstAttackerId;
+            }
+        }
+    }
+
+    private void RecordBattleStartSnapshotFromRpc(int playerId, bool isAttacker, int opponentId)
+    {
+        if (playerId < 0)
+        {
+            return;
+        }
+
+        _battleOpponents[playerId] = opponentId;
+        if (opponentId >= 0 && !_battleOpponents.ContainsKey(opponentId))
+        {
+            _battleOpponents[opponentId] = playerId;
+        }
+
+        int firstAttackerId = -1;
+        if (opponentId >= 0)
+        {
+            firstAttackerId = currentState == GameState.Battle2
+                ? (isAttacker ? opponentId : playerId)
+                : (isAttacker ? playerId : opponentId);
+        }
+
+        _matchFirstAttacker[playerId] = firstAttackerId;
+        if (opponentId >= 0)
+        {
+            _matchFirstAttacker[opponentId] = firstAttackerId;
+        }
+
+        if (firstAttackerId >= 0 && Object != null && Object.HasStateAuthority)
+        {
+            FirstAttackerPlayerId = firstAttackerId;
+        }
+
+        PublishBattleSnapshotMap();
+    }
+
     public PlayerManager GetPlayer(int id)
     {
         foreach (var player in AllPlayers)
@@ -342,9 +523,38 @@ public partial class GameManagers
 
     public void CaptureBattleSnapshotForMigration(out string battleOpponentsSnapshot, out string matchFirstAttackerSnapshot, out int firstAttackerPlayerId)
     {
-        battleOpponentsSnapshot = SerializeIntMap(_battleOpponents);
-        matchFirstAttackerSnapshot = SerializeIntMap(_matchFirstAttacker);
+        battleOpponentsSnapshot = SerializeIntMap(BuildBattleOpponentSnapshotMap());
+        matchFirstAttackerSnapshot = SerializeIntMap(BuildMatchFirstAttackerSnapshotMap());
         firstAttackerPlayerId = FirstAttackerPlayerId;
+    }
+
+    public string CaptureBattleActiveSnapshot()
+    {
+        var parts = new List<string>();
+        foreach (var player in AllPlayers)
+        {
+            if (!TryGetPlayerIdSafe(player, out int playerId) || playerId < 0)
+            {
+                continue;
+            }
+
+            int opponentId = TryGetBattleOpponentSnapshot(playerId, out int opponent) ? opponent : -1;
+            int matchFirstAttackerId = TryGetMatchFirstAttackerSnapshot(playerId, out int firstAttacker) ? firstAttacker : -1;
+            bool isFighting = false;
+            bool isAttacker = false;
+            try
+            {
+                isFighting = player.IsActivelyFighting;
+                isAttacker = player.IsAttackerInCurrentBattle;
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            parts.Add($"p={playerId};opp={opponentId};first={matchFirstAttackerId};fighting={isFighting};attacker={isAttacker}");
+        }
+
+        return string.Join("|", parts.OrderBy(part => part));
     }
 
     public bool TryRestoreBattleSnapshotForMigration(
@@ -391,11 +601,12 @@ public partial class GameManagers
             }
         }
 
-        if (firstAttackerPlayerId >= 0)
+        if (firstAttackerPlayerId >= 0 && HasBattleSnapshotWriteAuthority())
         {
             FirstAttackerPlayerId = firstAttackerPlayerId;
         }
 
+        PublishBattleSnapshotMap();
         Debug.Log($"[복원/매칭] 캐시 스냅샷 복원 완료 ({context}) opponents={_battleOpponents.Count}, firstAttackers={_matchFirstAttacker.Count}, firstAttackerId={FirstAttackerPlayerId}");
         return _battleOpponents.Count > 0;
     }
@@ -447,14 +658,28 @@ public partial class GameManagers
 
     private void EnsureBattleMappingAfterMigration()
     {
+        bool hasWriteAuthority = HasBattleSnapshotWriteAuthority();
         if (_battleOpponents.Count > 0 && _matchFirstAttacker.Count > 0)
         {
+            if (hasWriteAuthority)
+            {
+                PublishBattleSnapshotMap();
+            }
+            return;
+        }
+
+        if (!hasWriteAuthority)
+        {
+            CacheNetworkedBattleSnapshotMap();
             return;
         }
 
         var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
         if (alivePlayers.Count == 0)
         {
+            _battleOpponents.Clear();
+            _matchFirstAttacker.Clear();
+            PublishBattleSnapshotMap();
             return;
         }
 
@@ -472,6 +697,7 @@ public partial class GameManagers
             _matchFirstAttacker[a.playerId] = firstAttacker;
             _matchFirstAttacker[b.playerId] = firstAttacker;
             FirstAttackerPlayerId = firstAttacker;
+            PublishBattleSnapshotMap();
 
             Debug.LogWarning($"[복원/매칭] 2인 폴백 재구성 완료: P{a.playerId}↔P{b.playerId}, 선공자=P{firstAttacker}, state={currentState}");
             return;
@@ -507,6 +733,7 @@ public partial class GameManagers
         }
 
         Debug.LogWarning($"[복원/매칭] opponentManager 기반 재구성 완료: {string.Join(", ", _battleOpponents.Select(kv => $"P{kv.Key}↔P{kv.Value}"))}");
+        PublishBattleSnapshotMap();
     }
 
     private int ResolveFirstAttackerForResumePair(PlayerManager a, PlayerManager b)

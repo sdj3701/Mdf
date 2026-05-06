@@ -16,6 +16,12 @@ public class SkillData : ScriptableObject
     public float range; // 스킬의 유효 사거리
     public SkillActivationType activationType;
 
+    [Header("AI Strategic Use")]
+    [Tooltip("Allows an otherwise automatic skill to be selected by AI/HumanBot policy as a strategic command.")]
+    public bool canAiUseStrategically;
+    [Tooltip("Minimum score required before AI/HumanBot policy emits ActivateSkillCommand for this skill.")]
+    public float aiMinSkillValue = 100f;
+
     // [변경됨] skillLogicPrefab 대신 아래 두 개로 대체
     [Header("스킬 로직 (조립)")]
     [Tooltip("스킬의 대상을 어떻게 찾을지 결정합니다.")]

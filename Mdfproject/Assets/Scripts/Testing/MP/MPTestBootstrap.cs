@@ -35,6 +35,8 @@ public sealed class MPTestBootstrap : MonoBehaviour
     {
         _options = MPTestCommandLine.GetOptions();
         Application.runInBackground = true;
+        Application.SetStackTraceLogType(UnityEngine.LogType.Log, StackTraceLogType.None);
+        Application.SetStackTraceLogType(UnityEngine.LogType.Warning, StackTraceLogType.None);
         UnityEngine.Random.InitState(_options.Seed);
 
         if (!string.IsNullOrEmpty(_options.ConnectionToken))

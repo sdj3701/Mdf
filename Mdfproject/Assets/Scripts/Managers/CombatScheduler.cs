@@ -77,6 +77,12 @@ public class CombatScheduler : NetworkBehaviour
         {
             return;
         }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
 
         int bucketIndex = Runner.Tick % _hitBuckets.Length;
         var bucket = _hitBuckets[bucketIndex];
@@ -124,6 +130,12 @@ public class CombatScheduler : NetworkBehaviour
         {
             return;
         }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
 
         int fireTick = Runner.Tick;
         int hitTick = fireTick;

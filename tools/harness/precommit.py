@@ -47,12 +47,9 @@ HOST_MIGRATION_CRITICAL = {
 }
 
 WARN_PATTERNS = [
-    ('rpc_all', re.compile(r'\[Rpc\s*\(\s*RpcSources\.All'), 'RpcSources.All requires explicit RpcInfo/authority validation.'),
     ('networkrunner_instances', re.compile(r'NetworkRunner\.Instances'), 'Avoid NetworkRunner.Instances unless no project singleton/runner reference exists.'),
     ('playerref_durable', re.compile(r'(owner|durable|reconnect|playerId).*PlayerRef|PlayerRef.*(owner|durable|reconnect|playerId)', re.I), 'PlayerRef is not durable gameplay identity.'),
     ('client_trust', re.compile(r'(playerId|gold|health|hp|wallCount|augment|shop|spawn|cooldown).*(fromClient|requested|client|intParams\[|stringParams\[)', re.I), 'Check client-supplied gameplay data is authority-validated.'),
-    ('rpc_persistent_state', re.compile(r'\[Rpc[^\n]*\][\s\S]{0,800}(gold|health|hp|wall|shop|augment|currentState|currentRound)', re.I), 'Persistent state touched near RPC; verify it is Networked/snapshot-backed, not RPC-only.'),
-    ('tick_debug_log', re.compile(r'(FixedUpdateNetwork|Render|Update)\s*\([^)]*\)\s*\{[\s\S]{0,1200}Debug\.Log', re.I), 'Debug.Log in tick/update path may be noisy; keep if diagnostic and intentional.'),
 ]
 
 SECRET_LOG_PATTERN = re.compile(r'Debug\.Log(?:Error|Warning)?[^\n]*(mpAutomationToken|AutomationToken|ConnectionToken|connectionToken|AppId|PhotonAppSettings)', re.I)
@@ -132,6 +129,197 @@ def logs_secret(txt: str) -> bool:
     return False
 
 
+def strip_comments(txt: str) -> str:
+    txt = re.sub(r'/\*[\s\S]*?\*/', '', txt)
+    return re.sub(r'//.*', '', txt)
+
+
+def strip_inactive_false_blocks(txt: str) -> str:
+    return re.sub(r'#if\s+false[\s\S]*?#endif', '', txt)
+
+
+def find_matching_brace(txt: str, open_index: int) -> int:
+    depth = 0
+    for i in range(open_index, len(txt)):
+        ch = txt[i]
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def iter_rpc_blocks(txt: str):
+    for match in re.finditer(r'\[Rpc\s*\(([^\]]*)\)\]', txt):
+        open_index = txt.find('{', match.end())
+        if open_index < 0:
+            continue
+        close_index = find_matching_brace(txt, open_index)
+        if close_index < 0:
+            continue
+        attr = match.group(1)
+        signature = txt[match.end():open_index]
+        body = txt[open_index + 1:close_index]
+        yield attr, signature, body
+
+
+def has_manual_rpc_source_validation(signature: str, body: str) -> bool:
+    if 'RpcInfo' not in signature:
+        return False
+    return (
+        'Object.InputAuthority' in body
+        or 'IsRpcSourceAuthorizedForPlayer' in body
+        or 'ValidateClientCommandRequest' in body
+        or 'RejectDeprecated' in body
+    )
+
+
+PERSISTENT_RPC_PATTERN = re.compile(r'\b(gold|health|hp|wall|shop|augment|currentState|currentRound)\b', re.I)
+
+BATTLE_COMMAND_REQUIRED_TOKENS = {
+    'BattleSpawnMonsterCommand.cs': [
+        'ServerBattleCommandExecutor.TryExecuteAsync',
+        'BattleCommandValidator.ResolveActorPlayer',
+        'BattleCommandValidator.ResolveOpponent',
+        'BattleCommandValidator.IsCurrentBattleAttacker',
+        'BattleCommandValidator.IsCurrentBattleDefender',
+        'BattleCommandValidator.IsAuthorizedClientSource',
+        'BattleCommandValidator.IsServerAiOrTestAuthority',
+        'BattleCommandValidator.IsFiniteTargetPosition',
+        'BattleCommandValidator.IsInsideBattleSpawnZone',
+        'TryConsumeMonsterPoolSlot',
+        'SpawnMonsterAtPositionAsync',
+    ],
+    'UseMagicScrollCommand.cs': [
+        'ServerBattleCommandExecutor.TryExecuteAsync',
+        'BattleCommandValidator.ResolveActorPlayer',
+        'BattleCommandValidator.ResolveOpponent',
+        'BattleCommandValidator.IsCurrentBattleAttacker',
+        'BattleCommandValidator.IsCurrentBattleDefender',
+        'BattleCommandValidator.IsAuthorizedClientSource',
+        'BattleCommandValidator.IsServerAiOrTestAuthority',
+        'BattleCommandValidator.IsFiniteTargetPosition',
+        'BattleCommandValidator.IsInsideScrollTargetDomain',
+        'TryConsumeMagicScrollSlot',
+        'CastGameplay',
+    ],
+}
+
+BATTLE_COMMAND_ALLOWED_DIRECT_SPAWN = {
+    'Mdfproject/Assets/Scripts/Game/Monsters/MonsterSpawner.cs',
+    'Mdfproject/Assets/Scripts/Commands/Battle/BattleSpawnMonsterCommand.cs',
+}
+
+
+def custom_warns(txt: str, r: str) -> list[tuple[str, str, str]]:
+    warns = []
+    for attr, signature, body in iter_rpc_blocks(txt):
+        rpc_text = f'{signature}\n{body}'
+        manual_source_validation = has_manual_rpc_source_validation(signature, body)
+        if 'RpcSources.All' in attr and not manual_source_validation:
+            warns.append((r, 'rpc_all', 'RpcSources.All requires explicit RpcInfo/authority validation.'))
+        if not PERSISTENT_RPC_PATTERN.search(rpc_text):
+            continue
+        if 'RpcSources.StateAuthority' in attr:
+            continue
+        if manual_source_validation:
+            continue
+        warns.append((r, 'rpc_persistent_state', 'Persistent state touched near RPC; verify it is Networked/snapshot-backed, not RPC-only.'))
+
+    for match in re.finditer(r'(?:public|private|protected)?\s*(?:override\s+)?void\s+(FixedUpdateNetwork|Render|Update)\s*\([^)]*\)\s*\{', txt):
+        open_index = txt.find('{', match.end() - 1)
+        close_index = find_matching_brace(txt, open_index)
+        if open_index < 0 or close_index < 0:
+            continue
+        body = txt[open_index + 1:close_index]
+        if re.search(r'Debug\.Log', body):
+            warns.append((r, 'tick_debug_log', 'Debug.Log in tick/update path may be noisy; keep if diagnostic and intentional.'))
+    return warns
+
+
+def method_body_contains(txt: str, method_name: str, pattern: str) -> bool:
+    for match in re.finditer(r'\b' + re.escape(method_name) + r'\s*\([^)]*\)\s*\{', txt):
+        open_index = txt.find('{', match.end() - 1)
+        close_index = find_matching_brace(txt, open_index)
+        if open_index < 0 or close_index < 0:
+            continue
+        body = txt[open_index + 1:close_index]
+        if re.search(pattern, body):
+            return True
+    return False
+
+
+def custom_errors(txt: str, r: str) -> list[tuple[str, str, str]]:
+    errors = []
+    if '/Editor/' in r:
+        return errors
+
+    if re.search(r'ComponentRegistry\.Register\s*<\s*AIPlayerController\s*>|AddComponent\s*<\s*AIPlayerController\s*>', txt):
+        if 'HumanBot' in txt or r.startswith('Mdfproject/Assets/Scripts/Testing/MP/'):
+            errors.append((r, 'humanbot_ai_registration', 'HumanBot/test human peers must not register or attach AIPlayerController.'))
+
+    if r.startswith('Mdfproject/Assets/Scripts/AI/') and re.search(r'\bSpawnMonsterAtPositionAsync\s*\(', txt):
+        errors.append((r, 'ai_direct_monster_spawn', 'AI strategic monster spawns must emit BattleSpawnMonsterCommand, not call SpawnMonsterAtPositionAsync directly.'))
+
+    if r.startswith('Mdfproject/Assets/Scripts/AI/') and re.search(r'\.ActivateSkill\s*\(|\bApplyEffect\s*\(', txt):
+        errors.append((r, 'ai_direct_skill_effect', 'AI strategic skill decisions must emit ActivateSkillCommand, not call ActivateSkill or ApplyEffect directly.'))
+
+    if r.startswith('Mdfproject/Assets/Scripts/Testing/MP/') and re.search(r'\.ActivateSkill\s*\(|\bApplyEffect\s*\(', txt):
+        errors.append((r, 'humanbot_direct_skill_effect', 'HumanBot must use the real command path for strategic skills, not direct ActivateSkill or ApplyEffect calls.'))
+
+    for _, signature, body in iter_rpc_blocks(txt):
+        if 'RPC_BroadcastMagicScrollUsed' in signature and re.search(r'CastGameplay|CastSkill|ApplyEffect|TryConsumeMagicScrollSlot', body):
+            errors.append((r, 'scroll_broadcast_gameplay_effect', 'Magic scroll broadcast RPC must be presentation-only and must not apply durable gameplay effects.'))
+
+    if (
+        method_body_contains(txt, 'CreateScrollPresentationLocal', r'CastGameplay|CastSkill|ApplyEffect|TryConsumeMagicScrollSlot')
+        or method_body_contains(txt, 'PlayPresentation', r'CastGameplay|CastSkill|ApplyEffect|TryConsumeMagicScrollSlot')
+    ):
+        errors.append((r, 'scroll_presentation_gameplay_effect', 'Scroll presentation helpers must not apply gameplay effects or consume scroll inventory.'))
+
+    if r.endswith('/Commands/Battle/BattleSpawnMonsterCommand.cs') or r.endswith('/Commands/Battle/UseMagicScrollCommand.cs'):
+        required = BATTLE_COMMAND_REQUIRED_TOKENS.get(pathlib.PurePosixPath(r).name, [])
+        missing = [token for token in required if token not in txt]
+        if missing:
+            errors.append((r, 'battle_command_validation_missing', 'Battle command is missing required authority validation/execution tokens: ' + ', '.join(missing)))
+
+    if r.endswith('/Commands/PlayerActions/ActivateSkillCommand.cs'):
+        required = [
+            'BattleCommandValidator.ResolveActorPlayer',
+            'BattleCommandValidator.IsBattlePhase',
+            'IsManualOrAiStrategicSkill',
+            'UnitBelongsToPlayer',
+            'unit.Object.HasStateAuthority',
+            'unit.ActivateSkill()',
+        ]
+        missing = [token for token in required if token not in txt]
+        if missing:
+            errors.append((r, 'activate_skill_validation_missing', 'ActivateSkillCommand is missing required strategic/manual skill validation tokens: ' + ', '.join(missing)))
+
+    return errors
+
+
+def battle_guardrail_warns(txt: str, r: str) -> list[tuple[str, str, str]]:
+    warns = []
+    if '/Editor/' in r:
+        return warns
+    if 'SpawnMonsterAtPositionAsync' in txt and r not in BATTLE_COMMAND_ALLOWED_DIRECT_SPAWN:
+        warns.append((r, 'direct_monster_spawn_review', 'Direct SpawnMonsterAtPositionAsync use must be non-strategic or wrapped by BattleSpawnMonsterCommand.'))
+    if re.search(r'\.\s*RPC_RequestSpawnMonster\s*\(', txt):
+        warns.append((r, 'legacy_spawn_rpc_call', 'Legacy RPC_RequestSpawnMonster call detected; use BattleSpawnMonsterCommand/RPC_RequestBattleSpawnMonster.'))
+    if re.search(r'\.\s*RPC_RequestUseMagicScroll\s*\(', txt):
+        warns.append((r, 'legacy_scroll_rpc_call', 'Legacy RPC_RequestUseMagicScroll call detected; use UseMagicScrollCommand/RPC_RequestUseMagicScrollCommand.'))
+    if re.search(r'\.\s*CastGameplay\s*\(', txt) and not r.endswith('/Commands/Battle/UseMagicScrollCommand.cs'):
+        warns.append((r, 'scroll_gameplay_direct_call', 'Scroll gameplay casting should route through UseMagicScrollCommand on State Authority.'))
+    if re.search(r'\.\s*TryConsumeMagicScrollSlot\s*\(', txt) and not r.endswith('/Commands/Battle/UseMagicScrollCommand.cs'):
+        warns.append((r, 'scroll_inventory_direct_consume', 'Scroll inventory consumption should occur after UseMagicScrollCommand validation.'))
+    if re.search(r'\.\s*TryConsumeMonsterPoolSlot\s*\(', txt) and not r.endswith('/Commands/Battle/BattleSpawnMonsterCommand.cs'):
+        warns.append((r, 'attack_pool_direct_consume', 'Attack monster pool consumption should occur after BattleSpawnMonsterCommand validation.'))
+    return warns
+
+
 def check_file(p: pathlib.Path):
     errors = []
     warns = []
@@ -142,6 +330,7 @@ def check_file(p: pathlib.Path):
         return errors, warns
     if p.suffix == '.cs':
         txt = p.read_text(errors='ignore')
+        warn_txt = strip_inactive_false_blocks(strip_comments(txt))
         if 'UnityEditor' in txt and not has_unity_editor_guard(txt, r):
             errors.append((r, 'unityeditor_runtime', 'UnityEditor reference outside Editor folder must be guarded by #if UNITY_EDITOR.'))
         if re.search(r'class\s+MPTestAutomationServer|HttpListener|TcpListener', txt):
@@ -150,9 +339,12 @@ def check_file(p: pathlib.Path):
                 errors.append((r, 'automation_server_unsafe', 'Test automation server safety missing: ' + ', '.join(problems) + '.'))
         if logs_secret(txt):
             errors.append((r, 'secret_logging', 'Do not log raw automation tokens, connection tokens, or Photon AppId. Log hashes only.'))
+        errors.extend(custom_errors(warn_txt, r))
         for name, pat, msg in WARN_PATTERNS:
-            if pat.search(txt):
+            if pat.search(warn_txt):
                 warns.append((r, name, msg))
+        warns.extend(custom_warns(warn_txt, r))
+        warns.extend(battle_guardrail_warns(warn_txt, r))
         if '/Commands/' in r and r.endswith('Command.cs') and 'class ' in txt and 'ICommand' in txt:
             enum_path = ROOT / 'Mdfproject/Assets/Scripts/Enums/CommandType.cs'
             proc_path = ROOT / 'Mdfproject/Assets/Scripts/Commands/Core/CommandProcessor.cs'
@@ -217,6 +409,27 @@ def self_test() -> int:
         bad4 = d / 'RuntimeEditorLeak.cs'
         bad4.write_text('using UnityEditor;\nclass RuntimeEditorLeak {}')
         cases.append(('runtime UnityEditor leak', bool(check_file(bad4)[0])))
+        bad5 = d / 'UnvalidatedRpcAll.cs'
+        bad5.write_text('class X { [Rpc(RpcSources.All, RpcTargets.StateAuthority)] void R(){ gold=1; } }')
+        cases.append(('unvalidated rpc all warning', any(w[1] == 'rpc_all' for w in check_file(bad5)[1])))
+        ok2 = d / 'ValidatedRpcAll.cs'
+        ok2.write_text('class X { [Rpc(RpcSources.All, RpcTargets.StateAuthority)] void R(RpcInfo info = default){ if(!IsRpcSourceAuthorizedForPlayer(p, info.Source)) return; gold=1; } }')
+        cases.append(('validated rpc all no warning', not any(w[1] == 'rpc_all' for w in check_file(ok2)[1])))
+        bad6 = d / 'HumanBotBad.cs'
+        bad6.write_text('class MPTestHumanBotDriver { void X(){ gameObject.AddComponent<AIPlayerController>(); } }')
+        cases.append(('humanbot ai registration block', any(e[1] == 'humanbot_ai_registration' for e in check_file(bad6)[0])))
+        bad7 = d / 'ScrollPresentationBad.cs'
+        bad7.write_text('class X { [Rpc(RpcSources.StateAuthority, RpcTargets.All)] void RPC_BroadcastMagicScrollUsed(){ caster.CastGameplay(skill, out n); } }')
+        cases.append(('scroll presentation gameplay block', any(e[1] == 'scroll_broadcast_gameplay_effect' for e in check_file(bad7)[0])))
+        bad8 = ROOT / 'Mdfproject/Assets/Scripts/AI/Planning/__precommit_self_test_BadAiSpawn.cs'
+        bad8.write_text('class BadAiSpawn { void X(){ spawner.SpawnMonsterAtPositionAsync(data, pos, field); } }')
+        try:
+            cases.append(('ai direct spawn block', any(e[1] == 'ai_direct_monster_spawn' for e in check_file(bad8)[0])))
+        finally:
+            try:
+                bad8.unlink()
+            except Exception:
+                pass
         passed = True
         for name, result in cases:
             print(f'self-test {name}:', 'PASS' if result else 'FAIL')

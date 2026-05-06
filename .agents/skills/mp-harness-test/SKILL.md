@@ -18,4 +18,11 @@ Required loop:
 7. Capture logs/screenshots/artifacts.
 8. Cleanup.
 
+Battle command cases must additionally prove:
+
+- `BattleSpawnMonsterCommand`, `UseMagicScrollCommand`, and optional `ActivateSkillCommand` acceptance/execution with `[MPTEST]` command logs.
+- same-player replicated `attackMonsterPoolHash`, `ownedScrollsHash`, battle command sequence counters, monster semantic hashes, and active effect hashes match across peers.
+- HumanBot, when used, remains `isAI=false` and `ai.controllerRegistered=false`.
+- reconnect/disconnect/Host Migration cases compare a synchronized checkpoint; do not weaken post-checkpoint mismatches as random.
+
 Do not claim PASS without artifacts.

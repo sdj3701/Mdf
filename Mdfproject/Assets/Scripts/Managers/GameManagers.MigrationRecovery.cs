@@ -595,7 +595,7 @@ public partial class GameManagers
                 defender.monsterSpawner.HasLivingMonsters();
             bool attackerHasPool = HasRemainingAttackPool(attacker);
 
-            if (!attackerHasPool && allowPoolRefresh)
+            if (!attackerHasPool && allowPoolRefresh && attacker.AttackMonsterPoolRevision <= 0)
             {
                 attacker.RefreshAttackMonsterPool(currentRound, defenderId);
                 attackerHasPool = HasRemainingAttackPool(attacker);

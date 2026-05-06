@@ -26,9 +26,7 @@ public class SyncPermanentBonusesCommand : ICommand
         var player = gm.GetPlayer(PlayerId);
         if (player != null)
         {
-            player.permanentAttackDamagePercent = AttackDamagePercent;
-            player.permanentAttackSpeedPercent = AttackSpeedPercent;
-            player.ApplyPermanentBonusesToUnitsOnField();
+            player.SetPermanentBonusesFromSync(AttackDamagePercent, AttackSpeedPercent);
             Debug.Log($"<color=cyan>[SyncPermanentBonusesCommand] Player {PlayerId}: AttackDmg={AttackDamagePercent:P0}, AttackSpd={AttackSpeedPercent:P0}</color>");
         }
     }

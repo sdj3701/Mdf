@@ -32,6 +32,7 @@ public static class MPTestStateSnapshot
             Game = CaptureGame(gameManagers, errors),
             Players = CapturePlayers(gameManagers, runner, options, errors),
             Objects = CaptureObjects(),
+            Effects = CaptureEffects(),
             Commands = CaptureCommands(gameManagers),
             HostMigration = CaptureHostMigration(),
             Test = CaptureTest(),
@@ -131,6 +132,11 @@ public static class MPTestStateSnapshot
     {
         string battleOpponentsSnapshot = null;
         string matchFirstAttackerSnapshot = null;
+        string battleActiveSnapshot = null;
+        string survivorBossPendingSnapshot = null;
+        string survivorBossAssignmentSnapshot = null;
+        int? survivorBossPendingCount = null;
+        int? survivorBossAssignmentCount = null;
         int firstAttackerPlayerId = -1;
 
         if (gameManagers != null)
@@ -141,6 +147,7 @@ public static class MPTestStateSnapshot
                     out battleOpponentsSnapshot,
                     out matchFirstAttackerSnapshot,
                     out firstAttackerPlayerId);
+                battleActiveSnapshot = gameManagers.CaptureBattleActiveSnapshot();
             }
             catch (Exception ex)
             {
@@ -148,16 +155,49 @@ public static class MPTestStateSnapshot
             }
         }
 
+        var survivorBossManager = SurvivorBossManager.Instance;
+        if (survivorBossManager != null)
+        {
+            try
+            {
+                survivorBossManager.CaptureStableSnapshot(
+                    out survivorBossPendingSnapshot,
+                    out survivorBossAssignmentSnapshot,
+                    out int pendingCount,
+                    out int assignmentCount);
+                survivorBossPendingCount = pendingCount;
+                survivorBossAssignmentCount = assignmentCount;
+            }
+            catch (Exception ex)
+            {
+                errors.Add("game.survivorBossSnapshot:" + ex.GetType().Name);
+            }
+        }
+
         return new GameSnapshot
         {
             HasGameManagers = gameManagers != null,
             CurrentState = gameManagers != null ? SafeString(() => gameManagers.GetGameState().ToString(), Unknown) : null,
+            BattlePhase = gameManagers != null ? ResolveBattlePhase(gameManagers) : "None",
             CurrentRound = gameManagers != null ? SafeInt(() => gameManagers.currentRound, 0) : 0,
             PhaseTimerRemaining = gameManagers != null ? SafeFloat(() => gameManagers.currentPhaseTimer, 0f) : 0f,
             FirstAttackerPlayerId = gameManagers != null ? firstAttackerPlayerId : -1,
             BattleOpponentsHash = HashStableString(battleOpponentsSnapshot),
-            MatchFirstAttackerHash = HashStableString(matchFirstAttackerSnapshot)
+            MatchFirstAttackerHash = HashStableString(matchFirstAttackerSnapshot),
+            BattleActiveHash = HashStableString(battleActiveSnapshot),
+            SurvivorBossPendingHash = HashStableString(survivorBossPendingSnapshot),
+            SurvivorBossAssignmentHash = HashStableString(survivorBossAssignmentSnapshot),
+            SurvivorBossPendingCount = survivorBossPendingCount,
+            SurvivorBossAssignmentCount = survivorBossAssignmentCount
         };
+    }
+
+    private static string ResolveBattlePhase(GameManagers gameManagers)
+    {
+        var state = SafeRef(() => gameManagers.GetGameState(), GameManagers.GameState.Setup);
+        return state == GameManagers.GameState.Battle1 || state == GameManagers.GameState.Battle2
+            ? state.ToString()
+            : "None";
     }
 
     private static PlayerSnapshot[] CapturePlayers(
@@ -233,12 +273,69 @@ public static class MPTestStateSnapshot
             WallCount = SafeInt(player.GetWallCount, 0),
             IsActivelyFighting = SafeBool(() => player.IsActivelyFighting, false),
             IsAttackerInCurrentBattle = SafeBool(() => player.IsAttackerInCurrentBattle, false),
+            AttackMonsterPoolHash = CaptureAttackMonsterPoolHash(player),
+            OwnedScrollsHash = CaptureOwnedScrollsHash(player),
+            OwnedScrollRevision = SafeInt(() => player.OwnedMagicScrollRevision, 0),
+            ManualSkillReadyHash = CaptureManualSkillReadyHash(player),
             Shop = CaptureShop(player),
             Augment = CaptureAugment(player),
             Field = CaptureField(player, errors),
             Monsters = CaptureMonsters(player),
             Ai = CaptureAi(playerId, player)
         };
+    }
+
+    private static string CaptureManualSkillReadyHash(PlayerManager player)
+    {
+        var field = SafeRef(() => player.fieldManager, null);
+        if (field == null)
+        {
+            return Unknown;
+        }
+
+        var units = SafeRef(() => field.GetAlliedUnitsOnField(), null);
+        if (units == null || units.Count == 0)
+        {
+            return HashStableParts(new[] { "manualSkillReady=empty" });
+        }
+
+        var parts = new List<string>();
+        foreach (var unit in units.Where(unit => unit != null))
+        {
+            if (!SafeBool(() => unit.HasConfiguredSkill, false))
+            {
+                continue;
+            }
+
+            var skillData = SafeRef(() => unit.LoadedSkillData, null);
+            bool strategic = SafeBool(() => unit.IsManualOrAiStrategicSkill(skillData), false);
+            if (!strategic)
+            {
+                continue;
+            }
+
+            string configuredSkillKey = null;
+            SafeBool(() => unit.TryGetConfiguredSkillKey(out configuredSkillKey), false);
+            string skillKey = skillData != null
+                ? BuildScriptableObjectKey(skillData, SafeString(() => skillData.skillName, string.Empty))
+                : (!string.IsNullOrWhiteSpace(configuredSkillKey) ? configuredSkillKey.Trim() : "unloaded");
+            bool isDead = SafeBool(() => unit.IsDead, false);
+            bool isCasting = SafeBool(() => unit.IsSkillCastingActive, false);
+            bool canUseByStatus = SafeBool(() => unit.CanUseSkillByStatus, false);
+            bool manaFull = SafeBool(() => unit.IsSkillManaFull, false);
+            float currentMana = SafeFloat(() => unit.SkillCurrentMana, 0f);
+            float maxMana = SafeFloat(() => unit.SkillMaxMana, 0f);
+            int manaBucket = BuildManaBucket(currentMana, maxMana);
+            int targetCount = skillData != null ? SafeInt(() => unit.CountSkillTargets(skillData), 0) : -1;
+            bool targetsAvailable = skillData != null && SafeBool(() => unit.HasSkillTargetsAvailable(skillData), false);
+            bool ready = !isDead && !isCasting && canUseByStatus && manaFull && targetsAvailable;
+            var pos = SafeRef(() => field.GetUnitPosition(unit), (Vector3Int?)null);
+            string posText = pos.HasValue ? $"{pos.Value.x},{pos.Value.y},{pos.Value.z}" : "unknown-pos";
+            parts.Add(
+                $"unit={BuildUnitDataKey(unit)};pos={posText};star={SafeInt(() => unit.starLevel, 0)};skill={skillKey};activation={SafeString(() => unit.currentSkillActivationType.ToString(), Unknown)};aiStrategic={SafeBool(() => skillData != null && skillData.canAiUseStrategically, false)};ready={ready};manaFull={manaFull};manaBucket={manaBucket};status={canUseByStatus};casting={isCasting};dead={isDead};targets={targetCount}");
+        }
+
+        return HashStableParts(parts.Count > 0 ? parts : new[] { "manualSkillReady=empty" });
     }
 
     private static bool PlayerRefIsConnected(NetworkRunner runner, NetworkObject networkObject)
@@ -312,35 +409,244 @@ public static class MPTestStateSnapshot
         };
     }
 
+    private static string CaptureAttackMonsterPoolHash(PlayerManager player)
+    {
+        int revision = 0;
+        string[] monsterDataNames = null;
+        int[] remainingCounts = null;
+        int[] maxCounts = null;
+        int[] isBossValues = null;
+        int[] bossUniqueIds = null;
+        int[] targetPlayerIds = null;
+        int[] originPlayerIds = null;
+        bool hasSnapshot = false;
+        try
+        {
+            hasSnapshot = player.TryGetAttackMonsterPoolSnapshotForComparison(
+                out revision,
+                out monsterDataNames,
+                out remainingCounts,
+                out maxCounts,
+                out isBossValues,
+                out bossUniqueIds,
+                out targetPlayerIds,
+                out originPlayerIds);
+        }
+        catch (Exception)
+        {
+            hasSnapshot = false;
+        }
+
+        if (!hasSnapshot || monsterDataNames == null || monsterDataNames.Length == 0)
+        {
+            return HashStableParts(new[]
+            {
+                hasSnapshot ? "pool=empty" : "pool=null",
+                $"revision={SafeInt(() => player.AttackMonsterPoolRevision, 0)}"
+            });
+        }
+
+        var parts = monsterDataNames.Select((monsterDataName, index) =>
+        {
+            if (string.IsNullOrWhiteSpace(monsterDataName))
+            {
+                return $"{index}:null";
+            }
+
+            return $"{index}:type={monsterDataName.Trim()};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={ReadArrayValue(isBossValues, index, 0) != 0};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)}";
+        }).Concat(new[] { $"revision={revision}" });
+        return HashStableParts(parts);
+    }
+
+    private static int ReadArrayValue(int[] values, int index, int fallback)
+    {
+        return values != null && index >= 0 && index < values.Length ? values[index] : fallback;
+    }
+
+    private static string CaptureOwnedScrollsHash(PlayerManager player)
+    {
+        var scrolls = SafeRef(() => player.OwnedScrolls, null);
+        int revision = SafeInt(() => player.OwnedMagicScrollRevision, 0);
+        if (scrolls == null || scrolls.Count == 0)
+        {
+            return HashStableParts(new[]
+            {
+                scrolls == null ? "scrolls=null" : "scrolls=empty",
+                $"revision={revision}"
+            });
+        }
+
+        var parts = scrolls.Select((scroll, index) =>
+        {
+            if (scroll == null)
+            {
+                return $"{index}:null";
+            }
+
+            string scrollKey = BuildScriptableObjectKey(scroll, SafeString(() => scroll.scrollName, string.Empty));
+            string skillKey = BuildScriptableObjectKey(scroll.skillData, SafeString(() => scroll.skillData.skillName, string.Empty));
+            return $"{index}:scroll={scrollKey};asset={scroll.name};skill={skillKey};revision={revision}";
+        });
+
+        return HashStableParts(parts);
+    }
+
     private static AugmentSnapshot CaptureAugment(PlayerManager player)
     {
         var presented = SafeRef(() => player.augmentManager != null ? player.augmentManager.GetPresentedAugments() : null, null);
         var chosen = SafeRef(() => player.chosenAugments, null);
-        var presentedParts = presented != null && presented.Count > 0
+        var localPresentedParts = presented != null && presented.Count > 0
             ? presented.Select(augment => augment != null ? augment.augmentName ?? string.Empty : "null")
-            : Array.Empty<string>();
-        if (!presentedParts.Any())
-        {
-            presentedParts = SafeRef(() => player.GetPresentedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
-        }
-        var selectedParts = chosen != null && chosen.Count > 0
+            : Array.Empty<string>() as IEnumerable<string>;
+        var networkPresentedParts = SafeRef(() => player.GetPresentedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
+        var localSelectedParts = chosen != null && chosen.Count > 0
             ? chosen.Select(augment => augment != null ? augment.augmentName ?? string.Empty : "null")
-            : Array.Empty<string>();
-        if (!selectedParts.Any())
-        {
-            selectedParts = SafeRef(() => player.GetSelectedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
-        }
+            : Array.Empty<string>() as IEnumerable<string>;
+        var networkSelectedParts = SafeRef(() => player.GetSelectedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
+        var selectedParts = networkSelectedParts.Any() ? networkSelectedParts : localSelectedParts;
+        var presentedParts = networkPresentedParts.Any()
+            ? networkPresentedParts
+            : (networkSelectedParts.Any() ? Array.Empty<string>() : localPresentedParts);
 
         int presentedCount = presentedParts.Count();
         int selectedCount = selectedParts.Count();
+        var activeEffectParts = BuildAugmentActiveEffectParts(player).ToArray();
+        var activeTargetParts = BuildAugmentActiveTargetParts(player).ToArray();
         return new AugmentSnapshot
         {
             Available = presentedCount > 0 || selectedCount > 0,
             SelectedCount = selectedCount,
             PresentedCount = presentedCount,
             PresentedHash = presentedCount > 0 ? HashStableParts(presentedParts) : Unknown,
-            SelectedHash = selectedCount > 0 ? HashStableParts(selectedParts) : Unknown
+            SelectedHash = selectedCount > 0 ? HashStableParts(selectedParts) : Unknown,
+            ActiveEffectCount = activeEffectParts.Length,
+            ActiveTargetCount = activeTargetParts.Length,
+            ActiveEffectHash = activeEffectParts.Length > 0 ? HashStableParts(activeEffectParts) : Unknown,
+            ActiveTargetHash = activeTargetParts.Length > 0 ? HashStableParts(activeTargetParts) : Unknown
         };
+    }
+
+    private static IEnumerable<string> BuildAugmentActiveEffectParts(PlayerManager player)
+    {
+        int playerId = SafeInt(() => player.playerId, -1);
+        foreach (var augment in EnumerateSelectedAugmentsForSnapshot(player))
+        {
+            yield return $"selected;owner={playerId};{BuildAugmentEffectPart(augment)}";
+        }
+
+        var scrolls = SafeRef(() => player.OwnedScrolls, null);
+        if (scrolls != null)
+        {
+            foreach (var scroll in scrolls.Where(scroll => scroll != null))
+            {
+                yield return $"scroll;owner={playerId};name={BuildScriptableObjectKey(scroll, SafeString(() => scroll.scrollName, string.Empty))}";
+            }
+        }
+
+        int attackDamageBucket = Mathf.RoundToInt(SafeFloat(() => player.GetSnapshotPermanentAttackDamagePercent(), 0f) * 1000f);
+        int attackSpeedBucket = Mathf.RoundToInt(SafeFloat(() => player.GetSnapshotPermanentAttackSpeedPercent(), 0f) * 1000f);
+        if (attackDamageBucket != 0 || attackSpeedBucket != 0)
+        {
+            yield return $"permanentStats;owner={playerId};attackDamagePermille={attackDamageBucket};attackSpeedPermille={attackSpeedBucket}";
+        }
+    }
+
+    private static IEnumerable<string> BuildAugmentActiveTargetParts(PlayerManager player)
+    {
+        int playerId = SafeInt(() => player.playerId, -1);
+        foreach (var augment in EnumerateSelectedAugmentsForSnapshot(player))
+        {
+            yield return $"selected;owner={playerId};augment={SafeString(() => augment.augmentName, string.Empty)};target={ResolveAugmentTargetPart(player, augment)}";
+        }
+
+    }
+
+    private static IEnumerable<AugmentData> EnumerateSelectedAugmentsForSnapshot(PlayerManager player)
+    {
+        var chosen = SafeRef(() => player.chosenAugments, null);
+        if (chosen != null && chosen.Any(augment => augment != null))
+        {
+            foreach (var augment in chosen.Where(augment => augment != null))
+            {
+                yield return augment;
+            }
+
+            yield break;
+        }
+
+        var names = SafeRef(() => player.GetSelectedAugmentSnapshotNames(), null);
+        if (names == null || names.Length == 0 || player.augmentManager == null)
+        {
+            yield break;
+        }
+
+        foreach (string augmentName in names.Where(name => !string.IsNullOrWhiteSpace(name)))
+        {
+            AugmentData augment = SafeRef(() => player.augmentManager.FindAugmentByName(augmentName), null);
+            if (augment != null)
+            {
+                yield return augment;
+            }
+        }
+    }
+
+    private static string BuildAugmentEffectPart(AugmentData augment)
+    {
+        string name = SafeString(() => augment.augmentName, string.Empty);
+        int valuePermille = Mathf.RoundToInt(SafeFloat(() => augment.value, 0f) * 1000f);
+        return $"name={name};tier={SafeString(() => augment.tier.ToString(), Unknown)};effect={SafeString(() => augment.effectType.ToString(), Unknown)};targetType={SafeString(() => augment.targetType.ToString(), Unknown)};valuePermille={valuePermille};payload={BuildAugmentPayloadPart(augment)}";
+    }
+
+    private static string BuildAugmentPayloadPart(AugmentData augment)
+    {
+        if (augment == null)
+        {
+            return "null";
+        }
+
+        if (augment.effectType == EffectType.SpawnMonsterOnEnemyField)
+        {
+            if (augment.isBossSummon)
+            {
+                return "boss=" + BuildMonsterDataKey(augment.bossMonsterData);
+            }
+
+            var entries = augment.monsterSpawnEntries ?? new List<MonsterSpawnEntry>();
+            return "monsters=" + string.Join(",", entries
+                .Where(entry => entry != null && entry.monsterData != null && entry.count > 0)
+                .Select(entry => $"{BuildMonsterDataKey(entry.monsterData)}x{entry.count}")
+                .OrderBy(part => part, StringComparer.Ordinal));
+        }
+
+        if (augment.effectType == EffectType.GrantMagicScroll)
+        {
+            return "scroll=" + BuildScriptableObjectKey(augment.magicScrollData, augment.magicScrollData != null ? augment.magicScrollData.scrollName : string.Empty);
+        }
+
+        return "none";
+    }
+
+    private static string ResolveAugmentTargetPart(PlayerManager player, AugmentData augment)
+    {
+        if (augment == null)
+        {
+            return "unknown";
+        }
+
+        if (augment.targetType == TargetType.Player)
+        {
+            return "player:" + SafeInt(() => player.playerId, -1);
+        }
+
+        int playerId = SafeInt(() => player.playerId, -1);
+        var gameManagers = GameManagers.Instance;
+        int opponentId = -1;
+        if (gameManagers != null && SafeBool(() => gameManagers.TryGetBattleOpponentSnapshot(playerId, out opponentId), false))
+        {
+            return "opponent:" + opponentId;
+        }
+
+        return "opponent:unmapped";
     }
 
     private static FieldSnapshot CaptureField(PlayerManager player, List<string> errors)
@@ -425,40 +731,259 @@ public static class MPTestStateSnapshot
                 Ready = false,
                 AliveCount = 0,
                 LivingHash = Unknown,
+                TypeHash = Unknown,
+                TypeCountHpHash = Unknown,
+                OwnerOriginHash = Unknown,
+                TargetPlayerHash = Unknown,
+                HpBucketHash = Unknown,
+                BossPoolIdentityHash = Unknown,
                 AutoSpawnRunning = null
             };
         }
 
-        int alive = 0;
-        var parts = new List<string>();
-        if (spawner.monsterParent != null)
-        {
-            foreach (Transform child in spawner.monsterParent)
-            {
-                if (child == null || !child.gameObject.activeInHierarchy)
-                {
-                    continue;
-                }
-
-                var monster = child.GetComponent<Monster>();
-                if (monster == null || monster.Object == null || !monster.Object.IsValid || monster.NetworkedHP <= 0)
-                {
-                    continue;
-                }
-
-                alive++;
-                string networkId = monster.Object.Id.ToString();
-                parts.Add($"{networkId}:hp={Mathf.RoundToInt(monster.NetworkedHP)}");
-            }
-        }
+        var monsters = CollectLivingMonsters(player, spawner).ToArray();
+        var livingParts = monsters.Select(BuildMonsterLivingPart).ToArray();
+        var typeParts = monsters
+            .Select(BuildMonsterTypePart)
+            .GroupBy(part => part, StringComparer.Ordinal)
+            .Select(group => $"{group.Key}:count={group.Count()}")
+            .ToArray();
+        var typeCountParts = monsters
+            .Select(BuildMonsterTypeHpBucketPart)
+            .GroupBy(part => part, StringComparer.Ordinal)
+            .Select(group => $"{group.Key}:count={group.Count()}")
+            .ToArray();
+        var hpBucketParts = monsters
+            .Select(BuildMonsterHpBucketPart)
+            .GroupBy(part => part, StringComparer.Ordinal)
+            .Select(group => $"{group.Key}:count={group.Count()}")
+            .ToArray();
+        var ownerOriginParts = monsters
+            .Select(monster => BuildMonsterOwnerOriginPart(player, monster))
+            .ToArray();
+        var targetParts = monsters
+            .Select(monster => BuildMonsterTargetPart(player, monster))
+            .ToArray();
+        var bossPoolIdentityParts = monsters
+            .Where(monster => SafeBool(() => monster.SnapshotIsBoss, false))
+            .Select(BuildMonsterBossPoolIdentityPart)
+            .ToArray();
 
         return new MonsterSnapshot
         {
             Ready = spawner.IsRuntimeReady(out _),
-            AliveCount = alive,
-            LivingHash = HashStableParts(parts),
+            AliveCount = monsters.Length,
+            LivingHash = livingParts.Length > 0 ? HashStableParts(livingParts) : Unknown,
+            TypeHash = typeParts.Length > 0 ? HashStableParts(typeParts) : Unknown,
+            TypeCountHpHash = typeCountParts.Length > 0 ? HashStableParts(typeCountParts) : Unknown,
+            OwnerOriginHash = ownerOriginParts.Length > 0 ? HashStableParts(ownerOriginParts) : Unknown,
+            TargetPlayerHash = targetParts.Length > 0 ? HashStableParts(targetParts) : Unknown,
+            HpBucketHash = hpBucketParts.Length > 0 ? HashStableParts(hpBucketParts) : Unknown,
+            BossPoolIdentityHash = bossPoolIdentityParts.Length > 0 ? HashStableParts(bossPoolIdentityParts) : Unknown,
             AutoSpawnRunning = null
         };
+    }
+
+    private static IEnumerable<Monster> CollectLivingMonsters(PlayerManager player, MonsterSpawner spawner)
+    {
+        int playerId = SafeInt(() => player.playerId, -1);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        if (spawner?.monsterParent != null)
+        {
+            foreach (Transform child in spawner.monsterParent)
+            {
+                var monster = child != null ? child.GetComponent<Monster>() : null;
+                if (!ShouldIncludeMonsterForPlayer(monster, playerId, allowUnknownOwner: true))
+                {
+                    continue;
+                }
+
+                if (seen.Add(BuildMonsterStableIdentity(monster)))
+                {
+                    yield return monster;
+                }
+            }
+        }
+
+        foreach (var monster in UnityEngine.Object.FindObjectsOfType<Monster>())
+        {
+            if (!ShouldIncludeMonsterForPlayer(monster, playerId, allowUnknownOwner: false))
+            {
+                continue;
+            }
+
+            if (seen.Add(BuildMonsterStableIdentity(monster)))
+            {
+                yield return monster;
+            }
+        }
+    }
+
+    private static bool ShouldIncludeMonsterForPlayer(Monster monster, int playerId, bool allowUnknownOwner)
+    {
+        if (monster == null || !SafeBool(() => monster.gameObject.activeInHierarchy, false))
+        {
+            return false;
+        }
+
+        var networkObject = SafeRef(() => monster.Object, null);
+        if (networkObject == null || !SafeBool(() => networkObject.IsValid, false))
+        {
+            return false;
+        }
+
+        if (SafeFloat(() => monster.NetworkedHP, 0f) <= 0f)
+        {
+            return false;
+        }
+
+        int ownerId = SafeInt(() => monster.SnapshotOwnerPlayerId, -1);
+        if (ownerId >= 0)
+        {
+            return ownerId == playerId;
+        }
+
+        return allowUnknownOwner;
+    }
+
+    private static string BuildMonsterStableIdentity(Monster monster)
+    {
+        return SafeString(() => monster.Object.Id.ToString(), "no-network");
+    }
+
+    private static string BuildMonsterLivingPart(Monster monster)
+    {
+        string networkId = SafeString(() => monster.Object.Id.ToString(), "no-network");
+        return $"{BuildMonsterTypeHpBucketPart(monster)};net={networkId}";
+    }
+
+    private static string BuildMonsterTypePart(Monster monster)
+    {
+        bool isBoss = SafeBool(() => monster.SnapshotIsBoss, false);
+        return $"type={BuildMonsterDataKey(monster)};monsterType={BuildMonsterTypeName(monster)};traits={BuildMonsterTraitsName(monster)};boss={isBoss}";
+    }
+
+    private static string BuildMonsterTypeHpBucketPart(Monster monster)
+    {
+        float hp = SafeFloat(() => monster.NetworkedHP, 0f);
+        float maxHp = SafeFloat(() => monster.NetworkedMaxHP, 0f);
+        bool isBoss = SafeBool(() => monster.SnapshotIsBoss, false);
+        int bossUniqueId = isBoss ? SafeInt(() => monster.SnapshotBossUniqueId, -1) : -1;
+        int bossOriginId = isBoss ? SafeInt(() => monster.SnapshotBossOriginPlayerId, -1) : -1;
+        int hpBucket = BuildHpBucket(hp, maxHp);
+        int maxHpBucket = Mathf.Max(0, Mathf.RoundToInt(maxHp / 10f));
+        return $"type={BuildMonsterDataKey(monster)};monsterType={BuildMonsterTypeName(monster)};traits={BuildMonsterTraitsName(monster)};boss={isBoss};bossId={bossUniqueId};bossOrigin={bossOriginId};hpBucket={hpBucket};maxHpBucket={maxHpBucket}";
+    }
+
+    private static string BuildMonsterHpBucketPart(Monster monster)
+    {
+        float hp = SafeFloat(() => monster.NetworkedHP, 0f);
+        float maxHp = SafeFloat(() => monster.NetworkedMaxHP, 0f);
+        int hpBucket = BuildHpBucket(hp, maxHp);
+        int maxHpBucket = Mathf.Max(0, Mathf.RoundToInt(maxHp / 10f));
+        return $"type={BuildMonsterDataKey(monster)};hpBucket={hpBucket};maxHpBucket={maxHpBucket}";
+    }
+
+    private static string BuildMonsterOwnerOriginPart(PlayerManager fieldOwner, Monster monster)
+    {
+        int fieldOwnerId = SafeInt(() => fieldOwner.playerId, -1);
+        int ownerId = SafeInt(() => monster.SnapshotOwnerPlayerId, -1);
+        bool isBoss = SafeBool(() => monster.SnapshotIsBoss, false);
+        int bossOriginId = isBoss ? SafeInt(() => monster.SnapshotBossOriginPlayerId, -1) : -1;
+        return $"type={BuildMonsterDataKey(monster)};fieldOwner={fieldOwnerId};owner={ownerId};boss={isBoss};bossOrigin={bossOriginId}";
+    }
+
+    private static string BuildMonsterTargetPart(PlayerManager fieldOwner, Monster monster)
+    {
+        int defenderId = SafeInt(() => fieldOwner.playerId, -1);
+        int opponentId = -1;
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers != null)
+        {
+            SafeBool(() => gameManagers.TryGetBattleOpponentSnapshot(defenderId, out opponentId), false);
+        }
+        bool defenderIsAttacker = SafeBool(() => fieldOwner.IsAttackerInCurrentBattle, false);
+        int attackerId = defenderIsAttacker ? defenderId : opponentId;
+        bool isBoss = SafeBool(() => monster.SnapshotIsBoss, false);
+        int bossUniqueId = isBoss ? SafeInt(() => monster.SnapshotBossUniqueId, -1) : -1;
+        return $"type={BuildMonsterDataKey(monster)};defender={defenderId};attacker={attackerId};defenderIsAttacker={defenderIsAttacker};boss={isBoss};bossId={bossUniqueId}";
+    }
+
+    private static string BuildMonsterBossPoolIdentityPart(Monster monster)
+    {
+        return $"type={BuildMonsterDataKey(monster)};bossId={SafeInt(() => monster.SnapshotBossUniqueId, -1)};bossOrigin={SafeInt(() => monster.SnapshotBossOriginPlayerId, -1)};owner={SafeInt(() => monster.SnapshotOwnerPlayerId, -1)}";
+    }
+
+    private static int BuildHpBucket(float currentHp, float maxHp)
+    {
+        if (maxHp <= 0f)
+        {
+            return Mathf.Max(0, Mathf.RoundToInt(currentHp / 10f));
+        }
+
+        float ratio = Mathf.Clamp01(currentHp / maxHp);
+        return Mathf.Clamp(Mathf.FloorToInt(ratio * 10f), 0, 10);
+    }
+
+    private static string BuildMonsterDataKey(MonsterData data)
+    {
+        if (data == null)
+        {
+            return "null";
+        }
+
+        return BuildScriptableObjectKey(data, data.monsterName);
+    }
+
+    private static string BuildMonsterDataKey(Monster monster)
+    {
+        string key = SafeString(() => monster.SnapshotMonsterDataKey, string.Empty);
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            return key.Trim();
+        }
+
+        return BuildMonsterDataKey(SafeRef(() => monster.Data, null));
+    }
+
+    private static string BuildMonsterTypeName(Monster monster)
+    {
+        string value = SafeString(() => monster.SnapshotMonsterTypeName, Unknown);
+        return string.IsNullOrWhiteSpace(value) ? Unknown : value.Trim();
+    }
+
+    private static string BuildMonsterTraitsName(Monster monster)
+    {
+        string value = SafeString(() => monster.SnapshotMonsterTraitsName, Unknown);
+        return string.IsNullOrWhiteSpace(value) ? Unknown : value.Trim();
+    }
+
+    private static string BuildScriptableObjectKey(ScriptableObject asset, string preferredName)
+    {
+        if (!string.IsNullOrWhiteSpace(preferredName))
+        {
+            return preferredName.Trim();
+        }
+
+        return asset != null && !string.IsNullOrWhiteSpace(asset.name) ? asset.name.Trim() : "null";
+    }
+
+    private static string BuildUnitDataKey(Unit unit)
+    {
+        var data = SafeRef(() => unit.Data, null);
+        return BuildScriptableObjectKey(data, SafeString(() => data.unitName, string.Empty));
+    }
+
+    private static int BuildManaBucket(float currentMana, float maxMana)
+    {
+        if (maxMana <= 0f)
+        {
+            return Mathf.Max(0, Mathf.RoundToInt(currentMana));
+        }
+
+        float ratio = Mathf.Clamp01(currentMana / maxMana);
+        return Mathf.Clamp(Mathf.FloorToInt(ratio * 10f), 0, 10);
     }
 
     private static AiSnapshot CaptureAi(int playerId, PlayerManager player)
@@ -484,13 +1009,162 @@ public static class MPTestStateSnapshot
         };
     }
 
+    private static EffectsSnapshot CaptureEffects()
+    {
+        var buffParts = new List<string>();
+        var statusParts = new List<string>();
+        int activeBuffCount = 0;
+        int activeStatusCount = 0;
+
+        foreach (var buffManager in UnityEngine.Object.FindObjectsOfType<BuffManager>())
+        {
+            if (buffManager == null)
+            {
+                continue;
+            }
+
+            string targetKey = BuildEffectTargetKey(buffManager.gameObject);
+            activeBuffCount += SafeInt(() => buffManager.ActiveBuffCount, 0);
+            activeStatusCount += SafeInt(() => buffManager.ActiveStatusEffectCount, 0);
+            buffParts.AddRange(SafeRef(() => buffManager.BuildActiveBuffSnapshotParts(targetKey), Enumerable.Empty<string>()));
+            statusParts.AddRange(SafeRef(() => buffManager.BuildActiveStatusSnapshotParts(targetKey), Enumerable.Empty<string>()));
+        }
+
+        var zoneParts = new List<string>();
+        foreach (var zone in UnityEngine.Object.FindObjectsOfType<ZoneController>())
+        {
+            if (zone != null && SafeBool(() => zone.IsSnapshotActive, false))
+            {
+                zoneParts.Add(SafeString(zone.BuildSnapshotPart, Unknown));
+            }
+        }
+
+        return new EffectsSnapshot
+        {
+            ActiveBuffCount = activeBuffCount,
+            ActiveStatusCount = activeStatusCount,
+            ZoneCount = zoneParts.Count,
+            ActiveBuffHash = HashStableParts(buffParts.Count > 0 ? buffParts : new[] { "activeBuffs=empty" }),
+            ActiveStatusHash = HashStableParts(statusParts.Count > 0 ? statusParts : new[] { "activeStatuses=empty" }),
+            ZoneHash = HashStableParts(zoneParts.Count > 0 ? zoneParts : new[] { "zones=empty" })
+        };
+    }
+
+    private static string BuildEffectTargetKey(GameObject target)
+    {
+        if (target == null)
+        {
+            return "target=null";
+        }
+
+        if (target.TryGetComponent<Unit>(out var unit))
+        {
+            int ownerId = SafeInt(() => unit.Owner.playerId, -1);
+            string unitKey = BuildScriptableObjectKey(unit.Data, SafeString(() => unit.Data.unitName, string.Empty));
+            int star = SafeInt(() => unit.starLevel, 0);
+            return $"unit;owner={ownerId};data={unitKey};star={star};{BuildUnitTargetLocationPart(unit)}";
+        }
+
+        if (target.TryGetComponent<Monster>(out var monster))
+        {
+            int ownerId = SafeInt(() => monster.SnapshotOwnerPlayerId, -1);
+            string monsterKey = BuildScriptableObjectKey(monster.Data, SafeString(() => monster.Data.monsterName, string.Empty));
+            bool isBoss = SafeBool(() => monster.SnapshotIsBoss, false);
+            int bossId = SafeInt(() => monster.SnapshotBossUniqueId, -1);
+            int bossOriginId = SafeInt(() => monster.SnapshotBossOriginPlayerId, -1);
+            int hpBucket = BuildHpBucket(SafeFloat(() => monster.NetworkedHP, 0f), SafeFloat(() => monster.NetworkedMaxHP, 0f));
+            return $"monster;owner={ownerId};data={monsterKey};boss={isBoss};bossId={bossId};bossOrigin={bossOriginId};hpBucket={hpBucket};{BuildMonsterTargetLocationPart(monster, ownerId)}";
+        }
+
+        if (target.TryGetComponent<DestructibleWall>(out var wall))
+        {
+            var grid = SafeRef(() => wall.GridPosition, new Vector3Int(int.MinValue, int.MinValue, int.MinValue));
+            int ownerId = SafeInt(() => wall.OwnerFieldManager.playerManager.playerId, -1);
+            return $"wall;owner={ownerId};grid={grid.x},{grid.y},{grid.z};hpBucket={BuildHpBucket(SafeFloat(() => wall.CurrentHealth, 0f), SafeFloat(() => wall.MaxHealth, 0f))}";
+        }
+
+        return $"object;components={BuildComponentTypePart(target)};{BuildWorldPositionBucket(SafeRef(() => target.transform.position, Vector3.zero))}";
+    }
+
+    private static string BuildUnitTargetLocationPart(Unit unit)
+    {
+        var owner = SafeRef(() => unit.Owner, null);
+        var field = owner != null ? SafeRef(() => owner.fieldManager, null) : null;
+        if (field != null)
+        {
+            var placedCell = SafeRef(() => field.GetUnitPosition(unit), (Vector3Int?)null);
+            if (placedCell.HasValue)
+            {
+                return $"grid={placedCell.Value.x},{placedCell.Value.y},{placedCell.Value.z}";
+            }
+
+            var worldCell = SafeRef(() => field.WorldToGridInt(unit.transform.position), new Vector3Int(int.MinValue, int.MinValue, int.MinValue));
+            if (worldCell.x != int.MinValue)
+            {
+                return $"grid={worldCell.x},{worldCell.y},{worldCell.z}";
+            }
+        }
+
+        return BuildWorldPositionBucket(SafeRef(() => unit.transform.position, Vector3.zero));
+    }
+
+    private static string BuildMonsterTargetLocationPart(Monster monster, int ownerId)
+    {
+        var gameManagers = GameManagers.Instance;
+        var owner = gameManagers != null ? SafeRef(() => gameManagers.GetPlayer(ownerId), null) : null;
+        var field = owner != null ? SafeRef(() => owner.fieldManager, null) : null;
+        if (field != null)
+        {
+            var navigationCell = SafeRef(() => field.WorldToNavigationCell(monster.transform.position), new Vector2Int(int.MinValue, int.MinValue));
+            if (navigationCell.x != int.MinValue)
+            {
+                return $"nav={navigationCell.x},{navigationCell.y}";
+            }
+        }
+
+        return BuildWorldPositionBucket(SafeRef(() => monster.transform.position, Vector3.zero));
+    }
+
+    private static string BuildWorldPositionBucket(Vector3 position)
+    {
+        if (float.IsNaN(position.x) || float.IsNaN(position.y) || float.IsNaN(position.z) ||
+            float.IsInfinity(position.x) || float.IsInfinity(position.y) || float.IsInfinity(position.z))
+        {
+            return "world=invalid";
+        }
+
+        const float bucketSize = 1f;
+        int x = Mathf.FloorToInt(position.x / bucketSize);
+        int y = Mathf.FloorToInt(position.y / bucketSize);
+        int z = Mathf.FloorToInt(position.z / bucketSize);
+        return $"world={x},{y},{z}";
+    }
+
+    private static string BuildComponentTypePart(GameObject target)
+    {
+        var components = SafeRef(() => target.GetComponents<Component>(), Array.Empty<Component>());
+        return string.Join(",", components
+            .Where(component => component != null)
+            .Select(component => component.GetType().Name)
+            .OrderBy(name => name, StringComparer.Ordinal));
+    }
+
     private static CommandsSnapshot CaptureCommands(GameManagers gameManagers)
     {
         return new CommandsSnapshot
         {
-            LastSequence = null,
+            LastSequence = BattleCommandTelemetry.AcceptedBattleCommandSeq > 0
+                ? BattleCommandTelemetry.AcceptedBattleCommandSeq
+                : (int?)null,
             QueueDepth = TryGetCommandQueueDepth(gameManagers),
-            LastCommand = Unknown
+            LastCommand = string.IsNullOrWhiteSpace(BattleCommandTelemetry.LastCommand)
+                ? Unknown
+                : BattleCommandTelemetry.LastCommand,
+            AcceptedBattleCommandSeq = BattleCommandTelemetry.AcceptedBattleCommandSeq,
+            SpawnMonsterSeq = BattleCommandTelemetry.SpawnMonsterSeq,
+            UseMagicScrollSeq = BattleCommandTelemetry.UseMagicScrollSeq,
+            ActivateSkillSeq = BattleCommandTelemetry.ActivateSkillSeq,
+            RejectedBattleCommandCount = BattleCommandTelemetry.RejectedBattleCommandCount
         };
     }
 
@@ -660,6 +1334,7 @@ public static class MPTestStateSnapshot
         [JsonProperty("game")] public GameSnapshot Game;
         [JsonProperty("players")] public PlayerSnapshot[] Players;
         [JsonProperty("objects")] public ObjectsSnapshot Objects;
+        [JsonProperty("effects")] public EffectsSnapshot Effects;
         [JsonProperty("commands")] public CommandsSnapshot Commands;
         [JsonProperty("hostMigration")] public HostMigrationSnapshot HostMigration;
         [JsonProperty("test")] public TestSnapshot Test;
@@ -684,11 +1359,17 @@ public static class MPTestStateSnapshot
     {
         [JsonProperty("hasGameManagers")] public bool HasGameManagers;
         [JsonProperty("currentState")] public string CurrentState;
+        [JsonProperty("battlePhase")] public string BattlePhase;
         [JsonProperty("currentRound")] public int CurrentRound;
         [JsonProperty("phaseTimerRemaining")] public float PhaseTimerRemaining;
         [JsonProperty("firstAttackerPlayerId")] public int FirstAttackerPlayerId;
         [JsonProperty("battleOpponentsHash")] public string BattleOpponentsHash;
         [JsonProperty("matchFirstAttackerHash")] public string MatchFirstAttackerHash;
+        [JsonProperty("battleActiveHash")] public string BattleActiveHash;
+        [JsonProperty("survivorBossPendingHash")] public string SurvivorBossPendingHash;
+        [JsonProperty("survivorBossAssignmentHash")] public string SurvivorBossAssignmentHash;
+        [JsonProperty("survivorBossPendingCount")] public int? SurvivorBossPendingCount;
+        [JsonProperty("survivorBossAssignmentCount")] public int? SurvivorBossAssignmentCount;
     }
 
     [Serializable]
@@ -708,6 +1389,10 @@ public static class MPTestStateSnapshot
         [JsonProperty("wallCount")] public int WallCount;
         [JsonProperty("isActivelyFighting")] public bool IsActivelyFighting;
         [JsonProperty("isAttackerInCurrentBattle")] public bool IsAttackerInCurrentBattle;
+        [JsonProperty("attackMonsterPoolHash")] public string AttackMonsterPoolHash;
+        [JsonProperty("ownedScrollsHash")] public string OwnedScrollsHash;
+        [JsonProperty("ownedScrollRevision")] public int OwnedScrollRevision;
+        [JsonProperty("manualSkillReadyHash")] public string ManualSkillReadyHash;
         [JsonProperty("shop")] public ShopSnapshot Shop;
         [JsonProperty("augment")] public AugmentSnapshot Augment;
         [JsonProperty("field")] public FieldSnapshot Field;
@@ -733,6 +1418,10 @@ public static class MPTestStateSnapshot
         [JsonProperty("presentedCount")] public int PresentedCount;
         [JsonProperty("presentedHash")] public string PresentedHash;
         [JsonProperty("selectedHash")] public string SelectedHash;
+        [JsonProperty("activeEffectCount")] public int ActiveEffectCount;
+        [JsonProperty("activeTargetCount")] public int ActiveTargetCount;
+        [JsonProperty("activeEffectHash")] public string ActiveEffectHash;
+        [JsonProperty("activeTargetHash")] public string ActiveTargetHash;
     }
 
     [Serializable]
@@ -755,6 +1444,12 @@ public static class MPTestStateSnapshot
         [JsonProperty("ready")] public bool Ready;
         [JsonProperty("aliveCount")] public int AliveCount;
         [JsonProperty("livingHash")] public string LivingHash;
+        [JsonProperty("typeHash")] public string TypeHash;
+        [JsonProperty("typeCountHpHash")] public string TypeCountHpHash;
+        [JsonProperty("ownerOriginHash")] public string OwnerOriginHash;
+        [JsonProperty("targetPlayerHash")] public string TargetPlayerHash;
+        [JsonProperty("hpBucketHash")] public string HpBucketHash;
+        [JsonProperty("bossPoolIdentityHash")] public string BossPoolIdentityHash;
         [JsonProperty("autoSpawnRunning")] public bool? AutoSpawnRunning;
     }
 
@@ -777,11 +1472,27 @@ public static class MPTestStateSnapshot
     }
 
     [Serializable]
+    public sealed class EffectsSnapshot
+    {
+        [JsonProperty("activeBuffCount")] public int ActiveBuffCount;
+        [JsonProperty("activeStatusCount")] public int ActiveStatusCount;
+        [JsonProperty("zoneCount")] public int ZoneCount;
+        [JsonProperty("activeBuffHash")] public string ActiveBuffHash;
+        [JsonProperty("activeStatusHash")] public string ActiveStatusHash;
+        [JsonProperty("zoneHash")] public string ZoneHash;
+    }
+
+    [Serializable]
     public sealed class CommandsSnapshot
     {
         [JsonProperty("lastSequence")] public int? LastSequence;
         [JsonProperty("queueDepth")] public int? QueueDepth;
         [JsonProperty("lastCommand")] public string LastCommand;
+        [JsonProperty("acceptedBattleCommandSeq")] public int AcceptedBattleCommandSeq;
+        [JsonProperty("spawnMonsterSeq")] public int SpawnMonsterSeq;
+        [JsonProperty("useMagicScrollSeq")] public int UseMagicScrollSeq;
+        [JsonProperty("activateSkillSeq")] public int ActivateSkillSeq;
+        [JsonProperty("rejectedBattleCommandCount")] public int RejectedBattleCommandCount;
     }
 
     [Serializable]

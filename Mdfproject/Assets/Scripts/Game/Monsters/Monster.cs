@@ -56,6 +56,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // [Networked] 속성으로 서버/클라이언트 간 HP 동기화
     [Networked] public float NetworkedHP { get; set; }
     [Networked] public float NetworkedMaxHP { get; set; }
+    [Networked] public NetworkBool NetworkedIsBoss { get; set; }
+    [Networked] public int NetworkedBossOriginPlayerId { get; set; }
+    [Networked] public int NetworkedBossUniqueId { get; set; }
+    [Networked] private int NetworkedOwnerPlayerIdEncoded { get; set; }
+    [Networked] private NetworkString<_64> NetworkedMonsterDataKey { get; set; }
+    [Networked] private int NetworkedMonsterTypeValue { get; set; }
+    [Networked] private int NetworkedMonsterTraitsValue { get; set; }
     
     // [Networked] 공격 애니메이션 동기화 (RPC 대체로 네트워크 부하 감소)
     // 서버에서 값을 변경하면 ChangeDetector가 감지하여 클라이언트에서 애니메이션 재생
@@ -156,6 +163,70 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private Coroutine resumeCoroutine;
     private int currentBlockerId = 0;
     private ChangeDetector _changeDetector;
+    private bool _networkMonsterDataLoadRequested;
+
+    public bool SnapshotIsBoss => CanReadNetworkedHealth() ? NetworkedIsBoss : _isBoss;
+    public int SnapshotBossOriginPlayerId => CanReadNetworkedHealth() ? NetworkedBossOriginPlayerId : _originPlayerId;
+    public int SnapshotBossUniqueId => CanReadNetworkedHealth() ? NetworkedBossUniqueId : _bossUniqueId;
+    public int SnapshotOwnerPlayerId
+    {
+        get
+        {
+            if (CanReadNetworkedHealth())
+            {
+                int decoded = DecodeSnapshotOwnerId(NetworkedOwnerPlayerIdEncoded);
+                if (decoded >= 0)
+                {
+                    return decoded;
+                }
+            }
+
+            return ownerPlayer != null ? ownerPlayer.playerId : -1;
+        }
+    }
+
+    public string SnapshotMonsterDataKey
+    {
+        get
+        {
+            if (CanReadNetworkedHealth())
+            {
+                string networkKey = NormalizeMonsterDataKey(NetworkedMonsterDataKey.ToString());
+                if (!string.IsNullOrEmpty(networkKey))
+                {
+                    return networkKey;
+                }
+            }
+
+            return BuildSnapshotMonsterDataKey(_monsterData);
+        }
+    }
+
+    public string SnapshotMonsterTypeName
+    {
+        get
+        {
+            if (CanReadNetworkedHealth() && NetworkedMonsterTypeValue > 0)
+            {
+                return ((MonsterType)(NetworkedMonsterTypeValue - 1)).ToString();
+            }
+
+            return _monsterData != null ? _monsterData.monsterType.ToString() : string.Empty;
+        }
+    }
+
+    public string SnapshotMonsterTraitsName
+    {
+        get
+        {
+            if (CanReadNetworkedHealth() && NetworkedMonsterTraitsValue > 0)
+            {
+                return ((MonsterTraits)(NetworkedMonsterTraitsValue - 1)).ToString();
+            }
+
+            return _monsterData != null ? _monsterData.traits.ToString() : string.Empty;
+        }
+    }
 
     #region 보스 몬스터 관련
     // 보스 몬스터 플래그 및 생존 시 다음 라운드 침공을 위한 정보
@@ -187,17 +258,24 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             _hasLocalHealthValues = false;
             _localHP = 0;
             _localMaxHP = 0;
+            _networkMonsterDataLoadRequested = false;
             
             if (Object != null && Object.HasStateAuthority)
             {
                 NetworkedMaxHP = 0;
                 NetworkedHP = 0;
+                NetworkedIsBoss = false;
+                NetworkedBossOriginPlayerId = -1;
+                NetworkedBossUniqueId = -1;
+                ResetNetworkSnapshotIdentity();
             }
             
             var existingStatusBar = GetComponentInChildren<StatusBarUI>(true);
             existingStatusBar?.ResetForReuse();
         }
         _hasSpawned = true;
+        TryRebindOwnerFromNetworkSnapshot();
+        TryRecoverMonsterDataFromNetworkSnapshot();
     }
     
     /// <summary>
@@ -205,6 +283,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public override void Render()
     {
+        TryRebindOwnerFromNetworkSnapshot();
+        TryRecoverMonsterDataFromNetworkSnapshot();
         if (_changeDetector == null)
         {
             _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
@@ -265,6 +345,161 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             && Object != null;
     }
 
+    private static int EncodeSnapshotOwnerId(int ownerPlayerId)
+    {
+        return ownerPlayerId >= 0 ? ownerPlayerId + 1 : 0;
+    }
+
+    private static int DecodeSnapshotOwnerId(int encodedOwnerPlayerId)
+    {
+        return encodedOwnerPlayerId > 0 ? encodedOwnerPlayerId - 1 : -1;
+    }
+
+    private static string NormalizeMonsterDataKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return string.Empty;
+        }
+
+        return key.Replace("(Clone)", string.Empty).Trim();
+    }
+
+    private static string BuildSnapshotMonsterDataKey(MonsterData data)
+    {
+        if (data == null)
+        {
+            return string.Empty;
+        }
+
+        string assetKey = NormalizeMonsterDataKey(data.name);
+        if (!string.IsNullOrEmpty(assetKey))
+        {
+            return assetKey;
+        }
+
+        return NormalizeMonsterDataKey(data.monsterName);
+    }
+
+    private void ResetNetworkSnapshotIdentity()
+    {
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        NetworkedOwnerPlayerIdEncoded = 0;
+        NetworkedMonsterDataKey = string.Empty;
+        NetworkedMonsterTypeValue = 0;
+        NetworkedMonsterTraitsValue = 0;
+    }
+
+    private void SyncNetworkSnapshotIdentityFromLocalData()
+    {
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        NetworkedOwnerPlayerIdEncoded = EncodeSnapshotOwnerId(ownerPlayer != null ? ownerPlayer.playerId : -1);
+        NetworkedMonsterDataKey = BuildSnapshotMonsterDataKey(_monsterData);
+        NetworkedMonsterTypeValue = _monsterData != null ? (int)_monsterData.monsterType + 1 : 0;
+        NetworkedMonsterTraitsValue = _monsterData != null ? (int)_monsterData.traits + 1 : 0;
+    }
+
+    private void TryRebindOwnerFromNetworkSnapshot()
+    {
+        int ownerId = SnapshotOwnerPlayerId;
+        if (ownerId < 0)
+        {
+            return;
+        }
+
+        var gameManagers = GameManagers.Instance;
+        var owner = gameManagers != null ? gameManagers.GetPlayer(ownerId) : null;
+        if (owner == null)
+        {
+            return;
+        }
+
+        ownerPlayer = owner;
+        if (owner.astarGrid != null)
+        {
+            pathfinder = owner.astarGrid;
+        }
+
+        if (owner.goalTransform != null)
+        {
+            goalTransform = owner.goalTransform;
+        }
+
+        var monsterParent = owner.monsterSpawner != null ? owner.monsterSpawner.monsterParent : null;
+        if (monsterParent != null && transform.parent != monsterParent)
+        {
+            transform.SetParent(monsterParent, true);
+        }
+        TryRecoverMonsterDataFromNetworkSnapshot();
+    }
+
+    private void TryRecoverMonsterDataFromNetworkSnapshot()
+    {
+        if (_monsterData != null || _networkMonsterDataLoadRequested)
+        {
+            return;
+        }
+
+        string key = SnapshotMonsterDataKey;
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return;
+        }
+
+        _networkMonsterDataLoadRequested = true;
+        RecoverMonsterDataFromNetworkSnapshotAsync(key).Forget();
+    }
+
+    private async UniTaskVoid RecoverMonsterDataFromNetworkSnapshotAsync(string key)
+    {
+        MonsterData data = await AssetLoader.LoadAssetAsync<MonsterData>(key);
+        if (data == null)
+        {
+            _networkMonsterDataLoadRequested = false;
+            return;
+        }
+
+        _monsterData = data;
+        name = data.monsterName;
+        if (pathfinder != null)
+        {
+            wallLayerMask = pathfinder.wallLayers;
+        }
+
+        _baseMaxHealth = data.maxHealth;
+        _baseMoveSpeed = data.moveSpeed;
+        _baseAttackDamage = data.attackDamage;
+        _baseAttackSpeed = data.attackSpeed;
+        _permanentMaxHealth = _baseMaxHealth;
+        _permanentMoveSpeed = _baseMoveSpeed;
+        _permanentAttackDamage = _baseAttackDamage;
+        _permanentAttackSpeed = _baseAttackSpeed;
+        _currentMoveSpeed = _permanentMoveSpeed;
+        _currentAttackDamage = _permanentAttackDamage;
+        _currentAttackSpeed = _permanentAttackSpeed;
+        if (isActiveAndEnabled && !HasTrait(MonsterTraits.Destroyer))
+        {
+            GameEvents.OnWallDestroyed -= OnWallDestroyed;
+            GameEvents.OnWallDestroyed += OnWallDestroyed;
+        }
+        EnsureAnimator();
+
+        manaController = GetComponent<ManaController>();
+        if (manaController != null)
+        {
+            int maxMana = data.skillData != null ? data.skillData.manaCost : 0;
+            manaController.Initialize(maxMana);
+        }
+    }
+
     private void TryApplyPendingHealthToNetworked()
     {
         if (!_hasLocalHealthValues)
@@ -310,6 +545,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         this.ownerPlayer = owner;
         this.goalTransform = goal;
         this._monsterData = data;
+        this._networkMonsterDataLoadRequested = false;
         this.pathfinder = pathfinder;
         this.releaseScheduler = owner != null ? owner.GetComponentInChildren<MonsterReleaseScheduler>(true) : null;
         this.name = _monsterData.monsterName;
@@ -363,6 +599,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             NetworkedMaxHP = maxHp;
             NetworkedHP = maxHp;
+            NetworkedIsBoss = false;
+            NetworkedBossOriginPlayerId = -1;
+            NetworkedBossUniqueId = -1;
+            SyncNetworkSnapshotIdentityFromLocalData();
         }
         // 로컬 값도 설정 (아직 Spawned 되지 않았을 경우를 위해)
         _hasLocalHealthValues = true;
@@ -494,6 +734,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             // AssetLoader를 통해 MonsterData 로드
             _monsterData = await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
+            _networkMonsterDataLoadRequested = false;
             
             if (_monsterData == null)
             {
@@ -508,6 +749,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 필수 참조 설정
         this.ownerPlayer = owner;
         this.pathfinder = owner.astarGrid;
+        var monsterParent = owner.monsterSpawner != null ? owner.monsterSpawner.monsterParent : null;
+        if (monsterParent != null && transform.parent != monsterParent)
+        {
+            transform.SetParent(monsterParent, true);
+        }
         
         if (owner.goalTransform != null)
         {
@@ -588,6 +834,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     void Update()
     {
         if (!HasStateAuthorityOrNoNetwork()) return;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         
         // 마나 회복 (스킬이 있는 경우)
         if (_monsterData != null && _monsterData.skillData != null)
@@ -626,6 +878,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     private IEnumerator PauseAndRangedAttack(Unit target)
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        while (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            yield return null;
+        }
+#endif
         // 원거리 공격 중 플래그 설정
         _isRangedAttacking = true;
         
@@ -658,6 +916,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         float attackAnimDuration = 1f / currentAttackSpeed; // 공격 애니메이션 총 길이
         float fallbackWaitTime = Mathf.Max(attackAnimDuration * 0.9f, 0.8f); // 애니메이션의 90% 또는 최소 0.8초
         yield return new WaitForSeconds(fallbackWaitTime);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        while (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            yield return null;
+        }
+#endif
         
         // Animation Event가 호출되지 않았으면 직접 실행 (fallback)
         if (_hasPendingAttack && _pendingAttackTarget != null)
@@ -669,9 +933,21 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 공격 애니메이션 완료 대기 (나머지 시간)
         float remainingAnimTime = Mathf.Max(attackAnimDuration - fallbackWaitTime, 0.1f);
         yield return new WaitForSeconds(remainingAnimTime);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        while (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            yield return null;
+        }
+#endif
         
         // 공격 후 추가 정지 시간
         yield return new WaitForSeconds(postRangedAttackDelay);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        while (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            yield return null;
+        }
+#endif
         
         // 원거리 공격 중 플래그 해제
         _isRangedAttacking = false;
@@ -803,6 +1079,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         // 서버에서만 HP 수정 (클라이언트는 Networked 속성 동기화로 반영)
         if (!HasStateAuthorityOrNoNetwork()) return;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         if (_monsterData == null) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, _monsterData.defense, _monsterData.magicResistance);
         currentHP -= finalDamage;
@@ -844,7 +1126,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public void ApplyBuff(float healthMultiplier, float speedMultiplier, float damageMultiplier = 1f)
     {
         // 보스는 모든 버프에 면역
-        if (_isBoss) return;
+        if (SnapshotIsBoss) return;
         
         // 3단계: Final = Permanent × 버프 배수
         float healthPercentage = currentHP / currentMaxHP;
@@ -881,6 +1163,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _isBoss = isBoss;
         _originPlayerId = originPlayerId;
         _bossUniqueId = bossUniqueId;
+        if (Object != null && Object.HasStateAuthority)
+        {
+            NetworkedIsBoss = isBoss;
+            NetworkedBossOriginPlayerId = originPlayerId;
+            NetworkedBossUniqueId = bossUniqueId;
+        }
         
         if (isBoss)
         {
@@ -891,7 +1179,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// <summary>
     /// 보스 고유 ID를 반환합니다.
     /// </summary>
-    public int GetBossUniqueId() => _bossUniqueId;
+    public int GetBossUniqueId() => SnapshotBossUniqueId;
 
     /// <summary>
     /// 현재 체력을 직접 설정합니다. (생존 보스 재소환 시 사용)
@@ -906,7 +1194,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// <summary>
     /// 보스 여부를 반환합니다.
     /// </summary>
-    public bool IsBoss() => _isBoss;
+    public bool IsBoss() => SnapshotIsBoss;
     #endregion
 
     private void Die()
@@ -917,7 +1205,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // Debug.Log($"{_monsterData.monsterName}이(가) 죽었습니다!");
         
         // 보스가 죽으면 SurvivorBossManager에 알림 (더 이상 다음 라운드에 소환되지 않음)
-        if (_isBoss && SurvivorBossManager.Instance != null)
+        if (SnapshotIsBoss && SurvivorBossManager.Instance != null && _monsterData != null)
         {
             SurvivorBossManager.Instance.OnBossDied(_monsterData.monsterName);
         }
@@ -1004,6 +1292,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         while (target != null && (target as MonoBehaviour) != null)
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (MPTestCommandLine.IsGameFlowFrozen)
+            {
+                yield return null;
+                continue;
+            }
+#endif
             if (_buffManager != null && !_buffManager.CanAttack)
             {
                 yield return null;
@@ -1017,6 +1312,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             }
             
             yield return new WaitForSeconds(1f / currentAttackSpeed);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            while (MPTestCommandLine.IsGameFlowFrozen)
+            {
+                yield return null;
+            }
+#endif
 
             if ((target as MonoBehaviour) == null) break;
             
@@ -1031,6 +1332,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             TriggerAttackAnimation();
             
             yield return new WaitForSeconds(0.5f);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            while (MPTestCommandLine.IsGameFlowFrozen)
+            {
+                yield return null;
+            }
+#endif
             if (_hasPendingAttack && _pendingAttackTarget != null)
             {
                 ExecutePendingAttack();
@@ -1055,6 +1362,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     
     private void ExecutePendingAttack()
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         if (!_hasPendingAttack || _pendingAttackTarget == null) return;
         
         var targetMono = _pendingAttackTarget as MonoBehaviour;
@@ -1141,6 +1454,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private IEnumerator ResumeAfterDelay(float delay)
     {
         yield return new WaitForSeconds(delay);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        while (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            yield return null;
+        }
+#endif
         resumeCoroutine = null;
         FindNewPathToGoal();
     }
@@ -1153,6 +1472,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 이미 파괴된 오브젝트에서 호출된 경우 무시
         if (this == null || gameObject == null) return;
         if (!HasStateAuthorityOrNoNetwork()) return;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         if (pathfinder == null || goalTransform == null) return;
         
         Vector2Int currentGridPos = pathfinder.WorldToCell(pathfinder.ClampToGrid(transform.position));
@@ -1244,6 +1569,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         );
         while (Vector3.Distance(transform.position, targetPosition) > 0.1f && isMoving)
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (MPTestCommandLine.IsGameFlowFrozen)
+            {
+                SetWalkingAnimation(false);
+                yield return null;
+                continue;
+            }
+#endif
             // 버프로 이동 불가 또는 원거리 공격 중이면 대기
             if ((_buffManager != null && !_buffManager.CanMove) || _isRangedAttacking)
             {
@@ -1299,6 +1632,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
             while (Vector3.Distance(transform.position, currentTarget) > 0.1f && isMoving)
             {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                if (MPTestCommandLine.IsGameFlowFrozen)
+                {
+                    SetWalkingAnimation(false);
+                    yield return null;
+                    continue;
+                }
+#endif
                 // 버프로 이동 불가 또는 원거리 공격 중이면 대기
                 if ((_buffManager != null && !_buffManager.CanMove) || _isRangedAttacking)
                 {
@@ -1352,19 +1693,25 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     }
     private void OnPathCompleted()
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         isMoving = false;
         SetWalkingAnimation(false);
         
         // 보스가 목표 도달 시 생존 등록 (중복 등록 방지 플래그 체크)
-        if (_isBoss && !_hasRegisteredAsSurvivor && SurvivorBossManager.Instance != null)
+        if (SnapshotIsBoss && !_hasRegisteredAsSurvivor && SurvivorBossManager.Instance != null && _monsterData != null)
         {
             _hasRegisteredAsSurvivor = true;
             SurvivorBossManager.Instance.RegisterSurvivorBoss(
                 _monsterData,
                 currentHP,
                 currentMaxHP,
-                _originPlayerId,
-                _bossUniqueId
+                SnapshotBossOriginPlayerId,
+                SnapshotBossUniqueId
             );
             // Debug.Log($"<color=red>[Monster] 보스 '{name}' 목표 도달 → 생존 등록 (HP: {currentHP:F0}/{currentMaxHP:F0})</color>");
         }
@@ -1486,8 +1833,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 _monsterData,
                 safeCurrentHP,
                 safeMaxHP,
-                _originPlayerId,
-                _bossUniqueId
+                SnapshotBossOriginPlayerId,
+                SnapshotBossUniqueId
             );
         }
         
@@ -1526,7 +1873,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public void ApplyBerserkMode()
     {
         // 보스는 모든 버프에 면역
-        if (_isBoss) return;
+        if (SnapshotIsBoss) return;
         
         // [3단계] Permanent 기준으로 버서커 배수 적용
         _currentMoveSpeed = _permanentMoveSpeed * 2f;

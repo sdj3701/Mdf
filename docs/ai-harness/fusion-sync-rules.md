@@ -41,6 +41,21 @@ UI/AI -> ICommand -> CommandProcessor.RequestCommandExecution
 
 Do not add new gameplay actions only to `NetworkManager.RPC_RequestCommandToServer`; that path is legacy/older compared with the current PlayerManager/GameManagers route.
 
+## Battle command guardrails
+
+Strategic battle actions must use the State Authority validated battle command path:
+
+- AI and HumanBot attacker monster spawn decisions emit `BattleSpawnMonsterCommand`.
+- Human attacker monster spawn requests use `RPC_RequestBattleSpawnMonster` or the same server authority executor.
+- `SpawnMonsterAtPositionAsync` is the low-level spawn mechanism only. AI planning, Behavior Tree, HumanBot, UI, or test policy code must not call it directly for strategic spawn decisions.
+- Attack monster pool slot consumption happens after `BattleSpawnMonsterCommand` validation. Do not consume pool slots on clients before server acceptance.
+- Magic scroll decisions emit `UseMagicScrollCommand` with a stable slot/reference and observed inventory revision.
+- `RPC_BroadcastMagicScrollUsed` and scroll presentation helpers are presentation-only. They may spawn VFX, but must not call gameplay `CastGameplay`, `CastSkill`, `ApplyEffect`, consume scroll inventory, or change HP/status/buff/zone state.
+- Manual or AI/HumanBot strategic skill decisions emit `ActivateSkillCommand`. Automatic unit skills remain State Authority simulation and must not become command spam.
+- HumanBot is a real connected human peer. It must not attach or register `AIPlayerController`.
+
+`tools/harness/precommit.py` BLOCKs clear unsafe patterns for these rules and WARNs review-only patterns such as direct low-level spawn use outside the approved command/mechanism files.
+
 ## RPC rules
 
 - `RPC_Request*`: client/input authority to State Authority.
@@ -95,6 +110,7 @@ Warn, do not automatically block, when static analysis sees:
 - new command class without `CommandType`/serialize/deserialize branches.
 - `PlayerRef` stored as long-term ownership.
 - Host Migration changes touching only one of `NetworkManager`, `HostMigrationHandler`, `GameManagers.MigrationRecovery`.
+- direct low-level monster spawn or scroll gameplay calls outside the battle command executor path.
 
 ## Vendor boundaries
 

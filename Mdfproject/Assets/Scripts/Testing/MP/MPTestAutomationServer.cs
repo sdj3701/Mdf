@@ -254,6 +254,12 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "GET", () => MainThread(BotJournal));
         }
 
+        if (path == "/test/freezeGameFlow")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => SetFreezeGameFlow(body)));
+        }
+
         if (path == "/screenshot")
         {
             return await RequireMethod(request, "GET", () => MainThread(() => CaptureScreenshot(request)));
@@ -402,6 +408,9 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         int durationSeconds = GetInt(body, "durationSeconds", GetInt(body, "duration_seconds", _options.BotDurationSeconds));
         int stopAtRound = GetInt(body, "stopAtRound", GetInt(body, "stop_at_round", _options.BotStopAtRound));
         int maxCommands = GetInt(body, "maxCommands", GetInt(body, "max_commands", _options.BotMaxCommands));
+        bool skipPrepare = GetBool(body, "skipPrepare", GetBool(body, "skip_prepare", _options.BotSkipPrepare));
+        bool prepareAugmentOnly = GetBool(body, "prepareAugmentOnly", GetBool(body, "prepare_augment_only", _options.BotPrepareAugmentOnly));
+        bool preferScrollAugment = GetBool(body, "preferScrollAugment", GetBool(body, "prefer_scroll_augment", _options.BotPreferScrollAugment));
         string journalPath = GetString(body, "journalPath", GetString(body, "journal_path", _options.BotRecordJournal));
 
         if (!driver.StartDriver(
@@ -412,6 +421,9 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             durationSecondsOverride: durationSeconds,
             stopAtRoundOverride: stopAtRound,
             maxCommandsOverride: maxCommands,
+            skipPrepareOverride: skipPrepare,
+            prepareAugmentOnlyOverride: prepareAugmentOnly,
+            preferScrollAugmentOverride: preferScrollAugment,
             journalPathOverride: journalPath))
         {
             return AutomationResponse.Fail("bot_start_failed", reason, driver.Status);
@@ -554,6 +566,26 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         return AutomationResponse.Ok("screenshot requested", new { path = fullPath });
     }
 
+    private AutomationResponse SetFreezeGameFlow(JObject body)
+    {
+        bool enabled = GetBool(body, "enabled", true);
+        string reason = GetString(body, "reason", "automation");
+        var options = MPTestCommandLine.SetFreezeGameFlowForRuntime(enabled);
+        _options = options;
+
+        MPTestLogger.Log("automation_freeze_game_flow", enabled ? "begin" : "complete", null, reason, new Dictionary<string, object>
+        {
+            { "enabled", options.FreezeGameFlow },
+            { "reason", reason }
+        });
+
+        return AutomationResponse.Ok("freeze game flow updated", new
+        {
+            enabled = options.FreezeGameFlow,
+            reason
+        });
+    }
+
     private void QuitAfterResponse()
     {
         StopServer();
@@ -628,6 +660,32 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         if (body != null && body.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out JToken token) && int.TryParse(token.ToString(), out int value))
         {
             return value;
+        }
+
+        return fallback;
+    }
+
+    private static bool GetBool(JObject body, string key, bool fallback)
+    {
+        if (body == null || !body.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out JToken token))
+        {
+            return fallback;
+        }
+
+        if (token.Type == JTokenType.Boolean)
+        {
+            return token.Value<bool>();
+        }
+
+        string value = token.ToString();
+        if (bool.TryParse(value, out bool parsed))
+        {
+            return parsed;
+        }
+
+        if (int.TryParse(value, out int intValue))
+        {
+            return intValue != 0;
         }
 
         return fallback;

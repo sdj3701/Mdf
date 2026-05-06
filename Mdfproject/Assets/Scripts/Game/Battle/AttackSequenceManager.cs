@@ -265,26 +265,67 @@ public class AttackSequenceManager : MonoBehaviour
             return;
         }
 
-        string scrollDataName = _selectedScroll.name;
+        int scrollSlotIndex = _playerManager.FindOwnedMagicScrollSlot(_selectedScroll);
+        if (scrollSlotIndex < 0)
+        {
+            return;
+        }
+
         bool isHost = _playerManager.Object != null && _playerManager.Object.HasStateAuthority;
+        bool submittedOrExecuted = false;
 
         if (isHost)
         {
-            if (!_playerManager.TryConsumeMagicScroll(_selectedScroll))
+            PlayerRef requestSource = _playerManager.Object != null
+                ? _playerManager.Object.InputAuthority
+                : PlayerRef.None;
+            if (requestSource == PlayerRef.None && _playerManager.Runner != null)
+            {
+                requestSource = _playerManager.Runner.LocalPlayer;
+            }
+
+            var command = new UseMagicScrollCommand(
+                _playerManager.playerId,
+                scrollSlotIndex,
+                position,
+                "human_host_magic_scroll",
+                _playerManager.AppliedOwnedMagicScrollRevision);
+
+            BattleCommandResult result = await gameManagers.ExecuteUseMagicScrollCommandAsync(
+                command,
+                CommandExecutionScope.ClientRequest,
+                requestSource);
+
+            if (!result.Success)
             {
                 return;
             }
 
-            gameManagers.RPC_BroadcastMagicScrollUsed(_playerManager.playerId, scrollDataName, position);
+            submittedOrExecuted = true;
         }
         else
         {
-            gameManagers.RPC_RequestUseMagicScroll(_playerManager.playerId, scrollDataName, position);
+            if (!_playerManager.HasAppliedCurrentOwnedMagicScrollSnapshot)
+            {
+                _playerManager.RPC_RequestSyncData();
+                return;
+            }
+
+            gameManagers.RPC_RequestUseMagicScrollCommand(
+                _playerManager.playerId,
+                scrollSlotIndex,
+                position,
+                _playerManager.AppliedOwnedMagicScrollRevision,
+                "human_client_magic_scroll");
+            submittedOrExecuted = true;
         }
 
-        _selectedScroll = null;
-        IsScrollMode = false;
-        AttackSequenceUIController.Instance?.RefreshUI();
+        if (submittedOrExecuted)
+        {
+            _selectedScroll = null;
+            IsScrollMode = false;
+            AttackSequenceUIController.Instance?.RefreshUI();
+        }
 
         await UniTask.CompletedTask;
     }
@@ -345,16 +386,21 @@ public class AttackSequenceManager : MonoBehaviour
         }
 
         // 몬스터 데이터 이름 저장 (RPC 전송용)
-        string monsterDataName = _selectedMonster.MonsterData?.name;
-        bool isBoss = _selectedMonster.IsBoss;
-        int originPlayerId = _selectedMonster.OriginPlayerId;
         int defenderPlayerId = _opponentFieldManager.playerManager?.playerId ?? -1;
         
         // 보스인 경우 소환 시점에 고유 ID 발급 + 보유 리스트에서 제거
-        int bossUniqueId = -1;
-        if (isBoss)
+        int poolSlotIndex = _playerManager.AttackMonsterPool != null
+            ? _playerManager.AttackMonsterPool.IndexOf(_selectedMonster)
+            : -1;
+        if (defenderPlayerId < 0 || poolSlotIndex < 0)
         {
-            bossUniqueId = SurvivorBossManager.Instance?.GetNextBossUniqueId() ?? -1;
+            return;
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null)
+        {
+            return;
         }
 
         // 호스트(StateAuthority)인 경우 직접 스폰, 클라이언트인 경우 RPC 요청
@@ -363,58 +409,77 @@ public class AttackSequenceManager : MonoBehaviour
         if (isHost)
         {
             // 호스트: 직접 스폰
-            var spawnedMonster = await _monsterSpawner.SpawnMonsterAtPositionAsync(
-                _selectedMonster.MonsterData,
-                position,
-                _opponentFieldManager,
-                isBoss,
-                bossUniqueId,
-                originPlayerId
-            );
+            PlayerRef requestSource = _playerManager.Object != null
+                ? _playerManager.Object.InputAuthority
+                : PlayerRef.None;
+            if (requestSource == PlayerRef.None && _playerManager.Runner != null)
+            {
+                requestSource = _playerManager.Runner.LocalPlayer;
+            }
 
-            if (spawnedMonster == null)
+            var command = new BattleSpawnMonsterCommand(
+                _playerManager.playerId,
+                defenderPlayerId,
+                poolSlotIndex,
+                position,
+                1,
+                "human_host_attack_sequence",
+                _playerManager.AppliedAttackMonsterPoolRevision);
+
+            BattleCommandResult result = await gameManagers.ExecuteBattleSpawnMonsterCommandAsync(
+                command,
+                CommandExecutionScope.ClientRequest,
+                requestSource);
+
+            if (!result.Success)
             {
                 // Debug.LogWarning($"[AttackSequenceManager] 스폰 실패 - 풀 소모 생략: {_selectedMonster.MonsterData.monsterName}");
                 return;
             }
 
-            if (isBoss)
+            if (false)
             {
-                _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
+
                 // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
             }
 
-            if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
+            if (false)
             {
                 // Debug.LogWarning("[AttackSequenceManager] 호스트 소환 성공 후 몬스터 풀 소비 실패");
             }
         }
         else
         {
-            if (isBoss)
+            if (false)
             {
-                _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
+
                 // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
             }
 
             // 클라이언트 경로는 기존 동작 유지 (로컬 UI 즉시 반영)
-            if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
+            if (false)
             {
                 // Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
                 return;
             }
 
             // 클라이언트: 서버에 RPC 요청
+            if (!_playerManager.HasAppliedCurrentAttackMonsterPoolSnapshot)
+            {
+                _playerManager.RPC_RequestSyncData();
+                return;
+            }
+
             if (GameManagers.Instance != null)
             {
-                GameManagers.Instance.RPC_RequestSpawnMonster(
+                gameManagers.RPC_RequestBattleSpawnMonster(
                     _playerManager.playerId,
                     defenderPlayerId,
-                    monsterDataName,
+                    poolSlotIndex,
                     position,
-                    isBoss,
-                    bossUniqueId,
-                    originPlayerId
+                    1,
+                    _playerManager.AppliedAttackMonsterPoolRevision,
+                    "human_client_attack_sequence"
                 );
                 // Debug.Log($"<color=yellow>[AttackSequenceManager] RPC 소환 요청: {monsterDataName} at {position}</color>");
             }

@@ -110,6 +110,11 @@ public class CommandProcessor
             case RearrangeUnitsCommand cmd:
                 return (CommandType.RearrangeUnits, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
 
+            // BattleSpawnMonster is intentionally routed through GameManagers.BattleCommands,
+            // not the broadcast command stream.
+            // UseMagicScroll is intentionally routed through GameManagers.BattleCommands,
+            // not the broadcast command stream.
+
             // ===== Sync Commands (서버 → 클라이언트) =====
             case InitializePlayerCommand cmd:
                 return (CommandType.InitializePlayer, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
@@ -162,22 +167,22 @@ public class CommandProcessor
     /// <summary>
     /// [신규] 네트워크로부터 받은 데이터로 ICommand 객체를 복원(역직렬화)합니다.
     /// </summary>
-    private async UniTask<ICommand> DeserializeCommand(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
+    private async UniTask<ICommand> DeserializeCommand(CommandType type, int[] ints, string[] texts, Vector3[] vectors)
     {
         switch (type)
         {
             // ===== Player Action Commands =====
             case CommandType.BuyUnit:
-                return new BuyUnitCommand(intParams[0], intParams[1]);
+                return new BuyUnitCommand(ints[0], ints[1]);
             
             case CommandType.MoveUnit:
-                return new MoveUnitCommand(intParams[0], Vector3Int.RoundToInt(vectorParams[0]), Vector3Int.RoundToInt(vectorParams[1]));
+                return new MoveUnitCommand(ints[0], Vector3Int.RoundToInt(vectors[0]), Vector3Int.RoundToInt(vectors[1]));
             
             case CommandType.SwapUnit:
-                return new SwapUnitCommand(intParams[0], Vector3Int.RoundToInt(vectorParams[0]), Vector3Int.RoundToInt(vectorParams[1]));
+                return new SwapUnitCommand(ints[0], Vector3Int.RoundToInt(vectors[0]), Vector3Int.RoundToInt(vectors[1]));
             
             case CommandType.SellUnit:
-                return new SellUnitCommand(intParams[0], Vector3Int.RoundToInt(vectorParams[0]));
+                return new SellUnitCommand(ints[0], Vector3Int.RoundToInt(vectors[0]));
             
             case CommandType.PlaceUnit:
                 if (LoadManager.Instance == null)
@@ -185,76 +190,83 @@ public class CommandProcessor
                     await UniTask.WaitUntil(() => LoadManager.Instance != null);
                 }
                 await LoadManager.Instance.WaitUntilReady();
-                UnitData unitData = LoadManager.Instance.GetUnitData(stringParams[0]);
+                UnitData unitData = LoadManager.Instance.GetUnitData(texts[0]);
                 if (unitData == null)
                 {
-                    Debug.LogError($"[CommandProcessor] UnitData '{stringParams[0]}'를 찾을 수 없습니다.");
+                    Debug.LogError($"[CommandProcessor] UnitData '{texts[0]}'를 찾을 수 없습니다.");
                     return null;
                 }
-                return new PlaceUnitCommand(intParams[0], unitData, Vector3Int.RoundToInt(vectorParams[0]));
+                return new PlaceUnitCommand(ints[0], unitData, Vector3Int.RoundToInt(vectors[0]));
             
             case CommandType.PlaceWall:
-                return new PlaceWallCommand(intParams[0], Vector3Int.RoundToInt(vectorParams[0]));
+                return new PlaceWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]));
             
             case CommandType.RemoveWall:
-                return new RemoveWallCommand(intParams[0], Vector3Int.RoundToInt(vectorParams[0]));
+                return new RemoveWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]));
             
             case CommandType.RerollShop:
-                return new RerollShopCommand(intParams[0]);
+                return new RerollShopCommand(ints[0]);
             
             case CommandType.SelectAugment:
-                return new SelectAugmentCommand(intParams[0], intParams[1]);
+                return new SelectAugmentCommand(ints[0], ints[1]);
             case CommandType.ActivateSkill:
-                return new ActivateSkillCommand(intParams[0], (uint)intParams[1]);
+                return new ActivateSkillCommand(ints[0], (uint)ints[1]);
             case CommandType.RearrangeUnits:
-                return new RearrangeUnitsCommand(intParams[0]);
+                return new RearrangeUnitsCommand(ints[0]);
+
+            case CommandType.BattleSpawnMonster:
+                Debug.LogError("[CommandProcessor] BattleSpawnMonster uses the State Authority battle command route.");
+                return null;
+            case CommandType.UseMagicScroll:
+                Debug.LogError("[CommandProcessor] UseMagicScroll uses the State Authority battle command route.");
+                return null;
 
             // ===== Sync Commands (서버 → 클라이언트) =====
             case CommandType.InitializePlayer:
-                return new InitializePlayerCommand(intParams[0], default);
+                return new InitializePlayerCommand(ints[0], default);
             case CommandType.SyncShopItems:
-                // intParams: [playerId, unitDataNamesCount], stringParams: [unitDataNames..., starLevels as strings...]
-                int namesCount = intParams[1];
-                string[] unitNames = stringParams.Take(namesCount).ToArray();
-                int[] stars = stringParams.Skip(namesCount).Select(s => int.TryParse(s, out int v) ? v : 1).ToArray();
-                return new SyncShopItemsCommand(intParams[0], unitNames, stars);
+                // ints: [playerId, unitDataNamesCount], texts: [unitDataNames..., starLevels as strings...]
+                int namesCount = ints[1];
+                string[] unitNames = texts.Take(namesCount).ToArray();
+                int[] stars = texts.Skip(namesCount).Select(s => int.TryParse(s, out int v) ? v : 1).ToArray();
+                return new SyncShopItemsCommand(ints[0], unitNames, stars);
             
             case CommandType.SyncPresentedAugments:
-                return new SyncAugmentsCommand(intParams[0], stringParams);
+                return new SyncAugmentsCommand(ints[0], texts);
             
             case CommandType.SyncPermanentBonuses:
                 // int를 float로 복원 (10000으로 나눔)
-                float attackDmg = intParams[1] / 10000f;
-                float attackSpd = intParams[2] / 10000f;
-                return new SyncPermanentBonusesCommand(intParams[0], attackDmg, attackSpd);
+                float attackDmg = ints[1] / 10000f;
+                float attackSpd = ints[2] / 10000f;
+                return new SyncPermanentBonusesCommand(ints[0], attackDmg, attackSpd);
             
             case CommandType.RegisterUnitAt:
-                // intParams: [playerId, networkIdRaw, x, y, starLevel], stringParams: [unitDataKey]
-                uint networkIdRaw = (uint)intParams[1];
-                return new RegisterUnitAtCommand(intParams[0], networkIdRaw, intParams[2], intParams[3], stringParams.Length > 0 ? stringParams[0] : "", intParams[4]);
+                // ints: [playerId, networkIdRaw, x, y, starLevel], texts: [unitDataKey]
+                uint networkIdRaw = (uint)ints[1];
+                return new RegisterUnitAtCommand(ints[0], networkIdRaw, ints[2], ints[3], texts.Length > 0 ? texts[0] : "", ints[4]);
             
             case CommandType.ApplyPermanentWalls:
-                // intParams: [playerId, ...flatPositions]
-                int[] flatPositions = new int[intParams.Length - 1];
-                Array.Copy(intParams, 1, flatPositions, 0, flatPositions.Length);
-                return new ApplyPermanentWallsCommand(intParams[0], flatPositions);
+                // ints: [playerId, ...flatPositions]
+                int[] flatPositions = new int[ints.Length - 1];
+                Array.Copy(ints, 1, flatPositions, 0, flatPositions.Length);
+                return new ApplyPermanentWallsCommand(ints[0], flatPositions);
 
             // ===== Notification Commands =====
             case CommandType.NotifyPurchaseSucceeded:
-                return new NotifyPurchaseSucceededCommand(intParams[0], intParams[1]);
+                return new NotifyPurchaseSucceededCommand(ints[0], ints[1]);
             
             case CommandType.NotifyAugmentSelected:
-                return new NotifyAugmentSelectedCommand(intParams[0], stringParams.Length > 0 ? stringParams[0] : "");
+                return new NotifyAugmentSelectedCommand(ints[0], texts.Length > 0 ? texts[0] : "");
             
             case CommandType.NotifyWallPlacementSucceeded:
-                return new NotifyWallPlacementCommand(intParams[0], intParams[1], intParams[2]);
+                return new NotifyWallPlacementCommand(ints[0], ints[1], ints[2]);
             
             case CommandType.NotifyWallRemovalSucceeded:
-                return new NotifyWallRemovalCommand(intParams[0], intParams[1], intParams[2]);
+                return new NotifyWallRemovalCommand(ints[0], ints[1], ints[2]);
 
             // ===== Request Commands (클라이언트 → 서버) =====
             case CommandType.RequestSyncData:
-                return new RequestSyncDataCommand(intParams[0]);
+                return new RequestSyncDataCommand(ints[0]);
 
             default:
                 Debug.LogError($"[CommandProcessor] 역직렬화할 수 없는 커맨드 타입입니다: {type}");

@@ -2,6 +2,7 @@
 
 using System.Collections;
 using System.Collections.Generic;
+using System;
 using UnityEngine;
 using UnityEngine.Serialization;
 using System.Linq;
@@ -39,6 +40,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private const int SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 8;
     [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> SelectedAugmentSnapshotNames { get; }
     [Networked] private int SelectedAugmentSnapshotCount { get; set; }
+    private const float PERMANENT_BONUS_NETWORK_SCALE = 10000f;
+    [Networked] private int PermanentAttackDamageBonusPermille { get; set; }
+    [Networked] private int PermanentAttackSpeedBonusPermille { get; set; }
     private const int MAX_WALL_COUNT = 5;
     [SerializeField] private int wallReserveK = 2;
     [SerializeField] private Vector2 wallBuildDelayRange = new Vector2(0.3f, 0.8f);
@@ -92,6 +96,28 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// 공격 시퀀스에서 소환 가능한 몬스터 풀
     /// </summary>
     public List<MonsterPoolEntry> AttackMonsterPool { get; private set; } = new List<MonsterPoolEntry>();
+    [Networked] public int AttackMonsterPoolRevision { get; private set; }
+    private const int ATTACK_POOL_SNAPSHOT_CAPACITY = 32;
+    [Networked] private int AttackMonsterPoolSnapshotCount { get; set; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> AttackMonsterPoolSnapshotNames { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotRemainingCounts { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotMaxCounts { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotIsBossValues { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotBossUniqueIds { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotTargetPlayerIds { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotOriginPlayerIds { get; }
+    private int _lastAppliedAttackMonsterPoolRevision;
+    public int AppliedAttackMonsterPoolRevision =>
+        Object != null && Object.HasStateAuthority ? AttackMonsterPoolRevision : _lastAppliedAttackMonsterPoolRevision;
+    public bool HasAppliedCurrentAttackMonsterPoolSnapshot =>
+        Object != null && Object.HasStateAuthority || _lastAppliedAttackMonsterPoolRevision == AttackMonsterPoolRevision;
+    [Networked] public int OwnedMagicScrollRevision { get; private set; }
+    private int _lastAppliedOwnedMagicScrollRevision;
+    private int _latestReceivedOwnedMagicScrollRevision;
+    public int AppliedOwnedMagicScrollRevision =>
+        Object != null && Object.HasStateAuthority ? OwnedMagicScrollRevision : _lastAppliedOwnedMagicScrollRevision;
+    public bool HasAppliedCurrentOwnedMagicScrollSnapshot =>
+        Object != null && Object.HasStateAuthority || _lastAppliedOwnedMagicScrollRevision == OwnedMagicScrollRevision;
     #endregion
 
     private ChangeDetector _changeDetector;
@@ -333,6 +359,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+        ApplyPermanentBonusesFromNetworkSnapshot();
 
         // Host Migration 복원 직후에도 런타임 참조가 비지 않도록 즉시 재결선
         RebindRuntimeReferencesAfterMigration("PlayerManager.Spawned", false);
@@ -364,6 +391,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             if (propertyName == nameof(wallCount))
             {
                 GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
+            }
+            if (propertyName == nameof(PermanentAttackDamageBonusPermille) ||
+                propertyName == nameof(PermanentAttackSpeedBonusPermille))
+            {
+                ApplyPermanentBonusesFromNetworkSnapshot();
             }
         }
     }
@@ -1049,7 +1081,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
         }
 
-        RPC_SyncOwnedMagicScrolls(BuildOwnedMagicScrollNameArray());
+        RPC_SyncOwnedMagicScrolls(OwnedMagicScrollRevision, BuildOwnedMagicScrollNameArray());
+        RPC_SyncPermanentBonuses(permanentAttackDamagePercent, permanentAttackSpeedPercent);
+        ResendAttackMonsterPoolToClientsIfAuthoritative();
     }
 
     /// <summary>
@@ -1059,9 +1093,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_SyncPermanentBonuses(float attackDamagePercent, float attackSpeedPercent)
     {
-        this.permanentAttackDamagePercent = attackDamagePercent;
-        this.permanentAttackSpeedPercent = attackSpeedPercent;
-        ApplyPermanentBonusesToUnitsOnField();
+        SetPermanentBonusesFromSync(attackDamagePercent, attackSpeedPercent);
         // Debug.Log($"<color=cyan>[RPC_SyncPermanentBonuses] Player {playerId}: AttackDmg={attackDamagePercent:P0}, AttackSpd={attackSpeedPercent:P0}</color>");
     }
 
@@ -1438,10 +1470,38 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augment != null)
         {
             _ownedBossAugments.Remove(augment);
+            SyncOwnedBossRemovalToClientsIfAuthoritative(bossData);
             // Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{bossData.monsterName}' 소환 → 보유에서 제거 (남은 {_ownedBossAugments.Count}마리)</color>");
             return true;
         }
         return false;
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_RemoveOwnedBossByMonsterDataName(string bossMonsterDataName)
+    {
+        if (Object != null && Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(bossMonsterDataName))
+        {
+            return;
+        }
+
+        _ownedBossAugments.RemoveAll(augment =>
+            augment != null &&
+            augment.bossMonsterData != null &&
+            augment.bossMonsterData.name == bossMonsterDataName);
+    }
+
+    private void SyncOwnedBossRemovalToClientsIfAuthoritative(MonsterData bossData)
+    {
+        if (bossData != null && Object != null && Object.HasStateAuthority)
+        {
+            RPC_RemoveOwnedBossByMonsterDataName(bossData.name);
+        }
     }
     #endregion
 
@@ -1459,9 +1519,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// </summary>
     public void AddMagicScroll(MagicScrollData scrollData)
     {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
+
         if (scrollData != null)
         {
             _ownedScrolls.Add(scrollData);
+            BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
             Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 획득 (총 {_ownedScrolls.Count}개)</color>");
 
             PublishOwnedMagicScrollsChanged();
@@ -1475,13 +1541,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <returns>스크롤 보유 시 true, 미보유 시 false</returns>
     public bool TryConsumeMagicScroll(MagicScrollData scrollData)
     {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return false;
+        }
+
         if (scrollData == null) return false;
         
         // 같은 종류의 스크롤이 있는지 확인
-        var found = _ownedScrolls.Find(s => s == scrollData || s.name == scrollData.name);
-        if (found != null)
+        int slotIndex = _ownedScrolls.FindIndex(s => s == scrollData || (s != null && s.name == scrollData.name));
+        if (slotIndex >= 0)
         {
-            _ownedScrolls.Remove(found);
+            _ownedScrolls.RemoveAt(slotIndex);
+            BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
             Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 사용 (남은 {_ownedScrolls.Count}개)</color>");
 
             PublishOwnedMagicScrollsChanged();
@@ -1492,33 +1564,151 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return false;
     }
 
+    public int FindOwnedMagicScrollSlot(MagicScrollData scrollData)
+    {
+        if (scrollData == null || _ownedScrolls == null)
+        {
+            return -1;
+        }
+
+        for (int i = 0; i < _ownedScrolls.Count; i++)
+        {
+            var owned = _ownedScrolls[i];
+            if (owned == scrollData || (owned != null && owned.name == scrollData.name))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    public bool TryGetMagicScrollAtSlot(int scrollSlotIndex, out MagicScrollData scrollData, out string reason)
+    {
+        scrollData = null;
+        reason = null;
+        if (_ownedScrolls == null)
+        {
+            reason = "owned_scrolls_missing";
+            return false;
+        }
+
+        if (scrollSlotIndex < 0 || scrollSlotIndex >= _ownedScrolls.Count)
+        {
+            reason = "scroll_slot_out_of_range";
+            return false;
+        }
+
+        scrollData = _ownedScrolls[scrollSlotIndex];
+        if (scrollData == null)
+        {
+            reason = "scroll_slot_empty";
+            return false;
+        }
+
+        return true;
+    }
+
+    public bool TryConsumeMagicScrollSlot(int scrollSlotIndex, out MagicScrollData consumedScroll, out string reason)
+    {
+        consumedScroll = null;
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            reason = "state_authority_required";
+            return false;
+        }
+
+        if (!TryGetMagicScrollAtSlot(scrollSlotIndex, out consumedScroll, out reason))
+        {
+            return false;
+        }
+
+        _ownedScrolls.RemoveAt(scrollSlotIndex);
+        BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
+        Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{consumedScroll.scrollName}' 사용 (slot={scrollSlotIndex}, 남은 {_ownedScrolls.Count}개)</color>");
+
+        PublishOwnedMagicScrollsChanged();
+        SyncOwnedMagicScrollsToClientsIfAuthoritative();
+        return true;
+    }
+
+    public bool TryRefundMagicScrollSlot(int scrollSlotIndex, MagicScrollData scrollData)
+    {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return false;
+        }
+
+        if (scrollData == null)
+        {
+            return false;
+        }
+
+        if (_ownedScrolls == null)
+        {
+            _ownedScrolls = new List<MagicScrollData>();
+        }
+
+        int insertIndex = Mathf.Clamp(scrollSlotIndex, 0, _ownedScrolls.Count);
+        _ownedScrolls.Insert(insertIndex, scrollData);
+        BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
+        PublishOwnedMagicScrollsChanged();
+        SyncOwnedMagicScrollsToClientsIfAuthoritative();
+        return true;
+    }
+
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public async void RPC_SyncOwnedMagicScrolls(string[] scrollDataNames)
+    public async void RPC_SyncOwnedMagicScrolls(int revision, string[] scrollDataNames)
     {
         if (Object != null && Object.HasStateAuthority)
         {
             return;
         }
 
-        var syncedScrolls = new List<MagicScrollData>(scrollDataNames?.Length ?? 0);
-        if (scrollDataNames != null)
+        if (revision < _latestReceivedOwnedMagicScrollRevision ||
+            revision < _lastAppliedOwnedMagicScrollRevision)
         {
-            foreach (string scrollDataName in scrollDataNames)
-            {
-                if (string.IsNullOrWhiteSpace(scrollDataName))
-                {
-                    continue;
-                }
+            return;
+        }
 
-                MagicScrollData scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
-                if (scrollData != null)
-                {
-                    syncedScrolls.Add(scrollData);
-                }
+        _latestReceivedOwnedMagicScrollRevision = revision;
+        string[] requestedNames = scrollDataNames?
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToArray() ?? System.Array.Empty<string>();
+
+        var syncedScrolls = new List<MagicScrollData>(scrollDataNames?.Length ?? 0);
+        foreach (string scrollDataName in requestedNames)
+        {
+            if (revision != _latestReceivedOwnedMagicScrollRevision ||
+                revision < _lastAppliedOwnedMagicScrollRevision)
+            {
+                return;
             }
+
+            MagicScrollData scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
+            if (revision != _latestReceivedOwnedMagicScrollRevision ||
+                revision < _lastAppliedOwnedMagicScrollRevision)
+            {
+                return;
+            }
+
+            if (scrollData == null)
+            {
+                Debug.LogWarning($"[PlayerManager] Owned magic scroll sync skipped missing asset '{scrollDataName}' at revision {revision}.");
+                return;
+            }
+
+            syncedScrolls.Add(scrollData);
+        }
+
+        if (revision != _latestReceivedOwnedMagicScrollRevision ||
+            revision < _lastAppliedOwnedMagicScrollRevision)
+        {
+            return;
         }
 
         _ownedScrolls = syncedScrolls;
+        _lastAppliedOwnedMagicScrollRevision = revision;
         PublishOwnedMagicScrollsChanged();
     }
 
@@ -1539,7 +1729,143 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         if (Object != null && Object.HasStateAuthority)
         {
-            RPC_SyncOwnedMagicScrolls(BuildOwnedMagicScrollNameArray());
+            RPC_SyncOwnedMagicScrolls(OwnedMagicScrollRevision, BuildOwnedMagicScrollNameArray());
+        }
+    }
+
+    public void ResendOwnedMagicScrollsToClientsIfAuthoritative()
+    {
+        SyncOwnedMagicScrollsToClientsIfAuthoritative();
+    }
+
+    public bool TryGetOwnedMagicScrollSnapshot(
+        out int revision,
+        out MagicScrollData[] scrollDataRefs,
+        out string[] scrollDataNames)
+    {
+        revision = OwnedMagicScrollRevision;
+        scrollDataRefs = System.Array.Empty<MagicScrollData>();
+        scrollDataNames = System.Array.Empty<string>();
+
+        if (_ownedScrolls == null)
+        {
+            return true;
+        }
+
+        var validScrolls = _ownedScrolls
+            .Where(scroll => scroll != null && !string.IsNullOrWhiteSpace(scroll.name))
+            .ToArray();
+        scrollDataRefs = validScrolls;
+        scrollDataNames = validScrolls.Select(scroll => scroll.name).ToArray();
+        return true;
+    }
+
+    public void RestoreOwnedMagicScrollsFromMigrationSnapshot(
+        int revision,
+        MagicScrollData[] scrollDataRefs,
+        string[] scrollDataNames,
+        string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        int count = Mathf.Max(scrollDataRefs?.Length ?? 0, scrollDataNames?.Length ?? 0);
+        var restored = new List<MagicScrollData>(count);
+        bool requiresAsyncLoad = false;
+
+        for (int i = 0; i < count; i++)
+        {
+            MagicScrollData data = scrollDataRefs != null && i < scrollDataRefs.Length
+                ? scrollDataRefs[i]
+                : null;
+            if (data != null)
+            {
+                restored.Add(data);
+                continue;
+            }
+
+            string name = scrollDataNames != null && i < scrollDataNames.Length ? scrollDataNames[i] : null;
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                requiresAsyncLoad = true;
+                break;
+            }
+        }
+
+        if (!requiresAsyncLoad)
+        {
+            ApplyOwnedMagicScrollSnapshot(revision, restored, context);
+            return;
+        }
+
+        RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(revision, scrollDataRefs, scrollDataNames, context).Forget();
+    }
+
+    private async UniTask RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(
+        int revision,
+        MagicScrollData[] scrollDataRefs,
+        string[] scrollDataNames,
+        string context)
+    {
+        int count = Mathf.Max(scrollDataRefs?.Length ?? 0, scrollDataNames?.Length ?? 0);
+        var restored = new List<MagicScrollData>(count);
+        for (int i = 0; i < count; i++)
+        {
+            MagicScrollData data = scrollDataRefs != null && i < scrollDataRefs.Length
+                ? scrollDataRefs[i]
+                : null;
+            if (data == null)
+            {
+                string name = scrollDataNames != null && i < scrollDataNames.Length ? scrollDataNames[i] : null;
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                data = await AssetLoader.LoadAssetAsync<MagicScrollData>(name);
+                if (data == null)
+                {
+                    Debug.LogWarning($"[PlayerManager] HostMigration owned scroll restore skipped missing asset '{name}' ({context}).");
+                    return;
+                }
+            }
+
+            restored.Add(data);
+        }
+
+        ApplyOwnedMagicScrollSnapshot(revision, restored, context);
+    }
+
+    private void ApplyOwnedMagicScrollSnapshot(int revision, List<MagicScrollData> restoredScrolls, string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (revision < OwnedMagicScrollRevision)
+        {
+            return;
+        }
+
+        _ownedScrolls = restoredScrolls ?? new List<MagicScrollData>();
+        OwnedMagicScrollRevision = Mathf.Max(OwnedMagicScrollRevision, revision);
+        _lastAppliedOwnedMagicScrollRevision = Mathf.Max(_lastAppliedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
+        _latestReceivedOwnedMagicScrollRevision = Mathf.Max(_latestReceivedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
+        PublishOwnedMagicScrollsChanged();
+        SyncOwnedMagicScrollsToClientsIfAuthoritative();
+        Debug.Log($"[PlayerManager] HostMigration owned scroll restore complete ({context}) P{playerId} rev={OwnedMagicScrollRevision} count={_ownedScrolls.Count}");
+    }
+
+    private void BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline()
+    {
+        if (Object == null || !Object.IsValid || Object.HasStateAuthority)
+        {
+            OwnedMagicScrollRevision++;
+            _lastAppliedOwnedMagicScrollRevision = Mathf.Max(_lastAppliedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
+            _latestReceivedOwnedMagicScrollRevision = Mathf.Max(_latestReceivedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
         }
     }
     #endregion
@@ -1550,6 +1876,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <param name="currentBattleOpponentId">현재 전투에서 매칭된 상대 ID (-1이면 opponentManager 사용)</param>
     public void RefreshAttackMonsterPool(int round, int currentBattleOpponentId = -1)
     {
+        if (Object != null && Object.IsValid && !Object.HasStateAuthority)
+        {
+            if (Object.HasInputAuthority)
+            {
+                RPC_RequestSyncData();
+            }
+            return;
+        }
+
         AttackMonsterPool.Clear();
         
         // 1. 기본 웨이브 몬스터 가져오기
@@ -1622,6 +1957,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        SyncAttackMonsterPoolToClientsIfAuthoritative();
     }
 
     /// <summary>
@@ -1640,15 +1976,611 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        SyncAttackMonsterPoolToClientsIfAuthoritative();
         return true;
+    }
+
+    public bool TryConsumeMonsterPoolSlot(int poolSlotIndex)
+    {
+        if (AttackMonsterPool == null ||
+            poolSlotIndex < 0 ||
+            poolSlotIndex >= AttackMonsterPool.Count)
+        {
+            return false;
+        }
+
+        var entry = AttackMonsterPool[poolSlotIndex];
+        if (entry == null || entry.IsEmpty)
+        {
+            return false;
+        }
+
+        if (!entry.TryConsume())
+        {
+            return false;
+        }
+
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        SyncAttackMonsterPoolToClientsIfAuthoritative();
+        return true;
+    }
+
+    public bool TryRefundMonsterPoolSlot(int poolSlotIndex)
+    {
+        if (AttackMonsterPool == null ||
+            poolSlotIndex < 0 ||
+            poolSlotIndex >= AttackMonsterPool.Count)
+        {
+            return false;
+        }
+
+        var entry = AttackMonsterPool[poolSlotIndex];
+        if (entry == null)
+        {
+            return false;
+        }
+
+        int max = Mathf.Max(entry.MaxCount, entry.RemainingCount + 1);
+        entry.RemainingCount = Mathf.Min(max, entry.RemainingCount + 1);
+        entry.MaxCount = max;
+
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        SyncAttackMonsterPoolToClientsIfAuthoritative();
+        return true;
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_SyncAttackMonsterPool(
+        int revision,
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds)
+    {
+        ApplyAttackMonsterPoolSnapshotAsync(
+            revision,
+            monsterDataNames,
+            remainingCounts,
+            maxCounts,
+            isBossValues,
+            bossUniqueIds,
+            targetPlayerIds,
+            originPlayerIds,
+            false,
+            "RPC_SyncAttackMonsterPool").Forget();
+    }
+
+    public bool TryGetAttackMonsterPoolSnapshot(
+        out int revision,
+        out MonsterData[] monsterDataRefs,
+        out string[] monsterDataNames,
+        out int[] remainingCounts,
+        out int[] maxCounts,
+        out int[] isBossValues,
+        out int[] bossUniqueIds,
+        out int[] targetPlayerIds,
+        out int[] originPlayerIds)
+    {
+        if (TryGetReplicatedAttackMonsterPoolSnapshot(
+                out revision,
+                out monsterDataNames,
+                out remainingCounts,
+                out maxCounts,
+                out isBossValues,
+                out bossUniqueIds,
+                out targetPlayerIds,
+                out originPlayerIds))
+        {
+            monsterDataRefs = new MonsterData[monsterDataNames.Length];
+            return true;
+        }
+
+        revision = AttackMonsterPoolRevision;
+        BuildAttackMonsterPoolSnapshot(
+            out monsterDataRefs,
+            out monsterDataNames,
+            out remainingCounts,
+            out maxCounts,
+            out isBossValues,
+            out bossUniqueIds,
+            out targetPlayerIds,
+            out originPlayerIds);
+        return AttackMonsterPool != null;
+    }
+
+    public bool TryGetAttackMonsterPoolSnapshotForComparison(
+        out int revision,
+        out string[] monsterDataNames,
+        out int[] remainingCounts,
+        out int[] maxCounts,
+        out int[] isBossValues,
+        out int[] bossUniqueIds,
+        out int[] targetPlayerIds,
+        out int[] originPlayerIds)
+    {
+        if (TryGetReplicatedAttackMonsterPoolSnapshot(
+                out revision,
+                out monsterDataNames,
+                out remainingCounts,
+                out maxCounts,
+                out isBossValues,
+                out bossUniqueIds,
+                out targetPlayerIds,
+                out originPlayerIds))
+        {
+            return true;
+        }
+
+        revision = AttackMonsterPoolRevision;
+        BuildAttackMonsterPoolSnapshot(
+            out _,
+            out monsterDataNames,
+            out remainingCounts,
+            out maxCounts,
+            out isBossValues,
+            out bossUniqueIds,
+            out targetPlayerIds,
+            out originPlayerIds);
+        return AttackMonsterPool != null;
+    }
+
+    public void RestoreAttackMonsterPoolFromMigrationSnapshot(
+        int revision,
+        MonsterData[] monsterDataRefs,
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds,
+        string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (TryBuildAttackMonsterPoolFromRefs(
+                monsterDataRefs,
+                remainingCounts,
+                maxCounts,
+                isBossValues,
+                bossUniqueIds,
+                targetPlayerIds,
+                originPlayerIds,
+                out var restoredPool))
+        {
+            ApplyAttackMonsterPoolEntries(revision, restoredPool);
+            ResendAttackMonsterPoolToClientsIfAuthoritative();
+            Debug.Log($"[PlayerManager] AttackMonsterPool migration restore complete ({context}) P{playerId} rev={AttackMonsterPoolRevision} entries={AttackMonsterPool.Count}");
+            return;
+        }
+
+        ApplyAttackMonsterPoolSnapshotAsync(
+            revision,
+            monsterDataNames,
+            remainingCounts,
+            maxCounts,
+            isBossValues,
+            bossUniqueIds,
+            targetPlayerIds,
+            originPlayerIds,
+            true,
+            context).Forget();
+    }
+
+    public void ResendAttackMonsterPoolToClientsIfAuthoritative()
+    {
+        PublishAttackMonsterPoolToClientsIfAuthoritative(false);
+    }
+
+    private void SyncAttackMonsterPoolToClientsIfAuthoritative()
+    {
+        PublishAttackMonsterPoolToClientsIfAuthoritative(true);
+    }
+
+    private void PublishAttackMonsterPoolToClientsIfAuthoritative(bool incrementRevision)
+    {
+        if (Object == null || !Object.HasStateAuthority || AttackMonsterPool == null)
+        {
+            return;
+        }
+
+        if (incrementRevision)
+        {
+            AttackMonsterPoolRevision++;
+        }
+
+        BuildAttackMonsterPoolSnapshot(
+            out _,
+            out string[] monsterDataNames,
+            out int[] remainingCounts,
+            out int[] maxCounts,
+            out int[] isBossValues,
+            out int[] bossUniqueIds,
+            out int[] targetPlayerIds,
+            out int[] originPlayerIds);
+
+        PublishReplicatedAttackMonsterPoolSnapshot(
+            monsterDataNames,
+            remainingCounts,
+            maxCounts,
+            isBossValues,
+            bossUniqueIds,
+            targetPlayerIds,
+            originPlayerIds);
+
+        RPC_SyncAttackMonsterPool(
+            AttackMonsterPoolRevision,
+            monsterDataNames,
+            remainingCounts,
+            maxCounts,
+            isBossValues,
+            bossUniqueIds,
+            targetPlayerIds,
+            originPlayerIds);
+    }
+
+    private bool TryGetReplicatedAttackMonsterPoolSnapshot(
+        out int revision,
+        out string[] monsterDataNames,
+        out int[] remainingCounts,
+        out int[] maxCounts,
+        out int[] isBossValues,
+        out int[] bossUniqueIds,
+        out int[] targetPlayerIds,
+        out int[] originPlayerIds)
+    {
+        revision = AttackMonsterPoolRevision;
+        int count = Mathf.Clamp(AttackMonsterPoolSnapshotCount, 0, ATTACK_POOL_SNAPSHOT_CAPACITY);
+        monsterDataNames = Array.Empty<string>();
+        remainingCounts = Array.Empty<int>();
+        maxCounts = Array.Empty<int>();
+        isBossValues = Array.Empty<int>();
+        bossUniqueIds = Array.Empty<int>();
+        targetPlayerIds = Array.Empty<int>();
+        originPlayerIds = Array.Empty<int>();
+
+        if (Object == null || !Object.IsValid || revision <= 0 || count <= 0)
+        {
+            return false;
+        }
+
+        monsterDataNames = new string[count];
+        remainingCounts = new int[count];
+        maxCounts = new int[count];
+        isBossValues = new int[count];
+        bossUniqueIds = new int[count];
+        targetPlayerIds = new int[count];
+        originPlayerIds = new int[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            monsterDataNames[i] = AttackMonsterPoolSnapshotNames.Get(i).ToString();
+            remainingCounts[i] = AttackMonsterPoolSnapshotRemainingCounts[i];
+            maxCounts[i] = AttackMonsterPoolSnapshotMaxCounts[i];
+            isBossValues[i] = AttackMonsterPoolSnapshotIsBossValues[i];
+            bossUniqueIds[i] = AttackMonsterPoolSnapshotBossUniqueIds[i];
+            targetPlayerIds[i] = AttackMonsterPoolSnapshotTargetPlayerIds[i];
+            originPlayerIds[i] = AttackMonsterPoolSnapshotOriginPlayerIds[i];
+        }
+
+        return true;
+    }
+
+    private void PublishReplicatedAttackMonsterPoolSnapshot(
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        int count = Mathf.Clamp(monsterDataNames?.Length ?? 0, 0, ATTACK_POOL_SNAPSHOT_CAPACITY);
+        for (int i = 0; i < ATTACK_POOL_SNAPSHOT_CAPACITY; i++)
+        {
+            AttackMonsterPoolSnapshotNames.Set(i, string.Empty);
+            AttackMonsterPoolSnapshotRemainingCounts.Set(i, 0);
+            AttackMonsterPoolSnapshotMaxCounts.Set(i, 0);
+            AttackMonsterPoolSnapshotIsBossValues.Set(i, 0);
+            AttackMonsterPoolSnapshotBossUniqueIds.Set(i, -1);
+            AttackMonsterPoolSnapshotTargetPlayerIds.Set(i, -1);
+            AttackMonsterPoolSnapshotOriginPlayerIds.Set(i, -1);
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            AttackMonsterPoolSnapshotNames.Set(i, monsterDataNames[i] ?? string.Empty);
+            AttackMonsterPoolSnapshotRemainingCounts.Set(i, ReadArrayValue(remainingCounts, i, 0));
+            AttackMonsterPoolSnapshotMaxCounts.Set(i, ReadArrayValue(maxCounts, i, 0));
+            AttackMonsterPoolSnapshotIsBossValues.Set(i, ReadArrayValue(isBossValues, i, 0));
+            AttackMonsterPoolSnapshotBossUniqueIds.Set(i, ReadArrayValue(bossUniqueIds, i, -1));
+            AttackMonsterPoolSnapshotTargetPlayerIds.Set(i, ReadArrayValue(targetPlayerIds, i, -1));
+            AttackMonsterPoolSnapshotOriginPlayerIds.Set(i, ReadArrayValue(originPlayerIds, i, -1));
+        }
+
+        AttackMonsterPoolSnapshotCount = count;
+    }
+
+    private void BuildAttackMonsterPoolSnapshot(
+        out MonsterData[] monsterDataRefs,
+        out string[] monsterDataNames,
+        out int[] remainingCounts,
+        out int[] maxCounts,
+        out int[] isBossValues,
+        out int[] bossUniqueIds,
+        out int[] targetPlayerIds,
+        out int[] originPlayerIds)
+    {
+        int count = AttackMonsterPool != null ? AttackMonsterPool.Count : 0;
+        monsterDataRefs = new MonsterData[count];
+        monsterDataNames = new string[count];
+        remainingCounts = new int[count];
+        maxCounts = new int[count];
+        isBossValues = new int[count];
+        bossUniqueIds = new int[count];
+        targetPlayerIds = new int[count];
+        originPlayerIds = new int[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            var entry = AttackMonsterPool[i];
+            monsterDataRefs[i] = entry?.MonsterData;
+            monsterDataNames[i] = entry?.MonsterData != null ? entry.MonsterData.name : string.Empty;
+            remainingCounts[i] = entry != null ? entry.RemainingCount : 0;
+            maxCounts[i] = entry != null ? entry.MaxCount : 0;
+            isBossValues[i] = entry != null && entry.IsBoss ? 1 : 0;
+            bossUniqueIds[i] = entry != null ? entry.BossUniqueId : -1;
+            targetPlayerIds[i] = entry != null ? entry.TargetPlayerId : -1;
+            originPlayerIds[i] = entry != null ? entry.OriginPlayerId : -1;
+        }
+    }
+
+    private async UniTask ApplyAttackMonsterPoolSnapshotAsync(
+        int revision,
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds,
+        bool allowStateAuthorityApply,
+        string context)
+    {
+        if (!allowStateAuthorityApply && Object != null && Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (revision < _lastAppliedAttackMonsterPoolRevision)
+        {
+            return;
+        }
+
+        var syncedPool = new List<MonsterPoolEntry>(monsterDataNames?.Length ?? 0);
+        int count = monsterDataNames != null ? monsterDataNames.Length : 0;
+        for (int i = 0; i < count; i++)
+        {
+            string monsterDataName = monsterDataNames[i];
+            if (string.IsNullOrWhiteSpace(monsterDataName))
+            {
+                continue;
+            }
+
+            MonsterData monsterData = await ResolveAttackMonsterDataAsync(monsterDataName);
+            if (monsterData == null)
+            {
+                Debug.LogWarning($"[PlayerManager] AttackMonsterPool snapshot apply aborted: unresolved MonsterData '{monsterDataName}' P{playerId} rev={revision} context={context}");
+                if (Object != null && Object.HasInputAuthority && !Object.HasStateAuthority)
+                {
+                    RPC_RequestSyncData();
+                }
+                return;
+            }
+
+            syncedPool.Add(BuildAttackMonsterPoolEntry(
+                monsterData,
+                i,
+                remainingCounts,
+                maxCounts,
+                isBossValues,
+                bossUniqueIds,
+                targetPlayerIds,
+                originPlayerIds));
+        }
+
+        if (revision < _lastAppliedAttackMonsterPoolRevision)
+        {
+            return;
+        }
+
+        ApplyAttackMonsterPoolEntries(revision, syncedPool);
+        if (allowStateAuthorityApply)
+        {
+            ResendAttackMonsterPoolToClientsIfAuthoritative();
+            Debug.Log($"[PlayerManager] AttackMonsterPool async restore complete ({context}) P{playerId} rev={AttackMonsterPoolRevision} entries={AttackMonsterPool.Count}");
+        }
+    }
+
+    private async UniTask<MonsterData> ResolveAttackMonsterDataAsync(string monsterDataName)
+    {
+        if (string.IsNullOrWhiteSpace(monsterDataName))
+        {
+            return null;
+        }
+
+        MonsterData data = FindLoadedMonsterDataByName(monsterDataName);
+        if (data != null)
+        {
+            return data;
+        }
+
+        data = FindWaveMonsterDataByName(monsterDataName);
+        if (data != null)
+        {
+            return data;
+        }
+
+        if (augmentManager != null)
+        {
+            await augmentManager.WaitUntilAugmentDataLoaded();
+            data = augmentManager.FindMonsterDataByName(monsterDataName);
+            if (data != null)
+            {
+                return data;
+            }
+        }
+
+        return await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
+    }
+
+    private static MonsterData FindLoadedMonsterDataByName(string monsterDataName)
+    {
+        var loaded = Resources.FindObjectsOfTypeAll<MonsterData>();
+        foreach (var data in loaded)
+        {
+            if (MatchesMonsterData(data, monsterDataName))
+            {
+                return data;
+            }
+        }
+
+        return null;
+    }
+
+    private static MonsterData FindWaveMonsterDataByName(string monsterDataName)
+    {
+        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        if (waveDatabase?.rounds == null)
+        {
+            return null;
+        }
+
+        foreach (var round in waveDatabase.rounds)
+        {
+            if (round?.monsters == null) continue;
+            foreach (var entry in round.monsters)
+            {
+                if (MatchesMonsterData(entry?.monsterData, monsterDataName))
+                {
+                    return entry.monsterData;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesMonsterData(MonsterData data, string monsterDataName)
+    {
+        if (data == null || string.IsNullOrWhiteSpace(monsterDataName))
+        {
+            return false;
+        }
+
+        return string.Equals(data.name, monsterDataName, System.StringComparison.Ordinal)
+            || string.Equals(data.monsterName, monsterDataName, System.StringComparison.Ordinal)
+            || string.Equals(data.monsterPrefab, monsterDataName, System.StringComparison.Ordinal);
+    }
+
+    private bool TryBuildAttackMonsterPoolFromRefs(
+        MonsterData[] monsterDataRefs,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds,
+        out List<MonsterPoolEntry> restoredPool)
+    {
+        restoredPool = new List<MonsterPoolEntry>(monsterDataRefs?.Length ?? 0);
+        if (monsterDataRefs == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < monsterDataRefs.Length; i++)
+        {
+            MonsterData monsterData = monsterDataRefs[i];
+            if (monsterData == null)
+            {
+                return false;
+            }
+
+            restoredPool.Add(BuildAttackMonsterPoolEntry(
+                monsterData,
+                i,
+                remainingCounts,
+                maxCounts,
+                isBossValues,
+                bossUniqueIds,
+                targetPlayerIds,
+                originPlayerIds));
+        }
+
+        return true;
+    }
+
+    private static MonsterPoolEntry BuildAttackMonsterPoolEntry(
+        MonsterData monsterData,
+        int index,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds)
+    {
+        int remaining = ReadArrayValue(remainingCounts, index, 0);
+        int max = ReadArrayValue(maxCounts, index, remaining);
+        bool isBoss = ReadArrayValue(isBossValues, index, 0) != 0;
+        var entry = isBoss
+            ? new MonsterPoolEntry(
+                monsterData,
+                remaining,
+                ReadArrayValue(bossUniqueIds, index, -1),
+                ReadArrayValue(targetPlayerIds, index, -1),
+                ReadArrayValue(originPlayerIds, index, -1))
+            : new MonsterPoolEntry(monsterData, remaining);
+
+        entry.MaxCount = max;
+        entry.RemainingCount = remaining;
+        return entry;
+    }
+
+    private void ApplyAttackMonsterPoolEntries(int revision, List<MonsterPoolEntry> pool)
+    {
+        _lastAppliedAttackMonsterPoolRevision = Mathf.Max(_lastAppliedAttackMonsterPoolRevision, revision);
+        if (Object != null && Object.HasStateAuthority)
+        {
+            AttackMonsterPoolRevision = Mathf.Max(AttackMonsterPoolRevision, revision);
+        }
+
+        AttackMonsterPool = pool ?? new List<MonsterPoolEntry>();
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+    }
+
+    private static int ReadArrayValue(int[] values, int index, int fallback)
+    {
+        return values != null && index >= 0 && index < values.Length ? values[index] : fallback;
     }
     #endregion
 
     #region 스탯 및 자원 관리
     public void AddPermanentAttackDamagePercent(float percent)
     {
-        permanentAttackDamagePercent += percent;
-        ApplyPermanentBonusesToUnitsOnField();
+        SetPermanentBonusesFromSync(permanentAttackDamagePercent + percent, permanentAttackSpeedPercent);
         
         // 클라이언트에 동기화
         if (Object != null && Object.HasStateAuthority)
@@ -1659,14 +2591,77 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public void AddPermanentAttackSpeedPercent(float percent)
     {
-        permanentAttackSpeedPercent += percent;
-        ApplyPermanentBonusesToUnitsOnField();
+        SetPermanentBonusesFromSync(permanentAttackDamagePercent, permanentAttackSpeedPercent + percent);
         
         // 클라이언트에 동기화
         if (Object != null && Object.HasStateAuthority)
         {
             RPC_SyncPermanentBonuses(permanentAttackDamagePercent, permanentAttackSpeedPercent);
         }
+    }
+
+    public void SetPermanentBonusesFromSync(float attackDamagePercent, float attackSpeedPercent)
+    {
+        permanentAttackDamagePercent = attackDamagePercent;
+        permanentAttackSpeedPercent = attackSpeedPercent;
+
+        if (Object != null && Object.IsValid && Object.HasStateAuthority)
+        {
+            PermanentAttackDamageBonusPermille = EncodePermanentBonus(attackDamagePercent);
+            PermanentAttackSpeedBonusPermille = EncodePermanentBonus(attackSpeedPercent);
+        }
+
+        ApplyPermanentBonusesToUnitsOnField();
+    }
+
+    public float GetSnapshotPermanentAttackDamagePercent()
+    {
+        if (Object != null && Object.IsValid)
+        {
+            return DecodePermanentBonus(PermanentAttackDamageBonusPermille);
+        }
+
+        return permanentAttackDamagePercent;
+    }
+
+    public float GetSnapshotPermanentAttackSpeedPercent()
+    {
+        if (Object != null && Object.IsValid)
+        {
+            return DecodePermanentBonus(PermanentAttackSpeedBonusPermille);
+        }
+
+        return permanentAttackSpeedPercent;
+    }
+
+    private void ApplyPermanentBonusesFromNetworkSnapshot()
+    {
+        if (Object == null || !Object.IsValid || Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        float attackDamagePercent = DecodePermanentBonus(PermanentAttackDamageBonusPermille);
+        float attackSpeedPercent = DecodePermanentBonus(PermanentAttackSpeedBonusPermille);
+        if (Mathf.Approximately(permanentAttackDamagePercent, attackDamagePercent) &&
+            Mathf.Approximately(permanentAttackSpeedPercent, attackSpeedPercent))
+        {
+            return;
+        }
+
+        permanentAttackDamagePercent = attackDamagePercent;
+        permanentAttackSpeedPercent = attackSpeedPercent;
+        ApplyPermanentBonusesToUnitsOnField();
+    }
+
+    private static int EncodePermanentBonus(float percent)
+    {
+        return Mathf.RoundToInt(percent * PERMANENT_BONUS_NETWORK_SCALE);
+    }
+
+    private static float DecodePermanentBonus(int encoded)
+    {
+        return encoded / PERMANENT_BONUS_NETWORK_SCALE;
     }
 
     public void ApplyPermanentBonusesToUnitsOnField()
@@ -1708,6 +2703,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         if (damage <= 0) return;
         if (!HasStateAuthorityOrNoNetwork()) return;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         health -= damage;
 
         // 체력 음수 허용: 라운드 종료 시 GameManagers에서 판정
@@ -2246,42 +3247,45 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     private bool ValidateActivateSkillRequest(GameManagers gm, int[] intParams, out string reason)
     {
-        if (!ValidateBattlePhase(gm, out reason)) return false;
         if (intParams.Length < 2)
         {
             reason = "missing_skill_unit_id";
             return false;
         }
 
-        if (Runner == null)
-        {
-            reason = "runner_not_ready";
-            return false;
-        }
-
         uint unitNetworkId = (uint)intParams[1];
-        Unit unit = null;
-        foreach (var networkObject in Runner.GetAllNetworkObjects())
-        {
-            if (networkObject != null && networkObject.Id.Raw == unitNetworkId)
-            {
-                unit = networkObject.GetComponent<Unit>();
-                break;
-            }
-        }
+        const CommandExecutionScope scope = CommandExecutionScope.ClientRequest;
+        const string source = "client_rpc";
+        SkillCommandMpTestLogger.Request(playerId, unitNetworkId, scope, source);
 
-        if (unit == null)
+        if (!ActivateSkillCommand.TryValidate(
+                gm,
+                playerId,
+                unitNetworkId,
+                scope,
+                source,
+                requireStateAuthority: true,
+                out _,
+                out SkillData skillData,
+                out BattleCommandResult result))
         {
-            reason = "skill_unit_not_found";
+            reason = result.ErrorCode;
+            int sequence = BattleCommandTelemetry.RecordRejected(CommandType.ActivateSkill);
+            var rejected = BattleCommandResult.Rejected(
+                CommandType.ActivateSkill,
+                result.PlayerId,
+                result.ErrorCode,
+                result.Message,
+                result.OpponentPlayerId,
+                result.Scope,
+                result.Source,
+                sequence);
+            SkillCommandMpTestLogger.Rejected(rejected, unitNetworkId, skillData != null ? skillData.name : "unknown");
+            gm?.SyncBattleCommandTelemetryToClientsIfAuthoritative();
             return false;
         }
 
-        if (unit.Owner != this && (fieldManager == null || !fieldManager.GetAlliedUnitsOnField().Contains(unit)))
-        {
-            reason = "skill_unit_not_owned";
-            return false;
-        }
-
+        SkillCommandMpTestLogger.Accepted(result, unitNetworkId, skillData != null ? skillData.name : "unknown");
         reason = null;
         return true;
     }

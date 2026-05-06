@@ -1,4 +1,5 @@
 using UnityEngine;
+using Fusion;
 using AI.BehaviorTree;
 using AI.BehaviorTree.Nodes;
 using AI.BehaviorTree.Nodes.Actions;
@@ -11,6 +12,10 @@ public class AIPlayerController : MonoBehaviour
     private int _registeredPlayerId = -1;
     private float _decisionTimer = 0f;
     private const float DecisionCooldown = 0.1f;
+
+    private PrepareDecisionPolicy _prepareDecisionPolicy;
+    private BattleDecisionPolicy _battleDecisionPolicy;
+    private ServerAiCommandEmitter _serverAiCommandEmitter;
 
     private BehaviorTree _preparePhaseBT;
     private BehaviorTree _combatPhaseBT;
@@ -30,6 +35,9 @@ public class AIPlayerController : MonoBehaviour
 
         _playerManager = playerManager;
         _commandProcessor = commandProcessor;
+        _prepareDecisionPolicy = new PrepareDecisionPolicy("balanced");
+        _battleDecisionPolicy = new BattleDecisionPolicy();
+        _serverAiCommandEmitter = new ServerAiCommandEmitter(GameManagers.Instance, playerManager, "server_ai_controller");
         BuildBehaviorTrees();
 
         _registeredPlayerId = playerManager.playerId;
@@ -75,16 +83,57 @@ public class AIPlayerController : MonoBehaviour
 
         _decisionTimer = 0f;
 
-        switch (GameManagers.Instance.GetGameState())
+        var gm = GameManagers.Instance;
+        if (gm.Object == null || !gm.Object.HasStateAuthority)
+        {
+            return;
+        }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (mpOptions.Enabled &&
+            mpOptions.Scenario == "human_bot_prepare_progression" &&
+            _playerManager.Object != null &&
+            _playerManager.Object.InputAuthority == PlayerRef.None)
+        {
+            return;
+        }
+#endif
+
+        switch (gm.GetGameState())
         {
             case GameManagers.GameState.Prepare:
-                _preparePhaseBT?.Tick();
+                TryRunPolicy(_prepareDecisionPolicy, gm);
                 break;
             case GameManagers.GameState.Battle1:
             case GameManagers.GameState.Battle2:
-                _combatPhaseBT?.Tick();
+                TryRunPolicy(_battleDecisionPolicy, gm);
                 break;
         }
+    }
+
+    private void TryRunPolicy(IMdfDecisionPolicy policy, GameManagers gm)
+    {
+        if (policy == null || gm == null || _playerManager == null)
+        {
+            return;
+        }
+
+        _serverAiCommandEmitter = new ServerAiCommandEmitter(gm, _playerManager, "server_ai_controller");
+        var context = MdfDecisionContext.Create(
+            gm,
+            _playerManager,
+            CommandExecutionScope.ServerAuthorityOnly,
+            "balanced",
+            isHumanBot: false,
+            isServerAi: true,
+            isTestAutomation: false);
+
+        if (!policy.TryChoose(context, out var decision) || decision == null || !decision.HasCommandPayload)
+        {
+            return;
+        }
+
+        _serverAiCommandEmitter.TryEmit(decision, out _);
     }
 
     private void BuildBehaviorTrees()

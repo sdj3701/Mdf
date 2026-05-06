@@ -23,10 +23,17 @@ The goal is to prevent “compile-only PASS”. A feature is not done until Code
    - Make the smallest targeted change.
    - Do not edit vendor folders.
    - If adding a command, update `CommandType`, serialization, deserialization, UI/AI callers, and snapshot/assertions as needed.
+   - For battle features, keep strategic monster spawn, magic scroll use, and manual/strategic skill use on the command path:
+     - `BattleSpawnMonsterCommand` owns battle monster spawn validation and pool consumption.
+     - `UseMagicScrollCommand` owns scroll inventory consumption and gameplay effects.
+     - `ActivateSkillCommand` owns manual/strategic skill activation.
+     - Presentation RPCs/VFX helpers do not apply durable gameplay effects.
+     - HumanBot remains a real human peer and does not attach/register `AIPlayerController`.
 
 4. **Static verification**
    - Run `python tools/harness/precommit.py --all` or staged equivalent.
    - Use `mdf_fusion_reviewer` for authority-sensitive changes.
+   - Treat battle-command BLOCKs as hard failures. Treat WARNs as required manual review items and record whether they are intentional low-level mechanisms or real bypasses.
 
 5. **Unity verification**
    - `unity-cli --project Mdfproject status`

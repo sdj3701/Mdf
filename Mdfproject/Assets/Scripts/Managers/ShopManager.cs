@@ -77,7 +77,7 @@ public class ShopManager : MonoBehaviour
     /// </summary>
     void Start()
     {
-        LogShopTrace("Start:InitializeRequested");
+        LogShopTrace("Start:InitializeBegin");
         InitializeFromLoadManager();
     }
 
@@ -278,7 +278,7 @@ public class ShopManager : MonoBehaviour
 
         if (IsRunningClientPeerWithoutAuthority())
         {
-            LogShopTrace("Reroll:ABORT_CLIENT_PEER", $"isFree={isFree}");
+            LogShopTrace("Reroll:ABORT_NON_AUTHORITY_PEER", $"isFree={isFree}");
             return;
         }
 

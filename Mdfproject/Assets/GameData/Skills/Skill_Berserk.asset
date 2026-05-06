@@ -19,6 +19,8 @@ MonoBehaviour:
   manaCost: 70
   range: 4
   activationType: 1
+  canAiUseStrategically: 0
+  aiMinSkillValue: 100
   targetingStrategy: {fileID: 11400000, guid: 0a5a8f83e0e70bc418527186dff4b1f1, type: 2}
   effects:
   - {fileID: 11400000, guid: 2e53d80e0c7835f47ab572f06c7f9649, type: 2}

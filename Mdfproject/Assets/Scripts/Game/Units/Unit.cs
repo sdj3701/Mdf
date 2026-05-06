@@ -176,6 +176,70 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
     }
 
+    public bool IsInCombatPhase => isCombatPhase;
+    public bool IsSkillCastingActive => IsSkillCasting();
+    public bool HasConfiguredSkill => DoesHaveSkill();
+    public SkillData LoadedSkillData => _loadedSkillData;
+    public bool CanUseSkillByStatus => _buffManager == null || _buffManager.CanUseSkill;
+    public bool IsSkillManaFull => manaController != null && manaController.IsManaFull;
+    public float SkillCurrentMana => manaController != null ? manaController.CurrentMana : 0f;
+    public float SkillMaxMana => manaController != null ? manaController.MaxMana : 0f;
+
+    public bool TryGetConfiguredSkillKey(out string skillKey)
+    {
+        skillKey = null;
+        if (!DoesHaveSkill())
+        {
+            return false;
+        }
+
+        skillKey = unitData.skillsByStarLevel[starLevel - 1];
+        return !string.IsNullOrWhiteSpace(skillKey);
+    }
+
+    public bool IsManualOrAiStrategicSkill(SkillData skillData = null)
+    {
+        SkillData resolvedSkill = skillData != null ? skillData : _loadedSkillData;
+        return currentSkillActivationType == SkillActivationType.Manual ||
+               resolvedSkill != null && resolvedSkill.canAiUseStrategically;
+    }
+
+    public int CountSkillTargets(SkillData skillData = null)
+    {
+        SkillData resolvedSkill = skillData != null ? skillData : _loadedSkillData;
+        if (resolvedSkill == null || resolvedSkill.targetingStrategy == null)
+        {
+            return 0;
+        }
+
+        try
+        {
+            var targets = resolvedSkill.targetingStrategy.FindTargets(gameObject, transform.position, resolvedSkill.range);
+            return targets != null ? targets.Count(target => target != null) : 0;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[Unit] Skill target query failed for {name}: {ex.GetType().Name}");
+            return 0;
+        }
+    }
+
+    public bool HasSkillTargetsAvailable(SkillData skillData = null)
+    {
+        SkillData resolvedSkill = skillData != null ? skillData : _loadedSkillData;
+        if (resolvedSkill == null || resolvedSkill.targetingStrategy == null || resolvedSkill.effects == null || resolvedSkill.effects.Count == 0)
+        {
+            return false;
+        }
+
+        if (CountSkillTargets(resolvedSkill) > 0)
+        {
+            return true;
+        }
+
+        return resolvedSkill.effects.Any(effect => effect is ZoneEffect);
+    }
+
 
     private struct PendingAttack
     {
@@ -988,6 +1052,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             return;
         }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
 
         if (manaController != null)
         {
@@ -1215,6 +1285,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public async void ActivateSkill()
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
+        if (IsDead) return;
         if (!HasStateAuthorityOrNoNetwork()) return;
         if (IsSkillCasting()) return;
         
@@ -1238,6 +1309,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
         
+        if (!HasSkillTargetsAvailable(currentSkillData))
+        {
+            return;
+        }
+
         if (!manaController.IsManaFull) return;
 
         if (manaController.UseMana(currentSkillData.manaCost))
@@ -1374,6 +1450,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         while (isCombatPhase)
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (MPTestCommandLine.IsGameFlowFrozen)
+            {
+                yield return null;
+                continue;
+            }
+#endif
             if (!EnsureRuntimeReferences("AttackLoop", true))
             {
                 yield return null;
@@ -1511,6 +1594,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     }
     private void Attack()
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         if (IsSkillCasting())
         {
             return;
@@ -1679,6 +1768,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     public void AnimEvent_AttackImpact()
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         if (!_hasPendingAttack)
         {
             return;
@@ -1794,6 +1889,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         // 서버에서만 HP 수정 (클라이언트는 Networked 속성 동기화로 반영)
         if (!HasStateAuthorityOrNoNetwork()) return;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         if (unitData == null || IsDead) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, currentDefense, currentMagicResistance);
         currentHP -= finalDamage;
