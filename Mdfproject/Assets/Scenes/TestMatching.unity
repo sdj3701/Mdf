@@ -331,8 +331,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   document: {fileID: 1600000003}
-  roomItemTemplate: {fileID: 9197481963319205126, guid: ece9ad8de0c544608bb71047db1026f8,
-    type: 3}
   titleSceneName: Title
   joinLobbySceneName: JoinLobby
   createRoomUsesInputText: 1

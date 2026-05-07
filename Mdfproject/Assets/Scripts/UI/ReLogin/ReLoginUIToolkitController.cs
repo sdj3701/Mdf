@@ -5,12 +5,20 @@ using UnityEngine.UIElements;
 [RequireComponent(typeof(UIDocument))]
 public sealed class ReLoginUIToolkitController : MonoBehaviour
 {
-    private const float DesignWidth = 1536f;
-    private const float DesignHeight = 1024f;
+    private const float DesignWidth = 1672f;
+    private const float DesignHeight = 941f;
     private const int MinimumPasswordLength = 4;
 
     private const string RememberLoginKey = "ReLogin.RememberLogin";
     private const string LastAccountInputKey = "ReLogin.LastAccountInput";
+    private const string SelectedServerIndexKey = "ReLogin.SelectedServerIndex";
+
+    private static readonly string[] ServerNames =
+    {
+        "추천 서버",
+        "아시아 1",
+        "아시아 2"
+    };
 
     [SerializeField] private UIDocument document;
     [SerializeField] private bool loadSceneOnLoginSuccess = true;
@@ -25,7 +33,6 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
     private VisualElement passwordInputArea;
     private VisualElement accountInputHitbox;
     private VisualElement passwordInputHitbox;
-    private VisualElement rememberUncheckedCover;
     private VisualElement focusSink;
 
     private TextField accountField;
@@ -35,23 +42,20 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
     private Label accountPlaceholder;
     private Label passwordPlaceholder;
     private Label statusLabel;
+    private Label serverNameLabel;
 
-    private VisualElement passwordVisibilityButton;
-    private VisualElement rememberButton;
-    private VisualElement forgotPasswordButton;
     private VisualElement loginButton;
-    private VisualElement googleLoginButton;
-    private VisualElement appleLoginButton;
+    private VisualElement signupButton;
+    private VisualElement forgotPasswordButton;
     private VisualElement guestLoginButton;
+    private VisualElement serverButton;
     private VisualElement settingsButton;
-    private VisualElement customerCenterButton;
     private VisualElement languageButton;
-    private VisualElement accountFindButton;
 
     private LoginUseCase loginUseCase;
     private bool rememberLogin = true;
-    private bool passwordVisible;
     private bool isSubmitting;
+    private int selectedServerIndex;
 
     private enum StatusKind
     {
@@ -102,7 +106,6 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         passwordInputArea = Query<VisualElement>("passwordInputArea");
         accountInputHitbox = Query<VisualElement>("accountInputHitbox");
         passwordInputHitbox = Query<VisualElement>("passwordInputHitbox");
-        rememberUncheckedCover = Query<VisualElement>("rememberUncheckedCover");
 
         accountField = Query<TextField>("accountField");
         passwordField = Query<TextField>("passwordField");
@@ -110,18 +113,15 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         accountPlaceholder = Query<Label>("accountPlaceholder");
         passwordPlaceholder = Query<Label>("passwordPlaceholder");
         statusLabel = Query<Label>("statusLabel");
+        serverNameLabel = Query<Label>("serverNameLabel");
 
-        passwordVisibilityButton = Query<VisualElement>("passwordVisibilityButton");
-        rememberButton = Query<VisualElement>("rememberButton");
-        forgotPasswordButton = Query<VisualElement>("forgotPasswordButton");
         loginButton = Query<VisualElement>("loginButton");
-        googleLoginButton = Query<VisualElement>("googleLoginButton");
-        appleLoginButton = Query<VisualElement>("appleLoginButton");
+        signupButton = Query<VisualElement>("signupButton");
+        forgotPasswordButton = Query<VisualElement>("forgotPasswordButton");
         guestLoginButton = Query<VisualElement>("guestLoginButton");
+        serverButton = Query<VisualElement>("serverButton");
         settingsButton = Query<VisualElement>("settingsButton");
-        customerCenterButton = Query<VisualElement>("customerCenterButton");
         languageButton = Query<VisualElement>("languageButton");
-        accountFindButton = Query<VisualElement>("accountFindButton");
     }
 
     private T Query<T>(string elementName) where T : VisualElement
@@ -138,6 +138,7 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
     private void ConfigureInitialState()
     {
         rememberLogin = PlayerPrefs.GetInt(RememberLoginKey, 1) == 1;
+        selectedServerIndex = Mathf.Clamp(PlayerPrefs.GetInt(SelectedServerIndexKey, 0), 0, ServerNames.Length - 1);
 
         if (accountField != null)
         {
@@ -159,12 +160,10 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         SetPickingMode(passwordInputHitbox, PickingMode.Position);
         SetPickingMode(accountPlaceholder, PickingMode.Ignore);
         SetPickingMode(passwordPlaceholder, PickingMode.Ignore);
-        SetPickingMode(rememberUncheckedCover, PickingMode.Ignore);
         ConfigureHitboxPicking();
         EnsureFocusSink();
 
-        passwordVisible = false;
-        SetRememberVisualState();
+        UpdateServerLabel();
         UpdatePlaceholders();
         HideStatus();
     }
@@ -186,17 +185,13 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         accountField?.RegisterCallback<KeyDownEvent>(OnInputKeyDown);
         passwordField?.RegisterCallback<KeyDownEvent>(OnInputKeyDown);
 
-        passwordVisibilityButton?.RegisterCallback<PointerUpEvent>(OnPasswordVisibilityPointerUp);
-        rememberButton?.RegisterCallback<PointerUpEvent>(OnRememberPointerUp);
-        forgotPasswordButton?.RegisterCallback<PointerUpEvent>(OnForgotPasswordPointerUp);
         loginButton?.RegisterCallback<PointerUpEvent>(OnLoginPointerUp);
-        googleLoginButton?.RegisterCallback<PointerUpEvent>(OnGoogleLoginPointerUp);
-        appleLoginButton?.RegisterCallback<PointerUpEvent>(OnAppleLoginPointerUp);
+        signupButton?.RegisterCallback<PointerUpEvent>(OnSignupPointerUp);
+        forgotPasswordButton?.RegisterCallback<PointerUpEvent>(OnForgotPasswordPointerUp);
         guestLoginButton?.RegisterCallback<PointerUpEvent>(OnGuestLoginPointerUp);
+        serverButton?.RegisterCallback<PointerUpEvent>(OnServerPointerUp);
         settingsButton?.RegisterCallback<PointerUpEvent>(OnSettingsPointerUp);
-        customerCenterButton?.RegisterCallback<PointerUpEvent>(OnCustomerCenterPointerUp);
         languageButton?.RegisterCallback<PointerUpEvent>(OnLanguagePointerUp);
-        accountFindButton?.RegisterCallback<PointerUpEvent>(OnAccountFindPointerUp);
     }
 
     private void UnregisterCallbacks()
@@ -216,17 +211,13 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         accountField?.UnregisterCallback<KeyDownEvent>(OnInputKeyDown);
         passwordField?.UnregisterCallback<KeyDownEvent>(OnInputKeyDown);
 
-        passwordVisibilityButton?.UnregisterCallback<PointerUpEvent>(OnPasswordVisibilityPointerUp);
-        rememberButton?.UnregisterCallback<PointerUpEvent>(OnRememberPointerUp);
-        forgotPasswordButton?.UnregisterCallback<PointerUpEvent>(OnForgotPasswordPointerUp);
         loginButton?.UnregisterCallback<PointerUpEvent>(OnLoginPointerUp);
-        googleLoginButton?.UnregisterCallback<PointerUpEvent>(OnGoogleLoginPointerUp);
-        appleLoginButton?.UnregisterCallback<PointerUpEvent>(OnAppleLoginPointerUp);
+        signupButton?.UnregisterCallback<PointerUpEvent>(OnSignupPointerUp);
+        forgotPasswordButton?.UnregisterCallback<PointerUpEvent>(OnForgotPasswordPointerUp);
         guestLoginButton?.UnregisterCallback<PointerUpEvent>(OnGuestLoginPointerUp);
+        serverButton?.UnregisterCallback<PointerUpEvent>(OnServerPointerUp);
         settingsButton?.UnregisterCallback<PointerUpEvent>(OnSettingsPointerUp);
-        customerCenterButton?.UnregisterCallback<PointerUpEvent>(OnCustomerCenterPointerUp);
         languageButton?.UnregisterCallback<PointerUpEvent>(OnLanguagePointerUp);
-        accountFindButton?.UnregisterCallback<PointerUpEvent>(OnAccountFindPointerUp);
     }
 
     private void OnRootGeometryChanged(GeometryChangedEvent evt)
@@ -259,17 +250,13 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
 
     private void ConfigureHitboxPicking()
     {
-        SetPickingMode(passwordVisibilityButton, PickingMode.Position);
-        SetPickingMode(rememberButton, PickingMode.Position);
-        SetPickingMode(forgotPasswordButton, PickingMode.Position);
         SetPickingMode(loginButton, PickingMode.Position);
-        SetPickingMode(googleLoginButton, PickingMode.Position);
-        SetPickingMode(appleLoginButton, PickingMode.Position);
+        SetPickingMode(signupButton, PickingMode.Position);
+        SetPickingMode(forgotPasswordButton, PickingMode.Position);
         SetPickingMode(guestLoginButton, PickingMode.Position);
+        SetPickingMode(serverButton, PickingMode.Position);
         SetPickingMode(settingsButton, PickingMode.Position);
-        SetPickingMode(customerCenterButton, PickingMode.Position);
         SetPickingMode(languageButton, PickingMode.Position);
-        SetPickingMode(accountFindButton, PickingMode.Position);
     }
 
     private void ConfigureAllTextFieldPicking()
@@ -510,30 +497,6 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         SetDisplay(passwordPlaceholder, string.IsNullOrEmpty(passwordField?.value));
     }
 
-    private void OnPasswordVisibilityPointerUp(PointerUpEvent evt)
-    {
-        passwordVisible = !passwordVisible;
-
-        if (passwordField != null)
-        {
-            passwordField.isPasswordField = !passwordVisible;
-            ConfigureTextFieldPicking(passwordField, PickingMode.Ignore);
-        }
-    }
-
-    private void OnRememberPointerUp(PointerUpEvent evt)
-    {
-        rememberLogin = !rememberLogin;
-        SetRememberVisualState();
-        PlayerPrefs.SetInt(RememberLoginKey, rememberLogin ? 1 : 0);
-        PlayerPrefs.Save();
-    }
-
-    private void SetRememberVisualState()
-    {
-        SetDisplay(rememberUncheckedCover, !rememberLogin);
-    }
-
     private void OnLoginPointerUp(PointerUpEvent evt)
     {
         SubmitLogin(accountField?.value, passwordField?.value, false);
@@ -562,7 +525,6 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         ShowStatus("로그인 중입니다.", StatusKind.Info);
 
         // 현재 Auth 구조는 이메일/비밀번호가 아니라 displayName 기반 로컬 로그인이다.
-        // 이메일/비밀번호 실인증은 IAuthService 확장 후 여기에서 교체한다.
         AuthResult result = loginUseCase.Execute(guestLogin ? string.Empty : accountInput);
 
         if (result.Success)
@@ -583,7 +545,7 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
     {
         if (string.IsNullOrWhiteSpace(accountInput))
         {
-            ShowStatus("이메일 또는 계정을 입력해 주세요.", StatusKind.Error);
+            ShowStatus("아이디를 입력해 주세요.", StatusKind.Error);
             return false;
         }
 
@@ -610,6 +572,7 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
     private void SaveLoginPrefs(string accountInput)
     {
         PlayerPrefs.SetInt(RememberLoginKey, rememberLogin ? 1 : 0);
+        PlayerPrefs.SetInt(SelectedServerIndexKey, selectedServerIndex);
 
         if (rememberLogin && !string.IsNullOrWhiteSpace(accountInput))
         {
@@ -655,19 +618,23 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         return useTestMatchingScene ? testMatchingSceneName : matchingLobbySceneName;
     }
 
+    private void OnSignupPointerUp(PointerUpEvent evt)
+    {
+        ShowDeferredMessage("회원가입");
+    }
+
     private void OnForgotPasswordPointerUp(PointerUpEvent evt)
     {
         ShowDeferredMessage("비밀번호 찾기");
     }
 
-    private void OnGoogleLoginPointerUp(PointerUpEvent evt)
+    private void OnServerPointerUp(PointerUpEvent evt)
     {
-        ShowDeferredMessage("Google 로그인");
-    }
-
-    private void OnAppleLoginPointerUp(PointerUpEvent evt)
-    {
-        ShowDeferredMessage("Apple 로그인");
+        selectedServerIndex = (selectedServerIndex + 1) % ServerNames.Length;
+        PlayerPrefs.SetInt(SelectedServerIndexKey, selectedServerIndex);
+        PlayerPrefs.Save();
+        UpdateServerLabel();
+        ShowStatus($"{ServerNames[selectedServerIndex]}로 변경했습니다.", StatusKind.Info);
     }
 
     private void OnSettingsPointerUp(PointerUpEvent evt)
@@ -675,19 +642,18 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
         ShowDeferredMessage("설정");
     }
 
-    private void OnCustomerCenterPointerUp(PointerUpEvent evt)
-    {
-        ShowDeferredMessage("고객센터");
-    }
-
     private void OnLanguagePointerUp(PointerUpEvent evt)
     {
         ShowDeferredMessage("언어 선택");
     }
 
-    private void OnAccountFindPointerUp(PointerUpEvent evt)
+    private void UpdateServerLabel()
     {
-        ShowDeferredMessage("계정 찾기");
+        if (serverNameLabel != null)
+        {
+            serverNameLabel.text = ServerNames[selectedServerIndex];
+        }
+
     }
 
     private void ShowDeferredMessage(string featureName)

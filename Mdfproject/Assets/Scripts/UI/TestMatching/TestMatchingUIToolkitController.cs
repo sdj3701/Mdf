@@ -13,7 +13,6 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
 
     [Header("UI Toolkit")]
     [SerializeField] private UIDocument document;
-    [SerializeField] private VisualTreeAsset roomItemTemplate;
 
     [Header("Scene")]
     [SerializeField] private string titleSceneName = SceneDefine.Title;
@@ -166,9 +165,20 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
 
         SetDisplay(roomNotFoundModal, false);
         SetDisplay(networkBlockOverlay, false);
+        ConfigurePicking();
         SetInputError(false);
         UpdatePlaceholder();
         HideStatus();
+    }
+
+    private void ConfigurePicking()
+    {
+        SetPickingMode(refreshButton, PickingMode.Position);
+        SetPickingMode(createRoomButton, PickingMode.Position);
+        SetPickingMode(backToTitleButton, PickingMode.Position);
+        SetPickingMode(directJoinButton, PickingMode.Position);
+        SetPickingMode(roomNameInputWrap, PickingMode.Position);
+        SetPickingMode(roomNamePlaceholder, PickingMode.Ignore);
     }
 
     private void RegisterCallbacks()
@@ -461,12 +471,15 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
         ResolveNetworkManager();
 
         List<RoomViewData> rooms = BuildRealRoomViewData();
-
         RenderRooms(rooms);
 
         if (rooms.Count == 0)
         {
             ShowStatus("현재 생성된 방이 없습니다.", StatusKind.Info);
+        }
+        else
+        {
+            HideStatus();
         }
     }
 
@@ -523,13 +536,13 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
         switch (visualIndex % 4)
         {
             case 0:
-                return "1승 선착";
+                return "스토리 모드";
             case 1:
-                return "3판 2선승";
+                return "던전 모드";
             case 2:
-                return "5판 3선승";
+                return "도전 모드";
             default:
-                return "무제한";
+                return "자유 모드";
         }
     }
 
@@ -554,11 +567,6 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
 
     private VisualElement CreateRoomItem()
     {
-        if (roomItemTemplate != null)
-        {
-            return roomItemTemplate.Instantiate();
-        }
-
         VisualElement card = new VisualElement { name = "room-card" };
         card.AddToClassList("tm-room-card");
 
@@ -619,6 +627,11 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
 
         card.userData = room;
         card.AddToClassList(GetRoomCardStatusClass(room.Status));
+        if (room.VisualIndex == 1)
+        {
+            card.AddToClassList("tm-room-card--selected");
+        }
+
         card.RegisterCallback<PointerUpEvent>(OnRoomCardPointerUp);
 
         Label rankIcon = itemRoot.Q<Label>("rankIcon");
@@ -845,13 +858,13 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
         switch (status)
         {
             case RoomStatus.Playing:
-                return "Playing";
+                return "PLAYING";
             case RoomStatus.Full:
-                return "Full";
+                return "FULL";
             case RoomStatus.Unavailable:
-                return "Closed";
+                return "CLOSED";
             default:
-                return "Waiting";
+                return "WAITING";
         }
     }
 
@@ -887,17 +900,7 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
 
     private static string GetRankIcon(int visualIndex)
     {
-        switch (visualIndex % 4)
-        {
-            case 1:
-                return "2";
-            case 2:
-                return "3";
-            case 3:
-                return "4";
-            default:
-                return "1";
-        }
+        return string.Empty;
     }
 
     private static string GetRankIconClass(int visualIndex)
@@ -925,6 +928,14 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
                 return "tm-room-thumbnail--beach";
             default:
                 return "tm-room-thumbnail--forest";
+        }
+    }
+
+    private static void SetPickingMode(VisualElement element, PickingMode pickingMode)
+    {
+        if (element != null)
+        {
+            element.pickingMode = pickingMode;
         }
     }
 }

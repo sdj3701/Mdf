@@ -45,6 +45,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _playerPrefab: {fileID: 0}
-  maxSessionPlayers: 2
+  maxSessionPlayers: 4
   _connectionLossPolicy: 0
   _cloudReconnectFallbackDelaySeconds: 5

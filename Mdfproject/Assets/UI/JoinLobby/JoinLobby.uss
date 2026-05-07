@@ -1,0 +1,455 @@
+.jl-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #061524;
+    overflow: hidden;
+}
+
+.jl-design-space {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1672px;
+    height: 941px;
+    transform-origin: left top;
+    -unity-font: url("../../Resource/Fonts/NotoSansKR-VariableFont_wght.ttf");
+    overflow: hidden;
+}
+
+.jl-background {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1672px;
+    height: 941px;
+    background-image: url("../../Resource/Image/UI/JoinLobby/bg_join_lobby_full.png");
+    -unity-background-scale-mode: stretch-to-fill;
+}
+
+.jl-top-hud,
+.jl-left-menu,
+.jl-room-panel {
+    position: absolute;
+}
+
+.jl-top-hud {
+    left: 0;
+    top: 0;
+    width: 1672px;
+    height: 86px;
+}
+
+.jl-player-name {
+    position: absolute;
+    left: 151px;
+    top: 24px;
+    width: 180px;
+    height: 30px;
+    color: #fff1c8;
+    font-size: 23px;
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #17100a;
+}
+
+.jl-player-level {
+    position: absolute;
+    left: 151px;
+    top: 57px;
+    width: 86px;
+    height: 28px;
+    color: #fff3cb;
+    font-size: 22px;
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #17100a;
+}
+
+.jl-player-percent {
+    position: absolute;
+    left: 322px;
+    top: 61px;
+    width: 58px;
+    height: 22px;
+    color: #ffffff;
+    font-size: 17px;
+    -unity-font-style: bold;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #07101d;
+}
+
+.jl-currency {
+    position: absolute;
+    top: 31px;
+    height: 30px;
+    color: #ffffff;
+    font-size: 23px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-right;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #060b13;
+}
+
+.jl-currency--gold {
+    left: 767px;
+    width: 84px;
+}
+
+.jl-currency--blue {
+    left: 1013px;
+    width: 96px;
+}
+
+.jl-currency--purple {
+    left: 1226px;
+    width: 78px;
+}
+
+.jl-alert-badge {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-radius: 10px;
+    color: #ffffff;
+    background-color: #e84b3c;
+    font-size: 13px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.jl-alert-badge--bell {
+    left: 1480px;
+    top: 22px;
+}
+
+.jl-left-menu {
+    left: 0;
+    top: 0;
+    width: 154px;
+    height: 941px;
+}
+
+.jl-menu-label {
+    position: absolute;
+    left: 79px;
+    width: 64px;
+    height: 28px;
+    color: #ffe7ac;
+    font-size: 19px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-left;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #0b111a;
+}
+
+.jl-menu-label--lobby {
+    top: 193px;
+    color: #d8efff;
+}
+
+.jl-menu-label--quest {
+    top: 276px;
+}
+
+.jl-menu-label--hero {
+    top: 361px;
+}
+
+.jl-menu-label--bag {
+    top: 444px;
+}
+
+.jl-menu-label--guild {
+    top: 530px;
+}
+
+.jl-menu-label--shop {
+    top: 612px;
+}
+
+.jl-menu-label--mail {
+    top: 694px;
+}
+
+.jl-menu-label--settings {
+    top: 776px;
+}
+
+.jl-alert-badge--settings {
+    left: 123px;
+    top: 756px;
+}
+
+.jl-clickable:hover {
+    background-color: rgba(74, 160, 255, 0.10);
+}
+
+.jl-clickable:active {
+    background-color: rgba(255, 255, 255, 0.10);
+}
+
+.jl-room-panel {
+    left: 776px;
+    top: 126px;
+    width: 832px;
+    height: 746px;
+}
+
+.jl-room-title {
+    position: absolute;
+    left: 210px;
+    top: 56px;
+    width: 430px;
+    height: 62px;
+    color: #f3d39b;
+    font-size: 40px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #120c08;
+}
+
+.jl-room-count {
+    position: absolute;
+    left: 350px;
+    top: 128px;
+    width: 190px;
+    height: 34px;
+    color: #ffe4a7;
+    font-size: 21px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #15110b;
+}
+
+.jl-player-slot {
+    position: absolute;
+    top: 201px;
+    width: 176px;
+    height: 338px;
+}
+
+.jl-player-slot--0 {
+    left: 36px;
+}
+
+.jl-player-slot--1 {
+    left: 231px;
+}
+
+.jl-player-slot--2 {
+    left: 426px;
+}
+
+.jl-player-slot--3 {
+    left: 622px;
+}
+
+.jl-player-portrait {
+    position: absolute;
+    left: 12px;
+    top: 8px;
+    width: 152px;
+    height: 205px;
+    background-color: rgba(8, 21, 35, 0.35);
+    -unity-background-scale-mode: stretch-to-fill;
+}
+
+.jl-player-portrait--0 {
+    background-image: url("../../Resource/Image/UI/JoinLobby/player_portrait_0.png");
+}
+
+.jl-player-portrait--1 {
+    background-image: url("../../Resource/Image/UI/JoinLobby/player_portrait_1.png");
+}
+
+.jl-player-portrait--2,
+.jl-player-portrait--3 {
+    background-image: url("../../Resource/Image/UI/JoinLobby/player_portrait_2.png");
+}
+
+.jl-slot-name {
+    position: absolute;
+    left: 0;
+    top: 223px;
+    width: 176px;
+    height: 36px;
+    color: #ffffff;
+    font-size: 24px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #02070d;
+    overflow: hidden;
+}
+
+.jl-slot-level {
+    position: absolute;
+    left: 0;
+    top: 257px;
+    width: 176px;
+    height: 28px;
+    color: #d39b58;
+    font-size: 18px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #15110b;
+}
+
+.jl-slot-ready {
+    position: absolute;
+    left: 33px;
+    top: 284px;
+    width: 112px;
+    height: 34px;
+    color: #b9e8ff;
+    font-size: 20px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #04111c;
+    background-color: rgba(12, 72, 136, 0.88);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(55, 154, 255, 0.95);
+    border-right-color: rgba(55, 154, 255, 0.95);
+    border-top-color: rgba(115, 190, 255, 0.95);
+    border-bottom-color: rgba(28, 88, 160, 0.95);
+}
+
+.jl-slot--waiting .jl-slot-ready,
+.jl-slot--empty .jl-slot-ready {
+    color: #d5dae0;
+    background-color: rgba(38, 47, 58, 0.78);
+    border-left-color: rgba(145, 156, 168, 0.45);
+    border-right-color: rgba(145, 156, 168, 0.45);
+    border-top-color: rgba(145, 156, 168, 0.55);
+    border-bottom-color: rgba(32, 38, 46, 0.95);
+}
+
+.jl-slot--empty .jl-player-portrait,
+.jl-slot--empty .jl-slot-level {
+    display: none;
+}
+
+.jl-slot--empty .jl-slot-name {
+    top: 228px;
+}
+
+.jl-game-start-button {
+    position: absolute;
+    left: 52px;
+    top: 590px;
+    width: 322px;
+    height: 92px;
+}
+
+.jl-game-start-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 322px;
+    height: 88px;
+    color: #ffffff;
+    font-size: 31px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #0c244c;
+}
+
+.jl-ready-button {
+    position: absolute;
+    left: 399px;
+    top: 602px;
+    width: 186px;
+    height: 66px;
+}
+
+.jl-ready-button-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 186px;
+    height: 64px;
+    color: #ffffff;
+    font-size: 26px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #0c244c;
+}
+
+.jl-leave-button {
+    position: absolute;
+    left: 598px;
+    top: 602px;
+    width: 184px;
+    height: 66px;
+}
+
+.jl-leave-button-label {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 184px;
+    height: 64px;
+    color: #ffffff;
+    font-size: 25px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #0b0f15;
+}
+
+.jl-button--disabled {
+    opacity: 0.62;
+}
+
+.jl-status-message {
+    position: absolute;
+    left: 115px;
+    top: 704px;
+    width: 600px;
+    height: 32px;
+    color: #b8bdc8;
+    font-size: 17px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #05090e;
+}
+
+.jl-network-block-overlay {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1672px;
+    height: 941px;
+    background-color: rgba(0, 0, 0, 0.34);
+    align-items: center;
+    justify-content: center;
+}
+
+.jl-network-block-label {
+    width: 420px;
+    height: 72px;
+    background-color: rgba(7, 23, 37, 0.96);
+    color: #ffffff;
+    font-size: 24px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.jl-hidden {
+    display: none;
+}

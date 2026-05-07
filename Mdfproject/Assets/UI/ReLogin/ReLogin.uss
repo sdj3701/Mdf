@@ -1,538 +1,390 @@
-/* ReLogin UI 전체 루트입니다.
-   UIDocument가 화면에 붙으면 가장 바깥에서 전체 화면을 덮는 컨테이너 역할을 합니다. */
 .relogin-root {
-    /* 화면 전체를 덮기 위해 절대 배치로 네 방향을 0에 고정합니다. */
     position: absolute;
     left: 0;
     top: 0;
     right: 0;
     bottom: 0;
-    /* 부모 UIDocument 영역을 100% 사용합니다. */
     width: 100%;
     height: 100%;
-    /* 원본 이미지 바깥에 여백이 생길 때 보이는 기본 배경색입니다. */
     background-color: #05040b;
-    /* 디자인 캔버스 밖으로 나가는 요소가 보이지 않도록 자릅니다. */
     overflow: hidden;
 }
 
-/* 원본 시안 기준 디자인 캔버스입니다.
-   이미지는 1536x1024이므로 모든 좌표를 이 캔버스 기준으로 배치합니다.
-   C# 컨트롤러가 화면 크기에 맞춰 이 요소를 통째로 scale 합니다. */
 .relogin-design-space {
     position: absolute;
     left: 0;
     top: 0;
-    /* 제공된 로그인 이미지의 원본 해상도입니다. */
-    width: 1536px;
-    height: 1024px;
-    /* C#에서 scale 할 때 왼쪽 위를 기준점으로 삼습니다. */
+    width: 1672px;
+    height: 941px;
     transform-origin: left top;
-    /* 캔버스 바깥으로 나가는 UI를 숨깁니다. */
+    -unity-font: url("../../Resource/Fonts/NotoSansKR-VariableFont_wght.ttf");
     overflow: hidden;
 }
 
-/* 제공받은 로그인 이미지를 배경으로 깔아주는 요소입니다.
-   현재는 배경, 캐릭터, 로고, 버튼 그림이 모두 합쳐진 이미지를 그대로 사용합니다. */
 .relogin-background {
     position: absolute;
     left: 0;
     top: 0;
-    /* 디자인 캔버스와 같은 크기로 이미지를 채웁니다. */
-    width: 1536px;
-    height: 1024px;
-    /* 임시 대체용 전체 로그인 이미지입니다. */
+    width: 1672px;
+    height: 941px;
     background-image: url("../../Resource/Image/UI/ReLogin/bg_relogin_full.png");
-    /* 이미지가 요소 크기에 맞게 늘어나도록 합니다. */
     -unity-background-scale-mode: stretch-to-fill;
 }
 
-/* 투명 클릭 영역 공통 스타일입니다.
-   배경 이미지 안에 이미 버튼 그림이 있으므로, 실제 버튼 이미지는 만들지 않고
-   그 위에 투명한 클릭 영역만 올려서 클릭을 받습니다. */
-.hitbox {
+.title-logo {
     position: absolute;
-    /* 투명해도 마우스/포인터 입력을 받을 수 있게 합니다. */
-    picking-mode: position;
-    /* 시각적으로 보이지 않는 완전 투명 배경입니다. */
-    background-color: rgba(255, 255, 255, 0);
-    /* Button 기본 테두리 같은 시각 요소가 보이지 않도록 모든 테두리를 제거합니다. */
-    border-left-width: 0;
-    border-right-width: 0;
-    border-top-width: 0;
-    border-bottom-width: 0;
-    /* 기본 padding 제거: 클릭 영역 크기가 지정한 width/height와 정확히 맞게 합니다. */
-    padding-left: 0;
-    padding-right: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    /* 기본 margin 제거: 좌표가 밀리지 않게 합니다. */
-    margin-left: 0;
-    margin-right: 0;
-    margin-top: 0;
-    margin-bottom: 0;
-    /* 혹시 text가 생겨도 보이지 않게 투명 처리합니다. */
-    color: rgba(255, 255, 255, 0);
+    left: 558px;
+    top: 18px;
+    width: 556px;
+    height: 254px;
 }
 
-/* 투명 클릭 영역에 마우스를 올렸을 때 아주 약한 보라색 하이라이트를 보여줍니다.
-   디버깅과 사용감 확인용이며, 원본 이미지를 크게 해치지 않게 낮은 alpha를 사용합니다. */
-.hitbox:hover {
-    background-color: rgba(182, 108, 255, 0.08);
+.title-label {
+    position: absolute;
+    -unity-text-align: middle-center;
+    -unity-font-style: bold;
+    color: #ffffff;
 }
 
-/* 투명 클릭 영역을 누르는 순간의 피드백입니다. */
-.hitbox:active {
-    background-color: rgba(255, 255, 255, 0.08);
+.title-label--monster {
+    left: 34px;
+    top: 26px;
+    width: 488px;
+    height: 88px;
+    color: #ffd15d;
+    font-size: 78px;
+    -unity-text-outline-width: 4px;
+    -unity-text-outline-color: #281507;
 }
 
-/* 이메일/계정 입력창과 비밀번호 입력창의 공통 부모 컨테이너입니다.
-   실제 텍스트 입력은 내부 TextField 사각형에서만 받습니다. */
+.title-label--raid {
+    left: 138px;
+    top: 104px;
+    width: 280px;
+    height: 72px;
+    color: #f0f0f0;
+    font-size: 64px;
+    -unity-text-outline-width: 4px;
+    -unity-text-outline-color: #111111;
+}
+
+.title-label--defense {
+    left: 150px;
+    top: 176px;
+    width: 256px;
+    height: 44px;
+    color: #ffdf75;
+    font-size: 36px;
+    -unity-text-outline-width: 3px;
+    -unity-text-outline-color: #10264a;
+}
+
+.title-label--tagline {
+    left: 153px;
+    top: 222px;
+    width: 250px;
+    height: 24px;
+    color: #f5ead6;
+    font-size: 15px;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #140d08;
+}
+
 .input-area {
     position: absolute;
-    width: 560px;
-    height: 68px;
-    picking-mode: position;
-}
-
-/* 이메일 또는 계정 입력창 위치입니다.
-   1536x1024 디자인 캔버스 기준 좌표입니다. */
-.input-area--account {
-    left: 832px;
-    top: 405px;
-}
-
-/* 비밀번호 입력창 위치입니다.
-   이메일 입력창보다 아래에 배치됩니다. */
-.input-area--password {
-    left: 832px;
-    top: 486px;
-}
-
-/* 실제 글자를 입력받는 UI Toolkit TextField입니다.
-   원본 이미지에 입력창 프레임과 아이콘이 이미 있으므로 TextField 배경은 최대한 어둡고 단순하게 둡니다. */
-.relogin-text-field {
-    position: absolute;
-    /* 입력창 왼쪽 아이콘 영역을 피해서 글자가 시작되도록 여백을 둡니다. */
-    left: 76px;
-    top: 8px;
-    /* 이메일/계정 입력 가능 텍스트 영역의 폭입니다. */
-    width: 430px;
-    height: 52px;
-    /* 원본 입력창 위에 입력 글자가 잘 보이도록 어두운 반투명 배경을 깔아줍니다. */
-    background-color: rgba(12, 10, 19, 0.86);
-    /* TextField 자체 테두리는 원본 이미지 프레임과 겹치므로 제거합니다. */
-    border-left-width: 0;
-    border-right-width: 0;
-    border-top-width: 0;
-    border-bottom-width: 0;
-    /* 기본 여백 제거: 텍스트 위치를 직접 좌표로 제어합니다. */
-    padding-left: 0;
-    padding-right: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    margin-left: 0;
-    margin-right: 0;
-    margin-top: 0;
-    margin-bottom: 0;
-    /* 입력되는 글자 색상과 크기입니다. */
-    color: #ded7e8;
-    font-size: 21px;
-    /* 클릭 포커스는 전용 hitbox에서만 제어합니다. */
-    picking-mode: ignore;
-}
-
-/* 비밀번호 입력창 전용 TextField 폭입니다.
-   오른쪽 눈 아이콘 클릭 영역을 남기기 위해 이메일 입력창보다 조금 짧게 둡니다. */
-.relogin-text-field--password {
-    width: 385px;
-}
-
-/* 실제 입력 포커스를 받을 수 있는 위치 확인용 hitbox입니다.
-   TextField 자체 picking은 C#에서 꺼두고 이 박스만 클릭을 받습니다. */
-.text-input-hitbox {
-    position: absolute;
-    left: 76px;
-    top: 8px;
-    height: 52px;
-    picking-mode: position;
-}
-
-.text-input-hitbox--account {
-    width: 430px;
-    background-color: rgba(0, 120, 255, 0.28);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(0, 160, 255, 0.95);
-    border-right-color: rgba(0, 160, 255, 0.95);
-    border-top-color: rgba(0, 160, 255, 0.95);
-    border-bottom-color: rgba(0, 160, 255, 0.95);
-}
-
-.text-input-hitbox--password {
-    width: 385px;
-    background-color: rgba(255, 128, 0, 0.30);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(255, 150, 0, 0.95);
-    border-right-color: rgba(255, 150, 0, 0.95);
-    border-top-color: rgba(255, 150, 0, 0.95);
-    border-bottom-color: rgba(255, 150, 0, 0.95);
-}
-
-/* Unity 버전에 따라 TextField 내부 입력 요소의 class 이름이 다를 수 있어 둘 다 지정합니다.
-   기본 TextField 내부 스타일을 제거해서 원본 이미지 위에 자연스럽게 얹히도록 합니다. */
-.relogin-text-field .unity-text-field__input,
-.relogin-text-field .unity-base-text-field__input {
-    /* 내부 입력 배경을 투명하게 해서 바깥 TextField 배경만 보이게 합니다. */
-    background-color: rgba(12, 10, 19, 0);
-    /* 내부 테두리 제거입니다. */
-    border-left-width: 0;
-    border-right-width: 0;
-    border-top-width: 0;
-    border-bottom-width: 0;
-    /* 내부 padding/margin 제거로 입력 글자 위치를 일정하게 유지합니다. */
-    padding-left: 0;
-    padding-right: 0;
-    padding-top: 0;
-    padding-bottom: 0;
-    margin-left: 0;
-    margin-right: 0;
-    margin-top: 0;
-    margin-bottom: 0;
-    /* 실제 입력 글자의 색상과 크기입니다. */
-    color: #ded7e8;
-    font-size: 21px;
-    /* 입력 글자는 일반 스타일로 표시합니다. */
-    -unity-font-style: normal;
-    /* Unity 내부 입력 요소가 직접 클릭 타겟이 되지 않게 막습니다. */
-    picking-mode: ignore;
-}
-
-/* TextField가 비어 있을 때 보여주는 placeholder 라벨입니다.
-   UI Toolkit TextField placeholder 기능 대신 직접 Label을 올려 원본 위치와 색을 맞춥니다. */
-.input-placeholder {
-    position: absolute;
-    /* TextField 글자 시작 위치와 거의 같은 곳에 둡니다. */
-    left: 79px;
-    top: 17px;
-    width: 430px;
-    height: 32px;
-    /* 원본 이미지의 흐린 회색 placeholder 색상입니다. */
-    color: #a8a0aa;
-    font-size: 21px;
-    -unity-text-align: middle-left;
-    /* placeholder 자체 배경은 투명하게 둡니다. */
-    background-color: rgba(12, 10, 19, 0);
-    /* placeholder가 입력창 클릭을 가로막지 않도록 마우스 입력을 무시합니다. */
-    picking-mode: ignore;
-}
-
-/* 비밀번호 입력창 오른쪽 눈 아이콘 위치에 올리는 투명 클릭 영역입니다.
-   C#에서 누르면 passwordField.isPasswordField를 토글합니다. */
-.password-visibility-hitbox {
-    left: 458px;
-    top: 12px;
-    width: 52px;
+    width: 386px;
     height: 44px;
 }
 
-/* 로그인 상태 유지가 꺼져 있을 때 기존 배경 이미지의 체크 표시를 가리는 커버입니다.
-   제공 이미지에는 체크된 상태가 이미 그려져 있어서, unchecked 상태는 어두운 박스로 덮어 표현합니다. */
-.remember-unchecked-cover {
+.input-area--account {
+    left: 646px;
+    top: 574px;
+}
+
+.input-area--password {
+    left: 646px;
+    top: 618px;
+}
+
+.relogin-text-field {
     position: absolute;
-    /* 이 커버는 시각 표시용일 뿐 클릭은 아래 hitbox가 받게 합니다. */
-    picking-mode: ignore;
-    left: 846px;
-    top: 572px;
-    width: 36px;
+    left: 56px;
+    top: 4px;
+    width: 326px;
     height: 36px;
-    /* 체크 표시를 가릴 어두운 배경입니다. */
-    background-color: rgba(13, 10, 20, 0.95);
-    /* 원본 체크박스 분위기에 맞춘 보라색 테두리입니다. */
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(174, 136, 209, 0.8);
-    border-right-color: rgba(174, 136, 209, 0.8);
-    border-top-color: rgba(174, 136, 209, 0.8);
-    border-bottom-color: rgba(174, 136, 209, 0.8);
+    background-color: rgba(8, 7, 6, 0.24);
+    border-left-width: 0;
+    border-right-width: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    color: #fff6df;
+    font-size: 23px;
+    -unity-font-style: bold;
 }
 
-/* 로그인 상태 유지 체크박스와 라벨 전체를 누를 수 있게 하는 투명 클릭 영역입니다. */
-.remember-hitbox {
-    left: 842px;
-    top: 566px;
-    width: 245px;
-    height: 48px;
+.relogin-text-field .unity-text-field__input,
+.relogin-text-field .unity-base-text-field__input {
+    background-color: rgba(0, 0, 0, 0);
+    border-left-width: 0;
+    border-right-width: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    color: #fff6df;
+    font-size: 23px;
+    -unity-font-style: bold;
 }
 
-/* 비밀번호 찾기 텍스트 위치에 올리는 투명 클릭 영역입니다.
-   현재는 추후 구현 예정 메시지를 띄웁니다. */
-.forgot-password-hitbox {
-    left: 1225px;
-    top: 566px;
-    width: 140px;
-    height: 48px;
+.input-placeholder {
+    position: absolute;
+    left: 62px;
+    top: 5px;
+    width: 318px;
+    height: 34px;
+    color: #d6d1c7;
+    font-size: 21px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-left;
+    background-color: rgba(0, 0, 0, 0);
 }
 
-/* 로그인 버튼 그림 위에 올리는 투명 클릭 영역입니다.
-   원본 버튼보다 약간 넓게 잡아 좌우 끝 클릭이 잘 되도록 했습니다. */
+.text-input-hitbox {
+    position: absolute;
+    left: 54px;
+    top: 2px;
+    width: 330px;
+    height: 40px;
+    background-color: rgba(255, 255, 255, 0);
+}
+
+.text-input-hitbox:hover {
+    background-color: rgba(255, 229, 145, 0.05);
+}
+
+.button-copy,
+.link-copy,
+.server-copy,
+.bottom-copy {
+    position: absolute;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.button-copy--battle {
+    left: 650px;
+    top: 684px;
+    width: 386px;
+    height: 58px;
+    color: #fff4ca;
+    font-size: 38px;
+    -unity-text-outline-width: 3px;
+    -unity-text-outline-color: #5b2d08;
+}
+
+.button-copy--guest {
+    left: 648px;
+    top: 806px;
+    width: 390px;
+    height: 58px;
+    color: #fff8e4;
+    font-size: 28px;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #0d2248;
+}
+
+.link-copy {
+    height: 30px;
+    color: #ffe08a;
+    font-size: 17px;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #1a1005;
+}
+
+.link-copy--signup {
+    left: 688px;
+    top: 760px;
+    width: 96px;
+}
+
+.link-copy--separator {
+    left: 828px;
+    top: 760px;
+    width: 24px;
+    color: rgba(255, 214, 111, 0.55);
+}
+
+.link-copy--forgot {
+    left: 860px;
+    top: 760px;
+    width: 136px;
+}
+
+.server-copy--title {
+    left: 302px;
+    top: 795px;
+    width: 126px;
+    height: 34px;
+    color: #fff2cf;
+    font-size: 22px;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #17120b;
+}
+
+.server-copy--name {
+    left: 302px;
+    top: 844px;
+    width: 126px;
+    height: 27px;
+    color: #bfff2f;
+    font-size: 18px;
+    -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #16210a;
+}
+
+.bottom-copy {
+    color: #fff2d2;
+    font-size: 17px;
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #17120b;
+}
+
+.bottom-copy--settings {
+    left: 1242px;
+    top: 848px;
+    width: 62px;
+    height: 30px;
+}
+
+.bottom-copy--language {
+    left: 1350px;
+    top: 848px;
+    width: 96px;
+    height: 30px;
+}
+
+.hitbox {
+    position: absolute;
+    background-color: rgba(255, 255, 255, 0);
+    border-left-width: 0;
+    border-right-width: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.hitbox:hover {
+    background-color: rgba(255, 229, 145, 0.08);
+}
+
+.hitbox:active {
+    background-color: rgba(255, 255, 255, 0.11);
+}
+
 .login-hitbox {
-    left: 798px;
-    top: 628px;
-    width: 580px;
-    height: 84px;
+    left: 640px;
+    top: 675px;
+    width: 404px;
+    height: 80px;
 }
 
-/* Google 로그인 아이콘 버튼의 투명 클릭 영역입니다.
-   현재는 추후 구현 예정 메시지를 띄웁니다. */
-.google-hitbox {
-    left: 895px;
-    top: 788px;
-    width: 78px;
-    height: 78px;
-}
-
-/* Apple 로그인 아이콘 버튼의 투명 클릭 영역입니다.
-   현재는 추후 구현 예정 메시지를 띄웁니다. */
-.apple-hitbox {
-    left: 1000px;
-    top: 788px;
-    width: 78px;
-    height: 78px;
-}
-
-/* 게스트 로그인 영역입니다.
-   게임패드 아이콘과 게스트 로그인 텍스트 전체를 누를 수 있게 합니다. */
-.guest-hitbox {
-    left: 1107px;
-    top: 788px;
-    width: 210px;
-    height: 78px;
-}
-
-/* 우상단 설정 아이콘의 투명 클릭 영역입니다.
-   현재는 추후 구현 예정 메시지를 띄웁니다. */
-.settings-hitbox {
-    left: 1135px;
-    top: 42px;
-    width: 50px;
+.signup-hitbox {
+    left: 684px;
+    top: 752px;
+    width: 110px;
     height: 42px;
 }
 
-/* 우상단 고객센터 버튼의 투명 클릭 영역입니다.
-   헤드셋 아이콘과 고객센터 텍스트를 포함합니다. */
-.customer-center-hitbox {
-    left: 1206px;
-    top: 42px;
-    width: 120px;
-    height: 42px;
-}
-
-/* 우상단 언어 선택 버튼의 투명 클릭 영역입니다.
-   지구본 아이콘, 한국어 텍스트, 아래 화살표를 포함합니다. */
-.language-hitbox {
-    left: 1344px;
-    top: 42px;
-    width: 135px;
-    height: 42px;
-}
-
-/* 좌하단 계정 찾기 버튼의 투명 클릭 영역입니다.
-   현재는 추후 구현 예정 메시지를 띄웁니다. */
-.account-find-hitbox {
-    left: 60px;
-    top: 918px;
+.forgot-password-hitbox {
+    left: 852px;
+    top: 752px;
     width: 150px;
-    height: 56px;
-}
-
-/* 기능별 위치/크기 확인용 디버그 색상입니다.
-   각 기능의 클릭 가능한 영역을 서로 다른 색으로 보여줍니다.
-   위치 확인이 끝나면 이 섹션의 background-color를 rgba(..., 0)으로 바꾸거나 섹션 전체를 주석 처리하면 됩니다. */
-.password-visibility-hitbox {
-    background-color: rgba(255, 255, 0, 0.26);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(255, 255, 0, 0.9);
-    border-right-color: rgba(255, 255, 0, 0.9);
-    border-top-color: rgba(255, 255, 0, 0.9);
-    border-bottom-color: rgba(255, 255, 0, 0.9);
-}
-
-.remember-hitbox {
-    background-color: rgba(0, 255, 0, 0.22);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(0, 255, 0, 0.9);
-    border-right-color: rgba(0, 255, 0, 0.9);
-    border-top-color: rgba(0, 255, 0, 0.9);
-    border-bottom-color: rgba(0, 255, 0, 0.9);
-}
-
-.forgot-password-hitbox {
-    background-color: rgba(0, 220, 255, 0.24);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(0, 220, 255, 0.9);
-    border-right-color: rgba(0, 220, 255, 0.9);
-    border-top-color: rgba(0, 220, 255, 0.9);
-    border-bottom-color: rgba(0, 220, 255, 0.9);
-}
-
-.login-hitbox {
-    background-color: rgba(128, 0, 255, 0.25);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(128, 0, 255, 0.95);
-    border-right-color: rgba(128, 0, 255, 0.95);
-    border-top-color: rgba(128, 0, 255, 0.95);
-    border-bottom-color: rgba(128, 0, 255, 0.95);
-}
-
-.google-hitbox {
-    background-color: rgba(66, 133, 244, 0.28);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(66, 133, 244, 0.95);
-    border-right-color: rgba(66, 133, 244, 0.95);
-    border-top-color: rgba(66, 133, 244, 0.95);
-    border-bottom-color: rgba(66, 133, 244, 0.95);
-}
-
-.apple-hitbox {
-    background-color: rgba(255, 255, 255, 0.24);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(255, 255, 255, 0.9);
-    border-right-color: rgba(255, 255, 255, 0.9);
-    border-top-color: rgba(255, 255, 255, 0.9);
-    border-bottom-color: rgba(255, 255, 255, 0.9);
+    height: 42px;
 }
 
 .guest-hitbox {
-    background-color: rgba(255, 0, 180, 0.24);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(255, 0, 180, 0.9);
-    border-right-color: rgba(255, 0, 180, 0.9);
-    border-top-color: rgba(255, 0, 180, 0.9);
-    border-bottom-color: rgba(255, 0, 180, 0.9);
+    left: 650px;
+    top: 803px;
+    width: 386px;
+    height: 66px;
+}
+
+.server-hitbox {
+    left: 258px;
+    top: 780px;
+    width: 220px;
+    height: 112px;
 }
 
 .settings-hitbox {
-    background-color: rgba(0, 255, 180, 0.25);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(0, 255, 180, 0.9);
-    border-right-color: rgba(0, 255, 180, 0.9);
-    border-top-color: rgba(0, 255, 180, 0.9);
-    border-bottom-color: rgba(0, 255, 180, 0.9);
-}
-
-.customer-center-hitbox {
-    background-color: rgba(180, 255, 0, 0.25);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(180, 255, 0, 0.9);
-    border-right-color: rgba(180, 255, 0, 0.9);
-    border-top-color: rgba(180, 255, 0, 0.9);
-    border-bottom-color: rgba(180, 255, 0, 0.9);
+    left: 1218px;
+    top: 780px;
+    width: 110px;
+    height: 112px;
 }
 
 .language-hitbox {
-    background-color: rgba(255, 210, 0, 0.26);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(255, 210, 0, 0.95);
-    border-right-color: rgba(255, 210, 0, 0.95);
-    border-top-color: rgba(255, 210, 0, 0.95);
-    border-bottom-color: rgba(255, 210, 0, 0.95);
+    left: 1340px;
+    top: 780px;
+    width: 114px;
+    height: 112px;
 }
 
-.account-find-hitbox {
-    background-color: rgba(0, 120, 255, 0.25);
-    border-left-width: 2px;
-    border-right-width: 2px;
-    border-top-width: 2px;
-    border-bottom-width: 2px;
-    border-left-color: rgba(0, 120, 255, 0.9);
-    border-right-color: rgba(0, 120, 255, 0.9);
-    border-top-color: rgba(0, 120, 255, 0.9);
-    border-bottom-color: rgba(0, 120, 255, 0.9);
-}
-
-/* 로그인 실패, 성공, 추후 구현 안내 같은 상태 메시지를 표시하는 라벨입니다.
-   원본 이미지에는 없는 영역이므로 기본은 숨겨두고 필요할 때 C#에서 display를 켭니다. */
 .status-label {
     position: absolute;
-    left: 842px;
-    top: 712px;
-    width: 516px;
+    left: 650px;
+    top: 871px;
+    width: 386px;
     height: 28px;
-    /* 기본 안내 메시지 색상입니다. */
-    color: #dcd3e9;
-    font-size: 16px;
+    color: #f1eadc;
+    font-size: 15px;
+    -unity-font-style: bold;
     -unity-text-align: middle-center;
-    /* 배경 이미지 위에서도 메시지가 읽히도록 어두운 반투명 배경을 둡니다. */
-    background-color: rgba(8, 7, 15, 0.74);
-    /* 기본 상태 메시지 테두리입니다. */
+    background-color: rgba(12, 10, 7, 0.76);
     border-left-width: 1px;
     border-right-width: 1px;
     border-top-width: 1px;
     border-bottom-width: 1px;
-    border-left-color: rgba(182, 108, 255, 0.35);
-    border-right-color: rgba(182, 108, 255, 0.35);
-    border-top-color: rgba(182, 108, 255, 0.35);
-    border-bottom-color: rgba(182, 108, 255, 0.35);
-    /* 기본 상태에서는 보이지 않습니다. C#의 ShowStatus에서 Flex로 바꿉니다. */
+    border-left-color: rgba(255, 216, 106, 0.48);
+    border-right-color: rgba(255, 216, 106, 0.48);
+    border-top-color: rgba(255, 216, 106, 0.48);
+    border-bottom-color: rgba(255, 216, 106, 0.48);
     display: none;
 }
 
-/* 오류 메시지 상태입니다.
-   입력값 누락, 비밀번호 길이 부족, 로그인 실패 같은 상황에서 사용합니다. */
 .status-label--error {
-    color: #ffb6c1;
-    /* 오류 상태는 붉은 계열 테두리로 구분합니다. */
-    border-left-color: rgba(255, 105, 130, 0.55);
-    border-right-color: rgba(255, 105, 130, 0.55);
-    border-top-color: rgba(255, 105, 130, 0.55);
-    border-bottom-color: rgba(255, 105, 130, 0.55);
+    color: #ffb7ad;
+    border-left-color: rgba(255, 100, 87, 0.65);
+    border-right-color: rgba(255, 100, 87, 0.65);
+    border-top-color: rgba(255, 100, 87, 0.65);
+    border-bottom-color: rgba(255, 100, 87, 0.65);
 }
 
-/* 성공 메시지 상태입니다.
-   로그인 성공 시 보라색 포인트를 더 강하게 보여줍니다. */
 .status-label--success {
-    color: #e7dcff;
-    /* 성공 상태는 보라색 테두리를 더 선명하게 만듭니다. */
-    border-left-color: rgba(182, 108, 255, 0.8);
-    border-right-color: rgba(182, 108, 255, 0.8);
-    border-top-color: rgba(182, 108, 255, 0.8);
-    border-bottom-color: rgba(182, 108, 255, 0.8);
+    color: #d9ffb5;
+    border-left-color: rgba(148, 255, 78, 0.65);
+    border-right-color: rgba(148, 255, 78, 0.65);
+    border-top-color: rgba(148, 255, 78, 0.65);
+    border-bottom-color: rgba(148, 255, 78, 0.65);
 }

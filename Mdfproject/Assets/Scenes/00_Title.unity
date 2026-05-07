@@ -1074,7 +1074,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
-  maxSessionPlayers: 2
+  maxSessionPlayers: 4
   _connectionLossPolicy: 0
   _cloudReconnectFallbackDelaySeconds: 5
 --- !u!1 &740816618

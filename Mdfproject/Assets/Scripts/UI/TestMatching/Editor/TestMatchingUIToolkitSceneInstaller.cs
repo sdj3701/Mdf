@@ -7,7 +7,6 @@ using UnityEngine.UIElements;
 public static class TestMatchingUIToolkitSceneInstaller
 {
     private const string UxmlPath = "Assets/UI/TestMatching/TestMatching.uxml";
-    private const string RoomItemUxmlPath = "Assets/UI/TestMatching/TestMatchingRoomItem.uxml";
     private const string PanelSettingsPath = "Assets/UI/TestMatching/TestMatchingPanelSettings.asset";
     private const string SceneObjectName = "TestMatching UI Toolkit";
 
@@ -18,13 +17,6 @@ public static class TestMatchingUIToolkitSceneInstaller
         if (visualTreeAsset == null)
         {
             Debug.LogError($"[TestMatchingUIToolkitSceneInstaller] UXML not found: {UxmlPath}");
-            return;
-        }
-
-        VisualTreeAsset roomItemTemplate = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>(RoomItemUxmlPath);
-        if (roomItemTemplate == null)
-        {
-            Debug.LogError($"[TestMatchingUIToolkitSceneInstaller] room item UXML not found: {RoomItemUxmlPath}");
             return;
         }
 
@@ -59,7 +51,6 @@ public static class TestMatchingUIToolkitSceneInstaller
 
         SerializedObject serializedController = new SerializedObject(controller);
         serializedController.FindProperty("document").objectReferenceValue = uiDocument;
-        serializedController.FindProperty("roomItemTemplate").objectReferenceValue = roomItemTemplate;
         serializedController.FindProperty("titleSceneName").stringValue = SceneDefine.Title;
         serializedController.FindProperty("joinLobbySceneName").stringValue = SceneDefine.JoinLobby;
         serializedController.FindProperty("createRoomUsesInputText").boolValue = true;
