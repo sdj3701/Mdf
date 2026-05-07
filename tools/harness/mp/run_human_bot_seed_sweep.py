@@ -18,6 +18,7 @@ from common import (
     run_command,
     write_json,
 )
+from summarize_bot_metrics import aggregate_seed_metrics, write_metrics_summary
 
 
 CASE_NAME = "human-bot-seed-sweep"
@@ -55,9 +56,14 @@ def write_result(artifact_dir: pathlib.Path, summary: dict[str, Any]) -> None:
         "case": CASE_NAME,
         "artifactDir": str(artifact_dir),
         "success": not failures,
+        "functionalSuccess": not failures,
+        "cleanupSuccess": summary.get("cleanupSuccess"),
+        "cleanupStatus": summary.get("cleanupStatus"),
         "failures": failures,
         "seeds": summary.get("seeds"),
         "include4p": summary.get("include4p"),
+        "botMetricsSummaryPath": summary.get("botMetricsSummaryPath"),
+        "botMetrics": summary.get("botMetrics"),
     })
 
 
@@ -177,22 +183,49 @@ def prepare_summary(seed: int, artifact_dir: pathlib.Path | None, result: dict[s
     assertions = read_if_exists(artifact_dir / "human-bot-prepare-assertions.json") if artifact_dir else None
     random_summary = read_if_exists(artifact_dir / "random-outcome-summary.json") if artifact_dir else None
     comparison = read_if_exists(artifact_dir / "comparison-latest.json") if artifact_dir else None
+    child_result = read_if_exists(artifact_dir / "result.json") if artifact_dir else None
+    cleanup_report = read_if_exists(artifact_dir / "cleanup-report.json") if artifact_dir else None
+    bot_metrics = write_metrics_summary(artifact_dir) if artifact_dir else None
     summary = {
         "case": "human-bot-prepare",
         "seed": seed,
         "artifactDir": str(artifact_dir) if artifact_dir else None,
         "exitCode": result.get("exitCode"),
         "success": result.get("exitCode") == 0 and isinstance(assertions, dict) and assertions.get("success") is True,
+        "functionalSuccess": (isinstance(child_result, dict) and child_result.get("functionalSuccess") is True)
+        or (result.get("exitCode") == 0 and isinstance(assertions, dict) and assertions.get("success") is True),
+        "cleanupStatus": child_result.get("cleanupStatus") if isinstance(child_result, dict) else None,
+        "cleanupSuccess": child_result.get("cleanupSuccess") if isinstance(child_result, dict) else None,
+        "cleanupReportPath": str(artifact_dir / "cleanup-report.json") if artifact_dir and cleanup_report is not None else None,
+        "orphanedPids": child_result.get("orphanedPids") if isinstance(child_result, dict) else None,
         "commandsIssued": commands_issued_from_assertions(assertions),
         "commandTypes": command_types_from_assertions(assertions),
         "randomOutcomes": random_summary,
         "comparison": comparison,
         "checkpointSummary": read_if_exists(artifact_dir / "checkpoint-summary.json") if artifact_dir else None,
         "journals": journal_paths(artifact_dir),
+        "botMetricsSummaryPath": str(artifact_dir / "bot-metrics-summary.json") if artifact_dir else None,
+        "botMetrics": bot_metrics.get("summary") if isinstance(bot_metrics, dict) else None,
         "screenshots": screenshot_paths(artifact_dir),
         "failurePath": first_failure_path(artifact_dir, assertions, result),
     }
     return summary
+
+
+def aggregate_cleanup_status(results: list[dict[str, Any]]) -> tuple[str, bool]:
+    statuses: list[str] = []
+    for seed in results:
+        for case in seed.get("cases") or []:
+            status = case.get("cleanupStatus") if isinstance(case, dict) else None
+            if isinstance(status, str):
+                statuses.append(status)
+    if not statuses:
+        return "PASS", True
+    if "FAIL" in statuses:
+        return "FAIL", False
+    if "NEEDS_ENVIRONMENT" in statuses:
+        return "NEEDS_ENVIRONMENT", False
+    return "PASS", True
 
 
 def four_player_summary(seed: int, artifact_dir: pathlib.Path | None, result: dict[str, Any]) -> dict[str, Any]:
@@ -264,6 +297,7 @@ def run(args: argparse.Namespace) -> int:
     artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
     failures: list[str] = []
     seed_results: list[dict[str, Any]] = []
+    seed_metrics: list[dict[str, Any]] = []
     summary: dict[str, Any] = {
         "case": CASE_NAME,
         "artifactDir": str(artifact_dir),
@@ -300,6 +334,20 @@ def run(args: argparse.Namespace) -> int:
     for seed in seeds:
         seed_dir = artifact_dir / f"seed-{seed}"
         per_seed: dict[str, Any] = {"seed": seed, "cases": []}
+        prepare_extra_args = [
+            "--bot-persona",
+            args.prepare_persona,
+            "--bot-max-commands",
+            str(args.prepare_bot_max_commands),
+            "--min-commands",
+            str(args.prepare_min_commands),
+            "--cleanup-timeout-seconds",
+            str(args.cleanup_timeout_seconds),
+        ]
+        if args.leave_processes_on_fail:
+            prepare_extra_args.append("--leave-processes-on-fail")
+        if args.strict_cleanup:
+            prepare_extra_args.append("--strict-cleanup")
         prepare_result, prepare_artifact = run_child_case(
             artifact_dir,
             seed_dir,
@@ -308,16 +356,13 @@ def run(args: argparse.Namespace) -> int:
             "prepare",
             player_path,
             args.prepare_timeout,
-            extra_args=[
-                "--bot-persona",
-                args.prepare_persona,
-                "--bot-max-commands",
-                str(args.prepare_bot_max_commands),
-                "--min-commands",
-                str(args.prepare_min_commands),
-            ],
+            extra_args=prepare_extra_args,
         )
         prepare = prepare_summary(seed, prepare_artifact, prepare_result)
+        if prepare_artifact:
+            metrics = read_if_exists(prepare_artifact / "bot-metrics-summary.json")
+            if isinstance(metrics, dict):
+                seed_metrics.append(metrics)
         per_seed["cases"].append(prepare)
         if not prepare["success"]:
             failures.append(f"seed_{seed}_prepare_failed:{prepare.get('failurePath')}")
@@ -340,6 +385,14 @@ def run(args: argparse.Namespace) -> int:
         per_seed["success"] = all(case.get("success") is True for case in per_seed["cases"])
         per_seed["totalCommandsIssued"] = sum(int(case.get("commandsIssued") or 0) for case in per_seed["cases"])
         seed_results.append(per_seed)
+        cleanup_status, cleanup_success = aggregate_cleanup_status(seed_results)
+        summary["cleanupStatus"] = cleanup_status
+        summary["cleanupSuccess"] = cleanup_success
+        if seed_metrics:
+            metrics_aggregate = aggregate_seed_metrics(seed_metrics)
+            write_json(artifact_dir / "bot-metrics-seed-sweep-summary.json", metrics_aggregate)
+            summary["botMetricsSummaryPath"] = "bot-metrics-seed-sweep-summary.json"
+            summary["botMetrics"] = metrics_aggregate.get("summary")
         write_json(seed_dir / "seed-result.json", per_seed)
         write_json(artifact_dir / "seed-sweep-summary.json", summary)
         write_result(artifact_dir, summary)
@@ -348,6 +401,14 @@ def run(args: argparse.Namespace) -> int:
             break
 
     summary["success"] = not failures
+    cleanup_status, cleanup_success = aggregate_cleanup_status(seed_results)
+    summary["cleanupStatus"] = cleanup_status
+    summary["cleanupSuccess"] = cleanup_success
+    if seed_metrics:
+        metrics_aggregate = aggregate_seed_metrics(seed_metrics)
+        write_json(artifact_dir / "bot-metrics-seed-sweep-summary.json", metrics_aggregate)
+        summary["botMetricsSummaryPath"] = "bot-metrics-seed-sweep-summary.json"
+        summary["botMetrics"] = metrics_aggregate.get("summary")
     write_json(artifact_dir / "seed-sweep-summary.json", summary)
     write_result(artifact_dir, summary)
     if failures:
@@ -356,6 +417,8 @@ def run(args: argparse.Namespace) -> int:
     print(json.dumps({
         "artifactDir": str(artifact_dir),
         "success": not failures,
+        "cleanupStatus": summary.get("cleanupStatus"),
+        "cleanupSuccess": summary.get("cleanupSuccess"),
         "failures": failures,
         "seedsRun": [item["seed"] for item in seed_results],
     }, indent=2))
@@ -377,6 +440,9 @@ def main() -> int:
     parser.add_argument("--prepare-timeout", type=int, default=240)
     parser.add_argument("--four-p-timeout", type=int, default=360)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
+    parser.add_argument("--leave-processes-on-fail", action="store_true")
+    parser.add_argument("--strict-cleanup", action="store_true")
     args = parser.parse_args()
     return run(args)
 

@@ -174,6 +174,31 @@ public class ShopManager : MonoBehaviour
         return copy;
     }
 
+    public int GetShopSlotCount()
+    {
+        return currentShopItems != null ? currentShopItems.Count : 0;
+    }
+
+    public int GetSoldSlotCount()
+    {
+        int count = 0;
+        int limit = Mathf.Min(GetShopSlotCount(), _isSlotSold != null ? _isSlotSold.Length : 0);
+        for (int i = 0; i < limit; i++)
+        {
+            if (_isSlotSold[i])
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    public int GetUnsoldSlotCount()
+    {
+        return Mathf.Max(0, GetShopSlotCount() - GetSoldSlotCount());
+    }
+
     private void PublishNetworkShopSnapshotIfAuthority(string context)
     {
         if (playerManager == null || playerManager.Object == null || !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority)

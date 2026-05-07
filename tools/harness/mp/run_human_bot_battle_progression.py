@@ -9,6 +9,7 @@ from battle_progression_common import add_common_args, run_battle_case
 def main() -> int:
     parser = argparse.ArgumentParser()
     add_common_args(parser)
+    parser.set_defaults(bot_prepare_mode="full")
     args = parser.parse_args()
     return run_battle_case(
         args,

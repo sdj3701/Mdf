@@ -25,7 +25,8 @@ from common import (
     write_json,
 )
 from compare_state_snapshots import compare_snapshots
-from launch_player import PlayerProcess, launch_player
+from launch_player import PlayerProcess, launch_player, mdf_player_pids, write_case_cleanup_report
+from summarize_bot_metrics import write_metrics_summary
 
 
 CASE_NAME = "human-bot-prepare"
@@ -408,6 +409,12 @@ def run(args: argparse.Namespace) -> int:
     host_proc: PlayerProcess | None = None
     client_proc: PlayerProcess | None = None
     failures: list[str] = []
+    cleanup_baseline_pids = mdf_player_pids()
+    cleanup_report: dict[str, Any] = {
+        "cleanupStatus": "PASS",
+        "cleanupSuccess": True,
+        "orphanedPids": [],
+    }
 
     write_json(artifact_dir / "run.json", {
         "case": CASE_NAME,
@@ -422,6 +429,12 @@ def run(args: argparse.Namespace) -> int:
         "botPersona": args.bot_persona,
         "botJournalPath": str(bot_journal_path),
         "dryRun": args.dry_run,
+        "cleanup": {
+            "baselinePids": sorted(cleanup_baseline_pids),
+            "timeoutSeconds": args.cleanup_timeout_seconds,
+            "leaveProcessesOnFail": args.leave_processes_on_fail,
+            "strictCleanup": args.strict_cleanup,
+        },
     })
     if args.dry_run:
         print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
@@ -524,6 +537,15 @@ def run(args: argparse.Namespace) -> int:
         if not before_ready:
             failures.append("before_bot_state_ready_timeout")
 
+        host_freeze = host.freeze_game_flow(True, reason="human_bot_prepare_progression_prepare_checkpoint")
+        client_freeze = client.freeze_game_flow(True, reason="human_bot_prepare_progression_prepare_checkpoint")
+        write_json(artifact_dir / "build-host-freeze-game-flow.json", host_freeze)
+        write_json(artifact_dir / "build-client-freeze-game-flow.json", client_freeze)
+        if host_freeze.get("success") is not True:
+            failures.append("host_freeze_game_flow_failed")
+        if client_freeze.get("success") is not True:
+            failures.append("client_freeze_game_flow_failed")
+
         start_result = client.bot_start(
             persona=args.bot_persona,
             seed=bot_seed,
@@ -581,19 +603,17 @@ def run(args: argparse.Namespace) -> int:
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
     finally:
-        for peer, proc, port, token in (
-            ("build-client", client_proc, client_port, client_token),
-            ("build-host", host_proc, host_port, host_token),
-        ):
-            if proc is None:
-                continue
-            try:
-                automation = AutomationClient(port, token, timeout=2.0)
-                write_json(artifact_dir / f"{peer}-quit.json", automation.quit())
-                proc.process.wait(timeout=10)
-                proc.close_logs()
-            except Exception:
-                proc.terminate()
+        functional_failures = list(failures)
+        cleanup_report = write_case_cleanup_report(
+            artifact_dir,
+            [proc for proc in (client_proc, host_proc) if proc is not None],
+            baseline_pids=cleanup_baseline_pids,
+            timeout_seconds=args.cleanup_timeout_seconds,
+            leave_processes=args.leave_processes_on_fail and bool(functional_failures),
+            strict_cleanup=args.strict_cleanup,
+        )
+        if args.strict_cleanup and cleanup_report.get("cleanupStatus") != "PASS":
+            failures.append(f"cleanup_failed:{cleanup_report.get('cleanupStatus')}")
         host_log = collect_player_log(artifact_dir, "build-host-or-last")
         logs = [
             artifact_dir / "build-host.stdout.log",
@@ -604,8 +624,38 @@ def run(args: argparse.Namespace) -> int:
         if host_log:
             logs.append(host_log)
         write_timeline(artifact_dir, logs)
+        try:
+            metrics = write_metrics_summary(artifact_dir)
+            functional_success = not functional_failures
+            cleanup_success = cleanup_report.get("cleanupSuccess") is True
+            overall_success = functional_success and (cleanup_success or not args.strict_cleanup)
+            write_json(artifact_dir / "result.json", {
+                "case": CASE_NAME,
+                "artifactDir": str(artifact_dir),
+                "success": overall_success,
+                "functionalSuccess": functional_success,
+                "cleanupSuccess": cleanup_success,
+                "cleanupStatus": cleanup_report.get("cleanupStatus"),
+                "cleanupReportPath": "cleanup-report.json",
+                "orphanedPids": cleanup_report.get("orphanedPids") or [],
+                "failures": failures,
+                "botMetricsSummaryPath": "bot-metrics-summary.json",
+                "botMetrics": metrics.get("summary"),
+            })
+            if failures:
+                failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
+        except Exception as exc:
+            write_json(artifact_dir / "bot-metrics-summary-error.json", {
+                "success": False,
+                "error": {"code": type(exc).__name__, "details": str(exc)},
+            })
 
-    print(json.dumps({"artifactDir": str(artifact_dir), "failures": failures}, indent=2))
+    print(json.dumps({
+        "artifactDir": str(artifact_dir),
+        "failures": failures,
+        "cleanupStatus": cleanup_report.get("cleanupStatus"),
+        "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+    }, indent=2))
     return 0 if not failures else 1
 
 
@@ -630,6 +680,9 @@ def main() -> int:
     parser.add_argument("--state-timeout", type=int, default=90)
     parser.add_argument("--bot-timeout", type=int, default=120)
     parser.add_argument("--request-timeout", type=float, default=15.0)
+    parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
+    parser.add_argument("--leave-processes-on-fail", action="store_true")
+    parser.add_argument("--strict-cleanup", action="store_true")
     args = parser.parse_args()
     return run(args)
 

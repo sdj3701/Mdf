@@ -1283,10 +1283,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 }
             }
 
-            bool needInit = unit.Data == null || (!string.IsNullOrEmpty(unitDataKey) && unit.Data.name != unitDataKey);
+            bool needInit =
+                unit.Data == null ||
+                (!string.IsNullOrEmpty(unitDataKey) && unit.Data.name != unitDataKey) ||
+                unit.starLevel != starLevel;
             if (needInit)
             {
-                UnitData data = null;
+                UnitData data = unit.Data;
                 if (!string.IsNullOrEmpty(unitDataKey))
                 {
                     if (LoadManager.Instance == null)

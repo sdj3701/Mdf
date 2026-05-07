@@ -35,6 +35,12 @@ Mdfproject/Assets/Scripts/Testing/MP/
 
 All runtime behavior must be guarded by `UNITY_EDITOR || DEVELOPMENT_BUILD` where appropriate and by runtime `--mpTest`.
 
+Status note, 2026-05-08:
+
+- `MPTestHumanBotDriver` now uses shared `PrepareDecisionPolicy` and `BattleDecisionPolicy` directly.
+- `MPTestHumanBotPolicy` is an obsolete adapter for legacy test callers only. Do not add new behavior there.
+- HumanBot command emission should go through `HumanClientCommandEmitter`, which submits prepare commands through `CommandProcessor.RequestCommandExecution` and battle commands through the validated request/executor path.
+
 ## Command-Line Arguments
 
 ```text
@@ -56,20 +62,20 @@ HumanBot observes current replicated state and chooses a bounded action.
 Prepare-phase priority:
 
 1. Select an augment if presented.
-2. Build or extend a maze from current randomized permanent walls.
-3. Buy the best affordable shop unit from the current randomized shop.
-4. Reroll when no useful purchase exists and gold allows it.
-5. Rearrange units when a legal move is available.
+2. Buy the best affordable shop unit from the current randomized shop, especially before maze/wall focus when the field lacks a minimum army core.
+3. Rearrange units when a legal move is available.
+4. Build or extend walls only after the army core and soft composition target are satisfied.
+5. Reroll only as a late shop action when at least three shop slots are sold and no high-value affordable purchase remains.
 6. Otherwise wait.
 
 Combat can initially be observe-only. Do not fake battle commands if the current player request path is not authority-safe.
 
 ## Real Command Path
 
-The current code path is:
+The current prepare command path is:
 
 ```text
-MPTestHumanBotPolicy
+MPTestHumanBotDriver -> PrepareDecisionPolicy -> HumanClientCommandEmitter
   -> CommandProcessor.RequestCommandExecution(ICommand)
   -> if State Authority: GameManagers.RPC_BroadcastCommandToClients
   -> if client: local PlayerManager.RPC_RequestCommandToServer
@@ -78,6 +84,8 @@ MPTestHumanBotPolicy
   -> CommandProcessor.ReceiveAndEnqueueCommand
   -> CommandProcessor.ProcessCommands
 ```
+
+Battle decisions use `BattleDecisionPolicy` and `HumanClientCommandEmitter`, then route to `RPC_RequestBattleSpawnMonster` / `RPC_RequestUseMagicScrollCommand` or the host-side executor as appropriate.
 
 Known Phase 19 command safety notes:
 

@@ -53,6 +53,28 @@ Verification:
 Pitfalls:
 - Running unity-cli from the repo root without `--project` may target the wrong Editor if multiple projects are open.
 
+## unity-cli-editor-availability-v1: Wait for an open Editor connector
+
+Status: verified-local
+Last verified: 2026-05-07
+Applies to: unity-cli connector, Windows PowerShell, Unity 2021.3.45f1
+Triggers: no Unity instances running, not responding, manual Editor launch, status polling
+
+Problem:
+`unity-cli` only talks to an already open Unity Editor with the connector loaded. If no Editor is open it fails with `Error: no Unity instances running`; immediately after launch it may report `not responding` while Unity imports, compiles, or shows `Hold on...`.
+
+Recipe:
+- Open `Mdfproject` in Unity 2021.3.45f1, then poll `unity-cli --project Mdfproject status` until it reports `ready`.
+- Treat transient `not responding` with a recent heartbeat as startup/import work, not a verification failure.
+- Once `ready`, run the normal sequence: `editor refresh --compile`, `console --type error --stacktrace user`, then `test --mode EditMode`.
+
+Verification:
+- On 2026-05-07, `unity-cli --project Mdfproject status` first failed with `no Unity instances running`, then reported `not responding`, then became `ready` on port 8090 after the Editor was manually opened.
+- `unity-cli --project Mdfproject editor refresh --compile` completed, console errors returned `[]`, and EditMode passed `32/32`.
+
+Pitfalls:
+- v0.3.15 can print update notices to stderr even when the status command exits successfully; use the exit code and ready line, not the update notice, as the connector readiness signal.
+
 ## unity-cli-0.3.15-baseline: Verified local CLI syntax
 
 Status: verified-local
@@ -1160,3 +1182,252 @@ Recipe:
 Verification:
 - `python tools/harness/precommit.py --self-test` passed guardrail fixtures for HumanBot AI registration, scroll presentation gameplay, and AI direct monster spawn.
 - `python tools/harness/precommit.py --all` reported `0 errors, 0 warnings`.
+
+## ai-behavior-metrics-summary-v1: Summarize HumanBot behavior from artifacts without changing gameplay
+
+Status: verified-from-existing-artifact
+Last verified: 2026-05-07
+Applies to: `tools/harness/mp/summarize_bot_metrics.py`, HumanBot battle progression, battle seed sweep
+Triggers: AI behavior tuning, HumanBot journal review, behavior baseline, seed sweep metrics
+
+Problem:
+Before changing AI decision quality, agents need a lightweight baseline that counts what the bot actually did. That baseline should come from existing artifacts and `[MPTEST]` timelines, not from extra gameplay state mutations or policy changes.
+
+Recipe:
+- Run or reuse a HumanBot battle artifact with `build-host-bot.jsonl`, `mptest.timeline.jsonl`, snapshots, and `battle-command-evidence.json`.
+- Generate metrics with:
+  - `python tools/harness/mp/summarize_bot_metrics.py <artifact-dir>`
+- The summarizer writes `<artifact-dir>/bot-metrics-summary.json` with command counts by type, rejection reasons, observed gold spend, rerolls, buys, walls, monster spawns, scroll uses, scroll target counts, manual skill uses, round reached, and battle reached.
+- `run_human_bot_battle_progression.py` writes this artifact through the shared battle progression runner after timeline collection.
+- `run_battle_seed_sweep.py` writes each child artifact's metrics and aggregates them into `bot-metrics-seed-sweep-summary.json`.
+
+Verification:
+- `python tools/harness/mp/summarize_bot_metrics.py artifacts/mp/20260506-102324-human-bot-battle-progression` produced `bot-metrics-summary.json`.
+- The summary counted `SelectAugment=1`, `BattleSpawnMonster=2`, `monsterSpawns=2`, `battleReached=true`, and no rejected decisions for that existing artifact.
+- `python -m py_compile tools/harness/mp/summarize_bot_metrics.py tools/harness/mp/battle_progression_common.py tools/harness/mp/run_battle_seed_sweep.py tools/harness/mp/run_human_bot_battle_progression.py` passed.
+
+Pitfalls:
+- `commandsIssued` is bot-issued command intent from `human_bot_decision` timeline lines. It can be ahead of final snapshot command counters when the bot emits a command just after the last strict comparison sample.
+- `goldSpent` is an observed estimate from journal gold drops and known command cost fields; if a run gains gold after spending before the next journal entry, it can undercount.
+- Use dedicated scroll artifacts to judge scroll quality. A seed sweep may still pass while only some seeds actually use a scroll.
+
+## prepare-policy-composition-e2e-v1: Freeze prepare flow and compare stable unit semantics
+
+Status: verified
+Last verified: 2026-05-07
+Applies to: `PrepareDecisionPolicy`, `MPTestHumanBotDriver`, `run_human_bot_prepare_progression.py`, `MPTestStateSnapshot`
+Triggers: prepare-phase AI/HumanBot economy, buy/reroll tuning, composition-aware purchase scoring
+
+Problem:
+Prepare-only HumanBot E2E can be polluted by normal phase timers and by unstable client-local presentation state. A bot that issues many prepare commands may reach Battle or disconnect before the harness captures a stable checkpoint. Unit prefab defaults can also leave client-side star/merge state stale unless registration and destruction paths clean up field registries.
+
+Recipe:
+- After host/client reach a clean `Game` prepare checkpoint, call `/test/freezeGameFlow` on both peers before starting the prepare HumanBot. This keeps the test focused on prepare commands while still allowing the bot to emit real client requests.
+- Prepare policies should read networked augment/shop snapshots from `PlayerManager` before trusting local `AugmentManager` or `ShopManager` lists. Local presentation lists can lag and cause repeated `SelectAugment` or same-slot `BuyUnit`.
+- For prepare snapshots, compare stable unit semantics. Use UnitData/star multisets and avoid NetworkObject IDs, exact HP, battle-only skill readiness, or local placement details that are not the purpose of the economy test. Keep battle snapshots stricter for battle state.
+- When `RPC_RegisterUnitAt` receives a unit whose prefab already has `UnitData`, still reinitialize if the authoritative star differs. Otherwise a star-2 shop purchase can remain star-1 on clients.
+- On `Unit.OnDestroy`, remove the unit from the owner `FieldManager` registry so client snapshots do not retain despawned merge ingredients after State Authority combines units.
+- Treat wall focus as a late prepare action. Do not run expensive maze/wall planning until the basic target composition is actually satisfied; otherwise HumanBot can block the client main thread or compare unsynced wall presentation instead of the buy/reroll behavior under test.
+
+Verification:
+- `python tools/harness/precommit.py --all` passed with `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject editor refresh --compile` completed.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` passed `43/43`.
+- `artifacts/builds/20260507-151458/MDF-MPTest.exe` passed prepare E2E functional assertions for balanced/shop/unit/maze and seed sweep `5101,5102,5103`.
+
+Prepare v2 functional PASS evidence:
+- Build: `artifacts/builds/20260507-151458/MDF-MPTest.exe` (`build-metadata.json` result `Succeeded`, Development, AllowDebugging).
+- Balanced artifact `artifacts/mp/20260507-151658-human-bot-prepare`: `BuyUnit=4`, `RerollShop=1`, first reroll `soldSlotCount=4`, `rerollBeforeThreeSold=false`, final composition `M1/R3/H0`, final field unit count `4`.
+- Shop artifact `artifacts/mp/20260507-151819-human-bot-prepare`: `BuyUnit=4`, `RerollShop=0`, `rerollBeforeThreeSold=false`, final composition `M2/R2/H0`, final field unit count `4`.
+- Unit artifact `artifacts/mp/20260507-151937-human-bot-prepare`: `BuyUnit=4`, `RerollShop=0`, `rerollBeforeThreeSold=false`, final composition `M2/R1/H1`, final field unit count `4`.
+- Maze artifact `artifacts/mp/20260507-151539-human-bot-prepare`: `BuyUnit=5`, `RerollShop=0`, `rerollBeforeThreeSold=false`, final composition `M1/R2/H2`, final field unit count `5`. Maze did not wall-only while the field unit count was zero.
+- Seed sweep artifact `artifacts/mp/20260507-152054-human-bot-seed-sweep`: seeds `5101,5102,5103`, aggregate `BuyUnit=15`, `RerollShop=3`, first reroll `soldSlotCount=3`, `rerollBeforeThreeSold=false`, final field unit total max `4`.
+- The target composition `M2/R2/H1` is soft scoring, not a hard pass condition. Do not fail `M1/R3/H0` or `M2/R2/H0` when no healer appeared in the available shop sequence. A future improvement is explicit `UnitData` AI role metadata; current healer detection is name/skill-token heuristic via `UnitCompositionAnalyzer`.
+- Cleanup is separate from functional PASS. In this batch, E2E cleanup did not reliably terminate `MDF-MPTest.exe`; `Stop-Process`, CIM terminate, and `/quit` could fail or time out. Treat this as cleanup `NEEDS_ENVIRONMENT` / harness hardening, not a Prepare gameplay failure.
+- Next action: harden E2E process cleanup and split matrix profiles so smoke/regression/random-aware/nightly runs have explicit cost and cleanup reporting.
+
+Pitfalls:
+- Do not treat `build-host-quit.json` or `build-client-quit.json` with `success=true` as proof the player process exited; it only proves the automation endpoint accepted a quit request. For final artifact review, also check live processes, for example `Get-CimInstance Win32_Process -Filter "name = 'MDF-MPTest.exe'" | Where-Object { $_.CommandLine -match '<artifact timestamp>' } | Select-Object ProcessId,CommandLine`. A clean `result.json` plus live peer processes or a missing quit artifact is a cleanup failure until the harness records actual process exit or kills leftovers.
+
+## harness-entropy-cleanup-v1: Keep context bundles and generated state out of the source of truth
+
+Status: verified
+Last verified: 2026-05-08
+Applies to: `.gitignore`, `_context_packer`, `.codex/session-state`, `tools/harness/precommit.py`, harness docs
+Triggers: context bundle drift, stale prompts, generated session state, root BAT cleanup, precommit guardrails
+
+Problem:
+Generated local state can leak into context bundles or make future agents follow stale paths. In this pass, `.codex/session-state` JSON files and `_context_packer/output` bundles were generated artifacts, while current docs needed explicit labels for historical phase prompts and obsolete HumanBot adapters.
+
+Recipe:
+- Ignore generated outputs with `.gitignore`: `artifacts/`, `_context_packer/output/`, `_context_bundles/`, `.codex/session-state/`, and root `nul`.
+- Exclude `.codex/session-state/**` from context packer profiles that include `.codex/**`; also keep the default packer source excludes aligned so a missing config does not re-include session files.
+- Remove generated context outputs and session-state JSON files after verifying their resolved paths are inside the repo. Keep the directories, but keep them empty unless a local run is actively using them.
+- Keep only `MDF_PACK_CONTEXT.bat` at the repo root for context packing; helper BAT/scripts live under `_context_packer/`.
+- Mark old MVP phase docs as historical and point active readers to `codex-full-phase-prompts.md` plus `randomized-progression-test-plan.md`.
+- Keep `MPTestHumanBotPolicy` as an explicit obsolete adapter only; runtime HumanBot uses `PrepareDecisionPolicy`, `BattleDecisionPolicy`, and `HumanClientCommandEmitter`.
+- Do not remove field registry entries from `Unit.OnDisable`. Battle death disables units for later respawn. Actual destroy/despawn cleanup should unregister through `Unit.OnDestroy` or explicit merge/sell paths.
+
+Guardrails:
+- `tools/harness/precommit.py` BLOCKs context packer profiles that include `.codex/**` without excluding `.codex/session-state/**`.
+- `tools/harness/precommit.py` BLOCKs `Unit.OnDisable` bodies that call `UnitDied`.
+- Existing guardrails still BLOCK HumanBot/test peers registering `AIPlayerController`, AI direct `SpawnMonsterAtPositionAsync`, and scroll gameplay effects in presentation RPC/helpers.
+
+Verification:
+- `git check-ignore -v .codex/session-state/probe.json _context_packer/output/probe.zip _context_bundles/probe.zip nul` matched the expected `.gitignore` entries.
+- `python _context_packer/unity_context_pack.py --profile scripts-plus-context --dry-run` listed no `.codex/session-state` files.
+- `python tools/harness/validate_overlay.py` PASS, 33 required paths checked and `AGENTS.md <= 70` lines.
+- `python tools/harness/precommit.py --self-test` PASS, including context packer and `Unit.OnDisable` guard tests.
+- `python tools/harness/precommit.py --all` PASS, `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject status` found one ready Editor, Unity `2021.3.45f1`.
+- `unity-cli --project Mdfproject editor refresh --compile` PASS, compilation complete.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` PASS, `43/43`.
+
+Cleanup performed:
+- Deleted generated files under `.codex/session-state/`.
+- Deleted generated files under `_context_packer/output/`.
+- Deleted root generated `nul`.
+- Updated `.gitignore`, context packer config/default excludes, current docs, and precommit guardrails.
+
+Remaining intentional legacy:
+- `MPTestHumanBotPolicy` remains as an obsolete compatibility adapter for legacy test callers.
+- `run_matrix.py --case all` still means the existing default case subset; profile split is the next matrix phase.
+- `Mdfproject/Assembly-CSharp-Editor.csproj` is a generated/tracked Unity file with pre-existing ordering churn. Do not hand-edit it; prefer ignoring future generated churn in review unless the team decides to untrack generated project files.
+
+## e2e-process-cleanup-hardening-v1: Report cleanup separately and prove orphaned player PIDs
+
+Status: verified with environment blocker
+Last verified: 2026-05-08
+Applies to: `tools/harness/mp/launch_player.py`, HumanBot prepare/battle runners, matrix runner
+Triggers: `MDF-MPTest.exe` left running after E2E, Windows process cleanup, orphan detection
+
+Problem:
+Functional E2E assertions can pass while Unity player processes fail to exit. In this Windows environment, `/quit`, `TerminateProcess` via Python, `Stop-Process`, and `taskkill /PID <pid> /T /F` can all fail to remove the original `MDF-MPTest.exe` PID even though child PIDs are terminated. Treat this as cleanup `NEEDS_ENVIRONMENT` unless strict cleanup is explicitly requested.
+
+Recipe:
+- Record the baseline `MDF-MPTest.exe` PIDs before launching an E2E case.
+- For each launched player, record PID, parent PID, redacted command line, artifact dir, stdout/stderr paths, and `Player.log` path.
+- Cleanup order is: automation `/quit`, wait for exit, Python `terminate`, wait, Python `kill`, wait, CIM live-process check, then Windows `taskkill /PID <pid> /T /F`, followed by a CIM absent wait.
+- Always write `cleanup-report.json` with per-peer cleanup steps, `orphanedPids`, `cleanupSuccess`, and `cleanupStatus`.
+- Keep gameplay result separate from cleanup: non-strict runs may have `functionalSuccess=true`, `success=true`, and `cleanupStatus=NEEDS_ENVIRONMENT`; strict runs append `cleanup_failed:<status>`.
+- `--leave-processes-on-fail` leaves peers alive for debugging only when functional failures already exist.
+- `run_matrix.py` forwards cleanup flags only to cases that support them and records per-case `cleanupStatus`; dry-run skips Unity editor cleanup side effects.
+- Do not add a pywin32 dependency for Job Objects without approval. The current fallback is documented `taskkill`; a future ctypes Job Object wrapper should attach the player at process creation time if this environment blocker must become a hard PASS.
+
+Verification:
+- `python -m py_compile tools\harness\mp\launch_player.py tools\harness\mp\run_human_bot_prepare_progression.py tools\harness\mp\run_human_bot_seed_sweep.py tools\harness\mp\battle_progression_common.py tools\harness\mp\run_matrix.py` PASS.
+- `python tools/harness/precommit.py --all` PASS, `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `python tools/harness/mp/run_human_bot_prepare_progression.py --seed 1001 --bot-persona balanced --bot-max-commands 5 --min-commands 3` passed functional assertions with artifact `artifacts/mp/20260507-173915-human-bot-prepare`.
+- `artifacts/mp/20260507-173915-human-bot-prepare/result.json` recorded `functionalSuccess=true`, `success=true`, `cleanupSuccess=false`, `cleanupStatus=NEEDS_ENVIRONMENT`, and `orphanedPids=[48936,53784]`.
+- `artifacts/mp/20260507-173915-human-bot-prepare/cleanup-report.json` recorded both peers timing out after `/quit` and terminate, still alive by CIM after Python kill, and `taskkill_tree` failing the original PID with "There is no running instance of the task" after terminating child PIDs.
+- Prepare metrics for the same artifact: `BuyUnit=4`, `RerollShop=0`, `firstRerollSoldSlotCount=null`, `rerollBeforeThreeSold=false`, final field unit total `3`.
+
+Pitfalls:
+- Do not use `Popen.poll()` alone as cleanup proof on Windows. This environment showed `Popen` exit code `1` while CIM/tasklist still listed the same `MDF-MPTest.exe` PID.
+- Do not redact or omit cleanup failures. Report exact orphan PIDs and separate cleanup status from gameplay assertions.
+
+## matrix-profile-split-v1: Keep feature smoke cheap and move heavy coverage to profiles
+
+Status: verified
+Last verified: 2026-05-08
+Applies to: `tools/harness/mp/run_matrix.py`, matrix docs, HumanBot/battle seed sweeps
+Triggers: matrix cost control, random-aware runs, battle-heavy runs, nightly automation
+
+Problem:
+`run_matrix.py --case all` was doing a fixed default subset, while newer random-aware, battle, lifecycle, and seed sweep cases needed named groups. Without explicit profiles, feature work can accidentally run too much, or nightly automation can accidentally run too little.
+
+Recipe:
+- Keep targeted case execution with `--case <case>`.
+- Keep `--case all` backward-compatible as the existing default subset: `editor-host-build-client`, `build-host-editor-client`, `build-host-build-client`, `ai-fill-smoke`, `disconnect-ai-takeover`, `same-token-reconnect`, `four-player-smoke`.
+- Add `--profile` for named sets:
+  - `smoke`: three Editor/Build smoke cases.
+  - `regression`: `smoke` plus AI fill, disconnect takeover, same-token reconnect, four-player smoke, and HumanBot prepare.
+  - `battle`: battle spawn, magic scroll, and HumanBot battle progression.
+  - `lifecycle`: progressed reconnect, disconnect, and Host Migration after battle.
+  - `random-aware`: HumanBot prepare, HumanBot 4p, progressed lifecycle cases, and HumanBot seed sweep.
+  - `nightly`: regression, battle, lifecycle, battle seed sweep, and HumanBot seed sweep.
+- Use `--list-cases` and `--list-profiles` before wiring automation.
+- Use `--dry-run` to prove selected cases and child commands. Dry-run must not call Unity Editor cleanup between cases.
+- Matrix summary JSON should record `profileName`, `selectedCases`, per-case `functionalSuccess`, per-case `cleanupStatus`, aggregate `functionalSuccess`, aggregate `cleanupStatus`, `overallSuccess`, and child artifact paths.
+- Seed sweep profile defaults are diagnostic, not deterministic replay claims: HumanBot prepare sweep uses `5101,5102,5103`; battle sweep uses `7101,7102,7103`.
+
+Verification:
+- `python -m py_compile tools\harness\mp\run_matrix.py tools\harness\mp\run_battle_seed_sweep.py tools\harness\mp\run_human_bot_seed_sweep.py` PASS.
+- `python tools/harness/mp/run_matrix.py --list-profiles` listed `smoke`, `regression`, `battle`, `lifecycle`, `random-aware`, and `nightly`.
+- `python tools/harness/mp/run_matrix.py --list-cases` listed all targeted cases, including `human-bot-seed-sweep`, and documented `--case all`.
+- `python tools/harness/mp/run_matrix.py --profile smoke --dry-run` PASS with selected cases `editor-host-build-client`, `build-host-editor-client`, `build-host-build-client`.
+- `python tools/harness/mp/run_matrix.py --profile battle --dry-run` PASS with selected cases `battle-spawn-monster-command`, `magic-scroll-command`, `human-bot-battle-progression`.
+- `python tools/harness/mp/run_matrix.py --profile random-aware --dry-run` PASS with selected cases `human-bot-prepare`, `human-bot-4p-progression`, `progressed-reconnect-after-battle`, `progressed-disconnect-after-battle`, `progressed-host-migration-after-battle`, `human-bot-seed-sweep`.
+
+Pitfalls:
+- Do not silently redefine `--case all` as nightly.
+- Do not let `--dry-run` perform Editor `mp_stop` or `editor stop`; it should only create command/selection artifacts.
+
+## human-bot-battle-after-prepare-v2-v1: Full prepare can feed battle command progression
+
+Status: verified with cleanup environment blocker
+Last verified: 2026-05-08
+Applies to: `run_human_bot_battle_progression.py`, `battle_progression_common.py`, `PrepareDecisionPolicy`, `BattleDecisionPolicy`
+Triggers: Prepare v2 recheck, HumanBot battle progression, battle command sync
+
+Problem:
+After changing composition-aware prepare buy/reroll behavior, battle progression must prove that full prepare still reaches battle and that battle command counters/snapshots stay synchronized. The battle command-specific scripts can keep `augment-only`, but `run_human_bot_battle_progression.py` should default to full prepare for this recheck.
+
+Recipe:
+- Use a Development player built after the current C# changes. Stale builds can miss prepare/battle policy or unit lifecycle fixes.
+- `run_human_bot_battle_progression.py` accepts `--bot-persona` as a compatibility alias for `--host-bot-persona`.
+- Keep `run_human_bot_battle_progression.py` default `--bot-prepare-mode full` for Prepare v2 rechecks. Use `--bot-prepare-mode augment-only` only when isolating battle command sync.
+- For PASS, check both `battle-command-evidence.json` and `bot-metrics-summary.json`:
+  - `battle-command-evidence.json.success=true`, empty errors/warnings, host/client command counters match.
+  - `battle-comparison-latest.json.success=true`.
+  - `bot-metrics-summary.json.summary.battleReached=true`.
+  - Buy/reroll metrics preserve Prepare v2 invariants: `BuyUnit > 0`, no `rerollBeforeThreeSold`, and first reroll sold slot count is `>=3` when reroll exists.
+- Treat cleanup separately. Non-strict runs may still be `success=true` with `cleanupStatus=NEEDS_ENVIRONMENT`.
+
+Verification:
+- `python tools/harness/precommit.py --all` PASS, `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject editor refresh --compile` PASS.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]` before and after E2E.
+- `unity-cli --project Mdfproject test --mode EditMode` PASS, `43/43`.
+- `python tools/harness/mp/build_player.py --launch-smoke --exit-after-seconds 5` created `artifacts/builds/20260507-175726/MDF-MPTest.exe`; `build-metadata.json` reports `result=Succeeded`, Development, AllowDebugging. The launch-smoke wrapper timed out after 10 seconds and left PID `23764`, so smoke cleanup remains part of the Windows cleanup environment blocker.
+
+Battle recheck artifacts using `artifacts/builds/20260507-175726/MDF-MPTest.exe`:
+- Balanced: `artifacts/mp/20260507-180042-human-bot-battle-progression`, command `--seed 6101 --bot-persona balanced`, `functionalSuccess=true`, `cleanupStatus=NEEDS_ENVIRONMENT`. Metrics: `BuyUnit=7`, `RerollShop=0`, `rerollBeforeThreeSold=false`, `battleReached=true`, `finalFieldUnitTotal=6`, `acceptedBattleCommandSeq=5`, `spawnMonsterSeq=3`, `activateSkillSeq=2`, `useMagicScrollSeq=0`.
+- Unit: `artifacts/mp/20260507-180341-human-bot-battle-progression`, command `--seed 6102 --bot-persona unit`, `functionalSuccess=true`, `cleanupStatus=NEEDS_ENVIRONMENT`. Metrics: `BuyUnit=9`, `RerollShop=0`, `rerollBeforeThreeSold=false`, `battleReached=true`, `finalFieldUnitTotal=7`, `acceptedBattleCommandSeq=6`, `spawnMonsterSeq=3`, `activateSkillSeq=3`, `useMagicScrollSeq=0`.
+- Maze: `artifacts/mp/20260507-180640-human-bot-battle-progression`, command `--seed 6103 --bot-persona maze`, `functionalSuccess=true`, `cleanupStatus=NEEDS_ENVIRONMENT`. Metrics: `BuyUnit=5`, `RerollShop=1`, first reroll `soldSlotCount=4`, `rerollBeforeThreeSold=false`, `battleReached=true`, `finalFieldUnitTotal=5`, `acceptedBattleCommandSeq=3`, `spawnMonsterSeq=3`, `activateSkillSeq=0`, final evidence `useMagicScrollSeq=0`.
+- All three had `battle-command-evidence.json.success=true` with empty errors/warnings, matching host/client `acceptedBattleCommandSeq` and `spawnMonsterSeq`, and `battle-comparison-latest.json.success=true`.
+- The Maze run also logged a server AI `UseMagicScroll` opportunity and execution in `build-host.Player.log` (`scroll_accepted`, `scroll_effect_applied`, `battle_command_executed`), proving the scroll command path remains active when a scroll opportunity appears. It occurred outside the final paired host/client evidence window, so keep the dedicated `magic-scroll-command` case for strict scroll snapshot proof.
+
+Pitfalls:
+- `battle-command-evidence.json` may be captured after the game returns to Prepare; use its `battleObserved=true` plus `bot-metrics-summary.json.summary.battleReached=true`, not final `currentState`, to decide whether battle was reached.
+- `useMagicScrollSeq=0` in final evidence does not prove the scroll path was unavailable for the whole run; check `[MPTEST]` scroll logs and the dedicated magic scroll case when scroll behavior is the feature under test.
+
+## windows-e2e-orphan-pressure-v1: Treat high orphan counts as an environment blocker
+
+Status: verified with environment blocker
+Last verified: 2026-05-08
+Applies to: `tools/harness/mp/launch_player.py`, cleanup reports, final audit E2E retries
+Triggers: many live `MDF-MPTest.exe` processes, D3D resource errors, lobby start timeouts, cleanup report token redaction
+
+Problem:
+When many old `MDF-MPTest.exe` processes remain alive, new E2E runs can fail before gameplay starts. In the final audit, 75 live MDF test players remained after cleanup attempts. A fresh HumanBot battle retry then failed with D3D `0x887A0005` resource creation errors, host `NetworkManager.JoinLobby` null reference after a duplicate `NetworkRunner`, missing `GameManagers`, and zero bot commands. This is an environment cleanup blocker, not Prepare v2 or battle command gameplay evidence.
+
+Recipe:
+- Before optional heavy E2E, count live players with `Get-Process -Name MDF-MPTest` and `Get-CimInstance Win32_Process -Filter "Name = 'MDF-MPTest.exe'"`.
+- If the count is high, do not continue piling on matrix, Host Migration, or seed sweep cases unless the goal is specifically to reproduce cleanup pressure. Record `NEEDS_ENVIRONMENT` with the count, failed cleanup methods, and the last artifact path.
+- `Stop-Process -Name MDF-MPTest -Force` can be insufficient in this environment; the observed count stayed `75 -> 75`. Do not claim the environment is clean from the command alone.
+- Cleanup reports must redact both current-process secrets and unrelated baseline process command lines. Use generic CLI argument redaction for `--mpAutomationToken` and `--mpConnectionToken`, not only exact per-run secret replacement.
+- When generated cleanup reports were written before the generic redaction fix, scrub ignored artifact JSON before sharing bundles or logs.
+
+Verification:
+- `python -m py_compile tools\harness\mp\launch_player.py` PASS after adding generic token redaction.
+- A direct `_redact_text` probe converted `--mpAutomationToken abc --mpConnectionToken=def` to redacted token placeholders.
+- `Select-String -Path artifacts\**\*.json -Pattern '--mpAutomationToken\s+[^<\s]|--mpConnectionToken\s+[^<\s]|--mpAutomationToken=[^<\s]|--mpConnectionToken=[^<\s]'` returned no matches after scrubbing generated JSON artifacts.
+- `artifacts/mp/20260507-182237-human-bot-battle-progression/result.json` recorded functional failure from environment startup pressure: `host_start_timeout`, `client_join_timeout`, `GameManagers` missing, `commandsIssued=0`, and cleanup `NEEDS_ENVIRONMENT` with orphaned PIDs `28024,9812`.
+
+Pitfalls:
+- Do not use a failed high-pressure retry to regress the previously clean functional PASS evidence. Keep the last known functional artifacts and the environment-blocked retry separate in reports.
+- Do not print raw live process command lines in final summaries; redact token arguments before showing process diagnostics.

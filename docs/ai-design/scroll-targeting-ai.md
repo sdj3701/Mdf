@@ -23,10 +23,12 @@ AI and HumanBot battle policies need a shared evaluator for magic scroll targets
 - `effects`
 - `vfxPrefab`
 
-Current scroll execution creates a `ScrollCaster` and runs `SkillEffect.ApplyEffect` through `RPC_BroadcastMagicScrollUsed` on all peers. That must be split into:
+Legacy scroll execution created a `ScrollCaster` and ran `SkillEffect.ApplyEffect` through `RPC_BroadcastMagicScrollUsed` on all peers. The current command architecture splits this into:
 
-- server-only gameplay application
-- presentation-only client VFX/event broadcast
+- server-only gameplay application through `UseMagicScrollCommand` and `ScrollCaster.CastGameplay`
+- presentation-only client VFX/event broadcast through `RPC_BroadcastMagicScrollUsed` and presentation helpers
+
+Do not reintroduce gameplay effects, inventory consumption, HP/status/buff/zone mutation, or `CastGameplay` calls into presentation RPC/helpers.
 
 ## Required Scroll Metadata
 

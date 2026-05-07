@@ -6,7 +6,11 @@ using UnityEngine;
 
 public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 {
-    private delegate bool CommandChooser(MdfDecisionContext context, out MdfDecision decision);
+    private const int MinSoldSlotsBeforeReroll = 3;
+    private const float BuyDecisionScoreThreshold = 15f;
+    private const float HighValuePurchaseScoreThreshold = 18f;
+
+    private delegate bool CommandChooser(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision);
 
     private readonly string _persona;
     private readonly System.Random _random;
@@ -37,72 +41,95 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
         if (_persona == "passive")
         {
-            decision = MdfDecision.Observe(context, "passive_observe");
+            decision = MdfDecision.Observe(context, "passive_observe", BuildPrepareJournalFields(context, UnitCompositionAnalyzer.AnalyzePlayer(context.Actor), null, null));
             LogDecision(decision, "info");
             return false;
         }
 
-        foreach (var chooser in GetChooserOrder())
+        var composition = UnitCompositionAnalyzer.AnalyzePlayer(context.Actor);
+        foreach (var chooser in GetChooserOrder(composition))
         {
-            if (chooser(context, out decision))
+            if (chooser(context, composition, out decision))
             {
                 LogDecision(decision, "pass");
                 return true;
             }
         }
 
-        decision = MdfDecision.Observe(context, "no_legal_prepare_command");
+        var rerollGate = EvaluateRerollGate(context, composition, null);
+        decision = MdfDecision.Observe(context, "no_legal_prepare_command", BuildPrepareJournalFields(context, composition, null, rerollGate));
         LogDecision(decision, "info");
         return false;
     }
 
-    private IEnumerable<CommandChooser> GetChooserOrder()
+    private IEnumerable<CommandChooser> GetChooserOrder(PrepareArmyComposition composition)
     {
         yield return TryChooseAugment;
 
         switch (_persona)
         {
             case "maze":
-                yield return TryChooseWall;
-                yield return TryChooseBuy;
-                yield return TryChooseMove;
+                if (ShouldPrioritizeBuyBeforeWall(composition, _persona))
+                {
+                    yield return TryChooseBuy;
+                    yield return TryChooseMove;
+                    yield return TryChooseWall;
+                }
+                else
+                {
+                    yield return TryChooseWall;
+                    yield return TryChooseBuy;
+                    yield return TryChooseMove;
+                }
                 yield return TryChooseReroll;
                 break;
             case "shop":
                 yield return TryChooseBuy;
-                yield return TryChooseReroll;
                 yield return TryChooseMove;
                 yield return TryChooseWall;
+                yield return TryChooseReroll;
                 break;
             case "unit":
                 yield return TryChooseBuy;
                 yield return TryChooseMove;
-                yield return TryChooseReroll;
                 yield return TryChooseWall;
+                yield return TryChooseReroll;
                 break;
             default:
-                yield return TryChooseWall;
                 yield return TryChooseBuy;
                 yield return TryChooseMove;
+                yield return TryChooseWall;
                 yield return TryChooseReroll;
                 break;
         }
     }
 
-    private bool TryChooseAugment(MdfDecisionContext context, out MdfDecision decision)
+    private bool TryChooseAugment(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
     {
         decision = null;
         var player = context.Actor;
+        var presentedSnapshot = player.GetPresentedAugmentSnapshotNames();
+        if (presentedSnapshot == null || presentedSnapshot.Length == 0)
+        {
+            return false;
+        }
+
         var augments = player.augmentManager != null ? player.augmentManager.GetPresentedAugments() : null;
         if (augments == null || augments.Count == 0)
         {
             return false;
         }
 
-        int index = Mathf.Clamp(PickAugmentIndex(augments.Count), 0, augments.Count - 1);
+        int selectableCount = Mathf.Min(augments.Count, presentedSnapshot.Length);
+        if (selectableCount <= 0)
+        {
+            return false;
+        }
+
+        int index = Mathf.Clamp(PickAugmentIndex(selectableCount), 0, selectableCount - 1);
         if (_preferScrollAugment)
         {
-            int scrollIndex = augments.FindIndex(augment =>
+            int scrollIndex = augments.Take(selectableCount).ToList().FindIndex(augment =>
                 augment != null &&
                 augment.effectType == EffectType.GrantMagicScroll &&
                 augment.magicScrollData != null &&
@@ -121,17 +148,18 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             "presented_augment_available",
             $"index={index}",
             100f,
-            new Dictionary<string, object>
+            MergeFields(BuildPrepareJournalFields(context, composition, null, null), new Dictionary<string, object>
             {
                 { "augmentIndex", index },
                 { "augment", selectedAugment != null ? selectedAugment.name : "unknown" },
                 { "effectType", selectedAugment != null ? selectedAugment.effectType.ToString() : "unknown" },
+                { "presentedSnapshotCount", presentedSnapshot.Length },
                 { "preferScrollAugment", _preferScrollAugment }
-            });
+            }));
         return true;
     }
 
-    private bool TryChooseWall(MdfDecisionContext context, out MdfDecision decision)
+    private bool TryChooseWall(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
     {
         decision = null;
         var player = context.Actor;
@@ -141,6 +169,11 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         if (context.IsServerAi && !AIPacer.Ready(player.playerId, AIPacer.CatWall))
+        {
+            return false;
+        }
+
+        if (!ShouldAllowWallFocus(composition))
         {
             return false;
         }
@@ -162,15 +195,16 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             "maze_policy_next_wall",
             $"{position.x},{position.y},{position.z}",
             80f,
-            new Dictionary<string, object>
+            MergeFields(BuildPrepareJournalFields(context, composition, null, null), new Dictionary<string, object>
             {
                 { "x", position.x },
-                { "y", position.y }
-            });
+                { "y", position.y },
+                { "buyBeforeWallRequired", ShouldPrioritizeBuyBeforeWall(composition, _persona) }
+            }));
         return true;
     }
 
-    private bool TryChooseBuy(MdfDecisionContext context, out MdfDecision decision)
+    private bool TryChooseBuy(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
     {
         decision = null;
         var player = context.Actor;
@@ -186,24 +220,32 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
         int gold = player.GetGold();
         int bestSlot = -1;
-        float bestScore = 0f;
-        foreach (var pair in player.shopManager.GetAvailableShopItems())
+        float bestScore = float.MinValue;
+        PrepareShopDecisionScore bestBreakdown = null;
+        var shopItems = player.shopManager.GetCurrentShopItems();
+        for (int slot = 0; slot < shopItems.Count; slot++)
         {
-            var item = pair.Value;
+            if (IsShopSlotSoldForPolicy(player, slot))
+            {
+                continue;
+            }
+
+            var item = shopItems[slot];
             if (item.UnitData == null || gold < item.CalculatedCost)
             {
                 continue;
             }
 
-            float score = ScoreShopItem(player, item);
-            if (score > bestScore)
+            var score = ScoreShopItem(player, item, slot, composition);
+            if (score.FinalScore > bestScore)
             {
-                bestScore = score;
-                bestSlot = pair.Key;
+                bestScore = score.FinalScore;
+                bestSlot = slot;
+                bestBreakdown = score;
             }
         }
 
-        if (bestSlot < 0 || bestScore <= 0.1f)
+        if (bestSlot < 0 || bestScore < BuyDecisionScoreThreshold)
         {
             return false;
         }
@@ -220,15 +262,11 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             "best_affordable_score",
             $"slot={bestSlot};score={bestScore:F2}",
             bestScore,
-            new Dictionary<string, object>
-            {
-                { "shopSlot", bestSlot },
-                { "score", bestScore.ToString("F2") }
-            });
+            BuildPrepareJournalFields(context, composition, bestBreakdown, null));
         return true;
     }
 
-    private bool TryChooseMove(MdfDecisionContext context, out MdfDecision decision)
+    private bool TryChooseMove(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
     {
         decision = null;
         var player = context.Actor;
@@ -285,34 +323,29 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 "best_unit_reposition",
                 $"{from.Value.x},{from.Value.y}->{to.Value.x},{to.Value.y}",
                 50f,
-                new Dictionary<string, object>
+                MergeFields(BuildPrepareJournalFields(context, composition, null, null), new Dictionary<string, object>
                 {
                     { "from", $"{from.Value.x},{from.Value.y}" },
                     { "to", $"{to.Value.x},{to.Value.y}" },
                     { "unit", unit.Data.unitName }
-                });
+                }));
             return true;
         }
 
         return false;
     }
 
-    private bool TryChooseReroll(MdfDecisionContext context, out MdfDecision decision)
+    private bool TryChooseReroll(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
     {
         decision = null;
+        var gate = EvaluateRerollGate(context, composition, null);
         var player = context.Actor;
-        if (player.shopManager == null || !player.shopManager.IsDatabaseLoaded)
+        if (!gate.CanReroll)
         {
             return false;
         }
 
         if (context.IsServerAi && !AIPacer.Ready(player.playerId, AIPacer.CatReroll))
-        {
-            return false;
-        }
-
-        int cost = player.shopManager.GetRerollCost();
-        if (player.GetGold() < cost)
         {
             return false;
         }
@@ -326,10 +359,10 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             context,
             new RerollShopCommand(player.playerId),
             CommandType.RerollShop,
-            "no_better_purchase_gold_allows_reroll",
-            $"cost={cost}",
+            "reroll_gate_passed_late_shop_action",
+            $"cost={gate.RerollCost};sold={gate.SoldSlotCount}/{gate.ShopSlotCount}",
             20f,
-            new Dictionary<string, object> { { "cost", cost } });
+            BuildPrepareJournalFields(context, composition, null, gate));
         return true;
     }
 
@@ -343,23 +376,94 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         return _persona == "balanced" || _persona == "maze" ? 0 : _random.Next(count);
     }
 
-    private float ScoreShopItem(PlayerManager player, ShopItem item)
+    private PrepareShopDecisionScore ScoreShopItem(
+        PlayerManager player,
+        ShopItem item,
+        int shopSlot,
+        PrepareArmyComposition composition)
     {
-        float score = item.StarLevel * 10f;
-        if (item.UnitData != null)
+        int gold = player != null ? player.GetGold() : 0;
+        return ScoreShopItemForTest(item, composition, gold, _persona, shopSlot);
+    }
+
+    public static PrepareShopDecisionScore ScoreShopItemForTest(
+        ShopItem item,
+        PrepareArmyComposition composition,
+        int playerGold,
+        string persona = "balanced",
+        int shopSlot = -1)
+    {
+        composition = composition ?? new PrepareArmyComposition("field");
+        var unitData = item.UnitData;
+        PrepareUnitRole role = UnitCompositionAnalyzer.Classify(unitData);
+        int starLevel = Mathf.Max(1, item.StarLevel);
+        int calculatedCost = item.CalculatedCost;
+
+        var score = new PrepareShopDecisionScore
         {
-            score += item.UnitData.cost;
-            score += item.UnitData.baseAttackDamage * 0.05f;
-            score += item.UnitData.attackRange * 0.5f;
-            score += item.UnitData.attackSpeed;
-            if (_persona == "unit")
-            {
-                score += item.UnitData.unitType == UnitType.Ranged ? 2f : 1f;
-            }
+            UnitKey = UnitCompositionAnalyzer.StableUnitKey(unitData),
+            UnitRole = role,
+            ShopSlot = shopSlot,
+            StarLevel = starLevel,
+            Cost = calculatedCost,
+            MatchingSameUnitSameStarCount = composition.CountMatchingSameUnitSameStar(unitData, starLevel)
+        };
+
+        if (unitData != null)
+        {
+            score.BaseQualityScore =
+                starLevel * 10f +
+                unitData.cost +
+                unitData.baseHealth * 0.01f +
+                unitData.baseAttackDamage * 0.05f +
+                unitData.attackRange * 0.5f +
+                unitData.attackSpeed;
         }
 
-        int goldAfter = player.GetGold() - item.CalculatedCost;
-        score += Mathf.Clamp(goldAfter, 0, 10) * 0.1f;
+        int roleDeficit = composition.DeficitForRole(role);
+        int totalDistance = composition.CompositionDistanceToTarget;
+        score.RoleDeficitBonus = roleDeficit > 0 ? roleDeficit * 18f + totalDistance * 2f : 0f;
+
+        int projectedOverTarget = composition.ProjectedOverTargetForRole(role);
+        score.RoleOverTargetPenalty = projectedOverTarget > 0 ? -12f * projectedOverTarget : 0f;
+
+        if (score.MatchingSameUnitSameStarCount >= 2)
+        {
+            score.MergeBonus = 90f;
+        }
+        else if (score.MatchingSameUnitSameStarCount == 1)
+        {
+            score.MergeBonus = 24f;
+        }
+
+        string normalizedPersona = NormalizePersona(persona);
+        if (normalizedPersona == "unit")
+        {
+            score.PersonaBonus = role == PrepareUnitRole.RangedDps ? 3f : 2f;
+        }
+        else if (normalizedPersona == "shop")
+        {
+            score.PersonaBonus = 2f;
+        }
+        else if (normalizedPersona == "maze" && !composition.HasMinimumArmyCore)
+        {
+            score.PersonaBonus = 4f;
+        }
+
+        int goldAfter = playerGold - calculatedCost;
+        int desiredReserve = composition.HasMinimumArmyCore ? 2 : 0;
+        score.GoldReservePenalty = goldAfter < desiredReserve
+            ? -(desiredReserve - goldAfter) * 3f
+            : Mathf.Clamp(goldAfter, 0, 10) * 0.1f;
+
+        score.FinalScore =
+            score.BaseQualityScore +
+            score.RoleDeficitBonus +
+            score.RoleOverTargetPenalty +
+            score.MergeBonus +
+            score.PersonaBonus +
+            score.GoldReservePenalty;
+
         return score;
     }
 
@@ -469,6 +573,296 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         {
             return "wall-signature-error";
         }
+    }
+
+    private PrepareRerollGateResult EvaluateRerollGate(
+        MdfDecisionContext context,
+        PrepareArmyComposition composition,
+        PrepareShopDecisionScore knownBestAffordablePurchase)
+    {
+        var player = context != null ? context.Actor : null;
+        var shop = player != null ? player.shopManager : null;
+        int gold = player != null ? player.GetGold() : 0;
+        int rerollCost = shop != null ? shop.GetRerollCost() : 0;
+        int shopSlotCount = GetShopSlotCountForPolicy(player);
+        int soldSlotCount = GetSoldSlotCountForPolicy(player);
+        var bestPurchase = knownBestAffordablePurchase ?? FindBestAffordablePurchase(player, composition);
+
+        return EvaluateRerollGateForTest(
+            shopReady: shop != null && shop.IsDatabaseLoaded,
+            isPreparePhase: context != null && context.GameState == GameManagers.GameState.Prepare,
+            playerReady: player != null && player.IsReadyForPlayerActions,
+            gold: gold,
+            rerollCost: rerollCost,
+            shopSlotCount: shopSlotCount,
+            soldSlotCount: soldSlotCount,
+            bestAffordablePurchaseScore: bestPurchase != null ? bestPurchase.FinalScore : float.MinValue,
+            bestAffordableUnitKey: bestPurchase != null ? bestPurchase.UnitKey : null);
+    }
+
+    public static PrepareRerollGateResult EvaluateRerollGateForTest(
+        bool shopReady,
+        bool isPreparePhase,
+        bool playerReady,
+        int gold,
+        int rerollCost,
+        int shopSlotCount,
+        int soldSlotCount,
+        float bestAffordablePurchaseScore = float.MinValue,
+        string bestAffordableUnitKey = null)
+    {
+        int normalizedShopSlots = Mathf.Max(0, shopSlotCount);
+        int normalizedSoldSlots = Mathf.Clamp(soldSlotCount, 0, normalizedShopSlots);
+        var result = new PrepareRerollGateResult
+        {
+            CanReroll = false,
+            Reason = "unknown",
+            SoldSlotCount = normalizedSoldSlots,
+            ShopSlotCount = normalizedShopSlots,
+            UnsoldSlotCount = Mathf.Max(0, normalizedShopSlots - normalizedSoldSlots),
+            Gold = gold,
+            RerollCost = Mathf.Max(0, rerollCost),
+            BestAffordablePurchaseScore = bestAffordablePurchaseScore > float.MinValue / 2f ? bestAffordablePurchaseScore : 0f,
+            BestAffordableUnitKey = bestAffordableUnitKey
+        };
+
+        if (!shopReady)
+        {
+            result.Reason = "shop_not_ready";
+            return result;
+        }
+
+        if (!isPreparePhase)
+        {
+            result.Reason = "not_prepare_phase";
+            return result;
+        }
+
+        if (!playerReady)
+        {
+            result.Reason = "player_not_ready_for_actions";
+            return result;
+        }
+
+        if (normalizedShopSlots <= 0)
+        {
+            result.Reason = "shop_empty";
+            return result;
+        }
+
+        if (gold < result.RerollCost)
+        {
+            result.Reason = "insufficient_gold_for_reroll";
+            return result;
+        }
+
+        if (normalizedSoldSlots < MinSoldSlotsBeforeReroll)
+        {
+            result.Reason = "sold_slots_below_3";
+            return result;
+        }
+
+        if (bestAffordablePurchaseScore >= HighValuePurchaseScoreThreshold)
+        {
+            result.Reason = "high_value_affordable_purchase_remaining";
+            return result;
+        }
+
+        result.CanReroll = true;
+        result.Reason = "gate_passed";
+        return result;
+    }
+
+    private PrepareShopDecisionScore FindBestAffordablePurchase(PlayerManager player, PrepareArmyComposition composition)
+    {
+        if (player == null || player.shopManager == null || !player.shopManager.IsDatabaseLoaded)
+        {
+            return null;
+        }
+
+        int gold = player.GetGold();
+        PrepareShopDecisionScore best = null;
+        var shopItems = player.shopManager.GetCurrentShopItems();
+        for (int slot = 0; slot < shopItems.Count; slot++)
+        {
+            if (IsShopSlotSoldForPolicy(player, slot))
+            {
+                continue;
+            }
+
+            var item = shopItems[slot];
+            if (item.UnitData == null || gold < item.CalculatedCost)
+            {
+                continue;
+            }
+
+            var score = ScoreShopItem(player, item, slot, composition);
+            if (best == null || score.FinalScore > best.FinalScore)
+            {
+                best = score;
+            }
+        }
+
+        return best;
+    }
+
+    private static int GetShopSlotCountForPolicy(PlayerManager player)
+    {
+        if (player == null)
+        {
+            return 0;
+        }
+
+        if (player.TryGetShopSnapshot(out string[] unitKeys, out _, out _, out _, out _) && unitKeys != null && unitKeys.Length > 0)
+        {
+            return unitKeys.Length;
+        }
+
+        return player.shopManager != null ? player.shopManager.GetShopSlotCount() : 0;
+    }
+
+    private static int GetSoldSlotCountForPolicy(PlayerManager player)
+    {
+        if (player == null)
+        {
+            return 0;
+        }
+
+        if (player.TryGetShopSnapshot(out string[] unitKeys, out _, out bool[] soldFlags, out _, out _) &&
+            unitKeys != null &&
+            soldFlags != null)
+        {
+            int count = 0;
+            int limit = Mathf.Min(unitKeys.Length, soldFlags.Length);
+            for (int i = 0; i < limit; i++)
+            {
+                if (soldFlags[i])
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        return player.shopManager != null ? player.shopManager.GetSoldSlotCount() : 0;
+    }
+
+    private static bool IsShopSlotSoldForPolicy(PlayerManager player, int slot)
+    {
+        if (player == null || slot < 0)
+        {
+            return true;
+        }
+
+        if (player.TryGetShopSnapshot(out string[] unitKeys, out _, out bool[] soldFlags, out _, out _) &&
+            unitKeys != null &&
+            slot < unitKeys.Length)
+        {
+            return soldFlags != null && slot < soldFlags.Length && soldFlags[slot];
+        }
+
+        return player.shopManager == null || player.shopManager.IsSlotSold(slot);
+    }
+
+    public static bool ShouldPrioritizeBuyBeforeWall(PrepareArmyComposition composition, string persona)
+    {
+        if (composition == null)
+        {
+            return true;
+        }
+
+        string normalizedPersona = NormalizePersona(persona);
+        if (normalizedPersona != "maze")
+        {
+            return true;
+        }
+
+        return !composition.HasMinimumArmyCore ||
+               composition.FieldUnitCount < PrepareArmyComposition.MinimumCoreUnitCount ||
+               composition.MeleeCount <= 0 ||
+               composition.RangedDpsCount + composition.HealerCount <= 0;
+    }
+
+    private static bool ShouldAllowWallFocus(PrepareArmyComposition composition)
+    {
+        if (composition == null || !composition.HasMinimumArmyCore)
+        {
+            return false;
+        }
+
+        return composition.FieldUnitCount >= PrepareArmyComposition.TargetTotalUnits &&
+               composition.CompositionDistanceToTarget == 0;
+    }
+
+    private static Dictionary<string, object> BuildPrepareJournalFields(
+        MdfDecisionContext context,
+        PrepareArmyComposition composition,
+        PrepareShopDecisionScore buyScore,
+        PrepareRerollGateResult rerollGate)
+    {
+        var fields = composition != null
+            ? composition.ToJournalFields()
+            : new PrepareArmyComposition("field").ToJournalFields();
+
+        var player = context != null ? context.Actor : null;
+        var shop = player != null ? player.shopManager : null;
+        if (shop != null)
+        {
+            int shopSlotCount = GetShopSlotCountForPolicy(player);
+            int soldSlotCount = GetSoldSlotCountForPolicy(player);
+            fields["soldSlotCount"] = soldSlotCount;
+            fields["shopSlotCount"] = shopSlotCount;
+            fields["unsoldSlotCount"] = Mathf.Max(0, shopSlotCount - soldSlotCount);
+        }
+        else
+        {
+            fields["soldSlotCount"] = 0;
+            fields["shopSlotCount"] = 0;
+            fields["unsoldSlotCount"] = 0;
+        }
+
+        if (buyScore != null)
+        {
+            MergeFields(fields, buyScore.ToJournalFields());
+        }
+        else
+        {
+            fields["matchingSameUnitSameStarCount"] = 0;
+            fields["compositionScore"] = "0.00";
+            fields["mergeBonus"] = "0.00";
+            fields["rolePenalty"] = "0.00";
+            fields["goldReservePenalty"] = "0.00";
+        }
+
+        if (rerollGate != null)
+        {
+            MergeFields(fields, rerollGate.ToJournalFields());
+        }
+        else
+        {
+            fields["rerollGateReason"] = "not_evaluated";
+        }
+
+        return fields;
+    }
+
+    private static Dictionary<string, object> MergeFields(
+        Dictionary<string, object> target,
+        IReadOnlyDictionary<string, object> source)
+    {
+        target = target ?? new Dictionary<string, object>();
+        if (source == null)
+        {
+            return target;
+        }
+
+        foreach (var pair in source)
+        {
+            target[pair.Key] = pair.Value;
+        }
+
+        return target;
     }
 
     private static string NormalizePersona(string persona)

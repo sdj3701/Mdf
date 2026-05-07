@@ -243,7 +243,9 @@ If a command cannot run in the local environment, Codex must report `BLOCKED` or
 
 ## Implementation phases
 
-See `implementation-phases.md` and `codex-phase-prompts.md`.
+Current source-of-truth prompt runbooks are `codex-full-phase-prompts.md` plus the Phase 18+ plan in `randomized-progression-test-plan.md`.
+
+`implementation-phases.md` and `codex-phase-prompts.md` are historical pointers for the original MVP overlay; do not use them instead of the current full phase prompts.
 
 Suggested order:
 

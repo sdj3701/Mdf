@@ -7,6 +7,7 @@ Run:
 """
 from __future__ import annotations
 import argparse
+import json
 import pathlib
 import re
 import subprocess
@@ -53,6 +54,55 @@ WARN_PATTERNS = [
 ]
 
 SECRET_LOG_PATTERN = re.compile(r'Debug\.Log(?:Error|Warning)?[^\n]*(mpAutomationToken|AutomationToken|ConnectionToken|connectionToken|AppId|PhotonAppSettings)', re.I)
+
+
+def normalize_glob(value: object) -> str:
+    return str(value or '').replace('\\', '/').strip().strip('/')
+
+
+def profile_includes_codex_session_state(profile: dict) -> bool:
+    includes = [normalize_glob(item) for item in profile.get('include') or []]
+    excludes = [normalize_glob(item) for item in profile.get('exclude') or []]
+    includes_codex = any(item in {'.codex', '.codex/**', '**/.codex/**'} for item in includes)
+    excludes_session_state = any(
+        item in {'.codex/session-state', '.codex/session-state/**', '**/.codex/session-state/**'}
+        or item.startswith('.codex/session-state/')
+        or item.startswith('**/.codex/session-state/')
+        for item in excludes
+    )
+    return includes_codex and not excludes_session_state
+
+
+def check_context_packer_defaults() -> list[tuple[str, str, str]]:
+    errors: list[tuple[str, str, str]] = []
+    config_path = ROOT / '_context_packer/mdf_context_pack.config.json'
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text(encoding='utf-8'))
+        except Exception as exc:
+            errors.append((rel(config_path), 'context_packer_config_invalid', f'Could not parse context packer config: {type(exc).__name__}: {exc}'))
+            config = {}
+        profiles = config.get('profiles') if isinstance(config, dict) else None
+        if isinstance(profiles, dict):
+            for name, profile in profiles.items():
+                if isinstance(profile, dict) and profile_includes_codex_session_state(profile):
+                    errors.append((
+                        rel(config_path),
+                        'context_packer_session_state',
+                        f'Profile {name} includes .codex/** but does not exclude .codex/session-state/**.'
+                    ))
+
+    gitignore_path = ROOT / '.gitignore'
+    if gitignore_path.exists():
+        gitignore = gitignore_path.read_text(encoding='utf-8', errors='ignore').replace('\\', '/')
+        required_ignores = {
+            '_context_packer/output/': 'context_packer_output_not_ignored',
+            '_context_bundles/': 'context_bundles_not_ignored',
+        }
+        for required, code in required_ignores.items():
+            if required not in gitignore:
+                errors.append((rel(gitignore_path), code, f'Generated context output must be ignored: {required}'))
+    return errors
 
 
 def rel(p: pathlib.Path) -> str:
@@ -256,6 +306,9 @@ def custom_errors(txt: str, r: str) -> list[tuple[str, str, str]]:
     if '/Editor/' in r:
         return errors
 
+    if pathlib.PurePosixPath(r).name == 'Unit.cs' and method_body_contains(txt, 'OnDisable', r'\bUnitDied\s*\('):
+        errors.append((r, 'unit_disable_field_registry_removal', 'Unit.OnDisable must not remove field registry entries; battle death disables units that must respawn later.'))
+
     if re.search(r'ComponentRegistry\.Register\s*<\s*AIPlayerController\s*>|AddComponent\s*<\s*AIPlayerController\s*>', txt):
         if 'HumanBot' in txt or r.startswith('Mdfproject/Assets/Scripts/Testing/MP/'):
             errors.append((r, 'humanbot_ai_registration', 'HumanBot/test human peers must not register or attach AIPlayerController.'))
@@ -382,6 +435,7 @@ def run(files: list[pathlib.Path]) -> int:
         e, w = check_file(p)
         errors.extend(e)
         warns.extend(w)
+    errors.extend(check_context_packer_defaults())
     warns.extend(check_phase_change_set(files))
     for r, name, msg in errors:
         print(f'BLOCK {name} {r}\n   {msg}\n   See docs/ai-harness/fusion-sync-rules.md and automation-server-contract.md')
@@ -430,6 +484,19 @@ def self_test() -> int:
                 bad8.unlink()
             except Exception:
                 pass
+        cases.append(('context packer session-state block', profile_includes_codex_session_state({
+            'include': ['.codex/**'],
+            'exclude': ['_context_packer/output/**'],
+        })))
+        cases.append(('context packer session-state exclude ok', not profile_includes_codex_session_state({
+            'include': ['.codex/**'],
+            'exclude': ['.codex/session-state/**'],
+        })))
+        cases.append(('unit ondisable registry removal helper', method_body_contains(
+            'class Unit { void OnDisable(){ owner.fieldManager.UnitDied(this); } }',
+            'OnDisable',
+            r'\bUnitDied\s*\('
+        )))
         passed = True
         for name, result in cases:
             print(f'self-test {name}:', 'PASS' if result else 'FAIL')

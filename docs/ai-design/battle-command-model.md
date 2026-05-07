@@ -10,11 +10,20 @@ Target commands:
 - `UseMagicScrollCommand`
 - existing `ActivateSkillCommand`, hardened for manual/strategic skill use
 
-## Current Battle Risks
+## Current Implementation Status
+
+Status note, 2026-05-08:
+
+- Human and HumanBot battle scroll requests use `UseMagicScrollCommand` / `RPC_RequestUseMagicScrollCommand`.
+- Strategic AI spawn planning in `MonsterSpawner.ExecuteSpawnPlanAsync` submits `BattleSpawnMonsterCommand`; `SpawnMonsterAtPositionAsync` is still allowed inside the low-level spawner and command execution path.
+- Legacy `RPC_RequestSpawnMonster` and `RPC_RequestUseMagicScroll` are obsolete/deprecated request surfaces and reject rather than executing durable gameplay.
+- `RPC_BroadcastMagicScrollUsed` is presentation-only and must not apply durable gameplay effects.
+
+## Legacy Battle Risks
 
 ### Monster spawn
 
-Current human attacker path:
+Legacy human attacker path before command conversion:
 
 ```text
 AttackSequenceManager.SpawnMonsterAsync
@@ -22,7 +31,7 @@ AttackSequenceManager.SpawnMonsterAsync
   client: TryConsumeMonsterFromPool locally + GameManagers.RPC_RequestSpawnMonster
 ```
 
-Current AI attacker path:
+Legacy AI attacker path before command conversion:
 
 ```text
 GameManagers.StartBattleForPlayers
@@ -41,7 +50,7 @@ Risks:
 
 ### Magic scroll
 
-Current path:
+Legacy path before command conversion:
 
 ```text
 AttackSequenceManager.UseMagicScrollAsync

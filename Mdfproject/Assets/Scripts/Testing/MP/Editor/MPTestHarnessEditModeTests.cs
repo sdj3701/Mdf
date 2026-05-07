@@ -555,12 +555,197 @@ public sealed class MPTestHarnessEditModeTests
         string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
 
         Assert.That(source, Does.Contain("yield return TryChooseAugment"));
-        Assert.That(source.IndexOf("yield return TryChooseWall", System.StringComparison.Ordinal),
-            Is.LessThan(source.IndexOf("yield return TryChooseBuy", System.StringComparison.Ordinal)));
         Assert.That(source.IndexOf("yield return TryChooseBuy", System.StringComparison.Ordinal),
             Is.LessThan(source.IndexOf("yield return TryChooseMove", System.StringComparison.Ordinal)));
         Assert.That(source.IndexOf("yield return TryChooseMove", System.StringComparison.Ordinal),
             Is.LessThan(source.IndexOf("yield return TryChooseReroll", System.StringComparison.Ordinal)));
+        Assert.That(source, Does.Contain("ShouldPrioritizeBuyBeforeWall"));
+        Assert.That(source, Does.Contain("sold_slots_below_3"));
+        Assert.That(source, Does.Contain("high_value_affordable_purchase_remaining"));
+        Assert.That(source, Does.Contain("GetPresentedAugmentSnapshotNames"));
+        Assert.That(source, Does.Contain("IsShopSlotSoldForPolicy"));
+        Assert.That(source, Does.Contain("TryGetShopSnapshot"));
+    }
+
+    [Test]
+    public void PrepareCompositionClassifiesClericSkillHealAsHealer()
+    {
+        var cleric = CreateUnitForPrepareTest("UnitData_Cleric", "Cleric", UnitType.Ranged, new[] { "Skill_Heal", "Skill_Heal", "Skill_Heal" });
+        try
+        {
+            Assert.That(UnitCompositionAnalyzer.Classify(cleric), Is.EqualTo(PrepareUnitRole.Healer));
+        }
+        finally
+        {
+            Object.DestroyImmediate(cleric);
+        }
+    }
+
+    [Test]
+    public void PrepareCompositionCountsMeleeRangedAndHealer()
+    {
+        var melee = CreateUnitForPrepareTest("UnitData_Warrior", "Warrior", UnitType.Melee);
+        var extraMelee = CreateUnitForPrepareTest("UnitData_Guardian", "Guardian", UnitType.Melee);
+        var ranged = CreateUnitForPrepareTest("UnitData_Archer", "Archer", UnitType.Ranged);
+        var healer = CreateUnitForPrepareTest("UnitData_Cleric", "Cleric", UnitType.Ranged, new[] { "Skill_Heal", "Skill_Heal", "Skill_Heal" });
+        try
+        {
+            var composition = new PrepareArmyComposition();
+            composition.AddUnit(melee, 1);
+            composition.AddUnit(ranged, 1);
+            composition.AddUnit(healer, 1);
+
+            Assert.That(composition.MeleeCount, Is.EqualTo(1));
+            Assert.That(composition.RangedDpsCount, Is.EqualTo(1));
+            Assert.That(composition.HealerCount, Is.EqualTo(1));
+            Assert.That(composition.FieldUnitCount, Is.EqualTo(3));
+        }
+        finally
+        {
+            Object.DestroyImmediate(melee);
+            Object.DestroyImmediate(ranged);
+            Object.DestroyImmediate(healer);
+        }
+    }
+
+    [Test]
+    public void PrepareBuyScoringPrefersMissingRoleAndPenalizesOverrepresentedRole()
+    {
+        var melee = CreateUnitForPrepareTest("UnitData_Warrior", "Warrior", UnitType.Melee);
+        var extraMelee = CreateUnitForPrepareTest("UnitData_Guardian", "Guardian", UnitType.Melee);
+        var ranged = CreateUnitForPrepareTest("UnitData_Archer", "Archer", UnitType.Ranged);
+        var healer = CreateUnitForPrepareTest("UnitData_Cleric", "Cleric", UnitType.Ranged, new[] { "Skill_Heal", "Skill_Heal", "Skill_Heal" });
+        try
+        {
+            var composition = new PrepareArmyComposition();
+            composition.AddUnit(melee, 1);
+            composition.AddUnit(melee, 1);
+            composition.AddUnit(melee, 1);
+            composition.AddUnit(melee, 1);
+
+            var meleeScore = PrepareDecisionPolicy.ScoreShopItemForTest(new ShopItem(extraMelee, 1), composition, 20);
+            var rangedScore = PrepareDecisionPolicy.ScoreShopItemForTest(new ShopItem(ranged, 1), composition, 20);
+            var healerScore = PrepareDecisionPolicy.ScoreShopItemForTest(new ShopItem(healer, 1), composition, 20);
+
+            Assert.That(rangedScore.FinalScore, Is.GreaterThan(meleeScore.FinalScore));
+            Assert.That(healerScore.FinalScore, Is.GreaterThan(meleeScore.FinalScore));
+            Assert.That(meleeScore.RoleOverTargetPenalty, Is.LessThan(0f));
+            Assert.That(rangedScore.RoleDeficitBonus, Is.GreaterThan(0f));
+        }
+        finally
+        {
+            Object.DestroyImmediate(melee);
+            Object.DestroyImmediate(extraMelee);
+            Object.DestroyImmediate(ranged);
+            Object.DestroyImmediate(healer);
+        }
+    }
+
+    [Test]
+    public void PrepareBuyScoringRewardsThreeOfKindMergeOpportunity()
+    {
+        var archer = CreateUnitForPrepareTest("UnitData_Archer", "Archer", UnitType.Ranged);
+        try
+        {
+            var composition = new PrepareArmyComposition();
+            composition.AddUnit(archer, 1);
+            composition.AddUnit(archer, 1);
+
+            var score = PrepareDecisionPolicy.ScoreShopItemForTest(new ShopItem(archer, 1), composition, 20);
+
+            Assert.That(score.MatchingSameUnitSameStarCount, Is.EqualTo(2));
+            Assert.That(score.MergeBonus, Is.GreaterThanOrEqualTo(80f));
+            Assert.That(score.FinalScore, Is.GreaterThan(80f));
+        }
+        finally
+        {
+            Object.DestroyImmediate(archer);
+        }
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public void PrepareRerollGateRejectsBeforeThreeSoldSlots(int soldSlots)
+    {
+        var gate = PrepareDecisionPolicy.EvaluateRerollGateForTest(
+            shopReady: true,
+            isPreparePhase: true,
+            playerReady: true,
+            gold: 20,
+            rerollCost: 2,
+            shopSlotCount: 5,
+            soldSlotCount: soldSlots,
+            bestAffordablePurchaseScore: 0f);
+
+        Assert.That(gate.CanReroll, Is.False);
+        Assert.That(gate.Reason, Is.EqualTo("sold_slots_below_3"));
+    }
+
+    [Test]
+    public void PrepareRerollGateAllowsLateShopWhenNoHighValuePurchaseRemains()
+    {
+        var gate = PrepareDecisionPolicy.EvaluateRerollGateForTest(
+            shopReady: true,
+            isPreparePhase: true,
+            playerReady: true,
+            gold: 20,
+            rerollCost: 2,
+            shopSlotCount: 5,
+            soldSlotCount: 3,
+            bestAffordablePurchaseScore: 5f);
+
+        Assert.That(gate.CanReroll, Is.True);
+        Assert.That(gate.Reason, Is.EqualTo("gate_passed"));
+    }
+
+    [Test]
+    public void PrepareRerollGateRejectsHighValueAffordablePurchase()
+    {
+        var gate = PrepareDecisionPolicy.EvaluateRerollGateForTest(
+            shopReady: true,
+            isPreparePhase: true,
+            playerReady: true,
+            gold: 20,
+            rerollCost: 2,
+            shopSlotCount: 5,
+            soldSlotCount: 3,
+            bestAffordablePurchaseScore: 40f);
+
+        Assert.That(gate.CanReroll, Is.False);
+        Assert.That(gate.Reason, Is.EqualTo("high_value_affordable_purchase_remaining"));
+    }
+
+    [Test]
+    public void MazePersonaPrioritizesBuyingWhenArmyCoreIsEmpty()
+    {
+        var empty = new PrepareArmyComposition();
+        var core = new PrepareArmyComposition();
+        var melee = CreateUnitForPrepareTest("UnitData_Warrior", "Warrior", UnitType.Melee);
+        var ranged = CreateUnitForPrepareTest("UnitData_Archer", "Archer", UnitType.Ranged);
+        try
+        {
+            core.AddUnit(melee, 1);
+            core.AddUnit(melee, 1);
+            core.AddUnit(ranged, 1);
+
+            Assert.That(PrepareDecisionPolicy.ShouldPrioritizeBuyBeforeWall(empty, "maze"), Is.True);
+            Assert.That(PrepareDecisionPolicy.ShouldPrioritizeBuyBeforeWall(core, "maze"), Is.False);
+            Assert.That(PrepareDecisionPolicy.ShouldPrioritizeBuyBeforeWall(empty, "balanced"), Is.True);
+        }
+        finally
+        {
+            Object.DestroyImmediate(melee);
+            Object.DestroyImmediate(ranged);
+        }
+    }
+
+    [Test]
+    public void LegacyHumanBotPolicyIsNotConstructedByRuntimeDriver()
+    {
+        string driverSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
+        Assert.That(driverSource, Does.Contain("new PrepareDecisionPolicy"));
+        Assert.That(driverSource, Does.Not.Contain("new MPTestHumanBotPolicy"));
     }
 
     [Test]
@@ -844,6 +1029,25 @@ public sealed class MPTestHarnessEditModeTests
         scroll.aiMinValue = aiMinValue;
         scroll.skillData = skill;
         return scroll;
+    }
+
+    private static UnitData CreateUnitForPrepareTest(
+        string assetName,
+        string unitName,
+        UnitType unitType,
+        string[] skills = null)
+    {
+        var unit = ScriptableObject.CreateInstance<UnitData>();
+        unit.name = assetName;
+        unit.unitName = unitName;
+        unit.unitType = unitType;
+        unit.cost = 3;
+        unit.baseHealth = unitType == UnitType.Melee ? 300f : 180f;
+        unit.baseAttackDamage = unitType == UnitType.Melee ? 16f : 24f;
+        unit.attackRange = unitType == UnitType.Ranged ? 5f : 1f;
+        unit.attackSpeed = 1f;
+        unit.skillsByStarLevel = skills ?? new string[3];
+        return unit;
     }
 }
 #endif

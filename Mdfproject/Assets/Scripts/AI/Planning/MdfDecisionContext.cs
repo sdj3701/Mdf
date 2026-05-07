@@ -123,13 +123,13 @@ public sealed class MdfDecisionContext
 
     private static string CapturePresentedAugmentHash(PlayerManager player)
     {
-        var augments = player.augmentManager != null ? player.augmentManager.GetPresentedAugments() : null;
-        if (augments == null || augments.Count == 0)
+        var snapshotNames = player.GetPresentedAugmentSnapshotNames();
+        if (snapshotNames != null && snapshotNames.Length > 0)
         {
-            return "unknown";
+            return HashStableParts(snapshotNames);
         }
 
-        return HashStableParts(augments.Select(a => a != null ? a.augmentName : "null"));
+        return "unknown";
     }
 
     private static string CaptureAttackMonsterPoolHash(PlayerManager player)

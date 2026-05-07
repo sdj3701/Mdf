@@ -36,7 +36,10 @@ public sealed class MdfDecision
     {
     }
 
-    public static MdfDecision Observe(MdfDecisionContext context, string reason)
+    public static MdfDecision Observe(
+        MdfDecisionContext context,
+        string reason,
+        IReadOnlyDictionary<string, object> journalFields = null)
     {
         return Create(
             context,
@@ -49,7 +52,7 @@ public sealed class MdfDecision
             reason,
             null,
             0f,
-            null);
+            journalFields);
     }
 
     public static MdfDecision ForCommand(

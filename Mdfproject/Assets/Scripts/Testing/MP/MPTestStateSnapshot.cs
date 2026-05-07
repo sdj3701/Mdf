@@ -287,6 +287,15 @@ public static class MPTestStateSnapshot
 
     private static string CaptureManualSkillReadyHash(PlayerManager player)
     {
+        var managers = SafeRef(() => GameManagers.Instance, null);
+        var state = managers != null
+            ? SafeRef(() => managers.GetGameState(), GameManagers.GameState.Setup)
+            : GameManagers.GameState.Setup;
+        if (state != GameManagers.GameState.Battle1 && state != GameManagers.GameState.Battle2)
+        {
+            return Unknown;
+        }
+
         var field = SafeRef(() => player.fieldManager, null);
         if (field == null)
         {
@@ -660,6 +669,7 @@ public static class MPTestStateSnapshot
                 GridHash = Unknown,
                 PlacedUnitCount = 0,
                 PlacedUnitsHash = Unknown,
+                PlacedUnitParts = Array.Empty<string>(),
                 DestructibleWallCount = null,
                 PermanentWallCount = null,
                 WallHash = Unknown,
@@ -699,6 +709,7 @@ public static class MPTestStateSnapshot
                 Unknown)),
             PlacedUnitCount = units.Count,
             PlacedUnitsHash = HashStableParts(unitParts),
+            PlacedUnitParts = unitParts,
             DestructibleWallCount = wallParts.Count(part => part.StartsWith("D", StringComparison.Ordinal)),
             PermanentWallCount = wallParts.Count(part => part.StartsWith("P", StringComparison.Ordinal)),
             WallHash = HashStableString(wallCells),
@@ -712,13 +723,22 @@ public static class MPTestStateSnapshot
         var pos = SafeRef(() => field.GetUnitPosition(unit), (Vector3Int?)null);
         string posText = pos.HasValue ? $"{pos.Value.x},{pos.Value.y},{pos.Value.z}" : "unknown-pos";
         string dataName = SafeRef(() => unit.Data, null) != null ? SafeString(() => unit.Data.name, "unknown-data") : "unknown-data";
-        var networkObject = SafeRef(() => unit.Object, null);
-        bool networkObjectValid = networkObject != null && SafeBool(() => networkObject.IsValid, false);
-        string networkId = networkObjectValid ? SafeString(() => networkObject.Id.ToString(), "no-network") : "no-network";
         int starLevel = SafeInt(() => unit.starLevel, 0);
-        bool isDead = SafeBool(() => unit.IsDead, false);
-        int currentHealth = SafeInt(() => Mathf.RoundToInt(unit.CurrentHealth), 0);
-        return $"{posText}:{dataName}:star={starLevel}:dead={isDead}:hp={currentHealth}:net={networkId}";
+        if (ShouldIncludeUnitPositionInSnapshot())
+        {
+            return $"{posText}:{dataName}:star={starLevel}";
+        }
+
+        return $"{dataName}:star={starLevel}";
+    }
+
+    private static bool ShouldIncludeUnitPositionInSnapshot()
+    {
+        var managers = SafeRef(() => GameManagers.Instance, null);
+        var state = managers != null
+            ? SafeRef(() => managers.GetGameState(), GameManagers.GameState.Setup)
+            : GameManagers.GameState.Setup;
+        return state == GameManagers.GameState.Battle1 || state == GameManagers.GameState.Battle2;
     }
 
     private static MonsterSnapshot CaptureMonsters(PlayerManager player)
@@ -1431,6 +1451,7 @@ public static class MPTestStateSnapshot
         [JsonProperty("gridHash")] public string GridHash;
         [JsonProperty("placedUnitCount")] public int PlacedUnitCount;
         [JsonProperty("placedUnitsHash")] public string PlacedUnitsHash;
+        [JsonProperty("placedUnitParts")] public string[] PlacedUnitParts;
         [JsonProperty("destructibleWallCount")] public int? DestructibleWallCount;
         [JsonProperty("permanentWallCount")] public int? PermanentWallCount;
         [JsonProperty("wallHash")] public string WallHash;

@@ -1,5 +1,7 @@
 # MDF Harness Implementation Phases
 
+Status note, 2026-05-08: this file is historical for the original MVP overlay phases. Current work should use `docs/ai-harness/codex-full-phase-prompts.md` and Phase 18+ random-aware guidance in `docs/ai-harness/randomized-progression-test-plan.md`.
+
 ## Phase 0 — Baseline
 
 - Inspect Unity version, packages, Fusion build info, scenes, tests.

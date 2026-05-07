@@ -43,10 +43,13 @@ The goal is to prevent “compile-only PASS”. A feature is not done until Code
 
 6. **Build/E2E verification**
    - Build a Development player when the feature affects multiplayer, commands, scenes, UI flow, or networking.
-   - Run the smallest relevant matrix:
-     - Editor Host + Build Client
-     - Build Host + Editor Client
-     - Build Host + Build Client when Editor state may hide the bug
+   - Run the smallest relevant matrix profile or targeted case:
+     - `python tools/harness/mp/run_matrix.py --profile smoke` for cheap Editor/Build coverage.
+     - `python tools/harness/mp/run_matrix.py --profile random-aware` for AI, prepare, content, or random progression changes.
+     - `python tools/harness/mp/run_matrix.py --profile battle` for battle command changes.
+     - `python tools/harness/mp/run_matrix.py --profile nightly` only for merge/nightly coverage.
+     - `python tools/harness/mp/run_matrix.py --case <case>` for a targeted regression.
+   - `--case all` preserves the existing default subset and is not nightly.
    - Capture `[MPTEST]` logs, screenshots, stdout/stderr, Unity console, and state snapshots.
    - For HumanBot or progressed-state scenarios, wait on state gates such as scene, player count, snapshot readiness, accepted command, round/state, and migration/reconnect events. Avoid wall-clock sleeps as proof.
 

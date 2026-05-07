@@ -148,8 +148,43 @@ artifacts/mp/<timestamp>-<case>/
   bot-journal.jsonl
   random-outcomes.jsonl
   checkpoint-summary.json
+  cleanup-report.json
   failure-summary.md
 ```
+
+## Matrix profiles
+
+`tools/harness/mp/run_matrix.py` supports targeted `--case` runs and named `--profile` runs.
+
+Use:
+
+- Feature development: `python tools/harness/mp/run_matrix.py --profile smoke` or a targeted `--case <case>`.
+- AI, prepare, or random progression changes: `python tools/harness/mp/run_matrix.py --profile random-aware`.
+- Battle command changes: `python tools/harness/mp/run_matrix.py --profile battle`.
+- Merge or nightly coverage: `python tools/harness/mp/run_matrix.py --profile nightly`.
+
+Profiles:
+
+- `smoke`: `editor-host-build-client`, `build-host-editor-client`, `build-host-build-client`.
+- `regression`: `smoke`, `ai-fill-smoke`, `disconnect-ai-takeover`, `same-token-reconnect`, `four-player-smoke`, `human-bot-prepare`.
+- `battle`: `battle-spawn-monster-command`, `magic-scroll-command`, `human-bot-battle-progression`.
+- `lifecycle`: `progressed-reconnect-after-battle`, `progressed-disconnect-after-battle`, `progressed-host-migration-after-battle`.
+- `random-aware`: `human-bot-prepare`, `human-bot-4p-progression`, progressed lifecycle cases, and `human-bot-seed-sweep`.
+- `nightly`: `regression`, `battle`, `lifecycle`, `battle-seed-sweep`, and `human-bot-seed-sweep`.
+
+`--case all` is a backward-compatible alias for the existing default subset:
+
+```text
+editor-host-build-client
+build-host-editor-client
+build-host-build-client
+ai-fill-smoke
+disconnect-ai-takeover
+same-token-reconnect
+four-player-smoke
+```
+
+Do not treat `--case all` as nightly. Use `--list-cases`, `--list-profiles`, and `--dry-run` before adding a profile to automation.
 
 ## Matrix flow: Editor Host + Build Client
 
@@ -212,6 +247,7 @@ A case passes only when:
 - random-aware assertions passed for every same-player replicated outcome in scope,
 - artifacts exist,
 - cleanup succeeded or failures were recorded.
+- cleanup status is recorded separately when the case emits `cleanup-report.json`.
 
 ## Progressed-state PASS rule
 

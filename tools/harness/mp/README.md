@@ -1,8 +1,8 @@
 # MDF Multiplayer Harness Scripts
 
-Codex should implement and maintain these scripts during Phase 10+.
+Codex should maintain these scripts as the current multiplayer harness surface.
 
-Planned files:
+Current scripts:
 
 - `common.py` - ports, tokens, artifact dirs, and session helpers.
 - `launch_player.py` - launch or kill built players and capture stdout/stderr.
@@ -28,10 +28,22 @@ Planned files:
 - `run_progressed_reconnect_after_battle.py` - post-battle client drop, AI takeover, same-token reconnect, and full-world comparison.
 - `run_progressed_disconnect_after_battle.py` - post-battle client drop and AI takeover preservation check.
 - `run_battle_seed_sweep.py` - repeated HumanBot battle progression across diagnostic seeds with random-aware outcome summaries.
+- `run_human_bot_seed_sweep.py` - repeated HumanBot prepare progression across diagnostic seeds with random-aware outcome summaries.
 
-Battle command scripts default to `--bot-prepare-mode augment-only` so the HumanBot can take a first augment without entering expensive maze wall planning before the battle command assertions. Use `--bot-prepare-mode full` only when prepare behavior itself is under test.
+Battle command-specific scripts default to `--bot-prepare-mode augment-only` so the HumanBot can take a first augment without entering expensive maze wall planning before battle command assertions. `run_human_bot_battle_progression.py` defaults to `full` prepare for Prepare v2 rechecks; pass `--bot-prepare-mode augment-only` when the test should isolate battle command sync only.
 Post-battle lifecycle scripts progress without `--mpFreezeGameFlow`, then call the `--mpTest` automation endpoint `/test/freezeGameFlow` immediately after the battle checkpoint so disconnect/reconnect/Host Migration assertions compare a stable durable state.
 - `run_production_negative_automation.py` - normal non-development build must not expose automation `/ping`.
-- `run_matrix.py` - orchestrate selected cases.
+- `run_matrix.py` - orchestrate selected cases and profiles. Use `--list-cases`, `--list-profiles`, and `--dry-run` before adding a matrix invocation to automation.
+
+Matrix profiles:
+
+- `--profile smoke` - cheap Editor/Build smoke: editor-host-build-client, build-host-editor-client, build-host-build-client.
+- `--profile regression` - smoke plus AI fill, disconnect takeover, same-token reconnect, four-player smoke, and HumanBot prepare.
+- `--profile battle` - battle spawn, magic scroll, and HumanBot battle progression.
+- `--profile lifecycle` - progressed reconnect, disconnect, and Host Migration after battle.
+- `--profile random-aware` - HumanBot prepare/4p, progressed lifecycle, and HumanBot seed sweep.
+- `--profile nightly` - regression, battle, lifecycle, battle seed sweep, and HumanBot seed sweep.
+
+`--case all` is backward-compatible and still means the existing default subset, not nightly.
 
 Artifacts should go under `artifacts/mp/<timestamp>-<case>/` and include command transcript, stdout/stderr, `[MPTEST]` timeline, snapshots, screenshots, and failure summary.

@@ -958,6 +958,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+
         UnsubscribeFromAllies();
         if (animSpeedResetRoutine != null)
         {
@@ -1877,6 +1878,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private void OnDestroy()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+
+        if (owner != null && owner.fieldManager != null)
+        {
+            owner.fieldManager.UnitDied(this);
+        }
 
         // [수정됨] 오브젝트 파괴 시 이벤트 구독을 확실히 해제합니다.
         if (manaController != null)

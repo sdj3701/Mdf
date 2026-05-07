@@ -17,6 +17,7 @@ from common import (
     new_session,
     new_token,
     normalize_snapshot_response,
+    read_json,
     session_not_ready_reasons,
     session_ready,
     snapshot_not_ready_reasons,
@@ -25,12 +26,36 @@ from common import (
     write_json,
 )
 from compare_state_snapshots import compare_snapshots
-from launch_player import PlayerProcess, launch_player
+from launch_player import PlayerProcess, launch_player, mdf_player_pids, write_case_cleanup_report
+from summarize_bot_metrics import write_metrics_summary
 
 
 UNKNOWN = "unknown"
 BATTLE_PHASES = {"Battle1", "Battle2"}
 BATTLE_COMMAND_TYPES = {"BattleSpawnMonster", "UseMagicScroll", "ActivateSkill"}
+
+
+def write_bot_metrics_artifact(artifact_dir: pathlib.Path) -> dict[str, Any]:
+    try:
+        metrics = write_metrics_summary(artifact_dir)
+        result_path = artifact_dir / "result.json"
+        if result_path.exists():
+            result = read_json(result_path)
+            if isinstance(result, dict):
+                result["botMetricsSummaryPath"] = "bot-metrics-summary.json"
+                result["botMetrics"] = metrics.get("summary")
+                write_json(result_path, result)
+        return metrics
+    except Exception as exc:
+        error = {
+            "success": False,
+            "error": {
+                "code": type(exc).__name__,
+                "details": str(exc),
+            },
+        }
+        write_json(artifact_dir / "bot-metrics-summary-error.json", error)
+        return error
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -42,8 +67,9 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--seed", type=int, default=6101)
     parser.add_argument("--host-bot-seed", type=int)
     parser.add_argument("--client-bot-seed", type=int)
-    parser.add_argument("--host-bot-persona", default="balanced")
-    parser.add_argument("--client-bot-persona", default="balanced")
+    parser.add_argument("--bot-persona", help="Compatibility alias for --host-bot-persona; also defaults client persona when --client-human-bot is used.")
+    parser.add_argument("--host-bot-persona")
+    parser.add_argument("--client-bot-persona")
     parser.add_argument("--bot-duration-seconds", type=int, default=180)
     parser.add_argument("--bot-max-commands", type=int, default=120)
     parser.add_argument("--min-bot-commands", type=int, default=1)
@@ -74,6 +100,54 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--host-migration-timeout", type=int, default=120)
     parser.add_argument("--takeover-timeout", type=int, default=90)
     parser.add_argument("--reconnect-timeout", type=int, default=120)
+    parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
+    parser.add_argument("--leave-processes-on-fail", action="store_true")
+    parser.add_argument("--strict-cleanup", action="store_true")
+
+
+def normalize_common_args(args: argparse.Namespace) -> None:
+    default_persona = args.bot_persona or "balanced"
+    if not args.host_bot_persona:
+        args.host_bot_persona = default_persona
+    if not args.client_bot_persona:
+        args.client_bot_persona = default_persona
+
+
+def apply_cleanup_result(
+    artifact_dir: pathlib.Path,
+    cleanup_report: dict[str, Any],
+    strict_cleanup: bool,
+    functional_failures: list[str],
+    failures: list[str],
+) -> None:
+    if strict_cleanup and cleanup_report.get("cleanupStatus") != "PASS":
+        failure = f"cleanup_failed:{cleanup_report.get('cleanupStatus')}"
+        if failure not in failures:
+            failures.append(failure)
+
+    result_path = artifact_dir / "result.json"
+    result: dict[str, Any] = {}
+    if result_path.exists():
+        try:
+            loaded = read_json(result_path)
+            if isinstance(loaded, dict):
+                result = loaded
+        except Exception as exc:
+            result = {"resultReadError": {"code": type(exc).__name__, "details": str(exc)}}
+
+    functional_success = not functional_failures and result.get("success", True) is not False
+    cleanup_success = cleanup_report.get("cleanupSuccess") is True
+    result.update({
+        "artifactDir": str(artifact_dir),
+        "success": functional_success and (cleanup_success or not strict_cleanup),
+        "functionalSuccess": functional_success,
+        "cleanupSuccess": cleanup_success,
+        "cleanupStatus": cleanup_report.get("cleanupStatus"),
+        "cleanupReportPath": "cleanup-report.json",
+        "orphanedPids": cleanup_report.get("orphanedPids") or [],
+        "failures": failures,
+    })
+    write_json(result_path, result)
 
 
 def dump_state(client: AutomationClient, artifact_dir: pathlib.Path, peer: str, label: str) -> dict[str, Any]:
@@ -1068,6 +1142,7 @@ def run_battle_client_lifecycle_case(
     case_name: str,
     reconnect: bool,
 ) -> int:
+    normalize_common_args(args)
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
     if player_path is None or not player_path.exists():
         raise SystemExit("No built Development player found. Run tools/harness/mp/build_player.py or pass --player-path.")
@@ -1090,6 +1165,12 @@ def run_battle_client_lifecycle_case(
     client_b_proc: PlayerProcess | None = None
     failures: list[str] = []
     target_player_id = -1
+    cleanup_baseline_pids = mdf_player_pids()
+    cleanup_report: dict[str, Any] = {
+        "cleanupStatus": "PASS",
+        "cleanupSuccess": True,
+        "orphanedPids": [],
+    }
 
     write_json(artifact_dir / "run.json", {
         "case": case_name,
@@ -1104,6 +1185,12 @@ def run_battle_client_lifecycle_case(
         "reconnect": reconnect,
         "clientConnectionTokenHash": client_connection_hash,
         "dryRun": args.dry_run,
+        "cleanup": {
+            "baselinePids": sorted(cleanup_baseline_pids),
+            "timeoutSeconds": args.cleanup_timeout_seconds,
+            "leaveProcessesOnFail": args.leave_processes_on_fail,
+            "strictCleanup": args.strict_cleanup,
+        },
     })
     if args.dry_run:
         print(json.dumps({"artifactDir": str(artifact_dir), "case": case_name, "dryRun": True}, indent=2))
@@ -1374,21 +1461,17 @@ def run_battle_client_lifecycle_case(
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{case_name} failed", failures)
     finally:
-        for peer, proc, port, token in (
-            ("build-client-b", client_b_proc, client_b_port, client_b_token),
-            ("build-host", host_proc, host_port, host_token),
-        ):
-            if proc is None:
-                continue
-            try:
-                automation = AutomationClient(port, token, timeout=2.0)
-                write_json(artifact_dir / f"{peer}-quit.json", automation.quit())
-                proc.process.wait(timeout=10)
-                proc.close_logs()
-            except Exception:
-                proc.terminate()
-        if client_a_proc is not None and client_a_proc.process.poll() is None:
-            client_a_proc.terminate()
+        functional_failures = list(failures)
+        cleanup_processes = [proc for proc in (client_b_proc, host_proc, client_a_proc) if proc is not None]
+        cleanup_report = write_case_cleanup_report(
+            artifact_dir,
+            cleanup_processes,
+            baseline_pids=cleanup_baseline_pids,
+            timeout_seconds=args.cleanup_timeout_seconds,
+            leave_processes=args.leave_processes_on_fail and bool(functional_failures),
+            strict_cleanup=args.strict_cleanup,
+        )
+        apply_cleanup_result(artifact_dir, cleanup_report, args.strict_cleanup, functional_failures, failures)
 
         host_log = collect_player_log(artifact_dir, "build-host-or-last")
         logs = [
@@ -1405,8 +1488,14 @@ def run_battle_client_lifecycle_case(
         if host_log:
             logs.append(host_log)
         write_timeline(artifact_dir, logs)
+        write_bot_metrics_artifact(artifact_dir)
 
-    print(json.dumps({"artifactDir": str(artifact_dir), "failures": failures}, indent=2))
+    print(json.dumps({
+        "artifactDir": str(artifact_dir),
+        "failures": failures,
+        "cleanupStatus": cleanup_report.get("cleanupStatus"),
+        "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+    }, indent=2))
     return 0 if not failures else 1
 
 
@@ -1419,6 +1508,7 @@ def run_battle_case(
     require_any_battle_command: bool = True,
     migrate_after_battle: bool = False,
 ) -> int:
+    normalize_common_args(args)
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
     if player_path is None or not player_path.exists():
         raise SystemExit("No built Development player found. Run tools/harness/mp/build_player.py or pass --player-path.")
@@ -1440,6 +1530,12 @@ def run_battle_case(
     client_proc: PlayerProcess | None = None
     host_was_killed = False
     failures: list[str] = []
+    cleanup_baseline_pids = mdf_player_pids()
+    cleanup_report: dict[str, Any] = {
+        "cleanupStatus": "PASS",
+        "cleanupSuccess": True,
+        "orphanedPids": [],
+    }
 
     write_json(artifact_dir / "run.json", {
         "case": case_name,
@@ -1458,6 +1554,12 @@ def run_battle_case(
         "requireAnyBattleCommand": require_any_battle_command,
         "migrateAfterBattle": migrate_after_battle,
         "dryRun": args.dry_run,
+        "cleanup": {
+            "baselinePids": sorted(cleanup_baseline_pids),
+            "timeoutSeconds": args.cleanup_timeout_seconds,
+            "leaveProcessesOnFail": args.leave_processes_on_fail,
+            "strictCleanup": args.strict_cleanup,
+        },
     })
     if args.dry_run:
         print(json.dumps({"artifactDir": str(artifact_dir), "case": case_name, "dryRun": True}, indent=2))
@@ -1723,21 +1825,17 @@ def run_battle_case(
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{case_name} failed", failures)
     finally:
-        for peer, proc, port, token in (
-            ("build-client", client_proc, client_port, client_token),
-            ("build-host", host_proc, host_port, host_token),
-        ):
-            if proc is None:
-                continue
-            if peer == "build-host" and host_was_killed:
-                continue
-            try:
-                automation = AutomationClient(port, token, timeout=2.0)
-                write_json(artifact_dir / f"{peer}-quit.json", automation.quit())
-                proc.process.wait(timeout=10)
-                proc.close_logs()
-            except Exception:
-                proc.terminate()
+        functional_failures = list(failures)
+        cleanup_processes = [proc for proc in (client_proc, host_proc) if proc is not None]
+        cleanup_report = write_case_cleanup_report(
+            artifact_dir,
+            cleanup_processes,
+            baseline_pids=cleanup_baseline_pids,
+            timeout_seconds=args.cleanup_timeout_seconds,
+            leave_processes=args.leave_processes_on_fail and bool(functional_failures),
+            strict_cleanup=args.strict_cleanup,
+        )
+        apply_cleanup_result(artifact_dir, cleanup_report, args.strict_cleanup, functional_failures, failures)
 
         host_log = collect_player_log(artifact_dir, "build-host-or-last")
         logs = [
@@ -1751,6 +1849,12 @@ def run_battle_case(
         if host_log:
             logs.append(host_log)
         write_timeline(artifact_dir, logs)
+        write_bot_metrics_artifact(artifact_dir)
 
-    print(json.dumps({"artifactDir": str(artifact_dir), "failures": failures}, indent=2))
+    print(json.dumps({
+        "artifactDir": str(artifact_dir),
+        "failures": failures,
+        "cleanupStatus": cleanup_report.get("cleanupStatus"),
+        "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+    }, indent=2))
     return 0 if not failures else 1

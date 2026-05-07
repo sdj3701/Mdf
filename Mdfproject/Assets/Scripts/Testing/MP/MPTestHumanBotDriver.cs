@@ -359,10 +359,8 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
 
     private static bool HasPresentedAugment(PlayerManager player)
     {
-        var augments = player != null && player.augmentManager != null
-            ? player.augmentManager.GetPresentedAugments()
-            : null;
-        return augments != null && augments.Count > 0;
+        var snapshotNames = player != null ? player.GetPresentedAugmentSnapshotNames() : null;
+        return snapshotNames != null && snapshotNames.Length > 0;
     }
 
     public static bool CanRun(MPTestCommandLine.Options options, out string reason)
