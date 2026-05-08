@@ -957,12 +957,12 @@ public class HostMigrationHandler : MonoBehaviour
         if (no.TryGetComponent<GameManagers>(out var gm))
         {
             kind = "GameManagers";
-            extra = $", round={gm.currentRound}, state={gm.currentState}";
+            extra = $", round={ReadCleanupLogValue(() => gm.currentRound)}, state={ReadCleanupLogValue(() => gm.currentState)}";
         }
         else if (no.TryGetComponent<PlayerManager>(out var player))
         {
             kind = "PlayerManager";
-            extra = $", playerId={player.playerId}";
+            extra = $", playerId={ReadCleanupLogValue(() => player.playerId)}";
         }
         else if (no.TryGetComponent<Unit>(out var unit))
         {
@@ -983,7 +983,20 @@ public class HostMigrationHandler : MonoBehaviour
             kind = "CombatScheduler";
         }
 
-        return $"name={no.name}, kind={kind}, runner={DescribeRunner(no.Runner)}, activeRunner={DescribeRunner(activeRunner)}, stateAuth={no.HasStateAuthority}, inputAuth={no.InputAuthority}{extra}";
+        return $"name={ReadCleanupLogValue(() => no.name)}, kind={kind}, runner={ReadCleanupLogValue(() => DescribeRunner(no.Runner))}, activeRunner={ReadCleanupLogValue(() => DescribeRunner(activeRunner))}, stateAuth={ReadCleanupLogValue(() => no.HasStateAuthority)}, inputAuth={ReadCleanupLogValue(() => no.InputAuthority)}{extra}";
+    }
+
+    private static string ReadCleanupLogValue<T>(Func<T> read)
+    {
+        try
+        {
+            T value = read();
+            return value != null ? value.ToString() : "null";
+        }
+        catch (Exception e)
+        {
+            return $"unavailable:{e.GetType().Name}";
+        }
     }
 
     /// <summary>
