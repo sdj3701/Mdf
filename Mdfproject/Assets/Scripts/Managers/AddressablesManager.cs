@@ -38,6 +38,7 @@ public class AddressablesManager : MonoBehaviour
 
     private bool _preloadCompleted;
     private AsyncOperationHandle<IList<Object>> _preloadHandle;
+    private bool _gamePrefabsLoading;
 
     private void Awake()
     {
@@ -127,64 +128,99 @@ public class AddressablesManager : MonoBehaviour
     /// </summary>
     public async UniTask LoadGamePrefabsAsync()
     {
-        if (GamePrefabsLoaded) return;
+        if (GamePrefabsLoaded && AreGamePrefabCachesReady())
+            return;
+
+        if (_gamePrefabsLoading)
+        {
+            await UniTask.WaitUntil(() => !_gamePrefabsLoading);
+
+            if (AreGamePrefabCachesReady())
+            {
+                GamePrefabsLoaded = true;
+                return;
+            }
+        }
 
         Debug.Log("[AddressablesManager] 게임 프리팹 로딩 시작...");
+        _gamePrefabsLoading = true;
 
         try
         {
             var loadTasks = new List<UniTask>();
 
-            if (playerManagerPrefabRef != null && playerManagerPrefabRef.RuntimeKeyIsValid())
+            if (_playerManagerPrefab == null && IsReferenceLoadable(playerManagerPrefabRef))
             {
                 loadTasks.Add(LoadPrefabAsync(playerManagerPrefabRef, prefab => _playerManagerPrefab = prefab, "PlayerManager"));
             }
-            if (gridPrefabRef != null && gridPrefabRef.RuntimeKeyIsValid())
+            if (_gridPrefab == null && IsReferenceLoadable(gridPrefabRef))
             {
                 loadTasks.Add(LoadPrefabAsync(gridPrefabRef, prefab => _gridPrefab = prefab, "Grid"));
             }
-            if (defaultMonsterPrefabRef != null && defaultMonsterPrefabRef.RuntimeKeyIsValid())
+            if (_defaultMonsterPrefab == null && IsReferenceLoadable(defaultMonsterPrefabRef))
             {
                 loadTasks.Add(LoadPrefabAsync(defaultMonsterPrefabRef, prefab => _defaultMonsterPrefab = prefab, "Monster"));
             }
-            if (waveDatabaseRef != null && waveDatabaseRef.RuntimeKeyIsValid())
+            if (_waveDatabase == null && IsReferenceLoadable(waveDatabaseRef))
             {
                 loadTasks.Add(LoadWaveDatabaseAsync());
             }
 
-            await UniTask.WhenAll(loadTasks);
-            GamePrefabsLoaded = true;
+            if (loadTasks.Count > 0)
+                await UniTask.WhenAll(loadTasks);
 
-            Debug.Log("[AddressablesManager] 모든 게임 프리팹 로딩 완료!");
+            GamePrefabsLoaded = AreGamePrefabCachesReady();
+
+            if (GamePrefabsLoaded)
+                Debug.Log("[AddressablesManager] 모든 게임 프리팹 로딩 완료!");
+            else
+                Debug.LogError($"[AddressablesManager] 게임 프리팹 로딩 불완전: {BuildGamePrefabCacheSummary()}");
         }
         catch (System.Exception ex)
         {
-            Debug.LogError($"[AddressablesManager] 게임 프리팹 로딩 실패: {ex.Message}");
+            GamePrefabsLoaded = AreGamePrefabCachesReady();
+            Debug.LogError($"[AddressablesManager] 게임 프리팹 로딩 실패: {ex.Message} | {BuildGamePrefabCacheSummary()}");
+        }
+        finally
+        {
+            _gamePrefabsLoading = false;
         }
     }
 
     private async UniTask LoadPrefabAsync(AssetReference assetRef, System.Action<GameObject> onLoaded, string prefabName)
     {
+        if (TryUseCachedAsset(assetRef, onLoaded, prefabName))
+            return;
+
+        if (await TryUseExistingOperationHandleAsync(assetRef, onLoaded, prefabName))
+            return;
+
         var handle = assetRef.LoadAssetAsync<GameObject>();
         await handle.Task;
 
-        if (handle.Status == AsyncOperationStatus.Succeeded)
+        if (handle.Status == AsyncOperationStatus.Succeeded && handle.Result != null)
         {
             onLoaded?.Invoke(handle.Result);
             Debug.Log($"[AddressablesManager] {prefabName} 프리팹 로드 성공");
         }
         else
         {
-            Debug.LogError($"[AddressablesManager] {prefabName} 프리팹 로드 실패!");
+            Debug.LogError($"[AddressablesManager] {prefabName} 프리팹 로드 실패: {handle.OperationException?.Message}");
         }
     }
 
     private async UniTask LoadWaveDatabaseAsync()
     {
+        if (TryUseCachedAsset<WaveDatabase>(waveDatabaseRef, database => _waveDatabase = database, "WaveDatabase"))
+            return;
+
+        if (await TryUseExistingOperationHandleAsync<WaveDatabase>(waveDatabaseRef, database => _waveDatabase = database, "WaveDatabase"))
+            return;
+
         var handle = waveDatabaseRef.LoadAssetAsync<WaveDatabase>();
         await handle.Task;
 
-        if (handle.Status == AsyncOperationStatus.Succeeded)
+        if (handle.Status == AsyncOperationStatus.Succeeded && handle.Result != null)
         {
             _waveDatabase = handle.Result;
             Debug.Log("[AddressablesManager] WaveDatabase 로드 완료");
@@ -193,6 +229,74 @@ public class AddressablesManager : MonoBehaviour
         {
             Debug.LogError($"[AddressablesManager] WaveDatabase 로드 실패: {handle.OperationException?.Message}");
         }
+    }
+
+    private bool AreGamePrefabCachesReady()
+    {
+        return IsCacheReady(playerManagerPrefabRef, _playerManagerPrefab)
+               && IsCacheReady(gridPrefabRef, _gridPrefab)
+               && IsCacheReady(defaultMonsterPrefabRef, _defaultMonsterPrefab)
+               && IsCacheReady(waveDatabaseRef, _waveDatabase);
+    }
+
+    private static bool IsCacheReady<T>(AssetReference assetRef, T cachedAsset) where T : class
+    {
+        return !IsReferenceLoadable(assetRef) || IsLoadedAssetValid(cachedAsset);
+    }
+
+    private static bool IsReferenceLoadable(AssetReference assetRef)
+    {
+        return assetRef != null && assetRef.RuntimeKeyIsValid();
+    }
+
+    private static bool IsLoadedAssetValid<T>(T asset) where T : class
+    {
+        if (asset == null)
+            return false;
+
+        if (asset is Object unityObject)
+            return unityObject != null;
+
+        return true;
+    }
+
+    private static bool TryUseCachedAsset<T>(AssetReference assetRef, System.Action<T> onLoaded, string assetName) where T : class
+    {
+        if (assetRef != null && assetRef.Asset is T cachedAsset && IsLoadedAssetValid(cachedAsset))
+        {
+            onLoaded?.Invoke(cachedAsset);
+            Debug.Log($"[AddressablesManager] {assetName} cached Asset 재사용");
+            return true;
+        }
+
+        return false;
+    }
+
+    private async UniTask<bool> TryUseExistingOperationHandleAsync<T>(AssetReference assetRef, System.Action<T> onLoaded, string assetName) where T : class
+    {
+        if (assetRef == null)
+            return false;
+
+        var handle = assetRef.OperationHandle;
+        if (!handle.IsValid())
+            return false;
+
+        await handle.Task;
+
+        if (handle.Status == AsyncOperationStatus.Succeeded && handle.Result is T loadedAsset && IsLoadedAssetValid(loadedAsset))
+        {
+            onLoaded?.Invoke(loadedAsset);
+            Debug.Log($"[AddressablesManager] {assetName} OperationHandle 재사용");
+            return true;
+        }
+
+        Debug.LogError($"[AddressablesManager] {assetName} 기존 OperationHandle 사용 실패: {handle.OperationException?.Message}");
+        return true;
+    }
+
+    private string BuildGamePrefabCacheSummary()
+    {
+        return $"PlayerManager={IsLoadedAssetValid(_playerManagerPrefab)}, Grid={IsLoadedAssetValid(_gridPrefab)}, Monster={IsLoadedAssetValid(_defaultMonsterPrefab)}, WaveDatabase={IsLoadedAssetValid(_waveDatabase)}";
     }
 
     private static List<IResourceLocation> CollectAllObjectLocations()
