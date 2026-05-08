@@ -426,6 +426,9 @@ public class HostMigrationHandler : MonoBehaviour
             
             // ObjectProvider 설정
             var objectProvider = newRunnerGO.AddComponent<PooledNetworkObjectProvider>();
+            // HostMigrationResume는 한 번만 호출되는 복원 콜백이므로 SceneManager busy 상태에서
+            // Acquire가 Retry로 빠지면 snapshot spawn이 null로 끝날 수 있다.
+            objectProvider.DelayIfSceneManagerIsBusy = false;
             
             // SceneManager 설정
             var sceneManager = newRunnerGO.AddComponent<NetworkSceneManagerDefault>();
@@ -484,6 +487,7 @@ public class HostMigrationHandler : MonoBehaviour
         int playerCount = 0;
         int unitCount = 0;
         int otherCount = 0;
+        int spawnFailedCount = 0;
         
         GameManagers restoredGM = null;  // ★ 복원된 GameManagers 저장
         
@@ -495,44 +499,18 @@ public class HostMigrationHandler : MonoBehaviour
             // 클로저 캡처 안전성 확보
             NetworkObject resumeSource = resumeNO;
             NetworkObject spawnedNO = null;
-            Vector3 resumePosition = resumeSource.transform.position;
-            Quaternion resumeRotation = resumeSource.transform.rotation;
+            ReadResumePose(resumeSource, out Vector3 resumePosition, out Quaternion resumeRotation);
+            PlayerRef inputAuthority = ReadResumeInputAuthority(resumeSource);
 
-            // Fusion 권장 패턴: NetworkTRSP에서 네트워크 스냅샷 위치/회전을 직접 읽어 복원 정확도를 높인다.
-            var trsp = resumeSource.GetComponent<NetworkTRSP>();
-            if (trsp != null)
-            {
-                try
-                {
-                    resumePosition = trsp.Data.Position;
-                    resumeRotation = trsp.Data.Rotation;
-                }
-                catch (Exception e)
-                {
-                    Debug.LogWarning($"[HostMigrationHandler] TRSP pose read fallback ({resumeSource.name}): {e.Message}");
-                }
-            }
-
-            try
-            {
-                spawnedNO = runner.Spawn(
+            if (!TrySpawnResumeNetworkObject(
+                    runner,
                     resumeSource,
-                    position: resumePosition,
-                    rotation: resumeRotation,
-                    inputAuthority: resumeSource.InputAuthority,
-                    onBeforeSpawned: (r, no) =>
-                    {
-                        no.CopyStateFrom(resumeSource);
-                    });
-            }
-            catch (Exception e)
+                    resumePosition,
+                    resumeRotation,
+                    inputAuthority,
+                    out spawnedNO))
             {
-                Debug.LogError($"<color=red>[HostMigrationHandler] Resume Spawn 실패: {resumeSource.name} - {e.Message}</color>");
-            }
-
-            if (spawnedNO == null)
-            {
-                Debug.LogWarning($"<color=orange>[HostMigrationHandler] Spawn 결과 null: {resumeSource.name}</color>");
+                spawnFailedCount++;
                 continue;
             }
 
@@ -564,11 +542,15 @@ public class HostMigrationHandler : MonoBehaviour
         // Scene NetworkObject는 Spawn 대상이 아니므로, 기존 scene object에 snapshot state를 복사한다.
         RestoreSceneObjectsFromSnapshot(runner);
         
-        Debug.Log($"<color=cyan>[HostMigrationHandler] 복원 요약:</color>");
-        // Debug.Log($"  - GameManagers: {gameManagerCount}");
-        // Debug.Log($"  - Players: {playerCount}");
-        // Debug.Log($"  - Units: {unitCount}");
-        // Debug.Log($"  - Others: {otherCount}");
+        Debug.Log($"<color=cyan>[HostMigrationHandler] 복원 요약: GameManagers={gameManagerCount}, Players={playerCount}, Units={unitCount}, Others={otherCount}, SpawnFailed={spawnFailedCount}</color>");
+        if (spawnFailedCount > 0)
+        {
+            Debug.LogError($"<color=red>[HostMigrationHandler] Resume Snapshot spawn 실패가 있습니다. failed={spawnFailedCount}, total={resumeObjects.Count}</color>");
+        }
+        if (resumeObjects.Count > 0 && gameManagerCount == 0)
+        {
+            Debug.LogError("<color=red>[HostMigrationHandler] Resume Snapshot에 객체가 있지만 GameManagers가 복원되지 않았습니다.</color>");
+        }
         
         // ★★★ 핵심: GameManagers.Instance를 새 Runner에서 복원된 객체로 교체 ★★★
         if (restoredGM != null)
@@ -609,6 +591,144 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.Log($"<color=green>[HostMigrationHandler] 총 NetworkObject 수: {allObjects?.Count ?? 0}</color>");
         Debug.Log($"[HostMigrationHandler][Resume 상세]\n{BuildGameManagersDump(runner, restoredGM)}");
         // Debug.Log("<color=cyan>═══════════════════════════════════════════</color>");
+    }
+
+    private static void ReadResumePose(NetworkObject resumeSource, out Vector3 position, out Quaternion rotation)
+    {
+        position = resumeSource != null ? resumeSource.transform.position : Vector3.zero;
+        rotation = resumeSource != null ? resumeSource.transform.rotation : Quaternion.identity;
+
+        if (resumeSource == null)
+        {
+            return;
+        }
+
+        // Fusion 권장 패턴: NetworkTRSP에서 네트워크 스냅샷 위치/회전을 직접 읽어 복원 정확도를 높인다.
+        var trsp = resumeSource.GetComponent<NetworkTRSP>();
+        if (trsp == null)
+        {
+            return;
+        }
+
+        try
+        {
+            position = trsp.Data.Position;
+            rotation = trsp.Data.Rotation;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] TRSP pose read fallback ({resumeSource.name}): {e.Message}");
+        }
+    }
+
+    private static PlayerRef ReadResumeInputAuthority(NetworkObject resumeSource)
+    {
+        if (resumeSource == null)
+        {
+            return PlayerRef.None;
+        }
+
+        try
+        {
+            return resumeSource.InputAuthority;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] Resume input authority read fallback ({resumeSource.name}): {e.Message}");
+            return PlayerRef.None;
+        }
+    }
+
+    private static bool TrySpawnResumeNetworkObject(
+        NetworkRunner runner,
+        NetworkObject resumeSource,
+        Vector3 position,
+        Quaternion rotation,
+        PlayerRef inputAuthority,
+        out NetworkObject spawnedNO)
+    {
+        spawnedNO = null;
+        if (runner == null || resumeSource == null)
+        {
+            Debug.LogError($"<color=red>[HostMigrationHandler] Resume Spawn 실패: runner/source null. runner={DescribeRunner(runner)}, source={DescribeResumeSource(resumeSource)}</color>");
+            return false;
+        }
+
+        bool copiedInBeforeSpawned = false;
+        try
+        {
+            spawnedNO = runner.Spawn(
+                resumeSource,
+                position: position,
+                rotation: rotation,
+                inputAuthority: inputAuthority,
+                onBeforeSpawned: (r, no) =>
+                {
+                    try
+                    {
+                        no.CopyStateFrom(resumeSource);
+                        copiedInBeforeSpawned = true;
+                    }
+                    catch (Exception copyException)
+                    {
+                        Debug.LogError($"<color=red>[HostMigrationHandler] Resume CopyStateFrom 실패(onBeforeSpawned): source={DescribeResumeSource(resumeSource)}, target={DescribeResumeSource(no)}, error={copyException.Message}</color>");
+                        throw;
+                    }
+                });
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"<color=red>[HostMigrationHandler] Resume Spawn 실패: {DescribeResumeSource(resumeSource)}, runner={DescribeRunner(runner)}, error={e.Message}</color>");
+            return false;
+        }
+
+        if (spawnedNO == null)
+        {
+            Debug.LogError($"<color=red>[HostMigrationHandler] Spawn 결과 null: {DescribeResumeSource(resumeSource)}, runner={DescribeRunner(runner)}</color>");
+            return false;
+        }
+
+        if (!copiedInBeforeSpawned)
+        {
+            try
+            {
+                spawnedNO.CopyStateFrom(resumeSource);
+                Debug.LogWarning($"[HostMigrationHandler] Resume state copy fallback applied after spawn: {DescribeResumeSource(resumeSource)}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"<color=red>[HostMigrationHandler] Resume CopyStateFrom 실패(after spawn): source={DescribeResumeSource(resumeSource)}, target={DescribeResumeSource(spawnedNO)}, error={e.Message}</color>");
+                TryCleanupFailedResumeSpawn(runner, spawnedNO);
+                spawnedNO = null;
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static void TryCleanupFailedResumeSpawn(NetworkRunner runner, NetworkObject spawnedNO)
+    {
+        if (spawnedNO == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (runner != null && runner.IsRunning && spawnedNO.IsValid && runner.IsServer)
+            {
+                runner.Despawn(spawnedNO);
+            }
+            else if (spawnedNO.gameObject != null)
+            {
+                UnityEngine.Object.Destroy(spawnedNO.gameObject);
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] Failed resume spawn cleanup skipped: {DescribeResumeSource(spawnedNO)}, error={e.Message}");
+        }
     }
     
     /// <summary>
@@ -1316,6 +1436,36 @@ public class HostMigrationHandler : MonoBehaviour
         string goName = runner.gameObject != null ? runner.gameObject.name : "null";
         bool goActive = runner.gameObject != null && runner.gameObject.activeInHierarchy;
         return $"Runner(name={runner.name}, isRunning={runner.IsRunning}, mode={runner.GameMode}, isServer={runner.IsServer}, sceneManager={sceneManagerType}, go={goName}, active={goActive})";
+    }
+
+    private static string DescribeResumeSource(NetworkObject no)
+    {
+        if (no == null)
+        {
+            return "NetworkObject=NULL";
+        }
+
+        string id = SafeDescribe(() => no.Id.ToString());
+        string runnerName = SafeDescribe(() => no.Runner != null ? no.Runner.name : "null");
+        string runnerRunning = SafeDescribe(() => (no.Runner != null && no.Runner.IsRunning).ToString());
+        string objectValid = SafeDescribe(() => no.IsValid.ToString());
+        string stateAuth = SafeDescribe(() => no.HasStateAuthority.ToString());
+        string inputAuth = SafeDescribe(() => no.InputAuthority.ToString());
+        string active = SafeDescribe(() => no.gameObject != null ? no.gameObject.activeInHierarchy.ToString() : "null");
+
+        return $"NO(name={no.name}, id={id}, runner={runnerName}, runnerRunning={runnerRunning}, valid={objectValid}, stateAuth={stateAuth}, inputAuth={inputAuth}, active={active})";
+    }
+
+    private static string SafeDescribe(Func<string> read)
+    {
+        try
+        {
+            return read() ?? "null";
+        }
+        catch (Exception e)
+        {
+            return $"unavailable:{e.GetType().Name}";
+        }
     }
 
     private static string DescribeGameManagers(GameManagers gm)

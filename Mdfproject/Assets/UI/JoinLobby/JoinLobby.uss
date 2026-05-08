@@ -17,7 +17,7 @@
     width: 1672px;
     height: 941px;
     transform-origin: left top;
-    -unity-font: url("../../Resource/Fonts/NotoSansKR-VariableFont_wght.ttf");
+    -unity-font-definition: url("/Assets/Resources/Fonts & Materials/NotoSansKR-VariableFont_wght_UITK.asset");
     overflow: hidden;
 }
 
@@ -53,8 +53,8 @@
     color: #fff1c8;
     font-size: 23px;
     -unity-font-style: bold;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #17100a;
+    /* -unity-text-outline-width: 1px; */
+    /* -unity-text-outline-color: #17100a; */
 }
 
 .jl-player-level {
@@ -66,8 +66,8 @@
     color: #fff3cb;
     font-size: 22px;
     -unity-font-style: bold;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #17100a;
+    /* -unity-text-outline-width: 1px; */
+    /* -unity-text-outline-color: #17100a; */
 }
 
 .jl-player-percent {
@@ -79,8 +79,8 @@
     color: #ffffff;
     font-size: 17px;
     -unity-font-style: bold;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #07101d;
+    /* -unity-text-outline-width: 1px; */
+    /* -unity-text-outline-color: #07101d; */
 }
 
 .jl-currency {
@@ -91,8 +91,8 @@
     font-size: 23px;
     -unity-font-style: bold;
     -unity-text-align: middle-right;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #060b13;
+    /* -unity-text-outline-width: 2px; */
+    /* -unity-text-outline-color: #060b13; */
 }
 
 .jl-currency--gold {
@@ -143,8 +143,8 @@
     font-size: 19px;
     -unity-font-style: bold;
     -unity-text-align: middle-left;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #0b111a;
+    /* -unity-text-outline-width: 1px; */
+    /* -unity-text-outline-color: #0b111a; */
 }
 
 .jl-menu-label--lobby {
@@ -210,8 +210,8 @@
     font-size: 40px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #120c08;
+    /* -unity-text-outline-width: 2px; */
+    /* -unity-text-outline-color: #120c08; */
 }
 
 .jl-room-count {
@@ -224,8 +224,8 @@
     font-size: 21px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #15110b;
+    /* -unity-text-outline-width: 1px; */
+    /* -unity-text-outline-color: #15110b; */
 }
 
 .jl-player-slot {
@@ -284,8 +284,8 @@
     font-size: 24px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #02070d;
+    /* -unity-text-outline-width: 2px; */
+    /* -unity-text-outline-color: #02070d; */
     overflow: hidden;
 }
 
@@ -299,8 +299,8 @@
     font-size: 18px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #15110b;
+    /* -unity-text-outline-width: 1px; */
+    /* -unity-text-outline-color: #15110b; */
 }
 
 .jl-slot-ready {
@@ -313,8 +313,8 @@
     font-size: 20px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #04111c;
+    /* -unity-text-outline-width: 1px; */
+    /* -unity-text-outline-color: #04111c; */
     background-color: rgba(12, 72, 136, 0.88);
     border-left-width: 1px;
     border-right-width: 1px;
@@ -363,8 +363,8 @@
     font-size: 31px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #0c244c;
+    /* -unity-text-outline-width: 2px; */
+    /* -unity-text-outline-color: #0c244c; */
 }
 
 .jl-ready-button {
@@ -385,8 +385,8 @@
     font-size: 26px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #0c244c;
+    /* -unity-text-outline-width: 2px; */
+    /* -unity-text-outline-color: #0c244c; */
 }
 
 .jl-leave-button {
@@ -407,8 +407,8 @@
     font-size: 25px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #0b0f15;
+    /* -unity-text-outline-width: 2px; */
+    /* -unity-text-outline-color: #0b0f15; */
 }
 
 .jl-button--disabled {
@@ -425,8 +425,8 @@
     font-size: 17px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #05090e;
+    /* -unity-text-outline-width: 1px; */
+    /* -unity-text-outline-color: #05090e; */
 }
 
 .jl-network-block-overlay {

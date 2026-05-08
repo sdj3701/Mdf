@@ -27,7 +27,7 @@
                 <ui:Label text="ROOM LOBBY" class="tm-lobby-subtitle" />
                 <ui:VisualElement name="refreshButton" class="tm-clickable tm-refresh-button" />
                 <ui:VisualElement name="createRoomButton" class="tm-clickable tm-create-room-button">
-                    <ui:Label text="+ 방 만들기" class="tm-create-room-label" />
+                    <ui:Label text="방 만들기" name="Label" class="tm-create-room-label" style="top: -4px; left: -4px;" />
                 </ui:VisualElement>
                 <ui:ScrollView name="roomListScroll" horizontal-scroller-visibility="Hidden" vertical-scroller-visibility="Hidden" class="tm-room-list-scroll" style="height: 474px; top: 155px; width: 782px; left: 28px;">
                     <ui:VisualElement name="roomListContent" class="tm-room-list-content" />
@@ -36,12 +36,12 @@
                     <ui:Label text="생성된 방이 없습니다." class="tm-empty-message" />
                 </ui:VisualElement>
                 <ui:Label text="방 이름 입력" class="tm-input-title" />
-                <ui:VisualElement name="roomNameInputWrap" class="tm-room-name-input-wrap">
+                <ui:VisualElement name="roomNameInputWrap" class="tm-room-name-input-wrap" style="width: 362px; left: 189px; height: 54px; top: 668px;">
                     <ui:TextField name="roomNameField" class="tm-room-name-field" />
                     <ui:Label name="roomNamePlaceholder" text="방 이름을 입력하세요" class="tm-room-name-placeholder" />
                     <ui:Label text="×" class="tm-input-clear-mark" />
                 </ui:VisualElement>
-                <ui:VisualElement name="directJoinButton" class="tm-clickable tm-direct-join-button">
+                <ui:VisualElement name="directJoinButton" class="tm-clickable tm-direct-join-button" style="top: 661px; left: 588px;">
                     <ui:Label text="♛" class="tm-direct-join-icon" />
                     <ui:Label text="입장하기" class="tm-direct-join-label" />
                 </ui:VisualElement>

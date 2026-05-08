@@ -19,11 +19,11 @@ public sealed class JoinLobbyUI : MonoBehaviour
     [SerializeField] private UIDocument document;
 
     [Header("Scene")]
-    [SerializeField] private string matchingLobbySceneName = SceneDefine.MatchingLobby;
+    [SerializeField] private string matchingLobbySceneName = SceneDefine.TestMatching;
     [SerializeField] private string gameScenePath = "Assets/Scenes/Game.unity";
 
     [Header("Preview")]
-    [SerializeField] private bool useMockPlayersWhenNoPlayers = true;
+    [SerializeField] private bool useMockPlayersWhenNoPlayers;
 
     private readonly SlotView[] slots = new SlotView[SlotCount];
 
@@ -418,7 +418,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
         if (slot.Name != null)
         {
-            slot.Name.text = "빈 자리";
+            slot.Name.text = string.Empty;
         }
 
         if (slot.Level != null)

@@ -1,39 +1,33 @@
-<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
     <Style src="project://database/Assets/UI/ReLogin/ReLogin.uss?fileID=7433441132597879392&amp;guid=f1b27abb9d1ad11428de6d5a91bf39da&amp;type=3#ReLogin" />
     <ui:VisualElement name="relogin-root" class="relogin-root">
         <ui:VisualElement name="relogin-design-space" class="relogin-design-space">
             <ui:VisualElement name="relogin-background" class="relogin-background" />
-
             <ui:VisualElement name="titleLogo" class="title-logo">
                 <ui:Label name="monsterTitleLabel" text="MONSTER" class="title-label title-label--monster" />
                 <ui:Label name="raidTitleLabel" text="RAID" class="title-label title-label--raid" />
                 <ui:Label name="defenseTitleLabel" text="DEFENSE" class="title-label title-label--defense" />
                 <ui:Label name="taglineLabel" text="전략으로 승리를 쟁취하라!" class="title-label title-label--tagline" />
             </ui:VisualElement>
-
             <ui:VisualElement name="accountInputArea" class="input-area input-area--account">
                 <ui:TextField name="accountField" class="relogin-text-field relogin-text-field--account" />
-                <ui:Label name="accountPlaceholder" text="아이디를 입력하세요" class="input-placeholder" />
+                <ui:Label name="accountPlaceholder" text="아이디를 입력하세요" class="input-placeholder" style="top: 2px; left: 63px;" />
                 <ui:VisualElement name="accountInputHitbox" class="text-input-hitbox text-input-hitbox--account" />
             </ui:VisualElement>
-
-            <ui:VisualElement name="passwordInputArea" class="input-area input-area--password">
+            <ui:VisualElement name="passwordInputArea" class="input-area input-area--password" style="top: 628px; left: 647px;">
                 <ui:TextField name="passwordField" class="relogin-text-field relogin-text-field--password" />
                 <ui:Label name="passwordPlaceholder" text="비밀번호를 입력하세요" class="input-placeholder" />
-                <ui:VisualElement name="passwordInputHitbox" class="text-input-hitbox text-input-hitbox--password" />
+                <ui:VisualElement name="passwordInputHitbox" class="text-input-hitbox text-input-hitbox--password" style="top: 3px; left: 57px;" />
             </ui:VisualElement>
-
             <ui:Label name="battleStartLabel" text="전투 시작" class="button-copy button-copy--battle" />
             <ui:Label name="signupLabel" text="회원가입" class="link-copy link-copy--signup" />
             <ui:Label name="loginLinkSeparatorLabel" text="|" class="link-copy link-copy--separator" />
             <ui:Label name="forgotPasswordLabel" text="비밀번호 찾기" class="link-copy link-copy--forgot" />
             <ui:Label name="guestLoginLabel" text="게스트 로그인" class="button-copy button-copy--guest" />
-
-            <ui:Label name="serverTitleLabel" text="서버 선택" class="server-copy server-copy--title" />
-            <ui:Label name="serverNameLabel" text="추천 서버" class="server-copy server-copy--name" />
+            <ui:Label name="serverTitleLabel" text="서버 선택" class="server-copy server-copy--title" style="height: 38px; top: 781px; left: 310px;" />
+            <ui:Label name="serverNameLabel" text="추천 서버" class="server-copy server-copy--name" style="top: 836px; left: 305px;" />
             <ui:Label name="settingsLabel" text="설정" class="bottom-copy bottom-copy--settings" />
             <ui:Label name="languageLabel" text="언어 선택" class="bottom-copy bottom-copy--language" />
-
             <ui:VisualElement name="loginButton" class="hitbox login-hitbox" />
             <ui:VisualElement name="signupButton" class="hitbox signup-hitbox" />
             <ui:VisualElement name="forgotPasswordButton" class="hitbox forgot-password-hitbox" />
@@ -41,7 +35,6 @@
             <ui:VisualElement name="serverButton" class="hitbox server-hitbox" />
             <ui:VisualElement name="settingsButton" class="hitbox settings-hitbox" />
             <ui:VisualElement name="languageButton" class="hitbox language-hitbox" />
-
             <ui:Label name="statusLabel" class="status-label" />
         </ui:VisualElement>
     </ui:VisualElement>

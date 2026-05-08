@@ -1,9 +1,8 @@
-<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
     <Style src="project://database/Assets/UI/JoinLobby/JoinLobby.uss?fileID=7433441132597879392&amp;guid=5a5bd07864744f52b7f4b98c9df8373b&amp;type=3#JoinLobby" />
     <ui:VisualElement name="joinlobby-root" class="jl-root">
         <ui:VisualElement name="joinlobby-design-space" class="jl-design-space">
             <ui:VisualElement name="background" class="jl-background" />
-
             <ui:VisualElement name="topHud" class="jl-top-hud">
                 <ui:Label text="용사의 길" class="jl-player-name" />
                 <ui:Label text="LV. 42" class="jl-player-level" />
@@ -13,7 +12,6 @@
                 <ui:Label text="860" class="jl-currency jl-currency--purple" />
                 <ui:Label text="1" class="jl-alert-badge jl-alert-badge--bell" />
             </ui:VisualElement>
-
             <ui:VisualElement name="leftMenu" class="jl-left-menu">
                 <ui:Label text="로비" class="jl-menu-label jl-menu-label--lobby" />
                 <ui:Label text="퀘스트" class="jl-menu-label jl-menu-label--quest" />
@@ -25,36 +23,33 @@
                 <ui:Label text="설정" class="jl-menu-label jl-menu-label--settings" />
                 <ui:Label text="1" class="jl-alert-badge jl-alert-badge--settings" />
             </ui:VisualElement>
-
             <ui:VisualElement name="roomPanel" class="jl-room-panel">
                 <ui:Label name="roomNameLabel" text="빛의 성채 원정대" class="jl-room-title" />
                 <ui:Label name="playerCountLabel" text="방 인원 3 / 4" class="jl-room-count" />
-
                 <ui:VisualElement name="slot0" class="jl-player-slot jl-player-slot--0">
                     <ui:VisualElement name="portrait0" class="jl-player-portrait" />
-                    <ui:Label name="slotName0" text="루나" class="jl-slot-name" />
+                    <ui:Label name="slotName0" class="jl-slot-name" />
                     <ui:Label name="slotLevel0" text="Lv. 42" class="jl-slot-level" />
-                    <ui:Label name="slotReady0" text="READY" class="jl-slot-ready" />
+                    <ui:Label name="slotReady0" text="READY" class="jl-slot-ready" style="left: 25px; top: 290px; height: 27px;" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot1" class="jl-player-slot jl-player-slot--1">
                     <ui:VisualElement name="portrait1" class="jl-player-portrait" />
-                    <ui:Label name="slotName1" text="카인" class="jl-slot-name" />
+                    <ui:Label name="slotName1" class="jl-slot-name" />
                     <ui:Label name="slotLevel1" text="Lv. 45" class="jl-slot-level" />
-                    <ui:Label name="slotReady1" text="READY" class="jl-slot-ready" />
+                    <ui:Label name="slotReady1" text="READY" class="jl-slot-ready" style="left: 25px; top: 290px; height: 27px;" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot2" class="jl-player-slot jl-player-slot--2">
                     <ui:VisualElement name="portrait2" class="jl-player-portrait" />
-                    <ui:Label name="slotName2" text="미르" class="jl-slot-name" />
+                    <ui:Label name="slotName2" class="jl-slot-name" />
                     <ui:Label name="slotLevel2" text="Lv. 40" class="jl-slot-level" />
-                    <ui:Label name="slotReady2" text="READY" class="jl-slot-ready" />
+                    <ui:Label name="slotReady2" text="READY" class="jl-slot-ready" style="left: 25px; top: 290px; height: 27px;" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot3" class="jl-player-slot jl-player-slot--3">
                     <ui:VisualElement name="portrait3" class="jl-player-portrait" />
-                    <ui:Label name="slotName3" text="빈 자리" class="jl-slot-name" />
-                    <ui:Label name="slotLevel3" text="" class="jl-slot-level" />
-                    <ui:Label name="slotReady3" text="대기" class="jl-slot-ready" />
+                    <ui:Label name="slotName3" class="jl-slot-name" />
+                    <ui:Label name="slotLevel3" class="jl-slot-level" />
+                    <ui:Label name="slotReady3" text="대기" class="jl-slot-ready" style="height: 27px; left: 32px; top: 290px;" />
                 </ui:VisualElement>
-
                 <ui:VisualElement name="gameStartButton" class="jl-clickable jl-game-start-button">
                     <ui:Label name="gameStartLabel" text="게임 시작" class="jl-game-start-label" />
                 </ui:VisualElement>
@@ -66,7 +61,6 @@
                 </ui:VisualElement>
                 <ui:Label name="statusLabel" text="ⓘ 모든 인원이 준비를 완료해야 게임을 시작할 수 있습니다." class="jl-status-message" />
             </ui:VisualElement>
-
             <ui:VisualElement name="networkBlockOverlay" class="jl-network-block-overlay jl-hidden">
                 <ui:Label text="네트워크 처리 중입니다..." class="jl-network-block-label" />
             </ui:VisualElement>

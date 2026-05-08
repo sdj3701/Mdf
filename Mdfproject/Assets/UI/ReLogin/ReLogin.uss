@@ -17,7 +17,7 @@
     width: 1672px;
     height: 941px;
     transform-origin: left top;
-    -unity-font: url("../../Resource/Fonts/NotoSansKR-VariableFont_wght.ttf");
+    -unity-font-definition: url("/Assets/Resources/Fonts & Materials/NotoSansKR-VariableFont_wght_UITK.asset");
     overflow: hidden;
 }
 
@@ -53,8 +53,8 @@
     height: 88px;
     color: #ffd15d;
     font-size: 78px;
-    -unity-text-outline-width: 4px;
-    -unity-text-outline-color: #281507;
+    /* -unity-text-outline-width: 4px;
+    -unity-text-outline-color: #281507; */
 }
 
 .title-label--raid {
@@ -64,8 +64,8 @@
     height: 72px;
     color: #f0f0f0;
     font-size: 64px;
-    -unity-text-outline-width: 4px;
-    -unity-text-outline-color: #111111;
+    /* -unity-text-outline-width: 4px;
+    -unity-text-outline-color: #111111; */
 }
 
 .title-label--defense {
@@ -75,8 +75,8 @@
     height: 44px;
     color: #ffdf75;
     font-size: 36px;
-    -unity-text-outline-width: 3px;
-    -unity-text-outline-color: #10264a;
+    /* -unity-text-outline-width: 3px;
+    -unity-text-outline-color: #10264a; */
 }
 
 .title-label--tagline {
@@ -86,8 +86,8 @@
     height: 24px;
     color: #f5ead6;
     font-size: 15px;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #140d08;
+    /* /* -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #140d08; */
 }
 
 .input-area {
@@ -192,8 +192,8 @@
     height: 58px;
     color: #fff4ca;
     font-size: 38px;
-    -unity-text-outline-width: 3px;
-    -unity-text-outline-color: #5b2d08;
+    /* -unity-text-outline-width: 3px;
+    -unity-text-outline-color: #5b2d08; */
 }
 
 .button-copy--guest {
@@ -202,17 +202,19 @@
     width: 390px;
     height: 58px;
     color: #fff8e4;
-    font-size: 28px;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #0d2248;
+    font-size: 32px;
+    /*
+    -unity-text-outline-width: 3px;
+    -unity-text-outline-color: rgba(13, 34, 72, 0.58);
+    */
 }
 
 .link-copy {
     height: 30px;
     color: #ffe08a;
     font-size: 17px;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #1a1005;
+    /* -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #1a1005; */
 }
 
 .link-copy--signup {
@@ -238,29 +240,33 @@
     left: 302px;
     top: 795px;
     width: 126px;
-    height: 34px;
+    height: 38px;
     color: #fff2cf;
-    font-size: 22px;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #17120b;
+    font-size: 26px;
+    /*
+    -unity-text-outline-width: 3px;
+    -unity-text-outline-color: rgba(23, 18, 11, 0.58);
+    */
 }
 
 .server-copy--name {
     left: 302px;
     top: 844px;
     width: 126px;
-    height: 27px;
+    height: 34px;
     color: #bfff2f;
-    font-size: 18px;
-    -unity-text-outline-width: 1px;
-    -unity-text-outline-color: #16210a;
+    font-size: 23px;
+    /*
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: rgba(22, 33, 10, 0.58);
+    */
 }
 
 .bottom-copy {
     color: #fff2d2;
     font-size: 17px;
-    -unity-text-outline-width: 2px;
-    -unity-text-outline-color: #17120b;
+    /* -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #17120b; */
 }
 
 .bottom-copy--settings {
@@ -268,13 +274,15 @@
     top: 848px;
     width: 62px;
     height: 30px;
+    font-size: 23px;
 }
 
 .bottom-copy--language {
-    left: 1350px;
+    left: 1345px;
     top: 848px;
     width: 96px;
     height: 30px;
+    font-size: 23px;
 }
 
 .hitbox {
