@@ -7,6 +7,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 using Fusion;
 using System.Linq;
 using System.Text;
@@ -55,6 +56,8 @@ public class HostMigrationHandler : MonoBehaviour
 
     [Header("Migration Settings")]
     [SerializeField] private GameObject _migrationUIPanel; // 선택적: "호스트 변경 중..." UI
+    [SerializeField] private bool _returnToLobbyOnMigrationFailure = true;
+    [SerializeField, Range(0f, 10f)] private float _migrationFailureLobbyFallbackDelaySeconds = 3f;
 
     // 마이그레이션 중 캐싱되는 데이터
     private GameMigrationData _cachedGameData;
@@ -68,6 +71,12 @@ public class HostMigrationHandler : MonoBehaviour
     private bool _isMigrating = false;
     public bool IsMigrating => _isMigrating;
     private bool _migrationRecoverySucceeded = false;
+    private string _migrationFailureReason = "unknown";
+    private bool _migrationFailureRequiresImmediateFallback;
+    private bool _migrationFailureFallbackScheduled;
+    private Coroutine _migrationFailureFallbackCoroutine;
+    private GameObject _runtimeMigrationFallbackPanel;
+    private Text _runtimeMigrationFallbackText;
 
     // HostMigrationResume에서 스폰된 GameManagers 캐시 (복원 대기 루틴 폴백용)
     private GameManagers _restoredGameManagersCandidate;
@@ -100,6 +109,8 @@ public class HostMigrationHandler : MonoBehaviour
                 
                 // 설정 복사
                 newHandler._migrationUIPanel = this._migrationUIPanel;
+                newHandler._returnToLobbyOnMigrationFailure = this._returnToLobbyOnMigrationFailure;
+                newHandler._migrationFailureLobbyFallbackDelaySeconds = this._migrationFailureLobbyFallbackDelaySeconds;
                 
                 // Instance를 새 핸들러로 교체
                 Instance = newHandler;
@@ -143,7 +154,15 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.Log($"[HostMigrationHandler] StartMigration 시점 GameManagers: {DescribeGameManagers(GameManagers.Instance)}");
         _isMigrating = true;
         _migrationRecoverySucceeded = false;
+        _migrationFailureReason = "unknown";
+        _migrationFailureRequiresImmediateFallback = false;
+        _migrationFailureFallbackScheduled = false;
         _aiTakeoverReady = false;
+        if (_migrationFailureFallbackCoroutine != null)
+        {
+            StopCoroutine(_migrationFailureFallbackCoroutine);
+            _migrationFailureFallbackCoroutine = null;
+        }
         if (_aiReconciliationCoroutine != null)
         {
             StopCoroutine(_aiReconciliationCoroutine);
@@ -245,6 +264,7 @@ public class HostMigrationHandler : MonoBehaviour
         if (!startTask.IsCompleted)
         {
             Debug.LogError("<color=red>[HostMigrationHandler] 세션 재시작 타임아웃!</color>");
+            MarkMigrationRecoveryFailed("sessionRestartTimeout", true);
             OnMigrationComplete();
             yield break;
         }
@@ -253,6 +273,7 @@ public class HostMigrationHandler : MonoBehaviour
         {
             string taskError = startTask.Exception?.GetBaseException()?.Message ?? "Unknown";
             Debug.LogError($"<color=red>[HostMigrationHandler] 세션 재시작 실패: {taskError}</color>");
+            MarkMigrationRecoveryFailed($"sessionRestartFailed:{taskError}", true);
             OnMigrationComplete();
             yield break;
         }
@@ -261,6 +282,7 @@ public class HostMigrationHandler : MonoBehaviour
         if (newRunner == null || !newRunner.IsRunning)
         {
             Debug.LogError("<color=red>[HostMigrationHandler] 새 Runner 시작 실패!</color>");
+            MarkMigrationRecoveryFailed("newRunnerStartFailed", true);
             OnMigrationComplete();
             yield break;
         }
@@ -269,7 +291,7 @@ public class HostMigrationHandler : MonoBehaviour
         if (newRunner.GameMode != expectedMode)
         {
             Debug.LogError($"<color=red>[HostMigrationHandler] GameMode 불일치: expected={expectedMode}, actual={newRunner.GameMode}</color>");
-            _migrationRecoverySucceeded = false;
+            MarkMigrationRecoveryFailed($"gameModeMismatch expected={expectedMode} actual={newRunner.GameMode}", true);
             OnMigrationComplete();
             yield break;
         }
@@ -301,6 +323,7 @@ public class HostMigrationHandler : MonoBehaviour
         if (!_migrationRecoverySucceeded)
         {
             Debug.LogError("<color=red>[STEP 5] GameManagers 복원 게이트 실패 - 이후 단계 진행 중단</color>");
+            MarkMigrationRecoveryFailed("gameManagersRestoreGateFailed", false);
             OnMigrationComplete();
             yield break;
         }
@@ -1181,7 +1204,9 @@ public class HostMigrationHandler : MonoBehaviour
             if (!timeoutRunnerMatched || !timeoutHasAuthority || !timeoutIsReady || !timeoutPlayersReady)
             {
                 Debug.LogError($"<color=red>[STEP 5] 복원 중단: runnerMatched={timeoutRunnerMatched}, hasAuthority={timeoutHasAuthority}, isReady={timeoutIsReady}, playersReady={timeoutPlayersReady}, playersReason={timeoutPlayersReason}</color>");
-                _migrationRecoverySucceeded = false;
+                MarkMigrationRecoveryFailed(
+                    $"gameManagersRestoreTimeout runnerMatched={timeoutRunnerMatched} hasAuthority={timeoutHasAuthority} isReady={timeoutIsReady} playersReady={timeoutPlayersReady} playersReason={timeoutPlayersReason}",
+                    false);
                 yield break;
             }
             
@@ -1195,19 +1220,19 @@ public class HostMigrationHandler : MonoBehaviour
             catch (Exception e)
             {
                 Debug.LogError($"[STEP 5] 대기 타임아웃 복원 중 예외: {e.Message}");
-                _migrationRecoverySucceeded = false;
+                MarkMigrationRecoveryFailed($"gameManagersRestoreException:{e.Message}", false);
             }
         }
         else
         {
             Debug.LogError("<color=red>[STEP 5] 새 Runner 소속 GameManagers를 찾지 못했습니다. 복원 중단</color>");
-            _migrationRecoverySucceeded = false;
+            MarkMigrationRecoveryFailed("gameManagersNotFoundForNewRunner", false);
         }
 
         if (expectedRunner.IsServer && timeoutGM != null && timeoutGM.Object != null && !timeoutGM.Object.HasStateAuthority)
         {
             Debug.LogError("<color=red>[STEP 5] 새 Host인데 GameManagers StateAuthority를 획득하지 못했습니다. GameFlow 재개 중단</color>");
-            _migrationRecoverySucceeded = false;
+            MarkMigrationRecoveryFailed("gameManagersStateAuthorityMissing", false);
             yield break;
         }
         
@@ -1672,7 +1697,6 @@ public class HostMigrationHandler : MonoBehaviour
     private void OnMigrationComplete()
     {
         _isMigrating = false;
-        ShowMigrationUI(false);
 
         _restoredGameManagersCandidate = null;
 
@@ -1686,6 +1710,8 @@ public class HostMigrationHandler : MonoBehaviour
 
         if (_migrationRecoverySucceeded)
         {
+            ShowMigrationUI(false);
+            _migrationFailureFallbackScheduled = false;
             StartCoroutine(RunMigrationSmokeChecksCoroutine());
 
             // Debug.Log("<color=green>═══════════════════════════════════════════</color>");
@@ -1697,11 +1723,47 @@ public class HostMigrationHandler : MonoBehaviour
         else
         {
             _aiTakeoverReady = true;
+            string failureReason = GetMigrationFailureReason();
+            float fallbackDelay = _migrationFailureRequiresImmediateFallback
+                ? 0f
+                : _migrationFailureLobbyFallbackDelaySeconds;
+
+            ShowMigrationFailureUI(failureReason, fallbackDelay);
+            ScheduleMigrationFailureFallback(failureReason, fallbackDelay);
+
             // Debug.Log("<color=red>═══════════════════════════════════════════</color>");
-            Debug.Log("<color=red>[MIGRATION COMPLETE] 마이그레이션은 끝났지만 게임 복원은 실패했습니다.</color>");
-            Debug.Log("<color=red>  새 Runner/권한/복원 오브젝트 상태를 확인하세요.</color>");
+            Debug.LogError($"<color=red>[MIGRATION COMPLETE] 마이그레이션은 끝났지만 게임 복원은 실패했습니다. reason={failureReason}, fallbackToLobby={_returnToLobbyOnMigrationFailure}, delay={fallbackDelay:F1}s</color>");
+            Debug.LogError("<color=red>  새 Runner/권한/복원 오브젝트 상태를 확인하세요.</color>");
             // Debug.Log("<color=red>═══════════════════════════════════════════</color>");
         }
+    }
+
+    private void MarkMigrationRecoveryFailed(string reason, bool immediateLobbyFallback)
+    {
+        _migrationRecoverySucceeded = false;
+        if (!string.IsNullOrWhiteSpace(reason)
+            && (_migrationFailureReason == "unknown" || string.IsNullOrWhiteSpace(_migrationFailureReason)))
+        {
+            _migrationFailureReason = reason;
+        }
+
+        _migrationFailureRequiresImmediateFallback |= immediateLobbyFallback;
+    }
+
+    private string GetMigrationFailureReason()
+    {
+        if (!string.IsNullOrWhiteSpace(_migrationFailureReason) && _migrationFailureReason != "unknown")
+        {
+            return _migrationFailureReason;
+        }
+
+        NetworkRunner activeRunner = NetworkManager.Instance?._runner;
+        if (activeRunner == null || !activeRunner.IsRunning)
+        {
+            return "activeRunnerUnavailable";
+        }
+
+        return "recoveryGateFailed";
     }
 
     /// <summary>
@@ -1866,6 +1928,177 @@ public class HostMigrationHandler : MonoBehaviour
         {
             _migrationUIPanel.SetActive(show);
         }
+
+        if (!show && _runtimeMigrationFallbackPanel != null)
+        {
+            _runtimeMigrationFallbackPanel.SetActive(false);
+        }
+    }
+
+    private void ShowMigrationFailureUI(string reason, float fallbackDelaySeconds)
+    {
+        string message = BuildMigrationFailureMessage(reason, fallbackDelaySeconds);
+        bool updatedConfiguredPanel = false;
+
+        if (_migrationUIPanel != null)
+        {
+            _migrationUIPanel.SetActive(true);
+            updatedConfiguredPanel = TryUpdateMigrationPanelText(_migrationUIPanel, message);
+        }
+
+        if (!updatedConfiguredPanel)
+        {
+            EnsureRuntimeMigrationFallbackPanel();
+            if (_runtimeMigrationFallbackPanel != null)
+            {
+                _runtimeMigrationFallbackPanel.SetActive(true);
+            }
+
+            if (_runtimeMigrationFallbackText != null)
+            {
+                _runtimeMigrationFallbackText.text = message;
+            }
+        }
+    }
+
+    private string BuildMigrationFailureMessage(string reason, float fallbackDelaySeconds)
+    {
+        string fallbackText = fallbackDelaySeconds <= 0f
+            ? "로비로 이동합니다."
+            : $"{Mathf.CeilToInt(fallbackDelaySeconds)}초 후 로비로 이동합니다.";
+
+        return $"호스트 변경 복구에 실패했습니다.\n{fallbackText}\n원인: {reason}";
+    }
+
+    private bool TryUpdateMigrationPanelText(GameObject panel, string message)
+    {
+        if (panel == null)
+        {
+            return false;
+        }
+
+        var texts = panel.GetComponentsInChildren<Text>(true);
+        if (texts == null || texts.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var text in texts)
+        {
+            if (text != null)
+            {
+                text.text = message;
+            }
+        }
+
+        return true;
+    }
+
+    private void EnsureRuntimeMigrationFallbackPanel()
+    {
+        if (_runtimeMigrationFallbackPanel != null && _runtimeMigrationFallbackText != null)
+        {
+            return;
+        }
+
+        GameObject root = new GameObject("HostMigrationFailureFallbackUI");
+        DontDestroyOnLoad(root);
+
+        Canvas canvas = root.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 5000;
+
+        CanvasScaler scaler = root.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        root.AddComponent<GraphicRaycaster>();
+
+        GameObject background = new GameObject("Background");
+        background.transform.SetParent(root.transform, false);
+        RectTransform backgroundRect = background.AddComponent<RectTransform>();
+        backgroundRect.anchorMin = Vector2.zero;
+        backgroundRect.anchorMax = Vector2.one;
+        backgroundRect.offsetMin = Vector2.zero;
+        backgroundRect.offsetMax = Vector2.zero;
+        Image backgroundImage = background.AddComponent<Image>();
+        backgroundImage.color = new Color(0f, 0f, 0f, 0.72f);
+
+        GameObject textObject = new GameObject("Message");
+        textObject.transform.SetParent(background.transform, false);
+        RectTransform textRect = textObject.AddComponent<RectTransform>();
+        textRect.anchorMin = new Vector2(0.12f, 0.35f);
+        textRect.anchorMax = new Vector2(0.88f, 0.65f);
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+
+        _runtimeMigrationFallbackText = textObject.AddComponent<Text>();
+        _runtimeMigrationFallbackText.font = Resources.GetBuiltinResource<Font>("Arial.ttf");
+        _runtimeMigrationFallbackText.alignment = TextAnchor.MiddleCenter;
+        _runtimeMigrationFallbackText.color = Color.white;
+        _runtimeMigrationFallbackText.fontSize = 42;
+        _runtimeMigrationFallbackText.resizeTextForBestFit = true;
+        _runtimeMigrationFallbackText.resizeTextMinSize = 22;
+        _runtimeMigrationFallbackText.resizeTextMaxSize = 42;
+        _runtimeMigrationFallbackText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        _runtimeMigrationFallbackText.verticalOverflow = VerticalWrapMode.Overflow;
+
+        _runtimeMigrationFallbackPanel = root;
+        _runtimeMigrationFallbackPanel.SetActive(false);
+    }
+
+    private void ScheduleMigrationFailureFallback(string reason, float delaySeconds)
+    {
+        if (!_returnToLobbyOnMigrationFailure)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] migration failure lobby fallback disabled. reason={reason}");
+            return;
+        }
+
+        if (_migrationFailureFallbackScheduled)
+        {
+            return;
+        }
+
+        _migrationFailureFallbackScheduled = true;
+        if (_migrationFailureFallbackCoroutine != null)
+        {
+            StopCoroutine(_migrationFailureFallbackCoroutine);
+        }
+
+        _migrationFailureFallbackCoroutine = StartCoroutine(MigrationFailureFallbackCoroutine(reason, delaySeconds));
+    }
+
+    private IEnumerator MigrationFailureFallbackCoroutine(string reason, float delaySeconds)
+    {
+        if (delaySeconds > 0f)
+        {
+            yield return new WaitForSecondsRealtime(delaySeconds);
+        }
+
+        Debug.LogWarning($"[HostMigrationHandler] Host Migration 복구 실패 fallback 실행: scene={SceneDefine.MatchingLobby}, reason={reason}");
+        if (_migrationUIPanel != null)
+        {
+            _migrationUIPanel.SetActive(false);
+        }
+
+        if (_runtimeMigrationFallbackPanel != null)
+        {
+            _runtimeMigrationFallbackPanel.SetActive(false);
+            UnityEngine.Object.Destroy(_runtimeMigrationFallbackPanel);
+            _runtimeMigrationFallbackPanel = null;
+            _runtimeMigrationFallbackText = null;
+        }
+
+        if (NetworkManager.Instance != null)
+        {
+            NetworkManager.Instance.LeaveAndLoad(SceneDefine.MatchingLobby);
+        }
+        else if (SceneManager.GetActiveScene().name != SceneDefine.MatchingLobby)
+        {
+            SceneManager.LoadScene(SceneDefine.MatchingLobby);
+        }
+
+        _migrationFailureFallbackCoroutine = null;
     }
 
     /// <summary>
