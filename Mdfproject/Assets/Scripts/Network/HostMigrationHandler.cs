@@ -60,6 +60,9 @@ public class HostMigrationHandler : MonoBehaviour
     private GameMigrationData _cachedGameData;
     private float _cachedGameDataCapturedRealtime = -1f;
     private Dictionary<string, PlayerMigrationData> _cachedPlayerData = new Dictionary<string, PlayerMigrationData>();
+    private readonly Dictionary<string, float> _cachedPlayerDataExpiresAtRealtime = new Dictionary<string, float>();
+    private const float PlayerReconnectCacheTtlSeconds = 60f;
+    private Coroutine _cachedPlayerDataCleanupCoroutine;
     
     // 마이그레이션 상태
     private bool _isMigrating = false;
@@ -1673,8 +1676,9 @@ public class HostMigrationHandler : MonoBehaviour
 
         _restoredGameManagersCandidate = null;
 
-        // 캐시 클리어
-        _cachedPlayerData.Clear();
+        PruneExpiredCachedPlayerData();
+        ScheduleCachedPlayerDataCleanup();
+        Debug.Log($"[HostMigrationHandler] 재접속 플레이어 캐시 유지: count={_cachedPlayerData.Count}, ttl={PlayerReconnectCacheTtlSeconds:F0}s");
 
         // [Observer Pattern] Migration 완료 이벤트 발행
         bool isNewHost = NetworkManager.Instance?._runner?.IsServer ?? false;
@@ -1869,8 +1873,16 @@ public class HostMigrationHandler : MonoBehaviour
     /// </summary>
     public void CacheDisconnectedPlayer(string connectionToken, PlayerMigrationData data)
     {
+        if (string.IsNullOrEmpty(connectionToken))
+        {
+            return;
+        }
+
+        data.ConnectionToken = connectionToken;
         _cachedPlayerData[connectionToken] = data;
-        Debug.Log($"[HostMigrationHandler] 플레이어 데이터 캐싱: {connectionToken}");
+        _cachedPlayerDataExpiresAtRealtime[connectionToken] = Time.realtimeSinceStartup + PlayerReconnectCacheTtlSeconds;
+        ScheduleCachedPlayerDataCleanup();
+        Debug.Log($"[HostMigrationHandler] 플레이어 데이터 캐싱: {connectionToken}, playerId={data.PlayerId}, ttl={PlayerReconnectCacheTtlSeconds:F0}s");
     }
 
     /// <summary>
@@ -1939,7 +1951,125 @@ public class HostMigrationHandler : MonoBehaviour
     /// </summary>
     public bool TryGetCachedPlayerData(string connectionToken, out PlayerMigrationData data)
     {
-        return _cachedPlayerData.TryGetValue(connectionToken, out data);
+        data = default;
+        if (string.IsNullOrEmpty(connectionToken))
+        {
+            return false;
+        }
+
+        PruneExpiredCachedPlayerData();
+        if (!_cachedPlayerData.TryGetValue(connectionToken, out data))
+        {
+            return false;
+        }
+
+        if (_cachedPlayerDataExpiresAtRealtime.TryGetValue(connectionToken, out float expiresAt)
+            && Time.realtimeSinceStartup > expiresAt)
+        {
+            RemoveCachedPlayerData(connectionToken, "expiredOnRead");
+            data = default;
+            return false;
+        }
+
+        return true;
+    }
+
+    public void RemoveCachedPlayerData(string connectionToken, string reason)
+    {
+        if (string.IsNullOrEmpty(connectionToken))
+        {
+            return;
+        }
+
+        bool removed = _cachedPlayerData.Remove(connectionToken);
+        _cachedPlayerDataExpiresAtRealtime.Remove(connectionToken);
+        if (removed)
+        {
+            Debug.Log($"[HostMigrationHandler] 재접속 플레이어 캐시 제거: token={connectionToken}, reason={reason}");
+        }
+    }
+
+    public void ClearCachedPlayerData(string reason)
+    {
+        int count = _cachedPlayerData.Count;
+        _cachedPlayerData.Clear();
+        _cachedPlayerDataExpiresAtRealtime.Clear();
+        if (_cachedPlayerDataCleanupCoroutine != null)
+        {
+            StopCoroutine(_cachedPlayerDataCleanupCoroutine);
+            _cachedPlayerDataCleanupCoroutine = null;
+        }
+
+        if (count > 0)
+        {
+            Debug.Log($"[HostMigrationHandler] 재접속 플레이어 캐시 전체 정리: count={count}, reason={reason}");
+        }
+    }
+
+    private void ScheduleCachedPlayerDataCleanup()
+    {
+        if (_cachedPlayerData.Count == 0)
+        {
+            if (_cachedPlayerDataCleanupCoroutine != null)
+            {
+                StopCoroutine(_cachedPlayerDataCleanupCoroutine);
+                _cachedPlayerDataCleanupCoroutine = null;
+            }
+
+            return;
+        }
+
+        if (_cachedPlayerDataCleanupCoroutine == null && isActiveAndEnabled)
+        {
+            _cachedPlayerDataCleanupCoroutine = StartCoroutine(CachedPlayerDataCleanupCoroutine());
+        }
+    }
+
+    private IEnumerator CachedPlayerDataCleanupCoroutine()
+    {
+        while (_cachedPlayerData.Count > 0)
+        {
+            PruneExpiredCachedPlayerData();
+            if (_cachedPlayerData.Count == 0)
+            {
+                break;
+            }
+
+            float now = Time.realtimeSinceStartup;
+            float nextExpiresAt = _cachedPlayerDataExpiresAtRealtime.Count > 0
+                ? _cachedPlayerDataExpiresAtRealtime.Values.Min()
+                : now + PlayerReconnectCacheTtlSeconds;
+            float waitSeconds = Mathf.Clamp(nextExpiresAt - now, 1f, 10f);
+            yield return new WaitForSecondsRealtime(waitSeconds);
+        }
+
+        _cachedPlayerDataCleanupCoroutine = null;
+    }
+
+    private void PruneExpiredCachedPlayerData()
+    {
+        if (_cachedPlayerData.Count == 0)
+        {
+            _cachedPlayerDataExpiresAtRealtime.Clear();
+            return;
+        }
+
+        float now = Time.realtimeSinceStartup;
+        var expiredTokens = _cachedPlayerDataExpiresAtRealtime
+            .Where(pair => now > pair.Value || !_cachedPlayerData.ContainsKey(pair.Key))
+            .Select(pair => pair.Key)
+            .ToList();
+
+        foreach (var token in expiredTokens)
+        {
+            _cachedPlayerData.Remove(token);
+            _cachedPlayerDataExpiresAtRealtime.Remove(token);
+        }
+
+        if (expiredTokens.Count > 0)
+        {
+            Debug.Log($"[HostMigrationHandler] 만료된 재접속 플레이어 캐시 정리: removed={expiredTokens.Count}, remaining={_cachedPlayerData.Count}");
+        }
     }
     
     /// <summary>

@@ -591,6 +591,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         ClearAllUiBlocks();
+        HostMigrationHandler.Instance?.ClearCachedPlayerData($"OnShutdown:{shutdownReason}");
         State = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
         _sessionList.Clear(); // 방 목록 초기화
 
@@ -737,6 +738,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
+        if (!TryReadPlayerIdForReconnect(playerManager, out int playerId) || playerId < 0)
+        {
+            return;
+        }
+
         string token = TryGetConnectionTokenString(runner, player);
         if (string.IsNullOrEmpty(token))
         {
@@ -745,7 +751,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         var data = new PlayerMigrationData
         {
-            PlayerId = playerManager.playerId,
+            PlayerId = playerId,
             Gold = playerManager.GetGold(),
             Health = playerManager.GetHealth(),
             ConnectionToken = token,
@@ -765,7 +771,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         string token = TryGetConnectionTokenString(runner, joinedPlayer);
         if (string.IsNullOrEmpty(token))
         {
-            return false;
+            token = $"playerRef:{joinedPlayer.PlayerId}";
         }
 
         if (!HostMigrationHandler.Instance.TryGetCachedPlayerData(token, out var cachedData))
@@ -782,7 +788,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                 continue;
             }
 
-            if (candidate.playerId == cachedData.PlayerId)
+            if (!TryReadPlayerIdForReconnect(candidate, out int candidatePlayerId))
+            {
+                continue;
+            }
+
+            if (candidatePlayerId == cachedData.PlayerId)
             {
                 targetPlayer = candidate;
                 break;
@@ -831,8 +842,28 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         _spawnedCharacters[joinedPlayer] = targetPlayer.Object;
+        HostMigrationHandler.Instance.RemoveCachedPlayerData(token, "reassociated");
         // Debug.Log($"[NetworkManager] Reassociated reconnect player {joinedPlayer} -> playerId={cachedData.PlayerId}, token={token}");
         return true;
+    }
+
+    private static bool TryReadPlayerIdForReconnect(PlayerManager playerManager, out int playerId)
+    {
+        playerId = -1;
+        if (playerManager == null || playerManager.Object == null || !playerManager.Object.IsValid)
+        {
+            return false;
+        }
+
+        try
+        {
+            playerId = playerManager.playerId;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static bool IsActivePlayer(NetworkRunner runner, PlayerRef player)
@@ -1013,6 +1044,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         CancelPendingConnectionLossFallback();
         ClearAllUiBlocks();
+        HostMigrationHandler.Instance?.ClearCachedPlayerData($"ExecuteConnectionLossFallback:{source}");
         State = ConnectionState.Disconnected;
         _sessionList.Clear();
 
@@ -1095,6 +1127,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void LeaveAndLoad(string sceneName)
     {
         ClearAllUiBlocks();
+        HostMigrationHandler.Instance?.ClearCachedPlayerData($"LeaveAndLoad:{sceneName}");
         if (_runner != null)
         {
             _runner.Shutdown();
