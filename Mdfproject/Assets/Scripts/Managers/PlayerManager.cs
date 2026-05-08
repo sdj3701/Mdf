@@ -399,10 +399,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public void RebindRuntimeReferencesAfterMigration(string context, bool verboseFailure = true)
     {
-        fieldManager = fieldManager != null ? fieldManager : GetComponentInChildren<FieldManager>(true);
-        shopManager = shopManager != null ? shopManager : GetComponentInChildren<ShopManager>(true);
-        monsterSpawner = monsterSpawner != null ? monsterSpawner : GetComponentInChildren<MonsterSpawner>(true);
-        augmentManager = augmentManager != null ? augmentManager : GetComponentInChildren<AugmentManager>(true);
+        fieldManager = ResolveOwnedChildComponent(fieldManager);
+        shopManager = ResolveOwnedChildComponent(shopManager);
+        monsterSpawner = ResolveOwnedChildComponent(monsterSpawner);
+        augmentManager = ResolveOwnedChildComponent(augmentManager);
 
         if (fieldManager != null)
         {
@@ -454,6 +454,10 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             ground3D = null;
         }
+        if (ground3D != null && gridRoot != null && !ground3D.transform.IsChildOf(gridRoot.transform))
+        {
+            ground3D = null;
+        }
         if (ground3D == null)
         {
             ground3D = ResolveGroundObject(gridRoot);
@@ -465,7 +469,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         bool goalParentMismatch = gridRoot != null && goalTransform != null && goalTransform.parent != gridRoot.transform;
 
         if (fieldManager != null && ground3D != null
-            && (fieldManager.ground3D == null || fieldManager.ground3D != ground3D))
+            && (fieldManager.ground3D == null || fieldManager.ground3D != ground3D || fieldManager.playerManager != this))
         {
             fieldManager.Initialize(this, ground3D);
             fieldReinitialized = true;
@@ -504,6 +508,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (monsterSpawner != null)
         {
             bool shouldReinitializeSpawner = monsterSpawner.monsterParent == null
+                                             || !monsterSpawner.IsBoundToRuntime(this, astarGrid, spawnPoint, goalTransform, out _)
                                              || fieldReinitialized
                                              || gridRebound
                                              || spawnGoalRefreshed;
@@ -522,7 +527,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             fieldManager.RebuildUnitMapAfterMigration($"PlayerManager.{context}", verboseFailure, out _);
         }
 
-        if (verboseFailure && !IsRuntimeReady(out string reason))
+        bool runtimeReady = IsRuntimeReady(out string reason);
+        if (runtimeReady)
+        {
+            _runtimeInitialized = true;
+        }
+        else if (verboseFailure)
         {
             // Debug.LogWarning($"[PlayerManager] 런타임 참조 재결선 미완료 ({context}) player={playerId}, reason={reason}");
         }
@@ -536,9 +546,63 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
+        if (!IsOwnedChildComponent(fieldManager))
+        {
+            reason = "fieldManagerNotOwnedByPlayer";
+            return false;
+        }
+
+        if (fieldManager.playerManager != this)
+        {
+            reason = "fieldManager.ownerMismatch";
+            return false;
+        }
+
+        if (shopManager == null)
+        {
+            reason = "shopManager=null";
+            return false;
+        }
+
+        if (!IsOwnedChildComponent(shopManager))
+        {
+            reason = "shopManagerNotOwnedByPlayer";
+            return false;
+        }
+
+        if (shopManager.playerManager != this)
+        {
+            reason = "shopManager.ownerMismatch";
+            return false;
+        }
+
+        if (augmentManager == null)
+        {
+            reason = "augmentManager=null";
+            return false;
+        }
+
+        if (!IsOwnedChildComponent(augmentManager))
+        {
+            reason = "augmentManagerNotOwnedByPlayer";
+            return false;
+        }
+
+        if (augmentManager.playerManager != this)
+        {
+            reason = "augmentManager.ownerMismatch";
+            return false;
+        }
+
         if (fieldManager.ground3D == null)
         {
             reason = "fieldManager.ground3D=null";
+            return false;
+        }
+
+        if (!IsGameObjectOwnedByCurrentRunner(fieldManager.ground3D))
+        {
+            reason = "fieldManager.ground3D.runnerMismatch";
             return false;
         }
 
@@ -575,9 +639,27 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
+        if (!IsGridOwnedByCurrentRunner(astarGrid))
+        {
+            reason = "astarGrid.runnerMismatch";
+            return false;
+        }
+
+        if (astarGrid.fieldManager != fieldManager)
+        {
+            reason = "astarGrid.fieldManagerMismatch";
+            return false;
+        }
+
         if (spawnPoint == null)
         {
             reason = "spawnPoint=null";
+            return false;
+        }
+
+        if (!IsTransformOwnedByCurrentRunner(spawnPoint))
+        {
+            reason = "spawnPoint.runnerMismatch";
             return false;
         }
 
@@ -587,9 +669,27 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
+        if (!IsTransformOwnedByCurrentRunner(goalTransform))
+        {
+            reason = "goalTransform.runnerMismatch";
+            return false;
+        }
+
         if (monsterSpawner == null)
         {
             reason = "monsterSpawner=null";
+            return false;
+        }
+
+        if (!IsOwnedChildComponent(monsterSpawner))
+        {
+            reason = "monsterSpawnerNotOwnedByPlayer";
+            return false;
+        }
+
+        if (!monsterSpawner.IsBoundToRuntime(this, astarGrid, spawnPoint, goalTransform, out string bindingReason))
+        {
+            reason = $"monsterSpawnerBindingMismatch({bindingReason})";
             return false;
         }
 
@@ -601,6 +701,27 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         reason = null;
         return true;
+    }
+
+    private T ResolveOwnedChildComponent<T>(T current) where T : Component
+    {
+        if (IsOwnedChildComponent(current))
+        {
+            return current;
+        }
+
+        return GetComponentsInChildren<T>(true).FirstOrDefault(IsOwnedChildComponent);
+    }
+
+    private bool IsOwnedChildComponent(Component component)
+    {
+        if (component == null)
+        {
+            return false;
+        }
+
+        return component.transform.IsChildOf(transform)
+               && IsGameObjectOwnedByCurrentRunner(component.gameObject);
     }
 
     private GameObject ResolveGridRootObject(string context, bool verboseFailure)
@@ -780,7 +901,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         expectedPosition = Vector3.zero;
 
-        if (playerId < 0)
+        if (!TryGetSafePlayerId(out int safePlayerId) || safePlayerId < 0)
         {
             return false;
         }
@@ -791,8 +912,27 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
-        expectedPosition = gm.player1BasePosition + gm.GetResolvedPlayerOffset() * playerId;
+        expectedPosition = gm.player1BasePosition + gm.GetResolvedPlayerOffset() * safePlayerId;
         return true;
+    }
+
+    private bool TryGetSafePlayerId(out int safePlayerId)
+    {
+        safePlayerId = -1;
+        if (Object == null || !Object.IsValid)
+        {
+            return false;
+        }
+
+        try
+        {
+            safePlayerId = playerId;
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private bool IsGridOwnedByCurrentRunner(AstarGrid grid)

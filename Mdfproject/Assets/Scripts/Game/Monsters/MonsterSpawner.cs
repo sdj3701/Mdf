@@ -70,11 +70,64 @@ public class MonsterSpawner : MonoBehaviour
         return EnsureRuntimeReferences(context, verboseFailure);
     }
 
+    public bool IsBoundToRuntime(
+        PlayerManager expectedOwner,
+        AstarGrid expectedPathfinder,
+        Transform expectedSpawnPoint,
+        Transform expectedGoalTransform,
+        out string reason)
+    {
+        if (expectedOwner == null)
+        {
+            reason = "expectedOwner=null";
+            return false;
+        }
+
+        if (_playerManager != expectedOwner)
+        {
+            reason = "ownerMismatch";
+            return false;
+        }
+
+        if (expectedPathfinder != null && _pathfinder != expectedPathfinder)
+        {
+            reason = "pathfinderMismatch";
+            return false;
+        }
+
+        if (expectedSpawnPoint != null && spawnPoint != expectedSpawnPoint)
+        {
+            reason = "spawnPointMismatch";
+            return false;
+        }
+
+        if (expectedGoalTransform != null && goalTransform != expectedGoalTransform)
+        {
+            reason = "goalTransformMismatch";
+            return false;
+        }
+
+        if (_waveDatabase == null)
+        {
+            reason = "waveDatabase=null";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
     public bool IsRuntimeReady(out string reason)
     {
         if (_playerManager == null)
         {
             reason = "owner=null";
+            return false;
+        }
+
+        if (_playerManager.monsterSpawner != null && _playerManager.monsterSpawner != this)
+        {
+            reason = "ownerSpawnerMismatch";
             return false;
         }
 
@@ -84,15 +137,33 @@ public class MonsterSpawner : MonoBehaviour
             return false;
         }
 
+        if (_playerManager.astarGrid != null && _pathfinder != _playerManager.astarGrid)
+        {
+            reason = "pathfinderMismatch";
+            return false;
+        }
+
         if (spawnPoint == null)
         {
             reason = "spawnPoint=null";
             return false;
         }
 
+        if (_playerManager.spawnPoint != null && spawnPoint != _playerManager.spawnPoint)
+        {
+            reason = "spawnPointMismatch";
+            return false;
+        }
+
         if (goalTransform == null)
         {
             reason = "goalTransform=null";
+            return false;
+        }
+
+        if (_playerManager.goalTransform != null && goalTransform != _playerManager.goalTransform)
+        {
+            reason = "goalTransformMismatch";
             return false;
         }
 
@@ -108,24 +179,33 @@ public class MonsterSpawner : MonoBehaviour
 
     private bool EnsureRuntimeReferences(string context, bool verboseFailure)
     {
-        if (_playerManager == null)
+        var parentPlayer = GetComponentInParent<PlayerManager>();
+        if (parentPlayer != null && _playerManager != parentPlayer)
         {
-            _playerManager = GetComponentInParent<PlayerManager>();
+            _playerManager = parentPlayer;
+        }
+        else if (_playerManager == null)
+        {
+            _playerManager = parentPlayer;
         }
 
         if (_playerManager != null)
         {
-            if (_pathfinder == null)
+            if (_playerManager.astarGrid != null && _pathfinder != _playerManager.astarGrid)
             {
-                _pathfinder = _playerManager.astarGrid != null ? _playerManager.astarGrid : GetComponentInChildren<AstarGrid>(true);
+                _pathfinder = _playerManager.astarGrid;
+            }
+            else if (_pathfinder == null)
+            {
+                _pathfinder = GetComponentInChildren<AstarGrid>(true);
             }
 
-            if (spawnPoint == null)
+            if (_playerManager.spawnPoint != null && spawnPoint != _playerManager.spawnPoint)
             {
                 spawnPoint = _playerManager.spawnPoint;
             }
 
-            if (goalTransform == null)
+            if (_playerManager.goalTransform != null && goalTransform != _playerManager.goalTransform)
             {
                 goalTransform = _playerManager.goalTransform;
             }
@@ -150,11 +230,28 @@ public class MonsterSpawner : MonoBehaviour
     {
         string ownerState = _playerManager == null
             ? "owner=null"
-            : $"owner=Player({_playerManager.playerId}, name={_playerManager.name})";
+            : $"owner=Player({DescribePlayerId(_playerManager)}, name={_playerManager.name})";
         string pathState = _pathfinder == null ? "pathfinder=null" : $"pathfinder={_pathfinder.name}";
         string spawnState = spawnPoint == null ? "spawnPoint=null" : $"spawnPoint={spawnPoint.name}";
         string goalState = goalTransform == null ? "goal=null" : $"goal={goalTransform.name}";
         return $"{ownerState}, {pathState}, {spawnState}, {goalState}, waveDb={(_waveDatabase != null)}";
+    }
+
+    private static string DescribePlayerId(PlayerManager player)
+    {
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return "unreadable";
+        }
+
+        try
+        {
+            return player.playerId.ToString();
+        }
+        catch (System.InvalidOperationException)
+        {
+            return "unspawned";
+        }
     }
 
     private string DescribeRunnerState(NetworkRunner runner)
@@ -181,7 +278,7 @@ public class MonsterSpawner : MonoBehaviour
         string goalName = player.goalTransform != null ? player.goalTransform.name : "null";
         string fieldName = player.fieldManager != null ? player.fieldManager.name : "null";
 
-        return $"{label}=Player(id={player.playerId},name={player.name},active={player.isActiveAndEnabled}," +
+        return $"{label}=Player(id={DescribePlayerId(player)},name={player.name},active={player.isActiveAndEnabled}," +
                $"hasObject={hasObject},objectValid={objectValid},stateAuth={hasAuthority}," +
                $"grid={gridName},goal={goalName},field={fieldName})";
     }
@@ -193,7 +290,7 @@ public class MonsterSpawner : MonoBehaviour
             return $"{label}=null";
         }
 
-        string ownerId = field.playerManager != null ? field.playerManager.playerId.ToString() : "null";
+        string ownerId = field.playerManager != null ? DescribePlayerId(field.playerManager) : "null";
         string groundName = field.ground3D != null ? field.ground3D.name : "null";
         return $"{label}=Field(name={field.name},active={field.isActiveAndEnabled},owner={ownerId},ground={groundName})";
     }

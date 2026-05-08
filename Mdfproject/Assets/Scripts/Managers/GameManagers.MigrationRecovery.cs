@@ -397,10 +397,19 @@ public partial class GameManagers
         bool shouldRepairPlayers = !playersReady || !mappingReady || !wallMapReady;
         if (shouldRepairPlayers)
         {
+            var runnerPlayers = GetRunnerPlayerManagersForMigration();
+            foreach (var player in runnerPlayers)
+            {
+                player.RebindRuntimeReferencesAfterMigration("GameManagers.WaitForRestoreDependencies.SelfHeal.RuntimeScan", false);
+            }
+
             RebuildNetworkPlayersAfterMigration("WaitForRestoreDependenciesAndResumeFlow.SelfHeal");
             RelinkLocalPlayer();
 
-            foreach (var player in AllPlayers.Where(player => player != null && player.Object != null && player.Object.IsValid))
+            foreach (var player in AllPlayers
+                         .Where(player => player != null && player.Object != null && player.Object.IsValid)
+                         .Concat(runnerPlayers)
+                         .Distinct())
             {
                 player.RebindRuntimeReferencesAfterMigration("GameManagers.WaitForRestoreDependencies.SelfHeal", false);
             }
@@ -436,6 +445,8 @@ public partial class GameManagers
 
         var players = AllPlayers
             .Where(p => p != null && p.Object != null && p.Object.IsValid)
+            .Concat(GetRunnerPlayerManagersForMigration())
+            .Distinct()
             .Where(p => TryGetPlayerIdSafe(p, out int playerId) && playerId >= 0)
             .ToList();
         if (players.Count == 0)
@@ -462,6 +473,16 @@ public partial class GameManagers
         }
 
         return true;
+    }
+
+    private List<PlayerManager> GetRunnerPlayerManagersForMigration()
+    {
+        return UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
+            .Where(player => player != null
+                             && player.Object != null
+                             && player.Object.IsValid
+                             && (Runner == null || player.Runner == Runner))
+            .ToList();
     }
 
     private bool IsMigrationBattleMappingReady(out string reason)
