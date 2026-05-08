@@ -1120,6 +1120,22 @@ public partial class GameManagers : NetworkBehaviour
     /// <summary>
     /// 구매 성공을 모든 클라이언트에 알립니다.
     /// </summary>
+    public void SyncSurvivorBossStateToClientsIfAuthoritative(string reason)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        var manager = SurvivorBossManager.Instance;
+        if (manager == null)
+        {
+            return;
+        }
+
+        PublishSurvivorBossSnapshotFromManager(manager, reason);
+    }
+
     public void NotifyPurchaseSucceeded(int playerID, int slotIndex)
     {
         var cmd = new NotifyPurchaseSucceededCommand(playerID, slotIndex);

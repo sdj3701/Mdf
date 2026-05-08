@@ -1431,3 +1431,133 @@ Verification:
 Pitfalls:
 - Do not use a failed high-pressure retry to regress the previously clean functional PASS evidence. Keep the last known functional artifacts and the environment-blocked retry separate in reports.
 - Do not print raw live process command lines in final summaries; redact token arguments before showing process diagnostics.
+
+## windows-job-launcher-graceful-headless-v1: Contain, quit, and optionally headless-run MDF players
+
+Status: verified
+Last verified: 2026-05-08
+Applies to: `tools/harness/mp/launch_player.py`, `build_player.py`, `run_matrix.py`, `MPTestGracefulQuit.cs`
+Triggers: Windows cleanup blocker, `/quit` timeout, D3D/GPU pressure, headless smoke/prepare E2E
+
+Recipe:
+- Launch Windows MDF players through the ctypes Job Object path. Cleanup reports should show `jobCreated=true`, `assignedToJob=true`, `killOnJobCloseSet=true`, and `headlessPlayer` when enabled.
+- Keep cleanup order: automation `/quit`, wait, terminate Job Object, terminate/kill process, `taskkill` fallback.
+- Before heavy E2E, block if live `MDF-MPTest.exe` count exceeds `--orphan-threshold` unless `--force-run-with-orphans` is explicitly passed.
+- Runtime `/quit` and `--mpExitAfterSeconds` should use graceful MPTest quit logs: `quit_requested`, `human_bot_stop_requested`, `runner_shutdown_begin`/`runner_shutdown_complete` or timeout, `automation_server_stop`, `application_quit_called`.
+- Use `--headless-player` for smoke and logic E2E that do not require screenshot assertions. Headless command JSON should include `-batchmode -nographics`, result JSON should include `headlessPlayer=true`, and screenshot artifacts should be marked skipped.
+- Smoke matrix cases should call `write_case_cleanup_report` instead of hand-written quit/wait cleanup, so every child artifact records `cleanup-report.json`, `cleanupReportPath`, and `orphanedPids`.
+
+Verification:
+- `python -m py_compile tools/harness/mp/launch_player.py tools/harness/mp/build_player.py tools/harness/mp/run_matrix.py` PASS.
+- `python tools/harness/precommit.py --all` PASS, `0 errors, 0 warnings`.
+- `unity-cli --project Mdfproject editor refresh --compile` PASS and `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode` PASS, `43/43`.
+- `python tools/harness/mp/build_player.py --launch-smoke --exit-after-seconds 5 --orphan-threshold 0` built `artifacts/builds/20260507-231956/MDF-MPTest.exe`; launch smoke cleanup PASS with leftover count 0 and graceful quit logs in `launch-smoke.Player.log`.
+- `python tools/harness/mp/run_matrix.py --profile smoke --dry-run --headless-player` PASS with all three smoke child commands carrying `--headless-player`.
+- `python tools/harness/mp/run_human_bot_prepare_progression.py --seed 1001 --player-path artifacts/builds/20260507-231956/MDF-MPTest.exe --headless-player --orphan-threshold 0` PASS at `artifacts/mp/20260507-232704-human-bot-prepare`; `result.json` recorded `headlessPlayer=true`, cleanup PASS, `orphanedPids=[]`, and live `MDF-MPTest.exe` returned to 0.
+- `python tools/harness/mp/run_matrix.py --profile smoke --headless-player` PASS at `artifacts/mp/20260508-000921-matrix`; every child cleanup report recorded `cleanupStatus=PASS`, `orphanedPids=[]`, `headlessPlayer=true`, and `jobCreated=true`/`assignedToJob=true`/`killOnJobCloseSet=true`. Live `MDF-MPTest.exe` returned to 0.
+
+Pitfalls:
+- Do not rely on `Popen.poll()` alone as Windows cleanup proof; verify CIM/tasklist absence and cleanup-report orphan lists.
+- Do not overwrite a peer's explicit `-logFile` artifact with `collect_player_log(..., peer_name)` after cleanup; use a separate fallback label such as `build-host-or-last` so graceful quit lines remain in the peer `Player.log`.
+- Do not default screenshot or visual-debugging cases to headless mode.
+
+## human-bot-ui-close-before-board-actions-v1: Match player shop-close routine before placement
+
+Status: verified
+Last verified: 2026-05-08
+Applies to: `MPTestHumanBotDriver`, `ShopUIController`, HumanBot prepare progression
+Triggers: HumanBot unit purchase followed by maze wall placement or unit movement while the shop UI remains open
+
+Recipe:
+- Keep this in the test-only HumanBot path under `UNITY_EDITOR || DEVELOPMENT_BUILD`; do not change normal production quit or gameplay behavior.
+- After `PrepareDecisionPolicy` chooses a command but before `HumanClientCommandEmitter.TryEmit`, close the visible local `ShopUIController` for board actions.
+- Gate the close routine to `CommandType.PlaceWall` and `CommandType.MoveUnit`; buy, reroll, and augment commands should keep their normal UI behavior.
+- Use `ShopUIController.SetContentVisibility(false)` so the HUD toggle state and CanvasGroup/raycast blocking are updated through the same UI API as user-driven shop closing.
+- Log `[MPTEST] phase=human_bot_ui code=shop_close_before_board_action` with `commandType`, `playerId`, `shopUiPresent`, `wasVisible`, and `closed` for artifact review.
+
+Verification:
+- `unity-cli --project Mdfproject editor refresh --compile` PASS.
+- `unity-cli --project Mdfproject console --type error --stacktrace user` returned `[]`.
+- `unity-cli --project Mdfproject test --mode EditMode --filter MPTestHarnessEditModeTests` PASS, `44/44`.
+- `unity-cli --project Mdfproject test --mode EditMode` PASS, `44/44`.
+- `python tools/harness/precommit.py --all` PASS, `0 errors, 0 warnings`.
+- Built Development player `artifacts/builds/20260508-003828/MDF-MPTest.exe`.
+- `python tools/harness/mp/run_human_bot_prepare_progression.py --seed 1001 --bot-persona maze --bot-max-commands 8 --min-commands 6 --player-path artifacts/builds/20260508-003828/MDF-MPTest.exe --headless-player --orphan-threshold 0 --cleanup-timeout-seconds 20` PASS at `artifacts/mp/20260508-004010-human-bot-prepare`.
+- The client Player log recorded four `BuyUnit` commands followed by `phase=human_bot_ui code=shop_close_before_board_action result=pass commandType=MoveUnit wasVisible=True closed=True`, then `MoveUnit`.
+- `result.json` recorded `cleanupStatus=PASS`, `orphanedPids=[]`, `headlessPlayer=true`, and final live `MDF-MPTest.exe` count returned to 0.
+
+## survivor-boss-snapshot-compact-networked-v1: Keep GameManagers replicated snapshots under Fusion word limits
+
+Status: verified
+Last verified: 2026-05-08
+Applies to: `GameManagers`, `SurvivorBossManager`, `MPTestStateSnapshot`, long HumanBot progression
+Triggers: persistent authority-only gameplay state appears as non-zero on host and `unknown`/zero on client snapshots
+
+Recipe:
+- Treat survivor-boss pending/assignment as persistent State Authority-owned gameplay state; do not weaken snapshot comparison for host-only non-zero state.
+- Mirror only compact snapshot evidence on `GameManagers`: pending/assignment counts and stable `sha256` hash hex in `[Networked]` fields.
+- Let `MPTestStateSnapshot` read the replicated `GameManagers` count/hash values on every peer.
+- Keep the full mutable survivor-boss lists in `SurvivorBossManager` on the authority side; add client mutation guards for extract/ID allocation paths.
+- Rebuild the Development player after C# networking changes before rerunning build/build E2E.
+
+Verification:
+- A large `NetworkArray<NetworkString<_64>>` survivor-boss snapshot exceeded Fusion object word limits and caused early migration/startup failure; replacing it with compact count/hash fields fixed the build-run startup.
+- `python tools/harness/mp/build_player.py --launch-smoke --exit-after-seconds 5 --headless-player --orphan-threshold 0 --cleanup-timeout-seconds 20` built `artifacts/builds/20260508-022528/MDF-MPTest.exe` with launch smoke cleanup PASS.
+- `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --headless-player --player-path artifacts/builds/20260508-022528/MDF-MPTest.exe` PASS at `artifacts/mp/20260508-022613-human-bot-3round-progression`: `maxRoundReached=4`, `completionReason=target_round_complete`, `cleanupStatus=PASS`, `10/10` checkpoints passed.
+
+Pitfalls:
+- Unity compile can pass even when the already-built player is stale. Always pass the newly built player path when validating C# networking changes.
+- Do not add high-capacity string arrays to `GameManagers` casually; Fusion can fail at runtime with object word-limit assertions even after clean C# compile.
+
+## human-bot-game-to-end-endurance-v1: Classify endurance without hiding GameOver status
+
+Status: verified
+Last verified: 2026-05-08
+Applies to: `tools/harness/mp/run_human_bot_game_to_end.py`, endurance profile, HumanBot long progression
+Triggers: need to prove actual GameOver or distinguish timeout/stall/tuning in a bounded run
+
+Recipe:
+- Use a separate `gameToEndPass` field from script/process `success`. Only set `gameToEndPass=true` and `finalStatus=PASS` when both final snapshots are `GameOver`, final snapshot comparison passes, player IDs are unique, command counters agree, no `[MPTEST]` failure/error lines exist, and cleanup passes.
+- When the bounded run reaches `--max-duration-seconds` or `--max-rounds` before GameOver, classify `NEEDS_TUNING`, `TIMEOUT`, or `STALLED`; do not label it GameToEnd PASS. `--allow-timeout-result` may allow a classified timeout command to exit successfully for CI diagnostics, but `gameToEndPass` must remain false.
+- Run HumanBot on both build peers for endurance when using `--bot-prepare-mode augment-only`; this avoids prepare placement drift while producing enough battle pressure for GameOver.
+- Capture every Prepare/Battle1/Battle2/GameOver checkpoint plus a progress timeline containing round/state, HP, monster, and command evidence.
+
+Verification:
+- `python tools/harness/mp/run_human_bot_game_to_end.py --seed 9101 --headless-player --max-duration-seconds 900 --allow-timeout-result --player-path artifacts/builds/20260508-022528/MDF-MPTest.exe` PASS at `artifacts/mp/20260508-023844-human-bot-game-to-end`.
+- The result recorded `gameToEndPass=true`, `finalStatus=PASS`, `cleanupStatus=PASS`, `maxRoundReached=6`, `currentState=GameOver` on host/client, final comparison success, and `22/22` checkpoint comparisons passed.
+- Bot metrics recorded `BattleSpawnMonster=177`, `SelectAugment=12`, and no rejected decision reasons.
+
+Pitfalls:
+- Do not use `--allow-timeout-result` as a shortcut to claim PASS; it only accepts bounded timeout classification when GameOver is not reached.
+- Keep endurance out of smoke/regression/nightly unless explicitly accepted; use `--profile endurance` for opt-in runs.
+
+## long-lifecycle-target-round-freeze-v1: Stop HumanBot before inserting long lifecycle events
+
+Status: verified
+Last verified: 2026-05-08
+Applies to: `tools/harness/mp/long_lifecycle_common.py`, `run_3round_*`, Host Migration/reconnect/disconnect insertion after long progression
+Triggers: lifecycle insertion happens immediately after `round-complete`, especially R4 Prepare after a 3-round run
+
+Recipe:
+- For `round-complete` long lifecycle cases, start HumanBot with `stopAtRound = targetRound + 1`.
+- Still call `/test/bot/stop` and `/test/freezeGameFlow` on both peers before taking the pre-event checkpoint; this gives explicit stop/freeze artifacts.
+- Require stable host/client pre-event snapshots after bot stop and freeze before killing a peer or host.
+- Use the frozen client snapshot as the Host Migration preservation baseline, and reject the run if post-event state moved to lobby, lost players, or missed Host Migration proof counters.
+- Host Migration PASS must also reject duplicate runtime `PlayerManager` state. Gate on `objects.playerManagerCount == expectedPlayers` and scan full player logs for `[HM-SMOKE] FAIL` or `handler_migration_complete_fail`.
+- Do not record `handler_migration_complete_success` until AI takeover reconciliation has completed and `aiTakeoverReady=true`.
+- If Fusion resumes duplicate `PlayerManager` objects for the same durable `playerId`, rebuild `GameManagers.NetworkPlayers` from the best canonical candidate and despawn stale duplicates before AI takeover and smoke checks.
+- Keep this behavior scoped to long lifecycle insertion; long progression and endurance modes should continue using `--mpBotStopAtRound 0` unless their own pass condition requires a stop.
+
+Verification:
+- `python -m py_compile tools/harness/mp/run_human_bot_3round_progression.py tools/harness/mp/long_lifecycle_common.py tools/harness/mp/run_3round_host_migration.py tools/harness/mp/run_matrix.py` PASS.
+- `python tools/harness/mp/run_matrix.py --profile long-lifecycle --dry-run` PASS.
+- `python tools/harness/mp/build_player.py --launch-smoke --exit-after-seconds 5 --headless-player --orphan-threshold 0 --cleanup-timeout-seconds 20` built `artifacts/builds/20260508-034700/MDF-MPTest.exe`; launch smoke cleanup PASS.
+- `python tools/harness/mp/run_3round_host_migration.py --seed 8201 --headless-player --player-path artifacts/builds/20260508-034700/MDF-MPTest.exe` PASS at `artifacts/mp/20260508-034748-3round-host-migration`: `target_round_complete`, `maxRoundReached=4`, `host-migration-proof.success=true`, `onHostMigrationCount=1`, `recoverySucceeded=true`, `aiTakeoverReady=true`, post snapshot `playerManagerCount=2`, `[HM-SMOKE] PASS`, preservation success, cleanup PASS.
+- `python tools/harness/mp/run_3round_reconnect.py --seed 8201 --headless-player --player-path artifacts/builds/20260508-034700/MDF-MPTest.exe` PASS at `artifacts/mp/20260508-035119-3round-reconnect`: reconnected client reclaimed the same playerId, full comparison/preservation passed, cleanup PASS.
+- `python tools/harness/mp/run_3round_disconnect_ai_takeover.py --seed 8201 --headless-player --player-path artifacts/builds/20260508-034700/MDF-MPTest.exe` PASS at `artifacts/mp/20260508-035459-3round-disconnect-ai-takeover`: disconnected player became AI-controlled, preservation passed, cleanup PASS.
+
+Pitfalls:
+- If the bot keeps running into R4 Prepare, it can select a new augment between the completion snapshot and the lifecycle kill. That race can make Host Migration either restore a different baseline or fall back to lobby before proof counters advance.
+- `GameManagers.AllPlayers` can hide duplicate runtime `PlayerManager` objects because it reads the canonical network array. Always check object counts as well as logical player snapshots after migration.
+- A clean C# compile does not update an already-built player; rebuild and pass the fresh `--player-path` after Host Migration or PlayerManager changes.

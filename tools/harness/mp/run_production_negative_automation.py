@@ -24,6 +24,7 @@ from common import (
     utc_stamp,
     write_json,
 )
+from launch_player import PlayerProcess, launch_mdf_process, mdf_player_pids, write_case_cleanup_report
 
 
 def find_value(obj: Any, key: str) -> Any:
@@ -140,12 +141,16 @@ def launch_and_probe(player_path: pathlib.Path, artifact_dir: pathlib.Path, args
     session = args.session or new_session("prodneg")
     stdout_path = artifact_dir / "production-negative.stdout.log"
     stderr_path = artifact_dir / "production-negative.stderr.log"
+    prod_player_log_path = artifact_dir / "production-negative.Player.log"
+    command_path = artifact_dir / "launch-command.json"
     case_name = "production_negative_automation"
     artifact_runtime_dir = artifact_dir / "runtime-artifacts"
     artifact_runtime_dir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         str(player_path),
+        "-logFile",
+        str(prod_player_log_path),
         "--mpTest",
         "--mpRole",
         "host",
@@ -168,25 +173,57 @@ def launch_and_probe(player_path: pathlib.Path, artifact_dir: pathlib.Path, args
     ]
     redacted_cmd = ["<redacted-token>" if item == token else item for item in cmd]
     write_json(
-        artifact_dir / "launch-command.json",
+        command_path,
         {
             "command": redacted_cmd,
             "session": session,
             "automationPort": port,
             "automationTokenHash": hash_for_log(token),
+            "playerLog": str(prod_player_log_path),
         },
     )
 
+    baseline_pids = mdf_player_pids()
+    cleanup_report: dict[str, Any] = {
+        "cleanupStatus": "PASS",
+        "cleanupSuccess": True,
+        "orphanedPids": [],
+    }
     with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
-        proc = subprocess.Popen(cmd, cwd=ROOT, stdout=stdout, stderr=stderr)
+        process, job = launch_mdf_process(
+            cmd,
+            ROOT,
+            stdout,
+            stderr,
+            job_name=f"MDF-MPTest-production-negative-{os.getpid()}-{int(time.time() * 1000)}",
+        )
+        proc = PlayerProcess(
+            process=process,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            player_log_path=prod_player_log_path,
+            command_path=command_path,
+            artifact_dir=artifact_runtime_dir,
+            peer_name="production-negative",
+            port=port,
+            token=token,
+            redaction_secrets=[token],
+            stdout_handle=stdout,
+            stderr_handle=stderr,
+            job=job,
+        )
         ping = probe_ping(port, token, args.ping_timeout)
         deadline = time.time() + args.exit_after_seconds + args.launch_timeout_padding
-        while time.time() < deadline and proc.poll() is None:
+        while time.time() < deadline and proc.process.poll() is None:
             time.sleep(0.25)
-        timed_out = proc.poll() is None
-        if timed_out:
-            proc.kill()
-            proc.wait(timeout=10)
+        timed_out = proc.process.poll() is None
+        cleanup_report = write_case_cleanup_report(
+            artifact_runtime_dir,
+            [proc],
+            baseline_pids=baseline_pids,
+            timeout_seconds=args.cleanup_timeout_seconds,
+            strict_cleanup=True,
+        )
 
     copied_player_log = ""
     source_log = player_log_path()
@@ -196,16 +233,21 @@ def launch_and_probe(player_path: pathlib.Path, artifact_dir: pathlib.Path, args
 
     return {
         "playerPath": str(player_path),
-        "exitCode": proc.returncode,
+        "exitCode": proc.process.returncode,
         "timedOut": timed_out,
         "stdout": str(stdout_path),
         "stderr": str(stderr_path),
+        "playerLog": str(prod_player_log_path),
         "playerLogSource": str(source_log),
         "playerLogCopied": copied_player_log,
         "session": session,
         "automationPort": port,
         "automationTokenHash": hash_for_log(token),
         "ping": ping,
+        "cleanupStatus": cleanup_report.get("cleanupStatus"),
+        "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+        "cleanupReportPath": str(artifact_runtime_dir / "cleanup-report.json"),
+        "orphanedPids": cleanup_report.get("orphanedPids") or [],
     }
 
 
@@ -223,6 +265,7 @@ def main() -> int:
     parser.add_argument("--automation-port", type=int, default=0)
     parser.add_argument("--exit-after-seconds", type=int, default=5)
     parser.add_argument("--launch-timeout-padding", type=int, default=20)
+    parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
     parser.add_argument("--ping-timeout", type=float, default=8.0)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
@@ -241,7 +284,8 @@ def main() -> int:
 
     launch = launch_and_probe(player_path, artifact_dir, args)
     development_build = metadata.get("developmentBuild")
-    success = development_build is False and launch["ping"].get("responded") is False and not launch["timedOut"]
+    cleanup_success = launch.get("cleanupSuccess") is True
+    success = development_build is False and launch["ping"].get("responded") is False and not launch["timedOut"] and cleanup_success
     report = {
         "success": success,
         "productionAutomationDisabled": success,
@@ -256,6 +300,8 @@ def main() -> int:
         report["failures"].append("automation_ping_responded_in_non_development_build")
     if launch["timedOut"]:
         report["failures"].append("player_did_not_exit_after_timeout")
+    if not cleanup_success:
+        report["failures"].append(f"cleanup_failed:{launch.get('cleanupStatus')}")
 
     report_path = artifact_dir / "production-negative-automation.json"
     write_json(report_path, report)

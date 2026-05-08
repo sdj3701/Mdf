@@ -17,6 +17,7 @@ from common import (
     run_command,
     write_json,
 )
+from launch_player import write_orphan_pressure_report
 from summarize_bot_metrics import aggregate_seed_metrics, write_metrics_summary
 
 
@@ -171,6 +172,9 @@ def run_child_case(
     cleanup_timeout_seconds: float,
     leave_processes_on_fail: bool,
     strict_cleanup: bool,
+    orphan_threshold: int,
+    force_run_with_orphans: bool,
+    headless_player: bool,
 ) -> tuple[dict[str, Any], pathlib.Path | None]:
     seed_dir.mkdir(parents=True, exist_ok=True)
     command = [
@@ -186,7 +190,13 @@ def run_child_case(
         "augment-only",
         "--cleanup-timeout-seconds",
         str(cleanup_timeout_seconds),
+        "--orphan-threshold",
+        str(orphan_threshold),
     ]
+    if force_run_with_orphans:
+        command.append("--force-run-with-orphans")
+    if headless_player:
+        command.append("--headless-player")
     if prefer_scroll_augment:
         command.append("--prefer-scroll-augment")
     if leave_processes_on_fail:
@@ -228,6 +238,11 @@ def run(args: argparse.Namespace) -> int:
     failures: list[str] = []
     results: list[dict[str, Any]] = []
     seed_metrics: list[dict[str, Any]] = []
+    orphan_gate = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+    )
     summary: dict[str, Any] = {
         "case": CASE_NAME,
         "artifactDir": str(artifact_dir),
@@ -235,12 +250,14 @@ def run(args: argparse.Namespace) -> int:
         "seeds": seeds,
         "continueOnFail": args.continue_on_fail,
         "preferScrollAugment": args.prefer_scroll_augment,
+        "headlessPlayer": args.headless_player,
         "seedSemantics": {
             "deterministicReplayClaim": False,
             "meaning": "diagnostic run label; random-aware assertions compare replicated battle outcomes, not fixed values",
         },
         "results": results,
         "failures": failures,
+        "orphanPressure": orphan_gate,
     }
     write_json(artifact_dir / "run.json", {
         "case": CASE_NAME,
@@ -249,7 +266,25 @@ def run(args: argparse.Namespace) -> int:
         "continueOnFail": args.continue_on_fail,
         "preferScrollAugment": args.prefer_scroll_augment,
         "dryRun": args.dry_run,
+        "headlessPlayer": args.headless_player,
+        "orphanPressure": orphan_gate,
     })
+    if orphan_gate.get("blocked") and not args.dry_run:
+        failures.append("orphan_pressure_gate_blocked")
+        summary["cleanupStatus"] = "NEEDS_ENVIRONMENT"
+        summary["cleanupSuccess"] = False
+        write_json(artifact_dir / "battle-seed-sweep-summary.json", summary)
+        write_json(artifact_dir / "result.json", summary | {"success": False, "functionalSuccess": False})
+        failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} blocked", failures)
+        print(json.dumps({
+            "artifactDir": str(artifact_dir),
+            "success": False,
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "cleanupSuccess": False,
+            "failures": failures,
+            "seedsRun": [],
+        }, indent=2))
+        return 2
     if args.dry_run:
         write_json(artifact_dir / "battle-seed-sweep-summary.json", summary)
         write_json(artifact_dir / "result.json", summary | {"success": True})
@@ -268,6 +303,9 @@ def run(args: argparse.Namespace) -> int:
             args.cleanup_timeout_seconds,
             args.leave_processes_on_fail,
             args.strict_cleanup,
+            args.orphan_threshold,
+            args.force_run_with_orphans,
+            args.headless_player,
         )
         seed_summary = battle_summary(seed, child_artifact_dir, child_result)
         results.append(seed_summary)
@@ -329,6 +367,9 @@ def main() -> int:
     parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
     parser.add_argument("--leave-processes-on-fail", action="store_true")
     parser.add_argument("--strict-cleanup", action="store_true")
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action="store_true")
     args = parser.parse_args()
     return run(args)
 

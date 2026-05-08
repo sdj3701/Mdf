@@ -26,7 +26,13 @@ from common import (
     write_json,
 )
 from compare_state_snapshots import compare_snapshots
-from launch_player import PlayerProcess, launch_player, mdf_player_pids, write_case_cleanup_report
+from launch_player import (
+    PlayerProcess,
+    launch_player,
+    mdf_player_pids,
+    write_case_cleanup_report,
+    write_orphan_pressure_report,
+)
 from summarize_bot_metrics import write_metrics_summary
 
 
@@ -103,6 +109,9 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
     parser.add_argument("--leave-processes-on-fail", action="store_true")
     parser.add_argument("--strict-cleanup", action="store_true")
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action="store_true")
 
 
 def normalize_common_args(args: argparse.Namespace) -> None:
@@ -859,6 +868,11 @@ def poll_host_migration_after_battle(
         body = state(snapshot)
         runner = body.get("runner") if isinstance(body, dict) else {}
         game = body.get("game") if isinstance(body, dict) else {}
+        objects = body.get("objects") if isinstance(body, dict) else {}
+        objects = objects if isinstance(objects, dict) else {}
+        player_manager_count = objects.get("playerManagerCount")
+        if player_manager_count != 2:
+            errors.append(f"player_manager_count expected=2 actual={player_manager_count}")
         if runner.get("gameMode") != "Host" or runner.get("isServer") is not True:
             errors.append("survivor_not_promoted_to_host")
         if game.get("hasGameManagers") is not True:
@@ -1171,6 +1185,12 @@ def run_battle_client_lifecycle_case(
         "cleanupSuccess": True,
         "orphanedPids": [],
     }
+    orphan_gate = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+        [host_token, client_a_token, client_b_token, host_connection, client_connection],
+    )
 
     write_json(artifact_dir / "run.json", {
         "case": case_name,
@@ -1185,13 +1205,45 @@ def run_battle_client_lifecycle_case(
         "reconnect": reconnect,
         "clientConnectionTokenHash": client_connection_hash,
         "dryRun": args.dry_run,
+        "headlessPlayer": args.headless_player,
         "cleanup": {
             "baselinePids": sorted(cleanup_baseline_pids),
             "timeoutSeconds": args.cleanup_timeout_seconds,
             "leaveProcessesOnFail": args.leave_processes_on_fail,
             "strictCleanup": args.strict_cleanup,
         },
+        "orphanPressure": orphan_gate,
     })
+    if orphan_gate.get("blocked") and not args.dry_run:
+        failures.append("orphan_pressure_gate_blocked")
+        cleanup_report = {
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "cleanupSuccess": False,
+            "orphanedPids": [
+                proc.get("pid")
+                for proc in orphan_gate.get("processes", [])
+                if isinstance(proc, dict) and isinstance(proc.get("pid"), int)
+            ],
+        }
+        write_json(artifact_dir / "result.json", {
+            "case": case_name,
+            "artifactDir": str(artifact_dir),
+            "success": False,
+            "functionalSuccess": False,
+            "cleanupSuccess": False,
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "orphanPressure": orphan_gate,
+            "headlessPlayer": args.headless_player,
+            "failures": failures,
+        })
+        failure_summary(artifact_dir / "failure-summary.md", f"{case_name} blocked", failures)
+        print(json.dumps({
+            "artifactDir": str(artifact_dir),
+            "failures": failures,
+            "cleanupStatus": cleanup_report.get("cleanupStatus"),
+            "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+        }, indent=2))
+        return 2
     if args.dry_run:
         print(json.dumps({"artifactDir": str(artifact_dir), "case": case_name, "dryRun": True}, indent=2))
         return 0
@@ -1231,6 +1283,7 @@ def run_battle_client_lifecycle_case(
             seed=args.seed,
             scenario=case_name,
             extra_args=host_extra_args,
+            headless_player=args.headless_player,
         )
         host = AutomationClient(host_port, host_token, timeout=args.request_timeout)
         host_ping = host.wait_ping(timeout_seconds=args.ping_timeout)
@@ -1256,6 +1309,7 @@ def run_battle_client_lifecycle_case(
             seed=args.seed + 1,
             scenario=case_name,
             extra_args=["--mpDisableAiFill"],
+            headless_player=args.headless_player,
         )
         client_a = AutomationClient(client_a_port, client_a_token, timeout=args.request_timeout)
         client_a_ping = client_a.wait_ping(timeout_seconds=args.ping_timeout)
@@ -1408,6 +1462,7 @@ def run_battle_client_lifecycle_case(
                 seed=args.seed + 2,
                 scenario=case_name,
                 extra_args=["--mpDisableAiFill", "--mpFreezeGameFlow"],
+                headless_player=args.headless_player,
             )
             client_b = AutomationClient(client_b_port, client_b_token, timeout=args.request_timeout)
             client_b_ping = client_b.wait_ping(timeout_seconds=args.ping_timeout)
@@ -1438,10 +1493,26 @@ def run_battle_client_lifecycle_case(
                 failures.append("post_battle_same_token_reconnect_timeout")
                 failures.extend(reconnect_assertions.get("errors") or [])
 
-        write_json(artifact_dir / "build-host-screenshot.json", host.screenshot())
+        if args.headless_player:
+            write_json(artifact_dir / "build-host-screenshot.json", {
+                "success": True,
+                "skipped": True,
+                "reason": "headless_player",
+                "headlessPlayer": True,
+            })
+        else:
+            write_json(artifact_dir / "build-host-screenshot.json", host.screenshot())
         if reconnect and client_b_proc is not None:
             client_b = AutomationClient(client_b_port, client_b_token, timeout=args.request_timeout)
-            write_json(artifact_dir / "build-client-b-screenshot.json", client_b.screenshot())
+            if args.headless_player:
+                write_json(artifact_dir / "build-client-b-screenshot.json", {
+                    "success": True,
+                    "skipped": True,
+                    "reason": "headless_player",
+                    "headlessPlayer": True,
+                })
+            else:
+                write_json(artifact_dir / "build-client-b-screenshot.json", client_b.screenshot())
             client_logs = client_b.logs_recent()
             write_json(artifact_dir / "build-client-b-logs-recent.json", client_logs)
         else:
@@ -1457,6 +1528,7 @@ def run_battle_client_lifecycle_case(
             "artifactDir": str(artifact_dir),
             "targetPlayerId": target_player_id,
             "reconnect": reconnect,
+            "headlessPlayer": args.headless_player,
         })
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{case_name} failed", failures)
@@ -1536,6 +1608,12 @@ def run_battle_case(
         "cleanupSuccess": True,
         "orphanedPids": [],
     }
+    orphan_gate = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+        [host_token, client_token, host_connection, client_connection],
+    )
 
     write_json(artifact_dir / "run.json", {
         "case": case_name,
@@ -1554,13 +1632,45 @@ def run_battle_case(
         "requireAnyBattleCommand": require_any_battle_command,
         "migrateAfterBattle": migrate_after_battle,
         "dryRun": args.dry_run,
+        "headlessPlayer": args.headless_player,
         "cleanup": {
             "baselinePids": sorted(cleanup_baseline_pids),
             "timeoutSeconds": args.cleanup_timeout_seconds,
             "leaveProcessesOnFail": args.leave_processes_on_fail,
             "strictCleanup": args.strict_cleanup,
         },
+        "orphanPressure": orphan_gate,
     })
+    if orphan_gate.get("blocked") and not args.dry_run:
+        failures.append("orphan_pressure_gate_blocked")
+        cleanup_report = {
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "cleanupSuccess": False,
+            "orphanedPids": [
+                proc.get("pid")
+                for proc in orphan_gate.get("processes", [])
+                if isinstance(proc, dict) and isinstance(proc.get("pid"), int)
+            ],
+        }
+        write_json(artifact_dir / "result.json", {
+            "case": case_name,
+            "artifactDir": str(artifact_dir),
+            "success": False,
+            "functionalSuccess": False,
+            "cleanupSuccess": False,
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "orphanPressure": orphan_gate,
+            "headlessPlayer": args.headless_player,
+            "failures": failures,
+        })
+        failure_summary(artifact_dir / "failure-summary.md", f"{case_name} blocked", failures)
+        print(json.dumps({
+            "artifactDir": str(artifact_dir),
+            "failures": failures,
+            "cleanupStatus": cleanup_report.get("cleanupStatus"),
+            "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+        }, indent=2))
+        return 2
     if args.dry_run:
         print(json.dumps({"artifactDir": str(artifact_dir), "case": case_name, "dryRun": True}, indent=2))
         return 0
@@ -1599,6 +1709,7 @@ def run_battle_case(
             seed=args.seed,
             scenario=case_name,
             extra_args=host_extra_args,
+            headless_player=args.headless_player,
         )
         host = AutomationClient(host_port, host_token, timeout=args.request_timeout)
         host_ping = host.wait_ping(timeout_seconds=args.ping_timeout)
@@ -1642,6 +1753,7 @@ def run_battle_case(
             seed=args.seed + 1,
             scenario=case_name,
             extra_args=client_extra_args,
+            headless_player=args.headless_player,
         )
         client = AutomationClient(client_port, client_token, timeout=args.request_timeout)
         client_ping = client.wait_ping(timeout_seconds=args.ping_timeout)
@@ -1802,14 +1914,24 @@ def run_battle_case(
                 failures.append("post_battle_host_migration_failed")
                 failures.extend(migration_result.get("errors") or [])
 
-        if host_was_killed:
+        if args.headless_player:
+            skipped_screenshot = {
+                "success": True,
+                "skipped": True,
+                "reason": "headless_player",
+                "headlessPlayer": True,
+            }
+            write_json(artifact_dir / "build-host-screenshot.json", skipped_screenshot)
+            write_json(artifact_dir / "build-client-screenshot.json", skipped_screenshot)
+        elif host_was_killed:
             write_json(artifact_dir / "build-host-screenshot.json", {
                 "success": False,
                 "error": {"code": "host_process_killed_for_migration"},
             })
+            write_json(artifact_dir / "build-client-screenshot.json", client.screenshot())
         else:
             write_json(artifact_dir / "build-host-screenshot.json", host.screenshot())
-        write_json(artifact_dir / "build-client-screenshot.json", client.screenshot())
+            write_json(artifact_dir / "build-client-screenshot.json", client.screenshot())
         host_logs = host.logs_recent() if not host_was_killed else {"success": False, "data": {"lines": []}}
         client_logs = client.logs_recent()
         write_json(artifact_dir / "build-host-logs-recent.json", host_logs)
@@ -1821,6 +1943,7 @@ def run_battle_case(
             "failures": failures,
             "artifactDir": str(artifact_dir),
             "battleCommandEvidence": assertions,
+            "headlessPlayer": args.headless_player,
         })
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{case_name} failed", failures)

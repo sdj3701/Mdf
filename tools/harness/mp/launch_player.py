@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import pathlib
@@ -16,10 +17,392 @@ from common import ROOT, hash_for_log, write_json
 
 
 PLAYER_PROCESS_NAME = "MDF-MPTest.exe"
+CREATE_SUSPENDED = 0x00000004
+STARTF_USESTDHANDLES = 0x00000100
+WAIT_TIMEOUT = 0x00000102
+WAIT_FAILED = 0xFFFFFFFF
+STILL_ACTIVE = 259
+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+JOB_OBJECT_BASIC_PROCESS_ID_LIST = 3
+JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 
 
 def _is_windows() -> bool:
     return platform.system().lower() == "windows"
+
+
+if _is_windows():
+    from ctypes import wintypes
+
+
+    class _PROCESS_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("hProcess", wintypes.HANDLE),
+            ("hThread", wintypes.HANDLE),
+            ("dwProcessId", wintypes.DWORD),
+            ("dwThreadId", wintypes.DWORD),
+        ]
+
+
+    class _STARTUPINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("lpReserved", wintypes.LPWSTR),
+            ("lpDesktop", wintypes.LPWSTR),
+            ("lpTitle", wintypes.LPWSTR),
+            ("dwX", wintypes.DWORD),
+            ("dwY", wintypes.DWORD),
+            ("dwXSize", wintypes.DWORD),
+            ("dwYSize", wintypes.DWORD),
+            ("dwXCountChars", wintypes.DWORD),
+            ("dwYCountChars", wintypes.DWORD),
+            ("dwFillAttribute", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("wShowWindow", wintypes.WORD),
+            ("cbReserved2", wintypes.WORD),
+            ("lpReserved2", ctypes.c_void_p),
+            ("hStdInput", wintypes.HANDLE),
+            ("hStdOutput", wintypes.HANDLE),
+            ("hStdError", wintypes.HANDLE),
+        ]
+
+
+    class _IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+
+    class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+
+    class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", _IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+
+def _kernel32() -> Any:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateProcessW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.LPWSTR,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        wintypes.BOOL,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.LPCWSTR,
+        ctypes.POINTER(_STARTUPINFOW),
+        ctypes.POINTER(_PROCESS_INFORMATION),
+    ]
+    kernel32.CreateProcessW.restype = wintypes.BOOL
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.GetStdHandle.argtypes = [wintypes.DWORD]
+    kernel32.GetStdHandle.restype = wintypes.HANDLE
+    kernel32.QueryInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+    kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
+    kernel32.ResumeThread.restype = wintypes.DWORD
+    kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateJobObject.restype = wintypes.BOOL
+    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    return kernel32
+
+
+def _win_error(prefix: str) -> dict[str, Any]:
+    code = ctypes.get_last_error()
+    try:
+        details = ctypes.FormatError(code)
+    except Exception:
+        details = f"Windows error {code}"
+    return {"code": "WinError", "winError": code, "details": f"{prefix}: {details}"}
+
+
+def _valid_handle(handle: Any) -> bool:
+    return bool(handle) and int(handle) not in (0, -1)
+
+
+class WindowsJobObject:
+    def __init__(self, name: str | None = None, kill_on_close: bool = True) -> None:
+        self.name = name
+        self.kill_on_close_requested = kill_on_close
+        self.kill_on_close_set = False
+        self.job_created = False
+        self.assigned_to_job = False
+        self.terminate_job_attempted = False
+        self.terminate_job_success = False
+        self.errors: list[dict[str, Any]] = []
+        self._kernel32 = _kernel32()
+        self._handle = self._kernel32.CreateJobObjectW(None, name)
+        if not _valid_handle(self._handle):
+            self.errors.append(_win_error("CreateJobObjectW failed"))
+            self._handle = None
+            return
+        self.job_created = True
+        if kill_on_close:
+            info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            ok = self._kernel32.SetInformationJobObject(
+                self._handle,
+                JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+                ctypes.byref(info),
+                ctypes.sizeof(info),
+            )
+            if ok:
+                self.kill_on_close_set = True
+            else:
+                self.errors.append(_win_error("SetInformationJobObject(KILL_ON_JOB_CLOSE) failed"))
+
+    @property
+    def handle(self) -> Any:
+        return self._handle
+
+    def assign(self, process_handle: Any) -> bool:
+        if not _valid_handle(self._handle):
+            self.errors.append({"code": "job_not_created", "details": "job handle is invalid"})
+            return False
+        ok = self._kernel32.AssignProcessToJobObject(self._handle, process_handle)
+        self.assigned_to_job = bool(ok)
+        if not ok:
+            self.errors.append(_win_error("AssignProcessToJobObject failed"))
+        return self.assigned_to_job
+
+    def process_ids(self, max_count: int = 64) -> list[int]:
+        if not _valid_handle(self._handle):
+            return []
+        pointer_size = ctypes.sizeof(ctypes.c_size_t)
+        header_size = ctypes.sizeof(wintypes.DWORD) * 2
+        buffer_size = header_size + pointer_size * max_count
+        buffer = ctypes.create_string_buffer(buffer_size)
+        returned = wintypes.DWORD(0)
+        ok = self._kernel32.QueryInformationJobObject(
+            self._handle,
+            JOB_OBJECT_BASIC_PROCESS_ID_LIST,
+            ctypes.byref(buffer),
+            buffer_size,
+            ctypes.byref(returned),
+        )
+        if not ok:
+            return []
+        count = int.from_bytes(buffer.raw[4:8], byteorder="little", signed=False)
+        count = min(count, max_count)
+        pids: list[int] = []
+        for index in range(count):
+            offset = header_size + pointer_size * index
+            raw = buffer.raw[offset : offset + pointer_size]
+            pids.append(int.from_bytes(raw, byteorder="little", signed=False))
+        return pids
+
+    def terminate(self, exit_code: int = 1) -> dict[str, Any]:
+        self.terminate_job_attempted = True
+        step: dict[str, Any] = {
+            "step": "terminate_job",
+            "ok": False,
+            "jobCreated": self.job_created,
+            "assignedToJob": self.assigned_to_job,
+            "terminateJobAttempted": True,
+            "pidsInJobBefore": self.process_ids(),
+        }
+        if not _valid_handle(self._handle):
+            step["skipped"] = True
+            step["reason"] = "no_job_handle"
+            return step
+        ok = self._kernel32.TerminateJobObject(self._handle, exit_code)
+        self.terminate_job_success = bool(ok)
+        step["ok"] = bool(ok)
+        step["terminateJobSuccess"] = self.terminate_job_success
+        if not ok:
+            step["error"] = _win_error("TerminateJobObject failed")
+        step["pidsInJobAfter"] = self.process_ids()
+        return step
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "jobCreated": self.job_created,
+            "assignedToJob": self.assigned_to_job,
+            "killOnJobCloseRequested": self.kill_on_close_requested,
+            "killOnJobCloseSet": self.kill_on_close_set,
+            "terminateJobAttempted": self.terminate_job_attempted,
+            "terminateJobSuccess": self.terminate_job_success,
+            "pidsInJob": self.process_ids(),
+            "errors": self.errors,
+        }
+
+    def close(self) -> dict[str, Any]:
+        step = {"step": "close_job", "ok": True, "skipped": True}
+        if _valid_handle(self._handle):
+            step["skipped"] = False
+            step["pidsInJobBeforeClose"] = self.process_ids()
+            ok = self._kernel32.CloseHandle(self._handle)
+            step["ok"] = bool(ok)
+            if not ok:
+                step["error"] = _win_error("CloseHandle(job) failed")
+            self._handle = None
+        return step
+
+
+class WindowsLaunchedProcess:
+    def __init__(self, handle: Any, pid: int, args: list[str]) -> None:
+        self._kernel32 = _kernel32()
+        self._handle = handle
+        self.pid = pid
+        self.args = args
+        self.returncode: int | None = None
+
+    def poll(self) -> int | None:
+        if self.returncode is not None:
+            return self.returncode
+        code = wintypes.DWORD(0)
+        if not self._kernel32.GetExitCodeProcess(self._handle, ctypes.byref(code)):
+            raise OSError(_win_error("GetExitCodeProcess failed"))
+        if code.value == STILL_ACTIVE:
+            return None
+        self.returncode = int(code.value)
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int:
+        if self.returncode is not None:
+            return self.returncode
+        if timeout is None:
+            timeout_ms = 0xFFFFFFFF
+        else:
+            timeout_ms = max(1, int(timeout * 1000))
+        result = self._kernel32.WaitForSingleObject(self._handle, timeout_ms)
+        if result == WAIT_TIMEOUT:
+            raise subprocess.TimeoutExpired(self.args, timeout)
+        if result == WAIT_FAILED:
+            raise OSError(_win_error("WaitForSingleObject failed"))
+        polled = self.poll()
+        return int(polled if polled is not None else 0)
+
+    def terminate(self) -> None:
+        if self.poll() is not None:
+            return
+        if not self._kernel32.TerminateProcess(self._handle, 1):
+            raise OSError(_win_error("TerminateProcess failed"))
+
+    def kill(self) -> None:
+        self.terminate()
+
+    def close(self) -> None:
+        if _valid_handle(self._handle):
+            self._kernel32.CloseHandle(self._handle)
+            self._handle = None
+
+
+def launch_mdf_process(
+    cmd: list[str],
+    cwd: pathlib.Path,
+    stdout: Any,
+    stderr: Any,
+    *,
+    job_name: str | None = None,
+) -> tuple[Any, WindowsJobObject | None]:
+    if not _is_windows():
+        return subprocess.Popen(cmd, cwd=cwd, stdout=stdout, stderr=stderr), None
+
+    import msvcrt
+
+    kernel32 = _kernel32()
+    job = WindowsJobObject(job_name, kill_on_close=True)
+    if not job.job_created:
+        raise RuntimeError(f"Could not create Windows Job Object: {job.diagnostics()}")
+
+    stdout_handle = msvcrt.get_osfhandle(stdout.fileno())
+    stderr_handle = msvcrt.get_osfhandle(stderr.fileno())
+    stdout_was_inheritable = os.get_handle_inheritable(stdout_handle)
+    stderr_was_inheritable = os.get_handle_inheritable(stderr_handle)
+    os.set_handle_inheritable(stdout_handle, True)
+    os.set_handle_inheritable(stderr_handle, True)
+
+    startup = _STARTUPINFOW()
+    startup.cb = ctypes.sizeof(startup)
+    startup.dwFlags = STARTF_USESTDHANDLES
+    startup.hStdInput = 0
+    startup.hStdOutput = stdout_handle
+    startup.hStdError = stderr_handle
+    proc_info = _PROCESS_INFORMATION()
+    command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(cmd))
+    try:
+        ok = kernel32.CreateProcessW(
+            cmd[0],
+            command_line,
+            None,
+            None,
+            True,
+            CREATE_SUSPENDED,
+            None,
+            str(cwd),
+            ctypes.byref(startup),
+            ctypes.byref(proc_info),
+        )
+    finally:
+        os.set_handle_inheritable(stdout_handle, stdout_was_inheritable)
+        os.set_handle_inheritable(stderr_handle, stderr_was_inheritable)
+
+    if not ok:
+        error = _win_error("CreateProcessW failed")
+        job.close()
+        raise RuntimeError(f"Could not launch player process: {error}")
+
+    process = WindowsLaunchedProcess(proc_info.hProcess, int(proc_info.dwProcessId), cmd)
+    assigned = False
+    try:
+        assigned = job.assign(proc_info.hProcess)
+        if not assigned:
+            kernel32.TerminateProcess(proc_info.hProcess, 1)
+            raise RuntimeError(f"Could not assign player process to Windows Job Object: {job.diagnostics()}")
+        resumed = kernel32.ResumeThread(proc_info.hThread)
+        if resumed == 0xFFFFFFFF:
+            error = _win_error("ResumeThread failed")
+            kernel32.TerminateProcess(proc_info.hProcess, 1)
+            raise RuntimeError(f"Could not resume player process after Job Object assignment: {error}")
+    finally:
+        if _valid_handle(proc_info.hThread):
+            kernel32.CloseHandle(proc_info.hThread)
+        if not assigned:
+            job.close()
+    return process, job
 
 
 def _redact_text(value: str | None, secrets: list[str]) -> str | None:
@@ -95,6 +478,42 @@ def mdf_player_pids() -> set[int]:
         if isinstance(pid, int):
             pids.add(pid)
     return pids
+
+
+def orphan_pressure_report(
+    orphan_threshold: int,
+    force_run_with_orphans: bool,
+    secrets: list[str] | None = None,
+) -> dict[str, Any]:
+    processes = mdf_player_processes(secrets)
+    live = [proc for proc in processes if isinstance(proc.get("pid"), int)]
+    threshold = int(orphan_threshold)
+    blocked = threshold >= 0 and len(live) > threshold and not force_run_with_orphans
+    return {
+        "status": "NEEDS_ENVIRONMENT" if blocked else "PASS",
+        "blocked": blocked,
+        "liveCount": len(live),
+        "threshold": threshold,
+        "forceRunWithOrphans": force_run_with_orphans,
+        "processes": processes,
+        "message": (
+            f"live {PLAYER_PROCESS_NAME} count {len(live)} exceeds threshold {threshold}"
+            if blocked
+            else "orphan pressure gate passed"
+        ),
+    }
+
+
+def write_orphan_pressure_report(
+    artifact_dir: pathlib.Path,
+    orphan_threshold: int,
+    force_run_with_orphans: bool,
+    secrets: list[str] | None = None,
+) -> dict[str, Any]:
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    report = orphan_pressure_report(orphan_threshold, force_run_with_orphans, secrets)
+    write_json(artifact_dir / "orphan-pressure.json", report)
+    return report
 
 
 def process_info(pid: int, secrets: list[str] | None = None) -> dict[str, Any] | None:
@@ -184,7 +603,7 @@ def _wait_process_absent(pid: int, timeout: float, secrets: list[str] | None = N
 
 @dataclass
 class PlayerProcess:
-    process: subprocess.Popen
+    process: Any
     stdout_path: pathlib.Path
     stderr_path: pathlib.Path
     player_log_path: pathlib.Path
@@ -196,6 +615,8 @@ class PlayerProcess:
     redaction_secrets: list[str]
     stdout_handle: object
     stderr_handle: object
+    job: WindowsJobObject | None = None
+    headless_player: bool = False
 
     def terminate(self, timeout: float = 10.0) -> None:
         self.cleanup(timeout_seconds=timeout, graceful=False)
@@ -211,7 +632,16 @@ class PlayerProcess:
             "peer": self.peer_name,
             "pid": pid,
             "artifactDir": str(self.artifact_dir),
+            "headlessPlayer": self.headless_player,
             "startedProcess": process_info(pid, self.redaction_secrets),
+            "job": self.job.diagnostics() if self.job is not None else {
+                "jobCreated": False,
+                "assignedToJob": False,
+                "terminateJobAttempted": False,
+                "terminateJobSuccess": False,
+                "pidsInJob": [],
+                "reason": "not_windows",
+            },
             "stdout": _file_record(self.stdout_path),
             "stderr": _file_record(self.stderr_path),
             "playerLog": _file_record(self.player_log_path),
@@ -224,6 +654,7 @@ class PlayerProcess:
             report["alreadyExited"] = True
             report["exitCode"] = self.process.returncode
             self.close_logs()
+            self.close_job(report)
             return report
 
         if leave_process:
@@ -248,6 +679,23 @@ class PlayerProcess:
             report["steps"].append(step)
             wait = _wait_for_exit(self.process, timeout_seconds, "wait_after_quit")
             report["steps"].append(wait)
+
+        if self.process.poll() is None:
+            if self.job is not None:
+                report["steps"].append(self.job.terminate(exit_code=1))
+                report["steps"].append(_wait_for_exit(self.process, timeout_seconds, "wait_after_terminate_job"))
+            else:
+                report["steps"].append({
+                    "step": "terminate_job",
+                    "ok": False,
+                    "skipped": True,
+                    "reason": "not_windows_or_no_job",
+                    "jobCreated": False,
+                    "assignedToJob": False,
+                    "terminateJobAttempted": False,
+                    "terminateJobSuccess": False,
+                    "pidsInJob": [],
+                })
 
         if self.process.poll() is None:
             step = {"step": "terminate", "ok": False}
@@ -288,12 +736,27 @@ class PlayerProcess:
         report["cleanupSuccess"] = not still_running
         report["cleanupStatus"] = "PASS" if not still_running else "NEEDS_ENVIRONMENT"
         self.close_logs()
+        report["jobAfterCleanup"] = self.job.diagnostics() if self.job is not None else report["job"]
+        self.close_job(report)
         return report
 
     def close_logs(self) -> None:
         for handle in (self.stdout_handle, self.stderr_handle):
             try:
                 handle.close()
+            except Exception:
+                pass
+
+    def close_job(self, report: dict[str, Any] | None = None) -> None:
+        if self.job is not None:
+            step = self.job.close()
+            if report is not None:
+                report.setdefault("steps", []).append(step)
+            self.job = None
+        close_process = getattr(self.process, "close", None)
+        if callable(close_process):
+            try:
+                close_process()
             except Exception:
                 pass
 
@@ -342,9 +805,11 @@ def write_case_cleanup_report(
         "strictCleanup": strict_cleanup,
         "leaveProcesses": leave_processes,
         "timeoutSeconds": timeout_seconds,
+        "headlessPlayer": any(bool(getattr(proc, "headless_player", False)) for proc in processes if proc is not None),
         "strategy": [
             "automation /quit",
             "wait for process exit",
+            "terminate Windows Job Object",
             "terminate process",
             "kill process",
             "Windows taskkill /PID <pid> /T /F fallback",
@@ -372,6 +837,7 @@ def launch_player(
     seed: int = 0,
     scenario: str = "game_smoke",
     extra_args: list[str] | None = None,
+    headless_player: bool = False,
 ) -> PlayerProcess:
     stdout_path = artifact_dir / f"{peer_name}.stdout.log"
     stderr_path = artifact_dir / f"{peer_name}.stderr.log"
@@ -381,6 +847,10 @@ def launch_player(
 
     cmd = [
         str(player_path),
+    ]
+    if headless_player:
+        cmd.extend(["-batchmode", "-nographics"])
+    cmd.extend([
         "-logFile",
         str(player_log_path),
         "--mpTest",
@@ -406,7 +876,7 @@ def launch_player(
         str(seed),
         "--mpScenario",
         scenario,
-    ]
+    ])
     if auto_start:
         cmd.append("--mpAutoStart")
     if load_game:
@@ -427,6 +897,7 @@ def launch_player(
                 "role": role,
                 "session": session,
                 "playerLog": str(player_log_path),
+                "headlessPlayer": headless_player,
             },
             indent=2,
         ),
@@ -435,7 +906,18 @@ def launch_player(
 
     stdout = stdout_path.open("w", encoding="utf-8")
     stderr = stderr_path.open("w", encoding="utf-8")
-    process = subprocess.Popen(cmd, cwd=ROOT, stdout=stdout, stderr=stderr)
+    try:
+        process, job = launch_mdf_process(
+            cmd,
+            ROOT,
+            stdout,
+            stderr,
+            job_name=f"MDF-MPTest-{peer_name}-{os.getpid()}-{int(time.time() * 1000)}",
+        )
+    except Exception:
+        stdout.close()
+        stderr.close()
+        raise
     launch_info = process_info(process.pid, [token, connection_token]) or {
         "pid": process.pid,
         "parentPid": os.getpid(),
@@ -453,6 +935,12 @@ def launch_player(
                 "session": session,
                 "playerLog": str(player_log_path),
                 "process": launch_info,
+                "job": job.diagnostics() if job is not None else {
+                    "jobCreated": False,
+                    "assignedToJob": False,
+                    "reason": "not_windows",
+                },
+                "headlessPlayer": headless_player,
                 "artifactDir": str(artifact_dir),
             },
             indent=2,
@@ -472,6 +960,8 @@ def launch_player(
         redaction_secrets=[token, connection_token],
         stdout_handle=stdout,
         stderr_handle=stderr,
+        job=job,
+        headless_player=headless_player,
     )
 
 
@@ -489,7 +979,26 @@ def main() -> int:
     parser.add_argument("--scene", default="Game")
     parser.add_argument("--case-name", default="manual")
     parser.add_argument("--exit-after-seconds", type=int, default=0)
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action="store_true")
     args = parser.parse_args()
+
+    artifact_dir = pathlib.Path(args.artifact_dir)
+    orphan_report = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+        [args.token, args.connection_token],
+    )
+    if orphan_report.get("blocked"):
+        print(json.dumps({
+            "success": False,
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "orphanPressure": orphan_report,
+            "artifactDir": str(artifact_dir),
+        }, indent=2))
+        return 2
 
     proc = launch_player(
         pathlib.Path(args.player_path),
@@ -498,14 +1007,20 @@ def main() -> int:
         args.port,
         args.token,
         args.connection_token,
-        pathlib.Path(args.artifact_dir),
+        artifact_dir,
         args.peer_name,
         args.max_players,
         args.scene,
         args.case_name,
         exit_after_seconds=args.exit_after_seconds,
+        headless_player=args.headless_player,
     )
-    print(json.dumps({"pid": proc.process.pid, "stdout": str(proc.stdout_path), "stderr": str(proc.stderr_path)}, indent=2))
+    print(json.dumps({
+        "pid": proc.process.pid,
+        "stdout": str(proc.stdout_path),
+        "stderr": str(proc.stderr_path),
+        "headlessPlayer": args.headless_player,
+    }, indent=2))
     return 0
 
 

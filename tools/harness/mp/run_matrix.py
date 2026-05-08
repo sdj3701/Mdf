@@ -10,6 +10,7 @@ import sys
 import time
 
 from common import ROOT, make_artifact_dir, parse_json_object, read_json, unity_cli_json, wait_unity_ready, write_json
+from launch_player import write_orphan_pressure_report
 
 
 CASES = {
@@ -20,6 +21,11 @@ CASES = {
     "battle-spawn-monster-command": "run_battle_spawn_monster_command.py",
     "magic-scroll-command": "run_magic_scroll_command.py",
     "human-bot-battle-progression": "run_human_bot_battle_progression.py",
+    "human-bot-3round-progression": "run_human_bot_3round_progression.py",
+    "human-bot-game-to-end": "run_human_bot_game_to_end.py",
+    "3round-reconnect": "run_3round_reconnect.py",
+    "3round-disconnect-ai-takeover": "run_3round_disconnect_ai_takeover.py",
+    "3round-host-migration": "run_3round_host_migration.py",
     "progressed-host-migration-after-battle": "run_progressed_host_migration_after_battle.py",
     "progressed-reconnect-after-battle": "run_progressed_reconnect_after_battle.py",
     "progressed-disconnect-after-battle": "run_progressed_disconnect_after_battle.py",
@@ -68,6 +74,20 @@ LIFECYCLE_CASES = [
     "progressed-host-migration-after-battle",
 ]
 
+LONG_CASES = [
+    "human-bot-3round-progression",
+]
+
+ENDURANCE_CASES = [
+    "human-bot-game-to-end",
+]
+
+LONG_LIFECYCLE_CASES = [
+    "3round-reconnect",
+    "3round-disconnect-ai-takeover",
+    "3round-host-migration",
+]
+
 RANDOM_AWARE_CASES = [
     "human-bot-prepare",
     "human-bot-4p-progression",
@@ -82,13 +102,19 @@ NIGHTLY_CASES = REGRESSION_CASES + BATTLE_CASES + LIFECYCLE_CASES + [
     "human-bot-seed-sweep",
 ]
 
+FULL_REGRESSION_CASES = REGRESSION_CASES + BATTLE_CASES + LIFECYCLE_CASES + LONG_CASES
+
 PROFILES = OrderedDict(
     [
         ("smoke", SMOKE_CASES),
         ("regression", REGRESSION_CASES),
         ("battle", BATTLE_CASES),
         ("lifecycle", LIFECYCLE_CASES),
+        ("long", LONG_CASES),
+        ("endurance", ENDURANCE_CASES),
+        ("long-lifecycle", LONG_LIFECYCLE_CASES),
         ("random-aware", RANDOM_AWARE_CASES),
+        ("full-regression", FULL_REGRESSION_CASES),
         ("nightly", NIGHTLY_CASES),
     ]
 )
@@ -98,9 +124,51 @@ CLEANUP_FLAG_CASES = {
     "battle-spawn-monster-command",
     "magic-scroll-command",
     "human-bot-battle-progression",
+    "human-bot-3round-progression",
+    "human-bot-game-to-end",
+    "3round-reconnect",
+    "3round-disconnect-ai-takeover",
+    "3round-host-migration",
     "progressed-host-migration-after-battle",
     "progressed-reconnect-after-battle",
     "progressed-disconnect-after-battle",
+    "human-bot-seed-sweep",
+    "battle-seed-sweep",
+}
+
+ORPHAN_FLAG_CASES = {
+    "human-bot-prepare",
+    "battle-spawn-monster-command",
+    "magic-scroll-command",
+    "human-bot-battle-progression",
+    "human-bot-3round-progression",
+    "human-bot-game-to-end",
+    "3round-reconnect",
+    "3round-disconnect-ai-takeover",
+    "3round-host-migration",
+    "progressed-host-migration-after-battle",
+    "progressed-reconnect-after-battle",
+    "progressed-disconnect-after-battle",
+    "human-bot-seed-sweep",
+    "battle-seed-sweep",
+}
+
+HEADLESS_FLAG_CASES = {
+    "editor-host-build-client",
+    "build-host-editor-client",
+    "build-host-build-client",
+    "human-bot-prepare",
+    "battle-spawn-monster-command",
+    "magic-scroll-command",
+    "human-bot-battle-progression",
+    "human-bot-3round-progression",
+    "human-bot-game-to-end",
+    "3round-reconnect",
+    "3round-disconnect-ai-takeover",
+    "3round-host-migration",
+    "progressed-reconnect-after-battle",
+    "progressed-disconnect-after-battle",
+    "progressed-host-migration-after-battle",
     "human-bot-seed-sweep",
     "battle-seed-sweep",
 }
@@ -136,6 +204,11 @@ def list_profiles_payload() -> dict:
         "notes": {
             "all": "--case all preserves the existing default case subset; use --profile nightly for heavy coverage.",
             "smoke": "--profile smoke is the cheap three-direction Editor/Build smoke.",
+            "long": "--profile long runs bounded multi-round progression and is excluded from smoke.",
+            "endurance": "--profile endurance runs GameOver-or-timeout classification and is explicit opt-in only.",
+            "long-lifecycle": "--profile long-lifecycle runs reconnect, disconnect/AI takeover, and Host Migration after a 3-round checkpoint.",
+            "nightly": "--profile nightly remains the pre-long nightly set; use --profile full-regression for long progression. Endurance is excluded unless run explicitly with --profile endurance.",
+            "headless": "--profile smoke defaults build players to --headless-player; use --no-headless-player for screenshot/visual debugging.",
         },
     }
 
@@ -199,6 +272,12 @@ def run_case(case: str, matrix_dir: pathlib.Path, args: argparse.Namespace) -> d
             command.append("--leave-processes-on-fail")
         if args.strict_cleanup:
             command.append("--strict-cleanup")
+    if case in ORPHAN_FLAG_CASES:
+        command.extend(["--orphan-threshold", str(args.orphan_threshold)])
+        if args.force_run_with_orphans:
+            command.append("--force-run-with-orphans")
+    if args.effective_headless_player and case in HEADLESS_FLAG_CASES:
+        command.append("--headless-player")
     proc = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, encoding="utf-8", errors="replace")
     artifact_dir = child_artifact(proc.stdout)
     child_result = case_result_from_artifact(artifact_dir)
@@ -213,7 +292,9 @@ def run_case(case: str, matrix_dir: pathlib.Path, args: argparse.Namespace) -> d
         "cleanupStatus": child_result.get("cleanupStatus") or "PASS",
         "cleanupSuccess": child_result.get("cleanupSuccess") if child_result.get("cleanupSuccess") is not None else True,
         "cleanupReportPath": str(artifact_dir / "cleanup-report.json") if artifact_dir and (artifact_dir / "cleanup-report.json").exists() else None,
+        "orphanedPids": child_result.get("orphanedPids") if isinstance(child_result.get("orphanedPids"), list) else None,
         "overallSuccess": child_result.get("success", proc.returncode == 0),
+        "headlessPlayer": bool(args.effective_headless_player and case in HEADLESS_FLAG_CASES),
     }
     return result
 
@@ -255,6 +336,9 @@ def main() -> int:
     parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
     parser.add_argument("--leave-processes-on-fail", action="store_true")
     parser.add_argument("--strict-cleanup", action="store_true")
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action=argparse.BooleanOptionalAction, default=None)
     args = parser.parse_args()
 
     if args.list_cases:
@@ -266,6 +350,36 @@ def main() -> int:
 
     matrix_dir = make_artifact_dir("matrix")
     selected, profile_name, selection_name = select_cases(args, parser)
+    default_headless = profile_name in {"smoke", "long", "endurance", "long-lifecycle", "full-regression", "nightly"}
+    args.effective_headless_player = default_headless if args.headless_player is None else args.headless_player
+    orphan_gate = write_orphan_pressure_report(
+        matrix_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+    )
+    if orphan_gate.get("blocked") and not args.dry_run:
+        summary = {
+            "matrixDir": str(matrix_dir),
+            "profileName": profile_name,
+            "dryRun": args.dry_run,
+            "caseSelection": selection_name,
+            "selectedCases": selected,
+            "headlessPlayer": args.effective_headless_player,
+            "headlessPlayerDefault": default_headless,
+            "cleanups": [],
+            "results": [],
+            "artifacts": [],
+            "functionalSuccess": False,
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "cleanupSuccess": False,
+            "overallSuccess": False,
+            "success": False,
+            "orphanPressure": orphan_gate,
+            "failures": ["orphan_pressure_gate_blocked"],
+        }
+        write_json(matrix_dir / "matrix-summary.json", summary)
+        print(json.dumps(summary, indent=2))
+        return 2
     cleanups: list[dict] = []
     results: list[dict] = []
     for index, case in enumerate(selected):
@@ -283,6 +397,8 @@ def main() -> int:
         "dryRun": args.dry_run,
         "caseSelection": selection_name,
         "selectedCases": selected,
+        "headlessPlayer": args.effective_headless_player,
+        "headlessPlayerDefault": default_headless,
         "cleanups": cleanups,
         "results": results,
         "artifacts": artifacts,
@@ -291,6 +407,7 @@ def main() -> int:
         "cleanupSuccess": cleanup_success,
         "overallSuccess": overall_success,
         "success": overall_success,
+        "orphanPressure": orphan_gate,
     }
     write_json(matrix_dir / "matrix-summary.json", summary)
     print(json.dumps(summary, indent=2))

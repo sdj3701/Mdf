@@ -25,7 +25,7 @@ from common import (
     write_json,
 )
 from compare_state_snapshots import compare_snapshots
-from launch_player import PlayerProcess, launch_player
+from launch_player import PlayerProcess, launch_player, mdf_player_pids, write_case_cleanup_report
 
 
 CASE_NAME = "editor-host-build-client"
@@ -112,6 +112,13 @@ def run(args: argparse.Namespace) -> int:
     port = free_port()
     build_proc: PlayerProcess | None = None
     failures: list[str] = []
+    cleanup_baseline_pids = mdf_player_pids()
+    cleanup_report: dict = {
+        "cleanupStatus": "PASS",
+        "cleanupSuccess": True,
+        "orphanedPids": [],
+        "headlessPlayer": args.headless_player,
+    }
 
     write_json(artifact_dir / "run.json", {
         "case": CASE_NAME,
@@ -122,6 +129,7 @@ def run(args: argparse.Namespace) -> int:
         "scene": args.scene,
         "lobbyScene": args.lobby_scene,
         "dryRun": args.dry_run,
+        "headlessPlayer": args.headless_player,
     })
 
     if args.dry_run:
@@ -149,6 +157,7 @@ def run(args: argparse.Namespace) -> int:
             load_game=False,
             seed=args.seed,
             scenario="game_smoke",
+            headless_player=args.headless_player,
         )
         client = AutomationClient(port, token, timeout=5.0)
         ping = client.wait_ping(timeout_seconds=args.ping_timeout)
@@ -201,28 +210,52 @@ def run(args: argparse.Namespace) -> int:
         if not comparison["success"]:
             failures.append("snapshot_mismatch")
 
-        unity_cli_json(["mp_screenshot", "--view", "game", "--output_path", str(artifact_dir / "screenshots" / "editor.png")], artifact_dir, timeout=60)
-        write_json(artifact_dir / "build-client-screenshot.json", client.screenshot())
+        if args.headless_player:
+            write_json(artifact_dir / "editor-screenshot.json", {
+                "success": True,
+                "skipped": True,
+                "reason": "headless_player",
+                "headlessPlayer": True,
+            })
+            write_json(artifact_dir / "build-client-screenshot.json", {
+                "success": True,
+                "skipped": True,
+                "reason": "headless_player",
+                "headlessPlayer": True,
+            })
+        else:
+            unity_cli_json(["mp_screenshot", "--view", "game", "--output_path", str(artifact_dir / "screenshots" / "editor.png")], artifact_dir, timeout=60)
+            write_json(artifact_dir / "build-client-screenshot.json", client.screenshot())
         write_json(artifact_dir / "build-client-logs-recent.json", client.logs_recent())
 
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
     finally:
-        if build_proc is not None:
-            try:
-                client = AutomationClient(port, token, timeout=2.0)
-                write_json(artifact_dir / "build-client-quit.json", client.quit())
-                build_proc.process.wait(timeout=10)
-                build_proc.close_logs()
-            except Exception:
-                build_proc.terminate()
+        cleanup_report = write_case_cleanup_report(
+            artifact_dir,
+            [proc for proc in (build_proc,) if proc is not None],
+            baseline_pids=cleanup_baseline_pids,
+            timeout_seconds=15.0,
+        )
         unity_cli_json(["mp_stop"], artifact_dir, timeout=60)
-        copied = collect_player_log(artifact_dir, "build-client")
+        copied = collect_player_log(artifact_dir, "build-client-or-last")
         logs = [artifact_dir / "build-client.stdout.log", artifact_dir / "build-client.stderr.log"]
         if copied:
             logs.append(copied)
         write_timeline(artifact_dir, logs)
 
+    write_json(artifact_dir / "result.json", {
+        "case": CASE_NAME,
+        "artifactDir": str(artifact_dir),
+        "success": (not failures) and cleanup_report.get("cleanupSuccess") is True,
+        "functionalSuccess": not failures,
+        "cleanupStatus": cleanup_report.get("cleanupStatus"),
+        "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+        "cleanupReportPath": "cleanup-report.json",
+        "orphanedPids": cleanup_report.get("orphanedPids") or [],
+        "headlessPlayer": args.headless_player,
+        "failures": failures,
+    })
     print(json.dumps({"artifactDir": str(artifact_dir), "failures": failures}, indent=2))
     return 0 if not failures else 1
 
@@ -241,6 +274,7 @@ def main() -> int:
     parser.add_argument("--state-timeout", type=int, default=90)
     parser.add_argument("--lobby-scene", default="MatchingLobby")
     parser.add_argument("--editor-timeout-ms", type=int, default=30000)
+    parser.add_argument("--headless-player", action="store_true")
     args = parser.parse_args()
     return run(args)
 

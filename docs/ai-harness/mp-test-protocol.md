@@ -122,6 +122,20 @@ Do not assert fixed shop item names, fixed wall hashes, or fixed augment names.
 - Verify monster spawner readiness.
 - Optionally spawn one test monster only through authority-gated test command.
 
+## Scenario categories
+
+Use categories to choose the smallest case that proves the change. A longer wall-clock runtime does not automatically mean deeper game progression; seed sweeps are long by repetition, while long/endurance cases must advance one match deeper.
+
+| Category | Purpose | Examples | Default automation scope |
+| --- | --- | --- | --- |
+| `smoke` | Cheap launch, lobby, Game scene, player-count, and basic snapshot readiness. | `editor-host-build-client`, `build-host-editor-client`, `build-host-build-client`, `four-player-smoke`, `ai-fill-smoke` | Safe for frequent local checks and default smoke. |
+| `progression` | HumanBot-driven durable randomized state mutation through normal request paths. | `human-bot-prepare`, `human-bot-4p-progression`, `human-bot-seed-sweep` | First-Prepare progression; not proof of multi-round play. |
+| `battle` | Battle entry, battle command validation, monster/scroll/effect hashes, and command telemetry. | `battle-spawn-monster-command`, `magic-scroll-command`, `human-bot-battle-progression`, `battle-seed-sweep` | Early Battle1/Battle2 coverage; usually round 1. |
+| `lifecycle` | Reconnect, disconnect/AI takeover, or Host Migration around a synchronized checkpoint. | `progressed-reconnect-after-battle`, `progressed-disconnect-after-battle`, `progressed-host-migration-after-battle` | Early progressed checkpoint plus recovery; not sustained round progression. |
+| `long` | Bounded multi-round normal progression with per-state and per-round checkpoint comparisons. | `human-bot-3round-progression` | Opt-in profile only; never part of smoke. |
+| `long-lifecycle` | Lifecycle insertion after a completed multi-round checkpoint. | `3round-reconnect`, `3round-disconnect-ai-takeover`, `3round-host-migration` | Opt-in; requires the 3-round checkpoint to pass before the lifecycle event. |
+| `endurance` | Game-to-end or bounded timeout/stall classification with progress evidence. | `human-bot-game-to-end` | Explicit opt-in only; not normal regression unless accepted. |
+
 ## E2E artifact layout
 
 ```text
@@ -161,6 +175,9 @@ Use:
 - Feature development: `python tools/harness/mp/run_matrix.py --profile smoke` or a targeted `--case <case>`.
 - AI, prepare, or random progression changes: `python tools/harness/mp/run_matrix.py --profile random-aware`.
 - Battle command changes: `python tools/harness/mp/run_matrix.py --profile battle`.
+- Multi-round progression changes: `python tools/harness/mp/run_matrix.py --profile long`.
+- Long lifecycle changes: `python tools/harness/mp/run_matrix.py --profile long-lifecycle`.
+- Game-to-end endurance checks: `python tools/harness/mp/run_matrix.py --profile endurance`.
 - Merge or nightly coverage: `python tools/harness/mp/run_matrix.py --profile nightly`.
 
 Profiles:
@@ -169,8 +186,27 @@ Profiles:
 - `regression`: `smoke`, `ai-fill-smoke`, `disconnect-ai-takeover`, `same-token-reconnect`, `four-player-smoke`, `human-bot-prepare`.
 - `battle`: `battle-spawn-monster-command`, `magic-scroll-command`, `human-bot-battle-progression`.
 - `lifecycle`: `progressed-reconnect-after-battle`, `progressed-disconnect-after-battle`, `progressed-host-migration-after-battle`.
+- `long`: `human-bot-3round-progression`.
+- `long-lifecycle`: `3round-reconnect`, `3round-disconnect-ai-takeover`, `3round-host-migration`.
 - `random-aware`: `human-bot-prepare`, `human-bot-4p-progression`, progressed lifecycle cases, and `human-bot-seed-sweep`.
 - `nightly`: `regression`, `battle`, `lifecycle`, `battle-seed-sweep`, and `human-bot-seed-sweep`.
+
+Additional profiles after long-progression implementation:
+
+- `endurance`: `human-bot-game-to-end`.
+- `full-regression`: `regression`, `battle`, `lifecycle`, and `long`.
+
+`nightly` currently remains the pre-long nightly set. Use `full-regression` when long progression must be included.
+`endurance` remains explicit opt-in and is not included in `nightly`.
+
+Do not add `long` or `endurance` cases to `smoke`. Do not claim GameToEnd PASS unless `GameOver` is actually reached.
+
+Headless build-player mode:
+
+- `--headless-player` adds Unity player `-batchmode -nographics` for build peers and records `headlessPlayer` in command/result/cleanup artifacts.
+- `--profile smoke` defaults to headless build players. Use `--no-headless-player` when collecting screenshots or debugging visual output.
+- Prepare and battle logic E2E may run headless when screenshots are not assertions; screenshot artifacts should be recorded as skipped in that mode.
+- Screenshot or visual-debugging cases must stay in graphics mode.
 
 `--case all` is a backward-compatible alias for the existing default subset:
 

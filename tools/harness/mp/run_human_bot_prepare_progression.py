@@ -25,7 +25,13 @@ from common import (
     write_json,
 )
 from compare_state_snapshots import compare_snapshots
-from launch_player import PlayerProcess, launch_player, mdf_player_pids, write_case_cleanup_report
+from launch_player import (
+    PlayerProcess,
+    launch_player,
+    mdf_player_pids,
+    write_case_cleanup_report,
+    write_orphan_pressure_report,
+)
 from summarize_bot_metrics import write_metrics_summary
 
 
@@ -415,6 +421,12 @@ def run(args: argparse.Namespace) -> int:
         "cleanupSuccess": True,
         "orphanedPids": [],
     }
+    orphan_gate = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+        [host_token, client_token, host_connection, client_connection],
+    )
 
     write_json(artifact_dir / "run.json", {
         "case": CASE_NAME,
@@ -429,13 +441,45 @@ def run(args: argparse.Namespace) -> int:
         "botPersona": args.bot_persona,
         "botJournalPath": str(bot_journal_path),
         "dryRun": args.dry_run,
+        "headlessPlayer": args.headless_player,
         "cleanup": {
             "baselinePids": sorted(cleanup_baseline_pids),
             "timeoutSeconds": args.cleanup_timeout_seconds,
             "leaveProcessesOnFail": args.leave_processes_on_fail,
             "strictCleanup": args.strict_cleanup,
         },
+        "orphanPressure": orphan_gate,
     })
+    if orphan_gate.get("blocked") and not args.dry_run:
+        failures.append("orphan_pressure_gate_blocked")
+        cleanup_report = {
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "cleanupSuccess": False,
+            "orphanedPids": [
+                proc.get("pid")
+                for proc in orphan_gate.get("processes", [])
+                if isinstance(proc, dict) and isinstance(proc.get("pid"), int)
+            ],
+        }
+        write_json(artifact_dir / "result.json", {
+            "case": CASE_NAME,
+            "artifactDir": str(artifact_dir),
+            "success": False,
+            "functionalSuccess": False,
+            "cleanupSuccess": False,
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "orphanPressure": orphan_gate,
+            "headlessPlayer": args.headless_player,
+            "failures": failures,
+        })
+        failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} blocked", failures)
+        print(json.dumps({
+            "artifactDir": str(artifact_dir),
+            "failures": failures,
+            "cleanupStatus": cleanup_report.get("cleanupStatus"),
+            "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+        }, indent=2))
+        return 2
     if args.dry_run:
         print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
         return 0
@@ -457,6 +501,7 @@ def run(args: argparse.Namespace) -> int:
             load_game=False,
             seed=args.seed,
             scenario="human_bot_prepare_progression",
+            headless_player=args.headless_player,
         )
         host = AutomationClient(host_port, host_token, timeout=args.request_timeout)
         host_ping = host.wait_ping(timeout_seconds=args.ping_timeout)
@@ -495,6 +540,7 @@ def run(args: argparse.Namespace) -> int:
                 "--mpBotRecordJournal",
                 str(bot_journal_path),
             ],
+            headless_player=args.headless_player,
         )
         client = AutomationClient(client_port, client_token, timeout=args.request_timeout)
         client_ping = client.wait_ping(timeout_seconds=args.ping_timeout)
@@ -592,8 +638,18 @@ def run(args: argparse.Namespace) -> int:
         if not progressed:
             failures.append("bot_no_meaningful_command")
 
-        write_json(artifact_dir / "build-host-screenshot.json", host.screenshot())
-        write_json(artifact_dir / "build-client-screenshot.json", client.screenshot())
+        if args.headless_player:
+            skipped_screenshot = {
+                "success": True,
+                "skipped": True,
+                "reason": "headless_player",
+                "headlessPlayer": True,
+            }
+            write_json(artifact_dir / "build-host-screenshot.json", skipped_screenshot)
+            write_json(artifact_dir / "build-client-screenshot.json", skipped_screenshot)
+        else:
+            write_json(artifact_dir / "build-host-screenshot.json", host.screenshot())
+            write_json(artifact_dir / "build-client-screenshot.json", client.screenshot())
         host_logs = host.logs_recent()
         client_logs = client.logs_recent()
         write_json(artifact_dir / "build-host-logs-recent.json", host_logs)
@@ -638,6 +694,7 @@ def run(args: argparse.Namespace) -> int:
                 "cleanupStatus": cleanup_report.get("cleanupStatus"),
                 "cleanupReportPath": "cleanup-report.json",
                 "orphanedPids": cleanup_report.get("orphanedPids") or [],
+                "headlessPlayer": args.headless_player,
                 "failures": failures,
                 "botMetricsSummaryPath": "bot-metrics-summary.json",
                 "botMetrics": metrics.get("summary"),
@@ -683,6 +740,9 @@ def main() -> int:
     parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
     parser.add_argument("--leave-processes-on-fail", action="store_true")
     parser.add_argument("--strict-cleanup", action="store_true")
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action="store_true")
     args = parser.parse_args()
     return run(args)
 

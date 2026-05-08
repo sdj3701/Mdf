@@ -307,6 +307,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("/bot/start"));
         Assert.That(source, Does.Contain("/bot/status"));
         Assert.That(source, Does.Contain("/test/freezeGameFlow"));
+        Assert.That(source, Does.Contain("MPTestGracefulQuit.RequestQuit"));
     }
 
     [Test]
@@ -547,6 +548,22 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(humanBotSource, Does.Contain("isHumanBot: true"));
         Assert.That(humanBotSource, Does.Not.Contain("ComponentRegistry.Register<AIPlayerController>"));
         Assert.That(journalSource, Does.Contain("BuildDecisionEntry(MPTestHumanBotDriver.BotStatus status, MdfDecision decision)"));
+    }
+
+    [Test]
+    public void HumanBotClosesShopUiBeforeBoardActionCommands()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
+
+        Assert.That(source, Does.Contain("CloseShopUiBeforeBoardAction(decision);"));
+        Assert.That(source.IndexOf("CloseShopUiBeforeBoardAction(decision);", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("_commandEmitter.TryEmit(decision", System.StringComparison.Ordinal)));
+        Assert.That(source, Does.Contain("CommandType.PlaceWall"));
+        Assert.That(source, Does.Contain("CommandType.MoveUnit"));
+        Assert.That(source, Does.Contain("FindObjectOfType<ShopUIController>(true)"));
+        Assert.That(source, Does.Contain("SetContentVisibility(false)"));
+        Assert.That(source, Does.Contain("shop_close_before_board_action"));
+        Assert.That(source, Does.Contain("human_bot_ui"));
     }
 
     [Test]

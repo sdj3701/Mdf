@@ -18,6 +18,7 @@ from common import (
     run_command,
     write_json,
 )
+from launch_player import write_orphan_pressure_report
 from summarize_bot_metrics import aggregate_seed_metrics, write_metrics_summary
 
 
@@ -298,6 +299,11 @@ def run(args: argparse.Namespace) -> int:
     failures: list[str] = []
     seed_results: list[dict[str, Any]] = []
     seed_metrics: list[dict[str, Any]] = []
+    orphan_gate = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+    )
     summary: dict[str, Any] = {
         "case": CASE_NAME,
         "artifactDir": str(artifact_dir),
@@ -305,6 +311,7 @@ def run(args: argparse.Namespace) -> int:
         "seeds": seeds,
         "include4p": args.include_4p,
         "continueOnFail": args.continue_on_fail,
+        "headlessPlayer": args.headless_player,
         "seedSemantics": {
             "deterministicReplayClaim": False,
             "meaning": "diagnostic run label; random-aware assertions compare replicated outcomes, not fixed values",
@@ -316,6 +323,7 @@ def run(args: argparse.Namespace) -> int:
         },
         "results": seed_results,
         "failures": failures,
+        "orphanPressure": orphan_gate,
     }
     write_json(artifact_dir / "run.json", {
         "case": CASE_NAME,
@@ -323,7 +331,26 @@ def run(args: argparse.Namespace) -> int:
         "seeds": seeds,
         "include4p": args.include_4p,
         "dryRun": args.dry_run,
+        "headlessPlayer": args.headless_player,
+        "orphanPressure": orphan_gate,
     })
+
+    if orphan_gate.get("blocked") and not args.dry_run:
+        failures.append("orphan_pressure_gate_blocked")
+        summary["cleanupStatus"] = "NEEDS_ENVIRONMENT"
+        summary["cleanupSuccess"] = False
+        write_json(artifact_dir / "seed-sweep-summary.json", summary)
+        write_result(artifact_dir, summary)
+        failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} blocked", failures)
+        print(json.dumps({
+            "artifactDir": str(artifact_dir),
+            "success": False,
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "cleanupSuccess": False,
+            "failures": failures,
+            "seedsRun": [],
+        }, indent=2))
+        return 2
 
     if args.dry_run:
         write_json(artifact_dir / "seed-sweep-summary.json", summary)
@@ -343,7 +370,13 @@ def run(args: argparse.Namespace) -> int:
             str(args.prepare_min_commands),
             "--cleanup-timeout-seconds",
             str(args.cleanup_timeout_seconds),
+            "--orphan-threshold",
+            str(args.orphan_threshold),
         ]
+        if args.force_run_with_orphans:
+            prepare_extra_args.append("--force-run-with-orphans")
+        if args.headless_player:
+            prepare_extra_args.append("--headless-player")
         if args.leave_processes_on_fail:
             prepare_extra_args.append("--leave-processes-on-fail")
         if args.strict_cleanup:
@@ -443,6 +476,9 @@ def main() -> int:
     parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
     parser.add_argument("--leave-processes-on-fail", action="store_true")
     parser.add_argument("--strict-cleanup", action="store_true")
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action="store_true")
     args = parser.parse_args()
     return run(args)
 

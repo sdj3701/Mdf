@@ -448,14 +448,17 @@ public partial class GameManagers
             NetworkPlayers.Set(i, null);
         }
 
-        var runnerPlayers = FindObjectsOfType<PlayerManager>(true)
+        var allRunnerPlayers = FindObjectsOfType<PlayerManager>(true)
             .Where(player => player != null)
             .Where(player => player.Runner == Runner)
             .Where(player => player.Object != null && player.Object.IsValid)
             .Where(player => player.playerId >= 0)
+            .ToList();
+
+        var runnerPlayers = allRunnerPlayers
             .GroupBy(player => player.playerId)
             .Select(group => group
-                .OrderByDescending(player => player.Object.HasStateAuthority)
+                .OrderByDescending(ScoreMigrationPlayerCandidate)
                 .First())
             .ToList();
 
@@ -463,6 +466,12 @@ public partial class GameManagers
         {
             Debug.LogWarning($"[복원] NetworkPlayers 재구성 스킵 ({context}) - runnerPlayers=0, staleCleared={staleCleared}");
             return;
+        }
+
+        var selectedInstanceIds = new HashSet<int>(runnerPlayers.Select(player => player.GetInstanceID()));
+        foreach (var duplicate in allRunnerPlayers.Where(player => !selectedInstanceIds.Contains(player.GetInstanceID())))
+        {
+            DespawnDuplicatePlayerManagerAfterMigration(duplicate, context);
         }
 
         int assigned = 0;
@@ -519,6 +528,83 @@ public partial class GameManagers
         }
 
         Debug.Log($"[복원] NetworkPlayers 재구성 완료 ({context}) assigned={assigned}, expected={expected}, outOfRange={outOfRange}, staleCleared={staleCleared}, capacity={NetworkPlayers.Length}");
+    }
+
+    private static int ScoreMigrationPlayerCandidate(PlayerManager player)
+    {
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return int.MinValue;
+        }
+
+        int score = 0;
+        if (player.Object.HasStateAuthority)
+        {
+            score += 1000;
+        }
+
+        if (player.IsRuntimeReady(out _))
+        {
+            score += 80;
+        }
+
+        if (player.TryGetShopSnapshot(out var shopKeys, out _, out _, out int shopRevision, out _)
+            && shopRevision > 0
+            && shopKeys != null
+            && shopKeys.Length > 0)
+        {
+            score += 80;
+        }
+
+        if (player.fieldManager != null)
+        {
+            score += 20;
+            player.fieldManager.RebuildWallMapsAfterMigration("GameManagers.ScoreMigrationPlayerCandidate", false, out _);
+            if (player.fieldManager.IsWallMapReady)
+            {
+                score += 40;
+            }
+        }
+
+        return score;
+    }
+
+    private void DespawnDuplicatePlayerManagerAfterMigration(PlayerManager duplicate, string context)
+    {
+        if (duplicate == null)
+        {
+            return;
+        }
+
+        int playerId = -1;
+        try
+        {
+            playerId = duplicate.playerId;
+        }
+        catch
+        {
+        }
+
+        var networkObject = duplicate.Object;
+        try
+        {
+            if (Runner != null && Runner.IsServer && networkObject != null && networkObject.IsValid)
+            {
+                Runner.Despawn(networkObject);
+                Debug.Log($"[MigrationRestore] Duplicate PlayerManager despawn queued ({context}) P{playerId} name={duplicate.name}");
+                return;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[MigrationRestore] Duplicate PlayerManager despawn failed ({context}) P{playerId}: {e.Message}");
+        }
+
+        if (duplicate.gameObject != null)
+        {
+            Destroy(duplicate.gameObject);
+            Debug.Log($"[MigrationRestore] Duplicate PlayerManager GameObject destroyed ({context}) P{playerId} name={duplicate.name}");
+        }
     }
 
     public void CaptureBattleSnapshotForMigration(out string battleOpponentsSnapshot, out string matchFirstAttackerSnapshot, out int firstAttackerPlayerId)

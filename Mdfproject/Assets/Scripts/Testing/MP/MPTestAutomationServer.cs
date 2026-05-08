@@ -20,6 +20,8 @@ public sealed class MPTestAutomationServer : MonoBehaviour
     private MPTestCommandLine.Options _options;
     private string _automationToken;
     private bool _stopping;
+    private bool _acceptingCommands = true;
+    private bool _quitRequested;
 
     public static bool CanStart(MPTestCommandLine.Options options, out string reason)
     {
@@ -60,6 +62,8 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
         _options = options;
         _automationToken = options.AutomationToken;
+        _acceptingCommands = true;
+        _quitRequested = false;
         _cancellation = new CancellationTokenSource();
         _listener = new HttpListener();
         _listener.Prefixes.Add($"http://{IPAddress.Loopback}:{options.AutomationPort}/");
@@ -175,7 +179,9 @@ public sealed class MPTestAutomationServer : MonoBehaviour
                     session = _options.Session,
                     scene = snapshot.Scene,
                     runner = snapshot.Runner,
-                    tokenHash = _options.AutomationTokenHash
+                    tokenHash = _options.AutomationTokenHash,
+                    acceptingCommands = _acceptingCommands,
+                    quitRequested = _quitRequested
                 });
             }));
         }
@@ -192,13 +198,29 @@ public sealed class MPTestAutomationServer : MonoBehaviour
                 AutomationResponse.Ok("recent logs", new { lines = MPTestLogger.Recent })));
         }
 
+        if (!_acceptingCommands && path != "/ping" && path != "/quit")
+        {
+            return AutomationResponse.Fail("automation_shutting_down", "Automation server is shutting down.");
+        }
+
         if (path == "/quit")
         {
             return await RequireMethod(request, "POST", () => MainThread(() =>
             {
-                MPTestLogger.Log("automation_quit", "begin");
-                Invoke(nameof(QuitAfterResponse), 0.25f);
-                return AutomationResponse.Ok("quit requested", new { scene = SceneManager.GetActiveScene().name });
+                _quitRequested = true;
+                _acceptingCommands = false;
+                bool scheduled = MPTestGracefulQuit.RequestQuit(
+                    _options,
+                    "automation_quit",
+                    0,
+                    StopServer,
+                    0.25f);
+                return AutomationResponse.Ok("quit requested", new
+                {
+                    scene = SceneManager.GetActiveScene().name,
+                    scheduled,
+                    acceptingCommands = _acceptingCommands
+                });
             }));
         }
 
@@ -584,12 +606,6 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             enabled = options.FreezeGameFlow,
             reason
         });
-    }
-
-    private void QuitAfterResponse()
-    {
-        StopServer();
-        Application.Quit(0);
     }
 
     private bool IsAuthorized(HttpListenerRequest request)

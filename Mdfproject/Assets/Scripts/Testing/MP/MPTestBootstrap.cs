@@ -167,6 +167,12 @@ public sealed class MPTestBootstrap : MonoBehaviour
             { "seconds", seconds }
         });
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestGracefulQuit.RequestQuit(_options, "exit_after_seconds", 0))
+        {
+            yield break;
+        }
+#endif
         Application.Quit(0);
     }
 

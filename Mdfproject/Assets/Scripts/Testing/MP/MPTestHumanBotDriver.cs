@@ -250,6 +250,8 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             return;
         }
 
+        CloseShopUiBeforeBoardAction(decision);
+
         if (!_commandEmitter.TryEmit(decision, out BattleCommandResult emitResult))
         {
             _lastDecision = decision.Reason;
@@ -279,6 +281,44 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             { "target", decision.Target ?? "none" }
         });
         _journal?.Record(MPTestBotJournal.BuildDecisionEntry(BuildStatus(), decision));
+    }
+
+    private static void CloseShopUiBeforeBoardAction(MdfDecision decision)
+    {
+        if (decision == null ||
+            (decision.CommandType != CommandType.PlaceWall && decision.CommandType != CommandType.MoveUnit))
+        {
+            return;
+        }
+
+        try
+        {
+            ShopUIController shopUi = UnityEngine.Object.FindObjectOfType<ShopUIController>(true);
+            bool shopUiPresent = shopUi != null;
+            bool wasVisible = shopUiPresent && shopUi.IsContentVisible();
+            if (wasVisible)
+            {
+                shopUi.SetContentVisibility(false);
+            }
+
+            MPTestLogger.Log("human_bot_ui", wasVisible ? "pass" : "info", "shop_close_before_board_action", null, new Dictionary<string, object>
+            {
+                { "commandType", decision.CommandTypeName },
+                { "playerId", decision.PlayerId },
+                { "shopUiPresent", shopUiPresent },
+                { "wasVisible", wasVisible },
+                { "closed", wasVisible }
+            });
+        }
+        catch (Exception exception)
+        {
+            MPTestLogger.Log("human_bot_ui", "fail", "shop_close_before_board_action", exception.Message, new Dictionary<string, object>
+            {
+                { "commandType", decision.CommandTypeName },
+                { "playerId", decision.PlayerId },
+                { "exceptionType", exception.GetType().Name }
+            });
+        }
     }
 
     private bool ShouldStop()

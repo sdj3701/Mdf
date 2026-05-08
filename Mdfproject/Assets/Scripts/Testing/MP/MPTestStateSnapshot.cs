@@ -135,6 +135,9 @@ public static class MPTestStateSnapshot
         string battleActiveSnapshot = null;
         string survivorBossPendingSnapshot = null;
         string survivorBossAssignmentSnapshot = null;
+        string survivorBossPendingHash = null;
+        string survivorBossAssignmentHash = null;
+        bool survivorBossHashCaptured = false;
         int? survivorBossPendingCount = null;
         int? survivorBossAssignmentCount = null;
         int firstAttackerPlayerId = -1;
@@ -155,22 +158,43 @@ public static class MPTestStateSnapshot
             }
         }
 
-        var survivorBossManager = SurvivorBossManager.Instance;
-        if (survivorBossManager != null)
+        if (gameManagers != null)
         {
             try
             {
-                survivorBossManager.CaptureStableSnapshot(
-                    out survivorBossPendingSnapshot,
-                    out survivorBossAssignmentSnapshot,
+                gameManagers.CaptureSurvivorBossSnapshotHashesForState(
+                    out survivorBossPendingHash,
+                    out survivorBossAssignmentHash,
                     out int pendingCount,
                     out int assignmentCount);
                 survivorBossPendingCount = pendingCount;
                 survivorBossAssignmentCount = assignmentCount;
+                survivorBossHashCaptured = true;
             }
             catch (Exception ex)
             {
                 errors.Add("game.survivorBossSnapshot:" + ex.GetType().Name);
+            }
+        }
+        else
+        {
+            var survivorBossManager = SurvivorBossManager.Instance;
+            if (survivorBossManager != null)
+            {
+                try
+                {
+                    survivorBossManager.CaptureStableSnapshot(
+                        out survivorBossPendingSnapshot,
+                        out survivorBossAssignmentSnapshot,
+                        out int pendingCount,
+                        out int assignmentCount);
+                    survivorBossPendingCount = pendingCount;
+                    survivorBossAssignmentCount = assignmentCount;
+                }
+                catch (Exception ex)
+                {
+                    errors.Add("game.survivorBossSnapshot:" + ex.GetType().Name);
+                }
             }
         }
 
@@ -185,8 +209,8 @@ public static class MPTestStateSnapshot
             BattleOpponentsHash = HashStableString(battleOpponentsSnapshot),
             MatchFirstAttackerHash = HashStableString(matchFirstAttackerSnapshot),
             BattleActiveHash = HashStableString(battleActiveSnapshot),
-            SurvivorBossPendingHash = HashStableString(survivorBossPendingSnapshot),
-            SurvivorBossAssignmentHash = HashStableString(survivorBossAssignmentSnapshot),
+            SurvivorBossPendingHash = survivorBossHashCaptured ? survivorBossPendingHash : HashStableString(survivorBossPendingSnapshot),
+            SurvivorBossAssignmentHash = survivorBossHashCaptured ? survivorBossAssignmentHash : HashStableString(survivorBossAssignmentSnapshot),
             SurvivorBossPendingCount = survivorBossPendingCount,
             SurvivorBossAssignmentCount = survivorBossAssignmentCount
         };

@@ -14,6 +14,14 @@ import sys
 import time
 from typing import Any
 
+from launch_player import (
+    PlayerProcess,
+    launch_mdf_process,
+    mdf_player_pids,
+    write_case_cleanup_report,
+    write_orphan_pressure_report,
+)
+
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 DEFAULT_PROJECT = "Mdfproject"
@@ -138,9 +146,38 @@ def launch_smoke(player_path: pathlib.Path, output_dir: pathlib.Path, args: argp
     artifact_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = output_dir / "launch-smoke.stdout.log"
     stderr_path = output_dir / "launch-smoke.stderr.log"
+    smoke_player_log_path = output_dir / "launch-smoke.Player.log"
+    command_path = output_dir / "launch-smoke-command.json"
+    orphan_report = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+        [token],
+    )
+    if orphan_report.get("blocked"):
+        result = {
+            "playerPath": str(player_path),
+            "success": False,
+            "cleanupStatus": "NEEDS_ENVIRONMENT",
+            "cleanupSuccess": False,
+            "orphanPressure": orphan_report,
+            "artifactDir": str(artifact_dir),
+            "session": session,
+            "automationPort": port,
+            "automationTokenHash": hash_for_log(token),
+            "headlessPlayer": args.headless_player,
+        }
+        (output_dir / "launch-smoke.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        return result
 
     cmd = [
         str(player_path),
+    ]
+    if args.headless_player:
+        cmd.extend(["-batchmode", "-nographics"])
+    cmd.extend([
+        "-logFile",
+        str(smoke_player_log_path),
         "--mpTest",
         "--mpRole",
         "host",
@@ -160,30 +197,64 @@ def launch_smoke(player_path: pathlib.Path, output_dir: pathlib.Path, args: argp
         str(artifact_dir),
         "--mpSeed",
         str(args.seed),
-    ]
+    ])
 
     redacted_cmd = ["<redacted-token>" if item == token else item for item in cmd]
-    with (output_dir / "launch-smoke-command.json").open("w", encoding="utf-8") as fh:
+    with command_path.open("w", encoding="utf-8") as fh:
         json.dump(
             {
                 "command": redacted_cmd,
                 "session": session,
                 "automationPort": port,
                 "automationTokenHash": hash_for_log(token),
+                "playerLog": str(smoke_player_log_path),
+                "headlessPlayer": args.headless_player,
             },
             fh,
             indent=2,
         )
 
+    baseline_pids = mdf_player_pids()
+    cleanup_report: dict[str, Any] = {
+        "cleanupStatus": "PASS",
+        "cleanupSuccess": True,
+        "orphanedPids": [],
+    }
     with stdout_path.open("w", encoding="utf-8") as stdout, stderr_path.open("w", encoding="utf-8") as stderr:
-        proc = subprocess.Popen(cmd, cwd=ROOT, stdout=stdout, stderr=stderr)
+        process, job = launch_mdf_process(
+            cmd,
+            ROOT,
+            stdout,
+            stderr,
+            job_name=f"MDF-MPTest-launch-smoke-{os.getpid()}-{int(time.time() * 1000)}",
+        )
+        proc = PlayerProcess(
+            process=process,
+            stdout_path=stdout_path,
+            stderr_path=stderr_path,
+            player_log_path=smoke_player_log_path,
+            command_path=command_path,
+            artifact_dir=artifact_dir,
+            peer_name="launch-smoke",
+            port=port,
+            token=token,
+            redaction_secrets=[token],
+            stdout_handle=stdout,
+            stderr_handle=stderr,
+            job=job,
+            headless_player=args.headless_player,
+        )
         deadline = time.time() + args.exit_after_seconds + args.launch_timeout_padding
-        while time.time() < deadline and proc.poll() is None:
+        while time.time() < deadline and proc.process.poll() is None:
             time.sleep(0.25)
-        timed_out = proc.poll() is None
-        if timed_out:
-            proc.kill()
-            proc.wait(timeout=10)
+        timed_out = proc.process.poll() is None
+        cleanup_report = write_case_cleanup_report(
+            artifact_dir,
+            [proc],
+            baseline_pids=baseline_pids,
+            timeout_seconds=args.cleanup_timeout_seconds,
+            strict_cleanup=True,
+        )
 
     player_log_source = player_log_path()
     copied_player_log = ""
@@ -193,16 +264,23 @@ def launch_smoke(player_path: pathlib.Path, output_dir: pathlib.Path, args: argp
 
     result = {
         "playerPath": str(player_path),
-        "exitCode": proc.returncode,
+        "exitCode": proc.process.returncode,
         "timedOut": timed_out,
         "stdout": str(stdout_path),
         "stderr": str(stderr_path),
+        "playerLog": str(smoke_player_log_path),
         "playerLogSource": str(player_log_source),
         "playerLogCopied": copied_player_log,
         "artifactDir": str(artifact_dir),
         "session": session,
         "automationPort": port,
         "automationTokenHash": hash_for_log(token),
+        "headlessPlayer": args.headless_player,
+        "cleanupStatus": cleanup_report.get("cleanupStatus"),
+        "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+        "cleanupReportPath": str(artifact_dir / "cleanup-report.json"),
+        "orphanedPids": cleanup_report.get("orphanedPids") or [],
+        "success": (not timed_out) and cleanup_report.get("cleanupSuccess") is True,
     }
     (output_dir / "launch-smoke.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
@@ -230,6 +308,10 @@ def main() -> int:
     parser.add_argument("--automation-port", type=int, default=0)
     parser.add_argument("--exit-after-seconds", type=int, default=5)
     parser.add_argument("--launch-timeout-padding", type=int, default=20)
+    parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--skip-build", action="store_true")
     args = parser.parse_args()

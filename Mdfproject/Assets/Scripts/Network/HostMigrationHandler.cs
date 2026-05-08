@@ -76,6 +76,8 @@ public class HostMigrationHandler : MonoBehaviour
         public int ShopRound;
         public int[] PermanentWallFlatPositions;
         public string WallHash;
+        public string[] PresentedAugmentNames;
+        public string[] SelectedAugmentNames;
         public int AttackPoolRevision;
         public MonsterData[] AttackPoolMonsterDataRefs;
         public string[] AttackPoolMonsterDataNames;
@@ -397,7 +399,7 @@ public class HostMigrationHandler : MonoBehaviour
             _aiReconciliationCoroutine = null;
         }
 
-        _aiReconciliationCoroutine = StartCoroutine(ReconcileAIControllersAfterMigrationCoroutine(newRunner));
+        yield return ReconcileAIControllersAfterMigrationCoroutine(newRunner);
         
         // 완료!
         Debug.Log("[STEP 6] OnMigrationComplete 호출...");
@@ -998,6 +1000,7 @@ public class HostMigrationHandler : MonoBehaviour
                 ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready");
                 Debug.Log("[STEP 5.3] RestoreAfterHostMigration 호출...");
                 gm.RestoreAfterHostMigration();
+                ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
                 _migrationRecoverySucceeded = true;
                 
                 Debug.Log("<color=green>[STEP 5.4] GameManagers 로컬 상태 복원 완료!</color>");
@@ -1032,6 +1035,7 @@ public class HostMigrationHandler : MonoBehaviour
                 TryApplyCachedStateBeforeRestore(timeoutGM, "WaitAndRestoreGameManagers.Timeout");
                 ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout");
                 timeoutGM.RestoreAfterHostMigration();
+                ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
                 Debug.Log("<color=yellow>[STEP 5] 대기 타임아웃 후 복원 완료 (안전 게이트 통과)</color>");
                 _migrationRecoverySucceeded = true;
             }
@@ -1185,7 +1189,7 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         var activePlayers = new HashSet<PlayerRef>(runner.ActivePlayers);
-        var players = UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
+        var players = gm.AllPlayers
             .Where(player => player != null && player.Runner == runner)
             .Where(player => player.Object != null && player.Object.IsValid)
             .Where(player => player.playerId >= 0)
@@ -1418,6 +1422,8 @@ public class HostMigrationHandler : MonoBehaviour
                 ShopRound = 0,
                 PermanentWallFlatPositions = Array.Empty<int>(),
                 WallHash = string.Empty,
+                PresentedAugmentNames = Array.Empty<string>(),
+                SelectedAugmentNames = Array.Empty<string>(),
                 AttackPoolRevision = 0,
                 AttackPoolMonsterDataRefs = Array.Empty<MonsterData>(),
                 AttackPoolMonsterDataNames = Array.Empty<string>(),
@@ -1452,6 +1458,9 @@ public class HostMigrationHandler : MonoBehaviour
                 snapshot.PermanentWallFlatPositions = player.fieldManager.GetPermanentWallFlatPositions() ?? Array.Empty<int>();
                 snapshot.WallHash = player.fieldManager.BuildWallCellHash();
             }
+
+            snapshot.PresentedAugmentNames = player.GetPresentedAugmentSnapshotNames() ?? Array.Empty<string>();
+            snapshot.SelectedAugmentNames = player.GetSelectedAugmentSnapshotNames() ?? Array.Empty<string>();
 
             if (player.TryGetAttackMonsterPoolSnapshot(
                     out int attackPoolRevision,
@@ -1579,6 +1588,10 @@ public class HostMigrationHandler : MonoBehaviour
                 snapshot.OwnedScrollDataRefs,
                 snapshot.OwnedScrollDataNames,
                 context);
+            player.RestoreAugmentSnapshotsAfterHostMigration(
+                snapshot.PresentedAugmentNames,
+                snapshot.SelectedAugmentNames,
+                context);
             restoredPlayers++;
 
             if (player.fieldManager != null && snapshot.PermanentWallFlatPositions != null && snapshot.PermanentWallFlatPositions.Length > 0)
@@ -1655,7 +1668,6 @@ public class HostMigrationHandler : MonoBehaviour
         var candidates = players
             .Where(player => player != null && player.Object != null && player.Object.IsValid)
             .Where(player => usedPlayerInstanceIds == null || !usedPlayerInstanceIds.Contains(player.GetInstanceID()))
-            .OrderByDescending(player => player.Object.HasStateAuthority)
             .ToList();
 
         if (candidates.Count == 0)
@@ -1663,49 +1675,86 @@ public class HostMigrationHandler : MonoBehaviour
             return null;
         }
 
+        var samePlayerIdCandidates = candidates
+            .Where(player => TryReadPlayerIdForMigration(player, out int currentPlayerId)
+                             && currentPlayerId == snapshot.PlayerId)
+            .ToList();
+        if (samePlayerIdCandidates.Count > 0)
+        {
+            candidates = samePlayerIdCandidates;
+        }
+
+        return candidates
+            .OrderByDescending(player => ScoreDurablePlayerCandidate(player, snapshot, expectedRunner))
+            .FirstOrDefault();
+    }
+
+    private static int ScoreDurablePlayerCandidate(
+        PlayerManager player,
+        DurablePlayerMigrationSnapshot snapshot,
+        NetworkRunner expectedRunner)
+    {
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return int.MinValue;
+        }
+
+        int score = 0;
+        if (TryReadPlayerIdForMigration(player, out int currentPlayerId)
+            && currentPlayerId == snapshot.PlayerId)
+        {
+            score += 2000;
+        }
+
+        if (player.Object.HasStateAuthority)
+        {
+            score += 1000;
+        }
+
         PlayerRef localPlayerRef = expectedRunner != null ? expectedRunner.LocalPlayer : PlayerRef.None;
         if (snapshot.HasInputAuthority && localPlayerRef != PlayerRef.None)
         {
-            var localCandidate = candidates.FirstOrDefault(player =>
-                player.Object.HasInputAuthority || player.Object.InputAuthority == localPlayerRef);
-            if (localCandidate != null)
+            if (player.Object.HasInputAuthority || player.Object.InputAuthority == localPlayerRef)
             {
-                return localCandidate;
+                score += 500;
             }
         }
 
-        if (!string.IsNullOrEmpty(snapshot.WallHash))
+        if (player.IsRuntimeReady(out _))
         {
-            foreach (var candidate in candidates)
-            {
-                if (candidate.fieldManager == null)
-                {
-                    continue;
-                }
-
-                candidate.fieldManager.RebuildWallMapsAfterMigration(
-                    "HostMigrationHandler.FindBestPlayerForDurableSnapshot",
-                    false,
-                    out _);
-
-                string candidateWallHash = candidate.fieldManager.BuildWallCellHash();
-                if (string.Equals(candidateWallHash, snapshot.WallHash, StringComparison.Ordinal))
-                {
-                    return candidate;
-                }
-            }
+            score += 100;
         }
 
-        foreach (var candidate in candidates)
+        if (player.TryGetShopSnapshot(out var shopKeys, out _, out _, out int shopRevision, out int shopRound)
+            && shopKeys != null
+            && shopKeys.Length == (snapshot.ShopUnitKeys?.Length ?? 0))
         {
-            if (TryReadPlayerIdForMigration(candidate, out int currentPlayerId)
-                && currentPlayerId == snapshot.PlayerId)
+            score += 50;
+            if (shopRevision == snapshot.ShopRevision)
             {
-                return candidate;
+                score += 80;
+            }
+
+            if (shopRound == snapshot.ShopRound)
+            {
+                score += 40;
             }
         }
 
-        return candidates.FirstOrDefault();
+        if (!string.IsNullOrEmpty(snapshot.WallHash) && player.fieldManager != null)
+        {
+            player.fieldManager.RebuildWallMapsAfterMigration(
+                "HostMigrationHandler.ScoreDurablePlayerCandidate",
+                false,
+                out _);
+
+            if (string.Equals(player.fieldManager.BuildWallCellHash(), snapshot.WallHash, StringComparison.Ordinal))
+            {
+                score += 150;
+            }
+        }
+
+        return score;
     }
 
     private static List<PlayerManager> ResolvePlayerManagersForRunner(NetworkRunner runner, GameManagers gm)

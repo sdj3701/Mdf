@@ -145,11 +145,17 @@ Return recent `[MPTEST]` lines and optionally user logs. Do not return unbounded
 
 `/quit` should:
 
-- write a final `[MPTEST]` line,
-- flush artifact buffers,
-- stop automation server,
+- send the HTTP response before shutdown work or schedule shutdown after response,
+- stop accepting new automation commands,
+- stop HumanBot if present,
+- freeze test game flow,
+- find the active `NetworkRunner` and call `Runner.Shutdown` with a timeout,
+- log `[MPTEST]` phases `quit_requested`, `human_bot_stop_requested`, `runner_shutdown_begin`, `runner_shutdown_complete` or `runner_shutdown_timeout`, `automation_server_stop`, and `application_quit_called`,
+- stop automation server after runner shutdown is attempted,
 - quit application in build,
 - stop play mode only in Editor-side tools.
+
+Cleanup reports for player-launching Python harnesses should record graceful `/quit`, wait, Windows Job Object termination, process terminate/kill, and taskkill fallback in that order, with Job Object diagnostics when available.
 
 ## Production safety assertion
 

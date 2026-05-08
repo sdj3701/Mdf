@@ -317,6 +317,67 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return names.ToArray();
     }
 
+    public void RestoreAugmentSnapshotsAfterHostMigration(
+        string[] presentedAugmentNames,
+        string[] selectedAugmentNames,
+        string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        {
+            PresentedAugmentSnapshotNames.Set(i, string.Empty);
+        }
+
+        int presentedCount = 0;
+        foreach (var rawName in presentedAugmentNames ?? System.Array.Empty<string>())
+        {
+            if (presentedCount >= PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)
+            {
+                break;
+            }
+
+            string name = rawName != null ? rawName.Trim() : string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            PresentedAugmentSnapshotNames.Set(presentedCount, name);
+            presentedCount++;
+        }
+
+        for (int i = 0; i < SELECTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        {
+            SelectedAugmentSnapshotNames.Set(i, string.Empty);
+        }
+
+        int selectedCount = 0;
+        foreach (var rawName in selectedAugmentNames ?? System.Array.Empty<string>())
+        {
+            if (selectedCount >= SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
+            {
+                break;
+            }
+
+            string name = rawName != null ? rawName.Trim() : string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            SelectedAugmentSnapshotNames.Set(selectedCount, name);
+            selectedCount++;
+        }
+
+        PresentedAugmentSnapshotCount = presentedCount;
+        SelectedAugmentSnapshotCount = selectedCount;
+        Debug.Log($"[PlayerManager] HostMigration augment snapshot restore complete ({context}) P{playerId} presented={presentedCount} selected={selectedCount}");
+    }
+
     // Pending unit registrations received before FieldManager is ready
     private struct PendingUnitReg
     {
