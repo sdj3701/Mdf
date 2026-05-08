@@ -1430,18 +1430,28 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         var activePlayers = new HashSet<PlayerRef>(runner.ActivePlayers);
-        var players = UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
-            .Where(player => player != null && player.Runner == runner)
-            .Where(player => player.Object != null && player.Object.IsValid)
-            .Where(player => player.playerId >= 0)
-            .ToList();
+        var players = new List<(PlayerManager Player, int PlayerId)>();
+        foreach (var player in UnityEngine.Object.FindObjectsOfType<PlayerManager>(true))
+        {
+            if (player == null || player.Runner != runner || player.Object == null || !player.Object.IsValid)
+            {
+                continue;
+            }
+
+            if (TryReadPlayerIdForMigration(player, out int playerId) && playerId >= 0)
+            {
+                players.Add((player, playerId));
+            }
+        }
 
         int attached = 0;
         int removed = 0;
         bool pending = false;
 
-        foreach (var player in players)
+        foreach (var entry in players)
         {
+            var player = entry.Player;
+            int playerId = entry.PlayerId;
             var no = player.Object;
             if (no == null || !no.IsValid)
             {
@@ -1456,11 +1466,11 @@ public class HostMigrationHandler : MonoBehaviour
                 try
                 {
                     no.AssignInputAuthority(PlayerRef.None);
-                    Debug.Log($"[HostMigrationHandler] Player {player.playerId} input owner left; AI takeover enabled.");
+                    Debug.Log($"[HostMigrationHandler] Player {playerId} input owner left; AI takeover enabled.");
                 }
                 catch (Exception e)
                 {
-                    Debug.LogWarning($"[HostMigrationHandler] Failed to clear input authority for Player {player.playerId}: {e.Message}");
+                    Debug.LogWarning($"[HostMigrationHandler] Failed to clear input authority for Player {playerId}: {e.Message}");
                     pending = true;
                 }
             }
@@ -1475,14 +1485,14 @@ public class HostMigrationHandler : MonoBehaviour
                     aiController = player.gameObject.AddComponent<AIPlayerController>();
                     aiController.Initialize(player, gm.CommandProcessor);
                     attached++;
-                    Debug.Log($"[HostMigrationHandler] AI controller attached to Player {player.playerId}.");
+                    Debug.Log($"[HostMigrationHandler] AI controller attached to Player {playerId}.");
                 }
             }
             else if (aiController != null)
             {
                 UnityEngine.Object.Destroy(aiController);
                 removed++;
-                Debug.Log($"[HostMigrationHandler] AI controller removed from human Player {player.playerId}.");
+                Debug.Log($"[HostMigrationHandler] AI controller removed from human Player {playerId}.");
             }
         }
 

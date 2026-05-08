@@ -482,7 +482,10 @@ public partial class GameManagers
             return;
         }
 
-        var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
+        var alivePlayers = AllPlayers
+            .Where(p => p != null && p.GetHealth() > 0)
+            .Where(p => TryGetPlayerIdSafe(p, out int playerId) && playerId >= 0)
+            .ToList();
         if (alivePlayers.Count == 0)
         {
             return;
@@ -495,44 +498,49 @@ public partial class GameManagers
         {
             var a = alivePlayers[0];
             var b = alivePlayers[1];
-            _battleOpponents[a.playerId] = b.playerId;
-            _battleOpponents[b.playerId] = a.playerId;
+            if (!TryGetPlayerIdSafe(a, out int aId) || !TryGetPlayerIdSafe(b, out int bId))
+            {
+                return;
+            }
+
+            _battleOpponents[aId] = bId;
+            _battleOpponents[bId] = aId;
 
             int firstAttacker = ResolveFirstAttackerForResumePair(a, b);
-            _matchFirstAttacker[a.playerId] = firstAttacker;
-            _matchFirstAttacker[b.playerId] = firstAttacker;
+            _matchFirstAttacker[aId] = firstAttacker;
+            _matchFirstAttacker[bId] = firstAttacker;
             FirstAttackerPlayerId = firstAttacker;
 
-            Debug.LogWarning($"[복원/매칭] 2인 폴백 재구성 완료: P{a.playerId}↔P{b.playerId}, 선공자=P{firstAttacker}, state={currentState}");
+            Debug.LogWarning($"[복원/매칭] 2인 폴백 재구성 완료: P{aId}↔P{bId}, 선공자=P{firstAttacker}, state={currentState}");
             return;
         }
 
         var processed = new HashSet<int>();
         foreach (var player in alivePlayers)
         {
-            if (processed.Contains(player.playerId))
+            if (!TryGetPlayerIdSafe(player, out int playerId) || processed.Contains(playerId))
             {
                 continue;
             }
 
             var opponent = player.opponentManager;
-            if (opponent != null && alivePlayers.Contains(opponent))
+            if (opponent != null && alivePlayers.Contains(opponent) && TryGetPlayerIdSafe(opponent, out int opponentId))
             {
-                _battleOpponents[player.playerId] = opponent.playerId;
-                _battleOpponents[opponent.playerId] = player.playerId;
+                _battleOpponents[playerId] = opponentId;
+                _battleOpponents[opponentId] = playerId;
 
                 int firstAttacker = ResolveFirstAttackerForResumePair(player, opponent);
-                _matchFirstAttacker[player.playerId] = firstAttacker;
-                _matchFirstAttacker[opponent.playerId] = firstAttacker;
+                _matchFirstAttacker[playerId] = firstAttacker;
+                _matchFirstAttacker[opponentId] = firstAttacker;
 
-                processed.Add(player.playerId);
-                processed.Add(opponent.playerId);
+                processed.Add(playerId);
+                processed.Add(opponentId);
             }
             else
             {
-                _battleOpponents[player.playerId] = -1;
-                _matchFirstAttacker[player.playerId] = -1;
-                processed.Add(player.playerId);
+                _battleOpponents[playerId] = -1;
+                _matchFirstAttacker[playerId] = -1;
+                processed.Add(playerId);
             }
         }
 
@@ -541,23 +549,28 @@ public partial class GameManagers
 
     private int ResolveFirstAttackerForResumePair(PlayerManager a, PlayerManager b)
     {
+        if (!TryGetPlayerIdSafe(a, out int aId) || !TryGetPlayerIdSafe(b, out int bId))
+        {
+            return -1;
+        }
+
         if (currentState == GameState.Battle1)
         {
-            if (a.IsAttackerInCurrentBattle && !b.IsAttackerInCurrentBattle) return a.playerId;
-            if (b.IsAttackerInCurrentBattle && !a.IsAttackerInCurrentBattle) return b.playerId;
+            if (a.IsAttackerInCurrentBattle && !b.IsAttackerInCurrentBattle) return aId;
+            if (b.IsAttackerInCurrentBattle && !a.IsAttackerInCurrentBattle) return bId;
         }
         else if (currentState == GameState.Battle2)
         {
             // Battle2는 Battle1의 공수 반대이므로, 현재 수비자가 Battle1 선공자
-            if (!a.IsAttackerInCurrentBattle && b.IsAttackerInCurrentBattle) return a.playerId;
-            if (!b.IsAttackerInCurrentBattle && a.IsAttackerInCurrentBattle) return b.playerId;
+            if (!a.IsAttackerInCurrentBattle && b.IsAttackerInCurrentBattle) return aId;
+            if (!b.IsAttackerInCurrentBattle && a.IsAttackerInCurrentBattle) return bId;
         }
 
-        if (FirstAttackerPlayerId == a.playerId || FirstAttackerPlayerId == b.playerId)
+        if (FirstAttackerPlayerId == aId || FirstAttackerPlayerId == bId)
         {
             return FirstAttackerPlayerId;
         }
 
-        return a.playerId;
+        return aId;
     }
 }

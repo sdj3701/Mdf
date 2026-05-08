@@ -269,7 +269,8 @@ public partial class GameManagers
     private IEnumerator WaitForRestoreDependenciesAndResumeFlow()
     {
         float waitTime = 0f;
-        const float maxWaitTime = 8f;
+        const float maxWaitTime = 20f;
+        const float softResumeTime = 12f;
 
         LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:BEGIN");
 
@@ -289,12 +290,31 @@ public partial class GameManagers
             bool timerReady = IsMigrationTimerReady(out string timerReason);
             bool wallMapReady = AreWallMapsReadyForMigration(out string wallReason);
             bool aiTakeoverReady = IsMigrationAiTakeoverReady(out string aiReason);
+            bool coreReady = hasAuthority && runnerMatched && playersReady && mappingReady && timerReady && wallMapReady;
 
-            if (hasAuthority && runnerMatched && uiReady && playersReady && mappingReady && timerReady && wallMapReady && aiTakeoverReady)
+            if (coreReady && uiReady && aiTakeoverReady)
             {
                 Debug.Log($"<color=green>[STEP 6] 재개 조건 충족 ({waitTime:F1}s): authority={hasAuthority}, runnerMatched={runnerMatched}, uiReady={uiReady}, playersReady={playersReady}, mappingReady={mappingReady}, timerReady={timerReady}, wallMapReady={wallMapReady}, aiTakeoverReady={aiTakeoverReady}</color>");
                 LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:READY", $"waited={waitTime:F1}s");
                 SetMigrationRestoreStage(MigrationRestoreStage.WaitingForFlowResume, "WaitForRestoreDependenciesAndResumeFlow.Ready");
+                ResumeGameFlowFromCurrentState();
+                yield break;
+            }
+
+            TryHealRestoreDependenciesForMigration(
+                playersReady,
+                mappingReady,
+                wallMapReady,
+                uiReady,
+                waitTime);
+
+            if (coreReady && waitTime >= softResumeTime)
+            {
+                Debug.LogWarning($"<color=orange>[STEP 6] soft gate 통과: coreReady=true, uiReady={uiReady}, aiTakeoverReady={aiTakeoverReady}, waited={waitTime:F1}s. 서버 flow를 best-effort로 재개합니다.</color>");
+                LogMigrationTrace(
+                    "WaitForRestoreDependenciesAndResumeFlow:SOFT_READY",
+                    $"waited={waitTime:F1}s,uiReady={uiReady},aiTakeoverReady={aiTakeoverReady},aiReason={aiReason}");
+                SetMigrationRestoreStage(MigrationRestoreStage.WaitingForFlowResume, "WaitForRestoreDependenciesAndResumeFlow.SoftReady");
                 ResumeGameFlowFromCurrentState();
                 yield break;
             }
@@ -343,9 +363,15 @@ public partial class GameManagers
         bool timeoutTimerReady = IsMigrationTimerReady(out string timeoutTimerReason);
         bool timeoutWallMapReady = AreWallMapsReadyForMigration(out string timeoutWallReason);
         bool timeoutAiTakeoverReady = IsMigrationAiTakeoverReady(out string timeoutAiReason);
+        bool timeoutCoreReady = timeoutHasAuthority && timeoutRunnerMatched && timeoutPlayersReady && timeoutMappingReady && timeoutTimerReady && timeoutWallMapReady;
 
-        if (timeoutHasAuthority && timeoutRunnerMatched && timeoutUiReady && timeoutPlayersReady && timeoutMappingReady && timeoutTimerReady && timeoutWallMapReady && timeoutAiTakeoverReady)
+        if (timeoutCoreReady)
         {
+            if (!timeoutUiReady || !timeoutAiTakeoverReady)
+            {
+                Debug.LogWarning($"[STEP 6] timeout soft fallback: uiReady={timeoutUiReady}, aiTakeoverReady={timeoutAiTakeoverReady}, aiReason={timeoutAiReason}");
+            }
+
             SetMigrationRestoreStage(MigrationRestoreStage.WaitingForFlowResume, "WaitForRestoreDependenciesAndResumeFlow.TimeoutFallback");
             ResumeGameFlowFromCurrentState();
         }
@@ -355,6 +381,44 @@ public partial class GameManagers
             SetMigrationRestoreStage(MigrationRestoreStage.Failed, "WaitForRestoreDependenciesAndResumeFlow.TimeoutNoGate");
         }
     }
+
+    private void TryHealRestoreDependenciesForMigration(
+        bool playersReady,
+        bool mappingReady,
+        bool wallMapReady,
+        bool uiReady,
+        float waitTime)
+    {
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        bool shouldRepairPlayers = !playersReady || !mappingReady || !wallMapReady;
+        if (shouldRepairPlayers)
+        {
+            RebuildNetworkPlayersAfterMigration("WaitForRestoreDependenciesAndResumeFlow.SelfHeal");
+            RelinkLocalPlayer();
+
+            foreach (var player in AllPlayers.Where(player => player != null && player.Object != null && player.Object.IsValid))
+            {
+                player.RebindRuntimeReferencesAfterMigration("GameManagers.WaitForRestoreDependencies.SelfHeal", false);
+            }
+        }
+
+        if (!mappingReady)
+        {
+            EnsureBattleMappingAfterMigration();
+        }
+
+        if (!uiReady && waitTime >= 4f)
+        {
+            RelinkLocalPlayer();
+            TriggerMigrationReadyEventOnce("WaitForRestoreDependenciesAndResumeFlow.SelfHeal");
+            TriggerMigrationStateChangedOnce(currentState, "WaitForRestoreDependenciesAndResumeFlow.SelfHeal");
+        }
+    }
+
     private bool IsBoundToActiveRunner()
     {
         if (Runner == null)
@@ -457,8 +521,8 @@ public partial class GameManagers
 
         if (!phaseTimer.IsRunning)
         {
-            reason = "phaseTimerNotRunning";
-            return false;
+            reason = "phaseTimerNotRunning;resumeWillReset";
+            return true;
         }
 
         return true;
@@ -801,7 +865,7 @@ public partial class GameManagers
             }
             else if (_migrationRestoreStage != MigrationRestoreStage.FlowResumed)
             {
-                SetMigrationRestoreStage(MigrationRestoreStage.Failed, "RestoreLocalUIAfterMigrationAsync.Incomplete");
+                SetMigrationRestoreStage(MigrationRestoreStage.UiRestoreDeferred, "RestoreLocalUIAfterMigrationAsync.IncompleteDeferred");
             }
 
             LogMigrationTrace("RestoreLocalUI:FINALLY", $"completed={completed}");
