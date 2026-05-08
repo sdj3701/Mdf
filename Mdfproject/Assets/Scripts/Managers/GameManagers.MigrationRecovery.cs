@@ -627,9 +627,10 @@ public partial class GameManagers
         }
 
         EnsureBattleMappingAfterMigration();
+        EnsureBattleAttackFlagsAfterMigration(context);
 
         float remaining = phaseTimer.IsRunning ? (phaseTimer.RemainingTime(Runner) ?? 0f) : 0f;
-        bool allowPoolRefresh = !phaseTimer.IsRunning || remaining >= Mathf.Max(3f, combatTime - 8f);
+        bool allowPoolRefresh = !phaseTimer.IsRunning || remaining > 3f;
 
         var attackers = AllPlayers
             .Where(player => player != null && player.Object != null && player.Object.IsValid)
@@ -693,6 +694,22 @@ public partial class GameManagers
                     $"context={context}, attacker={attackerId}, defender={defenderId}, poolReady={attackerHasPool}");
             }
 
+            if (defenderHasLivingMonsters)
+            {
+                LogMigrationTrace(
+                    "BATTLE-REBOOTSTRAP:SKIP_ALREADY_ACTIVE",
+                    $"context={context}, attacker={attackerId}, defender={defenderId}");
+                continue;
+            }
+
+            if (!attackerHasPool)
+            {
+                LogMigrationTrace(
+                    remaining <= 3f ? "BATTLE-REBOOTSTRAP:SKIP_ENDING_SOON_POOL_EMPTY" : "BATTLE-REBOOTSTRAP:FAIL_POOL_EMPTY",
+                    $"context={context}, attacker={attackerId}, defender={defenderId}, remain={remaining:F1}, allowPoolRefresh={allowPoolRefresh}");
+                continue;
+            }
+
             if (!TryAcquireBattleRebootstrapKey(attacker, defender, context, out string battleKey))
             {
                 LogMigrationTrace(
@@ -701,16 +718,10 @@ public partial class GameManagers
                 continue;
             }
 
-            if (defenderHasLivingMonsters)
-            {
-                LogMigrationTrace(
-                    "BATTLE-REBOOTSTRAP:SKIP_ALREADY_ACTIVE",
-                    $"context={context}, attacker={attackerId}, defender={defenderId}, key={battleKey}");
-                continue;
-            }
-
             attacker.SetFightingState(true);
             defender.SetFightingState(true);
+            hasCombatBeenShortened = false;
+            _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f);
 
             // Battle 시작 RPC를 재발행해서 로컬 공격 UI/카메라/입력 경로를 재정렬한다.
             RPC_NotifyBattleStart(attackerId, true, defenderId);
@@ -719,14 +730,6 @@ public partial class GameManagers
             bool isAiAttacker = ComponentRegistry.Has<AIPlayerController>(attackerId.ToString());
             if (isAiAttacker)
             {
-                if (!attackerHasPool)
-                {
-                    LogMigrationTrace(
-                        "BATTLE-REBOOTSTRAP:FAIL_POOL_EMPTY",
-                        $"context={context}, attacker={attackerId}, defender={defenderId}, key={battleKey}");
-                    continue;
-                }
-
                 RunLifecycleTask(
                     attacker.monsterSpawner.SpawnAllMonstersToTargetField(
                         currentRound,
@@ -745,6 +748,64 @@ public partial class GameManagers
                     "BATTLE-REBOOTSTRAP:APPLIED",
                     $"context={context}, key={battleKey}, attacker={attackerId}, defender={defenderId}, mode=HumanNotify");
             }
+        }
+    }
+
+    private void EnsureBattleAttackFlagsAfterMigration(string context)
+    {
+        if (currentState != GameState.Battle1 && currentState != GameState.Battle2)
+        {
+            return;
+        }
+
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        int changed = 0;
+        int readable = 0;
+        foreach (var player in AllPlayers.Where(player => player != null && player.Object != null && player.Object.IsValid))
+        {
+            if (!TryGetPlayerIdSafe(player, out int playerId) || playerId < 0)
+            {
+                continue;
+            }
+
+            readable++;
+            int opponentId = GetBattleOpponent(playerId);
+            if (opponentId < 0)
+            {
+                if (player.IsAttackerInCurrentBattle)
+                {
+                    player.IsAttackerInCurrentBattle = false;
+                    changed++;
+                }
+
+                continue;
+            }
+
+            if (!_matchFirstAttacker.TryGetValue(playerId, out int firstAttackerId) || firstAttackerId < 0)
+            {
+                continue;
+            }
+
+            bool expectedAttacker = currentState == GameState.Battle1
+                ? playerId == firstAttackerId
+                : playerId != firstAttackerId;
+
+            if (player.IsAttackerInCurrentBattle != expectedAttacker)
+            {
+                player.IsAttackerInCurrentBattle = expectedAttacker;
+                changed++;
+            }
+        }
+
+        if (changed > 0)
+        {
+            LogMigrationTrace(
+                "BATTLE-REBOOTSTRAP:ATTACK_FLAGS_REPAIRED",
+                $"context={context}, changed={changed}, readable={readable}, state={currentState}");
         }
     }
     

@@ -76,9 +76,8 @@ public partial class GameManagers
         }
 
         var player = GetPlayer(playerId);
-        if (player?.opponentManager != null)
+        if (player?.opponentManager != null && TryGetPlayerIdSafe(player.opponentManager, out int fallbackOpp))
         {
-            int fallbackOpp = player.opponentManager.playerId;
             _battleOpponents[playerId] = fallbackOpp;
             if (!_battleOpponents.ContainsKey(fallbackOpp))
             {
