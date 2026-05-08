@@ -228,7 +228,9 @@ public partial class GameManagers
             // AllPlayers가 비어있으면 FindObjectsOfType 사용
             if (allPlayersList.Count == 0)
             {
-                allPlayersList = FindObjectsOfType<PlayerManager>().ToList();
+                allPlayersList = FindObjectsOfType<PlayerManager>()
+                    .Where(p => p != null && p.Runner == Runner && p.Object != null && p.Object.IsValid)
+                    .ToList();
             }
 
             if (allPlayersList.Count == 2)
@@ -267,20 +269,44 @@ public partial class GameManagers
             NetworkPlayers.Set(i, null);
         }
 
-        var runnerPlayers = FindObjectsOfType<PlayerManager>(true)
-            .Where(player => player != null)
-            .Where(player => player.Runner == Runner)
-            .Where(player => player.Object != null && player.Object.IsValid)
-            .Where(player => player.playerId >= 0)
-            .GroupBy(player => player.playerId)
-            .Select(group => group
-                .OrderByDescending(player => player.Object.HasStateAuthority)
-                .First())
+        var playersById = new Dictionary<int, PlayerManager>();
+        int unreadableId = 0;
+        int negativeId = 0;
+
+        foreach (var player in FindObjectsOfType<PlayerManager>(true))
+        {
+            if (player == null || player.Runner != Runner || player.Object == null || !player.Object.IsValid)
+            {
+                continue;
+            }
+
+            if (!TryGetPlayerIdSafe(player, out int playerId))
+            {
+                unreadableId++;
+                continue;
+            }
+
+            if (playerId < 0)
+            {
+                negativeId++;
+                continue;
+            }
+
+            if (!playersById.TryGetValue(playerId, out var existing)
+                || (player.Object.HasStateAuthority && (existing.Object == null || !existing.Object.HasStateAuthority)))
+            {
+                playersById[playerId] = player;
+            }
+        }
+
+        var runnerPlayers = playersById
+            .OrderBy(pair => pair.Key)
+            .Select(pair => pair.Value)
             .ToList();
 
         if (runnerPlayers.Count == 0)
         {
-            Debug.LogWarning($"[복원] NetworkPlayers 재구성 스킵 ({context}) - runnerPlayers=0, staleCleared={staleCleared}");
+            Debug.LogWarning($"[복원] NetworkPlayers 재구성 스킵 ({context}) - runnerPlayers=0, staleCleared={staleCleared}, unreadableId={unreadableId}, negativeId={negativeId}");
             return;
         }
 
@@ -295,7 +321,11 @@ public partial class GameManagers
                 continue;
             }
 
-            int preferredSlot = player.playerId;
+            if (!TryGetPlayerIdSafe(player, out int preferredSlot))
+            {
+                continue;
+            }
+
             int slot = -1;
 
             if (preferredSlot >= 0 && preferredSlot < NetworkPlayers.Length && !usedSlots.Contains(preferredSlot))

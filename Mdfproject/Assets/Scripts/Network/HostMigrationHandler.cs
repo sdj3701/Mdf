@@ -1077,7 +1077,8 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.Log("<color=yellow>[STEP 5.1] WaitAndRestoreGameManagers 코루틴 시작</color>");
         
         float waitTime = 0f;
-        const float maxWaitTime = 5f;
+        const float maxWaitTime = 10f;
+        float nextAuthorityRequestTime = 0f;
         
         if (expectedRunner == null)
         {
@@ -1120,9 +1121,15 @@ public class HostMigrationHandler : MonoBehaviour
                 }
             }
             
-            if (instanceExists && expectedRunner.IsServer && gm.Object != null && !gm.Object.HasStateAuthority)
+            if (instanceExists
+                && expectedRunner.IsServer
+                && gm.Object != null
+                && gm.Object.IsValid
+                && !gm.Object.HasStateAuthority
+                && Time.realtimeSinceStartup >= nextAuthorityRequestTime)
             {
-                gm.Object.RequestStateAuthority();
+                nextAuthorityRequestTime = Time.realtimeSinceStartup + 0.5f;
+                TryRequestGameManagersStateAuthority(gm, "WaitAndRestoreGameManagers");
             }
 
             if (isReady && resumeGateSatisfied && playersReady)
@@ -1150,7 +1157,7 @@ public class HostMigrationHandler : MonoBehaviour
         }
         
         // 시간 초과 - 수동 복원 시도
-        Debug.LogWarning("<color=orange>[STEP 5] GameManagers 대기 시간 초과! (5초)</color>");
+        Debug.LogWarning($"<color=orange>[STEP 5] GameManagers 대기 시간 초과! ({maxWaitTime:F1}초)</color>");
         Debug.LogWarning("[STEP 5] 수동 복원 시도...");
         
         var timeoutGM = ResolveGameManagersForRunner(expectedRunner);
@@ -1161,6 +1168,13 @@ public class HostMigrationHandler : MonoBehaviour
             bool timeoutRunnerMatched = timeoutGM.Runner == expectedRunner;
             bool timeoutHasAuthority = !expectedRunner.IsServer
                 || (timeoutGM.Object != null && timeoutGM.Object.IsValid && timeoutGM.Object.HasStateAuthority);
+            if (!timeoutHasAuthority && expectedRunner.IsServer)
+            {
+                TryRequestGameManagersStateAuthority(timeoutGM, "WaitAndRestoreGameManagers.Timeout");
+                yield return new WaitForSeconds(0.25f);
+                timeoutHasAuthority = timeoutGM.Object != null && timeoutGM.Object.IsValid && timeoutGM.Object.HasStateAuthority;
+            }
+
             if (!timeoutRunnerMatched || !timeoutHasAuthority || !timeoutIsReady || !timeoutPlayersReady)
             {
                 Debug.LogError($"<color=red>[STEP 5] 복원 중단: runnerMatched={timeoutRunnerMatched}, hasAuthority={timeoutHasAuthority}, isReady={timeoutIsReady}, playersReady={timeoutPlayersReady}, playersReason={timeoutPlayersReason}</color>");
@@ -1206,19 +1220,60 @@ public class HostMigrationHandler : MonoBehaviour
             return false;
         }
 
-        var players = UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
-            .Where(player => player != null && player.Runner == expectedRunner)
-            .Where(player => player.Object != null && player.Object.IsValid)
-            .Where(player => player.playerId >= 0)
-            .GroupBy(player => player.playerId)
-            .Select(group => group
-                .OrderByDescending(player => player.Object != null && player.Object.HasStateAuthority)
-                .First())
+        var playersById = new Dictionary<int, PlayerManager>();
+        int totalPlayers = 0;
+        int runnerPlayers = 0;
+        int invalidPlayers = 0;
+        int unreadablePlayers = 0;
+        int negativeIdPlayers = 0;
+
+        foreach (var player in UnityEngine.Object.FindObjectsOfType<PlayerManager>(true))
+        {
+            if (player == null)
+            {
+                continue;
+            }
+
+            totalPlayers++;
+            if (player.Runner != expectedRunner)
+            {
+                continue;
+            }
+
+            runnerPlayers++;
+            if (player.Object == null || !player.Object.IsValid)
+            {
+                invalidPlayers++;
+                continue;
+            }
+
+            if (!TryReadPlayerIdForMigration(player, out int playerId))
+            {
+                unreadablePlayers++;
+                continue;
+            }
+
+            if (playerId < 0)
+            {
+                negativeIdPlayers++;
+                continue;
+            }
+
+            if (!playersById.TryGetValue(playerId, out var existing)
+                || (player.Object.HasStateAuthority && (existing.Object == null || !existing.Object.HasStateAuthority)))
+            {
+                playersById[playerId] = player;
+            }
+        }
+
+        var players = playersById
+            .OrderBy(pair => pair.Key)
+            .Select(pair => pair.Value)
             .ToList();
 
         if (players.Count == 0)
         {
-            notReadySummary = "runnerPlayers=0(valid)";
+            notReadySummary = $"runnerPlayers=0(valid), total={totalPlayers}, runnerOwned={runnerPlayers}, invalid={invalidPlayers}, unreadableId={unreadablePlayers}, negativeId={negativeIdPlayers}";
             if (verboseLog)
             {
                 Debug.LogWarning($"[HostMigrationHandler] {context}: expectedRunner 소속 PlayerManager가 없습니다.");
@@ -1234,10 +1289,16 @@ public class HostMigrationHandler : MonoBehaviour
                 continue;
             }
 
+            if (!TryReadPlayerIdForMigration(player, out int playerId))
+            {
+                notReady.Add("P?:playerIdUnreadable");
+                continue;
+            }
+
             player.RebindRuntimeReferencesAfterMigration($"HostMigrationHandler.{context}", verboseLog);
             if (!player.IsRuntimeReady(out string reason))
             {
-                notReady.Add($"P{player.playerId}:{reason}");
+                notReady.Add($"P{playerId}:{reason}");
             }
         }
 
@@ -1252,6 +1313,50 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         return true;
+    }
+
+    private static bool TryReadPlayerIdForMigration(PlayerManager player, out int playerId)
+    {
+        playerId = -1;
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return false;
+        }
+
+        try
+        {
+            playerId = player.playerId;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryRequestGameManagersStateAuthority(GameManagers gm, string context)
+    {
+        if (gm == null || gm.Object == null || !gm.Object.IsValid)
+        {
+            return false;
+        }
+
+        if (gm.Object.HasStateAuthority)
+        {
+            return true;
+        }
+
+        try
+        {
+            gm.Object.RequestStateAuthority();
+            Debug.Log($"[HostMigrationHandler] GameManagers StateAuthority 요청 ({context}): {gm.name}");
+            return true;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] GameManagers StateAuthority 요청 실패 ({context}): {e.Message}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -1393,34 +1498,39 @@ public class HostMigrationHandler : MonoBehaviour
     {
         if (expectedRunner == null) return null;
 
-        if (GameManagers.Instance != null && GameManagers.Instance.Runner == expectedRunner)
+        if (IsUsableGameManagersCandidate(GameManagers.Instance, expectedRunner))
         {
             return GameManagers.Instance;
         }
 
         GameManagers candidate = null;
-        foreach (var no in expectedRunner.GetAllNetworkObjects())
+        if (IsUsableGameManagersCandidate(_restoredGameManagersCandidate, expectedRunner))
         {
-            if (no != null && no.TryGetComponent<GameManagers>(out var gm))
+            candidate = _restoredGameManagersCandidate;
+        }
+
+        if (candidate == null)
+        {
+            var runnerObjects = expectedRunner.GetAllNetworkObjects();
+            if (runnerObjects != null)
             {
-                candidate = gm;
-                break;
+                candidate = runnerObjects
+                    .Where(no => no != null)
+                    .Select(no => no.TryGetComponent<GameManagers>(out var gm) ? gm : null)
+                    .Where(gm => IsUsableGameManagersCandidate(gm, expectedRunner))
+                    .OrderByDescending(gm => gm.IsReadyForNetworkAccess)
+                    .ThenByDescending(gm => gm.Object != null && gm.Object.HasStateAuthority)
+                    .FirstOrDefault();
             }
         }
 
         if (candidate == null)
         {
-            var allGameManagers = UnityEngine.Object.FindObjectsOfType<GameManagers>(true);
-            candidate = allGameManagers.FirstOrDefault(gm => gm != null && gm.Runner == expectedRunner);
-        }
-
-        if (candidate == null
-            && _restoredGameManagersCandidate != null
-            && _restoredGameManagersCandidate.Runner == expectedRunner
-            && _restoredGameManagersCandidate.Object != null
-            && _restoredGameManagersCandidate.Object.IsValid)
-        {
-            candidate = _restoredGameManagersCandidate;
+            candidate = UnityEngine.Object.FindObjectsOfType<GameManagers>(true)
+                .Where(gm => IsUsableGameManagersCandidate(gm, expectedRunner))
+                .OrderByDescending(gm => gm.IsReadyForNetworkAccess)
+                .ThenByDescending(gm => gm.Object != null && gm.Object.HasStateAuthority)
+                .FirstOrDefault();
         }
 
         if (candidate != null && GameManagers.Instance != candidate)
@@ -1436,6 +1546,15 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         return candidate;
+    }
+
+    private static bool IsUsableGameManagersCandidate(GameManagers gm, NetworkRunner expectedRunner)
+    {
+        return gm != null
+               && expectedRunner != null
+               && gm.Runner == expectedRunner
+               && gm.Object != null
+               && gm.Object.IsValid;
     }
 
     private static string DescribeRunner(NetworkRunner runner)

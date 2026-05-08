@@ -371,7 +371,8 @@ public partial class GameManagers
         reason = string.Empty;
 
         var players = AllPlayers
-            .Where(p => p != null && p.playerId >= 0 && p.Object != null && p.Object.IsValid)
+            .Where(p => p != null && p.Object != null && p.Object.IsValid)
+            .Where(p => TryGetPlayerIdSafe(p, out int playerId) && playerId >= 0)
             .ToList();
         if (players.Count == 0)
         {
@@ -383,9 +384,10 @@ public partial class GameManagers
         foreach (var player in players)
         {
             player.RebindRuntimeReferencesAfterMigration("GameManagers.WaitForRestoreDependencies", false);
+            int playerId = TryGetPlayerIdSafe(player, out int safePlayerId) ? safePlayerId : -1;
             if (!player.IsRuntimeReady(out string playerReason))
             {
-                notReady.Add($"P{player.playerId}:{playerReason}");
+                notReady.Add($"P{playerId}:{playerReason}");
             }
         }
 
@@ -409,7 +411,8 @@ public partial class GameManagers
         EnsureBattleMappingAfterMigration();
         var alivePlayerIds = AllPlayers
             .Where(player => player != null && player.GetHealth() > 0)
-            .Select(player => player.playerId)
+            .Select(player => TryGetPlayerIdSafe(player, out int playerId) ? playerId : -1)
+            .Where(playerId => playerId >= 0)
             .ToList();
 
         foreach (int playerId in alivePlayerIds)
@@ -475,16 +478,17 @@ public partial class GameManagers
 
         foreach (var player in players)
         {
+            int playerId = TryGetPlayerIdSafe(player, out int safePlayerId) ? safePlayerId : -1;
             if (player.fieldManager == null)
             {
-                reason = $"P{player.playerId}:fieldManager=null";
+                reason = $"P{playerId}:fieldManager=null";
                 return false;
             }
 
             player.fieldManager.RebuildWallMapsAfterMigration("GameManagers.WaitForRestoreDependencies", false, out string wallSummary);
             if (!player.fieldManager.IsWallMapReady)
             {
-                reason = $"P{player.playerId}:wallMapNotReady ({wallSummary})";
+                reason = $"P{playerId}:wallMapNotReady ({wallSummary})";
                 return false;
             }
         }
