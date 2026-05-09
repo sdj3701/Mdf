@@ -9,6 +9,8 @@ using UnityEngine;
 
 public sealed class MPTestHumanBotDriver : MonoBehaviour
 {
+    private const float MinimumCommandIntervalSeconds = 0.7f;
+
     public static MPTestHumanBotDriver Instance { get; private set; }
 
     private MPTestCommandLine.Options _options;
@@ -168,6 +170,7 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         float decisionInterval = _profile != null
             ? _profile.DecisionIntervalSeconds
             : MdfBotProfile.DefaultDecisionIntervalSeconds;
+        decisionInterval = Mathf.Max(decisionInterval, MinimumCommandIntervalSeconds);
         _nextDecisionAt = Time.realtimeSinceStartup + decisionInterval;
         TickDecision();
     }
@@ -245,6 +248,7 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         {
             _lastDecision = decision != null ? decision.Reason : "no_decision";
             _lastCommandType = decision != null ? decision.CommandTypeName : "Observe";
+            CloseShopUiAfterPrepareIdle(context, decision);
             if (Time.realtimeSinceStartup - _lastNoopLogAt > 2f)
             {
                 _lastNoopLogAt = Time.realtimeSinceStartup;
@@ -290,6 +294,22 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         _journal?.Record(MPTestBotJournal.BuildDecisionEntry(BuildStatus(), decision));
     }
 
+    private static void CloseShopUiAfterPrepareIdle(MdfDecisionContext context, MdfDecision decision)
+    {
+        if (context == null || context.GameState != GameManagers.GameState.Prepare)
+        {
+            return;
+        }
+
+        string reason = decision != null ? decision.Reason : null;
+        if (!string.Equals(reason, "no_legal_prepare_command", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        CloseShopUi("shop_close_after_shopping_complete", "Observe", context.Actor != null ? context.Actor.playerId : -1);
+    }
+
     private static void CloseShopUiBeforeBoardAction(MdfDecision decision)
     {
         if (decision == null ||
@@ -298,6 +318,11 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             return;
         }
 
+        CloseShopUi("shop_close_before_board_action", decision.CommandTypeName, decision.PlayerId);
+    }
+
+    private static void CloseShopUi(string code, string commandTypeName, int playerId)
+    {
         try
         {
             ShopUIController shopUi = UnityEngine.Object.FindObjectOfType<ShopUIController>(true);
@@ -308,10 +333,10 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
                 shopUi.SetContentVisibility(false);
             }
 
-            MPTestLogger.Log("human_bot_ui", wasVisible ? "pass" : "info", "shop_close_before_board_action", null, new Dictionary<string, object>
+            MPTestLogger.Log("human_bot_ui", wasVisible ? "pass" : "info", code, null, new Dictionary<string, object>
             {
-                { "commandType", decision.CommandTypeName },
-                { "playerId", decision.PlayerId },
+                { "commandType", commandTypeName },
+                { "playerId", playerId },
                 { "shopUiPresent", shopUiPresent },
                 { "wasVisible", wasVisible },
                 { "closed", wasVisible }
@@ -319,10 +344,10 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         }
         catch (Exception exception)
         {
-            MPTestLogger.Log("human_bot_ui", "fail", "shop_close_before_board_action", exception.Message, new Dictionary<string, object>
+            MPTestLogger.Log("human_bot_ui", "fail", code, exception.Message, new Dictionary<string, object>
             {
-                { "commandType", decision.CommandTypeName },
-                { "playerId", decision.PlayerId },
+                { "commandType", commandTypeName },
+                { "playerId", playerId },
                 { "exceptionType", exception.GetType().Name }
             });
         }

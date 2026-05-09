@@ -3401,6 +3401,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
+        if (unit != null && !OwnsUnitForCommand(unit))
+        {
+            reason = "move_source_not_owned_by_player";
+            return false;
+        }
+
         if (unit == null && fieldManager.TryGetPendingUnitDataAt(from, out var pendingUnitData))
         {
             sourceUnitData = pendingUnitData;
@@ -3426,6 +3432,26 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         reason = null;
         return true;
+    }
+
+    private bool OwnsUnitForCommand(Unit unit)
+    {
+        if (unit == null)
+        {
+            return false;
+        }
+
+        if (unit.Owner == this)
+        {
+            return true;
+        }
+
+        if (unit.Owner != null && unit.Owner.playerId == playerId)
+        {
+            return true;
+        }
+
+        return ownedUnits != null && ownedUnits.Contains(unit);
     }
 
     private bool ValidateSwapUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)

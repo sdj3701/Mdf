@@ -44,7 +44,7 @@ These figures exclude scene load, lobby join, snapshot stabilization, battle pre
 2. `max_commands_reached` when `_maxCommands > 0` and issued commands reach it.
 3. `stop_round_reached` when `_stopAtRound > 0`, `currentRound >= _stopAtRound`, and at least one command was issued.
 
-The driver evaluates decisions every 0.5 seconds while running.
+The driver evaluates decisions no faster than the shared bot profile interval; the current HumanBot command floor is 0.7 seconds.
 
 ### Script Defaults and Stop Conditions
 

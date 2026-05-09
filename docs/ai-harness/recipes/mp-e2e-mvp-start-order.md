@@ -6,11 +6,11 @@ Category: harness
 Created: 2026-05-05
 Last used: 2026-05-09
 Last verified: 2026-05-09
-Use count: 2
+Use count: 3
 Review after: 2026-08-03
 Triggers: Editor/Build E2E, build/build E2E, Game scene, FieldManager wall snapshots
 Applies to: Phase 10/11 E2E matrix, `compare_state_snapshots.py`, `FieldManager`
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-093437-2human-aifill-visible-3round-stable
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -39,3 +39,7 @@ Verification:
 
 Pitfalls:
 - `unity-cli editor play --wait` can return while the connector reports `reloading` or `playing`; harness scripts should poll `unity-cli status` and accept `playing` as controllable.
+
+Lifecycle notes:
+- 2026-05-09: Verified visible 2-human + 2-AI fill run must repeat /startHost and /join until NetworkRunner is running; a single automation_start_peer call may leave the build on 00_Title while Photon is only connecting.
+- 2026-05-09: verified artifact `artifacts/mp/20260509-093437-2human-aifill-visible-3round-stable`

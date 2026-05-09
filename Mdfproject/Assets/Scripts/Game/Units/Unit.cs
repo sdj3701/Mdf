@@ -1039,6 +1039,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         this.unitData = data;
         this.owner = owner;
+        if (this.owner != null && this.owner.ownedUnits != null && !this.owner.ownedUnits.Contains(this))
+        {
+            this.owner.ownedUnits.Add(this);
+        }
         // NetworkBehaviour이므로 Object 프로퍼티 직접 사용 (별도 캐싱 불필요)
         if(this.unitData == null)
         {

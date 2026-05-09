@@ -10,6 +10,13 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     private const float HighValuePurchaseScoreThreshold = 18f;
     private const int MinimumRepairReserveWalls = 1;
 
+    private enum PrepareRoutineStage
+    {
+        Shopping,
+        Maze,
+        Placement
+    }
+
     private delegate bool CommandChooser(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision);
 
     private readonly string _persona;
@@ -17,10 +24,13 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     private readonly bool _preferScrollAugment;
     private readonly Dictionary<int, WallPlanCache> _wallPlans = new Dictionary<int, WallPlanCache>();
     private readonly Dictionary<string, int> _lastMoveRoundByUnitKey = new Dictionary<string, int>();
+    private readonly Dictionary<string, int> _wallUnblockMoveRoundByUnitKey = new Dictionary<string, int>();
+    private readonly Dictionary<string, int> _pendingMoveSourceRoundByCellKey = new Dictionary<string, int>();
     private readonly Dictionary<string, int> _pendingMoveTargetRoundByCellKey = new Dictionary<string, int>();
     private readonly Dictionary<string, int> _pendingWallRoundByCellKey = new Dictionary<string, int>();
     private readonly HashSet<string> _builtWallCellKeys = new HashSet<string>();
     private readonly Dictionary<string, int> _pendingBuyRoundBySlotKey = new Dictionary<string, int>();
+    private readonly Dictionary<string, PrepareRoutineStage> _prepareStageByPlayerRound = new Dictionary<string, PrepareRoutineStage>();
 
     public PrepareDecisionPolicy(string persona = "balanced", int seed = 0, bool preferScrollAugment = false)
     {
@@ -79,67 +89,33 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     {
         yield return TryChooseAugment;
 
+        var player = context != null ? context.Actor : null;
         int round = context != null && context.GameManagers != null ? context.GameManagers.currentRound : 0;
-        bool wallControlFirst = ShouldPrioritizeWallControl(context != null ? context.Actor : null, composition, round);
-        if (wallControlFirst)
+        PrunePrepareRoutineStageMemory(round);
+        var stage = GetPrepareRoutineStage(player, round);
+
+        if (stage == PrepareRoutineStage.Shopping)
+        {
+            yield return TryChooseBuy;
+            yield return TryChooseReroll;
+            yield return TryChooseMoveBlockingWall;
+            yield return TryChooseWall;
+            yield return TryChooseMoveFromDefaultArea;
+            yield return TryChooseMove;
+            yield break;
+        }
+
+        if (stage == PrepareRoutineStage.Maze)
         {
             yield return TryChooseMoveBlockingWall;
             yield return TryChooseWall;
+            yield return TryChooseMoveFromDefaultArea;
+            yield return TryChooseMove;
+            yield break;
         }
 
         yield return TryChooseMoveFromDefaultArea;
-
-        switch (_persona)
-        {
-            case "maze":
-                if (ShouldPrioritizeBuyBeforeWall(composition, _persona))
-                {
-                    yield return TryChooseBuy;
-                    if (!wallControlFirst)
-                    {
-                        yield return TryChooseWall;
-                    }
-                    yield return TryChooseMove;
-                }
-                else
-                {
-                    if (!wallControlFirst)
-                    {
-                        yield return TryChooseWall;
-                    }
-                    yield return TryChooseBuy;
-                    yield return TryChooseMove;
-                }
-                yield return TryChooseReroll;
-                break;
-            case "shop":
-                yield return TryChooseBuy;
-                if (!wallControlFirst)
-                {
-                    yield return TryChooseWall;
-                }
-                yield return TryChooseMove;
-                yield return TryChooseReroll;
-                break;
-            case "unit":
-                yield return TryChooseBuy;
-                if (!wallControlFirst)
-                {
-                    yield return TryChooseWall;
-                }
-                yield return TryChooseMove;
-                yield return TryChooseReroll;
-                break;
-            default:
-                yield return TryChooseBuy;
-                if (!wallControlFirst)
-                {
-                    yield return TryChooseWall;
-                }
-                yield return TryChooseMove;
-                yield return TryChooseReroll;
-                break;
-        }
+        yield return TryChooseMove;
     }
 
     private bool TryChooseAugment(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
@@ -219,6 +195,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
+        RememberPrepareRoutineStage(player, round, PrepareRoutineStage.Maze);
         RememberWallCandidate(player, position, round);
         decision = MdfDecision.ForCommand(
             context,
@@ -234,6 +211,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 { "buyBeforeWallRequired", ShouldPrioritizeBuyBeforeWall(composition, _persona) },
                 { "wallControlFirst", ShouldPrioritizeWallControl(player, composition, round) },
                 { "persistentWallBlueprint", true },
+                { "prepareRoutineStage", PrepareRoutineStage.Maze.ToString() },
                 { "pendingWallSuppression", true }
             }));
         return true;
@@ -258,12 +236,12 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        if (HasMovedThisRound(player, blocker, round))
+        if (HasWallUnblockMovedThisRound(player, blocker, round))
         {
             return false;
         }
 
-        var units = field.GetAlliedUnitsOnField()
+        var units = GetPolicyUnits(player, field)
             .Where(unit => unit != null && unit.Data != null)
             .ToList();
         var monsterPath = BuildMonsterPathContext(player);
@@ -278,7 +256,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        RememberMovedThisRound(player, blocker, round);
+        RememberPrepareRoutineStage(player, round, PrepareRoutineStage.Maze);
+        RememberWallUnblockMovedThisRound(player, blocker, round);
         RememberMoveTarget(player, to.Value, round);
         decision = MdfDecision.ForCommand(
             context,
@@ -294,9 +273,10 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 { "unit", blocker.Data.unitName },
                 { "blockedWallBlueprint", true },
                 { "persistentWallBlueprint", true },
+                { "prepareRoutineStage", PrepareRoutineStage.Maze.ToString() },
                 { "pathAwarePlacement", monsterPath != null && monsterPath.Count > 0 },
                 { "monsterPathCount", monsterPath != null ? monsterPath.Count : 0 },
-                { "moveOncePerRound", true },
+                { "wallUnblockDoesNotConsumePlacementMove", true },
                 { "pendingMoveTargetSuppression", true }
             }));
         return true;
@@ -378,12 +358,6 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
     private bool TryChooseMoveFromDefaultArea(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
     {
-        decision = null;
-        if (composition == null || !composition.HasMinimumArmyCore)
-        {
-            return false;
-        }
-
         return TryChooseMoveCore(
             context,
             composition,
@@ -409,7 +383,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        var units = field.GetAlliedUnitsOnField()
+        var units = GetPolicyUnits(player, field)
             .Where(unit => unit != null && unit.Data != null)
             .OrderBy(unit => GetMoveCandidatePriority(field, unit))
             .ThenBy(unit => unit.Data.unitType == UnitType.Ranged ? 0 : 1)
@@ -418,6 +392,21 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         var monsterPath = BuildMonsterPathContext(player);
         int round = context.GameManagers != null ? context.GameManagers.currentRound : 0;
         PruneMoveMemory(round);
+
+        if (TryChoosePendingPurchasedUnitMove(
+            context,
+            composition,
+            field,
+            units,
+            monsterPath,
+            defaultAreaOnly,
+            reason,
+            score,
+            round,
+            out decision))
+        {
+            return true;
+        }
 
         foreach (var unit in units)
         {
@@ -474,6 +463,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                     { "to", $"{to.Value.x},{to.Value.y}" },
                     { "unit", unit.Data.unitName },
                     { "defaultAreaPriority", isDefaultArea },
+                    { "prepareRoutineStage", PrepareRoutineStage.Placement.ToString() },
                     { "pathAwarePlacement", monsterPath != null && monsterPath.Count > 0 },
                     { "monsterPathCount", monsterPath != null ? monsterPath.Count : 0 },
                     { "moveOncePerRound", true },
@@ -483,6 +473,121 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         return false;
+    }
+
+    private bool TryChoosePendingPurchasedUnitMove(
+        MdfDecisionContext context,
+        PrepareArmyComposition composition,
+        FieldManager field,
+        Unit[] units,
+        List<AstarNode> monsterPath,
+        bool defaultAreaOnly,
+        string reason,
+        float score,
+        int round,
+        out MdfDecision decision)
+    {
+        decision = null;
+        var player = context.Actor;
+        if (field == null)
+        {
+            return false;
+        }
+
+        var pendingPlacements = field.GetPendingUnitPlacements()
+            .OrderBy(entry => IsLikelyPurchaseDefaultArea(field, entry.Position) ? 0 : 1)
+            .ThenBy(entry => entry.UnitData != null && entry.UnitData.unitType == UnitType.Ranged ? 0 : 1)
+            .ThenBy(entry => entry.UnitData != null ? entry.UnitData.unitName : string.Empty)
+            .ToList();
+
+        foreach (var pending in pendingPlacements)
+        {
+            var from = pending.Position;
+            var unitData = pending.UnitData;
+            if (unitData == null)
+            {
+                continue;
+            }
+
+            bool isDefaultArea = IsLikelyPurchaseDefaultArea(field, from);
+            if (defaultAreaOnly && !isDefaultArea)
+            {
+                continue;
+            }
+
+            if (field.HasPendingNetworkMoveFrom(from) || IsPendingMoveSource(player, from, round))
+            {
+                continue;
+            }
+
+            Vector3Int? to = field.FindBestSpotForAI(unitData, monsterPath, units.ToList(), null, from);
+            if (!IsValidPendingMoveDestination(player, field, unitData, to, from, round))
+            {
+                continue;
+            }
+
+            RememberPendingMoveSource(player, from, round);
+            RememberMoveTarget(player, to.Value, round);
+            decision = MdfDecision.ForCommand(
+                context,
+                new MoveUnitCommand(player.playerId, from, to.Value),
+                CommandType.MoveUnit,
+                reason,
+                $"{from.x},{from.y}->{to.Value.x},{to.Value.y}",
+                score,
+                MergeFields(BuildPrepareJournalFields(context, composition, null, null), new Dictionary<string, object>
+                {
+                    { "from", $"{from.x},{from.y}" },
+                    { "to", $"{to.Value.x},{to.Value.y}" },
+                    { "unit", unitData.unitName },
+                    { "pendingPurchasedUnit", true },
+                    { "defaultAreaPriority", isDefaultArea },
+                    { "prepareRoutineStage", PrepareRoutineStage.Placement.ToString() },
+                    { "pathAwarePlacement", monsterPath != null && monsterPath.Count > 0 },
+                    { "monsterPathCount", monsterPath != null ? monsterPath.Count : 0 },
+                    { "pendingMoveSourceSuppression", true },
+                    { "pendingMoveTargetSuppression", true }
+                }));
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsValidPendingMoveDestination(
+        PlayerManager player,
+        FieldManager field,
+        UnitData unitData,
+        Vector3Int? to,
+        Vector3Int from,
+        int round)
+    {
+        if (player == null || field == null || unitData == null || !to.HasValue)
+        {
+            return false;
+        }
+
+        if (to.Value == from || !field.IsValidGridPosition(to.Value))
+        {
+            return false;
+        }
+
+        if (IsPendingMoveTarget(player, to.Value, round))
+        {
+            return false;
+        }
+
+        if (field.IsUnitAt(to.Value))
+        {
+            return false;
+        }
+
+        if (unitData.unitType == UnitType.Melee && field.HasWallAt(to.Value))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private static int GetMoveCandidatePriority(FieldManager field, Unit unit)
@@ -504,6 +609,74 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         return unit.Data != null && unit.Data.unitType == UnitType.Ranged ? 10 : 20;
+    }
+
+    private static List<Unit> GetPolicyUnits(PlayerManager player, FieldManager field)
+    {
+        var result = new List<Unit>();
+        var seen = new HashSet<Unit>();
+        if (field != null)
+        {
+            foreach (var unit in field.GetAlliedUnitsOnField())
+            {
+                AddPolicyUnit(player, field, unit, result, seen);
+            }
+        }
+
+        if (player != null && player.ownedUnits != null && field != null)
+        {
+            foreach (var unit in player.ownedUnits)
+            {
+                AddPolicyUnit(player, field, unit, result, seen);
+            }
+        }
+
+        return result;
+    }
+
+    private static void AddPolicyUnit(
+        PlayerManager player,
+        FieldManager field,
+        Unit unit,
+        List<Unit> result,
+        HashSet<Unit> seen)
+    {
+        if (unit == null || result == null || seen == null || !seen.Add(unit))
+        {
+            return;
+        }
+
+        if (!IsOwnedByPlayer(player, unit))
+        {
+            return;
+        }
+
+        if (field != null && !field.GetUnitPosition(unit).HasValue)
+        {
+            return;
+        }
+
+        result.Add(unit);
+    }
+
+    private static bool IsOwnedByPlayer(PlayerManager player, Unit unit)
+    {
+        if (player == null || unit == null)
+        {
+            return false;
+        }
+
+        if (unit.Owner == player)
+        {
+            return true;
+        }
+
+        if (unit.Owner != null && unit.Owner.playerId == player.playerId)
+        {
+            return true;
+        }
+
+        return player.ownedUnits != null && player.ownedUnits.Contains(unit);
     }
 
     private static bool IsLikelyPurchaseDefaultArea(FieldManager field, Vector3Int cell)
@@ -543,7 +716,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         var disabledColliders = new List<Collider>();
         try
         {
-            foreach (var unit in field.GetAlliedUnitsOnField())
+            foreach (var unit in GetPolicyUnits(player, field))
             {
                 if (unit == null)
                 {
@@ -635,8 +808,10 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         decision = null;
         var gate = EvaluateRerollGate(context, composition, null);
         var player = context.Actor;
+        int round = context.GameManagers != null ? context.GameManagers.currentRound : 0;
         if (!gate.CanReroll)
         {
+            RememberPrepareRoutineStage(player, round, PrepareRoutineStage.Maze);
             return false;
         }
 
@@ -848,10 +1023,10 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
         foreach (var candidate in GetWallPlan(player))
         {
-            if (!IsBorderGapCandidate(field, candidate) ||
-                field.HasWallAt(candidate) ||
+            bool isBorderGap = IsBorderGapCandidate(field, candidate);
+            if (field.HasWallAt(candidate) ||
                 IsPendingWallCandidate(player, candidate, round) ||
-                WouldCloseLastOpenBorderGap(player, field, candidate, round))
+                (isBorderGap && WouldCloseLastOpenBorderGap(player, field, candidate, round)))
             {
                 continue;
             }
@@ -866,7 +1041,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             }
 
             var unit = field.GetUnitAt(candidate);
-            if (unit == null || unit.Data == null)
+            if (unit == null || unit.Data == null || !IsOwnedByPlayer(player, unit))
             {
                 continue;
             }
@@ -980,6 +1155,27 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         _lastMoveRoundByUnitKey[BuildMoveMemoryKey(player, unit)] = round;
     }
 
+    private bool HasWallUnblockMovedThisRound(PlayerManager player, Unit unit, int round)
+    {
+        if (player == null || unit == null || round <= 0)
+        {
+            return false;
+        }
+
+        return _wallUnblockMoveRoundByUnitKey.TryGetValue(BuildMoveMemoryKey(player, unit), out int lastRound) &&
+               lastRound == round;
+    }
+
+    private void RememberWallUnblockMovedThisRound(PlayerManager player, Unit unit, int round)
+    {
+        if (player == null || unit == null || round <= 0)
+        {
+            return;
+        }
+
+        _wallUnblockMoveRoundByUnitKey[BuildMoveMemoryKey(player, unit)] = round;
+    }
+
     private void PruneMoveMemory(int round)
     {
         if (round <= 0)
@@ -996,6 +1192,30 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             foreach (var key in staleKeys)
             {
                 _lastMoveRoundByUnitKey.Remove(key);
+            }
+        }
+
+        if (_wallUnblockMoveRoundByUnitKey.Count > 0)
+        {
+            var staleKeys = _wallUnblockMoveRoundByUnitKey
+                .Where(pair => pair.Value < round - 1)
+                .Select(pair => pair.Key)
+                .ToArray();
+            foreach (var key in staleKeys)
+            {
+                _wallUnblockMoveRoundByUnitKey.Remove(key);
+            }
+        }
+
+        if (_pendingMoveSourceRoundByCellKey.Count > 0)
+        {
+            var staleSources = _pendingMoveSourceRoundByCellKey
+                .Where(pair => pair.Value < round - 1)
+                .Select(pair => pair.Key)
+                .ToArray();
+            foreach (var key in staleSources)
+            {
+                _pendingMoveSourceRoundByCellKey.Remove(key);
             }
         }
 
@@ -1017,6 +1237,27 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         int playerId = player != null ? player.playerId : -1;
         int unitId = unit != null ? unit.GetInstanceID() : 0;
         return $"{playerId}:{unitId}";
+    }
+
+    private bool IsPendingMoveSource(PlayerManager player, Vector3Int candidate, int round)
+    {
+        if (player == null || round <= 0)
+        {
+            return false;
+        }
+
+        return _pendingMoveSourceRoundByCellKey.TryGetValue(BuildCellMemoryKey(player, candidate), out int pendingRound) &&
+               pendingRound >= round - 1;
+    }
+
+    private void RememberPendingMoveSource(PlayerManager player, Vector3Int candidate, int round)
+    {
+        if (player == null || round <= 0)
+        {
+            return;
+        }
+
+        _pendingMoveSourceRoundByCellKey[BuildCellMemoryKey(player, candidate)] = round;
     }
 
     private bool IsPendingMoveTarget(PlayerManager player, Vector3Int candidate, int round)
@@ -1196,6 +1437,54 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         return GetWallPlan(player).Any(pos => pos == candidate);
+    }
+
+    private PrepareRoutineStage GetPrepareRoutineStage(PlayerManager player, int round)
+    {
+        if (player == null || round <= 0)
+        {
+            return PrepareRoutineStage.Shopping;
+        }
+
+        return _prepareStageByPlayerRound.TryGetValue(BuildPrepareRoundMemoryKey(player, round), out var stage)
+            ? stage
+            : PrepareRoutineStage.Shopping;
+    }
+
+    private void RememberPrepareRoutineStage(PlayerManager player, int round, PrepareRoutineStage stage)
+    {
+        if (player == null || round <= 0)
+        {
+            return;
+        }
+
+        string key = BuildPrepareRoundMemoryKey(player, round);
+        if (!_prepareStageByPlayerRound.TryGetValue(key, out var current) || stage > current)
+        {
+            _prepareStageByPlayerRound[key] = stage;
+        }
+    }
+
+    private void PrunePrepareRoutineStageMemory(int round)
+    {
+        if (round <= 0 || _prepareStageByPlayerRound.Count == 0)
+        {
+            return;
+        }
+
+        var staleKeys = _prepareStageByPlayerRound.Keys
+            .Where(key => !key.EndsWith($":round={round}", StringComparison.Ordinal))
+            .ToArray();
+        foreach (var key in staleKeys)
+        {
+            _prepareStageByPlayerRound.Remove(key);
+        }
+    }
+
+    private static string BuildPrepareRoundMemoryKey(PlayerManager player, int round)
+    {
+        int playerId = player != null ? player.playerId : -1;
+        return $"{playerId}:round={round}";
     }
 
     private bool IsPendingBuyCandidate(PlayerManager player, int slot, int round)
@@ -1471,6 +1760,12 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         if (HasRepairableMissingWallPlan(player, round))
+        {
+            return true;
+        }
+
+        if (GetPrepareRoutineStage(player, round) >= PrepareRoutineStage.Maze &&
+            player.GetWallCount() > GetWallBuildReserve(player))
         {
             return true;
         }

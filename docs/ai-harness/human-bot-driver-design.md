@@ -100,7 +100,7 @@ The driver must have hard stop conditions:
 - maximum command count,
 - maximum duration,
 - stop at or after configured round,
-- cooldown between decisions,
+- cooldown between decisions; the current shared default is at least 0.7 seconds between HumanBot command decisions,
 - one in-flight decision at a time,
 - no retry loop that ignores identical rejection reasons.
 

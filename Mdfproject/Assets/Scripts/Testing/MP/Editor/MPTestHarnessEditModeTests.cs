@@ -631,12 +631,16 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("CloseShopUiBeforeBoardAction(decision);"));
         Assert.That(source.IndexOf("CloseShopUiBeforeBoardAction(decision);", System.StringComparison.Ordinal),
             Is.LessThan(source.IndexOf("_commandEmitter.TryEmit(decision", System.StringComparison.Ordinal)));
+        Assert.That(source, Does.Contain("CloseShopUiAfterPrepareIdle(context, decision);"));
+        Assert.That(source, Does.Contain("shop_close_after_shopping_complete"));
         Assert.That(source, Does.Contain("CommandType.PlaceWall"));
         Assert.That(source, Does.Contain("CommandType.MoveUnit"));
         Assert.That(source, Does.Contain("FindObjectOfType<ShopUIController>(true)"));
         Assert.That(source, Does.Contain("SetContentVisibility(false)"));
         Assert.That(source, Does.Contain("shop_close_before_board_action"));
         Assert.That(source, Does.Contain("human_bot_ui"));
+        Assert.That(source, Does.Contain("MinimumCommandIntervalSeconds = 0.7f"));
+        Assert.That(source, Does.Contain("Mathf.Max(decisionInterval, MinimumCommandIntervalSeconds)"));
     }
 
     [Test]
@@ -663,6 +667,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("combinableGroup.Select(entry => entry.Unit).Take(3).ToList()"));
         Assert.That(fieldSource, Does.Contain("RefreshWallMapsFromSceneIfPlaying(\"BuildWallCellHash\")"));
         Assert.That(fieldSource, Does.Contain("RefreshWallMapsFromSceneIfPlaying(\"GetValidPlacementTiles\")"));
+        Assert.That(fieldSource, Does.Contain("UnitBelongsToFieldOwner"));
+        Assert.That(fieldSource, Does.Contain("IsLegalMoveDestinationForUnit"));
+        Assert.That(fieldSource, Does.Contain("melee_unit_cannot_move_to_wall"));
+        Assert.That(playerSource, Does.Contain("move_source_not_owned_by_player"));
+        Assert.That(playerSource, Does.Contain("OwnsUnitForCommand"));
         Assert.That(fieldSource, Does.Contain("IsLiveDestructibleWallCandidate"));
         Assert.That(fieldSource, Does.Contain("wall.gameObject.activeSelf"));
         Assert.That(playerSource, Does.Contain("RPC_UnregisterUnitAt"));
@@ -694,6 +703,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("pendingUnitDataByPosition"));
         Assert.That(fieldSource, Does.Contain("public bool HasPendingUnitAt"));
         Assert.That(fieldSource, Does.Contain("public bool TryGetPendingUnitDataAt"));
+        Assert.That(fieldSource, Does.Contain("public List<PendingUnitPlacement> GetPendingUnitPlacements"));
+        Assert.That(fieldSource, Does.Contain("public bool HasPendingNetworkMoveFrom"));
         Assert.That(fieldSource, Does.Contain("TryReserveUnitPosition(gridPosition, data)"));
         Assert.That(fieldSource, Does.Contain("ShouldQueuePendingNetworkMove(Vector3Int from)"));
         Assert.That(fieldSource, Does.Contain("HasPendingUnitAt(from)"));
@@ -709,6 +720,20 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(playerSource, Does.Contain("fieldManager.TryGetPendingUnitDataAt(from"));
         Assert.That(playerSource, Does.Contain("fieldManager.IsUnitAt(to)"));
         Assert.That(playerSource, Does.Contain("move_pending_unit_type_unknown_for_wall"));
+        Assert.That(playerSource, Does.Contain("move_source_not_owned_by_player"));
+    }
+
+    [Test]
+    public void MoveUnitCommandHasFinalAuthorityAndPlacementGuards()
+    {
+        string commandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/MoveUnitCommand.cs");
+
+        Assert.That(commandSource, Does.Contain("move_requires_prepare_phase"));
+        Assert.That(commandSource, Does.Contain("field_ownership_mismatch"));
+        Assert.That(commandSource, Does.Contain("move_source_not_owned_by_player"));
+        Assert.That(commandSource, Does.Contain("hasFieldStateAuthority"));
+        Assert.That(commandSource, Does.Contain("melee_unit_cannot_move_to_wall"));
+        Assert.That(commandSource, Does.Contain("IsOwnedByPlayer"));
     }
 
     [Test]
@@ -802,16 +827,33 @@ public sealed class MPTestHarnessEditModeTests
 
         Assert.That(source, Does.Contain("yield return TryChooseAugment"));
         Assert.That(source.IndexOf("yield return TryChooseBuy;", System.StringComparison.Ordinal),
-            Is.LessThan(source.IndexOf("yield return TryChooseMove;", System.StringComparison.Ordinal)));
-        Assert.That(source.IndexOf("yield return TryChooseMove;", System.StringComparison.Ordinal),
             Is.LessThan(source.IndexOf("yield return TryChooseReroll;", System.StringComparison.Ordinal)));
+        Assert.That(source.IndexOf("yield return TryChooseReroll;", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("yield return TryChooseWall;", System.StringComparison.Ordinal)));
+        Assert.That(source.IndexOf("yield return TryChooseWall;", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("yield return TryChooseMoveFromDefaultArea;", System.StringComparison.Ordinal)));
         Assert.That(source, Does.Contain("ShouldPrioritizeBuyBeforeWall"));
         Assert.That(source, Does.Contain("ShouldPrioritizeWallControl"));
+        Assert.That(source, Does.Contain("PrepareRoutineStage"));
+        Assert.That(source, Does.Contain("_prepareStageByPlayerRound"));
+        Assert.That(source, Does.Contain("RememberPrepareRoutineStage(player, round, PrepareRoutineStage.Maze);"));
+        Assert.That(source, Does.Not.Contain("RememberPrepareRoutineStage(player, round, PrepareRoutineStage.Placement);"));
+        Assert.That(source, Does.Contain("GetPrepareRoutineStage(player, round) >= PrepareRoutineStage.Maze"));
+        Assert.That(source, Does.Contain("GetPolicyUnits(player, field)"));
+        Assert.That(source, Does.Contain("IsOwnedByPlayer(player, unit)"));
+        Assert.That(source, Does.Contain("TryChoosePendingPurchasedUnitMove"));
+        Assert.That(source, Does.Contain("GetPendingUnitPlacements()"));
+        Assert.That(source, Does.Contain("pendingPurchasedUnit"));
+        Assert.That(source, Does.Contain("pendingMoveSourceSuppression"));
+        Assert.That(source, Does.Contain("wallUnblockDoesNotConsumePlacementMove"));
         Assert.That(source, Does.Contain("TryChooseMoveBlockingWall"));
+        Assert.That(source, Does.Contain("TryFindBlockingWallPlanUnit"));
         Assert.That(source, Does.Contain("TryChooseMoveFromDefaultArea"));
         Assert.That(source, Does.Contain("default_area_unit_reposition"));
         Assert.That(source, Does.Contain("defaultAreaPriority"));
         Assert.That(source, Does.Contain("_lastMoveRoundByUnitKey"));
+        Assert.That(source, Does.Contain("_wallUnblockMoveRoundByUnitKey"));
+        Assert.That(source, Does.Contain("_pendingMoveSourceRoundByCellKey"));
         Assert.That(source, Does.Contain("_pendingMoveTargetRoundByCellKey"));
         Assert.That(source, Does.Contain("_pendingWallRoundByCellKey"));
         Assert.That(source, Does.Contain("_builtWallCellKeys"));
@@ -863,6 +905,12 @@ public sealed class MPTestHarnessEditModeTests
 
         string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
         Assert.That(fieldSource, Does.Contain("FilterRangedCandidatesForMonsterPath"));
+        Assert.That(fieldSource, Does.Contain("SelectPreferredRangedCandidateTier"));
+        Assert.That(fieldSource, Does.Contain("FindBestRangedFallbackAwayFromOriginal"));
+        Assert.That(fieldSource, Does.Contain("FindBestMeleeFallbackAwayFromOriginal"));
+        Assert.That(fieldSource, Does.Contain("ShouldForceMoveAwayFromOriginal"));
+        Assert.That(fieldSource, Does.Contain("IsStrictInteriorRangedCell"));
+        Assert.That(fieldSource, Does.Contain("HasAvailablePlacementTile"));
         Assert.That(fieldSource, Does.Contain("IsOuterRingCell"));
         Assert.That(fieldSource, Does.Contain("IsNearFieldEdgeCell"));
         Assert.That(fieldSource, Does.Contain("CountCoveredMonsterPathTiles"));
@@ -881,6 +929,9 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("CalculateFieldCenterScore"));
         Assert.That(fieldSource, Does.Contain("covered * 4.0f"));
         Assert.That(fieldSource, Does.Contain("centerScore * 8.0f"));
+        Assert.That(fieldSource, Does.Contain("currentScore -= 20.0f"));
+        Assert.That(fieldSource, Does.Contain("currentScore += 20.0f"));
+        Assert.That(fieldSource, Does.Contain("if (!HasWallAt(pos))"));
         Assert.That(fieldSource, Does.Contain("return new List<Vector3Int>();"));
         Assert.That(fieldSource, Does.Contain("return movingUnitOriginalPos;"));
 

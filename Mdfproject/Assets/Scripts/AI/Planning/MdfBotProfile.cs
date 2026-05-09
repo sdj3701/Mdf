@@ -3,7 +3,7 @@ using UnityEngine;
 public sealed class MdfBotProfile
 {
     public const string DefaultPersona = "balanced";
-    public const float DefaultDecisionIntervalSeconds = 0.5f;
+    public const float DefaultDecisionIntervalSeconds = 0.7f;
 
     public string Persona { get; private set; }
     public int Seed { get; private set; }
