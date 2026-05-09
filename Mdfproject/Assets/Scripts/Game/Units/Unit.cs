@@ -40,14 +40,21 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private float _localHP;
     private float _localMaxHP;
     
-    public float CurrentHealth => _hasSpawned ? NetworkedHP : _localHP;
-    public float MaxHealth => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+    public bool HasValidNetworkObject => Object != null && Object.IsValid;
+    private bool CanReadNetworkedState => _hasSpawned
+        && Runner != null
+        && Runner.IsRunning
+        && Object != null
+        && Object.IsValid;
+
+    public float CurrentHealth => CanReadNetworkedState ? NetworkedHP : _localHP;
+    public float MaxHealth => CanReadNetworkedState ? NetworkedMaxHP : _localMaxHP;
     public event System.Action<float, float> OnHealthChanged;
     
     // 로컬 접근용 프로퍼티 (기존 코드 호환성 유지)
     public float currentHP
     {
-        get => _hasSpawned ? NetworkedHP : _localHP;
+        get => CanReadNetworkedState ? NetworkedHP : _localHP;
         set
         {
             _hasLocalHealthValues = true;
@@ -60,7 +67,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     }
     public float maxHP
     {
-        get => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+        get => CanReadNetworkedState ? NetworkedMaxHP : _localMaxHP;
         set
         {
             _hasLocalHealthValues = true;
@@ -87,11 +94,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private float _localMagicResistance;
 
     // === 최종 스탯 프로퍼티 (3단계: 버프 적용된 최종값) ===
-    public float currentAttackDamage => _hasSpawned ? _networkedAttackDamage : _localAttackDamage;
-    public float currentAttackSpeed => _hasSpawned ? _networkedAttackSpeed : _localAttackSpeed;
-    public float currentAttackRange => _hasSpawned ? _networkedAttackRange : _localAttackRange;
-    public float currentDefense => _hasSpawned ? _networkedDefense : _localDefense;
-    public float currentMagicResistance => _hasSpawned ? _networkedMagicResistance : _localMagicResistance;
+    public float currentAttackDamage => CanReadNetworkedState ? _networkedAttackDamage : _localAttackDamage;
+    public float currentAttackSpeed => CanReadNetworkedState ? _networkedAttackSpeed : _localAttackSpeed;
+    public float currentAttackRange => CanReadNetworkedState ? _networkedAttackRange : _localAttackRange;
+    public float currentDefense => CanReadNetworkedState ? _networkedDefense : _localDefense;
+    public float currentMagicResistance => CanReadNetworkedState ? _networkedMagicResistance : _localMagicResistance;
 
     #region 3단계 스탯 시스템
     // 1단계: 기본 스탯 (UnitData + 성급 배수)
@@ -266,6 +273,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         TryApplyPendingHealthToNetworked();
         RebindAfterMigration(owner, "Unit.Spawned", false);
     }
+
+    public override void Despawned(NetworkRunner runner, bool hasState)
+    {
+        _hasSpawned = false;
+        _changeDetector = null;
+        base.Despawned(runner, hasState);
+    }
     
     /// <summary>
     /// 클라이언트에서 HP 변경을 감지하고 이벤트를 발생시킵니다.
@@ -296,10 +310,24 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     private void HandleNetworkedDeathStateChanged()
     {
+        if (!CanReadNetworkedState)
+        {
+            return;
+        }
+
+        if (Object != null && Object.HasStateAuthority)
+        {
+            return;
+        }
+
         if (NetworkedIsDead && !IsDead)
         {
             IsDead = true;
-            gameObject.SetActive(false);
+            SetDeathPresentationActive(false);
+        }
+        else if (!NetworkedIsDead && IsDead)
+        {
+            Respawn();
         }
     }
     
@@ -334,6 +362,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             && Runner != null
             && Runner.IsRunning
             && Object != null
+            && Object.IsValid
+            && Object.HasStateAuthority;
+    }
+
+    private bool CanWriteNetworkedStats()
+    {
+        return _hasSpawned
+            && Runner != null
+            && Runner.IsRunning
+            && Object != null
+            && Object.IsValid
             && Object.HasStateAuthority;
     }
 
@@ -558,6 +597,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         TryRecoverUnitDataFromNetworkIdentity(context);
+        HandleNetworkedDeathStateChanged();
         bool ready = EnsureRuntimeReferences(context, verboseFailure);
 
         if (animator == null)
@@ -1233,7 +1273,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     public async void Respawn()
     {
-        if (!IsDead) return;
+        bool inactive = gameObject != null && (!gameObject.activeSelf || !gameObject.activeInHierarchy);
+        if (!IsDead && !inactive) return;
         IsDead = false;
         
         if (Object != null && Object.HasStateAuthority)
@@ -1242,11 +1283,52 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         
         blockedMonsters.Clear();
+        if (gameObject != null && !gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+        SetDeathPresentationActive(true);
         
         await InitializeStats();
         await CacheProjectileSpeedAsync();
-        gameObject.SetActive(true);
+        IsDead = false;
+        if (Object != null && Object.HasStateAuthority)
+        {
+            NetworkedIsDead = false;
+        }
+        if (gameObject != null && !gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+        SetDeathPresentationActive(true);
         Debug.Log($"<color=green>{unitData.unitName}이(가) 부활했습니다!</color>");
+    }
+
+    private void SetDeathPresentationActive(bool active)
+    {
+        foreach (var renderer in GetComponentsInChildren<Renderer>(true))
+        {
+            if (renderer != null)
+            {
+                renderer.enabled = active;
+            }
+        }
+
+        foreach (var collider in GetComponentsInChildren<Collider>(true))
+        {
+            if (collider != null)
+            {
+                collider.enabled = active;
+            }
+        }
+
+        foreach (var canvas in GetComponentsInChildren<Canvas>(true))
+        {
+            if (canvas != null)
+            {
+                canvas.enabled = active;
+            }
+        }
     }
 
     private void HandleManaFull()
@@ -1935,7 +2017,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             attackCoroutine = null;
         }
 
-        gameObject.SetActive(false);
+        SetDeathPresentationActive(false);
         string deadUnitName = unitData != null ? unitData.unitName : name;
         Debug.Log($"<color=red>{deadUnitName}이(가) 전투에서 쓰러졌습니다.</color>");
     }
@@ -1959,15 +2041,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     public void ApplyStatModifiers(float attackDamage, float attackSpeed)
     {
-        if (HasStateAuthorityOrNoNetwork())
+        _localAttackDamage = attackDamage;
+        _localAttackSpeed = attackSpeed;
+
+        if (CanWriteNetworkedStats())
         {
             _networkedAttackDamage = attackDamage;
             _networkedAttackSpeed = attackSpeed;
-        }
-        else
-        {
-            _localAttackDamage = attackDamage;
-            _localAttackSpeed = attackSpeed;
         }
     }
 
@@ -1976,21 +2056,19 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     private void SetStatsDirect(float damage, float speed, float range, float defense, float magicRes)
     {
-        if (HasStateAuthorityOrNoNetwork())
+        _localAttackDamage = damage;
+        _localAttackSpeed = speed;
+        _localAttackRange = range;
+        _localDefense = defense;
+        _localMagicResistance = magicRes;
+
+        if (CanWriteNetworkedStats())
         {
             _networkedAttackDamage = damage;
             _networkedAttackSpeed = speed;
             _networkedAttackRange = range;
             _networkedDefense = defense;
             _networkedMagicResistance = magicRes;
-        }
-        else
-        {
-            _localAttackDamage = damage;
-            _localAttackSpeed = speed;
-            _localAttackRange = range;
-            _localDefense = defense;
-            _localMagicResistance = magicRes;
         }
     }
 
@@ -2033,9 +2111,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (!HasStateAuthorityOrNoNetwork()) return;  // 서버에서만 적용
         
         _isBerserk = true;
-        
-        _networkedAttackDamage *= 1.5f;
-        _networkedAttackSpeed *= 1.5f;
+
+        float berserkDamage = currentAttackDamage * 1.5f;
+        float berserkSpeed = currentAttackSpeed * 1.5f;
+        _localAttackDamage = berserkDamage;
+        _localAttackSpeed = berserkSpeed;
+        if (CanWriteNetworkedStats())
+        {
+            _networkedAttackDamage = berserkDamage;
+            _networkedAttackSpeed = berserkSpeed;
+        }
         Debug.Log($"<color=red>[Unit] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배)</color>");
     }
 

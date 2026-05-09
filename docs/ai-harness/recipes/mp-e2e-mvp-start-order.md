@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-05-09
+Last verified: 2026-05-09
+Use count: 2
 Review after: 2026-08-03
 Triggers: Editor/Build E2E, build/build E2E, Game scene, FieldManager wall snapshots
 Applies to: Phase 10/11 E2E matrix, `compare_state_snapshots.py`, `FieldManager`
@@ -26,6 +26,7 @@ Evidence:
 Recipe:
 - Launch all peers with `--mpTest` and automation enabled, but without `--mpAutoStart` and without `--mpLoadGame`.
 - Start host/client into `MatchingLobby` first, wait until every peer reports `runner.activePlayerCount == expectedPlayers`, then have the host call `/loadGame` or `mp_load_game` for `Game`.
+- Normalize scene aliases in harness readiness checks. Runtime can resolve legacy aliases such as `MatchingLobby` and `Game` to numbered scenes like `01_MatchingLobby` and `03_Game`, but snapshot readiness must compare the resolved scene name or the harness will wait until timeout and start bots after automation has already failed.
 - Wait for field readiness and stable full snapshot agreement before PASS.
 - Keep wall hashes in comparisons; do not suppress them to make MVP pass.
 - In `FieldManager`, client peers must wait for server permanent-wall sync. Rebuilds should filter permanent wall candidates through the authoritative cell list received from `RPC_ApplyPermanentWalls`.
@@ -34,6 +35,7 @@ Verification:
 - `artifacts/mp/20260504-221902-build-host-build-client/comparison.json` passed with `errors=[]`.
 - `artifacts/mp/20260504-222012-editor-host-build-client/comparison.json` passed with `errors=[]`.
 - `artifacts/mp/20260504-222048-build-host-editor-client/comparison.json` passed with `errors=[]`.
+- `artifacts/mp/20260509-042900-human-bot-3round-progression/result.json` passed after scene alias normalization, with host/client visible HumanBots reaching `R4:Prepare`, 10/10 checkpoint comparisons passing, and `cleanupStatus=PASS`.
 
 Pitfalls:
 - `unity-cli editor play --wait` can return while the connector reports `reloading` or `playing`; harness scripts should poll `unity-cli status` and accept `playing` as controllable.

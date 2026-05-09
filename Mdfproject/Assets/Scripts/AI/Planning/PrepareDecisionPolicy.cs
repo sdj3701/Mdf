@@ -87,6 +87,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             yield return TryChooseWall;
         }
 
+        yield return TryChooseMoveFromDefaultArea;
+
         switch (_persona)
         {
             case "maze":
@@ -365,6 +367,40 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
     private bool TryChooseMove(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
     {
+        return TryChooseMoveCore(
+            context,
+            composition,
+            false,
+            "best_unit_reposition",
+            50f,
+            out decision);
+    }
+
+    private bool TryChooseMoveFromDefaultArea(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
+    {
+        decision = null;
+        if (composition == null || !composition.HasMinimumArmyCore)
+        {
+            return false;
+        }
+
+        return TryChooseMoveCore(
+            context,
+            composition,
+            true,
+            "default_area_unit_reposition",
+            65f,
+            out decision);
+    }
+
+    private bool TryChooseMoveCore(
+        MdfDecisionContext context,
+        PrepareArmyComposition composition,
+        bool defaultAreaOnly,
+        string reason,
+        float score,
+        out MdfDecision decision)
+    {
         decision = null;
         var player = context.Actor;
         var field = player.fieldManager;
@@ -375,7 +411,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
         var units = field.GetAlliedUnitsOnField()
             .Where(unit => unit != null && unit.Data != null)
-            .OrderBy(unit => unit.Data.unitType == UnitType.Ranged ? 0 : 1)
+            .OrderBy(unit => GetMoveCandidatePriority(field, unit))
+            .ThenBy(unit => unit.Data.unitType == UnitType.Ranged ? 0 : 1)
             .ThenBy(unit => unit.Data.unitName)
             .ToArray();
         var monsterPath = BuildMonsterPathContext(player);
@@ -386,6 +423,12 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         {
             Vector3Int? from = field.GetUnitPosition(unit);
             if (!from.HasValue)
+            {
+                continue;
+            }
+
+            bool isDefaultArea = IsLikelyPurchaseDefaultArea(field, from.Value);
+            if (defaultAreaOnly && !isDefaultArea)
             {
                 continue;
             }
@@ -406,7 +449,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 continue;
             }
 
-            if (field.GetUnitAt(to.Value) != null)
+            if (field.IsUnitAt(to.Value))
             {
                 continue;
             }
@@ -422,14 +465,15 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 context,
                 new MoveUnitCommand(player.playerId, from.Value, to.Value),
                 CommandType.MoveUnit,
-                "best_unit_reposition",
+                reason,
                 $"{from.Value.x},{from.Value.y}->{to.Value.x},{to.Value.y}",
-                50f,
+                score,
                 MergeFields(BuildPrepareJournalFields(context, composition, null, null), new Dictionary<string, object>
                 {
                     { "from", $"{from.Value.x},{from.Value.y}" },
                     { "to", $"{to.Value.x},{to.Value.y}" },
                     { "unit", unit.Data.unitName },
+                    { "defaultAreaPriority", isDefaultArea },
                     { "pathAwarePlacement", monsterPath != null && monsterPath.Count > 0 },
                     { "monsterPathCount", monsterPath != null ? monsterPath.Count : 0 },
                     { "moveOncePerRound", true },
@@ -439,6 +483,45 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         return false;
+    }
+
+    private static int GetMoveCandidatePriority(FieldManager field, Unit unit)
+    {
+        if (field == null || unit == null)
+        {
+            return 100;
+        }
+
+        var position = field.GetUnitPosition(unit);
+        if (!position.HasValue)
+        {
+            return 90;
+        }
+
+        if (IsLikelyPurchaseDefaultArea(field, position.Value))
+        {
+            return 0;
+        }
+
+        return unit.Data != null && unit.Data.unitType == UnitType.Ranged ? 10 : 20;
+    }
+
+    private static bool IsLikelyPurchaseDefaultArea(FieldManager field, Vector3Int cell)
+    {
+        if (field == null)
+        {
+            return false;
+        }
+
+        BoundsInt bounds = field.GetMapBounds();
+        int minX = bounds.xMin;
+        int minY = bounds.yMin;
+        int maxX = bounds.xMax - 1;
+        int maxY = bounds.yMax - 1;
+        return cell.x <= minX + 1 ||
+               cell.y <= minY + 1 ||
+               cell.x >= maxX - 1 ||
+               cell.y >= maxY - 1;
     }
 
     private static List<AstarNode> BuildMonsterPathContext(PlayerManager player)
@@ -1062,7 +1145,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         var to = destination.Value;
-        if (to == from || !field.IsValidGridPosition(to) || field.GetUnitAt(to) != null)
+        if (to == from || !field.IsValidGridPosition(to) || field.IsUnitAt(to))
         {
             return false;
         }

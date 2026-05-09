@@ -13,6 +13,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 {
     // [수정] playerId를 모든 클라이언트가 동기화할 수 있도록 [Networked] 프로퍼티로 변경합니다.
     [Networked] public int playerId { get; set; }
+    [Networked] public NetworkBool IsAiControlled { get; private set; }
 
     [Header("핵심 능력치 (읽기 전용)")]
     // 참고: 이 능력치들도 [Networked]로 변경하면 더 안정적이지만,
@@ -123,6 +124,14 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private ChangeDetector _changeDetector;
     private bool _runtimeInitialized;
     public bool IsReadyForPlayerActions => _runtimeInitialized && playerId >= 0 && fieldManager != null;
+
+    public void SetAiControlled(bool isAi)
+    {
+        if (HasStateAuthorityOrNoNetwork())
+        {
+            IsAiControlled = isAi;
+        }
+    }
 
     private bool HasStateAuthorityOrNoNetwork()
     {
@@ -1296,6 +1305,55 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         catch (System.Exception)
         {
             // Roster correction is best-effort; command replay and register RPCs remain authoritative.
+        }
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public async void RPC_ReconcileUnitRosterCompact(int[] flatRoster)
+    {
+        try
+        {
+            if (Object != null && Object.HasStateAuthority)
+            {
+                return;
+            }
+
+            if (flatRoster == null || flatRoster.Length % 5 != 0)
+            {
+                return;
+            }
+
+            int count = flatRoster.Length / 5;
+            int[] unitIdRaws = new int[count];
+            int[] flatPositions = new int[count * 3];
+            int[] starLevels = new int[count];
+
+            for (int i = 0; i < count; i++)
+            {
+                int offset = i * 5;
+                unitIdRaws[i] = flatRoster[offset + 0];
+                flatPositions[(i * 3) + 0] = flatRoster[offset + 1];
+                flatPositions[(i * 3) + 1] = flatRoster[offset + 2];
+                flatPositions[(i * 3) + 2] = flatRoster[offset + 3];
+                starLevels[i] = flatRoster[offset + 4];
+            }
+
+            if (fieldManager == null || fieldManager.ground3D == null)
+            {
+                StorePendingUnitRoster(unitIdRaws, flatPositions, null, starLevels);
+                RebindRuntimeReferencesAfterMigration("RPC_ReconcileUnitRosterCompact.Pending", false);
+            }
+
+            if (fieldManager == null || fieldManager.ground3D == null)
+            {
+                return;
+            }
+
+            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, null, starLevels);
+        }
+        catch (System.Exception)
+        {
+            // Compact roster correction is best-effort; per-unit register RPCs carry identity metadata.
         }
     }
 
@@ -3081,7 +3139,14 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (!ValidateClientCommandRequest(type, intParams, stringParams, vectorParams, info, out string rejectReason))
         {
-            Debug.LogWarning($"[RPC_RequestCommandToServer] Rejected command={type}, playerId={playerId}, reason={rejectReason}");
+            if (type == CommandType.ActivateSkill && ActivateSkillCommand.IsVolatileNoOpReason(rejectReason))
+            {
+                Debug.Log($"[RPC_RequestCommandToServer] Skipped command={type}, playerId={playerId}, reason={rejectReason}");
+            }
+            else
+            {
+                Debug.LogWarning($"[RPC_RequestCommandToServer] Rejected command={type}, playerId={playerId}, reason={rejectReason}");
+            }
             return;
         }
 
@@ -3129,6 +3194,20 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
             // Debug.Log("<color=green>[NetFlow] GameManagers resolved via FindObjectOfType on server.</color>");
         }
+
+        if (type == CommandType.ActivateSkill)
+        {
+            if (intParams.Length < 2)
+            {
+                return;
+            }
+
+            uint skillUnitNetworkId = (uint)intParams[1];
+            var command = new ActivateSkillCommand(playerId, skillUnitNetworkId);
+            command.Execute();
+            return;
+        }
+
         gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
     }
 
@@ -3315,19 +3394,31 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         var unit = fieldManager.GetUnitAt(from);
-        if (unit == null)
+        UnitData sourceUnitData = unit != null ? unit.Data : null;
+        if (unit == null && !fieldManager.HasPendingUnitAt(from))
         {
             reason = "move_source_empty";
             return false;
         }
 
-        if (fieldManager.GetUnitAt(to) != null)
+        if (unit == null && fieldManager.TryGetPendingUnitDataAt(from, out var pendingUnitData))
+        {
+            sourceUnitData = pendingUnitData;
+        }
+
+        if (fieldManager.IsUnitAt(to))
         {
             reason = "move_destination_occupied";
             return false;
         }
 
-        if (unit.Data != null && unit.Data.unitType == UnitType.Melee && fieldManager.HasWallAt(to))
+        if (sourceUnitData == null && fieldManager.HasWallAt(to))
+        {
+            reason = "move_pending_unit_type_unknown_for_wall";
+            return false;
+        }
+
+        if (sourceUnitData != null && sourceUnitData.unitType == UnitType.Melee && fieldManager.HasWallAt(to))
         {
             reason = "melee_unit_cannot_move_to_wall";
             return false;
@@ -3570,6 +3661,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 out BattleCommandResult result))
         {
             reason = result.ErrorCode;
+            if (ActivateSkillCommand.IsVolatileNoOp(result))
+            {
+                SkillCommandMpTestLogger.Skipped(result, unitNetworkId, skillData != null ? skillData.name : "unknown");
+                return false;
+            }
+
             int sequence = BattleCommandTelemetry.RecordRejected(CommandType.ActivateSkill);
             var rejected = BattleCommandResult.Rejected(
                 CommandType.ActivateSkill,

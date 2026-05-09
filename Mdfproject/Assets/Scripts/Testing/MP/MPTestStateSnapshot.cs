@@ -280,6 +280,8 @@ public static class MPTestStateSnapshot
         string networkId = networkObjectValid ? SafeString(() => networkObject.Id.ToString(), null) : null;
         string playerRef = networkObjectValid ? SafeString(() => networkObject.InputAuthority.ToString(), null) : null;
         bool isLocal = networkObjectValid && SafeBool(() => networkObject.HasInputAuthority, false);
+        bool isAi = SafeBool(() => player.IsAiControlled, false) || ComponentRegistry.Has<AIPlayerController>(playerId.ToString());
+        RefreshPlayerRuntimeForSnapshot(player, errors);
 
         return new PlayerSnapshot
         {
@@ -290,7 +292,7 @@ public static class MPTestStateSnapshot
             HasInputAuthority = isLocal,
             HasStateAuthority = networkObjectValid && SafeBool(() => networkObject.HasStateAuthority, false),
             IsLocal = isLocal,
-            IsAI = ComponentRegistry.Has<AIPlayerController>(playerId.ToString()),
+            IsAI = isAi,
             IsConnected = runner == null || (networkObjectValid && PlayerRefIsConnected(runner, networkObject)),
             Health = SafeInt(player.GetHealth, 0),
             Gold = SafeInt(player.GetGold, 0),
@@ -307,6 +309,23 @@ public static class MPTestStateSnapshot
             Monsters = CaptureMonsters(player),
             Ai = CaptureAi(playerId, player)
         };
+    }
+
+    private static void RefreshPlayerRuntimeForSnapshot(PlayerManager player, List<string> errors)
+    {
+        if (player == null)
+        {
+            return;
+        }
+
+        try
+        {
+            player.RebindRuntimeReferencesAfterMigration("MPTestStateSnapshot.CapturePlayer", false);
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"player.{SafeInt(() => player.playerId, -1)}.snapshotRebind:{ex.GetType().Name}");
+        }
     }
 
     private static string CaptureManualSkillReadyHash(PlayerManager player)
@@ -678,6 +697,9 @@ public static class MPTestStateSnapshot
                 Ready = false,
                 GridHash = Unknown,
                 PlacedUnitCount = 0,
+                AliveUnitCount = 0,
+                DeadUnitCount = 0,
+                DeadUnitsHash = Unknown,
                 PlacedUnitsHash = Unknown,
                 PlacedUnitParts = Array.Empty<string>(),
                 DestructibleWallCount = null,
@@ -707,6 +729,11 @@ public static class MPTestStateSnapshot
             .Select(unit => BuildUnitPart(field, unit))
             .OrderBy(part => part, StringComparer.Ordinal)
             .ToArray();
+        var deadUnitParts = units
+            .Where(unit => IsUnitDeadForSnapshot(unit))
+            .Select(unit => BuildUnitLifecyclePart(field, unit))
+            .OrderBy(part => part, StringComparer.Ordinal)
+            .ToArray();
 
         return new FieldSnapshot
         {
@@ -718,6 +745,9 @@ public static class MPTestStateSnapshot
                 () => $"{field.gridSize.x}x{field.gridSize.y}|cell={field.cellSize:F3}|origin={field.gridOrigin.x:F3},{field.gridOrigin.y:F3},{field.gridOrigin.z:F3}",
                 Unknown)),
             PlacedUnitCount = units.Count,
+            AliveUnitCount = units.Count(unit => !IsUnitDeadForSnapshot(unit)),
+            DeadUnitCount = deadUnitParts.Length,
+            DeadUnitsHash = deadUnitParts.Length > 0 ? HashStableParts(deadUnitParts) : Unknown,
             PlacedUnitsHash = HashStableParts(unitParts),
             PlacedUnitParts = unitParts,
             DestructibleWallCount = wallParts.Count(part => part.StartsWith("D", StringComparison.Ordinal)),
@@ -740,6 +770,18 @@ public static class MPTestStateSnapshot
         }
 
         return $"{dataName}:star={starLevel}";
+    }
+
+    private static bool IsUnitDeadForSnapshot(Unit unit)
+    {
+        return SafeBool(() => unit.IsDead, false)
+            || !SafeBool(() => unit.gameObject.activeInHierarchy, false);
+    }
+
+    private static string BuildUnitLifecyclePart(FieldManager field, Unit unit)
+    {
+        int hpBucket = BuildHpBucket(SafeFloat(() => unit.CurrentHealth, 0f), SafeFloat(() => unit.MaxHealth, 0f));
+        return $"{BuildUnitPart(field, unit)};dead={SafeBool(() => unit.IsDead, false)};active={SafeBool(() => unit.gameObject.activeInHierarchy, false)};hpBucket={hpBucket}";
     }
 
     private static bool ShouldIncludeUnitPositionInSnapshot()
@@ -1449,6 +1491,9 @@ public static class MPTestStateSnapshot
         [JsonProperty("ready")] public bool Ready;
         [JsonProperty("gridHash")] public string GridHash;
         [JsonProperty("placedUnitCount")] public int PlacedUnitCount;
+        [JsonProperty("aliveUnitCount")] public int AliveUnitCount;
+        [JsonProperty("deadUnitCount")] public int DeadUnitCount;
+        [JsonProperty("deadUnitsHash")] public string DeadUnitsHash;
         [JsonProperty("placedUnitsHash")] public string PlacedUnitsHash;
         [JsonProperty("placedUnitParts")] public string[] PlacedUnitParts;
         [JsonProperty("destructibleWallCount")] public int? DestructibleWallCount;

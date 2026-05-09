@@ -27,6 +27,12 @@ public class CommandProcessor
             // 서버(호스트)라면 곧장 브로드캐스트 실행
             if (gm.Object != null && gm.Object.HasStateAuthority)
             {
+                if (command is ActivateSkillCommand)
+                {
+                    command.Execute();
+                    return;
+                }
+
                 gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
                 return;
             }

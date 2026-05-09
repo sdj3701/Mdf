@@ -42,6 +42,12 @@ public class ActivateSkillCommand : ICommand
                 out SkillData skillData,
                 out BattleCommandResult validationResult))
         {
+            if (IsVolatileNoOp(validationResult))
+            {
+                SkillCommandMpTestLogger.Skipped(validationResult, UnitNetworkId, ResolveSkillName(skillData));
+                return;
+            }
+
             var rejected = RecordRejected(validationResult, source);
             SkillCommandMpTestLogger.Rejected(rejected, UnitNetworkId, ResolveSkillName(skillData));
             SyncTelemetryToClients();
@@ -209,6 +215,16 @@ public class ActivateSkillCommand : ICommand
 
         result = BattleCommandResult.Accepted(Type, playerId, "activate_skill_validated", -1, scope, source);
         return true;
+    }
+
+    public static bool IsVolatileNoOp(BattleCommandResult result)
+    {
+        return IsVolatileNoOpReason(result.ErrorCode);
+    }
+
+    public static bool IsVolatileNoOpReason(string errorCode)
+    {
+        return errorCode == "skill_target_unavailable";
     }
 
     private static bool TryResolveUnit(NetworkRunner runner, uint unitNetworkId, out Unit unit)

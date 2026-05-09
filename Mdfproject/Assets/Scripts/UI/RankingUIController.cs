@@ -16,6 +16,8 @@
 
      // [추가] 초기화가 완료되었는지 확인하기 위한 플래그
      private bool isInitialized = false;
+     private bool isInitializing = false;
+     private float nextInitializeRetryTime = 0f;
 
      // 플레이어 상태 변경을 감지하기 위한 데이터 보관
      private List<int> lastPlayerHealths = new List<int>();
@@ -103,7 +105,17 @@
          {
              return;
          }
-         
+
+         if (!isInitialized)
+         {
+             if (Time.unscaledTime >= nextInitializeRetryTime)
+             {
+                 nextInitializeRetryTime = Time.unscaledTime + 0.5f;
+                 InitializePlayersAndSlots();
+             }
+             return;
+         }
+          
          if (isInitialized)
          {
              // 플레이어 수 또는 체력 상태가 변경되었을 때만 정렬
@@ -159,9 +171,13 @@
      private async void InitializePlayersAndSlots()
      {
          if (isInitialized) return;
+         if (isInitializing) return;
+         isInitializing = true;
          if (GameManagers.Instance == null)
          {
              Debug.LogError("RankingUIController: GameManagers.Instance가 null입니다.");
+             isInitializing = false;
+             nextInitializeRetryTime = Time.unscaledTime + 0.5f;
              return;
          }
  
@@ -209,6 +225,8 @@
          if (allPlayers.Count == 0)
          {
              Debug.LogWarning($"RankingUIController: UI를 초기화할 플레이어가 없습니다. allPlayers.Count: {allPlayers.Count}, validPlayers.Count: {validPlayers.Count}, allGamePlayers.Count: {allGamePlayers.Count}");
+             isInitializing = false;
+             nextInitializeRetryTime = Time.unscaledTime + 0.5f;
              return;
          }
 
@@ -260,6 +278,7 @@
 
          // 즉시 정렬 및 표시를 한 번 실행하여 Instantiate 직후 슬롯에 데이터가 바인딩되도록 보장합니다.
          SortAndDisplayPlayers();
+         isInitializing = false;
      }
 
      /// <summary>

@@ -207,6 +207,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   _playerId: 0
+  _IsAiControlled:
+    _value: 0
   initialHealth: 80
   initialGold: 20
   initialWallCount: 15

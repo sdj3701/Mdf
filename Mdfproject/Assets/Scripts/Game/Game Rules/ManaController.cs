@@ -5,16 +5,17 @@ using Fusion;
 
 public class ManaController : NetworkBehaviour, IMana
 {
-    // [Networked] 속성으로 마나 값을 네트워크 동기화
     [Networked] private float _currentMana { get; set; }
     [Networked] private float _maxMana { get; set; }
-    
-    // 로컬 캐시 (변화 감지용)
-    private float _lastBroadcastMana = -1f;
 
-    public float CurrentMana => _currentMana;
-    public float MaxMana => _maxMana;
-    public bool IsManaFull => _currentMana >= _maxMana && _maxMana > 0;
+    private float _lastBroadcastMana = -1f;
+    private float _localCurrentMana;
+    private float _localMaxMana;
+    private bool _hasLocalInitialized;
+
+    public float CurrentMana => CanReadNetworkedMana() ? _currentMana : _localCurrentMana;
+    public float MaxMana => CanReadNetworkedMana() ? _maxMana : _localMaxMana;
+    public bool IsManaFull => CurrentMana >= MaxMana && MaxMana > 0;
 
     public event Action OnManaFull;
     public event Action<float, float> OnManaChanged;
@@ -25,6 +26,17 @@ public class ManaController : NetworkBehaviour, IMana
     {
         base.Spawned();
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+
+        if (CanWriteNetworkedMana() && _hasLocalInitialized)
+        {
+            _currentMana = _localCurrentMana;
+            _maxMana = _localMaxMana;
+        }
+        else
+        {
+            _localCurrentMana = _currentMana;
+            _localMaxMana = _maxMana;
+        }
     }
 
     public override void Render()
@@ -35,48 +47,66 @@ public class ManaController : NetworkBehaviour, IMana
         {
             if (change == nameof(_currentMana) || change == nameof(_maxMana))
             {
-                // 네트워크에서 변경된 값을 UI에 반영
-                OnManaChanged?.Invoke(_currentMana, _maxMana);
-                
-                // 마나가 가득 찼을 때 이벤트 발생
-                if (IsManaFull && _lastBroadcastMana < _maxMana)
+                _localCurrentMana = _currentMana;
+                _localMaxMana = _maxMana;
+
+                OnManaChanged?.Invoke(_localCurrentMana, _localMaxMana);
+
+                if (IsManaFull && _lastBroadcastMana < _localMaxMana)
                 {
                     OnManaFull?.Invoke();
                 }
-                _lastBroadcastMana = _currentMana;
+
+                _lastBroadcastMana = _localCurrentMana;
             }
         }
     }
 
     public void Initialize(float maxMana)
     {
-        // StateAuthority가 있을 때만 값 변경
-        if (Object == null || Object.HasStateAuthority)
+        if (HasManaAuthorityOrOffline())
         {
-            _maxMana = maxMana;
-            _currentMana = 0;
+            _localMaxMana = maxMana;
+            _localCurrentMana = 0;
+            _hasLocalInitialized = true;
+
+            if (CanWriteNetworkedMana())
+            {
+                _maxMana = maxMana;
+                _currentMana = 0;
+            }
+
             _lastBroadcastMana = 0;
         }
-        OnManaChanged?.Invoke(_currentMana, _maxMana);
+
+        OnManaChanged?.Invoke(CurrentMana, MaxMana);
     }
 
     public void GainManaOverTime(float amountPerSecond)
     {
-        if (!HasStateAuthority()) return;
+        if (!HasManaAuthorityOrOffline()) return;
         if (IsManaFull) return;
         GainMana(amountPerSecond * Time.deltaTime);
     }
 
     public void GainMana(float amount)
     {
-        if (!HasStateAuthority()) return;
+        if (!HasManaAuthorityOrOffline()) return;
         if (IsManaFull || amount <= 0) return;
 
         bool wasManaFullBefore = IsManaFull;
-        _currentMana = Mathf.Min(_currentMana + amount, _maxMana);
-        
-        // 로컬 이벤트도 즉시 발생 (서버에서)
-        OnManaChanged?.Invoke(_currentMana, _maxMana);
+        float maxMana = MaxMana;
+        float currentMana = Mathf.Min(CurrentMana + amount, maxMana);
+        _localCurrentMana = currentMana;
+        _localMaxMana = maxMana;
+        _hasLocalInitialized = true;
+
+        if (CanWriteNetworkedMana())
+        {
+            _currentMana = currentMana;
+        }
+
+        OnManaChanged?.Invoke(CurrentMana, MaxMana);
 
         if (!wasManaFullBefore && IsManaFull)
         {
@@ -86,23 +116,45 @@ public class ManaController : NetworkBehaviour, IMana
 
     public bool UseMana(float amount)
     {
-        if (!HasStateAuthority()) return false;
-        
-        if (_currentMana >= amount)
+        if (!HasManaAuthorityOrOffline()) return false;
+
+        if (CurrentMana >= amount)
         {
-            _currentMana = 0;
-            OnManaChanged?.Invoke(_currentMana, _maxMana);
+            _localCurrentMana = 0;
+            _hasLocalInitialized = true;
+
+            if (CanWriteNetworkedMana())
+            {
+                _currentMana = 0;
+            }
+
+            OnManaChanged?.Invoke(CurrentMana, MaxMana);
             return true;
         }
+
         return false;
     }
 
-    private new bool HasStateAuthority()
+    private bool CanReadNetworkedMana()
     {
-        if (Object == null || Runner == null || !Runner.IsRunning)
+        return Object != null
+            && Object.IsValid
+            && Runner != null
+            && Runner.IsRunning;
+    }
+
+    private bool CanWriteNetworkedMana()
+    {
+        return CanReadNetworkedMana() && Object.HasStateAuthority;
+    }
+
+    private bool HasManaAuthorityOrOffline()
+    {
+        if (Object == null || !Object.IsValid || Runner == null || !Runner.IsRunning)
         {
-            return true; // 싱글플레이어 폴백
+            return true;
         }
+
         return Object.HasStateAuthority;
     }
 }

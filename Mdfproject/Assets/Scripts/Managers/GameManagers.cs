@@ -32,7 +32,7 @@ public partial class GameManagers : NetworkBehaviour
     [Networked]
     private TickTimer phaseTimer { get; set; }
 
-    public float currentPhaseTimer => phaseTimer.IsRunning ? phaseTimer.RemainingTime(Runner) ?? 0f : 0f;
+    public float currentPhaseTimer => IsReadyForNetworkAccess && phaseTimer.IsRunning ? phaseTimer.RemainingTime(Runner) ?? 0f : 0f;
 
     // 세션은 최대 4명까지 지원
     private const int MAX_PLAYERS = 4;
@@ -550,6 +550,12 @@ public partial class GameManagers : NetworkBehaviour
             return false;
         }
 
+        if (!IsReadyForNetworkAccess)
+        {
+            reason = "gameManagersNotReady";
+            return false;
+        }
+
         if (currentState != GameState.Prepare)
         {
             return true;
@@ -630,13 +636,16 @@ public partial class GameManagers : NetworkBehaviour
             return;
         }
 
+        // AllPlayers reads are needed during the first GameFlow prepare setup.
+        // Waiting until GameFlow completes makes the first round start with players=0.
+        _isSpawned = true;
+
         await GameFlow();
         if (Object == null || !Object.IsValid || Instance != this)
         {
             return;
         }
 
-        _isSpawned = true;
         RelinkLocalPlayer();
         RebuildNetworkPlayersAfterMigration("InitializeAndStartGame");
         // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
@@ -1028,6 +1037,7 @@ public partial class GameManagers : NetworkBehaviour
             PlayerManager newPlayer = playerNO.GetComponent<PlayerManager>();
             if (newPlayer != null)
             {
+                newPlayer.SetAiControlled(isAI);
                 newPlayer.Rpc_InitializePlayer(i, gridNO);
             }
 
@@ -1526,6 +1536,11 @@ public partial class GameManagers : NetworkBehaviour
 
         TryPushMigrationSnapshotForCriticalTransition($"StartNextRound:BeforePrepareTransition:R{currentRound}");
         TransitionToPrepareState("StartNextRound");
+
+        foreach (var player in AllPlayers)
+        {
+            player?.fieldManager?.RespawnAllUnits();
+        }
 
         foreach (var player in AllPlayers)
         {

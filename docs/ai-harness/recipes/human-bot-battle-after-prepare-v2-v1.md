@@ -6,11 +6,11 @@ Category: AI/HumanBot, battle
 Created: 2026-05-08
 Last used: 2026-05-09
 Last verified: 2026-05-09
-Use count: 5
+Use count: 6
 Review after: 2026-08-06
 Triggers: Prepare v2 recheck, HumanBot battle progression, battle command sync
 Applies to: `run_human_bot_battle_progression.py`, `battle_progression_common.py`, `PrepareDecisionPolicy`, `BattleDecisionPolicy`
-Verified by: see Verification section below; migrated from old Status: verified with cleanup environment blocker; blocker note preserved in recipe body; artifacts/mp/20260508-221828-human-bot-3round-progression; artifacts/mp/20260509-004943-human-bot-3round-progression; artifacts/mp/20260509-005651-ai-fill-2p-smoke; artifacts/mp/20260509-005809-ai-fill-2p-battle-smoke
+Verified by: see Verification section below; migrated from old Status: verified with cleanup environment blocker; blocker note preserved in recipe body; artifacts/mp/20260508-221828-human-bot-3round-progression; artifacts/mp/20260509-004943-human-bot-3round-progression; artifacts/mp/20260509-005651-ai-fill-2p-smoke; artifacts/mp/20260509-005809-ai-fill-2p-battle-smoke; artifacts/mp/20260509-023108-2human-aifill-visible-3round
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -56,3 +56,5 @@ Lifecycle notes:
 - 2026-05-09: verified artifact `artifacts/mp/20260509-005651-ai-fill-2p-smoke`
 - 2026-05-09: Verified actual server AI battle command emission: 2-player AI-fill battle smoke observed BattleSpawnMonster with acceptedBattleCommandSeq=1, spawnMonsterSeq=1, cleanupStatus=PASS, orphanedPids=[].
 - 2026-05-09: verified artifact `artifacts/mp/20260509-005809-ai-fill-2p-battle-smoke`
+- 2026-05-09: 2-human + 2 AI fill visual MP run reached round 3 with spawnMonsterSeq=41 and rejectedBattleCommandCount=0 after slot-based attack pool selection fix.
+- 2026-05-09: verified artifact `artifacts/mp/20260509-023108-2human-aifill-visible-3round`

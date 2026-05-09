@@ -37,6 +37,11 @@ public static class SkillCommandMpTestLogger
         Log("skill_command_rejected", "fail", result, unitNetworkId, skillName);
     }
 
+    public static void Skipped(BattleCommandResult result, uint unitNetworkId, string skillName)
+    {
+        Log("skill_command_skipped", "info", result, unitNetworkId, skillName);
+    }
+
     public static void Executed(BattleCommandResult result, uint unitNetworkId, string skillName)
     {
         Log("skill_command_executed", "pass", result, unitNetworkId, skillName);

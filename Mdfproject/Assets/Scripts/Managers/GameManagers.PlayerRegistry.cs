@@ -10,6 +10,11 @@ public partial class GameManagers
     {
         get
         {
+            if (!IsReadyForNetworkAccess)
+            {
+                yield break;
+            }
+
             if (NetworkPlayers.Length == 0) yield break;
             foreach (var playerNO in NetworkPlayers)
             {

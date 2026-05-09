@@ -249,6 +249,9 @@ public static class MPTestAssertions
         CompareEqual(result, $"player.{playerId}.field.ready", expected.Ready, actual.Ready);
         CompareKnownHash(result, $"player.{playerId}.field.gridHash", expected.GridHash, actual.GridHash);
         CompareEqual(result, $"player.{playerId}.field.placedUnitCount", expected.PlacedUnitCount, actual.PlacedUnitCount);
+        CompareEqual(result, $"player.{playerId}.field.aliveUnitCount", expected.AliveUnitCount, actual.AliveUnitCount);
+        CompareEqual(result, $"player.{playerId}.field.deadUnitCount", expected.DeadUnitCount, actual.DeadUnitCount);
+        CompareKnownHash(result, $"player.{playerId}.field.deadUnitsHash", expected.DeadUnitsHash, actual.DeadUnitsHash);
         CompareKnownHash(result, $"player.{playerId}.field.placedUnitsHash", expected.PlacedUnitsHash, actual.PlacedUnitsHash);
         CompareNullable(result, $"player.{playerId}.field.destructibleWallCount", expected.DestructibleWallCount, actual.DestructibleWallCount);
         CompareNullable(result, $"player.{playerId}.field.permanentWallCount", expected.PermanentWallCount, actual.PermanentWallCount);

@@ -157,13 +157,37 @@ def normalize_snapshot_response(data: Any) -> Any:
     return data
 
 
+SCENE_ALIASES = {
+    "Title": "00_Title",
+    "00_Title": "00_Title",
+    "MatchingLobby": "01_MatchingLobby",
+    "TestMatching": "01_MatchingLobby",
+    "01_MatchingLobby": "01_MatchingLobby",
+    "JoinLobby": "02_JoinLobby",
+    "02_JoinLobby": "02_JoinLobby",
+    "Game": "03_Game",
+    "03_Game": "03_Game",
+}
+
+
+def normalize_scene_name(scene: Any) -> str:
+    if scene is None:
+        return ""
+    text = str(scene)
+    return SCENE_ALIASES.get(text, text)
+
+
+def scene_matches(actual: Any, expected: str) -> bool:
+    return normalize_scene_name(actual) == normalize_scene_name(expected)
+
+
 def snapshot_not_ready_reasons(data: Any, expected_players: int, scene: str) -> list[str]:
     state = normalize_snapshot_response(data)
     if not isinstance(state, dict):
         return ["snapshot_not_dict"]
 
     reasons: list[str] = []
-    if state.get("scene") != scene:
+    if not scene_matches(state.get("scene"), scene):
         reasons.append(f"scene expected={scene} actual={state.get('scene')}")
 
     players = state.get("players") or []
@@ -198,7 +222,7 @@ def session_not_ready_reasons(data: Any, expected_players: int, scene: str) -> l
         return ["snapshot_not_dict"]
 
     reasons: list[str] = []
-    if state.get("scene") != scene:
+    if not scene_matches(state.get("scene"), scene):
         reasons.append(f"scene expected={scene} actual={state.get('scene')}")
 
     runner = state.get("runner") or {}

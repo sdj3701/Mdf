@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-05-09
+Last verified: 2026-05-09
+Use count: 2
 Review after: 2026-08-03
 Triggers: AI fill, fewer humans than max players, 4 slots
 Applies to: `run_ai_fill_smoke.py`, `GameManagers.DeterminePlayerCount`
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-023108-2human-aifill-visible-3round
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -27,3 +27,7 @@ Verification:
 
 Verification update:
 - `artifacts/mp/20260504-230444-ai-fill-smoke/ai-fill-assertions.json` reported `playerCount=4`, `aiCount=3`, playerIds `[0,1,2,3]`, and `allFieldsReady=true` on build `artifacts/builds/20260504-230414/MDF-MPTest.exe`.
+
+Lifecycle notes:
+- 2026-05-09: 2 real peers + 2 AI fill visual MP run verified AI identity replicated to client snapshots, game-ready host/client aiCount=2, round 3 snapshot match.
+- 2026-05-09: verified artifact `artifacts/mp/20260509-023108-2human-aifill-visible-3round`

@@ -528,7 +528,17 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(loggerSource, Does.Contain("skill_command_request"));
         Assert.That(loggerSource, Does.Contain("skill_command_accepted"));
         Assert.That(loggerSource, Does.Contain("skill_command_rejected"));
+        Assert.That(loggerSource, Does.Contain("skill_command_skipped"));
         Assert.That(loggerSource, Does.Contain("skill_command_executed"));
+
+        string playerManagerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string commandProcessorSource = File.ReadAllText("Assets/Scripts/Commands/Core/CommandProcessor.cs");
+        Assert.That(commandSource, Does.Contain("IsVolatileNoOpReason"));
+        Assert.That(playerManagerSource, Does.Contain("ActivateSkillCommand.IsVolatileNoOp"));
+        Assert.That(playerManagerSource, Does.Contain("type == CommandType.ActivateSkill"));
+        Assert.That(playerManagerSource, Does.Contain("new ActivateSkillCommand(playerId"));
+        Assert.That(commandProcessorSource, Does.Contain("command is ActivateSkillCommand"));
+        Assert.That(commandProcessorSource, Does.Contain("command.Execute()"));
     }
 
     [Test]
@@ -595,6 +605,25 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void FirstPrepareStartsAfterPlayersAreReadable()
+    {
+        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
+
+        int initStart = gameManagersSource.IndexOf("private async UniTask InitializeAndStartGame()", System.StringComparison.Ordinal);
+        int gameFlowCall = gameManagersSource.IndexOf("await GameFlow();", initStart, System.StringComparison.Ordinal);
+        int earlySpawnReady = gameManagersSource.IndexOf("_isSpawned = true;", initStart, System.StringComparison.Ordinal);
+        int firstRoundStart = gameManagersSource.IndexOf("await StartNextRound();", gameManagersSource.IndexOf("private async UniTask GameFlow()", System.StringComparison.Ordinal), System.StringComparison.Ordinal);
+        int waitForPlayers = gameManagersSource.IndexOf("await WaitForPlayerInitializationAsync();", gameManagersSource.IndexOf("private async UniTask StartNextRound()", System.StringComparison.Ordinal), System.StringComparison.Ordinal);
+        int transitionToPrepare = gameManagersSource.IndexOf("TransitionToPrepareState(\"StartNextRound\")", gameManagersSource.IndexOf("private async UniTask StartNextRound()", System.StringComparison.Ordinal), System.StringComparison.Ordinal);
+
+        Assert.That(initStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(earlySpawnReady, Is.GreaterThan(initStart));
+        Assert.That(earlySpawnReady, Is.LessThan(gameFlowCall));
+        Assert.That(firstRoundStart, Is.GreaterThan(gameFlowCall));
+        Assert.That(waitForPlayers, Is.LessThan(transitionToPrepare));
+    }
+
+    [Test]
     public void HumanBotClosesShopUiBeforeBoardActionCommands()
     {
         string source = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
@@ -626,6 +655,12 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("BroadcastAuthoritativeUnitRoster"));
         Assert.That(fieldSource, Does.Contain("ReconcileUnitsToAuthoritativeRoster"));
         Assert.That(fieldSource, Does.Contain("UnregisterUnitAt"));
+        Assert.That(fieldSource, Does.Contain("RemovePlacedUnitEntries"));
+        Assert.That(fieldSource, Does.Contain("RemoveOwnedUnitReference"));
+        Assert.That(fieldSource, Does.Contain("networkRunning && !hasUnitNetworkId"));
+        Assert.That(fieldSource, Does.Contain("GetPlacedCellsForUnit"));
+        Assert.That(fieldSource, Does.Contain("GroupBy(kvp => kvp.Value)"));
+        Assert.That(fieldSource, Does.Contain("combinableGroup.Select(entry => entry.Unit).Take(3).ToList()"));
         Assert.That(fieldSource, Does.Contain("RefreshWallMapsFromSceneIfPlaying(\"BuildWallCellHash\")"));
         Assert.That(fieldSource, Does.Contain("RefreshWallMapsFromSceneIfPlaying(\"GetValidPlacementTiles\")"));
         Assert.That(fieldSource, Does.Contain("IsLiveDestructibleWallCandidate"));
@@ -637,6 +672,105 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(playerSource, Does.Contain("_retiredUnitRegistrationIds.Remove"));
         Assert.That(playerSource, Does.Contain("RemoveAll(reg => reg.unitIdRaw == unitIdRaw)"));
         Assert.That(gameManagersSource, Does.Contain("StartBattleForPlayers.PreBattle"));
+    }
+
+    [Test]
+    public void FieldUnitRosterDoesNotReapplySameCellTransformEverySync()
+    {
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+
+        Assert.That(fieldSource, Does.Contain("previousCells.Count == 1 && previousCells[0] == gridPosition"));
+        Assert.That(fieldSource, Does.Contain("(unit.transform.position - targetWorldPos).sqrMagnitude > 0.0001f"));
+        Assert.That(fieldSource, Does.Contain("MoveUnitImmediate(unit, worldPos);"));
+        Assert.That(fieldSource, Does.Contain("RemovePlacedUnitEntries(unit);"));
+    }
+
+    [Test]
+    public void NewlyPurchasedUnitMovesAreQueuedUntilRegistrationCompletes()
+    {
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+
+        Assert.That(fieldSource, Does.Contain("pendingUnitDataByPosition"));
+        Assert.That(fieldSource, Does.Contain("public bool HasPendingUnitAt"));
+        Assert.That(fieldSource, Does.Contain("public bool TryGetPendingUnitDataAt"));
+        Assert.That(fieldSource, Does.Contain("TryReserveUnitPosition(gridPosition, data)"));
+        Assert.That(fieldSource, Does.Contain("ShouldQueuePendingNetworkMove(Vector3Int from)"));
+        Assert.That(fieldSource, Does.Contain("HasPendingUnitAt(from)"));
+
+        int createdUnitAdded = fieldSource.IndexOf("placedUnits.Add(gridPosition, newUnitComponent);", System.StringComparison.Ordinal);
+        int pendingMovesProcessed = fieldSource.IndexOf("ProcessPendingNetworkMoves();", createdUnitAdded, System.StringComparison.Ordinal);
+        int createRosterBroadcast = fieldSource.IndexOf("BroadcastAuthoritativeUnitRoster(\"CreateUnitAt\")", createdUnitAdded, System.StringComparison.Ordinal);
+        Assert.That(createdUnitAdded, Is.GreaterThanOrEqualTo(0));
+        Assert.That(pendingMovesProcessed, Is.GreaterThan(createdUnitAdded));
+        Assert.That(pendingMovesProcessed, Is.LessThan(createRosterBroadcast));
+
+        Assert.That(playerSource, Does.Contain("fieldManager.HasPendingUnitAt(from)"));
+        Assert.That(playerSource, Does.Contain("fieldManager.TryGetPendingUnitDataAt(from"));
+        Assert.That(playerSource, Does.Contain("fieldManager.IsUnitAt(to)"));
+        Assert.That(playerSource, Does.Contain("move_pending_unit_type_unknown_for_wall"));
+    }
+
+    [Test]
+    public void BattleDeathDoesNotDropUnitsBeforePrepareRespawn()
+    {
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string manaSource = File.ReadAllText("Assets/Scripts/Game/Game Rules/ManaController.cs");
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
+        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+
+        Assert.That(unitSource, Does.Contain("else if (!NetworkedIsDead && IsDead)"));
+        Assert.That(unitSource, Does.Contain("HandleNetworkedDeathStateChanged();"));
+        Assert.That(unitSource, Does.Contain("if (!CanReadNetworkedState)"));
+        Assert.That(unitSource, Does.Contain("Object.HasStateAuthority"));
+        Assert.That(unitSource, Does.Contain("if (!IsDead && !inactive) return;"));
+        Assert.That(unitSource, Does.Contain("SetDeathPresentationActive(false);"));
+        Assert.That(unitSource, Does.Not.Contain("gameObject.SetActive(false);"));
+        Assert.That(unitSource, Does.Contain("private bool CanWriteNetworkedStats()"));
+        Assert.That(unitSource, Does.Contain("float berserkDamage = currentAttackDamage * 1.5f;"));
+        Assert.That(unitSource, Does.Not.Contain("_networkedAttackDamage *= 1.5f;"));
+        Assert.That(manaSource, Does.Contain("private bool CanWriteNetworkedMana()"));
+        Assert.That(manaSource, Does.Contain("public float CurrentMana => CanReadNetworkedMana() ? _currentMana : _localCurrentMana;"));
+        Assert.That(manaSource, Does.Not.Contain("public float CurrentMana => _currentMana;"));
+        Assert.That(fieldSource, Does.Contain("bool wasAlreadyRegistered"));
+        Assert.That(fieldSource, Does.Contain("inactiveOrDead && !wasAlreadyRegistered && !belongsToPlayer"));
+        Assert.That(fieldSource, Does.Contain("unit.IsDead || !unit.gameObject.activeSelf || !unit.gameObject.activeInHierarchy"));
+        Assert.That(fieldSource, Does.Contain("public void RespawnAllUnits()"));
+        Assert.That(gameManagersSource, Does.Contain("player?.fieldManager?.RespawnAllUnits();"));
+        Assert.That(snapshotSource, Does.Contain("deadUnitCount"));
+        Assert.That(snapshotSource, Does.Contain("DeadUnitsHash"));
+        Assert.That(snapshotSource, Does.Contain("RefreshPlayerRuntimeForSnapshot"));
+        Assert.That(snapshotSource, Does.Contain("MPTestStateSnapshot.CapturePlayer"));
+    }
+
+    [Test]
+    public void AttackSequenceMonsterSelectionTracksAuthorityPoolSlot()
+    {
+        string managerSource = File.ReadAllText("Assets/Scripts/Game/Battle/AttackSequenceManager.cs");
+        string uiSource = File.ReadAllText("Assets/Scripts/UI/AttackSequence/AttackSequenceUIController.cs");
+
+        Assert.That(managerSource, Does.Contain("_selectedMonsterSlotIndex"));
+        Assert.That(managerSource, Does.Contain("SelectMonsterSlot(int slotIndex)"));
+        Assert.That(managerSource, Does.Contain("TryResolveSelectedMonster(out var selectedMonster, out int poolSlotIndex)"));
+        Assert.That(managerSource, Does.Contain("HasPendingBattleSpawnForCurrentSnapshot(poolSlotIndex)"));
+        Assert.That(managerSource, Does.Contain("MarkPendingBattleSpawn(poolSlotIndex)"));
+        Assert.That(uiSource, Does.Contain("_attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
+        Assert.That(uiSource, Does.Contain("SelectFirstAvailableMonsterSlot(pool)"));
+    }
+
+    [Test]
+    public void AiFillIdentityReplicatesToClientSnapshots()
+    {
+        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
+        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+
+        Assert.That(playerSource, Does.Contain("[Networked] public NetworkBool IsAiControlled"));
+        Assert.That(playerSource, Does.Contain("SetAiControlled(bool isAi)"));
+        Assert.That(gameManagersSource, Does.Contain("newPlayer.SetAiControlled(isAI);"));
+        Assert.That(snapshotSource, Does.Contain("player.IsAiControlled"));
+        Assert.That(snapshotSource, Does.Contain("|| ComponentRegistry.Has<AIPlayerController>"));
     }
 
     [Test]
@@ -674,6 +808,9 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("ShouldPrioritizeBuyBeforeWall"));
         Assert.That(source, Does.Contain("ShouldPrioritizeWallControl"));
         Assert.That(source, Does.Contain("TryChooseMoveBlockingWall"));
+        Assert.That(source, Does.Contain("TryChooseMoveFromDefaultArea"));
+        Assert.That(source, Does.Contain("default_area_unit_reposition"));
+        Assert.That(source, Does.Contain("defaultAreaPriority"));
         Assert.That(source, Does.Contain("_lastMoveRoundByUnitKey"));
         Assert.That(source, Does.Contain("_pendingMoveTargetRoundByCellKey"));
         Assert.That(source, Does.Contain("_pendingWallRoundByCellKey"));
@@ -702,6 +839,9 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("GetPresentedAugmentSnapshotNames"));
         Assert.That(source, Does.Contain("IsShopSlotSoldForPolicy"));
         Assert.That(source, Does.Contain("TryGetShopSnapshot"));
+        Assert.That(source, Does.Contain("field.IsUnitAt(to"));
+        Assert.That(source, Does.Contain("GetMoveCandidatePriority"));
+        Assert.That(source, Does.Contain("IsLikelyPurchaseDefaultArea"));
     }
 
     [Test]
@@ -724,10 +864,25 @@ public sealed class MPTestHarnessEditModeTests
         string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
         Assert.That(fieldSource, Does.Contain("FilterRangedCandidatesForMonsterPath"));
         Assert.That(fieldSource, Does.Contain("IsOuterRingCell"));
+        Assert.That(fieldSource, Does.Contain("IsNearFieldEdgeCell"));
         Assert.That(fieldSource, Does.Contain("CountCoveredMonsterPathTiles"));
-        Assert.That(fieldSource, Does.Contain("minStrongCoverage"));
+        Assert.That(fieldSource, Does.Contain("coverageByTile"));
+        Assert.That(fieldSource, Does.Contain("minStrongCovered"));
+        Assert.That(fieldSource, Does.Contain("centralStrongCoverageTiles"));
+        Assert.That(fieldSource, Does.Contain("maxCoverageTiles"));
+        Assert.That(fieldSource, Does.Contain("kvp.Value == maxCovered"));
+        Assert.That(fieldSource, Does.Contain("centralMaxCoverageTiles"));
+        Assert.That(fieldSource, Does.Contain("centralAnyCoverageTiles"));
+        Assert.That(fieldSource, Does.Contain("minCentralCovered"));
+        Assert.That(fieldSource, Does.Contain("CalculateFieldCenterScore(tile) >= 0.55f"));
+        Assert.That(fieldSource, Does.Contain("CalculateFieldCenterScore(tile) >= 0.45f"));
+        Assert.That(fieldSource, Does.Contain("centralInteriorTiles"));
         Assert.That(fieldSource, Does.Contain("CalculateRangedPathPriorityBonus"));
         Assert.That(fieldSource, Does.Contain("CalculateFieldCenterScore"));
+        Assert.That(fieldSource, Does.Contain("covered * 4.0f"));
+        Assert.That(fieldSource, Does.Contain("centerScore * 8.0f"));
+        Assert.That(fieldSource, Does.Contain("return new List<Vector3Int>();"));
+        Assert.That(fieldSource, Does.Contain("return movingUnitOriginalPos;"));
 
         string mazeSource = File.ReadAllText("Assets/Scripts/AI/Planning/MazePlanner.cs");
         Assert.That(mazeSource, Does.Contain("PruneRedundantWalls"));
