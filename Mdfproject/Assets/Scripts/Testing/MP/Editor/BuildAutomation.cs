@@ -14,10 +14,10 @@ public static class MPBuildPlayerTool
 {
     private static readonly string[] RequiredScenes =
     {
-        "Assets/Scenes/Title.unity",
-        "Assets/Scenes/MatchingLobby.unity",
-        "Assets/Scenes/JoinLobby.unity",
-        "Assets/Scenes/Game.unity"
+        "Assets/Scenes/00_Title.unity",
+        "Assets/Scenes/01_MatchingLobby.unity",
+        "Assets/Scenes/02_JoinLobby.unity",
+        "Assets/Scenes/03_Game.unity"
     };
 
     public class Parameters

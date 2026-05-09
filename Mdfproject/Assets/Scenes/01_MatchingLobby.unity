@@ -332,7 +332,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   document: {fileID: 1600000003}
   titleSceneName: Title
-  joinLobbySceneName: JoinLobby
+  joinLobbySceneName: 02_JoinLobby
   createRoomUsesInputText: 1
 --- !u!114 &1600000003
 MonoBehaviour:

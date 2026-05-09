@@ -2168,11 +2168,11 @@ public partial class GameManagers : NetworkBehaviour
         // 게임 종료 후 MatchingLobby 씬으로 전환
         if (NetworkManager.Instance != null)
         {
-            NetworkManager.Instance.LeaveAndLoad("MatchingLobby");
+            NetworkManager.Instance.LeaveAndLoad(SceneDefine.MatchingLobby);
         }
         else
         {
-            UnityEngine.SceneManagement.SceneManager.LoadScene("MatchingLobby");
+            UnityEngine.SceneManagement.SceneManager.LoadScene(SceneDefine.MatchingLobby);
         }
     }
 

@@ -1,9 +1,5 @@
 fileFormatVersion: 2
-<<<<<<<< HEAD:Mdfproject/Assets/Scripts/Testing/MP/Editor.meta
-guid: c431a6e0dffe5854eafe1633b963ff74
-========
 guid: 390d2e8de2ed418439fe1f20a15b0379
->>>>>>>> origin/develop:Mdfproject/Assets/Scripts/UI/ReLogin/Editor.meta
 folderAsset: yes
 DefaultImporter:
   externalObjects: {}

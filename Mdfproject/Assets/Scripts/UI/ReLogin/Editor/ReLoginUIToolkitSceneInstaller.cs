@@ -48,9 +48,10 @@ public static class ReLoginUIToolkitSceneInstaller
             SerializedObject serializedController = new SerializedObject(controller);
             serializedController.FindProperty("document").objectReferenceValue = uiDocument;
             serializedController.FindProperty("loadSceneOnLoginSuccess").boolValue = true;
-            serializedController.FindProperty("useTestMatchingScene").boolValue = false;
+            serializedController.FindProperty("useTestMatchingScene").boolValue = true;
             serializedController.FindProperty("matchingLobbySceneName").stringValue = SceneDefine.MatchingLobby;
             serializedController.FindProperty("testMatchingSceneName").stringValue = SceneDefine.TestMatching;
+            serializedController.FindProperty("requirePasswordForAccountLogin").boolValue = false;
             serializedController.ApplyModifiedProperties();
         }
 

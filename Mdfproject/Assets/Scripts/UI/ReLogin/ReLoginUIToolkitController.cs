@@ -25,7 +25,7 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
     [SerializeField] private bool useTestMatchingScene;
     [SerializeField] private string matchingLobbySceneName = SceneDefine.MatchingLobby;
     [SerializeField] private string testMatchingSceneName = SceneDefine.TestMatching;
-    [SerializeField] private bool requirePasswordForAccountLogin = true;
+    [SerializeField] private bool requirePasswordForAccountLogin = false;
 
     private VisualElement root;
     private VisualElement designSpace;
@@ -600,7 +600,8 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
             return;
         }
 
-        if (!Application.CanStreamedLevelBeLoaded(nextSceneName))
+        int sceneIndex = GetBuildIndex(nextSceneName);
+        if (sceneIndex < 0 && !Application.CanStreamedLevelBeLoaded(nextSceneName))
         {
             Debug.LogWarning($"[ReLoginUIToolkitController] Scene is not in Build Settings: {nextSceneName}");
             ShowStatus($"로그인 성공. 다음 씬({nextSceneName})은 Build Settings에 없습니다.", StatusKind.Info);
@@ -610,12 +611,34 @@ public sealed class ReLoginUIToolkitController : MonoBehaviour
             return;
         }
 
+        if (sceneIndex >= 0)
+        {
+            SceneManager.LoadScene(sceneIndex);
+            return;
+        }
+
         SceneManager.LoadScene(nextSceneName);
     }
 
     private string GetNextSceneName()
     {
         return useTestMatchingScene ? testMatchingSceneName : matchingLobbySceneName;
+    }
+
+    private static int GetBuildIndex(string sceneName)
+    {
+        if (string.IsNullOrWhiteSpace(sceneName))
+        {
+            return -1;
+        }
+
+        int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
+        if (sceneIndex >= 0)
+        {
+            return sceneIndex;
+        }
+
+        return SceneUtility.GetBuildIndexByScenePath(sceneName);
     }
 
     private void OnSignupPointerUp(PointerUpEvent evt)

@@ -1864,8 +1864,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   document: {fileID: 0}
-  matchingLobbySceneName: TestMatching
-  gameScenePath: Assets/Scenes/Game.unity
+  matchingLobbySceneName: 01_MatchingLobby
+  gameScenePath: Assets/Scenes/03_Game.unity
   useMockPlayersWhenNoPlayers: 0
 --- !u!114 &1508541104
 MonoBehaviour:
@@ -2248,8 +2248,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   document: {fileID: 1800000003}
-  matchingLobbySceneName: TestMatching
-  gameScenePath: Assets/Scenes/Game.unity
+  matchingLobbySceneName: 01_MatchingLobby
+  gameScenePath: Assets/Scenes/03_Game.unity
   useMockPlayersWhenNoPlayers: 0
 --- !u!114 &1800000003
 MonoBehaviour:

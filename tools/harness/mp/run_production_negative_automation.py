@@ -260,7 +260,7 @@ def main() -> int:
     parser.add_argument("--player-name", default="MDF-MPTest-ProductionNegative")
     parser.add_argument("--build-target")
     parser.add_argument("--build-timeout", type=int, default=900)
-    parser.add_argument("--scene", default="Title")
+    parser.add_argument("--scene", default="00_Title")
     parser.add_argument("--session")
     parser.add_argument("--automation-port", type=int, default=0)
     parser.add_argument("--exit-after-seconds", type=int, default=5)

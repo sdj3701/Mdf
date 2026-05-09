@@ -303,7 +303,7 @@ def main() -> int:
     parser.add_argument("--allow-debugging", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--launch-smoke", action="store_true")
     parser.add_argument("--player-path")
-    parser.add_argument("--scene", default="Title")
+    parser.add_argument("--scene", default="00_Title")
     parser.add_argument("--session")
     parser.add_argument("--automation-port", type=int, default=0)
     parser.add_argument("--exit-after-seconds", type=int, default=5)

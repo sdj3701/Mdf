@@ -1,9 +1,5 @@
 fileFormatVersion: 2
-<<<<<<<< HEAD:Mdfproject/Assets/Scripts/Commands/Battle.meta
-guid: 1e6c90e513afc47499fcdb676d9885aa
-========
 guid: edea191a2d5d4c9986cd643340d74475
->>>>>>>> origin/develop:Mdfproject/Assets/Scripts/UI/TestMatching/Editor.meta
 folderAsset: yes
 DefaultImporter:
   externalObjects: {}

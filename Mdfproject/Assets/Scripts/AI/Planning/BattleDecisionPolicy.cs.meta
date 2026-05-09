@@ -1,9 +1,5 @@
 fileFormatVersion: 2
-<<<<<<<< HEAD:Mdfproject/Assets/Scripts/AI/Planning/BattleDecisionPolicy.cs.meta
 guid: 591a2a9b1c4b46b997364305aa3177d1
-========
-guid: 0e3dba98ee3a4f4f90ffb6ed6333af95
->>>>>>>> origin/develop:Mdfproject/Assets/Scripts/UI/TestMatching/Editor/TestMatchingUIToolkitSceneInstaller.cs.meta
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2

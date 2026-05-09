@@ -66,10 +66,13 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 5. 플레이어 참가/퇴장 이벤트 (UI 갱신용)
     public static event Action<PlayerRef> OnPlayerJoinedEvent;
     public static event Action<PlayerRef> OnPlayerLeftEvent;
+    public static event Action OnNetworkUiBlockChanged;
 
     public bool IsGameRunnerActive => _runner != null && _runner.IsRunning;
+    public bool IsNetworkUiBlocked => _networkUiBlockReason != NetworkUiBlockReason.None;
 
     private int playerCount;
+    private NetworkUiBlockReason _networkUiBlockReason = NetworkUiBlockReason.None;
     private EventInfo _cloudConnectionLostEventInfo;
     private Delegate _cloudConnectionLostHandlerDelegate;
     private MethodInfo _getPlayerConnectionTokenMethod;
@@ -146,13 +149,25 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         return _roomNameInput;
     }
 
+    private void SetNetworkUiBlock(NetworkUiBlockReason reason)
+    {
+        if (_networkUiBlockReason == reason)
+        {
+            return;
+        }
+
+        _networkUiBlockReason = reason;
+        OnNetworkUiBlockChanged?.Invoke();
+    }
+
     /// <summary>
     /// 특정 로비에 참여를 시작합니다.
     /// </summary>
-    public async void JoinLobby() 
+    public async void JoinLobby()
     {
         if (_runner != null) return;
         State = ConnectionState.Connecting; // 새 중간 상태
+        SetNetworkUiBlock(NetworkUiBlockReason.LobbyBootstrap);
 
         _runner = gameObject.AddComponent<NetworkRunner>();
         _runner.AddCallbacks(this);
@@ -161,12 +176,14 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (!result.Ok) {
             // Debug.LogError($"Join lobby failed: {result.ShutdownReason}");
             State = ConnectionState.Disconnected;
+            SetNetworkUiBlock(NetworkUiBlockReason.None);
             _ = _runner.Shutdown();
             _runner = null;
             return;
         }
 
         State = ConnectionState.InLobby;
+        SetNetworkUiBlock(NetworkUiBlockReason.None);
         // Debug.Log("Joined Lobby.");
     }
 
@@ -177,7 +194,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     /// <param name="sessionName">참여하거나 생성할 방의 이름</param>
     public async void StartGame(GameMode mode, string sessionName, string sceneName = null)
     {
-        if (_runner == null || State != ConnectionState.InLobby) 
+        if (_runner == null || State != ConnectionState.InLobby)
         {
             // Debug.LogWarning("로비 입장 중입니다. 완료될 때까지 기다리세요.");
             return;
@@ -188,6 +205,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         string finalSessionName = string.IsNullOrWhiteSpace(sessionName)
             ? PlayerPrefs.GetString("PlayerNickname", "Host")
             : sessionName;
+        SetNetworkUiBlock(mode == GameMode.Host ? NetworkUiBlockReason.CreateRoom : NetworkUiBlockReason.JoinRoom);
 
         // Debug.Log($"Starting Game with session name: {finalSessionName}, loading scene: {sceneName}");
 
@@ -201,15 +219,18 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _runner.ProvideInput = true;
         // Debug.Log(sceneName);
 
+        string resolvedSceneName = ResolveSceneName(sceneName, SceneDefine.Game);
+
         // 씬 이름을 기반으로 빌드 인덱스를 찾습니다.
         // ※ 주의: 로드할 씬은 반드시 File > Build Settings에 추가되어 있어야 합니다.
-        int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
+        int sceneIndex = GetBuildIndexForScene(resolvedSceneName);
         if (sceneIndex < 0)
         {
             // Debug.LogError($"'{sceneName}' 씬을 빌드 설정에서 찾을 수 없습니다!");
+            SetNetworkUiBlock(NetworkUiBlockReason.None);
             return;
         }
-        LastFusionSceneName = sceneName;
+        LastFusionSceneName = resolvedSceneName;
         var scene = SceneRef.FromIndex(sceneIndex);
 
         var objectProvider = gameObject.GetComponent<PooledNetworkObjectProvider>();
@@ -220,7 +241,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         // StartGameArgs를 설정하여 게임을 시작합니다.
         // 참고: Host Migration은 Fusion > Network Project Config에서 활성화해야 합니다.
-        await _runner.StartGame(new StartGameArgs()
+        var result = await _runner.StartGame(new StartGameArgs()
         {
             GameMode = mode,
             SessionName = finalSessionName,
@@ -232,6 +253,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             // 플레이어 식별용 연결 토큰 (재참여 시 사용)
             ConnectionToken = GetConnectionToken(),
         });
+
+        if (!result.Ok)
+        {
+            SetNetworkUiBlock(NetworkUiBlockReason.None);
+        }
     }
 
     /// <summary>
@@ -241,6 +267,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_runner != null)
         {
+            SetNetworkUiBlock(NetworkUiBlockReason.LeaveRoom);
             // Runner를 종료하면 OnShutdown 콜백이 호출됩니다.
             _runner.Shutdown();
         }
@@ -371,6 +398,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         // Debug.Log($"Player {player} Joined.");
         State = ConnectionState.InGame; // 상태를 '게임 중'으로 변경
+        SetNetworkUiBlock(NetworkUiBlockReason.None);
 
         if (runner.IsServer)
         {
@@ -502,6 +530,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
         
         State = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
+        SetNetworkUiBlock(NetworkUiBlockReason.None);
         _sessionList.Clear(); // 방 목록 초기화
 
         // NetworkRunner 컴포넌트만 제거합니다. (gameObject 전체를 파괴하면 NetworkManager도 사라짐!)
@@ -567,7 +596,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             MPTestHostMigrationEvents.Record("network_manager_on_host_migration_fail_no_handler", runner, hostMigrationToken);
 #endif
             // 폴백: 로비로 돌아가기
-            LeaveAndLoad("MatchingLobby");
+            LeaveAndLoad(SceneDefine.MatchingLobby);
         }
     }
     public void OnInput(NetworkRunner runner, NetworkInput input) { }
@@ -1205,9 +1234,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         Debug.LogWarning(BuildConnectionLossTrace("ExecuteFallback", $"source={source}"));
 
-        if (SceneManager.GetActiveScene().name != "MatchingLobby")
+        if (SceneManager.GetActiveScene().name != SceneDefine.MatchingLobby)
         {
-            SceneManager.LoadScene("MatchingLobby");
+            SceneManager.LoadScene(SceneDefine.MatchingLobby);
         }
     }
 
@@ -1255,7 +1284,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
-        int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
+        string resolvedSceneName = ResolveSceneName(sceneName, SceneDefine.Game);
+        int sceneIndex = GetBuildIndexForScene(resolvedSceneName);
         if (sceneIndex < 0)
         {
             // Debug.LogError($"[NetworkManager] '{sceneName}' 씬을 빌드 설정에서 찾을 수 없습니다!");
@@ -1264,29 +1294,75 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         if (_runner != null && _runner.IsRunning)
         {
-            LastFusionSceneName = sceneName;
+            LastFusionSceneName = resolvedSceneName;
             if (_runner.SceneManager == null)
             {
                 // Debug.LogWarning("[NetworkManager] Runner.SceneManager is null. Falling back to Unity SceneManager. Ensure StartGame is called with a SceneManager.");
-                SceneManager.LoadScene(sceneName);
+                SceneManager.LoadScene(sceneIndex);
                 return;
             }
             _runner.LoadScene(SceneRef.FromIndex(sceneIndex), LoadSceneMode.Single);
         }
         else
         {
-            SceneManager.LoadScene(sceneName);
+            SceneManager.LoadScene(sceneIndex);
         }
     }
 
     // 세션 종료 후 특정 씬으로 복귀
     public void LeaveAndLoad(string sceneName)
     {
+        string resolvedSceneName = ResolveSceneName(sceneName, SceneDefine.MatchingLobby);
+        int sceneIndex = GetBuildIndexForScene(resolvedSceneName);
         if (_runner != null)
         {
             _runner.Shutdown();
         }
-        SceneManager.LoadScene(sceneName);
+        if (sceneIndex >= 0)
+        {
+            SceneManager.LoadScene(sceneIndex);
+            return;
+        }
+
+        SceneManager.LoadScene(resolvedSceneName);
+    }
+
+    private static string ResolveSceneName(string sceneName, string fallback)
+    {
+        if (string.IsNullOrWhiteSpace(sceneName))
+        {
+            return fallback;
+        }
+
+        switch (sceneName)
+        {
+            case "Title":
+            case SceneDefine.Title:
+                return SceneDefine.Title;
+            case "MatchingLobby":
+            case "TestMatching":
+            case SceneDefine.MatchingLobby:
+                return SceneDefine.MatchingLobby;
+            case "JoinLobby":
+            case SceneDefine.JoinLobby:
+                return SceneDefine.JoinLobby;
+            case "Game":
+            case SceneDefine.Game:
+                return SceneDefine.Game;
+            default:
+                return sceneName;
+        }
+    }
+
+    private static int GetBuildIndexForScene(string sceneName)
+    {
+        int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
+        if (sceneIndex >= 0)
+        {
+            return sceneIndex;
+        }
+
+        return SceneUtility.GetBuildIndexByScenePath(sceneName);
     }
 
     #endregion

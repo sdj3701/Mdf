@@ -1,9 +1,5 @@
 fileFormatVersion: 2
-<<<<<<<< HEAD:Mdfproject/Assets/Scripts/AI/BehaviorTree/Nodes/Actions/AIAttackStrategy.cs.meta
-guid: 83799df2243cfb64aaf56ee3c49a49aa
-========
 guid: 38757c563be03b54bbc3af735497e7e7
->>>>>>>> origin/develop:Mdfproject/Assets/Scripts/UI/ReLogin/ReLoginUIToolkitController.cs.meta
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2

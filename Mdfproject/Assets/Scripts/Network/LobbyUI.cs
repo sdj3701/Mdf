@@ -38,7 +38,7 @@ public class LobbyUI : MonoBehaviour
         if (_networkManager == null)
         {
             Debug.LogError("[LobbyUI] NetworkManager가 없습니다. Title 화면으로 돌아갑니다.");
-            SceneManager.LoadScene("Title");
+            SceneManager.LoadScene(SceneDefine.Title);
             return;
         }
 
@@ -111,7 +111,7 @@ public class LobbyUI : MonoBehaviour
         _confirmCreateButton.onClick.AddListener(() =>
         {
             string inputName = _roomNameInput != null ? _roomNameInput.text : null;
-            _networkManager.StartGame(GameMode.Host, inputName, "JoinLobby");
+            _networkManager.StartGame(GameMode.Host, inputName, SceneDefine.JoinLobby);
         });
 
         _refreshButton.onClick.AddListener(UpdateRoomListUI);
@@ -125,7 +125,7 @@ public class LobbyUI : MonoBehaviour
         _backToTitleButton.onClick.AddListener(() =>
         {
             Debug.Log("[LobbyUI] 타이틀 화면으로 돌아갑니다.");
-            _networkManager.LeaveAndLoad("Title");
+            _networkManager.LeaveAndLoad(SceneDefine.Title);
         });
 
         _directJoinButtonButton.onClick.AddListener(() =>
@@ -144,7 +144,7 @@ public class LobbyUI : MonoBehaviour
             if (targetSession != null)
             {
                 Debug.Log($"[LobbyUI] '{roomName}' 방에 참가합니다.");
-                _networkManager.StartGame(GameMode.Client, roomName, "JoinLobby");
+                _networkManager.StartGame(GameMode.Client, roomName, SceneDefine.JoinLobby);
             }
             else if (_roomNotFoundPanel != null)
             {
@@ -204,7 +204,7 @@ public class LobbyUI : MonoBehaviour
                 currentSession.Name,
                 currentSession.PlayerCount,
                 currentSession.MaxPlayers,
-                () => _networkManager.StartGame(GameMode.Client, currentSession.Name, "JoinLobby"));
+                () => _networkManager.StartGame(GameMode.Client, currentSession.Name, SceneDefine.JoinLobby));
         }
     }
 }

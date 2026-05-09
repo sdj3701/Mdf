@@ -1,9 +1,5 @@
 fileFormatVersion: 2
-<<<<<<<< HEAD:Mdfproject/Assets/Scripts/Managers/GameManagers.SurvivorBossSnapshot.cs.meta
-guid: 1d0bb02f9006f574c922a1c953e2d5d3
-========
 guid: 5d54e55507ba2204d8743b2b5faa1a47
->>>>>>>> origin/develop:Mdfproject/Assets/Scripts/UI/ReLogin/Editor/ReLoginUIToolkitSceneInstaller.cs.meta
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2

@@ -583,14 +583,14 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         if (!string.IsNullOrWhiteSpace(_cachedGameData.CurrentSceneName)
-            && _cachedGameData.CurrentSceneName != "MatchingLobby")
+            && _cachedGameData.CurrentSceneName != SceneDefine.MatchingLobby)
         {
             return _cachedGameData.CurrentSceneName;
         }
 
         if (GameManagers.Instance != null && GameManagers.Instance.IsReadyForNetworkAccess)
         {
-            return "Game";
+            return SceneDefine.Game;
         }
 
         return _cachedGameData.CurrentSceneName;
