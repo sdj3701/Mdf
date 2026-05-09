@@ -1029,10 +1029,10 @@ public partial class GameManagers : NetworkBehaviour
                 newPlayer.Rpc_InitializePlayer(i, gridNO);
             }
 
-            if (isAI)
+            if (isAI && newPlayer != null)
             {
                 var aiController = playerNO.gameObject.AddComponent<AIPlayerController>();
-                aiController.Initialize(newPlayer, this.CommandProcessor);
+                aiController.Initialize(newPlayer, this.CommandProcessor, MdfBotProfile.ServerAiDefault(newPlayer.playerId));
             }
         }
 
@@ -1316,86 +1316,6 @@ public partial class GameManagers : NetworkBehaviour
             defenderPlayerId,
             spawnPosition,
             "legacy_spawn_rpc_deprecated_use_battle_spawn_command");
-        return;
-#if false
-
-        // 서버만 처리
-        if (Object == null || !Object.HasStateAuthority) return;
-        if (currentState != GameState.Battle1 && currentState != GameState.Battle2) return;
-        if (string.IsNullOrWhiteSpace(monsterDataName)) return;
-        
-        var attacker = GetPlayer(attackerPlayerId);
-        var defender = GetPlayer(defenderPlayerId);
-        
-        if (attacker == null || defender == null)
-        {
-            // Debug.LogWarning($"[RPC_RequestSpawnMonster] 플레이어를 찾을 수 없음: attacker={attackerPlayerId}, defender={defenderPlayerId}");
-            return;
-        }
-        
-        // 몬스터 데이터 찾기
-        if (!IsRpcSourceAuthorizedForPlayer(attacker, info.Source)) return;
-        if (!attacker.IsAttackerInCurrentBattle) return;
-        if (!TryGetBattleDefenderField(attacker, out FieldManager defenderField)) return;
-        if (defenderField == null || defenderField.playerManager != defender) return;
-        if (!IsWithinFieldOuterBounds(defenderField, spawnPosition)) return;
-
-        var pool = attacker.AttackMonsterPool;
-        MonsterPoolEntry targetEntry = null;
-        foreach (var entry in pool)
-        {
-            if (entry.MonsterData != null && entry.MonsterData.name == monsterDataName && entry.IsBoss == isBoss && !entry.IsEmpty)
-            {
-                targetEntry = entry;
-                break;
-            }
-        }
-        
-        if (targetEntry == null)
-        {
-            // Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 풀에서 '{monsterDataName}'을 찾을 수 없음");
-            return;
-        }
-        
-        // 서버에서 몬스터 소환
-        if (targetEntry.IsBoss && targetEntry.OriginPlayerId >= 0 && targetEntry.OriginPlayerId != originPlayerId)
-        {
-            return;
-        }
-
-        int poolSlotIndex = pool.IndexOf(targetEntry);
-        var command = new BattleSpawnMonsterCommand(
-            attackerPlayerId,
-            defenderPlayerId,
-            poolSlotIndex,
-            spawnPosition,
-            1,
-            "legacy_rpc_request_spawn_monster");
-        RunLifecycleTask(
-            command.ExecuteAsync(CommandExecutionScope.ClientRequest, info.Source),
-            "RPC_RequestSpawnMonster/BattleSpawnMonsterCommand");
-#endif
-    }
-    
-    private async UniTask SpawnMonsterOnServerAsync(PlayerManager attacker, PlayerManager defender, MonsterPoolEntry entry, Vector3 spawnPosition)
-    {
-        if (attacker?.monsterSpawner == null || defender?.fieldManager == null) return;
-        
-        Monster monster = null;
-        await UniTask.CompletedTask;
-        
-        if (monster != null)
-        {
-            if (false)
-            {
-                // Debug.LogWarning($"[RPC_RequestSpawnMonster] 소환 성공 후 풀 소비 실패: '{entry.MonsterData.monsterName}'");
-            }
-            // Debug.Log($"<color=green>[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 성공</color>");
-        }
-        else
-        {
-            // Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 실패");
-        }
     }
 
     private void RejectDeprecatedSpawnMonsterRpc(
@@ -1977,7 +1897,10 @@ public partial class GameManagers : NetworkBehaviour
             {
                 // Debug.LogError($"[StartBattleForPlayers] Player {playerId} 런타임 준비 미완료 - 전투 시작 스킵 (reason={readyReason})");
                 player.SetFightingState(false);
+                continue;
             }
+
+            player.fieldManager?.BroadcastAuthoritativeUnitRoster($"StartBattleForPlayers.PreBattle.P{playerId}");
         }
 
         foreach (var player in AllPlayers)
@@ -2041,17 +1964,8 @@ public partial class GameManagers : NetworkBehaviour
                     }
                     player.SetFightingState(true);
 
-                    var opponent = GetPlayer(opponentId);
-                    bool isAI = ComponentRegistry.Has<AIPlayerController>(playerId.ToString());
-                    
-                    if (player.monsterSpawner != null && opponent?.fieldManager != null)
-                    {
-                        // [공격자가 모든 몬스터 소환] 기본 웨이브 + 증강체 몬스터
-                        RunLifecycleTask(
-                            player.monsterSpawner.SpawnAllMonstersToTargetField(currentRound, opponent.fieldManager, isAI),
-                            "StartBattleForPlayers/SpawnAllMonstersToTargetField");
-                        // Debug.Log($"<color=orange>[StartBattle] Player {playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
-                    }
+                    // AI attackers now submit strategic spawns through AIPlayerController
+                    // -> BattleDecisionPolicy -> ServerAiCommandEmitter. Do not auto-spawn here.
                 }
                 else
                 {

@@ -1,5 +1,7 @@
 # MDF Harness Overlay v2 Review Findings
 
+Historical archive note, 2026-05-08: this file records an earlier overlay review. It is not a current source-of-truth workflow document; use `../content-development-routine.md`, `../verification-profile-selector.md`, `../feature-implementation-loop.md`, `../mp-test-protocol.md`, `../state-snapshot-schema.md`, and `../learned-recipes.md` for current work.
+
 ## Verdict
 
 The first MDF overlay was directionally correct, but it was not yet ideal for a user who wants to overwrite files and then drive Codex only through phase prompts.

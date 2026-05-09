@@ -22,7 +22,7 @@ When Codex discovers a reusable method, command, workaround, or failure signatur
 
 ## Destinations
 
-- Short reusable recipes: `docs/ai-harness/learned-recipes.md`
+- Short reusable recipes and lifecycle metadata: `docs/ai-harness/learned-recipes.md` and `docs/ai-harness/recipe-lifecycle.md`
 - Unity command recipes: `docs/ai-harness/unity-cli-recipes.md`
 - Fusion/network invariants: `docs/ai-harness/fusion-sync-rules.md`
 - E2E test steps: `docs/ai-harness/mp-test-protocol.md`
@@ -34,10 +34,19 @@ When Codex discovers a reusable method, command, workaround, or failure signatur
 ```md
 ## recipe-id: Short title
 
-Status: verified|candidate|deprecated
+Status: active
+Pinned: false
+Category: harness | unity-cli | multiplayer | cleanup | feature-workflow | asset | host-migration | other
+Created: YYYY-MM-DD
+Last used: YYYY-MM-DD
 Last verified: YYYY-MM-DD
+Use count: 1
+Review after: YYYY-MM-DD
 Applies to: Unity 2021.3.45f1, MDF, tool/version
 Triggers: keywords
+Verified by: command, test, artifact, or exact evidence
+Replacement: none
+Archive policy: archive when unused for 180 days and not pinned/protected
 
 Problem:
 ...
@@ -51,3 +60,5 @@ Verification:
 Pitfalls:
 - ...
 ```
+
+Allowed recipe statuses are `active`, `stale`, `archived`, `deprecated`, and `pinned`. Do not update `Last verified` without command, test, or artifact evidence.

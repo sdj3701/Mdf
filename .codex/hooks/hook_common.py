@@ -7,7 +7,18 @@ from pathlib import Path
 
 def read_input():
     try:
-        raw = sys.stdin.read()
+        raw_bytes = sys.stdin.buffer.read()
+        if not raw_bytes.strip():
+            return {}
+        for encoding in ['utf-8-sig', 'utf-8', sys.stdin.encoding or 'utf-8']:
+            try:
+                raw = raw_bytes.decode(encoding)
+                return json.loads(raw) if raw.strip() else {}
+            except UnicodeDecodeError:
+                continue
+            except json.JSONDecodeError:
+                continue
+        raw = raw_bytes.decode('utf-8', errors='replace')
         return json.loads(raw) if raw.strip() else {}
     except Exception:
         return {}

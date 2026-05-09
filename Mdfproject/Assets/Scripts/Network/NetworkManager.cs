@@ -689,7 +689,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             aiController = playerManager.gameObject.AddComponent<AIPlayerController>();
         }
 
-        aiController.Initialize(playerManager, gameManagers.CommandProcessor);
+        aiController.Initialize(playerManager, gameManagers.CommandProcessor, MdfBotProfile.ServerAiDefault(playerManager.playerId));
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestLogger.Log("disconnect_ai_takeover", "pass", null, null, new Dictionary<string, object>

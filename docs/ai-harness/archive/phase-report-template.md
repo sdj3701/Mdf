@@ -1,5 +1,7 @@
 # Phase Report Template
 
+Historical note, 2026-05-09: this template is retained for old phase-report style responses only. Current feature work should follow `../content-development-routine.md` and the Stop hook completion contract.
+
 ## Result
 
 PASS | FAIL | BLOCKED | NEEDS_ENVIRONMENT | NOT_SUPPORTED

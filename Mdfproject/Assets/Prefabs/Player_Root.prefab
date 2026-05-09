@@ -209,8 +209,8 @@ MonoBehaviour:
   _playerId: 0
   initialHealth: 80
   initialGold: 20
-  initialWallCount: 10
-  wallReserveK: 1
+  initialWallCount: 15
+  wallReserveK: 3
   wallBuildDelayRange: {x: 0.6, y: 1.2}
   unitPurchaseDelayRange: {x: 1, y: 1.5}
   unitMoveDelayRange: {x: 0.6, y: 1.2}

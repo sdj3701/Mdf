@@ -1,6 +1,6 @@
 # MDF Harness Implementation Phases
 
-Status note, 2026-05-08: this file is historical for the original MVP overlay phases. Current work should use `docs/ai-harness/codex-full-phase-prompts.md` and Phase 18+ random-aware guidance in `docs/ai-harness/randomized-progression-test-plan.md`.
+Status note, 2026-05-08: this file is historical for the original MVP overlay phases. Current work should use `../content-development-routine.md`, `../verification-profile-selector.md`, `../feature-implementation-loop.md`, `../mp-test-protocol.md`, `../state-snapshot-schema.md`, and `../learned-recipes.md`.
 
 ## Phase 0 — Baseline
 

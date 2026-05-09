@@ -10,12 +10,14 @@ Behavior Tree v2 separates decision policy from command emission. AI slots and t
 
 Status note, 2026-05-08:
 
-- `AIPlayerController` and `MPTestHumanBotDriver` now use shared `PrepareDecisionPolicy` / `BattleDecisionPolicy` plus `ServerAiCommandEmitter` / `HumanClientCommandEmitter`.
+- `AIPlayerController` and `MPTestHumanBotDriver` now use shared `MdfBotProfile`, `PrepareDecisionPolicy`, and `BattleDecisionPolicy`.
+- The only intended runtime difference is the emitter: server AI uses `ServerAiCommandEmitter`; HumanBot uses `HumanClientCommandEmitter`.
 - `MPTestHumanBotPolicy` is an obsolete compatibility adapter for legacy test callers. New HumanBot work must not call or extend it.
-- Strategic AI battle spawn plans are converted into `BattleSpawnMonsterCommand` submissions; `SpawnMonsterAtPositionAsync` remains a low-level `MonsterSpawner` mechanism and command executor detail only.
+- Strategic AI battle spawn plans are converted into `BattleSpawnMonsterCommand` submissions by `BattleDecisionPolicy`; `SpawnMonsterAtPositionAsync` remains a low-level `MonsterSpawner` mechanism and command executor detail only.
+- Real AI battle auto-spawn bootstrap from `GameManagers.StartBattleForPlayers` / migration rebootstrap is disabled; actual AI must not bypass `BattleDecisionPolicy`.
 - Magic scroll gameplay goes through `UseMagicScrollCommand`; presentation RPCs must remain presentation-only.
 
-The current repo already has a useful prepare-phase AI path:
+The historical repo had a useful prepare-phase AI path:
 
 ```text
 AIPlayerController
@@ -28,7 +30,7 @@ The older combat BehaviorTree was empty, and strategic battle behavior entered t
 
 ## Current Paths
 
-- `Mdfproject/Assets/Scripts/Commands/AI/AIPlayerController.cs` registers the player id in `ComponentRegistry`, ticks prepare actions in `Prepare`, and ticks an empty combat selector in `Battle1`/`Battle2`.
+- `Mdfproject/Assets/Scripts/Commands/AI/AIPlayerController.cs` registers the player id in `ComponentRegistry`, creates a default `MdfBotProfile`, and ticks shared prepare/battle policies.
 - `Mdfproject/Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs` drives a local input-authority player through shared prepare/battle policies and `HumanClientCommandEmitter`.
 - `MPTestHumanBotPolicy` remains only as an obsolete adapter around `PrepareDecisionPolicy` for legacy test callers.
 - `Mdfproject/Assets/Scripts/AI/BehaviorTree/Nodes/Actions/AIAttackStrategy.cs` builds `AISpawnPlan`/`AISpawnPhase`/`AISpawnOrder` from the attack monster pool and defender field.
@@ -150,8 +152,8 @@ Initial adapter can wrap existing behavior:
 Existing AI action classes may remain as adapters, but the current target shape is one shared policy used by both:
 
 ```text
-AIPlayerController -> PrepareDecisionPolicy -> ServerAiCommandEmitter
-MPTestHumanBotDriver -> PrepareDecisionPolicy -> HumanClientCommandEmitter
+AIPlayerController -> MdfBotProfile -> PrepareDecisionPolicy -> ServerAiCommandEmitter
+MPTestHumanBotDriver -> MdfBotProfile -> PrepareDecisionPolicy -> HumanClientCommandEmitter
 ```
 
 HumanBot must remain test-only and human:

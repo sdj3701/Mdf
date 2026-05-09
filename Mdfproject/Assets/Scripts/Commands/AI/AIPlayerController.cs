@@ -1,26 +1,18 @@
 using UnityEngine;
 using Fusion;
-using AI.BehaviorTree;
-using AI.BehaviorTree.Nodes;
-using AI.BehaviorTree.Nodes.Actions;
-using AI.BehaviorTree.Nodes.Conditions;
 
 public class AIPlayerController : MonoBehaviour
 {
     private PlayerManager _playerManager;
-    private CommandProcessor _commandProcessor;
     private int _registeredPlayerId = -1;
-    private float _decisionTimer = 0f;
-    private const float DecisionCooldown = 0.1f;
+    private float _nextDecisionAt;
+    private MdfBotProfile _profile = MdfBotProfile.Create();
 
     private PrepareDecisionPolicy _prepareDecisionPolicy;
     private BattleDecisionPolicy _battleDecisionPolicy;
     private ServerAiCommandEmitter _serverAiCommandEmitter;
 
-    private BehaviorTree _preparePhaseBT;
-    private BehaviorTree _combatPhaseBT;
-
-    public void Initialize(PlayerManager playerManager, CommandProcessor commandProcessor)
+    public void Initialize(PlayerManager playerManager, CommandProcessor commandProcessor, MdfBotProfile profile = null)
     {
         if (playerManager == null || commandProcessor == null)
         {
@@ -34,11 +26,11 @@ public class AIPlayerController : MonoBehaviour
         }
 
         _playerManager = playerManager;
-        _commandProcessor = commandProcessor;
-        _prepareDecisionPolicy = new PrepareDecisionPolicy("balanced");
+        _profile = profile ?? MdfBotProfile.ServerAiDefault(playerManager.playerId);
+        _prepareDecisionPolicy = new PrepareDecisionPolicy(_profile);
         _battleDecisionPolicy = new BattleDecisionPolicy();
         _serverAiCommandEmitter = new ServerAiCommandEmitter(GameManagers.Instance, playerManager, "server_ai_controller");
-        BuildBehaviorTrees();
+        _nextDecisionAt = 0f;
 
         _registeredPlayerId = playerManager.playerId;
         ComponentRegistry.Unregister<AIPlayerController>(_registeredPlayerId.ToString());
@@ -75,13 +67,12 @@ public class AIPlayerController : MonoBehaviour
             return;
         }
 
-        _decisionTimer += Time.deltaTime;
-        if (_decisionTimer < DecisionCooldown)
+        if (Time.realtimeSinceStartup < _nextDecisionAt)
         {
             return;
         }
 
-        _decisionTimer = 0f;
+        _nextDecisionAt = Time.realtimeSinceStartup + _profile.DecisionIntervalSeconds;
 
         var gm = GameManagers.Instance;
         if (gm.Object == null || !gm.Object.HasStateAuthority)
@@ -123,7 +114,7 @@ public class AIPlayerController : MonoBehaviour
             gm,
             _playerManager,
             CommandExecutionScope.ServerAuthorityOnly,
-            "balanced",
+            _profile.Persona,
             isHumanBot: false,
             isServerAi: true,
             isTestAutomation: false);
@@ -134,59 +125,5 @@ public class AIPlayerController : MonoBehaviour
         }
 
         _serverAiCommandEmitter.TryEmit(decision, out _);
-    }
-
-    private void BuildBehaviorTrees()
-    {
-        _preparePhaseBT = new BehaviorTree(
-            new SelectorNode(
-                new IsAugmentPhaseCondition(_playerManager,
-                    new ChooseBestAugmentAction(_playerManager, _commandProcessor)
-                ),
-
-                new SequenceNode(
-                    new InverterNode(new IsMazeConstructionCompleteCondition(_playerManager, new AlwaysSuccessNode())),
-                    new BuildMazeAction(_playerManager, _commandProcessor)
-                ),
-
-                new SequenceNode(
-                    new IsMazeConstructionCompleteCondition(_playerManager, new AlwaysSuccessNode()),
-                    new InverterNode(new IsUnitPurchaseCompleteCondition(_playerManager, new AlwaysSuccessNode())),
-                    new BuyBestUnitAction(_playerManager, _commandProcessor)
-                ),
-
-                new SequenceNode(
-                    new IsMazeConstructionCompleteCondition(_playerManager, new AlwaysSuccessNode()),
-                    new IsUnitPurchaseCompleteCondition(_playerManager, new AlwaysSuccessNode()),
-                    new RearrangeAllUnitsAction(_playerManager, _commandProcessor)
-                ),
-
-                new RerollShopAction(_playerManager, _commandProcessor)
-            )
-        );
-
-        _combatPhaseBT = new BehaviorTree(
-            new SelectorNode(
-            )
-        );
-    }
-
-    public BehaviorTree GetActiveTree()
-    {
-        if (GameManagers.Instance == null)
-        {
-            return null;
-        }
-
-        switch (GameManagers.Instance.GetGameState())
-        {
-            case GameManagers.GameState.Prepare:
-                return _preparePhaseBT;
-            case GameManagers.GameState.Battle1:
-            case GameManagers.GameState.Battle2:
-                return _combatPhaseBT;
-            default:
-                return null;
-        }
     }
 }

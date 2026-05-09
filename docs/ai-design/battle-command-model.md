@@ -16,6 +16,8 @@ Status note, 2026-05-08:
 
 - Human and HumanBot battle scroll requests use `UseMagicScrollCommand` / `RPC_RequestUseMagicScrollCommand`.
 - Strategic AI spawn planning in `MonsterSpawner.ExecuteSpawnPlanAsync` submits `BattleSpawnMonsterCommand`; `SpawnMonsterAtPositionAsync` is still allowed inside the low-level spawner and command execution path.
+- Real AI slots choose battle spawns through `AIPlayerController -> BattleDecisionPolicy -> ServerAiCommandEmitter`; HumanBot uses the same `BattleDecisionPolicy` with `HumanClientCommandEmitter`.
+- `GameManagers.StartBattleForPlayers` and migration rebootstrap must not auto-spawn AI attack waves.
 - Legacy `RPC_RequestSpawnMonster` and `RPC_RequestUseMagicScroll` are obsolete/deprecated request surfaces and reject rather than executing durable gameplay.
 - `RPC_BroadcastMagicScrollUsed` is presentation-only and must not apply durable gameplay effects.
 
@@ -31,7 +33,7 @@ AttackSequenceManager.SpawnMonsterAsync
   client: TryConsumeMonsterFromPool locally + GameManagers.RPC_RequestSpawnMonster
 ```
 
-Legacy AI attacker path before command conversion:
+Legacy AI attacker path before command conversion, now disabled:
 
 ```text
 GameManagers.StartBattleForPlayers
@@ -45,7 +47,7 @@ GameManagers.StartBattleForPlayers
 Risks:
 
 - Client attacker durably consumes the local pool before server acceptance.
-- AI attacker bypasses the command path for strategic spawn decisions.
+- AI attacker bypasses the shared `BattleDecisionPolicy` and command path for strategic spawn decisions.
 - Legacy `RPC_RequestSpawnMonster` validates some authority facts, but it accepts monster data name and boss/origin fields from the request shape and does not produce structured accept/reject artifacts.
 
 ### Magic scroll

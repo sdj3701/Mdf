@@ -1,6 +1,6 @@
 # MDF Codex Phase Prompts
 
-Use `docs/ai-harness/codex-full-phase-prompts.md` as the source-of-truth prompt runbook.
+Historical archive note, 2026-05-08: this compatibility pointer is retained for audit history only. Current feature and harness work should use `../content-development-routine.md`, `../verification-profile-selector.md`, `../feature-implementation-loop.md`, `../mp-test-protocol.md`, `../state-snapshot-schema.md`, and `../learned-recipes.md`.
 
 This short file exists only as a pointer for agents that look for the older `codex-phase-prompts.md` path.
 

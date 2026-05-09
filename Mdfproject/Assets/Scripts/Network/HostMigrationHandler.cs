@@ -1258,7 +1258,7 @@ public class HostMigrationHandler : MonoBehaviour
                     player.unitPurchaseComplete = false;
 
                     aiController = player.gameObject.AddComponent<AIPlayerController>();
-                    aiController.Initialize(player, gm.CommandProcessor);
+                    aiController.Initialize(player, gm.CommandProcessor, MdfBotProfile.ServerAiDefault(player.playerId));
                     attached++;
                     Debug.Log($"[HostMigrationHandler] AI controller attached to Player {player.playerId}.");
                 }

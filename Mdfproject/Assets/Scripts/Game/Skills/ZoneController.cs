@@ -13,6 +13,16 @@ public class ZoneController : MonoBehaviour
     private float tickTimer;
     private bool isInitialized;
 
+    private void OnEnable()
+    {
+        GameEvents.OnGameStateChanged += HandleGameStateChanged;
+    }
+
+    private void OnDisable()
+    {
+        GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+    }
+
     public void Initialize(ZoneEffect effect, GameObject caster, MonoBehaviour runner, float skillRange, TargetingStrategy targetingStrategy)
     {
         zoneEffect = effect;
@@ -101,6 +111,20 @@ public class ZoneController : MonoBehaviour
 
         LogZoneWarning("[Zone] TargetingStrategy is missing.");
         return new List<GameObject>();
+    }
+
+    private void HandleGameStateChanged(GameManagers.GameState newState)
+    {
+        if (!isInitialized)
+        {
+            return;
+        }
+
+        if (newState != GameManagers.GameState.Battle1 &&
+            newState != GameManagers.GameState.Battle2)
+        {
+            Destroy(gameObject);
+        }
     }
 
     public bool IsSnapshotActive => isInitialized;

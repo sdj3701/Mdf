@@ -278,6 +278,18 @@ def run_case(case: str, matrix_dir: pathlib.Path, args: argparse.Namespace) -> d
             command.append("--force-run-with-orphans")
     if args.effective_headless_player and case in HEADLESS_FLAG_CASES:
         command.append("--headless-player")
+    if args.dry_run:
+        return {
+            "case": case,
+            "command": command,
+            "dryRun": True,
+            "functionalSuccess": True,
+            "cleanupStatus": "PASS",
+            "cleanupSuccess": True,
+            "orphanedPids": [],
+            "overallSuccess": True,
+            "headlessPlayer": bool(args.effective_headless_player and case in HEADLESS_FLAG_CASES),
+        }
     proc = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, encoding="utf-8", errors="replace")
     artifact_dir = child_artifact(proc.stdout)
     child_result = case_result_from_artifact(artifact_dir)

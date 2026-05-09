@@ -35,6 +35,10 @@
         "Mdfproject/Assets/**/AddressableAssetsData/**"
       ],
       "exclude": [
+        "**/__pycache__/**",
+        "**/*.pyc",
+        "AGENTS.md.meta",
+        "docs/ai-harness/archive/**",
         "**/artifacts/**",
         "**/Artifacts/**",
         ".codex/session-state/**",

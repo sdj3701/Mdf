@@ -36,6 +36,7 @@ from long_progression_common import (
     dump_state,
     game,
     mptest_failures,
+    players,
     progression_metrics,
     safe_request,
     state,
@@ -199,6 +200,10 @@ def final_assertions(
         errors.append("host.player_ids_not_unique")
     if not unique_player_ids(final_client):
         errors.append("client.player_ids_not_unique")
+    if len(players(final_host)) != EXPECTED_PLAYERS:
+        errors.append(f"host.expected_players_not_present:{len(players(final_host))}")
+    if len(players(final_client)) != EXPECTED_PLAYERS:
+        errors.append(f"client.expected_players_not_present:{len(players(final_client))}")
     failed_checkpoints = [checkpoint for checkpoint in checkpoints if checkpoint.get("success") is not True]
     if failed_checkpoints:
         errors.extend(f"checkpoint_failed:{checkpoint.get('checkpointId')}" for checkpoint in failed_checkpoints)
@@ -222,12 +227,52 @@ def final_assertions(
     }
 
 
+def peer_completion_satisfied(
+    final_host: Any,
+    final_client: Any,
+    checkpoints: list[dict[str, Any]],
+    *,
+    target_round: int,
+    completion_mode: str,
+    allow_early_game_over: bool,
+) -> tuple[bool, str]:
+    host_ok, host_reason = completion_satisfied(
+        final_host,
+        checkpoints,
+        target_round=target_round,
+        completion_mode=completion_mode,
+        allow_early_game_over=allow_early_game_over,
+    )
+    client_ok, client_reason = completion_satisfied(
+        final_client,
+        checkpoints,
+        target_round=target_round,
+        completion_mode=completion_mode,
+        allow_early_game_over=allow_early_game_over,
+    )
+    if host_ok and client_ok:
+        return True, host_reason if host_reason == client_reason else f"host={host_reason};client={client_reason}"
+    return False, f"peer_completion_not_met:host={host_reason};client={client_reason}"
+
+
 def run(args: argparse.Namespace) -> int:
+    artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
+    if args.dry_run:
+        write_json(artifact_dir / "run.json", {
+            "case": CASE_NAME,
+            "dryRun": True,
+            "playerPath": args.player_path,
+            "targetRound": args.target_round,
+            "completionMode": args.completion_mode,
+            "headlessPlayer": args.headless_player,
+        })
+        print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
+        return 0
+
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
     if player_path is None or not player_path.exists():
         raise SystemExit("No built Development player found. Run tools/harness/mp/build_player.py or pass --player-path.")
 
-    artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
     session = args.session or new_session("hbot3r")
     host_token = new_token()
     client_token = new_token()
@@ -478,8 +523,9 @@ def run(args: argparse.Namespace) -> int:
                 )
                 checkpoints.append(checkpoint)
 
-            completion_ok, completion_reason = completion_satisfied(
+            completion_ok, completion_reason = peer_completion_satisfied(
                 final_host,
+                final_client,
                 checkpoints,
                 target_round=args.target_round,
                 completion_mode=args.completion_mode,
@@ -520,8 +566,9 @@ def run(args: argparse.Namespace) -> int:
         write_json(artifact_dir / "snapshots" / "build-host-final.json", final_host)
         write_json(artifact_dir / "snapshots" / "build-client-final.json", final_client)
 
-        completion_ok, completion_reason = completion_satisfied(
+        completion_ok, completion_reason = peer_completion_satisfied(
             final_host,
+            final_client,
             checkpoints,
             target_round=args.target_round,
             completion_mode=args.completion_mode,

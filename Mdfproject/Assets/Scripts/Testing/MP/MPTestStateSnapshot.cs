@@ -340,32 +340,18 @@ public static class MPTestStateSnapshot
                 continue;
             }
 
-            var skillData = SafeRef(() => unit.LoadedSkillData, null);
-            bool strategic = SafeBool(() => unit.IsManualOrAiStrategicSkill(skillData), false);
-            if (!strategic)
+            string configuredSkillKey = null;
+            if (!SafeBool(() => unit.TryGetConfiguredSkillKey(out configuredSkillKey), false) ||
+                string.IsNullOrWhiteSpace(configuredSkillKey))
             {
                 continue;
             }
 
-            string configuredSkillKey = null;
-            SafeBool(() => unit.TryGetConfiguredSkillKey(out configuredSkillKey), false);
-            string skillKey = skillData != null
-                ? BuildScriptableObjectKey(skillData, SafeString(() => skillData.skillName, string.Empty))
-                : (!string.IsNullOrWhiteSpace(configuredSkillKey) ? configuredSkillKey.Trim() : "unloaded");
-            bool isDead = SafeBool(() => unit.IsDead, false);
-            bool isCasting = SafeBool(() => unit.IsSkillCastingActive, false);
-            bool canUseByStatus = SafeBool(() => unit.CanUseSkillByStatus, false);
-            bool manaFull = SafeBool(() => unit.IsSkillManaFull, false);
-            float currentMana = SafeFloat(() => unit.SkillCurrentMana, 0f);
-            float maxMana = SafeFloat(() => unit.SkillMaxMana, 0f);
-            int manaBucket = BuildManaBucket(currentMana, maxMana);
-            int targetCount = skillData != null ? SafeInt(() => unit.CountSkillTargets(skillData), 0) : -1;
-            bool targetsAvailable = skillData != null && SafeBool(() => unit.HasSkillTargetsAvailable(skillData), false);
-            bool ready = !isDead && !isCasting && canUseByStatus && manaFull && targetsAvailable;
+            string skillKey = configuredSkillKey.Trim();
             var pos = SafeRef(() => field.GetUnitPosition(unit), (Vector3Int?)null);
             string posText = pos.HasValue ? $"{pos.Value.x},{pos.Value.y},{pos.Value.z}" : "unknown-pos";
             parts.Add(
-                $"unit={BuildUnitDataKey(unit)};pos={posText};star={SafeInt(() => unit.starLevel, 0)};skill={skillKey};activation={SafeString(() => unit.currentSkillActivationType.ToString(), Unknown)};aiStrategic={SafeBool(() => skillData != null && skillData.canAiUseStrategically, false)};ready={ready};manaFull={manaFull};manaBucket={manaBucket};status={canUseByStatus};casting={isCasting};dead={isDead};targets={targetCount}");
+                $"unit={BuildUnitDataKey(unit)};pos={posText};star={SafeInt(() => unit.starLevel, 0)};skill={skillKey}");
         }
 
         return HashStableParts(parts.Count > 0 ? parts : new[] { "manualSkillReady=empty" });
@@ -1017,17 +1003,6 @@ public static class MPTestStateSnapshot
     {
         var data = SafeRef(() => unit.Data, null);
         return BuildScriptableObjectKey(data, SafeString(() => data.unitName, string.Empty));
-    }
-
-    private static int BuildManaBucket(float currentMana, float maxMana)
-    {
-        if (maxMana <= 0f)
-        {
-            return Mathf.Max(0, Mathf.RoundToInt(currentMana));
-        }
-
-        float ratio = Mathf.Clamp01(currentMana / maxMana);
-        return Mathf.Clamp(Mathf.FloorToInt(ratio * 10f), 0, 10);
     }
 
     private static AiSnapshot CaptureAi(int playerId, PlayerManager player)

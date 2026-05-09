@@ -11,7 +11,9 @@ REQUIRED = [
     '.agent/rules/projectrull.md',
     'docs/ai-harness/index.md',
     'docs/ai-harness/project-structure.md',
-    'docs/ai-harness/review-findings.md',
+    'docs/ai-harness/developer-onboarding.md',
+    'docs/ai-harness/content-development-routine.md',
+    'docs/ai-harness/verification-profile-selector.md',
     'docs/ai-harness/feature-implementation-loop.md',
     'docs/ai-harness/fusion-sync-rules.md',
     'docs/ai-harness/unity-cli-recipes.md',
@@ -21,7 +23,6 @@ REQUIRED = [
     'docs/ai-harness/host-migration-test-plan.md',
     'docs/ai-harness/randomized-progression-test-plan.md',
     'docs/ai-harness/human-bot-driver-design.md',
-    'docs/ai-harness/codex-full-phase-prompts.md',
     'docs/ai-harness/learned-recipes.md',
     '.codex/config.toml',
     '.codex/hooks.json',
@@ -39,13 +40,48 @@ REQUIRED = [
     '.agents/skills/asset-safe-edit/SKILL.md',
     '.agents/skills/entropy-gc/SKILL.md',
     '.agents/skills/feature-loop/SKILL.md',
+    '.agents/skills/mdf-content-feature/SKILL.md',
     'tools/harness/precommit.py',
+    'SETUP_MDF_HARNESS.bat',
+    'tools/harness/install_git_hooks.py',
+    'tools/harness/bootstrap_dev_env.py',
+    'tools/harness/bootstrap_harness_windows.py',
+    'tools/harness/mp/select_verification_profile.py',
+]
+
+HISTORICAL_OPTIONAL = [
+    'docs/ai-harness/archive/codex-full-phase-prompts.md',
+    'docs/ai-harness/archive/codex-phase-prompts.md',
+    'docs/ai-harness/archive/implementation-phases.md',
+    'docs/ai-harness/archive/review-findings.md',
+]
+
+ACTIVE_DOCS = [
+    'AGENTS.md',
+    'docs/ai-harness/index.md',
+    'docs/ai-harness/content-development-routine.md',
+    'docs/ai-harness/feature-implementation-loop.md',
+    'docs/ai-harness/verification-profile-selector.md',
+    '.codex/hooks/session_start_context.py',
 ]
 
 errors = []
 for rel in REQUIRED:
     if not (ROOT / rel).exists():
         errors.append(f'missing: {rel}')
+
+active_text = ''
+for rel in ACTIVE_DOCS:
+    path = ROOT / rel
+    if path.exists():
+        active_text += '\n' + path.read_text(encoding='utf-8', errors='ignore').lower()
+for rel in HISTORICAL_OPTIONAL:
+    missing = not (ROOT / rel).exists()
+    if not missing:
+        continue
+    marker = rel.lower()
+    if marker in active_text and 'source-of-truth' in active_text:
+        errors.append(f'missing historical doc still referenced as current source-of-truth: {rel}')
 
 agents = ROOT / 'AGENTS.md'
 if agents.exists():

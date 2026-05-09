@@ -253,6 +253,8 @@ Do not treat `--case all` as nightly. Use `--list-cases`, `--list-profiles`, and
 
 ## Failure categories
 
+For the debug order and minimum failure artifact set, see `failure-triage.md`.
+
 - `compile_error`
 - `console_error`
 - `player_launch_failed`

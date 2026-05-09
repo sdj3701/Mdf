@@ -15,17 +15,19 @@ Target project:
 - Core code: `Mdfproject/Assets/Scripts`
 
 
-## v2 additions and runbook
+## Current source of truth
 
-The v2 overlay adds these source-of-truth files:
+Use these files for current Codex feature, harness, and verification work:
 
-- `review-findings.md` — what was missing in the first MDF overlay and how v2 fixes it.
-- `feature-implementation-loop.md` — the default loop for any future gameplay/networking feature: analyze, implement, compile, build, E2E, inspect artifacts, fix, repeat.
-- `host-migration-test-plan.md` — feasibility-first Host Migration proof criteria.
-- `codex-full-phase-prompts.md` — copy-paste prompts from Phase 0/1 through final audit.
-- `.codex/agents/*.toml` — explicit custom agents for mapping, Fusion review, Unity verification, MP E2E, and asset audit.
+- `content-development-routine.md` - automatic workflow for short gameplay/content/AI/UI/network requests.
+- `developer-onboarding.md` - clone setup, unity-cli, hook installation, and first verification checklist.
+- `verification-profile-selector.md` - smallest relevant verification profile selection.
+- `feature-implementation-loop.md` - default loop for gameplay/networking features: analyze, implement, compile, E2E when relevant, inspect artifacts, fix, repeat.
+- `mp-test-protocol.md` - multiplayer matrix execution, cleanup, and artifact rules.
+- `state-snapshot-schema.md` - comparable snapshot fields and sync assertions.
+- `learned-recipes.md` plus `recipes/*.md` - compact index and detailed verified project-specific commands, pitfalls, and reusable methods.
 
-Do not ask Codex to implement all phases at once. Use `codex-full-phase-prompts.md` one phase at a time.
+`docs/ai-harness/archive/` contains historical phase prompt docs from the original harness bootstrap. They are useful for audit history only and are not the current source of truth.
 
 ## Phase 18+ random-aware docs
 
@@ -121,9 +123,9 @@ Expected authority rules:
 6. Sync/notification events if UI must react to authority success.
 7. Harness state snapshot or assertion if the command changes durable state.
 
-## Harness runtime files to implement
+## Harness runtime surface
 
-Target C# files, to be created by Codex in implementation phases:
+The current C# harness surface lives under:
 
 ```text
 Mdfproject/Assets/Scripts/Testing/MP/
@@ -141,7 +143,7 @@ Mdfproject/Assets/Scripts/Testing/MP/
     BuildAutomation.cs
 ```
 
-Do not create production-facing UI or non-test menu flows for these. Keep all build-side automation gated.
+Additional HumanBot, Host Migration, graceful quit, and EditMode test helpers may also live in this folder. Do not create production-facing UI or non-test menu flows for harness behavior. Keep all build-side automation gated behind the documented test conditions.
 
 ## Required command-line args
 
@@ -241,13 +243,13 @@ Minimum per phase:
 
 If a command cannot run in the local environment, Codex must report `BLOCKED` or `NEEDS_ENVIRONMENT`, update learned recipes if it discovered a command difference, and must not claim PASS.
 
-## Implementation phases
+## Historical bootstrap phases
 
-Current source-of-truth prompt runbooks are `codex-full-phase-prompts.md` plus the Phase 18+ plan in `randomized-progression-test-plan.md`.
+Current implementation work should start from `content-development-routine.md`, `verification-profile-selector.md`, `feature-implementation-loop.md`, `mp-test-protocol.md`, `state-snapshot-schema.md`, and `learned-recipes.md`.
 
-`implementation-phases.md` and `codex-phase-prompts.md` are historical pointers for the original MVP overlay; do not use them instead of the current full phase prompts.
+Archived phase prompt docs under `docs/ai-harness/archive/` are historical bootstrap records only. Do not use them as the normal feature workflow.
 
-Suggested order:
+The old bootstrap order was:
 
 1. Baseline / compatibility.
 2. Docs and AGENTS/project rule update.

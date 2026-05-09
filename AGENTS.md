@@ -5,6 +5,7 @@
 This repo is MDF, a Unity 2021.3.45f1 multiplayer defense/auto-battle project using Photon Fusion 2.0.9 and unity-cli.
 Unity root is `Mdfproject`; focus gameplay work under `Mdfproject/Assets/Scripts`.
 It is not DOTS/ECS unless the repo later adds DOTS code.
+For a fresh clone, use `docs/ai-harness/developer-onboarding.md`.
 
 ## Read first
 
@@ -21,6 +22,10 @@ For harness, multiplayer, or feature work, read:
 - `docs/ai-harness/host-migration-test-plan.md`
 - `docs/ai-harness/learned-recipes.md`
 - `.agent/rules/projectrull.md`
+
+## Feature requests
+
+Short gameplay/content/AI/UI/network requests, including Korean equivalents of add unit, make scroll, improve AI, or change augment, automatically use `docs/ai-harness/content-development-routine.md` and the `mdf-content-feature` or `feature-loop` skill. Do not ask for the long template; choose the smallest relevant matrix profile and require command outputs, artifact paths, `cleanupStatus=PASS`, and `orphanedPids=[]` for E2E PASS.
 
 ## Unity workflow
 
@@ -62,5 +67,4 @@ When relevant, run:
 
 ## Knowledge capture
 
-Before Unity CLI, screenshot, build, asset, Photon, or multiplayer test work, search learned recipes.
-When a reusable method is discovered, update `docs/ai-harness/learned-recipes.md` or a relevant skill before final response.
+Before Unity CLI, screenshot, build, asset, Photon, or multiplayer test work, search learned recipes; touch lifecycle metadata when used/verified and report when no reusable recipe was found.

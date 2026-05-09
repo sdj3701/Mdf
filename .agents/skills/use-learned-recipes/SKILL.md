@@ -11,6 +11,6 @@ description: Search existing MDF harness recipes before Unity CLI, screenshot, b
 rg -n "<topic keywords>" docs/ai-harness .agents/skills tools/harness
 ```
 
-2. Prefer verified recipes in `docs/ai-harness/learned-recipes.md`.
+2. Prefer verified recipes indexed in `docs/ai-harness/learned-recipes.md` and stored under `docs/ai-harness/recipes/*.md`.
 3. If a recipe is stale, verify with `--help` or a dry run, then update it.
 4. Do not invent unity-cli flags when `--help` can confirm them.

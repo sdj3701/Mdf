@@ -240,7 +240,7 @@ Battle smoke:
 - `ownedScrollsHash` is deterministic for null, empty, and non-empty scroll inventories and includes the authoritative scroll revision
 - `useMagicScrollSeq` increments only when State Authority applies a scroll's gameplay effects
 - `activateSkillSeq` increments only when State Authority executes an accepted manual/strategic `ActivateSkillCommand`
-- `manualSkillReadyHash` compares manual/AI-strategic skill readiness with semantic unit data, grid position, skill key, mana bucket, status, casting/dead flags, and target availability
+- `manualSkillReadyHash` compares configured skill capability with semantic unit data, grid position, star level, and configured skill key. It intentionally excludes current mana, loaded `SkillData`, activation overrides, casting state, target counts, and other frame-local readiness values because peer snapshots are not captured on the same simulation frame.
 - `effects.activeStatusHash`, `effects.activeBuffHash`, and `effects.zoneHash` compare active duration effects using semantic target keys. Unit targets include owner/data/star/grid; monster targets include owner/data/boss metadata/HP bucket/navigation or coarse position; wall targets include owner/grid/HP bucket. Do not fall back to raw Unity instance IDs or object names.
 - Phase 6 scroll effect coverage snapshots active buff/status/zone state for peer comparison; durable Host Migration restoration of active effect timers remains a later battle migration blocker until proven by artifacts
 - monster spawner readiness true for defenders

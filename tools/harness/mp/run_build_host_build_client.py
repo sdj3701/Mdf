@@ -93,11 +93,21 @@ def wait_states(host: AutomationClient, client: AutomationClient, artifact_dir: 
 
 
 def run(args: argparse.Namespace) -> int:
+    artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
+    if args.dry_run:
+        write_json(artifact_dir / "run.json", {
+            "case": CASE_NAME,
+            "dryRun": True,
+            "playerPath": args.player_path,
+            "headlessPlayer": args.headless_player,
+        })
+        print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
+        return 0
+
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
     if player_path is None or not player_path.exists():
         raise SystemExit("No built player found. Run Phase 9 build first or pass --player-path.")
 
-    artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
     session = args.session or new_session("bhbc")
     host_token = new_token()
     client_token = new_token()

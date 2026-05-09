@@ -25,7 +25,7 @@ public class BehaviorTreeView : GraphView
     public void PopulateView(AIPlayerController aiController)
     {
         this.AiController = aiController;
-        var activeTree = AiController?.GetActiveTree();
+        BehaviorTree activeTree = null;
 
         // 표시된 트리와 현재 활성 트리가 동일하면 다시 그리지 않고 최적화합니다.
         if (activeTree == _displayedTree && _displayedTree != null)

@@ -382,13 +382,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private struct PendingUnitReg
     {
         public NetworkObject unitNO;
+        public uint unitIdRaw;
         public int x;
         public int y;
         public string unitDataKey;
         public int starLevel;
     }
     private List<PendingUnitReg> _pendingUnitRegs = new List<PendingUnitReg>();
+    private readonly HashSet<uint> _retiredUnitRegistrationIds = new HashSet<uint>();
     private int[] _pendingPermanentWallFlatPositions;
+    private int[] _pendingUnitRosterIdRaws;
+    private int[] _pendingUnitRosterFlatPositions;
+    private string[] _pendingUnitRosterDataKeys;
+    private int[] _pendingUnitRosterStarLevels;
     private Coroutine _permanentWallSyncBroadcastCoroutine;
 
      void Awake()
@@ -592,9 +598,16 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             _pendingUnitRegs.Clear();
             foreach (var p in pending)
             {
+                if (_retiredUnitRegistrationIds.Contains(p.unitIdRaw))
+                {
+                    continue;
+                }
+
                 await RPC_RegisterUnitAt_Internal(p.unitNO, p.x, p.y, p.unitDataKey, p.starLevel);
             }
         }
+
+        await DrainPendingUnitRoster("Rpc_InitializePlayer");
 
         _runtimeInitialized = playerId >= 0 && fieldManager != null;
     }
@@ -1252,6 +1265,212 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         _permanentWallSyncBroadcastCoroutine = null;
     }
 
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public async void RPC_ReconcileUnitRoster(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] starLevels)
+    {
+        try
+        {
+            if (Object != null && Object.HasStateAuthority)
+            {
+                return;
+            }
+
+            if (!IsValidUnitRosterPayload(unitIdRaws, flatPositions, unitDataKeys, starLevels))
+            {
+                return;
+            }
+
+            if (fieldManager == null || fieldManager.ground3D == null)
+            {
+                StorePendingUnitRoster(unitIdRaws, flatPositions, unitDataKeys, starLevels);
+                RebindRuntimeReferencesAfterMigration("RPC_ReconcileUnitRoster.Pending", false);
+            }
+
+            if (fieldManager == null || fieldManager.ground3D == null)
+            {
+                return;
+            }
+
+            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, starLevels);
+        }
+        catch (System.Exception)
+        {
+            // Roster correction is best-effort; command replay and register RPCs remain authoritative.
+        }
+    }
+
+    private async UniTask DrainPendingUnitRoster(string context)
+    {
+        if (_pendingUnitRosterIdRaws == null)
+        {
+            return;
+        }
+
+        if (fieldManager == null || fieldManager.ground3D == null)
+        {
+            RebindRuntimeReferencesAfterMigration($"DrainPendingUnitRoster.{context}", false);
+        }
+
+        if (fieldManager == null || fieldManager.ground3D == null)
+        {
+            return;
+        }
+
+        var unitIdRaws = _pendingUnitRosterIdRaws;
+        var flatPositions = _pendingUnitRosterFlatPositions;
+        var unitDataKeys = _pendingUnitRosterDataKeys;
+        var starLevels = _pendingUnitRosterStarLevels;
+        _pendingUnitRosterIdRaws = null;
+        _pendingUnitRosterFlatPositions = null;
+        _pendingUnitRosterDataKeys = null;
+        _pendingUnitRosterStarLevels = null;
+
+        await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, starLevels);
+    }
+
+    private void StorePendingUnitRoster(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] starLevels)
+    {
+        _pendingUnitRosterIdRaws = unitIdRaws != null ? unitIdRaws.ToArray() : null;
+        _pendingUnitRosterFlatPositions = flatPositions != null ? flatPositions.ToArray() : null;
+        _pendingUnitRosterDataKeys = unitDataKeys != null ? unitDataKeys.ToArray() : null;
+        _pendingUnitRosterStarLevels = starLevels != null ? starLevels.ToArray() : null;
+    }
+
+    private bool IsValidUnitRosterPayload(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] starLevels)
+    {
+        if (unitIdRaws == null || flatPositions == null || starLevels == null)
+        {
+            return false;
+        }
+
+        int count = unitIdRaws.Length;
+        return flatPositions.Length == count * 3
+            && starLevels.Length == count
+            && (unitDataKeys == null || unitDataKeys.Length == count);
+    }
+
+    private async UniTask ApplyUnitRosterFromAuthority(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] starLevels)
+    {
+        if (!IsValidUnitRosterPayload(unitIdRaws, flatPositions, unitDataKeys, starLevels) || fieldManager == null)
+        {
+            return;
+        }
+
+        var authoritativePositions = BuildUnitRosterPositionMap(unitIdRaws, flatPositions);
+        foreach (var unitIdRaw in authoritativePositions.Keys)
+        {
+            _retiredUnitRegistrationIds.Remove(unitIdRaw);
+        }
+
+        fieldManager.ReconcileUnitsToAuthoritativeRoster(authoritativePositions);
+
+        for (int i = 0; i < unitIdRaws.Length; i++)
+        {
+            uint unitIdRaw = unchecked((uint)unitIdRaws[i]);
+            if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
+            {
+                continue;
+            }
+
+            NetworkObject unitNO = await ResolveNetworkObjectByRawIdAsync(unitIdRaw);
+            if (unitNO == null)
+            {
+                continue;
+            }
+
+            var position = new Vector3Int(flatPositions[(i * 3) + 0], flatPositions[(i * 3) + 1], flatPositions[(i * 3) + 2]);
+            string unitDataKey = unitDataKeys != null ? unitDataKeys[i] : string.Empty;
+            await RPC_RegisterUnitAt_Internal(unitNO, position.x, position.y, unitDataKey, starLevels[i]);
+        }
+    }
+
+    private Dictionary<uint, Vector3Int> BuildUnitRosterPositionMap(int[] unitIdRaws, int[] flatPositions)
+    {
+        var positions = new Dictionary<uint, Vector3Int>();
+        if (unitIdRaws == null || flatPositions == null)
+        {
+            return positions;
+        }
+
+        for (int i = 0; i < unitIdRaws.Length && (i * 3) + 2 < flatPositions.Length; i++)
+        {
+            positions[unchecked((uint)unitIdRaws[i])] = new Vector3Int(
+                flatPositions[(i * 3) + 0],
+                flatPositions[(i * 3) + 1],
+                flatPositions[(i * 3) + 2]);
+        }
+
+        return positions;
+    }
+
+    private async UniTask<NetworkObject> ResolveNetworkObjectByRawIdAsync(uint unitIdRaw)
+    {
+        for (int attempt = 0; attempt < 300; attempt++)
+        {
+            if (TryFindNetworkObjectByRawId(unitIdRaw, out var unitNO))
+            {
+                return unitNO;
+            }
+
+            await UniTask.Yield();
+        }
+
+        return null;
+    }
+
+    private bool TryFindNetworkObjectByRawId(uint unitIdRaw, out NetworkObject unitNO)
+    {
+        unitNO = null;
+        if (Runner == null)
+        {
+            return false;
+        }
+
+        var runnerObjects = Runner.GetAllNetworkObjects();
+        if (runnerObjects == null)
+        {
+            return false;
+        }
+
+        foreach (var candidate in runnerObjects)
+        {
+            if (candidate != null && candidate.IsValid && candidate.Id.Raw == unitIdRaw)
+            {
+                unitNO = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_UnregisterUnitAt(NetworkId unitId, int x, int y, string unitDataKey, int starLevel)
+    {
+        uint unitIdRaw = unitId.Raw;
+        _retiredUnitRegistrationIds.Add(unitIdRaw);
+        _pendingUnitRegs.RemoveAll(reg => reg.unitIdRaw == unitIdRaw);
+
+        if (fieldManager == null)
+        {
+            return;
+        }
+
+        NetworkObject unitNO = null;
+        Unit unit = null;
+        if (Runner != null)
+        {
+            Runner.TryFindObject(unitId, out unitNO);
+        }
+
+        if (unitNO != null)
+        {
+            unit = unitNO.GetComponent<Unit>();
+        }
+
+        fieldManager.UnregisterUnitAt(unit, new Vector3Int(x, y, 0), unitDataKey, starLevel);
+    }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void RPC_RegisterUnitAt(NetworkId unitId, int x, int y, string unitDataKey, int starLevel)
@@ -1260,11 +1479,22 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] recv pos=({x},{y}) key='{unitDataKey}' star={starLevel} stateAuth={(Object != null && Object.HasStateAuthority)} id={unitId}</color>");
             if (Object != null && Object.HasStateAuthority) return;
+            uint unitIdRaw = unitId.Raw;
+            if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
+            {
+                return;
+            }
+
             NetworkObject unitNO = null;
             bool resolved = false;
             int attempts = 0;
             do
             {
+                if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
+                {
+                    return;
+                }
+
                 if (Runner != null)
                 {
                     resolved = Runner.TryFindObject(unitId, out unitNO);
@@ -1287,6 +1517,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 _pendingUnitRegs.Add(new PendingUnitReg
                 {
                     unitNO = unitNO,
+                    unitIdRaw = unitIdRaw,
                     x = x,
                     y = y,
                     unitDataKey = unitDataKey,
@@ -1308,6 +1539,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         try
         {
+            if (unitNO != null && _retiredUnitRegistrationIds.Contains(unitNO.Id.Raw))
+            {
+                return;
+            }
+
             if (fieldManager == null)
             {
                 // Debug.LogWarning($"<color=yellow>[RPC_Internal] fieldManager null</color>");

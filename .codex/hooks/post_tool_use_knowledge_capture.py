@@ -14,6 +14,12 @@ watched = [
     'buildautomation', 'mptest', 'automationserver', '.prefab', '.unity', '.asset'
 ]
 if any(w.lower() in text for w in watched):
-    add_context('PostToolUse', '[MDF HARNESS] If this revealed a reusable command, timing, screenshot, build, Photon, or failure pattern, update docs/ai-harness/learned-recipes.md or the relevant harness doc before final response.')
+    add_context(
+        'PostToolUse',
+        '[MDF RECIPE LIFECYCLE] If this used an existing learned recipe, run '
+        '`python tools/harness/recipes/touch_recipe.py --id <recipe-id> --used`. '
+        'If this command/test/artifact verified a recipe, use `--verified --artifact <path>`. '
+        'Do not mark Last verified without evidence. If no clear recipe id applies, say no new reusable recipe was discovered in the final report.'
+    )
 else:
     emit({})

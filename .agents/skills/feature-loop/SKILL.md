@@ -7,6 +7,8 @@ description: Use when implementing or modifying MDF gameplay, UI, networking, AI
 
 Read `docs/ai-harness/feature-implementation-loop.md`.
 
+For short gameplay/content/AI/UI/network feature requests, use `mdf-content-feature` first. It expands the short request into the MDF content workflow and selects the smallest relevant verification profile.
+
 Required steps:
 
 1. Map real code path before editing.

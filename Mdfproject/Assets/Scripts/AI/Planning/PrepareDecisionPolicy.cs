@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using AI.BehaviorTree;
 using UnityEngine;
 
 public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
@@ -9,6 +8,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     private const int MinSoldSlotsBeforeReroll = 3;
     private const float BuyDecisionScoreThreshold = 15f;
     private const float HighValuePurchaseScoreThreshold = 18f;
+    private const int MinimumRepairReserveWalls = 1;
 
     private delegate bool CommandChooser(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision);
 
@@ -16,12 +16,25 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     private readonly System.Random _random;
     private readonly bool _preferScrollAugment;
     private readonly Dictionary<int, WallPlanCache> _wallPlans = new Dictionary<int, WallPlanCache>();
+    private readonly Dictionary<string, int> _lastMoveRoundByUnitKey = new Dictionary<string, int>();
+    private readonly Dictionary<string, int> _pendingMoveTargetRoundByCellKey = new Dictionary<string, int>();
+    private readonly Dictionary<string, int> _pendingWallRoundByCellKey = new Dictionary<string, int>();
+    private readonly HashSet<string> _builtWallCellKeys = new HashSet<string>();
+    private readonly Dictionary<string, int> _pendingBuyRoundBySlotKey = new Dictionary<string, int>();
 
     public PrepareDecisionPolicy(string persona = "balanced", int seed = 0, bool preferScrollAugment = false)
     {
         _persona = NormalizePersona(persona);
         _random = new System.Random(seed);
         _preferScrollAugment = preferScrollAugment;
+    }
+
+    public PrepareDecisionPolicy(MdfBotProfile profile)
+        : this(
+            profile != null ? profile.Persona : MdfBotProfile.DefaultPersona,
+            profile != null ? profile.Seed : 0,
+            profile != null && profile.PreferScrollAugment)
+    {
     }
 
     public bool TryChoose(MdfDecisionContext context, out MdfDecision decision)
@@ -47,7 +60,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         var composition = UnitCompositionAnalyzer.AnalyzePlayer(context.Actor);
-        foreach (var chooser in GetChooserOrder(composition))
+        foreach (var chooser in GetChooserOrder(context, composition))
         {
             if (chooser(context, composition, out decision))
             {
@@ -62,9 +75,17 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         return false;
     }
 
-    private IEnumerable<CommandChooser> GetChooserOrder(PrepareArmyComposition composition)
+    private IEnumerable<CommandChooser> GetChooserOrder(MdfDecisionContext context, PrepareArmyComposition composition)
     {
         yield return TryChooseAugment;
+
+        int round = context != null && context.GameManagers != null ? context.GameManagers.currentRound : 0;
+        bool wallControlFirst = ShouldPrioritizeWallControl(context != null ? context.Actor : null, composition, round);
+        if (wallControlFirst)
+        {
+            yield return TryChooseMoveBlockingWall;
+            yield return TryChooseWall;
+        }
 
         switch (_persona)
         {
@@ -72,12 +93,18 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 if (ShouldPrioritizeBuyBeforeWall(composition, _persona))
                 {
                     yield return TryChooseBuy;
+                    if (!wallControlFirst)
+                    {
+                        yield return TryChooseWall;
+                    }
                     yield return TryChooseMove;
-                    yield return TryChooseWall;
                 }
                 else
                 {
-                    yield return TryChooseWall;
+                    if (!wallControlFirst)
+                    {
+                        yield return TryChooseWall;
+                    }
                     yield return TryChooseBuy;
                     yield return TryChooseMove;
                 }
@@ -85,20 +112,29 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 break;
             case "shop":
                 yield return TryChooseBuy;
+                if (!wallControlFirst)
+                {
+                    yield return TryChooseWall;
+                }
                 yield return TryChooseMove;
-                yield return TryChooseWall;
                 yield return TryChooseReroll;
                 break;
             case "unit":
                 yield return TryChooseBuy;
+                if (!wallControlFirst)
+                {
+                    yield return TryChooseWall;
+                }
                 yield return TryChooseMove;
-                yield return TryChooseWall;
                 yield return TryChooseReroll;
                 break;
             default:
                 yield return TryChooseBuy;
+                if (!wallControlFirst)
+                {
+                    yield return TryChooseWall;
+                }
                 yield return TryChooseMove;
-                yield return TryChooseWall;
                 yield return TryChooseReroll;
                 break;
         }
@@ -168,26 +204,20 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        if (context.IsServerAi && !AIPacer.Ready(player.playerId, AIPacer.CatWall))
+        int round = context.GameManagers != null ? context.GameManagers.currentRound : 0;
+        PruneWallMemory(round);
+
+        if (!ShouldAllowWallFocus(player, composition, round))
         {
             return false;
         }
 
-        if (!ShouldAllowWallFocus(composition))
+        if (!TryGetNextWallPosition(player, round, out var position))
         {
             return false;
         }
 
-        if (!TryGetNextWallPosition(player, out var position))
-        {
-            return false;
-        }
-
-        if (context.IsServerAi)
-        {
-            AIPacer.Arm(player.playerId, AIPacer.CatWall, 0.35f, 0.75f);
-        }
-
+        RememberWallCandidate(player, position, round);
         decision = MdfDecision.ForCommand(
             context,
             new PlaceWallCommand(player.playerId, position),
@@ -199,7 +229,73 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             {
                 { "x", position.x },
                 { "y", position.y },
-                { "buyBeforeWallRequired", ShouldPrioritizeBuyBeforeWall(composition, _persona) }
+                { "buyBeforeWallRequired", ShouldPrioritizeBuyBeforeWall(composition, _persona) },
+                { "wallControlFirst", ShouldPrioritizeWallControl(player, composition, round) },
+                { "persistentWallBlueprint", true },
+                { "pendingWallSuppression", true }
+            }));
+        return true;
+    }
+
+    private bool TryChooseMoveBlockingWall(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
+    {
+        decision = null;
+        var player = context.Actor;
+        var field = player.fieldManager;
+        if (field == null || player.astarGrid == null || player.goalTransform == null)
+        {
+            return false;
+        }
+
+        int round = context.GameManagers != null ? context.GameManagers.currentRound : 0;
+        PruneMoveMemory(round);
+        PruneWallMemory(round);
+
+        if (!TryFindBlockingWallPlanUnit(player, round, out var blocker, out var from))
+        {
+            return false;
+        }
+
+        if (HasMovedThisRound(player, blocker, round))
+        {
+            return false;
+        }
+
+        var units = field.GetAlliedUnitsOnField()
+            .Where(unit => unit != null && unit.Data != null)
+            .ToList();
+        var monsterPath = BuildMonsterPathContext(player);
+        Vector3Int? to = field.FindBestSpotForAI(blocker.Data, monsterPath, units, null, from);
+        if (!IsValidMoveDestination(player, blocker, to, from, round))
+        {
+            to = FindFallbackUnblockDestination(player, blocker, from, round);
+        }
+
+        if (!to.HasValue)
+        {
+            return false;
+        }
+
+        RememberMovedThisRound(player, blocker, round);
+        RememberMoveTarget(player, to.Value, round);
+        decision = MdfDecision.ForCommand(
+            context,
+            new MoveUnitCommand(player.playerId, from, to.Value),
+            CommandType.MoveUnit,
+            "move_unit_off_wall_blueprint",
+            $"{from.x},{from.y}->{to.Value.x},{to.Value.y}",
+            70f,
+            MergeFields(BuildPrepareJournalFields(context, composition, null, null), new Dictionary<string, object>
+            {
+                { "from", $"{from.x},{from.y}" },
+                { "to", $"{to.Value.x},{to.Value.y}" },
+                { "unit", blocker.Data.unitName },
+                { "blockedWallBlueprint", true },
+                { "persistentWallBlueprint", true },
+                { "pathAwarePlacement", monsterPath != null && monsterPath.Count > 0 },
+                { "monsterPathCount", monsterPath != null ? monsterPath.Count : 0 },
+                { "moveOncePerRound", true },
+                { "pendingMoveTargetSuppression", true }
             }));
         return true;
     }
@@ -213,19 +309,21 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        if (context.IsServerAi && !AIPacer.Ready(player.playerId, AIPacer.CatBuy))
-        {
-            return false;
-        }
-
         int gold = player.GetGold();
         int bestSlot = -1;
         float bestScore = float.MinValue;
         PrepareShopDecisionScore bestBreakdown = null;
         var shopItems = player.shopManager.GetCurrentShopItems();
+        int round = context.GameManagers != null ? context.GameManagers.currentRound : 0;
+        PruneBuyMemory(round);
         for (int slot = 0; slot < shopItems.Count; slot++)
         {
             if (IsShopSlotSoldForPolicy(player, slot))
+            {
+                continue;
+            }
+
+            if (IsPendingBuyCandidate(player, slot, round))
             {
                 continue;
             }
@@ -250,11 +348,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        if (context.IsServerAi)
-        {
-            AIPacer.Arm(player.playerId, AIPacer.CatBuy, 0.5f, 1.0f);
-        }
-
+        RememberBuyCandidate(player, bestSlot, round);
         decision = MdfDecision.ForCommand(
             context,
             new BuyUnitCommand(player.playerId, bestSlot),
@@ -262,7 +356,10 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             "best_affordable_score",
             $"slot={bestSlot};score={bestScore:F2}",
             bestScore,
-            BuildPrepareJournalFields(context, composition, bestBreakdown, null));
+            MergeFields(BuildPrepareJournalFields(context, composition, bestBreakdown, null), new Dictionary<string, object>
+            {
+                { "pendingBuySuppression", true }
+            }));
         return true;
     }
 
@@ -276,16 +373,14 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        if (context.IsServerAi && !AIPacer.Ready(player.playerId, AIPacer.CatMove))
-        {
-            return false;
-        }
-
         var units = field.GetAlliedUnitsOnField()
             .Where(unit => unit != null && unit.Data != null)
             .OrderBy(unit => unit.Data.unitType == UnitType.Ranged ? 0 : 1)
             .ThenBy(unit => unit.Data.unitName)
             .ToArray();
+        var monsterPath = BuildMonsterPathContext(player);
+        int round = context.GameManagers != null ? context.GameManagers.currentRound : 0;
+        PruneMoveMemory(round);
 
         foreach (var unit in units)
         {
@@ -295,8 +390,18 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 continue;
             }
 
-            Vector3Int? to = field.FindBestSpotForAI(unit.Data, null, units.ToList(), null, from.Value);
+            if (HasMovedThisRound(player, unit, round))
+            {
+                continue;
+            }
+
+            Vector3Int? to = field.FindBestSpotForAI(unit.Data, monsterPath, units.ToList(), null, from.Value);
             if (!to.HasValue || to.Value == from.Value || !field.IsValidGridPosition(to.Value))
+            {
+                continue;
+            }
+
+            if (IsPendingMoveTarget(player, to.Value, round))
             {
                 continue;
             }
@@ -311,11 +416,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 continue;
             }
 
-            if (context.IsServerAi)
-            {
-                AIPacer.Arm(player.playerId, AIPacer.CatMove, 0.4f, 0.9f);
-            }
-
+            RememberMovedThisRound(player, unit, round);
+            RememberMoveTarget(player, to.Value, round);
             decision = MdfDecision.ForCommand(
                 context,
                 new MoveUnitCommand(player.playerId, from.Value, to.Value),
@@ -327,12 +429,122 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 {
                     { "from", $"{from.Value.x},{from.Value.y}" },
                     { "to", $"{to.Value.x},{to.Value.y}" },
-                    { "unit", unit.Data.unitName }
+                    { "unit", unit.Data.unitName },
+                    { "pathAwarePlacement", monsterPath != null && monsterPath.Count > 0 },
+                    { "monsterPathCount", monsterPath != null ? monsterPath.Count : 0 },
+                    { "moveOncePerRound", true },
+                    { "pendingMoveTargetSuppression", true }
                 }));
             return true;
         }
 
         return false;
+    }
+
+    private static List<AstarNode> BuildMonsterPathContext(PlayerManager player)
+    {
+        var field = player != null ? player.fieldManager : null;
+        var grid = player != null ? player.astarGrid : null;
+        var goal = player != null ? player.goalTransform : null;
+        if (field == null || grid == null || goal == null)
+        {
+            return null;
+        }
+
+        var startPositions = GetMonsterPathStartPositions(field);
+        if (startPositions.Count == 0)
+        {
+            return null;
+        }
+
+        var disabledColliders = new List<Collider>();
+        try
+        {
+            foreach (var unit in field.GetAlliedUnitsOnField())
+            {
+                if (unit == null)
+                {
+                    continue;
+                }
+
+                var collider = unit.GetComponentInChildren<Collider>();
+                if (collider != null && collider.enabled)
+                {
+                    disabledColliders.Add(collider);
+                    collider.enabled = false;
+                }
+            }
+
+            Vector2Int goalPos = field.WorldToNavigationCell(goal.position);
+            var innerPathByCell = new Dictionary<Vector2Int, AstarNode>();
+            foreach (var startPos in startPositions)
+            {
+                if (!grid.FindPath(startPos, goalPos, ignoreWalls: false) ||
+                    grid.FinalPath == null ||
+                    grid.FinalPath.Count == 0)
+                {
+                    continue;
+                }
+
+                foreach (var node in field.ConvertNavigationPathToInnerField(grid.FinalPath))
+                {
+                    if (node == null)
+                    {
+                        continue;
+                    }
+
+                    var key = new Vector2Int(node.x, node.y);
+                    if (!innerPathByCell.ContainsKey(key))
+                    {
+                        innerPathByCell[key] = node;
+                    }
+                }
+            }
+
+            return innerPathByCell.Count > 0
+                ? innerPathByCell.Values.ToList()
+                : null;
+        }
+        catch (Exception ex)
+        {
+            MPTestLogger.Log("prepare_decision_policy", "info", "path_context_unavailable", ex.GetType().Name, new Dictionary<string, object>
+            {
+                { "playerId", player != null ? player.playerId : -1 }
+            });
+            return null;
+        }
+        finally
+        {
+            foreach (var collider in disabledColliders)
+            {
+                if (collider != null)
+                {
+                    collider.enabled = true;
+                }
+            }
+        }
+    }
+
+    private static List<Vector2Int> GetMonsterPathStartPositions(FieldManager field)
+    {
+        var starts = new List<Vector2Int>();
+        if (field == null)
+        {
+            return starts;
+        }
+
+        if (field.TryGetSingleOpenEntryNavigationCell(out var singleEntry))
+        {
+            starts.Add(singleEntry);
+            return starts;
+        }
+
+        foreach (var gap in field.GetOpenBorderGaps())
+        {
+            starts.Add(field.InnerCellToNavigationCell(gap));
+        }
+
+        return starts;
     }
 
     private bool TryChooseReroll(MdfDecisionContext context, PrepareArmyComposition composition, out MdfDecision decision)
@@ -343,16 +555,6 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         if (!gate.CanReroll)
         {
             return false;
-        }
-
-        if (context.IsServerAi && !AIPacer.Ready(player.playerId, AIPacer.CatReroll))
-        {
-            return false;
-        }
-
-        if (context.IsServerAi)
-        {
-            AIPacer.Arm(player.playerId, AIPacer.CatReroll, 0.8f, 1.5f);
         }
 
         decision = MdfDecision.ForCommand(
@@ -467,7 +669,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         return score;
     }
 
-    private bool TryGetNextWallPosition(PlayerManager player, out Vector3Int position)
+    private bool TryGetNextWallPosition(PlayerManager player, int round, out Vector3Int position)
     {
         position = default(Vector3Int);
         var field = player.fieldManager;
@@ -479,28 +681,33 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         var plan = GetWallPlan(player);
         foreach (var candidate in plan)
         {
-            if (!IsLegalWallCandidate(player, candidate))
+            if (IsPendingWallCandidate(player, candidate, round))
+            {
+                continue;
+            }
+
+            bool wasBuilt = HasBuiltWallCandidate(player, candidate);
+            bool canSpend = wasBuilt
+                ? player.GetWallCount() > 0
+                : player.GetWallCount() > GetWallBuildReserve(player);
+            if (!canSpend)
+            {
+                continue;
+            }
+
+            var blockingUnit = field.GetUnitAt(candidate);
+            if (blockingUnit != null && IsBorderGapCandidate(field, candidate))
+            {
+                return false;
+            }
+
+            if (!IsLegalWallCandidate(player, candidate, round))
             {
                 continue;
             }
 
             position = candidate;
             return true;
-        }
-
-        for (int y = 0; y < field.gridSize.y; y++)
-        {
-            for (int x = 0; x < field.gridSize.x; x++)
-            {
-                var candidate = new Vector3Int(x, y, 0);
-                if (!IsLegalWallCandidate(player, candidate))
-                {
-                    continue;
-                }
-
-                position = candidate;
-                return true;
-            }
         }
 
         return false;
@@ -511,7 +718,11 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         var field = player.fieldManager;
         string signature = SafeWallSignature(field);
         int playerId = player.playerId;
-        if (_wallPlans.TryGetValue(playerId, out var cached) && cached.Signature == signature)
+        int fieldInstanceId = field != null ? field.GetInstanceID() : 0;
+        if (_wallPlans.TryGetValue(playerId, out var cached) &&
+            cached.FieldInstanceId == fieldInstanceId &&
+            cached.Order != null &&
+            cached.Order.Count > 0)
         {
             return cached.Order;
         }
@@ -535,13 +746,57 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
         _wallPlans[playerId] = new WallPlanCache
         {
+            FieldInstanceId = fieldInstanceId,
             Signature = signature,
             Order = order
         };
         return order;
     }
 
-    private bool IsLegalWallCandidate(PlayerManager player, Vector3Int candidate)
+    private bool TryFindBlockingWallPlanUnit(PlayerManager player, int round, out Unit blocker, out Vector3Int position)
+    {
+        blocker = null;
+        position = default(Vector3Int);
+        var field = player != null ? player.fieldManager : null;
+        if (field == null)
+        {
+            return false;
+        }
+
+        foreach (var candidate in GetWallPlan(player))
+        {
+            if (!IsBorderGapCandidate(field, candidate) ||
+                field.HasWallAt(candidate) ||
+                IsPendingWallCandidate(player, candidate, round) ||
+                WouldCloseLastOpenBorderGap(player, field, candidate, round))
+            {
+                continue;
+            }
+
+            bool wasBuilt = HasBuiltWallCandidate(player, candidate);
+            bool canSpend = wasBuilt
+                ? player.GetWallCount() > 0
+                : player.GetWallCount() > GetWallBuildReserve(player);
+            if (!canSpend)
+            {
+                continue;
+            }
+
+            var unit = field.GetUnitAt(candidate);
+            if (unit == null || unit.Data == null)
+            {
+                continue;
+            }
+
+            blocker = unit;
+            position = candidate;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsLegalWallCandidate(PlayerManager player, Vector3Int candidate, int round)
     {
         var field = player.fieldManager;
         if (field == null || !field.IsValidGridPosition(candidate) || field.HasWallAt(candidate))
@@ -554,8 +809,54 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
+        if (WouldCloseLastOpenBorderGap(player, field, candidate, round))
+        {
+            return false;
+        }
+
         Vector3Int goalCell = field.WorldToGridInt(player.goalTransform != null ? player.goalTransform.position : Vector3.zero);
         return candidate != goalCell;
+    }
+
+    private bool WouldCloseLastOpenBorderGap(PlayerManager player, FieldManager field, Vector3Int candidate, int round)
+    {
+        if (field == null)
+        {
+            return false;
+        }
+
+        if (!IsBorderGapCandidate(field, candidate))
+        {
+            return false;
+        }
+
+        var openGaps = field.GetOpenBorderGaps();
+        if (!openGaps.Any(gap => gap.x == candidate.x && gap.y == candidate.y))
+        {
+            return false;
+        }
+
+        int pendingGapClosures = 0;
+        foreach (var openGap in openGaps)
+        {
+            if (openGap.x == candidate.x && openGap.y == candidate.y)
+            {
+                continue;
+            }
+
+            if (IsPendingWallCandidate(player, openGap, round))
+            {
+                pendingGapClosures++;
+            }
+        }
+
+        int remainingOpenGapsAfterCandidate = openGaps.Count - pendingGapClosures - 1;
+        return remainingOpenGapsAfterCandidate < 1;
+    }
+
+    private static bool IsBorderGapCandidate(FieldManager field, Vector3Int candidate)
+    {
+        return field != null && field.GetBorderGapCells().Any(gap => gap.x == candidate.x && gap.y == candidate.y);
     }
 
     private static string SafeWallSignature(FieldManager field)
@@ -573,6 +874,301 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         {
             return "wall-signature-error";
         }
+    }
+
+    private bool HasMovedThisRound(PlayerManager player, Unit unit, int round)
+    {
+        if (player == null || unit == null || round <= 0)
+        {
+            return false;
+        }
+
+        return _lastMoveRoundByUnitKey.TryGetValue(BuildMoveMemoryKey(player, unit), out int lastRound) &&
+               lastRound == round;
+    }
+
+    private void RememberMovedThisRound(PlayerManager player, Unit unit, int round)
+    {
+        if (player == null || unit == null || round <= 0)
+        {
+            return;
+        }
+
+        _lastMoveRoundByUnitKey[BuildMoveMemoryKey(player, unit)] = round;
+    }
+
+    private void PruneMoveMemory(int round)
+    {
+        if (round <= 0)
+        {
+            return;
+        }
+
+        if (_lastMoveRoundByUnitKey.Count > 0)
+        {
+            var staleKeys = _lastMoveRoundByUnitKey
+                .Where(pair => pair.Value < round - 1)
+                .Select(pair => pair.Key)
+                .ToArray();
+            foreach (var key in staleKeys)
+            {
+                _lastMoveRoundByUnitKey.Remove(key);
+            }
+        }
+
+        if (_pendingMoveTargetRoundByCellKey.Count > 0)
+        {
+            var staleTargets = _pendingMoveTargetRoundByCellKey
+                .Where(pair => pair.Value < round - 1)
+                .Select(pair => pair.Key)
+                .ToArray();
+            foreach (var key in staleTargets)
+            {
+                _pendingMoveTargetRoundByCellKey.Remove(key);
+            }
+        }
+    }
+
+    private static string BuildMoveMemoryKey(PlayerManager player, Unit unit)
+    {
+        int playerId = player != null ? player.playerId : -1;
+        int unitId = unit != null ? unit.GetInstanceID() : 0;
+        return $"{playerId}:{unitId}";
+    }
+
+    private bool IsPendingMoveTarget(PlayerManager player, Vector3Int candidate, int round)
+    {
+        if (player == null || round <= 0)
+        {
+            return false;
+        }
+
+        return _pendingMoveTargetRoundByCellKey.TryGetValue(BuildCellMemoryKey(player, candidate), out int pendingRound) &&
+               pendingRound >= round - 1;
+    }
+
+    private void RememberMoveTarget(PlayerManager player, Vector3Int candidate, int round)
+    {
+        if (player == null || round <= 0)
+        {
+            return;
+        }
+
+        _pendingMoveTargetRoundByCellKey[BuildCellMemoryKey(player, candidate)] = round;
+    }
+
+    private bool IsPendingWallCandidate(PlayerManager player, Vector3Int candidate, int round)
+    {
+        if (player == null || round <= 0)
+        {
+            return false;
+        }
+
+        return _pendingWallRoundByCellKey.TryGetValue(BuildCellMemoryKey(player, candidate), out int pendingRound) &&
+               pendingRound == round;
+    }
+
+    private void RememberWallCandidate(PlayerManager player, Vector3Int candidate, int round)
+    {
+        if (player == null || round <= 0)
+        {
+            return;
+        }
+
+        string key = BuildCellMemoryKey(player, candidate);
+        _pendingWallRoundByCellKey[key] = round;
+        _builtWallCellKeys.Add(key);
+    }
+
+    private void PruneWallMemory(int round)
+    {
+        if (round <= 0 || _pendingWallRoundByCellKey.Count == 0)
+        {
+            return;
+        }
+
+        var staleKeys = _pendingWallRoundByCellKey
+            .Where(pair => pair.Value < round - 1)
+            .Select(pair => pair.Key)
+            .ToArray();
+        foreach (var key in staleKeys)
+        {
+            _pendingWallRoundByCellKey.Remove(key);
+        }
+    }
+
+    private static string BuildCellMemoryKey(PlayerManager player, Vector3Int candidate)
+    {
+        int playerId = player != null ? player.playerId : -1;
+        return $"{playerId}:{candidate.x},{candidate.y},{candidate.z}";
+    }
+
+    private bool HasBuiltWallCandidate(PlayerManager player, Vector3Int candidate)
+    {
+        if (player == null)
+        {
+            return false;
+        }
+
+        return _builtWallCellKeys.Contains(BuildCellMemoryKey(player, candidate));
+    }
+
+    private bool HasRepairableMissingWallPlan(PlayerManager player, int round)
+    {
+        var field = player != null ? player.fieldManager : null;
+        if (field == null || player.GetWallCount() <= 0 || !HasRecordedBuiltWallCandidate(player))
+        {
+            return false;
+        }
+
+        foreach (var candidate in GetWallPlan(player))
+        {
+            if (!HasBuiltWallCandidate(player, candidate) ||
+                field.HasWallAt(candidate) ||
+                IsPendingWallCandidate(player, candidate, round) ||
+                !IsLegalWallCandidate(player, candidate, round))
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool HasRecordedBuiltWallCandidate(PlayerManager player)
+    {
+        if (player == null || _builtWallCellKeys.Count == 0)
+        {
+            return false;
+        }
+
+        string prefix = $"{player.playerId}:";
+        return _builtWallCellKeys.Any(key => key.StartsWith(prefix, StringComparison.Ordinal));
+    }
+
+    private static int GetWallBuildReserve(PlayerManager player)
+    {
+        return Mathf.Max(MinimumRepairReserveWalls, player != null ? player.GetWallReserveK() : 0);
+    }
+
+    private bool IsValidMoveDestination(PlayerManager player, Unit unit, Vector3Int? destination, Vector3Int from, int round)
+    {
+        var field = player != null ? player.fieldManager : null;
+        if (field == null || unit == null || unit.Data == null || !destination.HasValue)
+        {
+            return false;
+        }
+
+        var to = destination.Value;
+        if (to == from || !field.IsValidGridPosition(to) || field.GetUnitAt(to) != null)
+        {
+            return false;
+        }
+
+        if (unit.Data.unitType == UnitType.Melee && field.HasWallAt(to))
+        {
+            return false;
+        }
+
+        if (IsPendingMoveTarget(player, to, round) || IsReservedUnbuiltWallPlanCell(player, to, round))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private Vector3Int? FindFallbackUnblockDestination(PlayerManager player, Unit unit, Vector3Int from, int round)
+    {
+        var field = player != null ? player.fieldManager : null;
+        if (field == null || unit == null || unit.Data == null)
+        {
+            return null;
+        }
+
+        foreach (var tile in field.GetValidPlacementTiles(unit.Data.unitType))
+        {
+            if (IsValidMoveDestination(player, unit, tile, from, round))
+            {
+                return tile;
+            }
+        }
+
+        return null;
+    }
+
+    private bool IsReservedUnbuiltWallPlanCell(PlayerManager player, Vector3Int candidate, int round)
+    {
+        var field = player != null ? player.fieldManager : null;
+        if (field == null || field.HasWallAt(candidate))
+        {
+            return false;
+        }
+
+        if (IsPendingWallCandidate(player, candidate, round))
+        {
+            return true;
+        }
+
+        return GetWallPlan(player).Any(pos => pos == candidate);
+    }
+
+    private bool IsPendingBuyCandidate(PlayerManager player, int slot, int round)
+    {
+        if (player == null || round <= 0 || slot < 0)
+        {
+            return false;
+        }
+
+        return _pendingBuyRoundBySlotKey.TryGetValue(BuildBuyMemoryKey(player, slot), out int pendingRound) &&
+               pendingRound >= round - 1;
+    }
+
+    private void RememberBuyCandidate(PlayerManager player, int slot, int round)
+    {
+        if (player == null || round <= 0 || slot < 0)
+        {
+            return;
+        }
+
+        _pendingBuyRoundBySlotKey[BuildBuyMemoryKey(player, slot)] = round;
+    }
+
+    private void PruneBuyMemory(int round)
+    {
+        if (round <= 0 || _pendingBuyRoundBySlotKey.Count == 0)
+        {
+            return;
+        }
+
+        var staleKeys = _pendingBuyRoundBySlotKey
+            .Where(pair => pair.Value < round - 1)
+            .Select(pair => pair.Key)
+            .ToArray();
+        foreach (var key in staleKeys)
+        {
+            _pendingBuyRoundBySlotKey.Remove(key);
+        }
+    }
+
+    private static string BuildBuyMemoryKey(PlayerManager player, int slot)
+    {
+        int playerId = player != null ? player.playerId : -1;
+        int revision = GetShopRevisionForPolicy(player);
+        return $"{playerId}:shopRev={revision}:slot={slot}";
+    }
+
+    private static int GetShopRevisionForPolicy(PlayerManager player)
+    {
+        if (player != null &&
+            player.TryGetShopSnapshot(out _, out _, out _, out int revision, out _))
+        {
+            return revision;
+        }
+
+        return 0;
     }
 
     private PrepareRerollGateResult EvaluateRerollGate(
@@ -784,15 +1380,67 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                composition.RangedDpsCount + composition.HealerCount <= 0;
     }
 
-    private static bool ShouldAllowWallFocus(PrepareArmyComposition composition)
+    private bool ShouldAllowWallFocus(PlayerManager player, PrepareArmyComposition composition, int round)
     {
+        if (player == null || player.GetWallCount() <= 0 || player.fieldManager == null)
+        {
+            return false;
+        }
+
+        if (HasRepairableMissingWallPlan(player, round))
+        {
+            return true;
+        }
+
         if (composition == null || !composition.HasMinimumArmyCore)
         {
             return false;
         }
 
-        return composition.FieldUnitCount >= PrepareArmyComposition.TargetTotalUnits &&
-               composition.CompositionDistanceToTarget == 0;
+        if (player.GetWallCount() > GetWallBuildReserve(player))
+        {
+            return true;
+        }
+
+        if (composition.FieldUnitCount < PrepareArmyComposition.TargetTotalUnits)
+        {
+            return false;
+        }
+
+        return composition.CompositionDistanceToTarget <= 2;
+    }
+
+    private bool ShouldPrioritizeWallControl(PlayerManager player, PrepareArmyComposition composition, int round)
+    {
+        if (player == null || player.GetWallCount() <= 0 || player.fieldManager == null)
+        {
+            return false;
+        }
+
+        if (HasRepairableMissingWallPlan(player, round))
+        {
+            return true;
+        }
+
+        if (player.GetWallCount() <= GetWallBuildReserve(player) || !ShouldAllowWallFocus(player, composition, round))
+        {
+            return false;
+        }
+
+        try
+        {
+            player.fieldManager.BuildWallCellHash();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static int GetOpenBorderGapCount(FieldManager field)
+    {
+        return field != null ? field.GetOpenBorderGaps().Count : 0;
     }
 
     private static Dictionary<string, object> BuildPrepareJournalFields(
@@ -893,6 +1541,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
     private sealed class WallPlanCache
     {
+        public int FieldInstanceId;
         public string Signature;
         public List<Vector3Int> Order;
     }

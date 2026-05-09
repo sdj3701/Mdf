@@ -126,6 +126,15 @@ public class FieldManager : MonoBehaviour
     private PlacementManager placementManager;
     private Dictionary<Vector3Int, Unit> placedUnits = new Dictionary<Vector3Int, Unit>();
     private readonly HashSet<Vector3Int> pendingUnitPositions = new HashSet<Vector3Int>();
+    private const int PendingNetworkMoveLifetimeFrames = 300;
+    private struct PendingNetworkMove
+    {
+        public Vector3Int From;
+        public Vector3Int To;
+        public int CreatedFrame;
+    }
+    private readonly List<PendingNetworkMove> pendingNetworkMoves = new List<PendingNetworkMove>();
+    private readonly HashSet<uint> retiredNetworkUnitIds = new HashSet<uint>();
     private Dictionary<Vector3Int, DestructibleWall> placedWalls = new Dictionary<Vector3Int, DestructibleWall>();
     // 영구(파괴 불가) 벽 관리
     private Dictionary<Vector3Int, GameObject> placedPermanentWalls = new Dictionary<Vector3Int, GameObject>();
@@ -355,6 +364,8 @@ public class FieldManager : MonoBehaviour
         this.playerManager = owner;
         this.ground3D = ground3DObject;
         pendingUnitPositions.Clear();
+        pendingNetworkMoves.Clear();
+        retiredNetworkUnitIds.Clear();
 
         // 3D Ground 기준으로 항상 그리드 원점을 정렬하고, 필요 시에만 사이즈를 유도합니다.
         if (ground3D != null)
@@ -1287,7 +1298,7 @@ public class FieldManager : MonoBehaviour
 
         foreach (var wall in placedWalls.Values)
         {
-            if (wall != null)
+            if (IsLiveDestructibleWallCandidate(wall))
             {
                 destructibleWalls.Add(wall);
             }
@@ -1303,7 +1314,7 @@ public class FieldManager : MonoBehaviour
             destructibleWalls.Add(wall);
         }
 
-        foreach (var wall in destructibleWalls.Where(wall => wall != null).Distinct())
+        foreach (var wall in destructibleWalls.Where(IsLiveDestructibleWallCandidate).Distinct())
         {
             destructibleCandidates++;
             Vector3Int cell = WorldToGridInt(wall.transform.position);
@@ -1425,6 +1436,13 @@ public class FieldManager : MonoBehaviour
         return true;
     }
 
+    private static bool IsLiveDestructibleWallCandidate(DestructibleWall wall)
+    {
+        return wall != null
+            && wall.gameObject != null
+            && wall.gameObject.activeSelf;
+    }
+
     /// <summary>
     /// Host Migration 이후 런타임 유닛 맵(placedUnits)을 월드 오브젝트 기준으로 재구성합니다.
     /// </summary>
@@ -1483,6 +1501,11 @@ public class FieldManager : MonoBehaviour
 
         foreach (var unit in unitCandidates.Where(u => u != null).Distinct())
         {
+            if (TryGetUnitNetworkIdRaw(unit, out uint unitIdRaw) && retiredNetworkUnitIds.Contains(unitIdRaw))
+            {
+                continue;
+            }
+
             if (!unit.gameObject.activeInHierarchy || unit.IsDead)
             {
                 continue;
@@ -1521,6 +1544,7 @@ public class FieldManager : MonoBehaviour
 
         placedUnits = rebuiltUnits;
         pendingUnitPositions.Clear();
+        pendingNetworkMoves.Clear();
 
         bool unitMapChanged = !oldCells.SetEquals(placedUnits.Keys);
         _lastUnitMapRebuildFrame = Time.frameCount;
@@ -1538,6 +1562,8 @@ public class FieldManager : MonoBehaviour
 
     public string BuildWallCellHash()
     {
+        RefreshWallMapsFromSceneIfPlaying("BuildWallCellHash");
+
         var destructible = placedWalls.Keys
             .OrderBy(cell => cell.x)
             .ThenBy(cell => cell.y)
@@ -2440,6 +2466,7 @@ public class FieldManager : MonoBehaviour
                     // Debug.LogError($"[FieldManager] Runner.Spawn 실패: {prefabToCreate.name} (Player={playerManager?.playerId})");
                     return;
                 }
+                retiredNetworkUnitIds.Remove(spawned.Id.Raw);
                 newUnitGO = spawned.gameObject;
                 if (unitParent != null)
                 {
@@ -2490,6 +2517,7 @@ public class FieldManager : MonoBehaviour
                 }
                 placedUnits.Add(gridPosition, newUnitComponent);
                 CheckForCombination();
+                BroadcastAuthoritativeUnitRoster("CreateUnitAt");
             }
             else
             {
@@ -2525,6 +2553,7 @@ public class FieldManager : MonoBehaviour
 
     public void MoveUnit(Vector3Int from, Vector3Int to)
     {
+        PruneExpiredPendingNetworkMoves();
         if (!IsValidGridPosition(from) || !IsValidGridPosition(to))
         {
             // Debug.LogWarning($"[FieldManager] MoveUnit 무시: 범위를 벗어난 이동 {from} -> {to} (GridSize={gridSize})");
@@ -2547,11 +2576,89 @@ public class FieldManager : MonoBehaviour
 
             placedUnits.Add(to, unit);
             CheckForCombination();
+            BroadcastAuthoritativeUnitRoster("MoveUnit");
         }
         else
         {
+            QueuePendingNetworkMove(from, to);
             // Debug.LogWarning($"<color=red>[FieldManager] MoveUnit: '{from}' 위치에서 유닛을 찾을 수 없습니다.</color>");
         }
+    }
+
+    private bool ShouldQueuePendingNetworkMove()
+    {
+        return playerManager != null
+            && playerManager.Runner != null
+            && playerManager.Runner.IsRunning
+            && playerManager.Object != null
+            && playerManager.Object.IsValid
+            && !playerManager.Object.HasStateAuthority;
+    }
+
+    private void QueuePendingNetworkMove(Vector3Int from, Vector3Int to)
+    {
+        if (!ShouldQueuePendingNetworkMove())
+        {
+            return;
+        }
+
+        if (pendingNetworkMoves.Any(move => move.From == from && move.To == to))
+        {
+            return;
+        }
+
+        pendingNetworkMoves.Add(new PendingNetworkMove
+        {
+            From = from,
+            To = to,
+            CreatedFrame = Time.frameCount
+        });
+    }
+
+    private void ProcessPendingNetworkMoves()
+    {
+        if (pendingNetworkMoves.Count == 0)
+        {
+            return;
+        }
+
+        PruneExpiredPendingNetworkMoves();
+
+        bool progressed;
+        do
+        {
+            progressed = false;
+            for (int i = pendingNetworkMoves.Count - 1; i >= 0; i--)
+            {
+                var move = pendingNetworkMoves[i];
+                if (!placedUnits.TryGetValue(move.From, out var unit) || unit == null)
+                {
+                    continue;
+                }
+
+                if (!IsValidGridPosition(move.To) || placedUnits.ContainsKey(move.To))
+                {
+                    continue;
+                }
+
+                placedUnits.Remove(move.From);
+                MoveUnitImmediate(unit, GridToWorld(move.To, checkForWall: true));
+                placedUnits[move.To] = unit;
+                pendingNetworkMoves.RemoveAt(i);
+                progressed = true;
+            }
+        } while (progressed);
+    }
+
+    private void PruneExpiredPendingNetworkMoves()
+    {
+        if (pendingNetworkMoves.Count == 0)
+        {
+            return;
+        }
+
+        int oldestAllowedFrame = Time.frameCount - PendingNetworkMoveLifetimeFrames;
+        pendingNetworkMoves.RemoveAll(move => move.CreatedFrame < oldestAllowedFrame);
     }
 
     public void SwapUnits(Vector3Int a, Vector3Int b)
@@ -2585,6 +2692,7 @@ public class FieldManager : MonoBehaviour
         placedUnits[a] = unitB;
         placedUnits[b] = unitA;
         CheckForCombination();
+        BroadcastAuthoritativeUnitRoster("SwapUnits");
     }
 
     private void RespawnAllUnits()
@@ -2646,6 +2754,85 @@ public class FieldManager : MonoBehaviour
             return entry.Key;
         }
         return null;
+    }
+
+    public void BroadcastAuthoritativeUnitRoster(string context)
+    {
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner == null
+            || !runner.IsRunning
+            || playerManager == null
+            || playerManager.Object == null
+            || !playerManager.Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        BuildAuthoritativeUnitRoster(out var unitIdRaws, out var flatPositions, out var unitDataKeys, out var starLevels);
+        playerManager.RPC_ReconcileUnitRoster(unitIdRaws, flatPositions, unitDataKeys, starLevels);
+    }
+
+    private void BuildAuthoritativeUnitRoster(out int[] unitIdRaws, out int[] flatPositions, out string[] unitDataKeys, out int[] starLevels)
+    {
+        var entries = placedUnits
+            .Where(kvp => kvp.Value != null
+                && TryGetUnitNetworkIdRaw(kvp.Value, out uint unitIdRaw))
+            .OrderBy(kvp => kvp.Key.x)
+            .ThenBy(kvp => kvp.Key.y)
+            .ThenBy(kvp => kvp.Key.z)
+            .ToList();
+
+        unitIdRaws = new int[entries.Count];
+        flatPositions = new int[entries.Count * 3];
+        unitDataKeys = new string[entries.Count];
+        starLevels = new int[entries.Count];
+
+        for (int i = 0; i < entries.Count; i++)
+        {
+            var entry = entries[i];
+            TryGetUnitNetworkIdRaw(entry.Value, out uint unitIdRaw);
+            unitIdRaws[i] = unchecked((int)unitIdRaw);
+            flatPositions[(i * 3) + 0] = entry.Key.x;
+            flatPositions[(i * 3) + 1] = entry.Key.y;
+            flatPositions[(i * 3) + 2] = entry.Key.z;
+            unitDataKeys[i] = GetUnitDataRegistrationKey(entry.Value);
+            starLevels[i] = entry.Value != null ? entry.Value.starLevel : 0;
+        }
+    }
+
+    private static bool TryGetUnitNetworkIdRaw(Unit unit, out uint unitIdRaw)
+    {
+        unitIdRaw = 0;
+        if (unit == null || !unit.TryGetComponent<NetworkObject>(out var networkObject) || networkObject == null || !networkObject.IsValid)
+        {
+            return false;
+        }
+
+        unitIdRaw = networkObject.Id.Raw;
+        return true;
+    }
+
+    private void BroadcastUnitUnregistered(Unit unit, Vector3Int position, string unitDataKey, int starLevel)
+    {
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner == null
+            || !runner.IsRunning
+            || playerManager == null
+            || playerManager.Object == null
+            || !playerManager.Object.HasStateAuthority
+            || unit == null
+            || !unit.TryGetComponent<NetworkObject>(out var networkObject))
+        {
+            return;
+        }
+
+        retiredNetworkUnitIds.Add(networkObject.Id.Raw);
+        playerManager.RPC_UnregisterUnitAt(networkObject.Id, position.x, position.y, unitDataKey, starLevel);
+    }
+
+    private static string GetUnitDataRegistrationKey(Unit unit)
+    {
+        return unit != null && unit.Data != null ? unit.Data.name : string.Empty;
     }
 
     public int GetSellPrice(Unit unit)
@@ -2734,6 +2921,8 @@ public class FieldManager : MonoBehaviour
     /// </summary>
     public List<Vector3Int> GetValidPlacementTiles(UnitType unitType)
     {
+        RefreshWallMapsFromSceneIfPlaying("GetValidPlacementTiles");
+
         var validTiles = new List<Vector3Int>();
         // 3D 모드: 논리 그리드의 모든 셀이 배치 가능 (근접 유닛의 경우)
         if (unitType == UnitType.Melee)
@@ -2761,6 +2950,16 @@ public class FieldManager : MonoBehaviour
         return validTiles;
     }
 
+    private void RefreshWallMapsFromSceneIfPlaying(string context)
+    {
+        if (!Application.isPlaying)
+        {
+            return;
+        }
+
+        RebuildWallMapsAfterMigration($"FieldManager.{context}", false, out _);
+    }
+
     #endregion
 
     #region AI-specific Public Methods
@@ -2772,6 +2971,8 @@ public class FieldManager : MonoBehaviour
     {
         placedUnits.Clear();
         pendingUnitPositions.Clear();
+        pendingNetworkMoves.Clear();
+        retiredNetworkUnitIds.Clear();
     }
 
     /// <summary>
@@ -2807,6 +3008,91 @@ public class FieldManager : MonoBehaviour
         Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
         unit.transform.position = worldPos;
         placedUnits[gridPosition] = unit;
+        ProcessPendingNetworkMoves();
+    }
+
+    public void ReconcileUnitsToAuthoritativeRoster(Dictionary<uint, Vector3Int> authoritativePositions)
+    {
+        if (authoritativePositions == null)
+        {
+            return;
+        }
+
+        foreach (var unitIdRaw in authoritativePositions.Keys)
+        {
+            retiredNetworkUnitIds.Remove(unitIdRaw);
+        }
+
+        var seen = new HashSet<uint>();
+        var cellsToRemove = new List<Vector3Int>();
+        foreach (var entry in placedUnits.ToArray())
+        {
+            var unit = entry.Value;
+            if (unit == null || !TryGetUnitNetworkIdRaw(unit, out uint unitIdRaw))
+            {
+                cellsToRemove.Add(entry.Key);
+                continue;
+            }
+
+            if (!authoritativePositions.TryGetValue(unitIdRaw, out var authoritativePosition))
+            {
+                retiredNetworkUnitIds.Add(unitIdRaw);
+                cellsToRemove.Add(entry.Key);
+                continue;
+            }
+
+            if (entry.Key != authoritativePosition || !seen.Add(unitIdRaw))
+            {
+                cellsToRemove.Add(entry.Key);
+            }
+        }
+
+        foreach (var cell in cellsToRemove)
+        {
+            placedUnits.Remove(cell);
+            pendingUnitPositions.Remove(cell);
+        }
+
+        ProcessPendingNetworkMoves();
+    }
+
+    public bool UnregisterUnitAt(Unit unit, Vector3Int expectedPosition, string unitDataKey, int starLevel)
+    {
+        bool removed = false;
+
+        if (unit != null)
+        {
+            if (TryGetUnitNetworkIdRaw(unit, out uint unitIdRaw))
+            {
+                retiredNetworkUnitIds.Add(unitIdRaw);
+            }
+
+            var keys = placedUnits
+                .Where(kvp => kvp.Value == unit)
+                .Select(kvp => kvp.Key)
+                .ToArray();
+            foreach (var key in keys)
+            {
+                placedUnits.Remove(key);
+                removed = true;
+            }
+        }
+
+        if (IsValidGridPosition(expectedPosition) && placedUnits.TryGetValue(expectedPosition, out var existing))
+        {
+            if (existing == null || existing == unit)
+            {
+                placedUnits.Remove(expectedPosition);
+                removed = true;
+            }
+        }
+
+        if (removed)
+        {
+            pendingUnitPositions.Remove(expectedPosition);
+        }
+
+        return removed;
     }
 
     #endregion
@@ -2830,6 +3116,7 @@ public class FieldManager : MonoBehaviour
         }
 
         List<Vector3Int> candidateTiles = allValidTiles;
+        HashSet<Vector3Int> rangedPathTiles = null;
 
         // [핵심 수정] 근접 유닛의 경우, 배치 후보지를 몬스터 경로 위로 먼저 한정합니다.
         if (unitData.unitType == UnitType.Melee && monsterPathContext != null && monsterPathContext.Count > 0)
@@ -2857,6 +3144,12 @@ public class FieldManager : MonoBehaviour
             // 경로 위에 배치할 곳이 없다면, 원래의 모든 유효 타일을 대상으로 점수를 계산합니다(폴백).
         }
 
+        if (unitData.unitType == UnitType.Ranged && monsterPathContext != null && monsterPathContext.Count > 0)
+        {
+            rangedPathTiles = BuildMonsterPathTileSet(monsterPathContext);
+            candidateTiles = FilterRangedCandidatesForMonsterPath(allValidTiles, monsterPathContext, unitData.attackRange);
+        }
+
         var alliedUnits = alliedUnitsContext ?? GetAlliedUnitsOnField();
 
         Vector3Int bestPosition = Vector3Int.zero;
@@ -2881,6 +3174,10 @@ public class FieldManager : MonoBehaviour
 
             var context = new AIContext(playerManager, unitData, tilePos, alliedUnits, monsterPathContext);
             float currentScore = CalculateScore(context, _placementConsiderations, tilePos);
+            if (unitData.unitType == UnitType.Ranged && rangedPathTiles != null && rangedPathTiles.Count > 0)
+            {
+                currentScore += CalculateRangedPathPriorityBonus(tilePos, rangedPathTiles, unitData.attackRange);
+            }
 
             // 디버그용 점수 저장
             _debugTileScores[tilePos] = currentScore;
@@ -2905,6 +3202,181 @@ public class FieldManager : MonoBehaviour
         // 점수 계산에 실패했더라도, 배치 가능한 첫 번째 위치라도 반환합니다.
         ClearDebugScores();
         return FindFirstEmptySlot(unitData);
+    }
+
+    private List<Vector3Int> FilterRangedCandidatesForMonsterPath(
+        List<Vector3Int> allValidTiles,
+        List<AstarNode> monsterPathContext,
+        float attackRange)
+    {
+        if (allValidTiles == null || allValidTiles.Count == 0 || monsterPathContext == null || monsterPathContext.Count == 0)
+        {
+            return allValidTiles;
+        }
+
+        var pathTiles = BuildMonsterPathTileSet(monsterPathContext);
+
+        if (pathTiles.Count == 0)
+        {
+            return allValidTiles;
+        }
+
+        var pathCoveringTiles = allValidTiles
+            .Where(tile => CountCoveredMonsterPathTiles(tile, pathTiles, attackRange) > 0)
+            .ToList();
+        if (pathCoveringTiles.Count == 0)
+        {
+            return allValidTiles;
+        }
+
+        int maxCovered = pathCoveringTiles.Max(tile => CountCoveredMonsterPathTiles(tile, pathTiles, attackRange));
+        int minStrongCoverage = Mathf.Max(1, Mathf.CeilToInt(maxCovered * 0.8f));
+        pathCoveringTiles = pathCoveringTiles
+            .Where(tile => CountCoveredMonsterPathTiles(tile, pathTiles, attackRange) >= minStrongCoverage)
+            .ToList();
+
+        var interiorPathCoveringTiles = pathCoveringTiles
+            .Where(tile => !IsOuterRingCell(tile) && !IsBorderGapCell(tile))
+            .ToList();
+        if (interiorPathCoveringTiles.Count > 0)
+        {
+            return interiorPathCoveringTiles;
+        }
+
+        var nonGapPathCoveringTiles = pathCoveringTiles
+            .Where(tile => !IsBorderGapCell(tile))
+            .ToList();
+        return nonGapPathCoveringTiles.Count > 0
+            ? nonGapPathCoveringTiles
+            : pathCoveringTiles;
+    }
+
+    private HashSet<Vector3Int> BuildMonsterPathTileSet(List<AstarNode> monsterPathContext)
+    {
+        var pathTiles = new HashSet<Vector3Int>();
+        if (monsterPathContext == null)
+        {
+            return pathTiles;
+        }
+
+        foreach (var node in monsterPathContext)
+        {
+            if (node == null)
+            {
+                continue;
+            }
+
+            var tile = new Vector3Int(node.x, node.y, 0);
+            if (IsValidGridPosition(tile))
+            {
+                pathTiles.Add(tile);
+            }
+        }
+
+        return pathTiles;
+    }
+
+    private float CalculateRangedPathPriorityBonus(Vector3Int position, HashSet<Vector3Int> pathTiles, float attackRange)
+    {
+        if (pathTiles == null || pathTiles.Count == 0)
+        {
+            return 0f;
+        }
+
+        int covered = CountCoveredMonsterPathTiles(position, pathTiles, attackRange);
+        if (covered <= 0)
+        {
+            return 0f;
+        }
+
+        int usefulTargetCount = Mathf.Max(1, Mathf.Min(pathTiles.Count, CountTilesInAttackCircle(attackRange)));
+        float coverageScore = Mathf.Clamp01((float)covered / usefulTargetCount);
+        float centerScore = CalculateFieldCenterScore(position);
+        float borderPenalty = IsOuterRingCell(position) || IsBorderGapCell(position) ? -0.35f : 0f;
+        return coverageScore * 2.0f + centerScore * 0.75f + borderPenalty;
+    }
+
+    private int CountTilesInAttackCircle(float attackRange)
+    {
+        int count = 0;
+        int intRange = Mathf.CeilToInt(Mathf.Max(0f, attackRange));
+        float sqrRange = attackRange * attackRange;
+        for (int x = -intRange; x <= intRange; x++)
+        {
+            for (int y = -intRange; y <= intRange; y++)
+            {
+                if (x * x + y * y <= sqrRange)
+                {
+                    count++;
+                }
+            }
+        }
+
+        return Mathf.Max(1, count);
+    }
+
+    private float CalculateFieldCenterScore(Vector3Int position)
+    {
+        float centerX = (gridSize.x - 1) * 0.5f;
+        float centerY = (gridSize.y - 1) * 0.5f;
+        float maxDistance = Mathf.Sqrt(centerX * centerX + centerY * centerY);
+        if (maxDistance <= 0f)
+        {
+            return 1f;
+        }
+
+        float distance = Vector2.Distance(new Vector2(position.x, position.y), new Vector2(centerX, centerY));
+        return 1f - Mathf.Clamp01(distance / maxDistance);
+    }
+
+    private int CountCoveredMonsterPathTiles(Vector3Int position, HashSet<Vector3Int> pathTiles, float attackRange)
+    {
+        if (pathTiles == null || pathTiles.Count == 0)
+        {
+            return 0;
+        }
+
+        int covered = 0;
+        int intRange = Mathf.CeilToInt(Mathf.Max(0f, attackRange));
+        float sqrRange = attackRange * attackRange;
+        for (int x = -intRange; x <= intRange; x++)
+        {
+            for (int y = -intRange; y <= intRange; y++)
+            {
+                if (x * x + y * y > sqrRange)
+                {
+                    continue;
+                }
+
+                if (pathTiles.Contains(position + new Vector3Int(x, y, 0)))
+                {
+                    covered++;
+                }
+            }
+        }
+
+        return covered;
+    }
+
+    private bool IsOuterRingCell(Vector3Int cell)
+    {
+        return cell.x <= 0 ||
+               cell.y <= 0 ||
+               cell.x >= gridSize.x - 1 ||
+               cell.y >= gridSize.y - 1;
+    }
+
+    private bool IsBorderGapCell(Vector3Int cell)
+    {
+        foreach (var gap in GetBorderGapCells())
+        {
+            if (gap.x == cell.x && gap.y == cell.y)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private float CalculateScore(AIContext context, List<Consideration> considerations, Vector3Int tilePos)
@@ -2978,6 +3450,12 @@ public class FieldManager : MonoBehaviour
             for (int i = 0; i < 2; i++)
             {
                 var unit = unitsToCombine[i];
+                var unitPosition = GetUnitPosition(unit);
+                if (unitPosition.HasValue)
+                {
+                    BroadcastUnitUnregistered(unit, unitPosition.Value, GetUnitDataRegistrationKey(unit), unit != null ? unit.starLevel : 0);
+                }
+
                 UnitDied(unit);
 
                 if (canDespawn && unit != null && unit.TryGetComponent<NetworkObject>(out var no))
@@ -2989,6 +3467,8 @@ public class FieldManager : MonoBehaviour
                     Destroy(unit.gameObject);
                 }
             }
+            BroadcastAuthoritativeUnitRoster("CheckForCombination.RemoveConsumed");
+
             Unit baseUnit = unitsToCombine[2];
             await baseUnit.Upgrade();
             ReplaceUnitPrefab(baseUnit);
@@ -3007,6 +3487,7 @@ public class FieldManager : MonoBehaviour
         Vector3Int currentPos = placedUnits.First(kvp => kvp.Value == unitToReplace).Key;
         UnitData unitData = unitToReplace.Data;
         int newStarLevel = unitToReplace.starLevel;
+        int retiredStarLevel = Mathf.Max(1, newStarLevel - 1);
         var runner = playerManager != null ? playerManager.Runner : null;
         if (runner != null
             && runner.IsRunning
@@ -3017,6 +3498,7 @@ public class FieldManager : MonoBehaviour
         }
 
         // 기존 유닛 제거
+        BroadcastUnitUnregistered(unitToReplace, currentPos, GetUnitDataRegistrationKey(unitToReplace), retiredStarLevel);
         UnitDied(unitToReplace);
         if (runner != null
             && runner.IsRunning
@@ -3076,6 +3558,7 @@ public class FieldManager : MonoBehaviour
                 return;
             }
 
+            retiredNetworkUnitIds.Remove(spawnedNO.Id.Raw);
             unitGO = spawnedNO.gameObject;
             if (unitParent != null)
             {
@@ -3126,6 +3609,7 @@ public class FieldManager : MonoBehaviour
         AttachStatusBar(unitGO, newUnit.SetStatusBar);
         await newUnit.Initialize(unitData, newStarLevel, playerManager);
         placedUnits[currentPos] = newUnit;
+        BroadcastAuthoritativeUnitRoster("ReplaceUnitPrefab");
     }
 
     #endregion

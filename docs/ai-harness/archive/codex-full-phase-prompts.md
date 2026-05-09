@@ -1,5 +1,7 @@
 # MDF Codex Full Phase Prompts
 
+Historical archive note, 2026-05-08: this file is retained for harness bootstrap history only. Current feature and harness work should use `../content-development-routine.md`, `../verification-profile-selector.md`, `../feature-implementation-loop.md`, `../mp-test-protocol.md`, `../state-snapshot-schema.md`, and `../learned-recipes.md`.
+
 Use these prompts in order. Do not ask Codex to run all phases at once unless you explicitly want a long uncontrolled implementation. The safest flow is: paste one phase, review the report, then paste the next phase.
 
 ## Phase 0/1 — Baseline and overlay validation

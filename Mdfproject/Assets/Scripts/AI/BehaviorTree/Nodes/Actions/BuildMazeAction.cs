@@ -192,16 +192,6 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (_playerManager.mazePlannedOrder == null || _playerManager.mazePlannedOrder.Count == 0)
             {
-                int currentStock = _playerManager.GetWallCount();
-                int currentReserve = _playerManager.GetWallReserveK();
-                int budget = currentStock - currentReserve;
-                if (budget > 0 && budget > _lastExtendBudgetTried)
-                {
-                    _activeExtendBudget = budget;
-                    _extendPlanTask = MazePlanner.PlanAdditionalWallsAsync(fm, _playerManager);
-                    return status = NodeStatus.Running;
-                }
-
                 _playerManager.mazeConstructionComplete = true;
                 return status = NodeStatus.Failure;
             }
@@ -246,19 +236,6 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (!hasMissing)
             {
-                if (_extendPlanTask != null)
-                {
-                    return status = NodeStatus.Running;
-                }
-
-                int budget = stock - reserve;
-                if (budget > 0 && budget > _lastExtendBudgetTried)
-                {
-                    _activeExtendBudget = budget;
-                    _extendPlanTask = MazePlanner.PlanAdditionalWallsAsync(fm, _playerManager);
-                    return status = NodeStatus.Running;
-                }
-
                 if (!_playerManager.mazeConstructionComplete)
                 {
                     _playerManager.mazeConstructionComplete = true;

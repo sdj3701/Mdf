@@ -807,38 +807,35 @@ public class MonsterSpawner : MonoBehaviour
     /// <param name="round">현재 라운드</param>
     /// <param name="targetFieldManager">수비자 필드</param>
     /// <param name="isAI">AI 공격자 여부</param>
-    public async UniTask SpawnAllMonstersToTargetField(int round, FieldManager targetFieldManager, bool isAI, string battleBootstrapKey = null)
+    public UniTask SpawnAllMonstersToTargetField(int round, FieldManager targetFieldManager, bool isAI, string battleBootstrapKey = null)
     {
         if (!EnsureRuntimeReferences("SpawnAllMonstersToTargetField", true))
         {
-            return;
+            return UniTask.CompletedTask;
         }
 
         if (_playerManager == null)
         {
             // Debug.LogError($"[MonsterSpawner] SpawnAllMonstersToTargetField 중단: playerManager null ({DescribeRuntimeState()})");
-            return;
+            return UniTask.CompletedTask;
         }
 
         if (targetFieldManager == null)
         {
             // Debug.LogError("[MonsterSpawner] SpawnAllMonstersToTargetField: targetFieldManager가 null입니다!");
-            return;
+            return UniTask.CompletedTask;
         }
         
-        // AI만 AttackMonsterPool에서 자동 소환
-        // 유저는 UI를 통해 수동 소환 (기존 로직 유지)
+        // AI attackers must go through AIPlayerController -> BattleDecisionPolicy
+        // -> ServerAiCommandEmitter so real AI and HumanBot share decisions.
         if (isAI)
         {
-            // Debug.Log($"<color=cyan>[MonsterSpawner] AI 공격자: AttackMonsterPool 자동 소환 시작</color>");
-            await StartAutoSpawnFromPool(targetFieldManager, battleBootstrapKey);
+            Debug.LogWarning("[MonsterSpawner] SpawnAllMonstersToTargetField AI bootstrap is disabled. Use BattleDecisionPolicy command emission instead.");
+            return UniTask.CompletedTask;
         }
-        else
-        {
-            // 유저 공격자: AttackMonsterPool은 UI를 통해 수동 선택
-            // 카메라/UI 처리는 RPC_NotifyBattleStart에서 각 클라이언트가 처리
-            // Debug.Log($"<color=green>[MonsterSpawner] 유저 공격자: AttackMonsterPool 수동 소환 대기</color>");
-        }
+
+        // Human attackers use UI or HumanBot client command emission.
+        return UniTask.CompletedTask;
     }
     
     #endregion

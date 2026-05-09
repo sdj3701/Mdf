@@ -21,7 +21,12 @@ def utc_stamp() -> str:
 
 def make_artifact_dir(case_name: str, root: pathlib.Path | None = None) -> pathlib.Path:
     base = root or ARTIFACT_ROOT
-    path = base / f"{utc_stamp()}-{case_name}"
+    stem = f"{utc_stamp()}-{case_name}"
+    path = base / stem
+    suffix = 2
+    while path.exists():
+        path = base / f"{stem}-{suffix}"
+        suffix += 1
     path.mkdir(parents=True, exist_ok=True)
     (path / "snapshots").mkdir(exist_ok=True)
     (path / "screenshots").mkdir(exist_ok=True)

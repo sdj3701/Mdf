@@ -628,34 +628,9 @@ public partial class GameManagers
             RPC_NotifyBattleStart(defenderId, false, attackerId);
 
             bool isAiAttacker = ComponentRegistry.Has<AIPlayerController>(attackerId.ToString());
-            if (isAiAttacker)
-            {
-                if (!attackerHasPool)
-                {
-                    LogMigrationTrace(
-                        "BATTLE-REBOOTSTRAP:FAIL_POOL_EMPTY",
-                        $"context={context}, attacker={attackerId}, defender={defenderId}, key={battleKey}");
-                    continue;
-                }
-
-                RunLifecycleTask(
-                    attacker.monsterSpawner.SpawnAllMonstersToTargetField(
-                        currentRound,
-                        defender.fieldManager,
-                        true,
-                        battleKey),
-                    $"BattleRebootstrap/SpawnAllMonstersToTargetField/A{attackerId}->D{defenderId}");
-
-                LogMigrationTrace(
-                    "BATTLE-REBOOTSTRAP:APPLIED",
-                    $"context={context}, key={battleKey}, attacker={attackerId}, defender={defenderId}, mode=AI");
-            }
-            else
-            {
-                LogMigrationTrace(
-                    "BATTLE-REBOOTSTRAP:APPLIED",
-                    $"context={context}, key={battleKey}, attacker={attackerId}, defender={defenderId}, mode=HumanNotify");
-            }
+            LogMigrationTrace(
+                "BATTLE-REBOOTSTRAP:APPLIED",
+                $"context={context}, key={battleKey}, attacker={attackerId}, defender={defenderId}, mode={(isAiAttacker ? "AICommandPolicy" : "HumanNotify")}");
         }
     }
     

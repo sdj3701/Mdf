@@ -11,6 +11,7 @@ Rules:
 
 - Development Build for automation server.
 - Include `Title`, `MatchingLobby`, `JoinLobby`, `Game` scenes.
-- Store build under `artifacts/builds/<timestamp>/`.
+- Store evidence builds under `artifacts/builds/<timestamp>/`.
+- For repeated local visual MP checks on Windows, a stable ignored output dir such as `artifacts/builds/mptest-current` may be used with `tools/harness/mp/configure_windows_firewall.py` so Defender Firewall does not prompt for every timestamped exe path.
 - Capture build log and build path.
 - Never include test automation in non-development builds.

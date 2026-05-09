@@ -9,11 +9,10 @@ using UnityEngine;
 
 public sealed class MPTestHumanBotDriver : MonoBehaviour
 {
-    private const float DefaultDecisionIntervalSeconds = 0.5f;
-
     public static MPTestHumanBotDriver Instance { get; private set; }
 
     private MPTestCommandLine.Options _options;
+    private MdfBotProfile _profile;
     private PrepareDecisionPolicy _preparePolicy;
     private BattleDecisionPolicy _battlePolicy;
     private HumanClientCommandEmitter _commandEmitter;
@@ -96,7 +95,12 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         _preferScrollAugment = preferScrollAugmentOverride ?? options.BotPreferScrollAugment;
         string journalPath = ResolveJournalPath(options, journalPathOverride);
 
-        _preparePolicy = new PrepareDecisionPolicy(_persona.ToCliValue(), seed, _preferScrollAugment);
+        _profile = MdfBotProfile.Create(
+            _persona.ToCliValue(),
+            seed,
+            _preferScrollAugment,
+            MdfBotProfile.DefaultDecisionIntervalSeconds);
+        _preparePolicy = new PrepareDecisionPolicy(_profile);
         _battlePolicy = new BattleDecisionPolicy();
         _commandEmitter = null;
         _journal = new MPTestBotJournal(journalPath);
@@ -161,7 +165,10 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             return;
         }
 
-        _nextDecisionAt = Time.realtimeSinceStartup + DefaultDecisionIntervalSeconds;
+        float decisionInterval = _profile != null
+            ? _profile.DecisionIntervalSeconds
+            : MdfBotProfile.DefaultDecisionIntervalSeconds;
+        _nextDecisionAt = Time.realtimeSinceStartup + decisionInterval;
         TickDecision();
     }
 
@@ -194,7 +201,7 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             gm,
             player,
             CommandExecutionScope.ClientRequest,
-            _persona.ToCliValue(),
+            _profile != null ? _profile.Persona : _persona.ToCliValue(),
             isHumanBot: true,
             isServerAi: false,
             isTestAutomation: true);

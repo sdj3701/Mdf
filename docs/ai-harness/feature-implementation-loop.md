@@ -4,6 +4,8 @@
 
 This is the default workflow whenever Codex is asked to implement or modify gameplay, UI, networking, commands, AI, Host Migration, or test automation.
 
+For short gameplay/content/AI/UI/network requests, Codex must automatically apply `docs/ai-harness/content-development-routine.md`. The user does not need to paste the long template.
+
 The goal is to prevent “compile-only PASS”. A feature is not done until Codex has evidence from Unity compile, console, tests, and relevant multiplayer E2E artifacts.
 
 ## Loop
@@ -43,14 +45,21 @@ The goal is to prevent “compile-only PASS”. A feature is not done until Code
 
 6. **Build/E2E verification**
    - Build a Development player when the feature affects multiplayer, commands, scenes, UI flow, or networking.
-   - Run the smallest relevant matrix profile or targeted case:
+   - Run the smallest relevant matrix profile or targeted case. Use `docs/ai-harness/verification-profile-selector.md` for current selection rules:
      - `python tools/harness/mp/run_matrix.py --profile smoke` for cheap Editor/Build coverage.
-     - `python tools/harness/mp/run_matrix.py --profile random-aware` for AI, prepare, content, or random progression changes.
+     - `python tools/harness/mp/run_matrix.py --profile random-aware` for random outcome changes or significant prepare/progression changes that need same-player random assertions.
      - `python tools/harness/mp/run_matrix.py --profile battle` for battle command changes.
-     - `python tools/harness/mp/run_matrix.py --profile nightly` only for merge/nightly coverage.
+     - `python tools/harness/mp/run_matrix.py --profile lifecycle` for persistent state, reconnect, disconnect/AI takeover, or Host Migration-sensitive changes.
+     - `python tools/harness/mp/run_matrix.py --profile long` for 3-round or midgame confidence.
+     - `python tools/harness/mp/run_matrix.py --profile long-lifecycle` for lifecycle insertion after a 3-round checkpoint.
+     - `python tools/harness/mp/run_matrix.py --profile full-regression` for merge or large-change coverage that must include long progression.
+     - `python tools/harness/mp/run_matrix.py --profile nightly` only for the current pre-long nightly set. It is not the same as `full-regression`.
+     - `python tools/harness/mp/run_matrix.py --profile endurance` only for explicit game-to-end/endurance requests.
      - `python tools/harness/mp/run_matrix.py --case <case>` for a targeted regression.
    - `--case all` preserves the existing default subset and is not nightly.
-   - Capture `[MPTEST]` logs, screenshots, stdout/stderr, Unity console, and state snapshots.
+   - Use `--headless-player` for build E2E unless screenshot or visual artifacts are required.
+   - Capture `[MPTEST]` logs, screenshots or skipped screenshot records, stdout/stderr, Unity console, cleanup reports, and state snapshots.
+   - Do not run heavier E2E when the orphan pressure gate blocks. Report `NEEDS_ENVIRONMENT` with the exact reason.
    - For HumanBot or progressed-state scenarios, wait on state gates such as scene, player count, snapshot readiness, accepted command, round/state, and migration/reconnect events. Avoid wall-clock sleeps as proof.
 
 7. **Triage**
@@ -60,7 +69,7 @@ The goal is to prevent “compile-only PASS”. A feature is not done until Code
    - If the environment cannot run, report `NEEDS_ENVIRONMENT` and do not claim PASS.
 
 8. **Knowledge capture**
-   - If a new stable command, timing, screenshot trick, build path, or failure pattern is found, update `learned-recipes.md` before the final response.
+   - If a recipe was used or verified, touch its lifecycle metadata. If a new stable command, timing, screenshot trick, build path, or failure pattern is found, update `learned-recipes.md` before the final response.
 
 ## Randomized progression loop
 
@@ -81,11 +90,19 @@ A final report must include:
 - Files changed.
 - Commands run.
 - PASS/FAIL per command.
-- Artifact paths.
-- Multiplayer cases run or skipped with reasons.
+- Compile and console result.
+- Test results, or skipped tests with exact reason.
+- Multiplayer profile/cases run, or skipped with exact reason.
+- Artifact paths for E2E.
+- `cleanupStatus` for E2E.
+- `orphanedPids` for E2E.
+- Snapshot comparison result for E2E.
 - Remaining risks.
+- Learned recipe touched/updated, or a statement that no reusable method was found.
 
-## Copy-paste feature prompt template
+## Internal expansion template
+
+Reference only. The user does not need to paste this.
 
 ```text
 Implement this feature using the MDF harness loop:
@@ -100,6 +117,7 @@ Read first:
 - docs/ai-harness/mp-test-protocol.md
 - docs/ai-harness/state-snapshot-schema.md
 - docs/ai-harness/learned-recipes.md
+- docs/ai-harness/recipe-lifecycle.md
 
 Start by mapping the real code path and producing a concise implementation plan. Then implement minimally.
 
@@ -118,6 +136,6 @@ Verification minimum:
 - relevant EditMode/PlayMode tests
 - relevant Editor/Build multiplayer E2E matrix if multiplayer-visible
 
-If a command, flag, timing, screenshot, build, or failure recipe is discovered, update learned-recipes.md.
+If a command, flag, timing, screenshot, build, or failure recipe is discovered, update learned-recipes.md or touch the existing recipe lifecycle metadata.
 Do not claim PASS unless command outputs and artifacts prove it.
 ```

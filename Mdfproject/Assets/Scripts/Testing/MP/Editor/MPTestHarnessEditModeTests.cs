@@ -260,6 +260,18 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void ZoneControllerClearsBattleOnlyZonesOnPrepareTransition()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Game/Skills/ZoneController.cs");
+
+        Assert.That(source, Does.Contain("GameEvents.OnGameStateChanged += HandleGameStateChanged"));
+        Assert.That(source, Does.Contain("GameEvents.OnGameStateChanged -= HandleGameStateChanged"));
+        Assert.That(source, Does.Contain("newState != GameManagers.GameState.Battle1"));
+        Assert.That(source, Does.Contain("newState != GameManagers.GameState.Battle2"));
+        Assert.That(source, Does.Contain("Destroy(gameObject);"));
+    }
+
+    [Test]
     public void BasicAssertionRejectsMissingGameManagers()
     {
         var snapshot = BuildSnapshot("host");
@@ -538,16 +550,48 @@ public sealed class MPTestHarnessEditModeTests
         string humanBotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
         string journalSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestBotJournal.cs");
 
-        Assert.That(aiSource, Does.Contain("PrepareDecisionPolicy"));
+        Assert.That(aiSource, Does.Contain("MdfBotProfile"));
+        Assert.That(aiSource, Does.Contain("MdfBotProfile.ServerAiDefault"));
+        Assert.That(aiSource, Does.Contain("new PrepareDecisionPolicy(_profile)"));
         Assert.That(aiSource, Does.Contain("BattleDecisionPolicy"));
         Assert.That(aiSource, Does.Contain("ServerAiCommandEmitter"));
         Assert.That(aiSource, Does.Contain("MdfDecisionContext.Create"));
-        Assert.That(humanBotSource, Does.Contain("PrepareDecisionPolicy"));
+        Assert.That(aiSource, Does.Contain("isServerAi: true"));
+        Assert.That(aiSource, Does.Not.Contain("BuildBehaviorTrees"));
+        Assert.That(aiSource, Does.Not.Contain("GetActiveTree"));
+        Assert.That(humanBotSource, Does.Contain("MdfBotProfile"));
+        Assert.That(humanBotSource, Does.Contain("new PrepareDecisionPolicy(_profile)"));
         Assert.That(humanBotSource, Does.Contain("BattleDecisionPolicy"));
         Assert.That(humanBotSource, Does.Contain("HumanClientCommandEmitter"));
         Assert.That(humanBotSource, Does.Contain("isHumanBot: true"));
         Assert.That(humanBotSource, Does.Not.Contain("ComponentRegistry.Register<AIPlayerController>"));
         Assert.That(journalSource, Does.Contain("BuildDecisionEntry(MPTestHumanBotDriver.BotStatus status, MdfDecision decision)"));
+    }
+
+    [Test]
+    public void PreparePolicyDoesNotPaceServerAiInsidePolicy()
+    {
+        string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
+
+        Assert.That(source, Does.Not.Contain("AIPacer.Ready"));
+        Assert.That(source, Does.Not.Contain("AIPacer.Arm"));
+        Assert.That(source, Does.Not.Contain("context.IsServerAi &&"));
+    }
+
+    [Test]
+    public void BattleStartDoesNotAutoSpawnForAiAttackers()
+    {
+        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
+        string migrationRecoverySource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.MigrationRecovery.cs");
+        string monsterSpawnerSource = File.ReadAllText("Assets/Scripts/Game/Monsters/MonsterSpawner.cs");
+        string aiSource = File.ReadAllText("Assets/Scripts/Commands/AI/AIPlayerController.cs");
+
+        Assert.That(gameManagersSource, Does.Not.Contain("StartBattleForPlayers/SpawnAllMonstersToTargetField"));
+        Assert.That(migrationRecoverySource, Does.Not.Contain("BattleRebootstrap/SpawnAllMonstersToTargetField"));
+        Assert.That(monsterSpawnerSource, Does.Contain("AI bootstrap is disabled"));
+        Assert.That(monsterSpawnerSource, Does.Not.Contain("await StartAutoSpawnFromPool"));
+        Assert.That(aiSource, Does.Contain("BattleDecisionPolicy"));
+        Assert.That(aiSource, Does.Contain("ServerAiCommandEmitter"));
     }
 
     [Test]
@@ -567,21 +611,135 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void FieldUnitRegistrationHandlesLateMovesAndRetiredUnits()
+    {
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
+
+        Assert.That(fieldSource, Does.Contain("pendingNetworkMoves"));
+        Assert.That(fieldSource, Does.Contain("retiredNetworkUnitIds"));
+        Assert.That(fieldSource, Does.Contain("retiredNetworkUnitIds.Remove"));
+        Assert.That(fieldSource, Does.Contain("QueuePendingNetworkMove(from, to);"));
+        Assert.That(fieldSource, Does.Contain("ProcessPendingNetworkMoves();"));
+        Assert.That(fieldSource, Does.Contain("BroadcastUnitUnregistered"));
+        Assert.That(fieldSource, Does.Contain("BroadcastAuthoritativeUnitRoster"));
+        Assert.That(fieldSource, Does.Contain("ReconcileUnitsToAuthoritativeRoster"));
+        Assert.That(fieldSource, Does.Contain("UnregisterUnitAt"));
+        Assert.That(fieldSource, Does.Contain("RefreshWallMapsFromSceneIfPlaying(\"BuildWallCellHash\")"));
+        Assert.That(fieldSource, Does.Contain("RefreshWallMapsFromSceneIfPlaying(\"GetValidPlacementTiles\")"));
+        Assert.That(fieldSource, Does.Contain("IsLiveDestructibleWallCandidate"));
+        Assert.That(fieldSource, Does.Contain("wall.gameObject.activeSelf"));
+        Assert.That(playerSource, Does.Contain("RPC_UnregisterUnitAt"));
+        Assert.That(playerSource, Does.Contain("RPC_ReconcileUnitRoster"));
+        Assert.That(playerSource, Does.Contain("ApplyUnitRosterFromAuthority"));
+        Assert.That(playerSource, Does.Contain("_retiredUnitRegistrationIds"));
+        Assert.That(playerSource, Does.Contain("_retiredUnitRegistrationIds.Remove"));
+        Assert.That(playerSource, Does.Contain("RemoveAll(reg => reg.unitIdRaw == unitIdRaw)"));
+        Assert.That(gameManagersSource, Does.Contain("StartBattleForPlayers.PreBattle"));
+    }
+
+    [Test]
+    public void ManualSkillSnapshotAvoidsFrameLocalReadinessInputs()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+        int start = source.IndexOf("private static string CaptureManualSkillReadyHash", System.StringComparison.Ordinal);
+        int end = source.IndexOf("private static bool PlayerRefIsConnected", System.StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0));
+        Assert.That(end, Is.GreaterThan(start));
+
+        string method = source.Substring(start, end - start);
+        Assert.That(method, Does.Contain("skill="));
+        Assert.That(method, Does.Not.Contain("LoadedSkillData"));
+        Assert.That(method, Does.Not.Contain("IsManualOrAiStrategicSkill"));
+        Assert.That(method, Does.Not.Contain("currentSkillActivationType"));
+        Assert.That(method, Does.Not.Contain("SkillCurrentMana"));
+        Assert.That(method, Does.Not.Contain("SkillMaxMana"));
+        Assert.That(method, Does.Not.Contain("CountSkillTargets"));
+        Assert.That(method, Does.Not.Contain("HasSkillTargetsAvailable"));
+        Assert.That(method, Does.Not.Contain("manaBucket="));
+        Assert.That(method, Does.Not.Contain("ready="));
+    }
+
+    [Test]
     public void PrepareDecisionPolicyPreservesExpectedActionOrder()
     {
         string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
 
         Assert.That(source, Does.Contain("yield return TryChooseAugment"));
-        Assert.That(source.IndexOf("yield return TryChooseBuy", System.StringComparison.Ordinal),
-            Is.LessThan(source.IndexOf("yield return TryChooseMove", System.StringComparison.Ordinal)));
-        Assert.That(source.IndexOf("yield return TryChooseMove", System.StringComparison.Ordinal),
-            Is.LessThan(source.IndexOf("yield return TryChooseReroll", System.StringComparison.Ordinal)));
+        Assert.That(source.IndexOf("yield return TryChooseBuy;", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("yield return TryChooseMove;", System.StringComparison.Ordinal)));
+        Assert.That(source.IndexOf("yield return TryChooseMove;", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("yield return TryChooseReroll;", System.StringComparison.Ordinal)));
         Assert.That(source, Does.Contain("ShouldPrioritizeBuyBeforeWall"));
+        Assert.That(source, Does.Contain("ShouldPrioritizeWallControl"));
+        Assert.That(source, Does.Contain("TryChooseMoveBlockingWall"));
+        Assert.That(source, Does.Contain("_lastMoveRoundByUnitKey"));
+        Assert.That(source, Does.Contain("_pendingMoveTargetRoundByCellKey"));
+        Assert.That(source, Does.Contain("_pendingWallRoundByCellKey"));
+        Assert.That(source, Does.Contain("_builtWallCellKeys"));
+        Assert.That(source, Does.Contain("_pendingBuyRoundBySlotKey"));
+        Assert.That(source, Does.Contain("move_unit_off_wall_blueprint"));
+        Assert.That(source, Does.Contain("blockedWallBlueprint"));
+        Assert.That(source, Does.Contain("moveOncePerRound"));
+        Assert.That(source, Does.Contain("pendingMoveTargetSuppression"));
+        Assert.That(source, Does.Contain("pendingWallSuppression"));
+        Assert.That(source, Does.Contain("pendingRound == round"));
+        Assert.That(source, Does.Contain("persistentWallBlueprint"));
+        Assert.That(source, Does.Contain("IsReservedUnbuiltWallPlanCell"));
+        Assert.That(source, Does.Contain("pendingBuySuppression"));
+        Assert.That(source, Does.Contain("CompositionDistanceToTarget <= 2"));
+        Assert.That(source, Does.Contain("WouldCloseLastOpenBorderGap"));
+        Assert.That(source, Does.Contain("remainingOpenGapsAfterCandidate"));
+        Assert.That(source, Does.Contain("HasRepairableMissingWallPlan"));
+        Assert.That(source, Does.Contain("HasRecordedBuiltWallCandidate"));
+        Assert.That(source, Does.Contain("GetWallBuildReserve"));
+        Assert.That(source, Does.Contain("MinimumRepairReserveWalls"));
+        Assert.That(source, Does.Contain("cached.FieldInstanceId == fieldInstanceId"));
+        Assert.That(source, Does.Contain("player.GetWallCount() > GetWallBuildReserve(player)"));
         Assert.That(source, Does.Contain("sold_slots_below_3"));
         Assert.That(source, Does.Contain("high_value_affordable_purchase_remaining"));
         Assert.That(source, Does.Contain("GetPresentedAugmentSnapshotNames"));
         Assert.That(source, Does.Contain("IsShopSlotSoldForPolicy"));
         Assert.That(source, Does.Contain("TryGetShopSnapshot"));
+    }
+
+    [Test]
+    public void PrepareDecisionPolicyUsesMonsterPathForHumanBotRepositioning()
+    {
+        string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
+
+        Assert.That(source, Does.Contain("BuildMonsterPathContext"));
+        Assert.That(source, Does.Contain("FindBestSpotForAI(unit.Data, monsterPath"));
+        Assert.That(source, Does.Contain("TryGetSingleOpenEntryNavigationCell"));
+        Assert.That(source, Does.Contain("GetOpenBorderGaps"));
+        Assert.That(source, Does.Contain("ConvertNavigationPathToInnerField"));
+        Assert.That(source, Does.Contain("pathAwarePlacement"));
+        Assert.That(source, Does.Contain("monsterPathCount"));
+
+        string coverageSource = File.ReadAllText("Assets/Scripts/AI/UtilitySystem/Considerations/Placement/AttackRangeCoverageConsideration.cs");
+        Assert.That(coverageSource, Does.Contain("BuildTargetTiles"));
+        Assert.That(coverageSource, Does.Contain("context.MonsterPath"));
+
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        Assert.That(fieldSource, Does.Contain("FilterRangedCandidatesForMonsterPath"));
+        Assert.That(fieldSource, Does.Contain("IsOuterRingCell"));
+        Assert.That(fieldSource, Does.Contain("CountCoveredMonsterPathTiles"));
+        Assert.That(fieldSource, Does.Contain("minStrongCoverage"));
+        Assert.That(fieldSource, Does.Contain("CalculateRangedPathPriorityBonus"));
+        Assert.That(fieldSource, Does.Contain("CalculateFieldCenterScore"));
+
+        string mazeSource = File.ReadAllText("Assets/Scripts/AI/Planning/MazePlanner.cs");
+        Assert.That(mazeSource, Does.Contain("PruneRedundantWalls"));
+        Assert.That(mazeSource, Does.Contain("did not shorten the final monster path"));
+
+        int planStart = mazeSource.IndexOf("private static MazePlanResult PlanWallsFromInput", System.StringComparison.Ordinal);
+        int planEnd = mazeSource.IndexOf("private static MazePlanResult PlanAdditionalWallsFromInput", System.StringComparison.Ordinal);
+        Assert.That(planStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(planEnd, Is.GreaterThan(planStart));
+        string runtimePlanMethod = mazeSource.Substring(planStart, planEnd - planStart);
+        Assert.That(runtimePlanMethod, Does.Contain("GenerateBudgetedMaze"));
+        Assert.That(runtimePlanMethod, Does.Not.Contain("GenerateFlawlessMazeWithFixedEndpoints"));
     }
 
     [Test]
@@ -784,6 +942,17 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(emitterSource, Does.Contain("RPC_RequestBattleSpawnMonster"));
         Assert.That(emitterSource, Does.Contain("ExecuteUseMagicScrollCommandAsync"));
         Assert.That(emitterSource, Does.Contain("RPC_RequestUseMagicScrollCommand"));
+    }
+
+    [Test]
+    public void AttackStrategyEvaluatesFullPathAndKeepsTankSpawnOnGroundRoute()
+    {
+        string source = File.ReadAllText("Assets/Scripts/AI/BehaviorTree/Nodes/Actions/AIAttackStrategy.cs");
+
+        Assert.That(source, Does.Contain("var candidates = kvp.Value;"));
+        Assert.That(source, Does.Not.Contain("GetClosestCandidates(kvp.Value"));
+        Assert.That(source, Does.Contain("phase0.Orders.Add(new AISpawnOrder(firstTank, groundSpawnPos"));
+        Assert.That(source, Does.Contain("phase1.Orders.Add(new AISpawnOrder(entry, destroyerSpawnPos"));
     }
 
     [Test]

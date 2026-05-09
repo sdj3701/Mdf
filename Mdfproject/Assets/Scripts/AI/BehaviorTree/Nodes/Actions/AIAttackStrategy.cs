@@ -154,14 +154,13 @@ namespace AI.BehaviorTree.Nodes.Actions
         {
             Vector3 bestSpawnPos = GetFallbackSpawnPos();
             int shortestPath = int.MaxValue;
-            Vector3 goalPos = _goalTransform.position;
 
             foreach (var kvp in _validSpawnPositions)
             {
                 if (kvp.Value.Count == 0) continue;
 
                 // 해당 방향의 스폰 포인트들을 골까지 직선거리(sqrMagnitude) 기준 정렬 후 상위 N개만 A* 계산
-                var candidates = GetClosestCandidates(kvp.Value, goalPos, 3);
+                var candidates = kvp.Value;
 
                 foreach (var candidate in candidates)
                 {
@@ -287,14 +286,13 @@ namespace AI.BehaviorTree.Nodes.Actions
         {
             Vector3 bestSpawnPos = GetFallbackSpawnPos();
             float bestScore = float.MinValue;
-            Vector3 goalPos = _goalTransform.position;
 
             foreach (var kvp in _validSpawnPositions)
             {
                 if (kvp.Value.Count == 0) continue;
 
                 // 각 방향에서 골에 가장 가까운 후보 포인트를 선별
-                var candidates = GetClosestCandidates(kvp.Value, goalPos, 3);
+                var candidates = kvp.Value;
 
                 foreach (var candidate in candidates)
                 {
@@ -466,7 +464,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                 phase0TankReserved = Mathf.Min(1, firstTank.RemainingCount);
                 if (phase0TankReserved > 0)
                 {
-                    phase0.Orders.Add(new AISpawnOrder(firstTank, destroyerSpawnPos, phase0TankReserved));
+                    phase0.Orders.Add(new AISpawnOrder(firstTank, groundSpawnPos, phase0TankReserved));
                 }
             }
             if (phase0.Orders.Count > 0)

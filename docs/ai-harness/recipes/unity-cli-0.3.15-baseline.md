@@ -1,0 +1,35 @@
+## unity-cli-0.3.15-baseline: Verified local CLI syntax
+
+Status: active
+Pinned: false
+Category: unity-cli
+Created: 2026-05-05
+Last used: 2026-05-05
+Last verified: 2026-05-05
+Use count: 1
+Review after: 2026-08-03
+Triggers: unity-cli, status, list, editor refresh, console, test, screenshot
+Applies to: unity-cli v0.3.15, connector 0.3.15, Unity 2021.3.45f1
+Verified by: see Verification section below; migrated from old Status: verified-local
+Replacement: none
+Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
+
+Problem:
+`unity-cli list` reports connector tool schema names such as `run_tests`, `refresh_unity`, and `manage_editor`, while the CLI uses shorthand commands such as `test`, `editor refresh`, and `console`.
+
+Recipe:
+- Use `unity-cli --project Mdfproject status` to confirm the active Editor and connector version.
+- Use `unity-cli --project Mdfproject list` to inspect registered tools and future `mp_*` custom tools.
+- Verified syntax:
+  - `unity-cli --project Mdfproject editor refresh --compile`
+  - `unity-cli --project Mdfproject console --type error --stacktrace user`
+  - `unity-cli --project Mdfproject test --mode EditMode`
+  - `unity-cli --project Mdfproject test --mode PlayMode`
+  - `unity-cli --project Mdfproject screenshot --view game --output_path artifacts/<case>/editor.png`
+
+Verification:
+- `unity-cli --help`, `unity-cli editor --help`, `unity-cli test --help`, `unity-cli console --help`, and `unity-cli screenshot --help` all confirmed this syntax.
+- `unity-cli --project Mdfproject list` returned built-ins only; before Phase 4 no `mp_*` tools are expected.
+
+Pitfalls:
+- v0.3.15 prints an available update to v0.3.18. Do not update mid-verification unless the task explicitly asks for a CLI upgrade.

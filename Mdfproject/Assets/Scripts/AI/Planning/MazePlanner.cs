@@ -144,7 +144,8 @@ public static class MazePlanner
         int minDesired = Mathf.Min(width + height + 2, maxPossiblePath);
         int targetMinLength = Mathf.Clamp((int)(freeCells * 0.4f), minDesired, maxPossiblePath);
 
-        int wallBudget = Mathf.Max(0, pm.GetWallCount() - pm.GetWallReserveK());
+        int wallReserve = Mathf.Max(1, pm.GetWallReserveK());
+        int wallBudget = Mathf.Max(0, pm.GetWallCount() - wallReserve);
         // 구멍 막기에 사용되는 벽 수를 예산에서 차감
         wallBudget = Mathf.Max(0, wallBudget - gapWallsToSeal.Count);
 
@@ -282,33 +283,16 @@ public static class MazePlanner
         }
 
         // 항상 고정 위치 사용 (랜덤 폴백 제거됨)
-        generation = GenerateFlawlessMazeWithFixedEndpoints(
+        // Keep runtime HumanBot planning bounded so the host does not stall peers.
+        generation = GenerateBudgetedMaze(
             input.Width,
             input.Height,
             input.InitialWalls,
-            input.TargetMinLength,
-            rng,
             input.FixedStart,
             input.FixedGoal,
+            input.WallBudget,
+            rng,
             log);
-
-        if (generation == null && log)
-        {
-            Debug.LogWarning($"[MazePlanner] Fixed endpoint maze generation failed. Start={input.FixedStart}, Goal={input.FixedGoal}");
-        }
-
-        if (generation == null)
-        {
-            generation = GenerateBudgetedMaze(
-                input.Width,
-                input.Height,
-                input.InitialWalls,
-                input.FixedStart,
-                input.FixedGoal,
-                input.WallBudget,
-                rng,
-                log);
-        }
 
         if (generation == null)
         {
@@ -335,7 +319,7 @@ public static class MazePlanner
 
         var orderedWalls = generation.AiWallsInBuildOrder
             ? generation.AiWalls
-            : PrioritizeWalls(generation, input.InitialWalls, rng, input.WallBudget);
+            : PrioritizeWalls(generation, input.InitialWalls, rng, generation.AiWalls != null ? generation.AiWalls.Count : input.WallBudget);
 
         plan.BlueprintWalls = generation.AiWalls != null
             ? new HashSet<Vector2Int>(generation.AiWalls)
@@ -638,13 +622,6 @@ public static class MazePlanner
                 break;
             }
 
-            // If this is the last wall we can place and it doesn't increase length, don't waste resources.
-            int remaining = wallBudget - aiWalls.Count;
-            if (bestIncrease <= 0 && remaining <= 1)
-            {
-                break;
-            }
-
             var chosen = best.Value;
             grid[chosen.x, chosen.y] = CellType.WallAi;
             aiWalls.Add(chosen);
@@ -652,9 +629,10 @@ public static class MazePlanner
             currentLength = currentPath?.Count ?? currentLength;
         }
 
+        PruneRedundantWalls(grid, aiWalls, start, goal, log);
         var finalPath = AStarSearch(grid, start, goal) ?? baselinePath;
         int finalLength = finalPath?.Count ?? 0;
-        if (finalLength <= baselineLength)
+        if (finalLength <= baselineLength && aiWalls.Count == 0)
         {
             if (log)
             {
@@ -1113,14 +1091,7 @@ public static class MazePlanner
 
             if (!best.HasValue)
             {
-                // no improvement candidate (shouldn't happen often)
-                var fallback = remaining.First();
-                order.Add(fallback);
-                remaining.Remove(fallback);
-                workingGrid[fallback.x, fallback.y] = CellType.WallAi;
-                currentPath = AStarSearch(workingGrid, generation.Start, generation.Goal);
-                currentLength = currentPath?.Count ?? currentLength;
-                continue;
+                break;
             }
 
             order.Add(best.Value);
@@ -1131,6 +1102,59 @@ public static class MazePlanner
         }
 
         return order;
+    }
+
+    private static void PruneRedundantWalls(CellType[,] grid, List<Vector2Int> aiWalls, Vector2Int start, Vector2Int goal, bool log)
+    {
+        if (grid == null || aiWalls == null || aiWalls.Count == 0)
+        {
+            return;
+        }
+
+        var currentPath = AStarSearch(grid, start, goal);
+        int currentLength = currentPath?.Count ?? 0;
+        if (currentLength < 2)
+        {
+            return;
+        }
+
+        int removed = 0;
+        bool changed;
+        do
+        {
+            changed = false;
+            for (int i = aiWalls.Count - 1; i >= 0; i--)
+            {
+                var candidate = aiWalls[i];
+                if (!IsInside(candidate, grid.GetLength(0), grid.GetLength(1)) ||
+                    grid[candidate.x, candidate.y] != CellType.WallAi)
+                {
+                    aiWalls.RemoveAt(i);
+                    changed = true;
+                    continue;
+                }
+
+                grid[candidate.x, candidate.y] = CellType.Empty;
+                var pathWithoutWall = AStarSearch(grid, start, goal);
+                int lengthWithoutWall = pathWithoutWall?.Count ?? 0;
+
+                if (lengthWithoutWall >= currentLength && lengthWithoutWall >= 2)
+                {
+                    aiWalls.RemoveAt(i);
+                    currentLength = lengthWithoutWall;
+                    removed++;
+                    changed = true;
+                    continue;
+                }
+
+                grid[candidate.x, candidate.y] = CellType.WallAi;
+            }
+        } while (changed && aiWalls.Count > 0);
+
+        if (log && removed > 0)
+        {
+            Debug.Log($"[MazePlanner] Pruned {removed} redundant maze walls that did not shorten the final monster path when removed.");
+        }
     }
 
     #endregion
