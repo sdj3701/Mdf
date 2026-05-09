@@ -1,0 +1,398 @@
+.relogin-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #05040b;
+    overflow: hidden;
+}
+
+.relogin-design-space {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1672px;
+    height: 941px;
+    transform-origin: left top;
+    -unity-font-definition: url("/Assets/Resources/Fonts & Materials/NotoSansKR-VariableFont_wght_UITK.asset");
+    overflow: hidden;
+}
+
+.relogin-background {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1672px;
+    height: 941px;
+    background-image: url("../../Resource/Image/UI/ReLogin/bg_relogin_full.png");
+    -unity-background-scale-mode: stretch-to-fill;
+}
+
+.title-logo {
+    position: absolute;
+    left: 558px;
+    top: 18px;
+    width: 556px;
+    height: 254px;
+}
+
+.title-label {
+    position: absolute;
+    -unity-text-align: middle-center;
+    -unity-font-style: bold;
+    color: #ffffff;
+}
+
+.title-label--monster {
+    left: 34px;
+    top: 26px;
+    width: 488px;
+    height: 88px;
+    color: #ffd15d;
+    font-size: 78px;
+    /* -unity-text-outline-width: 4px;
+    -unity-text-outline-color: #281507; */
+}
+
+.title-label--raid {
+    left: 138px;
+    top: 104px;
+    width: 280px;
+    height: 72px;
+    color: #f0f0f0;
+    font-size: 64px;
+    /* -unity-text-outline-width: 4px;
+    -unity-text-outline-color: #111111; */
+}
+
+.title-label--defense {
+    left: 150px;
+    top: 176px;
+    width: 256px;
+    height: 44px;
+    color: #ffdf75;
+    font-size: 36px;
+    /* -unity-text-outline-width: 3px;
+    -unity-text-outline-color: #10264a; */
+}
+
+.title-label--tagline {
+    left: 153px;
+    top: 222px;
+    width: 250px;
+    height: 24px;
+    color: #f5ead6;
+    font-size: 15px;
+    /* /* -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #140d08; */
+}
+
+.input-area {
+    position: absolute;
+    width: 386px;
+    height: 44px;
+}
+
+.input-area--account {
+    left: 646px;
+    top: 574px;
+}
+
+.input-area--password {
+    left: 646px;
+    top: 618px;
+}
+
+.relogin-text-field {
+    position: absolute;
+    left: 56px;
+    top: 4px;
+    width: 326px;
+    height: 36px;
+    background-color: rgba(8, 7, 6, 0.24);
+    border-left-width: 0;
+    border-right-width: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    color: #fff6df;
+    font-size: 23px;
+    -unity-font-style: bold;
+}
+
+.relogin-text-field .unity-text-field__input,
+.relogin-text-field .unity-base-text-field__input {
+    background-color: rgba(0, 0, 0, 0);
+    border-left-width: 0;
+    border-right-width: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    color: #fff6df;
+    font-size: 23px;
+    -unity-font-style: bold;
+}
+
+.input-placeholder {
+    position: absolute;
+    left: 62px;
+    top: 5px;
+    width: 318px;
+    height: 34px;
+    color: #d6d1c7;
+    font-size: 21px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-left;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.text-input-hitbox {
+    position: absolute;
+    left: 54px;
+    top: 2px;
+    width: 330px;
+    height: 40px;
+    background-color: rgba(255, 255, 255, 0);
+}
+
+.text-input-hitbox:hover {
+    background-color: rgba(255, 229, 145, 0.05);
+}
+
+.button-copy,
+.link-copy,
+.server-copy,
+.bottom-copy {
+    position: absolute;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.button-copy--battle {
+    left: 650px;
+    top: 684px;
+    width: 386px;
+    height: 58px;
+    color: #fff4ca;
+    font-size: 38px;
+    /* -unity-text-outline-width: 3px;
+    -unity-text-outline-color: #5b2d08; */
+}
+
+.button-copy--guest {
+    left: 648px;
+    top: 806px;
+    width: 390px;
+    height: 58px;
+    color: #fff8e4;
+    font-size: 32px;
+    /*
+    -unity-text-outline-width: 3px;
+    -unity-text-outline-color: rgba(13, 34, 72, 0.58);
+    */
+}
+
+.link-copy {
+    height: 30px;
+    color: #ffe08a;
+    font-size: 17px;
+    /* -unity-text-outline-width: 1px;
+    -unity-text-outline-color: #1a1005; */
+}
+
+.link-copy--signup {
+    left: 688px;
+    top: 760px;
+    width: 96px;
+}
+
+.link-copy--separator {
+    left: 828px;
+    top: 760px;
+    width: 24px;
+    color: rgba(255, 214, 111, 0.55);
+}
+
+.link-copy--forgot {
+    left: 860px;
+    top: 760px;
+    width: 136px;
+}
+
+.server-copy--title {
+    left: 302px;
+    top: 795px;
+    width: 126px;
+    height: 38px;
+    color: #fff2cf;
+    font-size: 26px;
+    /*
+    -unity-text-outline-width: 3px;
+    -unity-text-outline-color: rgba(23, 18, 11, 0.58);
+    */
+}
+
+.server-copy--name {
+    left: 302px;
+    top: 844px;
+    width: 126px;
+    height: 34px;
+    color: #bfff2f;
+    font-size: 23px;
+    /*
+    -unity-text-outline-width: 2px;
+    -unity-text-outline-color: rgba(22, 33, 10, 0.58);
+    */
+}
+
+.bottom-copy {
+    color: #fff2d2;
+    font-size: 17px;
+    /* -unity-text-outline-width: 2px;
+    -unity-text-outline-color: #17120b; */
+}
+
+.bottom-copy--settings {
+    left: 1242px;
+    top: 848px;
+    width: 62px;
+    height: 30px;
+    font-size: 23px;
+}
+
+.bottom-copy--language {
+    left: 1345px;
+    top: 848px;
+    width: 96px;
+    height: 30px;
+    font-size: 23px;
+}
+
+.hitbox {
+    position: absolute;
+    background-color: rgba(255, 255, 255, 0);
+    border-left-width: 0;
+    border-right-width: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin-left: 0;
+    margin-right: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+.hitbox:hover {
+    background-color: rgba(255, 229, 145, 0.08);
+}
+
+.hitbox:active {
+    background-color: rgba(255, 255, 255, 0.11);
+}
+
+.login-hitbox {
+    left: 640px;
+    top: 675px;
+    width: 404px;
+    height: 80px;
+}
+
+.signup-hitbox {
+    left: 684px;
+    top: 752px;
+    width: 110px;
+    height: 42px;
+}
+
+.forgot-password-hitbox {
+    left: 852px;
+    top: 752px;
+    width: 150px;
+    height: 42px;
+}
+
+.guest-hitbox {
+    left: 650px;
+    top: 803px;
+    width: 386px;
+    height: 66px;
+}
+
+.server-hitbox {
+    left: 258px;
+    top: 780px;
+    width: 220px;
+    height: 112px;
+}
+
+.settings-hitbox {
+    left: 1218px;
+    top: 780px;
+    width: 110px;
+    height: 112px;
+}
+
+.language-hitbox {
+    left: 1340px;
+    top: 780px;
+    width: 114px;
+    height: 112px;
+}
+
+.status-label {
+    position: absolute;
+    left: 650px;
+    top: 871px;
+    width: 386px;
+    height: 28px;
+    color: #f1eadc;
+    font-size: 15px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    background-color: rgba(12, 10, 7, 0.76);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(255, 216, 106, 0.48);
+    border-right-color: rgba(255, 216, 106, 0.48);
+    border-top-color: rgba(255, 216, 106, 0.48);
+    border-bottom-color: rgba(255, 216, 106, 0.48);
+    display: none;
+}
+
+.status-label--error {
+    color: #ffb7ad;
+    border-left-color: rgba(255, 100, 87, 0.65);
+    border-right-color: rgba(255, 100, 87, 0.65);
+    border-top-color: rgba(255, 100, 87, 0.65);
+    border-bottom-color: rgba(255, 100, 87, 0.65);
+}
+
+.status-label--success {
+    color: #d9ffb5;
+    border-left-color: rgba(148, 255, 78, 0.65);
+    border-right-color: rgba(148, 255, 78, 0.65);
+    border-top-color: rgba(148, 255, 78, 0.65);
+    border-bottom-color: rgba(148, 255, 78, 0.65);
+}

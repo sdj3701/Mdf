@@ -269,7 +269,8 @@ public partial class GameManagers
     private IEnumerator WaitForRestoreDependenciesAndResumeFlow()
     {
         float waitTime = 0f;
-        const float maxWaitTime = 8f;
+        const float maxWaitTime = 20f;
+        const float softResumeTime = 12f;
 
         LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:BEGIN");
 
@@ -289,12 +290,31 @@ public partial class GameManagers
             bool timerReady = IsMigrationTimerReady(out string timerReason);
             bool wallMapReady = AreWallMapsReadyForMigration(out string wallReason);
             bool aiTakeoverReady = IsMigrationAiTakeoverReady(out string aiReason);
+            bool coreReady = hasAuthority && runnerMatched && playersReady && mappingReady && timerReady && wallMapReady;
 
-            if (hasAuthority && runnerMatched && uiReady && playersReady && mappingReady && timerReady && wallMapReady && aiTakeoverReady)
+            if (coreReady && uiReady && aiTakeoverReady)
             {
                 Debug.Log($"<color=green>[STEP 6] 재개 조건 충족 ({waitTime:F1}s): authority={hasAuthority}, runnerMatched={runnerMatched}, uiReady={uiReady}, playersReady={playersReady}, mappingReady={mappingReady}, timerReady={timerReady}, wallMapReady={wallMapReady}, aiTakeoverReady={aiTakeoverReady}</color>");
                 LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:READY", $"waited={waitTime:F1}s");
                 SetMigrationRestoreStage(MigrationRestoreStage.WaitingForFlowResume, "WaitForRestoreDependenciesAndResumeFlow.Ready");
+                ResumeGameFlowFromCurrentState();
+                yield break;
+            }
+
+            TryHealRestoreDependenciesForMigration(
+                playersReady,
+                mappingReady,
+                wallMapReady,
+                uiReady,
+                waitTime);
+
+            if (coreReady && waitTime >= softResumeTime)
+            {
+                Debug.LogWarning($"<color=orange>[STEP 6] soft gate 통과: coreReady=true, uiReady={uiReady}, aiTakeoverReady={aiTakeoverReady}, waited={waitTime:F1}s. 서버 flow를 best-effort로 재개합니다.</color>");
+                LogMigrationTrace(
+                    "WaitForRestoreDependenciesAndResumeFlow:SOFT_READY",
+                    $"waited={waitTime:F1}s,uiReady={uiReady},aiTakeoverReady={aiTakeoverReady},aiReason={aiReason}");
+                SetMigrationRestoreStage(MigrationRestoreStage.WaitingForFlowResume, "WaitForRestoreDependenciesAndResumeFlow.SoftReady");
                 ResumeGameFlowFromCurrentState();
                 yield break;
             }
@@ -343,9 +363,15 @@ public partial class GameManagers
         bool timeoutTimerReady = IsMigrationTimerReady(out string timeoutTimerReason);
         bool timeoutWallMapReady = AreWallMapsReadyForMigration(out string timeoutWallReason);
         bool timeoutAiTakeoverReady = IsMigrationAiTakeoverReady(out string timeoutAiReason);
+        bool timeoutCoreReady = timeoutHasAuthority && timeoutRunnerMatched && timeoutPlayersReady && timeoutMappingReady && timeoutTimerReady && timeoutWallMapReady;
 
-        if (timeoutHasAuthority && timeoutRunnerMatched && timeoutUiReady && timeoutPlayersReady && timeoutMappingReady && timeoutTimerReady && timeoutWallMapReady && timeoutAiTakeoverReady)
+        if (timeoutCoreReady)
         {
+            if (!timeoutUiReady || !timeoutAiTakeoverReady)
+            {
+                Debug.LogWarning($"[STEP 6] timeout soft fallback: uiReady={timeoutUiReady}, aiTakeoverReady={timeoutAiTakeoverReady}, aiReason={timeoutAiReason}");
+            }
+
             SetMigrationRestoreStage(MigrationRestoreStage.WaitingForFlowResume, "WaitForRestoreDependenciesAndResumeFlow.TimeoutFallback");
             ResumeGameFlowFromCurrentState();
         }
@@ -355,6 +381,53 @@ public partial class GameManagers
             SetMigrationRestoreStage(MigrationRestoreStage.Failed, "WaitForRestoreDependenciesAndResumeFlow.TimeoutNoGate");
         }
     }
+
+    private void TryHealRestoreDependenciesForMigration(
+        bool playersReady,
+        bool mappingReady,
+        bool wallMapReady,
+        bool uiReady,
+        float waitTime)
+    {
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        bool shouldRepairPlayers = !playersReady || !mappingReady || !wallMapReady;
+        if (shouldRepairPlayers)
+        {
+            var runnerPlayers = GetRunnerPlayerManagersForMigration();
+            foreach (var player in runnerPlayers)
+            {
+                player.RebindRuntimeReferencesAfterMigration("GameManagers.WaitForRestoreDependencies.SelfHeal.RuntimeScan", false);
+            }
+
+            RebuildNetworkPlayersAfterMigration("WaitForRestoreDependenciesAndResumeFlow.SelfHeal");
+            RelinkLocalPlayer();
+
+            foreach (var player in AllPlayers
+                         .Where(player => player != null && player.Object != null && player.Object.IsValid)
+                         .Concat(runnerPlayers)
+                         .Distinct())
+            {
+                player.RebindRuntimeReferencesAfterMigration("GameManagers.WaitForRestoreDependencies.SelfHeal", false);
+            }
+        }
+
+        if (!mappingReady)
+        {
+            EnsureBattleMappingAfterMigration();
+        }
+
+        if (!uiReady && waitTime >= 4f)
+        {
+            RelinkLocalPlayer();
+            TriggerMigrationReadyEventOnce("WaitForRestoreDependenciesAndResumeFlow.SelfHeal");
+            TriggerMigrationStateChangedOnce(currentState, "WaitForRestoreDependenciesAndResumeFlow.SelfHeal");
+        }
+    }
+
     private bool IsBoundToActiveRunner()
     {
         if (Runner == null)
@@ -371,7 +444,10 @@ public partial class GameManagers
         reason = string.Empty;
 
         var players = AllPlayers
-            .Where(p => p != null && p.playerId >= 0 && p.Object != null && p.Object.IsValid)
+            .Where(p => p != null && p.Object != null && p.Object.IsValid)
+            .Concat(GetRunnerPlayerManagersForMigration())
+            .Distinct()
+            .Where(p => TryGetPlayerIdSafe(p, out int playerId) && playerId >= 0)
             .ToList();
         if (players.Count == 0)
         {
@@ -383,9 +459,10 @@ public partial class GameManagers
         foreach (var player in players)
         {
             player.RebindRuntimeReferencesAfterMigration("GameManagers.WaitForRestoreDependencies", false);
+            int playerId = TryGetPlayerIdSafe(player, out int safePlayerId) ? safePlayerId : -1;
             if (!player.IsRuntimeReady(out string playerReason))
             {
-                notReady.Add($"P{player.playerId}:{playerReason}");
+                notReady.Add($"P{playerId}:{playerReason}");
             }
         }
 
@@ -396,6 +473,16 @@ public partial class GameManagers
         }
 
         return true;
+    }
+
+    private List<PlayerManager> GetRunnerPlayerManagersForMigration()
+    {
+        return UnityEngine.Object.FindObjectsOfType<PlayerManager>(true)
+            .Where(player => player != null
+                             && player.Object != null
+                             && player.Object.IsValid
+                             && (Runner == null || player.Runner == Runner))
+            .ToList();
     }
 
     private bool IsMigrationBattleMappingReady(out string reason)
@@ -409,7 +496,8 @@ public partial class GameManagers
         EnsureBattleMappingAfterMigration();
         var alivePlayerIds = AllPlayers
             .Where(player => player != null && player.GetHealth() > 0)
-            .Select(player => player.playerId)
+            .Select(player => TryGetPlayerIdSafe(player, out int playerId) ? playerId : -1)
+            .Where(playerId => playerId >= 0)
             .ToList();
 
         foreach (int playerId in alivePlayerIds)
@@ -454,8 +542,8 @@ public partial class GameManagers
 
         if (!phaseTimer.IsRunning)
         {
-            reason = "phaseTimerNotRunning";
-            return false;
+            reason = "phaseTimerNotRunning;resumeWillReset";
+            return true;
         }
 
         return true;
@@ -475,16 +563,17 @@ public partial class GameManagers
 
         foreach (var player in players)
         {
+            int playerId = TryGetPlayerIdSafe(player, out int safePlayerId) ? safePlayerId : -1;
             if (player.fieldManager == null)
             {
-                reason = $"P{player.playerId}:fieldManager=null";
+                reason = $"P{playerId}:fieldManager=null";
                 return false;
             }
 
             player.fieldManager.RebuildWallMapsAfterMigration("GameManagers.WaitForRestoreDependencies", false, out string wallSummary);
             if (!player.fieldManager.IsWallMapReady)
             {
-                reason = $"P{player.playerId}:wallMapNotReady ({wallSummary})";
+                reason = $"P{playerId}:wallMapNotReady ({wallSummary})";
                 return false;
             }
         }
@@ -538,9 +627,10 @@ public partial class GameManagers
         }
 
         EnsureBattleMappingAfterMigration();
+        EnsureBattleAttackFlagsAfterMigration(context);
 
         float remaining = phaseTimer.IsRunning ? (phaseTimer.RemainingTime(Runner) ?? 0f) : 0f;
-        bool allowPoolRefresh = !phaseTimer.IsRunning || remaining >= Mathf.Max(3f, combatTime - 8f);
+        bool allowPoolRefresh = !phaseTimer.IsRunning || remaining > 3f;
 
         var attackers = AllPlayers
             .Where(player => player != null && player.Object != null && player.Object.IsValid)
@@ -604,6 +694,22 @@ public partial class GameManagers
                     $"context={context}, attacker={attackerId}, defender={defenderId}, poolReady={attackerHasPool}");
             }
 
+            if (defenderHasLivingMonsters)
+            {
+                LogMigrationTrace(
+                    "BATTLE-REBOOTSTRAP:SKIP_ALREADY_ACTIVE",
+                    $"context={context}, attacker={attackerId}, defender={defenderId}");
+                continue;
+            }
+
+            if (!attackerHasPool)
+            {
+                LogMigrationTrace(
+                    remaining <= 3f ? "BATTLE-REBOOTSTRAP:SKIP_ENDING_SOON_POOL_EMPTY" : "BATTLE-REBOOTSTRAP:FAIL_POOL_EMPTY",
+                    $"context={context}, attacker={attackerId}, defender={defenderId}, remain={remaining:F1}, allowPoolRefresh={allowPoolRefresh}");
+                continue;
+            }
+
             if (!TryAcquireBattleRebootstrapKey(attacker, defender, context, out string battleKey))
             {
                 LogMigrationTrace(
@@ -612,16 +718,10 @@ public partial class GameManagers
                 continue;
             }
 
-            if (defenderHasLivingMonsters)
-            {
-                LogMigrationTrace(
-                    "BATTLE-REBOOTSTRAP:SKIP_ALREADY_ACTIVE",
-                    $"context={context}, attacker={attackerId}, defender={defenderId}, key={battleKey}");
-                continue;
-            }
-
             attacker.SetFightingState(true);
             defender.SetFightingState(true);
+            hasCombatBeenShortened = false;
+            _battleStartCheckDelay = TickTimer.CreateFromSeconds(Runner, 1f);
 
             // Battle 시작 RPC를 재발행해서 로컬 공격 UI/카메라/입력 경로를 재정렬한다.
             RPC_NotifyBattleStart(attackerId, true, defenderId);
@@ -630,14 +730,6 @@ public partial class GameManagers
             bool isAiAttacker = ComponentRegistry.Has<AIPlayerController>(attackerId.ToString());
             if (isAiAttacker)
             {
-                if (!attackerHasPool)
-                {
-                    LogMigrationTrace(
-                        "BATTLE-REBOOTSTRAP:FAIL_POOL_EMPTY",
-                        $"context={context}, attacker={attackerId}, defender={defenderId}, key={battleKey}");
-                    continue;
-                }
-
                 RunLifecycleTask(
                     attacker.monsterSpawner.SpawnAllMonstersToTargetField(
                         currentRound,
@@ -656,6 +748,64 @@ public partial class GameManagers
                     "BATTLE-REBOOTSTRAP:APPLIED",
                     $"context={context}, key={battleKey}, attacker={attackerId}, defender={defenderId}, mode=HumanNotify");
             }
+        }
+    }
+
+    private void EnsureBattleAttackFlagsAfterMigration(string context)
+    {
+        if (currentState != GameState.Battle1 && currentState != GameState.Battle2)
+        {
+            return;
+        }
+
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        int changed = 0;
+        int readable = 0;
+        foreach (var player in AllPlayers.Where(player => player != null && player.Object != null && player.Object.IsValid))
+        {
+            if (!TryGetPlayerIdSafe(player, out int playerId) || playerId < 0)
+            {
+                continue;
+            }
+
+            readable++;
+            int opponentId = GetBattleOpponent(playerId);
+            if (opponentId < 0)
+            {
+                if (player.IsAttackerInCurrentBattle)
+                {
+                    player.IsAttackerInCurrentBattle = false;
+                    changed++;
+                }
+
+                continue;
+            }
+
+            if (!_matchFirstAttacker.TryGetValue(playerId, out int firstAttackerId) || firstAttackerId < 0)
+            {
+                continue;
+            }
+
+            bool expectedAttacker = currentState == GameState.Battle1
+                ? playerId == firstAttackerId
+                : playerId != firstAttackerId;
+
+            if (player.IsAttackerInCurrentBattle != expectedAttacker)
+            {
+                player.IsAttackerInCurrentBattle = expectedAttacker;
+                changed++;
+            }
+        }
+
+        if (changed > 0)
+        {
+            LogMigrationTrace(
+                "BATTLE-REBOOTSTRAP:ATTACK_FLAGS_REPAIRED",
+                $"context={context}, changed={changed}, readable={readable}, state={currentState}");
         }
     }
     
@@ -797,7 +947,7 @@ public partial class GameManagers
             }
             else if (_migrationRestoreStage != MigrationRestoreStage.FlowResumed)
             {
-                SetMigrationRestoreStage(MigrationRestoreStage.Failed, "RestoreLocalUIAfterMigrationAsync.Incomplete");
+                SetMigrationRestoreStage(MigrationRestoreStage.UiRestoreDeferred, "RestoreLocalUIAfterMigrationAsync.IncompleteDeferred");
             }
 
             LogMigrationTrace("RestoreLocalUI:FINALLY", $"completed={completed}");

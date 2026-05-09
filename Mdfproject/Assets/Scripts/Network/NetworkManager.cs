@@ -8,7 +8,6 @@ using Fusion.Sockets;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using GameCore.Enums;
-using TMPro;
 
 
 public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
@@ -24,14 +23,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
     public NetworkRunner _runner { get; private set; }
 
-    public TMP_InputField NickNameInput;
-    public TMP_InputField PassWordInput;
-
     [Header("Player")]
     // 스폰할 플레이어 프리팹입니다. Inspector에서 할당해야 합니다.
     [SerializeField] private NetworkObject _playerPrefab;
     // 세션 최대 플레이어 수 (Inspector에서 설정)
-    [SerializeField, Range(2, 4)] private int maxSessionPlayers = 2;
+    [SerializeField, Range(2, 4)] private int maxSessionPlayers = 4;
     // 서버에서 플레이어들을 관리하기 위한 딕셔너리입니다.
     private readonly Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
 
@@ -39,7 +35,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 현재 로비에 있는 세션(방) 목록을 저장합니다.
     public List<SessionInfo> _sessionList = new List<SessionInfo>();
     // 유저가 입력할 방 제목을 저장하는 변수입니다.
-    private string _roomNameInput = "MyFusionRoom";
+    private string _roomNameInput = NetworkDefine.DefaultRoomName;
     // 현재 네트워크 상태를 관리합니다. (연결 끊김, 로비, 게임 중)
 
     // 2. 현재 상태를 저장하고, 변경 시 이벤트를 발생시키는 프로퍼티
@@ -64,13 +60,16 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 5. 플레이어 참가/퇴장 이벤트 (UI 갱신용)
     public static event Action<PlayerRef> OnPlayerJoinedEvent;
     public static event Action<PlayerRef> OnPlayerLeftEvent;
+    public static event Action OnNetworkUiBlockChanged;
 
     public bool IsGameRunnerActive => _runner != null && _runner.IsRunning;
+    public bool IsNetworkUiBlocked => _uiBlockCounts.Count > 0;
 
     private int playerCount;
     private EventInfo _cloudConnectionLostEventInfo;
     private Delegate _cloudConnectionLostHandlerDelegate;
     private MethodInfo _getPlayerConnectionTokenMethod;
+    private readonly Dictionary<NetworkUiBlockReason, int> _uiBlockCounts = new Dictionary<NetworkUiBlockReason, int>();
     [Header("Connection Loss Policy")]
     [SerializeField] private ConnectionLossPolicyMode _connectionLossPolicy = ConnectionLossPolicyMode.AutoReconnectThenFallback;
     [SerializeField, Range(1f, 15f)] private float _cloudReconnectFallbackDelaySeconds = 5f;
@@ -119,6 +118,59 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         _roomNameInput = roomname;
     }
+
+    private void BeginUiBlock(NetworkUiBlockReason reason)
+    {
+        if (reason == NetworkUiBlockReason.None)
+        {
+            return;
+        }
+
+        _uiBlockCounts.TryGetValue(reason, out int count);
+        _uiBlockCounts[reason] = count + 1;
+        OnNetworkUiBlockChanged?.Invoke();
+    }
+
+    private void EndUiBlock(NetworkUiBlockReason reason)
+    {
+        if (reason == NetworkUiBlockReason.None)
+        {
+            return;
+        }
+
+        if (!_uiBlockCounts.TryGetValue(reason, out int count))
+        {
+            return;
+        }
+
+        if (count <= 1)
+        {
+            _uiBlockCounts.Remove(reason);
+        }
+        else
+        {
+            _uiBlockCounts[reason] = count - 1;
+        }
+
+        OnNetworkUiBlockChanged?.Invoke();
+    }
+
+    private void ClearAllUiBlocks()
+    {
+        if (_uiBlockCounts.Count == 0)
+        {
+            return;
+        }
+
+        _uiBlockCounts.Clear();
+        OnNetworkUiBlockChanged?.Invoke();
+    }
+
+    private void CompleteRoomTransitionUiBlocks()
+    {
+        EndUiBlock(NetworkUiBlockReason.CreateRoom);
+        EndUiBlock(NetworkUiBlockReason.JoinRoom);
+    }
     
     /// <summary>
     /// Host Migration 후 새 Runner를 설정합니다.
@@ -150,22 +202,39 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public async void JoinLobby() 
     {
         if (_runner != null) return;
-        State = ConnectionState.Connecting; // 새 중간 상태
+        BeginUiBlock(NetworkUiBlockReason.LobbyBootstrap);
+        State = ConnectionState.Connecting;
 
-        _runner = gameObject.AddComponent<NetworkRunner>();
-        _runner.AddCallbacks(this);
+        try
+        {
+            _runner = gameObject.AddComponent<NetworkRunner>();
+            _runner.AddCallbacks(this);
 
-        var result = await _runner.JoinSessionLobby(SessionLobby.Shared);
-        if (!result.Ok) {
-            // Debug.LogError($"Join lobby failed: {result.ShutdownReason}");
-            State = ConnectionState.Disconnected;
-            _ = _runner.Shutdown();
-            _runner = null;
-            return;
+            var result = await _runner.JoinSessionLobby(SessionLobby.Shared);
+            if (!result.Ok)
+            {
+                State = ConnectionState.Disconnected;
+                _ = _runner.Shutdown();
+                _runner = null;
+                return;
+            }
+
+            State = ConnectionState.InLobby;
         }
-
-        State = ConnectionState.InLobby;
-        // Debug.Log("Joined Lobby.");
+        catch (Exception e)
+        {
+            Debug.LogError($"[NetworkManager] JoinLobby exception: {e}");
+            State = ConnectionState.Disconnected;
+            if (_runner != null)
+            {
+                _ = _runner.Shutdown();
+                _runner = null;
+            }
+        }
+        finally
+        {
+            EndUiBlock(NetworkUiBlockReason.LobbyBootstrap);
+        }
     }
 
     /// <summary>
@@ -180,55 +249,80 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             // Debug.LogWarning("로비 입장 중입니다. 완료될 때까지 기다리세요.");
             return;
         }
-        // 로비에 있을 때만 게임을 시작할 수 있습니다.
-        if (_state != ConnectionState.InLobby) return;
 
-        string finalSessionName = string.IsNullOrWhiteSpace(sessionName)
-            ? PlayerPrefs.GetString("PlayerNickname", "Host")
-            : sessionName;
+        NetworkUiBlockReason blockReason = mode == GameMode.Host
+            ? NetworkUiBlockReason.CreateRoom
+            : NetworkUiBlockReason.JoinRoom;
+        bool keepUiBlockUntilRoomHandoff = false;
 
-        // Debug.Log($"Starting Game with session name: {finalSessionName}, loading scene: {sceneName}");
+        BeginUiBlock(blockReason);
+        State = ConnectionState.Connecting;
 
-        // Runner가 없으면 새로 생성하고 콜백을 등록합니다.
-        if (_runner == null)
+        try
         {
-            _runner = gameObject.AddComponent<NetworkRunner>();
-            _runner.AddCallbacks(this);
+            string finalSessionName = string.IsNullOrWhiteSpace(sessionName)
+                ? PlayerPrefs.GetString(PlayerPrefsDefine.NicknameKey, NetworkDefine.DefaultHostName)
+                : sessionName;
+
+            if (_runner == null)
+            {
+                _runner = gameObject.AddComponent<NetworkRunner>();
+                _runner.AddCallbacks(this);
+            }
+
+            _runner.ProvideInput = true;
+
+            int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
+            if (sceneIndex < 0)
+            {
+                State = ConnectionState.InLobby;
+                return;
+            }
+
+            var objectProvider = gameObject.GetComponent<PooledNetworkObjectProvider>();
+            if (objectProvider == null)
+            {
+                objectProvider = gameObject.AddComponent<PooledNetworkObjectProvider>();
+            }
+
+            var sceneManager = gameObject.GetComponent<NetworkSceneManagerDefault>();
+            if (sceneManager == null)
+            {
+                sceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>();
+            }
+
+            var result = await _runner.StartGame(new StartGameArgs()
+            {
+                GameMode = mode,
+                SessionName = finalSessionName,
+                Scene = SceneRef.FromIndex(sceneIndex),
+                SceneManager = sceneManager,
+                ObjectProvider = objectProvider,
+                PlayerCount = maxSessionPlayers,
+                ConnectionToken = GetConnectionToken(),
+            });
+
+            if (!result.Ok)
+            {
+                Debug.LogError($"[NetworkManager] StartGame failed: {result.ShutdownReason}");
+                State = _runner != null ? ConnectionState.InLobby : ConnectionState.Disconnected;
+                return;
+            }
+
+            keepUiBlockUntilRoomHandoff = true;
         }
-
-        _runner.ProvideInput = true;
-        // Debug.Log(sceneName);
-
-        // 씬 이름을 기반으로 빌드 인덱스를 찾습니다.
-        // ※ 주의: 로드할 씬은 반드시 File > Build Settings에 추가되어 있어야 합니다.
-        int sceneIndex = SceneUtility.GetBuildIndexByScenePath($"Assets/Scenes/{sceneName}.unity");
-        if (sceneIndex < 0)
+        catch (Exception e)
         {
-            // Debug.LogError($"'{sceneName}' 씬을 빌드 설정에서 찾을 수 없습니다!");
-            return;
+            Debug.LogError($"[NetworkManager] StartGame exception: {e}");
+            State = _runner != null ? ConnectionState.InLobby : ConnectionState.Disconnected;
         }
-        var scene = SceneRef.FromIndex(sceneIndex);
-
-        var objectProvider = gameObject.GetComponent<PooledNetworkObjectProvider>();
-        if (objectProvider == null)
+        finally
         {
-            objectProvider = gameObject.AddComponent<PooledNetworkObjectProvider>();
+            if (!keepUiBlockUntilRoomHandoff)
+            {
+                EndUiBlock(blockReason);
+            }
         }
-
-        // StartGameArgs를 설정하여 게임을 시작합니다.
-        // 참고: Host Migration은 Fusion > Network Project Config에서 활성화해야 합니다.
-        await _runner.StartGame(new StartGameArgs()
-        {
-            GameMode = mode,
-            SessionName = finalSessionName,
-            Scene = scene, // Fusion이 이 씬을 로드하도록 지정합니다.
-            SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
-            ObjectProvider = objectProvider,
-            PlayerCount = maxSessionPlayers, // Inspector에서 설정한 최대 플레이어 수
-            
-            // 플레이어 식별용 연결 토큰 (재참여 시 사용)
-            ConnectionToken = GetConnectionToken(),
-        });
     }
 
     /// <summary>
@@ -287,7 +381,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         // 게임씬에서는 표시하지 않음
         string currentSceneName = SceneManager.GetActiveScene().name;
-        if (currentSceneName == "Game")
+        if (currentSceneName == SceneDefine.Game)
         {
             return;
         }
@@ -382,6 +476,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
         // Debug.Log($"Player {player} Joined.");
+        CompleteRoomTransitionUiBlocks();
         State = ConnectionState.InGame; // 상태를 '게임 중'으로 변경
 
         if (runner.IsServer)
@@ -494,7 +589,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             Destroy(runner);
             return;
         }
-        
+
+        ClearAllUiBlocks();
+        HostMigrationHandler.Instance?.ClearCachedPlayerData($"OnShutdown:{shutdownReason}");
         State = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
         _sessionList.Clear(); // 방 목록 초기화
 
@@ -511,7 +608,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         CancelPendingConnectionLossFallback();
     }
-    public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason) { }
+    public void OnConnectFailed(NetworkRunner runner, NetAddress remoteAddress, NetConnectFailedReason reason)
+    {
+        ClearAllUiBlocks();
+        State = ConnectionState.Disconnected;
+    }
     public void OnConnectRequest(NetworkRunner runner, NetworkRunnerCallbackArgs.ConnectRequest request, byte[] token) { }
     public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
     public void OnDisconnectedFromServer(NetworkRunner runner, NetDisconnectReason reason)
@@ -535,6 +636,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
+        ClearAllUiBlocks();
         ApplyConnectionLossPolicy(
             source: $"OnDisconnectedFromServer:{reason}",
             reconnectingHint: false);
@@ -555,7 +657,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             Debug.LogError("[NetworkManager] HostMigrationHandler가 없습니다! Host Migration 실패.");
             // 폴백: 로비로 돌아가기
-            LeaveAndLoad("MatchingLobby");
+            LeaveAndLoad(SceneDefine.MatchingLobby);
         }
     }
     public void OnInput(NetworkRunner runner, NetworkInput input) { }
@@ -564,8 +666,14 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
     public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
     public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
-    public void OnSceneLoadDone(NetworkRunner runner) { }
-    public void OnSceneLoadStart(NetworkRunner runner) { }
+    public void OnSceneLoadDone(NetworkRunner runner)
+    {
+        CompleteRoomTransitionUiBlocks();
+    }
+    public void OnSceneLoadStart(NetworkRunner runner)
+    {
+        CompleteRoomTransitionUiBlocks();
+    }
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
 
     private string TryGetConnectionTokenString(NetworkRunner runner, PlayerRef player)
@@ -630,6 +738,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
+        if (!TryReadPlayerIdForReconnect(playerManager, out int playerId) || playerId < 0)
+        {
+            return;
+        }
+
         string token = TryGetConnectionTokenString(runner, player);
         if (string.IsNullOrEmpty(token))
         {
@@ -638,7 +751,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         var data = new PlayerMigrationData
         {
-            PlayerId = playerManager.playerId,
+            PlayerId = playerId,
             Gold = playerManager.GetGold(),
             Health = playerManager.GetHealth(),
             ConnectionToken = token,
@@ -658,7 +771,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         string token = TryGetConnectionTokenString(runner, joinedPlayer);
         if (string.IsNullOrEmpty(token))
         {
-            return false;
+            token = $"playerRef:{joinedPlayer.PlayerId}";
         }
 
         if (!HostMigrationHandler.Instance.TryGetCachedPlayerData(token, out var cachedData))
@@ -675,7 +788,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                 continue;
             }
 
-            if (candidate.playerId == cachedData.PlayerId)
+            if (!TryReadPlayerIdForReconnect(candidate, out int candidatePlayerId))
+            {
+                continue;
+            }
+
+            if (candidatePlayerId == cachedData.PlayerId)
             {
                 targetPlayer = candidate;
                 break;
@@ -724,8 +842,28 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         _spawnedCharacters[joinedPlayer] = targetPlayer.Object;
+        HostMigrationHandler.Instance.RemoveCachedPlayerData(token, "reassociated");
         // Debug.Log($"[NetworkManager] Reassociated reconnect player {joinedPlayer} -> playerId={cachedData.PlayerId}, token={token}");
         return true;
+    }
+
+    private static bool TryReadPlayerIdForReconnect(PlayerManager playerManager, out int playerId)
+    {
+        playerId = -1;
+        if (playerManager == null || playerManager.Object == null || !playerManager.Object.IsValid)
+        {
+            return false;
+        }
+
+        try
+        {
+            playerId = playerManager.playerId;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static bool IsActivePlayer(NetworkRunner runner, PlayerRef player)
@@ -905,14 +1043,16 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     private void ExecuteConnectionLossFallback(string source)
     {
         CancelPendingConnectionLossFallback();
+        ClearAllUiBlocks();
+        HostMigrationHandler.Instance?.ClearCachedPlayerData($"ExecuteConnectionLossFallback:{source}");
         State = ConnectionState.Disconnected;
         _sessionList.Clear();
 
         Debug.LogWarning(BuildConnectionLossTrace("ExecuteFallback", $"source={source}"));
 
-        if (SceneManager.GetActiveScene().name != "MatchingLobby")
+        if (SceneManager.GetActiveScene().name != SceneDefine.MatchingLobby)
         {
-            SceneManager.LoadScene("MatchingLobby");
+            SceneManager.LoadScene(SceneDefine.MatchingLobby);
         }
     }
 
@@ -933,11 +1073,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     private byte[] GetConnectionToken()
     {
         // 유저 고유 ID 생성 또는 기존 ID 사용
-        string uniqueId = PlayerPrefs.GetString("PlayerUUID", "");
+        string uniqueId = PlayerPrefs.GetString(PlayerPrefsDefine.PlayerUuidKey, "");
         if (string.IsNullOrEmpty(uniqueId))
         {
             uniqueId = Guid.NewGuid().ToString();
-            PlayerPrefs.SetString("PlayerUUID", uniqueId);
+            PlayerPrefs.SetString(PlayerPrefsDefine.PlayerUuidKey, uniqueId);
             PlayerPrefs.Save();
         }
         
@@ -986,6 +1126,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 세션 종료 후 특정 씬으로 복귀
     public void LeaveAndLoad(string sceneName)
     {
+        ClearAllUiBlocks();
+        HostMigrationHandler.Instance?.ClearCachedPlayerData($"LeaveAndLoad:{sceneName}");
         if (_runner != null)
         {
             _runner.Shutdown();

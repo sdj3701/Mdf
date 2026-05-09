@@ -12,6 +12,7 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
     [SerializeField] private int maxPoolCount = 0;
 
     private readonly Dictionary<NetworkPrefabId, Queue<NetworkObject>> _free = new Dictionary<NetworkPrefabId, Queue<NetworkObject>>();
+    private readonly HashSet<NetworkPrefabId> _missingPrefabWarnings = new HashSet<NetworkPrefabId>();
 
     protected virtual NetworkObject InstantiatePrefab(NetworkRunner runner, NetworkObject prefab, NetworkPrefabId prefabId)
     {
@@ -89,6 +90,12 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
 
         if (!prefab)
         {
+            if (_missingPrefabWarnings.Add(context.PrefabId))
+            {
+                string runnerName = runner != null ? runner.name : "null";
+                Debug.LogWarning($"[PooledNetworkObjectProvider] Prefab load returned null. runner={runnerName}, prefabId={context.PrefabId}, sync={context.IsSynchronous}. Fusion prefab table/addressable load state를 확인하세요.");
+            }
+
             return NetworkObjectAcquireResult.Retry;
         }
 
@@ -146,6 +153,7 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
     public void Shutdown(NetworkRunner runner)
     {
         _free.Clear();
+        _missingPrefabWarnings.Clear();
     }
 
     public void SetMaxPoolCount(int count)
