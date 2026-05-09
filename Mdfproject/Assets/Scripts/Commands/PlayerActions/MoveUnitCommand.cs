@@ -28,6 +28,12 @@ public class MoveUnitCommand : ICommand
             return;
         }
 
+        if (gm.IsSequenceTransitioning)
+        {
+            Reject("move_blocked_during_sequence_transition");
+            return;
+        }
+
         var player = gm.GetPlayer(PlayerId);
         if (player == null || player.fieldManager == null)
         {

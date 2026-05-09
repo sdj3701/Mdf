@@ -6,6 +6,7 @@ public static class BattleCommandValidator
     public static bool IsBattlePhase(GameManagers gm)
     {
         return gm != null &&
+               !gm.IsSequenceTransitioning &&
                (gm.currentState == GameManagers.GameState.Battle1 ||
                 gm.currentState == GameManagers.GameState.Battle2);
     }
@@ -30,6 +31,12 @@ public static class BattleCommandValidator
         if (gm == null)
         {
             result = BattleCommandResult.Rejected(commandType, playerId, "game_managers_missing", null, -1, scope, source);
+            return false;
+        }
+
+        if (!IsBattlePhase(gm))
+        {
+            result = BattleCommandResult.Rejected(commandType, playerId, "command_requires_active_battle_phase", null, -1, scope, source);
             return false;
         }
 

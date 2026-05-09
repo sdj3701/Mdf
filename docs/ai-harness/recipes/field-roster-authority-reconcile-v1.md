@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: multiplayer
 Created: 2026-05-08
-Last used: 2026-05-09
-Last verified: 2026-05-09
-Use count: 8
+Last used: 2026-05-10
+Last verified: 2026-05-10
+Use count: 11
 Review after: 2026-08-06
 Triggers: placedUnitsHash mismatch, unit combine/despawn, late MoveUnit, battle transition snapshot mismatch, host placed unit missing on client, `Networked properties can only be accessed when Spawned() has been called`
 Applies to: `FieldManager`, `PlayerManager`, `GameManagers.StartBattleForPlayers`, `Unit`, `ManaController`, MP state snapshots
-Verified by: `python tools/harness/precommit.py --all`; `unity-cli --project Mdfproject editor refresh --compile`; `unity-cli --project Mdfproject console --type error --stacktrace user`; `unity-cli --project Mdfproject test --mode EditMode`; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --no-headless-player --player-path artifacts/builds/20260508-142926/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260509-040924-2human-aifill-visible-3round-respawn-v6; artifacts/mp/20260509-045354-human-bot-3round-progression; artifacts/mp/20260509-051915-human-bot-3round-progression; artifacts/mp/20260509-100252-human-bot-3round-progression
+Verified by: `python tools/harness/precommit.py --all`; `unity-cli --project Mdfproject editor refresh --compile`; `unity-cli --project Mdfproject console --type error --stacktrace user`; `unity-cli --project Mdfproject test --mode EditMode`; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --no-headless-player --player-path artifacts/builds/20260508-142926/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260509-040924-2human-aifill-visible-3round-respawn-v6; artifacts/mp/20260509-045354-human-bot-3round-progression; artifacts/mp/20260509-051915-human-bot-3round-progression; artifacts/mp/20260509-100252-human-bot-3round-progression; artifacts\mp\20260509-223416-2human-aifill-visible-3round
 Replacement: none
 Archive policy: keep active while Fusion unit registration, combine/despawn, Host Migration, or reconnect can rebuild field maps
 
@@ -38,3 +38,4 @@ Lifecycle notes:
 - 2026-05-09: Verified non-authority MoveUnit replay queues late spawned source units while authority keeps ownership/wall guards; visible 2P 3-round progression passed all 10 checkpoint comparisons.
 - 2026-05-09: verified artifact `artifacts/mp/20260509-100252-human-bot-3round-progression`
 - 2026-05-09: Consulted while extending purchased-unit pending cells into prepare placement policy candidates.
+- 2026-05-10: verified artifact `artifacts\mp\20260509-223416-2human-aifill-visible-3round`

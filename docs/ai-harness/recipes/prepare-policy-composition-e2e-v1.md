@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-07
-Last used: 2026-05-07
+Last used: 2026-05-10
 Last verified: 2026-05-07
-Use count: 1
+Use count: 3
 Review after: 2026-08-05
 Triggers: prepare-phase AI/HumanBot economy, buy/reroll tuning, composition-aware purchase scoring
 Applies to: `PrepareDecisionPolicy`, `MPTestHumanBotDriver`, `run_human_bot_prepare_progression.py`, `MPTestStateSnapshot`

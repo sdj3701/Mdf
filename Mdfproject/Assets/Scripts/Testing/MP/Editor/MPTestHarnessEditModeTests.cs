@@ -524,6 +524,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(commandSource, Does.Contain("skill_mana_not_ready"));
         Assert.That(commandSource, Does.Contain("skill_unit_disabled_or_silenced"));
         Assert.That(commandSource, Does.Contain("skill_target_unavailable"));
+        Assert.That(commandSource, Does.Contain("skill_unit_dead"));
         Assert.That(unitSource, Does.Contain("HasSkillTargetsAvailable"));
         Assert.That(loggerSource, Does.Contain("skill_command_request"));
         Assert.That(loggerSource, Does.Contain("skill_command_accepted"));
@@ -872,10 +873,17 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("remainingOpenGapsAfterCandidate"));
         Assert.That(source, Does.Contain("HasRepairableMissingWallPlan"));
         Assert.That(source, Does.Contain("HasRecordedBuiltWallCandidate"));
+        Assert.That(source, Does.Contain("TryGetRepairWallPosition"));
+        Assert.That(source, Does.Contain("maze_policy_repair_missing_wall"));
+        Assert.That(source, Does.Contain("repairMissingMazeWall"));
+        Assert.That(source, Does.Contain("round < 2"));
         Assert.That(source, Does.Contain("GetWallBuildReserve"));
         Assert.That(source, Does.Contain("MinimumRepairReserveWalls"));
         Assert.That(source, Does.Contain("cached.FieldInstanceId == fieldInstanceId"));
+        Assert.That(source, Does.Contain("cached.Signature == signature"));
         Assert.That(source, Does.Contain("player.GetWallCount() > GetWallBuildReserve(player)"));
+        Assert.That(source, Does.Contain("OrderBy(unit => unit.Data.unitType == UnitType.Ranged ? 0 : 1)"));
+        Assert.That(source, Does.Contain("OrderBy(entry => entry.UnitData != null && entry.UnitData.unitType == UnitType.Ranged ? 0 : 1)"));
         Assert.That(source, Does.Contain("sold_slots_below_3"));
         Assert.That(source, Does.Contain("high_value_affordable_purchase_remaining"));
         Assert.That(source, Does.Contain("GetPresentedAugmentSnapshotNames"));
@@ -926,6 +934,9 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("CalculateFieldCenterScore(tile) >= 0.45f"));
         Assert.That(fieldSource, Does.Contain("centralInteriorTiles"));
         Assert.That(fieldSource, Does.Contain("CalculateRangedPathPriorityBonus"));
+        Assert.That(fieldSource, Does.Contain("CalculateNearbyRangedAllyBonus"));
+        Assert.That(fieldSource, Does.Contain("ally.Data.unitType != UnitType.Ranged"));
+        Assert.That(fieldSource, Does.Contain("currentScore += CalculateNearbyRangedAllyBonus(tilePos, alliedUnits);"));
         Assert.That(fieldSource, Does.Contain("CalculateFieldCenterScore"));
         Assert.That(fieldSource, Does.Contain("covered * 4.0f"));
         Assert.That(fieldSource, Does.Contain("centerScore * 8.0f"));
@@ -937,7 +948,8 @@ public sealed class MPTestHarnessEditModeTests
 
         string mazeSource = File.ReadAllText("Assets/Scripts/AI/Planning/MazePlanner.cs");
         Assert.That(mazeSource, Does.Contain("PruneRedundantWalls"));
-        Assert.That(mazeSource, Does.Contain("did not shorten the final monster path"));
+        Assert.That(mazeSource, Does.Contain("lengthWithoutWall > currentLength"));
+        Assert.That(mazeSource, Does.Contain("harmful maze walls that shortened the final monster path when kept"));
 
         int planStart = mazeSource.IndexOf("private static MazePlanResult PlanWallsFromInput", System.StringComparison.Ordinal);
         int planEnd = mazeSource.IndexOf("private static MazePlanResult PlanAdditionalWallsFromInput", System.StringComparison.Ordinal);
@@ -1189,6 +1201,41 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Not.Contain("presentedAugments.Clear"));
         Assert.That(snapshotSource, Does.Contain("EnumerateSelectedAugmentsForSnapshot"));
         Assert.That(snapshotSource, Does.Contain("GetSelectedAugmentSnapshotNames"));
+    }
+
+    [Test]
+    public void FieldRosterReconcileKeepsRegistrationMetadataForCompactRosterOrdering()
+    {
+        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string gameManagersRosterSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.UnitRosterSync.cs");
+
+        Assert.That(playerSource, Does.Contain("_latestUnitRegistrationById"));
+        Assert.That(playerSource, Does.Contain("_pendingUnitRosterDataKeyHashes"));
+        Assert.That(playerSource, Does.Contain("RememberLatestUnitRegistration"));
+        Assert.That(playerSource, Does.Contain("metadataForKey.starLevel == starLevel"));
+        Assert.That(playerSource, Does.Contain("unitDataKey = metadataForKey.unitDataKey"));
+        Assert.That(playerSource, Does.Contain("ResolveUnitDataKeyByStableHashAsync"));
+        Assert.That(playerSource, Does.Contain("StableUnitDataKeyHash(data.name) == unitDataKeyHash"));
+        Assert.That(playerSource, Does.Contain("_latestUnitRegistrationById.Remove(unitIdRaw)"));
+        Assert.That(fieldSource, Does.Contain("compactRoster[0] = -2"));
+        Assert.That(fieldSource, Does.Contain("UnitDataKeyHash"));
+        Assert.That(fieldSource, Does.Contain("StableUnitDataKeyHash(GetUnitDataRegistrationKey(entry.Value))"));
+        Assert.That(fieldSource, Does.Contain("ReconcileClientUnitMapFromWorldIfNeeded"));
+        Assert.That(fieldSource, Does.Contain("ClientRoster.{context}"));
+        Assert.That(fieldSource, Does.Contain("playerManager.Object.HasStateAuthority"));
+        Assert.That(fieldSource, Does.Contain("UnitHasReplicatedFieldOwner"));
+        Assert.That(fieldSource, Does.Contain("SyncUnitPlacementIdentity"));
+        Assert.That(fieldSource, Does.Contain("RPC_ReconcileUnitRosterCompact(compactRoster)"));
+        Assert.That(fieldSource, Does.Contain("RPC_ReconcilePlayerUnitRosterCompact(playerManager.playerId, compactRoster)"));
+        Assert.That(fieldSource, Does.Not.Contain("Full unit roster broadcast failed"));
+        Assert.That(unitSource, Does.Contain("NetworkedOwnerPlayerId"));
+        Assert.That(unitSource, Does.Contain("NetworkedHasOwnerPlayerId"));
+        Assert.That(unitSource, Does.Contain("OwnerPlayerIdForRoster"));
+        Assert.That(unitSource, Does.Contain("SyncFieldPlacementIdentity"));
+        Assert.That(gameManagersRosterSource, Does.Contain("RPC_ReconcilePlayerUnitRosterCompact"));
+        Assert.That(gameManagersRosterSource, Does.Contain("ApplyCompactUnitRosterFromAuthority"));
     }
 
     [Test]

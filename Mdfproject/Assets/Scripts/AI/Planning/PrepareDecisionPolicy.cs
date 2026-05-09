@@ -190,7 +190,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        if (!TryGetNextWallPosition(player, round, out var position))
+        bool isRepair = TryGetRepairWallPosition(player, round, out var position);
+        if (!isRepair && !TryGetNextWallPosition(player, round, out position))
         {
             return false;
         }
@@ -201,9 +202,9 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             context,
             new PlaceWallCommand(player.playerId, position),
             CommandType.PlaceWall,
-            "maze_policy_next_wall",
+            isRepair ? "maze_policy_repair_missing_wall" : "maze_policy_next_wall",
             $"{position.x},{position.y},{position.z}",
-            80f,
+            isRepair ? 90f : 80f,
             MergeFields(BuildPrepareJournalFields(context, composition, null, null), new Dictionary<string, object>
             {
                 { "x", position.x },
@@ -211,6 +212,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 { "buyBeforeWallRequired", ShouldPrioritizeBuyBeforeWall(composition, _persona) },
                 { "wallControlFirst", ShouldPrioritizeWallControl(player, composition, round) },
                 { "persistentWallBlueprint", true },
+                { "repairMissingMazeWall", isRepair },
                 { "prepareRoutineStage", PrepareRoutineStage.Maze.ToString() },
                 { "pendingWallSuppression", true }
             }));
@@ -385,8 +387,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
         var units = GetPolicyUnits(player, field)
             .Where(unit => unit != null && unit.Data != null)
-            .OrderBy(unit => GetMoveCandidatePriority(field, unit))
-            .ThenBy(unit => unit.Data.unitType == UnitType.Ranged ? 0 : 1)
+            .OrderBy(unit => unit.Data.unitType == UnitType.Ranged ? 0 : 1)
+            .ThenBy(unit => GetMoveCandidatePriority(field, unit))
             .ThenBy(unit => unit.Data.unitName)
             .ToArray();
         var monsterPath = BuildMonsterPathContext(player);
@@ -495,8 +497,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         var pendingPlacements = field.GetPendingUnitPlacements()
-            .OrderBy(entry => IsLikelyPurchaseDefaultArea(field, entry.Position) ? 0 : 1)
-            .ThenBy(entry => entry.UnitData != null && entry.UnitData.unitType == UnitType.Ranged ? 0 : 1)
+            .OrderBy(entry => entry.UnitData != null && entry.UnitData.unitType == UnitType.Ranged ? 0 : 1)
+            .ThenBy(entry => IsLikelyPurchaseDefaultArea(field, entry.Position) ? 0 : 1)
             .ThenBy(entry => entry.UnitData != null ? entry.UnitData.unitName : string.Empty)
             .ToList();
 
@@ -971,6 +973,67 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         return false;
     }
 
+    private bool TryGetRepairWallPosition(PlayerManager player, int round, out Vector3Int position)
+    {
+        position = default(Vector3Int);
+        var field = player != null ? player.fieldManager : null;
+        if (field == null || round < 2 || player.GetWallCount() <= 0 || !HasRecordedBuiltWallCandidate(player))
+        {
+            return false;
+        }
+
+        string prefix = $"{player.playerId}:";
+        var repairCandidates = _builtWallCellKeys
+            .Where(key => key.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(ParseWallMemoryCell)
+            .Where(candidate => candidate.HasValue)
+            .Select(candidate => candidate.Value)
+            .OrderBy(candidate => field.HasWallAt(candidate) ? 1 : 0)
+            .ThenBy(candidate => candidate.x)
+            .ThenBy(candidate => candidate.y)
+            .ThenBy(candidate => candidate.z);
+
+        foreach (var candidate in repairCandidates)
+        {
+            if (field.HasWallAt(candidate) ||
+                IsPendingWallCandidate(player, candidate, round) ||
+                !IsLegalWallCandidate(player, candidate, round))
+            {
+                continue;
+            }
+
+            position = candidate;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static Vector3Int? ParseWallMemoryCell(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            return null;
+        }
+
+        int colonIndex = key.IndexOf(':');
+        if (colonIndex < 0 || colonIndex + 1 >= key.Length)
+        {
+            return null;
+        }
+
+        string[] parts = key.Substring(colonIndex + 1).Split(',');
+        if (parts.Length != 3 ||
+            !int.TryParse(parts[0], out int x) ||
+            !int.TryParse(parts[1], out int y) ||
+            !int.TryParse(parts[2], out int z))
+        {
+            return null;
+        }
+
+        return new Vector3Int(x, y, z);
+    }
+
     private IReadOnlyList<Vector3Int> GetWallPlan(PlayerManager player)
     {
         var field = player.fieldManager;
@@ -979,6 +1042,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         int fieldInstanceId = field != null ? field.GetInstanceID() : 0;
         if (_wallPlans.TryGetValue(playerId, out var cached) &&
             cached.FieldInstanceId == fieldInstanceId &&
+            cached.Signature == signature &&
             cached.Order != null &&
             cached.Order.Count > 0)
         {
@@ -1340,25 +1404,12 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     private bool HasRepairableMissingWallPlan(PlayerManager player, int round)
     {
         var field = player != null ? player.fieldManager : null;
-        if (field == null || player.GetWallCount() <= 0 || !HasRecordedBuiltWallCandidate(player))
+        if (field == null || round < 2 || player.GetWallCount() <= 0 || !HasRecordedBuiltWallCandidate(player))
         {
             return false;
         }
 
-        foreach (var candidate in GetWallPlan(player))
-        {
-            if (!HasBuiltWallCandidate(player, candidate) ||
-                field.HasWallAt(candidate) ||
-                IsPendingWallCandidate(player, candidate, round) ||
-                !IsLegalWallCandidate(player, candidate, round))
-            {
-                continue;
-            }
-
-            return true;
-        }
-
-        return false;
+        return TryGetRepairWallPosition(player, round, out _);
     }
 
     private bool HasRecordedBuiltWallCandidate(PlayerManager player)

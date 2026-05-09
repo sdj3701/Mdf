@@ -399,10 +399,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     }
     private List<PendingUnitReg> _pendingUnitRegs = new List<PendingUnitReg>();
     private readonly HashSet<uint> _retiredUnitRegistrationIds = new HashSet<uint>();
+    private readonly Dictionary<uint, PendingUnitReg> _latestUnitRegistrationById = new Dictionary<uint, PendingUnitReg>();
     private int[] _pendingPermanentWallFlatPositions;
     private int[] _pendingUnitRosterIdRaws;
     private int[] _pendingUnitRosterFlatPositions;
     private string[] _pendingUnitRosterDataKeys;
+    private int[] _pendingUnitRosterDataKeyHashes;
     private int[] _pendingUnitRosterStarLevels;
     private Coroutine _permanentWallSyncBroadcastCoroutine;
 
@@ -1291,7 +1293,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
             if (fieldManager == null || fieldManager.ground3D == null)
             {
-                StorePendingUnitRoster(unitIdRaws, flatPositions, unitDataKeys, starLevels);
+                StorePendingUnitRoster(unitIdRaws, flatPositions, unitDataKeys, null, starLevels);
                 RebindRuntimeReferencesAfterMigration("RPC_ReconcileUnitRoster.Pending", false);
             }
 
@@ -1300,7 +1302,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 return;
             }
 
-            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, starLevels);
+            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, null, starLevels);
         }
         catch (System.Exception)
         {
@@ -1311,6 +1313,16 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void RPC_ReconcileUnitRosterCompact(int[] flatRoster)
     {
+        await ApplyCompactUnitRosterFromAuthorityAsync(flatRoster);
+    }
+
+    public void ApplyCompactUnitRosterFromAuthority(int[] flatRoster)
+    {
+        ApplyCompactUnitRosterFromAuthorityAsync(flatRoster).Forget();
+    }
+
+    private async UniTask ApplyCompactUnitRosterFromAuthorityAsync(int[] flatRoster)
+    {
         try
         {
             if (Object != null && Object.HasStateAuthority)
@@ -1318,29 +1330,63 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 return;
             }
 
-            if (flatRoster == null || flatRoster.Length % 5 != 0)
+            if (flatRoster == null || flatRoster.Length == 0)
             {
                 return;
             }
 
-            int count = flatRoster.Length / 5;
+            bool versionedRoster = flatRoster.Length >= 2 && flatRoster[0] == -2;
+            int count;
+            int stride;
+            int startOffset;
+            bool hasUnitDataHashes;
+
+            if (versionedRoster)
+            {
+                count = flatRoster[1];
+                stride = 6;
+                startOffset = 2;
+                hasUnitDataHashes = true;
+                if (count < 0 || flatRoster.Length != startOffset + (count * stride))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                if (flatRoster.Length % 5 != 0)
+                {
+                    return;
+                }
+
+                count = flatRoster.Length / 5;
+                stride = 5;
+                startOffset = 0;
+                hasUnitDataHashes = false;
+            }
+
             int[] unitIdRaws = new int[count];
             int[] flatPositions = new int[count * 3];
             int[] starLevels = new int[count];
+            int[] unitDataKeyHashes = hasUnitDataHashes ? new int[count] : null;
 
             for (int i = 0; i < count; i++)
             {
-                int offset = i * 5;
+                int offset = startOffset + (i * stride);
                 unitIdRaws[i] = flatRoster[offset + 0];
                 flatPositions[(i * 3) + 0] = flatRoster[offset + 1];
                 flatPositions[(i * 3) + 1] = flatRoster[offset + 2];
                 flatPositions[(i * 3) + 2] = flatRoster[offset + 3];
                 starLevels[i] = flatRoster[offset + 4];
+                if (hasUnitDataHashes)
+                {
+                    unitDataKeyHashes[i] = flatRoster[offset + 5];
+                }
             }
 
             if (fieldManager == null || fieldManager.ground3D == null)
             {
-                StorePendingUnitRoster(unitIdRaws, flatPositions, null, starLevels);
+                StorePendingUnitRoster(unitIdRaws, flatPositions, null, unitDataKeyHashes, starLevels);
                 RebindRuntimeReferencesAfterMigration("RPC_ReconcileUnitRosterCompact.Pending", false);
             }
 
@@ -1349,7 +1395,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 return;
             }
 
-            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, null, starLevels);
+            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, null, unitDataKeyHashes, starLevels);
         }
         catch (System.Exception)
         {
@@ -1377,20 +1423,23 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         var unitIdRaws = _pendingUnitRosterIdRaws;
         var flatPositions = _pendingUnitRosterFlatPositions;
         var unitDataKeys = _pendingUnitRosterDataKeys;
+        var unitDataKeyHashes = _pendingUnitRosterDataKeyHashes;
         var starLevels = _pendingUnitRosterStarLevels;
         _pendingUnitRosterIdRaws = null;
         _pendingUnitRosterFlatPositions = null;
         _pendingUnitRosterDataKeys = null;
+        _pendingUnitRosterDataKeyHashes = null;
         _pendingUnitRosterStarLevels = null;
 
-        await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, starLevels);
+        await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, unitDataKeyHashes, starLevels);
     }
 
-    private void StorePendingUnitRoster(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] starLevels)
+    private void StorePendingUnitRoster(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] unitDataKeyHashes, int[] starLevels)
     {
         _pendingUnitRosterIdRaws = unitIdRaws != null ? unitIdRaws.ToArray() : null;
         _pendingUnitRosterFlatPositions = flatPositions != null ? flatPositions.ToArray() : null;
         _pendingUnitRosterDataKeys = unitDataKeys != null ? unitDataKeys.ToArray() : null;
+        _pendingUnitRosterDataKeyHashes = unitDataKeyHashes != null ? unitDataKeyHashes.ToArray() : null;
         _pendingUnitRosterStarLevels = starLevels != null ? starLevels.ToArray() : null;
     }
 
@@ -1407,7 +1456,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             && (unitDataKeys == null || unitDataKeys.Length == count);
     }
 
-    private async UniTask ApplyUnitRosterFromAuthority(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] starLevels)
+    private async UniTask ApplyUnitRosterFromAuthority(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] unitDataKeyHashes, int[] starLevels)
     {
         if (!IsValidUnitRosterPayload(unitIdRaws, flatPositions, unitDataKeys, starLevels) || fieldManager == null)
         {
@@ -1430,15 +1479,42 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 continue;
             }
 
+            var position = new Vector3Int(flatPositions[(i * 3) + 0], flatPositions[(i * 3) + 1], flatPositions[(i * 3) + 2]);
+            string unitDataKey = unitDataKeys != null ? unitDataKeys[i] : string.Empty;
+            int starLevel = starLevels[i];
+
+            if (string.IsNullOrEmpty(unitDataKey) &&
+                _latestUnitRegistrationById.TryGetValue(unitIdRaw, out var metadataForKey) &&
+                metadataForKey.starLevel == starLevel)
+            {
+                unitDataKey = metadataForKey.unitDataKey ?? string.Empty;
+            }
+
+            if (string.IsNullOrEmpty(unitDataKey) &&
+                unitDataKeyHashes != null &&
+                i < unitDataKeyHashes.Length)
+            {
+                unitDataKey = await ResolveUnitDataKeyByStableHashAsync(unitDataKeyHashes[i]);
+            }
+
             NetworkObject unitNO = await ResolveNetworkObjectByRawIdAsync(unitIdRaw);
+            if (unitNO == null)
+            {
+                if (_latestUnitRegistrationById.TryGetValue(unitIdRaw, out var metadataForObject) &&
+                    metadataForObject.unitNO != null &&
+                    metadataForObject.unitNO.IsValid &&
+                    metadataForObject.unitNO.Id.Raw == unitIdRaw)
+                {
+                    unitNO = metadataForObject.unitNO;
+                }
+            }
+
             if (unitNO == null)
             {
                 continue;
             }
 
-            var position = new Vector3Int(flatPositions[(i * 3) + 0], flatPositions[(i * 3) + 1], flatPositions[(i * 3) + 2]);
-            string unitDataKey = unitDataKeys != null ? unitDataKeys[i] : string.Empty;
-            await RPC_RegisterUnitAt_Internal(unitNO, position.x, position.y, unitDataKey, starLevels[i]);
+            await RPC_RegisterUnitAt_Internal(unitNO, position.x, position.y, unitDataKey, starLevel);
         }
     }
 
@@ -1459,6 +1535,73 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         return positions;
+    }
+
+    private async UniTask<string> ResolveUnitDataKeyByStableHashAsync(int unitDataKeyHash)
+    {
+        if (unitDataKeyHash == 0)
+        {
+            return string.Empty;
+        }
+
+        if (LoadManager.Instance == null)
+        {
+            await UniTask.WaitUntil(() => LoadManager.Instance != null);
+        }
+
+        if (!LoadManager.Instance.IsReady)
+        {
+            await LoadManager.Instance.WaitUntilReady();
+        }
+
+        var allUnits = LoadManager.Instance.GetAllUnitData();
+        if (allUnits == null)
+        {
+            return string.Empty;
+        }
+
+        foreach (var data in allUnits)
+        {
+            if (data != null && StableUnitDataKeyHash(data.name) == unitDataKeyHash)
+            {
+                return data.name;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static int StableUnitDataKeyHash(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return 0;
+        }
+
+        unchecked
+        {
+            uint hash = 2166136261u;
+            for (int i = 0; i < value.Length; i++)
+            {
+                hash ^= value[i];
+                hash *= 16777619u;
+            }
+
+            return (int)hash;
+        }
+    }
+
+    private void RememberLatestUnitRegistration(uint unitIdRaw, NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
+    {
+        _latestUnitRegistrationById[unitIdRaw] = new PendingUnitReg
+        {
+            unitNO = unitNO,
+            unitIdRaw = unitIdRaw,
+            x = x,
+            y = y,
+            unitDataKey = unitDataKey ?? string.Empty,
+            starLevel = starLevel
+        };
     }
 
     private async UniTask<NetworkObject> ResolveNetworkObjectByRawIdAsync(uint unitIdRaw)
@@ -1509,6 +1652,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         uint unitIdRaw = unitId.Raw;
         _retiredUnitRegistrationIds.Add(unitIdRaw);
         _pendingUnitRegs.RemoveAll(reg => reg.unitIdRaw == unitIdRaw);
+        _latestUnitRegistrationById.Remove(unitIdRaw);
 
         if (fieldManager == null)
         {
@@ -1538,6 +1682,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] recv pos=({x},{y}) key='{unitDataKey}' star={starLevel} stateAuth={(Object != null && Object.HasStateAuthority)} id={unitId}</color>");
             if (Object != null && Object.HasStateAuthority) return;
             uint unitIdRaw = unitId.Raw;
+            RememberLatestUnitRegistration(unitIdRaw, null, x, y, unitDataKey, starLevel);
             if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
             {
                 return;
@@ -1568,6 +1713,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 // Debug.LogWarning($"<color=yellow>[RPC_RegisterUnitAt] failed to resolve NetworkObject by NetworkId='{unitId}' key='{unitDataKey}'</color>");
                 return;
             }
+            RememberLatestUnitRegistration(unitIdRaw, unitNO, x, y, unitDataKey, starLevel);
 
             if (fieldManager == null || fieldManager.ground3D == null)
             {
@@ -3308,6 +3454,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
+        if (gm.IsSequenceTransitioning)
+        {
+            reason = "command_blocked_during_sequence_transition";
+            return false;
+        }
+
         reason = null;
         return true;
     }
@@ -3317,6 +3469,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (gm == null || (gm.currentState != GameManagers.GameState.Battle1 && gm.currentState != GameManagers.GameState.Battle2))
         {
             reason = "command_requires_battle_phase";
+            return false;
+        }
+
+        if (gm.IsSequenceTransitioning)
+        {
+            reason = "command_blocked_during_sequence_transition";
             return false;
         }
 

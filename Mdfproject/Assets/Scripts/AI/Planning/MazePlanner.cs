@@ -1138,7 +1138,7 @@ public static class MazePlanner
                 var pathWithoutWall = AStarSearch(grid, start, goal);
                 int lengthWithoutWall = pathWithoutWall?.Count ?? 0;
 
-                if (lengthWithoutWall >= currentLength && lengthWithoutWall >= 2)
+                if (lengthWithoutWall > currentLength && lengthWithoutWall >= 2)
                 {
                     aiWalls.RemoveAt(i);
                     currentLength = lengthWithoutWall;
@@ -1153,7 +1153,7 @@ public static class MazePlanner
 
         if (log && removed > 0)
         {
-            Debug.Log($"[MazePlanner] Pruned {removed} redundant maze walls that did not shorten the final monster path when removed.");
+            Debug.Log($"[MazePlanner] Pruned {removed} harmful maze walls that shortened the final monster path when kept.");
         }
     }
 

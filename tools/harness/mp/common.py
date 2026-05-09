@@ -197,6 +197,12 @@ def snapshot_not_ready_reasons(data: Any, expected_players: int, scene: str) -> 
     game = state.get("game") or {}
     if game.get("hasGameManagers") is not True:
         reasons.append("game.hasGameManagers_not_true")
+    if game.get("isSequenceTransitioning") is True:
+        reasons.append(
+            "game.sequenceTransitioning "
+            f"{game.get('transitionFromState')}->{game.get('transitionToState')} "
+            f"remaining={game.get('sequenceTransitionRemaining')}"
+        )
 
     for index, player in enumerate(players):
         player_id = player.get("playerId", index) if isinstance(player, dict) else index

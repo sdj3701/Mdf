@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-08
-Last used: 2026-05-08
+Last used: 2026-05-10
 Last verified: 2026-05-08
-Use count: 1
+Use count: 2
 Review after: 2026-08-06
 Triggers: Windows cleanup blocker, `/quit` timeout, D3D/GPU pressure, headless smoke/prepare E2E
 Applies to: `tools/harness/mp/launch_player.py`, `build_player.py`, `run_matrix.py`, `MPTestGracefulQuit.cs`

@@ -4,9 +4,9 @@ Status: stale
 Pinned: true
 Category: host-migration, reconnect, security, battle
 Created: 2026-05-06
-Last used: 2026-05-06
+Last used: 2026-05-10
 Last verified: 2026-05-06
-Use count: 1
+Use count: 2
 Review after: 2026-08-04
 Triggers: A post-battle lifecycle E2E must compare a progressed battle checkpoint across client disconnect, same-token reconnect, or Host Migration without hiding normal game-flow advancement as expected randomness
 Applies to: `MPTestCommandLine`, `MPTestAutomationServer`, `battle_progression_common.py`, post-battle reconnect/disconnect/Host Migration runners

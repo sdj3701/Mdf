@@ -205,6 +205,11 @@ public static class MPTestStateSnapshot
             BattlePhase = gameManagers != null ? ResolveBattlePhase(gameManagers) : "None",
             CurrentRound = gameManagers != null ? SafeInt(() => gameManagers.currentRound, 0) : 0,
             PhaseTimerRemaining = gameManagers != null ? SafeFloat(() => gameManagers.currentPhaseTimer, 0f) : 0f,
+            IsSequenceTransitioning = gameManagers != null && SafeBool(() => gameManagers.IsSequenceTransitioning, false),
+            TransitionFromState = gameManagers != null ? SafeString(() => gameManagers.TransitionFromState.ToString(), Unknown) : null,
+            TransitionToState = gameManagers != null ? SafeString(() => gameManagers.TransitionToStateTarget.ToString(), Unknown) : null,
+            SequenceTransitionRemaining = gameManagers != null ? SafeFloat(() => gameManagers.currentSequenceTransitionTimer, 0f) : 0f,
+            SequenceTransitionDuration = gameManagers != null ? SafeFloat(() => gameManagers.sequenceTransitionDelaySeconds, 0f) : 0f,
             FirstAttackerPlayerId = gameManagers != null ? firstAttackerPlayerId : -1,
             BattleOpponentsHash = HashStableString(battleOpponentsSnapshot),
             MatchFirstAttackerHash = HashStableString(matchFirstAttackerSnapshot),
@@ -1423,6 +1428,11 @@ public static class MPTestStateSnapshot
         [JsonProperty("battlePhase")] public string BattlePhase;
         [JsonProperty("currentRound")] public int CurrentRound;
         [JsonProperty("phaseTimerRemaining")] public float PhaseTimerRemaining;
+        [JsonProperty("isSequenceTransitioning")] public bool IsSequenceTransitioning;
+        [JsonProperty("transitionFromState")] public string TransitionFromState;
+        [JsonProperty("transitionToState")] public string TransitionToState;
+        [JsonProperty("sequenceTransitionRemaining")] public float SequenceTransitionRemaining;
+        [JsonProperty("sequenceTransitionDuration")] public float SequenceTransitionDuration;
         [JsonProperty("firstAttackerPlayerId")] public int FirstAttackerPlayerId;
         [JsonProperty("battleOpponentsHash")] public string BattleOpponentsHash;
         [JsonProperty("matchFirstAttackerHash")] public string MatchFirstAttackerHash;

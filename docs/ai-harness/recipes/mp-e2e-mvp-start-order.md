@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-09
+Last used: 2026-05-10
 Last verified: 2026-05-09
-Use count: 3
+Use count: 4
 Review after: 2026-08-03
 Triggers: Editor/Build E2E, build/build E2E, Game scene, FieldManager wall snapshots
 Applies to: Phase 10/11 E2E matrix, `compare_state_snapshots.py`, `FieldManager`

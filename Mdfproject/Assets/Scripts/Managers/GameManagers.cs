@@ -34,6 +34,23 @@ public partial class GameManagers : NetworkBehaviour
 
     public float currentPhaseTimer => IsReadyForNetworkAccess && phaseTimer.IsRunning ? phaseTimer.RemainingTime(Runner) ?? 0f : 0f;
 
+    [Networked]
+    public NetworkBool IsSequenceTransitioning { get; private set; }
+
+    [Networked]
+    public GameState TransitionFromState { get; private set; }
+
+    [Networked]
+    public GameState TransitionToStateTarget { get; private set; }
+
+    [Networked]
+    private TickTimer sequenceTransitionTimer { get; set; }
+
+    public float currentSequenceTransitionTimer =>
+        IsReadyForNetworkAccess && sequenceTransitionTimer.IsRunning
+            ? sequenceTransitionTimer.RemainingTime(Runner) ?? 0f
+            : 0f;
+
     // 세션은 최대 4명까지 지원
     private const int MAX_PLAYERS = 4;
 
@@ -85,6 +102,8 @@ public partial class GameManagers : NetworkBehaviour
     public float firstPreparePhaseTime = 60f;
     public float preparePhaseTime = 45f;
     public float combatTime = 60f;
+    [Tooltip("Delay before applying Prepare/Battle sequence transitions.")]
+    public float sequenceTransitionDelaySeconds = 1.5f;
 
     [Header("폭주 모드 설정")]
     [Tooltip("전투 종료 N초 전에 폭주 모드 발동")]
@@ -556,6 +575,12 @@ public partial class GameManagers : NetworkBehaviour
             return false;
         }
 
+        if (IsSequenceTransitioning)
+        {
+            reason = "sequenceTransitioning";
+            return false;
+        }
+
         if (currentState != GameState.Prepare)
         {
             return true;
@@ -735,6 +760,16 @@ public partial class GameManagers : NetworkBehaviour
             }
         }
 
+        if (IsSequenceTransitioning)
+        {
+            if (!sequenceTransitionTimer.IsRunning || sequenceTransitionTimer.Expired(Runner))
+            {
+                CompleteSequenceTransition();
+            }
+
+            return;
+        }
+
         if (phaseTimer.Expired(Runner))
         {
             if (IsMigrationRestoreInProgress && !IsMigrationUiRestoreCompleted && currentState == GameState.Prepare)
@@ -748,16 +783,16 @@ public partial class GameManagers : NetworkBehaviour
             switch (currentState)
             {
                 case GameState.Prepare:
-                    StartBattle1Phase();
+                    BeginSequenceTransition(GameState.Battle1, "FixedUpdateNetwork/PrepareExpired");
                     break;
                 case GameState.Battle1:
-                    StartBattle2Phase();
+                    BeginSequenceTransition(GameState.Battle2, "FixedUpdateNetwork/Battle1Expired");
                     break;
                 case GameState.Battle2:
                     if (!isTransitioningRound)
                     {
                         isTransitioningRound = true;
-                        RunLifecycleTask(StartNextRound(), "FixedUpdateNetwork/StartNextRound");
+                        BeginSequenceTransition(GameState.Prepare, "FixedUpdateNetwork/Battle2Expired");
                     }
                     break;
             }
@@ -912,6 +947,10 @@ public partial class GameManagers : NetworkBehaviour
             if (propertyName == nameof(currentState))
             {
                 HandleNetworkStateChange(currentState);
+            }
+            else if (propertyName == nameof(IsSequenceTransitioning))
+            {
+                HandleNetworkSequenceTransitionChange();
             }
         }
 
@@ -1540,6 +1579,7 @@ public partial class GameManagers : NetworkBehaviour
         foreach (var player in AllPlayers)
         {
             player?.fieldManager?.RespawnAllUnits();
+            player?.fieldManager?.BroadcastAuthoritativeUnitRoster("StartNextRound.RespawnAllUnits");
         }
 
         foreach (var player in AllPlayers)

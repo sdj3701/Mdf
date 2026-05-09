@@ -80,6 +80,11 @@ public class AIPlayerController : MonoBehaviour
             return;
         }
 
+        if (gm.IsSequenceTransitioning)
+        {
+            return;
+        }
+
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         if (mpOptions.Enabled &&
             mpOptions.Scenario == "human_bot_prepare_progression" &&

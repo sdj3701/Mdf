@@ -34,6 +34,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [Networked] public NetworkBool NetworkedIsAttacking { get; set; }
     [Networked] private int NetworkedStarLevel { get; set; }
     [Networked] private NetworkString<_64> NetworkedUnitDataKey { get; set; }
+    [Networked] private int NetworkedOwnerPlayerId { get; set; }
+    [Networked] private NetworkBool NetworkedHasOwnerPlayerId { get; set; }
 
     private bool _hasSpawned;
     private bool _hasLocalHealthValues;
@@ -157,6 +159,30 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// StatusBarUI에서 커맨드 전송 시 playerId를 얻기 위해 사용됩니다.
     /// </summary>
     public PlayerManager Owner => owner;
+    public int OwnerPlayerIdForRoster => owner != null ? owner.playerId : (NetworkedHasOwnerPlayerId ? NetworkedOwnerPlayerId : -1);
+
+    public void SyncFieldPlacementIdentity(PlayerManager fieldOwner, Vector3Int gridPosition)
+    {
+        if (fieldOwner != null)
+        {
+            owner = fieldOwner;
+            if (owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
+            {
+                owner.ownedUnits.Add(this);
+            }
+        }
+
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (fieldOwner != null && fieldOwner.playerId >= 0)
+        {
+            NetworkedOwnerPlayerId = fieldOwner.playerId;
+            NetworkedHasOwnerPlayerId = true;
+        }
+    }
 
     /// <summary>
     /// 이 유닛이 로컬 플레이어가 소유한 유닛인지 확인합니다.
@@ -449,6 +475,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 pm.Object.InputAuthority == Object.InputAuthority);
         }
 
+        if (owner == null && NetworkedHasOwnerPlayerId && GameManagers.Instance != null)
+        {
+            int ownerPlayerId = NetworkedOwnerPlayerId;
+            owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
+                pm != null &&
+                pm.playerId == ownerPlayerId);
+        }
+
         if (owner == null && GameManagers.Instance != null)
         {
             owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
@@ -530,6 +564,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (!string.IsNullOrEmpty(key))
         {
             NetworkedUnitDataKey = key;
+        }
+
+        if (owner != null && owner.playerId >= 0)
+        {
+            NetworkedOwnerPlayerId = owner.playerId;
+            NetworkedHasOwnerPlayerId = true;
         }
     }
 

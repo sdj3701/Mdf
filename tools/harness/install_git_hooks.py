@@ -34,7 +34,19 @@ def hook_text() -> str:
 set -eu
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
-python tools/harness/precommit.py
+
+run_python() {
+  if "$@" -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >/dev/null 2>&1; then
+    exec "$@" tools/harness/precommit.py
+  fi
+}
+
+run_python python
+run_python python3
+run_python py -3
+
+echo "MDF pre-commit hook requires Python 3.10+ on PATH." >&2
+exit 1
 """
 
 
@@ -61,7 +73,7 @@ def install_hook(root: pathlib.Path, dry_run: bool) -> pathlib.Path:
     hook_dir = hook_path.parent
     if dry_run:
         print(f"DRY-RUN would create {hook_path}")
-        print("DRY-RUN hook command: python tools/harness/precommit.py")
+        print("DRY-RUN hook command: python/python3/py -3 tools/harness/precommit.py")
         return hook_path
 
     hook_dir.mkdir(parents=True, exist_ok=True)

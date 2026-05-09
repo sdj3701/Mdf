@@ -40,7 +40,9 @@ namespace AI.BehaviorTree.Nodes.Actions
                 // Debug.LogWarning($"<color=red>[BuildMazeAction] Missing refs: PM={_playerManager != null}, FM={_playerManager?.fieldManager != null}, Grid={_playerManager?.astarGrid != null}</color>");
                 return status = NodeStatus.Failure;
             }
-            if (GameManagers.Instance == null || GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare)
+            if (GameManagers.Instance == null ||
+                GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare ||
+                GameManagers.Instance.IsSequenceTransitioning)
             {
                 return status = NodeStatus.Failure;
             }

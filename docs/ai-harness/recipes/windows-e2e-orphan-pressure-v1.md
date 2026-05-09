@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: cleanup, security
 Created: 2026-05-08
-Last used: 2026-05-08
+Last used: 2026-05-10
 Last verified: 2026-05-08
-Use count: 1
+Use count: 2
 Review after: 2026-08-06
 Triggers: many live `MDF-MPTest.exe` processes, D3D resource errors, lobby start timeouts, cleanup report token redaction
 Applies to: `tools/harness/mp/launch_player.py`, cleanup reports, final audit E2E retries

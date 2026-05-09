@@ -154,6 +154,8 @@ public class FieldManager : MonoBehaviour
     private int _lastUnitMapRebuildFrame = -1;
     private string _lastUnitMapRebuildSummary = "unitMap:notBuilt";
     public bool IsUnitMapReady => _lastUnitMapRebuildFrame >= 0;
+    private float _lastClientUnitMapReconcileTime = -999f;
+    private const float ClientUnitMapReconcileIntervalSeconds = 0.25f;
     private Coroutine _awaitNetworkPermanentWallsCoroutine;
 
     private string BuildWallOwnerTag()
@@ -991,7 +993,9 @@ public class FieldManager : MonoBehaviour
 
     private System.Collections.IEnumerator SpawnMarkersRoutine()
     {
-        while (showPathInPrepare && IsLocalControlledField() && GameManagers.Instance != null && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+        while (showPathInPrepare && IsLocalControlledField() && GameManagers.Instance != null &&
+               GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare &&
+               !GameManagers.Instance.IsSequenceTransitioning)
         {
             var marker = GetMarkerFromPool();
             if (marker != null)
@@ -1018,13 +1022,17 @@ public class FieldManager : MonoBehaviour
         Vector3 pos = pathSnapshot[0];
         marker.transform.position = pos;
 
-        while (seg < pathSnapshot.Count - 1 && GameManagers.Instance != null && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+        while (seg < pathSnapshot.Count - 1 && GameManagers.Instance != null &&
+               GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare &&
+               !GameManagers.Instance.IsSequenceTransitioning)
         {
             Vector3 a = pathSnapshot[seg];
             Vector3 b = pathSnapshot[seg + 1];
             float dist = Vector3.Distance(a, b);
             float travelled = 0f;
-            while (travelled < dist && GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare)
+            while (travelled < dist &&
+                   GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare &&
+                   !GameManagers.Instance.IsSequenceTransitioning)
             {
                 float step = pathMarkerSpeed * Time.deltaTime;
                 travelled += step;
@@ -1236,7 +1244,9 @@ public class FieldManager : MonoBehaviour
             if (unitOnTop != null)
             {
                 var gm = GameManagers.Instance;
-                bool isPreparePhase = gm != null && gm.GetGameState() == GameManagers.GameState.Prepare;
+                bool isPreparePhase = gm != null &&
+                                      gm.GetGameState() == GameManagers.GameState.Prepare &&
+                                      !gm.IsSequenceTransitioning;
 
                 if (isPreparePhase)
                 {
@@ -1504,7 +1514,9 @@ public class FieldManager : MonoBehaviour
                 playerManager.Runner == null ||
                 !playerManager.Runner.IsRunning ||
                 unit.Runner == playerManager.Runner)
-            .Where(unit => IsWorldPositionInsideOwnedGrid(unit.transform.position));
+            .Where(unit =>
+                IsWorldPositionInsideOwnedGrid(unit.transform.position) ||
+                UnitHasReplicatedFieldOwner(unit));
         unitCandidates.AddRange(globalCandidates);
 
         var existingCellsByUnit = placedUnits
@@ -1534,7 +1546,7 @@ public class FieldManager : MonoBehaviour
             }
 
             bool wasAlreadyRegistered = existingCellsByUnit.TryGetValue(unit, out Vector3Int registeredCell);
-            bool belongsToPlayer = UnitBelongsToFieldOwner(unit) || ownedUnits.Contains(unit);
+            bool belongsToPlayer = UnitBelongsToFieldOwner(unit) || UnitHasReplicatedFieldOwner(unit) || ownedUnits.Contains(unit);
             if (!belongsToPlayer && unit.Owner != null && playerManager != null)
             {
                 continue;
@@ -1574,6 +1586,7 @@ public class FieldManager : MonoBehaviour
             }
 
             rebuiltUnits[cell] = unit;
+            SyncUnitPlacementIdentity(unit, cell);
             registered++;
         }
 
@@ -2626,6 +2639,7 @@ public class FieldManager : MonoBehaviour
                     return;
                 }
                 placedUnits.Add(gridPosition, newUnitComponent);
+                SyncUnitPlacementIdentity(newUnitComponent, gridPosition);
                 ProcessPendingNetworkMoves();
                 CheckForCombination();
                 BroadcastAuthoritativeUnitRoster("CreateUnitAt");
@@ -2692,6 +2706,7 @@ public class FieldManager : MonoBehaviour
             MoveUnitImmediate(unit, finalWorldPos);
 
             placedUnits[to] = unit;
+            SyncUnitPlacementIdentity(unit, to);
             CheckForCombination();
             BroadcastAuthoritativeUnitRoster("MoveUnit");
         }
@@ -2726,6 +2741,23 @@ public class FieldManager : MonoBehaviour
         }
 
         return playerManager.ownedUnits != null && playerManager.ownedUnits.Contains(unit);
+    }
+
+    private bool UnitHasReplicatedFieldOwner(Unit unit)
+    {
+        return unit != null &&
+               playerManager != null &&
+               unit.OwnerPlayerIdForRoster == playerManager.playerId;
+    }
+
+    private void SyncUnitPlacementIdentity(Unit unit, Vector3Int gridPosition)
+    {
+        if (unit == null)
+        {
+            return;
+        }
+
+        unit.SyncFieldPlacementIdentity(playerManager, gridPosition);
     }
 
     private bool IsLegalMoveDestinationForUnit(UnitData unitData, Vector3Int to, out string reason)
@@ -2834,6 +2866,7 @@ public class FieldManager : MonoBehaviour
                 RemovePlacedUnitEntries(unit);
                 MoveUnitImmediate(unit, GridToWorld(move.To, checkForWall: true));
                 placedUnits[move.To] = unit;
+                SyncUnitPlacementIdentity(unit, move.To);
                 pendingNetworkMoves.RemoveAt(i);
                 progressed = true;
             }
@@ -2883,6 +2916,8 @@ public class FieldManager : MonoBehaviour
         RemovePlacedUnitEntries(unitB);
         placedUnits[a] = unitB;
         placedUnits[b] = unitA;
+        SyncUnitPlacementIdentity(unitB, a);
+        SyncUnitPlacementIdentity(unitA, b);
         CheckForCombination();
         BroadcastAuthoritativeUnitRoster("SwapUnits");
     }
@@ -2936,6 +2971,7 @@ public class FieldManager : MonoBehaviour
     /// </summary>
     public List<Unit> GetAlliedUnitsOnField()
     {
+        ReconcileClientUnitMapFromWorldIfNeeded("GetAlliedUnitsOnField");
         // placedUnits 딕셔너리의 값들(Unit)을 리스트로 변환하여 반환합니다.
         return placedUnits.Values.ToList();
     }
@@ -2943,6 +2979,33 @@ public class FieldManager : MonoBehaviour
     /// <summary>
     /// AI 재배치 로직을 위해 특정 유닛의 현재 그리드 위치를 반환합니다.
     /// </summary>
+    private void ReconcileClientUnitMapFromWorldIfNeeded(string context)
+    {
+        if (!Application.isPlaying || playerManager == null)
+        {
+            return;
+        }
+
+        var runner = playerManager.Runner;
+        if (runner == null || !runner.IsRunning)
+        {
+            return;
+        }
+
+        if (playerManager.Object != null && playerManager.Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (Time.unscaledTime - _lastClientUnitMapReconcileTime < ClientUnitMapReconcileIntervalSeconds)
+        {
+            return;
+        }
+
+        _lastClientUnitMapReconcileTime = Time.unscaledTime;
+        RebuildUnitMapAfterMigration($"ClientRoster.{context}", false, out _);
+    }
+
     public Vector3Int? GetUnitPosition(Unit unit)
     {
         var entry = placedUnits.FirstOrDefault(kvp => kvp.Value == unit);
@@ -2959,6 +3022,7 @@ public class FieldManager : MonoBehaviour
         public int UnitIdRaw;
         public Vector3Int Position;
         public string UnitDataKey;
+        public int UnitDataKeyHash;
         public int StarLevel;
     }
 
@@ -2980,21 +3044,25 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
-        int[] compactRoster = new int[entries.Count * 5];
+        int[] compactRoster = new int[2 + (entries.Count * 6)];
+        compactRoster[0] = -2;
+        compactRoster[1] = entries.Count;
         for (int i = 0; i < entries.Count; i++)
         {
             UnitRosterBroadcastEntry entry = entries[i];
-            int offset = i * 5;
+            int offset = 2 + (i * 6);
             compactRoster[offset + 0] = entry.UnitIdRaw;
             compactRoster[offset + 1] = entry.Position.x;
             compactRoster[offset + 2] = entry.Position.y;
             compactRoster[offset + 3] = entry.Position.z;
             compactRoster[offset + 4] = entry.StarLevel;
+            compactRoster[offset + 5] = entry.UnitDataKeyHash;
         }
 
         try
         {
             playerManager.RPC_ReconcileUnitRosterCompact(compactRoster);
+            GameManagers.Instance?.RPC_ReconcilePlayerUnitRosterCompact(playerManager.playerId, compactRoster);
         }
         catch (Exception ex)
         {
@@ -3037,6 +3105,7 @@ public class FieldManager : MonoBehaviour
                 UnitIdRaw = unchecked((int)networkObject.Id.Raw),
                 Position = entry.Key,
                 UnitDataKey = GetUnitDataRegistrationKey(entry.Value),
+                UnitDataKeyHash = StableUnitDataKeyHash(GetUnitDataRegistrationKey(entry.Value)),
                 StarLevel = entry.Value.starLevel
             });
         }
@@ -3108,6 +3177,26 @@ public class FieldManager : MonoBehaviour
         return unit != null && unit.Data != null ? unit.Data.name : string.Empty;
     }
 
+    private static int StableUnitDataKeyHash(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return 0;
+        }
+
+        unchecked
+        {
+            uint hash = 2166136261u;
+            for (int i = 0; i < value.Length; i++)
+            {
+                hash ^= value[i];
+                hash *= 16777619u;
+            }
+
+            return (int)hash;
+        }
+    }
+
     public int GetSellPrice(Unit unit)
     {
         if (unit == null || unit.Data == null) return 0;
@@ -3123,7 +3212,7 @@ public class FieldManager : MonoBehaviour
     {
         if (playerManager == null) return false;
         var gm = GameManagers.Instance;
-        if (gm != null && gm.GetGameState() != GameManagers.GameState.Prepare)
+        if (gm != null && (gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning))
         {
             return false;
         }
@@ -3287,6 +3376,7 @@ public class FieldManager : MonoBehaviour
             }
 
             placedUnits[gridPosition] = unit;
+            SyncUnitPlacementIdentity(unit, gridPosition);
             ProcessPendingNetworkMoves();
             return;
         }
@@ -3301,6 +3391,7 @@ public class FieldManager : MonoBehaviour
         Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
         MoveUnitImmediate(unit, worldPos);
         placedUnits[gridPosition] = unit;
+        SyncUnitPlacementIdentity(unit, gridPosition);
         ProcessPendingNetworkMoves();
     }
 
@@ -3412,6 +3503,7 @@ public class FieldManager : MonoBehaviour
 
         List<Vector3Int> candidateTiles = allValidTiles;
         HashSet<Vector3Int> rangedPathTiles = null;
+        HashSet<Vector3Int> meleePathTiles = null;
 
         // [핵심 수정] 근접 유닛의 경우, 배치 후보지를 몬스터 경로 위로 먼저 한정합니다.
         if (unitData.unitType == UnitType.Melee && monsterPathContext != null && monsterPathContext.Count > 0)
@@ -3423,8 +3515,8 @@ public class FieldManager : MonoBehaviour
             // Debug.Log($"[AI Placement Debug] {pathRange}");
             // Debug.Log($"[AI Placement Debug] 받은 경로 첫 번째 노드: ({monsterPathContext[0].x}, {monsterPathContext[0].y}), 마지막 노드: ({monsterPathContext[monsterPathContext.Count-1].x}, {monsterPathContext[monsterPathContext.Count-1].y})");
 
-            var pathTilePositions = new HashSet<Vector3Int>(monsterPathContext.Select(node => new Vector3Int(node.x, node.y, 0)));
-            var onPathTiles = allValidTiles.Where(tile => pathTilePositions.Contains(tile)).ToList();
+            meleePathTiles = BuildMonsterPathTileSet(monsterPathContext);
+            var onPathTiles = allValidTiles.Where(tile => meleePathTiles.Contains(tile)).ToList();
 
             // 경로 위에 배치 가능한 타일이 있다면, 후보지를 그 타일들로 제한합니다.
             if (onPathTiles.Count > 0)
@@ -3485,6 +3577,10 @@ public class FieldManager : MonoBehaviour
             if (unitData.unitType == UnitType.Ranged && rangedPathTiles != null && rangedPathTiles.Count > 0)
             {
                 currentScore += CalculateRangedPathPriorityBonus(tilePos, rangedPathTiles, unitData.attackRange);
+            }
+            else if (unitData.unitType == UnitType.Melee && meleePathTiles != null && meleePathTiles.Contains(tilePos))
+            {
+                currentScore += CalculateNearbyRangedAllyBonus(tilePos, alliedUnits);
             }
 
             // 디버그용 점수 저장
@@ -3683,6 +3779,7 @@ public class FieldManager : MonoBehaviour
             if (pathTiles.Contains(tilePos))
             {
                 currentScore += 20.0f;
+                currentScore += CalculateNearbyRangedAllyBonus(tilePos, alliedUnits);
             }
 
             currentScore += CalculateFieldCenterScore(tilePos) * 2.0f;
@@ -3920,6 +4017,63 @@ public class FieldManager : MonoBehaviour
         float edgePenalty = IsNearFieldEdgeCell(position) ? -3.5f : 0f;
         float borderPenalty = IsOuterRingCell(position) || IsBorderGapCell(position) ? -6.0f : 0f;
         return covered * 4.0f + coverageScore * 6.0f + centerScore * 8.0f + edgePenalty + borderPenalty;
+    }
+
+    private float CalculateNearbyRangedAllyBonus(Vector3Int position, List<Unit> alliedUnits)
+    {
+        if (alliedUnits == null || alliedUnits.Count == 0)
+        {
+            return 0f;
+        }
+
+        float bestBonus = 0f;
+        foreach (var ally in alliedUnits)
+        {
+            if (ally == null || ally.Data == null || ally.Data.unitType != UnitType.Ranged)
+            {
+                continue;
+            }
+
+            if (!TryGetUnitGridPosition(ally, out var allyCell) || allyCell == position)
+            {
+                continue;
+            }
+
+            int distance = Mathf.Max(Mathf.Abs(allyCell.x - position.x), Mathf.Abs(allyCell.y - position.y));
+            if (distance <= 1)
+            {
+                bestBonus = Mathf.Max(bestBonus, 34f);
+            }
+            else if (distance == 2)
+            {
+                bestBonus = Mathf.Max(bestBonus, 18f);
+            }
+            else if (distance == 3)
+            {
+                bestBonus = Mathf.Max(bestBonus, 8f);
+            }
+        }
+
+        return bestBonus;
+    }
+
+    private bool TryGetUnitGridPosition(Unit unit, out Vector3Int position)
+    {
+        position = default(Vector3Int);
+        if (unit == null)
+        {
+            return false;
+        }
+
+        var registeredPosition = GetUnitPosition(unit);
+        if (registeredPosition.HasValue)
+        {
+            position = registeredPosition.Value;
+            return true;
+        }
+
+        position = WorldToGridInt(unit.transform.position);
+        return IsValidGridPosition(position);
     }
 
     private int CountTilesInAttackCircle(float attackRange)
@@ -4262,6 +4416,7 @@ public class FieldManager : MonoBehaviour
         AttachStatusBar(unitGO, newUnit.SetStatusBar);
         await newUnit.Initialize(unitData, newStarLevel, playerManager);
         placedUnits[currentPos] = newUnit;
+        SyncUnitPlacementIdentity(newUnit, currentPos);
         BroadcastAuthoritativeUnitRoster("ReplaceUnitPrefab");
     }
 
@@ -4891,7 +5046,7 @@ public class FieldManager : MonoBehaviour
 
         // 전투 시퀀스에서는 판매 패널을 표시하지 않음
         var gm = GameManagers.Instance;
-        if (gm != null && gm.GetGameState() != GameManagers.GameState.Prepare)
+        if (gm != null && (gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning))
         {
             return;
         }
@@ -4947,7 +5102,7 @@ public class FieldManager : MonoBehaviour
 
         // 전투 시퀀스에서는 벽 제거 패널을 표시하지 않음
         var gm = GameManagers.Instance;
-        if (gm != null && gm.GetGameState() != GameManagers.GameState.Prepare)
+        if (gm != null && (gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning))
         {
             return;
         }

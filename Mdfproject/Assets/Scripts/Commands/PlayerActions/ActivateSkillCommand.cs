@@ -224,7 +224,8 @@ public class ActivateSkillCommand : ICommand
 
     public static bool IsVolatileNoOpReason(string errorCode)
     {
-        return errorCode == "skill_target_unavailable";
+        return errorCode == "skill_target_unavailable" ||
+               errorCode == "skill_unit_dead";
     }
 
     private static bool TryResolveUnit(NetworkRunner runner, uint unitNetworkId, out Unit unit)

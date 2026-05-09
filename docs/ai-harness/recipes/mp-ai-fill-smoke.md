@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-05
-Last used: 2026-05-09
+Last used: 2026-05-10
 Last verified: 2026-05-09
-Use count: 2
+Use count: 4
 Review after: 2026-08-03
 Triggers: AI fill, fewer humans than max players, 4 slots
 Applies to: `run_ai_fill_smoke.py`, `GameManagers.DeterminePlayerCount`

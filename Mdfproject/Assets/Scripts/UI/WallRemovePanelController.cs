@@ -103,7 +103,7 @@ public class WallRemovePanelController : MonoBehaviour
         if (_currentWall == null || _fieldManager == null || _fieldManager.playerManager == null) return false;
 
         var gm = GameManagers.Instance;
-        if (gm != null && gm.GetGameState() != GameManagers.GameState.Prepare)
+        if (gm != null && (gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning))
         {
             return false;
         }
