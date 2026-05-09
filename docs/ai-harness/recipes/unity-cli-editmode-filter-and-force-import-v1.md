@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli, asset
 Created: 2026-05-06
-Last used: 2026-05-06
-Last verified: 2026-05-06
-Use count: 1
+Last used: 2026-05-10
+Last verified: 2026-05-10
+Use count: 2
 Review after: 2026-08-04
 Triggers: EditMode test runner returns `total=0` for a newly added method filter, Unity does not appear to pick up new test methods after compile
 Applies to: `unity-cli --project Mdfproject test --mode EditMode`, newly added tests, forced AssetDatabase import
@@ -34,3 +34,6 @@ Recipe:
 Verification:
 - `unity-cli --project Mdfproject test --mode EditMode --filter ActivateSkillCommandSourceContainsStrategicManualSkillGuards` returned `total=0`.
 - `unity-cli --project Mdfproject test --mode EditMode --filter MPTestHarnessEditModeTests` then discovered the new Phase 8 tests and passed `19/19`.
+
+Lifecycle notes:
+- 2026-05-10: Verified by unity-cli --project Mdfproject test --mode EditMode --filter MPTestHarnessEditModeTests discovering and passing 60/60 tests including RankingUiSplitsFourPlayersEvenlyAcrossSides on 2026-05-10.

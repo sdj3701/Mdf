@@ -25,6 +25,14 @@ The manifest currently references the unity-cli connector by git URL. Do not cha
 
 Codex users must trust the repo-local `.codex` config so project hooks load. The hooks are part of the MDF harness contract; without them Codex will miss prompt routing, command policy reminders, knowledge capture, and final report checks.
 
+Repo hook split:
+
+- `.git/hooks` contains local Git hooks. Git does not clone these files automatically.
+- `.git/hooks/pre-commit` is installed by `tools/harness/install_git_hooks.py`; on Windows, `SETUP_MDF_HARNESS.bat` delegates to `tools/harness/bootstrap_harness_windows.py`, which runs both `tools/harness/install_git_hooks.py` and `tools/harness/bootstrap_dev_env.py`.
+- Git LFS hooks in `.git/hooks` such as `pre-push`, `post-checkout`, `post-commit`, and `post-merge` are separate from the MDF pre-commit hook. Keep them if the clone uses Git LFS.
+- `.codex/hooks` contains repo-local Codex lifecycle hooks loaded through `.codex/hooks.json` after the repo-local Codex config is trusted.
+- Do not copy `.codex/hooks` into `.git/hooks`; they are loaded by different tools and have different input contracts.
+
 ## Git Hook Setup
 
 Install the local pre-commit hook with either command:

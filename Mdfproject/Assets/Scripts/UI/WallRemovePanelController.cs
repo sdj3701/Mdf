@@ -73,6 +73,7 @@ public class WallRemovePanelController : MonoBehaviour
             }
         }
 
+        ApplyBillboardCamera(_targetCamera);
         HookRemoveButton();
         UpdateRemoveSection();
         UpdatePosition();
@@ -145,7 +146,7 @@ public class WallRemovePanelController : MonoBehaviour
 
         if (_selfCanvas != null && _selfCanvas.renderMode == RenderMode.WorldSpace)
         {
-            _rectTransform.position = GetAnchorWorldPosition();
+            _rectTransform.SetPositionAndRotation(GetAnchorWorldPosition(), cam.transform.rotation);
             return;
         }
 
@@ -182,5 +183,17 @@ public class WallRemovePanelController : MonoBehaviour
     {
         if (_currentWall == null) return Vector3.zero;
         return _currentWall.transform.position + worldOffset;
+    }
+
+    private void ApplyBillboardCamera(Camera camera)
+    {
+        var billboards = GetComponentsInChildren<UIBillboard>(true);
+        foreach (var billboard in billboards)
+        {
+            if (billboard != null)
+            {
+                billboard.SetCamera(camera);
+            }
+        }
     }
 }

@@ -33,8 +33,7 @@
           {
             "type": "command",
             "command": "python \"$(git rev-parse --show-toplevel)/.codex/hooks/post_tool_use_knowledge_capture.py\"",
-            "timeout": 30,
-            "statusMessage": "MDF harness: checking knowledge capture"
+            "timeout": 30
           }
         ]
       }

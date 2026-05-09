@@ -12,6 +12,8 @@ rg -n "<topic keywords>" docs/ai-harness/learned-recipes.md docs/ai-harness/reci
 
 Use `docs/ai-harness/recipe-lifecycle.md` for required metadata, stale review, archive rules, and the `touch_recipe.py` / `scan_stale_recipes.py` helpers. Do not update `Last verified` without command, test, or artifact evidence.
 
+Batch recipe touches near the end of planning or verification instead of before every minor read command. Keep `Last used` and `Last verified` accurate, but do not add lifecycle churn for low-signal `rg` or `Get-Content` checks.
+
 ## Recipe Index
 
 | Recipe | Status | Pinned | Category | Last used | Last verified | Triggers |

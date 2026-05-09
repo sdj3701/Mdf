@@ -3,6 +3,7 @@ setlocal
 
 rem One-click Windows bootstrap for the MDF harness.
 rem Assumes Unity 2021.3.45f1 and unity-cli are installed, and Mdfproject is open in Unity.
+rem Delegates to bootstrap_harness_windows.py, which runs install_git_hooks.py and bootstrap_dev_env.py.
 
 set "ROOT=%~dp0"
 pushd "%ROOT%" >nul 2>nul

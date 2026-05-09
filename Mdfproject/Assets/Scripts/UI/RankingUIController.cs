@@ -67,6 +67,23 @@
          }
      }
 
+     public static int GetLeftSideSlotCountForDisplay(int playerCount)
+     {
+         if (playerCount <= 1)
+         {
+             return Mathf.Max(0, playerCount);
+         }
+
+         return (playerCount + 1) / 2;
+     }
+
+     public static bool ShouldPlaceDisplayIndexOnLeft(int displayIndex, int playerCount)
+     {
+         return displayIndex >= 0
+             && displayIndex < playerCount
+             && displayIndex < GetLeftSideSlotCountForDisplay(playerCount);
+     }
+
      void OnEnable()
      {
          GameManagers.OnPlayersDataReady += OnPlayersDataReady;
@@ -299,8 +316,8 @@
              {
                  PlayerManager playerForThisSlot = sortedPlayers[i];
 
-                 // Host(왼쪽) / Client(오른쪽) 기준으로 부모 컨테이너를 선택합니다.
-                 Transform targetParent = IsHostPlayer(playerForThisSlot) ? leftSideContainer : rightSideContainer;
+                 // Display rank order decides the side split: 4 players => 2 left, 2 right.
+                 Transform targetParent = ShouldPlaceDisplayIndexOnLeft(i, sortedPlayers.Count) ? leftSideContainer : rightSideContainer;
                  if (targetParent == null)
                  {
                      targetParent = transform;
@@ -335,8 +352,4 @@
          }
      }
 
-     private bool IsHostPlayer(PlayerManager player)
-     {
-         return TryGetPlayerIdSafe(player, out int playerId) && playerId == 0;
-     }
  }

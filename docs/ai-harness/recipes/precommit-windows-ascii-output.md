@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-05
+Last used: 2026-05-10
 Last verified: 2026-05-05
-Use count: 1
+Use count: 2
 Review after: 2026-08-03
 Triggers: precommit, hooks, Windows, UnicodeEncodeError
 Applies to: Windows PowerShell, Python 3.11, tools/harness/precommit.py
@@ -27,3 +27,6 @@ Verification:
 
 Pitfalls:
 - Do not treat hook output styling as harmless; failed output encoding can block verification before checks finish.
+
+Lifecycle notes:
+- 2026-05-10: Consulted while keeping hook and precommit output ASCII-safe during hook noise cleanup.

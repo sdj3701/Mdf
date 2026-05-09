@@ -72,6 +72,21 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void RankingUiSplitsFourPlayersEvenlyAcrossSides()
+    {
+        Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(4), Is.EqualTo(2));
+        Assert.That(RankingUIController.ShouldPlaceDisplayIndexOnLeft(0, 4), Is.True);
+        Assert.That(RankingUIController.ShouldPlaceDisplayIndexOnLeft(1, 4), Is.True);
+        Assert.That(RankingUIController.ShouldPlaceDisplayIndexOnLeft(2, 4), Is.False);
+        Assert.That(RankingUIController.ShouldPlaceDisplayIndexOnLeft(3, 4), Is.False);
+
+        Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(3), Is.EqualTo(2));
+        Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(2), Is.EqualTo(1));
+        Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(1), Is.EqualTo(1));
+        Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(0), Is.EqualTo(0));
+    }
+
+    [Test]
     public void MPTestLoggerEmitsStablePrefixAndFields()
     {
         try

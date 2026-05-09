@@ -5,7 +5,14 @@ description: Run or design MDF multiplayer harness matrix tests and artifact col
 
 # MP harness test
 
-Read `docs/ai-harness/mp-test-protocol.md` and `state-snapshot-schema.md`.
+Routine MP test requests should read only:
+
+- `AGENTS.md`
+- `docs/ai-harness/mp-test-protocol.md`
+- specific recipes found by `rg` for the scenario keywords
+- target runner `--help`
+
+Read `docs/ai-harness/state-snapshot-schema.md` only when changing snapshot comparisons or debugging snapshot field mismatches. Avoid `docs/ai-harness/index.md` and broad design docs unless designing or modifying the harness itself.
 
 Required loop:
 

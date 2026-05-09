@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-08
-Last used: 2026-05-09
+Last used: 2026-05-10
 Last verified: 2026-05-09
-Use count: 3
+Use count: 4
 Review after: 2026-08-06
 Triggers: learned recipes, recipe metadata, stale recipes, archive candidates, reusable methods
 Applies to: `docs/ai-harness/learned-recipes.md`, `docs/ai-harness/recipe-lifecycle.md`, `tools/harness/recipes/*`
@@ -24,3 +24,4 @@ Recipe:
 Lifecycle notes:
 - 2026-05-08: Verified split-file touch behavior and --verified evidence guard with precommit self-test.
 - 2026-05-09: Normalized legacy learned recipe statuses and metadata; verified with py_compile, scan_stale_recipes.py --json, precommit --self-test, precommit --all, and validate_overlay.
+- 2026-05-10: Used while documenting batched recipe touches and tuning PostToolUse recipe prompts.

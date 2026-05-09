@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-05-10
+Last verified: 2026-05-10
+Use count: 3
 Review after: 2026-08-03
 Triggers: unity-cli, status, list, editor refresh, console, test, screenshot
 Applies to: unity-cli v0.3.15, connector 0.3.15, Unity 2021.3.45f1
@@ -33,3 +33,7 @@ Verification:
 
 Pitfalls:
 - v0.3.15 prints an available update to v0.3.18. Do not update mid-verification unless the task explicitly asks for a CLI upgrade.
+
+Lifecycle notes:
+- 2026-05-10: Used for editor status, compile, console, and EditMode test syntax during wall remove UI verification.
+- 2026-05-10: Verified by unity-cli 0.3.15 status, editor refresh --compile, console --type error, and EditMode class-filter commands completing on 2026-05-10.

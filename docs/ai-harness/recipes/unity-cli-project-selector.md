@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-05-10
+Last verified: 2026-05-10
+Use count: 3
 Review after: 2026-08-03
 Triggers: unity-cli, status, console, test, build
 Applies to: MDF repo layout, unity-cli
@@ -27,3 +27,7 @@ Verification:
 
 Pitfalls:
 - Running unity-cli from the repo root without `--project` may target the wrong Editor if multiple projects are open.
+
+Lifecycle notes:
+- 2026-05-10: Used for targeted UI compile/test verification with unity-cli --project Mdfproject.
+- 2026-05-10: Verified by unity-cli --project Mdfproject status selecting E:/UnityProjects/mdf/Mdfproject on 2026-05-10.

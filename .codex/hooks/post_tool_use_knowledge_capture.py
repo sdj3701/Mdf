@@ -7,13 +7,49 @@ cmd = tool_command(data)
 # For Edit/Write/apply_patch, command is empty; inspect file path when available.
 ti = data.get('tool_input') or {}
 path = ti.get('file_path') or ti.get('filePath') or ti.get('path') or ''
+cmd_lower = cmd.lower()
+path_lower = path.lower()
 text = (cmd + ' ' + path).lower()
-watched = [
-    'unity-cli', 'screenshot', 'mp_', 'run_matrix', 'run_editor_host',
-    'run_build_host', 'hostmigration', 'host migration', 'photon', 'fusion',
-    'buildautomation', 'mptest', 'automationserver', '.prefab', '.unity', '.asset'
-]
-if any(w.lower() in text for w in watched):
+
+
+def is_low_signal_read(command: str) -> bool:
+    return bool(re.match(
+        r'^\s*(rg|grep|findstr|select-string|get-content|gc|cat|type|'
+        r'git\s+(show|diff|status|ls-files|grep)|ls|dir|get-childitem|pwd)\b',
+        command,
+        re.IGNORECASE,
+    ))
+
+
+def is_high_signal_command(command_text: str) -> bool:
+    patterns = [
+        r'\bunity-cli\b',
+        r'\bscreenshot\b',
+        r'\brun[_-]matrix\b',
+        r'\brun[_-]editor[_-]host\b',
+        r'\brun[_-]build[_-]host\b',
+        r'\bbuild[_-]player\b',
+        r'\bmp_(build_player|screenshot|dump_state|assert_state|command)\b',
+        r'\bmptest\b',
+        r'--mptest\b',
+        r'\bmpautomation(token)?\b',
+        r'\bautomation[-_ ]?server\b',
+        r'\bphoton\b',
+        r'\bfusion\b',
+        r'\bhost[-_ ]?migration\b',
+        r'\bbuildautomation\b',
+        r'\breserialize\b',
+    ]
+    return any(re.search(pattern, command_text, re.IGNORECASE) for pattern in patterns)
+
+
+def is_asset_edit(candidate_path: str, command: str) -> bool:
+    if command:
+        return False
+    return candidate_path.endswith(('.prefab', '.unity', '.asset', '.mat', '.controller'))
+
+
+if (cmd_lower and not is_low_signal_read(cmd_lower) and is_high_signal_command(text)) or is_asset_edit(path_lower, cmd_lower):
     add_context(
         'PostToolUse',
         '[MDF RECIPE LIFECYCLE] If this used an existing learned recipe, run '

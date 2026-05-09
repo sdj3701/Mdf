@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: harness, unity-cli
 Created: 2026-05-09
-Last used: 2026-05-09
+Last used: 2026-05-10
 Last verified: 2026-05-09
-Use count: 3
+Use count: 4
 Review after: 2026-08-07
 Triggers: fresh clone, developer onboarding, unity-cli unavailable, pre-commit hook, packages-lock, bootstrap_dev_env
 Applies to: `SETUP_MDF_HARNESS.bat`, `docs/ai-harness/developer-onboarding.md`, `tools/harness/bootstrap_harness_windows.py`, `tools/harness/bootstrap_dev_env.py`, `tools/harness/install_git_hooks.py`, `.gitignore`
@@ -29,3 +29,4 @@ Lifecycle notes:
 - 2026-05-09: Added `SETUP_MDF_HARNESS.bat` and `bootstrap_harness_windows.py` for one-command Windows setup after Unity is open; verified with py_compile, BAT dry-run, helper dry-run, validate_overlay, and precommit.
 - 2026-05-09: Rechecked after merge/code drift; BAT dry-run, bootstrap_dev_env, validate_overlay, precommit self-test, and precommit --all pass. Hardened installed hook to choose python/python3/py -3.
 - 2026-05-09: verified artifact `artifacts/bootstrap/20260509-111508-harness-bootstrap/bootstrap-summary.json`
+- 2026-05-10: Used while tightening hook setup documentation and install_git_hooks dry-run reporting.

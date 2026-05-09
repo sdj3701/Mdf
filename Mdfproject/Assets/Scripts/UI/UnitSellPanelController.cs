@@ -64,6 +64,7 @@ public class UnitSellPanelController : MonoBehaviour
                 selfCanvas.sortingOrder = sortingOrder;
             }
         }
+        ApplyBillboardCamera(targetCamera);
         HookSellButton();
         UpdateSellSection();
         UpdatePosition();
@@ -139,7 +140,7 @@ public class UnitSellPanelController : MonoBehaviour
 
         if (selfCanvas != null && selfCanvas.renderMode == RenderMode.WorldSpace)
         {
-            rectTransform.position = GetAnchorWorldPosition();
+            rectTransform.SetPositionAndRotation(GetAnchorWorldPosition(), cam.transform.rotation);
             return;
         }
 
@@ -176,6 +177,18 @@ public class UnitSellPanelController : MonoBehaviour
     {
         if (currentUnit == null) return Vector3.zero;
         return currentUnit.transform.position + worldOffset;
+    }
+
+    private void ApplyBillboardCamera(Camera camera)
+    {
+        var billboards = GetComponentsInChildren<UIBillboard>(true);
+        foreach (var billboard in billboards)
+        {
+            if (billboard != null)
+            {
+                billboard.SetCamera(camera);
+            }
+        }
     }
 
 }

@@ -858,6 +858,16 @@ PrefabInstance:
   m_Modification:
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 1283395779487649320, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_SizeDelta.x
+      value: 218.0648
+      objectReference: {fileID: 0}
+    - target: {fileID: 1283395779487649320, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.x
+      value: 91.18239
+      objectReference: {fileID: 0}
     - target: {fileID: 2218765290447644169, guid: 92043555220c0aa4aad2b36e97a211af,
         type: 3}
       propertyPath: m_RootOrder
@@ -917,6 +927,16 @@ PrefabInstance:
         type: 3}
       propertyPath: m_Name
       value: UIManager
+      objectReference: {fileID: 0}
+    - target: {fileID: 2535300852283280095, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_SizeDelta.x
+      value: 231.4427
+      objectReference: {fileID: 0}
+    - target: {fileID: 2535300852283280095, guid: 92043555220c0aa4aad2b36e97a211af,
+        type: 3}
+      propertyPath: m_AnchoredPosition.x
+      value: 473.52863
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 92043555220c0aa4aad2b36e97a211af, type: 3}
