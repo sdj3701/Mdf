@@ -1771,18 +1771,35 @@ public class HostMigrationHandler : MonoBehaviour
     /// </summary>
     private IEnumerator RunMigrationSmokeChecksCoroutine()
     {
-        const float timeout = 5f;
+        const float timeout = 10f;
+        const float pollInterval = 0.1f;
         float waited = 0f;
 
         NetworkRunner expectedRunner = NetworkManager.Instance?._runner;
         GameManagers gm = ResolveGameManagersForRunner(expectedRunner);
 
-        while (waited < timeout && (gm == null || !gm.IsReadyForNetworkAccess))
+        while (waited < timeout)
         {
-            yield return new WaitForSeconds(0.1f);
-            waited += 0.1f;
             expectedRunner = NetworkManager.Instance?._runner;
             gm = ResolveGameManagersForRunner(expectedRunner);
+
+            bool gameManagersReady = gm != null && gm.IsReadyForNetworkAccess;
+            bool aiReady = expectedRunner == null || !expectedRunner.IsServer || _aiTakeoverReady;
+            if (gameManagersReady && aiReady)
+            {
+                break;
+            }
+
+            yield return new WaitForSeconds(pollInterval);
+            waited += pollInterval;
+        }
+
+        expectedRunner = NetworkManager.Instance?._runner;
+        gm = ResolveGameManagersForRunner(expectedRunner);
+
+        if (expectedRunner != null && expectedRunner.IsServer && !_aiTakeoverReady)
+        {
+            Debug.LogWarning($"[HM-SMOKE] AI takeover reconciliation not ready after {waited:F1}s. coroutineActive={_aiReconciliationCoroutine != null}");
         }
 
         var errors = new List<string>();
