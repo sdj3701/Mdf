@@ -1,0 +1,59 @@
+.agent/rules/projectrull.md
+.agents/skills/asset-safe-edit/SKILL.md
+.agents/skills/build-player/SKILL.md
+.agents/skills/capture-learning/SKILL.md
+.agents/skills/entropy-gc/SKILL.md
+.agents/skills/feature-loop/SKILL.md
+.agents/skills/mp-harness-test/SKILL.md
+.agents/skills/review-fusion-sync/SKILL.md
+.agents/skills/use-learned-recipes/SKILL.md
+.agents/skills/verify-unity/SKILL.md
+.codex/agents/mdf_asset_guard.toml
+.codex/agents/mdf_code_mapper.toml
+.codex/agents/mdf_fusion_reviewer.toml
+.codex/agents/mdf_mp_test_runner.toml
+.codex/agents/mdf_unity_verifier.toml
+.codex/config.toml
+.codex/hooks.json
+.codex/hooks/hook_common.py
+.codex/hooks/permission_request_policy.py
+.codex/hooks/post_tool_use_knowledge_capture.py
+.codex/hooks/pre_tool_use_policy.py
+.codex/hooks/session_start_context.py
+.codex/hooks/stop_session_save.py
+.codex/hooks/stop_verify_gate.py
+.codex/hooks/stop_wrapper.py
+.codex/hooks/user_prompt_submit_reminder.py
+AGENTS.md
+MANIFEST.txt
+Mdfproject/Assets/Scripts/Testing/MP/Editor/README.md
+Mdfproject/Assets/Scripts/Testing/MP/README.md
+README.md
+docs/ai-harness/automation-server-contract.md
+docs/ai-harness/codex-first-prompt.md
+docs/ai-harness/codex-full-phase-prompts.md
+docs/ai-harness/codex-phase-prompts.md
+docs/ai-harness/failure-triage.md
+docs/ai-harness/feature-implementation-loop.md
+docs/ai-harness/fusion-sync-rules.md
+docs/ai-harness/host-migration-test-plan.md
+docs/ai-harness/implementation-phases.md
+docs/ai-harness/index.md
+docs/ai-harness/knowledge-capture.md
+docs/ai-harness/learned-recipes.md
+docs/ai-harness/mp-test-protocol.md
+docs/ai-harness/project-structure.md
+docs/ai-harness/review-findings.md
+docs/ai-harness/state-snapshot-schema.md
+docs/ai-harness/templates/phase-report-template.md
+docs/ai-harness/unity-cli-recipes.md
+tools/harness/install_git_hooks.sh
+tools/harness/mp/README.md
+tools/harness/precommit.py
+tools/harness/validate_overlay.py
+
+Line counts:
+   66 AGENTS.md
+   53 .agent/rules/projectrull.md
+  708 docs/ai-harness/codex-full-phase-prompts.md
+  827 total

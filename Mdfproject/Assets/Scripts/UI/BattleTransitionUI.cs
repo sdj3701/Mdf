@@ -39,6 +39,19 @@ public class BattleTransitionUI : MonoBehaviour
         }
     }
 
+    public static async UniTask PlaySequenceTransitionAsync(
+        GameManagers.GameState fromState,
+        GameManagers.GameState toState,
+        float durationSeconds)
+    {
+        var ui = await GetOrCreateUI();
+        if (ui != null)
+        {
+            await ui.PlaySequenceTransition(fromState, toState, durationSeconds);
+            ReturnUI();
+        }
+    }
+
     private static async UniTask<BattleTransitionUI> GetOrCreateUI()
     {
         if (UIManagers.Instance == null)
@@ -288,6 +301,75 @@ public class BattleTransitionUI : MonoBehaviour
     #endregion
 
     #region 유틸리티
+    public async UniTask PlaySequenceTransition(
+        GameManagers.GameState fromState,
+        GameManagers.GameState toState,
+        float durationSeconds)
+    {
+        if (_isPlaying) return;
+        _isPlaying = true;
+
+        HideAllElements();
+
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 0f;
+            canvasGroup.blocksRaycasts = true;
+        }
+
+        if (transitionText != null)
+        {
+            transitionText.text = FormatSequenceTransitionText(fromState, toState);
+            transitionText.gameObject.SetActive(true);
+        }
+
+        float totalDuration = Mathf.Max(0.1f, durationSeconds);
+        float fadeInDuration = Mathf.Min(0.2f, totalDuration * 0.25f);
+        float fadeOutDuration = Mathf.Min(0.25f, totalDuration * 0.3f);
+        float holdDuration = Mathf.Max(0f, totalDuration - fadeInDuration - fadeOutDuration - flashDuration);
+
+        await FadeCanvas(0f, 1f, fadeInDuration);
+
+        if (attackFlashImage != null)
+        {
+            await PlayFlash(attackFlashImage);
+        }
+        else
+        {
+            await UniTask.Delay((int)(flashDuration * 1000f));
+        }
+
+        if (holdDuration > 0f)
+        {
+            await UniTask.Delay((int)(holdDuration * 1000f));
+        }
+
+        await FadeCanvas(1f, 0f, fadeOutDuration);
+
+        HideAllElements();
+        if (canvasGroup != null)
+        {
+            canvasGroup.blocksRaycasts = false;
+        }
+
+        _isPlaying = false;
+    }
+
+    private static string FormatSequenceTransitionText(GameManagers.GameState fromState, GameManagers.GameState toState)
+    {
+        switch (toState)
+        {
+            case GameManagers.GameState.Battle1:
+                return "Battle 1";
+            case GameManagers.GameState.Battle2:
+                return "Battle 2";
+            case GameManagers.GameState.Prepare:
+                return "Prepare";
+            default:
+                return $"{fromState} -> {toState}";
+        }
+    }
+
     private async UniTask PlayFlash(Image flashImage)
     {
         if (flashImage == null) return;
@@ -325,6 +407,28 @@ public class BattleTransitionUI : MonoBehaviour
 
         canvasGroup.alpha = 0f;
         canvasGroup.blocksRaycasts = false;
+    }
+
+    private async UniTask FadeCanvas(float fromAlpha, float toAlpha, float durationSeconds)
+    {
+        if (canvasGroup == null) return;
+
+        if (durationSeconds <= 0f)
+        {
+            canvasGroup.alpha = toAlpha;
+            return;
+        }
+
+        float elapsed = 0f;
+        while (elapsed < durationSeconds)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / durationSeconds);
+            canvasGroup.alpha = Mathf.Lerp(fromAlpha, toAlpha, t);
+            await UniTask.Yield();
+        }
+
+        canvasGroup.alpha = toAlpha;
     }
 
     private void PlaySound(AudioClip clip)

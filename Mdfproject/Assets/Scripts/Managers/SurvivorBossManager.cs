@@ -1,6 +1,8 @@
 // Assets/Scripts/Managers/SurvivorBossManager.cs
 
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using UnityEngine;
 using Fusion;
@@ -12,6 +14,7 @@ using Fusion;
 public struct SurvivorBossData
 {
     public MonsterData BossData;
+    public string BossDataKey;
     public float RemainingHP;
     public float MaxHP;
     public int OriginPlayerId; // 보스를 소환한 원래 플레이어
@@ -50,6 +53,13 @@ public class SurvivorBossManager : MonoBehaviour
             Destroy(gameObject);
         }
     }
+
+    private static bool IsRunningClientPeerWithoutAuthority()
+    {
+        var gm = GameManagers.Instance;
+        var runner = gm != null ? gm.Runner : null;
+        return runner != null && runner.IsRunning && !runner.IsServer;
+    }
     
     #region 보스 등록 및 타겟 할당
     
@@ -59,12 +69,19 @@ public class SurvivorBossManager : MonoBehaviour
     /// </summary>
     public void RegisterSurvivorBoss(MonsterData bossData, float remainingHP, float maxHP, int originPlayerId, int bossUniqueId = -1)
     {
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning("[SurvivorBossManager] RegisterSurvivorBoss ignored on client peer.");
+            return;
+        }
+
         // 기존 보스가 생존한 경우 기존 ID 유지, 아니면 새 ID 발급
         int uniqueId = bossUniqueId > 0 ? bossUniqueId : _nextBossUniqueId++;
         
         var data = new SurvivorBossData
         {
             BossData = bossData,
+            BossDataKey = BuildBossDataKey(bossData),
             RemainingHP = remainingHP,
             MaxHP = maxHP,
             OriginPlayerId = originPlayerId,
@@ -72,6 +89,7 @@ public class SurvivorBossManager : MonoBehaviour
         };
         
         _pendingSurvivorBosses.Add(data);
+        SyncStateToClients("RegisterSurvivorBoss");
         Debug.Log($"<color=red>[SurvivorBossManager] 보스 생존 등록! ID:{uniqueId}, HP: {remainingHP:F0}/{maxHP:F0}, 다음 라운드에 전체 유저 중 랜덤 침공 예정 (대기 보스: {_pendingSurvivorBosses.Count}마리)</color>");
     }
     
@@ -81,18 +99,25 @@ public class SurvivorBossManager : MonoBehaviour
     /// </summary>
     public void AssignTargetsToSurvivors()
     {
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning("[SurvivorBossManager] AssignTargetsToSurvivors ignored on client peer.");
+            return;
+        }
+
         if (_pendingSurvivorBosses.Count == 0) return;
         
         var allPlayers = GameManagers.Instance?.AllPlayers.ToList();
         if (allPlayers == null || allPlayers.Count == 0)
         {
             _pendingSurvivorBosses.Clear();
+            SyncStateToClients("AssignTargetsToSurvivors.NoPlayers");
             return;
         }
         
         foreach (var bossData in _pendingSurvivorBosses)
         {
-            int randomIndex = Random.Range(0, allPlayers.Count);
+            int randomIndex = UnityEngine.Random.Range(0, allPlayers.Count);
             int targetPlayerId = allPlayers[randomIndex].playerId;
             
             if (!_bossTargetAssignments.ContainsKey(targetPlayerId))
@@ -106,6 +131,7 @@ public class SurvivorBossManager : MonoBehaviour
         
         Debug.Log($"<color=cyan>[SurvivorBossManager] 총 {_pendingSurvivorBosses.Count}마리 생존 보스 타겟 할당 완료</color>");
         _pendingSurvivorBosses.Clear();
+        SyncStateToClients("AssignTargetsToSurvivors");
     }
     
     #endregion
@@ -120,6 +146,12 @@ public class SurvivorBossManager : MonoBehaviour
     /// <returns>침공할 보스 목록</returns>
     public List<SurvivorBossData> ExtractBossesForBattleSequence(int targetPlayerId)
     {
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning("[SurvivorBossManager] ExtractBossesForBattleSequence ignored on client peer.");
+            return new List<SurvivorBossData>();
+        }
+
         if (!_bossTargetAssignments.TryGetValue(targetPlayerId, out var bossList))
         {
             return new List<SurvivorBossData>();
@@ -149,6 +181,7 @@ public class SurvivorBossManager : MonoBehaviour
         }
         
         Debug.Log($"<color=cyan>[SurvivorBossManager] Player {targetPlayerId}에게 {availableBosses.Count}마리 생존 보스 침공 (이번 턴 침공 보스: {_bossesInvadedThisTurn.Count}마리)</color>");
+        SyncStateToClients("ExtractBossesForBattleSequence");
         return availableBosses;
     }
     
@@ -159,6 +192,12 @@ public class SurvivorBossManager : MonoBehaviour
     [System.Obsolete("Use ExtractBossesForBattleSequence() for turn-based invasion limit support")]
     public List<SurvivorBossData> ExtractBossesForTarget(int targetPlayerId)
     {
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning("[SurvivorBossManager] ExtractBossesForTarget ignored on client peer.");
+            return new List<SurvivorBossData>();
+        }
+
         if (!_bossTargetAssignments.TryGetValue(targetPlayerId, out var bossList))
         {
             return new List<SurvivorBossData>();
@@ -186,6 +225,7 @@ public class SurvivorBossManager : MonoBehaviour
             Debug.Log($"<color=yellow>[SurvivorBossManager] 턴 종료: {_bossesInvadedThisTurn.Count}마리 보스 침공 상태 리셋</color>");
         }
         _bossesInvadedThisTurn.Clear();
+        SyncStateToClients("ResetTurnInvasionState");
     }
     
     /// <summary>
@@ -201,6 +241,12 @@ public class SurvivorBossManager : MonoBehaviour
     /// </summary>
     public int GetNextBossUniqueId()
     {
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning("[SurvivorBossManager] GetNextBossUniqueId ignored on client peer.");
+            return -1;
+        }
+
         return _nextBossUniqueId++;
     }
     
@@ -235,6 +281,350 @@ public class SurvivorBossManager : MonoBehaviour
         }
         return bossList.Any(b => !_bossesInvadedThisTurn.Contains(b.BossUniqueId));
     }
+
+    public void CaptureStableSnapshot(
+        out string pendingSnapshot,
+        out string assignmentSnapshot,
+        out int pendingCount,
+        out int assignmentCount)
+    {
+        pendingCount = _pendingSurvivorBosses.Count;
+        pendingSnapshot = string.Join("|", _pendingSurvivorBosses
+            .Select(BuildBossSnapshotPart)
+            .OrderBy(part => part));
+
+        var assignmentParts = new List<string>();
+        foreach (var kv in _bossTargetAssignments.OrderBy(kv => kv.Key))
+        {
+            foreach (var boss in kv.Value ?? Enumerable.Empty<SurvivorBossData>())
+            {
+                bool invaded = _bossesInvadedThisTurn.Contains(boss.BossUniqueId);
+                assignmentParts.Add($"target={kv.Key};invaded={invaded};{BuildBossSnapshotPart(boss)}");
+            }
+        }
+
+        assignmentCount = assignmentParts.Count;
+        assignmentSnapshot = string.Join("|", assignmentParts.OrderBy(part => part));
+    }
+
+    public void CaptureNetworkSyncPayload(
+        out string[] pendingParts,
+        out int[] assignmentTargets,
+        out string[] assignmentParts,
+        out int[] invadedBossIds,
+        out int nextBossUniqueId)
+    {
+        pendingParts = _pendingSurvivorBosses
+            .Select(BuildBossNetworkPart)
+            .Where(part => !string.IsNullOrWhiteSpace(part))
+            .ToArray();
+
+        var targetList = new List<int>();
+        var partList = new List<string>();
+        foreach (var kv in _bossTargetAssignments.OrderBy(kv => kv.Key))
+        {
+            foreach (var boss in kv.Value ?? Enumerable.Empty<SurvivorBossData>())
+            {
+                targetList.Add(kv.Key);
+                partList.Add(BuildBossNetworkPart(boss));
+            }
+        }
+
+        assignmentTargets = targetList.ToArray();
+        assignmentParts = partList.ToArray();
+        invadedBossIds = _bossesInvadedThisTurn.OrderBy(id => id).ToArray();
+        nextBossUniqueId = _nextBossUniqueId;
+    }
+
+    public void CaptureReplicatedSnapshotRows(
+        out string[] dataKeys,
+        out int[] states,
+        out int[] bossIds,
+        out int[] originPlayerIds,
+        out int[] targetPlayerIds,
+        out int[] hpBuckets,
+        out int[] maxHpBuckets,
+        out int[] invadedFlags,
+        out int nextBossUniqueId)
+    {
+        var dataKeyList = new List<string>();
+        var stateList = new List<int>();
+        var bossIdList = new List<int>();
+        var originList = new List<int>();
+        var targetList = new List<int>();
+        var hpList = new List<int>();
+        var maxHpList = new List<int>();
+        var invadedList = new List<int>();
+
+        foreach (var boss in _pendingSurvivorBosses.OrderBy(boss => boss.BossUniqueId))
+        {
+            AppendReplicatedSnapshotRow(
+                boss,
+                state: 1,
+                targetPlayerId: -1,
+                invaded: false,
+                dataKeyList,
+                stateList,
+                bossIdList,
+                originList,
+                targetList,
+                hpList,
+                maxHpList,
+                invadedList);
+        }
+
+        foreach (var kv in _bossTargetAssignments.OrderBy(kv => kv.Key))
+        {
+            foreach (var boss in (kv.Value ?? Enumerable.Empty<SurvivorBossData>()).OrderBy(boss => boss.BossUniqueId))
+            {
+                AppendReplicatedSnapshotRow(
+                    boss,
+                    state: 2,
+                    targetPlayerId: kv.Key,
+                    invaded: _bossesInvadedThisTurn.Contains(boss.BossUniqueId),
+                    dataKeyList,
+                    stateList,
+                    bossIdList,
+                    originList,
+                    targetList,
+                    hpList,
+                    maxHpList,
+                    invadedList);
+            }
+        }
+
+        dataKeys = dataKeyList.ToArray();
+        states = stateList.ToArray();
+        bossIds = bossIdList.ToArray();
+        originPlayerIds = originList.ToArray();
+        targetPlayerIds = targetList.ToArray();
+        hpBuckets = hpList.ToArray();
+        maxHpBuckets = maxHpList.ToArray();
+        invadedFlags = invadedList.ToArray();
+        nextBossUniqueId = _nextBossUniqueId;
+    }
+
+    public void ApplyNetworkSyncFromAuthority(
+        string[] pendingParts,
+        int[] assignmentTargets,
+        string[] assignmentParts,
+        int[] invadedBossIds,
+        int nextBossUniqueId)
+    {
+        _pendingSurvivorBosses.Clear();
+        _bossTargetAssignments.Clear();
+        _bossesInvadedThisTurn.Clear();
+
+        foreach (var part in pendingParts ?? Array.Empty<string>())
+        {
+            if (TryParseBossNetworkPart(part, out var boss))
+            {
+                _pendingSurvivorBosses.Add(boss);
+            }
+        }
+
+        int assignmentCount = Mathf.Min(assignmentTargets?.Length ?? 0, assignmentParts?.Length ?? 0);
+        for (int i = 0; i < assignmentCount; i++)
+        {
+            if (!TryParseBossNetworkPart(assignmentParts[i], out var boss))
+            {
+                continue;
+            }
+
+            int targetPlayerId = assignmentTargets[i];
+            if (!_bossTargetAssignments.TryGetValue(targetPlayerId, out var bosses))
+            {
+                bosses = new List<SurvivorBossData>();
+                _bossTargetAssignments[targetPlayerId] = bosses;
+            }
+            bosses.Add(boss);
+        }
+
+        foreach (int bossId in invadedBossIds ?? Array.Empty<int>())
+        {
+            if (bossId > 0)
+            {
+                _bossesInvadedThisTurn.Add(bossId);
+            }
+        }
+
+        if (nextBossUniqueId > 0)
+        {
+            _nextBossUniqueId = Mathf.Max(_nextBossUniqueId, nextBossUniqueId);
+        }
+    }
+
+    private static string BuildBossSnapshotPart(SurvivorBossData boss)
+    {
+        string dataKey = !string.IsNullOrWhiteSpace(boss.BossDataKey)
+            ? boss.BossDataKey
+            : BuildBossDataKey(boss.BossData);
+        int hpBucket = BuildHpBucket(boss.RemainingHP, boss.MaxHP);
+        int maxHpBucket = Mathf.Max(0, Mathf.RoundToInt(boss.MaxHP / 10f));
+        return $"id={boss.BossUniqueId};origin={boss.OriginPlayerId};type={dataKey};hpBucket={hpBucket};maxHpBucket={maxHpBucket}";
+    }
+
+    private static void AppendReplicatedSnapshotRow(
+        SurvivorBossData boss,
+        int state,
+        int targetPlayerId,
+        bool invaded,
+        List<string> dataKeys,
+        List<int> states,
+        List<int> bossIds,
+        List<int> originPlayerIds,
+        List<int> targetPlayerIds,
+        List<int> hpBuckets,
+        List<int> maxHpBuckets,
+        List<int> invadedFlags)
+    {
+        string dataKey = !string.IsNullOrWhiteSpace(boss.BossDataKey)
+            ? boss.BossDataKey
+            : BuildBossDataKey(boss.BossData);
+        dataKeys.Add(dataKey);
+        states.Add(state);
+        bossIds.Add(boss.BossUniqueId);
+        originPlayerIds.Add(boss.OriginPlayerId);
+        targetPlayerIds.Add(targetPlayerId);
+        hpBuckets.Add(BuildHpBucket(boss.RemainingHP, boss.MaxHP));
+        maxHpBuckets.Add(Mathf.Max(0, Mathf.RoundToInt(boss.MaxHP / 10f)));
+        invadedFlags.Add(invaded ? 1 : 0);
+    }
+
+    private static string BuildBossNetworkPart(SurvivorBossData boss)
+    {
+        string dataKey = !string.IsNullOrWhiteSpace(boss.BossDataKey)
+            ? boss.BossDataKey
+            : BuildBossDataKey(boss.BossData);
+        return string.Join(";",
+            $"id={boss.BossUniqueId}",
+            $"origin={boss.OriginPlayerId}",
+            $"type={dataKey}",
+            $"remaining={boss.RemainingHP.ToString("R", CultureInfo.InvariantCulture)}",
+            $"max={boss.MaxHP.ToString("R", CultureInfo.InvariantCulture)}");
+    }
+
+    private static bool TryParseBossNetworkPart(string part, out SurvivorBossData boss)
+    {
+        boss = default;
+        if (string.IsNullOrWhiteSpace(part))
+        {
+            return false;
+        }
+
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var token in part.Split(';'))
+        {
+            int split = token.IndexOf('=');
+            if (split <= 0 || split >= token.Length - 1)
+            {
+                continue;
+            }
+            values[token.Substring(0, split)] = token.Substring(split + 1);
+        }
+
+        if (!TryGetInt(values, "id", out int bossId) || bossId <= 0)
+        {
+            return false;
+        }
+
+        TryGetInt(values, "origin", out int originPlayerId);
+        TryGetFloat(values, "remaining", out float remainingHp);
+        TryGetFloat(values, "max", out float maxHp);
+        values.TryGetValue("type", out string dataKey);
+
+        boss = new SurvivorBossData
+        {
+            BossData = ResolveMonsterDataByName(dataKey),
+            BossDataKey = string.IsNullOrWhiteSpace(dataKey) ? "null" : dataKey,
+            RemainingHP = remainingHp,
+            MaxHP = maxHp,
+            OriginPlayerId = originPlayerId,
+            BossUniqueId = bossId
+        };
+        return true;
+    }
+
+    private static bool TryGetInt(Dictionary<string, string> values, string key, out int value)
+    {
+        value = 0;
+        return values != null
+            && values.TryGetValue(key, out string text)
+            && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static bool TryGetFloat(Dictionary<string, string> values, string key, out float value)
+    {
+        value = 0f;
+        return values != null
+            && values.TryGetValue(key, out string text)
+            && float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static string BuildBossDataKey(MonsterData data)
+    {
+        if (data == null)
+        {
+            return "null";
+        }
+
+        return !string.IsNullOrWhiteSpace(data.monsterName) ? data.monsterName : data.name;
+    }
+
+    private static MonsterData ResolveMonsterDataByName(string monsterDataName)
+    {
+        if (string.IsNullOrWhiteSpace(monsterDataName) || monsterDataName == "null")
+        {
+            return null;
+        }
+
+        foreach (var data in Resources.FindObjectsOfTypeAll<MonsterData>())
+        {
+            if (MatchesMonsterData(data, monsterDataName))
+            {
+                return data;
+            }
+        }
+
+        foreach (var manager in Resources.FindObjectsOfTypeAll<AugmentManager>())
+        {
+            var data = manager != null ? manager.FindMonsterDataByName(monsterDataName) : null;
+            if (data != null)
+            {
+                return data;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesMonsterData(MonsterData data, string monsterDataName)
+    {
+        if (data == null || string.IsNullOrWhiteSpace(monsterDataName))
+        {
+            return false;
+        }
+
+        return string.Equals(data.name, monsterDataName, StringComparison.Ordinal)
+            || string.Equals(data.monsterName, monsterDataName, StringComparison.Ordinal)
+            || string.Equals(data.monsterPrefab, monsterDataName, StringComparison.Ordinal);
+    }
+
+    private void SyncStateToClients(string reason)
+    {
+        GameManagers.Instance?.SyncSurvivorBossStateToClientsIfAuthoritative(reason);
+    }
+
+    private static int BuildHpBucket(float currentHp, float maxHp)
+    {
+        if (maxHp <= 0f)
+        {
+            return Mathf.Max(0, Mathf.RoundToInt(currentHp / 10f));
+        }
+
+        float ratio = Mathf.Clamp01(currentHp / maxHp);
+        return Mathf.Clamp(Mathf.FloorToInt(ratio * 10f), 0, 10);
+    }
     
     /// <summary>
     /// 보스가 사망했을 때 호출됩니다. (정보 로깅용)
@@ -256,6 +646,12 @@ public class SurvivorBossManager : MonoBehaviour
     public List<(int targetPlayerId, SurvivorBossData bossData)> GetPendingBossesWithTargets()
     {
         var result = new List<(int, SurvivorBossData)>();
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning("[SurvivorBossManager] GetPendingBossesWithTargets ignored on client peer.");
+            return result;
+        }
+
         var allPlayers = GameManagers.Instance?.AllPlayers.ToList();
         
         if (allPlayers == null || allPlayers.Count == 0)
@@ -267,7 +663,7 @@ public class SurvivorBossManager : MonoBehaviour
         foreach (var bossData in _pendingSurvivorBosses)
         {
             // 전체 유저 중 랜덤하게 타겟 선정 (보스를 소환한 플레이어 포함)
-            int randomIndex = Random.Range(0, allPlayers.Count);
+            int randomIndex = UnityEngine.Random.Range(0, allPlayers.Count);
             int targetPlayerId = allPlayers[randomIndex].playerId;
             
             result.Add((targetPlayerId, bossData));

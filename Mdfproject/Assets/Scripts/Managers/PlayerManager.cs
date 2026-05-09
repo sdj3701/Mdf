@@ -1,6 +1,8 @@
 ﻿// Assets/Scripts/Managers/PlayerManager.cs
 
+using System.Collections;
 using System.Collections.Generic;
+using System;
 using UnityEngine;
 using UnityEngine.Serialization;
 using System.Linq;
@@ -11,6 +13,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 {
     // [수정] playerId를 모든 클라이언트가 동기화할 수 있도록 [Networked] 프로퍼티로 변경합니다.
     [Networked] public int playerId { get; set; }
+    [Networked] public NetworkBool IsAiControlled { get; private set; }
 
     [Header("핵심 능력치 (읽기 전용)")]
     // 참고: 이 능력치들도 [Networked]로 변경하면 더 안정적이지만,
@@ -32,6 +35,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Networked] private int ShopSnapshotRevision { get; set; }
     [Networked] private int ShopSnapshotCount { get; set; }
     [Networked] private int ShopSnapshotRound { get; set; }
+    private const int PRESENTED_AUGMENT_SNAPSHOT_CAPACITY = 3;
+    [Networked, Capacity(PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> PresentedAugmentSnapshotNames { get; }
+    [Networked] private int PresentedAugmentSnapshotCount { get; set; }
+    private const int SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 8;
+    [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> SelectedAugmentSnapshotNames { get; }
+    [Networked] private int SelectedAugmentSnapshotCount { get; set; }
+    private const float PERMANENT_BONUS_NETWORK_SCALE = 10000f;
+    [Networked] private int PermanentAttackDamageBonusPermille { get; set; }
+    [Networked] private int PermanentAttackSpeedBonusPermille { get; set; }
     private const int MAX_WALL_COUNT = 5;
     [SerializeField] private int wallReserveK = 2;
     [SerializeField] private Vector2 wallBuildDelayRange = new Vector2(0.3f, 0.8f);
@@ -68,7 +80,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public MonsterSpawner monsterSpawner;
     public AugmentManager augmentManager;
     public AstarGrid astarGrid;
-    public Transform spawnPoint { get; private set; }
     public Transform goalTransform { get; private set; }
 
     [HideInInspector]
@@ -86,11 +97,41 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// 공격 시퀀스에서 소환 가능한 몬스터 풀
     /// </summary>
     public List<MonsterPoolEntry> AttackMonsterPool { get; private set; } = new List<MonsterPoolEntry>();
+    [Networked] public int AttackMonsterPoolRevision { get; private set; }
+    private const int ATTACK_POOL_SNAPSHOT_CAPACITY = 32;
+    [Networked] private int AttackMonsterPoolSnapshotCount { get; set; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> AttackMonsterPoolSnapshotNames { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotRemainingCounts { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotMaxCounts { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotIsBossValues { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotBossUniqueIds { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotTargetPlayerIds { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotOriginPlayerIds { get; }
+    private int _lastAppliedAttackMonsterPoolRevision;
+    public int AppliedAttackMonsterPoolRevision =>
+        Object != null && Object.HasStateAuthority ? AttackMonsterPoolRevision : _lastAppliedAttackMonsterPoolRevision;
+    public bool HasAppliedCurrentAttackMonsterPoolSnapshot =>
+        Object != null && Object.HasStateAuthority || _lastAppliedAttackMonsterPoolRevision == AttackMonsterPoolRevision;
+    [Networked] public int OwnedMagicScrollRevision { get; private set; }
+    private int _lastAppliedOwnedMagicScrollRevision;
+    private int _latestReceivedOwnedMagicScrollRevision;
+    public int AppliedOwnedMagicScrollRevision =>
+        Object != null && Object.HasStateAuthority ? OwnedMagicScrollRevision : _lastAppliedOwnedMagicScrollRevision;
+    public bool HasAppliedCurrentOwnedMagicScrollSnapshot =>
+        Object != null && Object.HasStateAuthority || _lastAppliedOwnedMagicScrollRevision == OwnedMagicScrollRevision;
     #endregion
 
     private ChangeDetector _changeDetector;
     private bool _runtimeInitialized;
     public bool IsReadyForPlayerActions => _runtimeInitialized && playerId >= 0 && fieldManager != null;
+
+    public void SetAiControlled(bool isAi)
+    {
+        if (HasStateAuthorityOrNoNetwork())
+        {
+            IsAiControlled = isAi;
+        }
+    }
 
     private bool HasStateAuthorityOrNoNetwork()
     {
@@ -188,16 +229,184 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return true;
     }
 
+    public void PublishSelectedAugmentSnapshot(AugmentData augment)
+    {
+        PublishSelectedAugmentSnapshot(augment != null ? augment.augmentName : string.Empty);
+    }
+
+    public void PublishSelectedAugmentSnapshot(string augmentName)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(augmentName))
+        {
+            return;
+        }
+
+        if (SelectedAugmentSnapshotCount >= SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
+        {
+            Debug.LogWarning($"[PlayerManager] Selected augment snapshot capacity exceeded. playerId={playerId}, augment={augmentName}");
+            return;
+        }
+
+        SelectedAugmentSnapshotNames.Set(SelectedAugmentSnapshotCount, augmentName.Trim());
+        SelectedAugmentSnapshotCount++;
+    }
+
+    public void PublishPresentedAugmentSnapshot(IEnumerable<string> augmentNames)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        {
+            PresentedAugmentSnapshotNames.Set(i, string.Empty);
+        }
+
+        int count = 0;
+        foreach (var rawName in augmentNames ?? System.Array.Empty<string>())
+        {
+            if (count >= PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)
+            {
+                break;
+            }
+
+            string name = rawName != null ? rawName.Trim() : string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            PresentedAugmentSnapshotNames.Set(count, name);
+            count++;
+        }
+
+        PresentedAugmentSnapshotCount = count;
+    }
+
+    public void ClearPresentedAugmentSnapshot()
+    {
+        PublishPresentedAugmentSnapshot(System.Array.Empty<string>());
+    }
+
+    public string[] GetPresentedAugmentSnapshotNames()
+    {
+        int count = Mathf.Clamp(PresentedAugmentSnapshotCount, 0, PRESENTED_AUGMENT_SNAPSHOT_CAPACITY);
+        var names = new List<string>(count);
+        for (int i = 0; i < count; i++)
+        {
+            string name = PresentedAugmentSnapshotNames.Get(i).ToString();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names.ToArray();
+    }
+
+    public string[] GetSelectedAugmentSnapshotNames()
+    {
+        int count = Mathf.Clamp(SelectedAugmentSnapshotCount, 0, SELECTED_AUGMENT_SNAPSHOT_CAPACITY);
+        var names = new List<string>(count);
+        for (int i = 0; i < count; i++)
+        {
+            string name = SelectedAugmentSnapshotNames.Get(i).ToString();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                names.Add(name);
+            }
+        }
+
+        return names.ToArray();
+    }
+
+    public void RestoreAugmentSnapshotsAfterHostMigration(
+        string[] presentedAugmentNames,
+        string[] selectedAugmentNames,
+        string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        {
+            PresentedAugmentSnapshotNames.Set(i, string.Empty);
+        }
+
+        int presentedCount = 0;
+        foreach (var rawName in presentedAugmentNames ?? System.Array.Empty<string>())
+        {
+            if (presentedCount >= PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)
+            {
+                break;
+            }
+
+            string name = rawName != null ? rawName.Trim() : string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            PresentedAugmentSnapshotNames.Set(presentedCount, name);
+            presentedCount++;
+        }
+
+        for (int i = 0; i < SELECTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        {
+            SelectedAugmentSnapshotNames.Set(i, string.Empty);
+        }
+
+        int selectedCount = 0;
+        foreach (var rawName in selectedAugmentNames ?? System.Array.Empty<string>())
+        {
+            if (selectedCount >= SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
+            {
+                break;
+            }
+
+            string name = rawName != null ? rawName.Trim() : string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                continue;
+            }
+
+            SelectedAugmentSnapshotNames.Set(selectedCount, name);
+            selectedCount++;
+        }
+
+        PresentedAugmentSnapshotCount = presentedCount;
+        SelectedAugmentSnapshotCount = selectedCount;
+        Debug.Log($"[PlayerManager] HostMigration augment snapshot restore complete ({context}) P{playerId} presented={presentedCount} selected={selectedCount}");
+    }
+
     // Pending unit registrations received before FieldManager is ready
     private struct PendingUnitReg
     {
         public NetworkObject unitNO;
+        public uint unitIdRaw;
         public int x;
         public int y;
         public string unitDataKey;
         public int starLevel;
     }
     private List<PendingUnitReg> _pendingUnitRegs = new List<PendingUnitReg>();
+    private readonly HashSet<uint> _retiredUnitRegistrationIds = new HashSet<uint>();
+    private readonly Dictionary<uint, PendingUnitReg> _latestUnitRegistrationById = new Dictionary<uint, PendingUnitReg>();
+    private int[] _pendingPermanentWallFlatPositions;
+    private int[] _pendingUnitRosterIdRaws;
+    private int[] _pendingUnitRosterFlatPositions;
+    private string[] _pendingUnitRosterDataKeys;
+    private int[] _pendingUnitRosterDataKeyHashes;
+    private int[] _pendingUnitRosterStarLevels;
+    private Coroutine _permanentWallSyncBroadcastCoroutine;
 
      void Awake()
     {
@@ -220,7 +429,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             playerId = -1;
         }
 
-        if (Object != null && Object.HasStateAuthority)
+        if (!isHostMigration && Object != null && Object.HasStateAuthority)
         {
             health = initialHealth;
             gold = initialGold;
@@ -228,6 +437,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
 
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
+        ApplyPermanentBonusesFromNetworkSnapshot();
 
         // Host Migration 복원 직후에도 런타임 참조가 비지 않도록 즉시 재결선
         RebindRuntimeReferencesAfterMigration("PlayerManager.Spawned", false);
@@ -260,13 +470,22 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             {
                 GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
             }
+            if (propertyName == nameof(PermanentAttackDamageBonusPermille) ||
+                propertyName == nameof(PermanentAttackSpeedBonusPermille))
+            {
+                ApplyPermanentBonusesFromNetworkSnapshot();
+            }
         }
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void Rpc_InitializePlayer(int id, NetworkId gridId)
     {
-        _runtimeInitialized = false;
+        bool preserveRuntimeInitialized = _runtimeInitialized && playerId == id && fieldManager != null;
+        if (!preserveRuntimeInitialized)
+        {
+            _runtimeInitialized = false;
+        }
         playerId = id;
 
         NetworkObject gridNO = null;
@@ -286,6 +505,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (gridNO == null)
         {
             // Debug.LogError($"[Player {playerId}]: gridNetworkObject resolve 실패");
+            _runtimeInitialized = preserveRuntimeInitialized;
             return;
         }
         //Debug.Log($"[Player {playerId}]: gridNetworkObject를 성공적으로 받았습니다. (ID: {gridNetworkObject.Id})");
@@ -330,11 +550,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
         }
 
-        // FieldManager 초기화 후 스폰/골 위치를 동적으로 설정
-        // - 골: 필드 정 가운데 그리드
-        // - 스폰: 동서남북 테두리 구멍 4곳 중 랜덤
-        SetupSpawnAndGoalPositions(gridInstance);
-        // Debug.Log($"[Player {playerId}]: SpawnPoint 위치 -> {(this.spawnPoint != null ? this.spawnPoint.position.ToString() : "null")}");
+        // FieldManager 초기화 후 goal 위치를 동적으로 설정
+        SetupGoalPosition(gridInstance);
         // Debug.Log($"[Player {playerId}]: Goal 위치 -> {(this.goalTransform != null ? this.goalTransform.position.ToString() : "null")}");
 
         // 이제 FieldManager가 준비되었으므로 AstarGrid를 FieldManager와 동기화하여 초기화합니다.
@@ -352,8 +569,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         if (monsterSpawner)
         {
-            var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-            monsterSpawner.Initialize(this, this.astarGrid, waveDatabase, this.spawnPoint, this.goalTransform);
+            monsterSpawner.Initialize(this, this.astarGrid, this.goalTransform);
         }
 
         if (augmentManager) augmentManager.playerManager = this;
@@ -366,6 +582,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
         attackSeqMgr.Initialize(this);
         RebindRuntimeReferencesAfterMigration("Rpc_InitializePlayer", true);
+        DrainPendingPermanentWalls("Rpc_InitializePlayer");
+        QueuePermanentWallSyncBroadcast("Rpc_InitializePlayer");
+        _runtimeInitialized = playerId >= 0 && fieldManager != null;
 
         // CameraManager 초기화 (로컬 플레이어만)
         if (Object.HasInputAuthority && CameraManager.Instance != null)
@@ -390,19 +609,26 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             _pendingUnitRegs.Clear();
             foreach (var p in pending)
             {
+                if (_retiredUnitRegistrationIds.Contains(p.unitIdRaw))
+                {
+                    continue;
+                }
+
                 await RPC_RegisterUnitAt_Internal(p.unitNO, p.x, p.y, p.unitDataKey, p.starLevel);
             }
         }
 
-        _runtimeInitialized = true;
+        await DrainPendingUnitRoster("Rpc_InitializePlayer");
+
+        _runtimeInitialized = playerId >= 0 && fieldManager != null;
     }
 
     public void RebindRuntimeReferencesAfterMigration(string context, bool verboseFailure = true)
     {
-        fieldManager = ResolveOwnedChildComponent(fieldManager);
-        shopManager = ResolveOwnedChildComponent(shopManager);
-        monsterSpawner = ResolveOwnedChildComponent(monsterSpawner);
-        augmentManager = ResolveOwnedChildComponent(augmentManager);
+        fieldManager = fieldManager != null ? fieldManager : GetComponentInChildren<FieldManager>(true);
+        shopManager = shopManager != null ? shopManager : GetComponentInChildren<ShopManager>(true);
+        monsterSpawner = monsterSpawner != null ? monsterSpawner : GetComponentInChildren<MonsterSpawner>(true);
+        augmentManager = augmentManager != null ? augmentManager : GetComponentInChildren<AugmentManager>(true);
 
         if (fieldManager != null)
         {
@@ -454,41 +680,33 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             ground3D = null;
         }
-        if (ground3D != null && gridRoot != null && !ground3D.transform.IsChildOf(gridRoot.transform))
-        {
-            ground3D = null;
-        }
         if (ground3D == null)
         {
             ground3D = ResolveGroundObject(gridRoot);
         }
 
-        bool spawnInvalid = spawnPoint == null || !IsTransformOwnedByCurrentRunner(spawnPoint);
         bool goalInvalid = goalTransform == null || !IsTransformOwnedByCurrentRunner(goalTransform);
-        bool spawnParentMismatch = gridRoot != null && spawnPoint != null && spawnPoint.parent != gridRoot.transform;
         bool goalParentMismatch = gridRoot != null && goalTransform != null && goalTransform.parent != gridRoot.transform;
 
         if (fieldManager != null && ground3D != null
-            && (fieldManager.ground3D == null || fieldManager.ground3D != ground3D || fieldManager.playerManager != this))
+            && (fieldManager.ground3D == null || fieldManager.ground3D != ground3D))
         {
             fieldManager.Initialize(this, ground3D);
             fieldReinitialized = true;
         }
 
-        bool spawnGoalRefreshed = false;
-        bool requireSpawnGoalRefresh = spawnInvalid
-                                       || goalInvalid
-                                       || spawnParentMismatch
-                                       || goalParentMismatch
-                                       || fieldReinitialized
-                                       || gridRebound;
+        bool goalRefreshed = false;
+        bool requireGoalRefresh = goalInvalid
+                                  || goalParentMismatch
+                                  || fieldReinitialized
+                                  || gridRebound;
         if (fieldManager != null
             && fieldManager.ground3D != null
             && gridRoot != null
-            && requireSpawnGoalRefresh)
+            && requireGoalRefresh)
         {
-            SetupSpawnAndGoalPositions(gridRoot);
-            spawnGoalRefreshed = true;
+            SetupGoalPosition(gridRoot);
+            goalRefreshed = true;
         }
 
         if (astarGrid != null && fieldManager != null)
@@ -508,14 +726,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (monsterSpawner != null)
         {
             bool shouldReinitializeSpawner = monsterSpawner.monsterParent == null
-                                             || !monsterSpawner.IsBoundToRuntime(this, astarGrid, spawnPoint, goalTransform, out _)
                                              || fieldReinitialized
                                              || gridRebound
-                                             || spawnGoalRefreshed;
-            if (shouldReinitializeSpawner && astarGrid != null && spawnPoint != null && goalTransform != null)
+                                             || goalRefreshed;
+            if (shouldReinitializeSpawner && astarGrid != null && goalTransform != null)
             {
-                var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-                monsterSpawner.Initialize(this, astarGrid, waveDatabase, spawnPoint, goalTransform);
+                monsterSpawner.Initialize(this, astarGrid, goalTransform);
             }
 
             monsterSpawner.EnsureRuntimeReferencesForMigration(context, verboseFailure);
@@ -527,14 +743,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             fieldManager.RebuildUnitMapAfterMigration($"PlayerManager.{context}", verboseFailure, out _);
         }
 
-        bool runtimeReady = IsRuntimeReady(out string reason);
-        if (runtimeReady)
-        {
-            _runtimeInitialized = true;
-        }
-        else if (verboseFailure)
+        if (verboseFailure && !IsRuntimeReady(out string reason))
         {
             // Debug.LogWarning($"[PlayerManager] 런타임 참조 재결선 미완료 ({context}) player={playerId}, reason={reason}");
+        }
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_RebindRuntimeStateAfterReconnect()
+    {
+        RebindRuntimeReferencesAfterMigration("RPC_RebindRuntimeStateAfterReconnect", false);
+        if (playerId >= 0 && fieldManager != null)
+        {
+            _runtimeInitialized = true;
         }
     }
 
@@ -546,63 +767,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
-        if (!IsOwnedChildComponent(fieldManager))
-        {
-            reason = "fieldManagerNotOwnedByPlayer";
-            return false;
-        }
-
-        if (fieldManager.playerManager != this)
-        {
-            reason = "fieldManager.ownerMismatch";
-            return false;
-        }
-
-        if (shopManager == null)
-        {
-            reason = "shopManager=null";
-            return false;
-        }
-
-        if (!IsOwnedChildComponent(shopManager))
-        {
-            reason = "shopManagerNotOwnedByPlayer";
-            return false;
-        }
-
-        if (shopManager.playerManager != this)
-        {
-            reason = "shopManager.ownerMismatch";
-            return false;
-        }
-
-        if (augmentManager == null)
-        {
-            reason = "augmentManager=null";
-            return false;
-        }
-
-        if (!IsOwnedChildComponent(augmentManager))
-        {
-            reason = "augmentManagerNotOwnedByPlayer";
-            return false;
-        }
-
-        if (augmentManager.playerManager != this)
-        {
-            reason = "augmentManager.ownerMismatch";
-            return false;
-        }
-
         if (fieldManager.ground3D == null)
         {
             reason = "fieldManager.ground3D=null";
-            return false;
-        }
-
-        if (!IsGameObjectOwnedByCurrentRunner(fieldManager.ground3D))
-        {
-            reason = "fieldManager.ground3D.runnerMismatch";
             return false;
         }
 
@@ -639,57 +806,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
-        if (!IsGridOwnedByCurrentRunner(astarGrid))
-        {
-            reason = "astarGrid.runnerMismatch";
-            return false;
-        }
-
-        if (astarGrid.fieldManager != fieldManager)
-        {
-            reason = "astarGrid.fieldManagerMismatch";
-            return false;
-        }
-
-        if (spawnPoint == null)
-        {
-            reason = "spawnPoint=null";
-            return false;
-        }
-
-        if (!IsTransformOwnedByCurrentRunner(spawnPoint))
-        {
-            reason = "spawnPoint.runnerMismatch";
-            return false;
-        }
-
         if (goalTransform == null)
         {
             reason = "goalTransform=null";
             return false;
         }
 
-        if (!IsTransformOwnedByCurrentRunner(goalTransform))
-        {
-            reason = "goalTransform.runnerMismatch";
-            return false;
-        }
-
         if (monsterSpawner == null)
         {
             reason = "monsterSpawner=null";
-            return false;
-        }
-
-        if (!IsOwnedChildComponent(monsterSpawner))
-        {
-            reason = "monsterSpawnerNotOwnedByPlayer";
-            return false;
-        }
-
-        if (!monsterSpawner.IsBoundToRuntime(this, astarGrid, spawnPoint, goalTransform, out string bindingReason))
-        {
-            reason = $"monsterSpawnerBindingMismatch({bindingReason})";
             return false;
         }
 
@@ -703,27 +828,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return true;
     }
 
-    private T ResolveOwnedChildComponent<T>(T current) where T : Component
-    {
-        if (IsOwnedChildComponent(current))
-        {
-            return current;
-        }
-
-        return GetComponentsInChildren<T>(true).FirstOrDefault(IsOwnedChildComponent);
-    }
-
-    private bool IsOwnedChildComponent(Component component)
-    {
-        if (component == null)
-        {
-            return false;
-        }
-
-        return component.transform.IsChildOf(transform)
-               && IsGameObjectOwnedByCurrentRunner(component.gameObject);
-    }
-
     private GameObject ResolveGridRootObject(string context, bool verboseFailure)
     {
         if (IsGridOwnedByCurrentRunner(astarGrid))
@@ -733,11 +837,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             {
                 return rootFromGrid;
             }
-        }
-
-        if (spawnPoint != null && IsTransformOwnedByCurrentRunner(spawnPoint))
-        {
-            return spawnPoint.parent != null ? spawnPoint.parent.gameObject : spawnPoint.gameObject;
         }
 
         if (goalTransform != null && IsTransformOwnedByCurrentRunner(goalTransform))
@@ -813,11 +912,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 if (fieldManager != null && candidateGrid.fieldManager == fieldManager)
                 {
                     score += 80f;
-                }
-
-                if (spawnPoint != null && spawnPoint.parent == no.transform)
-                {
-                    score += 40f;
                 }
 
                 if (goalTransform != null && goalTransform.parent == no.transform)
@@ -901,7 +995,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         expectedPosition = Vector3.zero;
 
-        if (!TryGetSafePlayerId(out int safePlayerId) || safePlayerId < 0)
+        if (playerId < 0)
         {
             return false;
         }
@@ -912,27 +1006,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
-        expectedPosition = gm.player1BasePosition + gm.GetResolvedPlayerOffset() * safePlayerId;
+        expectedPosition = gm.player1BasePosition + gm.GetResolvedPlayerOffset() * playerId;
         return true;
-    }
-
-    private bool TryGetSafePlayerId(out int safePlayerId)
-    {
-        safePlayerId = -1;
-        if (Object == null || !Object.IsValid)
-        {
-            return false;
-        }
-
-        try
-        {
-            safePlayerId = playerId;
-            return true;
-        }
-        catch (System.InvalidOperationException)
-        {
-            return false;
-        }
     }
 
     private bool IsGridOwnedByCurrentRunner(AstarGrid grid)
@@ -1059,11 +1134,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// 클라이언트가 서버에 상점 및 증강체 데이터 동기화를 요청합니다.
     /// </summary>
 
-    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    public void RPC_RequestSyncData()
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    public void RPC_RequestSyncData(RpcInfo info = default)
     {
         // 서버만 처리
         if (Object == null || !Object.HasStateAuthority) return;
+        if (info.Source == PlayerRef.None || Object.InputAuthority != info.Source) return;
         
         // Debug.Log($"<color=yellow>[RPC_RequestSyncData] Player {playerId}에게 데이터 동기화 요청 수신</color>");
         
@@ -1090,7 +1166,9 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
         }
 
-        RPC_SyncOwnedMagicScrolls(BuildOwnedMagicScrollNameArray());
+        RPC_SyncOwnedMagicScrolls(OwnedMagicScrollRevision, BuildOwnedMagicScrollNameArray());
+        RPC_SyncPermanentBonuses(permanentAttackDamagePercent, permanentAttackSpeedPercent);
+        ResendAttackMonsterPoolToClientsIfAuthoritative();
     }
 
     /// <summary>
@@ -1100,9 +1178,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_SyncPermanentBonuses(float attackDamagePercent, float attackSpeedPercent)
     {
-        this.permanentAttackDamagePercent = attackDamagePercent;
-        this.permanentAttackSpeedPercent = attackSpeedPercent;
-        ApplyPermanentBonusesToUnitsOnField();
+        SetPermanentBonusesFromSync(attackDamagePercent, attackSpeedPercent);
         // Debug.Log($"<color=cyan>[RPC_SyncPermanentBonuses] Player {playerId}: AttackDmg={attackDamagePercent:P0}, AttackSpd={attackSpeedPercent:P0}</color>");
     }
 
@@ -1110,12 +1186,493 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_ApplyPermanentWalls(int[] flatPositions)
     {
+        if (flatPositions == null || flatPositions.Length == 0)
+        {
+            return;
+        }
+
+        if (fieldManager == null)
+        {
+            _pendingPermanentWallFlatPositions = flatPositions.ToArray();
+            RebindRuntimeReferencesAfterMigration("RPC_ApplyPermanentWalls.Pending", false);
+        }
+
         if (fieldManager != null)
         {
             fieldManager.ApplyPermanentWallsFromServer(flatPositions);
+            _pendingPermanentWallFlatPositions = null;
         }
     }
 
+    private void DrainPendingPermanentWalls(string context)
+    {
+        if (_pendingPermanentWallFlatPositions == null || _pendingPermanentWallFlatPositions.Length == 0)
+        {
+            return;
+        }
+
+        if (fieldManager == null)
+        {
+            RebindRuntimeReferencesAfterMigration($"DrainPendingPermanentWalls.{context}", false);
+        }
+
+        if (fieldManager == null)
+        {
+            return;
+        }
+
+        var pending = _pendingPermanentWallFlatPositions;
+        _pendingPermanentWallFlatPositions = null;
+        fieldManager.ApplyPermanentWallsFromServer(pending);
+    }
+
+    private void QueuePermanentWallSyncBroadcast(string context)
+    {
+        if (Object == null
+            || !Object.HasStateAuthority
+            || Runner == null
+            || !Runner.IsRunning
+            || !Runner.IsServer
+            || fieldManager == null)
+        {
+            return;
+        }
+
+        if (_permanentWallSyncBroadcastCoroutine != null)
+        {
+            StopCoroutine(_permanentWallSyncBroadcastCoroutine);
+        }
+
+        _permanentWallSyncBroadcastCoroutine = StartCoroutine(BroadcastPermanentWallsForLatePeers(context));
+    }
+
+    private IEnumerator BroadcastPermanentWallsForLatePeers(string context)
+    {
+        const int attempts = 6;
+        const float intervalSeconds = 1f;
+
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            if (Object == null
+                || !Object.HasStateAuthority
+                || Runner == null
+                || !Runner.IsRunning
+                || !Runner.IsServer
+                || fieldManager == null)
+            {
+                break;
+            }
+
+            int[] flat = fieldManager.BuildPermanentWallSyncPayload(
+                $"PlayerManager.{context}.BroadcastPermanentWallsForLatePeers.{attempt + 1}");
+            if (flat != null && flat.Length > 0)
+            {
+                RPC_ApplyPermanentWalls(flat);
+            }
+
+            yield return new WaitForSeconds(intervalSeconds);
+        }
+
+        _permanentWallSyncBroadcastCoroutine = null;
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public async void RPC_ReconcileUnitRoster(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] starLevels)
+    {
+        try
+        {
+            if (Object != null && Object.HasStateAuthority)
+            {
+                return;
+            }
+
+            if (!IsValidUnitRosterPayload(unitIdRaws, flatPositions, unitDataKeys, starLevels))
+            {
+                return;
+            }
+
+            if (fieldManager == null || fieldManager.ground3D == null)
+            {
+                StorePendingUnitRoster(unitIdRaws, flatPositions, unitDataKeys, null, starLevels);
+                RebindRuntimeReferencesAfterMigration("RPC_ReconcileUnitRoster.Pending", false);
+            }
+
+            if (fieldManager == null || fieldManager.ground3D == null)
+            {
+                return;
+            }
+
+            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, null, starLevels);
+        }
+        catch (System.Exception)
+        {
+            // Roster correction is best-effort; command replay and register RPCs remain authoritative.
+        }
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public async void RPC_ReconcileUnitRosterCompact(int[] flatRoster)
+    {
+        await ApplyCompactUnitRosterFromAuthorityAsync(flatRoster);
+    }
+
+    public void ApplyCompactUnitRosterFromAuthority(int[] flatRoster)
+    {
+        ApplyCompactUnitRosterFromAuthorityAsync(flatRoster).Forget();
+    }
+
+    private async UniTask ApplyCompactUnitRosterFromAuthorityAsync(int[] flatRoster)
+    {
+        try
+        {
+            if (Object != null && Object.HasStateAuthority)
+            {
+                return;
+            }
+
+            if (flatRoster == null || flatRoster.Length == 0)
+            {
+                return;
+            }
+
+            bool versionedRoster = flatRoster.Length >= 2 && flatRoster[0] == -2;
+            int count;
+            int stride;
+            int startOffset;
+            bool hasUnitDataHashes;
+
+            if (versionedRoster)
+            {
+                count = flatRoster[1];
+                stride = 6;
+                startOffset = 2;
+                hasUnitDataHashes = true;
+                if (count < 0 || flatRoster.Length != startOffset + (count * stride))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                if (flatRoster.Length % 5 != 0)
+                {
+                    return;
+                }
+
+                count = flatRoster.Length / 5;
+                stride = 5;
+                startOffset = 0;
+                hasUnitDataHashes = false;
+            }
+
+            int[] unitIdRaws = new int[count];
+            int[] flatPositions = new int[count * 3];
+            int[] starLevels = new int[count];
+            int[] unitDataKeyHashes = hasUnitDataHashes ? new int[count] : null;
+
+            for (int i = 0; i < count; i++)
+            {
+                int offset = startOffset + (i * stride);
+                unitIdRaws[i] = flatRoster[offset + 0];
+                flatPositions[(i * 3) + 0] = flatRoster[offset + 1];
+                flatPositions[(i * 3) + 1] = flatRoster[offset + 2];
+                flatPositions[(i * 3) + 2] = flatRoster[offset + 3];
+                starLevels[i] = flatRoster[offset + 4];
+                if (hasUnitDataHashes)
+                {
+                    unitDataKeyHashes[i] = flatRoster[offset + 5];
+                }
+            }
+
+            if (fieldManager == null || fieldManager.ground3D == null)
+            {
+                StorePendingUnitRoster(unitIdRaws, flatPositions, null, unitDataKeyHashes, starLevels);
+                RebindRuntimeReferencesAfterMigration("RPC_ReconcileUnitRosterCompact.Pending", false);
+            }
+
+            if (fieldManager == null || fieldManager.ground3D == null)
+            {
+                return;
+            }
+
+            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, null, unitDataKeyHashes, starLevels);
+        }
+        catch (System.Exception)
+        {
+            // Compact roster correction is best-effort; per-unit register RPCs carry identity metadata.
+        }
+    }
+
+    private async UniTask DrainPendingUnitRoster(string context)
+    {
+        if (_pendingUnitRosterIdRaws == null)
+        {
+            return;
+        }
+
+        if (fieldManager == null || fieldManager.ground3D == null)
+        {
+            RebindRuntimeReferencesAfterMigration($"DrainPendingUnitRoster.{context}", false);
+        }
+
+        if (fieldManager == null || fieldManager.ground3D == null)
+        {
+            return;
+        }
+
+        var unitIdRaws = _pendingUnitRosterIdRaws;
+        var flatPositions = _pendingUnitRosterFlatPositions;
+        var unitDataKeys = _pendingUnitRosterDataKeys;
+        var unitDataKeyHashes = _pendingUnitRosterDataKeyHashes;
+        var starLevels = _pendingUnitRosterStarLevels;
+        _pendingUnitRosterIdRaws = null;
+        _pendingUnitRosterFlatPositions = null;
+        _pendingUnitRosterDataKeys = null;
+        _pendingUnitRosterDataKeyHashes = null;
+        _pendingUnitRosterStarLevels = null;
+
+        await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, unitDataKeyHashes, starLevels);
+    }
+
+    private void StorePendingUnitRoster(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] unitDataKeyHashes, int[] starLevels)
+    {
+        _pendingUnitRosterIdRaws = unitIdRaws != null ? unitIdRaws.ToArray() : null;
+        _pendingUnitRosterFlatPositions = flatPositions != null ? flatPositions.ToArray() : null;
+        _pendingUnitRosterDataKeys = unitDataKeys != null ? unitDataKeys.ToArray() : null;
+        _pendingUnitRosterDataKeyHashes = unitDataKeyHashes != null ? unitDataKeyHashes.ToArray() : null;
+        _pendingUnitRosterStarLevels = starLevels != null ? starLevels.ToArray() : null;
+    }
+
+    private bool IsValidUnitRosterPayload(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] starLevels)
+    {
+        if (unitIdRaws == null || flatPositions == null || starLevels == null)
+        {
+            return false;
+        }
+
+        int count = unitIdRaws.Length;
+        return flatPositions.Length == count * 3
+            && starLevels.Length == count
+            && (unitDataKeys == null || unitDataKeys.Length == count);
+    }
+
+    private async UniTask ApplyUnitRosterFromAuthority(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] unitDataKeyHashes, int[] starLevels)
+    {
+        if (!IsValidUnitRosterPayload(unitIdRaws, flatPositions, unitDataKeys, starLevels) || fieldManager == null)
+        {
+            return;
+        }
+
+        var authoritativePositions = BuildUnitRosterPositionMap(unitIdRaws, flatPositions);
+        foreach (var unitIdRaw in authoritativePositions.Keys)
+        {
+            _retiredUnitRegistrationIds.Remove(unitIdRaw);
+        }
+
+        fieldManager.ReconcileUnitsToAuthoritativeRoster(authoritativePositions);
+
+        for (int i = 0; i < unitIdRaws.Length; i++)
+        {
+            uint unitIdRaw = unchecked((uint)unitIdRaws[i]);
+            if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
+            {
+                continue;
+            }
+
+            var position = new Vector3Int(flatPositions[(i * 3) + 0], flatPositions[(i * 3) + 1], flatPositions[(i * 3) + 2]);
+            string unitDataKey = unitDataKeys != null ? unitDataKeys[i] : string.Empty;
+            int starLevel = starLevels[i];
+
+            if (string.IsNullOrEmpty(unitDataKey) &&
+                _latestUnitRegistrationById.TryGetValue(unitIdRaw, out var metadataForKey) &&
+                metadataForKey.starLevel == starLevel)
+            {
+                unitDataKey = metadataForKey.unitDataKey ?? string.Empty;
+            }
+
+            if (string.IsNullOrEmpty(unitDataKey) &&
+                unitDataKeyHashes != null &&
+                i < unitDataKeyHashes.Length)
+            {
+                unitDataKey = await ResolveUnitDataKeyByStableHashAsync(unitDataKeyHashes[i]);
+            }
+
+            NetworkObject unitNO = await ResolveNetworkObjectByRawIdAsync(unitIdRaw);
+            if (unitNO == null)
+            {
+                if (_latestUnitRegistrationById.TryGetValue(unitIdRaw, out var metadataForObject) &&
+                    metadataForObject.unitNO != null &&
+                    metadataForObject.unitNO.IsValid &&
+                    metadataForObject.unitNO.Id.Raw == unitIdRaw)
+                {
+                    unitNO = metadataForObject.unitNO;
+                }
+            }
+
+            if (unitNO == null)
+            {
+                continue;
+            }
+
+            await RPC_RegisterUnitAt_Internal(unitNO, position.x, position.y, unitDataKey, starLevel);
+        }
+    }
+
+    private Dictionary<uint, Vector3Int> BuildUnitRosterPositionMap(int[] unitIdRaws, int[] flatPositions)
+    {
+        var positions = new Dictionary<uint, Vector3Int>();
+        if (unitIdRaws == null || flatPositions == null)
+        {
+            return positions;
+        }
+
+        for (int i = 0; i < unitIdRaws.Length && (i * 3) + 2 < flatPositions.Length; i++)
+        {
+            positions[unchecked((uint)unitIdRaws[i])] = new Vector3Int(
+                flatPositions[(i * 3) + 0],
+                flatPositions[(i * 3) + 1],
+                flatPositions[(i * 3) + 2]);
+        }
+
+        return positions;
+    }
+
+    private async UniTask<string> ResolveUnitDataKeyByStableHashAsync(int unitDataKeyHash)
+    {
+        if (unitDataKeyHash == 0)
+        {
+            return string.Empty;
+        }
+
+        if (LoadManager.Instance == null)
+        {
+            await UniTask.WaitUntil(() => LoadManager.Instance != null);
+        }
+
+        if (!LoadManager.Instance.IsReady)
+        {
+            await LoadManager.Instance.WaitUntilReady();
+        }
+
+        var allUnits = LoadManager.Instance.GetAllUnitData();
+        if (allUnits == null)
+        {
+            return string.Empty;
+        }
+
+        foreach (var data in allUnits)
+        {
+            if (data != null && StableUnitDataKeyHash(data.name) == unitDataKeyHash)
+            {
+                return data.name;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static int StableUnitDataKeyHash(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return 0;
+        }
+
+        unchecked
+        {
+            uint hash = 2166136261u;
+            for (int i = 0; i < value.Length; i++)
+            {
+                hash ^= value[i];
+                hash *= 16777619u;
+            }
+
+            return (int)hash;
+        }
+    }
+
+    private void RememberLatestUnitRegistration(uint unitIdRaw, NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
+    {
+        _latestUnitRegistrationById[unitIdRaw] = new PendingUnitReg
+        {
+            unitNO = unitNO,
+            unitIdRaw = unitIdRaw,
+            x = x,
+            y = y,
+            unitDataKey = unitDataKey ?? string.Empty,
+            starLevel = starLevel
+        };
+    }
+
+    private async UniTask<NetworkObject> ResolveNetworkObjectByRawIdAsync(uint unitIdRaw)
+    {
+        for (int attempt = 0; attempt < 300; attempt++)
+        {
+            if (TryFindNetworkObjectByRawId(unitIdRaw, out var unitNO))
+            {
+                return unitNO;
+            }
+
+            await UniTask.Yield();
+        }
+
+        return null;
+    }
+
+    private bool TryFindNetworkObjectByRawId(uint unitIdRaw, out NetworkObject unitNO)
+    {
+        unitNO = null;
+        if (Runner == null)
+        {
+            return false;
+        }
+
+        var runnerObjects = Runner.GetAllNetworkObjects();
+        if (runnerObjects == null)
+        {
+            return false;
+        }
+
+        foreach (var candidate in runnerObjects)
+        {
+            if (candidate != null && candidate.IsValid && candidate.Id.Raw == unitIdRaw)
+            {
+                unitNO = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_UnregisterUnitAt(NetworkId unitId, int x, int y, string unitDataKey, int starLevel)
+    {
+        uint unitIdRaw = unitId.Raw;
+        _retiredUnitRegistrationIds.Add(unitIdRaw);
+        _pendingUnitRegs.RemoveAll(reg => reg.unitIdRaw == unitIdRaw);
+        _latestUnitRegistrationById.Remove(unitIdRaw);
+
+        if (fieldManager == null)
+        {
+            return;
+        }
+
+        NetworkObject unitNO = null;
+        Unit unit = null;
+        if (Runner != null)
+        {
+            Runner.TryFindObject(unitId, out unitNO);
+        }
+
+        if (unitNO != null)
+        {
+            unit = unitNO.GetComponent<Unit>();
+        }
+
+        fieldManager.UnregisterUnitAt(unit, new Vector3Int(x, y, 0), unitDataKey, starLevel);
+    }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public async void RPC_RegisterUnitAt(NetworkId unitId, int x, int y, string unitDataKey, int starLevel)
@@ -1124,11 +1681,23 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         {
             // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] recv pos=({x},{y}) key='{unitDataKey}' star={starLevel} stateAuth={(Object != null && Object.HasStateAuthority)} id={unitId}</color>");
             if (Object != null && Object.HasStateAuthority) return;
+            uint unitIdRaw = unitId.Raw;
+            RememberLatestUnitRegistration(unitIdRaw, null, x, y, unitDataKey, starLevel);
+            if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
+            {
+                return;
+            }
+
             NetworkObject unitNO = null;
             bool resolved = false;
             int attempts = 0;
             do
             {
+                if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
+                {
+                    return;
+                }
+
                 if (Runner != null)
                 {
                     resolved = Runner.TryFindObject(unitId, out unitNO);
@@ -1144,6 +1713,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 // Debug.LogWarning($"<color=yellow>[RPC_RegisterUnitAt] failed to resolve NetworkObject by NetworkId='{unitId}' key='{unitDataKey}'</color>");
                 return;
             }
+            RememberLatestUnitRegistration(unitIdRaw, unitNO, x, y, unitDataKey, starLevel);
 
             if (fieldManager == null || fieldManager.ground3D == null)
             {
@@ -1151,6 +1721,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 _pendingUnitRegs.Add(new PendingUnitReg
                 {
                     unitNO = unitNO,
+                    unitIdRaw = unitIdRaw,
                     x = x,
                     y = y,
                     unitDataKey = unitDataKey,
@@ -1162,7 +1733,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             await RPC_RegisterUnitAt_Internal(unitNO, x, y, unitDataKey, starLevel);
             // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] dispatched to Internal for pos=({x},{y})</color>");
         }
-        catch (System.Exception ex)
+        catch (System.Exception)
         {
             // Debug.LogError($"[RPC_RegisterUnitAt] exception: {ex.Message}");
         }
@@ -1172,6 +1743,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         try
         {
+            if (unitNO != null && _retiredUnitRegistrationIds.Contains(unitNO.Id.Raw))
+            {
+                return;
+            }
+
             if (fieldManager == null)
             {
                 // Debug.LogWarning($"<color=yellow>[RPC_Internal] fieldManager null</color>");
@@ -1208,10 +1784,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 }
             }
 
-            bool needInit = unit.Data == null || (!string.IsNullOrEmpty(unitDataKey) && unit.Data.name != unitDataKey);
+            bool needInit =
+                unit.Data == null ||
+                (!string.IsNullOrEmpty(unitDataKey) && unit.Data.name != unitDataKey) ||
+                unit.starLevel != starLevel;
             if (needInit)
             {
-                UnitData data = null;
+                UnitData data = unit.Data;
                 if (!string.IsNullOrEmpty(unitDataKey))
                 {
                     if (LoadManager.Instance == null)
@@ -1263,7 +1842,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             fieldManager.RegisterUnitAt(unit, pos);
             // Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId}) data='{unit.Data?.name}'</color>");
         }
-        catch (System.Exception ex)
+        catch (System.Exception)
         {
             // Debug.LogError($"[RPC_Internal] exception: {ex.Message}");
         }
@@ -1292,6 +1871,66 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public Vector2 GetWallBuildDelayRange() => NormalizeDelayRange(wallBuildDelayRange);
     public Vector2 GetUnitPurchaseDelayRange() => NormalizeDelayRange(unitPurchaseDelayRange);
     public Vector2 GetUnitMoveDelayRange() => NormalizeDelayRange(unitMoveDelayRange);
+
+    public void RestoreDurableStateAfterHostMigration(
+        int restoredPlayerId,
+        int restoredHealth,
+        int restoredGold,
+        int restoredWallCount,
+        string[] shopUnitKeys,
+        int[] shopStarLevels,
+        bool[] shopSoldFlags,
+        int shopRevision,
+        int shopRound,
+        string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (restoredPlayerId >= 0 && playerId != restoredPlayerId)
+        {
+            playerId = restoredPlayerId;
+        }
+
+        health = Mathf.Max(0, restoredHealth);
+        gold = Mathf.Max(0, restoredGold);
+        wallCount = Mathf.Max(0, restoredWallCount);
+        _runtimeInitialized = true;
+
+        if (shopUnitKeys != null && shopUnitKeys.Length > 0)
+        {
+            int count = Mathf.Clamp(shopUnitKeys.Length, 0, SHOP_SNAPSHOT_CAPACITY);
+            for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
+            {
+                ShopSnapshotUnitKeys.Set(i, string.Empty);
+                ShopSnapshotStarLevels.Set(i, 0);
+                ShopSnapshotSoldFlags.Set(i, 0);
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                string unitKey = i < shopUnitKeys.Length ? NormalizeShopUnitKey(shopUnitKeys[i]) : string.Empty;
+                int starLevel = shopStarLevels != null && i < shopStarLevels.Length
+                    ? Mathf.Max(1, shopStarLevels[i])
+                    : 1;
+                int sold = shopSoldFlags != null && i < shopSoldFlags.Length && shopSoldFlags[i] ? 1 : 0;
+
+                ShopSnapshotUnitKeys.Set(i, unitKey);
+                ShopSnapshotStarLevels.Set(i, starLevel);
+                ShopSnapshotSoldFlags.Set(i, sold);
+            }
+
+            ShopSnapshotCount = count;
+            ShopSnapshotRound = Mathf.Max(0, shopRound);
+            ShopSnapshotRevision = Mathf.Max(1, shopRevision);
+        }
+
+        GameEvents.TriggerPlayerStatsChanged(playerId, health, gold);
+        GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
+        Debug.Log($"[PlayerManager] HostMigration durable restore complete ({context}) P{playerId} hp={health} gold={gold} walls={wallCount} shopRev={ShopSnapshotRevision} shopCount={ShopSnapshotCount}");
+    }
 
     #region 몬스터 소환 증강 관리
     /// <summary>
@@ -1335,10 +1974,38 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augment != null)
         {
             _ownedBossAugments.Remove(augment);
+            SyncOwnedBossRemovalToClientsIfAuthoritative(bossData);
             // Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{bossData.monsterName}' 소환 → 보유에서 제거 (남은 {_ownedBossAugments.Count}마리)</color>");
             return true;
         }
         return false;
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_RemoveOwnedBossByMonsterDataName(string bossMonsterDataName)
+    {
+        if (Object != null && Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(bossMonsterDataName))
+        {
+            return;
+        }
+
+        _ownedBossAugments.RemoveAll(augment =>
+            augment != null &&
+            augment.bossMonsterData != null &&
+            augment.bossMonsterData.name == bossMonsterDataName);
+    }
+
+    private void SyncOwnedBossRemovalToClientsIfAuthoritative(MonsterData bossData)
+    {
+        if (bossData != null && Object != null && Object.HasStateAuthority)
+        {
+            RPC_RemoveOwnedBossByMonsterDataName(bossData.name);
+        }
     }
     #endregion
 
@@ -1356,9 +2023,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// </summary>
     public void AddMagicScroll(MagicScrollData scrollData)
     {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
+
         if (scrollData != null)
         {
             _ownedScrolls.Add(scrollData);
+            BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
             Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 획득 (총 {_ownedScrolls.Count}개)</color>");
 
             PublishOwnedMagicScrollsChanged();
@@ -1372,13 +2045,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <returns>스크롤 보유 시 true, 미보유 시 false</returns>
     public bool TryConsumeMagicScroll(MagicScrollData scrollData)
     {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return false;
+        }
+
         if (scrollData == null) return false;
         
         // 같은 종류의 스크롤이 있는지 확인
-        var found = _ownedScrolls.Find(s => s == scrollData || s.name == scrollData.name);
-        if (found != null)
+        int slotIndex = _ownedScrolls.FindIndex(s => s == scrollData || (s != null && s.name == scrollData.name));
+        if (slotIndex >= 0)
         {
-            _ownedScrolls.Remove(found);
+            _ownedScrolls.RemoveAt(slotIndex);
+            BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
             Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 사용 (남은 {_ownedScrolls.Count}개)</color>");
 
             PublishOwnedMagicScrollsChanged();
@@ -1389,33 +2068,151 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return false;
     }
 
+    public int FindOwnedMagicScrollSlot(MagicScrollData scrollData)
+    {
+        if (scrollData == null || _ownedScrolls == null)
+        {
+            return -1;
+        }
+
+        for (int i = 0; i < _ownedScrolls.Count; i++)
+        {
+            var owned = _ownedScrolls[i];
+            if (owned == scrollData || (owned != null && owned.name == scrollData.name))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    public bool TryGetMagicScrollAtSlot(int scrollSlotIndex, out MagicScrollData scrollData, out string reason)
+    {
+        scrollData = null;
+        reason = null;
+        if (_ownedScrolls == null)
+        {
+            reason = "owned_scrolls_missing";
+            return false;
+        }
+
+        if (scrollSlotIndex < 0 || scrollSlotIndex >= _ownedScrolls.Count)
+        {
+            reason = "scroll_slot_out_of_range";
+            return false;
+        }
+
+        scrollData = _ownedScrolls[scrollSlotIndex];
+        if (scrollData == null)
+        {
+            reason = "scroll_slot_empty";
+            return false;
+        }
+
+        return true;
+    }
+
+    public bool TryConsumeMagicScrollSlot(int scrollSlotIndex, out MagicScrollData consumedScroll, out string reason)
+    {
+        consumedScroll = null;
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            reason = "state_authority_required";
+            return false;
+        }
+
+        if (!TryGetMagicScrollAtSlot(scrollSlotIndex, out consumedScroll, out reason))
+        {
+            return false;
+        }
+
+        _ownedScrolls.RemoveAt(scrollSlotIndex);
+        BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
+        Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{consumedScroll.scrollName}' 사용 (slot={scrollSlotIndex}, 남은 {_ownedScrolls.Count}개)</color>");
+
+        PublishOwnedMagicScrollsChanged();
+        SyncOwnedMagicScrollsToClientsIfAuthoritative();
+        return true;
+    }
+
+    public bool TryRefundMagicScrollSlot(int scrollSlotIndex, MagicScrollData scrollData)
+    {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return false;
+        }
+
+        if (scrollData == null)
+        {
+            return false;
+        }
+
+        if (_ownedScrolls == null)
+        {
+            _ownedScrolls = new List<MagicScrollData>();
+        }
+
+        int insertIndex = Mathf.Clamp(scrollSlotIndex, 0, _ownedScrolls.Count);
+        _ownedScrolls.Insert(insertIndex, scrollData);
+        BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
+        PublishOwnedMagicScrollsChanged();
+        SyncOwnedMagicScrollsToClientsIfAuthoritative();
+        return true;
+    }
+
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public async void RPC_SyncOwnedMagicScrolls(string[] scrollDataNames)
+    public async void RPC_SyncOwnedMagicScrolls(int revision, string[] scrollDataNames)
     {
         if (Object != null && Object.HasStateAuthority)
         {
             return;
         }
 
-        var syncedScrolls = new List<MagicScrollData>(scrollDataNames?.Length ?? 0);
-        if (scrollDataNames != null)
+        if (revision < _latestReceivedOwnedMagicScrollRevision ||
+            revision < _lastAppliedOwnedMagicScrollRevision)
         {
-            foreach (string scrollDataName in scrollDataNames)
-            {
-                if (string.IsNullOrWhiteSpace(scrollDataName))
-                {
-                    continue;
-                }
+            return;
+        }
 
-                MagicScrollData scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
-                if (scrollData != null)
-                {
-                    syncedScrolls.Add(scrollData);
-                }
+        _latestReceivedOwnedMagicScrollRevision = revision;
+        string[] requestedNames = scrollDataNames?
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .ToArray() ?? System.Array.Empty<string>();
+
+        var syncedScrolls = new List<MagicScrollData>(scrollDataNames?.Length ?? 0);
+        foreach (string scrollDataName in requestedNames)
+        {
+            if (revision != _latestReceivedOwnedMagicScrollRevision ||
+                revision < _lastAppliedOwnedMagicScrollRevision)
+            {
+                return;
             }
+
+            MagicScrollData scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
+            if (revision != _latestReceivedOwnedMagicScrollRevision ||
+                revision < _lastAppliedOwnedMagicScrollRevision)
+            {
+                return;
+            }
+
+            if (scrollData == null)
+            {
+                Debug.LogWarning($"[PlayerManager] Owned magic scroll sync skipped missing asset '{scrollDataName}' at revision {revision}.");
+                return;
+            }
+
+            syncedScrolls.Add(scrollData);
+        }
+
+        if (revision != _latestReceivedOwnedMagicScrollRevision ||
+            revision < _lastAppliedOwnedMagicScrollRevision)
+        {
+            return;
         }
 
         _ownedScrolls = syncedScrolls;
+        _lastAppliedOwnedMagicScrollRevision = revision;
         PublishOwnedMagicScrollsChanged();
     }
 
@@ -1436,7 +2233,143 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         if (Object != null && Object.HasStateAuthority)
         {
-            RPC_SyncOwnedMagicScrolls(BuildOwnedMagicScrollNameArray());
+            RPC_SyncOwnedMagicScrolls(OwnedMagicScrollRevision, BuildOwnedMagicScrollNameArray());
+        }
+    }
+
+    public void ResendOwnedMagicScrollsToClientsIfAuthoritative()
+    {
+        SyncOwnedMagicScrollsToClientsIfAuthoritative();
+    }
+
+    public bool TryGetOwnedMagicScrollSnapshot(
+        out int revision,
+        out MagicScrollData[] scrollDataRefs,
+        out string[] scrollDataNames)
+    {
+        revision = OwnedMagicScrollRevision;
+        scrollDataRefs = System.Array.Empty<MagicScrollData>();
+        scrollDataNames = System.Array.Empty<string>();
+
+        if (_ownedScrolls == null)
+        {
+            return true;
+        }
+
+        var validScrolls = _ownedScrolls
+            .Where(scroll => scroll != null && !string.IsNullOrWhiteSpace(scroll.name))
+            .ToArray();
+        scrollDataRefs = validScrolls;
+        scrollDataNames = validScrolls.Select(scroll => scroll.name).ToArray();
+        return true;
+    }
+
+    public void RestoreOwnedMagicScrollsFromMigrationSnapshot(
+        int revision,
+        MagicScrollData[] scrollDataRefs,
+        string[] scrollDataNames,
+        string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        int count = Mathf.Max(scrollDataRefs?.Length ?? 0, scrollDataNames?.Length ?? 0);
+        var restored = new List<MagicScrollData>(count);
+        bool requiresAsyncLoad = false;
+
+        for (int i = 0; i < count; i++)
+        {
+            MagicScrollData data = scrollDataRefs != null && i < scrollDataRefs.Length
+                ? scrollDataRefs[i]
+                : null;
+            if (data != null)
+            {
+                restored.Add(data);
+                continue;
+            }
+
+            string name = scrollDataNames != null && i < scrollDataNames.Length ? scrollDataNames[i] : null;
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                requiresAsyncLoad = true;
+                break;
+            }
+        }
+
+        if (!requiresAsyncLoad)
+        {
+            ApplyOwnedMagicScrollSnapshot(revision, restored, context);
+            return;
+        }
+
+        RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(revision, scrollDataRefs, scrollDataNames, context).Forget();
+    }
+
+    private async UniTask RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(
+        int revision,
+        MagicScrollData[] scrollDataRefs,
+        string[] scrollDataNames,
+        string context)
+    {
+        int count = Mathf.Max(scrollDataRefs?.Length ?? 0, scrollDataNames?.Length ?? 0);
+        var restored = new List<MagicScrollData>(count);
+        for (int i = 0; i < count; i++)
+        {
+            MagicScrollData data = scrollDataRefs != null && i < scrollDataRefs.Length
+                ? scrollDataRefs[i]
+                : null;
+            if (data == null)
+            {
+                string name = scrollDataNames != null && i < scrollDataNames.Length ? scrollDataNames[i] : null;
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                data = await AssetLoader.LoadAssetAsync<MagicScrollData>(name);
+                if (data == null)
+                {
+                    Debug.LogWarning($"[PlayerManager] HostMigration owned scroll restore skipped missing asset '{name}' ({context}).");
+                    return;
+                }
+            }
+
+            restored.Add(data);
+        }
+
+        ApplyOwnedMagicScrollSnapshot(revision, restored, context);
+    }
+
+    private void ApplyOwnedMagicScrollSnapshot(int revision, List<MagicScrollData> restoredScrolls, string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (revision < OwnedMagicScrollRevision)
+        {
+            return;
+        }
+
+        _ownedScrolls = restoredScrolls ?? new List<MagicScrollData>();
+        OwnedMagicScrollRevision = Mathf.Max(OwnedMagicScrollRevision, revision);
+        _lastAppliedOwnedMagicScrollRevision = Mathf.Max(_lastAppliedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
+        _latestReceivedOwnedMagicScrollRevision = Mathf.Max(_latestReceivedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
+        PublishOwnedMagicScrollsChanged();
+        SyncOwnedMagicScrollsToClientsIfAuthoritative();
+        Debug.Log($"[PlayerManager] HostMigration owned scroll restore complete ({context}) P{playerId} rev={OwnedMagicScrollRevision} count={_ownedScrolls.Count}");
+    }
+
+    private void BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline()
+    {
+        if (Object == null || !Object.IsValid || Object.HasStateAuthority)
+        {
+            OwnedMagicScrollRevision++;
+            _lastAppliedOwnedMagicScrollRevision = Mathf.Max(_lastAppliedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
+            _latestReceivedOwnedMagicScrollRevision = Mathf.Max(_latestReceivedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
         }
     }
     #endregion
@@ -1447,6 +2380,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     /// <param name="currentBattleOpponentId">현재 전투에서 매칭된 상대 ID (-1이면 opponentManager 사용)</param>
     public void RefreshAttackMonsterPool(int round, int currentBattleOpponentId = -1)
     {
+        if (Object != null && Object.IsValid && !Object.HasStateAuthority)
+        {
+            if (Object.HasInputAuthority)
+            {
+                RPC_RequestSyncData();
+            }
+            return;
+        }
+
         AttackMonsterPool.Clear();
         
         // 1. 기본 웨이브 몬스터 가져오기
@@ -1519,6 +2461,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        SyncAttackMonsterPoolToClientsIfAuthoritative();
     }
 
     /// <summary>
@@ -1537,15 +2480,611 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        SyncAttackMonsterPoolToClientsIfAuthoritative();
         return true;
+    }
+
+    public bool TryConsumeMonsterPoolSlot(int poolSlotIndex)
+    {
+        if (AttackMonsterPool == null ||
+            poolSlotIndex < 0 ||
+            poolSlotIndex >= AttackMonsterPool.Count)
+        {
+            return false;
+        }
+
+        var entry = AttackMonsterPool[poolSlotIndex];
+        if (entry == null || entry.IsEmpty)
+        {
+            return false;
+        }
+
+        if (!entry.TryConsume())
+        {
+            return false;
+        }
+
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        SyncAttackMonsterPoolToClientsIfAuthoritative();
+        return true;
+    }
+
+    public bool TryRefundMonsterPoolSlot(int poolSlotIndex)
+    {
+        if (AttackMonsterPool == null ||
+            poolSlotIndex < 0 ||
+            poolSlotIndex >= AttackMonsterPool.Count)
+        {
+            return false;
+        }
+
+        var entry = AttackMonsterPool[poolSlotIndex];
+        if (entry == null)
+        {
+            return false;
+        }
+
+        int max = Mathf.Max(entry.MaxCount, entry.RemainingCount + 1);
+        entry.RemainingCount = Mathf.Min(max, entry.RemainingCount + 1);
+        entry.MaxCount = max;
+
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        SyncAttackMonsterPoolToClientsIfAuthoritative();
+        return true;
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    public void RPC_SyncAttackMonsterPool(
+        int revision,
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds)
+    {
+        ApplyAttackMonsterPoolSnapshotAsync(
+            revision,
+            monsterDataNames,
+            remainingCounts,
+            maxCounts,
+            isBossValues,
+            bossUniqueIds,
+            targetPlayerIds,
+            originPlayerIds,
+            false,
+            "RPC_SyncAttackMonsterPool").Forget();
+    }
+
+    public bool TryGetAttackMonsterPoolSnapshot(
+        out int revision,
+        out MonsterData[] monsterDataRefs,
+        out string[] monsterDataNames,
+        out int[] remainingCounts,
+        out int[] maxCounts,
+        out int[] isBossValues,
+        out int[] bossUniqueIds,
+        out int[] targetPlayerIds,
+        out int[] originPlayerIds)
+    {
+        if (TryGetReplicatedAttackMonsterPoolSnapshot(
+                out revision,
+                out monsterDataNames,
+                out remainingCounts,
+                out maxCounts,
+                out isBossValues,
+                out bossUniqueIds,
+                out targetPlayerIds,
+                out originPlayerIds))
+        {
+            monsterDataRefs = new MonsterData[monsterDataNames.Length];
+            return true;
+        }
+
+        revision = AttackMonsterPoolRevision;
+        BuildAttackMonsterPoolSnapshot(
+            out monsterDataRefs,
+            out monsterDataNames,
+            out remainingCounts,
+            out maxCounts,
+            out isBossValues,
+            out bossUniqueIds,
+            out targetPlayerIds,
+            out originPlayerIds);
+        return AttackMonsterPool != null;
+    }
+
+    public bool TryGetAttackMonsterPoolSnapshotForComparison(
+        out int revision,
+        out string[] monsterDataNames,
+        out int[] remainingCounts,
+        out int[] maxCounts,
+        out int[] isBossValues,
+        out int[] bossUniqueIds,
+        out int[] targetPlayerIds,
+        out int[] originPlayerIds)
+    {
+        if (TryGetReplicatedAttackMonsterPoolSnapshot(
+                out revision,
+                out monsterDataNames,
+                out remainingCounts,
+                out maxCounts,
+                out isBossValues,
+                out bossUniqueIds,
+                out targetPlayerIds,
+                out originPlayerIds))
+        {
+            return true;
+        }
+
+        revision = AttackMonsterPoolRevision;
+        BuildAttackMonsterPoolSnapshot(
+            out _,
+            out monsterDataNames,
+            out remainingCounts,
+            out maxCounts,
+            out isBossValues,
+            out bossUniqueIds,
+            out targetPlayerIds,
+            out originPlayerIds);
+        return AttackMonsterPool != null;
+    }
+
+    public void RestoreAttackMonsterPoolFromMigrationSnapshot(
+        int revision,
+        MonsterData[] monsterDataRefs,
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds,
+        string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (TryBuildAttackMonsterPoolFromRefs(
+                monsterDataRefs,
+                remainingCounts,
+                maxCounts,
+                isBossValues,
+                bossUniqueIds,
+                targetPlayerIds,
+                originPlayerIds,
+                out var restoredPool))
+        {
+            ApplyAttackMonsterPoolEntries(revision, restoredPool);
+            ResendAttackMonsterPoolToClientsIfAuthoritative();
+            Debug.Log($"[PlayerManager] AttackMonsterPool migration restore complete ({context}) P{playerId} rev={AttackMonsterPoolRevision} entries={AttackMonsterPool.Count}");
+            return;
+        }
+
+        ApplyAttackMonsterPoolSnapshotAsync(
+            revision,
+            monsterDataNames,
+            remainingCounts,
+            maxCounts,
+            isBossValues,
+            bossUniqueIds,
+            targetPlayerIds,
+            originPlayerIds,
+            true,
+            context).Forget();
+    }
+
+    public void ResendAttackMonsterPoolToClientsIfAuthoritative()
+    {
+        PublishAttackMonsterPoolToClientsIfAuthoritative(false);
+    }
+
+    private void SyncAttackMonsterPoolToClientsIfAuthoritative()
+    {
+        PublishAttackMonsterPoolToClientsIfAuthoritative(true);
+    }
+
+    private void PublishAttackMonsterPoolToClientsIfAuthoritative(bool incrementRevision)
+    {
+        if (Object == null || !Object.HasStateAuthority || AttackMonsterPool == null)
+        {
+            return;
+        }
+
+        if (incrementRevision)
+        {
+            AttackMonsterPoolRevision++;
+        }
+
+        BuildAttackMonsterPoolSnapshot(
+            out _,
+            out string[] monsterDataNames,
+            out int[] remainingCounts,
+            out int[] maxCounts,
+            out int[] isBossValues,
+            out int[] bossUniqueIds,
+            out int[] targetPlayerIds,
+            out int[] originPlayerIds);
+
+        PublishReplicatedAttackMonsterPoolSnapshot(
+            monsterDataNames,
+            remainingCounts,
+            maxCounts,
+            isBossValues,
+            bossUniqueIds,
+            targetPlayerIds,
+            originPlayerIds);
+
+        RPC_SyncAttackMonsterPool(
+            AttackMonsterPoolRevision,
+            monsterDataNames,
+            remainingCounts,
+            maxCounts,
+            isBossValues,
+            bossUniqueIds,
+            targetPlayerIds,
+            originPlayerIds);
+    }
+
+    private bool TryGetReplicatedAttackMonsterPoolSnapshot(
+        out int revision,
+        out string[] monsterDataNames,
+        out int[] remainingCounts,
+        out int[] maxCounts,
+        out int[] isBossValues,
+        out int[] bossUniqueIds,
+        out int[] targetPlayerIds,
+        out int[] originPlayerIds)
+    {
+        revision = AttackMonsterPoolRevision;
+        int count = Mathf.Clamp(AttackMonsterPoolSnapshotCount, 0, ATTACK_POOL_SNAPSHOT_CAPACITY);
+        monsterDataNames = Array.Empty<string>();
+        remainingCounts = Array.Empty<int>();
+        maxCounts = Array.Empty<int>();
+        isBossValues = Array.Empty<int>();
+        bossUniqueIds = Array.Empty<int>();
+        targetPlayerIds = Array.Empty<int>();
+        originPlayerIds = Array.Empty<int>();
+
+        if (Object == null || !Object.IsValid || revision <= 0 || count <= 0)
+        {
+            return false;
+        }
+
+        monsterDataNames = new string[count];
+        remainingCounts = new int[count];
+        maxCounts = new int[count];
+        isBossValues = new int[count];
+        bossUniqueIds = new int[count];
+        targetPlayerIds = new int[count];
+        originPlayerIds = new int[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            monsterDataNames[i] = AttackMonsterPoolSnapshotNames.Get(i).ToString();
+            remainingCounts[i] = AttackMonsterPoolSnapshotRemainingCounts[i];
+            maxCounts[i] = AttackMonsterPoolSnapshotMaxCounts[i];
+            isBossValues[i] = AttackMonsterPoolSnapshotIsBossValues[i];
+            bossUniqueIds[i] = AttackMonsterPoolSnapshotBossUniqueIds[i];
+            targetPlayerIds[i] = AttackMonsterPoolSnapshotTargetPlayerIds[i];
+            originPlayerIds[i] = AttackMonsterPoolSnapshotOriginPlayerIds[i];
+        }
+
+        return true;
+    }
+
+    private void PublishReplicatedAttackMonsterPoolSnapshot(
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        int count = Mathf.Clamp(monsterDataNames?.Length ?? 0, 0, ATTACK_POOL_SNAPSHOT_CAPACITY);
+        for (int i = 0; i < ATTACK_POOL_SNAPSHOT_CAPACITY; i++)
+        {
+            AttackMonsterPoolSnapshotNames.Set(i, string.Empty);
+            AttackMonsterPoolSnapshotRemainingCounts.Set(i, 0);
+            AttackMonsterPoolSnapshotMaxCounts.Set(i, 0);
+            AttackMonsterPoolSnapshotIsBossValues.Set(i, 0);
+            AttackMonsterPoolSnapshotBossUniqueIds.Set(i, -1);
+            AttackMonsterPoolSnapshotTargetPlayerIds.Set(i, -1);
+            AttackMonsterPoolSnapshotOriginPlayerIds.Set(i, -1);
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            AttackMonsterPoolSnapshotNames.Set(i, monsterDataNames[i] ?? string.Empty);
+            AttackMonsterPoolSnapshotRemainingCounts.Set(i, ReadArrayValue(remainingCounts, i, 0));
+            AttackMonsterPoolSnapshotMaxCounts.Set(i, ReadArrayValue(maxCounts, i, 0));
+            AttackMonsterPoolSnapshotIsBossValues.Set(i, ReadArrayValue(isBossValues, i, 0));
+            AttackMonsterPoolSnapshotBossUniqueIds.Set(i, ReadArrayValue(bossUniqueIds, i, -1));
+            AttackMonsterPoolSnapshotTargetPlayerIds.Set(i, ReadArrayValue(targetPlayerIds, i, -1));
+            AttackMonsterPoolSnapshotOriginPlayerIds.Set(i, ReadArrayValue(originPlayerIds, i, -1));
+        }
+
+        AttackMonsterPoolSnapshotCount = count;
+    }
+
+    private void BuildAttackMonsterPoolSnapshot(
+        out MonsterData[] monsterDataRefs,
+        out string[] monsterDataNames,
+        out int[] remainingCounts,
+        out int[] maxCounts,
+        out int[] isBossValues,
+        out int[] bossUniqueIds,
+        out int[] targetPlayerIds,
+        out int[] originPlayerIds)
+    {
+        int count = AttackMonsterPool != null ? AttackMonsterPool.Count : 0;
+        monsterDataRefs = new MonsterData[count];
+        monsterDataNames = new string[count];
+        remainingCounts = new int[count];
+        maxCounts = new int[count];
+        isBossValues = new int[count];
+        bossUniqueIds = new int[count];
+        targetPlayerIds = new int[count];
+        originPlayerIds = new int[count];
+
+        for (int i = 0; i < count; i++)
+        {
+            var entry = AttackMonsterPool[i];
+            monsterDataRefs[i] = entry?.MonsterData;
+            monsterDataNames[i] = entry?.MonsterData != null ? entry.MonsterData.name : string.Empty;
+            remainingCounts[i] = entry != null ? entry.RemainingCount : 0;
+            maxCounts[i] = entry != null ? entry.MaxCount : 0;
+            isBossValues[i] = entry != null && entry.IsBoss ? 1 : 0;
+            bossUniqueIds[i] = entry != null ? entry.BossUniqueId : -1;
+            targetPlayerIds[i] = entry != null ? entry.TargetPlayerId : -1;
+            originPlayerIds[i] = entry != null ? entry.OriginPlayerId : -1;
+        }
+    }
+
+    private async UniTask ApplyAttackMonsterPoolSnapshotAsync(
+        int revision,
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds,
+        bool allowStateAuthorityApply,
+        string context)
+    {
+        if (!allowStateAuthorityApply && Object != null && Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (revision < _lastAppliedAttackMonsterPoolRevision)
+        {
+            return;
+        }
+
+        var syncedPool = new List<MonsterPoolEntry>(monsterDataNames?.Length ?? 0);
+        int count = monsterDataNames != null ? monsterDataNames.Length : 0;
+        for (int i = 0; i < count; i++)
+        {
+            string monsterDataName = monsterDataNames[i];
+            if (string.IsNullOrWhiteSpace(monsterDataName))
+            {
+                continue;
+            }
+
+            MonsterData monsterData = await ResolveAttackMonsterDataAsync(monsterDataName);
+            if (monsterData == null)
+            {
+                Debug.LogWarning($"[PlayerManager] AttackMonsterPool snapshot apply aborted: unresolved MonsterData '{monsterDataName}' P{playerId} rev={revision} context={context}");
+                if (Object != null && Object.HasInputAuthority && !Object.HasStateAuthority)
+                {
+                    RPC_RequestSyncData();
+                }
+                return;
+            }
+
+            syncedPool.Add(BuildAttackMonsterPoolEntry(
+                monsterData,
+                i,
+                remainingCounts,
+                maxCounts,
+                isBossValues,
+                bossUniqueIds,
+                targetPlayerIds,
+                originPlayerIds));
+        }
+
+        if (revision < _lastAppliedAttackMonsterPoolRevision)
+        {
+            return;
+        }
+
+        ApplyAttackMonsterPoolEntries(revision, syncedPool);
+        if (allowStateAuthorityApply)
+        {
+            ResendAttackMonsterPoolToClientsIfAuthoritative();
+            Debug.Log($"[PlayerManager] AttackMonsterPool async restore complete ({context}) P{playerId} rev={AttackMonsterPoolRevision} entries={AttackMonsterPool.Count}");
+        }
+    }
+
+    private async UniTask<MonsterData> ResolveAttackMonsterDataAsync(string monsterDataName)
+    {
+        if (string.IsNullOrWhiteSpace(monsterDataName))
+        {
+            return null;
+        }
+
+        MonsterData data = FindLoadedMonsterDataByName(monsterDataName);
+        if (data != null)
+        {
+            return data;
+        }
+
+        data = FindWaveMonsterDataByName(monsterDataName);
+        if (data != null)
+        {
+            return data;
+        }
+
+        if (augmentManager != null)
+        {
+            await augmentManager.WaitUntilAugmentDataLoaded();
+            data = augmentManager.FindMonsterDataByName(monsterDataName);
+            if (data != null)
+            {
+                return data;
+            }
+        }
+
+        return await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
+    }
+
+    private static MonsterData FindLoadedMonsterDataByName(string monsterDataName)
+    {
+        var loaded = Resources.FindObjectsOfTypeAll<MonsterData>();
+        foreach (var data in loaded)
+        {
+            if (MatchesMonsterData(data, monsterDataName))
+            {
+                return data;
+            }
+        }
+
+        return null;
+    }
+
+    private static MonsterData FindWaveMonsterDataByName(string monsterDataName)
+    {
+        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        if (waveDatabase?.rounds == null)
+        {
+            return null;
+        }
+
+        foreach (var round in waveDatabase.rounds)
+        {
+            if (round?.monsters == null) continue;
+            foreach (var entry in round.monsters)
+            {
+                if (MatchesMonsterData(entry?.monsterData, monsterDataName))
+                {
+                    return entry.monsterData;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesMonsterData(MonsterData data, string monsterDataName)
+    {
+        if (data == null || string.IsNullOrWhiteSpace(monsterDataName))
+        {
+            return false;
+        }
+
+        return string.Equals(data.name, monsterDataName, System.StringComparison.Ordinal)
+            || string.Equals(data.monsterName, monsterDataName, System.StringComparison.Ordinal)
+            || string.Equals(data.monsterPrefab, monsterDataName, System.StringComparison.Ordinal);
+    }
+
+    private bool TryBuildAttackMonsterPoolFromRefs(
+        MonsterData[] monsterDataRefs,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds,
+        out List<MonsterPoolEntry> restoredPool)
+    {
+        restoredPool = new List<MonsterPoolEntry>(monsterDataRefs?.Length ?? 0);
+        if (monsterDataRefs == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < monsterDataRefs.Length; i++)
+        {
+            MonsterData monsterData = monsterDataRefs[i];
+            if (monsterData == null)
+            {
+                return false;
+            }
+
+            restoredPool.Add(BuildAttackMonsterPoolEntry(
+                monsterData,
+                i,
+                remainingCounts,
+                maxCounts,
+                isBossValues,
+                bossUniqueIds,
+                targetPlayerIds,
+                originPlayerIds));
+        }
+
+        return true;
+    }
+
+    private static MonsterPoolEntry BuildAttackMonsterPoolEntry(
+        MonsterData monsterData,
+        int index,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds)
+    {
+        int remaining = ReadArrayValue(remainingCounts, index, 0);
+        int max = ReadArrayValue(maxCounts, index, remaining);
+        bool isBoss = ReadArrayValue(isBossValues, index, 0) != 0;
+        var entry = isBoss
+            ? new MonsterPoolEntry(
+                monsterData,
+                remaining,
+                ReadArrayValue(bossUniqueIds, index, -1),
+                ReadArrayValue(targetPlayerIds, index, -1),
+                ReadArrayValue(originPlayerIds, index, -1))
+            : new MonsterPoolEntry(monsterData, remaining);
+
+        entry.MaxCount = max;
+        entry.RemainingCount = remaining;
+        return entry;
+    }
+
+    private void ApplyAttackMonsterPoolEntries(int revision, List<MonsterPoolEntry> pool)
+    {
+        _lastAppliedAttackMonsterPoolRevision = Mathf.Max(_lastAppliedAttackMonsterPoolRevision, revision);
+        if (Object != null && Object.HasStateAuthority)
+        {
+            AttackMonsterPoolRevision = Mathf.Max(AttackMonsterPoolRevision, revision);
+        }
+
+        AttackMonsterPool = pool ?? new List<MonsterPoolEntry>();
+        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+    }
+
+    private static int ReadArrayValue(int[] values, int index, int fallback)
+    {
+        return values != null && index >= 0 && index < values.Length ? values[index] : fallback;
     }
     #endregion
 
     #region 스탯 및 자원 관리
     public void AddPermanentAttackDamagePercent(float percent)
     {
-        permanentAttackDamagePercent += percent;
-        ApplyPermanentBonusesToUnitsOnField();
+        SetPermanentBonusesFromSync(permanentAttackDamagePercent + percent, permanentAttackSpeedPercent);
         
         // 클라이언트에 동기화
         if (Object != null && Object.HasStateAuthority)
@@ -1556,14 +3095,77 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public void AddPermanentAttackSpeedPercent(float percent)
     {
-        permanentAttackSpeedPercent += percent;
-        ApplyPermanentBonusesToUnitsOnField();
+        SetPermanentBonusesFromSync(permanentAttackDamagePercent, permanentAttackSpeedPercent + percent);
         
         // 클라이언트에 동기화
         if (Object != null && Object.HasStateAuthority)
         {
             RPC_SyncPermanentBonuses(permanentAttackDamagePercent, permanentAttackSpeedPercent);
         }
+    }
+
+    public void SetPermanentBonusesFromSync(float attackDamagePercent, float attackSpeedPercent)
+    {
+        permanentAttackDamagePercent = attackDamagePercent;
+        permanentAttackSpeedPercent = attackSpeedPercent;
+
+        if (Object != null && Object.IsValid && Object.HasStateAuthority)
+        {
+            PermanentAttackDamageBonusPermille = EncodePermanentBonus(attackDamagePercent);
+            PermanentAttackSpeedBonusPermille = EncodePermanentBonus(attackSpeedPercent);
+        }
+
+        ApplyPermanentBonusesToUnitsOnField();
+    }
+
+    public float GetSnapshotPermanentAttackDamagePercent()
+    {
+        if (Object != null && Object.IsValid)
+        {
+            return DecodePermanentBonus(PermanentAttackDamageBonusPermille);
+        }
+
+        return permanentAttackDamagePercent;
+    }
+
+    public float GetSnapshotPermanentAttackSpeedPercent()
+    {
+        if (Object != null && Object.IsValid)
+        {
+            return DecodePermanentBonus(PermanentAttackSpeedBonusPermille);
+        }
+
+        return permanentAttackSpeedPercent;
+    }
+
+    private void ApplyPermanentBonusesFromNetworkSnapshot()
+    {
+        if (Object == null || !Object.IsValid || Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        float attackDamagePercent = DecodePermanentBonus(PermanentAttackDamageBonusPermille);
+        float attackSpeedPercent = DecodePermanentBonus(PermanentAttackSpeedBonusPermille);
+        if (Mathf.Approximately(permanentAttackDamagePercent, attackDamagePercent) &&
+            Mathf.Approximately(permanentAttackSpeedPercent, attackSpeedPercent))
+        {
+            return;
+        }
+
+        permanentAttackDamagePercent = attackDamagePercent;
+        permanentAttackSpeedPercent = attackSpeedPercent;
+        ApplyPermanentBonusesToUnitsOnField();
+    }
+
+    private static int EncodePermanentBonus(float percent)
+    {
+        return Mathf.RoundToInt(percent * PERMANENT_BONUS_NETWORK_SCALE);
+    }
+
+    private static float DecodePermanentBonus(int encoded)
+    {
+        return encoded / PERMANENT_BONUS_NETWORK_SCALE;
     }
 
     public void ApplyPermanentBonusesToUnitsOnField()
@@ -1605,6 +3207,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     {
         if (damage <= 0) return;
         if (!HasStateAuthorityOrNoNetwork()) return;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         health -= damage;
 
         // 체력 음수 허용: 라운드 종료 시 GameManagers에서 판정
@@ -1671,29 +3279,55 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     public void RPC_RequestCommandToServer(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams, RpcInfo info = default)
     {
         if (Runner == null || !Runner.IsServer) return; // 서버에서만 처리
-        if (!IsReadyForPlayerActions)
+        intParams = intParams != null ? intParams.ToArray() : System.Array.Empty<int>();
+        stringParams = stringParams != null ? stringParams.ToArray() : System.Array.Empty<string>();
+        vectorParams = vectorParams != null ? vectorParams.ToArray() : System.Array.Empty<Vector3>();
+
+        if (!ValidateClientCommandRequest(type, intParams, stringParams, vectorParams, info, out string rejectReason))
         {
-            Debug.LogWarning($"[RPC_RequestCommandToServer] Player init not ready. command={type}, playerId={playerId}");
+            if (type == CommandType.ActivateSkill && ActivateSkillCommand.IsVolatileNoOpReason(rejectReason))
+            {
+                Debug.Log($"[RPC_RequestCommandToServer] Skipped command={type}, playerId={playerId}, reason={rejectReason}");
+            }
+            else
+            {
+                Debug.LogWarning($"[RPC_RequestCommandToServer] Rejected command={type}, playerId={playerId}, reason={rejectReason}");
+            }
             return;
         }
 
-        if (intParams != null && intParams.Length > 0)
+        if (intParams.Length > 0)
         {
-            if (intParams[0] != playerId)
-            {
-                Debug.LogWarning($"[RPC_RequestCommandToServer] PlayerId mismatch corrected. cmd={type}, requested={intParams[0]}, authoritative={playerId}");
-            }
             intParams[0] = playerId;
         }
 
         if (type == CommandType.PlaceWall || type == CommandType.RemoveWall)
         {
-            string requestedPos = (vectorParams != null && vectorParams.Length > 0)
+            string wallPos = (vectorParams != null && vectorParams.Length > 0)
                 ? Vector3Int.RoundToInt(vectorParams[0]).ToString()
                 : "none";
             string source = info.Source != PlayerRef.None ? info.Source.ToString() : "None";
-            Debug.Log($"[RPC_RequestCommandToServer] {type} accepted. authoritativePlayer={playerId}, requestedPos={requestedPos}, source={source}");
+            Debug.Log($"[RPC_RequestCommandToServer] {type} accepted. authoritativePlayer={playerId}, wallPos={wallPos}, source={source}");
         }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsEnabled)
+        {
+            string source = info.Source != PlayerRef.None ? info.Source.ToString() : "None";
+            string firstVector = vectorParams != null && vectorParams.Length > 0
+                ? Vector3Int.RoundToInt(vectorParams[0]).ToString()
+                : "none";
+            MPTestLogger.Log("accepted_command", "pass", type.ToString(), null, new Dictionary<string, object>
+            {
+                { "playerId", playerId },
+                { "source", source },
+                { "intParamCount", intParams.Length },
+                { "stringParamCount", stringParams.Length },
+                { "vectorParamCount", vectorParams.Length },
+                { "firstVector", firstVector }
+            });
+        }
+#endif
 
         var gm = GameManagers.Instance;
         if (gm == null)
@@ -1706,7 +3340,535 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             }
             // Debug.Log("<color=green>[NetFlow] GameManagers resolved via FindObjectOfType on server.</color>");
         }
+
+        if (type == CommandType.ActivateSkill)
+        {
+            if (intParams.Length < 2)
+            {
+                return;
+            }
+
+            uint skillUnitNetworkId = (uint)intParams[1];
+            var command = new ActivateSkillCommand(playerId, skillUnitNetworkId);
+            command.Execute();
+            return;
+        }
+
         gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+    }
+
+    private bool ValidateClientCommandRequest(
+        CommandType type,
+        int[] intParams,
+        string[] stringParams,
+        Vector3[] vectorParams,
+        RpcInfo info,
+        out string reason)
+    {
+        reason = null;
+
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            reason = "player_missing_state_authority";
+            return false;
+        }
+
+        if (info.Source == PlayerRef.None)
+        {
+            reason = "missing_rpc_source";
+            return false;
+        }
+
+        if (Object.InputAuthority != info.Source)
+        {
+            reason = "rpc_source_not_input_authority";
+            return false;
+        }
+
+        if (!IsReadyForPlayerActions)
+        {
+            reason = "player_not_ready";
+            return false;
+        }
+
+        if (intParams.Length == 0)
+        {
+            reason = "missing_player_id";
+            return false;
+        }
+
+        if (intParams[0] != playerId)
+        {
+            reason = $"player_id_mismatch:{intParams[0]}";
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            gm = FindObjectOfType<GameManagers>();
+        }
+
+        if (gm == null || gm.Runner == null || !gm.Runner.IsServer || gm.Object == null || !gm.Object.HasStateAuthority)
+        {
+            reason = "game_managers_not_authoritative";
+            return false;
+        }
+
+        switch (type)
+        {
+            case CommandType.BuyUnit:
+                return ValidateBuyUnitRequest(gm, intParams, out reason);
+            case CommandType.MoveUnit:
+                return ValidateMoveUnitRequest(gm, vectorParams, out reason);
+            case CommandType.SwapUnit:
+                return ValidateSwapUnitRequest(gm, vectorParams, out reason);
+            case CommandType.SellUnit:
+                return ValidateSellUnitRequest(gm, vectorParams, out reason);
+            case CommandType.PlaceUnit:
+                reason = "place_unit_requires_authoritative_inventory";
+                return false;
+            case CommandType.PlaceWall:
+                return ValidatePlaceWallRequest(gm, vectorParams, out reason);
+            case CommandType.RemoveWall:
+                return ValidateRemoveWallRequest(gm, vectorParams, out reason);
+            case CommandType.RerollShop:
+                return ValidateRerollShopRequest(gm, out reason);
+            case CommandType.SelectAugment:
+                return ValidateSelectAugmentRequest(gm, intParams, out reason);
+            case CommandType.ActivateSkill:
+                return ValidateActivateSkillRequest(gm, intParams, out reason);
+            case CommandType.RequestSyncData:
+                return true;
+            default:
+                reason = $"server_only_or_unknown_command:{type}";
+                return false;
+        }
+    }
+
+    private bool ValidatePreparePhase(GameManagers gm, out string reason)
+    {
+        if (gm == null || gm.currentState != GameManagers.GameState.Prepare)
+        {
+            reason = "command_requires_prepare_phase";
+            return false;
+        }
+
+        if (gm.IsSequenceTransitioning)
+        {
+            reason = "command_blocked_during_sequence_transition";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateBattlePhase(GameManagers gm, out string reason)
+    {
+        if (gm == null || (gm.currentState != GameManagers.GameState.Battle1 && gm.currentState != GameManagers.GameState.Battle2))
+        {
+            reason = "command_requires_battle_phase";
+            return false;
+        }
+
+        if (gm.IsSequenceTransitioning)
+        {
+            reason = "command_blocked_during_sequence_transition";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateBuyUnitRequest(GameManagers gm, int[] intParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (intParams.Length < 2)
+        {
+            reason = "missing_shop_slot";
+            return false;
+        }
+
+        if (shopManager == null || !shopManager.IsDatabaseLoaded)
+        {
+            reason = "shop_not_ready";
+            return false;
+        }
+
+        int slotIndex = intParams[1];
+        var items = shopManager.GetCurrentShopItems();
+        if (slotIndex < 0 || slotIndex >= items.Count)
+        {
+            reason = "shop_slot_out_of_range";
+            return false;
+        }
+
+        if (shopManager.IsSlotSold(slotIndex))
+        {
+            reason = "shop_slot_already_sold";
+            return false;
+        }
+
+        var item = items[slotIndex];
+        if (item.UnitData == null)
+        {
+            reason = "shop_item_missing_unit_data";
+            return false;
+        }
+
+        if (GetGold() < item.CalculatedCost)
+        {
+            reason = "insufficient_gold";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateMoveUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 2)
+        {
+            reason = "missing_move_positions";
+            return false;
+        }
+
+        Vector3Int from = Vector3Int.RoundToInt(vectorParams[0]);
+        Vector3Int to = Vector3Int.RoundToInt(vectorParams[1]);
+        if (!fieldManager.IsValidGridPosition(from) || !fieldManager.IsValidGridPosition(to))
+        {
+            reason = "move_position_out_of_range";
+            return false;
+        }
+
+        var unit = fieldManager.GetUnitAt(from);
+        UnitData sourceUnitData = unit != null ? unit.Data : null;
+        if (unit == null && !fieldManager.HasPendingUnitAt(from))
+        {
+            reason = "move_source_empty";
+            return false;
+        }
+
+        if (unit != null && !OwnsUnitForCommand(unit))
+        {
+            reason = "move_source_not_owned_by_player";
+            return false;
+        }
+
+        if (unit == null && fieldManager.TryGetPendingUnitDataAt(from, out var pendingUnitData))
+        {
+            sourceUnitData = pendingUnitData;
+        }
+
+        if (fieldManager.IsUnitAt(to))
+        {
+            reason = "move_destination_occupied";
+            return false;
+        }
+
+        if (sourceUnitData == null && fieldManager.HasWallAt(to))
+        {
+            reason = "move_pending_unit_type_unknown_for_wall";
+            return false;
+        }
+
+        if (sourceUnitData != null && sourceUnitData.unitType == UnitType.Melee && fieldManager.HasWallAt(to))
+        {
+            reason = "melee_unit_cannot_move_to_wall";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool OwnsUnitForCommand(Unit unit)
+    {
+        if (unit == null)
+        {
+            return false;
+        }
+
+        if (unit.Owner == this)
+        {
+            return true;
+        }
+
+        if (unit.Owner != null && unit.Owner.playerId == playerId)
+        {
+            return true;
+        }
+
+        return ownedUnits != null && ownedUnits.Contains(unit);
+    }
+
+    private bool ValidateSwapUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 2)
+        {
+            reason = "missing_swap_positions";
+            return false;
+        }
+
+        Vector3Int posA = Vector3Int.RoundToInt(vectorParams[0]);
+        Vector3Int posB = Vector3Int.RoundToInt(vectorParams[1]);
+        if (!fieldManager.IsValidGridPosition(posA) || !fieldManager.IsValidGridPosition(posB))
+        {
+            reason = "swap_position_out_of_range";
+            return false;
+        }
+
+        var unitA = fieldManager.GetUnitAt(posA);
+        var unitB = fieldManager.GetUnitAt(posB);
+        if (unitA == null || unitB == null)
+        {
+            reason = "swap_requires_two_units";
+            return false;
+        }
+
+        if (unitA.Data != null && unitA.Data.unitType == UnitType.Melee && fieldManager.HasWallAt(posB))
+        {
+            reason = "melee_unit_a_cannot_swap_to_wall";
+            return false;
+        }
+
+        if (unitB.Data != null && unitB.Data.unitType == UnitType.Melee && fieldManager.HasWallAt(posA))
+        {
+            reason = "melee_unit_b_cannot_swap_to_wall";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateSellUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 1)
+        {
+            reason = "missing_sell_position";
+            return false;
+        }
+
+        Vector3Int position = Vector3Int.RoundToInt(vectorParams[0]);
+        if (!fieldManager.IsValidGridPosition(position))
+        {
+            reason = "sell_position_out_of_range";
+            return false;
+        }
+
+        if (fieldManager.GetUnitAt(position) == null)
+        {
+            reason = "sell_position_empty";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidatePlaceWallRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 1)
+        {
+            reason = "missing_wall_position";
+            return false;
+        }
+
+        Vector3Int position = Vector3Int.RoundToInt(vectorParams[0]);
+        if (!fieldManager.IsValidGridPosition(position))
+        {
+            reason = "wall_position_out_of_range";
+            return false;
+        }
+
+        if (fieldManager.HasWallAt(position))
+        {
+            reason = "wall_position_occupied";
+            return false;
+        }
+
+        if (GetWallCount() <= 0)
+        {
+            reason = "insufficient_wall_stock";
+            return false;
+        }
+
+        if (goalTransform != null && position == fieldManager.WorldToGridInt(goalTransform.position))
+        {
+            reason = "wall_goal_cell_blocked";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateRemoveWallRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (fieldManager == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (vectorParams.Length < 1)
+        {
+            reason = "missing_remove_wall_position";
+            return false;
+        }
+
+        Vector3Int position = Vector3Int.RoundToInt(vectorParams[0]);
+        if (!fieldManager.IsValidGridPosition(position))
+        {
+            reason = "remove_wall_position_out_of_range";
+            return false;
+        }
+
+        if (fieldManager.GetWallAt(position) == null)
+        {
+            reason = "remove_wall_missing";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateRerollShopRequest(GameManagers gm, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (shopManager == null || !shopManager.IsDatabaseLoaded)
+        {
+            reason = "shop_not_ready";
+            return false;
+        }
+
+        int cost = shopManager.GetRerollCost();
+        if (GetGold() < cost)
+        {
+            reason = "insufficient_gold";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateSelectAugmentRequest(GameManagers gm, int[] intParams, out string reason)
+    {
+        if (!ValidatePreparePhase(gm, out reason)) return false;
+        if (intParams.Length < 2)
+        {
+            reason = "missing_augment_index";
+            return false;
+        }
+
+        if (augmentManager == null)
+        {
+            reason = "augment_manager_not_ready";
+            return false;
+        }
+
+        var presentedAugments = augmentManager.GetPresentedAugments();
+        int index = intParams[1];
+        if (presentedAugments == null || index < 0 || index >= presentedAugments.Count)
+        {
+            reason = "augment_index_out_of_range";
+            return false;
+        }
+
+        if (presentedAugments[index] == null)
+        {
+            reason = "augment_choice_missing";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateActivateSkillRequest(GameManagers gm, int[] intParams, out string reason)
+    {
+        if (intParams.Length < 2)
+        {
+            reason = "missing_skill_unit_id";
+            return false;
+        }
+
+        uint unitNetworkId = (uint)intParams[1];
+        const CommandExecutionScope scope = CommandExecutionScope.ClientRequest;
+        const string source = "client_rpc";
+        SkillCommandMpTestLogger.Request(playerId, unitNetworkId, scope, source);
+
+        if (!ActivateSkillCommand.TryValidate(
+                gm,
+                playerId,
+                unitNetworkId,
+                scope,
+                source,
+                requireStateAuthority: true,
+                out _,
+                out SkillData skillData,
+                out BattleCommandResult result))
+        {
+            reason = result.ErrorCode;
+            if (ActivateSkillCommand.IsVolatileNoOp(result))
+            {
+                SkillCommandMpTestLogger.Skipped(result, unitNetworkId, skillData != null ? skillData.name : "unknown");
+                return false;
+            }
+
+            int sequence = BattleCommandTelemetry.RecordRejected(CommandType.ActivateSkill);
+            var rejected = BattleCommandResult.Rejected(
+                CommandType.ActivateSkill,
+                result.PlayerId,
+                result.ErrorCode,
+                result.Message,
+                result.OpponentPlayerId,
+                result.Scope,
+                result.Source,
+                sequence);
+            SkillCommandMpTestLogger.Rejected(rejected, unitNetworkId, skillData != null ? skillData.name : "unknown");
+            gm?.SyncBattleCommandTelemetryToClientsIfAuthoritative();
+            return false;
+        }
+
+        SkillCommandMpTestLogger.Accepted(result, unitNetworkId, skillData != null ? skillData.name : "unknown");
+        reason = null;
+        return true;
     }
 
     private static Vector2 NormalizeDelayRange(Vector2 range)
@@ -1758,19 +3920,17 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     #endregion
 
-    #region Spawn/Goal 위치 설정
+    #region Goal 위치 설정
 
     /// <summary>
-    /// 스폰 위치와 골 위치를 동적으로 설정합니다.
+    /// goal 위치를 동적으로 설정합니다.
     /// - 골: 필드 정 가운데 그리드
-    /// - 스폰: 남쪽(하단 가운데) 고정 - AI 웨이브 소환용
-    /// 참고: 플레이어 vs 플레이어 전투에서는 공격자가 직접 위치를 선택하여 소환
     /// </summary>
-    private void SetupSpawnAndGoalPositions(GameObject gridInstance)
+    private void SetupGoalPosition(GameObject gridInstance)
     {
         if (gridInstance == null)
         {
-            // Debug.LogWarning($"[Player {playerId}]: SetupSpawnAndGoalPositions skipped - gridInstance is null.");
+            // Debug.LogWarning($"[Player {playerId}]: SetupGoalPosition skipped - gridInstance is null.");
             return;
         }
 
@@ -1788,41 +3948,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             gridOrigin.z + (centerY + 0.5f) * cellSize
         );
 
-        // 스폰 위치: 남쪽(하단 가운데) 고정 - AI 웨이브 소환용
-        Vector2Int spawnGridPos = new Vector2Int(centerX, 0); // 남쪽 (하단 가운데)
-        Vector3 spawnWorldPos = new Vector3(
-            gridOrigin.x + (spawnGridPos.x + 0.5f) * cellSize,
-            gridOrigin.y,
-            gridOrigin.z + (spawnGridPos.y + 0.5f) * cellSize
-        );
-
-        // 기존 SpawnPoint/Goal 오브젝트를 찾아보고, 없으면 새로 생성
-        Transform existingSpawn = gridInstance.transform.Find("SpawnPoint");
+        // 기존 Goal 오브젝트를 찾아보고, 없으면 새로 생성
         Transform existingGoal = gridInstance.transform.Find("Goal");
-        if (existingSpawn == null)
-        {
-            existingSpawn = FindChildByNameRecursive(gridInstance.transform, "SpawnPoint");
-        }
         if (existingGoal == null)
         {
             existingGoal = FindChildByNameRecursive(gridInstance.transform, "Goal");
-        }
-
-        if (existingSpawn != null)
-        {
-            if (existingSpawn.parent != gridInstance.transform)
-            {
-                existingSpawn.SetParent(gridInstance.transform, true);
-            }
-            existingSpawn.position = spawnWorldPos;
-            this.spawnPoint = existingSpawn;
-        }
-        else
-        {
-            GameObject spawnGO = new GameObject("SpawnPoint");
-            spawnGO.transform.SetParent(gridInstance.transform);
-            spawnGO.transform.position = spawnWorldPos;
-            this.spawnPoint = spawnGO.transform;
         }
 
         if (existingGoal != null)
@@ -1842,7 +3972,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             this.goalTransform = goalGO.transform;
         }
 
-        // Debug.Log($"[Player {playerId}]: 스폰 위치 설정 -> 그리드({spawnGridPos.x}, {spawnGridPos.y}), 월드{spawnWorldPos} (남쪽 고정, AI용)");
         // Debug.Log($"[Player {playerId}]: 골 위치 설정 -> 그리드({centerX}, {centerY}), 월드{goalWorldPos}");
     }
 

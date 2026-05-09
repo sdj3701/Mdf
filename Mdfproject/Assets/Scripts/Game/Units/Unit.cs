@@ -34,20 +34,29 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [Networked] public NetworkBool NetworkedIsAttacking { get; set; }
     [Networked] private int NetworkedStarLevel { get; set; }
     [Networked] private NetworkString<_64> NetworkedUnitDataKey { get; set; }
+    [Networked] private int NetworkedOwnerPlayerId { get; set; }
+    [Networked] private NetworkBool NetworkedHasOwnerPlayerId { get; set; }
 
     private bool _hasSpawned;
     private bool _hasLocalHealthValues;
     private float _localHP;
     private float _localMaxHP;
     
-    public float CurrentHealth => _hasSpawned ? NetworkedHP : _localHP;
-    public float MaxHealth => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+    public bool HasValidNetworkObject => Object != null && Object.IsValid;
+    private bool CanReadNetworkedState => _hasSpawned
+        && Runner != null
+        && Runner.IsRunning
+        && Object != null
+        && Object.IsValid;
+
+    public float CurrentHealth => CanReadNetworkedState ? NetworkedHP : _localHP;
+    public float MaxHealth => CanReadNetworkedState ? NetworkedMaxHP : _localMaxHP;
     public event System.Action<float, float> OnHealthChanged;
     
     // 로컬 접근용 프로퍼티 (기존 코드 호환성 유지)
     public float currentHP
     {
-        get => _hasSpawned ? NetworkedHP : _localHP;
+        get => CanReadNetworkedState ? NetworkedHP : _localHP;
         set
         {
             _hasLocalHealthValues = true;
@@ -60,7 +69,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     }
     public float maxHP
     {
-        get => _hasSpawned ? NetworkedMaxHP : _localMaxHP;
+        get => CanReadNetworkedState ? NetworkedMaxHP : _localMaxHP;
         set
         {
             _hasLocalHealthValues = true;
@@ -87,11 +96,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private float _localMagicResistance;
 
     // === 최종 스탯 프로퍼티 (3단계: 버프 적용된 최종값) ===
-    public float currentAttackDamage => _hasSpawned ? _networkedAttackDamage : _localAttackDamage;
-    public float currentAttackSpeed => _hasSpawned ? _networkedAttackSpeed : _localAttackSpeed;
-    public float currentAttackRange => _hasSpawned ? _networkedAttackRange : _localAttackRange;
-    public float currentDefense => _hasSpawned ? _networkedDefense : _localDefense;
-    public float currentMagicResistance => _hasSpawned ? _networkedMagicResistance : _localMagicResistance;
+    public float currentAttackDamage => CanReadNetworkedState ? _networkedAttackDamage : _localAttackDamage;
+    public float currentAttackSpeed => CanReadNetworkedState ? _networkedAttackSpeed : _localAttackSpeed;
+    public float currentAttackRange => CanReadNetworkedState ? _networkedAttackRange : _localAttackRange;
+    public float currentDefense => CanReadNetworkedState ? _networkedDefense : _localDefense;
+    public float currentMagicResistance => CanReadNetworkedState ? _networkedMagicResistance : _localMagicResistance;
 
     #region 3단계 스탯 시스템
     // 1단계: 기본 스탯 (UnitData + 성급 배수)
@@ -150,6 +159,30 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// StatusBarUI에서 커맨드 전송 시 playerId를 얻기 위해 사용됩니다.
     /// </summary>
     public PlayerManager Owner => owner;
+    public int OwnerPlayerIdForRoster => owner != null ? owner.playerId : (NetworkedHasOwnerPlayerId ? NetworkedOwnerPlayerId : -1);
+
+    public void SyncFieldPlacementIdentity(PlayerManager fieldOwner, Vector3Int gridPosition)
+    {
+        if (fieldOwner != null)
+        {
+            owner = fieldOwner;
+            if (owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
+            {
+                owner.ownedUnits.Add(this);
+            }
+        }
+
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (fieldOwner != null && fieldOwner.playerId >= 0)
+        {
+            NetworkedOwnerPlayerId = fieldOwner.playerId;
+            NetworkedHasOwnerPlayerId = true;
+        }
+    }
 
     /// <summary>
     /// 이 유닛이 로컬 플레이어가 소유한 유닛인지 확인합니다.
@@ -174,6 +207,70 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             
             return false;
         }
+    }
+
+    public bool IsInCombatPhase => isCombatPhase;
+    public bool IsSkillCastingActive => IsSkillCasting();
+    public bool HasConfiguredSkill => DoesHaveSkill();
+    public SkillData LoadedSkillData => _loadedSkillData;
+    public bool CanUseSkillByStatus => _buffManager == null || _buffManager.CanUseSkill;
+    public bool IsSkillManaFull => manaController != null && manaController.IsManaFull;
+    public float SkillCurrentMana => manaController != null ? manaController.CurrentMana : 0f;
+    public float SkillMaxMana => manaController != null ? manaController.MaxMana : 0f;
+
+    public bool TryGetConfiguredSkillKey(out string skillKey)
+    {
+        skillKey = null;
+        if (!DoesHaveSkill())
+        {
+            return false;
+        }
+
+        skillKey = unitData.skillsByStarLevel[starLevel - 1];
+        return !string.IsNullOrWhiteSpace(skillKey);
+    }
+
+    public bool IsManualOrAiStrategicSkill(SkillData skillData = null)
+    {
+        SkillData resolvedSkill = skillData != null ? skillData : _loadedSkillData;
+        return currentSkillActivationType == SkillActivationType.Manual ||
+               resolvedSkill != null && resolvedSkill.canAiUseStrategically;
+    }
+
+    public int CountSkillTargets(SkillData skillData = null)
+    {
+        SkillData resolvedSkill = skillData != null ? skillData : _loadedSkillData;
+        if (resolvedSkill == null || resolvedSkill.targetingStrategy == null)
+        {
+            return 0;
+        }
+
+        try
+        {
+            var targets = resolvedSkill.targetingStrategy.FindTargets(gameObject, transform.position, resolvedSkill.range);
+            return targets != null ? targets.Count(target => target != null) : 0;
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogWarning($"[Unit] Skill target query failed for {name}: {ex.GetType().Name}");
+            return 0;
+        }
+    }
+
+    public bool HasSkillTargetsAvailable(SkillData skillData = null)
+    {
+        SkillData resolvedSkill = skillData != null ? skillData : _loadedSkillData;
+        if (resolvedSkill == null || resolvedSkill.targetingStrategy == null || resolvedSkill.effects == null || resolvedSkill.effects.Count == 0)
+        {
+            return false;
+        }
+
+        if (CountSkillTargets(resolvedSkill) > 0)
+        {
+            return true;
+        }
+
+        return resolvedSkill.effects.Any(effect => effect is ZoneEffect);
     }
 
 
@@ -201,6 +298,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
         TryApplyPendingHealthToNetworked();
         RebindAfterMigration(owner, "Unit.Spawned", false);
+    }
+
+    public override void Despawned(NetworkRunner runner, bool hasState)
+    {
+        _hasSpawned = false;
+        _changeDetector = null;
+        base.Despawned(runner, hasState);
     }
     
     /// <summary>
@@ -232,10 +336,24 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     private void HandleNetworkedDeathStateChanged()
     {
+        if (!CanReadNetworkedState)
+        {
+            return;
+        }
+
+        if (Object != null && Object.HasStateAuthority)
+        {
+            return;
+        }
+
         if (NetworkedIsDead && !IsDead)
         {
             IsDead = true;
-            gameObject.SetActive(false);
+            SetDeathPresentationActive(false);
+        }
+        else if (!NetworkedIsDead && IsDead)
+        {
+            Respawn();
         }
     }
     
@@ -270,6 +388,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             && Runner != null
             && Runner.IsRunning
             && Object != null
+            && Object.IsValid
+            && Object.HasStateAuthority;
+    }
+
+    private bool CanWriteNetworkedStats()
+    {
+        return _hasSpawned
+            && Runner != null
+            && Runner.IsRunning
+            && Object != null
+            && Object.IsValid
             && Object.HasStateAuthority;
     }
 
@@ -344,6 +473,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 pm != null &&
                 pm.Object != null &&
                 pm.Object.InputAuthority == Object.InputAuthority);
+        }
+
+        if (owner == null && NetworkedHasOwnerPlayerId && GameManagers.Instance != null)
+        {
+            int ownerPlayerId = NetworkedOwnerPlayerId;
+            owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
+                pm != null &&
+                pm.playerId == ownerPlayerId);
         }
 
         if (owner == null && GameManagers.Instance != null)
@@ -428,6 +565,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             NetworkedUnitDataKey = key;
         }
+
+        if (owner != null && owner.playerId >= 0)
+        {
+            NetworkedOwnerPlayerId = owner.playerId;
+            NetworkedHasOwnerPlayerId = true;
+        }
     }
 
     private void TryRecoverUnitDataFromNetworkIdentity(string context)
@@ -494,6 +637,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         TryRecoverUnitDataFromNetworkIdentity(context);
+        HandleNetworkedDeathStateChanged();
         bool ready = EnsureRuntimeReferences(context, verboseFailure);
 
         if (animator == null)
@@ -894,6 +1038,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     void OnDisable()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+
         UnsubscribeFromAllies();
         if (animSpeedResetRoutine != null)
         {
@@ -934,6 +1079,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         this.unitData = data;
         this.owner = owner;
+        if (this.owner != null && this.owner.ownedUnits != null && !this.owner.ownedUnits.Contains(this))
+        {
+            this.owner.ownedUnits.Add(this);
+        }
         // NetworkBehaviour이므로 Object 프로퍼티 직접 사용 (별도 캐싱 불필요)
         if(this.unitData == null)
         {
@@ -988,6 +1137,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             return;
         }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
 
         if (manaController != null)
         {
@@ -1162,7 +1317,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     public async void Respawn()
     {
-        if (!IsDead) return;
+        bool inactive = gameObject != null && (!gameObject.activeSelf || !gameObject.activeInHierarchy);
+        if (!IsDead && !inactive) return;
         IsDead = false;
         
         if (Object != null && Object.HasStateAuthority)
@@ -1171,11 +1327,52 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         
         blockedMonsters.Clear();
+        if (gameObject != null && !gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+        SetDeathPresentationActive(true);
         
         await InitializeStats();
         await CacheProjectileSpeedAsync();
-        gameObject.SetActive(true);
+        IsDead = false;
+        if (Object != null && Object.HasStateAuthority)
+        {
+            NetworkedIsDead = false;
+        }
+        if (gameObject != null && !gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+        SetDeathPresentationActive(true);
         Debug.Log($"<color=green>{unitData.unitName}이(가) 부활했습니다!</color>");
+    }
+
+    private void SetDeathPresentationActive(bool active)
+    {
+        foreach (var renderer in GetComponentsInChildren<Renderer>(true))
+        {
+            if (renderer != null)
+            {
+                renderer.enabled = active;
+            }
+        }
+
+        foreach (var collider in GetComponentsInChildren<Collider>(true))
+        {
+            if (collider != null)
+            {
+                collider.enabled = active;
+            }
+        }
+
+        foreach (var canvas in GetComponentsInChildren<Canvas>(true))
+        {
+            if (canvas != null)
+            {
+                canvas.enabled = active;
+            }
+        }
     }
 
     private void HandleManaFull()
@@ -1215,6 +1412,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public async void ActivateSkill()
     {
         if (!isCombatPhase || !DoesHaveSkill()) return;
+        if (IsDead) return;
         if (!HasStateAuthorityOrNoNetwork()) return;
         if (IsSkillCasting()) return;
         
@@ -1238,6 +1436,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
         
+        if (!HasSkillTargetsAvailable(currentSkillData))
+        {
+            return;
+        }
+
         if (!manaController.IsManaFull) return;
 
         if (manaController.UseMana(currentSkillData.manaCost))
@@ -1374,6 +1577,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         while (isCombatPhase)
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (MPTestCommandLine.IsGameFlowFrozen)
+            {
+                yield return null;
+                continue;
+            }
+#endif
             if (!EnsureRuntimeReferences("AttackLoop", true))
             {
                 yield return null;
@@ -1511,6 +1721,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     }
     private void Attack()
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         if (IsSkillCasting())
         {
             return;
@@ -1679,6 +1895,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     public void AnimEvent_AttackImpact()
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         if (!_hasPendingAttack)
         {
             return;
@@ -1783,6 +2005,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
 
+        if (owner != null && owner.fieldManager != null)
+        {
+            owner.fieldManager.UnitDied(this);
+        }
+
         // [수정됨] 오브젝트 파괴 시 이벤트 구독을 확실히 해제합니다.
         if (manaController != null)
         {
@@ -1794,6 +2021,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         // 서버에서만 HP 수정 (클라이언트는 Networked 속성 동기화로 반영)
         if (!HasStateAuthorityOrNoNetwork()) return;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         if (unitData == null || IsDead) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, currentDefense, currentMagicResistance);
         currentHP -= finalDamage;
@@ -1828,7 +2061,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             attackCoroutine = null;
         }
 
-        gameObject.SetActive(false);
+        SetDeathPresentationActive(false);
         string deadUnitName = unitData != null ? unitData.unitName : name;
         Debug.Log($"<color=red>{deadUnitName}이(가) 전투에서 쓰러졌습니다.</color>");
     }
@@ -1852,15 +2085,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     public void ApplyStatModifiers(float attackDamage, float attackSpeed)
     {
-        if (HasStateAuthorityOrNoNetwork())
+        _localAttackDamage = attackDamage;
+        _localAttackSpeed = attackSpeed;
+
+        if (CanWriteNetworkedStats())
         {
             _networkedAttackDamage = attackDamage;
             _networkedAttackSpeed = attackSpeed;
-        }
-        else
-        {
-            _localAttackDamage = attackDamage;
-            _localAttackSpeed = attackSpeed;
         }
     }
 
@@ -1869,21 +2100,19 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     private void SetStatsDirect(float damage, float speed, float range, float defense, float magicRes)
     {
-        if (HasStateAuthorityOrNoNetwork())
+        _localAttackDamage = damage;
+        _localAttackSpeed = speed;
+        _localAttackRange = range;
+        _localDefense = defense;
+        _localMagicResistance = magicRes;
+
+        if (CanWriteNetworkedStats())
         {
             _networkedAttackDamage = damage;
             _networkedAttackSpeed = speed;
             _networkedAttackRange = range;
             _networkedDefense = defense;
             _networkedMagicResistance = magicRes;
-        }
-        else
-        {
-            _localAttackDamage = damage;
-            _localAttackSpeed = speed;
-            _localAttackRange = range;
-            _localDefense = defense;
-            _localMagicResistance = magicRes;
         }
     }
 
@@ -1926,9 +2155,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (!HasStateAuthorityOrNoNetwork()) return;  // 서버에서만 적용
         
         _isBerserk = true;
-        
-        _networkedAttackDamage *= 1.5f;
-        _networkedAttackSpeed *= 1.5f;
+
+        float berserkDamage = currentAttackDamage * 1.5f;
+        float berserkSpeed = currentAttackSpeed * 1.5f;
+        _localAttackDamage = berserkDamage;
+        _localAttackSpeed = berserkSpeed;
+        if (CanWriteNetworkedStats())
+        {
+            _networkedAttackDamage = berserkDamage;
+            _networkedAttackSpeed = berserkSpeed;
+        }
         Debug.Log($"<color=red>[Unit] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배)</color>");
     }
 

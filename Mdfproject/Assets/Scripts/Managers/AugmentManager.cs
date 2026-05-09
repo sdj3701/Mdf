@@ -41,6 +41,17 @@ public class AugmentManager : MonoBehaviour
         }
     }
 
+    private string OwnerLabel()
+    {
+        return TryGetOwnerId(out int ownerId) ? ownerId.ToString() : "unknown";
+    }
+
+    private bool IsRunningClientPeerWithoutAuthority()
+    {
+        var runner = playerManager != null ? playerManager.Runner : null;
+        return runner != null && runner.IsRunning && !runner.IsServer;
+    }
+
     private async UniTask<bool> WaitUntilAugmentDataLoadedInternal(float timeoutSeconds = AugmentDataWaitTimeoutSeconds)
     {
         if (isDataLoaded)
@@ -265,8 +276,82 @@ public class AugmentManager : MonoBehaviour
             ?? prismaticAugments.FirstOrDefault(a => a.augmentName == augmentName);
     }
 
+    public MonsterData FindMonsterDataByName(string monsterDataName)
+    {
+        if (string.IsNullOrWhiteSpace(monsterDataName))
+        {
+            return null;
+        }
+
+        foreach (var augment in EnumerateLoadedAugments())
+        {
+            if (MatchesMonsterData(augment?.bossMonsterData, monsterDataName))
+            {
+                return augment.bossMonsterData;
+            }
+
+            var entries = augment?.monsterSpawnEntries;
+            if (entries == null) continue;
+            foreach (var entry in entries)
+            {
+                if (MatchesMonsterData(entry?.monsterData, monsterDataName))
+                {
+                    return entry.monsterData;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private IEnumerable<AugmentData> EnumerateLoadedAugments()
+    {
+        foreach (var augment in silverAugments)
+        {
+            yield return augment;
+        }
+
+        foreach (var augment in goldAugments)
+        {
+            yield return augment;
+        }
+
+        foreach (var augment in prismaticAugments)
+        {
+            yield return augment;
+        }
+
+        foreach (var augment in presentedAugments)
+        {
+            yield return augment;
+        }
+    }
+
+    private static bool MatchesMonsterData(MonsterData data, string monsterDataName)
+    {
+        if (data == null || string.IsNullOrWhiteSpace(monsterDataName))
+        {
+            return false;
+        }
+
+        return string.Equals(data.name, monsterDataName, StringComparison.Ordinal)
+            || string.Equals(data.monsterName, monsterDataName, StringComparison.Ordinal)
+            || string.Equals(data.monsterPrefab, monsterDataName, StringComparison.Ordinal);
+    }
+
     public void PresentAugments()
     {
+        if (playerManager == null)
+        {
+            playerManager = GetComponentInParent<PlayerManager>();
+        }
+
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning($"[AugmentManager] PresentAugments ignored on non-authority peer. owner={OwnerLabel()}");
+            return;
+        }
+
         if (!isDataLoaded)
         {
             Debug.LogWarning("증강 데이터가 아직 로드되지 않았습니다.");
@@ -319,7 +404,15 @@ public class AugmentManager : MonoBehaviour
             return;
         }
 
+        if (IsRunningClientPeerWithoutAuthority())
+        {
+            Debug.LogWarning($"[AugmentManager] SelectAndApplyAugment ignored on non-authority peer. owner={OwnerLabel()}");
+            return;
+        }
+
         playerManager.chosenAugments.Add(chosenAugment);
+        playerManager.PublishSelectedAugmentSnapshot(chosenAugment);
+        playerManager.ClearPresentedAugmentSnapshot();
         Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강을 선택했습니다.");
 
         PlayerManager target;

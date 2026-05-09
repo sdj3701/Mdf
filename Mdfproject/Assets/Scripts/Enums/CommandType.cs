@@ -14,6 +14,11 @@ public enum CommandType
     SwapUnit = 8,
     SellUnit = 9,
     ActivateSkill = 10,
+    RearrangeUnits = 11,
+    // Routed through GameManagers.BattleCommands as a State Authority battle action, not CommandProcessor broadcast.
+    BattleSpawnMonster = 12,
+    // Routed through GameManagers.BattleCommands as a State Authority battle action, not CommandProcessor broadcast.
+    UseMagicScroll = 13,
 
 
     // ===== Sync Commands (100-199) =====
@@ -23,6 +28,7 @@ public enum CommandType
     SyncPermanentBonuses = 102,
     RegisterUnitAt = 103,
     ApplyPermanentWalls = 104,
+    InitializePlayer = 105,
 
     // ===== Notification Commands (200-299) =====
     // 서버 → 클라이언트 이벤트 알림

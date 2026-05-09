@@ -1072,6 +1072,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f12e954eddeca274a9a982b1b5ed40b9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  NickNameInput: {fileID: 0}
+  PassWordInput: {fileID: 0}
   _playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
   maxSessionPlayers: 4
@@ -1707,9 +1709,9 @@ MonoBehaviour:
   document: {fileID: 1117852993}
   loadSceneOnLoginSuccess: 1
   useTestMatchingScene: 1
-  matchingLobbySceneName: MatchingLobby
-  testMatchingSceneName: TestMatching
-  requirePasswordForAccountLogin: 1
+  matchingLobbySceneName: 01_MatchingLobby
+  testMatchingSceneName: 01_MatchingLobby
+  requirePasswordForAccountLogin: 0
 --- !u!114 &1117852993
 MonoBehaviour:
   m_ObjectHideFlags: 0

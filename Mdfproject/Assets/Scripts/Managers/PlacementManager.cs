@@ -114,7 +114,8 @@ public class PlacementManager : MonoBehaviour
     public void StartPlacementMode(PlacementMode mode, GameObject unitPrefab = null)
     {
         if (!IsPlacementReady()) return;
-        if (GameManagers.Instance != null && GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare) return;
+        if (GameManagers.Instance != null &&
+            (GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare || GameManagers.Instance.IsSequenceTransitioning)) return;
         currentMode = mode;
         unitPrefabToPlace = unitPrefab;
         SetupPreviewObject();
@@ -152,9 +153,8 @@ public class PlacementManager : MonoBehaviour
             // 스폰/골 그리드에는 벽 금지
             if (playerManager != null)
             {
-                var spawnCell = fieldManager.WorldToGridInt(playerManager.spawnPoint != null ? playerManager.spawnPoint.position : Vector3.zero);
                 var goalCell = fieldManager.WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero);
-                if (gridPosition == spawnCell || gridPosition == goalCell) return false;
+                if (gridPosition == goalCell) return false;
             }
             Unit occupant = fieldManager.GetUnitAt(gridPosition);
             if (occupant == null) return true;

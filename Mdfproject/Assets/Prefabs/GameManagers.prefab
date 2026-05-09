@@ -48,13 +48,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _currentState: 0
   _currentRound: 0
+  _IsSequenceTransitioning:
+    _value: 0
+  _TransitionFromState: 0
+  _TransitionToStateTarget: 0
   _singlePlayerModeCount: 0
   localPlayer: {fileID: 0}
   player1BasePosition: {x: 0, y: 0, z: 0}
   playerOffset: {x: 0, y: 0, z: -14}
-  firstPreparePhaseTime: 10
+  firstPreparePhaseTime: 30
   preparePhaseTime: 20
   combatTime: 20
+  sequenceTransitionDelaySeconds: 1.5
   berserkTriggerTime: 7
   baseGoldPerRound: 5
   maxInterest: 5

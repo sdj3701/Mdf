@@ -10,6 +10,11 @@ public partial class GameManagers
     {
         get
         {
+            if (!IsReadyForNetworkAccess)
+            {
+                yield break;
+            }
+
             if (NetworkPlayers.Length == 0) yield break;
             foreach (var playerNO in NetworkPlayers)
             {
@@ -76,8 +81,9 @@ public partial class GameManagers
         }
 
         var player = GetPlayer(playerId);
-        if (player?.opponentManager != null && TryGetPlayerIdSafe(player.opponentManager, out int fallbackOpp))
+        if (player?.opponentManager != null)
         {
+            int fallbackOpp = player.opponentManager.playerId;
             _battleOpponents[playerId] = fallbackOpp;
             if (!_battleOpponents.ContainsKey(fallbackOpp))
             {
@@ -88,6 +94,187 @@ public partial class GameManagers
         }
 
         return -1;
+    }
+
+    public bool TryGetBattleOpponentSnapshot(int playerId, out int opponentId)
+    {
+        if (_battleOpponents.TryGetValue(playerId, out opponentId))
+        {
+            return true;
+        }
+
+        return TryReadNetworkedBattleOpponentSnapshot(playerId, out opponentId);
+    }
+
+    private bool TryGetMatchFirstAttackerSnapshot(int playerId, out int firstAttackerId)
+    {
+        if (_matchFirstAttacker.TryGetValue(playerId, out firstAttackerId))
+        {
+            return true;
+        }
+
+        return TryReadNetworkedMatchFirstAttackerSnapshot(playerId, out firstAttackerId);
+    }
+
+    private static int EncodeBattleSnapshotId(int id)
+    {
+        return id < -1 ? 0 : id + 2;
+    }
+
+    private static bool TryDecodeBattleSnapshotId(int value, out int id)
+    {
+        if (value == 0)
+        {
+            id = -1;
+            return false;
+        }
+
+        id = value - 2;
+        return true;
+    }
+
+    private void PublishBattleSnapshotMap()
+    {
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        int capacity = Mathf.Min(MAX_PLAYERS, Mathf.Min(BattleOpponentSnapshotIds.Length, BattleFirstAttackerSnapshotIds.Length));
+        for (int i = 0; i < capacity; i++)
+        {
+            BattleOpponentSnapshotIds.Set(i, 0);
+            BattleFirstAttackerSnapshotIds.Set(i, 0);
+        }
+
+        foreach (var kv in _battleOpponents)
+        {
+            if (kv.Key >= 0 && kv.Key < capacity)
+            {
+                BattleOpponentSnapshotIds.Set(kv.Key, EncodeBattleSnapshotId(kv.Value));
+            }
+        }
+
+        foreach (var kv in _matchFirstAttacker)
+        {
+            if (kv.Key >= 0 && kv.Key < capacity)
+            {
+                BattleFirstAttackerSnapshotIds.Set(kv.Key, EncodeBattleSnapshotId(kv.Value));
+            }
+        }
+    }
+
+    private bool HasBattleSnapshotWriteAuthority()
+    {
+        return Object != null && Object.HasStateAuthority;
+    }
+
+    private bool TryReadNetworkedBattleOpponentSnapshot(int playerId, out int opponentId)
+    {
+        opponentId = -1;
+        if (playerId < 0 || playerId >= BattleOpponentSnapshotIds.Length)
+        {
+            return false;
+        }
+
+        return TryDecodeBattleSnapshotId(BattleOpponentSnapshotIds.Get(playerId), out opponentId);
+    }
+
+    private bool TryReadNetworkedMatchFirstAttackerSnapshot(int playerId, out int firstAttackerId)
+    {
+        firstAttackerId = -1;
+        if (playerId < 0 || playerId >= BattleFirstAttackerSnapshotIds.Length)
+        {
+            return false;
+        }
+
+        return TryDecodeBattleSnapshotId(BattleFirstAttackerSnapshotIds.Get(playerId), out firstAttackerId);
+    }
+
+    private Dictionary<int, int> BuildBattleOpponentSnapshotMap()
+    {
+        var result = new Dictionary<int, int>(_battleOpponents);
+        int capacity = Mathf.Min(MAX_PLAYERS, BattleOpponentSnapshotIds.Length);
+        for (int i = 0; i < capacity; i++)
+        {
+            if (!result.ContainsKey(i) && TryReadNetworkedBattleOpponentSnapshot(i, out int opponentId))
+            {
+                result[i] = opponentId;
+            }
+        }
+
+        return result;
+    }
+
+    private Dictionary<int, int> BuildMatchFirstAttackerSnapshotMap()
+    {
+        var result = new Dictionary<int, int>(_matchFirstAttacker);
+        int capacity = Mathf.Min(MAX_PLAYERS, BattleFirstAttackerSnapshotIds.Length);
+        for (int i = 0; i < capacity; i++)
+        {
+            if (!result.ContainsKey(i) && TryReadNetworkedMatchFirstAttackerSnapshot(i, out int firstAttackerId))
+            {
+                result[i] = firstAttackerId;
+            }
+        }
+
+        return result;
+    }
+
+    private void CacheNetworkedBattleSnapshotMap()
+    {
+        int opponentCapacity = Mathf.Min(MAX_PLAYERS, BattleOpponentSnapshotIds.Length);
+        for (int i = 0; i < opponentCapacity; i++)
+        {
+            if (!_battleOpponents.ContainsKey(i) && TryReadNetworkedBattleOpponentSnapshot(i, out int opponentId))
+            {
+                _battleOpponents[i] = opponentId;
+            }
+        }
+
+        int firstAttackerCapacity = Mathf.Min(MAX_PLAYERS, BattleFirstAttackerSnapshotIds.Length);
+        for (int i = 0; i < firstAttackerCapacity; i++)
+        {
+            if (!_matchFirstAttacker.ContainsKey(i) && TryReadNetworkedMatchFirstAttackerSnapshot(i, out int firstAttackerId))
+            {
+                _matchFirstAttacker[i] = firstAttackerId;
+            }
+        }
+    }
+
+    private void RecordBattleStartSnapshotFromRpc(int playerId, bool isAttacker, int opponentId)
+    {
+        if (playerId < 0)
+        {
+            return;
+        }
+
+        _battleOpponents[playerId] = opponentId;
+        if (opponentId >= 0 && !_battleOpponents.ContainsKey(opponentId))
+        {
+            _battleOpponents[opponentId] = playerId;
+        }
+
+        int firstAttackerId = -1;
+        if (opponentId >= 0)
+        {
+            firstAttackerId = currentState == GameState.Battle2
+                ? (isAttacker ? opponentId : playerId)
+                : (isAttacker ? playerId : opponentId);
+        }
+
+        _matchFirstAttacker[playerId] = firstAttackerId;
+        if (opponentId >= 0)
+        {
+            _matchFirstAttacker[opponentId] = firstAttackerId;
+        }
+
+        if (firstAttackerId >= 0 && Object != null && Object.HasStateAuthority)
+        {
+            FirstAttackerPlayerId = firstAttackerId;
+        }
+
+        PublishBattleSnapshotMap();
     }
 
     public PlayerManager GetPlayer(int id)
@@ -227,9 +414,7 @@ public partial class GameManagers
             // AllPlayers가 비어있으면 FindObjectsOfType 사용
             if (allPlayersList.Count == 0)
             {
-                allPlayersList = FindObjectsOfType<PlayerManager>()
-                    .Where(p => p != null && p.Runner == Runner && p.Object != null && p.Object.IsValid)
-                    .ToList();
+                allPlayersList = FindObjectsOfType<PlayerManager>().ToList();
             }
 
             if (allPlayersList.Count == 2)
@@ -268,45 +453,30 @@ public partial class GameManagers
             NetworkPlayers.Set(i, null);
         }
 
-        var playersById = new Dictionary<int, PlayerManager>();
-        int unreadableId = 0;
-        int negativeId = 0;
+        var allRunnerPlayers = FindObjectsOfType<PlayerManager>(true)
+            .Where(player => player != null)
+            .Where(player => player.Runner == Runner)
+            .Where(player => player.Object != null && player.Object.IsValid)
+            .Where(player => player.playerId >= 0)
+            .ToList();
 
-        foreach (var player in FindObjectsOfType<PlayerManager>(true))
-        {
-            if (player == null || player.Runner != Runner || player.Object == null || !player.Object.IsValid)
-            {
-                continue;
-            }
-
-            if (!TryGetPlayerIdSafe(player, out int playerId))
-            {
-                unreadableId++;
-                continue;
-            }
-
-            if (playerId < 0)
-            {
-                negativeId++;
-                continue;
-            }
-
-            if (!playersById.TryGetValue(playerId, out var existing)
-                || (player.Object.HasStateAuthority && (existing.Object == null || !existing.Object.HasStateAuthority)))
-            {
-                playersById[playerId] = player;
-            }
-        }
-
-        var runnerPlayers = playersById
-            .OrderBy(pair => pair.Key)
-            .Select(pair => pair.Value)
+        var runnerPlayers = allRunnerPlayers
+            .GroupBy(player => player.playerId)
+            .Select(group => group
+                .OrderByDescending(ScoreMigrationPlayerCandidate)
+                .First())
             .ToList();
 
         if (runnerPlayers.Count == 0)
         {
-            Debug.LogWarning($"[복원] NetworkPlayers 재구성 스킵 ({context}) - runnerPlayers=0, staleCleared={staleCleared}, unreadableId={unreadableId}, negativeId={negativeId}");
+            Debug.LogWarning($"[복원] NetworkPlayers 재구성 스킵 ({context}) - runnerPlayers=0, staleCleared={staleCleared}");
             return;
+        }
+
+        var selectedInstanceIds = new HashSet<int>(runnerPlayers.Select(player => player.GetInstanceID()));
+        foreach (var duplicate in allRunnerPlayers.Where(player => !selectedInstanceIds.Contains(player.GetInstanceID())))
+        {
+            DespawnDuplicatePlayerManagerAfterMigration(duplicate, context);
         }
 
         int assigned = 0;
@@ -320,11 +490,7 @@ public partial class GameManagers
                 continue;
             }
 
-            if (!TryGetPlayerIdSafe(player, out int preferredSlot))
-            {
-                continue;
-            }
-
+            int preferredSlot = player.playerId;
             int slot = -1;
 
             if (preferredSlot >= 0 && preferredSlot < NetworkPlayers.Length && !usedSlots.Contains(preferredSlot))
@@ -369,11 +535,117 @@ public partial class GameManagers
         Debug.Log($"[복원] NetworkPlayers 재구성 완료 ({context}) assigned={assigned}, expected={expected}, outOfRange={outOfRange}, staleCleared={staleCleared}, capacity={NetworkPlayers.Length}");
     }
 
+    private static int ScoreMigrationPlayerCandidate(PlayerManager player)
+    {
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return int.MinValue;
+        }
+
+        int score = 0;
+        if (player.Object.HasStateAuthority)
+        {
+            score += 1000;
+        }
+
+        if (player.IsRuntimeReady(out _))
+        {
+            score += 80;
+        }
+
+        if (player.TryGetShopSnapshot(out var shopKeys, out _, out _, out int shopRevision, out _)
+            && shopRevision > 0
+            && shopKeys != null
+            && shopKeys.Length > 0)
+        {
+            score += 80;
+        }
+
+        if (player.fieldManager != null)
+        {
+            score += 20;
+            player.fieldManager.RebuildWallMapsAfterMigration("GameManagers.ScoreMigrationPlayerCandidate", false, out _);
+            if (player.fieldManager.IsWallMapReady)
+            {
+                score += 40;
+            }
+        }
+
+        return score;
+    }
+
+    private void DespawnDuplicatePlayerManagerAfterMigration(PlayerManager duplicate, string context)
+    {
+        if (duplicate == null)
+        {
+            return;
+        }
+
+        int playerId = -1;
+        try
+        {
+            playerId = duplicate.playerId;
+        }
+        catch
+        {
+        }
+
+        var networkObject = duplicate.Object;
+        try
+        {
+            if (Runner != null && Runner.IsServer && networkObject != null && networkObject.IsValid)
+            {
+                Runner.Despawn(networkObject);
+                Debug.Log($"[MigrationRestore] Duplicate PlayerManager despawn queued ({context}) P{playerId} name={duplicate.name}");
+                return;
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[MigrationRestore] Duplicate PlayerManager despawn failed ({context}) P{playerId}: {e.Message}");
+        }
+
+        if (duplicate.gameObject != null)
+        {
+            Destroy(duplicate.gameObject);
+            Debug.Log($"[MigrationRestore] Duplicate PlayerManager GameObject destroyed ({context}) P{playerId} name={duplicate.name}");
+        }
+    }
+
     public void CaptureBattleSnapshotForMigration(out string battleOpponentsSnapshot, out string matchFirstAttackerSnapshot, out int firstAttackerPlayerId)
     {
-        battleOpponentsSnapshot = SerializeIntMap(_battleOpponents);
-        matchFirstAttackerSnapshot = SerializeIntMap(_matchFirstAttacker);
+        battleOpponentsSnapshot = SerializeIntMap(BuildBattleOpponentSnapshotMap());
+        matchFirstAttackerSnapshot = SerializeIntMap(BuildMatchFirstAttackerSnapshotMap());
         firstAttackerPlayerId = FirstAttackerPlayerId;
+    }
+
+    public string CaptureBattleActiveSnapshot()
+    {
+        var parts = new List<string>();
+        foreach (var player in AllPlayers)
+        {
+            if (!TryGetPlayerIdSafe(player, out int playerId) || playerId < 0)
+            {
+                continue;
+            }
+
+            int opponentId = TryGetBattleOpponentSnapshot(playerId, out int opponent) ? opponent : -1;
+            int matchFirstAttackerId = TryGetMatchFirstAttackerSnapshot(playerId, out int firstAttacker) ? firstAttacker : -1;
+            bool isFighting = false;
+            bool isAttacker = false;
+            try
+            {
+                isFighting = player.IsActivelyFighting;
+                isAttacker = player.IsAttackerInCurrentBattle;
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
+            parts.Add($"p={playerId};opp={opponentId};first={matchFirstAttackerId};fighting={isFighting};attacker={isAttacker}");
+        }
+
+        return string.Join("|", parts.OrderBy(part => part));
     }
 
     public bool TryRestoreBattleSnapshotForMigration(
@@ -420,11 +692,12 @@ public partial class GameManagers
             }
         }
 
-        if (firstAttackerPlayerId >= 0)
+        if (firstAttackerPlayerId >= 0 && HasBattleSnapshotWriteAuthority())
         {
             FirstAttackerPlayerId = firstAttackerPlayerId;
         }
 
+        PublishBattleSnapshotMap();
         Debug.Log($"[복원/매칭] 캐시 스냅샷 복원 완료 ({context}) opponents={_battleOpponents.Count}, firstAttackers={_matchFirstAttacker.Count}, firstAttackerId={FirstAttackerPlayerId}");
         return _battleOpponents.Count > 0;
     }
@@ -476,17 +749,28 @@ public partial class GameManagers
 
     private void EnsureBattleMappingAfterMigration()
     {
+        bool hasWriteAuthority = HasBattleSnapshotWriteAuthority();
         if (_battleOpponents.Count > 0 && _matchFirstAttacker.Count > 0)
         {
+            if (hasWriteAuthority)
+            {
+                PublishBattleSnapshotMap();
+            }
             return;
         }
 
-        var alivePlayers = AllPlayers
-            .Where(p => p != null && p.GetHealth() > 0)
-            .Where(p => TryGetPlayerIdSafe(p, out int playerId) && playerId >= 0)
-            .ToList();
+        if (!hasWriteAuthority)
+        {
+            CacheNetworkedBattleSnapshotMap();
+            return;
+        }
+
+        var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
         if (alivePlayers.Count == 0)
         {
+            _battleOpponents.Clear();
+            _matchFirstAttacker.Clear();
+            PublishBattleSnapshotMap();
             return;
         }
 
@@ -497,79 +781,71 @@ public partial class GameManagers
         {
             var a = alivePlayers[0];
             var b = alivePlayers[1];
-            if (!TryGetPlayerIdSafe(a, out int aId) || !TryGetPlayerIdSafe(b, out int bId))
-            {
-                return;
-            }
-
-            _battleOpponents[aId] = bId;
-            _battleOpponents[bId] = aId;
+            _battleOpponents[a.playerId] = b.playerId;
+            _battleOpponents[b.playerId] = a.playerId;
 
             int firstAttacker = ResolveFirstAttackerForResumePair(a, b);
-            _matchFirstAttacker[aId] = firstAttacker;
-            _matchFirstAttacker[bId] = firstAttacker;
+            _matchFirstAttacker[a.playerId] = firstAttacker;
+            _matchFirstAttacker[b.playerId] = firstAttacker;
             FirstAttackerPlayerId = firstAttacker;
+            PublishBattleSnapshotMap();
 
-            Debug.LogWarning($"[복원/매칭] 2인 폴백 재구성 완료: P{aId}↔P{bId}, 선공자=P{firstAttacker}, state={currentState}");
+            Debug.LogWarning($"[복원/매칭] 2인 폴백 재구성 완료: P{a.playerId}↔P{b.playerId}, 선공자=P{firstAttacker}, state={currentState}");
             return;
         }
 
         var processed = new HashSet<int>();
         foreach (var player in alivePlayers)
         {
-            if (!TryGetPlayerIdSafe(player, out int playerId) || processed.Contains(playerId))
+            if (processed.Contains(player.playerId))
             {
                 continue;
             }
 
             var opponent = player.opponentManager;
-            if (opponent != null && alivePlayers.Contains(opponent) && TryGetPlayerIdSafe(opponent, out int opponentId))
+            if (opponent != null && alivePlayers.Contains(opponent))
             {
-                _battleOpponents[playerId] = opponentId;
-                _battleOpponents[opponentId] = playerId;
+                _battleOpponents[player.playerId] = opponent.playerId;
+                _battleOpponents[opponent.playerId] = player.playerId;
 
                 int firstAttacker = ResolveFirstAttackerForResumePair(player, opponent);
-                _matchFirstAttacker[playerId] = firstAttacker;
-                _matchFirstAttacker[opponentId] = firstAttacker;
+                _matchFirstAttacker[player.playerId] = firstAttacker;
+                _matchFirstAttacker[opponent.playerId] = firstAttacker;
 
-                processed.Add(playerId);
-                processed.Add(opponentId);
+                processed.Add(player.playerId);
+                processed.Add(opponent.playerId);
             }
             else
             {
-                _battleOpponents[playerId] = -1;
-                _matchFirstAttacker[playerId] = -1;
-                processed.Add(playerId);
+                _battleOpponents[player.playerId] = -1;
+                _matchFirstAttacker[player.playerId] = -1;
+                processed.Add(player.playerId);
             }
         }
 
         Debug.LogWarning($"[복원/매칭] opponentManager 기반 재구성 완료: {string.Join(", ", _battleOpponents.Select(kv => $"P{kv.Key}↔P{kv.Value}"))}");
+        PublishBattleSnapshotMap();
     }
 
     private int ResolveFirstAttackerForResumePair(PlayerManager a, PlayerManager b)
     {
-        if (!TryGetPlayerIdSafe(a, out int aId) || !TryGetPlayerIdSafe(b, out int bId))
-        {
-            return -1;
-        }
-
         if (currentState == GameState.Battle1)
         {
-            if (a.IsAttackerInCurrentBattle && !b.IsAttackerInCurrentBattle) return aId;
-            if (b.IsAttackerInCurrentBattle && !a.IsAttackerInCurrentBattle) return bId;
+            if (a.IsAttackerInCurrentBattle && !b.IsAttackerInCurrentBattle) return a.playerId;
+            if (b.IsAttackerInCurrentBattle && !a.IsAttackerInCurrentBattle) return b.playerId;
         }
         else if (currentState == GameState.Battle2)
         {
             // Battle2는 Battle1의 공수 반대이므로, 현재 수비자가 Battle1 선공자
-            if (!a.IsAttackerInCurrentBattle && b.IsAttackerInCurrentBattle) return aId;
-            if (!b.IsAttackerInCurrentBattle && a.IsAttackerInCurrentBattle) return bId;
+            if (!a.IsAttackerInCurrentBattle && b.IsAttackerInCurrentBattle) return a.playerId;
+            if (!b.IsAttackerInCurrentBattle && a.IsAttackerInCurrentBattle) return b.playerId;
         }
 
-        if (FirstAttackerPlayerId == aId || FirstAttackerPlayerId == bId)
+        if (FirstAttackerPlayerId == a.playerId || FirstAttackerPlayerId == b.playerId)
         {
             return FirstAttackerPlayerId;
         }
 
-        return aId;
+        return a.playerId;
     }
 }

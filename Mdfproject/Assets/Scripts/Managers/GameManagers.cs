@@ -32,7 +32,24 @@ public partial class GameManagers : NetworkBehaviour
     [Networked]
     private TickTimer phaseTimer { get; set; }
 
-    public float currentPhaseTimer => phaseTimer.IsRunning ? phaseTimer.RemainingTime(Runner) ?? 0f : 0f;
+    public float currentPhaseTimer => IsReadyForNetworkAccess && phaseTimer.IsRunning ? phaseTimer.RemainingTime(Runner) ?? 0f : 0f;
+
+    [Networked]
+    public NetworkBool IsSequenceTransitioning { get; private set; }
+
+    [Networked]
+    public GameState TransitionFromState { get; private set; }
+
+    [Networked]
+    public GameState TransitionToStateTarget { get; private set; }
+
+    [Networked]
+    private TickTimer sequenceTransitionTimer { get; set; }
+
+    public float currentSequenceTransitionTimer =>
+        IsReadyForNetworkAccess && sequenceTransitionTimer.IsRunning
+            ? sequenceTransitionTimer.RemainingTime(Runner) ?? 0f
+            : 0f;
 
     // 세션은 최대 4명까지 지원
     private const int MAX_PLAYERS = 4;
@@ -85,6 +102,8 @@ public partial class GameManagers : NetworkBehaviour
     public float firstPreparePhaseTime = 60f;
     public float preparePhaseTime = 45f;
     public float combatTime = 60f;
+    [Tooltip("Delay before applying Prepare/Battle sequence transitions.")]
+    public float sequenceTransitionDelaySeconds = 1.5f;
 
     [Header("폭주 모드 설정")]
     [Tooltip("전투 종료 N초 전에 폭주 모드 발동")]
@@ -185,6 +204,9 @@ public partial class GameManagers : NetworkBehaviour
     /// 각 매칭 쌍마다 독립적으로 선공자를 랜덤으로 결정하여 공정성 보장
     /// </summary>
     private Dictionary<int, int> _matchFirstAttacker = new Dictionary<int, int>();
+
+    [Networked, Capacity(4)] private NetworkArray<int> BattleOpponentSnapshotIds { get; }
+    [Networked, Capacity(4)] private NetworkArray<int> BattleFirstAttackerSnapshotIds { get; }
     #endregion
 
     /// <summary>
@@ -451,6 +473,21 @@ public partial class GameManagers : NetworkBehaviour
             $"{(string.IsNullOrEmpty(extra) ? string.Empty : $" | {extra}")}");
     }
 
+    private static void LogMigrationMessage(string message)
+    {
+        Debug.Log(message);
+    }
+
+    private static void LogMigrationWarning(string message)
+    {
+        Debug.LogWarning(message);
+    }
+
+    private static void LogMigrationError(string message)
+    {
+        Debug.LogError(message);
+    }
+
     private void ResetMigrationOneShotGuards()
     {
         _migrationReadyEventPublished = false;
@@ -529,6 +566,18 @@ public partial class GameManagers : NetworkBehaviour
         if (fieldOwner == null)
         {
             reason = "fieldOwner=null";
+            return false;
+        }
+
+        if (!IsReadyForNetworkAccess)
+        {
+            reason = "gameManagersNotReady";
+            return false;
+        }
+
+        if (IsSequenceTransitioning)
+        {
+            reason = "sequenceTransitioning";
             return false;
         }
 
@@ -612,13 +661,16 @@ public partial class GameManagers : NetworkBehaviour
             return;
         }
 
+        // AllPlayers reads are needed during the first GameFlow prepare setup.
+        // Waiting until GameFlow completes makes the first round start with players=0.
+        _isSpawned = true;
+
         await GameFlow();
         if (Object == null || !Object.IsValid || Instance != this)
         {
             return;
         }
 
-        _isSpawned = true;
         RelinkLocalPlayer();
         RebuildNetworkPlayersAfterMigration("InitializeAndStartGame");
         // 모든 설정이 끝난 후, 준비 완료 이벤트를 발생시킵니다.
@@ -689,22 +741,40 @@ public partial class GameManagers : NetworkBehaviour
         
         if (!hasAuth) return;
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var mpOptions = MPTestCommandLine.GetOptions();
+        if (mpOptions.Enabled && mpOptions.FreezeGameFlow)
+        {
+            return;
+        }
+#endif
+
         if (IsMigrationRestoreInProgress && currentState == GameState.Prepare && phaseTimer.IsRunning && !IsMigrationUiRestoreCompleted)
         {
             float remain = phaseTimer.RemainingTime(Runner) ?? 0f;
             if (remain <= 2f && !_migrationWarnedPrepareExpiryRace)
             {
                 _migrationWarnedPrepareExpiryRace = true;
-                Debug.LogWarning($"[HM-TRACE #{_activeMigrationTraceId}] Prepare 타이머({remain:F1}s)가 UI 복원 완료 전 만료될 위험이 있습니다.");
+                LogMigrationWarning($"[HM-TRACE #{_activeMigrationTraceId}] Prepare 타이머({remain:F1}s)가 UI 복원 완료 전 만료될 위험이 있습니다.");
                 LogMigrationTrace("FixedUpdateNetwork:PrepareRaceWarning");
             }
+        }
+
+        if (IsSequenceTransitioning)
+        {
+            if (!sequenceTransitionTimer.IsRunning || sequenceTransitionTimer.Expired(Runner))
+            {
+                CompleteSequenceTransition();
+            }
+
+            return;
         }
 
         if (phaseTimer.Expired(Runner))
         {
             if (IsMigrationRestoreInProgress && !IsMigrationUiRestoreCompleted && currentState == GameState.Prepare)
             {
-                Debug.LogError($"[HM-TRACE #{_activeMigrationTraceId}] Prepare 타이머 만료 시점에도 UI 복원이 완료되지 않았습니다.");
+                LogMigrationError($"[HM-TRACE #{_activeMigrationTraceId}] Prepare 타이머 만료 시점에도 UI 복원이 완료되지 않았습니다.");
                 LogMigrationTrace("FixedUpdateNetwork:PrepareExpiredBeforeUI");
             }
 
@@ -713,16 +783,16 @@ public partial class GameManagers : NetworkBehaviour
             switch (currentState)
             {
                 case GameState.Prepare:
-                    StartBattle1Phase();
+                    BeginSequenceTransition(GameState.Battle1, "FixedUpdateNetwork/PrepareExpired");
                     break;
                 case GameState.Battle1:
-                    StartBattle2Phase();
+                    BeginSequenceTransition(GameState.Battle2, "FixedUpdateNetwork/Battle1Expired");
                     break;
                 case GameState.Battle2:
                     if (!isTransitioningRound)
                     {
                         isTransitioningRound = true;
-                        RunLifecycleTask(StartNextRound(), "FixedUpdateNetwork/StartNextRound");
+                        BeginSequenceTransition(GameState.Prepare, "FixedUpdateNetwork/Battle2Expired");
                     }
                     break;
             }
@@ -878,6 +948,10 @@ public partial class GameManagers : NetworkBehaviour
             {
                 HandleNetworkStateChange(currentState);
             }
+            else if (propertyName == nameof(IsSequenceTransitioning))
+            {
+                HandleNetworkSequenceTransitionChange();
+            }
         }
 
         if (CommandProcessor != null)
@@ -887,7 +961,7 @@ public partial class GameManagers : NetworkBehaviour
                 if (Time.realtimeSinceStartup - _lastMigrationCommandHoldLogRealtime > 1f)
                 {
                     _lastMigrationCommandHoldLogRealtime = Time.realtimeSinceStartup;
-                    Debug.Log($"[HM-TRACE #{_activeMigrationTraceId}] CommandProcessor 보류: stage={_migrationRestoreStage}");
+                    LogMigrationMessage($"[HM-TRACE #{_activeMigrationTraceId}] CommandProcessor 보류: stage={_migrationRestoreStage}");
                 }
             }
             else
@@ -1002,13 +1076,14 @@ public partial class GameManagers : NetworkBehaviour
             PlayerManager newPlayer = playerNO.GetComponent<PlayerManager>();
             if (newPlayer != null)
             {
+                newPlayer.SetAiControlled(isAI);
                 newPlayer.Rpc_InitializePlayer(i, gridNO);
             }
 
-            if (isAI)
+            if (isAI && newPlayer != null)
             {
                 var aiController = playerNO.gameObject.AddComponent<AIPlayerController>();
-                aiController.Initialize(newPlayer, this.CommandProcessor);
+                aiController.Initialize(newPlayer, this.CommandProcessor, MdfBotProfile.ServerAiDefault(newPlayer.playerId));
             }
         }
 
@@ -1033,6 +1108,15 @@ public partial class GameManagers : NetworkBehaviour
             return singlePlayerModeCount > 0 ? Mathf.Min(singlePlayerModeCount, MAX_PLAYERS) : 2;
         }
         
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var mpOptionsForPlayerCount = MPTestCommandLine.GetOptions();
+        if (mpOptionsForPlayerCount.Enabled && mpOptionsForPlayerCount.DisableAiFill)
+        {
+            int activePlayers = Runner.ActivePlayers.Count();
+            return Mathf.Clamp(activePlayers, 1, MAX_PLAYERS);
+        }
+#endif
+
         int sessionMaxPlayers = Runner.SessionInfo?.MaxPlayers ?? 2;
         return Mathf.Min(sessionMaxPlayers, MAX_PLAYERS);
     }
@@ -1087,6 +1171,22 @@ public partial class GameManagers : NetworkBehaviour
     /// <summary>
     /// 구매 성공을 모든 클라이언트에 알립니다.
     /// </summary>
+    public void SyncSurvivorBossStateToClientsIfAuthoritative(string reason)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        var manager = SurvivorBossManager.Instance;
+        if (manager == null)
+        {
+            return;
+        }
+
+        PublishSurvivorBossSnapshotFromManager(manager, reason);
+    }
+
     public void NotifyPurchaseSucceeded(int playerID, int slotIndex)
     {
         var cmd = new NotifyPurchaseSucceededCommand(playerID, slotIndex);
@@ -1170,6 +1270,8 @@ public partial class GameManagers : NetworkBehaviour
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_NotifyBattleStart(int playerId, bool isAttacker, int opponentId)
     {
+        RecordBattleStartSnapshotFromRpc(playerId, isAttacker, opponentId);
+
         // 로컬 플레이어가 아니면 무시
         if (!TryGetPlayerIdSafe(localPlayer, out int localPlayerId) || localPlayerId != playerId) return;
 
@@ -1256,124 +1358,92 @@ public partial class GameManagers : NetworkBehaviour
     /// <param name="isBoss">보스 여부</param>
     /// <param name="bossUniqueId">보스 고유 ID</param>
     /// <param name="originPlayerId">보스 소환자 ID</param>
+    [System.Obsolete("Use RPC_RequestBattleSpawnMonster with an observed attack-pool revision.")]
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
-    public void RPC_RequestSpawnMonster(int attackerPlayerId, int defenderPlayerId, string monsterDataName, Vector3 spawnPosition, bool isBoss, int bossUniqueId, int originPlayerId)
+    public void RPC_RequestSpawnMonster(int attackerPlayerId, int defenderPlayerId, string monsterDataName, Vector3 spawnPosition, bool isBoss, int bossUniqueId, int originPlayerId, RpcInfo info = default)
     {
-        // 서버만 처리
-        if (Object == null || !Object.HasStateAuthority) return;
-        
-        var attacker = GetPlayer(attackerPlayerId);
-        var defender = GetPlayer(defenderPlayerId);
-        
-        if (attacker == null || defender == null)
-        {
-            // Debug.LogWarning($"[RPC_RequestSpawnMonster] 플레이어를 찾을 수 없음: attacker={attackerPlayerId}, defender={defenderPlayerId}");
-            return;
-        }
-        
-        // 몬스터 데이터 찾기
-        var pool = attacker.AttackMonsterPool;
-        MonsterPoolEntry targetEntry = null;
-        foreach (var entry in pool)
-        {
-            if (entry.MonsterData != null && entry.MonsterData.name == monsterDataName && !entry.IsEmpty)
-            {
-                targetEntry = entry;
-                break;
-            }
-        }
-        
-        if (targetEntry == null)
-        {
-            // Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 풀에서 '{monsterDataName}'을 찾을 수 없음");
-            return;
-        }
-        
-        // 서버에서 몬스터 소환
-        RunLifecycleTask(
-            SpawnMonsterOnServerAsync(attacker, defender, targetEntry, spawnPosition),
-            "RPC_RequestSpawnMonster/SpawnMonsterOnServerAsync");
-    }
-    
-    private async UniTask SpawnMonsterOnServerAsync(PlayerManager attacker, PlayerManager defender, MonsterPoolEntry entry, Vector3 spawnPosition)
-    {
-        if (attacker?.monsterSpawner == null || defender?.fieldManager == null) return;
-        
-        var monster = await attacker.monsterSpawner.SpawnMonsterAtPositionAsync(
-            entry.MonsterData,
+        RejectDeprecatedSpawnMonsterRpc(
+            attackerPlayerId,
+            defenderPlayerId,
             spawnPosition,
-            defender.fieldManager,
-            entry.IsBoss,
-            entry.BossUniqueId,
-            entry.OriginPlayerId
-        );
-        
-        if (monster != null)
-        {
-            if (!attacker.TryConsumeMonsterFromPool(entry.MonsterData))
-            {
-                // Debug.LogWarning($"[RPC_RequestSpawnMonster] 소환 성공 후 풀 소비 실패: '{entry.MonsterData.monsterName}'");
-            }
-            // Debug.Log($"<color=green>[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 성공</color>");
-        }
-        else
-        {
-            // Debug.LogWarning($"[RPC_RequestSpawnMonster] 몬스터 '{entry.MonsterData.monsterName}' 소환 실패");
-        }
+            "legacy_spawn_rpc_deprecated_use_battle_spawn_command");
     }
 
+    private void RejectDeprecatedSpawnMonsterRpc(
+        int attackerPlayerId,
+        int defenderPlayerId,
+        Vector3 spawnPosition,
+        string errorCode)
+    {
+        var command = new BattleSpawnMonsterCommand(
+            attackerPlayerId,
+            defenderPlayerId,
+            -1,
+            spawnPosition,
+            1,
+            "legacy_rpc_request_spawn_monster",
+            -1);
+        int sequence = BattleCommandTelemetry.RecordRejected(CommandType.BattleSpawnMonster);
+        var rejected = BattleCommandResult.Rejected(
+            CommandType.BattleSpawnMonster,
+            attackerPlayerId,
+            errorCode,
+            null,
+            defenderPlayerId,
+            CommandExecutionScope.ClientRequest,
+            "legacy_rpc_request_spawn_monster",
+            sequence);
+
+        BattleCommandMpTestLogger.Request(
+            CommandType.BattleSpawnMonster,
+            attackerPlayerId,
+            CommandExecutionScope.ClientRequest,
+            "deprecated legacy spawn rpc",
+            defenderPlayerId,
+            "legacy_rpc_request_spawn_monster");
+        BattleCommandMpTestLogger.Rejected(rejected);
+        BattleSpawnMonsterMpTestLogger.Request(command);
+        BattleSpawnMonsterMpTestLogger.Rejected(rejected, command);
+        SyncBattleCommandTelemetryToClientsIfAuthoritative();
+    }
+
+    [System.Obsolete("Use RPC_RequestUseMagicScrollCommand with a stable scroll slot and observed inventory revision.")]
     [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
     public void RPC_RequestUseMagicScroll(int attackerPlayerId, string scrollDataName, Vector3 position, RpcInfo info = default)
     {
-        if (Object == null || !Object.HasStateAuthority) return;
-        if (currentState != GameState.Battle1 && currentState != GameState.Battle2) return;
-        if (string.IsNullOrWhiteSpace(scrollDataName)) return;
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            return;
+        }
 
         var attacker = GetPlayer(attackerPlayerId);
-        if (attacker == null) 
+        if (attacker != null && !IsRpcSourceAuthorizedForPlayer(attacker, info.Source))
         {
+            RejectDeprecatedUseMagicScrollRpc(
+                attackerPlayerId,
+                position,
+                "legacy_scroll_rpc_source_not_attacker_input_authority");
             return;
         }
 
-        if (!IsRpcSourceAuthorizedForPlayer(attacker, info.Source)) return;
-        if (!attacker.IsAttackerInCurrentBattle) return;
-        if (!TryGetBattleDefenderField(attacker, out FieldManager defenderField)) return;
-        if (!IsWithinFieldOuterBounds(defenderField, position)) return;
-
-        MagicScrollData targetScroll = null;
-        foreach (var scroll in attacker.OwnedScrolls)
-        {
-            if (scroll != null && scroll.name == scrollDataName)
-            {
-                targetScroll = scroll;
-                break;
-            }
-        }
-
-        if (targetScroll == null)
-        {
-            return;
-        }
-
-        if (!attacker.TryConsumeMagicScroll(targetScroll))
-        {
-            return;
-        }
-
-        RPC_BroadcastMagicScrollUsed(attackerPlayerId, scrollDataName, position);
+        RejectDeprecatedUseMagicScrollRpc(
+            attackerPlayerId,
+            position,
+            "legacy_scroll_rpc_deprecated_use_use_magic_scroll_command");
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_BroadcastMagicScrollUsed(int attackerPlayerId, string scrollDataName, Vector3 position)
     {
+        UseMagicScrollMpTestLogger.Presentation(attackerPlayerId, scrollDataName, position);
         RunLifecycleTask(
-            CreateScrollCasterLocal(attackerPlayerId, scrollDataName, position),
-            "RPC_BroadcastMagicScrollUsed/CreateScrollCasterLocal");
+            CreateScrollPresentationLocal(attackerPlayerId, scrollDataName, position),
+            "RPC_BroadcastMagicScrollUsed/CreateScrollPresentationLocal");
 
         GameEvents.TriggerMagicScrollUsed(attackerPlayerId, scrollDataName, position);
     }
 
-    private async UniTask CreateScrollCasterLocal(int attackerPlayerId, string scrollDataName, Vector3 position)
+    private async UniTask CreateScrollPresentationLocal(int attackerPlayerId, string scrollDataName, Vector3 position)
     {
         var scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
         if (scrollData == null || scrollData.skillData == null)
@@ -1386,7 +1456,42 @@ public partial class GameManagers : NetworkBehaviour
 
         var caster = casterGO.AddComponent<ScrollCaster>();
         caster.Initialize();
-        caster.CastSkill(scrollData.skillData);
+        caster.PlayPresentation(scrollData.skillData);
+    }
+
+    private void RejectDeprecatedUseMagicScrollRpc(
+        int attackerPlayerId,
+        Vector3 position,
+        string errorCode)
+    {
+        var command = new UseMagicScrollCommand(
+            attackerPlayerId,
+            -1,
+            position,
+            "legacy_rpc_request_use_magic_scroll",
+            -1);
+        int sequence = BattleCommandTelemetry.RecordRejected(CommandType.UseMagicScroll);
+        var rejected = BattleCommandResult.Rejected(
+            CommandType.UseMagicScroll,
+            attackerPlayerId,
+            errorCode,
+            null,
+            -1,
+            CommandExecutionScope.ClientRequest,
+            "legacy_rpc_request_use_magic_scroll",
+            sequence);
+
+        BattleCommandMpTestLogger.Request(
+            CommandType.UseMagicScroll,
+            attackerPlayerId,
+            CommandExecutionScope.ClientRequest,
+            "deprecated legacy scroll rpc",
+            -1,
+            "legacy_rpc_request_use_magic_scroll");
+        BattleCommandMpTestLogger.Rejected(rejected);
+        UseMagicScrollMpTestLogger.Request(command);
+        UseMagicScrollMpTestLogger.Rejected(rejected, command);
+        SyncBattleCommandTelemetryToClientsIfAuthoritative();
     }
     #endregion
 
@@ -1473,6 +1578,12 @@ public partial class GameManagers : NetworkBehaviour
 
         foreach (var player in AllPlayers)
         {
+            player?.fieldManager?.RespawnAllUnits();
+            player?.fieldManager?.BroadcastAuthoritativeUnitRoster("StartNextRound.RespawnAllUnits");
+        }
+
+        foreach (var player in AllPlayers)
+        {
             if (player == null) continue;
             if (!player.IsReadyForPlayerActions)
             {
@@ -1520,7 +1631,7 @@ public partial class GameManagers : NetworkBehaviour
             player.mazeConstructionComplete = false;
             player.unitPurchaseComplete = false;
 
-            // 스폰/도착 지점은 이제 PlayerManager.SetupSpawnAndGoalPositions에서 초기화 시 고정 설정됨
+            // 도착 지점은 이제 PlayerManager.SetupGoalPosition에서 초기화 시 고정 설정됨
             // (도착: 필드 정 가운데, 스폰: 동서남북 테두리 구멍 중 랜덤)
             
             // 증강 생성 및 동기화 (한 루프에서 처리)
@@ -1549,6 +1660,7 @@ public partial class GameManagers : NetworkBehaviour
             var augmentNames = presentedAugments
                 .Select(a => a != null ? a.augmentName : string.Empty)
                 .ToArray();
+            player.PublishPresentedAugmentSnapshot(augmentNames);
             
             var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentNames);
             CommandProcessor.RequestCommandExecution(syncAugmentCmd);
@@ -1764,7 +1876,11 @@ public partial class GameManagers : NetworkBehaviour
         
         var alivePlayers = AllPlayers.Where(p => p != null && p.GetHealth() > 0).ToList();
         
-        if (alivePlayers.Count == 0) return;
+        if (alivePlayers.Count == 0)
+        {
+            PublishBattleSnapshotMap();
+            return;
+        }
 
         // 랜덤 셔플 (Fisher-Yates)
         for (int i = alivePlayers.Count - 1; i > 0; i--)
@@ -1838,7 +1954,10 @@ public partial class GameManagers : NetworkBehaviour
             {
                 // Debug.LogError($"[StartBattleForPlayers] Player {playerId} 런타임 준비 미완료 - 전투 시작 스킵 (reason={readyReason})");
                 player.SetFightingState(false);
+                continue;
             }
+
+            player.fieldManager?.BroadcastAuthoritativeUnitRoster($"StartBattleForPlayers.PreBattle.P{playerId}");
         }
 
         foreach (var player in AllPlayers)
@@ -1896,23 +2015,14 @@ public partial class GameManagers : NetworkBehaviour
                     {
                         player.RefreshAttackMonsterPool(currentRound, opponentId);
                     }
-                    catch (System.Exception e)
+                    catch (System.Exception)
                     {
                         // Debug.LogError($"[StartBattleForPlayers] Player {playerId} AttackMonsterPool 갱신 중 예외: {e.Message}");
                     }
                     player.SetFightingState(true);
 
-                    var opponent = GetPlayer(opponentId);
-                    bool isAI = ComponentRegistry.Has<AIPlayerController>(playerId.ToString());
-                    
-                    if (player.monsterSpawner != null && opponent?.fieldManager != null)
-                    {
-                        // [공격자가 모든 몬스터 소환] 기본 웨이브 + 증강체 몬스터
-                        RunLifecycleTask(
-                            player.monsterSpawner.SpawnAllMonstersToTargetField(currentRound, opponent.fieldManager, isAI),
-                            "StartBattleForPlayers/SpawnAllMonstersToTargetField");
-                        // Debug.Log($"<color=orange>[StartBattle] Player {playerId}: 공격자 - 수비자 {opponentId} 필드에 전체 웨이브 소환 (AI={isAI})</color>");
-                    }
+                    // AI attackers now submit strategic spawns through AIPlayerController
+                    // -> BattleDecisionPolicy -> ServerAiCommandEmitter. Do not auto-spawn here.
                 }
                 else
                 {
@@ -1937,7 +2047,13 @@ public partial class GameManagers : NetworkBehaviour
                 if (!isAttackerInThisBattle)
                 {
                     // 수비 시퀀스: 기본 웨이브를 AI가 자동 소환 (증강 공격유닛 제외)
-                    player.monsterSpawner.SpawnWaveWithoutAugments(currentRound);
+                    player.SetFightingState(true);
+                    if (player.monsterSpawner != null && player.fieldManager != null)
+                    {
+                        RunLifecycleTask(
+                            player.monsterSpawner.SpawnBaseWaveFromFastestOuterDirectionAsync(currentRound, player.fieldManager),
+                            "StartBattleForPlayers/SpawnBaseWaveFromFastestOuterDirectionAsync");
+                    }
                     // Debug.Log($"<color=gray>[StartBattle] Player {playerId}: 상대 없음, 수비 (기본 웨이브만)</color>");
                 }
                 else
@@ -2107,11 +2223,11 @@ public partial class GameManagers : NetworkBehaviour
         // 게임 종료 후 MatchingLobby 씬으로 전환
         if (NetworkManager.Instance != null)
         {
-            NetworkManager.Instance.LeaveAndLoad("MatchingLobby");
+            NetworkManager.Instance.LeaveAndLoad(SceneDefine.MatchingLobby);
         }
         else
         {
-            UnityEngine.SceneManagement.SceneManager.LoadScene("MatchingLobby");
+            UnityEngine.SceneManagement.SceneManager.LoadScene(SceneDefine.MatchingLobby);
         }
     }
 

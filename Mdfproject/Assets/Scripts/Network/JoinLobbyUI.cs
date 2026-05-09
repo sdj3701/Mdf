@@ -20,7 +20,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
     [Header("Scene")]
     [SerializeField] private string matchingLobbySceneName = SceneDefine.TestMatching;
-    [SerializeField] private string gameScenePath = "Assets/Scenes/Game.unity";
+    [SerializeField] private string gameScenePath = "Assets/Scenes/03_Game.unity";
 
     [Header("Preview")]
     [SerializeField] private bool useMockPlayersWhenNoPlayers;

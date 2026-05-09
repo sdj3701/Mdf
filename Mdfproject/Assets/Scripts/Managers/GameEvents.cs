@@ -16,6 +16,14 @@ public static class GameEvents
     public static event Action<GameManagers.GameState> OnGameStateChanged;
     public static void TriggerGameStateChanged(GameManagers.GameState newState) => OnGameStateChanged?.Invoke(newState);
 
+    public static event Action<GameManagers.GameState, GameManagers.GameState, float> OnGameStateTransitionStarted;
+    public static void TriggerGameStateTransitionStarted(GameManagers.GameState fromState, GameManagers.GameState toState, float durationSeconds) =>
+        OnGameStateTransitionStarted?.Invoke(fromState, toState, durationSeconds);
+
+    public static event Action<GameManagers.GameState, GameManagers.GameState> OnGameStateTransitionEnded;
+    public static void TriggerGameStateTransitionEnded(GameManagers.GameState fromState, GameManagers.GameState toState) =>
+        OnGameStateTransitionEnded?.Invoke(fromState, toState);
+
     public static event Action<int> OnRoundStart;
     public static void TriggerRoundStart(int roundNumber) => OnRoundStart?.Invoke(roundNumber);
 

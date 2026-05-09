@@ -73,6 +73,12 @@ public class PhaseTimerUI : MonoBehaviour
             {
                 return;
             }
+
+            if (gameManager.IsSequenceTransitioning)
+            {
+                timerText.text = $"{Mathf.CeilToInt(gameManager.currentSequenceTransitionTimer)}";
+                return;
+            }
             
             float remainingTime = gameManager.currentPhaseTimer;
 

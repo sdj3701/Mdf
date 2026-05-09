@@ -40,6 +40,11 @@ public class ProjectileVfxManager : MonoBehaviour
         }
     }
 
+    private static void LogProjectile(string message)
+    {
+        Debug.Log(message);
+    }
+
     private void Update()
     {
         if (_scheduler == null)
@@ -49,7 +54,7 @@ public class ProjectileVfxManager : MonoBehaviour
             {
                 return;
             }
-            Debug.Log($"[ProjectileVfxManager] Scheduler found: {_scheduler.name}, HasStateAuthority: {_scheduler.Object?.HasStateAuthority}");
+            LogProjectile($"[ProjectileVfxManager] Scheduler found: {_scheduler.name}, HasStateAuthority: {_scheduler.Object?.HasStateAuthority}");
         }
 
         if (_scheduler.Runner == null || !_scheduler.Runner.IsRunning)

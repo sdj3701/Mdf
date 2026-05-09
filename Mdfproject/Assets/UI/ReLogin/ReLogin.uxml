@@ -7,7 +7,7 @@
                 <ui:Label name="monsterTitleLabel" text="MONSTER" class="title-label title-label--monster" />
                 <ui:Label name="raidTitleLabel" text="RAID" class="title-label title-label--raid" />
                 <ui:Label name="defenseTitleLabel" text="DEFENSE" class="title-label title-label--defense" />
-                <ui:Label name="taglineLabel" text="전략으로 승리를 쟁취하라!" class="title-label title-label--tagline" />
+                <ui:Label name="taglineLabel" text="전략으로 적을 공략하라!" class="title-label title-label--tagline" />
             </ui:VisualElement>
             <ui:VisualElement name="accountInputArea" class="input-area input-area--account">
                 <ui:TextField name="accountField" class="relogin-text-field relogin-text-field--account" />

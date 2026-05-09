@@ -43,6 +43,17 @@ public class BuffManager : MonoBehaviour
 
     private void Update()
     {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
+
         float deltaTime = Time.deltaTime;
         UpdateBuffs(deltaTime);
         UpdateStatusEffects(deltaTime);
@@ -79,6 +90,8 @@ public class BuffManager : MonoBehaviour
 
     public void ClearAllBuffs()
     {
+        if (!HasStateAuthorityOrNoNetwork()) return;
+
         if (_activeBuffs.Count > 0)
         {
             _activeBuffs.Clear();
@@ -88,6 +101,7 @@ public class BuffManager : MonoBehaviour
 
     public void ApplyBuff(BuffStatEffect buffEffect, GameObject caster)
     {
+        if (!HasStateAuthorityOrNoNetwork()) return;
         if (caster == null) return;
         
         var existing = _activeBuffs.FirstOrDefault(b => b.Source == buffEffect && b.Caster == caster);
@@ -105,6 +119,8 @@ public class BuffManager : MonoBehaviour
 
     public void RecalculateStats()
     {
+        if (!HasStateAuthorityOrNoNetwork()) return;
+
         if (_unit != null)
         {
             float baseAttackDamage = _unit.PermanentAttackDamage;
@@ -190,6 +206,8 @@ public class BuffManager : MonoBehaviour
         float slowMultiplier = 1f,
         DamageType damageType = DamageType.Physical)
     {
+        if (!HasStateAuthorityOrNoNetwork()) return;
+
         var existing = _activeStatusEffects.FirstOrDefault(e => e.Type == type && e.Caster == caster);
         
         if (existing != null)
@@ -210,6 +228,8 @@ public class BuffManager : MonoBehaviour
     
     public void RemoveStatusEffect(StatusEffectType type)
     {
+        if (!HasStateAuthorityOrNoNetwork()) return;
+
         int removed = _activeStatusEffects.RemoveAll(e => e.Type == type);
         if (removed > 0)
         {
@@ -220,6 +240,8 @@ public class BuffManager : MonoBehaviour
     
     public void ClearAllStatusEffects()
     {
+        if (!HasStateAuthorityOrNoNetwork()) return;
+
         if (_activeStatusEffects.Count > 0)
         {
             _activeStatusEffects.Clear();
@@ -281,6 +303,62 @@ public class BuffManager : MonoBehaviour
         => ApplyStatusEffect(StatusEffectType.Poisoned, duration, caster, tickInterval, damagePerTick, 1f, DamageType.Magic);
 
     #endregion
+
+    public int ActiveBuffCount => _activeBuffs.Count;
+    public int ActiveStatusEffectCount => _activeStatusEffects.Count;
+
+    public IEnumerable<string> BuildActiveBuffSnapshotParts(string targetKey)
+    {
+        foreach (var buff in _activeBuffs)
+        {
+            if (buff?.Source == null)
+            {
+                continue;
+            }
+
+            if (buff.Source is BuffStatEffect statEffect)
+            {
+                int valueBucket = Mathf.RoundToInt(statEffect.value * 1000f);
+                int durationBucket = Mathf.RoundToInt(statEffect.duration * 10f);
+                yield return $"target={targetKey};source={statEffect.name};stat={statEffect.statToBuff};value={valueBucket};percent={statEffect.isPercentage};duration={durationBucket}";
+            }
+            else
+            {
+                yield return $"target={targetKey};source={buff.Source.name};type={buff.Source.GetType().Name}";
+            }
+        }
+    }
+
+    public IEnumerable<string> BuildActiveStatusSnapshotParts(string targetKey)
+    {
+        foreach (var effect in _activeStatusEffects)
+        {
+            if (effect == null)
+            {
+                continue;
+            }
+
+            int tickBucket = Mathf.RoundToInt(effect.TickInterval * 10f);
+            int damageBucket = Mathf.RoundToInt(effect.DamagePerTick * 10f);
+            int slowBucket = Mathf.RoundToInt(effect.SlowMultiplier * 1000f);
+            yield return $"target={targetKey};type={effect.Type};tick={tickBucket};damage={damageBucket};slow={slowBucket};damageType={effect.DamageType}";
+        }
+    }
+
+    private bool HasStateAuthorityOrNoNetwork()
+    {
+        if (_unit != null && _unit.Object != null && _unit.Object.IsValid && _unit.Runner != null && _unit.Runner.IsRunning)
+        {
+            return _unit.Object.HasStateAuthority;
+        }
+
+        if (_monster != null && _monster.Object != null && _monster.Object.IsValid && _monster.Runner != null && _monster.Runner.IsRunning)
+        {
+            return _monster.Object.HasStateAuthority;
+        }
+
+        return true;
+    }
 }
 
 public class ActiveBuff

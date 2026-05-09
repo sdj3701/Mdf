@@ -49,6 +49,12 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
 
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return;
+        }
+#endif
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, defense, magicResistance);
         currentHealth -= finalDamage;
         OnHealthChanged?.Invoke(currentHealth, maxHealth);

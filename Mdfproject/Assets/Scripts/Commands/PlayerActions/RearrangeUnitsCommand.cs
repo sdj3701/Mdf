@@ -28,6 +28,7 @@ public class RearrangeUnitsCommand : ICommand
 
         // 2. 몬스터 경로를 최신 상태로 다시 계산합니다.
         RecalculateMonsterPath(player);
+        var idealMonsterPath = fieldManager.ConvertNavigationPathToInnerField(player.astarGrid.FinalPath);
 
         // 3. 원거리 유닛부터, 그다음 근접 유닛 순으로 정렬합니다.
         var sortedUnits = allUnits
@@ -39,7 +40,7 @@ public class RearrangeUnitsCommand : ICommand
         {
             // 이제 fieldManager.GetAlliedUnitsOnField()는 재배치된 유닛 목록을 동적으로 반환하므로
             // FindBestSpotForAI가 항상 최신 상태를 기반으로 최적의 위치를 계산할 수 있습니다.
-            Vector3Int? bestPos = fieldManager.FindBestSpotForAI(unit.Data, player.astarGrid.FinalPath);
+            Vector3Int? bestPos = fieldManager.FindBestSpotForAI(unit.Data, idealMonsterPath);
 
             if (bestPos.HasValue)
             {
@@ -64,13 +65,12 @@ public class RearrangeUnitsCommand : ICommand
     private void RecalculateMonsterPath(PlayerManager player)
     {
         var grid = player.astarGrid;
-        var start = player.spawnPoint;
         var goal = player.goalTransform;
+        var fieldManager = player.fieldManager;
 
-        if (grid == null || start == null || goal == null) return;
+        if (grid == null || goal == null || fieldManager == null || !fieldManager.TryGetSingleOpenEntryNavigationCell(out var startPos)) return;
 
-        Vector2Int startPos = new Vector2Int(Mathf.FloorToInt(start.position.x), Mathf.FloorToInt(start.position.y));
-        Vector2Int goalPos = new Vector2Int(Mathf.FloorToInt(goal.position.x), Mathf.FloorToInt(goal.position.y));
+        Vector2Int goalPos = fieldManager.WorldToNavigationCell(goal.position);
 
         bool pathFound = grid.FindPath(startPos, goalPos);
 

@@ -17,7 +17,9 @@ public class ShopToggleButton : MonoBehaviour
         // 준비 단계에서만 버튼을 누를 수 있도록 제어합니다.
         if (GameManagers.Instance != null)
         {
-            toggleButton.interactable = (GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare);
+            toggleButton.interactable =
+                GameManagers.Instance.GetGameState() == GameManagers.GameState.Prepare &&
+                !GameManagers.Instance.IsSequenceTransitioning;
         }
     }
 

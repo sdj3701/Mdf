@@ -307,6 +307,7 @@ public class AttackSequenceUIController : MonoBehaviour
         if (pool == null)
         {
             HideAllSlots();
+            ClearMonsterSelection();
             return;
         }
 
@@ -323,17 +324,20 @@ public class AttackSequenceUIController : MonoBehaviour
             }
         }
 
-        // 첫 번째 활성 슬롯 자동 선택
-        if (_selectedSlotIndex < 0 || _selectedSlotIndex >= pool.Count)
+        if (_selectedSlotIndex >= pool.Count
+            || (_selectedSlotIndex >= 0 && (_selectedSlotIndex >= pool.Count || pool[_selectedSlotIndex] == null || pool[_selectedSlotIndex].IsEmpty)))
         {
-            for (int i = 0; i < pool.Count; i++)
-            {
-                if (!pool[i].IsEmpty)
-                {
-                    SelectSlot(i);
-                    break;
-                }
-            }
+            ClearMonsterSelection();
+        }
+
+        // 첫 번째 활성 슬롯 자동 선택
+        if (_selectedSlotIndex < 0)
+        {
+            SelectFirstAvailableMonsterSlot(pool);
+        }
+        else
+        {
+            SelectSlot(_selectedSlotIndex);
         }
     }
 
@@ -353,19 +357,9 @@ public class AttackSequenceUIController : MonoBehaviour
             }
         }
 
+        RefreshSlots(_playerManager.AttackMonsterPool);
         RefreshScrollSlots(_playerManager.OwnedScrolls);
-        
-        if (_selectedSlotIndex >= 0 && _selectedSlotIndex < _slots.Count)
-        {
-            _slots[_selectedSlotIndex].SetSelected(false);
-        }
-        _selectedSlotIndex = -1;
-
-        if (_selectedScrollSlotIndex >= 0 && _selectedScrollSlotIndex < _scrollSlots.Count)
-        {
-            _scrollSlots[_selectedScrollSlotIndex].SetSelected(false);
-        }
-        _selectedScrollSlotIndex = -1;
+        ClearScrollSelection();
         
         // Debug.Log("<color=yellow>[AttackSequenceUIController] UI 갱신 및 선택 해제</color>");
     }
@@ -390,7 +384,7 @@ public class AttackSequenceUIController : MonoBehaviour
         SelectSlot(slotIndex);
         
         // AttackSequenceManager에 선택 알림
-        _attackSequenceManager?.SelectMonster(entry);
+        _attackSequenceManager?.SelectMonsterSlot(slotIndex);
     }
 
     public void SyncMonsterSelectionFromManager(int slotIndex)
@@ -400,17 +394,10 @@ public class AttackSequenceUIController : MonoBehaviour
 
     private void SelectSlot(int slotIndex)
     {
-        if (_selectedScrollSlotIndex >= 0 && _selectedScrollSlotIndex < _scrollSlots.Count)
-        {
-            _scrollSlots[_selectedScrollSlotIndex].SetSelected(false);
-        }
-        _selectedScrollSlotIndex = -1;
+        ClearScrollSelection();
 
         // 이전 선택 해제
-        if (_selectedSlotIndex >= 0 && _selectedSlotIndex < _slots.Count)
-        {
-            _slots[_selectedSlotIndex].SetSelected(false);
-        }
+        ClearMonsterSelection();
 
         // 새 선택
         _selectedSlotIndex = slotIndex;
@@ -418,6 +405,42 @@ public class AttackSequenceUIController : MonoBehaviour
         {
             _slots[slotIndex].SetSelected(true);
         }
+    }
+
+    private void SelectFirstAvailableMonsterSlot(List<MonsterPoolEntry> pool)
+    {
+        if (pool == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < pool.Count; i++)
+        {
+            if (pool[i] != null && !pool[i].IsEmpty)
+            {
+                SelectSlot(i);
+                _attackSequenceManager?.SelectMonsterSlot(i);
+                return;
+            }
+        }
+    }
+
+    private void ClearMonsterSelection()
+    {
+        if (_selectedSlotIndex >= 0 && _selectedSlotIndex < _slots.Count)
+        {
+            _slots[_selectedSlotIndex].SetSelected(false);
+        }
+        _selectedSlotIndex = -1;
+    }
+
+    private void ClearScrollSelection()
+    {
+        if (_selectedScrollSlotIndex >= 0 && _selectedScrollSlotIndex < _scrollSlots.Count)
+        {
+            _scrollSlots[_selectedScrollSlotIndex].SetSelected(false);
+        }
+        _selectedScrollSlotIndex = -1;
     }
     #endregion
 

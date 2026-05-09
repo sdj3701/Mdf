@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 using AI.BehaviorTree.Nodes;
@@ -40,7 +40,9 @@ namespace AI.BehaviorTree.Nodes.Actions
                 // Debug.LogWarning($"<color=red>[BuildMazeAction] Missing refs: PM={_playerManager != null}, FM={_playerManager?.fieldManager != null}, Grid={_playerManager?.astarGrid != null}</color>");
                 return status = NodeStatus.Failure;
             }
-            if (GameManagers.Instance == null || GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare)
+            if (GameManagers.Instance == null ||
+                GameManagers.Instance.GetGameState() != GameManagers.GameState.Prepare ||
+                GameManagers.Instance.IsSequenceTransitioning)
             {
                 return status = NodeStatus.Failure;
             }
@@ -113,6 +115,22 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _extendPlanTask = null;
                 _lastExtendBudgetTried = -1;
                 _activeExtendBudget = -1;
+
+                // === 스폰 포인트를 선택된 진입 구멍으로 재설정 ===
+                if (planResult != null)
+                {
+                    // MonsterSpawner 재초기화 (새 스폰 위치 반영)
+                    if (_playerManager.monsterSpawner != null && _playerManager.astarGrid != null && _playerManager.goalTransform != null)
+                    {
+                        _playerManager.monsterSpawner.Initialize(
+                            _playerManager,
+                            _playerManager.astarGrid,
+                            _playerManager.goalTransform);
+                    }
+
+                    Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} entry gap fixed at {planResult.Start}, gapWalls={planResult.GapWalls?.Count ?? 0}</color>");
+                }
+
                 // Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned {_playerManager.mazePlannedOrder.Count} walls</color>");
                 return status = NodeStatus.Success;
             }
@@ -176,16 +194,6 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (_playerManager.mazePlannedOrder == null || _playerManager.mazePlannedOrder.Count == 0)
             {
-                int currentStock = _playerManager.GetWallCount();
-                int currentReserve = _playerManager.GetWallReserveK();
-                int budget = currentStock - currentReserve;
-                if (budget > 0 && budget > _lastExtendBudgetTried)
-                {
-                    _activeExtendBudget = budget;
-                    _extendPlanTask = MazePlanner.PlanAdditionalWallsAsync(fm, _playerManager);
-                    return status = NodeStatus.Running;
-                }
-
                 _playerManager.mazeConstructionComplete = true;
                 return status = NodeStatus.Failure;
             }
@@ -230,19 +238,6 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (!hasMissing)
             {
-                if (_extendPlanTask != null)
-                {
-                    return status = NodeStatus.Running;
-                }
-
-                int budget = stock - reserve;
-                if (budget > 0 && budget > _lastExtendBudgetTried)
-                {
-                    _activeExtendBudget = budget;
-                    _extendPlanTask = MazePlanner.PlanAdditionalWallsAsync(fm, _playerManager);
-                    return status = NodeStatus.Running;
-                }
-
                 if (!_playerManager.mazeConstructionComplete)
                 {
                     _playerManager.mazeConstructionComplete = true;
@@ -274,9 +269,8 @@ namespace AI.BehaviorTree.Nodes.Actions
             var placeAt = target.Value;
 
             // 스폰/골 셀인지 확인 (안전장치)
-            Vector3Int spawnCell = fm.WorldToGridInt(_playerManager.spawnPoint != null ? _playerManager.spawnPoint.position : Vector3.zero);
             Vector3Int goalCell = fm.WorldToGridInt(_playerManager.goalTransform != null ? _playerManager.goalTransform.position : Vector3.zero);
-            if (placeAt == spawnCell || placeAt == goalCell)
+            if (placeAt == goalCell)
             {
                 // 스폰/골 위치는 건너뜀
                 _temporarilySkipped.Add(placeAt);

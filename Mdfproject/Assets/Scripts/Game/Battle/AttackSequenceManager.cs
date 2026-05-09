@@ -1,4 +1,4 @@
-﻿// Assets/Scripts/Game/Battle/AttackSequenceManager.cs
+// Assets/Scripts/Game/Battle/AttackSequenceManager.cs
 using UnityEngine;
 using UnityEngine.EventSystems;
 using Cysharp.Threading.Tasks;
@@ -20,6 +20,11 @@ public class AttackSequenceManager : MonoBehaviour
     [Header("소환 설정")]
     [Tooltip("현재 선택된 몬스터")]
     private MonsterPoolEntry _selectedMonster;
+    private int _selectedMonsterSlotIndex = -1;
+    private int _pendingBattleSpawnSlotIndex = -1;
+    private int _pendingBattleSpawnRevision = -1;
+    private float _pendingBattleSpawnStartedAt;
+    private const float PendingBattleSpawnTimeoutSeconds = 1.25f;
 
     [Tooltip("현재 선택된 마법 스크롤")]
     private MagicScrollData _selectedScroll;
@@ -34,6 +39,11 @@ public class AttackSequenceManager : MonoBehaviour
     [Header("스폰 영역 설정")]
     [Tooltip("스폰 가능 영역 레이어")]
     [SerializeField] private LayerMask spawnAreaLayerMask;
+
+    /// <summary>
+    /// AI에서 스폰 영역 검증에 사용할 수 있도록 레이어마스크를 노출합니다.
+    /// </summary>
+    public LayerMask SpawnAreaLayer => spawnAreaLayerMask;
 
     public PlayerManager Owner => _playerManager;
     public bool IsScrollMode { get; private set; }
@@ -68,6 +78,8 @@ public class AttackSequenceManager : MonoBehaviour
 
         _opponentFieldManager = opponent.fieldManager;
         _selectedMonster = null;
+        _selectedMonsterSlotIndex = -1;
+        ClearPendingBattleSpawn();
         _selectedScroll = null;
         IsScrollMode = false;
         
@@ -92,6 +104,8 @@ public class AttackSequenceManager : MonoBehaviour
     public void EndAttackSequence()
     {
         _selectedMonster = null;
+        _selectedMonsterSlotIndex = -1;
+        ClearPendingBattleSpawn();
         _selectedScroll = null;
         _opponentFieldManager = null;
         _isHolding = false;
@@ -111,14 +125,35 @@ public class AttackSequenceManager : MonoBehaviour
             return;
         }
 
-        _selectedMonster = entry;
-        _selectedScroll = null;
-        IsScrollMode = false;
         int slotIndex = _playerManager != null && _playerManager.AttackMonsterPool != null
             ? _playerManager.AttackMonsterPool.IndexOf(entry)
             : -1;
+        if (slotIndex >= 0)
+        {
+            SelectMonsterSlot(slotIndex);
+            return;
+        }
+
+        _selectedMonster = entry;
+        _selectedMonsterSlotIndex = -1;
+        _selectedScroll = null;
+        IsScrollMode = false;
         AttackSequenceUIController.Instance?.SyncMonsterSelectionFromManager(slotIndex);
         // Debug.Log($"<color=yellow>[AttackSequenceManager] 몬스터 선택: {entry.MonsterData.monsterName} (남은 수량: {entry.RemainingCount})</color>");
+    }
+
+    public void SelectMonsterSlot(int slotIndex)
+    {
+        if (!TryResolveMonsterSlot(slotIndex, out var entry))
+        {
+            return;
+        }
+
+        _selectedMonster = entry;
+        _selectedMonsterSlotIndex = slotIndex;
+        _selectedScroll = null;
+        IsScrollMode = false;
+        AttackSequenceUIController.Instance?.SyncMonsterSelectionFromManager(slotIndex);
     }
 
     public MonsterPoolEntry GetSelectedMonster() => _selectedMonster;
@@ -134,6 +169,7 @@ public class AttackSequenceManager : MonoBehaviour
 
         _selectedScroll = scrollData;
         _selectedMonster = null;
+        _selectedMonsterSlotIndex = -1;
         IsScrollMode = true;
 
         int slotIndex = -1;
@@ -215,7 +251,7 @@ public class AttackSequenceManager : MonoBehaviour
             {
                 if (i < _playerManager.AttackMonsterPool.Count)
                 {
-                    SelectMonster(_playerManager.AttackMonsterPool[i]);
+                    SelectMonsterSlot(i);
                 }
             }
         }
@@ -260,26 +296,67 @@ public class AttackSequenceManager : MonoBehaviour
             return;
         }
 
-        string scrollDataName = _selectedScroll.name;
+        int scrollSlotIndex = _playerManager.FindOwnedMagicScrollSlot(_selectedScroll);
+        if (scrollSlotIndex < 0)
+        {
+            return;
+        }
+
         bool isHost = _playerManager.Object != null && _playerManager.Object.HasStateAuthority;
+        bool submittedOrExecuted = false;
 
         if (isHost)
         {
-            if (!_playerManager.TryConsumeMagicScroll(_selectedScroll))
+            PlayerRef requestSource = _playerManager.Object != null
+                ? _playerManager.Object.InputAuthority
+                : PlayerRef.None;
+            if (requestSource == PlayerRef.None && _playerManager.Runner != null)
+            {
+                requestSource = _playerManager.Runner.LocalPlayer;
+            }
+
+            var command = new UseMagicScrollCommand(
+                _playerManager.playerId,
+                scrollSlotIndex,
+                position,
+                "human_host_magic_scroll",
+                _playerManager.AppliedOwnedMagicScrollRevision);
+
+            BattleCommandResult result = await gameManagers.ExecuteUseMagicScrollCommandAsync(
+                command,
+                CommandExecutionScope.ClientRequest,
+                requestSource);
+
+            if (!result.Success)
             {
                 return;
             }
 
-            gameManagers.RPC_BroadcastMagicScrollUsed(_playerManager.playerId, scrollDataName, position);
+            submittedOrExecuted = true;
         }
         else
         {
-            gameManagers.RPC_RequestUseMagicScroll(_playerManager.playerId, scrollDataName, position);
+            if (!_playerManager.HasAppliedCurrentOwnedMagicScrollSnapshot)
+            {
+                _playerManager.RPC_RequestSyncData();
+                return;
+            }
+
+            gameManagers.RPC_RequestUseMagicScrollCommand(
+                _playerManager.playerId,
+                scrollSlotIndex,
+                position,
+                _playerManager.AppliedOwnedMagicScrollRevision,
+                "human_client_magic_scroll");
+            submittedOrExecuted = true;
         }
 
-        _selectedScroll = null;
-        IsScrollMode = false;
-        AttackSequenceUIController.Instance?.RefreshUI();
+        if (submittedOrExecuted)
+        {
+            _selectedScroll = null;
+            IsScrollMode = false;
+            AttackSequenceUIController.Instance?.RefreshUI();
+        }
 
         await UniTask.CompletedTask;
     }
@@ -293,7 +370,7 @@ public class AttackSequenceManager : MonoBehaviour
             return;
         }
 
-        if (_selectedMonster == null || _selectedMonster.IsEmpty)
+        if (!TryResolveSelectedMonster(out _, out _))
         {
             // Debug.Log("[AttackSequenceManager] 선택된 몬스터가 없거나 수량이 0입니다");
             return;
@@ -330,26 +407,28 @@ public class AttackSequenceManager : MonoBehaviour
             return;
         }
 
-        if (_selectedMonster == null || _selectedMonster.IsEmpty) return;
+        if (!TryResolveSelectedMonster(out var selectedMonster, out int poolSlotIndex)) return;
         if (_monsterSpawner == null) return;
         if (_opponentFieldManager == null) return;
-        if (_selectedMonster.MonsterData == null)
+        if (selectedMonster.MonsterData == null)
         {
             // Debug.LogWarning("[AttackSequenceManager] SpawnMonsterAsync 중단: 선택 몬스터 데이터 null");
             return;
         }
 
         // 몬스터 데이터 이름 저장 (RPC 전송용)
-        string monsterDataName = _selectedMonster.MonsterData?.name;
-        bool isBoss = _selectedMonster.IsBoss;
-        int originPlayerId = _selectedMonster.OriginPlayerId;
         int defenderPlayerId = _opponentFieldManager.playerManager?.playerId ?? -1;
         
         // 보스인 경우 소환 시점에 고유 ID 발급 + 보유 리스트에서 제거
-        int bossUniqueId = -1;
-        if (isBoss)
+        if (defenderPlayerId < 0 || poolSlotIndex < 0)
         {
-            bossUniqueId = SurvivorBossManager.Instance?.GetNextBossUniqueId() ?? -1;
+            return;
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null)
+        {
+            return;
         }
 
         // 호스트(StateAuthority)인 경우 직접 스폰, 클라이언트인 경우 RPC 요청
@@ -358,73 +437,224 @@ public class AttackSequenceManager : MonoBehaviour
         if (isHost)
         {
             // 호스트: 직접 스폰
-            var spawnedMonster = await _monsterSpawner.SpawnMonsterAtPositionAsync(
-                _selectedMonster.MonsterData,
-                position,
-                _opponentFieldManager,
-                isBoss,
-                bossUniqueId,
-                originPlayerId
-            );
+            PlayerRef requestSource = _playerManager.Object != null
+                ? _playerManager.Object.InputAuthority
+                : PlayerRef.None;
+            if (requestSource == PlayerRef.None && _playerManager.Runner != null)
+            {
+                requestSource = _playerManager.Runner.LocalPlayer;
+            }
 
-            if (spawnedMonster == null)
+            var command = new BattleSpawnMonsterCommand(
+                _playerManager.playerId,
+                defenderPlayerId,
+                poolSlotIndex,
+                position,
+                1,
+                "human_host_attack_sequence",
+                _playerManager.AppliedAttackMonsterPoolRevision);
+
+            BattleCommandResult result = await gameManagers.ExecuteBattleSpawnMonsterCommandAsync(
+                command,
+                CommandExecutionScope.ClientRequest,
+                requestSource);
+
+            if (!result.Success)
             {
                 // Debug.LogWarning($"[AttackSequenceManager] 스폰 실패 - 풀 소모 생략: {_selectedMonster.MonsterData.monsterName}");
                 return;
             }
 
-            if (isBoss)
+            if (false)
             {
-                _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
+
                 // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
             }
 
-            if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
+            if (false)
             {
                 // Debug.LogWarning("[AttackSequenceManager] 호스트 소환 성공 후 몬스터 풀 소비 실패");
             }
         }
         else
         {
-            if (isBoss)
+            if (HasPendingBattleSpawnForCurrentSnapshot(poolSlotIndex))
             {
-                _playerManager.ConsumeOwnedBoss(_selectedMonster.MonsterData);
+                return;
+            }
+
+            if (false)
+            {
+
                 // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
             }
 
             // 클라이언트 경로는 기존 동작 유지 (로컬 UI 즉시 반영)
-            if (!_playerManager.TryConsumeMonsterFromPool(_selectedMonster.MonsterData))
+            if (false)
             {
                 // Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
                 return;
             }
 
             // 클라이언트: 서버에 RPC 요청
+            if (!_playerManager.HasAppliedCurrentAttackMonsterPoolSnapshot)
+            {
+                _playerManager.RPC_RequestSyncData();
+                return;
+            }
+
             if (GameManagers.Instance != null)
             {
-                GameManagers.Instance.RPC_RequestSpawnMonster(
+                gameManagers.RPC_RequestBattleSpawnMonster(
                     _playerManager.playerId,
                     defenderPlayerId,
-                    monsterDataName,
+                    poolSlotIndex,
                     position,
-                    isBoss,
-                    bossUniqueId,
-                    originPlayerId
+                    1,
+                    _playerManager.AppliedAttackMonsterPoolRevision,
+                    "human_client_attack_sequence"
                 );
+                MarkPendingBattleSpawn(poolSlotIndex);
                 // Debug.Log($"<color=yellow>[AttackSequenceManager] RPC 소환 요청: {monsterDataName} at {position}</color>");
             }
         }
 
         // 선택된 몬스터가 소진되면 선택 해제 (다음 몬스터 자동 선택 안 함)
         // 사용자가 직접 UI에서 다른 몬스터를 선택해야 소환 가능
-        if (_selectedMonster.IsEmpty)
+        if (!RefreshSelectedMonsterAfterSpawn(poolSlotIndex))
         {
             // Debug.Log($"<color=orange>[AttackSequenceManager] '{_selectedMonster.MonsterData.monsterName}' 소진! 다른 몬스터를 선택해주세요.</color>");
             _selectedMonster = null;
+            _selectedMonsterSlotIndex = -1;
             
             // UI 갱신 이벤트 발생
             AttackSequenceUIController.Instance?.RefreshUI();
         }
+    }
+
+    private bool TryResolveMonsterSlot(int slotIndex, out MonsterPoolEntry entry)
+    {
+        entry = null;
+        var pool = _playerManager?.AttackMonsterPool;
+        if (pool == null || slotIndex < 0 || slotIndex >= pool.Count)
+        {
+            return false;
+        }
+
+        entry = pool[slotIndex];
+        return entry != null && !entry.IsEmpty;
+    }
+
+    private bool TryResolveSelectedMonster(out MonsterPoolEntry entry, out int slotIndex)
+    {
+        if (TryResolveMonsterSlot(_selectedMonsterSlotIndex, out entry))
+        {
+            slotIndex = _selectedMonsterSlotIndex;
+            _selectedMonster = entry;
+            return true;
+        }
+
+        var pool = _playerManager?.AttackMonsterPool;
+        if (pool != null && _selectedMonster != null)
+        {
+            int existingIndex = pool.IndexOf(_selectedMonster);
+            if (TryResolveMonsterSlot(existingIndex, out entry))
+            {
+                slotIndex = existingIndex;
+                _selectedMonsterSlotIndex = existingIndex;
+                _selectedMonster = entry;
+                return true;
+            }
+
+            string selectedName = _selectedMonster.MonsterData != null
+                ? _selectedMonster.MonsterData.name
+                : null;
+            if (!string.IsNullOrEmpty(selectedName))
+            {
+                for (int i = 0; i < pool.Count; i++)
+                {
+                    var candidate = pool[i];
+                    if (candidate != null
+                        && !candidate.IsEmpty
+                        && candidate.MonsterData != null
+                        && candidate.MonsterData.name == selectedName)
+                    {
+                        slotIndex = i;
+                        entry = candidate;
+                        _selectedMonsterSlotIndex = i;
+                        _selectedMonster = candidate;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        entry = null;
+        slotIndex = -1;
+        return false;
+    }
+
+    private bool RefreshSelectedMonsterAfterSpawn(int preferredSlotIndex)
+    {
+        if (TryResolveMonsterSlot(preferredSlotIndex, out var entry))
+        {
+            _selectedMonster = entry;
+            _selectedMonsterSlotIndex = preferredSlotIndex;
+            return true;
+        }
+
+        var pool = _playerManager?.AttackMonsterPool;
+        if (pool == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < pool.Count; i++)
+        {
+            if (TryResolveMonsterSlot(i, out entry))
+            {
+                _selectedMonster = entry;
+                _selectedMonsterSlotIndex = i;
+                AttackSequenceUIController.Instance?.SyncMonsterSelectionFromManager(i);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool HasPendingBattleSpawnForCurrentSnapshot(int poolSlotIndex)
+    {
+        if (_pendingBattleSpawnSlotIndex != poolSlotIndex)
+        {
+            return false;
+        }
+
+        if (_playerManager == null
+            || _playerManager.AppliedAttackMonsterPoolRevision != _pendingBattleSpawnRevision
+            || Time.unscaledTime - _pendingBattleSpawnStartedAt > PendingBattleSpawnTimeoutSeconds)
+        {
+            ClearPendingBattleSpawn();
+            return false;
+        }
+
+        return true;
+    }
+
+    private void MarkPendingBattleSpawn(int poolSlotIndex)
+    {
+        _pendingBattleSpawnSlotIndex = poolSlotIndex;
+        _pendingBattleSpawnRevision = _playerManager != null
+            ? _playerManager.AppliedAttackMonsterPoolRevision
+            : -1;
+        _pendingBattleSpawnStartedAt = Time.unscaledTime;
+    }
+
+    private void ClearPendingBattleSpawn()
+    {
+        _pendingBattleSpawnSlotIndex = -1;
+        _pendingBattleSpawnRevision = -1;
+        _pendingBattleSpawnStartedAt = 0f;
     }
     #endregion
 

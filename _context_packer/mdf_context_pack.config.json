@@ -1,0 +1,52 @@
+{
+  "project_subdir": "Mdfproject",
+  "output_dir": "_context_packer/output",
+  "max_file_mb": 25,
+  "include_unity_meta": true,
+  "include_unity_folder_meta": false,
+  "profiles": {
+    "scripts-plus-context": {
+      "description": "Recommended default for asking ChatGPT/Codex about MDF code, harness, AI, commands, and sync.",
+      "include": [
+        "AGENTS.md",
+        ".agent/rules/projectrull.md",
+        "docs/ai-harness/**",
+        "docs/ai-design/**",
+        ".agents/**",
+        ".codex/**",
+        "tools/harness/**",
+        "_context_packer/**",
+        "tools/context_pack/**",
+        "Mdfproject/Assets/Scripts/**",
+        "Mdfproject/Packages/manifest.json",
+        "Mdfproject/Packages/packages-lock.json",
+        "Mdfproject/ProjectSettings/ProjectVersion.txt",
+        "Mdfproject/ProjectSettings/EditorBuildSettings.asset",
+        "Mdfproject/ProjectSettings/TagManager.asset",
+        "Mdfproject/ProjectSettings/ProjectSettings.asset",
+        "Mdfproject/Assets/Photon/Fusion/build_info.txt",
+        "Mdfproject/Assets/**/*NetworkProjectConfig*.asset",
+        "Mdfproject/Assets/**/*MagicScroll*.asset",
+        "Mdfproject/Assets/**/*Scroll*.asset",
+        "Mdfproject/Assets/**/*Skill*.asset",
+        "Mdfproject/Assets/**/*Augment*.asset",
+        "Mdfproject/Assets/**/*Unit*.asset",
+        "Mdfproject/Assets/**/*Monster*.asset",
+        "Mdfproject/Assets/**/AddressableAssetsData/**"
+      ],
+      "exclude": [
+        "**/__pycache__/**",
+        "**/*.pyc",
+        "AGENTS.md.meta",
+        "docs/ai-harness/archive/**",
+        "**/artifacts/**",
+        "**/Artifacts/**",
+        ".codex/session-state/**",
+        "**/.codex/session-state/**",
+        "Mdfproject/Assets/StreamingAssets/aa/**",
+        "_context_packer/output/**",
+        "_context_bundles/**"
+      ]
+    }
+  }
+}

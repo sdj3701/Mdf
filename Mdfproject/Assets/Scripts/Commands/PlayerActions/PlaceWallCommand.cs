@@ -75,11 +75,10 @@ public class PlaceWallCommand : ICommand
             return;
         }
 
-        Vector3Int spawnCell = fm.WorldToGridInt(player.spawnPoint != null ? player.spawnPoint.position : Vector3.zero);
         Vector3Int goalCell = fm.WorldToGridInt(player.goalTransform != null ? player.goalTransform.position : Vector3.zero);
-        if (Position == spawnCell || Position == goalCell)
+        if (Position == goalCell)
         {
-            Debug.LogWarning($"[PlaceWallCommand] Cannot place wall at spawn/goal cell {Position} for Player {PlayerId}");
+            Debug.LogWarning($"[PlaceWallCommand] Cannot place wall at goal cell {Position} for Player {PlayerId}");
             return;
         }
 

@@ -250,7 +250,7 @@ public partial class GameManagers
                         Debug.Log($"[HM-TRACE #{_activeMigrationTraceId}] SetupGameUI:PLAYER_READY P{player.playerId} shopCount={shopCount} shopDbLoaded={(player.shopManager != null && player.shopManager.IsDatabaseLoaded)} augmentChoices={augmentCount} augmentLoaded={(player.augmentManager != null && player.augmentManager.IsDataLoaded)}");
                     }
                 }
-                catch (System.Exception playerEx)
+                catch (System.Exception)
                 {
                     // Debug.LogError($"[SetupGameUI] Player {(player != null ? player.playerId.ToString() : "null")} 처리 중 예외: {playerEx.Message}");
                     // Debug.LogException(playerEx);
