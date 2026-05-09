@@ -702,7 +702,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &490482444
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -710,7 +710,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 490482443}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: dc42784cf147c0c48a680349fa168899, type: 3}
   m_Name: 
@@ -800,6 +800,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7c42c984fa50f4aabaa4d429563dee9b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  nicknameInput: {fileID: 2109837510}
 --- !u!1 &548412987
 GameObject:
   m_ObjectHideFlags: 0
@@ -1071,11 +1072,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f12e954eddeca274a9a982b1b5ed40b9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  NickNameInput: {fileID: 2109837510}
-  PassWordInput: {fileID: 1542998652}
   _playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504,
     type: 3}
-  maxSessionPlayers: 2
+  maxSessionPlayers: 4
   _connectionLossPolicy: 0
   _cloudReconnectFallbackDelaySeconds: 5
 --- !u!1 &740816618
@@ -1675,6 +1674,74 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_IsOn: 0
+--- !u!1 &1117852991
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1117852994}
+  - component: {fileID: 1117852993}
+  - component: {fileID: 1117852992}
+  m_Layer: 0
+  m_Name: ReLogin UI Toolkit
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1117852992
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1117852991}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 38757c563be03b54bbc3af735497e7e7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  document: {fileID: 1117852993}
+  loadSceneOnLoginSuccess: 1
+  useTestMatchingScene: 1
+  matchingLobbySceneName: MatchingLobby
+  testMatchingSceneName: TestMatching
+  requirePasswordForAccountLogin: 1
+--- !u!114 &1117852993
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1117852991}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 19102, guid: 0000000000000000e000000000000000, type: 0}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_PanelSettings: {fileID: 11400000, guid: 6fa823df7209ca14d973b7c15b2037fe, type: 2}
+  m_ParentUI: {fileID: 0}
+  sourceAsset: {fileID: 9197481963319205126, guid: 9b282cc2ab56a834e90e457ea1bac56e,
+    type: 3}
+  m_SortingOrder: 0
+--- !u!4 &1117852994
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1117852991}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 8
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1175212928
 GameObject:
   m_ObjectHideFlags: 0
@@ -1759,7 +1826,7 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 0}
+      - m_Target: {fileID: 490482448}
         m_TargetAssemblyTypeName: NextScenes, Assembly-CSharp
         m_MethodName: OnClick
         m_Mode: 1
@@ -3053,7 +3120,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &1660193866
 MonoBehaviour:
   m_ObjectHideFlags: 0

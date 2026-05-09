@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Mdfproject/Assets/Scripts/Testing/MP.meta
 guid: 2cc6fdead446fb24aa41ac6686a1c48c
+========
+guid: bf3e6e2a472d9b249a61180f3f089bc2
+>>>>>>>> origin/develop:Mdfproject/Assets/Scripts/Defines.meta
 folderAsset: yes
 DefaultImporter:
   externalObjects: {}

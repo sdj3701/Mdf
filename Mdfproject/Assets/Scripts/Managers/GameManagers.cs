@@ -116,6 +116,7 @@ public partial class GameManagers : NetworkBehaviour
         Preparing,
         UiRestoreRunning,
         UiRestored,
+        UiRestoreDeferred,
         WaitingForFlowResume,
         FlowResumed,
         Failed
@@ -148,6 +149,7 @@ public partial class GameManagers : NetworkBehaviour
 
     private bool IsMigrationUiRestoreCompleted =>
         _migrationRestoreStage == MigrationRestoreStage.UiRestored ||
+        _migrationRestoreStage == MigrationRestoreStage.UiRestoreDeferred ||
         _migrationRestoreStage == MigrationRestoreStage.WaitingForFlowResume ||
         _migrationRestoreStage == MigrationRestoreStage.FlowResumed;
 

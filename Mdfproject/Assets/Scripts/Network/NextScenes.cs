@@ -1,45 +1,108 @@
-// Assets/Scripts/TestNetwork/NextScenes.cs
+using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
 public class NextScenes : BaseButton
 {
-    NetworkManager _networkManager;
+    [Header("Login Input")]
+    [SerializeField] private TMP_InputField nicknameInput;
+    private readonly TitleLoginEntryFlow _loginEntryFlow = new TitleLoginEntryFlow();
 
     protected override void Start()
     {
-        // DontDestroyOnLoad로 유지되는 싱글톤 인스턴스를 사용합니다.
-        _networkManager = NetworkManager.Instance;
+        ResolveNicknameInputIfNeeded();
         base.Start();
     }
 
     public override void OnClick()
     {
-        // 1. 닉네임 입력 필드에서 값을 가져옵니다.
-        string nickname = _networkManager.NickNameInput.text;
+        ResolveNicknameInputIfNeeded();
+        string nicknameInputText = nicknameInput != null ? nicknameInput.text : string.Empty;
+        _loginEntryFlow.TryLoginAndMoveToMatchingLobby(nicknameInputText);
+    }
 
-        // 2. 닉네임이 유효한지 확인하고, 비어있다면 기본값을 설정합니다.
-        if (string.IsNullOrWhiteSpace(nickname))
+    private void ResolveNicknameInputIfNeeded()
+    {
+        if (nicknameInput != null)
         {
-            nickname = "Player" + Random.Range(1000, 9999);
+            return;
         }
 
-        // 3. PlayerPrefs에 닉네임을 저장합니다.
-        //    이렇게 하면 씬이 바뀌어도 이 값을 유지할 수 있습니다.
-        PlayerPrefs.SetString("PlayerNickname", nickname);
-        PlayerPrefs.Save(); // 즉시 저장 (선택사항이지만 안정성을 위해 추가)
-
-        Debug.Log($"닉네임 '{nickname}'을 PlayerPrefs에 저장했습니다.");
-
-        // 4. 로비에 접속하고 씬을 전환합니다.
-        _networkManager.JoinLobby();
-        if (_networkManager != null)
+        var allInputs = FindObjectsOfType<TMP_InputField>(true);
+        for (int i = 0; i < allInputs.Length; i++)
         {
-            _networkManager.LoadSceneSmart("MatchingLobby");
+            var input = allInputs[i];
+            if (input == null || input.gameObject == null)
+            {
+                continue;
+            }
+
+            string nameLower = input.gameObject.name.ToLowerInvariant();
+            if (nameLower.Contains("nickname"))
+            {
+                nicknameInput = input;
+                break;
+            }
         }
-        else
+    }
+}
+
+internal sealed class TitleLoginEntryFlow
+{
+    private LoginUseCase _loginUseCase;
+    private bool _isProcessing;
+
+    public bool TryLoginAndMoveToMatchingLobby(string nicknameInputText)
+    {
+        if (_isProcessing)
         {
-            SceneManager.LoadScene("MatchingLobby");
+            Debug.LogWarning("[TitleLoginEntryFlow] Login already in progress.");
+            return false;
+        }
+
+        _isProcessing = true;
+
+        try
+        {
+            AppBootstrapper.EnsureExistsInScene();
+
+            if (!AppBootstrapper.IsBootReady)
+            {
+                Debug.LogWarning("[TitleLoginEntryFlow] Bootstrap is not ready yet.");
+                return false;
+            }
+
+            if (_loginUseCase == null)
+            {
+                _loginUseCase = new LoginUseCase(AuthServiceFactory.CreateFromDefine());
+            }
+
+            AuthResult authResult = _loginUseCase.Execute(nicknameInputText);
+            if (!authResult.Success)
+            {
+                string userMessage = AuthErrorMapper.ToUserMessage(authResult);
+                Debug.LogWarning($"[TitleLoginEntryFlow] Login failed: code={authResult.ErrorCode}, message={userMessage}");
+                return false;
+            }
+
+            Debug.Log($"[TitleLoginEntryFlow] Login complete. nickname={authResult.DisplayName}");
+
+            NetworkManager networkManager = NetworkManager.Instance;
+            if (networkManager != null)
+            {
+                networkManager.JoinLobby();
+                networkManager.LoadSceneSmart(SceneDefine.MatchingLobby);
+            }
+            else
+            {
+                SceneManager.LoadScene(SceneDefine.MatchingLobby);
+            }
+
+            return true;
+        }
+        finally
+        {
+            _isProcessing = false;
         }
     }
 }

@@ -1,5 +1,9 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Mdfproject/Assets/Scripts/Testing.meta
 guid: b1ac58f9a8e77e545956aabd18ba264b
+========
+guid: 2e556692b1bc2a4459ab890b66d81e9b
+>>>>>>>> origin/develop:Mdfproject/Assets/Scripts/Auth.meta
 folderAsset: yes
 DefaultImporter:
   externalObjects: {}

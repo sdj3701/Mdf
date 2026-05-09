@@ -1750,13 +1750,14 @@ GameObject:
   - component: {fileID: 1508541100}
   - component: {fileID: 1508541099}
   - component: {fileID: 1508541103}
+  - component: {fileID: 1508541104}
   m_Layer: 5
   m_Name: JoinLobbyUI
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1508541099
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1862,16 +1863,26 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d1016f059aaa9394b94c38bd993d5d5d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _roomNameText: {fileID: 1163827720}
-  _playerCountText: {fileID: 1468092206}
-  _hostIndicatorText: {fileID: 1702196393}
-  _player1NameText: {fileID: 269490515}
-  _player2NameText: {fileID: 521929958}
-  _player1ReadyImage: {fileID: 1627015061}
-  _player2ReadyImage: {fileID: 1224858346}
-  _gameStartButton: {fileID: 1540119498}
-  _readyButton: {fileID: 432029512}
-  _leaveRoomButton: {fileID: 175845188}
+  document: {fileID: 0}
+  matchingLobbySceneName: TestMatching
+  gameScenePath: Assets/Scenes/Game.unity
+  useMockPlayersWhenNoPlayers: 0
+--- !u!114 &1508541104
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1508541098}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 19102, guid: 0000000000000000e000000000000000, type: 0}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_PanelSettings: {fileID: 0}
+  m_ParentUI: {fileID: 0}
+  sourceAsset: {fileID: 0}
+  m_SortingOrder: 0
 --- !u!1 &1540119496
 GameObject:
   m_ObjectHideFlags: 0
@@ -2206,3 +2217,69 @@ RectTransform:
   m_AnchoredPosition: {x: 500, y: 400}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!1 &1800000001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1800000004}
+  - component: {fileID: 1800000002}
+  - component: {fileID: 1800000003}
+  m_Layer: 0
+  m_Name: JoinLobby UI Toolkit
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1800000002
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1800000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d1016f059aaa9394b94c38bd993d5d5d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  document: {fileID: 1800000003}
+  matchingLobbySceneName: TestMatching
+  gameScenePath: Assets/Scenes/Game.unity
+  useMockPlayersWhenNoPlayers: 0
+--- !u!114 &1800000003
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1800000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 19102, guid: 0000000000000000e000000000000000, type: 0}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  m_PanelSettings: {fileID: 11400000, guid: 4bf1188e1beb4b6d812a5c91adbc4e2e, type: 2}
+  m_ParentUI: {fileID: 0}
+  sourceAsset: {fileID: 9197481963319205126, guid: a86d9da62d0e4e49a295e2d6bb675762,
+    type: 3}
+  m_SortingOrder: 0
+--- !u!4 &1800000004
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1800000001}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 4
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}

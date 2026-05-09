@@ -22,7 +22,7 @@ public class NetworkPlayer : NetworkBehaviour
         {
             // FusionLobbyManager UI 대신 PlayerPrefs에서 닉네임을 가져옵니다.
             // "PlayerNickname" 키로 저장된 값이 없으면 "DefaultName"을 사용합니다.
-            string nickname = PlayerPrefs.GetString("PlayerNickname", "DefaultName");
+            string nickname = PlayerPrefs.GetString(PlayerPrefsDefine.NicknameKey, NetworkDefine.DefaultNickname);
 
             // 서버에 닉네임 설정을 요청하는 RPC를 호출합니다.
             RPC_SetInitialData(nickname);

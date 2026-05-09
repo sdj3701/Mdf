@@ -1,6 +1,11 @@
 fileFormatVersion: 2
+<<<<<<<< HEAD:Mdfproject/Assets/Scripts/Testing/MP/Editor/README.md.meta
 guid: 4f124d6263afbe048bced0e2d05a30ab
 TextScriptImporter:
+========
+guid: 4fd5210ed42d32e4f85c5b7abd4b4b75
+PrefabImporter:
+>>>>>>>> origin/develop:Mdfproject/Assets/Prefabs/Misc/CliGeneratedSmokePrefab.prefab.meta
   externalObjects: {}
   userData: 
   assetBundleName: 
