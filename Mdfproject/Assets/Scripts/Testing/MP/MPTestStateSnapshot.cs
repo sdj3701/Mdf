@@ -305,6 +305,7 @@ public static class MPTestStateSnapshot
             IsActivelyFighting = SafeBool(() => player.IsActivelyFighting, false),
             IsAttackerInCurrentBattle = SafeBool(() => player.IsAttackerInCurrentBattle, false),
             AttackMonsterPoolHash = CaptureAttackMonsterPoolHash(player),
+            AttackMonsterPoolParts = CaptureAttackMonsterPoolParts(player),
             OwnedScrollsHash = CaptureOwnedScrollsHash(player),
             OwnedScrollRevision = SafeInt(() => player.OwnedMagicScrollRevision, 0),
             ManualSkillReadyHash = CaptureManualSkillReadyHash(player),
@@ -501,6 +502,50 @@ public static class MPTestStateSnapshot
         return HashStableParts(parts);
     }
 
+    private static string[] CaptureAttackMonsterPoolParts(PlayerManager player)
+    {
+        int revision = 0;
+        string[] monsterDataNames = null;
+        int[] remainingCounts = null;
+        int[] maxCounts = null;
+        int[] isBossValues = null;
+        int[] bossUniqueIds = null;
+        int[] targetPlayerIds = null;
+        int[] originPlayerIds = null;
+        bool hasSnapshot = false;
+        try
+        {
+            hasSnapshot = player.TryGetAttackMonsterPoolSnapshotForComparison(
+                out revision,
+                out monsterDataNames,
+                out remainingCounts,
+                out maxCounts,
+                out isBossValues,
+                out bossUniqueIds,
+                out targetPlayerIds,
+                out originPlayerIds);
+        }
+        catch (Exception)
+        {
+            hasSnapshot = false;
+        }
+
+        if (!hasSnapshot || monsterDataNames == null || monsterDataNames.Length == 0)
+        {
+            return new[]
+            {
+                hasSnapshot ? "pool=empty" : "pool=null",
+                $"revision={SafeInt(() => player.AttackMonsterPoolRevision, 0)}"
+            };
+        }
+
+        return monsterDataNames.Select((monsterDataName, index) =>
+        {
+            string type = string.IsNullOrWhiteSpace(monsterDataName) ? "null" : monsterDataName.Trim();
+            return $"{index}:type={type};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={ReadArrayValue(isBossValues, index, 0) != 0};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)};revision={revision}";
+        }).ToArray();
+    }
+
     private static int ReadArrayValue(int[] values, int index, int fallback)
     {
         return values != null && index >= 0 && index < values.Length ? values[index] : fallback;
@@ -564,6 +609,8 @@ public static class MPTestStateSnapshot
             SelectedHash = selectedCount > 0 ? HashStableParts(selectedParts) : Unknown,
             ActiveEffectCount = activeEffectParts.Length,
             ActiveTargetCount = activeTargetParts.Length,
+            ActiveEffectParts = activeEffectParts,
+            ActiveTargetParts = activeTargetParts,
             ActiveEffectHash = activeEffectParts.Length > 0 ? HashStableParts(activeEffectParts) : Unknown,
             ActiveTargetHash = activeTargetParts.Length > 0 ? HashStableParts(activeTargetParts) : Unknown
         };
@@ -814,6 +861,7 @@ public static class MPTestStateSnapshot
                 TargetPlayerHash = Unknown,
                 HpBucketHash = Unknown,
                 BossPoolIdentityHash = Unknown,
+                Parts = Array.Empty<string>(),
                 AutoSpawnRunning = null
             };
         }
@@ -845,6 +893,9 @@ public static class MPTestStateSnapshot
             .Where(monster => SafeBool(() => monster.SnapshotIsBoss, false))
             .Select(BuildMonsterBossPoolIdentityPart)
             .ToArray();
+        var monsterParts = monsters
+            .Select(BuildMonsterSnapshotPart)
+            .ToArray();
 
         return new MonsterSnapshot
         {
@@ -857,6 +908,7 @@ public static class MPTestStateSnapshot
             TargetPlayerHash = targetParts.Length > 0 ? HashStableParts(targetParts) : Unknown,
             HpBucketHash = hpBucketParts.Length > 0 ? HashStableParts(hpBucketParts) : Unknown,
             BossPoolIdentityHash = bossPoolIdentityParts.Length > 0 ? HashStableParts(bossPoolIdentityParts) : Unknown,
+            Parts = monsterParts,
             AutoSpawnRunning = null
         };
     }
@@ -960,6 +1012,25 @@ public static class MPTestStateSnapshot
         int hpBucket = BuildHpBucket(hp, maxHp);
         int maxHpBucket = Mathf.Max(0, Mathf.RoundToInt(maxHp / 10f));
         return $"type={BuildMonsterDataKey(monster)};hpBucket={hpBucket};maxHpBucket={maxHpBucket}";
+    }
+
+    private static string BuildMonsterSnapshotPart(Monster monster)
+    {
+        float hp = SafeFloat(() => monster.NetworkedHP, 0f);
+        float maxHp = SafeFloat(() => monster.NetworkedMaxHP, 0f);
+        int hpPermille = maxHp > 0f ? Mathf.RoundToInt(Mathf.Clamp01(hp / maxHp) * 1000f) : -1;
+        var statusBar = SafeRef(() => monster.GetComponentInChildren<StatusBarUI>(true), null);
+        bool healthBarVisible = statusBar != null && SafeBool(() => statusBar.healthBarImage != null && statusBar.healthBarImage.gameObject.activeSelf, false);
+        bool healthBarBackgroundVisible = statusBar != null && SafeBool(() => statusBar.healthBarBackgroundImage != null && statusBar.healthBarBackgroundImage.gameObject.activeSelf, false);
+        float fillAmount = statusBar != null ? SafeFloat(() => statusBar.healthBarImage != null ? statusBar.healthBarImage.fillAmount : -1f, -1f) : -1f;
+        int fillPermille = fillAmount >= 0f ? Mathf.RoundToInt(Mathf.Clamp01(fillAmount) * 1000f) : -1;
+        int ownerId = SafeInt(() => monster.SnapshotOwnerPlayerId, -1);
+        bool isBoss = SafeBool(() => monster.SnapshotIsBoss, false);
+        int bossUniqueId = isBoss ? SafeInt(() => monster.SnapshotBossUniqueId, -1) : -1;
+        int bossOriginId = isBoss ? SafeInt(() => monster.SnapshotBossOriginPlayerId, -1) : -1;
+        string networkId = SafeString(() => monster.Object.Id.ToString(), "no-network");
+        bool active = SafeBool(() => monster.gameObject.activeInHierarchy, false);
+        return $"type={BuildMonsterDataKey(monster)};owner={ownerId};net={networkId};boss={isBoss};bossId={bossUniqueId};bossOrigin={bossOriginId};hp={Mathf.RoundToInt(hp)};max={Mathf.RoundToInt(maxHp)};hpPermille={hpPermille};healthBarVisible={healthBarVisible};healthBarBgVisible={healthBarBackgroundVisible};healthBarFillPermille={fillPermille};active={active}";
     }
 
     private static string BuildMonsterOwnerOriginPart(PlayerManager fieldOwner, Monster monster)
@@ -1461,6 +1532,7 @@ public static class MPTestStateSnapshot
         [JsonProperty("isActivelyFighting")] public bool IsActivelyFighting;
         [JsonProperty("isAttackerInCurrentBattle")] public bool IsAttackerInCurrentBattle;
         [JsonProperty("attackMonsterPoolHash")] public string AttackMonsterPoolHash;
+        [JsonProperty("attackMonsterPoolParts")] public string[] AttackMonsterPoolParts;
         [JsonProperty("ownedScrollsHash")] public string OwnedScrollsHash;
         [JsonProperty("ownedScrollRevision")] public int OwnedScrollRevision;
         [JsonProperty("manualSkillReadyHash")] public string ManualSkillReadyHash;
@@ -1491,6 +1563,8 @@ public static class MPTestStateSnapshot
         [JsonProperty("selectedHash")] public string SelectedHash;
         [JsonProperty("activeEffectCount")] public int ActiveEffectCount;
         [JsonProperty("activeTargetCount")] public int ActiveTargetCount;
+        [JsonProperty("activeEffectParts")] public string[] ActiveEffectParts;
+        [JsonProperty("activeTargetParts")] public string[] ActiveTargetParts;
         [JsonProperty("activeEffectHash")] public string ActiveEffectHash;
         [JsonProperty("activeTargetHash")] public string ActiveTargetHash;
     }
@@ -1525,6 +1599,7 @@ public static class MPTestStateSnapshot
         [JsonProperty("targetPlayerHash")] public string TargetPlayerHash;
         [JsonProperty("hpBucketHash")] public string HpBucketHash;
         [JsonProperty("bossPoolIdentityHash")] public string BossPoolIdentityHash;
+        [JsonProperty("parts")] public string[] Parts;
         [JsonProperty("autoSpawnRunning")] public bool? AutoSpawnRunning;
     }
 

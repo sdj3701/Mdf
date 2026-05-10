@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from common import normalize_snapshot_response, read_json, write_json
+from common import normalize_snapshot_response, read_json, scene_matches, write_json
 
 
 UNKNOWN = "unknown"
@@ -19,7 +19,7 @@ def compare_snapshots(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
     warnings: list[str] = []
 
     compare_equal(errors, "session", left.get("session"), right.get("session"))
-    compare_equal(errors, "scene", left.get("scene"), right.get("scene"))
+    compare_scene(errors, "scene", left.get("scene"), right.get("scene"))
 
     lg = left.get("game") or {}
     rg = right.get("game") or {}
@@ -171,6 +171,11 @@ def normalize_effects(obj: Any) -> dict[str, Any]:
 
 def compare_equal(errors: list[str], field: str, left: Any, right: Any) -> None:
     if left != right:
+        errors.append(f"{field} left={left} right={right}")
+
+
+def compare_scene(errors: list[str], field: str, left: Any, right: Any) -> None:
+    if not scene_matches(left, right):
         errors.append(f"{field} left={left} right={right}")
 
 

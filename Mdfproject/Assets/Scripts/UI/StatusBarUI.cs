@@ -54,7 +54,7 @@ public class StatusBarUI : MonoBehaviour
     private IHealth healthComponent;
     private IMana manaComponent;
     
-    public void ResetForReuse()
+    public void ResetForReuse(bool initializeImmediately = true)
     {
         if (healthComponent != null)
         {
@@ -70,6 +70,7 @@ public class StatusBarUI : MonoBehaviour
         isInitialized = false;
         isCombatPhase = false;
         
+        ResetBarFillValues();
         SetHealthBarVisibility(false);
         SetManaBarVisibility(false);
         if (skillButton != null)
@@ -77,7 +78,7 @@ public class StatusBarUI : MonoBehaviour
             skillButton.gameObject.SetActive(false);
         }
         
-        if (GameManagers.Instance != null)
+        if (initializeImmediately && GameManagers.Instance != null)
         {
             Initialize();
         }
@@ -176,6 +177,7 @@ public class StatusBarUI : MonoBehaviour
             transform.localScale = monsterScale;
         }
 
+        ResetBarFillValues();
         SetHealthBarVisibility(false);
         SetManaBarVisibility(false);
         if (skillButton != null)
@@ -224,6 +226,12 @@ public class StatusBarUI : MonoBehaviour
         if (manaBarBackgroundImage != null) manaBarBackgroundImage.gameObject.SetActive(visible);
     }
 
+    private void ResetBarFillValues()
+    {
+        if (healthBarImage != null) healthBarImage.fillAmount = 1f;
+        if (manaBarImage != null) manaBarImage.fillAmount = 0f;
+    }
+
     private void UpdateHealth(float current, float max)
     {
         if (healthBarImage == null) return;
@@ -242,9 +250,13 @@ public class StatusBarUI : MonoBehaviour
 
         SetHealthBarVisibility(shouldShow);
 
-        if (shouldShow)
+        if (max > 0)
         {
-            healthBarImage.fillAmount = (max > 0) ? (current / max) : 0f;
+            healthBarImage.fillAmount = Mathf.Clamp01(current / max);
+        }
+        else
+        {
+            healthBarImage.fillAmount = 1f;
         }
     }
 

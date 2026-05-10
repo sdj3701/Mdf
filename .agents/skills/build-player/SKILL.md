@@ -10,7 +10,7 @@ Use `mp_build_player` once implemented. Until then use Editor build automation t
 Rules:
 
 - Development Build for automation server.
-- Include `Title`, `MatchingLobby`, `JoinLobby`, `Game` scenes.
+- Include canonical scenes `00_Title`, `01_MatchingLobby`, `02_JoinLobby`, `03_Game`. Legacy CLI aliases remain `Title`, `MatchingLobby`, `TestMatching`, `JoinLobby`, `Game`.
 - Store evidence builds under `artifacts/builds/<timestamp>/`.
 - For repeated local visual MP checks on Windows, a stable ignored output dir such as `artifacts/builds/mptest-current` may be used with `tools/harness/mp/configure_windows_firewall.py` so Defender Firewall does not prompt for every timestamped exe path.
 - Capture build log and build path.

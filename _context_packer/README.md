@@ -2,6 +2,8 @@
 
 Root is kept clean: only `MDF_PACK_CONTEXT.bat` is placed at the project root. All helper files and generated bundles live in `_context_packer/`.
 
+The default `scripts-plus-context` profile includes the required root launchers (`SETUP_MDF_HARNESS.bat`, `MDF_PACK_CONTEXT.bat`) and `.gitignore`. Generated context outputs remain excluded.
+
 ## Default
 
 Double-click:

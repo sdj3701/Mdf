@@ -12,7 +12,7 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
   "role": "host|client|editor-host|editor-client",
   "caseName": "game_smoke",
   "session": "mp-...",
-  "scene": "Game",
+  "scene": "03_Game",
   "timestampUtc": "2026-05-04T10:00:00.000Z",
   "runner": {
     "isRunning": true,
@@ -172,7 +172,7 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
 Exact or hash-equal after stable wait:
 
 - session
-- scene
+- scene, compared through the harness scene alias map so legacy CLI aliases such as `Game` and canonical numbered names such as `03_Game` are equivalent
 - `currentState`
 - `battlePhase` (`None`, `Battle1`, or `Battle2`)
 - `currentRound`

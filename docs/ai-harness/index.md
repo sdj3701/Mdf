@@ -11,7 +11,8 @@ Target project:
 - Fusion: `Assets/Photon/Fusion/build_info.txt` reports `2.0.9 Stable 1566`
 - Unity Test Framework: `com.unity.test-framework` `1.1.33`
 - unity-cli connector: `com.youngwoocho02.unity-cli-connector`
-- Main scenes: `Title`, `MatchingLobby`, `JoinLobby`, `Game`
+- Canonical scenes: `00_Title`, `01_MatchingLobby`, `02_JoinLobby`, `03_Game`
+- Legacy CLI aliases: `Title`, `MatchingLobby`, `TestMatching`, `JoinLobby`, `Game`
 - Core code: `Mdfproject/Assets/Scripts`
 
 
@@ -185,6 +186,8 @@ mp_force_host_migration_probe
 ```
 
 The implementation should use existing entry points where possible: `NetworkManager.JoinLobby()`, `NetworkManager.StartGame(...)`, `GameSceneInitializer`, `GameManagers`, `CommandProcessor`, and project managers.
+
+Scene assertions and runner readiness checks must compare aliases through the shared scene normalization helpers. Legacy CLI names such as `Game` and `TestMatching` are accepted inputs, but runtime snapshots may report canonical numbered scene names such as `03_Game` and `01_MatchingLobby`.
 
 ## E2E matrix MVP
 

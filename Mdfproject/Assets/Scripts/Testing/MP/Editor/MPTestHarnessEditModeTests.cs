@@ -137,6 +137,52 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void MPTestSceneAliasesNormalizeLegacyAndCanonicalNames()
+    {
+        Assert.That(MPTestSceneAliases.Normalize("Title"), Is.EqualTo("00_Title"));
+        Assert.That(MPTestSceneAliases.Normalize("MatchingLobby"), Is.EqualTo("01_MatchingLobby"));
+        Assert.That(MPTestSceneAliases.Normalize("TestMatching"), Is.EqualTo("01_MatchingLobby"));
+        Assert.That(MPTestSceneAliases.Normalize("JoinLobby"), Is.EqualTo("02_JoinLobby"));
+        Assert.That(MPTestSceneAliases.Normalize("Game"), Is.EqualTo("03_Game"));
+
+        Assert.That(MPTestSceneAliases.Matches("03_Game", "Game"), Is.True);
+        Assert.That(MPTestSceneAliases.Matches("Game", "03_Game"), Is.True);
+        Assert.That(MPTestSceneAliases.Matches("TestMatching", "01_MatchingLobby"), Is.True);
+    }
+
+    [Test]
+    public void BasicAssertionComparesScenesAliasAware()
+    {
+        var snapshot = BuildSnapshot("host");
+        snapshot.Scene = "03_Game";
+
+        var canonicalActual = MPTestAssertions.AssertBasic(snapshot, expectedPlayers: 1, expectedScene: "Game", expectedGameState: "Prepare");
+        Assert.That(canonicalActual.Success, Is.True, string.Join("\n", canonicalActual.Errors));
+
+        snapshot.Scene = "Game";
+        var legacyActual = MPTestAssertions.AssertBasic(snapshot, expectedPlayers: 1, expectedScene: "03_Game", expectedGameState: "Prepare");
+        Assert.That(legacyActual.Success, Is.True, string.Join("\n", legacyActual.Errors));
+
+        snapshot.Scene = "TestMatching";
+        snapshot.Game.HasGameManagers = true;
+        var matchingLobby = MPTestAssertions.AssertBasic(snapshot, expectedPlayers: 1, expectedScene: "01_MatchingLobby");
+        Assert.That(matchingLobby.Success, Is.True, string.Join("\n", matchingLobby.Errors));
+    }
+
+    [Test]
+    public void SnapshotComparisonComparesScenesAliasAware()
+    {
+        var host = BuildSnapshot("host");
+        var client = BuildSnapshot("client");
+        host.Scene = "03_Game";
+        client.Scene = "Game";
+
+        var result = MPTestAssertions.CompareDurable(host, client);
+
+        Assert.That(result.Success, Is.True, string.Join("\n", result.Errors));
+    }
+
+    [Test]
     public void SnapshotComparisonRequiresBattleHashesWhenInBattle()
     {
         AssertComparisonFails((host, client) =>

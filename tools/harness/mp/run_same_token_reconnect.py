@@ -18,15 +18,17 @@ from common import (
     new_session,
     new_token,
     normalize_snapshot_response,
+    scene_matches,
     session_not_ready_reasons,
     session_ready,
     snapshot_not_ready_reasons,
     snapshot_ready,
     wait_build_peer_started,
     write_json,
+    write_standard_result,
 )
 from compare_state_snapshots import compare_snapshots
-from launch_player import PlayerProcess, launch_player
+from launch_player import PlayerProcess, launch_player, mdf_player_pids, write_case_cleanup_report, write_orphan_pressure_report
 
 
 CASE_NAME = "same-token-reconnect"
@@ -93,7 +95,8 @@ def compare_reconnect_target(host_snapshot: dict[str, Any], client_snapshot: dic
         return {"success": False, "errors": ["snapshot_not_dict"], "warnings": warnings}
 
     compare_equal(errors, "session", host_state.get("session"), client_state.get("session"))
-    compare_equal(errors, "scene", host_state.get("scene"), client_state.get("scene"))
+    if not scene_matches(host_state.get("scene"), client_state.get("scene")):
+        errors.append(f"scene left={host_state.get('scene')} right={client_state.get('scene')}")
 
     host_target = player_by_id(host_snapshot, target_player_id)
     client_target = player_by_id(client_snapshot, target_player_id)
@@ -220,7 +223,7 @@ def takeover_assertions(snapshot: dict[str, Any], target_player_id: int) -> dict
 def takeover_ready(snapshot: dict[str, Any], target_player_id: int, scene: str) -> bool:
     assertions = takeover_assertions(snapshot, target_player_id)
     return (
-        assertions["scene"] == scene
+        scene_matches(assertions["scene"], scene)
         and assertions["activePlayerCount"] == 1
         and assertions["uniquePlayerIds"] is True
         and assertions["targetExists"] is True
@@ -306,7 +309,7 @@ def reconnect_ready(
     client_state = normalize_snapshot_response(client_snapshot)
     if not isinstance(host_state, dict) or not isinstance(client_state, dict):
         return False
-    if host_state.get("scene") != scene or client_state.get("scene") != scene:
+    if not scene_matches(host_state.get("scene"), scene) or not scene_matches(client_state.get("scene"), scene):
         return False
     if not snapshot_ready(host_snapshot, expected_players, scene) or not snapshot_ready(client_snapshot, expected_players, scene):
         return False
@@ -379,11 +382,45 @@ def wait_reconnect(
 
 
 def run(args: argparse.Namespace) -> int:
-    player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
-    if player_path is None or not player_path.exists():
-        raise SystemExit("No built player found. Run Phase 9 build first or pass --player-path.")
-
     artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
+    player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
+    cleanup_baseline_pids = mdf_player_pids()
+    cleanup_report: dict = {
+        "cleanupStatus": "PASS",
+        "cleanupSuccess": True,
+        "orphanedPids": [],
+        "headlessPlayer": args.headless_player,
+    }
+    failures: list[str] = []
+
+    if args.dry_run:
+        write_json(artifact_dir / "run.json", {
+            "case": CASE_NAME,
+            "playerPath": str(player_path) if player_path else None,
+            "dryRun": True,
+            "headlessPlayer": args.headless_player,
+        })
+        print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
+        return 0
+
+    if player_path is None or not player_path.exists():
+        failures.append("player_path_missing")
+        write_json(artifact_dir / "run.json", {
+            "case": CASE_NAME,
+            "playerPath": str(player_path) if player_path else None,
+            "dryRun": False,
+            "headlessPlayer": args.headless_player,
+        })
+        result = write_standard_result(
+            artifact_dir,
+            CASE_NAME,
+            failures,
+            {"cleanupStatus": "NEEDS_ENVIRONMENT", "cleanupSuccess": False, "orphanedPids": []},
+            headless_player=args.headless_player,
+        )
+        print(json.dumps(result, indent=2))
+        return 2
+
     session = args.session or new_session("str")
     host_token = new_token()
     client_a_token = new_token()
@@ -397,7 +434,6 @@ def run(args: argparse.Namespace) -> int:
     host_proc: PlayerProcess | None = None
     client_a_proc: PlayerProcess | None = None
     client_b_proc: PlayerProcess | None = None
-    failures: list[str] = []
     target_player_id = -1
 
     write_json(artifact_dir / "run.json", {
@@ -412,10 +448,29 @@ def run(args: argparse.Namespace) -> int:
         "maxPlayers": args.max_players,
         "clientConnectionTokenHash": client_connection_hash,
         "dryRun": args.dry_run,
+        "headlessPlayer": args.headless_player,
     })
-    if args.dry_run:
-        print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
-        return 0
+    orphan_gate = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+    )
+    if orphan_gate.get("blocked"):
+        failures.append("orphan_pressure_gate_blocked")
+        result = write_standard_result(
+            artifact_dir,
+            CASE_NAME,
+            failures,
+            {
+                "cleanupStatus": "NEEDS_ENVIRONMENT",
+                "cleanupSuccess": False,
+                "orphanedPids": [proc.get("pid") for proc in orphan_gate.get("processes") or [] if isinstance(proc, dict)],
+            },
+            headless_player=args.headless_player,
+            extra={"orphanPressure": orphan_gate},
+        )
+        print(json.dumps(result, indent=2))
+        return 2
 
     try:
         host_proc = launch_player(
@@ -434,6 +489,7 @@ def run(args: argparse.Namespace) -> int:
             load_game=False,
             seed=args.seed,
             scenario="same_token_reconnect",
+            headless_player=args.headless_player,
         )
         host = AutomationClient(host_port, host_token)
         host_ping = host.wait_ping(timeout_seconds=args.ping_timeout)
@@ -457,6 +513,7 @@ def run(args: argparse.Namespace) -> int:
             load_game=False,
             seed=args.seed + 1,
             scenario="same_token_reconnect",
+            headless_player=args.headless_player,
         )
         client_a = AutomationClient(client_a_port, client_a_token)
         client_a_ping = client_a.wait_ping(timeout_seconds=args.ping_timeout)
@@ -541,6 +598,7 @@ def run(args: argparse.Namespace) -> int:
             load_game=False,
             seed=args.seed + 2,
             scenario="same_token_reconnect",
+            headless_player=args.headless_player,
         )
         client_b = AutomationClient(client_b_port, client_b_token)
         client_b_ping = client_b.wait_ping(timeout_seconds=args.ping_timeout)
@@ -581,30 +639,37 @@ def run(args: argparse.Namespace) -> int:
             if not reconnect_ok:
                 failures.append("same_token_reconnect_full_world_timeout" if not args.target_only else "same_token_reconnect_timeout")
 
-        write_json(artifact_dir / "build-host-screenshot.json", host.screenshot())
-        if client_b_proc is not None:
-            write_json(artifact_dir / "build-client-b-screenshot.json", client_b.screenshot())
+        if args.headless_player:
+            write_json(artifact_dir / "build-host-screenshot.json", {
+                "success": True,
+                "skipped": True,
+                "reason": "headless_player",
+                "headlessPlayer": True,
+            })
+            write_json(artifact_dir / "build-client-b-screenshot.json", {
+                "success": True,
+                "skipped": True,
+                "reason": "headless_player",
+                "headlessPlayer": True,
+            })
+        else:
+            write_json(artifact_dir / "build-host-screenshot.json", host.screenshot())
+            if client_b_proc is not None:
+                write_json(artifact_dir / "build-client-b-screenshot.json", client_b.screenshot())
         write_json(artifact_dir / "build-host-logs-recent.json", host.logs_recent())
         if client_b_proc is not None:
             write_json(artifact_dir / "build-client-b-logs-recent.json", client_b.logs_recent())
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
     finally:
-        for peer, proc, port, token in (
-            ("build-client-b", client_b_proc, client_b_port, client_b_token),
-            ("build-host", host_proc, host_port, host_token),
-        ):
-            if proc is None:
-                continue
-            try:
-                automation = AutomationClient(port, token, timeout=2.0)
-                write_json(artifact_dir / f"{peer}-quit.json", automation.quit())
-                proc.process.wait(timeout=10)
-                proc.close_logs()
-            except Exception:
-                proc.terminate()
-        if client_a_proc is not None and client_a_proc.process.poll() is None:
-            client_a_proc.terminate()
+        cleanup_report = write_case_cleanup_report(
+            artifact_dir,
+            [proc for proc in (host_proc, client_a_proc, client_b_proc) if proc is not None],
+            baseline_pids=cleanup_baseline_pids,
+            timeout_seconds=args.cleanup_timeout_seconds,
+            leave_processes=args.leave_processes_on_fail and bool(failures),
+            strict_cleanup=args.strict_cleanup,
+        )
         host_log = collect_player_log(artifact_dir, "build-host-or-last")
         logs = [
             artifact_dir / "build-host.stdout.log",
@@ -618,8 +683,16 @@ def run(args: argparse.Namespace) -> int:
             logs.append(host_log)
         write_timeline(artifact_dir, logs)
 
+    result = write_standard_result(
+        artifact_dir,
+        CASE_NAME,
+        failures,
+        cleanup_report,
+        headless_player=args.headless_player,
+        extra={"targetPlayerId": target_player_id},
+    )
     print(json.dumps({"artifactDir": str(artifact_dir), "failures": failures}, indent=2))
-    return 0 if not failures else 1
+    return 0 if result["success"] else 1
 
 
 def main() -> int:
@@ -639,6 +712,14 @@ def main() -> int:
     parser.add_argument("--lobby-scene", default="MatchingLobby")
     parser.add_argument("--max-players", type=int, default=3)
     parser.add_argument("--target-only", action="store_true", help="Only require target identity reclaim. Default requires full-world comparison.")
+    parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
+    parser.add_argument("--cleanup-report", action="store_true", help="Compatibility flag; cleanup-report.json is always written.")
+    parser.add_argument("--leave-processes-on-fail", action="store_true")
+    parser.add_argument("--strict-cleanup", action="store_true")
+    parser.add_argument("--orphan-check", action="store_true", help="Compatibility flag; orphan pressure check is always performed.")
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action="store_true")
     args = parser.parse_args()
     return run(args)
 

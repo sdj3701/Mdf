@@ -181,6 +181,41 @@ def scene_matches(actual: Any, expected: str) -> bool:
     return normalize_scene_name(actual) == normalize_scene_name(expected)
 
 
+def write_standard_result(
+    artifact_dir: pathlib.Path,
+    case_name: str,
+    failures: list[str],
+    cleanup_report: dict[str, Any] | None = None,
+    headless_player: bool = False,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    cleanup_report = cleanup_report or {
+        "cleanupStatus": "UNKNOWN",
+        "cleanupSuccess": False,
+        "orphanedPids": [],
+    }
+    cleanup_status = cleanup_report.get("cleanupStatus")
+    cleanup_success = cleanup_report.get("cleanupSuccess") is True
+    orphaned_pids = cleanup_report.get("orphanedPids") if isinstance(cleanup_report.get("orphanedPids"), list) else []
+    functional_success = not failures
+    result = {
+        "case": case_name,
+        "artifactDir": str(artifact_dir),
+        "success": functional_success and cleanup_status == "PASS" and cleanup_success and orphaned_pids == [],
+        "functionalSuccess": functional_success,
+        "cleanupStatus": cleanup_status if isinstance(cleanup_status, str) else "UNKNOWN",
+        "cleanupSuccess": cleanup_success,
+        "cleanupReportPath": "cleanup-report.json" if (artifact_dir / "cleanup-report.json").exists() else None,
+        "orphanedPids": orphaned_pids,
+        "headlessPlayer": headless_player,
+        "failures": failures,
+    }
+    if extra:
+        result.update(extra)
+    write_json(artifact_dir / "result.json", result)
+    return result
+
+
 def snapshot_not_ready_reasons(data: Any, expected_players: int, scene: str) -> list[str]:
     state = normalize_snapshot_response(data)
     if not isinstance(state, dict):

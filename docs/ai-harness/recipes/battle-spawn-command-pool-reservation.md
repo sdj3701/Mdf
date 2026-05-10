@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: battle
 Created: 2026-05-06
-Last used: 2026-05-06
-Last verified: 2026-05-06
-Use count: 1
+Last used: 2026-05-10
+Last verified: 2026-05-10
+Use count: 2
 Review after: 2026-08-04
 Triggers: strategic attack monster spawn command, duplicate spawn requests, async `Runner.Spawn`, attack pool hash drift
 Applies to: `BattleSpawnMonsterCommand`, `GameManagers.RPC_RequestBattleSpawnMonster`, `PlayerManager.AttackMonsterPool`, `MonsterSpawner.ExecuteSpawnPlanAsync`
-Verified by: see Verification section below; migrated from old Status: compile-and-smoke-verified; battle E2E still needs a dedicated runner
+Verified by: see Verification section below; migrated from old Status: compile-and-smoke-verified; battle E2E still needs a dedicated runner; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -42,3 +42,7 @@ Verification:
 - `unity-cli --project Mdfproject test --mode EditMode` passed 13/13.
 - Development build and launch smoke passed at `artifacts/builds/20260506-031706`.
 - Closest existing E2E passed at `artifacts/mp/20260506-031807-human-bot-prepare`, but it only proves prepare progression. A dedicated battle-spawn E2E runner is still required before claiming battle command sync PASS.
+
+Lifecycle notes:
+- 2026-05-10: BattleSpawnMonster commands consumed pools while max common-wave counts stayed equal and extras matched selected monster augments.
+- 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`

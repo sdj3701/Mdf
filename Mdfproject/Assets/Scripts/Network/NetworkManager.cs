@@ -302,7 +302,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         // 게임씬에서는 표시하지 않음
         string currentSceneName = SceneManager.GetActiveScene().name;
-        if (currentSceneName == "Game")
+        if (ResolveSceneName(currentSceneName, currentSceneName) == SceneDefine.Game)
         {
             return;
         }
@@ -1234,7 +1234,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         Debug.LogWarning(BuildConnectionLossTrace("ExecuteFallback", $"source={source}"));
 
-        if (SceneManager.GetActiveScene().name != SceneDefine.MatchingLobby)
+        if (ResolveSceneName(SceneManager.GetActiveScene().name, SceneManager.GetActiveScene().name) != SceneDefine.MatchingLobby)
         {
             SceneManager.LoadScene(SceneDefine.MatchingLobby);
         }

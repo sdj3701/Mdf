@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: AI/HumanBot, battle
 Created: 2026-05-08
-Last used: 2026-05-09
-Last verified: 2026-05-09
-Use count: 6
+Last used: 2026-05-11
+Last verified: 2026-05-11
+Use count: 8
 Review after: 2026-08-06
 Triggers: Prepare v2 recheck, HumanBot battle progression, battle command sync
 Applies to: `run_human_bot_battle_progression.py`, `battle_progression_common.py`, `PrepareDecisionPolicy`, `BattleDecisionPolicy`
-Verified by: see Verification section below; migrated from old Status: verified with cleanup environment blocker; blocker note preserved in recipe body; artifacts/mp/20260508-221828-human-bot-3round-progression; artifacts/mp/20260509-004943-human-bot-3round-progression; artifacts/mp/20260509-005651-ai-fill-2p-smoke; artifacts/mp/20260509-005809-ai-fill-2p-battle-smoke; artifacts/mp/20260509-023108-2human-aifill-visible-3round
+Verified by: see Verification section below; migrated from old Status: verified with cleanup environment blocker; blocker note preserved in recipe body; artifacts/mp/20260508-221828-human-bot-3round-progression; artifacts/mp/20260509-004943-human-bot-3round-progression; artifacts/mp/20260509-005651-ai-fill-2p-smoke; artifacts/mp/20260509-005809-ai-fill-2p-battle-smoke; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -58,3 +58,7 @@ Lifecycle notes:
 - 2026-05-09: verified artifact `artifacts/mp/20260509-005809-ai-fill-2p-battle-smoke`
 - 2026-05-09: 2-human + 2 AI fill visual MP run reached round 3 with spawnMonsterSeq=41 and rejectedBattleCommandCount=0 after slot-based attack pool selection fix.
 - 2026-05-09: verified artifact `artifacts/mp/20260509-023108-2human-aifill-visible-3round`
+- 2026-05-10: HumanBot peers progressed through prepare into Battle1/Battle2 while wave pool assertions were sampled.
+- 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
+- 2026-05-11: Used 2 HumanBot clients through Prepare/Battle1/Battle2 to verify monster HP bar reset behavior.
+- 2026-05-11: verified artifact `artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless`

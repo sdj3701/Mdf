@@ -271,7 +271,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             }
             
             var existingStatusBar = GetComponentInChildren<StatusBarUI>(true);
-            existingStatusBar?.ResetForReuse();
+            existingStatusBar?.ResetForReuse(initializeImmediately: false);
         }
         _hasSpawned = true;
         TryRebindOwnerFromNetworkSnapshot();
@@ -578,6 +578,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         isBlocked = false;
         blockingUnit = null;
         isMoving = false;
+        _isBoss = false;
+        _originPlayerId = -1;
+        _bossUniqueId = -1;
+        _hasRegisteredAsSurvivor = false;
         if (attackCoroutine != null)
         {
             StopCoroutine(attackCoroutine);
@@ -812,6 +816,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         EnsureStatusBarUI();
         
         // 서버에서 동기화된 HP 값을 UI에 반영
+        statusBarUI?.ResetForReuse();
         OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
         
         manaController = GetComponent<ManaController>();

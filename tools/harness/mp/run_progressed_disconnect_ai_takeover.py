@@ -17,6 +17,7 @@ from common import (
     new_session,
     new_token,
     normalize_snapshot_response,
+    scene_matches,
     wait_build_peer_started,
     write_json,
 )
@@ -76,7 +77,7 @@ def takeover_assertions(snapshot: dict[str, Any], target_player_id: int) -> dict
 
 def takeover_ready(assertions: dict[str, Any], scene: str, expected_players: int) -> bool:
     return (
-        assertions["scene"] == scene
+        scene_matches(assertions["scene"], scene)
         and assertions["activePlayerCount"] == expected_players - 1
         and assertions["playerCount"] == expected_players
         and assertions["uniquePlayerIds"] is True

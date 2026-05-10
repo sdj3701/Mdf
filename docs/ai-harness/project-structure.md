@@ -12,7 +12,7 @@
 - unity-cli connector installed in `Packages/manifest.json`
 - Fusion SDK under `Mdfproject/Assets/Photon/Fusion`
 - Fusion build info: `2.0.9 Stable 1566`
-- Build scenes: `Title`, `MatchingLobby`, `JoinLobby`, `Game`
+- Build scenes: `00_Title`, `01_MatchingLobby`, `02_JoinLobby`, `03_Game`; CLI aliases remain `Title`, `MatchingLobby`, `TestMatching`, `JoinLobby`, `Game`
 - Project code count under `Assets/Scripts`: about 196 C# files
 
 ## Top-level script map
