@@ -38,6 +38,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [Networked] private NetworkBool NetworkedHasOwnerPlayerId { get; set; }
 
     private bool _hasSpawned;
+    private string _localUnitDataKey = string.Empty;
+    private int _localOwnerPlayerId = -1;
+    private bool _localHasOwnerPlayerId;
     private bool _hasLocalHealthValues;
     private float _localHP;
     private float _localMaxHP;
@@ -48,6 +51,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         && Runner.IsRunning
         && Object != null
         && Object.IsValid;
+    private bool CanReadNetworkedIdentity() => CanReadNetworkedState;
 
     public float CurrentHealth => CanReadNetworkedState ? NetworkedHP : _localHP;
     public float MaxHealth => CanReadNetworkedState ? NetworkedMaxHP : _localMaxHP;
@@ -159,7 +163,23 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// StatusBarUI에서 커맨드 전송 시 playerId를 얻기 위해 사용됩니다.
     /// </summary>
     public PlayerManager Owner => owner;
-    public int OwnerPlayerIdForRoster => owner != null ? owner.playerId : (NetworkedHasOwnerPlayerId ? NetworkedOwnerPlayerId : -1);
+    public string UnitDataKeyForRoster => GetSnapshotUnitDataKey();
+    public int StarLevelForRoster => starLevel > 0
+        ? starLevel
+        : TryGetNetworkedStarLevel(out int networkedStarLevel) ? networkedStarLevel : 1;
+
+    public int OwnerPlayerIdForRoster
+    {
+        get
+        {
+            if (owner != null)
+            {
+                return owner.playerId;
+            }
+
+            return TryGetOwnerPlayerIdForRoster(out int ownerPlayerId) ? ownerPlayerId : -1;
+        }
+    }
 
     public void SyncFieldPlacementIdentity(PlayerManager fieldOwner, Vector3Int gridPosition)
     {
@@ -172,7 +192,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             }
         }
 
-        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        UpdateLocalNetworkIdentityMirror();
+
+        if (!CanWriteNetworkedIdentity())
         {
             return;
         }
@@ -428,6 +450,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return Object.HasStateAuthority;
     }
 
+    private bool CanWriteNetworkedIdentity()
+    {
+        return _hasSpawned
+            && Runner != null
+            && Runner.IsRunning
+            && Object != null
+            && Object.IsValid
+            && Object.HasStateAuthority;
+    }
+
     private static string StripTrailingDigits(string value)
     {
         if (string.IsNullOrEmpty(value))
@@ -475,9 +507,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 pm.Object.InputAuthority == Object.InputAuthority);
         }
 
-        if (owner == null && NetworkedHasOwnerPlayerId && GameManagers.Instance != null)
+        if (owner == null && TryGetOwnerPlayerIdForRoster(out int ownerPlayerId) && GameManagers.Instance != null)
         {
-            int ownerPlayerId = NetworkedOwnerPlayerId;
             owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
                 pm != null &&
                 pm.playerId == ownerPlayerId);
@@ -550,7 +581,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     private void SyncNetworkIdentityFromLocalData()
     {
-        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        UpdateLocalNetworkIdentityMirror();
+
+        if (!CanWriteNetworkedIdentity())
         {
             return;
         }
@@ -573,6 +606,72 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
     }
 
+    private void UpdateLocalNetworkIdentityMirror()
+    {
+        _localUnitDataKey = unitData != null ? NormalizeUnitDataKey(unitData.name) : _localUnitDataKey;
+        if (owner != null && owner.playerId >= 0)
+        {
+            _localOwnerPlayerId = owner.playerId;
+            _localHasOwnerPlayerId = true;
+        }
+    }
+
+    private bool TryGetOwnerPlayerIdForRoster(out int ownerPlayerId)
+    {
+        ownerPlayerId = -1;
+
+        if (CanReadNetworkedIdentity() && NetworkedHasOwnerPlayerId)
+        {
+            ownerPlayerId = NetworkedOwnerPlayerId;
+            if (ownerPlayerId >= 0)
+            {
+                _localOwnerPlayerId = ownerPlayerId;
+                _localHasOwnerPlayerId = true;
+                return true;
+            }
+        }
+
+        if (_localHasOwnerPlayerId && _localOwnerPlayerId >= 0)
+        {
+            ownerPlayerId = _localOwnerPlayerId;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryGetNetworkedStarLevel(out int networkedStarLevel)
+    {
+        networkedStarLevel = 0;
+        if (!CanReadNetworkedIdentity())
+        {
+            return false;
+        }
+
+        networkedStarLevel = NetworkedStarLevel;
+        return networkedStarLevel > 0;
+    }
+
+    private string GetSnapshotUnitDataKey()
+    {
+        if (CanReadNetworkedIdentity())
+        {
+            string networkKey = NormalizeUnitDataKey(NetworkedUnitDataKey.ToString());
+            if (!string.IsNullOrEmpty(networkKey))
+            {
+                _localUnitDataKey = networkKey;
+                return networkKey;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(_localUnitDataKey))
+        {
+            return _localUnitDataKey;
+        }
+
+        return unitData != null ? NormalizeUnitDataKey(unitData.name) : string.Empty;
+    }
+
     private void TryRecoverUnitDataFromNetworkIdentity(string context)
     {
         if (unitData != null)
@@ -580,7 +679,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        string key = NormalizeUnitDataKey(NetworkedUnitDataKey.ToString());
+        string key = GetSnapshotUnitDataKey();
         if (string.IsNullOrEmpty(key))
         {
             return;
@@ -631,9 +730,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             }
         }
 
+        UpdateLocalNetworkIdentityMirror();
+
         if (starLevel <= 0)
         {
-            starLevel = NetworkedStarLevel > 0 ? NetworkedStarLevel : 1;
+            starLevel = TryGetNetworkedStarLevel(out int networkedStarLevel) ? networkedStarLevel : 1;
         }
 
         TryRecoverUnitDataFromNetworkIdentity(context);
@@ -902,7 +1003,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             attackClipDetectRoutine = StartCoroutine(CaptureAttackClipDuration());
         }
         
-        if (Object != null && Object.HasStateAuthority)
+        if (CanWriteNetworkedStats())
         {
             NetworkedIsAttacking = !NetworkedIsAttacking;
         }

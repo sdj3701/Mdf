@@ -21,7 +21,13 @@ from common import (
     write_json,
 )
 from compare_state_snapshots import compare_snapshots
-from launch_player import PlayerProcess, launch_player
+from launch_player import (
+    PlayerProcess,
+    launch_player,
+    mdf_player_pids,
+    write_case_cleanup_report,
+    write_orphan_pressure_report,
+)
 from progressed_human_bot_common import (
     dump_state,
     local_player,
@@ -42,13 +48,21 @@ CASE_NAME = "progressed-host-migration-e2e"
 UNKNOWN = "unknown"
 
 
-def write_result(artifact_dir: pathlib.Path, failures: list[str]) -> None:
-    write_json(artifact_dir / "result.json", {
+def write_result(artifact_dir: pathlib.Path, failures: list[str], cleanup_report: dict[str, Any] | None = None) -> None:
+    result = {
         "case": CASE_NAME,
         "artifactDir": str(artifact_dir),
         "success": not failures,
         "failures": failures,
-    })
+    }
+    if cleanup_report is not None:
+        result.update({
+            "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+            "cleanupStatus": cleanup_report.get("cleanupStatus"),
+            "cleanupReportPath": "cleanup-report.json",
+            "orphanedPids": cleanup_report.get("orphanedPids") or [],
+        })
+    write_json(artifact_dir / "result.json", result)
 
 
 def snapshot_body(snapshot: Any) -> dict[str, Any]:
@@ -319,6 +333,72 @@ def wait_post_migration(
     return latest, latest_proof, latest_assertions, False
 
 
+def field_units_hash(snapshot: Any, player_id: int) -> Any:
+    player = player_by_id(snapshot, player_id)
+    return nested(player, "field", "placedUnitsHash") if isinstance(player, dict) else None
+
+
+def post_migration_move_unit_assertions(
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    before_snapshot: Any,
+    player_id: int,
+    timeout: int,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    command_response = client.command(name="move_unit", playerId=player_id)
+    write_json(artifact_dir / "post-migration-move-unit-command.json", command_response)
+    if command_response.get("success") is not True:
+        error = command_response.get("error") or {}
+        errors.append(f"move_unit_command_failed:{error.get('code') or command_response.get('message')}")
+        return before_snapshot if isinstance(before_snapshot, dict) else {}, {
+            "success": False,
+            "errors": errors,
+            "warnings": warnings,
+            "command": command_response,
+        }
+
+    before_hash = field_units_hash(before_snapshot, player_id)
+    latest: dict[str, Any] = before_snapshot if isinstance(before_snapshot, dict) else {}
+    after_hash = before_hash
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        latest = dump_state(client, artifact_dir, "survivor-client", "post-migration-move-latest")
+        after_hash = field_units_hash(latest, player_id)
+        write_json(artifact_dir / "post-migration-move-unit-latest.json", {
+            "playerId": player_id,
+            "beforeHash": before_hash,
+            "afterHash": after_hash,
+            "snapshotErrors": snapshot_body(latest).get("errors") or [],
+        })
+        if before_hash is not None and after_hash is not None and after_hash != before_hash:
+            break
+        time.sleep(1)
+
+    body = snapshot_body(latest)
+    snapshot_errors = body.get("errors") if isinstance(body, dict) else []
+    if snapshot_errors:
+        errors.extend(f"snapshot_error_after_move:{err}" for err in snapshot_errors)
+    if before_hash is None or after_hash is None:
+        errors.append(f"move_unit_hash_missing before={before_hash} after={after_hash}")
+    elif after_hash == before_hash:
+        errors.append(f"move_unit_hash_unchanged:{before_hash}")
+
+    report = {
+        "success": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "command": command_response,
+        "playerId": player_id,
+        "beforeHash": before_hash,
+        "afterHash": after_hash,
+    }
+    write_json(artifact_dir / "post-migration-move-unit-result.json", report)
+    write_json(artifact_dir / "snapshots" / "survivor-client-post-migration-move.json", latest)
+    return latest, report
+
+
 def bot_args(args: argparse.Namespace, journal_path: pathlib.Path, bot_seed: int) -> list[str]:
     return [
         "--mpFreezeGameFlow",
@@ -362,7 +442,20 @@ def run(args: argparse.Namespace) -> int:
     client_proc: PlayerProcess | None = None
     host_was_killed = False
     failures: list[str] = []
+    cleanup_baseline_pids = mdf_player_pids()
+    cleanup_report: dict[str, Any] = {
+        "cleanupStatus": "PASS",
+        "cleanupSuccess": True,
+        "orphanedPids": [],
+    }
     bot_player_id = -1
+    post_move_report: dict[str, Any] | None = None
+    orphan_gate = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+        [host_token, client_token, host_connection, client_connection],
+    )
 
     write_json(artifact_dir / "run.json", {
         "case": CASE_NAME,
@@ -376,15 +469,30 @@ def run(args: argparse.Namespace) -> int:
         "botSeed": bot_seed,
         "botPersona": args.bot_persona,
         "botJournalPath": str(bot_journal_path),
+        "postMigrationMoveUnit": args.post_migration_move_unit,
         "config": config,
         "dryRun": args.dry_run,
+        "headlessPlayer": args.headless_player,
+        "cleanup": {
+            "baselinePids": sorted(cleanup_baseline_pids),
+            "timeoutSeconds": args.cleanup_timeout_seconds,
+            "leaveProcessesOnFail": args.leave_processes_on_fail,
+            "strictCleanup": args.strict_cleanup,
+        },
+        "orphanPressure": orphan_gate,
     })
     if not config["enableAutoUpdate"]:
         failures.append("NEEDS_PROJECT_SUPPORT:host_migration_auto_update_disabled")
+    if orphan_gate.get("blocked") and not args.dry_run:
+        failures.append("orphan_pressure_gate_blocked")
 
     if args.dry_run:
         print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True, "config": config}, indent=2))
         return 0
+    if failures:
+        failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
+        write_result(artifact_dir, failures, cleanup_report)
+        return 1
 
     try:
         host_proc = launch_player(
@@ -404,6 +512,7 @@ def run(args: argparse.Namespace) -> int:
             seed=args.seed,
             scenario="progressed_host_migration_e2e",
             extra_args=freeze_game_flow_args(),
+            headless_player=args.headless_player,
         )
         host = AutomationClient(host_port, host_token, timeout=args.request_timeout)
         host_ping = host.wait_ping(timeout_seconds=args.ping_timeout)
@@ -428,6 +537,7 @@ def run(args: argparse.Namespace) -> int:
             seed=args.seed + 1,
             scenario="progressed_host_migration_e2e",
             extra_args=bot_args(args, bot_journal_path, bot_seed),
+            headless_player=args.headless_player,
         )
         client = AutomationClient(client_port, client_token, timeout=args.request_timeout)
         client_ping = client.wait_ping(timeout_seconds=args.ping_timeout)
@@ -611,12 +721,24 @@ def run(args: argparse.Namespace) -> int:
             failures.append("progressed_host_migration_timeout")
         failures.extend(f"host_migration_proof:{err}" for err in proof.get("errors") or [])
         failures.extend(f"progressed_migration:{err}" for err in migration_assertions.get("errors") or [])
+
+        if args.post_migration_move_unit and not failures:
+            post, post_move_report = post_migration_move_unit_assertions(
+                client,
+                artifact_dir,
+                post,
+                bot_player_id,
+                args.post_migration_move_timeout,
+            )
+            failures.extend(f"post_migration_move_unit:{err}" for err in post_move_report.get("errors") or [])
+
         write_json(artifact_dir / "host-migration-e2e-result.json", {
             "hostWasKilled": host_was_killed,
             "config": config,
             "migration": proof.get("migration"),
             "proof": proof,
             "assertions": migration_assertions,
+            "postMigrationMoveUnit": post_move_report,
             "failures": failures,
         })
 
@@ -627,16 +749,17 @@ def run(args: argparse.Namespace) -> int:
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
     finally:
-        if client_proc is not None:
-            try:
-                automation = AutomationClient(client_port, client_token, timeout=2.0)
-                write_json(artifact_dir / "survivor-client-quit.json", automation.quit())
-                client_proc.process.wait(timeout=10)
-                client_proc.close_logs()
-            except Exception:
-                client_proc.terminate()
-        if host_proc is not None and not host_was_killed:
-            host_proc.terminate()
+        functional_failures = list(failures)
+        cleanup_report = write_case_cleanup_report(
+            artifact_dir,
+            [proc for proc in (client_proc, host_proc) if proc is not None],
+            baseline_pids=cleanup_baseline_pids,
+            timeout_seconds=args.cleanup_timeout_seconds,
+            leave_processes=args.leave_processes_on_fail and bool(functional_failures),
+            strict_cleanup=args.strict_cleanup,
+        )
+        if args.strict_cleanup and cleanup_report.get("cleanupStatus") != "PASS":
+            failures.append(f"cleanup_failed:{cleanup_report.get('cleanupStatus')}")
 
         player_log = collect_player_log(artifact_dir, "progressed-host-migration-last")
         logs = [
@@ -649,8 +772,14 @@ def run(args: argparse.Namespace) -> int:
             logs.append(player_log)
         write_timeline(artifact_dir, logs)
 
-    write_result(artifact_dir, failures)
-    print(json.dumps({"artifactDir": str(artifact_dir), "failures": failures}, indent=2))
+    write_result(artifact_dir, failures, cleanup_report)
+    print(json.dumps({
+        "artifactDir": str(artifact_dir),
+        "failures": failures,
+        "cleanupStatus": cleanup_report.get("cleanupStatus"),
+        "cleanupSuccess": cleanup_report.get("cleanupSuccess"),
+        "orphanedPids": cleanup_report.get("orphanedPids") or [],
+    }, indent=2))
     return 0 if not failures else 1
 
 
@@ -677,6 +806,14 @@ def main() -> int:
     parser.add_argument("--migration-timeout", type=int, default=120)
     parser.add_argument("--request-timeout", type=float, default=20.0)
     parser.add_argument("--stable-samples", type=int, default=2)
+    parser.add_argument("--post-migration-move-unit", action="store_true")
+    parser.add_argument("--post-migration-move-timeout", type=int, default=30)
+    parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
+    parser.add_argument("--leave-processes-on-fail", action="store_true")
+    parser.add_argument("--strict-cleanup", action="store_true")
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action="store_true")
     args = parser.parse_args()
     return run(args)
 

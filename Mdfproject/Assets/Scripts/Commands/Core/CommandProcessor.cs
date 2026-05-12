@@ -33,6 +33,7 @@ public class CommandProcessor
                     return;
                 }
 
+                ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
                 gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
                 return;
             }

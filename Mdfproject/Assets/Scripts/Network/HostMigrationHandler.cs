@@ -76,6 +76,10 @@ public class HostMigrationHandler : MonoBehaviour
         public int ShopRound;
         public int[] PermanentWallFlatPositions;
         public string WallHash;
+        public UnitData[] FieldUnitDataRefs;
+        public string[] FieldUnitDataKeys;
+        public int[] FieldUnitStarLevels;
+        public int[] FieldUnitFlatPositions;
         public string[] PresentedAugmentNames;
         public string[] SelectedAugmentNames;
         public int AttackPoolRevision;
@@ -1396,7 +1400,7 @@ public class HostMigrationHandler : MonoBehaviour
 
     private void CaptureDurablePlayerState(NetworkRunner runner, GameManagers gm)
     {
-        _cachedDurablePlayersById.Clear();
+        var capturedDurablePlayers = new Dictionary<int, DurablePlayerMigrationSnapshot>();
 
         var players = ResolvePlayerManagersForRunner(runner, gm);
         foreach (var player in players)
@@ -1422,6 +1426,10 @@ public class HostMigrationHandler : MonoBehaviour
                 ShopRound = 0,
                 PermanentWallFlatPositions = Array.Empty<int>(),
                 WallHash = string.Empty,
+                FieldUnitDataRefs = Array.Empty<UnitData>(),
+                FieldUnitDataKeys = Array.Empty<string>(),
+                FieldUnitStarLevels = Array.Empty<int>(),
+                FieldUnitFlatPositions = Array.Empty<int>(),
                 PresentedAugmentNames = Array.Empty<string>(),
                 SelectedAugmentNames = Array.Empty<string>(),
                 AttackPoolRevision = 0,
@@ -1457,6 +1465,18 @@ public class HostMigrationHandler : MonoBehaviour
                 player.fieldManager.RebuildWallMapsAfterMigration("HostMigrationHandler.CaptureDurablePlayerState", false, out _);
                 snapshot.PermanentWallFlatPositions = player.fieldManager.GetPermanentWallFlatPositions() ?? Array.Empty<int>();
                 snapshot.WallHash = player.fieldManager.BuildWallCellHash();
+
+                if (player.fieldManager.TryGetFieldUnitSnapshot(
+                        out UnitData[] fieldUnitDataRefs,
+                        out string[] fieldUnitDataKeys,
+                        out int[] fieldUnitStarLevels,
+                        out int[] fieldUnitFlatPositions))
+                {
+                    snapshot.FieldUnitDataRefs = fieldUnitDataRefs ?? Array.Empty<UnitData>();
+                    snapshot.FieldUnitDataKeys = fieldUnitDataKeys ?? Array.Empty<string>();
+                    snapshot.FieldUnitStarLevels = fieldUnitStarLevels ?? Array.Empty<int>();
+                    snapshot.FieldUnitFlatPositions = fieldUnitFlatPositions ?? Array.Empty<int>();
+                }
             }
 
             snapshot.PresentedAugmentNames = player.GetPresentedAugmentSnapshotNames() ?? Array.Empty<string>();
@@ -1494,7 +1514,20 @@ public class HostMigrationHandler : MonoBehaviour
                 snapshot.OwnedScrollDataNames = ownedScrollDataNames ?? Array.Empty<string>();
             }
 
-            _cachedDurablePlayersById[playerId] = snapshot;
+            capturedDurablePlayers[playerId] = snapshot;
+        }
+
+        if (capturedDurablePlayers.Count > 0)
+        {
+            _cachedDurablePlayersById = capturedDurablePlayers;
+        }
+        else if (_cachedDurablePlayersById.Count > 0)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] durable player snapshot capture returned empty; preserving previous snapshot players={_cachedDurablePlayersById.Count}");
+        }
+        else
+        {
+            _cachedDurablePlayersById.Clear();
         }
 
         Debug.Log($"[HostMigrationHandler] durable player snapshot captured. runner={DescribeRunner(runner)}, players={_cachedDurablePlayersById.Count}");
@@ -1543,7 +1576,11 @@ public class HostMigrationHandler : MonoBehaviour
 
         int restoredPlayers = 0;
         int restoredWalls = 0;
+        int restoredUnitFields = 0;
+        int failedUnitFields = 0;
         var missingPlayers = new List<int>();
+        var restoredPlayersBySnapshotId = new Dictionary<int, PlayerManager>();
+        bool shouldRestoreFieldUnits = ShouldRestoreFieldUnitsForContext(context);
 
         foreach (var kv in _cachedDurablePlayersById
                      .OrderByDescending(kv => kv.Value.HasInputAuthority)
@@ -1593,6 +1630,7 @@ public class HostMigrationHandler : MonoBehaviour
                 snapshot.SelectedAugmentNames,
                 context);
             restoredPlayers++;
+            restoredPlayersBySnapshotId[snapshot.PlayerId] = player;
 
             if (player.fieldManager != null && snapshot.PermanentWallFlatPositions != null && snapshot.PermanentWallFlatPositions.Length > 0)
             {
@@ -1601,7 +1639,36 @@ public class HostMigrationHandler : MonoBehaviour
             }
         }
 
-        Debug.Log($"[HostMigrationHandler] durable player snapshot applied ({context}). restoredPlayers={restoredPlayers}/{_cachedDurablePlayersById.Count}, restoredWallFields={restoredWalls}, missingPlayers={string.Join(",", missingPlayers)}");
+        if (shouldRestoreFieldUnits)
+        {
+            foreach (var kv in _cachedDurablePlayersById
+                         .OrderBy(kv => (kv.Value.FieldUnitFlatPositions?.Length ?? 0) > 0 ? 1 : 0)
+                         .ThenBy(kv => kv.Key))
+            {
+                var snapshot = kv.Value;
+                if (!restoredPlayersBySnapshotId.TryGetValue(snapshot.PlayerId, out var player) || player == null || player.fieldManager == null)
+                {
+                    continue;
+                }
+
+                bool restoredUnits = player.fieldManager.RestoreFieldUnitsAfterHostMigration(
+                    snapshot.FieldUnitDataRefs,
+                    snapshot.FieldUnitDataKeys,
+                    snapshot.FieldUnitStarLevels,
+                    snapshot.FieldUnitFlatPositions,
+                    context);
+                if (restoredUnits)
+                {
+                    restoredUnitFields++;
+                }
+                else
+                {
+                    failedUnitFields++;
+                }
+            }
+        }
+
+        Debug.Log($"[HostMigrationHandler] durable player snapshot applied ({context}). restoredPlayers={restoredPlayers}/{_cachedDurablePlayersById.Count}, restoredWallFields={restoredWalls}, restoredUnitFields={restoredUnitFields}, failedUnitFields={failedUnitFields}, missingPlayers={string.Join(",", missingPlayers)}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestHostMigrationEvents.Record("handler_durable_snapshot_applied", expectedRunner, null, new Dictionary<string, object>
         {
@@ -1609,9 +1676,17 @@ public class HostMigrationHandler : MonoBehaviour
             { "restoredPlayers", restoredPlayers },
             { "capturedPlayers", _cachedDurablePlayersById.Count },
             { "restoredWallFields", restoredWalls },
+            { "restoredUnitFields", restoredUnitFields },
+            { "failedUnitFields", failedUnitFields },
             { "missingPlayers", string.Join(",", missingPlayers) }
         });
 #endif
+    }
+
+    private static bool ShouldRestoreFieldUnitsForContext(string context)
+    {
+        return !string.IsNullOrEmpty(context)
+            && context.IndexOf("PostRestore", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private static void RestoreInputAuthorityForDurableSnapshot(

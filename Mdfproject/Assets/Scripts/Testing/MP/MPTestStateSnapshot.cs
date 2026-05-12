@@ -791,6 +791,11 @@ public static class MPTestStateSnapshot
 
     private static bool ShouldIncludeUnitPositionInSnapshot()
     {
+        if (MPTestCommandLine.IsEnabled)
+        {
+            return true;
+        }
+
         var managers = SafeRef(() => GameManagers.Instance, null);
         var state = managers != null
             ? SafeRef(() => managers.GetGameState(), GameManagers.GameState.Setup)

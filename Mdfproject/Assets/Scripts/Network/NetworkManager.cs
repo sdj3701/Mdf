@@ -570,6 +570,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return;
         }
 
+        if (ShouldDelayFallbackForHostMigration(runner))
+        {
+            ScheduleHostMigrationFallbackGrace($"HostMigrationGrace:OnDisconnectedFromServer:{reason}", _cloudReconnectFallbackDelaySeconds);
+            return;
+        }
+
         ApplyConnectionLossPolicy(
             source: $"OnDisconnectedFromServer:{reason}",
             reconnectingHint: false);
@@ -580,6 +586,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken)
     {
         Debug.Log("<color=yellow>[NetworkManager] OnHostMigration 호출됨!</color>");
+        CancelPendingConnectionLossFallback();
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestHostMigrationEvents.Record("network_manager_on_host_migration", runner, hostMigrationToken);
 #endif
@@ -1195,6 +1202,15 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             $"delay={delaySeconds:F1}, source={source}"));
     }
 
+    private void ScheduleHostMigrationFallbackGrace(string source, float delaySeconds)
+    {
+        CancelPendingConnectionLossFallback();
+        _pendingConnectionLossFallback = StartCoroutine(HostMigrationFallbackGraceCoroutine(source, delaySeconds));
+        Debug.LogWarning(BuildConnectionLossTrace(
+            "ScheduleHostMigrationGrace",
+            $"delay={delaySeconds:F1}, source={source}"));
+    }
+
     private IEnumerator ConnectionLossFallbackCoroutine(string source, float delaySeconds)
     {
         float delay = Mathf.Max(0f, delaySeconds);
@@ -1213,6 +1229,38 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         _pendingConnectionLossFallback = null;
         ExecuteConnectionLossFallback($"DelayedFallback:{source}");
+    }
+
+    private IEnumerator HostMigrationFallbackGraceCoroutine(string source, float delaySeconds)
+    {
+        float delay = Mathf.Max(0.5f, delaySeconds);
+        yield return new WaitForSeconds(delay);
+
+        _pendingConnectionLossFallback = null;
+        bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
+        if (isMigrating)
+        {
+            Debug.Log(BuildConnectionLossTrace("CancelHostMigrationGrace", $"source={source}"));
+            yield break;
+        }
+
+        ExecuteConnectionLossFallback($"HostMigrationGraceExpired:{source}");
+    }
+
+    private bool ShouldDelayFallbackForHostMigration(NetworkRunner runner)
+    {
+        if (runner == null || HostMigrationHandler.Instance == null)
+        {
+            return false;
+        }
+
+        if (runner.GameMode != GameMode.Client)
+        {
+            return false;
+        }
+
+        string sceneName = SceneManager.GetActiveScene().name;
+        return sceneName != SceneDefine.MatchingLobby && sceneName != SceneDefine.Title;
     }
 
     private void CancelPendingConnectionLossFallback()
