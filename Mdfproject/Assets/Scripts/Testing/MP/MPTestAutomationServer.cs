@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text;
 using System.Threading;
@@ -401,7 +402,13 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecuteRerollShopCommand(body, commandName);
         }
 
-        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop is currently supported by the runtime command harness.", new
+        if (string.Equals(commandName, "move_unit", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "MoveUnit", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteMoveUnitCommand(body, commandName);
+        }
+
+        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop and move_unit are currently supported by the runtime command harness.", new
         {
             command = commandName
         });
@@ -567,6 +574,211 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         });
     }
 
+    private AutomationResponse ExecuteMoveUnitCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        if (playerId < 0)
+        {
+            return AutomationResponse.Fail("invalid_player_id", "playerId must be >= 0.", new { command = commandName, playerId });
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.", new { command = commandName, playerId });
+        }
+
+        if (!gameManagers.Runner.IsServer)
+        {
+            return AutomationResponse.Fail("command_requires_server_peer", "move_unit must be issued to the server/host peer.", new { command = commandName, playerId });
+        }
+
+        if (gameManagers.Object == null || !gameManagers.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail("command_requires_state_authority", "move_unit requires GameManagers State Authority.", new { command = commandName, playerId });
+        }
+
+        if (gameManagers.GetGameState() != GameManagers.GameState.Prepare || gameManagers.IsSequenceTransitioning)
+        {
+            return AutomationResponse.Fail("command_requires_prepare_phase", "move_unit requires a stable Prepare phase.", new
+            {
+                command = commandName,
+                playerId,
+                state = gameManagers.GetGameState().ToString(),
+                gameManagers.IsSequenceTransitioning
+            });
+        }
+
+        if (gameManagers.CommandProcessor == null)
+        {
+            return AutomationResponse.Fail("command_processor_missing", "GameManagers.CommandProcessor is not available.", new { command = commandName, playerId });
+        }
+
+        var player = gameManagers.GetPlayer(playerId);
+        if (player == null || player.fieldManager == null)
+        {
+            return AutomationResponse.Fail("player_or_field_missing", "Target player or FieldManager is missing.", new { command = commandName, playerId });
+        }
+
+        player.RebindRuntimeReferencesAfterMigration("MPTestAutomationServer.ExecuteMoveUnitCommand", false);
+        var field = player.fieldManager;
+        if (field == null)
+        {
+            return AutomationResponse.Fail("field_not_ready", "Target FieldManager is not ready.", new { command = commandName, playerId });
+        }
+
+        bool hasExplicitFrom = TryGetVector3Int(body, "from", out Vector3Int from)
+            || TryGetVector3Int(body, "source", out from)
+            || TryGetVector3IntByPrefix(body, "from", out from);
+        bool hasExplicitTo = TryGetVector3Int(body, "to", out Vector3Int to)
+            || TryGetVector3Int(body, "target", out to)
+            || TryGetVector3IntByPrefix(body, "to", out to);
+
+        string unitName = null;
+        if (!hasExplicitFrom || !hasExplicitTo)
+        {
+            if (!TryFindMoveUnitPositions(field, out from, out to, out unitName, out string findReason))
+            {
+                return AutomationResponse.Fail("move_unit_target_not_found", "No legal move_unit target was found.", new
+                {
+                    command = commandName,
+                    playerId,
+                    reason = findReason
+                });
+            }
+        }
+
+        if (!ValidateMoveUnitTarget(field, from, to, out string validationReason, out Unit unit))
+        {
+            return AutomationResponse.Fail(validationReason, "move_unit target failed validation.", new
+            {
+                command = commandName,
+                playerId,
+                from,
+                to
+            });
+        }
+
+        unitName = unitName ?? (unit != null && unit.Data != null ? unit.Data.name : unit != null ? unit.name : "unknown");
+        gameManagers.CommandProcessor.RequestCommandExecution(new MoveUnitCommand(playerId, from, to));
+        MPTestLogger.Log("automation_command", "begin", "move_unit", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "from", from.ToString() },
+            { "to", to.ToString() },
+            { "unit", unitName }
+        });
+
+        return AutomationResponse.Ok("command queued", new
+        {
+            command = "move_unit",
+            playerId,
+            fromPosition = new { from.x, from.y, from.z },
+            toPosition = new { to.x, to.y, to.z },
+            unit = unitName
+        });
+    }
+
+    private static bool TryFindMoveUnitPositions(
+        FieldManager field,
+        out Vector3Int from,
+        out Vector3Int to,
+        out string unitName,
+        out string reason)
+    {
+        from = default;
+        to = default;
+        unitName = null;
+        reason = null;
+
+        var units = field.GetAlliedUnitsOnField();
+        if (units == null || units.Count == 0)
+        {
+            reason = "no_units_on_field";
+            return false;
+        }
+
+        foreach (var unit in units
+                     .Where(candidate => candidate != null)
+                     .OrderBy(candidate => candidate.Data != null ? candidate.Data.name : candidate.name)
+                     .ThenBy(candidate => candidate.starLevel))
+        {
+            var source = field.GetUnitPosition(unit);
+            if (!source.HasValue || unit.Data == null)
+            {
+                continue;
+            }
+
+            var candidates = field.GetValidPlacementTiles(unit.Data.unitType);
+            if (candidates == null)
+            {
+                continue;
+            }
+
+            foreach (var candidate in candidates
+                         .Where(position => position != source.Value)
+                         .OrderBy(position => position.x)
+                         .ThenBy(position => position.y)
+                         .ThenBy(position => position.z))
+            {
+                if (ValidateMoveUnitTarget(field, source.Value, candidate, out _, out _))
+                {
+                    from = source.Value;
+                    to = candidate;
+                    unitName = unit.Data != null ? unit.Data.name : unit.name;
+                    return true;
+                }
+            }
+        }
+
+        reason = "no_legal_destination";
+        return false;
+    }
+
+    private static bool ValidateMoveUnitTarget(FieldManager field, Vector3Int from, Vector3Int to, out string reason, out Unit unit)
+    {
+        unit = null;
+        if (field == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (!field.IsValidGridPosition(from) || !field.IsValidGridPosition(to) || from == to)
+        {
+            reason = "move_position_invalid";
+            return false;
+        }
+
+        unit = field.GetUnitAt(from);
+        if (unit == null)
+        {
+            reason = "move_source_empty";
+            return false;
+        }
+
+        if (field.IsUnitAt(to))
+        {
+            reason = "move_destination_occupied";
+            return false;
+        }
+
+        if (unit.Data == null && field.HasWallAt(to))
+        {
+            reason = "move_pending_unit_type_unknown_for_wall";
+            return false;
+        }
+
+        if (unit.Data != null && unit.Data.unitType == UnitType.Melee && field.HasWallAt(to))
+        {
+            reason = "melee_unit_cannot_move_to_wall";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
     private AutomationResponse CaptureScreenshot(HttpListenerRequest request)
     {
         string path = request.QueryString["path"];
@@ -669,6 +881,53 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         }
 
         return fallback;
+    }
+
+    private static bool TryGetVector3Int(JObject body, string key, out Vector3Int value)
+    {
+        value = default;
+        if (body == null || !body.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out JToken token))
+        {
+            return false;
+        }
+
+        if (token is JArray array && array.Count >= 2)
+        {
+            int x = array[0].Value<int>();
+            int y = array[1].Value<int>();
+            int z = array.Count >= 3 ? array[2].Value<int>() : 0;
+            value = new Vector3Int(x, y, z);
+            return true;
+        }
+
+        if (token is JObject obj)
+        {
+            int x = GetInt(obj, "x", int.MinValue);
+            int y = GetInt(obj, "y", int.MinValue);
+            int z = GetInt(obj, "z", 0);
+            if (x != int.MinValue && y != int.MinValue)
+            {
+                value = new Vector3Int(x, y, z);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryGetVector3IntByPrefix(JObject body, string prefix, out Vector3Int value)
+    {
+        value = default;
+        int x = GetInt(body, prefix + "X", int.MinValue);
+        int y = GetInt(body, prefix + "Y", int.MinValue);
+        int z = GetInt(body, prefix + "Z", 0);
+        if (x == int.MinValue || y == int.MinValue)
+        {
+            return false;
+        }
+
+        value = new Vector3Int(x, y, z);
+        return true;
     }
 
     private static int GetInt(JObject body, string key, int fallback)

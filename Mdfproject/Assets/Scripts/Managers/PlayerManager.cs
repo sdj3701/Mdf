@@ -3354,6 +3354,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return;
         }
 
+        gm.CommandProcessor?.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
         gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
     }
 

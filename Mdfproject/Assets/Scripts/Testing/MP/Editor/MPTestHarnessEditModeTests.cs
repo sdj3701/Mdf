@@ -789,6 +789,9 @@ public sealed class MPTestHarnessEditModeTests
     public void MoveUnitCommandHasFinalAuthorityAndPlacementGuards()
     {
         string commandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/MoveUnitCommand.cs");
+        string processorSource = File.ReadAllText("Assets/Scripts/Commands/Core/CommandProcessor.cs");
+        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
+        string playerManagerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
 
         Assert.That(commandSource, Does.Contain("move_requires_prepare_phase"));
         Assert.That(commandSource, Does.Contain("field_ownership_mismatch"));
@@ -796,6 +799,66 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(commandSource, Does.Contain("hasFieldStateAuthority"));
         Assert.That(commandSource, Does.Contain("melee_unit_cannot_move_to_wall"));
         Assert.That(commandSource, Does.Contain("IsOwnedByPlayer"));
+        Assert.That(processorSource, Does.Contain("ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);"));
+        Assert.That(processorSource.IndexOf("ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);", System.StringComparison.Ordinal),
+            Is.LessThan(processorSource.IndexOf("gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);", System.StringComparison.Ordinal)));
+        Assert.That(gameManagersSource, Does.Contain("if (Object != null && Object.HasStateAuthority)"));
+        Assert.That(playerManagerSource, Does.Contain("gm.CommandProcessor?.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);"));
+        Assert.That(playerManagerSource.IndexOf("gm.CommandProcessor?.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);", System.StringComparison.Ordinal),
+            Is.LessThan(playerManagerSource.IndexOf("gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);", System.StringComparison.Ordinal)));
+    }
+
+    [Test]
+    public void UnitMigrationIdentityReadsAreSpawnGuarded()
+    {
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+
+        Assert.That(unitSource, Does.Contain("private bool CanReadNetworkedIdentity()"));
+        Assert.That(unitSource, Does.Contain("private bool CanWriteNetworkedIdentity()"));
+        Assert.That(unitSource, Does.Contain("TryGetOwnerPlayerIdForRoster(out int ownerPlayerId)"));
+        Assert.That(unitSource, Does.Contain("GetSnapshotUnitDataKey()"));
+        Assert.That(unitSource, Does.Contain("UnitDataKeyForRoster"));
+        Assert.That(unitSource, Does.Contain("StarLevelForRoster"));
+        Assert.That(unitSource, Does.Contain("starLevel = TryGetNetworkedStarLevel(out int networkedStarLevel) ? networkedStarLevel : 1;"));
+        Assert.That(unitSource, Does.Contain("UpdateLocalNetworkIdentityMirror();"));
+        Assert.That(unitSource, Does.Contain("if (CanReadNetworkedIdentity() && NetworkedHasOwnerPlayerId)"));
+    }
+
+    [Test]
+    public void HostMigrationDurableSnapshotRestoresFieldUnitRoster()
+    {
+        string handlerSource = File.ReadAllText("Assets/Scripts/Network/HostMigrationHandler.cs");
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string networkSource = File.ReadAllText("Assets/Scripts/Network/NetworkManager.cs");
+
+        Assert.That(handlerSource, Does.Contain("FieldUnitDataKeys"));
+        Assert.That(handlerSource, Does.Contain("TryGetFieldUnitSnapshot"));
+        Assert.That(handlerSource, Does.Contain("RestoreFieldUnitsAfterHostMigration"));
+        Assert.That(handlerSource, Does.Contain("ShouldRestoreFieldUnitsForContext"));
+        Assert.That(handlerSource, Does.Contain("preserving previous snapshot"));
+        Assert.That(handlerSource, Does.Contain("OrderBy(kv => (kv.Value.FieldUnitFlatPositions?.Length ?? 0) > 0 ? 1 : 0)"));
+        Assert.That(fieldSource, Does.Contain("TryGetFieldUnitSnapshot"));
+        Assert.That(fieldSource, Does.Contain("RestoreFieldUnitsAfterHostMigration"));
+        Assert.That(fieldSource, Does.Contain("suppressCombination: true"));
+        Assert.That(fieldSource, Does.Contain("if (!belongsToPlayer && playerManager != null && networkRunning)"));
+        Assert.That(networkSource, Does.Contain("ShouldDelayFallbackForHostMigration"));
+        Assert.That(networkSource, Does.Contain("ScheduleHostMigrationFallbackGrace"));
+        Assert.That(networkSource, Does.Contain("CancelPendingConnectionLossFallback();"));
+    }
+
+    [Test]
+    public void RuntimeHarnessSupportsPostMigrationMoveUnitCommand()
+    {
+        string serverSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+
+        Assert.That(serverSource, Does.Contain("move_unit"));
+        Assert.That(serverSource, Does.Contain("ExecuteMoveUnitCommand"));
+        Assert.That(serverSource, Does.Contain("TryFindMoveUnitPositions"));
+        Assert.That(serverSource, Does.Contain("ValidateMoveUnitTarget"));
+        Assert.That(serverSource, Does.Contain("new MoveUnitCommand(playerId, from, to)"));
+        Assert.That(snapshotSource, Does.Contain("if (MPTestCommandLine.IsEnabled)"));
+        Assert.That(snapshotSource, Does.Contain("return true;"));
     }
 
     [Test]

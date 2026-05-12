@@ -1161,6 +1161,11 @@ public partial class GameManagers : NetworkBehaviour
     public void RPC_BroadcastCommandToClients(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
     {
         string who = Object.HasStateAuthority ? "Server" : "Client";
+        if (Object != null && Object.HasStateAuthority)
+        {
+            return;
+        }
+
         if (CommandProcessor != null)
         {
             CommandProcessor.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
