@@ -2,6 +2,8 @@
 
 This page maps MDF feature categories to verification commands. It must stay aligned with `tools/harness/mp/run_matrix.py`.
 
+Scene names in these profiles are canonical numbered scenes at runtime (`00_Title`, `01_MatchingLobby`, `02_JoinLobby`, `03_Game`) while CLI inputs may still use legacy aliases (`Title`, `MatchingLobby`, `TestMatching`, `JoinLobby`, `Game`). Harness assertions and runner code must use alias-aware scene comparison.
+
 Use the helper when the file/category mapping is not obvious:
 
 ```powershell

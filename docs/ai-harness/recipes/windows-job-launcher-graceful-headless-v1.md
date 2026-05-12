@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-08
-Last used: 2026-05-10
-Last verified: 2026-05-08
-Use count: 2
+Last used: 2026-05-11
+Last verified: 2026-05-11
+Use count: 6
 Review after: 2026-08-06
 Triggers: Windows cleanup blocker, `/quit` timeout, D3D/GPU pressure, headless smoke/prepare E2E
 Applies to: `tools/harness/mp/launch_player.py`, `build_player.py`, `run_matrix.py`, `MPTestGracefulQuit.cs`
-Verified by: see Verification section below; migrated from old Status: verified
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -36,3 +36,13 @@ Pitfalls:
 - Do not rely on `Popen.poll()` alone as Windows cleanup proof; verify CIM/tasklist absence and cleanup-report orphan lists.
 - Do not overwrite a peer's explicit `-logFile` artifact with `collect_player_log(..., peer_name)` after cleanup; use a separate fallback label such as `build-host-or-last` so graceful quit lines remain in the peer `Player.log`.
 - Do not default screenshot or visual-debugging cases to headless mode.
+
+Lifecycle notes:
+- 2026-05-10: Verified headless smoke matrix E2E cleanup on 2026-05-10; cleanupStatus=PASS orphanedPids=[].
+- 2026-05-10: verified artifact `artifacts/mp/20260510-101534-matrix`
+- 2026-05-10: Verified headless player cleanup for 2 HumanBot + 2 AI upgrade check on 2026-05-10; cleanupStatus=PASS orphanedPids=[].
+- 2026-05-10: verified artifact `artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check`
+- 2026-05-10: Headless two-process MP test cleaned up with cleanupStatus=PASS and orphanedPids=[].
+- 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
+- 2026-05-11: Headless 2 HumanBot + 2 AI MP cleanup completed with cleanupStatus=PASS and orphanedPids=[].
+- 2026-05-11: verified artifact `artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless`

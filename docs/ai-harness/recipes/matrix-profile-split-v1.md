@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: battle, feature-workflow
 Created: 2026-05-08
-Last used: 2026-05-08
-Last verified: 2026-05-08
-Use count: 1
+Last used: 2026-05-10
+Last verified: 2026-05-10
+Use count: 2
 Review after: 2026-08-06
 Triggers: matrix cost control, random-aware runs, battle-heavy runs, nightly automation
 Applies to: `tools/harness/mp/run_matrix.py`, matrix docs, HumanBot/battle seed sweeps
-Verified by: see Verification section below; migrated from old Status: verified
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-100906-matrix
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -43,3 +43,7 @@ Verification:
 Pitfalls:
 - Do not silently redefine `--case all` as nightly.
 - Do not let `--dry-run` perform Editor `mp_stop` or `editor stop`; it should only create command/selection artifacts.
+
+Lifecycle notes:
+- 2026-05-10: Verified matrix case integrity and smoke/regression/long dry-runs on 2026-05-10.
+- 2026-05-10: verified artifact `artifacts/mp/20260510-100906-matrix`

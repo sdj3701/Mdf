@@ -9,7 +9,7 @@ from typing import Any
 
 from automation_client import AutomationClient
 from collect_artifacts import collect_player_log, write_timeline
-from common import failure_summary, free_port, latest_player_path, make_artifact_dir, new_session, new_token, normalize_snapshot_response, read_json, write_json, ROOT
+from common import failure_summary, free_port, latest_player_path, make_artifact_dir, new_session, new_token, normalize_snapshot_response, read_json, scene_matches, write_json, ROOT
 from launch_player import PlayerProcess, launch_player
 
 
@@ -31,7 +31,7 @@ def snapshot_ready(snapshot: dict[str, Any], expected_players: int, scene: str) 
     state = normalize_snapshot_response(snapshot)
     return (
         isinstance(state, dict)
-        and state.get("scene") == scene
+        and scene_matches(state.get("scene"), scene)
         and len(state.get("players") or []) == expected_players
         and (state.get("game") or {}).get("hasGameManagers") is True
     )

@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-08
-Last used: 2026-05-08
-Last verified: 2026-05-08
-Use count: 1
+Last used: 2026-05-10
+Last verified: 2026-05-10
+Use count: 2
 Review after: 2026-08-06
 Triggers: context bundle drift, stale prompts, generated session state, root BAT cleanup, precommit guardrails
 Applies to: `.gitignore`, `_context_packer`, `.codex/session-state`, `tools/harness/precommit.py`, harness docs
-Verified by: see Verification section below; migrated from old Status: verified
+Verified by: see Verification section below; migrated from old Status: verified; _context_packer/mdf_context_pack.config.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -52,3 +52,7 @@ Remaining intentional legacy:
 - `MPTestHumanBotPolicy` remains as an obsolete compatibility adapter for legacy test callers.
 - `run_matrix.py --case all` still means the existing default case subset; profile split is the next matrix phase.
 - `Mdfproject/Assembly-CSharp-Editor.csproj` is a generated/tracked Unity file with pre-existing ordering churn. Do not hand-edit it; prefer ignoring future generated churn in review unless the team decides to untrack generated project files.
+
+Lifecycle notes:
+- 2026-05-10: Verified scripts-plus-context root launcher includes and required excludes on 2026-05-10.
+- 2026-05-10: verified artifact `_context_packer/mdf_context_pack.config.json`

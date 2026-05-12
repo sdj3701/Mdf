@@ -120,6 +120,10 @@ PROFILES = OrderedDict(
 )
 
 CLEANUP_FLAG_CASES = {
+    "ai-fill-smoke",
+    "disconnect-ai-takeover",
+    "same-token-reconnect",
+    "four-player-smoke",
     "human-bot-prepare",
     "battle-spawn-monster-command",
     "magic-scroll-command",
@@ -137,6 +141,10 @@ CLEANUP_FLAG_CASES = {
 }
 
 ORPHAN_FLAG_CASES = {
+    "ai-fill-smoke",
+    "disconnect-ai-takeover",
+    "same-token-reconnect",
+    "four-player-smoke",
     "human-bot-prepare",
     "battle-spawn-monster-command",
     "magic-scroll-command",
@@ -157,6 +165,10 @@ HEADLESS_FLAG_CASES = {
     "editor-host-build-client",
     "build-host-editor-client",
     "build-host-build-client",
+    "ai-fill-smoke",
+    "disconnect-ai-takeover",
+    "same-token-reconnect",
+    "four-player-smoke",
     "human-bot-prepare",
     "battle-spawn-monster-command",
     "magic-scroll-command",
@@ -213,6 +225,26 @@ def list_profiles_payload() -> dict:
     }
 
 
+def case_script_path(case: str) -> pathlib.Path:
+    return pathlib.Path(__file__).with_name(CASES[case])
+
+
+def case_integrity_errors() -> list[str]:
+    errors: list[str] = []
+    for case, script_name in sorted(CASES.items()):
+        path = pathlib.Path(__file__).with_name(script_name)
+        if not path.exists():
+            errors.append(f"case {case} references missing script {script_name}")
+    for profile, cases in PROFILES.items():
+        for case in cases:
+            if case not in CASES:
+                errors.append(f"profile {profile} references unknown case {case}")
+    for case in DEFAULT_CASES:
+        if case not in CASES:
+            errors.append(f"default cases reference unknown case {case}")
+    return errors
+
+
 def select_cases(args: argparse.Namespace, parser: argparse.ArgumentParser) -> tuple[list[str], str | None, str]:
     if args.profile and args.case and args.case != "all":
         parser.error("use either --profile or a specific --case, not both")
@@ -250,16 +282,18 @@ def case_result_from_artifact(artifact_dir: pathlib.Path | None) -> dict:
 def aggregate_cleanup_status(results: list[dict]) -> tuple[str, bool]:
     statuses = [item.get("cleanupStatus") for item in results if isinstance(item.get("cleanupStatus"), str)]
     if not statuses:
+        return "UNKNOWN", False
+    if all(status == "PASS" for status in statuses):
         return "PASS", True
     if "FAIL" in statuses:
         return "FAIL", False
     if "NEEDS_ENVIRONMENT" in statuses:
         return "NEEDS_ENVIRONMENT", False
-    return "PASS", True
+    return "UNKNOWN", False
 
 
 def run_case(case: str, matrix_dir: pathlib.Path, args: argparse.Namespace) -> dict:
-    script = pathlib.Path(__file__).with_name(CASES[case])
+    script = case_script_path(case)
     command = [sys.executable, str(script), "--artifact-root", str(matrix_dir)]
     command.extend(CASE_DEFAULT_ARGS.get(case, []))
     if args.player_path:
@@ -293,6 +327,30 @@ def run_case(case: str, matrix_dir: pathlib.Path, args: argparse.Namespace) -> d
     proc = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, encoding="utf-8", errors="replace")
     artifact_dir = child_artifact(proc.stdout)
     child_result = case_result_from_artifact(artifact_dir)
+    failures = list(child_result.get("failures") or []) if isinstance(child_result.get("failures"), list) else []
+    if artifact_dir is None:
+        failures.append("artifact_dir_missing")
+    if not child_result:
+        failures.append("child_result_json_missing")
+    cleanup_status = child_result.get("cleanupStatus") if isinstance(child_result.get("cleanupStatus"), str) else "UNKNOWN"
+    orphaned_pids = child_result.get("orphanedPids") if isinstance(child_result.get("orphanedPids"), list) else None
+    if cleanup_status == "UNKNOWN":
+        failures.append("cleanupStatus_missing")
+    if orphaned_pids is None:
+        failures.append("orphanedPids_missing")
+    cleanup_success = child_result.get("cleanupSuccess") is True
+    functional_success = child_result.get("functionalSuccess")
+    if functional_success is None:
+        functional_success = child_result.get("success") if child_result else proc.returncode == 0
+    overall_success = (
+        proc.returncode == 0
+        and child_result.get("success") is True
+        and functional_success is True
+        and cleanup_status == "PASS"
+        and cleanup_success
+        and orphaned_pids == []
+        and not failures
+    )
     result = {
         "case": case,
         "command": command,
@@ -300,13 +358,14 @@ def run_case(case: str, matrix_dir: pathlib.Path, args: argparse.Namespace) -> d
         "stdout": proc.stdout,
         "stderr": proc.stderr,
         "artifactDir": str(artifact_dir) if artifact_dir else None,
-        "functionalSuccess": child_result.get("functionalSuccess", proc.returncode == 0),
-        "cleanupStatus": child_result.get("cleanupStatus") or "PASS",
-        "cleanupSuccess": child_result.get("cleanupSuccess") if child_result.get("cleanupSuccess") is not None else True,
+        "functionalSuccess": functional_success is True,
+        "cleanupStatus": cleanup_status,
+        "cleanupSuccess": cleanup_success,
         "cleanupReportPath": str(artifact_dir / "cleanup-report.json") if artifact_dir and (artifact_dir / "cleanup-report.json").exists() else None,
-        "orphanedPids": child_result.get("orphanedPids") if isinstance(child_result.get("orphanedPids"), list) else None,
-        "overallSuccess": child_result.get("success", proc.returncode == 0),
+        "orphanedPids": orphaned_pids,
+        "overallSuccess": overall_success,
         "headlessPlayer": bool(args.effective_headless_player and case in HEADLESS_FLAG_CASES),
+        "failures": failures,
     }
     return result
 
@@ -342,6 +401,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=list(PROFILES.keys()))
     parser.add_argument("--list-cases", action="store_true")
     parser.add_argument("--list-profiles", action="store_true")
+    parser.add_argument("--check-cases", action="store_true")
     parser.add_argument("--player-path")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--inter-case-delay-seconds", type=float, default=2.0)
@@ -359,6 +419,14 @@ def main() -> int:
     if args.list_profiles:
         print(json.dumps(list_profiles_payload(), indent=2))
         return 0
+    integrity_errors = case_integrity_errors()
+    if args.check_cases:
+        payload = {"success": not integrity_errors, "errors": integrity_errors, "cases": list_cases_payload()}
+        print(json.dumps(payload, indent=2))
+        return 0 if payload["success"] else 2
+    if integrity_errors:
+        print(json.dumps({"success": False, "errors": integrity_errors}, indent=2))
+        return 2
 
     matrix_dir = make_artifact_dir("matrix")
     selected, profile_name, selection_name = select_cases(args, parser)
@@ -401,7 +469,7 @@ def main() -> int:
 
     cleanup_status, cleanup_success = aggregate_cleanup_status(results)
     functional_success = all(item.get("functionalSuccess") is True for item in results)
-    overall_success = all(item.get("overallSuccess") is True for item in results) and (cleanup_success or not args.strict_cleanup)
+    overall_success = all(item.get("overallSuccess") is True for item in results) and cleanup_success
     artifacts = [item.get("artifactDir") for item in results if item.get("artifactDir")]
     summary = {
         "matrixDir": str(matrix_dir),

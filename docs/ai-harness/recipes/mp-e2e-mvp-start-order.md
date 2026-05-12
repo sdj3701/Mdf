@@ -5,12 +5,12 @@ Pinned: false
 Category: harness
 Created: 2026-05-05
 Last used: 2026-05-10
-Last verified: 2026-05-09
-Use count: 4
+Last verified: 2026-05-10
+Use count: 7
 Review after: 2026-08-03
 Triggers: Editor/Build E2E, build/build E2E, Game scene, FieldManager wall snapshots
 Applies to: Phase 10/11 E2E matrix, `compare_state_snapshots.py`, `FieldManager`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-093437-2human-aifill-visible-3round-stable
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-093437-2human-aifill-visible-3round-stable; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -43,3 +43,9 @@ Pitfalls:
 Lifecycle notes:
 - 2026-05-09: Verified visible 2-human + 2-AI fill run must repeat /startHost and /join until NetworkRunner is running; a single automation_start_peer call may leave the build on 00_Title while Photon is only connecting.
 - 2026-05-09: verified artifact `artifacts/mp/20260509-093437-2human-aifill-visible-3round-stable`
+- 2026-05-10: Verified smoke matrix E2E headless on 2026-05-10; success=true cleanupStatus=PASS orphanedPids=[].
+- 2026-05-10: verified artifact `artifacts/mp/20260510-101534-matrix`
+- 2026-05-10: Verified real room flow with 2 HumanBot peers, maxPlayers=4, Game load after lobby, and headless snapshot comparison on 2026-05-10.
+- 2026-05-10: verified artifact `artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check`
+- 2026-05-10: Applied host start, client join, load Game, then bot start order for 2 HumanBot + 2 AI headless verification.
+- 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`

@@ -9,6 +9,9 @@
       "description": "Recommended default for asking ChatGPT/Codex about MDF code, harness, AI, commands, and sync.",
       "include": [
         "AGENTS.md",
+        ".gitignore",
+        "SETUP_MDF_HARNESS.bat",
+        "MDF_PACK_CONTEXT.bat",
         ".agent/rules/projectrull.md",
         "docs/ai-harness/**",
         "docs/ai-design/**",

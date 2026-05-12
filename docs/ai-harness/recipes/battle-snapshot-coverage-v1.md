@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: host-migration, battle
 Created: 2026-05-06
-Last used: 2026-05-06
-Last verified: 2026-05-06
-Use count: 1
+Last used: 2026-05-11
+Last verified: 2026-05-11
+Use count: 3
 Review after: 2026-08-04
 Triggers: late-game sync drift, survivor boss assignment, active augment effects, monster spawn/combat divergence
 Applies to: `MPTestStateSnapshot`, `MPTestAssertions`, `compare_state_snapshots.py`, HumanBot/Host Migration battle progression
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -42,3 +42,9 @@ Verification:
 - Direct CLI comparison now works: `python tools/harness/mp/compare_state_snapshots.py artifacts/mp/20260506-004520-human-bot-prepare/snapshots/build-host-prepare-progressed.json artifacts/mp/20260506-004520-human-bot-prepare/snapshots/build-client-prepare-progressed.json` returned `success: true`.
 - Phase 10 hardened `compare_state_snapshots.py` with one-sided-unknown failures for attack pool, owned scroll, manual skill readiness, semantic monster hashes, and active effect hashes.
 - Phase 10 reviewer follow-up aligned C# durable assertions with the Python comparator, made battle hashes required during `Battle1`/`Battle2`, required survivor hashes when survivor counts are non-zero, required `commands.lastCommand` once any battle command counter advances, and added both-one-sided and both-missing negative EditMode tests for those required values.
+
+Lifecycle notes:
+- 2026-05-10: Used attackMonsterPool snapshot diagnostics to verify common wave counts and augment-only extras across round 1/2 Battle1/Battle2.
+- 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
+- 2026-05-11: Snapshot monster parts exposed Networked HP, status bar visibility, and fill permille for HP bar pooling verification.
+- 2026-05-11: verified artifact `artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless`

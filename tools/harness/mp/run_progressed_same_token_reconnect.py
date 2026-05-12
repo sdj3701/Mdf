@@ -18,6 +18,7 @@ from common import (
     new_session,
     new_token,
     normalize_snapshot_response,
+    scene_matches,
     snapshot_not_ready_reasons,
     snapshot_ready,
     wait_build_peer_started,
@@ -80,7 +81,7 @@ def takeover_assertions(snapshot: dict[str, Any], target_player_id: int) -> dict
 
 def takeover_ready(assertions: dict[str, Any], scene: str, expected_players: int) -> bool:
     return (
-        assertions["scene"] == scene
+        scene_matches(assertions["scene"], scene)
         and assertions["activePlayerCount"] == expected_players - 1
         and assertions["playerCount"] == expected_players
         and assertions["uniquePlayerIds"] is True
@@ -141,7 +142,8 @@ def compare_reconnect_target(host_snapshot: dict[str, Any], client_snapshot: dic
         return {"success": False, "errors": ["snapshot_not_dict"], "warnings": warnings}
 
     compare_value(errors, "session", host_state.get("session"), client_state.get("session"))
-    compare_value(errors, "scene", host_state.get("scene"), client_state.get("scene"))
+    if not scene_matches(host_state.get("scene"), client_state.get("scene")):
+        errors.append(f"scene left={host_state.get('scene')} right={client_state.get('scene')}")
 
     host_target = player_by_id(host_snapshot, target_player_id)
     client_target = player_by_id(client_snapshot, target_player_id)
@@ -243,7 +245,7 @@ def reconnect_ready(
     client_state = normalize_snapshot_response(client_snapshot)
     if not isinstance(host_state, dict) or not isinstance(client_state, dict):
         return False
-    if host_state.get("scene") != scene or client_state.get("scene") != scene:
+    if not scene_matches(host_state.get("scene"), scene) or not scene_matches(client_state.get("scene"), scene):
         return False
     if not snapshot_ready(host_snapshot, expected_players, scene) or not snapshot_ready(client_snapshot, expected_players, scene):
         return False

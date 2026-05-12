@@ -31,6 +31,29 @@ Short gameplay/content/AI/UI/network requests, including Korean equivalents of a
 
 Use `unity-cli --project Mdfproject` whenever possible.
 
+## Unity scanner
+
+`unity-scanner` is optional. Some clones or developer machines may not have it installed.
+
+When inspecting Unity assets, prefabs, scenes, ScriptableObjects, materials, controllers, GUID references, or broad asset structure, first check whether `unity-scanner` is available. If the command works, prefer it before raw YAML dumps because it compresses Unity asset output for agent context. If unavailable, do not block the task; fall back to the existing workflow with `rg`, `Get-ChildItem`, direct YAML reads, and `unity-cli` where appropriate.
+
+Discovery order:
+
+1. Prefer `unity-scanner` from `PATH`.
+2. If not on `PATH`, check for a repo-local optional copy at `tools/unity-scanner/unity-scanner.exe` on Windows or `tools/unity-scanner/unity-scanner` on macOS/Linux.
+3. If no scanner command works, continue without it.
+
+From this repo root, the Unity project path is `Mdfproject`. Preferred commands:
+
+- `unity-scanner list -p Mdfproject Assets --depth 2 --limit 80`
+- `unity-scanner search -p Mdfproject Assets --name <name> --type prefab,scene,asset --limit 40`
+- `unity-scanner search -p Mdfproject Assets --component <component> --type prefab,scene --limit 40`
+- `unity-scanner read -p Mdfproject <asset-path> --depth 2 --limit 60`
+- `unity-scanner read -p Mdfproject <asset-path> --component <component> --field-limit 20 --limit 20`
+- `unity-scanner refs -p Mdfproject <asset-or-guid> Assets --limit 80`
+
+If invoking a repo-local copy directly on Windows, replace `unity-scanner` with `.\tools\unity-scanner\unity-scanner.exe`. Do not require machine-specific absolute paths in committed scripts or docs.
+
 After C# changes:
 
 - `unity-cli --project Mdfproject status`

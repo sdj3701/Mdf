@@ -21,9 +21,10 @@ from common import (
     snapshot_ready,
     wait_build_peer_started,
     write_json,
+    write_standard_result,
 )
 from compare_state_snapshots import compare_snapshots
-from launch_player import PlayerProcess, launch_player
+from launch_player import PlayerProcess, launch_player, mdf_player_pids, write_case_cleanup_report, write_orphan_pressure_report
 
 
 CASE_NAME = "four-player-smoke"
@@ -56,11 +57,45 @@ def wait_session_states(clients: dict[str, AutomationClient], artifact_dir: path
 
 
 def run(args: argparse.Namespace) -> int:
-    player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
-    if player_path is None or not player_path.exists():
-        raise SystemExit("No built player found. Run Phase 9 build first or pass --player-path.")
-
     artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
+    player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
+    cleanup_baseline_pids = mdf_player_pids()
+    cleanup_report: dict = {
+        "cleanupStatus": "PASS",
+        "cleanupSuccess": True,
+        "orphanedPids": [],
+        "headlessPlayer": args.headless_player,
+    }
+    failures: list[str] = []
+
+    if args.dry_run:
+        write_json(artifact_dir / "run.json", {
+            "case": CASE_NAME,
+            "playerPath": str(player_path) if player_path else None,
+            "dryRun": True,
+            "headlessPlayer": args.headless_player,
+        })
+        print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
+        return 0
+
+    if player_path is None or not player_path.exists():
+        failures.append("player_path_missing")
+        write_json(artifact_dir / "run.json", {
+            "case": CASE_NAME,
+            "playerPath": str(player_path) if player_path else None,
+            "dryRun": False,
+            "headlessPlayer": args.headless_player,
+        })
+        result = write_standard_result(
+            artifact_dir,
+            CASE_NAME,
+            failures,
+            {"cleanupStatus": "NEEDS_ENVIRONMENT", "cleanupSuccess": False, "orphanedPids": []},
+            headless_player=args.headless_player,
+        )
+        print(json.dumps(result, indent=2))
+        return 2
+
     session = args.session or new_session("four")
     peers = [
         {"name": "host", "role": "host", "seed": args.seed},
@@ -74,11 +109,28 @@ def run(args: argparse.Namespace) -> int:
         peer["port"] = free_port()
 
     procs: list[tuple[dict, PlayerProcess]] = []
-    failures: list[str] = []
-    write_json(artifact_dir / "run.json", {"case": CASE_NAME, "session": session, "scene": "Game", "lobbyScene": args.lobby_scene, "peers": [{k: v for k, v in p.items() if k not in {"token", "connection"}} for p in peers], "dryRun": args.dry_run})
-    if args.dry_run:
-        print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
-        return 0
+    write_json(artifact_dir / "run.json", {"case": CASE_NAME, "session": session, "scene": "Game", "lobbyScene": args.lobby_scene, "peers": [{k: v for k, v in p.items() if k not in {"token", "connection"}} for p in peers], "dryRun": args.dry_run, "headlessPlayer": args.headless_player})
+    orphan_gate = write_orphan_pressure_report(
+        artifact_dir,
+        args.orphan_threshold,
+        args.force_run_with_orphans,
+    )
+    if orphan_gate.get("blocked"):
+        failures.append("orphan_pressure_gate_blocked")
+        result = write_standard_result(
+            artifact_dir,
+            CASE_NAME,
+            failures,
+            {
+                "cleanupStatus": "NEEDS_ENVIRONMENT",
+                "cleanupSuccess": False,
+                "orphanedPids": [proc.get("pid") for proc in orphan_gate.get("processes") or [] if isinstance(proc, dict)],
+            },
+            headless_player=args.headless_player,
+            extra={"orphanPressure": orphan_gate},
+        )
+        print(json.dumps(result, indent=2))
+        return 2
 
     try:
         for index, peer in enumerate(peers):
@@ -98,6 +150,7 @@ def run(args: argparse.Namespace) -> int:
                 load_game=False,
                 seed=int(peer["seed"]),
                 scenario="four_player_smoke",
+                headless_player=args.headless_player,
             )
             procs.append((peer, proc))
             if index == 0:
@@ -180,20 +233,28 @@ def run(args: argparse.Namespace) -> int:
                 write_json(artifact_dir / f"comparison-host-vs-{name}.json", result)
                 if not result["success"]:
                     failures.append(f"snapshot_mismatch_{name}")
-            write_json(artifact_dir / f"{name}-screenshot.json", clients[name].screenshot())
+            if args.headless_player:
+                write_json(artifact_dir / f"{name}-screenshot.json", {
+                    "success": True,
+                    "skipped": True,
+                    "reason": "headless_player",
+                    "headlessPlayer": True,
+                })
+            else:
+                write_json(artifact_dir / f"{name}-screenshot.json", clients[name].screenshot())
             write_json(artifact_dir / f"{name}-logs-recent.json", clients[name].logs_recent())
 
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{CASE_NAME} failed", failures)
     finally:
-        for peer, proc in reversed(procs):
-            name = str(peer["name"])
-            try:
-                AutomationClient(int(peer["port"]), str(peer["token"]), timeout=2.0).quit()
-                proc.process.wait(timeout=10)
-                proc.close_logs()
-            except Exception:
-                proc.terminate()
+        cleanup_report = write_case_cleanup_report(
+            artifact_dir,
+            [proc for _, proc in procs],
+            baseline_pids=cleanup_baseline_pids,
+            timeout_seconds=args.cleanup_timeout_seconds,
+            leave_processes=args.leave_processes_on_fail and bool(failures),
+            strict_cleanup=args.strict_cleanup,
+        )
         copied = collect_player_log(artifact_dir, "last-player")
         logs = []
         for peer in peers:
@@ -203,8 +264,9 @@ def run(args: argparse.Namespace) -> int:
             logs.append(copied)
         write_timeline(artifact_dir, logs)
 
+    result = write_standard_result(artifact_dir, CASE_NAME, failures, cleanup_report, headless_player=args.headless_player)
     print(json.dumps({"artifactDir": str(artifact_dir), "failures": failures}, indent=2))
-    return 0 if not failures else 1
+    return 0 if result["success"] else 1
 
 
 def main() -> int:
@@ -220,6 +282,14 @@ def main() -> int:
     parser.add_argument("--lobby-timeout", type=int, default=75)
     parser.add_argument("--state-timeout", type=int, default=120)
     parser.add_argument("--lobby-scene", default="MatchingLobby")
+    parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
+    parser.add_argument("--cleanup-report", action="store_true", help="Compatibility flag; cleanup-report.json is always written.")
+    parser.add_argument("--leave-processes-on-fail", action="store_true")
+    parser.add_argument("--strict-cleanup", action="store_true")
+    parser.add_argument("--orphan-check", action="store_true", help="Compatibility flag; orphan pressure check is always performed.")
+    parser.add_argument("--orphan-threshold", type=int, default=0)
+    parser.add_argument("--force-run-with-orphans", action="store_true")
+    parser.add_argument("--headless-player", action="store_true")
     args = parser.parse_args()
     return run(args)
 

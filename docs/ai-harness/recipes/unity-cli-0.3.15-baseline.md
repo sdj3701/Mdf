@@ -6,11 +6,11 @@ Category: unity-cli
 Created: 2026-05-05
 Last used: 2026-05-10
 Last verified: 2026-05-10
-Use count: 3
+Use count: 4
 Review after: 2026-08-03
 Triggers: unity-cli, status, list, editor refresh, console, test, screenshot
 Applies to: unity-cli v0.3.15, connector 0.3.15, Unity 2021.3.45f1
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; Mdfproject
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -37,3 +37,5 @@ Pitfalls:
 Lifecycle notes:
 - 2026-05-10: Used for editor status, compile, console, and EditMode test syntax during wall remove UI verification.
 - 2026-05-10: Verified by unity-cli 0.3.15 status, editor refresh --compile, console --type error, and EditMode class-filter commands completing on 2026-05-10.
+- 2026-05-10: Verified unity-cli status, refresh compile, console errors, and EditMode tests on 2026-05-10.
+- 2026-05-10: verified artifact `Mdfproject`

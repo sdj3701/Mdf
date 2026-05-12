@@ -20,7 +20,7 @@ public static class MPTestAssertions
             return result;
         }
 
-        if (!string.IsNullOrEmpty(expectedScene) && !string.Equals(snapshot.Scene, expectedScene, StringComparison.Ordinal))
+        if (!string.IsNullOrEmpty(expectedScene) && !MPTestSceneAliases.Matches(snapshot.Scene, expectedScene))
         {
             result.AddError($"scene expected={expectedScene} actual={snapshot.Scene}");
         }
@@ -102,7 +102,7 @@ public static class MPTestAssertions
         }
 
         CompareEqual(result, "session", expected.Session, actual.Session);
-        CompareEqual(result, "scene", expected.Scene, actual.Scene);
+        CompareScene(result, "scene", expected.Scene, actual.Scene);
 
         if (expected.Game != null && actual.Game != null)
         {
@@ -315,6 +315,14 @@ public static class MPTestAssertions
     private static void CompareEqual<T>(AssertionResult result, string field, T expected, T actual)
     {
         if (!EqualityComparer<T>.Default.Equals(expected, actual))
+        {
+            result.AddError($"{field} expected={expected} actual={actual}");
+        }
+    }
+
+    private static void CompareScene(AssertionResult result, string field, string expected, string actual)
+    {
+        if (!MPTestSceneAliases.Matches(actual, expected))
         {
             result.AddError($"{field} expected={expected} actual={actual}");
         }

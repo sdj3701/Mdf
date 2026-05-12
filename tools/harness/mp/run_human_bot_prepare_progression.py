@@ -17,6 +17,7 @@ from common import (
     new_session,
     new_token,
     normalize_snapshot_response,
+    scene_matches,
     session_not_ready_reasons,
     session_ready,
     snapshot_not_ready_reasons,
@@ -300,7 +301,7 @@ def progression_assertions(
     if not monotonic_revision(before_host, host_snapshot, bot_player_id):
         errors.append("shop_revision_not_monotonic")
 
-    if host_state.get("scene") != scene or client_state.get("scene") != scene:
+    if not scene_matches(host_state.get("scene"), scene) or not scene_matches(client_state.get("scene"), scene):
         errors.append(f"scene_mismatch host={host_state.get('scene')} client={client_state.get('scene')} expected={scene}")
 
     return {

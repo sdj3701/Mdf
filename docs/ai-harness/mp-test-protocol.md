@@ -38,6 +38,18 @@ The harness must test both host directions:
 --mpBotRecordJournal <path>
 ```
 
+Scene names passed to CLI tools may use legacy aliases or canonical numbered names:
+
+| Legacy alias | Canonical scene |
+| --- | --- |
+| `Title` | `00_Title` |
+| `MatchingLobby` | `01_MatchingLobby` |
+| `TestMatching` | `01_MatchingLobby` |
+| `JoinLobby` | `02_JoinLobby` |
+| `Game` | `03_Game` |
+
+Harness assertions and runner readiness checks must use alias-aware comparison instead of exact string equality.
+
 In `--mpTest`, set `Application.runInBackground = true` and emit `[MPTEST]` logs.
 
 ## MPTEST log format

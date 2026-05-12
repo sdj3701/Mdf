@@ -18,6 +18,7 @@ from common import (
     new_token,
     normalize_snapshot_response,
     read_json,
+    scene_matches,
     session_not_ready_reasons,
     session_ready,
     snapshot_not_ready_reasons,
@@ -945,7 +946,7 @@ def battle_takeover_assertions(
         expected_players=expected_players,
     )
     errors: list[str] = []
-    if body.get("scene") != scene:
+    if not scene_matches(body.get("scene"), scene):
         errors.append(f"scene expected={scene} actual={body.get('scene')}")
     if runner.get("activePlayerCount") != expected_players - 1:
         errors.append(f"activePlayerCount expected={expected_players - 1} actual={runner.get('activePlayerCount')}")
@@ -1032,7 +1033,7 @@ def reconnect_after_battle_assertions(
         expected_players=expected_players,
     )
     errors: list[str] = []
-    if host_body.get("scene") != scene or client_body.get("scene") != scene:
+    if not scene_matches(host_body.get("scene"), scene) or not scene_matches(client_body.get("scene"), scene):
         errors.append(f"scene_mismatch host={host_body.get('scene')} client={client_body.get('scene')} expected={scene}")
     if host_runner.get("activePlayerCount") != expected_players:
         errors.append(f"host.activePlayerCount expected={expected_players} actual={host_runner.get('activePlayerCount')}")
