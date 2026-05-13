@@ -85,7 +85,7 @@ public class ShopUIController : MonoBehaviour
         GameEvents.OnShopRefreshed -= HandleShopRefreshed;
         GameEvents.OnUnitPurchaseSucceeded -= HandleUnitPurchaseSucceeded;
         _uiState = UiLifecycleState.Hidden;
-        SetContentVisibility(false);
+        SetLegacyContentVisibilityOnly(false);
     }
 
     private void HandleGameStateChange(GameManagers.GameState newState)
@@ -235,17 +235,46 @@ public class ShopUIController : MonoBehaviour
 
     public bool IsContentVisible()
     {
+        if (GamePrepareUIToolkitController.TryGetShopVisible(out var toolkitVisible))
+        {
+            return toolkitVisible;
+        }
+
         return slotsContainer != null && slotsContainer.activeSelf;
     }
 
     public bool ToggleContent()
     {
+        if (GamePrepareUIToolkitController.TryToggleShopFromLegacy(out var toolkitVisible))
+        {
+            ApplyContentVisibility(false, false);
+            OnContentVisibilityChanged?.Invoke(toolkitVisible);
+            return toolkitVisible;
+        }
+
         bool newVisibility = !IsContentVisible();
         SetContentVisibility(newVisibility);
         return newVisibility;
     }
 
     public void SetContentVisibility(bool isVisible)
+    {
+        if (GamePrepareUIToolkitController.TrySetShopVisibilityFromLegacy(isVisible, out var toolkitVisible))
+        {
+            ApplyContentVisibility(false, false);
+            OnContentVisibilityChanged?.Invoke(toolkitVisible);
+            return;
+        }
+
+        ApplyContentVisibility(isVisible, true);
+    }
+
+    public void SetLegacyContentVisibilityOnly(bool isVisible)
+    {
+        ApplyContentVisibility(isVisible, false);
+    }
+
+    private void ApplyContentVisibility(bool isVisible, bool notify)
     {
         if (slotsContainer != null)
         {
@@ -259,13 +288,16 @@ public class ShopUIController : MonoBehaviour
 
         SetPanelRootVisibility(isVisible);
         _uiState = isVisible ? UiLifecycleState.Visible : UiLifecycleState.Hidden;
-        OnContentVisibilityChanged?.Invoke(isVisible);
+        if (notify)
+        {
+            OnContentVisibilityChanged?.Invoke(isVisible);
+        }
     }
 
     public void InitializeAndHide()
     {
         _uiState = UiLifecycleState.Hidden;
-        SetContentVisibility(false);
+        SetLegacyContentVisibilityOnly(false);
     }
 
     public void ShowWithItems(List<ShopItem> items)
@@ -276,6 +308,13 @@ public class ShopUIController : MonoBehaviour
         if (IsContentVisible() && signature == _lastDisplaySignature && now - _lastDisplayRealtime < 1f)
         {
             BuildDebugGUI.LogClient($"[ShopUI] ShowWithItems skipped duplicate signature: {signature}");
+            return;
+        }
+
+        if (GamePrepareUIToolkitController.TryShowShopFromLegacy(resolvedItems, out var toolkitVisible))
+        {
+            ApplyContentVisibility(false, false);
+            OnContentVisibilityChanged?.Invoke(toolkitVisible);
             return;
         }
 

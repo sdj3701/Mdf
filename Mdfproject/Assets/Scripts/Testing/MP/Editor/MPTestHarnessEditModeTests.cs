@@ -6,6 +6,7 @@ using NUnit.Framework;
 using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.UIElements;
 
 public sealed class MPTestHarnessEditModeTests
 {
@@ -706,6 +707,51 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void GamePrepareToolkitKeepsChoiceCountsAndCommandRoutes()
+    {
+        string controllerSource = File.ReadAllText("Assets/Scripts/UI/Game/GamePrepareUIToolkitController.cs");
+        string shopSource = File.ReadAllText("Assets/Scripts/UI/ShopUIController.cs");
+        string augmentSource = File.ReadAllText("Assets/Scripts/UI/AugmentUIController.cs");
+        string playerHudSource = File.ReadAllText("Assets/Scripts/UI/PlayerHUDController.cs");
+        string inputSource = File.ReadAllText("Assets/Scripts/Managers/MdfInput.cs");
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string uxml = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanels.uxml");
+        var layout = Resources.Load<VisualTreeAsset>("UI/GamePrepare/GamePreparePanels");
+        var style = Resources.Load<StyleSheet>("UI/GamePrepare/GamePreparePanelsStyles");
+        var theme = Resources.Load<ThemeStyleSheet>("UI/GamePrepare/GamePrepareRuntimeTheme");
+        var tree = layout != null ? layout.CloneTree() : null;
+
+        Assert.That(GamePrepareUIToolkitController.ShopCardCount, Is.EqualTo(5));
+        Assert.That(GamePrepareUIToolkitController.AugmentCardCount, Is.EqualTo(3));
+        Assert.That(layout, Is.Not.Null);
+        Assert.That(style, Is.Not.Null);
+        Assert.That(theme, Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("shop-panel"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("augment-panel"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-shop-toggle-button"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-wall-button"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-option-button"), Is.Not.Null);
+        Assert.That(Regex.Matches(uxml, "name=\"shop-card-\\d\"").Count, Is.EqualTo(5));
+        Assert.That(Regex.Matches(uxml, "name=\"augment-card-\\d\"").Count, Is.EqualTo(3));
+        Assert.That(controllerSource, Does.Contain("new BuyUnitCommand(playerId, slotIndex)"));
+        Assert.That(controllerSource, Does.Contain("new RerollShopCommand(playerId)"));
+        Assert.That(controllerSource, Does.Contain("new SelectAugmentCommand(playerId, index)"));
+        Assert.That(controllerSource, Does.Contain("TogglePlacementMode(PlacementMode.Wall)"));
+        Assert.That(controllerSource, Does.Contain("GetUIElement(\"OptionCanvas\")"));
+        Assert.That(controllerSource, Does.Contain("IsPointerOverBlockingElement"));
+        Assert.That(controllerSource, Does.Contain("IsToolkitRaycastObject"));
+        Assert.That(inputSource, Does.Contain("HasNonGamePrepareToolkitUiHit"));
+        Assert.That(inputSource, Does.Contain("eventSystem.RaycastAll"));
+        Assert.That(fieldSource, Does.Contain("ShouldAllowUnitDragThroughPrepareToolkit"));
+        Assert.That(fieldSource, Does.Contain("GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition)"));
+        Assert.That(shopSource, Does.Contain("TryToggleShopFromLegacy"));
+        Assert.That(augmentSource, Does.Contain("TryShowAugmentsFromLegacy"));
+        Assert.That(playerHudSource, Does.Contain("SetLegacyHudButtonsVisible"));
+        Assert.That(GamePrepareUIToolkitController.CalculateCardSize(true, new Vector2(2340, 1080)).x, Is.GreaterThanOrEqualTo(64f * 2.8f));
+        Assert.That(GamePrepareUIToolkitController.CalculateCardSize(false, new Vector2(2340, 1080)).y, Is.GreaterThanOrEqualTo(64f * 5.4f));
+    }
+
+    [Test]
     public void FieldUnitRegistrationHandlesLateMovesAndRetiredUnits()
     {
         string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
@@ -1360,6 +1406,19 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(unitSource, Does.Contain("SyncFieldPlacementIdentity"));
         Assert.That(gameManagersRosterSource, Does.Contain("RPC_ReconcilePlayerUnitRosterCompact"));
         Assert.That(gameManagersRosterSource, Does.Contain("ApplyCompactUnitRosterFromAuthority"));
+    }
+
+    [Test]
+    public void MeleeUnitsRecheckRangeBeforeApplyingDamage()
+    {
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+
+        Assert.That(unitSource, Does.Contain("PruneBlockedMonsters();"));
+        Assert.That(unitSource, Does.Contain("IsCurrentTargetValidForAttack(false)"));
+        Assert.That(unitSource, Does.Contain("IsTargetWithinAttackRange(targetTransform, AttackRangePadding)"));
+        Assert.That(unitSource, Does.Contain("IsPendingMeleeAttackStillValid()"));
+        Assert.That(unitSource, Does.Contain("GetClosestTargetPoint(target, transform.position)"));
+        Assert.That(unitSource, Does.Contain("monster.Unblock();"));
     }
 
     [Test]

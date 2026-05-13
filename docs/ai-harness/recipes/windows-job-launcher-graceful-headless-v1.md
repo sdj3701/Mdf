@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-08
-Last used: 2026-05-11
-Last verified: 2026-05-11
-Use count: 6
+Last used: 2026-05-13
+Last verified: 2026-05-13
+Use count: 7
 Review after: 2026-08-06
 Triggers: Windows cleanup blocker, `/quit` timeout, D3D/GPU pressure, headless smoke/prepare E2E
 Applies to: `tools/harness/mp/launch_player.py`, `build_player.py`, `run_matrix.py`, `MPTestGracefulQuit.cs`
@@ -46,3 +46,5 @@ Lifecycle notes:
 - 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
 - 2026-05-11: Headless 2 HumanBot + 2 AI MP cleanup completed with cleanupStatus=PASS and orphanedPids=[].
 - 2026-05-11: verified artifact `artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless`
+- 2026-05-13: Headless 2 HumanBot + 2 AI MoveUnit smoke cleanup completed with cleanupStatus=PASS and orphanedPids=[].
+- 2026-05-13: verified artifact `artifacts/mp/20260513-131556-two-humanbot-two-ai-smoke`

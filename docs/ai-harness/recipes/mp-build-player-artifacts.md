@@ -5,12 +5,12 @@ Pinned: false
 Category: harness
 Created: 2026-05-05
 Last used: 2026-05-13
-Last verified: 2026-05-11
-Use count: 5
+Last verified: 2026-05-13
+Use count: 7
 Review after: 2026-08-03
 Triggers: Development Build, build artifact, player launch smoke
 Applies to: `mp_build_player`, `tools/harness/mp/build_player.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/mptest-current
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -38,3 +38,5 @@ Lifecycle notes:
 - 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
 - 2026-05-11: Rebuilt headless MPTest player after monster HP bar pooling fix.
 - 2026-05-11: verified artifact `artifacts/builds/mptest-current`
+- 2026-05-13: verified artifact `artifacts/builds/mptest-current`
+- 2026-05-13: Rebuilt `artifacts/builds/mptest-current` for 2 HumanBot + 2 AI MoveUnit smoke; launch smoke cleanup PASS.

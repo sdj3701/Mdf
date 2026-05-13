@@ -1,0 +1,347 @@
+.game-prepare-root {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    flex-grow: 1;
+}
+
+.game-prepare-safe-root {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+}
+
+.hidden {
+    display: none;
+}
+
+.prepare-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: flex-start;
+    background-color: rgba(4, 7, 10, 0.42);
+}
+
+.augment-panel {
+    padding-left: 48px;
+    padding-right: 48px;
+    padding-top: 250px;
+    padding-bottom: 56px;
+}
+
+.shop-panel {
+    padding-left: 30px;
+    padding-right: 30px;
+    padding-top: 176px;
+    padding-bottom: 42px;
+}
+
+.screen-frame {
+    position: absolute;
+    background-color: rgba(222, 177, 77, 0.88);
+}
+
+.frame-top {
+    left: 30px;
+    right: 30px;
+    top: 18px;
+    height: 2px;
+}
+
+.frame-bottom {
+    left: 30px;
+    right: 30px;
+    bottom: 18px;
+    height: 2px;
+}
+
+.frame-left {
+    left: 18px;
+    top: 30px;
+    bottom: 30px;
+    width: 2px;
+}
+
+.frame-right {
+    right: 18px;
+    top: 30px;
+    bottom: 30px;
+    width: 2px;
+}
+
+.augment-card-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+.shop-card-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+.choice-card {
+    position: relative;
+    margin-left: 14px;
+    margin-right: 14px;
+    background-color: rgb(8, 15, 24);
+    border-left-width: 4px;
+    border-right-width: 4px;
+    border-top-width: 4px;
+    border-bottom-width: 4px;
+    border-left-color: rgb(204, 162, 74);
+    border-right-color: rgb(204, 162, 74);
+    border-top-color: rgb(232, 198, 103);
+    border-bottom-color: rgb(161, 126, 58);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.choice-card:hover {
+    border-left-color: rgb(255, 224, 130);
+    border-right-color: rgb(255, 224, 130);
+    border-top-color: rgb(255, 237, 156);
+    border-bottom-color: rgb(218, 176, 82);
+}
+
+.choice-card:disabled {
+    opacity: 0.54;
+}
+
+.augment-card {
+    width: 332px;
+    height: 480px;
+}
+
+.shop-card {
+    width: 246px;
+    height: 336px;
+}
+
+.card-top-gem {
+    position: absolute;
+    top: -24px;
+    left: 50%;
+    width: 42px;
+    height: 42px;
+    margin-left: -21px;
+    background-color: rgb(218, 167, 52);
+    border-left-width: 4px;
+    border-right-width: 4px;
+    border-top-width: 4px;
+    border-bottom-width: 4px;
+    border-left-color: rgb(93, 69, 33);
+    border-right-color: rgb(93, 69, 33);
+    border-top-color: rgb(255, 231, 129);
+    border-bottom-color: rgb(123, 83, 29);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.card-body {
+    flex-grow: 1;
+    align-items: center;
+    justify-content: center;
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 26px;
+    padding-bottom: 16px;
+    background-color: rgb(7, 13, 21);
+}
+
+.card-icon {
+    width: 142px;
+    height: 142px;
+    margin-bottom: 12px;
+    opacity: 0.92;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.augment-icon {
+    width: 180px;
+    height: 180px;
+    opacity: 0.58;
+}
+
+.card-tier {
+    color: rgb(215, 184, 100);
+    font-size: 19px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    margin-bottom: 8px;
+}
+
+.card-name {
+    color: rgb(242, 236, 220);
+    font-size: 25px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: normal;
+    margin-bottom: 8px;
+}
+
+.card-description {
+    color: rgb(184, 196, 217);
+    font-size: 18px;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.card-footer {
+    height: 76px;
+    align-items: center;
+    justify-content: center;
+    background-color: rgb(30, 43, 75);
+    border-top-width: 2px;
+    border-top-color: rgb(82, 92, 113);
+}
+
+.card-footer-label {
+    color: rgb(245, 231, 194);
+    font-size: 22px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.sold-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    color: rgb(241, 234, 215);
+    font-size: 28px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    background-color: rgba(0, 0, 0, 0.68);
+}
+
+.shop-control-row {
+    position: absolute;
+    right: 36px;
+    top: 28px;
+    flex-direction: row;
+    align-items: center;
+}
+
+.shop-status-label {
+    color: rgb(237, 218, 159);
+    font-size: 18px;
+    -unity-font-style: bold;
+    margin-right: 16px;
+}
+
+.toolkit-button {
+    min-width: 180px;
+    height: 58px;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(9, 16, 26, 0.88);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(203, 159, 68);
+    border-right-color: rgb(203, 159, 68);
+    border-top-color: rgb(237, 198, 88);
+    border-bottom-color: rgb(151, 111, 46);
+    border-top-left-radius: 29px;
+    border-top-right-radius: 29px;
+    border-bottom-left-radius: 29px;
+    border-bottom-right-radius: 29px;
+    padding-left: 26px;
+    padding-right: 26px;
+}
+
+.toolkit-button:hover {
+    background-color: rgba(36, 51, 81, 0.96);
+}
+
+.toolkit-button-label {
+    color: rgb(248, 231, 181);
+    font-size: 22px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.game-hud-root {
+    position: absolute;
+    right: 28px;
+    top: 22px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.hud-button {
+    height: 58px;
+    min-width: 132px;
+    margin-left: 10px;
+    padding-left: 20px;
+    padding-right: 20px;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(8, 14, 23, 0.92);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(184, 138, 50);
+    border-right-color: rgb(184, 138, 50);
+    border-top-color: rgb(246, 212, 103);
+    border-bottom-color: rgb(117, 80, 30);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.hud-button:hover {
+    background-color: rgba(33, 47, 74, 0.96);
+    border-left-color: rgb(246, 212, 103);
+    border-right-color: rgb(246, 212, 103);
+}
+
+.hud-icon-button {
+    min-width: 96px;
+}
+
+.hud-action-button {
+    min-width: 144px;
+}
+
+.hud-button-label {
+    color: rgb(248, 232, 182);
+    font-size: 21px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.hud-button-active {
+    background-color: rgba(42, 58, 92, 0.98);
+    border-left-color: rgb(255, 232, 128);
+    border-right-color: rgb(255, 232, 128);
+    border-top-color: rgb(255, 241, 164);
+    border-bottom-color: rgb(206, 153, 55);
+}
+
+.is-disabled {
+    opacity: 0.46;
+}

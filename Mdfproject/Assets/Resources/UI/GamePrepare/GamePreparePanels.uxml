@@ -1,0 +1,138 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <ui:VisualElement name="game-prepare-root" class="game-prepare-root">
+        <ui:VisualElement name="game-prepare-safe-root" class="game-prepare-safe-root">
+            <ui:VisualElement name="augment-panel" class="prepare-panel augment-panel hidden">
+                <ui:VisualElement class="screen-frame frame-top" />
+                <ui:VisualElement class="screen-frame frame-bottom" />
+                <ui:VisualElement class="screen-frame frame-left" />
+                <ui:VisualElement class="screen-frame frame-right" />
+                <ui:VisualElement name="augment-card-row" class="augment-card-row">
+                    <ui:VisualElement name="augment-card-0" class="choice-card augment-card">
+                        <ui:VisualElement class="card-top-gem" />
+                        <ui:VisualElement class="card-body">
+                            <ui:Image name="augment-icon-0" class="card-icon augment-icon" />
+                            <ui:Label name="augment-tier-0" class="card-tier" text="AUGMENT" />
+                            <ui:Label name="augment-name-0" class="card-name" text="-" />
+                            <ui:Label name="augment-description-0" class="card-description" text="" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="card-footer">
+                            <ui:Label name="augment-pick-0" class="card-footer-label" text="선택" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement name="augment-card-1" class="choice-card augment-card">
+                        <ui:VisualElement class="card-top-gem" />
+                        <ui:VisualElement class="card-body">
+                            <ui:Image name="augment-icon-1" class="card-icon augment-icon" />
+                            <ui:Label name="augment-tier-1" class="card-tier" text="AUGMENT" />
+                            <ui:Label name="augment-name-1" class="card-name" text="-" />
+                            <ui:Label name="augment-description-1" class="card-description" text="" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="card-footer">
+                            <ui:Label name="augment-pick-1" class="card-footer-label" text="선택" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement name="augment-card-2" class="choice-card augment-card">
+                        <ui:VisualElement class="card-top-gem" />
+                        <ui:VisualElement class="card-body">
+                            <ui:Image name="augment-icon-2" class="card-icon augment-icon" />
+                            <ui:Label name="augment-tier-2" class="card-tier" text="AUGMENT" />
+                            <ui:Label name="augment-name-2" class="card-name" text="-" />
+                            <ui:Label name="augment-description-2" class="card-description" text="" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="card-footer">
+                            <ui:Label name="augment-pick-2" class="card-footer-label" text="선택" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement name="shop-panel" class="prepare-panel shop-panel hidden">
+                <ui:VisualElement name="shop-card-row" class="shop-card-row">
+                    <ui:VisualElement name="shop-card-0" class="choice-card shop-card">
+                        <ui:VisualElement class="card-top-gem" />
+                        <ui:VisualElement class="card-body">
+                            <ui:Image name="shop-icon-0" class="card-icon shop-icon" />
+                            <ui:Label name="shop-star-0" class="card-tier" text="-" />
+                            <ui:Label name="shop-name-0" class="card-name" text="-" />
+                            <ui:Label name="shop-cost-0" class="card-description" text="" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="card-footer">
+                            <ui:Label name="shop-buy-0" class="card-footer-label" text="구매" />
+                        </ui:VisualElement>
+                        <ui:Label name="shop-sold-0" class="sold-overlay hidden" text="구매 완료" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="shop-card-1" class="choice-card shop-card">
+                        <ui:VisualElement class="card-top-gem" />
+                        <ui:VisualElement class="card-body">
+                            <ui:Image name="shop-icon-1" class="card-icon shop-icon" />
+                            <ui:Label name="shop-star-1" class="card-tier" text="-" />
+                            <ui:Label name="shop-name-1" class="card-name" text="-" />
+                            <ui:Label name="shop-cost-1" class="card-description" text="" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="card-footer">
+                            <ui:Label name="shop-buy-1" class="card-footer-label" text="구매" />
+                        </ui:VisualElement>
+                        <ui:Label name="shop-sold-1" class="sold-overlay hidden" text="구매 완료" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="shop-card-2" class="choice-card shop-card">
+                        <ui:VisualElement class="card-top-gem" />
+                        <ui:VisualElement class="card-body">
+                            <ui:Image name="shop-icon-2" class="card-icon shop-icon" />
+                            <ui:Label name="shop-star-2" class="card-tier" text="-" />
+                            <ui:Label name="shop-name-2" class="card-name" text="-" />
+                            <ui:Label name="shop-cost-2" class="card-description" text="" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="card-footer">
+                            <ui:Label name="shop-buy-2" class="card-footer-label" text="구매" />
+                        </ui:VisualElement>
+                        <ui:Label name="shop-sold-2" class="sold-overlay hidden" text="구매 완료" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="shop-card-3" class="choice-card shop-card">
+                        <ui:VisualElement class="card-top-gem" />
+                        <ui:VisualElement class="card-body">
+                            <ui:Image name="shop-icon-3" class="card-icon shop-icon" />
+                            <ui:Label name="shop-star-3" class="card-tier" text="-" />
+                            <ui:Label name="shop-name-3" class="card-name" text="-" />
+                            <ui:Label name="shop-cost-3" class="card-description" text="" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="card-footer">
+                            <ui:Label name="shop-buy-3" class="card-footer-label" text="구매" />
+                        </ui:VisualElement>
+                        <ui:Label name="shop-sold-3" class="sold-overlay hidden" text="구매 완료" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="shop-card-4" class="choice-card shop-card">
+                        <ui:VisualElement class="card-top-gem" />
+                        <ui:VisualElement class="card-body">
+                            <ui:Image name="shop-icon-4" class="card-icon shop-icon" />
+                            <ui:Label name="shop-star-4" class="card-tier" text="-" />
+                            <ui:Label name="shop-name-4" class="card-name" text="-" />
+                            <ui:Label name="shop-cost-4" class="card-description" text="" />
+                        </ui:VisualElement>
+                        <ui:VisualElement class="card-footer">
+                            <ui:Label name="shop-buy-4" class="card-footer-label" text="구매" />
+                        </ui:VisualElement>
+                        <ui:Label name="shop-sold-4" class="sold-overlay hidden" text="구매 완료" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="shop-control-row">
+                    <ui:Label name="shop-status-label" class="shop-status-label" text="" />
+                    <ui:VisualElement name="shop-reroll-button" class="toolkit-button reroll-button">
+                        <ui:Label name="shop-reroll-label" class="toolkit-button-label" text="새로고침" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement name="game-hud-root" class="game-hud-root">
+                <ui:VisualElement name="game-option-button" class="hud-button hud-icon-button">
+                    <ui:Label name="game-option-label" class="hud-button-label" text="Options" />
+                </ui:VisualElement>
+                <ui:VisualElement name="game-shop-toggle-button" class="hud-button hud-action-button">
+                    <ui:Label name="game-shop-toggle-label" class="hud-button-label" text="Shop" />
+                </ui:VisualElement>
+                <ui:VisualElement name="game-wall-button" class="hud-button hud-action-button">
+                    <ui:Label name="game-wall-label" class="hud-button-label" text="Wall" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

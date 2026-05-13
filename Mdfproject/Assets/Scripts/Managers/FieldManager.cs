@@ -1087,6 +1087,11 @@ public class FieldManager : MonoBehaviour
         placementManager.StopPlacementMode();
     }
 
+    public PlacementMode GetPlacementMode()
+    {
+        return placementManager != null ? placementManager.GetCurrentMode() : PlacementMode.None;
+    }
+
     public void TogglePlacementMode(PlacementMode mode, GameObject unitPrefab = null)
     {
         if (placementManager.GetCurrentMode() == mode)
@@ -5113,6 +5118,10 @@ public class FieldManager : MonoBehaviour
             // 셀 기반이 아니라 실제 유닛 콜라이더를 클릭해야 드래그 시작
             Unit clickedUnit = GetUnitUnderMouse();
             bool pointerOverUI = MdfInput.IsPointerOverUI();
+            if (pointerOverUI && clickedUnit != null && ShouldAllowUnitDragThroughPrepareToolkit())
+            {
+                pointerOverUI = false;
+            }
 
             // 패널이 열려있는 상태에서
             if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
@@ -5345,6 +5354,22 @@ public class FieldManager : MonoBehaviour
             selectedUnitNetworkTransform = null;
             isDragStarted = false;
         }
+    }
+
+    private bool ShouldAllowUnitDragThroughPrepareToolkit()
+    {
+        var gm = GameManagers.Instance;
+        if (gm == null || gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
+        {
+            return false;
+        }
+
+        if (!GamePrepareUIToolkitController.IsToolkitActive)
+        {
+            return false;
+        }
+
+        return !GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition);
     }
 
     private async void ShowUnitDetailPanel(Unit unit)

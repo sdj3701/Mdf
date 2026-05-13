@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-05
-Last used: 2026-05-11
-Last verified: 2026-05-11
-Use count: 7
+Last used: 2026-05-13
+Last verified: 2026-05-13
+Use count: 8
 Review after: 2026-08-03
 Triggers: AI fill, fewer humans than max players, 4 slots
 Applies to: `run_ai_fill_smoke.py`, `GameManagers.DeterminePlayerCount`
@@ -37,3 +37,5 @@ Lifecycle notes:
 - 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
 - 2026-05-11: Verified 2 connected HumanBot players plus 2 server AI fill players in maxPlayers=4 session.
 - 2026-05-11: verified artifact `artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless`
+- 2026-05-13: Verified 2 HumanBot-controlled real peers plus 2 AI fill players with successful MoveUnit commands.
+- 2026-05-13: verified artifact `artifacts/mp/20260513-131556-two-humanbot-two-ai-smoke`
