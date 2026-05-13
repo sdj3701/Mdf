@@ -22,6 +22,10 @@ MonoBehaviour:
     m_Localized: Connet
     m_Metadata:
       m_Items: []
+  - m_Id: 36273538035249152
+    m_Localized: Crown &amp; Horns
+    m_Metadata:
+      m_Items: []
   references:
     version: 2
     RefIds: []

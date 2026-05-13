@@ -183,7 +183,7 @@ public class CameraManager : MonoBehaviour
     private void Update()
     {
         // 스페이스바로 자기 필드 복귀
-        if (Input.GetKeyDown(KeyCode.Space))
+        if (MdfInput.GetKeyDown(KeyCode.Space))
         {
             ReturnToOwnField();
         }

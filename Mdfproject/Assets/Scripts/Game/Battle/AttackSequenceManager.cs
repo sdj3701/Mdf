@@ -206,10 +206,10 @@ public class AttackSequenceManager : MonoBehaviour
     private void HandleInput()
     {
         // UI 위에서 클릭하면 스폰 처리 스킵 (UI 관통 방지)
-        bool isPointerOverUI = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+        bool isPointerOverUI = MdfInput.IsPointerOverUI();
 
         // 마우스 왼쪽 버튼 클릭/홀드
-        if (Input.GetMouseButtonDown(0))
+        if (MdfInput.PrimaryPointerWasPressedThisFrame())
         {
             if (!isPointerOverUI)
             {
@@ -225,7 +225,7 @@ public class AttackSequenceManager : MonoBehaviour
             _isHolding = !isPointerOverUI && !IsScrollMode;
             _lastSpawnTime = Time.time;
         }
-        else if (Input.GetMouseButton(0) && _isHolding)
+        else if (MdfInput.PrimaryPointerIsPressed() && _isHolding)
         {
             // UI 위로 마우스가 이동했으면 홀드 중단
             if (isPointerOverUI)
@@ -239,7 +239,7 @@ public class AttackSequenceManager : MonoBehaviour
                 _lastSpawnTime = Time.time;
             }
         }
-        else if (Input.GetMouseButtonUp(0))
+        else if (MdfInput.PrimaryPointerWasReleasedThisFrame())
         {
             _isHolding = false;
         }
@@ -247,7 +247,7 @@ public class AttackSequenceManager : MonoBehaviour
         // 숫자키로 몬스터 선택 (1~9)
         for (int i = 0; i < 9; i++)
         {
-            if (Input.GetKeyDown(KeyCode.Alpha1 + i))
+            if (MdfInput.GetKeyDown(KeyCode.Alpha1 + i))
             {
                 if (i < _playerManager.AttackMonsterPool.Count)
                 {
@@ -271,7 +271,7 @@ public class AttackSequenceManager : MonoBehaviour
             return;
         }
 
-        Ray ray = _playerCamera.ScreenPointToRay(Input.mousePosition);
+        Ray ray = _playerCamera.ScreenPointToRay(MdfInput.PointerPosition);
         if (Physics.Raycast(ray, out RaycastHit hit, 100f, spawnAreaLayerMask))
         {
             UseMagicScrollAsync(hit.point).Forget();
@@ -383,7 +383,7 @@ public class AttackSequenceManager : MonoBehaviour
         }
 
         // 마우스 위치에서 레이캐스트
-        Ray ray = _playerCamera.ScreenPointToRay(Input.mousePosition);
+        Ray ray = _playerCamera.ScreenPointToRay(MdfInput.PointerPosition);
         if (Physics.Raycast(ray, out RaycastHit hit, 100f, spawnAreaLayerMask))
         {
             Vector3 spawnPosition = hit.point;

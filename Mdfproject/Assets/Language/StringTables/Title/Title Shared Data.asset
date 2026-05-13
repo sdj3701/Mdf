@@ -19,6 +19,10 @@ MonoBehaviour:
     m_Key: Connet
     m_Metadata:
       m_Items: []
+  - m_Id: 36273538035249152
+    m_Key: AndroidAppName
+    m_Metadata:
+      m_Items: []
   m_Metadata:
     m_Items: []
   m_KeyGenerator:

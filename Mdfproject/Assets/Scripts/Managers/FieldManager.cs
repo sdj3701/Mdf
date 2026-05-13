@@ -330,7 +330,7 @@ public class FieldManager : MonoBehaviour
     private Vector3Int GetBestGridUnderMouse(int searchRadius = 2)
     {
         Vector3 mouseWorld = GetMouseWorldPosition();
-        Vector2 mouseScreen = Input.mousePosition;
+        Vector2 mouseScreen = MdfInput.PointerPosition;
         Vector3Int guess = WorldToGridInt(mouseWorld);
 
         float bestDist = float.MaxValue;
@@ -4763,7 +4763,7 @@ public class FieldManager : MonoBehaviour
     private Vector3 GetMouseWorldPosition()
     {
         if (ground3D == null) return Vector3.zero;
-        Ray ray = playerCamera.ScreenPointToRay(Input.mousePosition);
+        Ray ray = playerCamera.ScreenPointToRay(MdfInput.PointerPosition);
         Plane groundPlane = new Plane(Vector3.up, gridOrigin);
         if (groundPlane.Raycast(ray, out float enter))
         {
@@ -4779,7 +4779,7 @@ public class FieldManager : MonoBehaviour
     {
         if (playerCamera == null) return null;
 
-        Vector2 mouseScreen = Input.mousePosition;
+        Vector2 mouseScreen = MdfInput.PointerPosition;
         Ray ray = playerCamera.ScreenPointToRay(mouseScreen);
         RaycastHit[] hits = Physics.RaycastAll(ray, 1000f);
         if (hits != null && hits.Length > 0)
@@ -5108,12 +5108,11 @@ public class FieldManager : MonoBehaviour
         Vector3Int gridPos = WorldToGridInt(mouseWorldPos);
 
         // 마우스 버튼을 눌렀을 때
-        if (Input.GetMouseButtonDown(0))
+        if (MdfInput.PrimaryPointerWasPressedThisFrame())
         {
             // 셀 기반이 아니라 실제 유닛 콜라이더를 클릭해야 드래그 시작
             Unit clickedUnit = GetUnitUnderMouse();
-            bool pointerOverUI = UnityEngine.EventSystems.EventSystem.current != null &&
-                                 UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
+            bool pointerOverUI = MdfInput.IsPointerOverUI();
 
             // 패널이 열려있는 상태에서
             if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
@@ -5183,7 +5182,7 @@ public class FieldManager : MonoBehaviour
         }
 
         // 마우스 버튼을 누르고 있을 때
-        if (Input.GetMouseButton(0) && selectedUnit != null)
+        if (MdfInput.PrimaryPointerIsPressed() && selectedUnit != null)
         {
             // 아직 드래그가 시작되지 않았다면, 타이머를 확인하여 드래그 상태로 전환할지 결정합니다.
             if (!isDragStarted)
@@ -5231,7 +5230,7 @@ public class FieldManager : MonoBehaviour
         }
 
         // 마우스 버튼을 뗐을 때
-        if (Input.GetMouseButtonUp(0) && selectedUnit != null)
+        if (MdfInput.PrimaryPointerWasReleasedThisFrame() && selectedUnit != null)
         {
             if (isDragStarted)
             {
