@@ -170,8 +170,8 @@ public class PlacementManager : MonoBehaviour
 
     private void HandleMouseInput()
     {
-        if (Input.GetMouseButtonDown(0)) TryPlace();
-        if (Input.GetMouseButtonDown(1)) StopPlacementMode();
+        if (MdfInput.PrimaryPointerWasPressedThisFrame()) TryPlace();
+        if (MdfInput.SecondaryPointerWasPressedThisFrame()) StopPlacementMode();
     }
 
     private void TryPlace()
@@ -248,7 +248,7 @@ public class PlacementManager : MonoBehaviour
     private Vector3 GetMouseWorldPosition()
     {
         // 3D 모드: Ground에 Raycast
-        Ray ray = playerCamera.ScreenPointToRay(Input.mousePosition);
+        Ray ray = playerCamera.ScreenPointToRay(MdfInput.PointerPosition);
         Plane groundPlane = new Plane(Vector3.up, fieldManager.gridOrigin);
         if (groundPlane.Raycast(ray, out float enter))
         {

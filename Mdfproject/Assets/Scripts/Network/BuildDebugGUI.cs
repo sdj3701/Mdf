@@ -35,23 +35,23 @@ public class BuildDebugGUI : MonoBehaviour
 
     private void Update()
     {
-        if (Input.GetKeyDown(toggleKey))
+        if (MdfInput.GetKeyDown(toggleKey))
         {
             visible = !visible;
         }
 
         bool ctrlOrCmd =
-            Input.GetKey(KeyCode.LeftControl) ||
-            Input.GetKey(KeyCode.RightControl) ||
-            Input.GetKey(KeyCode.LeftCommand) ||
-            Input.GetKey(KeyCode.RightCommand);
+            MdfInput.GetKey(KeyCode.LeftControl) ||
+            MdfInput.GetKey(KeyCode.RightControl) ||
+            MdfInput.GetKey(KeyCode.LeftCommand) ||
+            MdfInput.GetKey(KeyCode.RightCommand);
 
-        if (visible && ctrlOrCmd && Input.GetKeyDown(copyKey))
+        if (visible && ctrlOrCmd && MdfInput.GetKeyDown(copyKey))
         {
             CopyLogsToClipboard();
         }
 
-        if (visible && ctrlOrCmd && Input.GetKeyDown(clearKey))
+        if (visible && ctrlOrCmd && MdfInput.GetKeyDown(clearKey))
         {
             ClearLogs();
         }

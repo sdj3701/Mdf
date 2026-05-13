@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-11
+Last used: 2026-05-13
 Last verified: 2026-05-11
-Use count: 4
+Use count: 5
 Review after: 2026-08-03
 Triggers: Development Build, build artifact, player launch smoke
 Applies to: `mp_build_player`, `tools/harness/mp/build_player.py`

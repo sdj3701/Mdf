@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-10
+Last used: 2026-05-13
 Last verified: 2026-05-10
-Use count: 4
+Use count: 6
 Review after: 2026-08-03
 Triggers: unity-cli, status, list, editor refresh, console, test, screenshot
 Applies to: unity-cli v0.3.15, connector 0.3.15, Unity 2021.3.45f1
