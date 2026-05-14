@@ -435,6 +435,27 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void BattleSpawnClickZoneAcceptsWholeGroundMap()
+    {
+        var go = new GameObject("battle-spawn-click-zone-test");
+        try
+        {
+            var field = go.AddComponent<FieldManager>();
+            field.gridOrigin = Vector3.zero;
+            field.cellSize = 1f;
+            field.gridSize = new Vector2Int(10, 9);
+
+            Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(0.5f, 0f, 0.5f)), Is.True);
+            Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(-1.5f, 0f, 0.5f)), Is.True);
+            Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(-3.5f, 0f, 0.5f)), Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(go);
+        }
+    }
+
+    [Test]
     public void ServerBattleCommandExecutorRequiresExplicitDelegates()
     {
         string source = File.ReadAllText("Assets/Scripts/Commands/Battle/ServerBattleCommandExecutor.cs");
@@ -713,6 +734,8 @@ public sealed class MPTestHarnessEditModeTests
         string shopSource = File.ReadAllText("Assets/Scripts/UI/ShopUIController.cs");
         string augmentSource = File.ReadAllText("Assets/Scripts/UI/AugmentUIController.cs");
         string playerHudSource = File.ReadAllText("Assets/Scripts/UI/PlayerHUDController.cs");
+        string attackUiSource = File.ReadAllText("Assets/Scripts/UI/AttackSequence/AttackSequenceUIController.cs");
+        string attackManagerSource = File.ReadAllText("Assets/Scripts/Game/Battle/AttackSequenceManager.cs");
         string inputSource = File.ReadAllText("Assets/Scripts/Managers/MdfInput.cs");
         string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
         string uxml = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanels.uxml");
@@ -723,23 +746,45 @@ public sealed class MPTestHarnessEditModeTests
 
         Assert.That(GamePrepareUIToolkitController.ShopCardCount, Is.EqualTo(5));
         Assert.That(GamePrepareUIToolkitController.AugmentCardCount, Is.EqualTo(3));
+        Assert.That(GamePrepareUIToolkitController.MonsterCardCount, Is.EqualTo(9));
+        Assert.That(GamePrepareUIToolkitController.ScrollCardCount, Is.EqualTo(5));
         Assert.That(layout, Is.Not.Null);
         Assert.That(style, Is.Not.Null);
         Assert.That(theme, Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("shop-panel"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("augment-panel"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("attack-sequence-panel"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-resource-root"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("game-shop-toggle-button"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("game-wall-button"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("game-option-button"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("game-gold-value"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("game-wall-count-value"), Is.Not.Null);
         Assert.That(Regex.Matches(uxml, "name=\"shop-card-\\d\"").Count, Is.EqualTo(5));
         Assert.That(Regex.Matches(uxml, "name=\"augment-card-\\d\"").Count, Is.EqualTo(3));
+        Assert.That(Regex.Matches(uxml, "name=\"attack-monster-card-\\d\"").Count, Is.EqualTo(9));
+        Assert.That(Regex.Matches(uxml, "name=\"attack-scroll-card-\\d\"").Count, Is.EqualTo(5));
         Assert.That(controllerSource, Does.Contain("new BuyUnitCommand(playerId, slotIndex)"));
         Assert.That(controllerSource, Does.Contain("new RerollShopCommand(playerId)"));
         Assert.That(controllerSource, Does.Contain("new SelectAugmentCommand(playerId, index)"));
+        Assert.That(controllerSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
+        Assert.That(controllerSource, Does.Contain("ShopCardScaleBoost"));
+        Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
+        Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMagicScroll(scrolls[slotIndex])"));
+        Assert.That(controllerSource, Does.Contain("game-gold-value"));
         Assert.That(controllerSource, Does.Contain("TogglePlacementMode(PlacementMode.Wall)"));
         Assert.That(controllerSource, Does.Contain("GetUIElement(\"OptionCanvas\")"));
         Assert.That(controllerSource, Does.Contain("IsPointerOverBlockingElement"));
         Assert.That(controllerSource, Does.Contain("IsToolkitRaycastObject"));
+        Assert.That(controllerSource, Does.Contain("RegisterCallback<PointerDownEvent>"));
+        Assert.That(controllerSource, Does.Contain("SuppressBattleMapInputForCurrentPointer"));
+        Assert.That(controllerSource, Does.Contain("IsBlockingElementOrDescendant"));
+        Assert.That(attackUiSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
+        Assert.That(attackUiSource, Does.Contain("SetLegacyContentVisibilityOnly(false)"));
+        Assert.That(attackManagerSource, Does.Contain("IsPointerOverBattleActionBlocker"));
+        Assert.That(attackManagerSource, Does.Contain("TryGetSpawnPositionUnderPointer"));
+        Assert.That(attackManagerSource, Does.Contain("ShouldSuppressBattleMapInput"));
+        Assert.That(attackManagerSource, Does.Contain("BattleCommandValidator.IsInsideBattleSpawnZone"));
         Assert.That(inputSource, Does.Contain("HasNonGamePrepareToolkitUiHit"));
         Assert.That(inputSource, Does.Contain("eventSystem.RaycastAll"));
         Assert.That(fieldSource, Does.Contain("ShouldAllowUnitDragThroughPrepareToolkit"));
@@ -747,8 +792,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(shopSource, Does.Contain("TryToggleShopFromLegacy"));
         Assert.That(augmentSource, Does.Contain("TryShowAugmentsFromLegacy"));
         Assert.That(playerHudSource, Does.Contain("SetLegacyHudButtonsVisible"));
-        Assert.That(GamePrepareUIToolkitController.CalculateCardSize(true, new Vector2(2340, 1080)).x, Is.GreaterThanOrEqualTo(64f * 2.8f));
-        Assert.That(GamePrepareUIToolkitController.CalculateCardSize(false, new Vector2(2340, 1080)).y, Is.GreaterThanOrEqualTo(64f * 5.4f));
+        Assert.That(playerHudSource, Does.Contain("SetLegacyResourceHudVisible"));
+        Assert.That(GamePrepareUIToolkitController.CalculateCardSize(true, new Vector2(2340, 1080)).x, Is.GreaterThanOrEqualTo(64f * 5.0f));
+        Assert.That(GamePrepareUIToolkitController.CalculateCardSize(false, new Vector2(2340, 1080)).y, Is.GreaterThanOrEqualTo(64f * 6.0f));
+        Assert.That(GamePrepareUIToolkitController.CalculateAugmentTopPadding(new Vector2(2340, 1080)), Is.GreaterThanOrEqualTo(320f));
     }
 
     [Test]
@@ -951,8 +998,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(managerSource, Does.Contain("TryResolveSelectedMonster(out var selectedMonster, out int poolSlotIndex)"));
         Assert.That(managerSource, Does.Contain("HasPendingBattleSpawnForCurrentSnapshot(poolSlotIndex)"));
         Assert.That(managerSource, Does.Contain("MarkPendingBattleSpawn(poolSlotIndex)"));
+        Assert.That(managerSource, Does.Contain("SuppressBattleMapInputForCurrentPointer"));
+        Assert.That(managerSource, Does.Not.Contain("FirstOrDefault(entry => entry != null && !entry.IsEmpty)"));
         Assert.That(uiSource, Does.Contain("_attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
-        Assert.That(uiSource, Does.Contain("SelectFirstAvailableMonsterSlot(pool)"));
+        Assert.That(uiSource, Does.Contain("GamePrepareUIToolkitController.TrySyncMonsterSelectionFromLegacy(slotIndex)"));
+        Assert.That(uiSource, Does.Not.Contain("SelectFirstAvailableMonsterSlot(pool);"));
     }
 
     [Test]

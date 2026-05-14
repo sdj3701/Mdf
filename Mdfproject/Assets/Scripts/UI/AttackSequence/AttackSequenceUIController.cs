@@ -252,6 +252,12 @@ public class AttackSequenceUIController : MonoBehaviour
     #region UI 표시/숨김
     public void Show(bool isAttacking)
     {
+        if (GamePrepareUIToolkitController.TryShowAttackSequenceFromLegacy(_playerManager, _attackSequenceManager, isAttacking))
+        {
+            SetLegacyContentVisibilityOnly(false);
+            return;
+        }
+
         if (panelRoot != null)
         {
             panelRoot.SetActive(true);
@@ -272,9 +278,19 @@ public class AttackSequenceUIController : MonoBehaviour
 
     public void Hide()
     {
+        GamePrepareUIToolkitController.TryHideAttackSequenceFromLegacy();
+
         if (panelRoot != null)
         {
             panelRoot.SetActive(false);
+        }
+    }
+
+    public void SetLegacyContentVisibilityOnly(bool visible)
+    {
+        if (panelRoot != null)
+        {
+            panelRoot.SetActive(visible);
         }
     }
 
@@ -330,12 +346,7 @@ public class AttackSequenceUIController : MonoBehaviour
             ClearMonsterSelection();
         }
 
-        // 첫 번째 활성 슬롯 자동 선택
-        if (_selectedSlotIndex < 0)
-        {
-            SelectFirstAvailableMonsterSlot(pool);
-        }
-        else
+        if (_selectedSlotIndex >= 0)
         {
             SelectSlot(_selectedSlotIndex);
         }
@@ -348,6 +359,12 @@ public class AttackSequenceUIController : MonoBehaviour
     public void RefreshUI()
     {
         if (!TryRebindPlayerReference("RefreshUI", false)) return;
+
+        if (GamePrepareUIToolkitController.TryRefreshAttackSequenceFromLegacy(_playerManager, _attackSequenceManager))
+        {
+            SetLegacyContentVisibilityOnly(false);
+            return;
+        }
         
         if (_playerManager.AttackMonsterPool != null)
         {
@@ -389,6 +406,12 @@ public class AttackSequenceUIController : MonoBehaviour
 
     public void SyncMonsterSelectionFromManager(int slotIndex)
     {
+        if (GamePrepareUIToolkitController.TrySyncMonsterSelectionFromLegacy(slotIndex))
+        {
+            SetLegacyContentVisibilityOnly(false);
+            return;
+        }
+
         SelectSlot(slotIndex);
     }
 
@@ -404,24 +427,6 @@ public class AttackSequenceUIController : MonoBehaviour
         if (slotIndex >= 0 && slotIndex < _slots.Count)
         {
             _slots[slotIndex].SetSelected(true);
-        }
-    }
-
-    private void SelectFirstAvailableMonsterSlot(List<MonsterPoolEntry> pool)
-    {
-        if (pool == null)
-        {
-            return;
-        }
-
-        for (int i = 0; i < pool.Count; i++)
-        {
-            if (pool[i] != null && !pool[i].IsEmpty)
-            {
-                SelectSlot(i);
-                _attackSequenceManager?.SelectMonsterSlot(i);
-                return;
-            }
         }
     }
 
@@ -450,6 +455,12 @@ public class AttackSequenceUIController : MonoBehaviour
         if (!TryRebindPlayerReference("HandleMonsterPoolChanged", false)) return;
         if (!TryGetPlayerIdSafe(_playerManager, out int localPlayerId) || playerId != localPlayerId) return;
 
+        if (GamePrepareUIToolkitController.TryRefreshAttackSequenceFromLegacy(_playerManager, _attackSequenceManager))
+        {
+            SetLegacyContentVisibilityOnly(false);
+            return;
+        }
+
         RefreshSlots(pool);
     }
 
@@ -457,6 +468,12 @@ public class AttackSequenceUIController : MonoBehaviour
     {
         if (!TryRebindPlayerReference("HandleMagicScrollPoolChanged", false)) return;
         if (!TryGetPlayerIdSafe(_playerManager, out int localPlayerId) || playerId != localPlayerId) return;
+
+        if (GamePrepareUIToolkitController.TryRefreshAttackSequenceFromLegacy(_playerManager, _attackSequenceManager))
+        {
+            SetLegacyContentVisibilityOnly(false);
+            return;
+        }
 
         RefreshScrollSlots(scrolls);
     }
@@ -506,6 +523,12 @@ public class AttackSequenceUIController : MonoBehaviour
 
     public void SyncScrollSelectionFromManager(int slotIndex)
     {
+        if (GamePrepareUIToolkitController.TrySyncScrollSelectionFromLegacy(slotIndex))
+        {
+            SetLegacyContentVisibilityOnly(false);
+            return;
+        }
+
         SelectScrollSlot(slotIndex);
     }
 

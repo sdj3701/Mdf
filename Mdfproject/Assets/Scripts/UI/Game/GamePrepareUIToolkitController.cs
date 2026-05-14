@@ -15,6 +15,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 {
     public const int ShopCardCount = 5;
     public const int AugmentCardCount = 3;
+    public const int MonsterCardCount = 9;
+    public const int ScrollCardCount = 5;
 
     private const string LayoutResourcePath = "UI/GamePrepare/GamePreparePanels";
     private const string StyleResourcePath = "UI/GamePrepare/GamePreparePanelsStyles";
@@ -23,10 +25,16 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const float ReferenceWidth = 1600f;
     private const float ReferenceHeight = 900f;
     private const float MinResponsiveScale = 0.72f;
-    private const float MaxResponsiveScale = 1.18f;
+    private const float MaxResponsiveScale = 1.28f;
     private const float MinTouchSize = 64f;
+    private const float ShopCardScaleBoost = 1.14f;
+    private const float AugmentCardScaleBoost = 1.08f;
     private const float ShopRowTopRatio = 0.16f;
-    private const float AugmentRowTopRatio = 0.24f;
+    private const float AugmentRowTopRatio = 0.30f;
+    private const float ShopPanelTopMin = 118f;
+    private const float ShopPanelTopMax = 230f;
+    private const float AugmentPanelTopMin = 220f;
+    private const float AugmentPanelTopMax = 380f;
 
     private static GamePrepareUIToolkitController instance;
 
@@ -36,6 +44,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private readonly ShopCardView[] shopCards = new ShopCardView[ShopCardCount];
     private readonly AugmentCardView[] augmentCards = new AugmentCardView[AugmentCardCount];
+    private readonly MonsterCardView[] monsterCards = new MonsterCardView[MonsterCardCount];
+    private readonly ScrollCardView[] scrollCards = new ScrollCardView[ScrollCardCount];
     private readonly List<AugmentData> currentAugments = new List<AugmentData>(AugmentCardCount);
 
     private VisualElement root;
@@ -53,14 +63,28 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private VisualElement hudWallButton;
     private Label hudWallLabel;
     private VisualElement hudOptionButton;
+    private VisualElement resourceRoot;
+    private Label resourceGoldValue;
+    private Label resourceWallValue;
+    private VisualElement attackSequencePanel;
+    private VisualElement attackMonsterRow;
+    private VisualElement attackScrollRow;
 
     private GameManagers gameManagers;
     private PlayerManager localPlayer;
     private ShopManager localShopManager;
+    private PlayerManager attackSequencePlayer;
+    private AttackSequenceManager attackSequenceManager;
     private bool callbacksBound;
     private bool eventsSubscribed;
     private bool shopVisible;
     private bool augmentVisible;
+    private bool attackSequenceVisible;
+    private bool attackSequenceIsAttacking;
+    private int selectedMonsterSlotIndex = -1;
+    private int selectedScrollSlotIndex = -1;
+    private int lastGoldCount = int.MinValue;
+    private int lastResourceWallCount = int.MinValue;
     private int lastWallCount = int.MinValue;
     private bool lastPrepareButtonsVisible;
     private bool legacyHudHidden;
@@ -175,6 +199,76 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         return instance.ShowAugments(player, choices);
     }
 
+    public static bool TryShowAttackSequenceFromLegacy(
+        PlayerManager player,
+        AttackSequenceManager attackManager,
+        bool isAttacking)
+    {
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        instance.ShowAttackSequence(player, attackManager, isAttacking);
+        return true;
+    }
+
+    public static bool TryHideAttackSequenceFromLegacy()
+    {
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        instance.SetAttackSequenceVisible(false);
+        return true;
+    }
+
+    public static bool TryRefreshAttackSequenceFromLegacy(
+        PlayerManager player,
+        AttackSequenceManager attackManager)
+    {
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        instance.RefreshAttackSequence(player, attackManager);
+        return true;
+    }
+
+    public static bool TrySyncMonsterSelectionFromLegacy(int slotIndex)
+    {
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        instance.SelectMonsterCard(slotIndex, false);
+        return true;
+    }
+
+    public static bool TrySyncScrollSelectionFromLegacy(int slotIndex)
+    {
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        instance.SelectScrollCard(slotIndex, false);
+        return true;
+    }
+
+    public static void SuppressBattleMapInputForCurrentPointer()
+    {
+        if (!IsToolkitActive)
+        {
+            return;
+        }
+
+        instance.attackSequenceManager?.SuppressBattleMapInputForCurrentPointer();
+    }
+
     public static string FormatCostText(int cost)
     {
         return cost <= 0 ? "\uBB34\uB8CC" : $"{cost} \uACE8\uB4DC";
@@ -199,8 +293,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         var scale = CalculateResponsiveScale(screenSize);
         return isShop
-            ? new Vector2(246f * scale, 336f * scale)
-            : new Vector2(332f * scale, 480f * scale);
+            ? new Vector2(246f * scale * ShopCardScaleBoost, 336f * scale * ShopCardScaleBoost)
+            : new Vector2(332f * scale * AugmentCardScaleBoost, 480f * scale * AugmentCardScaleBoost);
     }
 
     public static float CalculateResponsiveScale(Vector2 screenSize)
@@ -215,6 +309,16 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         return Mathf.Clamp(Mathf.Min(scaleByWidth, scaleByHeight), MinResponsiveScale, MaxResponsiveScale);
     }
 
+    public static float CalculateShopTopPadding(Vector2 screenSize)
+    {
+        return Mathf.Clamp(screenSize.y * ShopRowTopRatio, ShopPanelTopMin, ShopPanelTopMax);
+    }
+
+    public static float CalculateAugmentTopPadding(Vector2 screenSize)
+    {
+        return Mathf.Clamp(screenSize.y * AugmentRowTopRatio, AugmentPanelTopMin, AugmentPanelTopMax);
+    }
+
     private bool IsBlockingElementAt(Vector2 screenPosition)
     {
         if (root == null || root.panel == null)
@@ -223,6 +327,24 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         Vector2 panelPosition = RuntimePanelUtils.ScreenToPanel(root.panel, screenPosition);
+        if (IsBlockingElementAtPanelPosition(panelPosition))
+        {
+            return true;
+        }
+
+        // InputSystem and UI Toolkit can disagree on Y origin depending on panel/event timing.
+        // Keep battle card taps blocked even if the first conversion misses the card bounds.
+        Vector2 invertedPanelPosition = new Vector2(screenPosition.x, Screen.height - screenPosition.y);
+        return IsBlockingElementAtPanelPosition(invertedPanelPosition);
+    }
+
+    private bool IsBlockingElementAtPanelPosition(Vector2 panelPosition)
+    {
+        VisualElement picked = root.panel.Pick(panelPosition);
+        if (IsBlockingElementOrDescendant(picked))
+        {
+            return true;
+        }
 
         if (ContainsPoint(hudShopButton, panelPosition) ||
             ContainsPoint(hudWallButton, panelPosition) ||
@@ -258,20 +380,112 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
         }
 
+        if (attackSequenceVisible)
+        {
+            for (int i = 0; i < monsterCards.Length; i++)
+            {
+                if (ContainsPoint(monsterCards[i].Root, panelPosition))
+                {
+                    return true;
+                }
+            }
+
+            for (int i = 0; i < scrollCards.Length; i++)
+            {
+                if (ContainsPoint(scrollCards[i].Root, panelPosition))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsBlockingElementOrDescendant(VisualElement element)
+    {
+        if (element == null)
+        {
+            return false;
+        }
+
+        if (IsElementOrChildOf(element, hudShopButton) ||
+            IsElementOrChildOf(element, hudWallButton) ||
+            IsElementOrChildOf(element, hudOptionButton) ||
+            IsElementOrChildOf(element, rerollButton))
+        {
+            return true;
+        }
+
+        for (int i = 0; i < shopCards.Length; i++)
+        {
+            if (shopVisible && IsElementOrChildOf(element, shopCards[i].Root))
+            {
+                return true;
+            }
+        }
+
+        for (int i = 0; i < augmentCards.Length; i++)
+        {
+            if (augmentVisible && IsElementOrChildOf(element, augmentCards[i].Root))
+            {
+                return true;
+            }
+        }
+
+        for (int i = 0; i < monsterCards.Length; i++)
+        {
+            if (attackSequenceVisible && IsElementOrChildOf(element, monsterCards[i].Root))
+            {
+                return true;
+            }
+        }
+
+        for (int i = 0; i < scrollCards.Length; i++)
+        {
+            if (attackSequenceVisible && IsElementOrChildOf(element, scrollCards[i].Root))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsElementOrChildOf(VisualElement element, VisualElement parent)
+    {
+        if (!CanBlockPointer(parent))
+        {
+            return false;
+        }
+
+        for (VisualElement current = element; current != null; current = current.parent)
+        {
+            if (current == parent)
+            {
+                return true;
+            }
+        }
+
         return false;
     }
 
     private static bool ContainsPoint(VisualElement element, Vector2 panelPosition)
     {
-        if (element == null ||
-            element.pickingMode == PickingMode.Ignore ||
-            element.resolvedStyle.display == DisplayStyle.None ||
-            element.resolvedStyle.visibility == Visibility.Hidden)
+        if (!CanBlockPointer(element))
         {
             return false;
         }
 
         return element.worldBound.Contains(panelPosition);
+    }
+
+    private static bool CanBlockPointer(VisualElement element)
+    {
+        return element != null &&
+               element.pickingMode != PickingMode.Ignore &&
+               element.resolvedStyle.display != DisplayStyle.None &&
+               element.resolvedStyle.visibility != Visibility.Hidden;
     }
 
     private static PanelSettings CreateRuntimePanelSettings()
@@ -332,6 +546,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         HideLegacyContent();
         SetShopVisible(false);
         SetAugmentVisible(false);
+        SetAttackSequenceVisible(false);
         UpdateHudState(true);
     }
 
@@ -392,6 +607,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         hudWallButton = root?.Q<VisualElement>("game-wall-button");
         hudWallLabel = root?.Q<Label>("game-wall-label");
         hudOptionButton = root?.Q<VisualElement>("game-option-button");
+        resourceRoot = root?.Q<VisualElement>("game-resource-root");
+        resourceGoldValue = root?.Q<Label>("game-gold-value");
+        resourceWallValue = root?.Q<Label>("game-wall-count-value");
+        attackSequencePanel = root?.Q<VisualElement>("attack-sequence-panel");
+        attackMonsterRow = root?.Q<VisualElement>("attack-monster-row");
+        attackScrollRow = root?.Q<VisualElement>("attack-scroll-row");
 
         for (var i = 0; i < ShopCardCount; i++)
         {
@@ -415,6 +636,25 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 root?.Q<Label>($"augment-name-{i}"),
                 root?.Q<Label>($"augment-description-{i}"));
         }
+
+        for (var i = 0; i < MonsterCardCount; i++)
+        {
+            monsterCards[i] = new MonsterCardView(
+                i,
+                root?.Q<VisualElement>($"attack-monster-card-{i}"),
+                root?.Q<Image>($"attack-monster-icon-{i}"),
+                root?.Q<Label>($"attack-monster-name-{i}"),
+                root?.Q<Label>($"attack-monster-count-{i}"));
+        }
+
+        for (var i = 0; i < ScrollCardCount; i++)
+        {
+            scrollCards[i] = new ScrollCardView(
+                i,
+                root?.Q<VisualElement>($"attack-scroll-card-{i}"),
+                root?.Q<Image>($"attack-scroll-icon-{i}"),
+                root?.Q<Label>($"attack-scroll-name-{i}"));
+        }
     }
 
     private void ConfigurePickingModes()
@@ -425,6 +665,10 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         SetPickingMode(hudShopButton, PickingMode.Position);
         SetPickingMode(hudWallButton, PickingMode.Position);
         SetPickingMode(hudOptionButton, PickingMode.Position);
+        SetPickingMode(resourceRoot, PickingMode.Ignore);
+        SetPickingMode(attackSequencePanel, PickingMode.Ignore);
+        SetPickingMode(attackMonsterRow, PickingMode.Ignore);
+        SetPickingMode(attackScrollRow, PickingMode.Ignore);
         SetPickingMode(rerollButton, PickingMode.Position);
 
         for (var i = 0; i < shopCards.Length; i++)
@@ -435,6 +679,16 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         for (var i = 0; i < augmentCards.Length; i++)
         {
             SetPickingMode(augmentCards[i].Root, PickingMode.Position);
+        }
+
+        for (var i = 0; i < monsterCards.Length; i++)
+        {
+            SetPickingMode(monsterCards[i].Root, PickingMode.Position);
+        }
+
+        for (var i = 0; i < scrollCards.Length; i++)
+        {
+            SetPickingMode(scrollCards[i].Root, PickingMode.Position);
         }
     }
 
@@ -472,6 +726,50 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 if (evt.button == 0)
                 {
                     HandleAugmentCardClicked(augmentIndex);
+                    evt.StopPropagation();
+                }
+            });
+        }
+
+        for (var i = 0; i < monsterCards.Length; i++)
+        {
+            var slotIndex = i;
+            monsterCards[i].Root?.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button == 0)
+                {
+                    SuppressBattleMapInputForCurrentPointer();
+                    evt.StopPropagation();
+                }
+            });
+            monsterCards[i].Root?.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (evt.button == 0)
+                {
+                    SuppressBattleMapInputForCurrentPointer();
+                    HandleMonsterCardClicked(slotIndex);
+                    evt.StopPropagation();
+                }
+            });
+        }
+
+        for (var i = 0; i < scrollCards.Length; i++)
+        {
+            var slotIndex = i;
+            scrollCards[i].Root?.RegisterCallback<PointerDownEvent>(evt =>
+            {
+                if (evt.button == 0)
+                {
+                    SuppressBattleMapInputForCurrentPointer();
+                    evt.StopPropagation();
+                }
+            });
+            scrollCards[i].Root?.RegisterCallback<PointerUpEvent>(evt =>
+            {
+                if (evt.button == 0)
+                {
+                    SuppressBattleMapInputForCurrentPointer();
+                    HandleScrollCardClicked(slotIndex);
                     evt.StopPropagation();
                 }
             });
@@ -531,6 +829,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         GameEvents.OnUnitPurchaseSucceeded += HandleUnitPurchaseSucceeded;
         GameEvents.OnAugmentPhaseStart += HandleAugmentPhaseStart;
         GameEvents.OnAugmentApplied += HandleAugmentApplied;
+        GameEvents.OnPlayerStatsChanged += HandlePlayerStatsChanged;
+        GameEvents.OnPlayerWallCountChanged += HandlePlayerWallCountChanged;
+        GameEvents.OnMonsterPoolChanged += HandleMonsterPoolChanged;
+        GameEvents.OnMagicScrollPoolChanged += HandleMagicScrollPoolChanged;
+        GameEvents.OnBattleSequenceStarted += HandleBattleSequenceStarted;
         eventsSubscribed = true;
     }
 
@@ -549,6 +852,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         GameEvents.OnUnitPurchaseSucceeded -= HandleUnitPurchaseSucceeded;
         GameEvents.OnAugmentPhaseStart -= HandleAugmentPhaseStart;
         GameEvents.OnAugmentApplied -= HandleAugmentApplied;
+        GameEvents.OnPlayerStatsChanged -= HandlePlayerStatsChanged;
+        GameEvents.OnPlayerWallCountChanged -= HandlePlayerWallCountChanged;
+        GameEvents.OnMonsterPoolChanged -= HandleMonsterPoolChanged;
+        GameEvents.OnMagicScrollPoolChanged -= HandleMagicScrollPoolChanged;
+        GameEvents.OnBattleSequenceStarted -= HandleBattleSequenceStarted;
         eventsSubscribed = false;
     }
 
@@ -567,6 +875,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         {
             SetShopVisible(false);
             SetAugmentVisible(false);
+        }
+
+        if (newState == GameManagers.GameState.Prepare || newState == GameManagers.GameState.GameOver)
+        {
+            SetAttackSequenceVisible(false);
         }
 
         UpdateHudState(true);
@@ -632,6 +945,53 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         SetAugmentVisible(false);
     }
 
+    private void HandlePlayerStatsChanged(int playerId, int newHealth, int newGold)
+    {
+        if (!IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        UpdateResourceState(true);
+    }
+
+    private void HandlePlayerWallCountChanged(int playerId, int newWallCount)
+    {
+        if (!IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        UpdateResourceState(true);
+    }
+
+    private void HandleMonsterPoolChanged(int playerId, List<MonsterPoolEntry> pool)
+    {
+        if (!attackSequenceVisible || !IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        RefreshAttackSequence(attackSequencePlayer, attackSequenceManager);
+    }
+
+    private void HandleMagicScrollPoolChanged(int playerId, IReadOnlyList<MagicScrollData> scrolls)
+    {
+        if (!attackSequenceVisible || !IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        RefreshAttackSequence(attackSequencePlayer, attackSequenceManager);
+    }
+
+    private void HandleBattleSequenceStarted(bool isAttacking)
+    {
+        RefreshRuntimeReferences();
+        var manager = localPlayer != null ? localPlayer.GetComponent<AttackSequenceManager>() : null;
+        ShowAttackSequence(localPlayer, manager, isAttacking);
+    }
+
     private bool ToggleShopPanelFromLegacy()
     {
         if (shopVisible)
@@ -690,6 +1050,60 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         return true;
     }
 
+    private void ShowAttackSequence(PlayerManager player, AttackSequenceManager manager, bool isAttacking)
+    {
+        RefreshRuntimeReferences();
+        attackSequencePlayer = player != null ? player : localPlayer;
+        attackSequenceManager = manager != null
+            ? manager
+            : attackSequencePlayer != null ? attackSequencePlayer.GetComponent<AttackSequenceManager>() : null;
+        attackSequenceIsAttacking = isAttacking;
+
+        if (!isAttacking || attackSequencePlayer == null || attackSequenceManager == null)
+        {
+            SetAttackSequenceVisible(false);
+            return;
+        }
+
+        SetShopVisible(false);
+        SetAugmentVisible(false);
+        RefreshAttackSequence(attackSequencePlayer, attackSequenceManager);
+        SetAttackSequenceVisible(true);
+        HideLegacyAttackSequenceContent();
+    }
+
+    private void RefreshAttackSequence(PlayerManager player, AttackSequenceManager manager)
+    {
+        RefreshRuntimeReferences();
+        attackSequencePlayer = player != null ? player : attackSequencePlayer ?? localPlayer;
+        attackSequenceManager = manager != null
+            ? manager
+            : attackSequenceManager != null
+                ? attackSequenceManager
+                : attackSequencePlayer != null ? attackSequencePlayer.GetComponent<AttackSequenceManager>() : null;
+
+        BindMonsterCards(attackSequencePlayer?.AttackMonsterPool);
+        BindScrollCards(attackSequencePlayer?.OwnedScrolls);
+
+        if (selectedScrollSlotIndex >= 0)
+        {
+            SelectScrollCard(selectedScrollSlotIndex, false);
+            return;
+        }
+
+        if (selectedMonsterSlotIndex >= 0)
+        {
+            SelectMonsterCard(selectedMonsterSlotIndex, false);
+            return;
+        }
+
+        int resolvedSlot = ResolveSelectedMonsterSlot();
+        if (resolvedSlot >= 0)
+        {
+            SelectMonsterCard(resolvedSlot, false);
+        }
+    }
+
     private void RefreshRuntimeReferences()
     {
         gameManagers = GameManagers.Instance;
@@ -722,6 +1136,44 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         {
             var augment = choices != null && i < choices.Count ? choices[i] : null;
             augmentCards[i].Bind(augment);
+        }
+    }
+
+    private void BindMonsterCards(List<MonsterPoolEntry> pool)
+    {
+        for (var i = 0; i < monsterCards.Length; i++)
+        {
+            var entry = pool != null && i < pool.Count ? pool[i] : null;
+            bool hasSlot = entry != null && entry.MonsterData != null;
+            SetVisible(monsterCards[i].Root, hasSlot);
+            monsterCards[i].Bind(entry);
+        }
+
+        if (selectedMonsterSlotIndex >= 0 &&
+            (pool == null ||
+             selectedMonsterSlotIndex >= pool.Count ||
+             pool[selectedMonsterSlotIndex] == null ||
+             pool[selectedMonsterSlotIndex].IsEmpty))
+        {
+            selectedMonsterSlotIndex = -1;
+        }
+    }
+
+    private void BindScrollCards(IReadOnlyList<MagicScrollData> scrolls)
+    {
+        for (var i = 0; i < scrollCards.Length; i++)
+        {
+            var scroll = scrolls != null && i < scrolls.Count ? scrolls[i] : null;
+            SetVisible(scrollCards[i].Root, scroll != null);
+            scrollCards[i].Bind(scroll);
+        }
+
+        if (selectedScrollSlotIndex >= 0 &&
+            (scrolls == null ||
+             selectedScrollSlotIndex >= scrolls.Count ||
+             scrolls[selectedScrollSlotIndex] == null))
+        {
+            selectedScrollSlotIndex = -1;
         }
     }
 
@@ -794,6 +1246,124 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         SetAugmentVisible(false);
     }
 
+    private void HandleMonsterCardClicked(int slotIndex)
+    {
+        if (SelectMonsterCard(slotIndex, true))
+        {
+            HideLegacyAttackSequenceContent();
+        }
+    }
+
+    private void HandleScrollCardClicked(int slotIndex)
+    {
+        if (SelectScrollCard(slotIndex, true))
+        {
+            HideLegacyAttackSequenceContent();
+        }
+    }
+
+    private bool SelectMonsterCard(int slotIndex, bool notifyManager)
+    {
+        var pool = attackSequencePlayer?.AttackMonsterPool;
+        if (pool == null || slotIndex < 0 || slotIndex >= pool.Count)
+        {
+            return false;
+        }
+
+        var entry = pool[slotIndex];
+        if (entry == null || entry.IsEmpty)
+        {
+            return false;
+        }
+
+        selectedScrollSlotIndex = -1;
+        selectedMonsterSlotIndex = slotIndex;
+
+        for (int i = 0; i < scrollCards.Length; i++)
+        {
+            scrollCards[i].SetSelected(false);
+        }
+
+        for (int i = 0; i < monsterCards.Length; i++)
+        {
+            monsterCards[i].SetSelected(i == slotIndex);
+        }
+
+        if (notifyManager)
+        {
+            attackSequenceManager?.SelectMonsterSlot(slotIndex);
+        }
+
+        return true;
+    }
+
+    private bool SelectScrollCard(int slotIndex, bool notifyManager)
+    {
+        var scrolls = attackSequencePlayer?.OwnedScrolls;
+        if (scrolls == null || slotIndex < 0 || slotIndex >= scrolls.Count || scrolls[slotIndex] == null)
+        {
+            return false;
+        }
+
+        selectedMonsterSlotIndex = -1;
+        selectedScrollSlotIndex = slotIndex;
+
+        for (int i = 0; i < monsterCards.Length; i++)
+        {
+            monsterCards[i].SetSelected(false);
+        }
+
+        for (int i = 0; i < scrollCards.Length; i++)
+        {
+            scrollCards[i].SetSelected(i == slotIndex);
+        }
+
+        if (notifyManager)
+        {
+            attackSequenceManager?.SelectMagicScroll(scrolls[slotIndex]);
+        }
+
+        return true;
+    }
+
+    private int ResolveSelectedMonsterSlot()
+    {
+        var selected = attackSequenceManager != null ? attackSequenceManager.GetSelectedMonster() : null;
+        var pool = attackSequencePlayer?.AttackMonsterPool;
+        if (selected == null || pool == null)
+        {
+            return -1;
+        }
+
+        for (int i = 0; i < pool.Count; i++)
+        {
+            if (ReferenceEquals(pool[i], selected))
+            {
+                return i;
+            }
+        }
+
+        string selectedName = selected.MonsterData != null ? selected.MonsterData.name : null;
+        if (string.IsNullOrEmpty(selectedName))
+        {
+            return -1;
+        }
+
+        for (int i = 0; i < pool.Count; i++)
+        {
+            var entry = pool[i];
+            if (entry != null &&
+                !entry.IsEmpty &&
+                entry.MonsterData != null &&
+                entry.MonsterData.name == selectedName)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
     private bool TryGetLocalPlayerId(out int playerId)
     {
         playerId = -1;
@@ -805,6 +1375,28 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         playerId = localPlayer.playerId;
         return playerId >= 0;
+    }
+
+    private bool IsLocalPlayerId(int playerId)
+    {
+        if (playerId < 0 || localPlayer == null)
+        {
+            RefreshRuntimeReferences();
+        }
+
+        if (localPlayer == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return localPlayer.playerId == playerId;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private void SetShopVisible(bool visible)
@@ -826,6 +1418,20 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         if (visible)
         {
             HideLegacyAugmentContent();
+        }
+    }
+
+    private void SetAttackSequenceVisible(bool visible)
+    {
+        attackSequenceVisible = visible;
+        SetVisible(attackSequencePanel, visible);
+        SetPickingMode(attackSequencePanel, PickingMode.Ignore);
+        SetPickingMode(attackMonsterRow, PickingMode.Ignore);
+        SetPickingMode(attackScrollRow, PickingMode.Ignore);
+        if (!visible)
+        {
+            selectedMonsterSlotIndex = -1;
+            selectedScrollSlotIndex = -1;
         }
     }
 
@@ -897,9 +1503,43 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         hudShopButton?.EnableInClassList("hud-button-active", shopVisible);
+        UpdateResourceState(force);
         if (force || !legacyHudHidden)
         {
             HideLegacyHudContent();
+        }
+    }
+
+    private void UpdateResourceState(bool force)
+    {
+        bool showResources = gameManagers != null &&
+                             localPlayer != null &&
+                             gameManagers.IsReadyForNetworkAccess;
+
+        if (resourceRoot != null)
+        {
+            resourceRoot.style.display = showResources ? DisplayStyle.Flex : DisplayStyle.None;
+            resourceRoot.pickingMode = PickingMode.Ignore;
+        }
+
+        if (!showResources)
+        {
+            return;
+        }
+
+        int goldCount = localPlayer.GetGold();
+        int wallCount = localPlayer.GetWallCount();
+
+        if (force || goldCount != lastGoldCount)
+        {
+            SetText(resourceGoldValue, goldCount.ToString());
+            lastGoldCount = goldCount;
+        }
+
+        if (force || wallCount != lastResourceWallCount)
+        {
+            SetText(resourceWallValue, wallCount.ToString());
+            lastResourceWallCount = wallCount;
         }
     }
 
@@ -992,13 +1632,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         if (shopPanel != null)
         {
-            shopPanel.style.paddingTop = Mathf.Clamp(uiHeight * ShopRowTopRatio, 118f, 230f);
+            shopPanel.style.paddingTop = CalculateShopTopPadding(uiSize);
             shopPanel.style.paddingBottom = Mathf.Max(36f, 42f * scale);
         }
 
         if (augmentPanel != null)
         {
-            augmentPanel.style.paddingTop = Mathf.Clamp(uiHeight * AugmentRowTopRatio, 170f, 300f);
+            augmentPanel.style.paddingTop = CalculateAugmentTopPadding(uiSize);
             augmentPanel.style.paddingBottom = Mathf.Max(48f, 56f * scale);
         }
 
@@ -1010,6 +1650,16 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         foreach (var card in augmentCards)
         {
             card.ApplySize(Mathf.Max(augmentSize.x, MinTouchSize * 3.4f), Mathf.Max(augmentSize.y, MinTouchSize * 5.4f), scale);
+        }
+
+        foreach (var card in monsterCards)
+        {
+            card.ApplySize(scale);
+        }
+
+        foreach (var card in scrollCards)
+        {
+            card.ApplySize(scale);
         }
     }
 
@@ -1036,6 +1686,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         var hud = FindObjectOfType<PlayerHUDController>(true);
         hud?.SetLegacyHudButtonsVisible(false);
+        hud?.SetLegacyResourceHudVisible(false);
 
         foreach (var optionButton in FindObjectsOfType<GameOptionButton>(true))
         {
@@ -1046,6 +1697,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         legacyHudHidden = true;
+    }
+
+    private void HideLegacyAttackSequenceContent()
+    {
+        var attackUi = AttackSequenceUIController.Instance;
+        attackUi?.SetLegacyContentVisibilityOnly(false);
     }
 
     private void ReleaseIconHandles()
@@ -1208,6 +1865,137 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             Root.style.height = height;
             Root.style.marginLeft = 18f * scale;
             Root.style.marginRight = 18f * scale;
+        }
+    }
+
+    private sealed class MonsterCardView
+    {
+        private readonly Image icon;
+        private readonly Label name;
+        private readonly Label count;
+        private int bindVersion;
+
+        public MonsterCardView(int index, VisualElement root, Image icon, Label name, Label count)
+        {
+            Index = index;
+            Root = root;
+            this.icon = icon;
+            this.name = name;
+            this.count = count;
+        }
+
+        public int Index { get; }
+        public VisualElement Root { get; }
+
+        public void Bind(MonsterPoolEntry entry)
+        {
+            bindVersion++;
+            bool hasEntry = entry != null && entry.MonsterData != null && !entry.IsEmpty;
+            Root?.SetEnabled(hasEntry);
+            Root?.EnableInClassList("is-disabled", !hasEntry);
+
+            if (!hasEntry)
+            {
+                if (icon != null)
+                {
+                    icon.sprite = null;
+                }
+
+                SetText(name, string.Empty);
+                SetText(count, string.Empty);
+                return;
+            }
+
+            SetText(name, entry.MonsterData.monsterName);
+            SetText(count, $"{entry.RemainingCount}/{entry.MaxCount}");
+            LoadIconAsync(entry.MonsterData, bindVersion).Forget();
+        }
+
+        public void SetSelected(bool selected)
+        {
+            Root?.EnableInClassList("attack-card-selected", selected);
+        }
+
+        public void ApplySize(float scale)
+        {
+            if (Root == null)
+            {
+                return;
+            }
+
+            Root.style.width = Mathf.Max(82f * scale, MinTouchSize);
+            Root.style.height = Mathf.Max(96f * scale, MinTouchSize);
+            Root.style.marginLeft = 4f * scale;
+            Root.style.marginRight = 4f * scale;
+        }
+
+        private async UniTask LoadIconAsync(MonsterData monsterData, int version)
+        {
+            if (icon == null)
+            {
+                return;
+            }
+
+            if (monsterData == null || string.IsNullOrEmpty(monsterData.monsterIcon))
+            {
+                icon.sprite = null;
+                return;
+            }
+
+            Sprite loaded = await AssetLoader.LoadAssetAsync<Sprite>(monsterData.monsterIcon);
+            if (version == bindVersion && icon != null)
+            {
+                icon.sprite = loaded;
+            }
+        }
+    }
+
+    private sealed class ScrollCardView
+    {
+        private readonly Image icon;
+        private readonly Label name;
+
+        public ScrollCardView(int index, VisualElement root, Image icon, Label name)
+        {
+            Index = index;
+            Root = root;
+            this.icon = icon;
+            this.name = name;
+        }
+
+        public int Index { get; }
+        public VisualElement Root { get; }
+
+        public void Bind(MagicScrollData scroll)
+        {
+            bool hasScroll = scroll != null;
+            Root?.SetEnabled(hasScroll);
+            Root?.EnableInClassList("is-disabled", !hasScroll);
+
+            if (icon != null)
+            {
+                icon.sprite = hasScroll ? scroll.icon : null;
+            }
+
+            SetText(name, hasScroll ? scroll.scrollName : string.Empty);
+        }
+
+        public void SetSelected(bool selected)
+        {
+            Root?.EnableInClassList("attack-card-selected", selected);
+        }
+
+        public void ApplySize(float scale)
+        {
+            if (Root == null)
+            {
+                return;
+            }
+
+            Root.style.width = Mathf.Max(82f * scale, MinTouchSize);
+            Root.style.height = Mathf.Max(84f * scale, MinTouchSize);
+            Root.style.marginLeft = 4f * scale;
+            Root.style.marginRight = 4f * scale;
         }
     }
 

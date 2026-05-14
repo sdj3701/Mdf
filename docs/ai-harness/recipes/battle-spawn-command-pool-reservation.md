@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: battle
 Created: 2026-05-06
-Last used: 2026-05-10
-Last verified: 2026-05-10
-Use count: 2
+Last used: 2026-05-14
+Last verified: 2026-05-14
+Use count: 5
 Review after: 2026-08-04
 Triggers: strategic attack monster spawn command, duplicate spawn requests, async `Runner.Spawn`, attack pool hash drift
 Applies to: `BattleSpawnMonsterCommand`, `GameManagers.RPC_RequestBattleSpawnMonster`, `PlayerManager.AttackMonsterPool`, `MonsterSpawner.ExecuteSpawnPlanAsync`
-Verified by: see Verification section below; migrated from old Status: compile-and-smoke-verified; battle E2E still needs a dedicated runner; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless
+Verified by: see Verification section below; migrated from old Status: compile-and-smoke-verified; battle E2E still needs a dedicated runner; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051807-battle-spawn-monster-command
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -46,3 +46,9 @@ Verification:
 Lifecycle notes:
 - 2026-05-10: BattleSpawnMonster commands consumed pools while max common-wave counts stayed equal and extras matched selected monster augments.
 - 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
+- 2026-05-14: Battle spawn command accepted after UIToolkit monster card bridge; spawnMonsterSeq=1 rejectedBattleCommandCount=0.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-035543-battle-spawn-monster-command`
+- 2026-05-14: Battle spawn command accepted after whole-ground spawn-zone click fix; spawnMonsterSeq=1 rejectedBattleCommandCount=0, spawnSemanticsObserved=true.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-044344-battle-spawn-monster-command`
+- 2026-05-14: Battle spawn command accepted after card tap no-longer-spawns fix; spawnMonsterSeq=1 rejectedBattleCommandCount=0 spawnSemanticsObserved=true.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-051807-battle-spawn-monster-command`

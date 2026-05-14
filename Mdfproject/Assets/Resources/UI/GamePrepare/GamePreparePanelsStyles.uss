@@ -127,8 +127,8 @@
 }
 
 .shop-card {
-    width: 246px;
-    height: 336px;
+    width: 280px;
+    height: 383px;
 }
 
 .card-top-gem {
@@ -176,6 +176,11 @@
     width: 180px;
     height: 180px;
     opacity: 0.58;
+}
+
+.shop-icon {
+    width: 166px;
+    height: 166px;
 }
 
 .card-tier {
@@ -344,4 +349,166 @@
 
 .is-disabled {
     opacity: 0.46;
+}
+
+.game-resource-root {
+    position: absolute;
+    right: 28px;
+    bottom: 26px;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.resource-pill {
+    min-width: 146px;
+    height: 46px;
+    margin-top: 8px;
+    padding-left: 16px;
+    padding-right: 18px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    background-color: rgba(8, 14, 23, 0.92);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(184, 138, 50);
+    border-right-color: rgb(184, 138, 50);
+    border-top-color: rgb(246, 212, 103);
+    border-bottom-color: rgb(117, 80, 30);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.resource-label {
+    color: rgb(215, 184, 100);
+    font-size: 18px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    margin-right: 18px;
+}
+
+.resource-value {
+    color: rgb(248, 232, 182);
+    font-size: 24px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-right;
+}
+
+.attack-sequence-panel {
+    position: absolute;
+    left: 24px;
+    right: 184px;
+    bottom: 22px;
+    flex-direction: column;
+    align-items: center;
+}
+
+.attack-monster-row,
+.attack-scroll-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    background-color: rgba(5, 10, 17, 0.78);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(179, 139, 61, 0.74);
+    border-right-color: rgba(179, 139, 61, 0.74);
+    border-top-color: rgba(231, 190, 86, 0.82);
+    border-bottom-color: rgba(111, 76, 31, 0.82);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.attack-scroll-row {
+    margin-top: 8px;
+}
+
+.attack-card {
+    position: relative;
+    width: 82px;
+    height: 96px;
+    margin-left: 4px;
+    margin-right: 4px;
+    align-items: center;
+    justify-content: center;
+    background-color: rgb(8, 15, 24);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(130, 101, 51);
+    border-right-color: rgb(130, 101, 51);
+    border-top-color: rgb(199, 163, 78);
+    border-bottom-color: rgb(92, 69, 34);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.attack-card:hover {
+    border-left-color: rgb(246, 212, 103);
+    border-right-color: rgb(246, 212, 103);
+    border-top-color: rgb(255, 236, 146);
+    border-bottom-color: rgb(194, 142, 49);
+}
+
+.attack-card-selected {
+    background-color: rgb(27, 39, 63);
+    border-left-color: rgb(255, 229, 118);
+    border-right-color: rgb(255, 229, 118);
+    border-top-color: rgb(255, 245, 164);
+    border-bottom-color: rgb(215, 158, 55);
+}
+
+.attack-card-icon {
+    width: 42px;
+    height: 42px;
+    margin-bottom: 4px;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.attack-card-name {
+    width: 100%;
+    color: rgb(242, 236, 220);
+    font-size: 12px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.attack-card-count {
+    color: rgb(237, 218, 159);
+    font-size: 13px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    margin-top: 2px;
+}
+
+.scroll-attack-card {
+    height: 84px;
+    background-color: rgb(20, 15, 35);
+}
+
+.scroll-attack-icon {
+    width: 38px;
+    height: 38px;
+}
+
+.scroll-attack-name {
+    color: rgb(225, 211, 248);
+    font-size: 12px;
 }

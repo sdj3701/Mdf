@@ -188,6 +188,19 @@ public class PlayerHUDController : MonoBehaviour
         }
     }
 
+    public void SetLegacyResourceHudVisible(bool visible)
+    {
+        if (goldText != null)
+        {
+            goldText.gameObject.SetActive(visible);
+        }
+
+        if (wallCountText != null)
+        {
+            wallCountText.gameObject.SetActive(visible);
+        }
+    }
+
     private void HandleBattleSequenceStarted(bool isAttacking)
     {
         if (opponentNameText == null) return;
