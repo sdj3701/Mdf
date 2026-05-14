@@ -1115,6 +1115,64 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void PrepareDecisionPolicyPendingMoveSuppressionDoesNotBlockNextRound()
+    {
+        string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
+
+        int sourceStart = source.IndexOf("private bool IsPendingMoveSource", System.StringComparison.Ordinal);
+        int targetStart = source.IndexOf("private bool IsPendingMoveTarget", System.StringComparison.Ordinal);
+        Assert.That(sourceStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(targetStart, Is.GreaterThanOrEqualTo(0));
+
+        int sourceEnd = source.IndexOf("private void RememberPendingMoveSource", sourceStart, System.StringComparison.Ordinal);
+        int targetEnd = source.IndexOf("private void RememberMoveTarget", targetStart, System.StringComparison.Ordinal);
+        Assert.That(sourceEnd, Is.GreaterThan(sourceStart));
+        Assert.That(targetEnd, Is.GreaterThan(targetStart));
+
+        string sourceMethod = source.Substring(sourceStart, sourceEnd - sourceStart);
+        string targetMethod = source.Substring(targetStart, targetEnd - targetStart);
+
+        Assert.That(sourceMethod, Does.Contain("pendingRound == round"));
+        Assert.That(targetMethod, Does.Contain("pendingRound == round"));
+        Assert.That(sourceMethod, Does.Not.Contain("round - 1"));
+        Assert.That(targetMethod, Does.Not.Contain("round - 1"));
+        Assert.That(source, Does.Contain("lastRound == round"));
+        Assert.That(source, Does.Contain("_lastMoveRoundByUnitKey"));
+        Assert.That(source, Does.Contain("_wallUnblockMoveRoundByUnitKey"));
+        Assert.That(source, Does.Contain("_pendingWallRoundByCellKey"));
+        Assert.That(source, Does.Contain("_pendingBuyRoundBySlotKey"));
+        Assert.That(source, Does.Contain(".Where(pair => pair.Value < round)"));
+        Assert.That(source, Does.Not.Contain("pendingRound >= round - 1"));
+    }
+
+    [Test]
+    public void FieldManagerRestoresDragNetworkTransformForRoundTransitionsAndInvalidDrops()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+
+        Assert.That(source, Does.Contain("RestoreSelectedUnitNetworkTransform"));
+        Assert.That(source, Does.Contain("originalUnitPosition = GetUnitPosition(selectedUnit) ?? WorldToGridInt(selectedUnit.transform.position);"));
+
+        int stateChangeStart = source.IndexOf("private void HandleGameStateChange", System.StringComparison.Ordinal);
+        int stateChangeEnd = source.IndexOf("#endregion", stateChangeStart, System.StringComparison.Ordinal);
+        Assert.That(stateChangeStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(stateChangeEnd, Is.GreaterThan(stateChangeStart));
+        string stateChangeMethod = source.Substring(stateChangeStart, stateChangeEnd - stateChangeStart);
+        Assert.That(stateChangeMethod, Does.Contain("RestoreSelectedUnitNetworkTransform();"));
+        Assert.That(stateChangeMethod.IndexOf("RestoreSelectedUnitNetworkTransform();", System.StringComparison.Ordinal),
+            Is.LessThan(stateChangeMethod.IndexOf("SnapbackSelectedUnit(originalWorldPos);", System.StringComparison.Ordinal)));
+
+        int releaseStart = source.IndexOf("if (MdfInput.PrimaryPointerWasReleasedThisFrame() && selectedUnit != null)", System.StringComparison.Ordinal);
+        int releaseEnd = source.IndexOf("private bool ShouldAllowUnitDragThroughPrepareToolkit", releaseStart, System.StringComparison.Ordinal);
+        Assert.That(releaseStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(releaseEnd, Is.GreaterThan(releaseStart));
+        string releaseBlock = source.Substring(releaseStart, releaseEnd - releaseStart);
+        Assert.That(releaseBlock, Does.Contain("RestoreSelectedUnitNetworkTransform();"));
+        Assert.That(releaseBlock.IndexOf("RestoreSelectedUnitNetworkTransform();", System.StringComparison.Ordinal),
+            Is.LessThan(releaseBlock.IndexOf("Vector3Int bestGrid = GetBestGridUnderMouse();", System.StringComparison.Ordinal)));
+    }
+
+    [Test]
     public void PrepareDecisionPolicyUsesMonsterPathForHumanBotRepositioning()
     {
         string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");

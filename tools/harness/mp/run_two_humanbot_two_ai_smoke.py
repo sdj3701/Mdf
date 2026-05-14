@@ -61,6 +61,11 @@ def nested(data: dict[str, Any], *keys: str) -> Any:
     return current
 
 
+def game(snapshot: Any) -> dict[str, Any]:
+    value = state(snapshot).get("game")
+    return value if isinstance(value, dict) else {}
+
+
 def player_by_id(snapshot: Any, player_id: int) -> dict[str, Any] | None:
     for player in players(snapshot):
         if player.get("playerId") == player_id:
@@ -77,7 +82,7 @@ def human_player_ids(snapshot: Any) -> list[int]:
 
 
 def bot_args(args: argparse.Namespace, peer: dict[str, Any], artifact_dir: pathlib.Path) -> list[str]:
-    return [
+    result = [
         "--mpHumanBot",
         "--mpBotPersona",
         str(peer["persona"]),
@@ -92,6 +97,11 @@ def bot_args(args: argparse.Namespace, peer: dict[str, Any], artifact_dir: pathl
         "--mpBotRecordJournal",
         str(artifact_dir / f"{peer['name']}-bot.jsonl"),
     ]
+    if args.bot_prepare_mode == "augment-only":
+        result.append("--mpBotPrepareAugmentOnly")
+    elif args.bot_prepare_mode == "skip":
+        result.append("--mpBotSkipPrepare")
+    return result
 
 
 def wait_lobby_ready(
@@ -176,6 +186,105 @@ def wait_game_ready(
     return latest_host, latest_client, comparison, False
 
 
+def wait_target_prepare_ready(
+    host: AutomationClient,
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    timeout_seconds: int,
+    scene: str,
+    label: str,
+    target_round: int,
+    require_comparison: bool = True,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    deadline = time.time() + timeout_seconds
+    stable = 0
+    latest_host: dict[str, Any] = {}
+    latest_client: dict[str, Any] = {}
+    comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+    while time.time() < deadline:
+        latest_host = safe_request(host.dump_state)
+        latest_client = safe_request(client.dump_state)
+        write_json(artifact_dir / "snapshots" / f"host-{label}-latest.json", latest_host)
+        write_json(artifact_dir / "snapshots" / f"client-{label}-latest.json", latest_client)
+
+        host_game = game(latest_host)
+        client_game = game(latest_client)
+        host_at_target = host_game.get("currentRound") == target_round and host_game.get("currentState") == "Prepare"
+        client_at_target = client_game.get("currentRound") == target_round and client_game.get("currentState") == "Prepare"
+        ready = {
+            "host": snapshot_ready(latest_host, EXPECTED_PLAYERS, scene) and host_at_target,
+            "client": snapshot_ready(latest_client, EXPECTED_PLAYERS, scene) and client_at_target,
+        }
+        if all(ready.values()):
+            comparison = compare_snapshots(latest_host, latest_client)
+            write_json(artifact_dir / f"comparison-{label}-latest.json", comparison)
+        write_json(artifact_dir / f"{label}-wait-latest.json", {
+            "targetRound": target_round,
+            "requireComparison": require_comparison,
+            "ready": ready,
+            "hostGame": host_game,
+            "clientGame": client_game,
+            "reasons": {
+                "host": snapshot_not_ready_reasons(latest_host, EXPECTED_PLAYERS, scene),
+                "client": snapshot_not_ready_reasons(latest_client, EXPECTED_PLAYERS, scene),
+            },
+            "comparison": comparison,
+            "stableMatches": stable,
+        })
+        comparison_ready = comparison.get("success") is True
+        if all(ready.values()) and (comparison_ready or not require_comparison):
+            stable += 1
+            if stable >= 2:
+                return latest_host, latest_client, comparison, True
+        else:
+            stable = 0
+        time.sleep(2)
+    return latest_host, latest_client, comparison, False
+
+
+def wait_game_over_ready(
+    host: AutomationClient,
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    timeout_seconds: int,
+    scene: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    deadline = time.time() + timeout_seconds
+    stable = 0
+    latest_host: dict[str, Any] = {}
+    latest_client: dict[str, Any] = {}
+    comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+    while time.time() < deadline:
+        latest_host = safe_request(host.dump_state)
+        latest_client = safe_request(client.dump_state)
+        write_json(artifact_dir / "snapshots" / "host-game-over-latest.json", latest_host)
+        write_json(artifact_dir / "snapshots" / "client-game-over-latest.json", latest_client)
+        host_game = game(latest_host)
+        client_game = game(latest_client)
+        ready = {
+            "host": snapshot_ready(latest_host, EXPECTED_PLAYERS, scene) and host_game.get("currentState") == "GameOver",
+            "client": snapshot_ready(latest_client, EXPECTED_PLAYERS, scene) and client_game.get("currentState") == "GameOver",
+        }
+        if all(ready.values()):
+            comparison = compare_snapshots(latest_host, latest_client)
+            write_json(artifact_dir / "comparison-game-over-latest.json", comparison)
+        write_json(artifact_dir / "game-over-wait-latest.json", {
+            "ready": ready,
+            "hostGame": host_game,
+            "clientGame": client_game,
+            "comparison": comparison,
+            "stableMatches": stable,
+        })
+        if all(ready.values()) and comparison.get("success") is True:
+            stable += 1
+            if stable >= 2:
+                return latest_host, latest_client, comparison, True
+        else:
+            stable = 0
+        time.sleep(2)
+    return latest_host, latest_client, comparison, False
+
+
 def wait_bot_commands(
     clients: dict[str, AutomationClient],
     artifact_dir: pathlib.Path,
@@ -198,13 +307,50 @@ def wait_bot_commands(
     return latest
 
 
-def issue_move_commands(host: AutomationClient, snapshot: Any, artifact_dir: pathlib.Path) -> list[dict[str, Any]]:
+def stop_bots_before_move(
+    clients: dict[str, AutomationClient],
+    artifact_dir: pathlib.Path,
+    timeout_seconds: int = 10,
+    *,
+    reason: str = "manual_move_verification",
+    label: str = "before-move",
+) -> tuple[dict[str, dict[str, Any]], bool]:
+    results: dict[str, dict[str, Any]] = {}
+    for name, client in clients.items():
+        result = safe_request(lambda client=client: client.bot_stop(reason=reason))
+        results[name] = result
+        write_json(artifact_dir / f"{name}-bot-stop-{label}.json", result)
+
+    deadline = time.time() + timeout_seconds
+    latest: dict[str, dict[str, Any]] = {}
+    stopped = False
+    while time.time() < deadline:
+        latest = {
+            name: safe_request(client.bot_status)
+            for name, client in clients.items()
+        }
+        write_json(artifact_dir / f"bot-stop-{label}-status-latest.json", latest)
+        stopped = all(((status.get("data") or status).get("running") is False) for status in latest.values())
+        if stopped:
+            break
+        time.sleep(0.5)
+
+    return results, stopped
+
+
+def issue_move_commands(
+    host: AutomationClient,
+    snapshot: Any,
+    artifact_dir: pathlib.Path,
+    label: str = "move-unit",
+    player_ids: list[int] | None = None,
+) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-    for player_id in human_player_ids(snapshot):
+    for player_id in (player_ids if player_ids is not None else human_player_ids(snapshot)):
         result = safe_request(lambda player_id=player_id: host.command(name="move_unit", playerId=player_id))
         results.append({"playerId": player_id, "response": result})
-        write_json(artifact_dir / f"move-unit-player-{player_id}.json", result)
-    write_json(artifact_dir / "move-unit-results.json", results)
+        write_json(artifact_dir / f"{label}-player-{player_id}.json", result)
+    write_json(artifact_dir / f"{label}-results.json", results)
     return results
 
 
@@ -278,6 +424,279 @@ def build_assertions(
     }
 
 
+def to_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def active_human_player_ids(snapshot: Any) -> list[int]:
+    result: list[int] = []
+    for player in players(snapshot):
+        if player.get("isAI") is not False or not isinstance(player.get("playerId"), int):
+            continue
+        field = player.get("field") if isinstance(player.get("field"), dict) else {}
+        if to_int(player.get("health")) > 0 and to_int(field.get("aliveUnitCount")) > 0:
+            result.append(int(player["playerId"]))
+    return sorted(result)
+
+
+def progress_row(snapshot: Any, elapsed_seconds: float) -> dict[str, Any]:
+    current_game = game(snapshot)
+    return {
+        "elapsedSeconds": round(elapsed_seconds, 3),
+        "currentRound": current_game.get("currentRound"),
+        "currentState": current_game.get("currentState"),
+        "battlePhase": current_game.get("battlePhase"),
+        "players": [
+            {
+                "playerId": player.get("playerId"),
+                "isAI": player.get("isAI"),
+                "health": player.get("health"),
+                "aliveUnitCount": nested(player, "field", "aliveUnitCount"),
+                "placedUnitsHash": nested(player, "field", "placedUnitsHash"),
+            }
+            for player in players(snapshot)
+        ],
+    }
+
+
+def start_human_bots(
+    clients: dict[str, AutomationClient],
+    peers: list[dict[str, Any]],
+    artifact_dir: pathlib.Path,
+    args: argparse.Namespace,
+    label: str,
+) -> dict[str, dict[str, Any]]:
+    results: dict[str, dict[str, Any]] = {}
+    for peer in peers:
+        name = str(peer["name"])
+        result = safe_request(lambda peer=peer, name=name: clients[name].bot_start(
+            persona=str(peer["persona"]),
+            seed=int(peer["botSeed"]),
+            durationSeconds=args.bot_duration_seconds,
+            stopAtRound=args.bot_stop_at_round,
+            maxCommands=args.bot_max_commands,
+            skipPrepare=args.bot_prepare_mode == "skip",
+            prepareAugmentOnly=args.bot_prepare_mode == "augment-only",
+            journalPath=str(artifact_dir / f"{name}-bot.jsonl"),
+        ))
+        results[name] = result
+        write_json(artifact_dir / f"{name}-bot-start-{label}.json", result)
+    return results
+
+
+def run_game_to_end_prepare_move_loop(
+    clients: dict[str, AutomationClient],
+    peers: list[dict[str, Any]],
+    artifact_dir: pathlib.Path,
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    deadline = time.time() + args.max_duration_seconds
+    start_time = time.time()
+    moved_rounds: set[int] = set()
+    move_records: list[dict[str, Any]] = []
+    progress_timeline: list[dict[str, Any]] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+    final_host: dict[str, Any] = {}
+    final_client: dict[str, Any] = {}
+    final_comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+    limit_reason = "none"
+
+    while time.time() < deadline:
+        host_snapshot = safe_request(clients["host"].dump_state)
+        client_snapshot = safe_request(clients["client"].dump_state)
+        final_host = host_snapshot
+        final_client = client_snapshot
+        write_json(artifact_dir / "snapshots" / "host-game-end-latest.json", host_snapshot)
+        write_json(artifact_dir / "snapshots" / "client-game-end-latest.json", client_snapshot)
+
+        host_game = game(host_snapshot)
+        client_game = game(client_snapshot)
+        progress_timeline.append(progress_row(host_snapshot, time.time() - start_time))
+        write_json(artifact_dir / "game-to-end-progress-timeline.json", progress_timeline)
+
+        ready = {
+            "host": snapshot_ready(host_snapshot, EXPECTED_PLAYERS, args.scene),
+            "client": snapshot_ready(client_snapshot, EXPECTED_PLAYERS, args.scene),
+        }
+        if all(ready.values()):
+            final_comparison = compare_snapshots(host_snapshot, client_snapshot)
+            write_json(artifact_dir / "comparison-game-end-latest.json", final_comparison)
+
+        current_round = to_int(host_game.get("currentRound"))
+        host_state = host_game.get("currentState")
+        client_state = client_game.get("currentState")
+        write_json(artifact_dir / "game-to-end-wait-latest.json", {
+            "ready": ready,
+            "hostGame": host_game,
+            "clientGame": client_game,
+            "movedRounds": sorted(moved_rounds),
+            "moveRecords": len(move_records),
+            "deadlineSecondsRemaining": max(0, deadline - time.time()),
+            "maxRounds": args.max_rounds,
+        })
+
+        if host_state == "GameOver" and client_state == "GameOver":
+            limit_reason = "game_over_reached"
+            final_host, final_client, final_comparison, game_over_ready = wait_game_over_ready(
+                clients["host"],
+                clients["client"],
+                artifact_dir,
+                args.game_over_timeout,
+                args.scene,
+            )
+            if not game_over_ready:
+                warnings.append("game_over_comparison_not_stable_before_timeout")
+            break
+
+        if args.max_rounds > 0 and current_round >= args.max_rounds:
+            limit_reason = "max_rounds_reached"
+            break
+
+        same_prepare_round = (
+            all(ready.values())
+            and current_round > 0
+            and host_state == "Prepare"
+            and client_state == "Prepare"
+            and client_game.get("currentRound") == current_round
+        )
+        if same_prepare_round and current_round not in moved_rounds:
+            label = f"round-{current_round}-move"
+            write_json(
+                artifact_dir / f"freeze-game-flow-{label}.json",
+                safe_request(lambda label=label: clients["host"].freeze_game_flow(True, f"two_humanbot_two_ai_{label}")),
+            )
+            before_move_host, _, before_comparison, before_ready = wait_target_prepare_ready(
+                clients["host"],
+                clients["client"],
+                artifact_dir,
+                args.state_timeout,
+                args.scene,
+                f"{label}-before",
+                current_round,
+                require_comparison=False,
+            )
+            write_json(artifact_dir / f"comparison-{label}-before.json", before_comparison)
+            if not before_ready:
+                errors.append(f"{label}.before_move_ready_timeout")
+
+            bot_stop_results, bots_stopped = stop_bots_before_move(
+                clients,
+                artifact_dir,
+                reason=f"game_end_{label}",
+                label=label,
+            )
+            if not all((result.get("success") is True) for result in bot_stop_results.values()) or not bots_stopped:
+                errors.append(f"{label}.bot_stop_failed")
+
+            active_humans = active_human_player_ids(before_move_host if before_ready else host_snapshot)
+            if not active_humans:
+                warnings.append(f"{label}.no_active_human_units")
+            move_results = issue_move_commands(
+                clients["host"],
+                before_move_host if before_ready else host_snapshot,
+                artifact_dir,
+                label=label,
+                player_ids=active_humans,
+            )
+            after_move_host, after_move_client, after_comparison, after_ready = wait_target_prepare_ready(
+                clients["host"],
+                clients["client"],
+                artifact_dir,
+                args.state_timeout,
+                args.scene,
+                f"{label}-after",
+                current_round,
+                require_comparison=False,
+            )
+            successful_moves = [item for item in move_results if (item.get("response") or {}).get("success") is True]
+            hash_changed = movement_hash_changed(before_move_host if before_ready else host_snapshot, after_move_host, move_results)
+            record = {
+                "round": current_round,
+                "activeHumanPlayerIds": active_humans,
+                "successfulMoveCommands": len(successful_moves),
+                "movementHashChanged": hash_changed,
+                "afterMoveReady": after_ready,
+                "comparisonSuccess": after_comparison.get("success") is True,
+                "moveResults": move_results,
+                "errors": [],
+            }
+            if active_humans and len(successful_moves) != len(active_humans):
+                record["errors"].append("not_all_active_humans_moved")
+            if successful_moves and not hash_changed:
+                record["errors"].append("placedUnitsHash_not_changed")
+            if not after_ready:
+                record["errors"].append("after_move_ready_timeout")
+            if after_comparison.get("success") is not True:
+                record["warnings"] = [f"comparison.{warning}" for warning in after_comparison.get("warnings") or []]
+                record["warnings"].extend(f"comparison.{error}" for error in after_comparison.get("errors") or ["failed"])
+            errors.extend(f"{label}.{error}" for error in record["errors"])
+            move_records.append(record)
+            write_json(artifact_dir / f"{label}-record.json", record)
+            write_json(artifact_dir / "game-to-end-move-records.json", move_records)
+
+            start_results = start_human_bots(clients, peers, artifact_dir, args, f"after-{label}")
+            if not all((result.get("success") is True) for result in start_results.values()):
+                errors.append(f"{label}.bot_restart_failed")
+            write_json(
+                artifact_dir / f"unfreeze-game-flow-{label}.json",
+                safe_request(lambda label=label: clients["host"].freeze_game_flow(False, f"two_humanbot_two_ai_{label}_resume")),
+            )
+            moved_rounds.add(current_round)
+
+        if errors and not args.continue_game_end_on_move_error:
+            limit_reason = "move_verification_failed"
+            break
+        time.sleep(max(0.5, args.poll_interval_seconds))
+
+    if limit_reason == "none":
+        limit_reason = "max_duration_reached" if time.time() >= deadline else "stopped"
+
+    if not final_host:
+        final_host = safe_request(clients["host"].dump_state)
+    if not final_client:
+        final_client = safe_request(clients["client"].dump_state)
+    final_comparison = compare_snapshots(final_host, final_client) if final_host and final_client else final_comparison
+    write_json(artifact_dir / "snapshots" / "host-game-end-final.json", final_host)
+    write_json(artifact_dir / "snapshots" / "client-game-end-final.json", final_client)
+    write_json(artifact_dir / "comparison-game-end-final.json", final_comparison)
+
+    final_host_game = game(final_host)
+    final_client_game = game(final_client)
+    if final_host_game.get("currentState") != "GameOver" or final_client_game.get("currentState") != "GameOver":
+        errors.append("game_over_not_reached")
+    if final_comparison.get("success") is not True:
+        errors.extend(f"final_comparison.{error}" for error in final_comparison.get("errors") or ["failed"])
+    if not move_records:
+        errors.append("no_prepare_move_records")
+
+    result = {
+        "success": not errors,
+        "gameToEndPass": final_host_game.get("currentState") == "GameOver" and final_client_game.get("currentState") == "GameOver" and not errors,
+        "finalStatus": "PASS" if final_host_game.get("currentState") == "GameOver" and final_client_game.get("currentState") == "GameOver" and not errors else "FAIL",
+        "limitReason": limit_reason,
+        "errors": errors,
+        "warnings": warnings,
+        "moveRounds": sorted(moved_rounds),
+        "prepareMoveRounds": len(move_records),
+        "successfulPrepareMoveCommands": sum(to_int(record.get("successfulMoveCommands")) for record in move_records),
+        "moveRecordsPath": "game-to-end-move-records.json",
+        "progressTimelinePath": "game-to-end-progress-timeline.json",
+        "finalHost": final_host,
+        "finalClient": final_client,
+        "finalComparison": final_comparison,
+        "hostGame": final_host_game,
+        "clientGame": final_client_game,
+    }
+    write_json(artifact_dir / "game-to-end-move-result.json", result)
+    return result
+
+
 def run(args: argparse.Namespace) -> int:
     artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
@@ -312,6 +731,11 @@ def run(args: argparse.Namespace) -> int:
         "expectedPlayers": EXPECTED_PLAYERS,
         "expectedHumans": EXPECTED_HUMANS,
         "expectedAi": EXPECTED_AI,
+        "moveRound": args.move_round,
+        "moveEveryPrepareUntilGameOver": args.move_every_prepare_until_game_over,
+        "maxDurationSeconds": args.max_duration_seconds,
+        "maxRounds": args.max_rounds,
+        "botPrepareMode": args.bot_prepare_mode,
         "headlessPlayer": args.headless_player,
         "dryRun": args.dry_run,
     })
@@ -339,6 +763,7 @@ def run(args: argparse.Namespace) -> int:
     after_move_host: dict[str, Any] = {}
     after_move_client: dict[str, Any] = {}
     final_comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+    game_end_move_result: dict[str, Any] = {}
 
     try:
         for peer in peers:
@@ -391,7 +816,21 @@ def run(args: argparse.Namespace) -> int:
         if not before_ready:
             failures.append("before_bot_ready_timeout")
 
-        write_json(artifact_dir / "freeze-game-flow.json", safe_request(lambda: clients["host"].freeze_game_flow(True, "two_humanbot_two_ai_smoke")))
+        if args.move_every_prepare_until_game_over:
+            write_json(artifact_dir / "freeze-game-flow.json", {
+                "success": True,
+                "skipped": True,
+                "reason": "game_end_prepare_move_loop",
+            })
+        elif args.move_round <= 1:
+            write_json(artifact_dir / "freeze-game-flow.json", safe_request(lambda: clients["host"].freeze_game_flow(True, "two_humanbot_two_ai_smoke")))
+        else:
+            write_json(artifact_dir / "freeze-game-flow.json", {
+                "success": True,
+                "skipped": True,
+                "reason": "waiting_for_target_prepare_round",
+                "targetRound": args.move_round,
+            })
         for peer in peers:
             name = str(peer["name"])
             result = safe_request(lambda peer=peer, name=name: clients[name].bot_start(
@@ -400,34 +839,111 @@ def run(args: argparse.Namespace) -> int:
                 durationSeconds=args.bot_duration_seconds,
                 stopAtRound=args.bot_stop_at_round,
                 maxCommands=args.bot_max_commands,
+                skipPrepare=args.bot_prepare_mode == "skip",
+                prepareAugmentOnly=args.bot_prepare_mode == "augment-only",
                 journalPath=str(artifact_dir / f"{name}-bot.jsonl"),
             ))
             write_json(artifact_dir / f"{name}-bot-start.json", result)
             if result.get("success") is not True:
                 failures.append(f"{name}_bot_start_failed")
 
-        bot_statuses = wait_bot_commands(clients, artifact_dir, args.bot_timeout, 1)
-        before_move_host, _, _, before_move_ready = wait_game_ready(
-            clients["host"], clients["client"], artifact_dir, args.state_timeout, args.scene, "before-move"
+        bot_statuses = wait_bot_commands(
+            clients,
+            artifact_dir,
+            args.bot_timeout,
+            0 if args.move_every_prepare_until_game_over else 1,
         )
-        if not before_move_ready:
-            failures.append("before_move_ready_timeout")
+        if args.move_every_prepare_until_game_over:
+            game_end_move_result = run_game_to_end_prepare_move_loop(clients, peers, artifact_dir, args)
+            final_comparison = game_end_move_result.get("finalComparison") or final_comparison
+            after_move_host = game_end_move_result.get("finalHost") or {}
+            after_move_client = game_end_move_result.get("finalClient") or {}
+            if game_end_move_result.get("success") is not True:
+                failures.extend(game_end_move_result.get("errors") or ["game_end_prepare_move_failed"])
+        else:
+            if args.move_round <= 1:
+                before_move_host, _, _, before_move_ready = wait_game_ready(
+                    clients["host"], clients["client"], artifact_dir, args.state_timeout, args.scene, "before-move"
+                )
+            else:
+                before_move_host, _, target_comparison, target_prepare_seen = wait_target_prepare_ready(
+                    clients["host"],
+                    clients["client"],
+                    artifact_dir,
+                    args.target_prepare_timeout,
+                    args.scene,
+                    f"round-{args.move_round}-target-prepare",
+                    args.move_round,
+                    require_comparison=False,
+                )
+                write_json(artifact_dir / f"comparison-round-{args.move_round}-target-prepare.json", target_comparison)
+                if target_prepare_seen:
+                    write_json(artifact_dir / f"freeze-game-flow-round-{args.move_round}.json", safe_request(lambda: clients["host"].freeze_game_flow(True, f"two_humanbot_two_ai_smoke_round_{args.move_round}_move")))
+                    before_move_host, _, target_comparison, before_move_ready = wait_target_prepare_ready(
+                        clients["host"],
+                        clients["client"],
+                        artifact_dir,
+                        args.state_timeout,
+                        args.scene,
+                        f"round-{args.move_round}-before-move",
+                        args.move_round,
+                        require_comparison=False,
+                    )
+                    write_json(artifact_dir / f"comparison-round-{args.move_round}-before-move.json", target_comparison)
+                else:
+                    before_move_ready = False
+            if not before_move_ready:
+                failures.append("before_move_ready_timeout")
 
-        move_results = issue_move_commands(clients["host"], before_move_host, artifact_dir)
-        after_move_host, after_move_client, final_comparison, after_move_ready = wait_game_ready(
-            clients["host"], clients["client"], artifact_dir, args.state_timeout, args.scene, "after-move"
-        )
-        if not after_move_ready:
-            failures.append("after_move_ready_timeout")
+            bot_stop_results, bots_stopped = stop_bots_before_move(clients, artifact_dir)
+            if not all((result.get("success") is True) for result in bot_stop_results.values()) or not bots_stopped:
+                failures.append("bot_stop_before_move_failed")
 
-        write_json(artifact_dir / "snapshots" / "host-before-move.json", before_move_host)
-        write_json(artifact_dir / "snapshots" / "host-after-move.json", after_move_host)
-        write_json(artifact_dir / "snapshots" / "client-after-move.json", after_move_client)
-        write_json(artifact_dir / "comparison-after-move.json", final_comparison)
-        assertions = build_assertions(before_move_host, after_move_host, after_move_client, final_comparison, bot_statuses, move_results)
-        write_json(artifact_dir / "two-humanbot-two-ai-assertions.json", assertions)
-        if assertions.get("success") is not True:
-            failures.extend(assertions.get("errors") or ["assertions_failed"])
+            if args.move_round <= 1:
+                before_move_host, _, _, before_move_ready = wait_game_ready(
+                    clients["host"], clients["client"], artifact_dir, args.state_timeout, args.scene, "before-manual-move"
+                )
+            else:
+                before_move_host, _, target_comparison, before_move_ready = wait_target_prepare_ready(
+                    clients["host"],
+                    clients["client"],
+                    artifact_dir,
+                    args.state_timeout,
+                    args.scene,
+                    f"round-{args.move_round}-before-manual-move",
+                    args.move_round,
+                    require_comparison=False,
+                )
+                write_json(artifact_dir / f"comparison-round-{args.move_round}-before-manual-move.json", target_comparison)
+            if not before_move_ready:
+                failures.append("before_manual_move_ready_timeout")
+
+            move_results = issue_move_commands(clients["host"], before_move_host, artifact_dir)
+            if args.move_round <= 1:
+                after_move_host, after_move_client, final_comparison, after_move_ready = wait_game_ready(
+                    clients["host"], clients["client"], artifact_dir, args.state_timeout, args.scene, "after-move"
+                )
+            else:
+                after_move_host, after_move_client, final_comparison, after_move_ready = wait_target_prepare_ready(
+                    clients["host"],
+                    clients["client"],
+                    artifact_dir,
+                    args.state_timeout,
+                    args.scene,
+                    f"round-{args.move_round}-after-move",
+                    args.move_round,
+                )
+            if not after_move_ready:
+                failures.append("after_move_ready_timeout")
+
+            write_json(artifact_dir / "snapshots" / "host-before-move.json", before_move_host)
+            write_json(artifact_dir / "snapshots" / "host-after-move.json", after_move_host)
+            write_json(artifact_dir / "snapshots" / "client-after-move.json", after_move_client)
+            write_json(artifact_dir / "comparison-after-move.json", final_comparison)
+            assertions = build_assertions(before_move_host, after_move_host, after_move_client, final_comparison, bot_statuses, move_results)
+            write_json(artifact_dir / "two-humanbot-two-ai-assertions.json", assertions)
+            if assertions.get("success") is not True:
+                failures.extend(assertions.get("errors") or ["assertions_failed"])
 
         logs_recent = {
             name: safe_request(client.logs_recent)
@@ -472,7 +988,14 @@ def run(args: argparse.Namespace) -> int:
         failures,
         cleanup_report,
         headless_player=args.headless_player,
-        extra={"comparisonSuccess": final_comparison.get("success") is True},
+        extra={
+            "comparisonSuccess": final_comparison.get("success") is True,
+            "gameToEndPass": game_end_move_result.get("gameToEndPass") if game_end_move_result else None,
+            "finalStatus": game_end_move_result.get("finalStatus") if game_end_move_result else None,
+            "prepareMoveRounds": game_end_move_result.get("prepareMoveRounds") if game_end_move_result else None,
+            "successfulPrepareMoveCommands": game_end_move_result.get("successfulPrepareMoveCommands") if game_end_move_result else None,
+            "gameEndMoveResultPath": "game-to-end-move-result.json" if game_end_move_result else None,
+        },
     )
     print(json.dumps(result, indent=2))
     return 0 if result["success"] else 1
@@ -489,12 +1012,21 @@ def main() -> int:
     parser.add_argument("--bot-duration-seconds", type=int, default=90)
     parser.add_argument("--bot-stop-at-round", type=int, default=0)
     parser.add_argument("--bot-max-commands", type=int, default=8)
+    parser.add_argument("--bot-prepare-mode", choices=["full", "augment-only", "skip"], default="full")
+    parser.add_argument("--move-round", type=int, default=1)
+    parser.add_argument("--move-every-prepare-until-game-over", action="store_true")
+    parser.add_argument("--max-duration-seconds", type=int, default=1800)
+    parser.add_argument("--max-rounds", type=int, default=0)
+    parser.add_argument("--poll-interval-seconds", type=float, default=2.0)
+    parser.add_argument("--game-over-timeout", type=int, default=120)
+    parser.add_argument("--continue-game-end-on-move-error", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--headless-player", action="store_true")
     parser.add_argument("--ping-timeout", type=int, default=45)
     parser.add_argument("--start-timeout", type=int, default=45)
     parser.add_argument("--lobby-timeout", type=int, default=90)
     parser.add_argument("--state-timeout", type=int, default=120)
+    parser.add_argument("--target-prepare-timeout", type=int, default=420)
     parser.add_argument("--bot-timeout", type=int, default=120)
     parser.add_argument("--request-timeout", type=float, default=10.0)
     parser.add_argument("--cleanup-timeout-seconds", type=float, default=20.0)
@@ -503,6 +1035,14 @@ def main() -> int:
     parser.add_argument("--orphan-threshold", type=int, default=0)
     parser.add_argument("--force-run-with-orphans", action="store_true")
     args = parser.parse_args()
+    if args.move_round < 1:
+        raise SystemExit("--move-round must be >= 1")
+    if args.max_duration_seconds <= 0:
+        raise SystemExit("--max-duration-seconds must be > 0")
+    if args.max_rounds < 0:
+        raise SystemExit("--max-rounds must be >= 0")
+    if args.game_over_timeout <= 0:
+        raise SystemExit("--game-over-timeout must be > 0")
     return run(args)
 
 

@@ -6,11 +6,11 @@ Category: AI/HumanBot
 Created: 2026-05-05
 Last used: 2026-05-14
 Last verified: 2026-05-14
-Use count: 11
+Use count: 13
 Review after: 2026-08-03
 Triggers: AI fill, fewer humans than max players, 4 slots
 Applies to: `run_ai_fill_smoke.py`, `GameManagers.DeterminePlayerCount`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke; artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -45,3 +45,7 @@ Lifecycle notes:
 - 2026-05-14: verified artifact `artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke`
 - 2026-05-14: 2 HumanBot + 2 AI smoke passed after monster card tap suppression; playerCount=4 humanCount=2 aiCount=2 cleanupStatus=PASS orphanedPids=[].
 - 2026-05-14: verified artifact `artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke`
+- 2026-05-14: Verified 2 HumanBot + 2 AI 4-player round 2 move smoke.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke`
+- 2026-05-14: Used for 2 HumanBot + 2 AI GameOver movement validation. AI fill stayed present in long 4-player runs, but full E2E was not marked verified because final snapshot comparison diverged in separate long-run state.
+- 2026-05-14: used artifact `artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke`

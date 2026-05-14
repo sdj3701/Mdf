@@ -6,11 +6,11 @@ Category: cleanup
 Created: 2026-05-08
 Last used: 2026-05-14
 Last verified: 2026-05-14
-Use count: 10
+Use count: 12
 Review after: 2026-08-06
 Triggers: Windows cleanup blocker, `/quit` timeout, D3D/GPU pressure, headless smoke/prepare E2E
 Applies to: `tools/harness/mp/launch_player.py`, `build_player.py`, `run_matrix.py`, `MPTestGracefulQuit.cs`
-Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke, artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke, artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke; artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke; artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke; artifacts/mp/20260514-072736-two-humanbot-two-ai-smoke
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -56,3 +56,8 @@ Lifecycle notes:
 - 2026-05-14: verified artifact `artifacts/mp/20260514-044344-battle-spawn-monster-command`
 - 2026-05-14: Headless cleanup stayed clean for 2 HumanBot + 2 AI after monster card tap suppression; cleanupStatus=PASS orphanedPids=[].
 - 2026-05-14: verified artifact `artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke`
+- 2026-05-14: Verified headless 2 HumanBot + 2 AI cleanup PASS with orphanedPids empty.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke`
+- 2026-05-14: Verified cleanup stayed PASS and orphanedPids=[] after long 2 HumanBot + 2 AI GameOver movement run and subsequent 33-round movement timeout run.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke`
+- 2026-05-14: verified artifact `artifacts/mp/20260514-072736-two-humanbot-two-ai-smoke`

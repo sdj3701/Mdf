@@ -1131,6 +1131,7 @@ public class FieldManager : MonoBehaviour
             if (selectedUnit != null)
             {
                 Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                RestoreSelectedUnitNetworkTransform();
                 SnapbackSelectedUnit(originalWorldPos);
                 // 드래그 중에는 placedUnits에서 제거되지 않으므로, 다시 Add할 필요가 없습니다.
                 
@@ -5161,7 +5162,7 @@ public class FieldManager : MonoBehaviour
                 mouseDownTimer = 0f;
                 isDragStarted = false;
                 // [3D Migration] 유닛의 현재 위치를 그리드 좌표로 변환
-                originalUnitPosition = WorldToGridInt(selectedUnit.transform.position);
+                originalUnitPosition = GetUnitPosition(selectedUnit) ?? WorldToGridInt(selectedUnit.transform.position);
                 // 3D 드래그를 위한 XZ 오프셋 및 기준 Y 저장
                 dragBaseY = selectedUnit.transform.position.y;
                 offsetXZ = new Vector2(
@@ -5243,6 +5244,8 @@ public class FieldManager : MonoBehaviour
         {
             if (isDragStarted)
             {
+                RestoreSelectedUnitNetworkTransform();
+
                 // 드래그 종료: 화면상 마우스와 가장 겹쳐 보이는 셀을 최종 선택
                 Vector3Int bestGrid = GetBestGridUnderMouse();
                 bestGrid.x = Mathf.Clamp(bestGrid.x, 0, gridSize.x - 1);
@@ -5370,6 +5373,14 @@ public class FieldManager : MonoBehaviour
         }
 
         return !GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition);
+    }
+
+    private void RestoreSelectedUnitNetworkTransform()
+    {
+        if (selectedUnitNetworkTransform != null && !selectedUnitNetworkTransform.enabled)
+        {
+            selectedUnitNetworkTransform.enabled = true;
+        }
     }
 
     private async void ShowUnitDetailPanel(Unit unit)
