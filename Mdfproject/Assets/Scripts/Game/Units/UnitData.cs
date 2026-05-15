@@ -102,6 +102,11 @@ public class UnitData : ScriptableObject
     [AddressableKey(typeof(GameObject))]
     public string[] projectilePrefabsByStarLevel = new string[3];
 
+    [Header("Basic Attack VFX")]
+    [Tooltip("Addressables keys for melee basic attack slash VFX. Element 0 is 1-star, 1 is 2-star, and 2 is 3-star.")]
+    [AddressableKey(typeof(GameObject))]
+    public string[] basicAttackVfxPrefabsByStarLevel = new string[3];
+
     [Tooltip("투사체 속도입니다. 0이면 투사체 프리팹의 기본 속도를 사용합니다.")]
     public float projectileSpeed = 0f;
 }

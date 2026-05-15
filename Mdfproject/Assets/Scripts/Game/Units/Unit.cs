@@ -149,6 +149,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private PlayerManager owner;
     private float _nextProjectileVfxTime;
     private float _cachedProjectileSpeed = -1f;
+    private UnitAttackVfxPresenter _attackVfxPresenter;
     private bool _hasPendingAttack;
     private PendingAttack _pendingAttack;
     private bool _isSkillCasting;
@@ -1994,6 +1995,25 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return false;
     }
 
+    private void PlayBasicAttackVfx()
+    {
+        if (unitData == null || unitData.unitType != UnitType.Melee)
+        {
+            return;
+        }
+
+        if (_attackVfxPresenter == null)
+        {
+            _attackVfxPresenter = GetComponent<UnitAttackVfxPresenter>();
+            if (_attackVfxPresenter == null)
+            {
+                _attackVfxPresenter = gameObject.AddComponent<UnitAttackVfxPresenter>();
+            }
+        }
+
+        _attackVfxPresenter.PlayBasicAttack(this, targetTransform);
+    }
+
     public void AnimEvent_AttackImpact()
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -2002,6 +2022,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 #endif
+        PlayBasicAttackVfx();
+
         if (!_hasPendingAttack)
         {
             return;

@@ -41,4 +41,8 @@ MonoBehaviour:
   - ArrowProjectile
   - ArrowProjectile
   - ArrowProjectile
+  basicAttackVfxPrefabsByStarLevel:
+  - 
+  - 
+  - 
   projectileSpeed: 10

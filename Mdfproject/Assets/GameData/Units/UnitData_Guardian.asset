@@ -41,4 +41,8 @@ MonoBehaviour:
   - 
   - 
   - 
+  basicAttackVfxPrefabsByStarLevel:
+  - VFX_AttackSlash_SwordSlash5
+  - VFX_AttackSlash_SwordSlash5
+  - VFX_AttackSlash_SwordSlash5
   projectileSpeed: 0

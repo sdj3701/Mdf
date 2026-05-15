@@ -77,6 +77,7 @@
     <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeViewer.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestHarnessEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\AddressableKeyDrawer.cs" />
+    <Compile Include="Assets\Resource\VFX\Hovl Studio\HSFiles\Scripts\Editor\ShaderChanger.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Firebase\Editor\FirebaseCrashlytics_version-13.2.0_manifest.txt" />
