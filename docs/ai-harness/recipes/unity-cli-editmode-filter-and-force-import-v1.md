@@ -6,11 +6,11 @@ Category: unity-cli, asset
 Created: 2026-05-06
 Last used: 2026-05-16
 Last verified: 2026-05-16
-Use count: 11
+Use count: 15
 Review after: 2026-08-04
 Triggers: EditMode test runner returns `total=0` for a newly added method filter, Unity does not appear to pick up new test methods after compile
 Applies to: `unity-cli --project Mdfproject test --mode EditMode`, newly added tests, forced AssetDatabase import
-Verified by: see Verification section below; migrated from old Status: verified; Mdfproject; artifacts/addressables-registry-editmode-latest.log; unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 6/6; unity-cli --project Mdfproject test --mode EditMode => 82/82
+Verified by: see Verification section below; migrated from old Status: verified; Mdfproject; artifacts/addressables-registry-editmode-latest.log; unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 6/6; unity-cli --project Mdfproject test --mode EditMode => 82/82; unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 8/8; unity-cli --project Mdfproject test --mode EditMode => 84/84; unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 9/9; unity-cli --project Mdfproject test --mode EditMode => 85/85; unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 9/9; unity-cli --project Mdfproject test --mode EditMode => 85/85
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -43,3 +43,6 @@ Lifecycle notes:
 - 2026-05-16: unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests discovered and passed 5/5 tests on 2026-05-16
 - 2026-05-16: unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests discovered and passed 6/6 tests after configurable slash scale boost on 2026-05-16
 - 2026-05-16: verified artifact `unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 6/6; unity-cli --project Mdfproject test --mode EditMode => 82/82`
+- 2026-05-16: verified artifact `unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 8/8; unity-cli --project Mdfproject test --mode EditMode => 84/84`
+- 2026-05-16: verified artifact `unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 9/9; unity-cli --project Mdfproject test --mode EditMode => 85/85`
+- 2026-05-16: verified artifact `unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 9/9; unity-cli --project Mdfproject test --mode EditMode => 85/85`

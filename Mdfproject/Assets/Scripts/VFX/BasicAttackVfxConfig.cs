@@ -1,6 +1,12 @@
 using System;
 using UnityEngine;
 
+public enum BasicAttackVfxRotationMode
+{
+    TargetFacing = 0,
+    UnitForward = 1
+}
+
 [Serializable]
 public sealed class BasicAttackVfxConfig
 {
@@ -13,8 +19,11 @@ public sealed class BasicAttackVfxConfig
     [Tooltip("Offset in attack-direction space. X is right, Y is up, Z is forward.")]
     public Vector3 localPositionOffset = new Vector3(0f, 0.6f, 0.75f);
 
-    [Tooltip("Rotation applied after the target-facing attack rotation.")]
+    [Tooltip("Rotation applied after the selected attack rotation.")]
     public Vector3 rotationOffsetEuler = Vector3.zero;
+
+    [Tooltip("TargetFacing is legacy behavior. UnitForward matches the slash calibrator's sampled animation space.")]
+    public BasicAttackVfxRotationMode rotationMode = BasicAttackVfxRotationMode.TargetFacing;
 
     public float scaleMultiplier = 1f;
 
@@ -34,6 +43,7 @@ public sealed class BasicAttackVfxConfig
             prefabKey = key ?? string.Empty,
             localPositionOffset = new Vector3(0f, 0.6f, 0.75f),
             rotationOffsetEuler = Vector3.zero,
+            rotationMode = BasicAttackVfxRotationMode.TargetFacing,
             scaleMultiplier = 1f,
             calibrationQuality = 0f
         };

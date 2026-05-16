@@ -83,6 +83,87 @@ public sealed class AttackSlashCalibrationEditModeTests
     }
 
     [Test]
+    public void AttackSlashCalibrationUtilityUsesSweptStrikeCenterForBladePath()
+    {
+        var tipPath = new List<Vector3>
+        {
+            new Vector3(0f, 1f, 0f),
+            new Vector3(0f, 1f, 1f)
+        };
+        var sweptBlade = new List<Vector3>
+        {
+            new Vector3(0f, 0f, 0f),
+            new Vector3(0f, 1f, 0f),
+            new Vector3(0f, 0f, 1f),
+            new Vector3(0f, 1f, 1f)
+        };
+        var bladeDirections = new List<Vector3>
+        {
+            Vector3.up,
+            Vector3.up
+        };
+
+        var result = AttackSlashCalibrationUtility.AnalyzeStrikeTrajectory(
+            tipPath,
+            sweptBlade,
+            bladeDirections,
+            Vector3.forward,
+            Vector3.up);
+
+        Assert.That(result.isValid, Is.True);
+        Assert.That(result.center.y, Is.EqualTo(0.5f).Within(0.001f));
+        Assert.That(Vector3.Dot(result.forward, Vector3.forward), Is.GreaterThan(0.99f));
+        Assert.That(Vector3.Dot(result.up, Vector3.up), Is.GreaterThan(0.99f));
+    }
+
+    [Test]
+    public void AttackSlashCalibrationUtilityCanUseMotionPathInsteadOfPointCloudAxis()
+    {
+        var tallStaticShape = new List<Vector3>
+        {
+            new Vector3(0f, -2f, 0f),
+            new Vector3(0f, 2f, 0f),
+            new Vector3(0f, 0f, 0.25f)
+        };
+        var motion = new List<Vector3>
+        {
+            new Vector3(0f, 0f, -0.5f),
+            new Vector3(0f, 0f, 0.5f)
+        };
+
+        var result = AttackSlashCalibrationUtility.AnalyzeMotionAlignedPointCloud(
+            tallStaticShape,
+            motion,
+            Vector3.forward,
+            Vector3.up);
+
+        Assert.That(result.isValid, Is.True);
+        Assert.That(Vector3.Dot(result.forward, Vector3.forward), Is.GreaterThan(0.99f));
+    }
+
+    [Test]
+    public void AttackSlashCalibrationUtilityKeepsSlashSecondaryAxisInShapePlane()
+    {
+        var slashPlane = new List<Vector3>
+        {
+            new Vector3(-0.5f, 0f, -1.1f),
+            new Vector3(0.5f, 0f, -1.1f),
+            new Vector3(-0.45f, 0f, 0.25f),
+            new Vector3(0.45f, 0f, 0.25f),
+            new Vector3(0f, 0f, 1.1f)
+        };
+
+        var result = AttackSlashCalibrationUtility.AnalyzeOrientedPointCloud(
+            slashPlane,
+            Vector3.forward,
+            Vector3.up);
+
+        Assert.That(result.isValid, Is.True);
+        Assert.That(Mathf.Abs(Vector3.Dot(result.up, Vector3.up)), Is.LessThan(0.1f));
+        Assert.That(Mathf.Abs(Vector3.Dot(Vector3.Cross(result.forward, result.up), Vector3.up)), Is.GreaterThan(0.9f));
+    }
+
+    [Test]
     public void AttackSlashCalibratorWindowDefaultsScaleBoostToThreeAndExposesField()
     {
         string source = File.ReadAllText("Assets/Scripts/Editor/AttackSlashCalibratorWindow.cs");
@@ -90,7 +171,11 @@ public sealed class AttackSlashCalibrationEditModeTests
         Assert.That(source, Does.Contain("private const float DefaultScaleBoost = 3f;"));
         Assert.That(source, Does.Contain("scaleBoost = EditorGUILayout.FloatField(\"Scale Boost\", scaleBoost);"));
         Assert.That(source, Does.Contain("EditorPrefs.SetFloat(ScaleBoostPrefsKey, scaleBoost);"));
+        Assert.That(source, Does.Contain("AttackSlashCalibrationUtility.AnalyzeStrikeTrajectory("));
+        Assert.That(source, Does.Contain("renderer.BakeMesh(mesh, bakeCamera, false);"));
+        Assert.That(source, Does.Contain("AttackSlashCalibrationUtility.AnalyzeOrientedPointCloud(bakedSlashPoints, Vector3.forward, Vector3.up);"));
         Assert.That(source, Does.Contain("AttackSlashCalibrationUtility.CalculateFit(trajectory, slashShape, originAtImpact, unitInstance.transform.forward, lastStrikeSpanLength, scaleBoost);"));
+        Assert.That(source, Does.Contain("config.rotationMode = BasicAttackVfxRotationMode.UnitForward;"));
         Assert.That(source, Does.Not.Contain("GeneratedScaleMultiplier = 2f"));
     }
 
@@ -107,6 +192,7 @@ public sealed class AttackSlashCalibrationEditModeTests
             Assert.That(config, Is.Not.Null);
             Assert.That(config.prefabKey, Is.EqualTo("VFX_AttackSlash_SwordSlash5"));
             Assert.That(config.localPositionOffset, Is.EqualTo(new Vector3(0f, 0.6f, 0.75f)));
+            Assert.That(config.rotationMode, Is.EqualTo(BasicAttackVfxRotationMode.TargetFacing));
         }
         finally
         {
@@ -134,6 +220,10 @@ public sealed class AttackSlashCalibrationEditModeTests
         Assert.That(presenterSource, Does.Contain("StopActiveInstances();"));
         Assert.That(presenterSource, Does.Contain("playGeneration != _playGeneration"));
         Assert.That(presenterSource, Does.Contain("unit == null || unit.IsDead"));
+        Assert.That(presenterSource, Does.Contain("ResolveAttackRotation(unit, direction, config)"));
+        Assert.That(presenterSource, Does.Contain("PrepareDeterministicPrimarySlashParticle(particles[i]);"));
+        Assert.That(presenterSource, Does.Contain("system.useAutoRandomSeed = false;"));
+        Assert.That(presenterSource, Does.Contain("system.randomSeed = PrimarySlashRandomSeed;"));
         Assert.That(presenterSource, Does.Contain("main.loop = false;"));
         Assert.That(presenterSource, Does.Contain("autoDestroy.Cancel();"));
         Assert.That(instanceSource, Does.Contain("public sealed class UnitAttackVfxInstance"));

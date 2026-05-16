@@ -66,6 +66,23 @@ public static class AttackSlashCalibrationUtility
         };
     }
 
+    public static ShapeAnalysis AnalyzeOrientedPointCloud(IReadOnlyList<Vector3> points, Vector3 fallbackForward, Vector3 fallbackUp)
+    {
+        ShapeAnalysis analysis = AnalyzePointCloud(points, fallbackForward, fallbackUp);
+        if (!analysis.isValid)
+        {
+            return analysis;
+        }
+
+        Vector3 inPlaneUp = FindPrincipalAxisOnPlane(points, analysis.center, analysis.forward, fallbackUp);
+        if (inPlaneUp.sqrMagnitude > 0.000001f)
+        {
+            analysis.up = inPlaneUp.normalized;
+        }
+
+        return analysis;
+    }
+
     public static ShapeAnalysis AnalyzeTrajectory(IReadOnlyList<Vector3> samples, Vector3 fallbackForward, Vector3 fallbackUp)
     {
         ShapeAnalysis analysis = AnalyzePointCloud(samples, fallbackForward, fallbackUp);
@@ -97,6 +114,67 @@ public static class AttackSlashCalibrationUtility
         }
 
         return analysis;
+    }
+
+    public static ShapeAnalysis AnalyzeMotionAlignedPointCloud(
+        IReadOnlyList<Vector3> points,
+        IReadOnlyList<Vector3> motionSamples,
+        Vector3 fallbackForward,
+        Vector3 fallbackUp)
+    {
+        ShapeAnalysis pointCloud = AnalyzePointCloud(points, fallbackForward, fallbackUp);
+        if (!pointCloud.isValid)
+        {
+            return pointCloud;
+        }
+
+        ShapeAnalysis motion = AnalyzeTrajectory(motionSamples, pointCloud.forward, fallbackUp);
+        if (!motion.isValid)
+        {
+            return pointCloud;
+        }
+
+        Vector3 forward = SafeDirection(motion.forward, pointCloud.forward);
+        Vector3 up = ProjectOnPlaneSafe(motion.up, forward, pointCloud.up);
+        pointCloud.forward = forward;
+        pointCloud.up = up;
+        pointCloud.length = Mathf.Max(pointCloud.length, CalculateLengthAlongAxis(points, pointCloud.center, forward));
+        return pointCloud;
+    }
+
+    public static ShapeAnalysis AnalyzeStrikeTrajectory(
+        IReadOnlyList<Vector3> motionSamples,
+        IReadOnlyList<Vector3> sweptSamples,
+        IReadOnlyList<Vector3> strikeSpanDirections,
+        Vector3 fallbackForward,
+        Vector3 fallbackUp)
+    {
+        ShapeAnalysis motion = AnalyzeTrajectory(motionSamples, fallbackForward, fallbackUp);
+        if (!motion.isValid)
+        {
+            return motion;
+        }
+
+        ShapeAnalysis swept = AnalyzePointCloud(sweptSamples, motion.forward, fallbackUp);
+        if (!swept.isValid)
+        {
+            return motion;
+        }
+
+        Vector3 forward = SafeDirection(motion.forward, swept.forward);
+        Vector3 up = ResolveStrikeUp(strikeSpanDirections, forward, motion.up, swept.up);
+
+        return new ShapeAnalysis
+        {
+            isValid = true,
+            center = swept.center,
+            forward = forward,
+            up = up,
+            length = Mathf.Max(
+                motion.length,
+                CalculateLengthAlongAxis(sweptSamples, swept.center, forward)),
+            sampleCount = swept.sampleCount
+        };
     }
 
     public static CalibrationResult CalculateFit(
@@ -158,6 +236,104 @@ public static class AttackSlashCalibrationUtility
         float safeTrajectoryLength = Mathf.Max(0f, trajectoryLength);
         float safeStrikeSpanLength = Mathf.Max(0f, strikeSpanLength);
         return Mathf.Max(Mathf.Max(safeTrajectoryLength, safeStrikeSpanLength), 0.001f);
+    }
+
+    private static Vector3 ResolveStrikeUp(
+        IReadOnlyList<Vector3> strikeSpanDirections,
+        Vector3 forward,
+        Vector3 motionUp,
+        Vector3 sweptUp)
+    {
+        if (strikeSpanDirections != null && strikeSpanDirections.Count > 0)
+        {
+            Vector3 average = Vector3.zero;
+            Vector3 reference = ProjectOnPlaneSafe(
+                motionUp.sqrMagnitude > 0.000001f ? motionUp : sweptUp,
+                forward,
+                Vector3.up);
+            for (int i = 0; i < strikeSpanDirections.Count; i++)
+            {
+                Vector3 projected = Vector3.ProjectOnPlane(strikeSpanDirections[i], forward);
+                if (projected.sqrMagnitude > 0.000001f)
+                {
+                    projected.Normalize();
+                    if (Vector3.Dot(projected, reference) < 0f)
+                    {
+                        projected = -projected;
+                    }
+
+                    average += projected;
+                }
+            }
+
+            if (average.sqrMagnitude > 0.000001f)
+            {
+                return average.normalized;
+            }
+        }
+
+        Vector3 fallback = motionUp.sqrMagnitude > 0.000001f ? motionUp : sweptUp;
+        return ProjectOnPlaneSafe(fallback, forward, Vector3.up);
+    }
+
+    private static Vector3 FindPrincipalAxisOnPlane(
+        IReadOnlyList<Vector3> points,
+        Vector3 center,
+        Vector3 normal,
+        Vector3 fallback)
+    {
+        Vector3 safeNormal = SafeDirection(normal, Vector3.forward);
+        Vector3 axis = FindStrongestDeviation(points, center, safeNormal);
+        if (axis.sqrMagnitude <= 0.000001f)
+        {
+            axis = Vector3.ProjectOnPlane(fallback, safeNormal);
+        }
+
+        axis = SafeDirection(axis, Vector3.up);
+        for (int iteration = 0; iteration < 8; iteration++)
+        {
+            Vector3 next = Vector3.zero;
+            for (int i = 0; i < points.Count; i++)
+            {
+                Vector3 delta = Vector3.ProjectOnPlane(points[i] - center, safeNormal);
+                next += delta * Vector3.Dot(delta, axis);
+            }
+
+            if (next.sqrMagnitude <= 0.000001f)
+            {
+                break;
+            }
+
+            axis = next.normalized;
+        }
+
+        Vector3 fallbackProjected = Vector3.ProjectOnPlane(fallback, safeNormal);
+        if (fallbackProjected.sqrMagnitude > 0.000001f && Vector3.Dot(axis, fallbackProjected) < 0f)
+        {
+            axis = -axis;
+        }
+
+        return axis;
+    }
+
+    private static float CalculateLengthAlongAxis(IReadOnlyList<Vector3> points, Vector3 center, Vector3 axis)
+    {
+        if (points == null || points.Count == 0)
+        {
+            return 0f;
+        }
+
+        Vector3 safeAxis = SafeDirection(axis, Vector3.forward);
+        float min = float.MaxValue;
+        float max = float.MinValue;
+        for (int i = 0; i < points.Count; i++)
+        {
+            float projection = Vector3.Dot(points[i] - center, safeAxis);
+            min = Mathf.Min(min, projection);
+            max = Mathf.Max(max, projection);
+        }
+
+        return Mathf.Max(0.001f, max - min);
     }
 
     private static CalibrationResult Invalid(string reason)

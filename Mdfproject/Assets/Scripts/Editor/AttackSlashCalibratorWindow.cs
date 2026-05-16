@@ -321,6 +321,8 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
             float end = Mathf.Clamp(impactTime + window * 0.5f, start + 0.001f, attackClip.length);
             Vector3 originAtImpact = Vector3.zero;
             var trajectoryPoints = new List<Vector3>(SampleCount);
+            var sweptStrikePoints = new List<Vector3>(SampleCount * 2);
+            var strikeSpanDirections = new List<Vector3>(SampleCount);
             float strikeSpanTotal = 0f;
             int strikeSpanSamples = 0;
 
@@ -333,9 +335,23 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
                 trajectoryPoints.Add(tracking.position);
                 if (strikeBase != null && strikeTip != null)
                 {
-                    strikeSpanTotal += Vector3.Distance(strikeBase.position, strikeTip.position);
+                    Vector3 basePosition = strikeBase.position;
+                    Vector3 tipPosition = strikeTip.position;
+                    Vector3 strikeSpan = tipPosition - basePosition;
+                    sweptStrikePoints.Add(basePosition);
+                    sweptStrikePoints.Add(tipPosition);
+                    strikeSpanTotal += strikeSpan.magnitude;
+                    if (strikeSpan.sqrMagnitude > 0.000001f)
+                    {
+                        strikeSpanDirections.Add(strikeSpan.normalized);
+                    }
                     strikeSpanSamples++;
                 }
+            }
+
+            if (sweptStrikePoints.Count == 0)
+            {
+                sweptStrikePoints.AddRange(trajectoryPoints);
             }
 
             AnimationMode.BeginSampling();
@@ -344,7 +360,12 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
             originAtImpact = spawnOrigin.position;
 
             previewTrajectory.AddRange(trajectoryPoints);
-            var trajectory = AttackSlashCalibrationUtility.AnalyzeTrajectory(trajectoryPoints, unitInstance.transform.forward, Vector3.up);
+            var trajectory = AttackSlashCalibrationUtility.AnalyzeStrikeTrajectory(
+                trajectoryPoints,
+                sweptStrikePoints,
+                strikeSpanDirections,
+                unitInstance.transform.forward,
+                Vector3.up);
             var slashShape = AnalyzeSlashShape(slashInstance);
             lastStrikeSpanLength = strikeSpanSamples > 0 ? strikeSpanTotal / strikeSpanSamples : 0f;
             lastScaleTargetLength = AttackSlashCalibrationUtility.ResolveTargetVisualLength(trajectory.length, lastStrikeSpanLength);
@@ -356,7 +377,7 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
                 previewRootRotation = attackRotation * Quaternion.Euler(lastResult.rotationOffsetEuler);
                 previewRootPosition = originAtImpact + attackRotation * lastResult.localPositionOffset;
                 previewScale = lastResult.scaleMultiplier;
-                lastMessage = $"Calibration ready. Quality={lastResult.quality:0.00}, autoScale={lastResult.scaleMultiplier:0.###}, scaleBoost={scaleBoost:0.###}, strikeSize={lastStrikeSpanLength:0.###}, targetSize={lastScaleTargetLength:0.###}, samples={trajectory.sampleCount}, slashPoints={slashShape.sampleCount}.";
+                lastMessage = $"Calibration ready. Quality={lastResult.quality:0.00}, autoScale={lastResult.scaleMultiplier:0.###}, scaleBoost={scaleBoost:0.###}, strikeSize={lastStrikeSpanLength:0.###}, targetSize={lastScaleTargetLength:0.###}, pathSamples={trajectoryPoints.Count}, sweptSamples={trajectory.sampleCount}, slashPoints={slashShape.sampleCount}.";
             }
             else
             {
@@ -413,6 +434,7 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
             config.spawnOriginPath = lastSpawnOriginPath;
             config.localPositionOffset = lastResult.localPositionOffset;
             config.rotationOffsetEuler = lastResult.rotationOffsetEuler;
+            config.rotationMode = BasicAttackVfxRotationMode.UnitForward;
             config.scaleMultiplier = lastResult.scaleMultiplier;
             config.calibrationQuality = lastResult.quality;
             config.calibratedAttackClipGuid = clipGuid;
@@ -519,20 +541,65 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
 
     private static AttackSlashCalibrationUtility.ShapeAnalysis AnalyzeSlashShape(GameObject slashInstance)
     {
+        var bakedSlashPoints = new List<Vector3>(1024);
+        var bakedMeshPoints = new List<Vector3>(1024);
         var points = new List<Vector3>(256);
+        var motionPoints = new List<Vector3>(SampleCount);
         Transform root = slashInstance.transform;
         var particles = slashInstance.GetComponentsInChildren<ParticleSystem>(true);
-        for (int p = 0; p < particles.Length; p++)
+        Camera bakeCamera = CreateBakeCamera();
+        try
         {
-            ParticleSystem system = particles[p];
-            system.gameObject.SetActive(true);
-            system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            float duration = Mathf.Max(0.1f, system.main.duration);
-            int maxParticles = Mathf.Clamp(system.main.maxParticles, 1, 2048);
-            var buffer = new ParticleSystem.Particle[maxParticles];
-            for (int i = 0; i < 5; i++)
+            for (int sample = 0; sample < SampleCount; sample++)
             {
-                float time = duration * (i / 4f);
+                float normalizedTime = SampleCount == 1 ? 0f : sample / (float)(SampleCount - 1);
+                for (int p = 0; p < particles.Length; p++)
+                {
+                    ParticleSystem system = particles[p];
+                    var renderer = system.GetComponent<ParticleSystemRenderer>();
+                    if (renderer == null || renderer.renderMode != ParticleSystemRenderMode.Mesh || renderer.mesh == null)
+                    {
+                        continue;
+                    }
+
+                    List<Vector3> target = IsPrimarySlashRenderer(renderer) ? bakedSlashPoints : bakedMeshPoints;
+                    AddBakedParticleMeshPoints(target, root, system, renderer, bakeCamera, normalizedTime);
+                }
+            }
+        }
+        finally
+        {
+            if (bakeCamera != null)
+            {
+                DestroyImmediate(bakeCamera.gameObject);
+            }
+        }
+
+        if (bakedSlashPoints.Count > 0)
+        {
+            return AttackSlashCalibrationUtility.AnalyzeOrientedPointCloud(bakedSlashPoints, Vector3.forward, Vector3.up);
+        }
+
+        if (bakedMeshPoints.Count > 0)
+        {
+            return AttackSlashCalibrationUtility.AnalyzeOrientedPointCloud(bakedMeshPoints, Vector3.forward, Vector3.up);
+        }
+
+        for (int sample = 0; sample < SampleCount; sample++)
+        {
+            float normalizedTime = SampleCount == 1 ? 0f : sample / (float)(SampleCount - 1);
+            Vector3 sampleCenter = Vector3.zero;
+            int sampleParticleCount = 0;
+
+            for (int p = 0; p < particles.Length; p++)
+            {
+                ParticleSystem system = particles[p];
+                system.gameObject.SetActive(true);
+                system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                float duration = Mathf.Max(0.1f, system.main.duration);
+                int maxParticles = Mathf.Clamp(system.main.maxParticles, 1, 2048);
+                var buffer = new ParticleSystem.Particle[maxParticles];
+                float time = duration * normalizedTime;
                 system.Simulate(time, true, true, true);
                 int count = system.GetParticles(buffer);
                 for (int j = 0; j < count; j++)
@@ -540,8 +607,16 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
                     Vector3 worldPosition = system.main.simulationSpace == ParticleSystemSimulationSpace.World
                         ? buffer[j].position
                         : system.transform.TransformPoint(buffer[j].position);
-                    points.Add(root.InverseTransformPoint(worldPosition));
+                    Vector3 localPosition = root.InverseTransformPoint(worldPosition);
+                    points.Add(localPosition);
+                    sampleCenter += localPosition;
+                    sampleParticleCount++;
                 }
+            }
+
+            if (sampleParticleCount > 0)
+            {
+                motionPoints.Add(sampleCenter / sampleParticleCount);
             }
         }
 
@@ -563,7 +638,92 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
             }
         }
 
-        return AttackSlashCalibrationUtility.AnalyzePointCloud(points, Vector3.forward, Vector3.up);
+        return AttackSlashCalibrationUtility.AnalyzeMotionAlignedPointCloud(points, motionPoints, Vector3.forward, Vector3.up);
+    }
+
+    private static Camera CreateBakeCamera()
+    {
+        var cameraObject = new GameObject("AttackSlashCalibratorBakeCamera")
+        {
+            hideFlags = HideFlags.HideAndDontSave
+        };
+        var camera = cameraObject.AddComponent<Camera>();
+        camera.enabled = false;
+        camera.transform.position = new Vector3(0f, 1f, -10f);
+        camera.transform.rotation = Quaternion.LookRotation(Vector3.forward, Vector3.up);
+        return camera;
+    }
+
+    private static void AddBakedParticleMeshPoints(
+        List<Vector3> points,
+        Transform root,
+        ParticleSystem system,
+        ParticleSystemRenderer renderer,
+        Camera bakeCamera,
+        float normalizedTime)
+    {
+        system.gameObject.SetActive(true);
+        system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        system.useAutoRandomSeed = false;
+        system.randomSeed = 1;
+
+        float duration = ResolveParticleVisibleDuration(system.main);
+        system.Simulate(duration * normalizedTime, true, true, true);
+
+        var mesh = new Mesh();
+        try
+        {
+            renderer.BakeMesh(mesh, bakeCamera, false);
+            Vector3[] vertices = mesh.vertices;
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                points.Add(root.InverseTransformPoint(system.transform.TransformPoint(vertices[i])));
+            }
+        }
+        finally
+        {
+            DestroyImmediate(mesh);
+        }
+    }
+
+    private static float ResolveParticleVisibleDuration(ParticleSystem.MainModule main)
+    {
+        float lifetime = main.startLifetime.constantMax;
+        if (lifetime <= 0.0001f)
+        {
+            lifetime = main.startLifetime.constant;
+        }
+
+        if (lifetime <= 0.0001f)
+        {
+            lifetime = main.duration;
+        }
+
+        return Mathf.Max(0.05f, Mathf.Min(main.duration, lifetime));
+    }
+
+    private static bool IsPrimarySlashRenderer(ParticleSystemRenderer renderer)
+    {
+        if (NameContains(renderer.mesh != null ? renderer.mesh.name : null, "Slash"))
+        {
+            return true;
+        }
+
+        Material[] materials = renderer.sharedMaterials;
+        for (int i = 0; i < materials.Length; i++)
+        {
+            if (materials[i] != null && NameContains(materials[i].name, "Slash"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool NameContains(string value, string pattern)
+    {
+        return !string.IsNullOrEmpty(value) && value.IndexOf(pattern, System.StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private static void AddBoundsPoints(List<Vector3> points, Transform root, Bounds bounds)

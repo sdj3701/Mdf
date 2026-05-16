@@ -6,11 +6,11 @@ Category: harness
 Created: 2026-05-05
 Last used: 2026-05-16
 Last verified: 2026-05-16
-Use count: 13
+Use count: 15
 Review after: 2026-08-03
 Triggers: Development Build, build artifact, player launch smoke
 Applies to: `mp_build_player`, `tools/harness/mp/build_player.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/unit-roster-battle-fix-win-aa; artifacts/builds/20260516-043105; artifacts/builds/20260516-050308; artifacts/builds/20260516-071517
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/unit-roster-battle-fix-win-aa; artifacts/builds/20260516-043105; artifacts/builds/20260516-050308; artifacts/builds/20260516-071517; artifacts/builds/20260516-083348; artifacts/builds/20260516-180032-slash-vfx-win
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -46,3 +46,5 @@ Lifecycle notes:
 - 2026-05-16: verified artifact `artifacts/builds/20260516-043105`
 - 2026-05-16: verified artifact `artifacts/builds/20260516-050308`
 - 2026-05-16: verified artifact `artifacts/builds/20260516-071517`
+- 2026-05-16: verified artifact `artifacts/builds/20260516-083348`
+- 2026-05-16: verified artifact `artifacts/builds/20260516-180032-slash-vfx-win`

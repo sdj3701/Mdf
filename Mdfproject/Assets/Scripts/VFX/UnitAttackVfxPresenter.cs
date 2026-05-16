@@ -4,6 +4,8 @@ using UnityEngine;
 
 public class UnitAttackVfxPresenter : MonoBehaviour
 {
+    private const uint PrimarySlashRandomSeed = 1u;
+
     [SerializeField] private Transform spawnOrigin;
     [SerializeField] private float forwardOffset = 0.75f;
     [SerializeField] private float heightOffset = 0.6f;
@@ -78,7 +80,7 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             return;
         }
 
-        Spawn(prefab, direction.normalized, config);
+        Spawn(unit, prefab, direction.normalized, config);
     }
 
     private async UniTask<GameObject> LoadPrefabAsync(string vfxKey)
@@ -106,12 +108,12 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         return loaded;
     }
 
-    private void Spawn(GameObject prefab, Vector3 direction, BasicAttackVfxConfig config)
+    private void Spawn(Unit unit, GameObject prefab, Vector3 direction, BasicAttackVfxConfig config)
     {
         RemoveInactiveTrackedInstances();
 
         Transform origin = ResolveSpawnOrigin(config);
-        Quaternion attackRotation = Quaternion.LookRotation(direction, Vector3.up);
+        Quaternion attackRotation = ResolveAttackRotation(unit, direction, config);
         Vector3 localOffset = config != null ? config.localPositionOffset : new Vector3(0f, heightOffset, forwardOffset);
         Vector3 eulerOffset = config != null ? config.rotationOffsetEuler : rotationOffsetEuler;
         float resolvedScale = config != null && config.scaleMultiplier > 0f ? config.scaleMultiplier : scaleMultiplier;
@@ -218,6 +220,22 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         return spawnOrigin != null ? spawnOrigin : transform;
     }
 
+    private Quaternion ResolveAttackRotation(Unit unit, Vector3 direction, BasicAttackVfxConfig config)
+    {
+        if (config != null && config.rotationMode == BasicAttackVfxRotationMode.UnitForward)
+        {
+            Transform basis = unit != null ? unit.transform : transform;
+            Vector3 unitForward = basis.forward;
+            unitForward.y = 0f;
+            if (unitForward.sqrMagnitude > 1e-6f)
+            {
+                return Quaternion.LookRotation(unitForward.normalized, Vector3.up);
+            }
+        }
+
+        return Quaternion.LookRotation(direction, Vector3.up);
+    }
+
     private Vector3 ResolveDirection(Transform target, BasicAttackVfxConfig config)
     {
         Transform origin = ResolveSpawnOrigin(config);
@@ -245,10 +263,38 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
         for (int i = 0; i < particles.Length; i++)
         {
+            PrepareDeterministicPrimarySlashParticle(particles[i]);
+
             var main = particles[i].main;
             main.loop = false;
             particles[i].Play(true);
         }
+    }
+
+    private static void PrepareDeterministicPrimarySlashParticle(ParticleSystem system)
+    {
+        if (system == null)
+        {
+            return;
+        }
+
+        var renderer = system.GetComponent<ParticleSystemRenderer>();
+        if (renderer == null ||
+            renderer.renderMode != ParticleSystemRenderMode.Mesh ||
+            renderer.mesh == null ||
+            !NameContains(renderer.mesh.name, "Slash"))
+        {
+            return;
+        }
+
+        Material material = renderer.sharedMaterial;
+        if (material != null && !NameContains(material.name, "SwordSlash"))
+        {
+            return;
+        }
+
+        system.useAutoRandomSeed = false;
+        system.randomSeed = PrimarySlashRandomSeed;
     }
 
     private static void StopParticles(GameObject instance)
@@ -260,6 +306,12 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             main.loop = false;
             particles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
         }
+    }
+
+    private static bool NameContains(string value, string pattern)
+    {
+        return !string.IsNullOrEmpty(value) &&
+            value.IndexOf(pattern, System.StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void EnsureAutoDestroy(GameObject instance)
