@@ -9,7 +9,10 @@ using UnityEngine;
 public sealed class AttackSlashCalibratorWindow : EditorWindow
 {
     private const int SampleCount = 18;
-    private const float GeneratedScaleMultiplier = 2f;
+    private const float DefaultScaleBoost = 3f;
+    private const float MinScaleBoost = 0.1f;
+    private const float MaxScaleBoost = 10f;
+    private const string ScaleBoostPrefsKey = "MDF.AttackSlashCalibrator.ScaleBoost";
 
     private UnitData unitData;
     private GameObject unitPrefab;
@@ -19,6 +22,7 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
     private bool applyToAllStars = true;
     private bool requireProbeMarkers = true;
     private bool showAdvancedActions;
+    [SerializeField] private float scaleBoost = DefaultScaleBoost;
 
     private AttackSlashCalibrationUtility.CalibrationResult lastResult;
     private string lastSpawnOriginPath;
@@ -43,6 +47,7 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
 
     private void OnEnable()
     {
+        scaleBoost = Mathf.Clamp(EditorPrefs.GetFloat(ScaleBoostPrefsKey, DefaultScaleBoost), MinScaleBoost, MaxScaleBoost);
         SceneView.duringSceneGui += DrawScenePreview;
         TryUseSelection();
     }
@@ -88,6 +93,16 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
 
         applyToAllStars = EditorGUILayout.ToggleLeft("Apply result to all star levels", applyToAllStars);
         requireProbeMarkers = EditorGUILayout.ToggleLeft("Require AttackVfxProbe strike base/tip", requireProbeMarkers);
+        EditorGUI.BeginChangeCheck();
+        scaleBoost = EditorGUILayout.FloatField("Scale Boost", scaleBoost);
+        if (EditorGUI.EndChangeCheck())
+        {
+            scaleBoost = Mathf.Clamp(scaleBoost, MinScaleBoost, MaxScaleBoost);
+            EditorPrefs.SetFloat(ScaleBoostPrefsKey, scaleBoost);
+            lastResult = default;
+            previewTrajectory.Clear();
+            lastMessage = "Scale Boost changed. Run Analyze again before applying calibration.";
+        }
 
         DrawProbeStatus();
 
@@ -129,7 +144,7 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
             EditorGUILayout.Vector3Field("Local Offset", lastResult.localPositionOffset);
             EditorGUILayout.Vector3Field("Rotation Offset", lastResult.rotationOffsetEuler);
             EditorGUILayout.FloatField("Auto Scale", lastResult.scaleMultiplier);
-            EditorGUILayout.FloatField("Scale Boost", GeneratedScaleMultiplier);
+            EditorGUILayout.FloatField("Applied Scale Boost", scaleBoost);
             EditorGUILayout.FloatField("Strike Size", lastStrikeSpanLength);
             EditorGUILayout.FloatField("Scale Target Size", lastScaleTargetLength);
             EditorGUILayout.Slider("Quality", lastResult.quality, 0f, 1f);
@@ -333,7 +348,7 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
             var slashShape = AnalyzeSlashShape(slashInstance);
             lastStrikeSpanLength = strikeSpanSamples > 0 ? strikeSpanTotal / strikeSpanSamples : 0f;
             lastScaleTargetLength = AttackSlashCalibrationUtility.ResolveTargetVisualLength(trajectory.length, lastStrikeSpanLength);
-            lastResult = AttackSlashCalibrationUtility.CalculateFit(trajectory, slashShape, originAtImpact, unitInstance.transform.forward, lastStrikeSpanLength, GeneratedScaleMultiplier);
+            lastResult = AttackSlashCalibrationUtility.CalculateFit(trajectory, slashShape, originAtImpact, unitInstance.transform.forward, lastStrikeSpanLength, scaleBoost);
 
             if (lastResult.isValid)
             {
@@ -341,7 +356,7 @@ public sealed class AttackSlashCalibratorWindow : EditorWindow
                 previewRootRotation = attackRotation * Quaternion.Euler(lastResult.rotationOffsetEuler);
                 previewRootPosition = originAtImpact + attackRotation * lastResult.localPositionOffset;
                 previewScale = lastResult.scaleMultiplier;
-                lastMessage = $"Calibration ready. Quality={lastResult.quality:0.00}, autoScale={lastResult.scaleMultiplier:0.###}, scaleBoost={GeneratedScaleMultiplier:0.###}, strikeSize={lastStrikeSpanLength:0.###}, targetSize={lastScaleTargetLength:0.###}, samples={trajectory.sampleCount}, slashPoints={slashShape.sampleCount}.";
+                lastMessage = $"Calibration ready. Quality={lastResult.quality:0.00}, autoScale={lastResult.scaleMultiplier:0.###}, scaleBoost={scaleBoost:0.###}, strikeSize={lastStrikeSpanLength:0.###}, targetSize={lastScaleTargetLength:0.###}, samples={trajectory.sampleCount}, slashPoints={slashShape.sampleCount}.";
             }
             else
             {

@@ -154,6 +154,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private float _cachedProjectileSpeed = -1f;
     private UnitAttackVfxPresenter _attackVfxPresenter;
     private bool _hasPendingAttack;
+    private int _nextBasicAttackVfxId;
+    private int _lastPlayedBasicAttackVfxId;
     private PendingAttack _pendingAttack;
     private bool _isSkillCasting;
     private Coroutine _skillCastingRoutine;
@@ -320,6 +322,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         public bool IsRanged;
         public bool EmitVfx;
         public float SplashRadius;
+        public int AttackId;
     }
 
     private bool isCombatPhase = false;
@@ -340,6 +343,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         _hasSpawned = false;
         _changeDetector = null;
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        StopAttackPlaybackState();
+        InvalidateAttackPresentationState();
         base.Despawned(runner, hasState);
     }
     
@@ -385,6 +392,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (NetworkedIsDead && !IsDead)
         {
             IsDead = true;
+            CancelPendingAttack();
+            ClearCurrentTarget();
+            StopAttackPlaybackState();
+            InvalidateAttackPresentationState();
             SetDeathPresentationActive(false);
         }
         else if (!NetworkedIsDead && IsDead)
@@ -395,7 +406,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     private void HandleNetworkedAttackStateChanged()
     {
-        if (!gameObject.activeInHierarchy) return;
+        if (!gameObject.activeInHierarchy || IsDead) return;
         
         if (animator != null && Object != null && !Object.HasStateAuthority)
         {
@@ -989,8 +1000,57 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         _pendingAttack = new PendingAttack();
     }
 
+    private int AllocateBasicAttackVfxId()
+    {
+        unchecked
+        {
+            _nextBasicAttackVfxId++;
+            if (_nextBasicAttackVfxId <= 0)
+            {
+                _nextBasicAttackVfxId = 1;
+                _lastPlayedBasicAttackVfxId = 0;
+            }
+
+            return _nextBasicAttackVfxId;
+        }
+    }
+
+    private void InvalidateAttackPresentationState()
+    {
+        if (_attackVfxPresenter != null)
+        {
+            _attackVfxPresenter.InvalidatePendingPlays();
+        }
+    }
+
+    private void StopAttackPlaybackState()
+    {
+        if (attackCoroutine != null)
+        {
+            StopCoroutine(attackCoroutine);
+            attackCoroutine = null;
+        }
+
+        if (animSpeedResetRoutine != null)
+        {
+            StopCoroutine(animSpeedResetRoutine);
+            animSpeedResetRoutine = null;
+        }
+
+        if (animator != null)
+        {
+            if (!string.IsNullOrEmpty(attackTriggerParam))
+            {
+                animator.ResetTrigger(attackTriggerParam);
+            }
+
+            animator.speed = 1f;
+        }
+    }
+
     private bool TryPlayAttackAnimation()
     {
+        if (IsDead || !isCombatPhase) return false;
         if (IsSkillCasting()) return false;
         if (animator == null) return false;
         float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
@@ -1150,6 +1210,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
 
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        InvalidateAttackPresentationState();
+        if (attackCoroutine != null)
+        {
+            StopCoroutine(attackCoroutine);
+            attackCoroutine = null;
+        }
         UnsubscribeFromAllies();
         if (animSpeedResetRoutine != null)
         {
@@ -1269,6 +1337,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             targetTransform = null;
             blockedMonsters.Clear();
             CancelPendingAttack();
+            InvalidateAttackPresentationState();
             EnsureRuntimeReferences("HandleGameStateChanged(BattleEnter)", false);
             
             StartAttackLoop();
@@ -1282,11 +1351,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         else
         {
-            if (attackCoroutine != null)
-            {
-                StopCoroutine(attackCoroutine);
-                attackCoroutine = null;
-            }
+            StopAttackPlaybackState();
+            CancelPendingAttack();
+            ClearCurrentTarget();
+            InvalidateAttackPresentationState();
             // 전투 종료 시 구독을 해제합니다.
             UnsubscribeFromAllies();
 
@@ -1429,6 +1497,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         bool inactive = gameObject != null && (!gameObject.activeSelf || !gameObject.activeInHierarchy);
         if (!IsDead && !inactive) return;
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        InvalidateAttackPresentationState();
         IsDead = false;
         
         if (Object != null && Object.HasStateAuthority)
@@ -1690,6 +1761,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     #region 공격 로직 (이하 동일)
     public void StartAttackLoop()
     {
+        if (IsDead)
+        {
+            CancelPendingAttack();
+            return;
+        }
+
         if (attackCoroutine != null) StopCoroutine(attackCoroutine);
         EnsureRuntimeReferences("StartAttackLoop", false);
         attackCoroutine = StartCoroutine(AttackLoop());
@@ -1709,6 +1786,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 continue;
             }
 #endif
+            if (IsDead)
+            {
+                CancelPendingAttack();
+                ClearCurrentTarget();
+                yield break;
+            }
+
             if (!EnsureRuntimeReferences("AttackLoop", true))
             {
                 yield return null;
@@ -1941,6 +2025,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 #endif
+        if (IsDead || !isCombatPhase || unitData == null)
+        {
+            CancelPendingAttack();
+            return;
+        }
+
         if (IsSkillCasting())
         {
             return;
@@ -1995,7 +2085,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                             ProjectileSpeed = _cachedProjectileSpeed,
                             IsRanged = true,
                             EmitVfx = true,
-                            SplashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f
+                            SplashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f,
+                            AttackId = 0
                         };
                         _hasPendingAttack = true;
                     }
@@ -2019,10 +2110,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 if (unitData.attackTargetType == AttackTargetType.Splash && blockedMonsters.Count > 0)
                 {
                     // 스플래시 공격: 저지 중인 모든 몬스터에게 동시에 데미지
+                    int splashAttackId = 0;
                     foreach (var monster in blockedMonsters.ToList())
                     {
                         if (IsMeleeMonsterAttackable(monster))
                         {
+                            if (splashAttackId == 0)
+                            {
+                                splashAttackId = AllocateBasicAttackVfxId();
+                                TryPlayBasicAttackVfxForAttack(monster, splashAttackId);
+                            }
 
                             if (schedulerReady)
                             {
@@ -2058,7 +2155,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                             DamageType = unitData.damageType,
                             ProjectileSpeed = 0f,
                             IsRanged = false,
-                            EmitVfx = false
+                            EmitVfx = false,
+                            AttackId = AllocateBasicAttackVfxId()
                         };
                         _hasPendingAttack = true;
                     }
@@ -2068,12 +2166,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                         {
 
                             Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                            TryPlayBasicAttackVfxForAttack(targetEnemy, AllocateBasicAttackVfxId());
                             scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
                                 false, false, 0f);
                         }
                         else if (targetEnemy != null)
                         {
 
+                            TryPlayBasicAttackVfxForAttack(targetEnemy, AllocateBasicAttackVfxId());
                             targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
                         }
                     }
@@ -2108,9 +2208,19 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return false;
     }
 
-    private void PlayBasicAttackVfx()
+    private void TryPlayBasicAttackVfxForAttack(IEnemy attackTarget, int attackId)
     {
-        if (unitData == null || unitData.unitType != UnitType.Melee)
+        if (attackId <= 0 || _lastPlayedBasicAttackVfxId == attackId)
+        {
+            return;
+        }
+
+        if (IsDead || !isCombatPhase || unitData == null || unitData.unitType != UnitType.Melee)
+        {
+            return;
+        }
+
+        if (!(attackTarget is Monster targetMonster) || !IsMeleeMonsterAttackable(targetMonster))
         {
             return;
         }
@@ -2124,7 +2234,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             }
         }
 
-        _attackVfxPresenter.PlayBasicAttack(this, targetTransform);
+        _lastPlayedBasicAttackVfxId = attackId;
+        _attackVfxPresenter.PlayBasicAttack(this, targetMonster.transform);
     }
 
     public void AnimEvent_AttackImpact()
@@ -2140,13 +2251,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        if (!_pendingAttack.IsRanged && !IsMeleeMonsterAttackable(_pendingAttack.TargetEnemy as Monster))
+        if (IsDead || !isCombatPhase || unitData == null)
         {
             CancelPendingAttack();
             return;
         }
 
-        PlayBasicAttackVfx();
+        if (!_pendingAttack.IsRanged && !IsMeleeMonsterAttackable(_pendingAttack.TargetEnemy as Monster))
+        {
+            CancelPendingAttack();
+            return;
+        }
 
         // NetworkBehaviour이므로 Object 프로퍼티 직접 사용
         bool hasAuthority = Object == null || Object.HasStateAuthority;
@@ -2154,6 +2269,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             CancelPendingAttack();
             return;
+        }
+
+        if (!_pendingAttack.IsRanged)
+        {
+            TryPlayBasicAttackVfxForAttack(_pendingAttack.TargetEnemy, _pendingAttack.AttackId);
         }
 
         var scheduler = CombatScheduler.Instance;
@@ -2238,6 +2358,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private void OnDestroy()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        InvalidateAttackPresentationState();
 
         if (owner != null && owner.fieldManager != null)
         {
@@ -2274,6 +2397,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (IsDead) return;
         IsDead = true;
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        StopAttackPlaybackState();
+        InvalidateAttackPresentationState();
         
         if (Object != null && Object.HasStateAuthority)
         {
@@ -2289,12 +2416,6 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         blockedMonsters.Clear();
         
-        if(attackCoroutine != null)
-        {
-            StopCoroutine(attackCoroutine);
-            attackCoroutine = null;
-        }
-
         SetDeathPresentationActive(false);
         string deadUnitName = unitData != null ? unitData.unitName : name;
         Debug.Log($"<color=red>{deadUnitName}이(가) 전투에서 쓰러졌습니다.</color>");

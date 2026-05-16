@@ -6,11 +6,11 @@ Category: unity-cli, asset
 Created: 2026-05-06
 Last used: 2026-05-16
 Last verified: 2026-05-16
-Use count: 8
+Use count: 11
 Review after: 2026-08-04
 Triggers: EditMode test runner returns `total=0` for a newly added method filter, Unity does not appear to pick up new test methods after compile
 Applies to: `unity-cli --project Mdfproject test --mode EditMode`, newly added tests, forced AssetDatabase import
-Verified by: see Verification section below; migrated from old Status: verified; Mdfproject; artifacts/addressables-registry-editmode-latest.log
+Verified by: see Verification section below; migrated from old Status: verified; Mdfproject; artifacts/addressables-registry-editmode-latest.log; unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 6/6; unity-cli --project Mdfproject test --mode EditMode => 82/82
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -40,3 +40,6 @@ Lifecycle notes:
 - 2026-05-10: Verified EditMode suite passed 63/63 including scene alias tests on 2026-05-10.
 - 2026-05-10: verified artifact `Mdfproject`
 - 2026-05-16: verified artifact `artifacts/addressables-registry-editmode-latest.log`
+- 2026-05-16: unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests discovered and passed 5/5 tests on 2026-05-16
+- 2026-05-16: unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests discovered and passed 6/6 tests after configurable slash scale boost on 2026-05-16
+- 2026-05-16: verified artifact `unity-cli --project Mdfproject test --mode EditMode --filter AttackSlashCalibrationEditModeTests => 6/6; unity-cli --project Mdfproject test --mode EditMode => 82/82`

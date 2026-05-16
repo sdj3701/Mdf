@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System.Collections.Generic;
+using System.IO;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -82,6 +83,18 @@ public sealed class AttackSlashCalibrationEditModeTests
     }
 
     [Test]
+    public void AttackSlashCalibratorWindowDefaultsScaleBoostToThreeAndExposesField()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Editor/AttackSlashCalibratorWindow.cs");
+
+        Assert.That(source, Does.Contain("private const float DefaultScaleBoost = 3f;"));
+        Assert.That(source, Does.Contain("scaleBoost = EditorGUILayout.FloatField(\"Scale Boost\", scaleBoost);"));
+        Assert.That(source, Does.Contain("EditorPrefs.SetFloat(ScaleBoostPrefsKey, scaleBoost);"));
+        Assert.That(source, Does.Contain("AttackSlashCalibrationUtility.CalculateFit(trajectory, slashShape, originAtImpact, unitInstance.transform.forward, lastStrikeSpanLength, scaleBoost);"));
+        Assert.That(source, Does.Not.Contain("GeneratedScaleMultiplier = 2f"));
+    }
+
+    [Test]
     public void UnitDataBasicAttackVfxConfigFallsBackToLegacyKey()
     {
         var data = ScriptableObject.CreateInstance<UnitData>();
@@ -99,6 +112,33 @@ public sealed class AttackSlashCalibrationEditModeTests
         {
             Object.DestroyImmediate(data);
         }
+    }
+
+    [Test]
+    public void MeleeSlashVfxIsInvalidatedWhenUnitDeathCancelsAttack()
+    {
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string presenterSource = File.ReadAllText("Assets/Scripts/VFX/UnitAttackVfxPresenter.cs");
+        string instanceSource = File.ReadAllText("Assets/Scripts/VFX/UnitAttackVfxInstance.cs");
+        string autoDestroySource = File.ReadAllText("Assets/Scripts/VFX/VFXAutoDestroy.cs");
+
+        Assert.That(unitSource, Does.Contain("if (IsDead || !isCombatPhase || unitData == null)"));
+        Assert.That(unitSource, Does.Contain("CancelPendingAttack();"));
+        Assert.That(unitSource, Does.Contain("StopAttackPlaybackState();"));
+        Assert.That(unitSource, Does.Contain("InvalidateAttackPresentationState();"));
+        Assert.That(unitSource, Does.Contain("public int AttackId;"));
+        Assert.That(unitSource, Does.Contain("AttackId = AllocateBasicAttackVfxId()"));
+        Assert.That(unitSource, Does.Contain("TryPlayBasicAttackVfxForAttack(_pendingAttack.TargetEnemy, _pendingAttack.AttackId);"));
+        Assert.That(unitSource, Does.Not.Contain("PlayBasicAttackVfx(_pendingAttack.TargetEnemy);"));
+        Assert.That(presenterSource, Does.Contain("public void InvalidatePendingPlays()"));
+        Assert.That(presenterSource, Does.Contain("StopActiveInstances();"));
+        Assert.That(presenterSource, Does.Contain("playGeneration != _playGeneration"));
+        Assert.That(presenterSource, Does.Contain("unit == null || unit.IsDead"));
+        Assert.That(presenterSource, Does.Contain("main.loop = false;"));
+        Assert.That(presenterSource, Does.Contain("autoDestroy.Cancel();"));
+        Assert.That(instanceSource, Does.Contain("public sealed class UnitAttackVfxInstance"));
+        Assert.That(instanceSource, Does.Contain("public bool IsOwnedBy(UnitAttackVfxPresenter owner)"));
+        Assert.That(autoDestroySource, Does.Contain("public void Cancel()"));
     }
 }
 #endif

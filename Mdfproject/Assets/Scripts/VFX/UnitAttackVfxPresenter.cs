@@ -1,4 +1,5 @@
 using Cysharp.Threading.Tasks;
+using System.Collections.Generic;
 using UnityEngine;
 
 public class UnitAttackVfxPresenter : MonoBehaviour
@@ -16,10 +17,32 @@ public class UnitAttackVfxPresenter : MonoBehaviour
     private GameObject _cachedPrefab;
     private float _lastPlayTime = -999f;
     private bool _isLoading;
+    private int _playGeneration;
+    private readonly List<GameObject> _activeInstances = new List<GameObject>();
+
+    public void InvalidatePendingPlays()
+    {
+        unchecked
+        {
+            _playGeneration++;
+        }
+
+        StopActiveInstances();
+    }
+
+    private void OnDisable()
+    {
+        InvalidatePendingPlays();
+    }
+
+    private void OnDestroy()
+    {
+        InvalidatePendingPlays();
+    }
 
     public void PlayBasicAttack(Unit unit, Transform target)
     {
-        if (unit == null || unit.Data == null || unit.Data.unitType != UnitType.Melee)
+        if (unit == null || unit.IsDead || unit.Data == null || unit.Data.unitType != UnitType.Melee)
         {
             return;
         }
@@ -42,14 +65,15 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         }
 
         _lastPlayTime = Time.time;
-        PlayBasicAttackAsync(config, direction).Forget();
+        PlayBasicAttackAsync(unit, config, direction, _playGeneration).Forget();
     }
 
-    private async UniTaskVoid PlayBasicAttackAsync(BasicAttackVfxConfig config, Vector3 direction)
+    private async UniTaskVoid PlayBasicAttackAsync(Unit unit, BasicAttackVfxConfig config, Vector3 direction, int playGeneration)
     {
         string vfxKey = config.prefabKey;
         GameObject prefab = await LoadPrefabAsync(vfxKey);
-        if (prefab == null || this == null || !gameObject.activeInHierarchy)
+        if (prefab == null || this == null || playGeneration != _playGeneration ||
+            unit == null || unit.IsDead || !unit.gameObject.activeInHierarchy || !gameObject.activeInHierarchy)
         {
             return;
         }
@@ -84,6 +108,8 @@ public class UnitAttackVfxPresenter : MonoBehaviour
 
     private void Spawn(GameObject prefab, Vector3 direction, BasicAttackVfxConfig config)
     {
+        RemoveInactiveTrackedInstances();
+
         Transform origin = ResolveSpawnOrigin(config);
         Quaternion attackRotation = Quaternion.LookRotation(direction, Vector3.up);
         Vector3 localOffset = config != null ? config.localPositionOffset : new Vector3(0f, heightOffset, forwardOffset);
@@ -103,9 +129,79 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             instance = Instantiate(prefab, position, rotation);
         }
 
+        TrackActiveInstance(instance);
         instance.transform.localScale = prefab.transform.localScale * resolvedScale;
         RestartParticles(instance);
         EnsureAutoDestroy(instance);
+    }
+
+    private void TrackActiveInstance(GameObject instance)
+    {
+        if (instance == null)
+        {
+            return;
+        }
+
+        var marker = instance.GetComponent<UnitAttackVfxInstance>();
+        if (marker == null)
+        {
+            marker = instance.AddComponent<UnitAttackVfxInstance>();
+        }
+
+        marker.Initialize(this);
+        _activeInstances.Add(instance);
+    }
+
+    private void StopActiveInstances()
+    {
+        for (int i = _activeInstances.Count - 1; i >= 0; i--)
+        {
+            GameObject instance = _activeInstances[i];
+            _activeInstances.RemoveAt(i);
+            if (instance == null)
+            {
+                continue;
+            }
+
+            if (!instance.TryGetComponent<UnitAttackVfxInstance>(out var marker) || !marker.IsOwnedBy(this))
+            {
+                continue;
+            }
+
+            marker.ClearOwner();
+            if (instance.TryGetComponent<VFXAutoDestroy>(out var autoDestroy))
+            {
+                autoDestroy.Cancel();
+            }
+
+            StopParticles(instance);
+            if (instance.TryGetComponent<PooledObject>(out var pooled))
+            {
+                pooled.ReturnToPool();
+            }
+            else
+            {
+                Destroy(instance);
+            }
+        }
+    }
+
+    private void RemoveInactiveTrackedInstances()
+    {
+        for (int i = _activeInstances.Count - 1; i >= 0; i--)
+        {
+            GameObject instance = _activeInstances[i];
+            if (instance == null || !instance.activeInHierarchy)
+            {
+                _activeInstances.RemoveAt(i);
+                continue;
+            }
+
+            if (!instance.TryGetComponent<UnitAttackVfxInstance>(out var marker) || !marker.IsOwnedBy(this))
+            {
+                _activeInstances.RemoveAt(i);
+            }
+        }
     }
 
     private Transform ResolveSpawnOrigin(BasicAttackVfxConfig config)
@@ -144,11 +240,25 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             trails[i].Clear();
         }
 
+        StopParticles(instance);
+
         var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
         for (int i = 0; i < particles.Length; i++)
         {
-            particles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = particles[i].main;
+            main.loop = false;
             particles[i].Play(true);
+        }
+    }
+
+    private static void StopParticles(GameObject instance)
+    {
+        var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
+        for (int i = 0; i < particles.Length; i++)
+        {
+            var main = particles[i].main;
+            main.loop = false;
+            particles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
         }
     }
 

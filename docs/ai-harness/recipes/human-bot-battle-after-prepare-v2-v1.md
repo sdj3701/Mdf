@@ -6,11 +6,11 @@ Category: AI/HumanBot, battle
 Created: 2026-05-08
 Last used: 2026-05-16
 Last verified: 2026-05-16
-Use count: 16
+Use count: 18
 Review after: 2026-08-06
 Triggers: Prepare v2 recheck, HumanBot battle progression, battle command sync
 Applies to: `run_human_bot_battle_progression.py`, `battle_progression_common.py`, `PrepareDecisionPolicy`, `BattleDecisionPolicy`
-Verified by: see Verification section below; migrated from old Status: verified with cleanup environment blocker; blocker note preserved in recipe body; artifacts/mp/20260508-221828-human-bot-3round-progression; artifacts/mp/20260509-004943-human-bot-3round-progression; artifacts/mp/20260509-005651-ai-fill-2p-smoke; artifacts/mp/20260509-005809-ai-fill-2p-battle-smoke; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260515-201909-matrix/20260515-201914-human-bot-battle-progression/result.json; artifacts/mp/20260516-032200-matrix/20260516-032206-human-bot-battle-progression; artifacts/mp/20260516-043338-human-bot-battle-progression; artifacts/mp/20260516-050511-human-bot-battle-progression
+Verified by: see Verification section below; migrated from old Status: verified with cleanup environment blocker; blocker note preserved in recipe body; artifacts/mp/20260508-221828-human-bot-3round-progression; artifacts/mp/20260509-004943-human-bot-3round-progression; artifacts/mp/20260509-005651-ai-fill-2p-smoke; artifacts/mp/20260509-005809-ai-fill-2p-battle-smoke; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260515-201909-matrix/20260515-201914-human-bot-battle-progression/result.json; artifacts/mp/20260516-032200-matrix/20260516-032206-human-bot-battle-progression; artifacts/mp/20260516-043338-human-bot-battle-progression; artifacts/mp/20260516-050511-human-bot-battle-progression; artifacts/mp/20260516-053255-human-bot-battle-progression; artifacts/mp/20260516-071704-human-bot-battle-progression
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -66,3 +66,5 @@ Lifecycle notes:
 - 2026-05-16: verified artifact `artifacts/mp/20260516-032200-matrix/20260516-032206-human-bot-battle-progression`
 - 2026-05-16: verified artifact `artifacts/mp/20260516-043338-human-bot-battle-progression`
 - 2026-05-16: verified artifact `artifacts/mp/20260516-050511-human-bot-battle-progression`
+- 2026-05-16: verified artifact `artifacts/mp/20260516-053255-human-bot-battle-progression`
+- 2026-05-16: verified artifact `artifacts/mp/20260516-071704-human-bot-battle-progression`

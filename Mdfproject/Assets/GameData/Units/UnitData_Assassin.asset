@@ -48,26 +48,26 @@ MonoBehaviour:
   basicAttackVfxConfigsByStarLevel:
   - prefabKey: VFX_AttackSlash_SwordSlash5
     spawnOriginPath: Armature/root/pelvis/thigh_r/calf_r/foot_r/AttackVfx_StrikeBase
-    localPositionOffset: {x: -0.14553866, y: 0.010575116, z: 0.017636657}
-    rotationOffsetEuler: {x: 43.66121, y: -18.154327, z: -65.60779}
-    scaleMultiplier: 0.1
-    calibrationQuality: 0.96129364
+    localPositionOffset: {x: -0.10275206, y: 0.14952981, z: 0.21178365}
+    rotationOffsetEuler: {x: 48.03351, y: -15.621185, z: -65.756775}
+    scaleMultiplier: 0.2
+    calibrationQuality: 0.998017
     calibratedAttackClipGuid: 19bf2783b087d404fb22f286f41ea934
     calibrationSource: AttackSlashCalibrator
   - prefabKey: VFX_AttackSlash_SwordSlash5
     spawnOriginPath: Armature/root/pelvis/thigh_r/calf_r/foot_r/AttackVfx_StrikeBase
-    localPositionOffset: {x: -0.14553866, y: 0.010575116, z: 0.017636657}
-    rotationOffsetEuler: {x: 43.66121, y: -18.154327, z: -65.60779}
-    scaleMultiplier: 0.1
-    calibrationQuality: 0.96129364
+    localPositionOffset: {x: -0.10275206, y: 0.14952981, z: 0.21178365}
+    rotationOffsetEuler: {x: 48.03351, y: -15.621185, z: -65.756775}
+    scaleMultiplier: 0.2
+    calibrationQuality: 0.998017
     calibratedAttackClipGuid: 19bf2783b087d404fb22f286f41ea934
     calibrationSource: AttackSlashCalibrator
   - prefabKey: VFX_AttackSlash_SwordSlash5
     spawnOriginPath: Armature/root/pelvis/thigh_r/calf_r/foot_r/AttackVfx_StrikeBase
-    localPositionOffset: {x: -0.14553866, y: 0.010575116, z: 0.017636657}
-    rotationOffsetEuler: {x: 43.66121, y: -18.154327, z: -65.60779}
-    scaleMultiplier: 0.1
-    calibrationQuality: 0.96129364
+    localPositionOffset: {x: -0.10275206, y: 0.14952981, z: 0.21178365}
+    rotationOffsetEuler: {x: 48.03351, y: -15.621185, z: -65.756775}
+    scaleMultiplier: 0.2
+    calibrationQuality: 0.998017
     calibratedAttackClipGuid: 19bf2783b087d404fb22f286f41ea934
     calibrationSource: AttackSlashCalibrator
   projectileSpeed: 0
