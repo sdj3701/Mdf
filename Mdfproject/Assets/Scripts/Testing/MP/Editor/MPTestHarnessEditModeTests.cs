@@ -899,6 +899,7 @@ public sealed class MPTestHarnessEditModeTests
     {
         string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
         string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
 
         Assert.That(playerSource, Does.Contain("bool rebuildUnitMap = true"));
         Assert.That(playerSource, Does.Contain("bool repairUnitPresentation = true"));
@@ -907,6 +908,36 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(gameManagersSource, Does.Contain("StartBattleForPlayers(Player {playerId})"));
         Assert.That(gameManagersSource, Does.Contain("rebuildUnitMap: false"));
         Assert.That(gameManagersSource, Does.Contain("repairUnitPresentation: false"));
+        Assert.That(snapshotSource, Does.Contain("MPTestStateSnapshot.CapturePlayer"));
+        Assert.That(snapshotSource, Does.Contain("rebuildUnitMap: false"));
+        Assert.That(snapshotSource, Does.Contain("repairUnitPresentation: false"));
+    }
+
+    [Test]
+    public void AiUnitOwnershipDoesNotTreatPlayerRefNoneAsDurableOwner()
+    {
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+
+        Assert.That(unitSource, Does.Contain("Object.InputAuthority != PlayerRef.None"));
+        Assert.That(unitSource, Does.Contain("SetOwnerReference"));
+        Assert.That(fieldSource, Does.Not.Contain("UnitBelongsToFieldOwnerDurable(unit) || ownedUnits.Contains(unit)"));
+        Assert.That(fieldSource, Does.Contain("rosterOwnerId >= 0 && rosterOwnerId != playerManager.playerId"));
+        Assert.That(fieldSource, Does.Contain("RemovePlacedUnitEntriesFromOtherFields"));
+        Assert.That(playerSource, Does.Contain("rosterOwnerId >= 0"));
+        Assert.That(playerSource, Does.Not.Contain("unit.OwnerPlayerIdForRoster == player.playerId"));
+    }
+
+    [Test]
+    public void DirectSingleplayerSceneRunnerPassesActiveRunnerGate()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Managers/GameManagers.MigrationRecovery.cs");
+
+        Assert.That(source, Does.Contain("NetworkManager.Instance?._runner"));
+        Assert.That(source, Does.Contain("Runner.IsRunning && Runner.GameMode == GameMode.Single"));
+        Assert.That(source, Does.Contain("NetworkManager.Instance == null && Runner.GameMode == GameMode.Single"));
+        Assert.That(source, Does.Contain("reason = \"hostMigrationHandler=null\""));
     }
 
     [Test]

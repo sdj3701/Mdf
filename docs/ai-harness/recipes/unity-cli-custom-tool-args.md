@@ -6,7 +6,7 @@ Category: unity-cli
 Created: 2026-05-05
 Last used: 2026-05-16
 Last verified: 2026-05-05
-Use count: 4
+Use count: 6
 Review after: 2026-08-03
 Triggers: mp_dump_state, mp_assert_state, mp_build_player, custom tool smoke
 Applies to: unity-cli connector 0.3.15 custom tools

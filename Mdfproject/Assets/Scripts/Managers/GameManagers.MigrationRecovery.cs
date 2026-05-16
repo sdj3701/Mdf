@@ -363,7 +363,12 @@ public partial class GameManagers
         }
 
         var activeRunner = NetworkManager.Instance?._runner;
-        return activeRunner != null && activeRunner == Runner;
+        if (activeRunner != null)
+        {
+            return activeRunner == Runner;
+        }
+
+        return Runner.IsRunning && Runner.GameMode == GameMode.Single;
     }
 
     private bool AreAllPlayersRuntimeReadyForMigration(out string reason)
@@ -502,6 +507,11 @@ public partial class GameManagers
 
         if (HostMigrationHandler.Instance == null)
         {
+            if (NetworkManager.Instance == null && Runner.GameMode == GameMode.Single)
+            {
+                return true;
+            }
+
             reason = "hostMigrationHandler=null";
             return false;
         }

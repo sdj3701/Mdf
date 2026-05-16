@@ -1536,10 +1536,6 @@ public class FieldManager : MonoBehaviour
             .Where(kvp => kvp.Value != null)
             .GroupBy(kvp => kvp.Value)
             .ToDictionary(group => group.Key, group => group.First().Key);
-        var ownedUnits = playerManager != null && playerManager.ownedUnits != null
-            ? new HashSet<Unit>(playerManager.ownedUnits.Where(unit => unit != null))
-            : new HashSet<Unit>();
-
         foreach (var unit in unitCandidates.Where(u => u != null).Distinct())
         {
             bool networkRunning = playerManager != null
@@ -1559,7 +1555,7 @@ public class FieldManager : MonoBehaviour
             }
 
             bool wasAlreadyRegistered = existingCellsByUnit.TryGetValue(unit, out Vector3Int registeredCell);
-            bool belongsToPlayer = UnitBelongsToFieldOwnerDurable(unit) || ownedUnits.Contains(unit);
+            bool belongsToPlayer = UnitBelongsToFieldOwnerDurable(unit);
             if (!belongsToPlayer && playerManager != null && networkRunning)
             {
                 continue;
@@ -2746,6 +2742,31 @@ public class FieldManager : MonoBehaviour
         return cells.Count;
     }
 
+    private void RemovePlacedUnitEntriesFromOtherFields(Unit unit)
+    {
+        if (unit == null)
+        {
+            return;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            return;
+        }
+
+        foreach (var player in gm.AllPlayers)
+        {
+            var otherField = player != null ? player.fieldManager : null;
+            if (otherField == null || otherField == this)
+            {
+                continue;
+            }
+
+            otherField.RemovePlacedUnitEntries(unit);
+        }
+    }
+
     private void RemoveOwnedUnitReference(Unit unit)
     {
         if (unit == null || playerManager == null || playerManager.ownedUnits == null)
@@ -3079,6 +3100,19 @@ public class FieldManager : MonoBehaviour
     private bool UnitBelongsToFieldOwner(Unit unit)
     {
         if (unit == null || playerManager == null)
+        {
+            return false;
+        }
+
+        if (unit.Owner != null &&
+            unit.Owner.playerId >= 0 &&
+            unit.Owner.playerId != playerManager.playerId)
+        {
+            return false;
+        }
+
+        int rosterOwnerId = unit.OwnerPlayerIdForRoster;
+        if (rosterOwnerId >= 0 && rosterOwnerId != playerManager.playerId)
         {
             return false;
         }
@@ -3811,6 +3845,7 @@ public class FieldManager : MonoBehaviour
             // Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
+        RemovePlacedUnitEntriesFromOtherFields(unit);
         ReleaseReservedUnitPosition(gridPosition);
 
         // Despawn/Destroy 된 유닛 레퍼런스가 남아있을 수 있어 정리합니다.

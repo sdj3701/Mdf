@@ -3621,19 +3621,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
-        if (unit.Owner == player)
+        if (unit.Owner != null)
         {
-            return true;
+            return unit.Owner == player || unit.Owner.playerId == player.playerId;
         }
 
-        if (unit.Owner != null && unit.Owner.playerId == player.playerId)
+        int rosterOwnerId = unit.OwnerPlayerIdForRoster;
+        if (rosterOwnerId >= 0)
         {
-            return true;
-        }
-
-        if (unit.OwnerPlayerIdForRoster == player.playerId)
-        {
-            return true;
+            return rosterOwnerId == player.playerId;
         }
 
         return player.ownedUnits != null && player.ownedUnits.Contains(unit);

@@ -189,11 +189,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (fieldOwner != null)
         {
-            owner = fieldOwner;
-            if (owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
-            {
-                owner.ownedUnits.Add(this);
-            }
+            SetOwnerReference(fieldOwner);
         }
 
         UpdateLocalNetworkIdentityMirror();
@@ -207,6 +203,20 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             NetworkedOwnerPlayerId = fieldOwner.playerId;
             NetworkedHasOwnerPlayerId = true;
+        }
+    }
+
+    private void SetOwnerReference(PlayerManager newOwner)
+    {
+        if (owner != null && owner != newOwner && owner.ownedUnits != null)
+        {
+            owner.ownedUnits.RemoveAll(unit => unit == null || unit == this);
+        }
+
+        owner = newOwner;
+        if (owner != null && owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
+        {
+            owner.ownedUnits.Add(this);
         }
     }
 
@@ -502,20 +512,20 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
         owner = GetComponentInParent<PlayerManager>();
 
-        if (owner == null && Object != null)
+        if (owner == null && TryGetOwnerPlayerIdForRoster(out int ownerPlayerId) && GameManagers.Instance != null)
+        {
+            owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
+                pm != null &&
+                pm.playerId == ownerPlayerId);
+        }
+
+        if (owner == null && Object != null && Object.InputAuthority != PlayerRef.None)
         {
             var allPlayers = FindObjectsOfType<PlayerManager>();
             owner = allPlayers.FirstOrDefault(pm =>
                 pm != null &&
                 pm.Object != null &&
                 pm.Object.InputAuthority == Object.InputAuthority);
-        }
-
-        if (owner == null && TryGetOwnerPlayerIdForRoster(out int ownerPlayerId) && GameManagers.Instance != null)
-        {
-            owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
-                pm != null &&
-                pm.playerId == ownerPlayerId);
         }
 
         if (owner == null && GameManagers.Instance != null)
@@ -528,7 +538,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
         if (owner != null && owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
         {
-            owner.ownedUnits.Add(this);
+            SetOwnerReference(owner);
         }
     }
 
@@ -727,11 +737,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (expectedOwner != null)
         {
-            owner = expectedOwner;
-            if (owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
-            {
-                owner.ownedUnits.Add(this);
-            }
+            SetOwnerReference(expectedOwner);
         }
 
         UpdateLocalNetworkIdentityMirror();
@@ -1183,11 +1189,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
    public async UniTask Initialize(UnitData data, int initialStarLevel, PlayerManager owner)
     {
         this.unitData = data;
-        this.owner = owner;
-        if (this.owner != null && this.owner.ownedUnits != null && !this.owner.ownedUnits.Contains(this))
-        {
-            this.owner.ownedUnits.Add(this);
-        }
+        SetOwnerReference(owner);
         // NetworkBehaviour이므로 Object 프로퍼티 직접 사용 (별도 캐싱 불필요)
         if(this.unitData == null)
         {

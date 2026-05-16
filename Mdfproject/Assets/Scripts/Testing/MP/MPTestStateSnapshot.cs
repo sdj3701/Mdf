@@ -326,7 +326,11 @@ public static class MPTestStateSnapshot
 
         try
         {
-            player.RebindRuntimeReferencesAfterMigration("MPTestStateSnapshot.CapturePlayer", false);
+            player.RebindRuntimeReferencesAfterMigration(
+                "MPTestStateSnapshot.CapturePlayer",
+                false,
+                rebuildUnitMap: false,
+                repairUnitPresentation: false);
         }
         catch (Exception ex)
         {
