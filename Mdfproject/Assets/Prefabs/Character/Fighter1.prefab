@@ -1928,6 +1928,37 @@ Transform:
   m_Father: {fileID: 4880031361651592484}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &5912016826316760598
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1362007821938530186}
+  m_Layer: 0
+  m_Name: AttackVfx_StrikeBase
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1362007821938530186
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5912016826316760598}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -0.000247, y: 0.000857, z: 0.000111}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 91444619866848854}
+  m_RootOrder: 2
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &5945144064313548956
 GameObject:
   m_ObjectHideFlags: 0
@@ -2189,6 +2220,37 @@ Transform:
   m_Father: {fileID: 9004471038208125230}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &6406646367348975984
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 8913865576866414136}
+  m_Layer: 0
+  m_Name: AttackVfx_StrikeTip
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &8913865576866414136
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6406646367348975984}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 91444619866848854}
+  m_RootOrder: 3
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &6433095851922435526
 GameObject:
   m_ObjectHideFlags: 0
@@ -2413,6 +2475,8 @@ Transform:
   m_Children:
   - {fileID: 1625101126094374345}
   - {fileID: 7999518904815651762}
+  - {fileID: 1362007821938530186}
+  - {fileID: 8913865576866414136}
   m_Father: {fileID: 6559053696967645740}
   m_RootOrder: 3
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -2781,6 +2845,7 @@ GameObject:
   - component: {fileID: 5776565084237058828}
   - component: {fileID: 6609872093762866891}
   - component: {fileID: 6784059361156734115}
+  - component: {fileID: 4470745061036730292}
   m_Layer: 14
   m_Name: Fighter1
   m_TagString: Untagged
@@ -3023,6 +3088,21 @@ MonoBehaviour:
   SyncParent: 0
   _autoAOIOverride: 1
   DisableSharedModeInterpolation: 0
+--- !u!114 &4470745061036730292
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8341183349703552105}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b98723605f3da749bdfd22649bf0624, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  slashOrigin: {fileID: 1362007821938530186}
+  weaponBase: {fileID: 1362007821938530186}
+  weaponTip: {fileID: 8913865576866414136}
 --- !u!1 &8417824639808489784
 GameObject:
   m_ObjectHideFlags: 0

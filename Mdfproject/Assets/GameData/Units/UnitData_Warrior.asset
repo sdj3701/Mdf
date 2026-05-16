@@ -45,4 +45,29 @@ MonoBehaviour:
   - VFX_AttackSlash_SwordSlash5
   - VFX_AttackSlash_SwordSlash5
   - VFX_AttackSlash_SwordSlash5
+  basicAttackVfxConfigsByStarLevel:
+  - prefabKey: VFX_AttackSlash_SwordSlash5
+    spawnOriginPath: Armature/root/pelvis/spine_01/spine_02/spine_03/clavicle_r/upperarm_r/lowerarm_r/hand_r/AttackVfx_StrikeBase
+    localPositionOffset: {x: -0.23765127, y: 0.19883376, z: 0.013358742}
+    rotationOffsetEuler: {x: -37.891083, y: -124.8055, z: -112.59172}
+    scaleMultiplier: 0.13323417
+    calibrationQuality: 1
+    calibratedAttackClipGuid: a2804f742b01c3649b167ce241078d77
+    calibrationSource: AttackSlashCalibrator
+  - prefabKey: VFX_AttackSlash_SwordSlash5
+    spawnOriginPath: Armature/root/pelvis/spine_01/spine_02/spine_03/clavicle_r/upperarm_r/lowerarm_r/hand_r/AttackVfx_StrikeBase
+    localPositionOffset: {x: -0.23765127, y: 0.19883376, z: 0.013358742}
+    rotationOffsetEuler: {x: -37.891083, y: -124.8055, z: -112.59172}
+    scaleMultiplier: 0.13323417
+    calibrationQuality: 1
+    calibratedAttackClipGuid: a2804f742b01c3649b167ce241078d77
+    calibrationSource: AttackSlashCalibrator
+  - prefabKey: VFX_AttackSlash_SwordSlash5
+    spawnOriginPath: Armature/root/pelvis/spine_01/spine_02/spine_03/clavicle_r/upperarm_r/lowerarm_r/hand_r/AttackVfx_StrikeBase
+    localPositionOffset: {x: -0.23765127, y: 0.19883376, z: 0.013358742}
+    rotationOffsetEuler: {x: -37.891083, y: -124.8055, z: -112.59172}
+    scaleMultiplier: 0.13323417
+    calibrationQuality: 1
+    calibratedAttackClipGuid: a2804f742b01c3649b167ce241078d77
+    calibrationSource: AttackSlashCalibrator
   projectileSpeed: 0

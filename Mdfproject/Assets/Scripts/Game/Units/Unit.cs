@@ -142,6 +142,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [SerializeField] private bool blockAttacksDuringSkill = true;
     [SerializeField] private float maxAttackAnimationsPerSecond = 4f;
     [SerializeField] private float baseAttackAnimationDuration = 1f;
+    private const float MeleeAttackRangeTolerance = 0.1f;
+    private const float MeleeBlockDistance = 0.6f;
+    private const float MeleeBlockDistanceTolerance = 0.15f;
     private float lastAttackAnimTime = -999f;
     private Coroutine animSpeedResetRoutine;
     private bool attackClipDurationInitialized = false;
@@ -1260,7 +1263,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             // [Fix] 전투 시작 시 공격 쿨다운 초기화 - 첫 공격 즉시 실행
             lastAttackAnimTime = -999f;
-            _hasPendingAttack = false;
+            targetEnemy = null;
+            targetTransform = null;
+            blockedMonsters.Clear();
+            CancelPendingAttack();
             EnsureRuntimeReferences("HandleGameStateChanged(BattleEnter)", false);
             
             StartAttackLoop();
@@ -1475,6 +1481,21 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 canvas.enabled = active;
             }
         }
+    }
+
+    public void EnsureAlivePresentationActive()
+    {
+        if (IsDead)
+        {
+            return;
+        }
+
+        if (gameObject != null && !gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+
+        SetDeathPresentationActive(true);
     }
 
     private void HandleManaFull()
@@ -1717,7 +1738,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             
             if (isMelee)
             {
-                blockedMonsters.RemoveAll(m => m == null || m.currentHP <= 0);
+                PruneInvalidBlockedMonsters();
                 
                 if (blockedMonsters.Count > 0)
                 {
@@ -1804,7 +1825,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             if (col.TryGetComponent<Monster>(out var monster))
             {
-                if (monster.Data == null || monster.Data.monsterType == MonsterType.Flying || monster.currentHP <= 0)
+                if (!IsMeleeMonsterAttackable(monster))
                 {
                     continue;
                 }
@@ -1821,6 +1842,95 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         targetEnemy = nearestMonster;
         targetTransform = nearestMonster != null ? nearestMonster.transform : null;
     }
+
+    private void ClearCurrentTarget()
+    {
+        targetEnemy = null;
+        targetTransform = null;
+    }
+
+    private void PruneInvalidBlockedMonsters()
+    {
+        for (int i = blockedMonsters.Count - 1; i >= 0; i--)
+        {
+            Monster monster = blockedMonsters[i];
+            if (IsMeleeMonsterAttackable(monster))
+            {
+                continue;
+            }
+
+            blockedMonsters.RemoveAt(i);
+            if (monster != null && monster.IsBlocked() && HasStateAuthorityOrNoNetwork())
+            {
+                monster.Unblock();
+            }
+        }
+    }
+
+    private bool CanBlockMonster(Monster monster)
+    {
+        if (Data == null || monster == null || monster.Data == null)
+        {
+            return false;
+        }
+
+        if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
+            monster.HasTrait(MonsterTraits.Unblockable) ||
+            monster.Data.monsterType == MonsterType.Flying ||
+            monster.currentHP <= 0 ||
+            Data.blockCount <= 0 || blockedMonsters.Count >= Data.blockCount)
+        {
+            return false;
+        }
+
+        return IsMonsterOnSameField(monster) && IsTargetWithinHorizontalRange(monster.transform, MeleeBlockDistance + MeleeBlockDistanceTolerance);
+    }
+
+    private bool IsMeleeMonsterAttackable(Monster monster)
+    {
+        if (monster == null || monster.Data == null || monster.currentHP <= 0)
+        {
+            return false;
+        }
+
+        if (monster.Data.monsterType == MonsterType.Flying)
+        {
+            return false;
+        }
+
+        return IsMonsterOnSameField(monster) &&
+               IsTargetWithinHorizontalRange(monster.transform, currentAttackRange + MeleeAttackRangeTolerance);
+    }
+
+    private bool IsMonsterOnSameField(Monster monster)
+    {
+        if (monster == null)
+        {
+            return false;
+        }
+
+        int unitOwnerId = OwnerPlayerIdForRoster;
+        int monsterOwnerId = monster.SnapshotOwnerPlayerId;
+        if (unitOwnerId < 0 || monsterOwnerId < 0)
+        {
+            return !Application.isPlaying;
+        }
+
+        return monsterOwnerId == unitOwnerId;
+    }
+
+    private bool IsTargetWithinHorizontalRange(Transform target, float allowedRange)
+    {
+        if (target == null || allowedRange < 0f)
+        {
+            return false;
+        }
+
+        Vector3 delta = target.position - transform.position;
+        delta.y = 0f;
+        return delta.sqrMagnitude <= allowedRange * allowedRange;
+    }
+
     private void Attack()
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -1836,11 +1946,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         bool isRanged = unitData.unitType == UnitType.Ranged;
         
-        // 원거리 유닛만 거리 검사 수행 (근접 유닛은 저지 중인 몬스터를 공격하므로 거리 검사 불필요)
+        // Spawn-time trigger jitter must not let melee units keep attacking targets outside their reach.
         if (isRanged)
         {
             if (targetEnemy == null || targetTransform == null || 
-                Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange + 0.1f)
+                Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange + MeleeAttackRangeTolerance)
             {
                 targetEnemy = null;
                 return;
@@ -1848,9 +1958,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         else
         {
-            // 근접 유닛: 타겟이 없으면 리턴
-            if (targetEnemy == null || targetTransform == null)
+            // 근접 유닛: 타겟이 없거나 사거리 밖이면 리턴
+            if (!IsMeleeMonsterAttackable(targetEnemy as Monster))
             {
+                ClearCurrentTarget();
                 return;
             }
         }
@@ -1908,7 +2019,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                     // 스플래시 공격: 저지 중인 모든 몬스터에게 동시에 데미지
                     foreach (var monster in blockedMonsters.ToList())
                     {
-                        if (monster != null && monster.currentHP > 0)
+                        if (IsMeleeMonsterAttackable(monster))
                         {
 
                             if (schedulerReady)
@@ -2022,18 +2133,24 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 #endif
-        PlayBasicAttackVfx();
-
         if (!_hasPendingAttack)
         {
             return;
         }
 
+        if (!_pendingAttack.IsRanged && !IsMeleeMonsterAttackable(_pendingAttack.TargetEnemy as Monster))
+        {
+            CancelPendingAttack();
+            return;
+        }
+
+        PlayBasicAttackVfx();
+
         // NetworkBehaviour이므로 Object 프로퍼티 직접 사용
         bool hasAuthority = Object == null || Object.HasStateAuthority;
         if (!hasAuthority)
         {
-            _hasPendingAttack = false;
+            CancelPendingAttack();
             return;
         }
 
@@ -2050,7 +2167,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             _pendingAttack.TargetEnemy.TakeDamage(_pendingAttack.Damage, _pendingAttack.DamageType);
         }
 
-        _hasPendingAttack = false;
+        CancelPendingAttack();
     }
 
     public void AnimEvent_SkillEnd()
@@ -2074,16 +2191,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (other.TryGetComponent<Monster>(out var monster))
         {
-            // Null 체크 추가
-            if (monster.Data == null || Data == null) return;
-            
-            if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
-                monster.HasTrait(MonsterTraits.Unblockable) ||
-                monster.Data.monsterType == MonsterType.Flying || Data.blockCount <= 0 ||
-                blockedMonsters.Count >= Data.blockCount)
+            if (!CanBlockMonster(monster))
             {
                 return;
             }
+
             blockedMonsters.Add(monster);
             monster.Block(this);
         }
@@ -2103,14 +2215,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public bool TryBlockMonster(Monster monster)
     {
-        if (Data == null) return false;
-        if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
-            monster.HasTrait(MonsterTraits.Unblockable) ||
-            monster.Data.monsterType == MonsterType.Flying ||
-            Data.blockCount <= 0 || blockedMonsters.Count >= Data.blockCount)
+        if (!CanBlockMonster(monster))
         {
             return false;
         }
+
         blockedMonsters.Add(monster);
         monster.Block(this);
         return true;

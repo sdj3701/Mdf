@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity-cli, asset
 Created: 2026-05-06
-Last used: 2026-05-10
-Last verified: 2026-05-10
-Use count: 3
+Last used: 2026-05-16
+Last verified: 2026-05-16
+Use count: 8
 Review after: 2026-08-04
 Triggers: EditMode test runner returns `total=0` for a newly added method filter, Unity does not appear to pick up new test methods after compile
 Applies to: `unity-cli --project Mdfproject test --mode EditMode`, newly added tests, forced AssetDatabase import
-Verified by: see Verification section below; migrated from old Status: verified; Mdfproject
+Verified by: see Verification section below; migrated from old Status: verified; Mdfproject; artifacts/addressables-registry-editmode-latest.log
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -39,3 +39,4 @@ Lifecycle notes:
 - 2026-05-10: Verified by unity-cli --project Mdfproject test --mode EditMode --filter MPTestHarnessEditModeTests discovering and passing 60/60 tests including RankingUiSplitsFourPlayersEvenlyAcrossSides on 2026-05-10.
 - 2026-05-10: Verified EditMode suite passed 63/63 including scene alias tests on 2026-05-10.
 - 2026-05-10: verified artifact `Mdfproject`
+- 2026-05-16: verified artifact `artifacts/addressables-registry-editmode-latest.log`

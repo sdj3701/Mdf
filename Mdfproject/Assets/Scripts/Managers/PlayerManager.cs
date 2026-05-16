@@ -623,7 +623,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         _runtimeInitialized = playerId >= 0 && fieldManager != null;
     }
 
-    public void RebindRuntimeReferencesAfterMigration(string context, bool verboseFailure = true)
+    public void RebindRuntimeReferencesAfterMigration(
+        string context,
+        bool verboseFailure = true,
+        bool rebuildUnitMap = true,
+        bool repairUnitPresentation = true)
     {
         fieldManager = fieldManager != null ? fieldManager : GetComponentInChildren<FieldManager>(true);
         shopManager = shopManager != null ? shopManager : GetComponentInChildren<ShopManager>(true);
@@ -740,7 +744,14 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (fieldManager != null)
         {
             fieldManager.RebuildWallMapsAfterMigration($"PlayerManager.{context}", verboseFailure, out _);
-            fieldManager.RebuildUnitMapAfterMigration($"PlayerManager.{context}", verboseFailure, out _);
+            if (rebuildUnitMap)
+            {
+                fieldManager.RebuildUnitMapAfterMigration(
+                    $"PlayerManager.{context}",
+                    verboseFailure,
+                    out _,
+                    repairPresentation: repairUnitPresentation);
+            }
         }
 
         if (verboseFailure && !IsRuntimeReady(out string reason))
@@ -3595,22 +3606,37 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     private bool OwnsUnitForCommand(Unit unit)
     {
+        return IsUnitOwnedByPlayerForCommand(this, unit);
+    }
+
+    public static bool IsUnitOwnedByPlayerForCommand(PlayerManager player, Unit unit)
+    {
         if (unit == null)
         {
             return false;
         }
 
-        if (unit.Owner == this)
+        if (player == null)
+        {
+            return false;
+        }
+
+        if (unit.Owner == player)
         {
             return true;
         }
 
-        if (unit.Owner != null && unit.Owner.playerId == playerId)
+        if (unit.Owner != null && unit.Owner.playerId == player.playerId)
         {
             return true;
         }
 
-        return ownedUnits != null && ownedUnits.Contains(unit);
+        if (unit.OwnerPlayerIdForRoster == player.playerId)
+        {
+            return true;
+        }
+
+        return player.ownedUnits != null && player.ownedUnits.Contains(unit);
     }
 
     private bool ValidateSwapUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
@@ -3641,6 +3667,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (unitA == null || unitB == null)
         {
             reason = "swap_requires_two_units";
+            return false;
+        }
+
+        if (!OwnsUnitForCommand(unitA) || !OwnsUnitForCommand(unitB))
+        {
+            reason = "swap_unit_not_owned_by_player";
+            return false;
+        }
+
+        if (unitA.Data == null || unitB.Data == null)
+        {
+            reason = "swap_unit_data_unresolved";
             return false;
         }
 
@@ -3717,6 +3755,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (fieldManager.HasWallAt(position))
         {
             reason = "wall_position_occupied";
+            return false;
+        }
+
+        var occupant = fieldManager.GetUnitAt(position);
+        if (occupant != null && !OwnsUnitForCommand(occupant))
+        {
+            reason = "wall_position_foreign_unit";
+            return false;
+        }
+
+        if (occupant != null && occupant.Data == null)
+        {
+            reason = "wall_position_unresolved_unit";
             return false;
         }
 

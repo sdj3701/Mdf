@@ -29,30 +29,32 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             return;
         }
 
-        if (!TryResolveVfxKey(unit, out string vfxKey))
+        BasicAttackVfxConfig config = unit.Data.GetBasicAttackVfxConfig(unit.starLevel);
+        if (config == null || !config.HasPrefabKey)
         {
             return;
         }
 
-        Vector3 direction = ResolveDirection(target);
+        Vector3 direction = ResolveDirection(target, config);
         if (direction.sqrMagnitude <= 1e-6f)
         {
             return;
         }
 
         _lastPlayTime = Time.time;
-        PlayBasicAttackAsync(vfxKey, direction).Forget();
+        PlayBasicAttackAsync(config, direction).Forget();
     }
 
-    private async UniTaskVoid PlayBasicAttackAsync(string vfxKey, Vector3 direction)
+    private async UniTaskVoid PlayBasicAttackAsync(BasicAttackVfxConfig config, Vector3 direction)
     {
+        string vfxKey = config.prefabKey;
         GameObject prefab = await LoadPrefabAsync(vfxKey);
         if (prefab == null || this == null || !gameObject.activeInHierarchy)
         {
             return;
         }
 
-        Spawn(prefab, direction.normalized);
+        Spawn(prefab, direction.normalized, config);
     }
 
     private async UniTask<GameObject> LoadPrefabAsync(string vfxKey)
@@ -80,11 +82,15 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         return loaded;
     }
 
-    private void Spawn(GameObject prefab, Vector3 direction)
+    private void Spawn(GameObject prefab, Vector3 direction, BasicAttackVfxConfig config)
     {
-        Transform origin = spawnOrigin != null ? spawnOrigin : transform;
-        Vector3 position = origin.position + Vector3.up * heightOffset + direction * forwardOffset;
-        Quaternion rotation = Quaternion.LookRotation(direction, Vector3.up) * Quaternion.Euler(rotationOffsetEuler);
+        Transform origin = ResolveSpawnOrigin(config);
+        Quaternion attackRotation = Quaternion.LookRotation(direction, Vector3.up);
+        Vector3 localOffset = config != null ? config.localPositionOffset : new Vector3(0f, heightOffset, forwardOffset);
+        Vector3 eulerOffset = config != null ? config.rotationOffsetEuler : rotationOffsetEuler;
+        float resolvedScale = config != null && config.scaleMultiplier > 0f ? config.scaleMultiplier : scaleMultiplier;
+        Vector3 position = origin.position + attackRotation * localOffset;
+        Quaternion rotation = attackRotation * Quaternion.Euler(eulerOffset);
 
         GameObject instance = null;
         if (usePool && VfxPoolManager.Instance != null)
@@ -97,14 +103,28 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             instance = Instantiate(prefab, position, rotation);
         }
 
-        instance.transform.localScale = prefab.transform.localScale * scaleMultiplier;
+        instance.transform.localScale = prefab.transform.localScale * resolvedScale;
         RestartParticles(instance);
         EnsureAutoDestroy(instance);
     }
 
-    private Vector3 ResolveDirection(Transform target)
+    private Transform ResolveSpawnOrigin(BasicAttackVfxConfig config)
     {
-        Transform origin = spawnOrigin != null ? spawnOrigin : transform;
+        if (config != null && !string.IsNullOrWhiteSpace(config.spawnOriginPath))
+        {
+            Transform configuredOrigin = transform.Find(config.spawnOriginPath);
+            if (configuredOrigin != null)
+            {
+                return configuredOrigin;
+            }
+        }
+
+        return spawnOrigin != null ? spawnOrigin : transform;
+    }
+
+    private Vector3 ResolveDirection(Transform target, BasicAttackVfxConfig config)
+    {
+        Transform origin = ResolveSpawnOrigin(config);
         Vector3 direction = target != null ? target.position - origin.position : transform.forward;
         direction.y = 0f;
 
@@ -116,21 +136,6 @@ public class UnitAttackVfxPresenter : MonoBehaviour
 
         return direction.normalized;
     }
-
-    private static bool TryResolveVfxKey(Unit unit, out string vfxKey)
-    {
-        vfxKey = null;
-        string[] keys = unit.Data.basicAttackVfxPrefabsByStarLevel;
-        if (keys == null || keys.Length == 0)
-        {
-            return false;
-        }
-
-        int starIndex = Mathf.Clamp(unit.starLevel - 1, 0, keys.Length - 1);
-        vfxKey = keys[starIndex];
-        return !string.IsNullOrWhiteSpace(vfxKey);
-    }
-
     private static void RestartParticles(GameObject instance)
     {
         var trails = instance.GetComponentsInChildren<TrailRenderer>(true);

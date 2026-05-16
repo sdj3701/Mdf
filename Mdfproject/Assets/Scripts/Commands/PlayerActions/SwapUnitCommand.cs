@@ -21,14 +21,29 @@ public class SwapUnitCommand : ICommand
         {
             Debug.Log($"<color=#3399FF>[ClientFlow] Execute SwapUnit {PosA} <-> {PosB} (Player {PlayerId})</color>");
         }
-        var player = GameManagers.Instance.GetPlayer(PlayerId);
+
+        if (gm == null || gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
+        {
+            return;
+        }
+
+        var player = gm.GetPlayer(PlayerId);
         if (player == null) return;
         var fm = player.fieldManager;
         if (fm == null) return;
 
+        if (fm.playerManager != null && fm.playerManager.playerId != PlayerId)
+        {
+            return;
+        }
+
+        if (!fm.IsValidGridPosition(PosA) || !fm.IsValidGridPosition(PosB) || PosA == PosB) return;
+
         var unitA = fm.GetUnitAt(PosA);
         var unitB = fm.GetUnitAt(PosB);
         if (unitA == null || unitB == null) return;
+        if (!IsOwnedByPlayer(player, unitA) || !IsOwnedByPlayer(player, unitB)) return;
+        if (unitA.Data == null || unitB.Data == null) return;
 
         bool destWallForA = fm.HasWallAt(PosB);
         bool destWallForB = fm.HasWallAt(PosA);
@@ -36,8 +51,11 @@ public class SwapUnitCommand : ICommand
         if (unitA.Data.unitType == UnitType.Melee && destWallForA) return;
         if (unitB.Data.unitType == UnitType.Melee && destWallForB) return;
 
-        if (!fm.IsValidGridPosition(PosA) || !fm.IsValidGridPosition(PosB)) return;
-
         fm.SwapUnits(PosA, PosB);
+    }
+
+    private static bool IsOwnedByPlayer(PlayerManager player, Unit unit)
+    {
+        return PlayerManager.IsUnitOwnedByPlayerForCommand(player, unit);
     }
 }

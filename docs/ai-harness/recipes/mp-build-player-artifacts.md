@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-13
-Last verified: 2026-05-11
-Use count: 5
+Last used: 2026-05-16
+Last verified: 2026-05-16
+Use count: 7
 Review after: 2026-08-03
 Triggers: Development Build, build artifact, player launch smoke
 Applies to: `mp_build_player`, `tools/harness/mp/build_player.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/unit-roster-battle-fix-win-aa
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -30,6 +30,8 @@ Verification:
 
 Pitfalls:
 - On Windows, Python subprocess text capture can hit CP949 decode failures on unity-cli output. Use `encoding="utf-8", errors="replace"` in harness scripts that capture command output.
+- If a StandaloneWindows64 MP player logs Addressables paths under `StreamingAssets/aa/Android`, the player was built from stale active-target Addressables content. `mp_build_player` must switch to the requested build target and build Addressables player content before `BuildPipeline.BuildPlayer`.
+- Restore the Editor active build target after targeted player builds. Leaving an Editor session switched from Android/mobile to Standalone can make URP grow `_AdditionalShadowParams` from 32 to 256 in the same session and spam "Property (_AdditionalShadowParams) exceeds previous array size".
 
 Lifecycle notes:
 - 2026-05-10: Built current MDF-MPTest Development player for 2 HumanBot + 2 AI headless upgrade check on 2026-05-10.
@@ -38,3 +40,6 @@ Lifecycle notes:
 - 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
 - 2026-05-11: Rebuilt headless MPTest player after monster HP bar pooling fix.
 - 2026-05-11: verified artifact `artifacts/builds/mptest-current`
+- 2026-05-16: verified artifact `artifacts/builds/unit-roster-battle-fix-win-aa`
+- 2026-05-16: Patched `mp_build_player` to switch active build target and build Addressables content first; verified StandaloneWindows64 output contains `aa/StandaloneWindows64` and passes `human-bot-battle-progression`.
+- 2026-05-16: Patched `mp_build_player` to restore the Editor build target after targeted builds; source guard test and console check verified no immediate warning spam after restoring Android target.

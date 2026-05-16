@@ -46,6 +46,7 @@ public class GoogleSheetDataImporter
             so.skillsByStarLevel = GetStringArray(item, "skillsByStarLevel");
             so.projectilePrefabsByStarLevel = GetStringArray(item, "projectilePrefabsByStarLevel");
             so.basicAttackVfxPrefabsByStarLevel = GetStringArray(item, "basicAttackVfxPrefabsByStarLevel");
+            so.EnsureBasicAttackVfxConfigArray();
         });
 
         AssetDatabase.SaveAssets();

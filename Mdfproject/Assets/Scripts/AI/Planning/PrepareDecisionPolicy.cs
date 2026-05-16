@@ -663,22 +663,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
     private static bool IsOwnedByPlayer(PlayerManager player, Unit unit)
     {
-        if (player == null || unit == null)
-        {
-            return false;
-        }
-
-        if (unit.Owner == player)
-        {
-            return true;
-        }
-
-        if (unit.Owner != null && unit.Owner.playerId == player.playerId)
-        {
-            return true;
-        }
-
-        return player.ownedUnits != null && player.ownedUnits.Contains(unit);
+        return PlayerManager.IsUnitOwnedByPlayerForCommand(player, unit);
     }
 
     private static bool IsLikelyPurchaseDefaultArea(FieldManager field, Vector3Int cell)

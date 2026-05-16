@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-06
-Last used: 2026-05-06
-Last verified: 2026-05-06
-Use count: 1
+Last used: 2026-05-16
+Last verified: 2026-05-16
+Use count: 3
 Review after: 2026-08-04
 Triggers: HumanBot, `/bot/start`, `/bot/status`, selected augment hash, random-aware comparison
 Applies to: `tools/harness/mp/run_human_bot_prepare_progression.py`, Phase 20 HumanBot prepare progression
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260515-201820-matrix/20260515-201825-human-bot-prepare/result.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -35,3 +35,6 @@ Pitfalls:
 - `NotifyAugmentSelectedCommand` must update non-server `chosenAugments`; otherwise host selected augment hashes diverge from client snapshots after an accepted selection.
 - `parse_mptest_logs.py` splits multiple `[MPTEST]` markers from the same Unity log line and tolerates truncated quoted values, so `mptest.timeline.jsonl` should not produce `parseError` rows from normal Unity log concatenation. It stores the artifact file path as `logSource` so event fields such as `source=[Player:2]` remain intact. Still check raw logs for `result=fail` or `phase=error`.
 - Current command sequence fields may be `null`; until accepted command journaling exists, use durable snapshot deltas as the acceptance proof.
+
+Lifecycle notes:
+- 2026-05-16: verified artifact `artifacts/mp/20260515-201820-matrix/20260515-201825-human-bot-prepare/result.json`

@@ -75,6 +75,22 @@ public class PlaceWallCommand : ICommand
             return;
         }
 
+        Unit occupant = fm.GetUnitAt(Position);
+        if (occupant != null)
+        {
+            if (!IsOwnedByPlayer(player, occupant))
+            {
+                Debug.LogWarning($"[PlaceWallCommand] Cannot place wall over foreign unit at {Position} for Player {PlayerId}");
+                return;
+            }
+
+            if (occupant.Data == null)
+            {
+                Debug.LogWarning($"[PlaceWallCommand] Cannot place wall over unresolved unit at {Position} for Player {PlayerId}");
+                return;
+            }
+        }
+
         Vector3Int goalCell = fm.WorldToGridInt(player.goalTransform != null ? player.goalTransform.position : Vector3.zero);
         if (Position == goalCell)
         {
@@ -100,5 +116,10 @@ public class PlaceWallCommand : ICommand
             Debug.LogError($"[PlaceWallCommand] CreateWallAt failed at {Position} for Player {PlayerId}. Refunding.");
             player.ReturnWall();
         }
+    }
+
+    private static bool IsOwnedByPlayer(PlayerManager player, Unit unit)
+    {
+        return PlayerManager.IsUnitOwnedByPlayerForCommand(player, unit);
     }
 }

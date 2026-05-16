@@ -1168,6 +1168,18 @@ public class FieldManager : MonoBehaviour
         Unit occupant = GetUnitAt(gridPosition);
         if (occupant != null)
         {
+            if (!UnitBelongsToFieldOwnerDurable(occupant))
+            {
+                Debug.LogWarning($"[WallFlow-Create] abort: occupant is not owned by this field. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                return;
+            }
+
+            if (occupant.Data == null)
+            {
+                Debug.LogWarning($"[WallFlow-Create] abort: occupant unit data is unresolved. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                return;
+            }
+
             if (occupant.Data.unitType == UnitType.Melee)
             {
                 Vector3Int? alt = FindFirstEmptySlot(occupant.Data);
@@ -1220,12 +1232,7 @@ public class FieldManager : MonoBehaviour
             placedWalls.Add(gridPosition, wallComponent);
             SchedulePathRefresh();
 
-            Unit unitOnCell = GetUnitAt(gridPosition);
-            if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
-            {
-                Vector3 atopPos = GridToWorld(gridPosition, checkForWall: true);
-                MoveUnitImmediate(unitOnCell, atopPos);
-            }
+            RepairUnitPresentationAt(gridPosition, "CreateWallAt");
 
             Debug.Log($"[WallFlow-Create] CreateWallAt SUCCESS owner={BuildWallOwnerTag()}, pos={gridPosition}, worldPos={worldPos}, totalWalls={placedWalls.Count}");
         }
@@ -1465,10 +1472,15 @@ public class FieldManager : MonoBehaviour
     /// <summary>
     /// Host Migration 이후 런타임 유닛 맵(placedUnits)을 월드 오브젝트 기준으로 재구성합니다.
     /// </summary>
-    public bool RebuildUnitMapAfterMigration(string context, bool verboseLog, out string summary)
+    public bool RebuildUnitMapAfterMigration(string context, bool verboseLog, out string summary, bool repairPresentation = false)
     {
         if (_lastUnitMapRebuildFrame == Time.frameCount)
         {
+            if (repairPresentation)
+            {
+                RepairPlacedUnitPresentation($"RebuildUnitMapAfterMigration.{context}", allowMissingGameManagers: true);
+            }
+
             summary = _lastUnitMapRebuildSummary;
             return true;
         }
@@ -1547,7 +1559,7 @@ public class FieldManager : MonoBehaviour
             }
 
             bool wasAlreadyRegistered = existingCellsByUnit.TryGetValue(unit, out Vector3Int registeredCell);
-            bool belongsToPlayer = UnitBelongsToFieldOwner(unit) || UnitHasReplicatedFieldOwner(unit) || ownedUnits.Contains(unit);
+            bool belongsToPlayer = UnitBelongsToFieldOwnerDurable(unit) || ownedUnits.Contains(unit);
             if (!belongsToPlayer && playerManager != null && networkRunning)
             {
                 continue;
@@ -1600,6 +1612,10 @@ public class FieldManager : MonoBehaviour
         pendingUnitPositions.Clear();
         pendingUnitDataByPosition.Clear();
         pendingNetworkMoves.Clear();
+        if (repairPresentation)
+        {
+            RepairPlacedUnitPresentation($"RebuildUnitMapAfterMigration.{context}", allowMissingGameManagers: true);
+        }
 
         bool unitMapChanged = !oldCells.SetEquals(placedUnits.Keys);
         _lastUnitMapRebuildFrame = Time.frameCount;
@@ -1747,8 +1763,7 @@ public class FieldManager : MonoBehaviour
             return false;
         }
 
-        return UnitBelongsToFieldOwner(unit) ||
-               UnitHasReplicatedFieldOwner(unit) ||
+        return UnitBelongsToFieldOwnerDurable(unit) ||
                playerManager != null &&
                playerManager.ownedUnits != null &&
                playerManager.ownedUnits.Contains(unit);
@@ -2666,6 +2681,11 @@ public class FieldManager : MonoBehaviour
 
     private void MoveUnitImmediate(Unit unit, Vector3 targetWorldPos)
     {
+        if (unit != null && !unit.IsDead)
+        {
+            unit.EnsureAlivePresentationActive();
+        }
+
         var networkTransform = unit.GetComponent<Fusion.NetworkTransform>();
         if (networkTransform != null)
         {
@@ -3016,7 +3036,7 @@ public class FieldManager : MonoBehaviour
 
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
-            if (unit == null || !UnitBelongsToFieldOwner(unit))
+            if (unit == null || !UnitBelongsToFieldOwnerDurable(unit))
             {
                 return;
             }
@@ -3073,6 +3093,11 @@ public class FieldManager : MonoBehaviour
             return true;
         }
 
+        if (unit.OwnerPlayerIdForRoster == playerManager.playerId)
+        {
+            return true;
+        }
+
         return playerManager.ownedUnits != null && playerManager.ownedUnits.Contains(unit);
     }
 
@@ -3081,6 +3106,11 @@ public class FieldManager : MonoBehaviour
         return unit != null &&
                playerManager != null &&
                unit.OwnerPlayerIdForRoster == playerManager.playerId;
+    }
+
+    private bool UnitBelongsToFieldOwnerDurable(Unit unit)
+    {
+        return UnitBelongsToFieldOwner(unit) || UnitHasReplicatedFieldOwner(unit);
     }
 
     private void SyncUnitPlacementIdentity(Unit unit, Vector3Int gridPosition)
@@ -3179,7 +3209,7 @@ public class FieldManager : MonoBehaviour
                     continue;
                 }
 
-                if (!UnitBelongsToFieldOwner(unit))
+                if (!UnitBelongsToFieldOwnerDurable(unit))
                 {
                     pendingNetworkMoves.RemoveAt(i);
                     continue;
@@ -3230,6 +3260,13 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
+        if (unitA == null || unitB == null ||
+            !UnitBelongsToFieldOwnerDurable(unitA) ||
+            !UnitBelongsToFieldOwnerDurable(unitB))
+        {
+            return;
+        }
+
         string uNameA = (unitA != null && unitA.Data != null) ? unitA.Data.unitName : (unitA != null ? unitA.name : "UnitA");
         string uNameB = (unitB != null && unitB.Data != null) ? unitB.Data.unitName : (unitB != null ? unitB.name : "UnitB");
         
@@ -3257,18 +3294,102 @@ public class FieldManager : MonoBehaviour
 
     public void RespawnAllUnits()
     {
-        foreach (Unit unit in placedUnits.Values)
+        foreach (var entry in placedUnits.ToArray())
         {
-            if (unit == null || !unit.HasValidNetworkObject)
-            {
-                continue;
-            }
-
-            if (unit.IsDead || !unit.gameObject.activeSelf || !unit.gameObject.activeInHierarchy)
-            {
-                unit.Respawn();
-            }
+            EnsurePlacedUnitPresentation(entry.Key, entry.Value, "RespawnAllUnits", allowMissingGameManagers: false);
         }
+    }
+
+    public void RepairPlacedUnitPresentation(string context = "manual")
+    {
+        RepairPlacedUnitPresentation(context, allowMissingGameManagers: false);
+    }
+
+    private void RepairPlacedUnitPresentation(string context, bool allowMissingGameManagers)
+    {
+        foreach (var entry in placedUnits.ToArray())
+        {
+            EnsurePlacedUnitPresentation(entry.Key, entry.Value, context, allowMissingGameManagers);
+        }
+    }
+
+    private void RepairUnitPresentationAt(Vector3Int gridPosition, string context)
+    {
+        if (placedUnits.TryGetValue(gridPosition, out var unit))
+        {
+            EnsurePlacedUnitPresentation(gridPosition, unit, context, allowMissingGameManagers: false);
+        }
+    }
+
+    private void EnsurePlacedUnitPresentation(Vector3Int gridPosition, Unit unit, string context, bool allowMissingGameManagers)
+    {
+        if (unit == null)
+        {
+            placedUnits.Remove(gridPosition);
+            pendingUnitPositions.Remove(gridPosition);
+            pendingUnitDataByPosition.Remove(gridPosition);
+            return;
+        }
+
+        if (!IsValidGridPosition(gridPosition))
+        {
+            return;
+        }
+
+        bool belongsToField = playerManager == null || UnitBelongsToFieldOwnerDurable(unit);
+        if (!belongsToField)
+        {
+            return;
+        }
+
+        if (!CanRepairPrepareUnitPresentation(allowMissingGameManagers))
+        {
+            return;
+        }
+
+        if (unit.IsDead || !unit.gameObject.activeSelf || !unit.gameObject.activeInHierarchy)
+        {
+            unit.Respawn();
+        }
+        else
+        {
+            unit.EnsureAlivePresentationActive();
+        }
+
+        Vector3 expectedWorldPos = GridToWorld(gridPosition, checkForWall: true);
+        if ((unit.transform.position - expectedWorldPos).sqrMagnitude > 0.0001f)
+        {
+            MoveUnitImmediate(unit, expectedWorldPos);
+        }
+
+        SyncUnitPlacementIdentity(unit, gridPosition);
+    }
+
+    private bool CanRepairPrepareUnitPresentation(bool allowMissingGameManagers)
+    {
+        if (!Application.isPlaying)
+        {
+            return true;
+        }
+
+        bool networkRunning = playerManager != null &&
+                              playerManager.Runner != null &&
+                              playerManager.Runner.IsRunning;
+        if (networkRunning &&
+            (playerManager.Object == null ||
+             !playerManager.Object.IsValid ||
+             !playerManager.Object.HasStateAuthority))
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            return allowMissingGameManagers;
+        }
+
+        return gm.GetGameState() == GameManagers.GameState.Prepare;
     }
 
     public Vector3Int? FindFirstEmptySlot(UnitData unitData)

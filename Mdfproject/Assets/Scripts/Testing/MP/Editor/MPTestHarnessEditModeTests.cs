@@ -895,6 +895,38 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void BattleStartDoesNotRebuildUnitRosterFromWorldPositions()
+    {
+        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
+        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+
+        Assert.That(playerSource, Does.Contain("bool rebuildUnitMap = true"));
+        Assert.That(playerSource, Does.Contain("bool repairUnitPresentation = true"));
+        Assert.That(playerSource, Does.Contain("if (rebuildUnitMap)"));
+        Assert.That(playerSource, Does.Contain("repairPresentation: repairUnitPresentation"));
+        Assert.That(gameManagersSource, Does.Contain("StartBattleForPlayers(Player {playerId})"));
+        Assert.That(gameManagersSource, Does.Contain("rebuildUnitMap: false"));
+        Assert.That(gameManagersSource, Does.Contain("repairUnitPresentation: false"));
+    }
+
+    [Test]
+    public void PlayerBuildToolBuildsAddressablesForRequestedTarget()
+    {
+        string buildSource = File.ReadAllText("Assets/Scripts/Testing/MP/Editor/BuildAutomation.cs");
+
+        Assert.That(buildSource, Does.Contain("SwitchActiveBuildTarget(targetGroup, target)"));
+        Assert.That(buildSource, Does.Contain("build_addressables"));
+        Assert.That(buildSource, Does.Contain("restore_build_target"));
+        Assert.That(buildSource, Does.Contain("originalBuildTarget"));
+        Assert.That(buildSource, Does.Contain("BuildAddressablesForTarget(target)"));
+        Assert.That(buildSource, Does.Contain("AddressableAssetSettings.BuildPlayerContent(out AddressablesPlayerBuildResult result)"));
+        Assert.That(buildSource, Does.Contain("finally"));
+        Assert.That(buildSource, Does.Contain("SwitchActiveBuildTarget(originalBuildTargetGroup, originalBuildTarget)"));
+        Assert.That(buildSource, Does.Contain("BuildScriptPackedMode.asset"));
+        Assert.That(buildSource, Does.Contain("addressables = addressablesMetadata"));
+    }
+
+    [Test]
     public void AttackSequenceMonsterSelectionTracksAuthorityPoolSlot()
     {
         string managerSource = File.ReadAllText("Assets/Scripts/Game/Battle/AttackSequenceManager.cs");

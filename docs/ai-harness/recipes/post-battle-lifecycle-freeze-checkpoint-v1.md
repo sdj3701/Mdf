@@ -4,13 +4,13 @@ Status: stale
 Pinned: true
 Category: host-migration, reconnect, security, battle
 Created: 2026-05-06
-Last used: 2026-05-10
-Last verified: 2026-05-06
-Use count: 2
+Last used: 2026-05-16
+Last verified: 2026-05-16
+Use count: 3
 Review after: 2026-08-04
 Triggers: A post-battle lifecycle E2E must compare a progressed battle checkpoint across client disconnect, same-token reconnect, or Host Migration without hiding normal game-flow advancement as expected randomness
 Applies to: `MPTestCommandLine`, `MPTestAutomationServer`, `battle_progression_common.py`, post-battle reconnect/disconnect/Host Migration runners
-Verified by: see Verification section below; migrated from old Status: provisional
+Verified by: see Verification section below; migrated from old Status: provisional; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/battle-preservation-assertions.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -35,3 +35,6 @@ Verification:
 - `artifacts/mp/20260506-095609-progressed-reconnect-after-battle` passed same-token reconnect with reclaimed `playerId`, `isAI=false`, `ai.controllerRegistered=false`, full snapshot comparison, and battle preservation.
 - `artifacts/mp/20260506-095711-progressed-disconnect-after-battle` passed disconnect/AI takeover with the dropped `playerId` preserved as disconnected AI and frozen battle state preserved.
 - `artifacts/mp/20260506-095834-battle-seed-sweep` passed seeds `7101,7102,7103`.
+
+Lifecycle notes:
+- 2026-05-16: verified artifact `artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/battle-preservation-assertions.json`
