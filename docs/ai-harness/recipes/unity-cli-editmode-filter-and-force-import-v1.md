@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli, asset
 Created: 2026-05-06
-Last used: 2026-05-10
+Last used: 2026-05-18
 Last verified: 2026-05-10
-Use count: 3
+Use count: 4
 Review after: 2026-08-04
 Triggers: EditMode test runner returns `total=0` for a newly added method filter, Unity does not appear to pick up new test methods after compile
 Applies to: `unity-cli --project Mdfproject test --mode EditMode`, newly added tests, forced AssetDatabase import

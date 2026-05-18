@@ -21,18 +21,35 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const string LayoutResourcePath = "UI/GamePrepare/GamePreparePanels";
     private const string StyleResourcePath = "UI/GamePrepare/GamePreparePanelsStyles";
     private const string ThemeResourcePath = "UI/GamePrepare/GamePrepareRuntimeTheme";
+    private const string ShopCardCostClassPrefix = "shop-card-cost-";
     private const int PanelSortingOrder = 280;
+    private const int MinShopCardCostStyle = 1;
+    private const int MaxShopCardCostStyle = 5;
     private const float ReferenceWidth = 1600f;
     private const float ReferenceHeight = 900f;
     private const float MinResponsiveScale = 0.72f;
     private const float MaxResponsiveScale = 1.28f;
     private const float MinTouchSize = 64f;
-    private const float ShopCardScaleBoost = 1.14f;
+    private const float ShopCardReferenceWidth = 280f;
+    private const float ShopCardReferenceHeight = 350f;
+    private const float ShopSlotAspect = 200f / 250f;
+    private const float ShopPanelLeftPadding = 120f;
+    private const float ShopPanelRightPadding = 20f;
+    private const float ShopCardHorizontalMargin = 6f;
     private const float AugmentCardScaleBoost = 1.08f;
     private const float ShopRowTopRatio = 0.16f;
     private const float AugmentRowTopRatio = 0.30f;
     private const float ShopPanelTopMin = 118f;
     private const float ShopPanelTopMax = 230f;
+    private const float HudButtonSize = 84f;
+    private const float HudActionButtonGap = 12f;
+    private const float HudActionGroupLeft = 112f;
+    private const float HudActionGroupWidth = HudButtonSize * 2f + HudActionButtonGap;
+    private const float HudActionGroupCardGap = 24f;
+    private const float TopHudY = 12f;
+    private const float RerollButtonSize = 180f;
+    private const float RoundTimerWidth = 640f;
+    private const float RoundTimerHeight = 44f;
     private const float AugmentPanelTopMin = 220f;
     private const float AugmentPanelTopMax = 380f;
 
@@ -50,10 +67,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private VisualElement root;
     private VisualElement safeRoot;
+    private VisualElement designSpace;
     private VisualElement shopPanel;
     private VisualElement shopCardRow;
     private VisualElement augmentPanel;
     private VisualElement augmentCardRow;
+    private VisualElement leftWireframeRail;
+    private VisualElement shopControlRow;
     private VisualElement rerollButton;
     private Label rerollLabel;
     private Label shopStatusLabel;
@@ -63,6 +83,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private VisualElement hudWallButton;
     private Label hudWallLabel;
     private VisualElement hudOptionButton;
+    private Label roundTimerLabel;
     private VisualElement resourceRoot;
     private Label resourceGoldValue;
     private Label resourceWallValue;
@@ -278,6 +299,14 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         return star <= 0 ? "-" : $"{star}\uC131";
     }
+
+    public static string GetShopCardCostClass(int baseCost)
+    {
+        return baseCost >= MinShopCardCostStyle && baseCost <= MaxShopCardCostStyle
+            ? $"{ShopCardCostClassPrefix}{baseCost}"
+            : string.Empty;
+    }
+
     public static string FormatAugmentTierText(AugmentTier tier)
     {
         return tier switch
@@ -292,9 +321,20 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     public static Vector2 CalculateCardSize(bool isShop, Vector2 screenSize)
     {
         var scale = CalculateResponsiveScale(screenSize);
-        return isShop
-            ? new Vector2(246f * scale * ShopCardScaleBoost, 336f * scale * ShopCardScaleBoost)
-            : new Vector2(332f * scale * AugmentCardScaleBoost, 480f * scale * AugmentCardScaleBoost);
+        if (!isShop)
+        {
+            return new Vector2(332f * scale * AugmentCardScaleBoost, 480f * scale * AugmentCardScaleBoost);
+        }
+
+        var targetWidth = ShopCardReferenceWidth * scale;
+        var targetHeight = ShopCardReferenceHeight * scale;
+        var rowMargins = ShopCardHorizontalMargin * 2f * scale * ShopCardCount;
+        var availableWidth = Mathf.Max(
+            MinTouchSize * ShopCardCount,
+            screenSize.x - ShopPanelLeftPadding - ShopPanelRightPadding - rowMargins);
+        var fittedWidth = Mathf.Min(targetWidth, availableWidth / ShopCardCount);
+        var fittedHeight = Mathf.Min(targetHeight, fittedWidth / ShopSlotAspect);
+        return new Vector2(fittedWidth, fittedHeight);
     }
 
     public static float CalculateResponsiveScale(Vector2 screenSize)
@@ -311,7 +351,21 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     public static float CalculateShopTopPadding(Vector2 screenSize)
     {
-        return Mathf.Clamp(screenSize.y * ShopRowTopRatio, ShopPanelTopMin, ShopPanelTopMax);
+        var scale = CalculateResponsiveScale(screenSize);
+        var hudClearance = TopHudY + HudButtonSize + HudActionGroupCardGap * scale;
+        var desiredTop = screenSize.y * ShopRowTopRatio;
+        var maxTop = Mathf.Max(hudClearance, ShopPanelTopMax);
+        return Mathf.Clamp(Mathf.Max(desiredTop, hudClearance), Mathf.Max(ShopPanelTopMin, hudClearance), maxTop);
+    }
+
+    public static float CalculateRerollButtonTop(Vector2 screenSize)
+    {
+        var scale = CalculateResponsiveScale(screenSize);
+        var cardBottom = CalculateShopTopPadding(screenSize) + CalculateCardSize(true, screenSize).y;
+        var desiredTop = cardBottom + HudActionGroupCardGap * scale;
+        var minTop = TopHudY + HudButtonSize + 12f;
+        var maxTop = Mathf.Max(minTop, screenSize.y - RerollButtonSize - 24f);
+        return Mathf.Clamp(desiredTop, minTop, maxTop);
     }
 
     public static float CalculateAugmentTopPadding(Vector2 screenSize)
@@ -539,7 +593,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         BindElements();
         ConfigurePickingModes();
         ApplySafeArea();
-        ApplyResponsiveSize();
+        ApplyLayoutScale();
         RegisterCallbacks();
         SubscribeEvents();
         RefreshRuntimeReferences();
@@ -584,7 +638,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             layoutAsset.CloneTree(root);
         }
 
-        if (styleSheet != null)
+        if (styleSheet != null && !root.styleSheets.Contains(styleSheet))
         {
             root.styleSheets.Add(styleSheet);
         }
@@ -594,10 +648,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         root = document.rootVisualElement;
         safeRoot = root?.Q<VisualElement>("game-prepare-safe-root");
+        designSpace = root?.Q<VisualElement>("game-prepare-design-space");
         shopPanel = root?.Q<VisualElement>("shop-panel");
         shopCardRow = root?.Q<VisualElement>("shop-card-row");
         augmentPanel = root?.Q<VisualElement>("augment-panel");
         augmentCardRow = root?.Q<VisualElement>("augment-card-row");
+        leftWireframeRail = root?.Q<VisualElement>("game-left-wireframe-rail");
+        shopControlRow = root?.Q<VisualElement>("shop-control-row");
         rerollButton = root?.Q<VisualElement>("shop-reroll-button");
         rerollLabel = root?.Q<Label>("shop-reroll-label");
         shopStatusLabel = root?.Q<Label>("shop-status-label");
@@ -607,6 +664,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         hudWallButton = root?.Q<VisualElement>("game-wall-button");
         hudWallLabel = root?.Q<Label>("game-wall-label");
         hudOptionButton = root?.Q<VisualElement>("game-option-button");
+        roundTimerLabel = root?.Q<Label>("game-round-timer-label");
         resourceRoot = root?.Q<VisualElement>("game-resource-root");
         resourceGoldValue = root?.Q<Label>("game-gold-value");
         resourceWallValue = root?.Q<Label>("game-wall-count-value");
@@ -661,10 +719,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         SetPickingMode(root, PickingMode.Ignore);
         SetPickingMode(safeRoot, PickingMode.Ignore);
+        SetPickingMode(designSpace, PickingMode.Ignore);
+        SetPickingMode(leftWireframeRail, PickingMode.Ignore);
         SetPickingMode(hudRoot, PickingMode.Ignore);
         SetPickingMode(hudShopButton, PickingMode.Position);
         SetPickingMode(hudWallButton, PickingMode.Position);
         SetPickingMode(hudOptionButton, PickingMode.Position);
+        SetPickingMode(roundTimerLabel, PickingMode.Ignore);
         SetPickingMode(resourceRoot, PickingMode.Ignore);
         SetPickingMode(attackSequencePanel, PickingMode.Ignore);
         SetPickingMode(attackMonsterRow, PickingMode.Ignore);
@@ -702,7 +763,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         safeRoot?.RegisterCallback<GeometryChangedEvent>(_ =>
         {
             ApplySafeArea();
-            ApplyResponsiveSize();
+            ApplyLayoutScale();
         });
 
         for (var i = 0; i < shopCards.Length; i++)
@@ -1466,6 +1527,27 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         rerollLabel.text = cost > 0 ? $"\uC0C8\uB85C\uACE0\uCE68 {cost}G" : "\uC0C8\uB85C\uACE0\uCE68";
     }
 
+    private void UpdateRoundTimerLabel()
+    {
+        if (roundTimerLabel == null)
+        {
+            return;
+        }
+
+        var manager = gameManagers != null ? gameManagers : GameManagers.Instance;
+        var round = manager != null ? Mathf.Max(1, manager.currentRound) : 1;
+        var remainingTime = 0f;
+        if (manager != null)
+        {
+            remainingTime = manager.IsSequenceTransitioning
+                ? manager.currentSequenceTransitionTimer
+                : manager.currentPhaseTimer;
+        }
+
+        var seconds = Mathf.Max(0, Mathf.CeilToInt(remainingTime));
+        roundTimerLabel.text = $"ROUND {round}  {seconds:00}";
+    }
+
     private void SetStatusText(string text)
     {
         if (shopStatusLabel != null)
@@ -1485,7 +1567,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         if (hudShopLabel != null)
         {
-            hudShopLabel.text = shopVisible ? "\uC0C1\uC810 \uB2EB\uAE30" : "\uC0C1\uC810";
+            hudShopLabel.text = shopVisible ? "\uC0C1\uC810\n\uB2EB\uAE30" : "\uC0C1\uC810";
         }
 
         var wallCount = localPlayer != null ? localPlayer.GetWallCount() : 0;
@@ -1495,7 +1577,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         {
             if (hudWallLabel != null)
             {
-                hudWallLabel.text = wallModeActive ? "\uBCBD \uD574\uC81C" : $"\uBCBD {wallCount}";
+                hudWallLabel.text = wallModeActive ? "\uBCBD\n\uD574\uC81C" : $"\uBCBD\n{wallCount}";
             }
 
             hudWallButton?.EnableInClassList("hud-button-active", wallModeActive);
@@ -1503,6 +1585,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         hudShopButton?.EnableInClassList("hud-button-active", shopVisible);
+        UpdateRoundTimerLabel();
         UpdateResourceState(force);
         if (force || !legacyHudHidden)
         {
@@ -1605,10 +1688,56 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var area = Screen.safeArea;
-        safeRoot.style.left = area.xMin;
-        safeRoot.style.right = screenWidth - area.xMax;
-        safeRoot.style.top = screenHeight - area.yMax;
-        safeRoot.style.bottom = area.yMin;
+        var safeXMin = Mathf.Clamp(area.xMin, 0f, screenWidth);
+        var safeXMax = Mathf.Clamp(area.xMax, safeXMin, screenWidth);
+        var safeYMin = Mathf.Clamp(area.yMin, 0f, screenHeight);
+        var safeYMax = Mathf.Clamp(area.yMax, safeYMin, screenHeight);
+        safeRoot.style.left = safeXMin;
+        safeRoot.style.right = screenWidth - safeXMax;
+        safeRoot.style.top = screenHeight - safeYMax;
+        safeRoot.style.bottom = safeYMin;
+    }
+
+    private void ApplyLayoutScale()
+    {
+        if (designSpace != null)
+        {
+            UpdateDesignScale();
+            return;
+        }
+
+        ApplyResponsiveSize();
+    }
+
+    private void UpdateDesignScale()
+    {
+        if (designSpace == null)
+        {
+            return;
+        }
+
+        var safeArea = Screen.safeArea;
+        var containerWidth = safeRoot != null && safeRoot.resolvedStyle.width > 1f
+            ? safeRoot.resolvedStyle.width
+            : Mathf.Max(1f, safeArea.width);
+        var containerHeight = safeRoot != null && safeRoot.resolvedStyle.height > 1f
+            ? safeRoot.resolvedStyle.height
+            : Mathf.Max(1f, safeArea.height);
+
+        var scale = Mathf.Min(containerWidth / ReferenceWidth, containerHeight / ReferenceHeight);
+        if (scale <= 0f || float.IsNaN(scale) || float.IsInfinity(scale))
+        {
+            scale = 1f;
+        }
+
+        var left = Mathf.Max(0f, (containerWidth - ReferenceWidth * scale) * 0.5f);
+        var top = Mathf.Max(0f, (containerHeight - ReferenceHeight * scale) * 0.5f);
+
+        designSpace.style.left = left;
+        designSpace.style.top = top;
+        designSpace.style.width = ReferenceWidth;
+        designSpace.style.height = ReferenceHeight;
+        designSpace.transform.scale = new Vector3(scale, scale, 1f);
     }
 
     private void ApplyResponsiveSize()
@@ -1630,8 +1759,40 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             augmentCardRow.style.marginLeft = 0f;
         }
 
+        if (hudRoot != null)
+        {
+            hudRoot.style.width = HudActionGroupWidth;
+            hudRoot.style.height = HudButtonSize;
+            hudRoot.style.left = HudActionGroupLeft;
+            hudRoot.style.right = StyleKeyword.Auto;
+            hudRoot.style.top = TopHudY;
+        }
+
+        if (shopControlRow != null)
+        {
+            shopControlRow.style.width = RerollButtonSize;
+            shopControlRow.style.height = RerollButtonSize;
+            shopControlRow.style.top = CalculateRerollButtonTop(uiSize);
+        }
+
+        if (rerollButton != null)
+        {
+            rerollButton.style.width = RerollButtonSize;
+            rerollButton.style.height = RerollButtonSize;
+        }
+
+        if (roundTimerLabel != null)
+        {
+            roundTimerLabel.style.left = Mathf.Max(0f, (uiWidth - RoundTimerWidth) * 0.5f);
+            roundTimerLabel.style.top = TopHudY;
+            roundTimerLabel.style.width = RoundTimerWidth;
+            roundTimerLabel.style.height = RoundTimerHeight;
+        }
+
         if (shopPanel != null)
         {
+            shopPanel.style.paddingLeft = ShopPanelLeftPadding;
+            shopPanel.style.paddingRight = ShopPanelRightPadding;
             shopPanel.style.paddingTop = CalculateShopTopPadding(uiSize);
             shopPanel.style.paddingBottom = Mathf.Max(36f, 42f * scale);
         }
@@ -1644,7 +1805,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         foreach (var card in shopCards)
         {
-            card.ApplySize(Mathf.Max(shopSize.x, MinTouchSize * 2.8f), Mathf.Max(shopSize.y, MinTouchSize * 4.6f), scale);
+            card.ApplySize(Mathf.Max(shopSize.x, MinTouchSize * 1.85f), Mathf.Max(shopSize.y, MinTouchSize * 2.65f), scale);
         }
 
         foreach (var card in augmentCards)
@@ -1716,6 +1877,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private sealed class ShopCardView
     {
         private readonly Image icon;
+        private readonly VisualElement topGem;
+        private readonly VisualElement body;
+        private readonly VisualElement footer;
         private readonly Label star;
         private readonly Label name;
         private readonly Label cost;
@@ -1727,6 +1891,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             Index = index;
             Root = root;
             this.icon = icon;
+            topGem = root?.Q<VisualElement>(className: "card-top-gem");
+            body = root?.Q<VisualElement>(className: "card-body");
+            footer = root?.Q<VisualElement>(className: "card-footer");
             this.star = star;
             this.name = name;
             this.cost = cost;
@@ -1743,6 +1910,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             Root?.SetEnabled(hasItem && !sold);
             Root?.EnableInClassList("is-disabled", !hasItem || sold);
             SetVisible(soldOverlay, sold);
+            ApplyCostBackground(hasItem && item.UnitData != null ? item.UnitData.cost : 0);
 
             if (!hasItem || item.UnitData == null)
             {
@@ -1772,8 +1940,50 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
             Root.style.width = width;
             Root.style.height = height;
-            Root.style.marginLeft = 14f * scale;
-            Root.style.marginRight = 14f * scale;
+            Root.style.marginLeft = ShopCardHorizontalMargin * scale;
+            Root.style.marginRight = ShopCardHorizontalMargin * scale;
+
+            if (icon != null)
+            {
+                var iconSize = Mathf.Clamp(width * 0.5f, 112f * scale, 190f * scale);
+                icon.style.width = iconSize;
+                icon.style.height = iconSize;
+            }
+
+            if (body != null)
+            {
+                body.style.justifyContent = Justify.FlexStart;
+                body.style.paddingTop = height * 0.12f;
+            }
+        }
+
+        private void ApplyCostBackground(int baseCost)
+        {
+            if (Root == null)
+            {
+                return;
+            }
+
+            for (int costStyle = MinShopCardCostStyle; costStyle <= MaxShopCardCostStyle; costStyle++)
+            {
+                Root.EnableInClassList(GetShopCardCostClass(costStyle), costStyle == baseCost);
+            }
+
+            if (topGem != null)
+            {
+                topGem.style.display = DisplayStyle.None;
+            }
+
+            if (body != null)
+            {
+                body.style.backgroundColor = Color.clear;
+            }
+
+            if (footer != null)
+            {
+                footer.style.backgroundColor = Color.clear;
+                footer.style.borderTopWidth = 0f;
+            }
         }
 
         public void ReleaseIconHandle()

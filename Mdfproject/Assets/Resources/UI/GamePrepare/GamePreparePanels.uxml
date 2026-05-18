@@ -1,6 +1,45 @@
-<ui:UXML xmlns:ui="UnityEngine.UIElements">
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss?fileID=7433441132597879392&amp;guid=12e2b01ce1cb87a4481891b411a29971&amp;type=3#GamePreparePanelsStyles" />
     <ui:VisualElement name="game-prepare-root" class="game-prepare-root">
         <ui:VisualElement name="game-prepare-safe-root" class="game-prepare-safe-root">
+            <ui:VisualElement name="game-prepare-design-space" class="game-prepare-design-space">
+            <ui:VisualElement name="game-left-wireframe-rail" class="game-left-wireframe-rail">
+                <ui:VisualElement class="wire-status-row wire-status-active">
+                    <ui:Label text="1" class="wire-status-icon" />
+                    <ui:VisualElement class="wire-status-copy">
+                        <ui:Label text="전투" class="wire-status-name" />
+                        <ui:Label text="2 / 2" class="wire-status-count" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="wire-status-row">
+                    <ui:Label text="2" class="wire-status-icon" />
+                    <ui:VisualElement class="wire-status-copy">
+                        <ui:Label text="상점" class="wire-status-name" />
+                        <ui:Label text="1 / 1" class="wire-status-count" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="wire-status-row">
+                    <ui:Label text="3" class="wire-status-icon" />
+                    <ui:VisualElement class="wire-status-copy">
+                        <ui:Label text="방어" class="wire-status-name" />
+                        <ui:Label text="4 / 6" class="wire-status-count" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="wire-status-row">
+                    <ui:Label text="4" class="wire-status-icon" />
+                    <ui:VisualElement class="wire-status-copy">
+                        <ui:Label text="마법" class="wire-status-name" />
+                        <ui:Label text="2 / 4" class="wire-status-count" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="wire-status-row">
+                    <ui:Label text="5" class="wire-status-icon" />
+                    <ui:VisualElement class="wire-status-copy">
+                        <ui:Label text="라운드" class="wire-status-name" />
+                        <ui:Label text="1 / 3" class="wire-status-count" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
             <ui:VisualElement name="augment-panel" class="prepare-panel augment-panel hidden">
                 <ui:VisualElement class="screen-frame frame-top" />
                 <ui:VisualElement class="screen-frame frame-bottom" />
@@ -11,210 +50,208 @@
                         <ui:VisualElement class="card-top-gem" />
                         <ui:VisualElement class="card-body">
                             <ui:Image name="augment-icon-0" class="card-icon augment-icon" />
-                            <ui:Label name="augment-tier-0" class="card-tier" text="AUGMENT" />
-                            <ui:Label name="augment-name-0" class="card-name" text="-" />
-                            <ui:Label name="augment-description-0" class="card-description" text="" />
+                            <ui:Label name="augment-tier-0" text="AUGMENT" class="card-tier" />
+                            <ui:Label name="augment-name-0" text="-" class="card-name" />
+                            <ui:Label name="augment-description-0" class="card-description" />
                         </ui:VisualElement>
                         <ui:VisualElement class="card-footer">
-                            <ui:Label name="augment-pick-0" class="card-footer-label" text="선택" />
+                            <ui:Label name="augment-pick-0" text="선택" class="card-footer-label" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:VisualElement name="augment-card-1" class="choice-card augment-card">
                         <ui:VisualElement class="card-top-gem" />
                         <ui:VisualElement class="card-body">
                             <ui:Image name="augment-icon-1" class="card-icon augment-icon" />
-                            <ui:Label name="augment-tier-1" class="card-tier" text="AUGMENT" />
-                            <ui:Label name="augment-name-1" class="card-name" text="-" />
-                            <ui:Label name="augment-description-1" class="card-description" text="" />
+                            <ui:Label name="augment-tier-1" text="AUGMENT" class="card-tier" />
+                            <ui:Label name="augment-name-1" text="-" class="card-name" />
+                            <ui:Label name="augment-description-1" class="card-description" />
                         </ui:VisualElement>
                         <ui:VisualElement class="card-footer">
-                            <ui:Label name="augment-pick-1" class="card-footer-label" text="선택" />
+                            <ui:Label name="augment-pick-1" text="선택" class="card-footer-label" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:VisualElement name="augment-card-2" class="choice-card augment-card">
                         <ui:VisualElement class="card-top-gem" />
                         <ui:VisualElement class="card-body">
                             <ui:Image name="augment-icon-2" class="card-icon augment-icon" />
-                            <ui:Label name="augment-tier-2" class="card-tier" text="AUGMENT" />
-                            <ui:Label name="augment-name-2" class="card-name" text="-" />
-                            <ui:Label name="augment-description-2" class="card-description" text="" />
+                            <ui:Label name="augment-tier-2" text="AUGMENT" class="card-tier" />
+                            <ui:Label name="augment-name-2" text="-" class="card-name" />
+                            <ui:Label name="augment-description-2" class="card-description" />
                         </ui:VisualElement>
                         <ui:VisualElement class="card-footer">
-                            <ui:Label name="augment-pick-2" class="card-footer-label" text="선택" />
+                            <ui:Label name="augment-pick-2" text="선택" class="card-footer-label" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
-
-            <ui:VisualElement name="shop-panel" class="prepare-panel shop-panel hidden">
+            <ui:VisualElement name="shop-panel" class="prepare-panel shop-panel">
                 <ui:VisualElement name="shop-card-row" class="shop-card-row">
-                    <ui:VisualElement name="shop-card-0" class="choice-card shop-card">
+                    <ui:VisualElement name="shop-card-0" class="choice-card shop-card shop-card-cost-1">
                         <ui:VisualElement class="card-top-gem" />
                         <ui:VisualElement class="card-body">
                             <ui:Image name="shop-icon-0" class="card-icon shop-icon" />
-                            <ui:Label name="shop-star-0" class="card-tier" text="-" />
-                            <ui:Label name="shop-name-0" class="card-name" text="-" />
-                            <ui:Label name="shop-cost-0" class="card-description" text="" />
+                            <ui:Label name="shop-star-0" text="-" class="card-tier" />
+                            <ui:Label name="shop-name-0" text="-" class="card-name" />
+                            <ui:Label name="shop-cost-0" class="card-description" />
                         </ui:VisualElement>
                         <ui:VisualElement class="card-footer">
-                            <ui:Label name="shop-buy-0" class="card-footer-label" text="구매" />
+                            <ui:Label name="shop-buy-0" text="구매" class="card-footer-label" />
                         </ui:VisualElement>
-                        <ui:Label name="shop-sold-0" class="sold-overlay hidden" text="구매 완료" />
+                        <ui:Label name="shop-sold-0" text="구매 완료" class="sold-overlay hidden" />
                     </ui:VisualElement>
-                    <ui:VisualElement name="shop-card-1" class="choice-card shop-card">
+                    <ui:VisualElement name="shop-card-1" class="choice-card shop-card shop-card-cost-2">
                         <ui:VisualElement class="card-top-gem" />
                         <ui:VisualElement class="card-body">
                             <ui:Image name="shop-icon-1" class="card-icon shop-icon" />
-                            <ui:Label name="shop-star-1" class="card-tier" text="-" />
-                            <ui:Label name="shop-name-1" class="card-name" text="-" />
-                            <ui:Label name="shop-cost-1" class="card-description" text="" />
+                            <ui:Label name="shop-star-1" text="-" class="card-tier" />
+                            <ui:Label name="shop-name-1" text="-" class="card-name" />
+                            <ui:Label name="shop-cost-1" class="card-description" />
                         </ui:VisualElement>
                         <ui:VisualElement class="card-footer">
-                            <ui:Label name="shop-buy-1" class="card-footer-label" text="구매" />
+                            <ui:Label name="shop-buy-1" text="구매" class="card-footer-label" />
                         </ui:VisualElement>
-                        <ui:Label name="shop-sold-1" class="sold-overlay hidden" text="구매 완료" />
+                        <ui:Label name="shop-sold-1" text="구매 완료" class="sold-overlay hidden" />
                     </ui:VisualElement>
-                    <ui:VisualElement name="shop-card-2" class="choice-card shop-card">
+                    <ui:VisualElement name="shop-card-2" class="choice-card shop-card shop-card-cost-3">
                         <ui:VisualElement class="card-top-gem" />
                         <ui:VisualElement class="card-body">
                             <ui:Image name="shop-icon-2" class="card-icon shop-icon" />
-                            <ui:Label name="shop-star-2" class="card-tier" text="-" />
-                            <ui:Label name="shop-name-2" class="card-name" text="-" />
-                            <ui:Label name="shop-cost-2" class="card-description" text="" />
+                            <ui:Label name="shop-star-2" text="-" class="card-tier" />
+                            <ui:Label name="shop-name-2" text="-" class="card-name" />
+                            <ui:Label name="shop-cost-2" class="card-description" />
                         </ui:VisualElement>
                         <ui:VisualElement class="card-footer">
-                            <ui:Label name="shop-buy-2" class="card-footer-label" text="구매" />
+                            <ui:Label name="shop-buy-2" text="구매" class="card-footer-label" />
                         </ui:VisualElement>
-                        <ui:Label name="shop-sold-2" class="sold-overlay hidden" text="구매 완료" />
+                        <ui:Label name="shop-sold-2" text="구매 완료" class="sold-overlay hidden" />
                     </ui:VisualElement>
-                    <ui:VisualElement name="shop-card-3" class="choice-card shop-card">
+                    <ui:VisualElement name="shop-card-3" class="choice-card shop-card shop-card-cost-4">
                         <ui:VisualElement class="card-top-gem" />
                         <ui:VisualElement class="card-body">
                             <ui:Image name="shop-icon-3" class="card-icon shop-icon" />
-                            <ui:Label name="shop-star-3" class="card-tier" text="-" />
-                            <ui:Label name="shop-name-3" class="card-name" text="-" />
-                            <ui:Label name="shop-cost-3" class="card-description" text="" />
+                            <ui:Label name="shop-star-3" text="-" class="card-tier" />
+                            <ui:Label name="shop-name-3" text="-" class="card-name" />
+                            <ui:Label name="shop-cost-3" class="card-description" />
                         </ui:VisualElement>
                         <ui:VisualElement class="card-footer">
-                            <ui:Label name="shop-buy-3" class="card-footer-label" text="구매" />
+                            <ui:Label name="shop-buy-3" text="구매" class="card-footer-label" />
                         </ui:VisualElement>
-                        <ui:Label name="shop-sold-3" class="sold-overlay hidden" text="구매 완료" />
+                        <ui:Label name="shop-sold-3" text="구매 완료" class="sold-overlay hidden" />
                     </ui:VisualElement>
-                    <ui:VisualElement name="shop-card-4" class="choice-card shop-card">
+                    <ui:VisualElement name="shop-card-4" class="choice-card shop-card shop-card-cost-5">
                         <ui:VisualElement class="card-top-gem" />
                         <ui:VisualElement class="card-body">
                             <ui:Image name="shop-icon-4" class="card-icon shop-icon" />
-                            <ui:Label name="shop-star-4" class="card-tier" text="-" />
-                            <ui:Label name="shop-name-4" class="card-name" text="-" />
-                            <ui:Label name="shop-cost-4" class="card-description" text="" />
+                            <ui:Label name="shop-star-4" text="-" class="card-tier" />
+                            <ui:Label name="shop-name-4" text="-" class="card-name" />
+                            <ui:Label name="shop-cost-4" class="card-description" />
                         </ui:VisualElement>
                         <ui:VisualElement class="card-footer">
-                            <ui:Label name="shop-buy-4" class="card-footer-label" text="구매" />
+                            <ui:Label name="shop-buy-4" text="구매" class="card-footer-label" />
                         </ui:VisualElement>
-                        <ui:Label name="shop-sold-4" class="sold-overlay hidden" text="구매 완료" />
+                        <ui:Label name="shop-sold-4" text="구매 완료" class="sold-overlay hidden" />
                     </ui:VisualElement>
                 </ui:VisualElement>
-                <ui:VisualElement class="shop-control-row">
-                    <ui:Label name="shop-status-label" class="shop-status-label" text="" />
+                <ui:VisualElement name="shop-control-row" class="shop-control-row">
+                    <ui:Label name="shop-status-label" class="shop-status-label" />
                     <ui:VisualElement name="shop-reroll-button" class="toolkit-button reroll-button">
-                        <ui:Label name="shop-reroll-label" class="toolkit-button-label" text="새로고침" />
+                        <ui:Label name="shop-reroll-label" text="새로고침" class="toolkit-button-label" />
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
-
             <ui:VisualElement name="attack-sequence-panel" class="attack-sequence-panel hidden">
                 <ui:VisualElement name="attack-monster-row" class="attack-monster-row">
                     <ui:VisualElement name="attack-monster-card-0" class="attack-card monster-attack-card">
                         <ui:Image name="attack-monster-icon-0" class="attack-card-icon" />
-                        <ui:Label name="attack-monster-name-0" class="attack-card-name" text="" />
-                        <ui:Label name="attack-monster-count-0" class="attack-card-count" text="" />
+                        <ui:Label name="attack-monster-name-0" class="attack-card-name" />
+                        <ui:Label name="attack-monster-count-0" class="attack-card-count" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-monster-card-1" class="attack-card monster-attack-card">
                         <ui:Image name="attack-monster-icon-1" class="attack-card-icon" />
-                        <ui:Label name="attack-monster-name-1" class="attack-card-name" text="" />
-                        <ui:Label name="attack-monster-count-1" class="attack-card-count" text="" />
+                        <ui:Label name="attack-monster-name-1" class="attack-card-name" />
+                        <ui:Label name="attack-monster-count-1" class="attack-card-count" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-monster-card-2" class="attack-card monster-attack-card">
                         <ui:Image name="attack-monster-icon-2" class="attack-card-icon" />
-                        <ui:Label name="attack-monster-name-2" class="attack-card-name" text="" />
-                        <ui:Label name="attack-monster-count-2" class="attack-card-count" text="" />
+                        <ui:Label name="attack-monster-name-2" class="attack-card-name" />
+                        <ui:Label name="attack-monster-count-2" class="attack-card-count" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-monster-card-3" class="attack-card monster-attack-card">
                         <ui:Image name="attack-monster-icon-3" class="attack-card-icon" />
-                        <ui:Label name="attack-monster-name-3" class="attack-card-name" text="" />
-                        <ui:Label name="attack-monster-count-3" class="attack-card-count" text="" />
+                        <ui:Label name="attack-monster-name-3" class="attack-card-name" />
+                        <ui:Label name="attack-monster-count-3" class="attack-card-count" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-monster-card-4" class="attack-card monster-attack-card">
                         <ui:Image name="attack-monster-icon-4" class="attack-card-icon" />
-                        <ui:Label name="attack-monster-name-4" class="attack-card-name" text="" />
-                        <ui:Label name="attack-monster-count-4" class="attack-card-count" text="" />
+                        <ui:Label name="attack-monster-name-4" class="attack-card-name" />
+                        <ui:Label name="attack-monster-count-4" class="attack-card-count" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-monster-card-5" class="attack-card monster-attack-card">
                         <ui:Image name="attack-monster-icon-5" class="attack-card-icon" />
-                        <ui:Label name="attack-monster-name-5" class="attack-card-name" text="" />
-                        <ui:Label name="attack-monster-count-5" class="attack-card-count" text="" />
+                        <ui:Label name="attack-monster-name-5" class="attack-card-name" />
+                        <ui:Label name="attack-monster-count-5" class="attack-card-count" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-monster-card-6" class="attack-card monster-attack-card">
                         <ui:Image name="attack-monster-icon-6" class="attack-card-icon" />
-                        <ui:Label name="attack-monster-name-6" class="attack-card-name" text="" />
-                        <ui:Label name="attack-monster-count-6" class="attack-card-count" text="" />
+                        <ui:Label name="attack-monster-name-6" class="attack-card-name" />
+                        <ui:Label name="attack-monster-count-6" class="attack-card-count" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-monster-card-7" class="attack-card monster-attack-card">
                         <ui:Image name="attack-monster-icon-7" class="attack-card-icon" />
-                        <ui:Label name="attack-monster-name-7" class="attack-card-name" text="" />
-                        <ui:Label name="attack-monster-count-7" class="attack-card-count" text="" />
+                        <ui:Label name="attack-monster-name-7" class="attack-card-name" />
+                        <ui:Label name="attack-monster-count-7" class="attack-card-count" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-monster-card-8" class="attack-card monster-attack-card">
                         <ui:Image name="attack-monster-icon-8" class="attack-card-icon" />
-                        <ui:Label name="attack-monster-name-8" class="attack-card-name" text="" />
-                        <ui:Label name="attack-monster-count-8" class="attack-card-count" text="" />
+                        <ui:Label name="attack-monster-name-8" class="attack-card-name" />
+                        <ui:Label name="attack-monster-count-8" class="attack-card-count" />
                     </ui:VisualElement>
                 </ui:VisualElement>
                 <ui:VisualElement name="attack-scroll-row" class="attack-scroll-row">
                     <ui:VisualElement name="attack-scroll-card-0" class="attack-card scroll-attack-card">
                         <ui:Image name="attack-scroll-icon-0" class="attack-card-icon scroll-attack-icon" />
-                        <ui:Label name="attack-scroll-name-0" class="attack-card-name scroll-attack-name" text="" />
+                        <ui:Label name="attack-scroll-name-0" class="attack-card-name scroll-attack-name" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-scroll-card-1" class="attack-card scroll-attack-card">
                         <ui:Image name="attack-scroll-icon-1" class="attack-card-icon scroll-attack-icon" />
-                        <ui:Label name="attack-scroll-name-1" class="attack-card-name scroll-attack-name" text="" />
+                        <ui:Label name="attack-scroll-name-1" class="attack-card-name scroll-attack-name" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-scroll-card-2" class="attack-card scroll-attack-card">
                         <ui:Image name="attack-scroll-icon-2" class="attack-card-icon scroll-attack-icon" />
-                        <ui:Label name="attack-scroll-name-2" class="attack-card-name scroll-attack-name" text="" />
+                        <ui:Label name="attack-scroll-name-2" class="attack-card-name scroll-attack-name" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-scroll-card-3" class="attack-card scroll-attack-card">
                         <ui:Image name="attack-scroll-icon-3" class="attack-card-icon scroll-attack-icon" />
-                        <ui:Label name="attack-scroll-name-3" class="attack-card-name scroll-attack-name" text="" />
+                        <ui:Label name="attack-scroll-name-3" class="attack-card-name scroll-attack-name" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-scroll-card-4" class="attack-card scroll-attack-card">
                         <ui:Image name="attack-scroll-icon-4" class="attack-card-icon scroll-attack-icon" />
-                        <ui:Label name="attack-scroll-name-4" class="attack-card-name scroll-attack-name" text="" />
+                        <ui:Label name="attack-scroll-name-4" class="attack-card-name scroll-attack-name" />
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
-
             <ui:VisualElement name="game-resource-root" class="game-resource-root">
                 <ui:VisualElement class="resource-pill resource-gold">
-                    <ui:Label class="resource-label" text="Gold" />
-                    <ui:Label name="game-gold-value" class="resource-value" text="0" />
+                    <ui:Label text="Gold" class="resource-label" />
+                    <ui:Label name="game-gold-value" text="0" class="resource-value" />
                 </ui:VisualElement>
                 <ui:VisualElement class="resource-pill resource-wall">
-                    <ui:Label class="resource-label" text="Stone" />
-                    <ui:Label name="game-wall-count-value" class="resource-value" text="0" />
+                    <ui:Label text="Stone" class="resource-label" />
+                    <ui:Label name="game-wall-count-value" text="0" class="resource-value" />
                 </ui:VisualElement>
             </ui:VisualElement>
-
+            <ui:VisualElement name="game-option-button" class="hud-button hud-icon-button">
+                <ui:Label name="game-option-label" text="옵션" class="hud-button-label" />
+            </ui:VisualElement>
+            <ui:Label name="game-round-timer-label" text="ROUND 1 00" class="round-timer-label" />
             <ui:VisualElement name="game-hud-root" class="game-hud-root">
-                <ui:VisualElement name="game-option-button" class="hud-button hud-icon-button">
-                    <ui:Label name="game-option-label" class="hud-button-label" text="Options" />
-                </ui:VisualElement>
                 <ui:VisualElement name="game-shop-toggle-button" class="hud-button hud-action-button">
-                    <ui:Label name="game-shop-toggle-label" class="hud-button-label" text="Shop" />
+                    <ui:Label name="game-shop-toggle-label" text="Shop" class="hud-button-label" />
                 </ui:VisualElement>
-                <ui:VisualElement name="game-wall-button" class="hud-button hud-action-button">
-                    <ui:Label name="game-wall-label" class="hud-button-label" text="Wall" />
+                <ui:VisualElement name="game-wall-button" class="hud-button hud-action-button hud-action-spaced">
+                    <ui:Label name="game-wall-label" text="Wall" class="hud-button-label" />
                 </ui:VisualElement>
+            </ui:VisualElement>
             </ui:VisualElement>
         </ui:VisualElement>
     </ui:VisualElement>

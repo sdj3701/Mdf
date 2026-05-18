@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-07
-Last used: 2026-05-07
-Last verified: 2026-05-07
-Use count: 1
+Last used: 2026-05-15
+Last verified: 2026-05-15
+Use count: 3
 Review after: 2026-08-05
 Triggers: no Unity instances running, not responding, manual Editor launch, status polling
 Applies to: unity-cli connector, Windows PowerShell, Unity 2021.3.45f1
@@ -28,3 +28,6 @@ Verification:
 
 Pitfalls:
 - v0.3.15 can print update notices to stderr even when the status command exits successfully; use the exit code and ready line, not the update notice, as the connector readiness signal.
+
+Lifecycle notes:
+- 2026-05-15: Opened Unity 2021.3.45f1 via Start-Process, polled unity-cli --project Mdfproject status through no-instance startup until ready on port 8090.
