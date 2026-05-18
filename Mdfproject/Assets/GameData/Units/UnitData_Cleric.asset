@@ -52,6 +52,8 @@ MonoBehaviour:
     rotationOffsetEuler: {x: 0, y: 0, z: 0}
     rotationMode: 0
     scaleMultiplier: 1
+    spawnNormalizedTime: 0.2
+    playbackSpeed: 1
     primaryRendererFlip: {x: 0, y: 0, z: 0}
     calibrationQuality: 0
     calibratedAttackClipGuid: 
@@ -62,6 +64,8 @@ MonoBehaviour:
     rotationOffsetEuler: {x: 0, y: 0, z: 0}
     rotationMode: 0
     scaleMultiplier: 1
+    spawnNormalizedTime: 0.2
+    playbackSpeed: 1
     primaryRendererFlip: {x: 0, y: 0, z: 0}
     calibrationQuality: 0
     calibratedAttackClipGuid: 
@@ -72,6 +76,8 @@ MonoBehaviour:
     rotationOffsetEuler: {x: 0, y: 0, z: 0}
     rotationMode: 0
     scaleMultiplier: 1
+    spawnNormalizedTime: 0.2
+    playbackSpeed: 1
     primaryRendererFlip: {x: 0, y: 0, z: 0}
     calibrationQuality: 0
     calibratedAttackClipGuid: 

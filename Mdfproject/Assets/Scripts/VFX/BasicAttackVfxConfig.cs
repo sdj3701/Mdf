@@ -27,6 +27,13 @@ public sealed class BasicAttackVfxConfig
 
     public float scaleMultiplier = 1f;
 
+    [Tooltip("Normalized attack animation time used by the tuning preview to spawn the slash. 0 is immediate, 1 is the end of the attack state.")]
+    [Range(0f, 0.95f)]
+    public float spawnNormalizedTime = 0.2f;
+
+    [Tooltip("Particle playback speed for this slash VFX. 1 is the prefab's original speed.")]
+    public float playbackSpeed = 1f;
+
     [Tooltip("Renderer flip applied to the primary slash mesh particle. Use this for visual sweep direction without moving the VFX root.")]
     public Vector3 primaryRendererFlip = Vector3.zero;
 
@@ -48,6 +55,8 @@ public sealed class BasicAttackVfxConfig
             rotationOffsetEuler = Vector3.zero,
             rotationMode = BasicAttackVfxRotationMode.TargetFacing,
             scaleMultiplier = 1f,
+            spawnNormalizedTime = 0.2f,
+            playbackSpeed = 1f,
             primaryRendererFlip = Vector3.zero,
             calibrationQuality = 0f
         };

@@ -26,7 +26,7 @@ public static class BasicAttackVfxRuntimeUtility
         return Quaternion.LookRotation(direction.sqrMagnitude > 1e-6f ? direction.normalized : Vector3.forward, Vector3.up);
     }
 
-    public static void RestartParticles(GameObject instance, Vector3 primaryRendererFlip)
+    public static void RestartParticles(GameObject instance, Vector3 primaryRendererFlip, float playbackSpeed = 1f)
     {
         if (instance == null)
         {
@@ -42,12 +42,14 @@ public static class BasicAttackVfxRuntimeUtility
         StopParticles(instance);
 
         var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
+        float resolvedPlaybackSpeed = Mathf.Max(0.01f, playbackSpeed);
         for (int i = 0; i < particles.Length; i++)
         {
             PreparePrimarySlashParticle(particles[i], primaryRendererFlip);
 
             var main = particles[i].main;
             main.loop = false;
+            main.simulationSpeed = resolvedPlaybackSpeed;
             particles[i].Play(true);
         }
     }

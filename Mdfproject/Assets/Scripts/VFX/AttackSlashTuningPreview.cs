@@ -2,6 +2,8 @@ using UnityEngine;
 
 #if UNITY_EDITOR
 using UnityEditor;
+using UnityEditor.AddressableAssets;
+using UnityEditor.AddressableAssets.Settings;
 #endif
 
 [DisallowMultipleComponent]
@@ -23,6 +25,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     [SerializeField] private Vector3 rotationOffsetEuler = Vector3.zero;
     [SerializeField] private BasicAttackVfxRotationMode rotationMode = BasicAttackVfxRotationMode.TargetFacing;
     [SerializeField] private float scaleMultiplier = 1f;
+    [SerializeField] private float playbackSpeed = 1f;
     [SerializeField] private Vector3 primaryRendererFlip = Vector3.zero;
 
     [Header("Animation Preview")]
@@ -60,12 +63,15 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     {
         starLevel = Mathf.Clamp(starLevel, 1, 3);
         scaleMultiplier = Mathf.Max(0.01f, scaleMultiplier);
+        playbackSpeed = Mathf.Max(0.01f, playbackSpeed);
+        attackSpawnNormalizedTime = Mathf.Clamp(attackSpawnNormalizedTime, 0f, 0.95f);
         previewLifetimeSeconds = Mathf.Max(0.05f, previewLifetimeSeconds);
         loopIntervalSeconds = Mathf.Max(0.05f, loopIntervalSeconds);
     }
 
     private void OnEnable()
     {
+        PullFromUnitData();
         _nextLoopPreviewTime = 0f;
     }
 
@@ -162,7 +168,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     {
         if (restartExistingPreviewInstance && _lastPreviewInstance != null)
         {
-            BasicAttackVfxRuntimeUtility.RestartParticles(_lastPreviewInstance, primaryRendererFlip);
+            BasicAttackVfxRuntimeUtility.RestartParticles(_lastPreviewInstance, primaryRendererFlip, playbackSpeed);
 
 #if UNITY_EDITOR
             if (selectInstance)
@@ -212,7 +218,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         }
 
         marker.Initialize(this, origin, attackRotation, slashPrefab.transform.localScale);
-        BasicAttackVfxRuntimeUtility.RestartParticles(instance, primaryRendererFlip);
+        BasicAttackVfxRuntimeUtility.RestartParticles(instance, primaryRendererFlip, playbackSpeed);
         _lastPreviewInstance = instance;
 
         if (autoDestroyPreviewInstances && Application.isPlaying)
@@ -261,6 +267,14 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
             slashPrefabAddress = config.prefabKey;
         }
 
+#if UNITY_EDITOR
+        GameObject resolvedSlashPrefab = ResolveEditorAddressableGameObject(slashPrefabAddress);
+        if (resolvedSlashPrefab != null)
+        {
+            slashPrefab = resolvedSlashPrefab;
+        }
+#endif
+
         spawnOrigin = !string.IsNullOrWhiteSpace(config.spawnOriginPath)
             ? transform.Find(config.spawnOriginPath)
             : null;
@@ -268,6 +282,8 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         rotationOffsetEuler = config.rotationOffsetEuler;
         rotationMode = config.rotationMode;
         scaleMultiplier = config.scaleMultiplier > 0f ? config.scaleMultiplier : 1f;
+        playbackSpeed = config.playbackSpeed > 0f ? config.playbackSpeed : 1f;
+        attackSpawnNormalizedTime = Mathf.Clamp(config.spawnNormalizedTime, 0f, 0.95f);
         primaryRendererFlip = config.primaryRendererFlip;
     }
 
@@ -322,6 +338,8 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         config.rotationOffsetEuler = rotationOffsetEuler;
         config.rotationMode = rotationMode;
         config.scaleMultiplier = Mathf.Max(0.01f, scaleMultiplier);
+        config.spawnNormalizedTime = Mathf.Clamp(attackSpawnNormalizedTime, 0f, 0.95f);
+        config.playbackSpeed = Mathf.Max(0.01f, playbackSpeed);
         config.primaryRendererFlip = primaryRendererFlip;
         config.calibrationQuality = 1f;
         config.calibratedAttackClipGuid = string.Empty;
@@ -459,4 +477,36 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
 
         return cursor == root ? path : string.Empty;
     }
+
+#if UNITY_EDITOR
+    private static GameObject ResolveEditorAddressableGameObject(string address)
+    {
+        AddressableAssetSettings settings = AddressableAssetSettingsDefaultObject.Settings;
+        if (settings == null || string.IsNullOrWhiteSpace(address))
+        {
+            return null;
+        }
+
+        foreach (AddressableAssetGroup group in settings.groups)
+        {
+            if (group == null)
+            {
+                continue;
+            }
+
+            foreach (AddressableAssetEntry entry in group.entries)
+            {
+                if (entry == null || entry.address != address)
+                {
+                    continue;
+                }
+
+                string assetPath = AssetDatabase.GUIDToAssetPath(entry.guid);
+                return string.IsNullOrWhiteSpace(assetPath) ? null : AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+            }
+        }
+
+        return null;
+    }
+#endif
 }

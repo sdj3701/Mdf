@@ -255,6 +255,7 @@ MonoBehaviour:
   rotationOffsetEuler: {x: 70.19102, y: 104.16525, z: 87.35192}
   rotationMode: 1
   scaleMultiplier: 0.6569911
+  playbackSpeed: 1
   primaryRendererFlip: {x: 0, y: 0, z: 0}
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
@@ -572,6 +573,7 @@ MonoBehaviour:
   rotationOffsetEuler: {x: 317.4, y: 238.34396, z: 6.899991}
   rotationMode: 1
   scaleMultiplier: 0.3
+  playbackSpeed: 1
   primaryRendererFlip: {x: 0, y: 0, z: 0}
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
@@ -1029,6 +1031,7 @@ MonoBehaviour:
   rotationOffsetEuler: {x: 48.03351, y: -15.621185, z: -65.756775}
   rotationMode: 0
   scaleMultiplier: 0.2
+  playbackSpeed: 1
   primaryRendererFlip: {x: 0, y: 0, z: 0}
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack

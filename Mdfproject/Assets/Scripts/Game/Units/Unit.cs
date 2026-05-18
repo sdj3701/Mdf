@@ -410,11 +410,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         if (animator != null && Object != null && !Object.HasStateAuthority)
         {
-            float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
+            float animRate = GetCappedAttackAnimationRate();
             if (animRate > 0f)
             {
-                float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
-                animator.speed = Mathf.Max(0.01f, speed);
+                animator.speed = CalculateAttackAnimationPlaybackSpeed(animRate);
                 
                 float minInterval = 1f / animRate;
                 if (animSpeedResetRoutine != null)
@@ -1053,14 +1052,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (IsDead || !isCombatPhase) return false;
         if (IsSkillCasting()) return false;
         if (animator == null) return false;
-        float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
+        float animRate = GetCappedAttackAnimationRate();
         if (animRate <= 0f) return false;
         float now = Time.time;
         float minInterval = 1f / animRate;
         if (now - lastAttackAnimTime < minInterval) return false;
         lastAttackAnimTime = now;
-        float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
-        animator.speed = Mathf.Max(0.01f, speed);
+        animator.speed = CalculateAttackAnimationPlaybackSpeed(animRate);
         animator.ResetTrigger(attackTriggerParam);
         animator.SetTrigger(attackTriggerParam);
         if (animSpeedResetRoutine != null)
@@ -1078,6 +1076,28 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             NetworkedIsAttacking = !NetworkedIsAttacking;
         }
         return true;
+    }
+
+    public float GetCappedAttackAnimationPlaybackSpeed()
+    {
+        float animRate = GetCappedAttackAnimationRate();
+        if (animRate <= 0f)
+        {
+            return 1f;
+        }
+
+        return CalculateAttackAnimationPlaybackSpeed(animRate);
+    }
+
+    private float GetCappedAttackAnimationRate()
+    {
+        return Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
+    }
+
+    private float CalculateAttackAnimationPlaybackSpeed(float animRate)
+    {
+        float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
+        return Mathf.Max(0.01f, speed);
     }
 
     private IEnumerator ResetAnimatorSpeedAfter(float seconds)
