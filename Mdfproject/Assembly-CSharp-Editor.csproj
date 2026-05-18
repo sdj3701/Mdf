@@ -62,8 +62,10 @@
     <Analyzer Include="C:\Users\k05n1\.vscode\extensions\visualstudiotoolsforunity.vstuc-1.2.2\Analyzers\Microsoft.Unity.Analyzers.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\Scripts\Editor\UnitMeleeRangeEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\AssetReserializeTool.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Editor\ReadmeEditor.cs" />
+    <Compile Include="Assets\Scripts\Editor\FieldManagerUnitPresentationEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestUnityCliTools.cs" />
     <Compile Include="Assets\Scripts\Editor\MissingScriptFinder.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\BuildAutomation.cs" />
@@ -72,17 +74,17 @@
     <Compile Include="Assets\Scripts\Editor\GoogleSheetDataImporter.cs" />
     <Compile Include="Assets\Scripts\Editor\UITKTextSettingsSetup.cs" />
     <Compile Include="Assets\Scripts\Editor\DataExporter.cs" />
+    <Compile Include="Assets\Scripts\Editor\AddressablesRegistryEditModeTests.cs" />
     <Compile Include="Assets\Scripts\UI\ReLogin\Editor\ReLoginUIToolkitSceneInstaller.cs" />
     <Compile Include="Assets\Scripts\UI\TestMatching\Editor\TestMatchingUIToolkitSceneInstaller.cs" />
     <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeViewer.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestHarnessEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\AddressableKeyDrawer.cs" />
     <Compile Include="Assets\Resource\VFX\Hovl Studio\HSFiles\Scripts\Editor\ShaderChanger.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\AttackSlashCalibrationEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Editor\AttackSlashCalibratorWindow.cs" />
-    <Compile Include="Assets\Scripts\Editor\UnitMeleeRangeEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Editor\FieldManagerUnitPresentationEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Editor\AddressablesRegistryEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Editor\AttackSlashTuningPreviewEditor.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\AttackSlashTuningEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Editor\AttackSlashTuningSceneInstaller.cs" />
+    <Compile Include="Assets\Scripts\Editor\AttackSlashAnimatorDefaultsTool.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Firebase\Editor\FirebaseCrashlytics_version-13.2.0_manifest.txt" />

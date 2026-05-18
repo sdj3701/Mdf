@@ -27,6 +27,9 @@ public sealed class BasicAttackVfxConfig
 
     public float scaleMultiplier = 1f;
 
+    [Tooltip("Renderer flip applied to the primary slash mesh particle. Use this for visual sweep direction without moving the VFX root.")]
+    public Vector3 primaryRendererFlip = Vector3.zero;
+
     [Range(0f, 1f)]
     public float calibrationQuality;
 
@@ -45,6 +48,7 @@ public sealed class BasicAttackVfxConfig
             rotationOffsetEuler = Vector3.zero,
             rotationMode = BasicAttackVfxRotationMode.TargetFacing,
             scaleMultiplier = 1f,
+            primaryRendererFlip = Vector3.zero,
             calibrationQuality = 0f
         };
     }

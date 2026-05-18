@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-16
-Last verified: 2026-05-05
-Use count: 10
+Last used: 2026-05-18
+Last verified: 2026-05-18
+Use count: 13
 Review after: 2026-08-03
 Triggers: mp_dump_state, mp_assert_state, mp_build_player, custom tool smoke
 Applies to: unity-cli connector 0.3.15 custom tools
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; unity-cli --project Mdfproject attack_slash_rebuild_test_scene => exit 0; Assets/Scenes/test.unity rebuilt with AttackSlashTuning_Root; unity-cli --project Mdfproject attack_slash_rebuild_test_scene => exit 0; Assets/Scenes/test.unity loopAttackAndVfx=1 serialized; unity-cli --project Mdfproject attack_slash_fix_animator_defaults => AttackTrigger defaultBool was reset to false
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -31,3 +31,8 @@ Verification:
 
 Pitfalls:
 - A snapshot from `Title` is only a tool smoke. It is not a gameplay PASS because `GameManagers` and players are absent.
+
+Lifecycle notes:
+- 2026-05-18: verified artifact `unity-cli --project Mdfproject attack_slash_rebuild_test_scene => exit 0; Assets/Scenes/test.unity rebuilt with AttackSlashTuning_Root`
+- 2026-05-18: verified artifact `unity-cli --project Mdfproject attack_slash_rebuild_test_scene => exit 0; Assets/Scenes/test.unity loopAttackAndVfx=1 serialized`
+- 2026-05-18: verified artifact `unity-cli --project Mdfproject attack_slash_fix_animator_defaults => AttackTrigger defaultBool was reset to false`

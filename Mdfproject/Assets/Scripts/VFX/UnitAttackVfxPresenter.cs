@@ -4,8 +4,6 @@ using UnityEngine;
 
 public class UnitAttackVfxPresenter : MonoBehaviour
 {
-    private const uint PrimarySlashRandomSeed = 1u;
-
     [SerializeField] private Transform spawnOrigin;
     [SerializeField] private float forwardOffset = 0.75f;
     [SerializeField] private float heightOffset = 0.6f;
@@ -117,6 +115,7 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         Vector3 localOffset = config != null ? config.localPositionOffset : new Vector3(0f, heightOffset, forwardOffset);
         Vector3 eulerOffset = config != null ? config.rotationOffsetEuler : rotationOffsetEuler;
         float resolvedScale = config != null && config.scaleMultiplier > 0f ? config.scaleMultiplier : scaleMultiplier;
+        Vector3 primaryRendererFlip = config != null ? config.primaryRendererFlip : Vector3.zero;
         Vector3 position = origin.position + attackRotation * localOffset;
         Quaternion rotation = attackRotation * Quaternion.Euler(eulerOffset);
 
@@ -133,7 +132,7 @@ public class UnitAttackVfxPresenter : MonoBehaviour
 
         TrackActiveInstance(instance);
         instance.transform.localScale = prefab.transform.localScale * resolvedScale;
-        RestartParticles(instance);
+        BasicAttackVfxRuntimeUtility.RestartParticles(instance, primaryRendererFlip);
         EnsureAutoDestroy(instance);
     }
 
@@ -176,7 +175,7 @@ public class UnitAttackVfxPresenter : MonoBehaviour
                 autoDestroy.Cancel();
             }
 
-            StopParticles(instance);
+            BasicAttackVfxRuntimeUtility.StopParticles(instance);
             if (instance.TryGetComponent<PooledObject>(out var pooled))
             {
                 pooled.ReturnToPool();
@@ -222,18 +221,9 @@ public class UnitAttackVfxPresenter : MonoBehaviour
 
     private Quaternion ResolveAttackRotation(Unit unit, Vector3 direction, BasicAttackVfxConfig config)
     {
-        if (config != null && config.rotationMode == BasicAttackVfxRotationMode.UnitForward)
-        {
-            Transform basis = unit != null ? unit.transform : transform;
-            Vector3 unitForward = basis.forward;
-            unitForward.y = 0f;
-            if (unitForward.sqrMagnitude > 1e-6f)
-            {
-                return Quaternion.LookRotation(unitForward.normalized, Vector3.up);
-            }
-        }
-
-        return Quaternion.LookRotation(direction, Vector3.up);
+        Transform basis = unit != null ? unit.transform : transform;
+        BasicAttackVfxRotationMode rotationMode = config != null ? config.rotationMode : BasicAttackVfxRotationMode.TargetFacing;
+        return BasicAttackVfxRuntimeUtility.ResolveAttackRotation(basis, direction, rotationMode);
     }
 
     private Vector3 ResolveDirection(Transform target, BasicAttackVfxConfig config)
@@ -249,69 +239,6 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         }
 
         return direction.normalized;
-    }
-    private static void RestartParticles(GameObject instance)
-    {
-        var trails = instance.GetComponentsInChildren<TrailRenderer>(true);
-        for (int i = 0; i < trails.Length; i++)
-        {
-            trails[i].Clear();
-        }
-
-        StopParticles(instance);
-
-        var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
-        for (int i = 0; i < particles.Length; i++)
-        {
-            PrepareDeterministicPrimarySlashParticle(particles[i]);
-
-            var main = particles[i].main;
-            main.loop = false;
-            particles[i].Play(true);
-        }
-    }
-
-    private static void PrepareDeterministicPrimarySlashParticle(ParticleSystem system)
-    {
-        if (system == null)
-        {
-            return;
-        }
-
-        var renderer = system.GetComponent<ParticleSystemRenderer>();
-        if (renderer == null ||
-            renderer.renderMode != ParticleSystemRenderMode.Mesh ||
-            renderer.mesh == null ||
-            !NameContains(renderer.mesh.name, "Slash"))
-        {
-            return;
-        }
-
-        Material material = renderer.sharedMaterial;
-        if (material != null && !NameContains(material.name, "SwordSlash"))
-        {
-            return;
-        }
-
-        system.useAutoRandomSeed = false;
-        system.randomSeed = PrimarySlashRandomSeed;
-    }
-
-    private static void StopParticles(GameObject instance)
-    {
-        var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
-        for (int i = 0; i < particles.Length; i++)
-        {
-            var main = particles[i].main;
-            main.loop = false;
-            particles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        }
-    }
-
-    private static bool NameContains(string value, string pattern)
-    {
-        return !string.IsNullOrEmpty(value) &&
-            value.IndexOf(pattern, System.StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void EnsureAutoDestroy(GameObject instance)
