@@ -764,6 +764,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(tree?.Q<Label>("game-gold-value"), Is.Not.Null);
         Assert.That(tree?.Q<Label>("game-wall-count-value"), Is.Not.Null);
         Assert.That(Regex.Matches(uxml, "name=\"shop-card-\\d\"").Count, Is.EqualTo(5));
+        Assert.That(Regex.Matches(uxml, "class=\"shop-art-frame\"").Count, Is.EqualTo(5));
+        Assert.That(Regex.Matches(uxml, "class=\"shop-text-overlay\"").Count, Is.EqualTo(5));
         Assert.That(Regex.Matches(uxml, "name=\"augment-card-\\d\"").Count, Is.EqualTo(3));
         Assert.That(Regex.Matches(uxml, "name=\"attack-monster-card-\\d\"").Count, Is.EqualTo(9));
         Assert.That(Regex.Matches(uxml, "name=\"attack-scroll-card-\\d\"").Count, Is.EqualTo(5));
@@ -783,6 +785,9 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("RerollButtonSize"));
         Assert.That(controllerSource, Does.Contain("StyleKeyword.Auto"));
         Assert.That(controllerSource, Does.Contain("ApplyCostBackground"));
+        Assert.That(controllerSource, Does.Contain("ScaleMode.ScaleAndCrop"));
+        Assert.That(controllerSource, Does.Contain("icon.style.flexShrink = 0f"));
+        Assert.That(controllerSource, Does.Contain("shop-art-frame"));
         Assert.That(controllerSource, Does.Contain("item.UnitData.cost"));
         Assert.That(controllerSource, Does.Contain("GetShopCardCostClass"));
         Assert.That(controllerSource, Does.Contain("topGem.style.display = DisplayStyle.None"));
@@ -825,6 +830,12 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("padding-left: 120px;"));
         Assert.That(styleSource, Does.Contain("width: 280px;"));
         Assert.That(styleSource, Does.Contain("height: 350px;"));
+        Assert.That(styleSource, Does.Contain("scale-and-crop"));
+        Assert.That(styleSource, Does.Contain("flex-shrink: 0;"));
+        Assert.That(styleSource, Does.Contain(".shop-art-frame"));
+        Assert.That(styleSource, Does.Contain(".shop-text-overlay"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.shop-card \.card-name\s*\{.*?-unity-font-style:\s*bold;"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.shop-card \.card-description\s*\{.*?-unity-font-style:\s*bold;"));
         Assert.That(styleSource, Does.Contain("width: 180px;"));
         Assert.That(styleSource, Does.Contain("height: 180px;"));
         Assert.That(styleSource, Does.Contain("width: 84px;"));
@@ -837,11 +848,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("position: absolute;"));
         Assert.That(styleSource, Does.Contain(".shop-card"));
         Assert.That(styleSource, Does.Contain("background-image: url"));
-        Assert.That(styleSource, Does.Contain("../../../Resource/Image/UI/SlotUI/Spr_SlotGray.png"));
-        Assert.That(styleSource, Does.Contain("../../../Resource/Image/UI/SlotUI/Spr_SlotGreen.png"));
-        Assert.That(styleSource, Does.Contain("../../../Resource/Image/UI/SlotUI/Spr_SlotBlue.png"));
-        Assert.That(styleSource, Does.Contain("../../../Resource/Image/UI/SlotUI/Spr_SlotPurple.png"));
-        Assert.That(styleSource, Does.Contain("../../../Resource/Image/UI/SlotUI/Spr_SlotOrange.png"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotGray.png"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotGreen.png"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotBlue.png"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotPurple.png"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotOrange.png"));
         Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotGray.png.meta"), Does.Contain("spriteMeshType: 0"));
         Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotGreen.png.meta"), Does.Contain("spriteMeshType: 0"));
         Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotBlue.png.meta"), Does.Contain("spriteMeshType: 0"));

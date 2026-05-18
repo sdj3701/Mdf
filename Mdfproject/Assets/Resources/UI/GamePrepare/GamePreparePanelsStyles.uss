@@ -1,15 +1,3 @@
-/* GamePreparePanels 위치/크기 수정 가이드
-   - 상점 카드 줄: .shop-panel의 padding-left/right/top
-   - 상점 카드 크기: .shop-card의 width/height, 실제 런타임은 GamePrepareUIToolkitController.ApplyResponsiveSize가 덮어씀
-   - 상점 카드 내부 초상화: .shop-icon의 width/height
-   - 새로고침 버튼: .shop-control-row의 right/top, .toolkit-button의 width/height
-   - 좌상단 옵션/상점/벽 버튼: .hud-icon-button, .game-hud-root, .hud-button
-   - 라운드 타이머: .round-timer-label의 left/top/width/height
-   - 골드/스톤 표시: .game-resource-root의 right/bottom, .resource-pill의 min-width/height
-   - 공격 순서 패널: .attack-sequence-panel의 left/right/bottom, .attack-card의 width/height
-   주의: C#에서 직접 style 값을 넣는 항목은 USS 미리보기와 실제 게임 위치가 다를 수 있습니다.
-*/
-
 .game-prepare-root {
     position: absolute;
     left: 0;
@@ -17,7 +5,7 @@
     top: 0;
     bottom: 0;
     flex-grow: 1;
-    -unity-font-definition: url("/Assets/Resources/Fonts & Materials/NotoSansKR-VariableFont_wght_UITK.asset");
+    -unity-font-definition: url("project://database/Assets/Resources/Fonts%20&%20Materials/NotoSansKR-VariableFont_wght_UITK.asset?fileID=11400000&guid=9c2a7d7936fa41642b7f7f1396b8f8bc&type=2#NotoSansKR-VariableFont_wght_UITK");
 }
 
 .game-prepare-safe-root {
@@ -36,7 +24,7 @@
     height: 900px;
     transform-origin: left top;
     overflow: hidden;
-    -unity-font-definition: url("/Assets/Resources/Fonts & Materials/NotoSansKR-VariableFont_wght_UITK.asset");
+    -unity-font-definition: url("project://database/Assets/Resources/Fonts%20&%20Materials/NotoSansKR-VariableFont_wght_UITK.asset?fileID=11400000&guid=9c2a7d7936fa41642b7f7f1396b8f8bc&type=2#NotoSansKR-VariableFont_wght_UITK");
 }
 
 .game-left-wireframe-rail {
@@ -63,7 +51,6 @@
 }
 
 .augment-panel {
-    /* EDIT 위치: padding-top을 키우면 증강 카드 줄이 아래로 내려갑니다. */
     padding-left: 48px;
     padding-right: 48px;
     padding-top: 250px;
@@ -71,7 +58,6 @@
 }
 
 .shop-panel {
-    /* EDIT 위치: padding-top은 상점 카드 줄의 세로 위치, padding-left/right는 좌우 여백입니다. */
     padding-left: 120px;
     padding-right: 20px;
     padding-top: 132px;
@@ -119,7 +105,6 @@
 }
 
 .shop-card-row {
-    /* EDIT 정렬: center/flex-start로 상점 카드 줄의 기준 정렬을 조절합니다. */
     flex-direction: row;
     align-items: center;
     justify-content: center;
@@ -127,7 +112,6 @@
 }
 
 .choice-card {
-    /* EDIT 간격: margin-left/right가 카드 사이 가로 간격입니다. */
     position: relative;
     margin-left: 14px;
     margin-right: 14px;
@@ -158,13 +142,11 @@
 }
 
 .augment-card {
-    /* EDIT 크기: 증강 카드의 UI Builder 미리보기 크기입니다. */
     width: 332px;
     height: 480px;
 }
 
 .shop-card {
-    /* EDIT 크기: 상점 카드의 UI Builder 미리보기 크기입니다. 실제 게임 크기는 C#에서 다시 계산됩니다. */
     width: 280px;
     height: 350px;
     margin-left: 6px;
@@ -182,32 +164,26 @@
 }
 
 .shop-card-cost-1 {
-    /* EDIT 이미지: 1코스트 카드 배경입니다. */
-    background-image: url("../../../Resource/Image/UI/SlotUI/Spr_SlotGray.png");
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotGray.png?fileID=21300000&guid=e92700a15c3cbf14caa7a22b0252ba33&type=3#Spr_SlotGray");
 }
 
 .shop-card-cost-2 {
-    /* EDIT 이미지: 2코스트 카드 배경입니다. */
-    background-image: url("../../../Resource/Image/UI/SlotUI/Spr_SlotGreen.png");
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotGreen.png?fileID=21300000&guid=3791f64c32ca2c44c9e158cefb12a9b1&type=3#Spr_SlotGreen");
 }
 
 .shop-card-cost-3 {
-    /* EDIT 이미지: 3코스트 카드 배경입니다. */
-    background-image: url("../../../Resource/Image/UI/SlotUI/Spr_SlotBlue.png");
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotBlue.png?fileID=21300000&guid=93b97824a226aa642962af23863abb6b&type=3#Spr_SlotBlue");
 }
 
 .shop-card-cost-4 {
-    /* EDIT 이미지: 4코스트 카드 배경입니다. */
-    background-image: url("../../../Resource/Image/UI/SlotUI/Spr_SlotPurple.png");
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotPurple.png?fileID=21300000&guid=765be8daac9c04344b1a094daeafcf15&type=3#Spr_SlotPurple");
 }
 
 .shop-card-cost-5 {
-    /* EDIT 이미지: 5코스트 카드 배경입니다. */
-    background-image: url("../../../Resource/Image/UI/SlotUI/Spr_SlotOrange.png");
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotOrange.png?fileID=21300000&guid=375a6a7f78ca3754580b29a494ea5e47&type=3#Spr_SlotOrange");
 }
 
 .card-top-gem {
-    /* EDIT 위치/크기: 카드 위 장식 위치는 top, 크기는 width/height입니다. */
     position: absolute;
     top: -24px;
     left: 50%;
@@ -230,7 +206,6 @@
 }
 
 .card-body {
-    /* EDIT 내부 위치: padding 값으로 카드 안의 아이콘/텍스트 위치를 조절합니다. */
     flex-grow: 1;
     align-items: center;
     justify-content: center;
@@ -242,7 +217,6 @@
 }
 
 .card-icon {
-    /* EDIT 공통 아이콘 크기: width/height가 기본 카드 아이콘 크기입니다. */
     width: 142px;
     height: 142px;
     margin-bottom: 12px;
@@ -251,7 +225,6 @@
 }
 
 .augment-icon {
-    /* EDIT 증강 아이콘 크기입니다. */
     width: 150px;
     height: 150px;
     opacity: 0.58;
@@ -259,13 +232,20 @@
 }
 
 .shop-icon {
-    /* EDIT 상점 초상화 크기입니다. */
-    width: 140px;
-    height: 140px;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: auto;
+    height: auto;
+    margin-bottom: 0;
+    opacity: 1;
+    flex-shrink: 0;
+    -unity-background-scale-mode: scale-and-crop;
 }
 
 .card-tier {
-    /* EDIT 글자: 별/등급 텍스트 크기입니다. */
     color: rgb(215, 184, 100);
     font-size: 19px;
     -unity-font-style: bold;
@@ -274,7 +254,6 @@
 }
 
 .card-name {
-    /* EDIT 글자: 카드 이름 텍스트 크기와 아래 간격입니다. */
     color: rgb(242, 236, 220);
     font-size: 25px;
     -unity-font-style: bold;
@@ -284,7 +263,6 @@
 }
 
 .card-description {
-    /* EDIT 글자: 카드 설명/골드 텍스트 크기입니다. */
     color: rgb(184, 196, 217);
     font-size: 18px;
     -unity-text-align: middle-center;
@@ -307,7 +285,6 @@
 }
 
 .card-footer {
-    /* EDIT 크기: 카드 아래 버튼/구매 영역 높이입니다. */
     height: 76px;
     align-items: center;
     justify-content: center;
@@ -322,6 +299,50 @@
 
 .shop-card .card-body {
     background-color: rgba(0, 0, 0, 0);
+    align-items: stretch;
+    justify-content: flex-start;
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 10px;
+    padding-bottom: 0;
+}
+
+.shop-art-frame {
+    position: relative;
+    flex-grow: 1;
+    overflow: hidden;
+    background-color: rgb(4, 8, 13);
+}
+
+.shop-text-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: flex-end;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-bottom: 20px;
+    background-color: rgba(0, 0, 0, 0.16);
+}
+
+.shop-card .card-tier {
+    color: rgb(255, 224, 126);
+    margin-bottom: 8px;
+}
+
+.shop-card .card-name {
+    font-size: 24px;
+    -unity-font-style: bold;
+    margin-bottom: 8px;
+}
+
+.shop-card .card-description {
+    color: rgb(208, 217, 231);
+    font-size: 24px;
+    -unity-font-style: bold;
 }
 
 .shop-card .card-footer {
@@ -330,7 +351,6 @@
 }
 
 .card-footer-label {
-    /* EDIT 글자: 구매 버튼 글자 크기입니다. */
     color: rgb(245, 231, 194);
     font-size: 22px;
     -unity-font-style: bold;
@@ -338,7 +358,6 @@
 }
 
 .sold-overlay {
-    /* EDIT 크기/글자: 구매 완료 덮개는 카드 전체를 덮고, font-size로 글자 크기를 바꿉니다. */
     position: absolute;
     left: 0;
     right: 0;
@@ -354,7 +373,6 @@
 }
 
 .shop-control-row {
-    /* EDIT 위치: right/top이 새로고침 버튼 위치입니다. width/height는 버튼 영역 크기입니다. */
     position: absolute;
     right: 28px;
     top: 506px;
@@ -366,7 +384,6 @@
 }
 
 .shop-status-label {
-    /* EDIT 글자: 상점 상태 문구 크기와 버튼과의 간격입니다. */
     color: rgb(237, 218, 159);
     font-size: 18px;
     -unity-font-style: bold;
@@ -374,7 +391,6 @@
 }
 
 .toolkit-button {
-    /* EDIT 크기: 새로고침 버튼 크기입니다. radius는 width/height의 절반이면 둥글게 보입니다. */
     width: 180px;
     min-width: 180px;
     height: 180px;
@@ -402,7 +418,6 @@
 }
 
 .toolkit-button-label {
-    /* EDIT 글자: 새로고침 버튼 글자 크기입니다. */
     color: rgb(248, 231, 181);
     font-size: 22px;
     -unity-font-style: bold;
@@ -410,7 +425,6 @@
 }
 
 .game-hud-root {
-    /* EDIT 위치: 우상단 상점/벽 버튼 묶음입니다. right/top과 width/height를 조절합니다. */
     position: absolute;
     right: 28px;
     top: 12px;
@@ -422,7 +436,6 @@
 }
 
 .hud-button {
-    /* EDIT 크기: 상점/벽 버튼 크기입니다. width/height/min-width를 같이 맞춥니다. */
     width: 84px;
     height: 84px;
     min-width: 84px;
@@ -453,7 +466,6 @@
 }
 
 .hud-icon-button {
-    /* EDIT 위치: 옵션 버튼 위치입니다. left/top으로 이동합니다. */
     position: absolute;
     left: 28px;
     top: 12px;
@@ -466,12 +478,10 @@
 }
 
 .hud-action-spaced {
-    /* EDIT 간격: 상점 버튼과 벽 버튼 사이 간격입니다. */
     margin-left: 12px;
 }
 
 .hud-button-label {
-    /* EDIT 글자: 좌상단 버튼 안 글자 크기입니다. */
     width: 84px;
     color: rgb(248, 232, 182);
     font-size: 18px;
@@ -489,7 +499,6 @@
 }
 
 .round-timer-label {
-    /* EDIT 위치/크기: 라운드 타이머입니다. left/top으로 이동하고 width/height/font-size로 크기를 조절합니다. */
     position: absolute;
     left: 480px;
     top: 12px;
@@ -519,7 +528,6 @@
 }
 
 .game-resource-root {
-    /* EDIT 위치: 골드/스톤 묶음입니다. right/bottom으로 위치를 조절합니다. */
     position: absolute;
     right: 28px;
     bottom: 26px;
@@ -528,7 +536,6 @@
 }
 
 .resource-pill {
-    /* EDIT 크기: 골드/스톤 한 줄 박스입니다. min-width/height와 padding을 같이 조절합니다. */
     min-width: 146px;
     height: 46px;
     margin-top: 8px;
@@ -553,7 +560,6 @@
 }
 
 .resource-label {
-    /* EDIT 글자: Gold/Stone 라벨 글자 크기입니다. */
     color: rgb(215, 184, 100);
     font-size: 18px;
     -unity-font-style: bold;
@@ -562,7 +568,6 @@
 }
 
 .resource-value {
-    /* EDIT 글자: Gold/Stone 숫자 글자 크기입니다. */
     color: rgb(248, 232, 182);
     font-size: 24px;
     -unity-font-style: bold;
@@ -570,7 +575,6 @@
 }
 
 .attack-sequence-panel {
-    /* EDIT 위치: 공격 순서 선택 패널입니다. left/right/bottom으로 화면 안 위치를 조절합니다. */
     position: absolute;
     left: 24px;
     right: 184px;
@@ -579,9 +583,7 @@
     align-items: center;
 }
 
-.attack-monster-row,
-.attack-scroll-row {
-    /* EDIT 내부 여백: 공격 카드 줄의 padding과 배경 영역입니다. */
+.attack-monster-row {
     flex-direction: row;
     align-items: center;
     justify-content: center;
@@ -605,12 +607,33 @@
 }
 
 .attack-scroll-row {
-    /* EDIT 간격: 몬스터 줄과 스크롤 줄 사이 세로 간격입니다. */
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    background-color: rgba(5, 10, 17, 0.78);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(179, 139, 61, 0.74);
+    border-right-color: rgba(179, 139, 61, 0.74);
+    border-top-color: rgba(231, 190, 86, 0.82);
+    border-bottom-color: rgba(111, 76, 31, 0.82);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.attack-scroll-row {
     margin-top: 8px;
 }
 
 .attack-card {
-    /* EDIT 크기/간격: 공격 카드 크기는 width/height, 카드 사이 간격은 margin-left/right입니다. */
     position: relative;
     width: 82px;
     height: 96px;
@@ -649,7 +672,6 @@
 }
 
 .attack-card-icon {
-    /* EDIT 크기: 공격 카드 아이콘 크기입니다. */
     width: 42px;
     height: 42px;
     margin-bottom: 4px;
@@ -657,7 +679,6 @@
 }
 
 .attack-card-name {
-    /* EDIT 글자: 공격 카드 이름 글자 크기입니다. */
     width: 100%;
     color: rgb(242, 236, 220);
     font-size: 12px;
@@ -668,7 +689,6 @@
 }
 
 .attack-card-count {
-    /* EDIT 글자: 공격 카드 수량 글자 크기입니다. */
     color: rgb(237, 218, 159);
     font-size: 13px;
     -unity-font-style: bold;
@@ -677,19 +697,16 @@
 }
 
 .scroll-attack-card {
-    /* EDIT 크기: 스크롤 공격 카드 높이입니다. */
     height: 84px;
     background-color: rgb(20, 15, 35);
 }
 
 .scroll-attack-icon {
-    /* EDIT 크기: 스크롤 공격 카드 아이콘 크기입니다. */
     width: 38px;
     height: 38px;
 }
 
 .scroll-attack-name {
-    /* EDIT 글자: 스크롤 공격 카드 이름 글자 크기입니다. */
     color: rgb(225, 211, 248);
     font-size: 12px;
 }

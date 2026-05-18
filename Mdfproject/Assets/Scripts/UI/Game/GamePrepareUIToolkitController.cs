@@ -1879,6 +1879,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         private readonly Image icon;
         private readonly VisualElement topGem;
         private readonly VisualElement body;
+        private readonly VisualElement artFrame;
         private readonly VisualElement footer;
         private readonly Label star;
         private readonly Label name;
@@ -1893,11 +1894,17 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             this.icon = icon;
             topGem = root?.Q<VisualElement>(className: "card-top-gem");
             body = root?.Q<VisualElement>(className: "card-body");
+            artFrame = root?.Q<VisualElement>(className: "shop-art-frame");
             footer = root?.Q<VisualElement>(className: "card-footer");
             this.star = star;
             this.name = name;
             this.cost = cost;
             this.soldOverlay = soldOverlay;
+
+            if (this.icon != null)
+            {
+                this.icon.scaleMode = ScaleMode.ScaleAndCrop;
+            }
         }
 
         public int Index { get; }
@@ -1945,15 +1952,31 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
             if (icon != null)
             {
-                var iconSize = Mathf.Clamp(width * 0.5f, 112f * scale, 190f * scale);
-                icon.style.width = iconSize;
-                icon.style.height = iconSize;
+                icon.style.position = Position.Absolute;
+                icon.style.left = 0f;
+                icon.style.right = 0f;
+                icon.style.top = 0f;
+                icon.style.bottom = 0f;
+                icon.style.width = StyleKeyword.Auto;
+                icon.style.height = StyleKeyword.Auto;
+                icon.style.marginBottom = 0f;
+                icon.style.flexShrink = 0f;
+                icon.scaleMode = ScaleMode.ScaleAndCrop;
             }
 
             if (body != null)
             {
+                body.style.alignItems = Align.Stretch;
                 body.style.justifyContent = Justify.FlexStart;
-                body.style.paddingTop = height * 0.12f;
+                body.style.paddingLeft = 10f * scale;
+                body.style.paddingRight = 10f * scale;
+                body.style.paddingTop = 10f * scale;
+                body.style.paddingBottom = 0f;
+            }
+
+            if (artFrame != null)
+            {
+                artFrame.style.flexGrow = 1f;
             }
         }
 
