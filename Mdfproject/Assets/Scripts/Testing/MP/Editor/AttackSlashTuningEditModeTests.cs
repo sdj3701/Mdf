@@ -1,9 +1,9 @@
 #if UNITY_EDITOR
 using System.IO;
-using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
-using UnityEditor.Animations;
+using UnityEditor.AddressableAssets;
+using UnityEditor.AddressableAssets.Settings;
 using UnityEngine;
 
 public sealed class AttackSlashTuningEditModeTests
@@ -77,6 +77,7 @@ public sealed class AttackSlashTuningEditModeTests
     {
         Assert.That(File.Exists("Assets/Scripts/Editor/AttackSlashCalibratorWindow.cs"), Is.False);
         Assert.That(File.Exists("Assets/Scripts/VFX/AttackSlashCalibrationUtility.cs"), Is.False);
+        Assert.That(File.Exists("Assets/Scripts/Editor/AttackSlashVariantPrefabGenerator.cs"), Is.False);
 
         string installerSource = File.ReadAllText("Assets/Scripts/Editor/AttackSlashTuningSceneInstaller.cs");
         Assert.That(installerSource, Does.Contain("Tools/MDF/VFX/Rebuild Attack Slash Test Scene"));
@@ -95,18 +96,34 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(previewSource, Does.Contain("ReplayPreview(false);"));
         Assert.That(previewSource, Does.Contain("BasicAttackVfxRuntimeUtility.RestartParticles(_lastPreviewInstance, primaryRendererFlip);"));
         Assert.That(editorSource, Does.Contain("Replay VFX"));
+        Assert.That(editorSource, Does.Not.Contain("Capture To Tuning Component"));
+        Assert.That(editorSource, Does.Contain("Capture And Save To UnitData"));
     }
 
     [Test]
-    public void UnitBaseControllerAttackTriggerDefaultsInactive()
+    public void RequestedSwordSlashVariantPrefabsExistAsAddressables()
     {
-        var controller = AssetDatabase.LoadAssetAtPath<AnimatorController>("Assets/Resource/Animations/Unit_Base_Controller.controller");
-        Assert.That(controller, Is.Not.Null);
+        AddressableAssetSettings settings = AddressableAssetSettingsDefaultObject.Settings;
+        Assert.That(settings, Is.Not.Null);
 
-        AnimatorControllerParameter attackTrigger = controller.parameters.FirstOrDefault(parameter => parameter.name == "AttackTrigger");
-        Assert.That(attackTrigger, Is.Not.Null);
-        Assert.That(attackTrigger.type, Is.EqualTo(AnimatorControllerParameterType.Trigger));
-        Assert.That(attackTrigger.defaultBool, Is.False);
+        int[] variants = { 1, 3, 9, 10, 11, 12, 14 };
+        for (int i = 0; i < variants.Length; i++)
+        {
+            int variant = variants[i];
+            string address = $"VFX_AttackSlash_SwordSlash{variant}";
+            string path = $"Assets/Prefabs/VFX/Attack/{address}.prefab";
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+
+            Assert.That(prefab, Is.Not.Null, path);
+            Assert.That(prefab.GetComponent<VFXAutoDestroy>(), Is.Not.Null, path);
+            Assert.That(prefab.transform.childCount, Is.EqualTo(1), path);
+            Assert.That(prefab.transform.GetChild(0).name, Is.EqualTo($"Sword Slash {variant}"), path);
+
+            string guid = AssetDatabase.AssetPathToGUID(path);
+            AddressableAssetEntry entry = settings.FindAssetEntry(guid);
+            Assert.That(entry, Is.Not.Null, path);
+            Assert.That(entry.address, Is.EqualTo(address), path);
+        }
     }
 }
 #endif

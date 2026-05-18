@@ -67,18 +67,9 @@ public sealed class AttackSlashTuningPreviewInstanceEditor : Editor
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Capture", EditorStyles.boldLabel);
 
-        if (GUILayout.Button("Capture To Tuning Component"))
-        {
-            instance.CaptureToOwner(false);
-            if (instance.Owner != null)
-            {
-                Selection.activeObject = instance.Owner;
-            }
-        }
-
         if (GUILayout.Button("Capture And Save To UnitData"))
         {
-            instance.CaptureToOwner(true);
+            instance.CaptureAndSaveToUnitData();
         }
     }
 }

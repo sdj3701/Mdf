@@ -42,34 +42,34 @@ MonoBehaviour:
   - 
   - 
   basicAttackVfxPrefabsByStarLevel:
-  - VFX_AttackSlash_SwordSlash5
-  - VFX_AttackSlash_SwordSlash5
-  - VFX_AttackSlash_SwordSlash5
+  - VFX_AttackSlash_SwordSlash9
+  - VFX_AttackSlash_SwordSlash9
+  - VFX_AttackSlash_SwordSlash9
   basicAttackVfxConfigsByStarLevel:
-  - prefabKey: VFX_AttackSlash_SwordSlash5
+  - prefabKey: VFX_AttackSlash_SwordSlash9
     spawnOriginPath: root/pelvis/spine_01/spine_02/spine_03/clavicle_r/upperarm_r/lowerarm_r/hand_r/AttackVfx_StrikeBase
-    localPositionOffset: {x: -0.0966196, y: 0.24934593, z: -0.13570735}
-    rotationOffsetEuler: {x: 317.4, y: 238.34396, z: 6.899991}
+    localPositionOffset: {x: 0.16984443, y: 0.13753042, z: -0.3405358}
+    rotationOffsetEuler: {x: 317.4, y: 238.34395, z: 75.57}
     rotationMode: 1
     scaleMultiplier: 0.3
     primaryRendererFlip: {x: 0, y: 0, z: 0}
     calibrationQuality: 1
     calibratedAttackClipGuid: 
     calibrationSource: AttackSlashTuningScene
-  - prefabKey: VFX_AttackSlash_SwordSlash5
+  - prefabKey: VFX_AttackSlash_SwordSlash9
     spawnOriginPath: root/pelvis/spine_01/spine_02/spine_03/clavicle_r/upperarm_r/lowerarm_r/hand_r/AttackVfx_StrikeBase
-    localPositionOffset: {x: -0.0966196, y: 0.24934593, z: -0.13570735}
-    rotationOffsetEuler: {x: 317.4, y: 238.34396, z: 6.899991}
+    localPositionOffset: {x: 0.16984443, y: 0.13753042, z: -0.3405358}
+    rotationOffsetEuler: {x: 317.4, y: 238.34395, z: 75.57}
     rotationMode: 1
     scaleMultiplier: 0.3
     primaryRendererFlip: {x: 0, y: 0, z: 0}
     calibrationQuality: 1
     calibratedAttackClipGuid: 
     calibrationSource: AttackSlashTuningScene
-  - prefabKey: VFX_AttackSlash_SwordSlash5
+  - prefabKey: VFX_AttackSlash_SwordSlash9
     spawnOriginPath: root/pelvis/spine_01/spine_02/spine_03/clavicle_r/upperarm_r/lowerarm_r/hand_r/AttackVfx_StrikeBase
-    localPositionOffset: {x: -0.0966196, y: 0.24934593, z: -0.13570735}
-    rotationOffsetEuler: {x: 317.4, y: 238.34396, z: 6.899991}
+    localPositionOffset: {x: 0.16984443, y: 0.13753042, z: -0.3405358}
+    rotationOffsetEuler: {x: 317.4, y: 238.34395, z: 75.57}
     rotationMode: 1
     scaleMultiplier: 0.3
     primaryRendererFlip: {x: 0, y: 0, z: 0}

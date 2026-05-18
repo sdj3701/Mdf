@@ -20,7 +20,7 @@ public sealed class AttackSlashTuningPreviewInstance : MonoBehaviour
         prefabBaseScale = sourcePrefabScale;
     }
 
-    public void CaptureToOwner(bool saveToUnitData)
+    public void CaptureAndSaveToUnitData()
     {
         if (owner == null)
         {
@@ -29,9 +29,6 @@ public sealed class AttackSlashTuningPreviewInstance : MonoBehaviour
         }
 
         owner.CaptureFromPreviewInstance(this);
-        if (saveToUnitData)
-        {
-            owner.CopySettingsToUnitData(true);
-        }
+        owner.CopySettingsToUnitData(true);
     }
 }

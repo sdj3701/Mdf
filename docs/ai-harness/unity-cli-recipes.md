@@ -81,6 +81,19 @@ For test builds, `MPTestBootstrap` should set:
 Application.runInBackground = true;
 ```
 
+## One-off asset generation tools
+
+Some Unity asset creation is safer through Editor APIs than hand-edited YAML. When a task needs a one-time generator or fixer:
+
+- create an Editor-only `[UnityCliTool]` or menu command only as a temporary implementation detail;
+- run it through `unity-cli --project Mdfproject ...`;
+- verify the generated assets with reserialize, compile, console checks, and focused tests as relevant;
+- delete the temporary tool code and `.meta` before the final response;
+- remove menu entries, CLI command names, tests, and docs that imply the tool is reusable;
+- keep only the generated assets, durable settings such as Addressables entries, and tests that verify the assets.
+
+Leave the tool in the repo only if the user explicitly asks for a reusable workflow or repeated operation.
+
 ## Required custom tools
 
 Implement these under an Editor-only assembly/folder:
