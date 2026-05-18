@@ -10,6 +10,9 @@ public enum BasicAttackVfxRotationMode
 [Serializable]
 public sealed class BasicAttackVfxConfig
 {
+    public const float DefaultPlaybackSpeedCap = 2f;
+    public const float DefaultMinimumVisibleSeconds = 0.16f;
+
     [AddressableKey(typeof(GameObject))]
     public string prefabKey;
 
@@ -34,6 +37,12 @@ public sealed class BasicAttackVfxConfig
     [Tooltip("Particle playback speed for this slash VFX. 1 is the prefab's original speed.")]
     public float playbackSpeed = 1f;
 
+    [Tooltip("Maximum resolved particle playback speed after attack animation speed is applied. Keeps fast attacks readable.")]
+    public float playbackSpeedCap = DefaultPlaybackSpeedCap;
+
+    [Tooltip("Minimum time this VFX object stays alive, even when playback speed is high.")]
+    public float minimumVisibleSeconds = DefaultMinimumVisibleSeconds;
+
     [Tooltip("Renderer flip applied to the primary slash mesh particle. Use this for visual sweep direction without moving the VFX root.")]
     public Vector3 primaryRendererFlip = Vector3.zero;
 
@@ -57,8 +66,20 @@ public sealed class BasicAttackVfxConfig
             scaleMultiplier = 1f,
             spawnNormalizedTime = 0.2f,
             playbackSpeed = 1f,
+            playbackSpeedCap = DefaultPlaybackSpeedCap,
+            minimumVisibleSeconds = DefaultMinimumVisibleSeconds,
             primaryRendererFlip = Vector3.zero,
             calibrationQuality = 0f
         };
+    }
+
+    public float ResolvePlaybackSpeedCap()
+    {
+        return playbackSpeedCap > 0f ? playbackSpeedCap : DefaultPlaybackSpeedCap;
+    }
+
+    public float ResolveMinimumVisibleSeconds()
+    {
+        return minimumVisibleSeconds > 0f ? minimumVisibleSeconds : DefaultMinimumVisibleSeconds;
     }
 }

@@ -54,6 +54,8 @@ MonoBehaviour:
     scaleMultiplier: 0.3
     spawnNormalizedTime: 0.334
     playbackSpeed: 1
+    playbackSpeedCap: 2
+    minimumVisibleSeconds: 0.16
     primaryRendererFlip: {x: 0, y: 0, z: 0}
     calibrationQuality: 1
     calibratedAttackClipGuid: 
@@ -66,6 +68,8 @@ MonoBehaviour:
     scaleMultiplier: 0.3
     spawnNormalizedTime: 0.334
     playbackSpeed: 1
+    playbackSpeedCap: 2
+    minimumVisibleSeconds: 0.16
     primaryRendererFlip: {x: 0, y: 0, z: 0}
     calibrationQuality: 1
     calibratedAttackClipGuid: 
@@ -78,6 +82,8 @@ MonoBehaviour:
     scaleMultiplier: 0.3
     spawnNormalizedTime: 0.334
     playbackSpeed: 1
+    playbackSpeedCap: 2
+    minimumVisibleSeconds: 0.16
     primaryRendererFlip: {x: 0, y: 0, z: 0}
     calibrationQuality: 1
     calibratedAttackClipGuid: 

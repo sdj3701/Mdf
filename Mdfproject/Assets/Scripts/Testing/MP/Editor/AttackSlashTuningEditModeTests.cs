@@ -17,6 +17,10 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(config.primaryRendererFlip, Is.EqualTo(Vector3.zero));
         Assert.That(config.spawnNormalizedTime, Is.EqualTo(0.2f).Within(0.001f));
         Assert.That(config.playbackSpeed, Is.EqualTo(1f).Within(0.001f));
+        Assert.That(config.ResolvePlaybackSpeedCap(), Is.EqualTo(2f).Within(0.001f));
+        Assert.That(config.ResolveMinimumVisibleSeconds(), Is.EqualTo(0.16f).Within(0.001f));
+        Assert.That(BasicAttackVfxRuntimeUtility.ResolvePlaybackSpeed(1f, 3f, config.ResolvePlaybackSpeedCap()), Is.EqualTo(2f).Within(0.001f));
+        Assert.That(BasicAttackVfxRuntimeUtility.ResolveLifetimeSeconds(0.1f, 2f, config.ResolveMinimumVisibleSeconds()), Is.EqualTo(0.16f).Within(0.001f));
     }
 
     [Test]
@@ -43,6 +47,8 @@ public sealed class AttackSlashTuningEditModeTests
         serializedPreview.FindProperty("scaleMultiplier").floatValue = 1.25f;
         serializedPreview.FindProperty("attackSpawnNormalizedTime").floatValue = 0.37f;
         serializedPreview.FindProperty("playbackSpeed").floatValue = 1.8f;
+        serializedPreview.FindProperty("vfxPlaybackSpeedCap").floatValue = 1.6f;
+        serializedPreview.FindProperty("minimumVisibleSeconds").floatValue = 0.22f;
         serializedPreview.FindProperty("primaryRendererFlip").vector3Value = new Vector3(0f, 1f, 0f);
         serializedPreview.ApplyModifiedPropertiesWithoutUndo();
 
@@ -59,6 +65,8 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(secondStar.scaleMultiplier, Is.EqualTo(1.25f).Within(0.001f));
         Assert.That(secondStar.spawnNormalizedTime, Is.EqualTo(0.37f).Within(0.001f));
         Assert.That(secondStar.playbackSpeed, Is.EqualTo(1.8f).Within(0.001f));
+        Assert.That(secondStar.playbackSpeedCap, Is.EqualTo(1.6f).Within(0.001f));
+        Assert.That(secondStar.minimumVisibleSeconds, Is.EqualTo(0.22f).Within(0.001f));
         Assert.That(secondStar.primaryRendererFlip, Is.EqualTo(new Vector3(0f, 1f, 0f)));
         Assert.That(secondStar.calibrationSource, Is.EqualTo("AttackSlashTuningScene"));
 
@@ -81,7 +89,9 @@ public sealed class AttackSlashTuningEditModeTests
                 rotationMode = BasicAttackVfxRotationMode.UnitForward,
                 scaleMultiplier = 1.5f,
                 spawnNormalizedTime = 0.44f,
-                playbackSpeed = 0.75f
+                playbackSpeed = 0.75f,
+                playbackSpeedCap = 1.7f,
+                minimumVisibleSeconds = 0.21f
             },
             null,
             null
@@ -109,6 +119,8 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(refreshedPreview.FindProperty("scaleMultiplier").floatValue, Is.EqualTo(1.5f).Within(0.001f));
         Assert.That(refreshedPreview.FindProperty("attackSpawnNormalizedTime").floatValue, Is.EqualTo(0.44f).Within(0.001f));
         Assert.That(refreshedPreview.FindProperty("playbackSpeed").floatValue, Is.EqualTo(0.75f).Within(0.001f));
+        Assert.That(refreshedPreview.FindProperty("vfxPlaybackSpeedCap").floatValue, Is.EqualTo(1.7f).Within(0.001f));
+        Assert.That(refreshedPreview.FindProperty("minimumVisibleSeconds").floatValue, Is.EqualTo(0.21f).Within(0.001f));
 
         Object.DestroyImmediate(root);
         Object.DestroyImmediate(data);
@@ -124,7 +136,10 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(presenterSource, Does.Contain("config.primaryRendererFlip"));
         Assert.That(presenterSource, Does.Contain("config.playbackSpeed"));
         Assert.That(presenterSource, Does.Contain("unit.GetCappedAttackAnimationPlaybackSpeed()"));
-        Assert.That(presenterSource, Does.Contain("configuredPlaybackSpeed * animationPlaybackSpeed"));
+        Assert.That(presenterSource, Does.Contain("config.ResolvePlaybackSpeedCap()"));
+        Assert.That(presenterSource, Does.Contain("config.ResolveMinimumVisibleSeconds()"));
+        Assert.That(presenterSource, Does.Contain("BasicAttackVfxRuntimeUtility.ResolvePlaybackSpeed(configuredPlaybackSpeed, animationPlaybackSpeed, playbackSpeedCap)"));
+        Assert.That(presenterSource, Does.Contain("BasicAttackVfxRuntimeUtility.ResolveLifetimeSeconds(lifetimeSeconds, playbackSpeed, minimumVisibleSeconds)"));
         Assert.That(presenterSource, Does.Contain("BasicAttackVfxRuntimeUtility.RestartParticles(instance, primaryRendererFlip, playbackSpeed);"));
         Assert.That(unitSource, Does.Contain("public float GetCappedAttackAnimationPlaybackSpeed()"));
         Assert.That(unitSource, Does.Contain("Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond)"));
@@ -144,7 +159,9 @@ public sealed class AttackSlashTuningEditModeTests
         serializedPreview.FindProperty("previewFinalAttackSpeed").floatValue = 8f;
         serializedPreview.FindProperty("previewAnimationSpeedCap").floatValue = 3f;
         serializedPreview.FindProperty("fallbackAttackClipDuration").floatValue = 1f;
-        serializedPreview.FindProperty("playbackSpeed").floatValue = 0.5f;
+        serializedPreview.FindProperty("playbackSpeed").floatValue = 1f;
+        serializedPreview.FindProperty("vfxPlaybackSpeedCap").floatValue = 2f;
+        serializedPreview.FindProperty("minimumVisibleSeconds").floatValue = 0.16f;
         serializedPreview.FindProperty("useFinalAttackSpeedForLoopInterval").boolValue = true;
         serializedPreview.ApplyModifiedPropertiesWithoutUndo();
 
@@ -152,7 +169,8 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(preview.ResolvePreviewAttackIntervalSeconds(), Is.EqualTo(1f / 3f).Within(0.001f));
         Assert.That(preview.ResolvePreviewPresentationIntervalSeconds(), Is.EqualTo(1f / 3f).Within(0.001f));
         Assert.That(preview.ResolvePreviewAnimationPlaybackSpeed(), Is.EqualTo(3f).Within(0.001f));
-        Assert.That(preview.ResolvePreviewVfxPlaybackSpeed(), Is.EqualTo(1.5f).Within(0.001f));
+        Assert.That(preview.ResolvePreviewVfxPlaybackSpeed(), Is.EqualTo(2f).Within(0.001f));
+        Assert.That(preview.ResolvePreviewVfxLifetimeSeconds(), Is.EqualTo(1.05f).Within(0.001f));
 
         serializedPreview.Update();
         serializedPreview.FindProperty("useFinalAttackSpeedForLoopInterval").boolValue = false;
@@ -171,6 +189,7 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(File.Exists("Assets/Scripts/VFX/AttackSlashCalibrationUtility.cs"), Is.False);
         Assert.That(File.Exists("Assets/Scripts/Editor/AttackSlashVariantPrefabGenerator.cs"), Is.False);
         Assert.That(File.Exists("Assets/Scripts/Editor/AttackSlashTuningSceneInstaller.cs"), Is.False);
+        Assert.That(File.Exists("Assets/Scripts/VFX/AttackSlashTuningPreviewInstance.cs"), Is.False);
     }
 
     [Test]
@@ -181,20 +200,47 @@ public sealed class AttackSlashTuningEditModeTests
 
         Assert.That(previewSource, Does.Contain("loopAttackAndVfx = true"));
         Assert.That(previewSource, Does.Contain("loopIntervalSeconds"));
-        Assert.That(previewSource, Does.Contain("restartExistingPreviewInstance"));
         Assert.That(previewSource, Does.Contain("ReplayPreview(false);"));
+        Assert.That(previewSource, Does.Contain("TryResolvePreviewWorldPose"));
+        Assert.That(previewSource, Does.Contain("PreviewSample"));
+        Assert.That(previewSource, Does.Contain("autoDestroyPreviewInstances && Application.isPlaying"));
         Assert.That(previewSource, Does.Contain("attackSpawnNormalizedTime = Mathf.Clamp(config.spawnNormalizedTime"));
         Assert.That(previewSource, Does.Contain("playbackSpeed = config.playbackSpeed"));
+        Assert.That(previewSource, Does.Contain("vfxPlaybackSpeedCap = config.ResolvePlaybackSpeedCap()"));
+        Assert.That(previewSource, Does.Contain("minimumVisibleSeconds = config.ResolveMinimumVisibleSeconds()"));
         Assert.That(previewSource, Does.Contain("ResolvePreviewVfxPlaybackSpeed()"));
-        Assert.That(editorSource, Does.Contain("Replay VFX"));
+        Assert.That(previewSource, Does.Contain("ResolvePreviewVfxLifetimeSeconds()"));
+        Assert.That(previewSource, Does.Not.Contain("AttackSlashTuningPreviewInstance"));
+        Assert.That(previewSource, Does.Not.Contain("LastPreviewInstance"));
+        Assert.That(previewSource, Does.Not.Contain("EditablePreview"));
+        Assert.That(previewSource, Does.Not.Contain("\"LoopPreview\""));
+        Assert.That(previewSource, Does.Not.Contain("SuppressEditablePreviewAutoDestroy"));
+        Assert.That(previewSource, Does.Not.Contain("ConfigurePreviewPicking"));
+        Assert.That(previewSource, Does.Not.Contain("SceneVisibilityManager"));
+        Assert.That(previewSource, Does.Not.Contain("ApplyPreviewWorldPose"));
         Assert.That(editorSource, Does.Contain("Effect Tuning"));
+        Assert.That(editorSource, Does.Contain("Position Offset"));
+        Assert.That(editorSource, Does.Contain("Rotation Offset"));
+        Assert.That(editorSource, Does.Contain("VFX Speed Cap"));
+        Assert.That(editorSource, Does.Contain("Min Visible Seconds"));
         Assert.That(editorSource, Does.Contain("Final Attack Speed"));
+        Assert.That(editorSource, Does.Contain("Save To UnitData"));
         Assert.That(editorSource, Does.Contain("Preview Result"));
         Assert.That(editorSource, Does.Contain("Advanced"));
         Assert.That(editorSource, Does.Contain("Animation Speed Cap"));
+        Assert.That(editorSource, Does.Not.Contain("Pull From UnitData"));
+        Assert.That(editorSource, Does.Not.Contain("Preview VFX"));
+        Assert.That(editorSource, Does.Not.Contain("Trigger Attack"));
+        Assert.That(editorSource, Does.Not.Contain("Replay VFX"));
         Assert.That(editorSource, Does.Not.Contain("DrawDefaultInspector"));
         Assert.That(editorSource, Does.Not.Contain("Capture To Tuning Component"));
-        Assert.That(editorSource, Does.Contain("Capture And Save To UnitData"));
+        Assert.That(editorSource, Does.Not.Contain("Capture And Save To UnitData"));
+        Assert.That(editorSource, Does.Not.Contain("Spawn Editable Preview"));
+        Assert.That(editorSource, Does.Not.Contain("AttackSlashTuningPreviewInstance"));
+        Assert.That(editorSource, Does.Not.Contain("OnSceneGUI"));
+        Assert.That(editorSource, Does.Not.Contain("Handles.PositionHandle"));
+        Assert.That(editorSource, Does.Not.Contain("Handles.RotationHandle"));
+        Assert.That(editorSource, Does.Not.Contain("Slash Spawn"));
     }
 
     [Test]

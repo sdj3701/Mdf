@@ -256,19 +256,19 @@ MonoBehaviour:
   rotationMode: 1
   scaleMultiplier: 0.6569911
   playbackSpeed: 1
+  vfxPlaybackSpeedCap: 2
+  minimumVisibleSeconds: 0.16
   primaryRendererFlip: {x: 0, y: 0, z: 0}
   previewFinalAttackSpeed: 1
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
   attackTriggerName: AttackTrigger
   attackSpawnNormalizedTime: 0.2
-  replacePreviousPreview: 1
-  autoDestroyPreviewInstances: 0
+  autoDestroyPreviewInstances: 1
   previewLifetimeSeconds: 2.1
   loopAttackAndVfx: 1
   useFinalAttackSpeedForLoopInterval: 1
   loopIntervalSeconds: 1.25
-  restartExistingPreviewInstance: 1
   previewAnimationSpeedCap: 3
   fallbackAttackClipDuration: 1
 --- !u!1 &386853317
@@ -578,19 +578,19 @@ MonoBehaviour:
   rotationMode: 1
   scaleMultiplier: 0.3
   playbackSpeed: 1
+  vfxPlaybackSpeedCap: 2
+  minimumVisibleSeconds: 0.16
   primaryRendererFlip: {x: 0, y: 0, z: 0}
   previewFinalAttackSpeed: 1
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
   attackTriggerName: AttackTrigger
   attackSpawnNormalizedTime: 0.2
-  replacePreviousPreview: 1
-  autoDestroyPreviewInstances: 0
+  autoDestroyPreviewInstances: 1
   previewLifetimeSeconds: 2.1
   loopAttackAndVfx: 1
   useFinalAttackSpeedForLoopInterval: 1
   loopIntervalSeconds: 1.25
-  restartExistingPreviewInstance: 1
   previewAnimationSpeedCap: 3
   fallbackAttackClipDuration: 1
 --- !u!1 &1597879569
@@ -1040,19 +1040,19 @@ MonoBehaviour:
   rotationMode: 0
   scaleMultiplier: 0.2
   playbackSpeed: 1
+  vfxPlaybackSpeedCap: 2
+  minimumVisibleSeconds: 0.16
   primaryRendererFlip: {x: 0, y: 0, z: 0}
   previewFinalAttackSpeed: 1
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
   attackTriggerName: AttackTrigger
   attackSpawnNormalizedTime: 0.2
-  replacePreviousPreview: 1
-  autoDestroyPreviewInstances: 0
+  autoDestroyPreviewInstances: 1
   previewLifetimeSeconds: 2.1
   loopAttackAndVfx: 1
   useFinalAttackSpeedForLoopInterval: 1
   loopIntervalSeconds: 1.25
-  restartExistingPreviewInstance: 1
   previewAnimationSpeedCap: 3
   fallbackAttackClipDuration: 1
 --- !u!1 &2076720686

@@ -26,6 +26,23 @@ public static class BasicAttackVfxRuntimeUtility
         return Quaternion.LookRotation(direction.sqrMagnitude > 1e-6f ? direction.normalized : Vector3.forward, Vector3.up);
     }
 
+    public static float ResolvePlaybackSpeed(float configuredPlaybackSpeed, float animationPlaybackSpeed, float playbackSpeedCap)
+    {
+        float configured = Mathf.Max(0.01f, configuredPlaybackSpeed);
+        float animation = Mathf.Max(0.01f, animationPlaybackSpeed);
+        float uncapped = configured * animation;
+        float cap = playbackSpeedCap > 0f ? playbackSpeedCap : uncapped;
+        return Mathf.Max(0.01f, Mathf.Min(uncapped, cap));
+    }
+
+    public static float ResolveLifetimeSeconds(float baseLifetimeSeconds, float playbackSpeed, float minimumVisibleSeconds)
+    {
+        float resolvedBaseLifetime = Mathf.Max(0.05f, baseLifetimeSeconds);
+        float resolvedPlaybackSpeed = Mathf.Max(0.01f, playbackSpeed);
+        float resolvedMinimum = Mathf.Max(0f, minimumVisibleSeconds);
+        return Mathf.Max(resolvedMinimum, resolvedBaseLifetime / resolvedPlaybackSpeed);
+    }
+
     public static void RestartParticles(GameObject instance, Vector3 primaryRendererFlip, float playbackSpeed = 1f)
     {
         if (instance == null)

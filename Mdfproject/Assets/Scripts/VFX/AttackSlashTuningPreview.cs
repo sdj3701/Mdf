@@ -26,6 +26,8 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     [SerializeField] private BasicAttackVfxRotationMode rotationMode = BasicAttackVfxRotationMode.TargetFacing;
     [SerializeField] private float scaleMultiplier = 1f;
     [SerializeField] private float playbackSpeed = 1f;
+    [SerializeField] private float vfxPlaybackSpeedCap = BasicAttackVfxConfig.DefaultPlaybackSpeedCap;
+    [SerializeField] private float minimumVisibleSeconds = BasicAttackVfxConfig.DefaultMinimumVisibleSeconds;
     [SerializeField] private Vector3 primaryRendererFlip = Vector3.zero;
 
     [Header("Animation Preview")]
@@ -34,15 +36,13 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     [SerializeField] private string attackStateName = "Attack";
     [SerializeField] private string attackTriggerName = "AttackTrigger";
     [SerializeField, Range(0f, 0.95f)] private float attackSpawnNormalizedTime = 0.2f;
-    [SerializeField] private bool replacePreviousPreview = true;
-    [SerializeField] private bool autoDestroyPreviewInstances;
+    [SerializeField] private bool autoDestroyPreviewInstances = true;
     [SerializeField] private float previewLifetimeSeconds = 2.1f;
 
     [Header("Loop Preview")]
     [SerializeField] private bool loopAttackAndVfx = true;
     [SerializeField] private bool useFinalAttackSpeedForLoopInterval = true;
     [SerializeField] private float loopIntervalSeconds = 1.25f;
-    [SerializeField] private bool restartExistingPreviewInstance = true;
 
     [Header("Preview Runtime Match")]
     [SerializeField] private float previewAnimationSpeedCap = 3f;
@@ -55,11 +55,9 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     private bool _wasInAttackState;
     private float _nextLoopPreviewTime;
     private float _nextPreviewAnimationTime;
-    private GameObject _lastPreviewInstance;
 
     public UnitData UnitData => unitData;
     public int StarLevel => starLevel;
-    public GameObject LastPreviewInstance => _lastPreviewInstance;
 
     private void Awake()
     {
@@ -71,6 +69,8 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         starLevel = Mathf.Clamp(starLevel, 1, 3);
         scaleMultiplier = Mathf.Max(0.01f, scaleMultiplier);
         playbackSpeed = Mathf.Max(0.01f, playbackSpeed);
+        vfxPlaybackSpeedCap = Mathf.Max(0.01f, vfxPlaybackSpeedCap);
+        minimumVisibleSeconds = Mathf.Max(0f, minimumVisibleSeconds);
         previewFinalAttackSpeed = Mathf.Max(0.01f, previewFinalAttackSpeed);
         attackSpawnNormalizedTime = Mathf.Clamp(attackSpawnNormalizedTime, 0f, 0.95f);
         previewLifetimeSeconds = Mathf.Max(0.05f, previewLifetimeSeconds);
@@ -179,20 +179,6 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
 
     public GameObject ReplayPreview(bool selectInstance)
     {
-        if (restartExistingPreviewInstance && _lastPreviewInstance != null)
-        {
-            BasicAttackVfxRuntimeUtility.RestartParticles(_lastPreviewInstance, primaryRendererFlip, ResolvePreviewVfxPlaybackSpeed());
-
-#if UNITY_EDITOR
-            if (selectInstance)
-            {
-                Selection.activeGameObject = _lastPreviewInstance;
-            }
-#endif
-
-            return _lastPreviewInstance;
-        }
-
         return SpawnPreview(selectInstance);
     }
 
@@ -204,39 +190,21 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
             return null;
         }
 
-        if (replacePreviousPreview)
-        {
-            DestroyPreviewInstance(_lastPreviewInstance);
-            _lastPreviewInstance = null;
-        }
-
-        Transform origin = ResolveSpawnOrigin();
-        Vector3 direction = ResolveDirection(origin);
-        Quaternion attackRotation = BasicAttackVfxRuntimeUtility.ResolveAttackRotation(transform, direction, rotationMode);
-        Vector3 position = origin.position + attackRotation * localPositionOffset;
-        Quaternion rotation = attackRotation * Quaternion.Euler(rotationOffsetEuler);
+        TryResolvePreviewWorldPose(out _, out _, out Vector3 position, out Quaternion rotation);
         GameObject instance = InstantiatePreviewObject(position, rotation);
         if (instance == null)
         {
             return null;
         }
 
-        instance.name = $"{slashPrefab.name}_Preview_{name}";
+        instance.name = $"{slashPrefab.name}_PreviewSample_{name}";
         instance.transform.localScale = slashPrefab.transform.localScale * Mathf.Max(0.01f, scaleMultiplier);
 
-        var marker = instance.GetComponent<AttackSlashTuningPreviewInstance>();
-        if (marker == null)
-        {
-            marker = instance.AddComponent<AttackSlashTuningPreviewInstance>();
-        }
-
-        marker.Initialize(this, origin, attackRotation, slashPrefab.transform.localScale);
         BasicAttackVfxRuntimeUtility.RestartParticles(instance, primaryRendererFlip, ResolvePreviewVfxPlaybackSpeed());
-        _lastPreviewInstance = instance;
 
         if (autoDestroyPreviewInstances && Application.isPlaying)
         {
-            Destroy(instance, previewLifetimeSeconds / ResolvePreviewVfxPlaybackSpeed());
+            Destroy(instance, ResolvePreviewVfxLifetimeSeconds());
         }
 
 #if UNITY_EDITOR
@@ -249,22 +217,14 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         return instance;
     }
 
-    public void CaptureFromPreviewInstance(AttackSlashTuningPreviewInstance instance)
+    public bool TryResolvePreviewWorldPose(out Transform origin, out Quaternion attackRotation, out Vector3 position, out Quaternion rotation)
     {
-        if (instance == null || instance.transform == null)
-        {
-            return;
-        }
-
-        Transform origin = instance.Origin != null ? instance.Origin : ResolveSpawnOrigin();
-        Quaternion inverseAttackRotation = Quaternion.Inverse(instance.AttackRotation);
-        localPositionOffset = inverseAttackRotation * (instance.transform.position - origin.position);
-        rotationOffsetEuler = (inverseAttackRotation * instance.transform.rotation).eulerAngles;
-        scaleMultiplier = ResolveUniformScaleMultiplier(instance.transform.localScale, instance.PrefabBaseScale);
-
-#if UNITY_EDITOR
-        EditorUtility.SetDirty(this);
-#endif
+        origin = ResolveSpawnOrigin();
+        Vector3 direction = ResolveDirection(origin);
+        attackRotation = BasicAttackVfxRuntimeUtility.ResolveAttackRotation(transform, direction, rotationMode);
+        position = origin.position + attackRotation * localPositionOffset;
+        rotation = attackRotation * Quaternion.Euler(rotationOffsetEuler);
+        return origin != null;
     }
 
     public void PullFromUnitData()
@@ -296,6 +256,8 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         rotationMode = config.rotationMode;
         scaleMultiplier = config.scaleMultiplier > 0f ? config.scaleMultiplier : 1f;
         playbackSpeed = config.playbackSpeed > 0f ? config.playbackSpeed : 1f;
+        vfxPlaybackSpeedCap = config.ResolvePlaybackSpeedCap();
+        minimumVisibleSeconds = config.ResolveMinimumVisibleSeconds();
         attackSpawnNormalizedTime = Mathf.Clamp(config.spawnNormalizedTime, 0f, 0.95f);
         primaryRendererFlip = config.primaryRendererFlip;
     }
@@ -353,6 +315,8 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         config.scaleMultiplier = Mathf.Max(0.01f, scaleMultiplier);
         config.spawnNormalizedTime = Mathf.Clamp(attackSpawnNormalizedTime, 0f, 0.95f);
         config.playbackSpeed = Mathf.Max(0.01f, playbackSpeed);
+        config.playbackSpeedCap = Mathf.Max(0.01f, vfxPlaybackSpeedCap);
+        config.minimumVisibleSeconds = Mathf.Max(0f, minimumVisibleSeconds);
         config.primaryRendererFlip = primaryRendererFlip;
         config.calibrationQuality = 1f;
         config.calibratedAttackClipGuid = string.Empty;
@@ -443,7 +407,12 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
 
     public float ResolvePreviewVfxPlaybackSpeed()
     {
-        return Mathf.Max(0.01f, playbackSpeed * ResolvePreviewAnimationPlaybackSpeed());
+        return BasicAttackVfxRuntimeUtility.ResolvePlaybackSpeed(playbackSpeed, ResolvePreviewAnimationPlaybackSpeed(), vfxPlaybackSpeedCap);
+    }
+
+    public float ResolvePreviewVfxLifetimeSeconds()
+    {
+        return BasicAttackVfxRuntimeUtility.ResolveLifetimeSeconds(previewLifetimeSeconds, ResolvePreviewVfxPlaybackSpeed(), minimumVisibleSeconds);
     }
 
     private float ResolvePreviewFinalAttackSpeed()
@@ -524,52 +493,6 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
 #endif
 
         return Instantiate(slashPrefab, position, rotation);
-    }
-
-    private static void DestroyPreviewInstance(GameObject instance)
-    {
-        if (instance == null)
-        {
-            return;
-        }
-
-#if UNITY_EDITOR
-        if (!Application.isPlaying)
-        {
-            Undo.DestroyObjectImmediate(instance);
-            return;
-        }
-#endif
-
-        Destroy(instance);
-    }
-
-    private static float ResolveUniformScaleMultiplier(Vector3 instanceScale, Vector3 prefabScale)
-    {
-        float x = Mathf.Abs(prefabScale.x) > 1e-6f ? instanceScale.x / prefabScale.x : 0f;
-        float y = Mathf.Abs(prefabScale.y) > 1e-6f ? instanceScale.y / prefabScale.y : 0f;
-        float z = Mathf.Abs(prefabScale.z) > 1e-6f ? instanceScale.z / prefabScale.z : 0f;
-        float sum = 0f;
-        int count = 0;
-        if (Mathf.Abs(x) > 1e-6f)
-        {
-            sum += x;
-            count++;
-        }
-
-        if (Mathf.Abs(y) > 1e-6f)
-        {
-            sum += y;
-            count++;
-        }
-
-        if (Mathf.Abs(z) > 1e-6f)
-        {
-            sum += z;
-            count++;
-        }
-
-        return Mathf.Max(0.01f, count > 0 ? sum / count : 1f);
     }
 
     private static string GetRelativePath(Transform root, Transform child)

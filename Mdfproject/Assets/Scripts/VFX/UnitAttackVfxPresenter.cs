@@ -116,8 +116,10 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         Vector3 eulerOffset = config != null ? config.rotationOffsetEuler : rotationOffsetEuler;
         float resolvedScale = config != null && config.scaleMultiplier > 0f ? config.scaleMultiplier : scaleMultiplier;
         float configuredPlaybackSpeed = config != null && config.playbackSpeed > 0f ? config.playbackSpeed : 1f;
+        float playbackSpeedCap = config != null ? config.ResolvePlaybackSpeedCap() : BasicAttackVfxConfig.DefaultPlaybackSpeedCap;
+        float minimumVisibleSeconds = config != null ? config.ResolveMinimumVisibleSeconds() : BasicAttackVfxConfig.DefaultMinimumVisibleSeconds;
         float animationPlaybackSpeed = unit != null ? unit.GetCappedAttackAnimationPlaybackSpeed() : 1f;
-        float playbackSpeed = Mathf.Max(0.01f, configuredPlaybackSpeed * animationPlaybackSpeed);
+        float playbackSpeed = BasicAttackVfxRuntimeUtility.ResolvePlaybackSpeed(configuredPlaybackSpeed, animationPlaybackSpeed, playbackSpeedCap);
         Vector3 primaryRendererFlip = config != null ? config.primaryRendererFlip : Vector3.zero;
         Vector3 position = origin.position + attackRotation * localOffset;
         Quaternion rotation = attackRotation * Quaternion.Euler(eulerOffset);
@@ -136,7 +138,7 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         TrackActiveInstance(instance);
         instance.transform.localScale = prefab.transform.localScale * resolvedScale;
         BasicAttackVfxRuntimeUtility.RestartParticles(instance, primaryRendererFlip, playbackSpeed);
-        EnsureAutoDestroy(instance, playbackSpeed);
+        EnsureAutoDestroy(instance, playbackSpeed, minimumVisibleSeconds);
     }
 
     private void TrackActiveInstance(GameObject instance)
@@ -244,14 +246,13 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         return direction.normalized;
     }
 
-    private void EnsureAutoDestroy(GameObject instance, float playbackSpeed)
+    private void EnsureAutoDestroy(GameObject instance, float playbackSpeed, float minimumVisibleSeconds)
     {
         if (!instance.TryGetComponent<VFXAutoDestroy>(out var autoDestroy))
         {
             autoDestroy = instance.AddComponent<VFXAutoDestroy>();
         }
 
-        float resolvedPlaybackSpeed = Mathf.Max(0.01f, playbackSpeed);
-        autoDestroy.Initialize(lifetimeSeconds / resolvedPlaybackSpeed);
+        autoDestroy.Initialize(BasicAttackVfxRuntimeUtility.ResolveLifetimeSeconds(lifetimeSeconds, playbackSpeed, minimumVisibleSeconds));
     }
 }
