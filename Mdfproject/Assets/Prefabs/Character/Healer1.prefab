@@ -1900,7 +1900,7 @@ MonoBehaviour:
   skillTriggerParam: SkillTrigger
   skillStateTag: Skill
   blockAttacksDuringSkill: 1
-  maxAttackAnimationsPerSecond: 4
+  maxAttackAnimationsPerSecond: 3
   baseAttackAnimationDuration: 1
 --- !u!114 &1231250871101230872
 MonoBehaviour:

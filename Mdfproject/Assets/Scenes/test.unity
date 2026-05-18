@@ -257,6 +257,7 @@ MonoBehaviour:
   scaleMultiplier: 0.6569911
   playbackSpeed: 1
   primaryRendererFlip: {x: 0, y: 0, z: 0}
+  previewFinalAttackSpeed: 1
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
   attackTriggerName: AttackTrigger
@@ -265,8 +266,11 @@ MonoBehaviour:
   autoDestroyPreviewInstances: 0
   previewLifetimeSeconds: 2.1
   loopAttackAndVfx: 1
+  useFinalAttackSpeedForLoopInterval: 1
   loopIntervalSeconds: 1.25
   restartExistingPreviewInstance: 1
+  previewAnimationSpeedCap: 3
+  fallbackAttackClipDuration: 1
 --- !u!1 &386853317
 GameObject:
   m_ObjectHideFlags: 0
@@ -575,6 +579,7 @@ MonoBehaviour:
   scaleMultiplier: 0.3
   playbackSpeed: 1
   primaryRendererFlip: {x: 0, y: 0, z: 0}
+  previewFinalAttackSpeed: 1
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
   attackTriggerName: AttackTrigger
@@ -583,8 +588,11 @@ MonoBehaviour:
   autoDestroyPreviewInstances: 0
   previewLifetimeSeconds: 2.1
   loopAttackAndVfx: 1
+  useFinalAttackSpeedForLoopInterval: 1
   loopIntervalSeconds: 1.25
   restartExistingPreviewInstance: 1
+  previewAnimationSpeedCap: 3
+  fallbackAttackClipDuration: 1
 --- !u!1 &1597879569
 GameObject:
   m_ObjectHideFlags: 0
@@ -1033,6 +1041,7 @@ MonoBehaviour:
   scaleMultiplier: 0.2
   playbackSpeed: 1
   primaryRendererFlip: {x: 0, y: 0, z: 0}
+  previewFinalAttackSpeed: 1
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
   attackTriggerName: AttackTrigger
@@ -1041,8 +1050,11 @@ MonoBehaviour:
   autoDestroyPreviewInstances: 0
   previewLifetimeSeconds: 2.1
   loopAttackAndVfx: 1
+  useFinalAttackSpeedForLoopInterval: 1
   loopIntervalSeconds: 1.25
   restartExistingPreviewInstance: 1
+  previewAnimationSpeedCap: 3
+  fallbackAttackClipDuration: 1
 --- !u!1 &2076720686
 GameObject:
   m_ObjectHideFlags: 0

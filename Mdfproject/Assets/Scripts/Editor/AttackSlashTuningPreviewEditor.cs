@@ -20,6 +20,7 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
     private SerializedProperty scaleMultiplier;
     private SerializedProperty playbackSpeed;
     private SerializedProperty primaryRendererFlip;
+    private SerializedProperty previewFinalAttackSpeed;
     private SerializedProperty spawnWhenAnimatorAttackStatePlays;
     private SerializedProperty attackStateName;
     private SerializedProperty attackTriggerName;
@@ -28,8 +29,11 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
     private SerializedProperty autoDestroyPreviewInstances;
     private SerializedProperty previewLifetimeSeconds;
     private SerializedProperty loopAttackAndVfx;
+    private SerializedProperty useFinalAttackSpeedForLoopInterval;
     private SerializedProperty loopIntervalSeconds;
     private SerializedProperty restartExistingPreviewInstance;
+    private SerializedProperty previewAnimationSpeedCap;
+    private SerializedProperty fallbackAttackClipDuration;
 
     private void OnEnable()
     {
@@ -46,6 +50,7 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
         scaleMultiplier = serializedObject.FindProperty("scaleMultiplier");
         playbackSpeed = serializedObject.FindProperty("playbackSpeed");
         primaryRendererFlip = serializedObject.FindProperty("primaryRendererFlip");
+        previewFinalAttackSpeed = serializedObject.FindProperty("previewFinalAttackSpeed");
         spawnWhenAnimatorAttackStatePlays = serializedObject.FindProperty("spawnWhenAnimatorAttackStatePlays");
         attackStateName = serializedObject.FindProperty("attackStateName");
         attackTriggerName = serializedObject.FindProperty("attackTriggerName");
@@ -54,8 +59,11 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
         autoDestroyPreviewInstances = serializedObject.FindProperty("autoDestroyPreviewInstances");
         previewLifetimeSeconds = serializedObject.FindProperty("previewLifetimeSeconds");
         loopAttackAndVfx = serializedObject.FindProperty("loopAttackAndVfx");
+        useFinalAttackSpeedForLoopInterval = serializedObject.FindProperty("useFinalAttackSpeedForLoopInterval");
         loopIntervalSeconds = serializedObject.FindProperty("loopIntervalSeconds");
         restartExistingPreviewInstance = serializedObject.FindProperty("restartExistingPreviewInstance");
+        previewAnimationSpeedCap = serializedObject.FindProperty("previewAnimationSpeedCap");
+        fallbackAttackClipDuration = serializedObject.FindProperty("fallbackAttackClipDuration");
     }
 
     public override void OnInspectorGUI()
@@ -155,8 +163,10 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
     {
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Preview", EditorStyles.boldLabel);
+        EditorGUILayout.PropertyField(previewFinalAttackSpeed, new GUIContent("Final Attack Speed"));
+        DrawPreviewSpeedSummary();
         EditorGUILayout.PropertyField(loopAttackAndVfx, new GUIContent("Loop Attack And VFX"));
-        if (loopAttackAndVfx.boolValue)
+        if (loopAttackAndVfx.boolValue && !useFinalAttackSpeedForLoopInterval.boolValue)
         {
             EditorGUILayout.PropertyField(loopIntervalSeconds, new GUIContent("Loop Interval"));
         }
@@ -177,6 +187,14 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
         EditorGUILayout.PropertyField(targetOverride, new GUIContent("Target Override"));
         EditorGUILayout.PropertyField(rotationMode, new GUIContent("Rotation Mode"));
         EditorGUILayout.PropertyField(primaryRendererFlip, new GUIContent("Renderer Flip"));
+        EditorGUILayout.PropertyField(useFinalAttackSpeedForLoopInterval, new GUIContent("Use Attack Speed Timing"));
+        if (!useFinalAttackSpeedForLoopInterval.boolValue)
+        {
+            EditorGUILayout.PropertyField(loopIntervalSeconds, new GUIContent("Manual Loop Interval"));
+        }
+
+        EditorGUILayout.PropertyField(previewAnimationSpeedCap, new GUIContent("Animation Speed Cap"));
+        EditorGUILayout.PropertyField(fallbackAttackClipDuration, new GUIContent("Fallback Attack Clip Duration"));
         EditorGUILayout.PropertyField(spawnWhenAnimatorAttackStatePlays, new GUIContent("Spawn From Animator State"));
         EditorGUILayout.PropertyField(attackStateName, new GUIContent("Attack State Name"));
         EditorGUILayout.PropertyField(attackTriggerName, new GUIContent("Attack Trigger Name"));
@@ -189,6 +207,25 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
 
         EditorGUILayout.PropertyField(restartExistingPreviewInstance, new GUIContent("Restart Existing Preview"));
         EditorGUI.indentLevel--;
+    }
+
+    private void DrawPreviewSpeedSummary()
+    {
+        float finalAttackSpeed = Mathf.Max(0.01f, previewFinalAttackSpeed.floatValue);
+        float cap = Mathf.Max(0.01f, previewAnimationSpeedCap.floatValue);
+        float clipDuration = Mathf.Max(0.01f, fallbackAttackClipDuration.floatValue);
+        float damageInterval = 1f / finalAttackSpeed;
+        float presentationRate = Mathf.Min(finalAttackSpeed, cap);
+        float presentationInterval = useFinalAttackSpeedForLoopInterval.boolValue
+            ? 1f / presentationRate
+            : Mathf.Max(0.05f, loopIntervalSeconds.floatValue);
+        float animationSpeed = Mathf.Max(0.01f, clipDuration * presentationRate);
+        float vfxSpeed = Mathf.Max(0.01f, playbackSpeed.floatValue * animationSpeed);
+
+        EditorGUILayout.LabelField(
+            "Preview Result",
+            $"damage {damageInterval:0.###}s, preview {presentationInterval:0.###}s, anim x{animationSpeed:0.###}, vfx x{vfxSpeed:0.###}",
+            EditorStyles.miniLabel);
     }
 }
 

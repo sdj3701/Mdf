@@ -29,6 +29,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     [SerializeField] private Vector3 primaryRendererFlip = Vector3.zero;
 
     [Header("Animation Preview")]
+    [SerializeField] private float previewFinalAttackSpeed = 1f;
     [SerializeField] private bool spawnWhenAnimatorAttackStatePlays = true;
     [SerializeField] private string attackStateName = "Attack";
     [SerializeField] private string attackTriggerName = "AttackTrigger";
@@ -39,8 +40,13 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
 
     [Header("Loop Preview")]
     [SerializeField] private bool loopAttackAndVfx = true;
+    [SerializeField] private bool useFinalAttackSpeedForLoopInterval = true;
     [SerializeField] private float loopIntervalSeconds = 1.25f;
     [SerializeField] private bool restartExistingPreviewInstance = true;
+
+    [Header("Preview Runtime Match")]
+    [SerializeField] private float previewAnimationSpeedCap = 3f;
+    [SerializeField] private float fallbackAttackClipDuration = 1f;
 
     private Animator _animator;
     private int _lastAttackStateHash;
@@ -48,6 +54,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     private float _lastAttackPhase = -1f;
     private bool _wasInAttackState;
     private float _nextLoopPreviewTime;
+    private float _nextPreviewAnimationTime;
     private GameObject _lastPreviewInstance;
 
     public UnitData UnitData => unitData;
@@ -64,15 +71,19 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         starLevel = Mathf.Clamp(starLevel, 1, 3);
         scaleMultiplier = Mathf.Max(0.01f, scaleMultiplier);
         playbackSpeed = Mathf.Max(0.01f, playbackSpeed);
+        previewFinalAttackSpeed = Mathf.Max(0.01f, previewFinalAttackSpeed);
         attackSpawnNormalizedTime = Mathf.Clamp(attackSpawnNormalizedTime, 0f, 0.95f);
         previewLifetimeSeconds = Mathf.Max(0.05f, previewLifetimeSeconds);
         loopIntervalSeconds = Mathf.Max(0.05f, loopIntervalSeconds);
+        previewAnimationSpeedCap = Mathf.Max(0.01f, previewAnimationSpeedCap);
+        fallbackAttackClipDuration = Mathf.Max(0.01f, fallbackAttackClipDuration);
     }
 
     private void OnEnable()
     {
         PullFromUnitData();
         _nextLoopPreviewTime = 0f;
+        _nextPreviewAnimationTime = 0f;
     }
 
     private void Update()
@@ -89,16 +100,17 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
 
         if (loopAttackAndVfx && Time.time >= _nextLoopPreviewTime)
         {
-            _nextLoopPreviewTime = Time.time + Mathf.Max(0.05f, loopIntervalSeconds);
-            TriggerAttack();
+            _nextLoopPreviewTime = Time.time + ResolvePreviewAttackIntervalSeconds();
+            bool triggeredAnimation = TryTriggerPreviewAttackAnimation();
 
-            if (!spawnWhenAnimatorAttackStatePlays || _animator == null || !_animator.isActiveAndEnabled || _animator.layerCount <= 0)
+            if (!ShouldSpawnPreviewFromAnimatorState() ||
+                (!triggeredAnimation && (_animator == null || !_animator.isActiveAndEnabled || _animator.layerCount <= 0)))
             {
                 ReplayPreview(false);
             }
         }
 
-        if (!spawnWhenAnimatorAttackStatePlays)
+        if (!ShouldSpawnPreviewFromAnimatorState())
         {
             return;
         }
@@ -160,6 +172,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
             return;
         }
 
+        ApplyPreviewAnimatorSpeed();
         _animator.ResetTrigger(attackTriggerName);
         _animator.SetTrigger(attackTriggerName);
     }
@@ -168,7 +181,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     {
         if (restartExistingPreviewInstance && _lastPreviewInstance != null)
         {
-            BasicAttackVfxRuntimeUtility.RestartParticles(_lastPreviewInstance, primaryRendererFlip, playbackSpeed);
+            BasicAttackVfxRuntimeUtility.RestartParticles(_lastPreviewInstance, primaryRendererFlip, ResolvePreviewVfxPlaybackSpeed());
 
 #if UNITY_EDITOR
             if (selectInstance)
@@ -218,12 +231,12 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         }
 
         marker.Initialize(this, origin, attackRotation, slashPrefab.transform.localScale);
-        BasicAttackVfxRuntimeUtility.RestartParticles(instance, primaryRendererFlip, playbackSpeed);
+        BasicAttackVfxRuntimeUtility.RestartParticles(instance, primaryRendererFlip, ResolvePreviewVfxPlaybackSpeed());
         _lastPreviewInstance = instance;
 
         if (autoDestroyPreviewInstances && Application.isPlaying)
         {
-            Destroy(instance, previewLifetimeSeconds);
+            Destroy(instance, previewLifetimeSeconds / ResolvePreviewVfxPlaybackSpeed());
         }
 
 #if UNITY_EDITOR
@@ -375,6 +388,105 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         }
 
         return state.IsName(attackStateName) || state.IsName($"Base Layer.{attackStateName}") || state.IsTag("Attack");
+    }
+
+    private bool TryTriggerPreviewAttackAnimation()
+    {
+        if (_animator == null || !_animator.isActiveAndEnabled || _animator.layerCount <= 0)
+        {
+            return false;
+        }
+
+        float cappedRate = ResolvePreviewCappedAnimationRate();
+        if (Time.time < _nextPreviewAnimationTime)
+        {
+            return false;
+        }
+
+        _nextPreviewAnimationTime = Time.time + 1f / cappedRate;
+        TriggerAttack();
+        return true;
+    }
+
+    private bool ShouldSpawnPreviewFromAnimatorState()
+    {
+        return spawnWhenAnimatorAttackStatePlays;
+    }
+
+    public float ResolvePreviewAttackIntervalSeconds()
+    {
+        return ResolvePreviewPresentationIntervalSeconds();
+    }
+
+    public float ResolvePreviewDamageIntervalSeconds()
+    {
+        return 1f / ResolvePreviewFinalAttackSpeed();
+    }
+
+    public float ResolvePreviewPresentationIntervalSeconds()
+    {
+        if (!useFinalAttackSpeedForLoopInterval)
+        {
+            return Mathf.Max(0.05f, loopIntervalSeconds);
+        }
+
+        return 1f / ResolvePreviewCappedAnimationRate();
+    }
+
+    public float ResolvePreviewAnimationPlaybackSpeed()
+    {
+        float animRate = ResolvePreviewCappedAnimationRate();
+        float clipDuration = ResolveAttackClipDuration();
+        float speed = clipDuration > 0f ? clipDuration * animRate : animRate;
+        return Mathf.Max(0.01f, speed);
+    }
+
+    public float ResolvePreviewVfxPlaybackSpeed()
+    {
+        return Mathf.Max(0.01f, playbackSpeed * ResolvePreviewAnimationPlaybackSpeed());
+    }
+
+    private float ResolvePreviewFinalAttackSpeed()
+    {
+        return Mathf.Max(0.01f, previewFinalAttackSpeed);
+    }
+
+    private float ResolvePreviewCappedAnimationRate()
+    {
+        return Mathf.Min(ResolvePreviewFinalAttackSpeed(), Mathf.Max(0.01f, previewAnimationSpeedCap));
+    }
+
+    private void ApplyPreviewAnimatorSpeed()
+    {
+        if (_animator != null)
+        {
+            _animator.speed = ResolvePreviewAnimationPlaybackSpeed();
+        }
+    }
+
+    private float ResolveAttackClipDuration()
+    {
+        if (_animator != null && _animator.runtimeAnimatorController != null)
+        {
+            AnimationClip[] clips = _animator.runtimeAnimatorController.animationClips;
+            if (clips != null)
+            {
+                foreach (AnimationClip clip in clips)
+                {
+                    if (clip == null)
+                    {
+                        continue;
+                    }
+
+                    if (clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return Mathf.Max(0.01f, clip.length);
+                    }
+                }
+            }
+        }
+
+        return Mathf.Max(0.01f, fallbackAttackClipDuration);
     }
 
     private Transform ResolveSpawnOrigin()

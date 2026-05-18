@@ -135,6 +135,36 @@ public sealed class AttackSlashTuningEditModeTests
     }
 
     [Test]
+    public void AttackSlashTuningPreviewSimulatesFinalAttackSpeedWithAnimationCap()
+    {
+        GameObject root = new GameObject("PreviewRoot");
+        var preview = root.AddComponent<AttackSlashTuningPreview>();
+
+        var serializedPreview = new SerializedObject(preview);
+        serializedPreview.FindProperty("previewFinalAttackSpeed").floatValue = 8f;
+        serializedPreview.FindProperty("previewAnimationSpeedCap").floatValue = 3f;
+        serializedPreview.FindProperty("fallbackAttackClipDuration").floatValue = 1f;
+        serializedPreview.FindProperty("playbackSpeed").floatValue = 0.5f;
+        serializedPreview.FindProperty("useFinalAttackSpeedForLoopInterval").boolValue = true;
+        serializedPreview.ApplyModifiedPropertiesWithoutUndo();
+
+        Assert.That(preview.ResolvePreviewDamageIntervalSeconds(), Is.EqualTo(0.125f).Within(0.001f));
+        Assert.That(preview.ResolvePreviewAttackIntervalSeconds(), Is.EqualTo(1f / 3f).Within(0.001f));
+        Assert.That(preview.ResolvePreviewPresentationIntervalSeconds(), Is.EqualTo(1f / 3f).Within(0.001f));
+        Assert.That(preview.ResolvePreviewAnimationPlaybackSpeed(), Is.EqualTo(3f).Within(0.001f));
+        Assert.That(preview.ResolvePreviewVfxPlaybackSpeed(), Is.EqualTo(1.5f).Within(0.001f));
+
+        serializedPreview.Update();
+        serializedPreview.FindProperty("useFinalAttackSpeedForLoopInterval").boolValue = false;
+        serializedPreview.FindProperty("loopIntervalSeconds").floatValue = 0.75f;
+        serializedPreview.ApplyModifiedPropertiesWithoutUndo();
+
+        Assert.That(preview.ResolvePreviewAttackIntervalSeconds(), Is.EqualTo(0.75f).Within(0.001f));
+
+        Object.DestroyImmediate(root);
+    }
+
+    [Test]
     public void OneOffAttackSlashGenerationToolsAreRemoved()
     {
         Assert.That(File.Exists("Assets/Scripts/Editor/AttackSlashCalibratorWindow.cs"), Is.False);
@@ -155,10 +185,13 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(previewSource, Does.Contain("ReplayPreview(false);"));
         Assert.That(previewSource, Does.Contain("attackSpawnNormalizedTime = Mathf.Clamp(config.spawnNormalizedTime"));
         Assert.That(previewSource, Does.Contain("playbackSpeed = config.playbackSpeed"));
-        Assert.That(previewSource, Does.Contain("BasicAttackVfxRuntimeUtility.RestartParticles(_lastPreviewInstance, primaryRendererFlip, playbackSpeed);"));
+        Assert.That(previewSource, Does.Contain("ResolvePreviewVfxPlaybackSpeed()"));
         Assert.That(editorSource, Does.Contain("Replay VFX"));
         Assert.That(editorSource, Does.Contain("Effect Tuning"));
+        Assert.That(editorSource, Does.Contain("Final Attack Speed"));
+        Assert.That(editorSource, Does.Contain("Preview Result"));
         Assert.That(editorSource, Does.Contain("Advanced"));
+        Assert.That(editorSource, Does.Contain("Animation Speed Cap"));
         Assert.That(editorSource, Does.Not.Contain("DrawDefaultInspector"));
         Assert.That(editorSource, Does.Not.Contain("Capture To Tuning Component"));
         Assert.That(editorSource, Does.Contain("Capture And Save To UnitData"));

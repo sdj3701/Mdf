@@ -140,7 +140,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [SerializeField] private string skillTriggerParam = "SkillTrigger";
     [SerializeField] private string skillStateTag = "Skill";
     [SerializeField] private bool blockAttacksDuringSkill = true;
-    [SerializeField] private float maxAttackAnimationsPerSecond = 4f;
+    [SerializeField] private float maxAttackAnimationsPerSecond = 3f;
     [SerializeField] private float baseAttackAnimationDuration = 1f;
     private const float MeleeAttackRangeTolerance = 0.1f;
     private const float MeleeBlockDistance = 0.6f;
