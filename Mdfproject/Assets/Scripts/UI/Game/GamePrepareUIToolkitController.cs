@@ -1535,13 +1535,25 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var manager = gameManagers != null ? gameManagers : GameManagers.Instance;
-        var round = manager != null ? Mathf.Max(1, manager.currentRound) : 1;
+        var round = 1;
         var remainingTime = 0f;
         if (manager != null)
         {
-            remainingTime = manager.IsSequenceTransitioning
-                ? manager.currentSequenceTransitionTimer
-                : manager.currentPhaseTimer;
+            try
+            {
+                round = Mathf.Max(1, manager.currentRound);
+                remainingTime = manager.IsSequenceTransitioning
+                    ? manager.currentSequenceTransitionTimer
+                    : manager.currentPhaseTimer;
+            }
+            catch (InvalidOperationException)
+            {
+                remainingTime = 0f;
+            }
+            catch (MissingReferenceException)
+            {
+                remainingTime = 0f;
+            }
         }
 
         var seconds = Mathf.Max(0, Mathf.CeilToInt(remainingTime));
@@ -1570,8 +1582,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             hudShopLabel.text = shopVisible ? "\uC0C1\uC810\n\uB2EB\uAE30" : "\uC0C1\uC810";
         }
 
-        var wallCount = localPlayer != null ? localPlayer.GetWallCount() : 0;
-        var wallModeActive = IsWallPlacementActive();
+        TryGetLocalPlayerResources(out _, out var wallCount);
+        var wallModeActive = CanShowPrepareHudActions() && IsWallPlacementActive();
         var wasWallModeActive = hudWallButton != null && hudWallButton.ClassListContains("hud-button-active");
         if (force || wallCount != lastWallCount || wallModeActive != wasWallModeActive)
         {
@@ -1595,9 +1607,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private void UpdateResourceState(bool force)
     {
+        int goldCount = 0;
+        int wallCount = 0;
+        bool hasResourceValues = TryGetLocalPlayerResources(out goldCount, out wallCount);
         bool showResources = gameManagers != null &&
-                             localPlayer != null &&
-                             gameManagers.IsReadyForNetworkAccess;
+                             gameManagers.IsReadyForNetworkAccess &&
+                             hasResourceValues;
 
         if (resourceRoot != null)
         {
@@ -1610,9 +1625,6 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
-        int goldCount = localPlayer.GetGold();
-        int wallCount = localPlayer.GetWallCount();
-
         if (force || goldCount != lastGoldCount)
         {
             SetText(resourceGoldValue, goldCount.ToString());
@@ -1623,6 +1635,37 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         {
             SetText(resourceWallValue, wallCount.ToString());
             lastResourceWallCount = wallCount;
+        }
+    }
+
+    private bool TryGetLocalPlayerResources(out int goldCount, out int wallCount)
+    {
+        goldCount = 0;
+        wallCount = 0;
+
+        if (localPlayer == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!localPlayer.IsReadyForPlayerActions)
+            {
+                return false;
+            }
+
+            goldCount = localPlayer.GetGold();
+            wallCount = localPlayer.GetWallCount();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (MissingReferenceException)
+        {
+            return false;
         }
     }
 
@@ -1645,13 +1688,18 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private bool CanShowPrepareHudActions()
     {
-        if (gameManagers == null || localPlayer == null || !localPlayer.IsReadyForPlayerActions)
+        if (gameManagers == null || localPlayer == null)
         {
             return false;
         }
 
         try
         {
+            if (!localPlayer.IsReadyForPlayerActions)
+            {
+                return false;
+            }
+
             return gameManagers.GetGameState() == GameManagers.GameState.Prepare;
         }
         catch (InvalidOperationException)

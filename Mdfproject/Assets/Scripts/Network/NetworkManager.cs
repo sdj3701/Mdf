@@ -434,8 +434,14 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             {
                 // Debug.Log("Spawning player character...");
                 // 서버(호스트)는 새로 참여한 플레이어의 캐릭터를 스폰합니다.
+                if (_playerPrefab == null)
+                {
+                    Debug.LogError($"[NetworkManager] Player prefab is missing or failed to load. Cannot spawn player {player}. Check the NetworkManager _playerPrefab reference in 00_Title and Assets/Prefabs/Player_Root.prefab.");
+                    return;
+                }
+
                 NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, Vector3.zero, Quaternion.identity, player);
-                _spawnedCharacters.Add(player, networkPlayerObject);
+                _spawnedCharacters[player] = networkPlayerObject;
             }
         }
 

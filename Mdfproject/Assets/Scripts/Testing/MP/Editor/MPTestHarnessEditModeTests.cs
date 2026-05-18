@@ -152,6 +152,45 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void MatchingLobbySceneKeepsRuntimeUiToolkitInput()
+    {
+        string sceneSource = File.ReadAllText("Assets/Scenes/01_MatchingLobby.unity");
+
+        Assert.That(sceneSource, Does.Contain("m_Name: EventSystem"));
+        Assert.That(sceneSource, Does.Contain("guid: 01614664b831546d2ae94a42149d80ac"));
+        Assert.That(sceneSource, Does.Contain("m_Name: TestMatching UI Toolkit"));
+        Assert.That(sceneSource, Does.Contain("m_PanelSettings: {fileID: 11400000, guid: 8273b236cf53499fbd9d38004ec35985"));
+    }
+
+    [Test]
+    public void GameSceneKeepsRuntimeRoots()
+    {
+        string sceneSource = File.ReadAllText("Assets/Scenes/03_Game.unity");
+
+        Assert.That(sceneSource, Does.Contain("m_Name: Main Camera"));
+        Assert.That(sceneSource, Does.Contain("m_Name: EventSystem"));
+        Assert.That(sceneSource, Does.Contain("guid: 01614664b831546d2ae94a42149d80ac"));
+        Assert.That(sceneSource, Does.Contain("m_Name: GameInitialrizer"));
+        Assert.That(sceneSource, Does.Contain("m_Name: Addressable Manager"));
+        Assert.That(sceneSource, Does.Contain("m_Name: VfxManager"));
+    }
+
+    [Test]
+    public void TitleNetworkManagerKeepsPlayerPrefabReference()
+    {
+        string titleSceneSource = File.ReadAllText("Assets/Scenes/00_Title.unity");
+        string playerPrefabSource = File.ReadAllText("Assets/Prefabs/Player_Root.prefab");
+
+        Assert.That(titleSceneSource, Does.Contain("m_Name: NetworkManager"));
+        Assert.That(titleSceneSource, Does.Contain("_playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504"));
+
+        Assert.That(playerPrefabSource, Does.StartWith("%YAML"));
+        Assert.That(playerPrefabSource, Does.Contain("m_Name: Player_Root"));
+        Assert.That(playerPrefabSource, Does.Contain("m_Name: MonsterSpawner"));
+        Assert.That(playerPrefabSource, Does.Contain("m_Name: FieldManager"));
+    }
+
+    [Test]
     public void BasicAssertionComparesScenesAliasAware()
     {
         var snapshot = BuildSnapshot("host");
@@ -725,6 +764,22 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("human_bot_ui"));
         Assert.That(source, Does.Contain("MinimumCommandIntervalSeconds = 0.7f"));
         Assert.That(source, Does.Contain("Mathf.Max(decisionInterval, MinimumCommandIntervalSeconds)"));
+    }
+
+    [Test]
+    public void PurchaseSuccessUiEventCannotBreakCommandProcessing()
+    {
+        string shopSource = File.ReadAllText("Assets/Scripts/UI/ShopUIController.cs");
+        string gameEventsSource = File.ReadAllText("Assets/Scripts/Managers/GameEvents.cs");
+
+        Assert.That(shopSource, Does.Contain("TryGetLocalShopPlayerId(out var localPlayerId)"));
+        Assert.That(shopSource, Does.Contain("shopSlots == null || slotIndex < 0 || slotIndex >= shopSlots.Length"));
+        Assert.That(shopSource, Does.Contain("var slot = shopSlots[slotIndex];"));
+        Assert.That(shopSource, Does.Contain("if (slot == null)"));
+
+        Assert.That(gameEventsSource, Does.Contain("foreach (Action<int, ShopItem, int> handler in handlers.GetInvocationList())"));
+        Assert.That(gameEventsSource, Does.Contain("OnUnitPurchaseSucceeded handler exception"));
+        Assert.That(gameEventsSource, Does.Contain("Debug.LogException(ex);"));
     }
 
     [Test]

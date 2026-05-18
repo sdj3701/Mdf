@@ -540,16 +540,6 @@ public class AttackSequenceManager : MonoBehaviour
                 return;
             }
 
-            if (false)
-            {
-
-                // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
-            }
-
-            if (false)
-            {
-                // Debug.LogWarning("[AttackSequenceManager] 호스트 소환 성공 후 몬스터 풀 소비 실패");
-            }
         }
         else
         {
@@ -558,19 +548,7 @@ public class AttackSequenceManager : MonoBehaviour
                 return;
             }
 
-            if (false)
-            {
-
-                // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
-            }
-
             // 클라이언트 경로는 기존 동작 유지 (로컬 UI 즉시 반영)
-            if (false)
-            {
-                // Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
-                return;
-            }
-
             // 클라이언트: 서버에 RPC 요청
             if (!_playerManager.HasAppliedCurrentAttackMonsterPoolSnapshot)
             {

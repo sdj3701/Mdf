@@ -1226,6 +1226,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         // InitializeStats가 비동기 함수가 되었으므로 await로 호출을 기다립니다.
         await InitializeStats();
+        if (this == null)
+        {
+            return;
+        }
+
         await CacheProjectileSpeedAsync();
     }
 
@@ -1336,6 +1341,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             // 주소(string)를 사용해 AssetLoader로 실제 SkillData를 로드합니다.
             string skillKey = unitData.skillsByStarLevel[starLevel - 1];
             _loadedSkillData = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+            if (this == null)
+            {
+                return;
+            }
 
             if (_loadedSkillData != null)
             {
@@ -1355,7 +1364,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         // --- [수정 끝] ---
 
-        manaController.Initialize(newMaxMana);
+        if (this == null)
+        {
+            return;
+        }
+
+        manaController?.Initialize(newMaxMana);
 
         if (statusBarUI != null)
         {
