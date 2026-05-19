@@ -1480,6 +1480,9 @@ public class FieldManager : MonoBehaviour
         }
 
         var oldCells = new HashSet<Vector3Int>(placedUnits.Keys);
+        var preservedPendingUnitPositions = new HashSet<Vector3Int>(pendingUnitPositions);
+        var preservedPendingUnitDataByPosition = new Dictionary<Vector3Int, UnitData>(pendingUnitDataByPosition);
+        var preservedPendingNetworkMoves = pendingNetworkMoves.ToList();
         var rebuiltUnits = new Dictionary<Vector3Int, Unit>();
 
         int candidates = 0;
@@ -1603,9 +1606,10 @@ public class FieldManager : MonoBehaviour
         }
 
         placedUnits = rebuiltUnits;
-        pendingUnitPositions.Clear();
-        pendingUnitDataByPosition.Clear();
-        pendingNetworkMoves.Clear();
+        RestorePendingStateAfterUnitMapRebuild(
+            preservedPendingUnitPositions,
+            preservedPendingUnitDataByPosition,
+            preservedPendingNetworkMoves);
 
         bool unitMapChanged = !oldCells.SetEquals(placedUnits.Keys);
         _lastUnitMapRebuildFrame = Time.frameCount;
@@ -1619,6 +1623,53 @@ public class FieldManager : MonoBehaviour
         }
 
         return true;
+    }
+
+    private void RestorePendingStateAfterUnitMapRebuild(
+        HashSet<Vector3Int> preservedPendingUnitPositions,
+        Dictionary<Vector3Int, UnitData> preservedPendingUnitDataByPosition,
+        List<PendingNetworkMove> preservedPendingNetworkMoves)
+    {
+        pendingUnitPositions.Clear();
+        pendingUnitDataByPosition.Clear();
+
+        foreach (var position in preservedPendingUnitPositions)
+        {
+            if (!IsValidGridPosition(position) || placedUnits.ContainsKey(position))
+            {
+                continue;
+            }
+
+            pendingUnitPositions.Add(position);
+            if (preservedPendingUnitDataByPosition.TryGetValue(position, out UnitData unitData) && unitData != null)
+            {
+                pendingUnitDataByPosition[position] = unitData;
+            }
+        }
+
+        pendingNetworkMoves.Clear();
+        int oldestAllowedFrame = Time.frameCount - PendingNetworkMoveLifetimeFrames;
+        foreach (var move in preservedPendingNetworkMoves)
+        {
+            if (move.CreatedFrame < oldestAllowedFrame)
+            {
+                continue;
+            }
+
+            if (!IsValidGridPosition(move.From) || !IsValidGridPosition(move.To))
+            {
+                continue;
+            }
+
+            if (pendingNetworkMoves.Any(existing => existing.From == move.From && existing.To == move.To))
+            {
+                continue;
+            }
+
+            pendingNetworkMoves.Add(move);
+        }
+
+        ProcessPendingNetworkMoves();
     }
 
     public string BuildWallCellHash()
@@ -3263,9 +3314,17 @@ public class FieldManager : MonoBehaviour
 
     public void RespawnAllUnits()
     {
+        var runner = playerManager != null ? playerManager.Runner : null;
+        bool networkRunning = runner != null && runner.IsRunning;
+
         foreach (Unit unit in placedUnits.Values)
         {
-            if (unit == null || !unit.HasValidNetworkObject)
+            if (unit == null)
+            {
+                continue;
+            }
+
+            if (networkRunning && !unit.HasValidNetworkObject)
             {
                 continue;
             }

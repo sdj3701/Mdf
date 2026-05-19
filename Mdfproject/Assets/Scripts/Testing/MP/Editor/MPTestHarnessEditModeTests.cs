@@ -1050,6 +1050,21 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("TryReserveUnitPosition(gridPosition, data)"));
         Assert.That(fieldSource, Does.Contain("ShouldQueuePendingNetworkMove(Vector3Int from)"));
         Assert.That(fieldSource, Does.Contain("HasPendingUnitAt(from)"));
+        Assert.That(fieldSource, Does.Contain("preservedPendingUnitPositions"));
+        Assert.That(fieldSource, Does.Contain("preservedPendingUnitDataByPosition"));
+        Assert.That(fieldSource, Does.Contain("preservedPendingNetworkMoves"));
+        Assert.That(fieldSource, Does.Contain("RestorePendingStateAfterUnitMapRebuild"));
+
+        int rebuildStart = fieldSource.IndexOf("public bool RebuildUnitMapAfterMigration", System.StringComparison.Ordinal);
+        int preservePendingMoves = fieldSource.IndexOf("preservedPendingNetworkMoves", rebuildStart, System.StringComparison.Ordinal);
+        int unitMapAssigned = fieldSource.IndexOf("placedUnits = rebuiltUnits;", rebuildStart, System.StringComparison.Ordinal);
+        int restorePendingState = fieldSource.IndexOf("RestorePendingStateAfterUnitMapRebuild", unitMapAssigned, System.StringComparison.Ordinal);
+        int replayPendingMoves = fieldSource.IndexOf("ProcessPendingNetworkMoves();", restorePendingState, System.StringComparison.Ordinal);
+        Assert.That(rebuildStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(preservePendingMoves, Is.GreaterThan(rebuildStart));
+        Assert.That(preservePendingMoves, Is.LessThan(unitMapAssigned));
+        Assert.That(restorePendingState, Is.GreaterThan(unitMapAssigned));
+        Assert.That(replayPendingMoves, Is.GreaterThan(restorePendingState));
 
         int createdUnitAdded = fieldSource.IndexOf("placedUnits.Add(gridPosition, newUnitComponent);", System.StringComparison.Ordinal);
         int pendingMovesProcessed = fieldSource.IndexOf("ProcessPendingNetworkMoves();", createdUnitAdded, System.StringComparison.Ordinal);
@@ -1167,6 +1182,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("inactiveOrDead && !wasAlreadyRegistered && !belongsToPlayer"));
         Assert.That(fieldSource, Does.Contain("unit.IsDead || !unit.gameObject.activeSelf || !unit.gameObject.activeInHierarchy"));
         Assert.That(fieldSource, Does.Contain("public void RespawnAllUnits()"));
+        Assert.That(fieldSource, Does.Contain("bool networkRunning = runner != null && runner.IsRunning;"));
+        Assert.That(fieldSource, Does.Contain("if (networkRunning && !unit.HasValidNetworkObject)"));
         Assert.That(gameManagersSource, Does.Contain("player?.fieldManager?.RespawnAllUnits();"));
         Assert.That(snapshotSource, Does.Contain("deadUnitCount"));
         Assert.That(snapshotSource, Does.Contain("DeadUnitsHash"));
