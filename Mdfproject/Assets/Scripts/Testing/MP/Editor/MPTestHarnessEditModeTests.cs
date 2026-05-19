@@ -864,8 +864,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(tree?.Q<VisualElement>("game-shop-toggle-button"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("game-wall-button"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("game-option-button"), Is.Not.Null);
-        Assert.That(tree?.Q<Label>("game-gold-value"), Is.Not.Null);
-        Assert.That(tree?.Q<Label>("game-wall-count-value"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-gold-value"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("game-gold-count-value"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-wall-count-value"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("game-wall-count-label"), Is.Not.Null);
         Assert.That(Regex.Matches(uxml, "name=\"shop-card-\\d\"").Count, Is.EqualTo(5));
         Assert.That(Regex.Matches(uxml, "class=\"shop-art-frame\"").Count, Is.EqualTo(5));
         Assert.That(Regex.Matches(uxml, "class=\"shop-text-overlay\"").Count, Is.EqualTo(5));
@@ -898,7 +900,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("footer.style.backgroundColor = new Color"));
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMagicScroll(scrolls[slotIndex])"));
-        Assert.That(controllerSource, Does.Contain("game-gold-value"));
+        Assert.That(controllerSource, Does.Contain("game-gold-count-value"));
+        Assert.That(controllerSource, Does.Contain("game-wall-count-label"));
+        Assert.That(styleSource, Does.Contain("Spr_UnitCost.png"));
+        Assert.That(styleSource, Does.Contain("Bricks.png"));
         Assert.That(controllerSource, Does.Contain("TogglePlacementMode(PlacementMode.Wall)"));
         Assert.That(controllerSource, Does.Contain("GetUIElement(\"OptionCanvas\")"));
         Assert.That(controllerSource, Does.Contain("\"\\uC0C1\\uC810\\n\\uB2EB\\uAE30\""));

@@ -257,12 +257,12 @@
                 </ui:VisualElement>
                 <ui:VisualElement name="game-resource-root" class="game-resource-root">
                     <ui:VisualElement class="resource-pill resource-gold">
-                        <ui:Label text="Gold" class="resource-label" />
-                        <ui:Label name="game-gold-value" text="0" class="resource-value" />
+                        <ui:VisualElement name="game-gold-value" class="resource-icon resource-gold-icon" />
+                        <ui:Label name="game-gold-count-value" text="0" class="resource-value" />
                     </ui:VisualElement>
                     <ui:VisualElement class="resource-pill resource-wall">
-                        <ui:Label text="Stone" class="resource-label" />
-                        <ui:Label name="game-wall-count-value" text="0" class="resource-value" />
+                        <ui:VisualElement name="game-wall-count-value" class="resource-icon resource-wall-icon" />
+                        <ui:Label name="game-wall-count-label" text="0" class="resource-value" />
                     </ui:VisualElement>
                 </ui:VisualElement>
                 <ui:VisualElement name="game-option-button" class="hud-button hud-icon-button">

@@ -666,8 +666,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         hudOptionButton = root?.Q<VisualElement>("game-option-button");
         roundTimerLabel = root?.Q<Label>("game-round-timer-label");
         resourceRoot = root?.Q<VisualElement>("game-resource-root");
-        resourceGoldValue = root?.Q<Label>("game-gold-value");
-        resourceWallValue = root?.Q<Label>("game-wall-count-value");
+        resourceGoldValue = root?.Q<Label>("game-gold-count-value");
+        resourceWallValue = root?.Q<Label>("game-wall-count-label");
         attackSequencePanel = root?.Q<VisualElement>("attack-sequence-panel");
         attackMonsterRow = root?.Q<VisualElement>("attack-monster-row");
         attackScrollRow = root?.Q<VisualElement>("attack-scroll-row");
