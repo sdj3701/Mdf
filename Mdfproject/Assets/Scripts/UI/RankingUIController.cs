@@ -1,355 +1,941 @@
-  // Assets/Scripts/UI/RankingUIController.cs
-  using UnityEngine;
-  using UnityEngine.UI;
-  using System.Collections.Generic;
-  using System.Linq;
-  using Cysharp.Threading.Tasks;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Cysharp.Threading.Tasks;
+using Fusion;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.UIElements;
 
- public class RankingUIController : MonoBehaviour
- {
-     [Header("UI Parent Containers")]
-     [SerializeField] private Transform leftSideContainer;
-     [SerializeField] private Transform rightSideContainer;
+public class RankingUIController : MonoBehaviour
+{
+    private const string LayoutResourcePath = "UI/PlayerRanking/PlayerRankingPanel";
+    private const string StyleResourcePath = "UI/PlayerRanking/PlayerRankingPanelStyles";
+    private const string ThemeResourcePath = "UI/GamePrepare/GamePrepareRuntimeTheme";
+    private const int PanelSortingOrder = 260;
+    private const float ReferenceWidth = 1600f;
+    private const float ReferenceHeight = 900f;
+    private const float ToolkitRefreshInterval = 0.25f;
 
-     private List<PlayerRankSlot> allSlots = new List<PlayerRankSlot>();
-     private List<PlayerManager> allPlayers = new List<PlayerManager>();
+    [Header("Legacy UI Parent Containers")]
+    [SerializeField] private Transform leftSideContainer;
+    [SerializeField] private Transform rightSideContainer;
 
-     // [추가] 초기화가 완료되었는지 확인하기 위한 플래그
-     private bool isInitialized = false;
-     private bool isInitializing = false;
-     private float nextInitializeRetryTime = 0f;
+    [Header("UI Toolkit")]
+    [SerializeField] private bool useToolkitRanking = true;
+    [SerializeField] private UIDocument toolkitDocument;
+    [SerializeField] private VisualTreeAsset toolkitLayout;
+    [SerializeField] private StyleSheet toolkitStyle;
 
-     // 플레이어 상태 변경을 감지하기 위한 데이터 보관
-     private List<int> lastPlayerHealths = new List<int>();
+    private readonly List<PlayerRankSlot> allSlots = new List<PlayerRankSlot>();
+    private readonly List<PlayerManager> allPlayers = new List<PlayerManager>();
+    private readonly List<RankingCardView> toolkitCards = new List<RankingCardView>(4);
+    private readonly List<int> lastPlayerHealths = new List<int>();
 
-     private static bool IsPlayerReadable(PlayerManager player)
-     {
-         return player != null
-             && player.Object != null
-             && player.Object.IsValid;
-     }
+    private VisualElement toolkitRoot;
+    private VisualElement designSpace;
+    private RankingCardView selfCard;
+    private RankingCardView opponentCard;
+    private RankingCardView reserveCard0;
+    private RankingCardView reserveCard1;
 
-     private static bool TryGetHealthSafe(PlayerManager player, out int health)
-     {
-         health = 0;
-         if (!IsPlayerReadable(player))
-         {
-             return false;
-         }
+    private bool isInitialized;
+    private bool isInitializing;
+    private bool toolkitReady;
+    private bool toolkitCallbacksRegistered;
+    private float nextInitializeRetryTime;
+    private float nextToolkitRefreshTime;
 
-         try
-         {
-             health = player.GetHealth();
-             return true;
-         }
-         catch (System.InvalidOperationException)
-         {
-             return false;
-         }
-     }
+    public static int GetLeftSideSlotCountForDisplay(int playerCount)
+    {
+        if (playerCount <= 1)
+        {
+            return Mathf.Max(0, playerCount);
+        }
 
-     private static bool TryGetPlayerIdSafe(PlayerManager player, out int playerId)
-     {
-         playerId = int.MaxValue;
-         if (!IsPlayerReadable(player))
-         {
-             return false;
-         }
+        return (playerCount + 1) / 2;
+    }
 
-         try
-         {
-             playerId = player.playerId;
-             return true;
-         }
-         catch (System.InvalidOperationException)
-         {
-             return false;
-         }
-     }
+    public static bool ShouldPlaceDisplayIndexOnLeft(int displayIndex, int playerCount)
+    {
+        return displayIndex >= 0
+            && displayIndex < playerCount
+            && displayIndex < GetLeftSideSlotCountForDisplay(playerCount);
+    }
 
-     public static int GetLeftSideSlotCountForDisplay(int playerCount)
-     {
-         if (playerCount <= 1)
-         {
-             return Mathf.Max(0, playerCount);
-         }
+    public static int GetTopRightReserveCount(int playerCount)
+    {
+        return Mathf.Clamp(playerCount - 2, 0, 2);
+    }
 
-         return (playerCount + 1) / 2;
-     }
+    private void Awake()
+    {
+        if (useToolkitRanking)
+        {
+            EnsureToolkit();
+        }
+    }
 
-     public static bool ShouldPlaceDisplayIndexOnLeft(int displayIndex, int playerCount)
-     {
-         return displayIndex >= 0
-             && displayIndex < playerCount
-             && displayIndex < GetLeftSideSlotCountForDisplay(playerCount);
-     }
+    private void OnEnable()
+    {
+        GameManagers.OnPlayersDataReady += OnPlayersDataReady;
+        GameEvents.OnGameManagersReady += OnGameManagersReady;
+        GameEvents.OnGameStateChanged += OnGameStateChanged;
+        GameEvents.OnRoundStart += OnRoundStart;
+        GameEvents.OnBattleSequenceStarted += OnBattleSequenceStarted;
 
-     void OnEnable()
-     {
-         GameManagers.OnPlayersDataReady += OnPlayersDataReady;
-     }
-   
-     void OnDisable()
-     {
-         GameManagers.OnPlayersDataReady -= OnPlayersDataReady;
-     }
-   
-     // 플레이어 데이터가 모두 준비되었을 때 호출되는 함수
-     private void OnPlayersDataReady()
-     {
-         // 플레이어 데이터가 준비되었을 때 UI 업데이트
-         if (!isInitialized)
-         {
-             InitializePlayersAndSlots();
-         }
-         else
-         {
-             // 이미 초기화되었다면 플레이어 데이터 변경만 반영
-             SortAndDisplayPlayers();
-         }
-     }
+        if (useToolkitRanking)
+        {
+            EnsureToolkit();
+            RefreshToolkitDisplay(true);
+        }
+    }
 
-     void Update()
-     {
-         // Host Migration 중이거나 Spawned 되지 않은 경우 네트워크 프로퍼티 접근 안함
-         if (GameManagers.Instance == null || !GameManagers.Instance.IsReadyForNetworkAccess)
-         {
-             return;
-         }
-         
-         // GameOver 상태이면 네트워크 프로퍼티 접근 안함 (씬 전환 대기 중)
-         if (GameManagers.Instance.GetGameState() == GameManagers.GameState.GameOver)
-         {
-             return;
-         }
+    private void OnDisable()
+    {
+        GameManagers.OnPlayersDataReady -= OnPlayersDataReady;
+        GameEvents.OnGameManagersReady -= OnGameManagersReady;
+        GameEvents.OnGameStateChanged -= OnGameStateChanged;
+        GameEvents.OnRoundStart -= OnRoundStart;
+        GameEvents.OnBattleSequenceStarted -= OnBattleSequenceStarted;
+    }
 
-         if (!isInitialized)
-         {
-             if (Time.unscaledTime >= nextInitializeRetryTime)
-             {
-                 nextInitializeRetryTime = Time.unscaledTime + 0.5f;
-                 InitializePlayersAndSlots();
-             }
-             return;
-         }
-          
-         if (isInitialized)
-         {
-             // 플레이어 수 또는 체력 상태가 변경되었을 때만 정렬
-             if (HasPlayerStateChanged())
-             {
-                 SortAndDisplayPlayers();
-             }
-             
-             // 전투 상태 등 실시간 변경사항 반영을 위해 매 프레임 UI 업데이트
-             foreach (var slot in allSlots)
-             {
-                 if (slot != null && slot.gameObject.activeInHierarchy)
-                 {
-                     slot.UpdateUI();
-                 }
-             }
-         }
-     }
+    private void Update()
+    {
+        if (GameManagers.Instance == null || !GameManagers.Instance.IsReadyForNetworkAccess)
+        {
+            return;
+        }
 
-     // 플레이어 상태(수량 및 체력)가 변경되었는지 확인하는 함수
-     private bool HasPlayerStateChanged()
-     {
-         if (allPlayers.Count != lastPlayerHealths.Count)
-         {
-             // 플레이어 수가 변경됨
-             UpdateLastPlayerHealths();
-             return true;
-         }
+        if (GameManagers.Instance.GetGameState() == GameManagers.GameState.GameOver)
+        {
+            SetToolkitVisible(false);
+            return;
+        }
 
-         for (int i = 0; i < allPlayers.Count; i++)
-         {
-             if (TryGetHealthSafe(allPlayers[i], out int health) && lastPlayerHealths[i] != health)
-             {
-                 // 플레이어 체력이 변경됨
-                 UpdateLastPlayerHealths();
-                 return true;
-             }
-         }
+        if (useToolkitRanking && EnsureToolkit())
+        {
+            if (Time.unscaledTime >= nextToolkitRefreshTime)
+            {
+                nextToolkitRefreshTime = Time.unscaledTime + ToolkitRefreshInterval;
+                RefreshToolkitDisplay(false);
+            }
 
-         return false;
-     }
+            return;
+        }
 
-     // 마지막 플레이어 체력 정보를 업데이트하는 함수
-     private void UpdateLastPlayerHealths()
-     {
-         lastPlayerHealths.Clear();
-         for (int i = 0; i < allPlayers.Count; i++)
-         {
-             lastPlayerHealths.Add(TryGetHealthSafe(allPlayers[i], out int health) ? health : 0);
-         }
-     }
+        UpdateLegacyRanking();
+    }
 
-     private async void InitializePlayersAndSlots()
-     {
-         if (isInitialized) return;
-         if (isInitializing) return;
-         isInitializing = true;
-         if (GameManagers.Instance == null)
-         {
-             Debug.LogError("RankingUIController: GameManagers.Instance가 null입니다.");
-             isInitializing = false;
-             nextInitializeRetryTime = Time.unscaledTime + 0.5f;
-             return;
-         }
- 
-         Debug.Log("RankingUIController: InitializePlayersAndSlots() 호출됨.");
- 
-         // GameManagers에서 플레이어 리스트 가져오기
-         var allGamePlayers = GameManagers.Instance.AllPlayers.ToList();
-         
-         // 유효한 플레이어만 필터링 (null이 아니고, playerId가 유효한 플레이어만)
-         var validPlayers = allGamePlayers
-             .Where(IsPlayerReadable)
-             .ToList();
-         
-         Debug.Log($"GameManagers로부터 받은 플레이어 수: {allGamePlayers.Count}, 유효한 플레이어 수: {validPlayers.Count}");
- 
-         // GameManagers에서 singlePlayerModeCount 값을 가져와서 실제 플레이어 수만 사용
-         int actualPlayerCount = GameManagers.Instance.singlePlayerModeCount;
-         
-         // 싱글플레이어 모드인 경우 singlePlayerModeCount가 0이면 기본값으로 사용
-         if (GameManagers.Instance.Runner != null &&
-             GameManagers.Instance.Runner.GameMode == Fusion.GameMode.Single)
-         {
-             // 싱글플레이어 모드에서 singlePlayerModeCount가 설정되지 않았으면 유효한 플레이어 수를 사용
-             if (actualPlayerCount <= 0)
-             {
-                 actualPlayerCount = validPlayers.Count;
-                 Debug.LogWarning($"[RankingUIController] 싱글플레이어 모드에서 singlePlayerModeCount가 0입니다. 유효한 플레이어 수({validPlayers.Count})를 사용합니다.");
-             }
-         }
-         else
-         {
-             // 멀티플레이어 모드에서는 모든 유효한 플레이어를 사용
-             actualPlayerCount = validPlayers.Count;
-         }
-         
-         Debug.Log($"UI에 표시할 실제 플레이어 수: {actualPlayerCount}");
- 
-         // 실제 플레이어 수에 따라 리스트 구성
-         allPlayers = validPlayers
-             .Take(actualPlayerCount)
-             .ToList();
- 
- 
-         // 여전히 플레이어가 없으면 로그 출력하고 종료
-         if (allPlayers.Count == 0)
-         {
-             Debug.LogWarning($"RankingUIController: UI를 초기화할 플레이어가 없습니다. allPlayers.Count: {allPlayers.Count}, validPlayers.Count: {validPlayers.Count}, allGamePlayers.Count: {allGamePlayers.Count}");
-             isInitializing = false;
-             nextInitializeRetryTime = Time.unscaledTime + 0.5f;
-             return;
-         }
+    private void OnPlayersDataReady()
+    {
+        if (useToolkitRanking)
+        {
+            RefreshToolkitDisplay(true);
+            return;
+        }
 
-         // 씬에 있는 모든 기존 슬롯들을 찾아서 제거
-         PlayerRankSlot[] existingSlots = GetComponentsInChildren<PlayerRankSlot>(true);
-         foreach (var slot in existingSlots)
-         {
-             if (slot != null)
-                 DestroyImmediate(slot.gameObject);
-         }
-         allSlots.Clear();
+        if (!isInitialized)
+        {
+            InitializePlayersAndSlots();
+        }
+        else
+        {
+            SortAndDisplayPlayers();
+        }
+    }
 
-         // 플레이어 수만큼 슬롯을 생성
-         for (int i = 0; i < allPlayers.Count; i++)
-         {
-             GameObject slotGO = null;
-             
-             // AddressablesManager를 사용하여 프리팹 로드
-             if (AddressablesManager.Instance != null)
-             {
-                 slotGO = await AddressablesManager.Instance.LoadObject("UI_Slot_PlayerRank", transform);
-                 if (slotGO != null)
-                 {
-                     slotGO.name = $"PlayerRankSlot_{i}";
-                 }
-             }
-             
-             // AddressablesManager가 없거나 로드 실패 시 안전장치
-             if (slotGO == null)
-             {
-                 // 안전장치: 프리팹이 없을 경우 RectTransform을 가진 GameObject를 생성해 UI에서 보이도록 합니다.
-                 slotGO = new GameObject($"PlayerRankSlot_{i}", typeof(RectTransform));
-                 slotGO.transform.SetParent(transform, false);
-             }
+    private void OnGameManagersReady()
+    {
+        RefreshToolkitDisplay(true);
+    }
 
-             // Prefab에 이미 PlayerRankSlot이 붙어있을 수 있으니 확인 후 없으면 추가합니다.
-             PlayerRankSlot slot = slotGO.GetComponent<PlayerRankSlot>();
-             if (slot == null)
-                 slot = slotGO.AddComponent<PlayerRankSlot>();
+    private void OnGameStateChanged(GameManagers.GameState state)
+    {
+        RefreshToolkitDisplay(true);
+    }
 
-             // 안전: 인스턴스는 데이터 바인딩 전까지 비활성화 상태로 둡니다.
-             slotGO.SetActive(false);
+    private void OnRoundStart(int round)
+    {
+        RefreshToolkitDisplay(true);
+    }
 
-             allSlots.Add(slot);
-         }
+    private void OnBattleSequenceStarted(bool isAttacking)
+    {
+        RefreshToolkitDisplay(true);
+    }
 
-         isInitialized = true;
-         Debug.Log($"RankingUIController 초기화 완료. 플레이어 수: {allPlayers.Count}");
+    private void UpdateLegacyRanking()
+    {
+        if (!isInitialized)
+        {
+            if (Time.unscaledTime >= nextInitializeRetryTime)
+            {
+                nextInitializeRetryTime = Time.unscaledTime + 0.5f;
+                InitializePlayersAndSlots();
+            }
 
-         // 즉시 정렬 및 표시를 한 번 실행하여 Instantiate 직후 슬롯에 데이터가 바인딩되도록 보장합니다.
-         SortAndDisplayPlayers();
-         isInitializing = false;
-     }
+            return;
+        }
 
-     /// <summary>
-     /// 플레이어를 정렬하고, 모든 슬롯을 올바른 위치에 재배치하며 UI를 업데이트합니다.
-     /// </summary>
-     private void SortAndDisplayPlayers()
-     {
-         var sortedPlayers = allPlayers
-             .OrderByDescending(p => TryGetHealthSafe(p, out int health) ? health : 0)
-             .ThenBy(p => TryGetPlayerIdSafe(p, out int playerId) ? playerId : int.MaxValue)
-             .ToList();
+        if (HasPlayerStateChanged())
+        {
+            SortAndDisplayPlayers();
+        }
 
-         for (int i = 0; i < allSlots.Count; i++)
-         {
-             PlayerRankSlot currentSlot = allSlots[i];
+        foreach (var slot in allSlots)
+        {
+            if (slot != null && slot.gameObject.activeInHierarchy)
+            {
+                slot.UpdateUI();
+            }
+        }
+    }
 
-             if (i < sortedPlayers.Count)
-             {
-                 PlayerManager playerForThisSlot = sortedPlayers[i];
+    private bool EnsureToolkit()
+    {
+        if (!useToolkitRanking)
+        {
+            return false;
+        }
 
-                 // Display rank order decides the side split: 4 players => 2 left, 2 right.
-                 Transform targetParent = ShouldPlaceDisplayIndexOnLeft(i, sortedPlayers.Count) ? leftSideContainer : rightSideContainer;
-                 if (targetParent == null)
-                 {
-                     targetParent = transform;
-                 }
+        toolkitLayout ??= Resources.Load<VisualTreeAsset>(LayoutResourcePath);
+        toolkitStyle ??= Resources.Load<StyleSheet>(StyleResourcePath);
 
-                 // 부모가 비활성인 경우 강제로 활성화하여 자식 UI가 보이도록 합니다.
-                 if (!targetParent.gameObject.activeInHierarchy)
-                     targetParent.gameObject.SetActive(true);
+        if (toolkitLayout == null || toolkitStyle == null)
+        {
+            Debug.LogWarning("[RankingUIController] UI Toolkit ranking assets are missing. Falling back to legacy ranking UI.");
+            useToolkitRanking = false;
+            SetLegacyContainersVisible(true);
+            return false;
+        }
 
-                 // 먼저 부모에 배치하여 계층/레이아웃이 올바르게 설정되도록 합니다.
-                 currentSlot.transform.SetParent(targetParent, false);
+        toolkitDocument ??= GetComponent<UIDocument>();
+        if (toolkitDocument == null)
+        {
+            toolkitDocument = gameObject.AddComponent<UIDocument>();
+        }
 
-                 // 슬롯을 활성화(하이라키 상에서 활성화)하여 텍스트/레이아웃가 제대로 초기화되도록 보장합니다.
-                 if (!currentSlot.gameObject.activeInHierarchy)
-                     currentSlot.gameObject.SetActive(true);
+        if (toolkitDocument.visualTreeAsset == null)
+        {
+            toolkitDocument.visualTreeAsset = toolkitLayout;
+        }
 
-                 // 그 다음 데이터 바인딩 및 UI 업데이트 순서
-                 currentSlot.Initialize(playerForThisSlot);
+        if (toolkitDocument.panelSettings == null)
+        {
+            toolkitDocument.panelSettings = CreateRuntimePanelSettings();
+        }
 
-                 // 레이아웃 강제 업데이트 (즉시 드로우 보장)
-                 Canvas.ForceUpdateCanvases();
-                 RectTransform rt = targetParent.GetComponent<RectTransform>();
-                 if (rt != null)
-                     LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+        toolkitRoot = toolkitDocument.rootVisualElement;
+        if (toolkitRoot == null)
+        {
+            return false;
+        }
 
-                 currentSlot.UpdateUI();
-             }
-             else
-             {
-                 currentSlot.gameObject.SetActive(false);
-             }
-         }
-     }
+        if (!toolkitRoot.styleSheets.Contains(toolkitStyle))
+        {
+            toolkitRoot.styleSheets.Add(toolkitStyle);
+        }
 
- }
+        if (toolkitReady && selfCard != null && opponentCard != null && reserveCard0 != null && reserveCard1 != null)
+        {
+            SetLegacyContainersVisible(false);
+            UpdateToolkitScale();
+            return true;
+        }
+
+        BindToolkitElements();
+        RegisterToolkitCallbacks();
+        SetLegacyContainersVisible(false);
+        toolkitReady = selfCard != null && opponentCard != null && reserveCard0 != null && reserveCard1 != null;
+        return toolkitReady;
+    }
+
+    private static PanelSettings CreateRuntimePanelSettings()
+    {
+        var settings = ScriptableObject.CreateInstance<PanelSettings>();
+        settings.name = "PlayerRankingRuntimePanelSettings";
+        settings.scaleMode = PanelScaleMode.ConstantPixelSize;
+        settings.sortingOrder = PanelSortingOrder;
+        settings.referenceResolution = new Vector2Int((int)ReferenceWidth, (int)ReferenceHeight);
+
+        var theme = Resources.Load<ThemeStyleSheet>(ThemeResourcePath);
+        if (theme != null)
+        {
+            settings.themeStyleSheet = theme;
+        }
+
+        return settings;
+    }
+
+    private void BindToolkitElements()
+    {
+        designSpace = toolkitRoot.Q<VisualElement>("ranking-design-space");
+        selfCard = BindCard("ranking-self-card", "ranking-self");
+        opponentCard = BindCard("ranking-opponent-card", "ranking-opponent");
+        reserveCard0 = BindCard("ranking-reserve-card-0", "ranking-reserve-0");
+        reserveCard1 = BindCard("ranking-reserve-card-1", "ranking-reserve-1");
+
+        toolkitCards.Clear();
+        AddCardIfValid(selfCard);
+        AddCardIfValid(opponentCard);
+        AddCardIfValid(reserveCard0);
+        AddCardIfValid(reserveCard1);
+
+        SetPickingModeRecursive(toolkitRoot, PickingMode.Ignore);
+        designSpace?.RegisterCallback<GeometryChangedEvent>(_ => UpdateToolkitScale());
+        UpdateToolkitScale();
+    }
+
+    private RankingCardView BindCard(string rootName, string prefix)
+    {
+        var cardRoot = toolkitRoot.Q<VisualElement>(rootName);
+        if (cardRoot == null)
+        {
+            Debug.LogError($"[RankingUIController] UXML element not found: {rootName}");
+            return null;
+        }
+
+        return new RankingCardView(
+            cardRoot,
+            toolkitRoot.Q<Label>($"{prefix}-name"),
+            toolkitRoot.Q<Label>($"{prefix}-role"),
+            toolkitRoot.Q<Label>($"{prefix}-hp"),
+            toolkitRoot.Q<Label>($"{prefix}-meta"),
+            toolkitRoot.Q<Label>($"{prefix}-state"));
+    }
+
+    private void AddCardIfValid(RankingCardView card)
+    {
+        if (card != null)
+        {
+            toolkitCards.Add(card);
+        }
+    }
+
+    private void RegisterToolkitCallbacks()
+    {
+        if (toolkitCallbacksRegistered)
+        {
+            return;
+        }
+
+        // Display-only overlay: it must not block GamePrepare augment/shop input.
+        toolkitCallbacksRegistered = true;
+    }
+
+    private static void SetPickingModeRecursive(VisualElement element, PickingMode mode)
+    {
+        if (element == null)
+        {
+            return;
+        }
+
+        element.pickingMode = mode;
+        foreach (var child in element.Children())
+        {
+            SetPickingModeRecursive(child, mode);
+        }
+    }
+
+    private void UpdateToolkitScale()
+    {
+        if (toolkitRoot == null || designSpace == null)
+        {
+            return;
+        }
+
+        float rootWidth = toolkitRoot.resolvedStyle.width > 1f ? toolkitRoot.resolvedStyle.width : Screen.width;
+        float rootHeight = toolkitRoot.resolvedStyle.height > 1f ? toolkitRoot.resolvedStyle.height : Screen.height;
+        float scale = Mathf.Min(rootWidth / ReferenceWidth, rootHeight / ReferenceHeight);
+        if (scale <= 0f || float.IsNaN(scale) || float.IsInfinity(scale))
+        {
+            scale = 1f;
+        }
+
+        float left = Mathf.Max(0f, (rootWidth - ReferenceWidth * scale) * 0.5f);
+        float top = Mathf.Max(0f, (rootHeight - ReferenceHeight * scale) * 0.5f);
+
+        designSpace.style.left = left;
+        designSpace.style.top = top;
+        designSpace.style.width = ReferenceWidth;
+        designSpace.style.height = ReferenceHeight;
+        designSpace.transform.scale = new Vector3(scale, scale, 1f);
+    }
+
+    private void RefreshToolkitDisplay(bool force)
+    {
+        if (!useToolkitRanking || !EnsureToolkit())
+        {
+            return;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null || !gm.IsReadyForNetworkAccess)
+        {
+            SetToolkitVisible(false);
+            return;
+        }
+
+        var players = GetValidPlayers(gm);
+        if (players.Count == 0)
+        {
+            ClearToolkitCards();
+            SetToolkitVisible(false);
+            return;
+        }
+
+        SetToolkitVisible(true);
+
+        var networkPlayers = FindObjectsOfType<NetworkPlayer>();
+        var local = ResolveLocalPlayer(gm, players);
+        var opponent = ResolveOpponent(gm, local, players);
+
+        selfCard.Bind(BuildCardData(local, gm, networkPlayers, "ME", local != null ? ResolvePeerRole(local, gm) : "LOCAL"));
+        opponentCard.Bind(opponent != null
+            ? BuildCardData(opponent, gm, networkPlayers, "VS", ResolvePeerRole(opponent, gm))
+            : RankingCardData.Empty("VS", "WAITING", "No opponent"));
+
+        var reservePlayers = players
+            .Where(player => player != local && player != opponent)
+            .OrderBy(player => TryGetPlayerIdSafe(player, out int id) ? id : int.MaxValue)
+            .Take(2)
+            .ToList();
+
+        reserveCard0.Bind(reservePlayers.Count > 0
+            ? BuildCardData(reservePlayers[0], gm, networkPlayers, "OTHER", ResolvePeerRole(reservePlayers[0], gm))
+            : RankingCardData.Hidden());
+        reserveCard1.Bind(reservePlayers.Count > 1
+            ? BuildCardData(reservePlayers[1], gm, networkPlayers, "OTHER", ResolvePeerRole(reservePlayers[1], gm))
+            : RankingCardData.Hidden());
+    }
+
+    private void SetToolkitVisible(bool visible)
+    {
+        if (toolkitRoot != null)
+        {
+            toolkitRoot.style.display = visible ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+    }
+
+    private void ClearToolkitCards()
+    {
+        foreach (var card in toolkitCards)
+        {
+            card.Bind(RankingCardData.Hidden());
+        }
+    }
+
+    private static List<PlayerManager> GetValidPlayers(GameManagers gm)
+    {
+        if (gm == null)
+        {
+            return new List<PlayerManager>();
+        }
+
+        return gm.AllPlayers
+            .Where(IsPlayerReadable)
+            .OrderBy(player => TryGetPlayerIdSafe(player, out int playerId) ? playerId : int.MaxValue)
+            .ToList();
+    }
+
+    private static PlayerManager ResolveLocalPlayer(GameManagers gm, List<PlayerManager> players)
+    {
+        if (gm?.localPlayer != null && IsPlayerReadable(gm.localPlayer) && players.Contains(gm.localPlayer))
+        {
+            return gm.localPlayer;
+        }
+
+        if (gm?.Runner != null)
+        {
+            var localByAuthority = players.FirstOrDefault(player =>
+                player.Object != null &&
+                player.Object.IsValid &&
+                player.Object.InputAuthority == gm.Runner.LocalPlayer);
+            if (localByAuthority != null)
+            {
+                return localByAuthority;
+            }
+        }
+
+        return players.FirstOrDefault();
+    }
+
+    private static PlayerManager ResolveOpponent(GameManagers gm, PlayerManager local, List<PlayerManager> players)
+    {
+        if (gm == null || local == null || !TryGetPlayerIdSafe(local, out int localId))
+        {
+            return null;
+        }
+
+        int opponentId = gm.GetBattleOpponent(localId);
+        if (opponentId < 0 && local.opponentManager != null && TryGetPlayerIdSafe(local.opponentManager, out int fallbackId))
+        {
+            opponentId = fallbackId;
+        }
+
+        return opponentId >= 0
+            ? players.FirstOrDefault(player => TryGetPlayerIdSafe(player, out int id) && id == opponentId)
+            : null;
+    }
+
+    private static RankingCardData BuildCardData(
+        PlayerManager player,
+        GameManagers gm,
+        NetworkPlayer[] networkPlayers,
+        string lane,
+        string role)
+    {
+        if (!IsPlayerReadable(player))
+        {
+            return RankingCardData.Hidden();
+        }
+
+        string name = ResolveNickname(player, networkPlayers);
+        int playerId = TryGetPlayerIdSafe(player, out int id) ? id : -1;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = playerId >= 0 ? $"Player {playerId}" : "Player";
+        }
+
+        int hp = TryGetHealthSafe(player, out int health) ? health : 0;
+        string state = ResolveBattleState(player, gm);
+        string meta = playerId >= 0 ? $"P{playerId}  {state}" : state;
+        return new RankingCardData(true, player, name, lane, role, $"HP {hp}", meta, state);
+    }
+
+    private static string ResolveNickname(PlayerManager player, NetworkPlayer[] networkPlayers)
+    {
+        if (player == null || networkPlayers == null)
+        {
+            return null;
+        }
+
+        for (int i = 0; i < networkPlayers.Length; i++)
+        {
+            var networkPlayer = networkPlayers[i];
+            if (networkPlayer == null || networkPlayer.Object == null || player.Object == null)
+            {
+                continue;
+            }
+
+            if (networkPlayer.Object.InputAuthority == player.Object.InputAuthority)
+            {
+                string nickname = networkPlayer.Nickname.ToString();
+                if (!string.IsNullOrWhiteSpace(nickname))
+                {
+                    return nickname;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string ResolvePeerRole(PlayerManager player, GameManagers gm)
+    {
+        if (!IsPlayerReadable(player))
+        {
+            return "PLAYER";
+        }
+
+        if (gm?.Runner != null && player.Object.InputAuthority == gm.Runner.LocalPlayer)
+        {
+            return gm.Runner.IsServer ? "HOST" : "CLIENT";
+        }
+
+        int authorityId = player.Object.InputAuthority.PlayerId;
+        return authorityId == 1 ? "HOST" : "CLIENT";
+    }
+
+    private static string ResolveBattleState(PlayerManager player, GameManagers gm)
+    {
+        if (!IsPlayerReadable(player))
+        {
+            return "WAIT";
+        }
+
+        try
+        {
+            if (gm != null && gm.GetGameState() == GameManagers.GameState.Prepare)
+            {
+                return "PREP";
+            }
+
+            if (!player.IsActivelyFighting)
+            {
+                return "WAIT";
+            }
+
+            return player.IsAttackerInCurrentBattle ? "ATK" : "DEF";
+        }
+        catch (InvalidOperationException)
+        {
+            return "WAIT";
+        }
+    }
+
+    private void FocusPlayer(PlayerManager target)
+    {
+        if (!IsPlayerReadable(target) || CameraManager.Instance == null)
+        {
+            return;
+        }
+
+        if (target == CameraManager.Instance.OwnField)
+        {
+            CameraManager.Instance.ReturnToOwnField();
+            return;
+        }
+
+        CameraManager.Instance.MoveToPlayerField(target, ShouldUseAttackModeCamera(target)).Forget();
+    }
+
+    private bool ShouldUseAttackModeCamera(PlayerManager targetPlayer)
+    {
+        var gm = GameManagers.Instance;
+        var localPlayer = gm?.localPlayer;
+        if (!IsPlayerReadable(localPlayer) || !IsPlayerReadable(targetPlayer))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!localPlayer.IsAttackerInCurrentBattle)
+            {
+                return false;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+
+        if (!TryGetPlayerIdSafe(localPlayer, out int localPlayerId) ||
+            !TryGetPlayerIdSafe(targetPlayer, out int targetPlayerId))
+        {
+            return false;
+        }
+
+        return gm.GetBattleOpponent(localPlayerId) == targetPlayerId;
+    }
+
+    private void SetLegacyContainersVisible(bool visible)
+    {
+        if (leftSideContainer != null)
+        {
+            leftSideContainer.gameObject.SetActive(visible);
+        }
+
+        if (rightSideContainer != null)
+        {
+            rightSideContainer.gameObject.SetActive(visible);
+        }
+    }
+
+    private static bool IsPlayerReadable(PlayerManager player)
+    {
+        return player != null
+            && player.Object != null
+            && player.Object.IsValid;
+    }
+
+    private static bool TryGetHealthSafe(PlayerManager player, out int health)
+    {
+        health = 0;
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            health = player.GetHealth();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetPlayerIdSafe(PlayerManager player, out int playerId)
+    {
+        playerId = int.MaxValue;
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            playerId = player.playerId;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private bool HasPlayerStateChanged()
+    {
+        if (allPlayers.Count != lastPlayerHealths.Count)
+        {
+            UpdateLastPlayerHealths();
+            return true;
+        }
+
+        for (int i = 0; i < allPlayers.Count; i++)
+        {
+            if (TryGetHealthSafe(allPlayers[i], out int health) && lastPlayerHealths[i] != health)
+            {
+                UpdateLastPlayerHealths();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void UpdateLastPlayerHealths()
+    {
+        lastPlayerHealths.Clear();
+        for (int i = 0; i < allPlayers.Count; i++)
+        {
+            lastPlayerHealths.Add(TryGetHealthSafe(allPlayers[i], out int health) ? health : 0);
+        }
+    }
+
+    private async void InitializePlayersAndSlots()
+    {
+        if (isInitialized || isInitializing)
+        {
+            return;
+        }
+
+        isInitializing = true;
+        if (GameManagers.Instance == null)
+        {
+            isInitializing = false;
+            nextInitializeRetryTime = Time.unscaledTime + 0.5f;
+            return;
+        }
+
+        var validPlayers = GetValidPlayers(GameManagers.Instance);
+        int actualPlayerCount = GameManagers.Instance.singlePlayerModeCount;
+        if (GameManagers.Instance.Runner != null &&
+            GameManagers.Instance.Runner.GameMode == GameMode.Single)
+        {
+            if (actualPlayerCount <= 0)
+            {
+                actualPlayerCount = validPlayers.Count;
+            }
+        }
+        else
+        {
+            actualPlayerCount = validPlayers.Count;
+        }
+
+        allPlayers.Clear();
+        allPlayers.AddRange(validPlayers.Take(actualPlayerCount));
+
+        if (allPlayers.Count == 0)
+        {
+            isInitializing = false;
+            nextInitializeRetryTime = Time.unscaledTime + 0.5f;
+            return;
+        }
+
+        PlayerRankSlot[] existingSlots = GetComponentsInChildren<PlayerRankSlot>(true);
+        foreach (var slot in existingSlots)
+        {
+            if (slot != null)
+            {
+                DestroyImmediate(slot.gameObject);
+            }
+        }
+
+        allSlots.Clear();
+
+        for (int i = 0; i < allPlayers.Count; i++)
+        {
+            GameObject slotGO = null;
+            if (AddressablesManager.Instance != null)
+            {
+                slotGO = await AddressablesManager.Instance.LoadObject("UI_Slot_PlayerRank", transform);
+                if (slotGO != null)
+                {
+                    slotGO.name = $"PlayerRankSlot_{i}";
+                }
+            }
+
+            if (slotGO == null)
+            {
+                slotGO = new GameObject($"PlayerRankSlot_{i}", typeof(RectTransform));
+                slotGO.transform.SetParent(transform, false);
+            }
+
+            PlayerRankSlot slot = slotGO.GetComponent<PlayerRankSlot>();
+            if (slot == null)
+            {
+                slot = slotGO.AddComponent<PlayerRankSlot>();
+            }
+
+            slotGO.SetActive(false);
+            allSlots.Add(slot);
+        }
+
+        isInitialized = true;
+        SortAndDisplayPlayers();
+        isInitializing = false;
+    }
+
+    private void SortAndDisplayPlayers()
+    {
+        var sortedPlayers = allPlayers
+            .OrderByDescending(p => TryGetHealthSafe(p, out int health) ? health : 0)
+            .ThenBy(p => TryGetPlayerIdSafe(p, out int playerId) ? playerId : int.MaxValue)
+            .ToList();
+
+        for (int i = 0; i < allSlots.Count; i++)
+        {
+            PlayerRankSlot currentSlot = allSlots[i];
+            if (currentSlot == null)
+            {
+                continue;
+            }
+
+            if (i < sortedPlayers.Count)
+            {
+                PlayerManager playerForThisSlot = sortedPlayers[i];
+                Transform targetParent = ShouldPlaceDisplayIndexOnLeft(i, sortedPlayers.Count)
+                    ? leftSideContainer
+                    : rightSideContainer;
+                targetParent ??= transform;
+
+                if (!targetParent.gameObject.activeInHierarchy)
+                {
+                    targetParent.gameObject.SetActive(true);
+                }
+
+                currentSlot.transform.SetParent(targetParent, false);
+                if (!currentSlot.gameObject.activeInHierarchy)
+                {
+                    currentSlot.gameObject.SetActive(true);
+                }
+
+                currentSlot.Initialize(playerForThisSlot);
+
+                Canvas.ForceUpdateCanvases();
+                RectTransform rt = targetParent.GetComponent<RectTransform>();
+                if (rt != null)
+                {
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+                }
+
+                currentSlot.UpdateUI();
+            }
+            else
+            {
+                currentSlot.gameObject.SetActive(false);
+            }
+        }
+    }
+
+    private readonly struct RankingCardData
+    {
+        public readonly bool Visible;
+        public readonly PlayerManager Player;
+        public readonly string Name;
+        public readonly string Lane;
+        public readonly string Role;
+        public readonly string Health;
+        public readonly string Meta;
+        public readonly string State;
+
+        public RankingCardData(
+            bool visible,
+            PlayerManager player,
+            string name,
+            string lane,
+            string role,
+            string health,
+            string meta,
+            string state)
+        {
+            Visible = visible;
+            Player = player;
+            Name = name;
+            Lane = lane;
+            Role = role;
+            Health = health;
+            Meta = meta;
+            State = state;
+        }
+
+        public static RankingCardData Hidden()
+        {
+            return new RankingCardData(false, null, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
+        }
+
+        public static RankingCardData Empty(string lane, string role, string name)
+        {
+            return new RankingCardData(true, null, name, lane, role, "HP -", "No active match", "WAIT");
+        }
+    }
+
+    private sealed class RankingCardView
+    {
+        private readonly Label name;
+        private readonly Label role;
+        private readonly Label health;
+        private readonly Label meta;
+        private readonly Label state;
+
+        public RankingCardView(VisualElement root, Label name, Label role, Label health, Label meta, Label state)
+        {
+            Root = root;
+            this.name = name;
+            this.role = role;
+            this.health = health;
+            this.meta = meta;
+            this.state = state;
+
+            Root.pickingMode = PickingMode.Ignore;
+        }
+
+        public VisualElement Root { get; }
+        public PlayerManager TrackedPlayer { get; private set; }
+
+        public void Bind(RankingCardData data)
+        {
+            TrackedPlayer = data.Player;
+            Root.style.display = data.Visible ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!data.Visible)
+            {
+                return;
+            }
+
+            SetText(name, data.Name);
+            SetText(role, $"{data.Lane}  {data.Role}");
+            SetText(health, data.Health);
+            SetText(meta, data.Meta);
+            SetText(state, data.State);
+
+            Root.EnableInClassList("ranking-card-waiting", data.State == "WAIT");
+            Root.EnableInClassList("ranking-card-attacking", data.State == "ATK");
+            Root.EnableInClassList("ranking-card-defending", data.State == "DEF");
+            Root.EnableInClassList("ranking-card-prepare", data.State == "PREP");
+        }
+
+        private static void SetText(Label label, string value)
+        {
+            if (label != null)
+            {
+                label.text = value ?? string.Empty;
+            }
+        }
+    }
+}

@@ -31,8 +31,18 @@
     -unity-background-scale-mode: stretch-to-fill;
 }
 
+.jl-left-menu-image-cover {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 154px;
+    height: 941px;
+    background-color: #061524;
+    border-right-width: 1px;
+    border-right-color: rgba(18, 55, 82, 0.65);
+}
+
 .jl-top-hud,
-.jl-left-menu,
 .jl-room-panel {
     position: absolute;
 }
@@ -128,23 +138,11 @@
 }
 
 .jl-left-menu {
-    left: 0;
-    top: 0;
-    width: 154px;
-    height: 941px;
+    display: none;
 }
 
 .jl-menu-label {
-    position: absolute;
-    left: 79px;
-    width: 64px;
-    height: 28px;
-    color: #ffe7ac;
-    font-size: 19px;
-    -unity-font-style: bold;
-    -unity-text-align: middle-left;
-    /* -unity-text-outline-width: 1px; */
-    /* -unity-text-outline-color: #0b111a; */
+    display: none;
 }
 
 .jl-menu-label--lobby {

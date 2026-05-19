@@ -21,10 +21,10 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const string LayoutResourcePath = "UI/GamePrepare/GamePreparePanels";
     private const string StyleResourcePath = "UI/GamePrepare/GamePreparePanelsStyles";
     private const string ThemeResourcePath = "UI/GamePrepare/GamePrepareRuntimeTheme";
-    private const string ShopCardCostClassPrefix = "shop-card-cost-";
+    private const string ShopCardStarClassPrefix = "shop-card-star-";
     private const int PanelSortingOrder = 280;
-    private const int MinShopCardCostStyle = 1;
-    private const int MaxShopCardCostStyle = 5;
+    private const int MinShopCardStarStyle = 1;
+    private const int MaxShopCardStarStyle = 5;
     private const float ReferenceWidth = 1600f;
     private const float ReferenceHeight = 900f;
     private const float MinResponsiveScale = 0.72f;
@@ -300,10 +300,10 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         return star <= 0 ? "-" : $"{star}\uC131";
     }
 
-    public static string GetShopCardCostClass(int baseCost)
+    public static string GetShopCardStarClass(int starLevel)
     {
-        return baseCost >= MinShopCardCostStyle && baseCost <= MaxShopCardCostStyle
-            ? $"{ShopCardCostClassPrefix}{baseCost}"
+        return starLevel >= MinShopCardStarStyle && starLevel <= MaxShopCardStarStyle
+            ? $"{ShopCardStarClassPrefix}{starLevel}"
             : string.Empty;
     }
 
@@ -1965,7 +1965,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             Root?.SetEnabled(hasItem && !sold);
             Root?.EnableInClassList("is-disabled", !hasItem || sold);
             SetVisible(soldOverlay, sold);
-            ApplyCostBackground(hasItem && item.UnitData != null ? item.UnitData.cost : 0);
+            ApplyStarBackground(hasItem && item.UnitData != null ? item.StarLevel : 0);
 
             if (!hasItem || item.UnitData == null)
             {
@@ -2028,16 +2028,20 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
         }
 
-        private void ApplyCostBackground(int baseCost)
+        private void ApplyStarBackground(int starLevel)
         {
             if (Root == null)
             {
                 return;
             }
 
-            for (int costStyle = MinShopCardCostStyle; costStyle <= MaxShopCardCostStyle; costStyle++)
+            int normalizedStar = starLevel > 0
+                ? Mathf.Clamp(starLevel, MinShopCardStarStyle, MaxShopCardStarStyle)
+                : 0;
+
+            for (int starStyle = MinShopCardStarStyle; starStyle <= MaxShopCardStarStyle; starStyle++)
             {
-                Root.EnableInClassList(GetShopCardCostClass(costStyle), costStyle == baseCost);
+                Root.EnableInClassList(GetShopCardStarClass(starStyle), starStyle == normalizedStar);
             }
 
             if (topGem != null)
@@ -2052,7 +2056,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
             if (footer != null)
             {
-                footer.style.backgroundColor = Color.clear;
+                footer.style.backgroundColor = new Color(0.02f, 0.04f, 0.07f, 0.68f);
                 footer.style.borderTopWidth = 0f;
             }
         }

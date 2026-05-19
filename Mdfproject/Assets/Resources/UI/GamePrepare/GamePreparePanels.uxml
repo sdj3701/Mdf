@@ -86,88 +86,93 @@
                 </ui:VisualElement>
                 <ui:VisualElement name="shop-panel" class="prepare-panel shop-panel">
                     <ui:VisualElement name="shop-card-row" class="shop-card-row">
-                        <ui:VisualElement name="shop-card-0" class="choice-card shop-card shop-card-cost-1">
+                        <ui:VisualElement name="shop-card-0" class="choice-card shop-card shop-card-star-1">
                             <ui:VisualElement class="card-top-gem" />
                             <ui:VisualElement class="card-body">
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-0" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-0" text="-" class="card-tier" />
-                                        <ui:Label name="shop-name-0" text="-" class="card-name" />
-                                        <ui:Label name="shop-cost-0" class="card-description" />
+                                        <ui:Label name="shop-star-0" text="-" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:VisualElement class="card-footer">
-                                <ui:Label name="shop-buy-0" text="구매" class="card-footer-label" />
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-0" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-0" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-0" text="구매 완료" class="sold-overlay hidden" />
                         </ui:VisualElement>
-                        <ui:VisualElement name="shop-card-1" class="choice-card shop-card shop-card-cost-2">
+                        <ui:VisualElement name="shop-card-1" class="choice-card shop-card shop-card-star-2">
                             <ui:VisualElement class="card-top-gem" />
                             <ui:VisualElement class="card-body">
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-1" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-1" text="-" class="card-tier" />
-                                        <ui:Label name="shop-name-1" text="-" class="card-name" />
-                                        <ui:Label name="shop-cost-1" class="card-description" />
+                                        <ui:Label name="shop-star-1" text="-" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:VisualElement class="card-footer">
-                                <ui:Label name="shop-buy-1" text="구매" class="card-footer-label" />
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-1" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-1" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-1" text="구매 완료" class="sold-overlay hidden" />
                         </ui:VisualElement>
-                        <ui:VisualElement name="shop-card-2" class="choice-card shop-card shop-card-cost-3">
+                        <ui:VisualElement name="shop-card-2" class="choice-card shop-card shop-card-star-3">
                             <ui:VisualElement class="card-top-gem" />
                             <ui:VisualElement class="card-body">
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-2" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-2" text="-" class="card-tier" />
-                                        <ui:Label name="shop-name-2" text="-" class="card-name" />
-                                        <ui:Label name="shop-cost-2" class="card-description" />
+                                        <ui:Label name="shop-star-2" text="-" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:VisualElement class="card-footer">
-                                <ui:Label name="shop-buy-2" text="구매" class="card-footer-label" />
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-2" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-2" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-2" text="구매 완료" class="sold-overlay hidden" />
                         </ui:VisualElement>
-                        <ui:VisualElement name="shop-card-3" class="choice-card shop-card shop-card-cost-4">
+                        <ui:VisualElement name="shop-card-3" class="choice-card shop-card shop-card-star-4">
                             <ui:VisualElement class="card-top-gem" />
                             <ui:VisualElement class="card-body">
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-3" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-3" text="-" class="card-tier" />
-                                        <ui:Label name="shop-name-3" text="-" class="card-name" />
-                                        <ui:Label name="shop-cost-3" class="card-description" />
+                                        <ui:Label name="shop-star-3" text="-" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:VisualElement class="card-footer">
-                                <ui:Label name="shop-buy-3" text="구매" class="card-footer-label" />
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-3" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-3" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-3" text="구매 완료" class="sold-overlay hidden" />
                         </ui:VisualElement>
-                        <ui:VisualElement name="shop-card-4" class="choice-card shop-card shop-card-cost-5">
+                        <ui:VisualElement name="shop-card-4" class="choice-card shop-card shop-card-star-5">
                             <ui:VisualElement class="card-top-gem" />
                             <ui:VisualElement class="card-body">
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-4" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-4" text="-" class="card-tier" />
-                                        <ui:Label name="shop-name-4" text="-" class="card-name" />
-                                        <ui:Label name="shop-cost-4" class="card-description" />
+                                        <ui:Label name="shop-star-4" text="-" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:VisualElement class="card-footer">
-                                <ui:Label name="shop-buy-4" text="구매" class="card-footer-label" />
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-4" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-4" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-4" text="구매 완료" class="sold-overlay hidden" />
                         </ui:VisualElement>

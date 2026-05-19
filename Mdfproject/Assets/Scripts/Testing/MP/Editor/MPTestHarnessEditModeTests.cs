@@ -85,6 +85,33 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(2), Is.EqualTo(1));
         Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(1), Is.EqualTo(1));
         Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(0), Is.EqualTo(0));
+        Assert.That(RankingUIController.GetTopRightReserveCount(4), Is.EqualTo(2));
+        Assert.That(RankingUIController.GetTopRightReserveCount(3), Is.EqualTo(1));
+        Assert.That(RankingUIController.GetTopRightReserveCount(2), Is.EqualTo(0));
+    }
+
+    [Test]
+    public void RankingUiToolkitLayoutProvidesFixedSelfOpponentAndReserveSlots()
+    {
+        string source = File.ReadAllText("Assets/Scripts/UI/RankingUIController.cs");
+        var layout = Resources.Load<VisualTreeAsset>("UI/PlayerRanking/PlayerRankingPanel");
+        var style = Resources.Load<StyleSheet>("UI/PlayerRanking/PlayerRankingPanelStyles");
+        var tree = layout != null ? layout.CloneTree() : null;
+
+        Assert.That(layout, Is.Not.Null);
+        Assert.That(style, Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-left-cluster"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-right-cluster"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-self-card"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-opponent-card"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-reserve-card-0"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-reserve-card-1"), Is.Not.Null);
+        Assert.That(source, Does.Contain("UIDocument"));
+        Assert.That(source, Does.Contain("ResolveOpponent"));
+        Assert.That(source, Does.Contain("GetBattleOpponent"));
+        Assert.That(source, Does.Contain("PanelSortingOrder = 260"));
+        Assert.That(source, Does.Contain("SetPickingModeRecursive(toolkitRoot, PickingMode.Ignore)"));
+        Assert.That(source, Does.Contain("Display-only overlay"));
     }
 
     [Test]
@@ -160,6 +187,27 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(sceneSource, Does.Contain("guid: 01614664b831546d2ae94a42149d80ac"));
         Assert.That(sceneSource, Does.Contain("m_Name: TestMatching UI Toolkit"));
         Assert.That(sceneSource, Does.Contain("m_PanelSettings: {fileID: 11400000, guid: 8273b236cf53499fbd9d38004ec35985"));
+    }
+
+    [Test]
+    public void LobbyToolkitKeepsBackgroundImagesButRemovesLeftMenus()
+    {
+        string matchingUxml = File.ReadAllText("Assets/UI/TestMatching/TestMatching.uxml");
+        string matchingStyle = File.ReadAllText("Assets/UI/TestMatching/TestMatching.uss");
+        string joinUxml = File.ReadAllText("Assets/UI/JoinLobby/JoinLobby.uxml");
+        string joinStyle = File.ReadAllText("Assets/UI/JoinLobby/JoinLobby.uss");
+
+        Assert.That(matchingUxml, Does.Not.Contain("name=\"leftMenu\""));
+        Assert.That(joinUxml, Does.Not.Contain("name=\"leftMenu\""));
+        Assert.That(matchingUxml, Does.Contain("name=\"leftMenuImageCover\""));
+        Assert.That(joinUxml, Does.Contain("name=\"leftMenuImageCover\""));
+        Assert.That(matchingStyle, Does.Contain("bg_test_matching_full.png"));
+        Assert.That(joinStyle, Does.Contain("bg_join_lobby_full.png"));
+        Assert.That(matchingStyle, Does.Contain(".tm-left-menu-image-cover"));
+        Assert.That(joinStyle, Does.Contain(".jl-left-menu-image-cover"));
+        Assert.That(joinStyle, Does.Contain("player_portrait_0.png"));
+        Assert.That(joinStyle, Does.Contain("player_portrait_1.png"));
+        Assert.That(joinStyle, Does.Contain("player_portrait_2.png"));
     }
 
     [Test]
@@ -826,8 +874,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(Regex.Matches(uxml, "name=\"attack-scroll-card-\\d\"").Count, Is.EqualTo(5));
         Assert.That(uxml, Does.Contain("project://database/Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss"));
         Assert.That(uxml, Does.Contain("name=\"shop-panel\" class=\"prepare-panel shop-panel\""));
-        Assert.That(tree?.Q<VisualElement>("shop-card-0")?.ClassListContains("shop-card-cost-1"), Is.True);
-        Assert.That(tree?.Q<VisualElement>("shop-card-4")?.ClassListContains("shop-card-cost-5"), Is.True);
+        Assert.That(tree?.Q<VisualElement>("shop-card-0")?.ClassListContains("shop-card-star-1"), Is.True);
+        Assert.That(tree?.Q<VisualElement>("shop-card-4")?.ClassListContains("shop-card-star-5"), Is.True);
         Assert.That(controllerSource, Does.Contain("new BuyUnitCommand(playerId, slotIndex)"));
         Assert.That(controllerSource, Does.Contain("new RerollShopCommand(playerId)"));
         Assert.That(controllerSource, Does.Contain("new SelectAugmentCommand(playerId, index)"));
@@ -839,15 +887,15 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("leftWireframeRail"));
         Assert.That(controllerSource, Does.Contain("RerollButtonSize"));
         Assert.That(controllerSource, Does.Contain("StyleKeyword.Auto"));
-        Assert.That(controllerSource, Does.Contain("ApplyCostBackground"));
+        Assert.That(controllerSource, Does.Contain("ApplyStarBackground"));
         Assert.That(controllerSource, Does.Contain("ScaleMode.ScaleAndCrop"));
         Assert.That(controllerSource, Does.Contain("icon.style.flexShrink = 0f"));
         Assert.That(controllerSource, Does.Contain("shop-art-frame"));
-        Assert.That(controllerSource, Does.Contain("item.UnitData.cost"));
-        Assert.That(controllerSource, Does.Contain("GetShopCardCostClass"));
+        Assert.That(controllerSource, Does.Contain("item.StarLevel"));
+        Assert.That(controllerSource, Does.Contain("GetShopCardStarClass"));
         Assert.That(controllerSource, Does.Contain("topGem.style.display = DisplayStyle.None"));
         Assert.That(controllerSource, Does.Contain("body.style.backgroundColor = Color.clear"));
-        Assert.That(controllerSource, Does.Contain("footer.style.backgroundColor = Color.clear"));
+        Assert.That(controllerSource, Does.Contain("footer.style.backgroundColor = new Color"));
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMagicScroll(scrolls[slotIndex])"));
         Assert.That(controllerSource, Does.Contain("game-gold-value"));
@@ -889,6 +937,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("flex-shrink: 0;"));
         Assert.That(styleSource, Does.Contain(".shop-art-frame"));
         Assert.That(styleSource, Does.Contain(".shop-text-overlay"));
+        Assert.That(styleSource, Does.Contain(".shop-footer-row"));
+        Assert.That(styleSource, Does.Contain(".shop-star-label"));
         Assert.That(styleSource, Does.Match(@"(?s)\.shop-card \.card-name\s*\{.*?-unity-font-style:\s*bold;"));
         Assert.That(styleSource, Does.Match(@"(?s)\.shop-card \.card-description\s*\{.*?-unity-font-style:\s*bold;"));
         Assert.That(styleSource, Does.Contain("width: 180px;"));
@@ -903,6 +953,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("position: absolute;"));
         Assert.That(styleSource, Does.Contain(".shop-card"));
         Assert.That(styleSource, Does.Contain("background-image: url"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-1"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-2"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-3"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-4"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-5"));
         Assert.That(styleSource, Does.Contain("Spr_SlotGray.png"));
         Assert.That(styleSource, Does.Contain("Spr_SlotGreen.png"));
         Assert.That(styleSource, Does.Contain("Spr_SlotBlue.png"));
@@ -916,9 +971,12 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(uxml, Does.Contain("game-round-timer-label"));
         Assert.That(uxml, Does.Contain("game-prepare-design-space"));
         Assert.That(uxml, Does.Contain("hud-action-spaced"));
-        Assert.That(GamePrepareUIToolkitController.GetShopCardCostClass(1), Is.EqualTo("shop-card-cost-1"));
-        Assert.That(GamePrepareUIToolkitController.GetShopCardCostClass(5), Is.EqualTo("shop-card-cost-5"));
-        Assert.That(GamePrepareUIToolkitController.GetShopCardCostClass(6), Is.EqualTo(string.Empty));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(1), Is.EqualTo("shop-card-star-1"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(2), Is.EqualTo("shop-card-star-2"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(3), Is.EqualTo("shop-card-star-3"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(4), Is.EqualTo("shop-card-star-4"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(5), Is.EqualTo("shop-card-star-5"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(6), Is.EqualTo(string.Empty));
         Assert.That(GamePrepareUIToolkitController.CalculateCardSize(true, new Vector2(2340, 1080)).x, Is.EqualTo(336f).Within(0.01f));
         Assert.That(GamePrepareUIToolkitController.CalculateCardSize(true, new Vector2(2340, 1080)).y, Is.EqualTo(420f).Within(0.01f));
         Assert.That(GamePrepareUIToolkitController.CalculateCardSize(false, new Vector2(2340, 1080)).y, Is.GreaterThanOrEqualTo(64f * 6.0f));

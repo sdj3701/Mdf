@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-13
-Last verified: 2026-05-13
-Use count: 8
+Last used: 2026-05-19
+Last verified: 2026-05-19
+Use count: 10
 Review after: 2026-08-03
 Triggers: Editor/Build E2E, build/build E2E, Game scene, FieldManager wall snapshots
 Applies to: Phase 10/11 E2E matrix, `compare_state_snapshots.py`, `FieldManager`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-093437-2human-aifill-visible-3round-stable; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-093437-2human-aifill-visible-3round-stable; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -51,3 +51,7 @@ Lifecycle notes:
 - 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
 - 2026-05-13: Reused real room flow for 2 HumanBot peers with maxPlayers=4, then loaded Game to allow 2 AI fill players.
 - 2026-05-13: verified artifact `artifacts/mp/20260513-131556-two-humanbot-two-ai-smoke`
+- 2026-05-19: Reset Editor active scene to 00_Title before smoke matrix; all smoke cases passed with cleanupStatus=PASS orphanedPids=[].
+- 2026-05-19: verified artifact `artifacts/mp/20260519-040220-matrix/matrix-summary.json`
+- 2026-05-19: Smoke matrix after ranking overlay input passthrough passed all selected cases; cleanupStatus=PASS orphanedPids=[].
+- 2026-05-19: verified artifact `artifacts/mp/20260519-055718-matrix/matrix-summary.json`

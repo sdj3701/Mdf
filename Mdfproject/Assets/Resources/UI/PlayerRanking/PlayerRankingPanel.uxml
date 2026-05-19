@@ -1,0 +1,55 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/Resources/UI/PlayerRanking/PlayerRankingPanelStyles.uss?fileID=7433441132597879392&amp;guid=a8b5c29e91f642349b072878a3fdd23c&amp;type=3#PlayerRankingPanelStyles" />
+    <ui:VisualElement name="ranking-root" class="ranking-root">
+        <ui:VisualElement name="ranking-design-space" class="ranking-design-space">
+            <ui:VisualElement name="ranking-left-cluster" class="ranking-left-cluster">
+                <ui:VisualElement name="ranking-self-card" class="ranking-card ranking-card-self">
+                    <ui:VisualElement class="ranking-card-topline">
+                        <ui:Label name="ranking-self-role" text="ME HOST" class="ranking-role" />
+                        <ui:Label name="ranking-self-state" text="PREP" class="ranking-state" />
+                    </ui:VisualElement>
+                    <ui:Label name="ranking-self-name" text="Player" class="ranking-name" />
+                    <ui:VisualElement class="ranking-card-bottomline">
+                        <ui:Label name="ranking-self-hp" text="HP 0" class="ranking-hp" />
+                        <ui:Label name="ranking-self-meta" text="P0 PREP" class="ranking-meta" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="ranking-opponent-card" class="ranking-card ranking-card-opponent">
+                    <ui:VisualElement class="ranking-card-topline">
+                        <ui:Label name="ranking-opponent-role" text="VS CLIENT" class="ranking-role" />
+                        <ui:Label name="ranking-opponent-state" text="WAIT" class="ranking-state" />
+                    </ui:VisualElement>
+                    <ui:Label name="ranking-opponent-name" text="No opponent" class="ranking-name" />
+                    <ui:VisualElement class="ranking-card-bottomline">
+                        <ui:Label name="ranking-opponent-hp" text="HP -" class="ranking-hp" />
+                        <ui:Label name="ranking-opponent-meta" text="No active match" class="ranking-meta" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="ranking-right-cluster" class="ranking-right-cluster">
+                <ui:VisualElement name="ranking-reserve-card-0" class="ranking-card ranking-card-reserve">
+                    <ui:VisualElement class="ranking-card-topline">
+                        <ui:Label name="ranking-reserve-0-role" text="OTHER CLIENT" class="ranking-role" />
+                        <ui:Label name="ranking-reserve-0-state" text="WAIT" class="ranking-state" />
+                    </ui:VisualElement>
+                    <ui:Label name="ranking-reserve-0-name" text="Player" class="ranking-name" />
+                    <ui:VisualElement class="ranking-card-bottomline">
+                        <ui:Label name="ranking-reserve-0-hp" text="HP 0" class="ranking-hp" />
+                        <ui:Label name="ranking-reserve-0-meta" text="P2 WAIT" class="ranking-meta" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="ranking-reserve-card-1" class="ranking-card ranking-card-reserve">
+                    <ui:VisualElement class="ranking-card-topline">
+                        <ui:Label name="ranking-reserve-1-role" text="OTHER CLIENT" class="ranking-role" />
+                        <ui:Label name="ranking-reserve-1-state" text="WAIT" class="ranking-state" />
+                    </ui:VisualElement>
+                    <ui:Label name="ranking-reserve-1-name" text="Player" class="ranking-name" />
+                    <ui:VisualElement class="ranking-card-bottomline">
+                        <ui:Label name="ranking-reserve-1-hp" text="HP 0" class="ranking-hp" />
+                        <ui:Label name="ranking-reserve-1-meta" text="P3 WAIT" class="ranking-meta" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

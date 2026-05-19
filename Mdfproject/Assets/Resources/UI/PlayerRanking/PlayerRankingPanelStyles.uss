@@ -1,0 +1,152 @@
+.ranking-root {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    flex-grow: 1;
+    -unity-font-definition: url("project://database/Assets/Resources/Fonts%20&%20Materials/NotoSansKR-VariableFont_wght_UITK.asset?fileID=11400000&guid=9c2a7d7936fa41642b7f7f1396b8f8bc&type=2#NotoSansKR-VariableFont_wght_UITK");
+}
+
+.ranking-design-space {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1600px;
+    height: 900px;
+    transform-origin: left top;
+}
+
+.ranking-left-cluster {
+    position: absolute;
+    left: 28px;
+    top: 108px;
+    height: 78px;
+    flex-direction: row;
+    align-items: stretch;
+}
+
+.ranking-right-cluster {
+    position: absolute;
+    right: 28px;
+    top: 108px;
+    height: 166px;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.ranking-card {
+    width: 248px;
+    height: 78px;
+    margin-right: 10px;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    background-color: rgba(7, 14, 24, 0.92);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(184, 138, 50, 0.82);
+    border-right-color: rgba(184, 138, 50, 0.82);
+    border-top-color: rgba(246, 212, 103, 0.92);
+    border-bottom-color: rgba(117, 80, 30, 0.92);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.ranking-card-opponent {
+    border-left-color: rgba(86, 156, 235, 0.86);
+    border-right-color: rgba(86, 156, 235, 0.86);
+    border-top-color: rgba(141, 195, 255, 0.94);
+    border-bottom-color: rgba(14, 50, 105, 0.96);
+}
+
+.ranking-card-reserve {
+    width: 236px;
+    height: 76px;
+    margin-right: 0;
+    margin-bottom: 8px;
+    background-color: rgba(7, 14, 24, 0.86);
+}
+
+.ranking-card-topline,
+.ranking-card-bottomline {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.ranking-role {
+    width: 132px;
+    height: 20px;
+    color: rgb(215, 184, 100);
+    font-size: 13px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-left;
+    white-space: nowrap;
+}
+
+.ranking-state {
+    width: 48px;
+    height: 20px;
+    color: rgb(248, 232, 182);
+    font-size: 13px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-right;
+}
+
+.ranking-name {
+    height: 28px;
+    color: rgb(242, 236, 220);
+    font-size: 20px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-left;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.ranking-hp {
+    width: 74px;
+    height: 20px;
+    color: rgb(255, 224, 126);
+    font-size: 14px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-left;
+}
+
+.ranking-meta {
+    width: 130px;
+    height: 20px;
+    color: rgb(184, 196, 217);
+    font-size: 12px;
+    -unity-text-align: middle-right;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.ranking-card-prepare {
+    border-left-color: rgba(184, 138, 50, 0.82);
+    border-right-color: rgba(184, 138, 50, 0.82);
+}
+
+.ranking-card-attacking {
+    border-left-color: rgba(223, 100, 72, 0.88);
+    border-right-color: rgba(223, 100, 72, 0.88);
+    border-top-color: rgba(255, 163, 121, 0.94);
+    border-bottom-color: rgba(117, 45, 30, 0.96);
+}
+
+.ranking-card-defending {
+    border-left-color: rgba(86, 156, 235, 0.86);
+    border-right-color: rgba(86, 156, 235, 0.86);
+    border-top-color: rgba(141, 195, 255, 0.94);
+    border-bottom-color: rgba(14, 50, 105, 0.96);
+}
+
+.ranking-card-waiting {
+    opacity: 0.78;
+}
