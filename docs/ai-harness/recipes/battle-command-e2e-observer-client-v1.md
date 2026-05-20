@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: battle
 Created: 2026-05-06
-Last used: 2026-05-14
-Last verified: 2026-05-14
-Use count: 5
+Last used: 2026-05-20
+Last verified: 2026-05-20
+Use count: 6
 Review after: 2026-08-04
 Triggers: battle E2E reaches command execution on the host, but the client returns to `MatchingLobby` or the final snapshot is back in `Prepare`
 Applies to: `tools/harness/mp/run_battle_spawn_monster_command.py`, `tools/harness/mp/run_magic_scroll_command.py`, `tools/harness/mp/run_human_bot_battle_progression.py`, battle command snapshot checks
-Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051807-battle-spawn-monster-command
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051807-battle-spawn-monster-command; artifacts/mp/20260520-054126-battle-spawn-monster-command
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -46,3 +46,4 @@ Lifecycle notes:
 - 2026-05-14: verified artifact `artifacts/mp/20260514-044344-battle-spawn-monster-command`
 - 2026-05-14: Observer client battle command E2E stayed synchronized after explicit card selection/map touch split.
 - 2026-05-14: verified artifact `artifacts/mp/20260514-051807-battle-spawn-monster-command`
+- 2026-05-20: verified artifact `artifacts/mp/20260520-054126-battle-spawn-monster-command`

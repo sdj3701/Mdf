@@ -73,6 +73,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private bool _hasLocalHealthValues;
     private float _localHP;
     private float _localMaxHP;
+    private bool _isDying;
     
     // 로컬 접근용 프로퍼티 (IHealth 인터페이스 호환성 유지)
     public float currentHP
@@ -258,6 +259,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             _hasLocalHealthValues = false;
             _localHP = 0;
             _localMaxHP = 0;
+            _isDying = false;
             _networkMonsterDataLoadRequested = false;
             
             if (Object != null && Object.HasStateAuthority)
@@ -612,6 +614,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _hasLocalHealthValues = true;
         _localMaxHP = maxHp;
         _localHP = maxHp;
+        _isDying = false;
         
         // StatusBarUI 생성 (statusBarPrefab이 이미 할당된 상태)
         EnsureStatusBarUI();
@@ -1090,6 +1093,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 #endif
+        if (_isDying || currentHP <= 0f) return;
         if (_monsterData == null) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, _monsterData.defense, _monsterData.magicResistance);
         currentHP -= finalDamage;
@@ -1206,6 +1210,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         // 이미 파괴 중인 오브젝트면 무시
         if (this == null || gameObject == null) return;
+        if (_isDying) return;
+        _isDying = true;
         
         // Debug.Log($"{_monsterData.monsterName}이(가) 죽었습니다!");
         
