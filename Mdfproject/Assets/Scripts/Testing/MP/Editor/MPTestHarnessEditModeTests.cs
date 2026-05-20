@@ -950,8 +950,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("height: 180px;"));
         Assert.That(styleSource, Does.Contain("width: 84px;"));
         Assert.That(styleSource, Does.Contain("height: 84px;"));
-        Assert.That(styleSource, Does.Contain("width: 640px;"));
-        Assert.That(styleSource, Does.Contain("height: 44px;"));
+        Assert.That(styleSource, Does.Contain("width: 320px;"));
+        Assert.That(styleSource, Does.Contain("height: 40px;"));
         Assert.That(styleSource, Does.Contain("margin-left: 12px;"));
         Assert.That(styleSource, Does.Contain(".round-timer-label"));
         Assert.That(styleSource, Does.Contain(".hud-icon-button"));

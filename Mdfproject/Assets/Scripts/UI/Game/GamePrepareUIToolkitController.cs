@@ -48,8 +48,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const float HudActionGroupCardGap = 24f;
     private const float TopHudY = 12f;
     private const float RerollButtonSize = 180f;
-    private const float RoundTimerWidth = 640f;
-    private const float RoundTimerHeight = 44f;
+    private const float RoundTimerWidth = 320f;
+    private const float RoundTimerHeight = 40f;
     private const float AugmentPanelTopMin = 220f;
     private const float AugmentPanelTopMax = 380f;
 

@@ -6,11 +6,11 @@ Category: harness
 Created: 2026-05-05
 Last used: 2026-05-20
 Last verified: 2026-05-20
-Use count: 16
+Use count: 17
 Review after: 2026-08-03
 Triggers: Development Build, build artifact, player launch smoke
 Applies to: `mp_build_player`, `tools/harness/mp/build_player.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/mptest-current; artifacts/builds/20260514-035351; artifacts/builds/20260514-044206; artifacts/builds/20260514-051634; artifacts/builds/20260514-054535; artifacts/builds/20260514-064144; artifacts/builds/20260519-040047/build-metadata.json; artifacts/builds/20260519-055613/build-metadata.json; artifacts/builds/20260519-070913; artifacts/builds/20260520-053607
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/mptest-current; artifacts/builds/20260514-035351; artifacts/builds/20260514-044206; artifacts/builds/20260514-051634; artifacts/builds/20260514-054535; artifacts/builds/20260514-064144; artifacts/builds/20260519-040047/build-metadata.json; artifacts/builds/20260519-055613/build-metadata.json; artifacts/builds/20260519-070913; artifacts/builds/20260520-053607; artifacts/builds/20260520-060212
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -57,3 +57,4 @@ Lifecycle notes:
 - 2026-05-19: Built Development player artifacts/builds/20260519-070913/MDF-MPTest.exe and launch smoke exited cleanly with cleanupStatus=PASS orphanedPids=[].
 - 2026-05-19: verified artifact `artifacts/builds/20260519-070913`
 - 2026-05-20: verified artifact `artifacts/builds/20260520-053607`
+- 2026-05-20: verified artifact `artifacts/builds/20260520-060212`

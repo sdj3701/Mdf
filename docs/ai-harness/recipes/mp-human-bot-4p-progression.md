@@ -6,11 +6,11 @@ Category: AI/HumanBot
 Created: 2026-05-06
 Last used: 2026-05-20
 Last verified: 2026-05-20
-Use count: 2
+Use count: 3
 Review after: 2026-08-04
 Triggers: 4-player HumanBot, build host + 3 build clients, random-aware host-vs-client comparison
 Applies to: `tools/harness/mp/run_human_bot_4p_progression.py`, Phase 21 HumanBot progression smoke
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke; artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -36,3 +36,4 @@ Pitfalls:
 
 Lifecycle notes:
 - 2026-05-20: verified artifact `artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke`
+- 2026-05-20: verified artifact `artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke`

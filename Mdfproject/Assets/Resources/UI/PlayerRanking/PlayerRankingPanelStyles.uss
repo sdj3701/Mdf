@@ -19,8 +19,8 @@
 
 .ranking-left-cluster {
     position: absolute;
-    left: 28px;
-    top: 108px;
+    left: 124px;
+    top: 12px;
     height: 78px;
     flex-direction: row;
     align-items: stretch;

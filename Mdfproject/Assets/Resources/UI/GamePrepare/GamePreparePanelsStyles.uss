@@ -547,12 +547,12 @@
 
 .round-timer-label {
     position: absolute;
-    left: 480px;
+    left: 640px;
     top: 12px;
-    width: 640px;
-    height: 44px;
+    width: 320px;
+    height: 40px;
     color: rgb(248, 232, 182);
-    font-size: 28px;
+    font-size: 26px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
     background-color: rgba(8, 14, 23, 0.92);

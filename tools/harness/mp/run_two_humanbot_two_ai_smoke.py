@@ -951,6 +951,7 @@ def run(args: argparse.Namespace) -> int:
         }
         for name, logs in logs_recent.items():
             write_json(artifact_dir / f"{name}-logs-recent.json", logs)
+            peer_client = clients.get(name)
             if args.headless_player:
                 write_json(artifact_dir / f"{name}-screenshot.json", {
                     "success": True,
@@ -958,8 +959,16 @@ def run(args: argparse.Namespace) -> int:
                     "reason": "headless_player",
                     "headlessPlayer": True,
                 })
+            elif peer_client is None:
+                write_json(artifact_dir / f"{name}-screenshot.json", {
+                    "success": False,
+                    "error": {
+                        "code": "peer_client_missing",
+                        "details": name,
+                    },
+                })
             else:
-                write_json(artifact_dir / f"{name}-screenshot.json", safe_request(client.screenshot))
+                write_json(artifact_dir / f"{name}-screenshot.json", safe_request(peer_client.screenshot))
             for line in ((logs.get("data") or {}).get("lines") or []):
                 if isinstance(line, str) and "[MPTEST]" in line and ("result=fail" in line or " phase=error" in line):
                     failures.append(f"mptest_failure_log:{name}:{line}")
