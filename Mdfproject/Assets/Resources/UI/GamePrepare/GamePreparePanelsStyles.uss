@@ -469,13 +469,50 @@
     font-size: 22px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.reroll-gold-mode {
+    opacity: 0.92;
+}
+
+.wall-action-button {
+    position: absolute;
+    right: 28px;
+    bottom: 88px;
+    width: 96px;
+    min-width: 96px;
+    height: 96px;
+    padding-left: 0;
+    padding-right: 0;
+    border-top-left-radius: 48px;
+    border-top-right-radius: 48px;
+    border-bottom-left-radius: 48px;
+    border-bottom-right-radius: 48px;
+}
+
+.wall-action-icon {
+    width: 46px;
+    height: 34px;
+    margin-right: 0;
+    margin-bottom: 2px;
+}
+
+.wall-action-count {
+    width: 84px;
+    height: 28px;
+    color: rgb(248, 232, 182);
+    font-size: 24px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: nowrap;
 }
 
 .game-hud-root {
     position: absolute;
     right: 28px;
     top: 12px;
-    width: 180px;
+    width: 84px;
     height: 84px;
     flex-direction: row;
     align-items: center;

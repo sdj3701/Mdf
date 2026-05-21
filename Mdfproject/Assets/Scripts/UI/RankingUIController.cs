@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Cysharp.Threading.Tasks;
 using Fusion;
 using UnityEngine;
 using UnityEngine.UI;
@@ -16,6 +15,8 @@ public class RankingUIController : MonoBehaviour
     private const float ReferenceWidth = 1600f;
     private const float ReferenceHeight = 900f;
     private const float ToolkitRefreshInterval = 0.25f;
+    private const int MaxToolkitReserveCards = 2;
+    private const int FallbackPlayerMaxHealth = 80;
 
     [Header("Legacy UI Parent Containers")]
     [SerializeField] private Transform leftSideContainer;
@@ -237,7 +238,11 @@ public class RankingUIController : MonoBehaviour
             toolkitRoot.styleSheets.Add(toolkitStyle);
         }
 
-        if (toolkitReady && selfCard != null && opponentCard != null && reserveCard0 != null && reserveCard1 != null)
+        if (toolkitReady &&
+            selfCard?.IsValid == true &&
+            opponentCard?.IsValid == true &&
+            reserveCard0?.IsValid == true &&
+            reserveCard1?.IsValid == true)
         {
             SetLegacyContainersVisible(false);
             UpdateToolkitScale();
@@ -247,7 +252,10 @@ public class RankingUIController : MonoBehaviour
         BindToolkitElements();
         RegisterToolkitCallbacks();
         SetLegacyContainersVisible(false);
-        toolkitReady = selfCard != null && opponentCard != null && reserveCard0 != null && reserveCard1 != null;
+        toolkitReady = selfCard?.IsValid == true &&
+                       opponentCard?.IsValid == true &&
+                       reserveCard0?.IsValid == true &&
+                       reserveCard1?.IsValid == true;
         return toolkitReady;
     }
 
@@ -271,6 +279,7 @@ public class RankingUIController : MonoBehaviour
     private void BindToolkitElements()
     {
         designSpace = toolkitRoot.Q<VisualElement>("ranking-design-space");
+
         selfCard = BindCard("ranking-self-card", "ranking-self");
         opponentCard = BindCard("ranking-opponent-card", "ranking-opponent");
         reserveCard0 = BindCard("ranking-reserve-card-0", "ranking-reserve-0");
@@ -299,10 +308,7 @@ public class RankingUIController : MonoBehaviour
         return new RankingCardView(
             cardRoot,
             toolkitRoot.Q<Label>($"{prefix}-name"),
-            toolkitRoot.Q<Label>($"{prefix}-role"),
-            toolkitRoot.Q<Label>($"{prefix}-hp"),
-            toolkitRoot.Q<Label>($"{prefix}-meta"),
-            toolkitRoot.Q<Label>($"{prefix}-state"));
+            toolkitRoot.Q<Label>($"{prefix}-hp"));
     }
 
     private void AddCardIfValid(RankingCardView card)
@@ -391,22 +397,22 @@ public class RankingUIController : MonoBehaviour
         var local = ResolveLocalPlayer(gm, players);
         var opponent = ResolveOpponent(gm, local, players);
 
-        selfCard.Bind(BuildCardData(local, gm, networkPlayers, "ME", local != null ? ResolvePeerRole(local, gm) : "LOCAL"));
+        selfCard.Bind(BuildCardData(local, networkPlayers));
         opponentCard.Bind(opponent != null
-            ? BuildCardData(opponent, gm, networkPlayers, "VS", ResolvePeerRole(opponent, gm))
-            : RankingCardData.Empty("VS", "WAITING", "No opponent"));
+            ? BuildCardData(opponent, networkPlayers)
+            : RankingCardData.Hidden());
 
         var reservePlayers = players
             .Where(player => player != local && player != opponent)
-            .OrderBy(player => TryGetPlayerIdSafe(player, out int id) ? id : int.MaxValue)
-            .Take(2)
+            .OrderBy(player => TryGetPlayerIdSafe(player, out int playerId) ? playerId : int.MaxValue)
+            .Take(MaxToolkitReserveCards)
             .ToList();
 
         reserveCard0.Bind(reservePlayers.Count > 0
-            ? BuildCardData(reservePlayers[0], gm, networkPlayers, "OTHER", ResolvePeerRole(reservePlayers[0], gm))
+            ? BuildCardData(reservePlayers[0], networkPlayers)
             : RankingCardData.Hidden());
         reserveCard1.Bind(reservePlayers.Count > 1
-            ? BuildCardData(reservePlayers[1], gm, networkPlayers, "OTHER", ResolvePeerRole(reservePlayers[1], gm))
+            ? BuildCardData(reservePlayers[1], networkPlayers)
             : RankingCardData.Hidden());
     }
 
@@ -474,17 +480,24 @@ public class RankingUIController : MonoBehaviour
             opponentId = fallbackId;
         }
 
-        return opponentId >= 0
-            ? players.FirstOrDefault(player => TryGetPlayerIdSafe(player, out int id) && id == opponentId)
-            : null;
+        if (opponentId >= 0)
+        {
+            var battleOpponent = players.FirstOrDefault(player => TryGetPlayerIdSafe(player, out int id) && id == opponentId);
+            if (battleOpponent != null)
+            {
+                return battleOpponent;
+            }
+        }
+
+        return players
+            .Where(player => player != local)
+            .OrderBy(player => TryGetPlayerIdSafe(player, out int id) ? id : int.MaxValue)
+            .FirstOrDefault();
     }
 
     private static RankingCardData BuildCardData(
         PlayerManager player,
-        GameManagers gm,
-        NetworkPlayer[] networkPlayers,
-        string lane,
-        string role)
+        NetworkPlayer[] networkPlayers)
     {
         if (!IsPlayerReadable(player))
         {
@@ -499,9 +512,20 @@ public class RankingUIController : MonoBehaviour
         }
 
         int hp = TryGetHealthSafe(player, out int health) ? health : 0;
-        string state = ResolveBattleState(player, gm);
-        string meta = playerId >= 0 ? $"P{playerId}  {state}" : state;
-        return new RankingCardData(true, player, name, lane, role, $"HP {hp}", meta, state);
+        int maxHp = TryGetMaxHealthSafe(player, out int maxHealth) ? maxHealth : FallbackPlayerMaxHealth;
+        int displayHp = Mathf.Max(0, hp);
+        int displayMaxHp = Mathf.Max(1, maxHp);
+        return new RankingCardData(
+            true,
+            player,
+            name,
+            displayHp.ToString(),
+            GetHealthFillPercentForDisplay(displayHp, displayMaxHp));
+    }
+
+    public static float GetHealthFillPercentForDisplay(int health, int maxHealth)
+    {
+        return maxHealth > 0 ? Mathf.Clamp01(health / (float)maxHealth) : 0f;
     }
 
     private static string ResolveNickname(PlayerManager player, NetworkPlayer[] networkPlayers)
@@ -530,95 +554,6 @@ public class RankingUIController : MonoBehaviour
         }
 
         return null;
-    }
-
-    private static string ResolvePeerRole(PlayerManager player, GameManagers gm)
-    {
-        if (!IsPlayerReadable(player))
-        {
-            return "PLAYER";
-        }
-
-        if (gm?.Runner != null && player.Object.InputAuthority == gm.Runner.LocalPlayer)
-        {
-            return gm.Runner.IsServer ? "HOST" : "CLIENT";
-        }
-
-        int authorityId = player.Object.InputAuthority.PlayerId;
-        return authorityId == 1 ? "HOST" : "CLIENT";
-    }
-
-    private static string ResolveBattleState(PlayerManager player, GameManagers gm)
-    {
-        if (!IsPlayerReadable(player))
-        {
-            return "WAIT";
-        }
-
-        try
-        {
-            if (gm != null && gm.GetGameState() == GameManagers.GameState.Prepare)
-            {
-                return "PREP";
-            }
-
-            if (!player.IsActivelyFighting)
-            {
-                return "WAIT";
-            }
-
-            return player.IsAttackerInCurrentBattle ? "ATK" : "DEF";
-        }
-        catch (InvalidOperationException)
-        {
-            return "WAIT";
-        }
-    }
-
-    private void FocusPlayer(PlayerManager target)
-    {
-        if (!IsPlayerReadable(target) || CameraManager.Instance == null)
-        {
-            return;
-        }
-
-        if (target == CameraManager.Instance.OwnField)
-        {
-            CameraManager.Instance.ReturnToOwnField();
-            return;
-        }
-
-        CameraManager.Instance.MoveToPlayerField(target, ShouldUseAttackModeCamera(target)).Forget();
-    }
-
-    private bool ShouldUseAttackModeCamera(PlayerManager targetPlayer)
-    {
-        var gm = GameManagers.Instance;
-        var localPlayer = gm?.localPlayer;
-        if (!IsPlayerReadable(localPlayer) || !IsPlayerReadable(targetPlayer))
-        {
-            return false;
-        }
-
-        try
-        {
-            if (!localPlayer.IsAttackerInCurrentBattle)
-            {
-                return false;
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            return false;
-        }
-
-        if (!TryGetPlayerIdSafe(localPlayer, out int localPlayerId) ||
-            !TryGetPlayerIdSafe(targetPlayer, out int targetPlayerId))
-        {
-            return false;
-        }
-
-        return gm.GetBattleOpponent(localPlayerId) == targetPlayerId;
     }
 
     private void SetLegacyContainersVisible(bool visible)
@@ -652,6 +587,25 @@ public class RankingUIController : MonoBehaviour
         try
         {
             health = player.GetHealth();
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetMaxHealthSafe(PlayerManager player, out int maxHealth)
+    {
+        maxHealth = FallbackPlayerMaxHealth;
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            maxHealth = player.GetMaxHealth();
             return true;
         }
         catch (InvalidOperationException)
@@ -849,64 +803,45 @@ public class RankingUIController : MonoBehaviour
         public readonly bool Visible;
         public readonly PlayerManager Player;
         public readonly string Name;
-        public readonly string Lane;
-        public readonly string Role;
         public readonly string Health;
-        public readonly string Meta;
-        public readonly string State;
+        public readonly float HealthFillPercent;
 
         public RankingCardData(
             bool visible,
             PlayerManager player,
             string name,
-            string lane,
-            string role,
             string health,
-            string meta,
-            string state)
+            float healthFillPercent)
         {
             Visible = visible;
             Player = player;
             Name = name;
-            Lane = lane;
-            Role = role;
             Health = health;
-            Meta = meta;
-            State = state;
+            HealthFillPercent = healthFillPercent;
         }
 
         public static RankingCardData Hidden()
         {
-            return new RankingCardData(false, null, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
-        }
-
-        public static RankingCardData Empty(string lane, string role, string name)
-        {
-            return new RankingCardData(true, null, name, lane, role, "HP -", "No active match", "WAIT");
+            return new RankingCardData(false, null, string.Empty, string.Empty, 0f);
         }
     }
 
     private sealed class RankingCardView
     {
         private readonly Label name;
-        private readonly Label role;
         private readonly Label health;
-        private readonly Label meta;
-        private readonly Label state;
 
-        public RankingCardView(VisualElement root, Label name, Label role, Label health, Label meta, Label state)
+        public RankingCardView(VisualElement root, Label name, Label health)
         {
             Root = root;
             this.name = name;
-            this.role = role;
             this.health = health;
-            this.meta = meta;
-            this.state = state;
 
             Root.pickingMode = PickingMode.Ignore;
         }
 
         public VisualElement Root { get; }
+        public bool IsValid => Root != null && name != null && health != null;
         public PlayerManager TrackedPlayer { get; private set; }
 
         public void Bind(RankingCardData data)
@@ -919,15 +854,7 @@ public class RankingUIController : MonoBehaviour
             }
 
             SetText(name, data.Name);
-            SetText(role, $"{data.Lane}  {data.Role}");
             SetText(health, data.Health);
-            SetText(meta, data.Meta);
-            SetText(state, data.State);
-
-            Root.EnableInClassList("ranking-card-waiting", data.State == "WAIT");
-            Root.EnableInClassList("ranking-card-attacking", data.State == "ATK");
-            Root.EnableInClassList("ranking-card-defending", data.State == "DEF");
-            Root.EnableInClassList("ranking-card-prepare", data.State == "PREP");
         }
 
         private static void SetText(Label label, string value)

@@ -100,18 +100,38 @@ public sealed class MPTestHarnessEditModeTests
 
         Assert.That(layout, Is.Not.Null);
         Assert.That(style, Is.Not.Null);
-        Assert.That(tree?.Q<VisualElement>("ranking-left-cluster"), Is.Not.Null);
-        Assert.That(tree?.Q<VisualElement>("ranking-right-cluster"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-strip"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("ranking-self-card"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("ranking-opponent-card"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("ranking-reserve-card-0"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("ranking-reserve-card-1"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-self-avatar"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-opponent-avatar"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("ranking-self-name"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("ranking-opponent-name"), Is.Not.Null);
         Assert.That(source, Does.Contain("UIDocument"));
         Assert.That(source, Does.Contain("ResolveOpponent"));
         Assert.That(source, Does.Contain("GetBattleOpponent"));
+        Assert.That(source, Does.Contain("GetHealthFillPercentForDisplay"));
         Assert.That(source, Does.Contain("PanelSortingOrder = 260"));
         Assert.That(source, Does.Contain("SetPickingModeRecursive(toolkitRoot, PickingMode.Ignore)"));
         Assert.That(source, Does.Contain("Display-only overlay"));
+        string styleSource = File.ReadAllText("Assets/Resources/UI/PlayerRanking/PlayerRankingPanelStyles.uss");
+        Assert.That(styleSource, Does.Contain("left: 104px;"));
+        Assert.That(styleSource, Does.Contain("left: 122px;"));
+        Assert.That(styleSource, Does.Contain("left: 332px;"));
+        Assert.That(styleSource, Does.Contain("left: 878px;"));
+        Assert.That(styleSource, Does.Contain("left: 1078px;"));
+    }
+
+    [Test]
+    public void RankingUiHealthFillIsClampedToPlayerMax()
+    {
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(-5, 80), Is.EqualTo(0f));
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(40, 80), Is.EqualTo(0.5f));
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(80, 80), Is.EqualTo(1f));
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(150, 80), Is.EqualTo(1f));
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(50, 0), Is.EqualTo(0f));
     }
 
     [Test]
@@ -866,7 +886,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(tree?.Q<VisualElement>("game-option-button"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("game-gold-value"), Is.Not.Null);
         Assert.That(tree?.Q<Label>("game-gold-count-value"), Is.Not.Null);
-        Assert.That(tree?.Q<VisualElement>("game-wall-count-value"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-wall-icon"), Is.Not.Null);
         Assert.That(tree?.Q<Label>("game-wall-count-label"), Is.Not.Null);
         Assert.That(Regex.Matches(uxml, "name=\"shop-card-\\d\"").Count, Is.EqualTo(5));
         Assert.That(Regex.Matches(uxml, "class=\"shop-art-frame\"").Count, Is.EqualTo(5));
@@ -884,6 +904,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("!root.styleSheets.Contains(styleSheet)"));
         Assert.That(controllerSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
         Assert.That(controllerSource, Does.Contain("ShopCardReferenceWidth"));
+        Assert.That(controllerSource, Does.Contain("WallButtonSize"));
         Assert.That(controllerSource, Does.Contain("UpdateDesignScale"));
         Assert.That(controllerSource, Does.Contain("game-prepare-design-space"));
         Assert.That(controllerSource, Does.Contain("leftWireframeRail"));
@@ -902,12 +923,15 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMagicScroll(scrolls[slotIndex])"));
         Assert.That(controllerSource, Does.Contain("game-gold-count-value"));
         Assert.That(controllerSource, Does.Contain("game-wall-count-label"));
+        Assert.That(controllerSource, Does.Contain("reroll-gold-mode"));
+        Assert.That(controllerSource, Does.Contain("if (!shopVisible)"));
         Assert.That(styleSource, Does.Contain("Spr_UnitCost.png"));
         Assert.That(styleSource, Does.Contain("Bricks.png"));
         Assert.That(controllerSource, Does.Contain("TogglePlacementMode(PlacementMode.Wall)"));
         Assert.That(controllerSource, Does.Contain("GetUIElement(\"OptionCanvas\")"));
         Assert.That(controllerSource, Does.Contain("\"\\uC0C1\\uC810\\n\\uB2EB\\uAE30\""));
-        Assert.That(controllerSource, Does.Contain("$\"\\uBCBD\\n{wallCount}\""));
+        Assert.That(controllerSource, Does.Contain("\"\\uC0C1\\uC810\\n\\uC5F4\\uAE30\""));
+        Assert.That(controllerSource, Does.Contain("Mathf.Max(0, wallCount).ToString()"));
         Assert.That(controllerSource, Does.Contain("Mathf.Clamp(area.xMin, 0f, screenWidth)"));
         Assert.That(controllerSource, Does.Contain("UpdateRoundTimerLabel"));
         Assert.That(controllerSource, Does.Contain("currentPhaseTimer"));
@@ -948,6 +972,9 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Match(@"(?s)\.shop-card \.card-description\s*\{.*?-unity-font-style:\s*bold;"));
         Assert.That(styleSource, Does.Contain("width: 180px;"));
         Assert.That(styleSource, Does.Contain("height: 180px;"));
+        Assert.That(styleSource, Does.Contain(".wall-action-button"));
+        Assert.That(styleSource, Does.Contain("width: 96px;"));
+        Assert.That(styleSource, Does.Contain("height: 96px;"));
         Assert.That(styleSource, Does.Contain("width: 84px;"));
         Assert.That(styleSource, Does.Contain("height: 84px;"));
         Assert.That(styleSource, Does.Contain("width: 320px;"));
@@ -975,7 +1002,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotOrange.png.meta"), Does.Contain("spriteMeshType: 0"));
         Assert.That(uxml, Does.Contain("game-round-timer-label"));
         Assert.That(uxml, Does.Contain("game-prepare-design-space"));
-        Assert.That(uxml, Does.Contain("hud-action-spaced"));
+        Assert.That(uxml, Does.Contain("wall-action-button"));
         Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(1), Is.EqualTo("shop-card-star-1"));
         Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(2), Is.EqualTo("shop-card-star-2"));
         Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(3), Is.EqualTo("shop-card-star-3"));

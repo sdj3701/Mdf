@@ -1,4 +1,4 @@
-<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
     <Style src="project://database/Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss?fileID=7433441132597879392&amp;guid=12e2b01ce1cb87a4481891b411a29971&amp;type=3#GamePreparePanelsStyles" />
     <ui:VisualElement name="game-prepare-root" class="game-prepare-root">
         <ui:VisualElement name="game-prepare-safe-root" class="game-prepare-safe-root">
@@ -7,35 +7,35 @@
                     <ui:VisualElement class="wire-status-row wire-status-active">
                         <ui:Label text="1" class="wire-status-icon" />
                         <ui:VisualElement class="wire-status-copy">
-                            <ui:Label text="전투" class="wire-status-name" />
+                            <ui:Label text="&#xC804;&#xD22C;" class="wire-status-name" />
                             <ui:Label text="2 / 2" class="wire-status-count" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:VisualElement class="wire-status-row">
                         <ui:Label text="2" class="wire-status-icon" />
                         <ui:VisualElement class="wire-status-copy">
-                            <ui:Label text="상점" class="wire-status-name" />
+                            <ui:Label text="&#xC0C1;&#xC810;" class="wire-status-name" />
                             <ui:Label text="1 / 1" class="wire-status-count" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:VisualElement class="wire-status-row">
                         <ui:Label text="3" class="wire-status-icon" />
                         <ui:VisualElement class="wire-status-copy">
-                            <ui:Label text="방어" class="wire-status-name" />
+                            <ui:Label text="&#xBCBD;" class="wire-status-name" />
                             <ui:Label text="4 / 6" class="wire-status-count" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:VisualElement class="wire-status-row">
                         <ui:Label text="4" class="wire-status-icon" />
                         <ui:VisualElement class="wire-status-copy">
-                            <ui:Label text="마법" class="wire-status-name" />
+                            <ui:Label text="&#xB9C8;&#xBC95;" class="wire-status-name" />
                             <ui:Label text="2 / 4" class="wire-status-count" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                     <ui:VisualElement class="wire-status-row">
                         <ui:Label text="5" class="wire-status-icon" />
                         <ui:VisualElement class="wire-status-copy">
-                            <ui:Label text="라운드" class="wire-status-name" />
+                            <ui:Label text="&#xB77C;&#xC6B4;&#xB4DC;" class="wire-status-name" />
                             <ui:Label text="1 / 3" class="wire-status-count" />
                         </ui:VisualElement>
                     </ui:VisualElement>
@@ -55,7 +55,7 @@
                                 <ui:Label name="augment-description-0" class="card-description" />
                             </ui:VisualElement>
                             <ui:VisualElement class="card-footer">
-                                <ui:Label name="augment-pick-0" text="선택" class="card-footer-label" />
+                                <ui:Label name="augment-pick-0" text="&#xC120;&#xD0DD;" class="card-footer-label" />
                             </ui:VisualElement>
                         </ui:VisualElement>
                         <ui:VisualElement name="augment-card-1" class="choice-card augment-card">
@@ -67,7 +67,7 @@
                                 <ui:Label name="augment-description-1" class="card-description" />
                             </ui:VisualElement>
                             <ui:VisualElement class="card-footer">
-                                <ui:Label name="augment-pick-1" text="선택" class="card-footer-label" />
+                                <ui:Label name="augment-pick-1" text="&#xC120;&#xD0DD;" class="card-footer-label" />
                             </ui:VisualElement>
                         </ui:VisualElement>
                         <ui:VisualElement name="augment-card-2" class="choice-card augment-card">
@@ -79,7 +79,7 @@
                                 <ui:Label name="augment-description-2" class="card-description" />
                             </ui:VisualElement>
                             <ui:VisualElement class="card-footer">
-                                <ui:Label name="augment-pick-2" text="선택" class="card-footer-label" />
+                                <ui:Label name="augment-pick-2" text="&#xC120;&#xD0DD;" class="card-footer-label" />
                             </ui:VisualElement>
                         </ui:VisualElement>
                     </ui:VisualElement>
@@ -102,7 +102,7 @@
                                     <ui:Label name="shop-cost-0" class="card-description shop-footer-cost" />
                                 </ui:VisualElement>
                             </ui:VisualElement>
-                            <ui:Label name="shop-sold-0" text="구매 완료" class="sold-overlay hidden" />
+                            <ui:Label name="shop-sold-0" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
                         </ui:VisualElement>
                         <ui:VisualElement name="shop-card-1" class="choice-card shop-card shop-card-star-2">
                             <ui:VisualElement class="card-top-gem" />
@@ -120,7 +120,7 @@
                                     <ui:Label name="shop-cost-1" class="card-description shop-footer-cost" />
                                 </ui:VisualElement>
                             </ui:VisualElement>
-                            <ui:Label name="shop-sold-1" text="구매 완료" class="sold-overlay hidden" />
+                            <ui:Label name="shop-sold-1" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
                         </ui:VisualElement>
                         <ui:VisualElement name="shop-card-2" class="choice-card shop-card shop-card-star-3">
                             <ui:VisualElement class="card-top-gem" />
@@ -138,7 +138,7 @@
                                     <ui:Label name="shop-cost-2" class="card-description shop-footer-cost" />
                                 </ui:VisualElement>
                             </ui:VisualElement>
-                            <ui:Label name="shop-sold-2" text="구매 완료" class="sold-overlay hidden" />
+                            <ui:Label name="shop-sold-2" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
                         </ui:VisualElement>
                         <ui:VisualElement name="shop-card-3" class="choice-card shop-card shop-card-star-4">
                             <ui:VisualElement class="card-top-gem" />
@@ -156,7 +156,7 @@
                                     <ui:Label name="shop-cost-3" class="card-description shop-footer-cost" />
                                 </ui:VisualElement>
                             </ui:VisualElement>
-                            <ui:Label name="shop-sold-3" text="구매 완료" class="sold-overlay hidden" />
+                            <ui:Label name="shop-sold-3" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
                         </ui:VisualElement>
                         <ui:VisualElement name="shop-card-4" class="choice-card shop-card shop-card-star-5">
                             <ui:VisualElement class="card-top-gem" />
@@ -174,14 +174,14 @@
                                     <ui:Label name="shop-cost-4" class="card-description shop-footer-cost" />
                                 </ui:VisualElement>
                             </ui:VisualElement>
-                            <ui:Label name="shop-sold-4" text="구매 완료" class="sold-overlay hidden" />
+                            <ui:Label name="shop-sold-4" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
                         </ui:VisualElement>
                     </ui:VisualElement>
-                    <ui:VisualElement name="shop-control-row" class="shop-control-row">
-                        <ui:Label name="shop-status-label" class="shop-status-label" />
-                        <ui:VisualElement name="shop-reroll-button" class="toolkit-button reroll-button">
-                            <ui:Label name="shop-reroll-label" text="새로고침" class="toolkit-button-label" />
-                        </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="shop-control-row" class="shop-control-row">
+                    <ui:Label name="shop-status-label" class="shop-status-label" />
+                    <ui:VisualElement name="shop-reroll-button" class="toolkit-button reroll-button">
+                        <ui:Label name="shop-reroll-label" text="0" class="toolkit-button-label" />
                     </ui:VisualElement>
                 </ui:VisualElement>
                 <ui:VisualElement name="attack-sequence-panel" class="attack-sequence-panel hidden">
@@ -260,21 +260,18 @@
                         <ui:VisualElement name="game-gold-value" class="resource-icon resource-gold-icon" />
                         <ui:Label name="game-gold-count-value" text="0" class="resource-value" />
                     </ui:VisualElement>
-                    <ui:VisualElement class="resource-pill resource-wall">
-                        <ui:VisualElement name="game-wall-count-value" class="resource-icon resource-wall-icon" />
-                        <ui:Label name="game-wall-count-label" text="0" class="resource-value" />
-                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="game-wall-button" class="toolkit-button wall-action-button">
+                    <ui:VisualElement name="game-wall-icon" class="wall-action-icon resource-wall-icon" />
+                    <ui:Label name="game-wall-count-label" text="0" class="wall-action-count" />
                 </ui:VisualElement>
                 <ui:VisualElement name="game-option-button" class="hud-button hud-icon-button">
-                    <ui:Label name="game-option-label" text="옵션" class="hud-button-label" />
+                    <ui:Label name="game-option-label" text="&#xC635;&#xC158;" class="hud-button-label" />
                 </ui:VisualElement>
                 <ui:Label name="game-round-timer-label" text="ROUND 1 00" class="round-timer-label" />
                 <ui:VisualElement name="game-hud-root" class="game-hud-root">
                     <ui:VisualElement name="game-shop-toggle-button" class="hud-button hud-action-button">
                         <ui:Label name="game-shop-toggle-label" text="Shop" class="hud-button-label" />
-                    </ui:VisualElement>
-                    <ui:VisualElement name="game-wall-button" class="hud-button hud-action-button hud-action-spaced">
-                        <ui:Label name="game-wall-label" text="Wall" class="hud-button-label" />
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>

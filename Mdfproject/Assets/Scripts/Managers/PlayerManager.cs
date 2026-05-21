@@ -1865,6 +1865,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     #region Public Getters & Stat Modifiers
 
     public int GetHealth() => health;
+    public int GetMaxHealth() => Mathf.Max(1, initialHealth);
     public int GetGold() => gold;
     public int GetWallCount() => wallCount;
     public int GetWallReserveK() => wallReserveK;

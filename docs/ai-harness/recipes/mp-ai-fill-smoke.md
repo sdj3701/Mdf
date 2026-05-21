@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-05
-Last used: 2026-05-19
-Last verified: 2026-05-19
-Use count: 14
+Last used: 2026-05-21
+Last verified: 2026-05-21
+Use count: 17
 Review after: 2026-08-03
 Triggers: AI fill, fewer humans than max players, 4 slots
 Applies to: `run_ai_fill_smoke.py`, `GameManagers.DeterminePlayerCount`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke; artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke; artifacts/mp/20260519-071043-two-humanbot-two-ai-smoke
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke; artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke; artifacts/mp/20260519-071043-two-humanbot-two-ai-smoke; artifacts/mp/20260521-081533-two-humanbot-two-ai-smoke/result.json; artifacts/mp/20260521-082714-two-humanbot-two-ai-smoke/result.json; artifacts/mp/20260521-083622-two-humanbot-two-ai-smoke/result.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -51,3 +51,9 @@ Lifecycle notes:
 - 2026-05-14: used artifact `artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke`
 - 2026-05-19: Verified max-player 4P composition with 2 HumanBot peers and 2 AI fill players; assertions reported playerCount=4 humanCount=2 aiCount=2.
 - 2026-05-19: verified artifact `artifacts/mp/20260519-071043-two-humanbot-two-ai-smoke`
+- 2026-05-21: Verified 2 HumanBot + 2 AI smoke after UI Toolkit ranking and prepare HUD changes.
+- 2026-05-21: verified artifact `artifacts/mp/20260521-081533-two-humanbot-two-ai-smoke/result.json`
+- 2026-05-21: Verified 2 HumanBot + 2 AI smoke after round-relative PlayerRanking UI layout change.
+- 2026-05-21: verified artifact `artifacts/mp/20260521-082714-two-humanbot-two-ai-smoke/result.json`
+- 2026-05-21: Verified 2 HumanBot + 2 AI smoke after PlayerRanking self/opponent position adjustment.
+- 2026-05-21: verified artifact `artifacts/mp/20260521-083622-two-humanbot-two-ai-smoke/result.json`

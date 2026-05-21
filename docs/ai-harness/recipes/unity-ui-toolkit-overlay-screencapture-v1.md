@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-15
-Last used: 2026-05-20
-Last verified: 2026-05-20
-Use count: 9
+Last used: 2026-05-21
+Last verified: 2026-05-21
+Use count: 14
 Review after: 2026-08-13
 Triggers: UI Toolkit overlay, UIDocument, Game View screenshot, ScreenCapture, prepare UI visual QA
 Applies to: Mdfproject runtime UI Toolkit overlays and Game View visual proof
-Verified by: Mdfproject/artifacts/screenshots/game-augment-offset-screen-capture.png; Mdfproject/artifacts/screenshots/game-character-selection-offset-clean.png; Mdfproject/artifacts/screenshots/shop-card-cost-style-playmode.png; Mdfproject/artifacts/screenshots/gameprepare-uxml-preview.png; Mdfproject/artifacts/screenshots/game-ui-wireframe-paneltarget-delayed.png; Mdfproject/artifacts/screenshots/game-ui-enlarged-game-scene-runtime.png; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json; artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke/screenshots/host-20260520-060610.png
+Verified by: Mdfproject/artifacts/screenshots/game-augment-offset-screen-capture.png; Mdfproject/artifacts/screenshots/game-character-selection-offset-clean.png; Mdfproject/artifacts/screenshots/shop-card-cost-style-playmode.png; Mdfproject/artifacts/screenshots/gameprepare-uxml-preview.png; Mdfproject/artifacts/screenshots/game-ui-wireframe-paneltarget-delayed.png; Mdfproject/artifacts/screenshots/game-ui-enlarged-game-scene-runtime.png; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json; artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke/screenshots/host-20260520-060610.png; artifacts/mp/20260521-031726-matrix/20260521-031730-editor-host-build-client/screenshots/client-20260521-031752.png; artifacts/mp/20260521-045119-matrix/20260521-045122-four-player-smoke/screenshots/host-20260521-045153.png; artifacts/mp/20260521-081533-two-humanbot-two-ai-smoke/screenshots/host-20260521-081602.png; artifacts/mp/20260521-082714-two-humanbot-two-ai-smoke/screenshots/host-20260521-082744.png; artifacts/mp/20260521-083622-two-humanbot-two-ai-smoke/screenshots/host-20260521-083657.png
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -45,3 +45,12 @@ Lifecycle notes:
 - 2026-05-19: Ranking UI Toolkit overlay changed to display-only picking so GamePrepare augment cards keep input; verified by EditMode source guard and smoke matrix.
 - 2026-05-19: verified artifact `artifacts/mp/20260519-055718-matrix/matrix-summary.json`
 - 2026-05-20: verified artifact `artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke/screenshots/host-20260520-060610.png`
+- 2026-05-21: verified artifact `artifacts/mp/20260521-031726-matrix/20260521-031730-editor-host-build-client/screenshots/client-20260521-031752.png`
+- 2026-05-21: Verified ranking UI Toolkit overlay capture shows four players at HP 80/80 with full red bars.
+- 2026-05-21: verified artifact `artifacts/mp/20260521-045119-matrix/20260521-045122-four-player-smoke/screenshots/host-20260521-045153.png`
+- 2026-05-21: Verified runtime UI Toolkit overlay screenshot after ranking HUD and prepare controls update.
+- 2026-05-21: verified artifact `artifacts/mp/20260521-081533-two-humanbot-two-ai-smoke/screenshots/host-20260521-081602.png`
+- 2026-05-21: Verified round-relative PlayerRanking layout: self/opponent left of round timer, reserves right of round timer.
+- 2026-05-21: verified artifact `artifacts/mp/20260521-082714-two-humanbot-two-ai-smoke/screenshots/host-20260521-082744.png`
+- 2026-05-21: Verified PlayerRanking self/opponent cards moved right into the requested box area before the round timer.
+- 2026-05-21: verified artifact `artifacts/mp/20260521-083622-two-humanbot-two-ai-smoke/screenshots/host-20260521-083657.png`

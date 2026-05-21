@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-20
-Last verified: 2026-05-20
-Use count: 17
+Last used: 2026-05-21
+Last verified: 2026-05-21
+Use count: 22
 Review after: 2026-08-03
 Triggers: Development Build, build artifact, player launch smoke
 Applies to: `mp_build_player`, `tools/harness/mp/build_player.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/mptest-current; artifacts/builds/20260514-035351; artifacts/builds/20260514-044206; artifacts/builds/20260514-051634; artifacts/builds/20260514-054535; artifacts/builds/20260514-064144; artifacts/builds/20260519-040047/build-metadata.json; artifacts/builds/20260519-055613/build-metadata.json; artifacts/builds/20260519-070913; artifacts/builds/20260520-053607; artifacts/builds/20260520-060212
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/mptest-current; artifacts/builds/20260514-035351; artifacts/builds/20260514-044206; artifacts/builds/20260514-051634; artifacts/builds/20260514-054535; artifacts/builds/20260514-064144; artifacts/builds/20260519-040047/build-metadata.json; artifacts/builds/20260519-055613/build-metadata.json; artifacts/builds/20260519-070913; artifacts/builds/20260520-053607; artifacts/builds/20260520-060212; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -58,3 +58,12 @@ Lifecycle notes:
 - 2026-05-19: verified artifact `artifacts/builds/20260519-070913`
 - 2026-05-20: verified artifact `artifacts/builds/20260520-053607`
 - 2026-05-20: verified artifact `artifacts/builds/20260520-060212`
+- 2026-05-21: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
+- 2026-05-21: Rebuilt Development player after ranking UI HP max display fix; launch smoke cleanupStatus=PASS orphanedPids=[].
+- 2026-05-21: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
+- 2026-05-21: Verified for UI Toolkit build used by two-humanbot-two-ai smoke.
+- 2026-05-21: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
+- 2026-05-21: Verified development player rebuild for PlayerRanking UI layout change.
+- 2026-05-21: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
+- 2026-05-21: Verified development player rebuild for PlayerRanking self/opponent position adjustment.
+- 2026-05-21: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
