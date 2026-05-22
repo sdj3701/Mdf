@@ -42,12 +42,14 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const float ShopPanelTopMin = 118f;
     private const float ShopPanelTopMax = 230f;
     private const float HudButtonSize = 84f;
-    private const float HudActionGroupLeft = 112f;
-    private const float HudActionGroupWidth = HudButtonSize;
     private const float HudActionGroupCardGap = 24f;
     private const float TopHudY = 12f;
     private const float RerollButtonSize = 180f;
-    private const float WallButtonSize = 96f;
+    private const float HudEdgeInset = 28f;
+    private const float HudBottomInset = 26f;
+    private const float ShopToggleButtonSize = RerollButtonSize;
+    private const float ShopToggleButtonBottom = HudBottomInset;
+    private const float WallButtonSize = RerollButtonSize;
     private const float RoundTimerWidth = 320f;
     private const float RoundTimerHeight = 40f;
     private const float AugmentPanelTopMin = 220f;
@@ -1523,19 +1525,10 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
-        if (!shopVisible)
-        {
-            TryGetLocalPlayerResources(out var goldCount, out _);
-            rerollLabel.text = $"\uACE8\uB4DC\n{goldCount}";
-            rerollButton?.EnableInClassList("reroll-gold-mode", true);
-            SetPickingMode(rerollButton, PickingMode.Ignore);
-            return;
-        }
-
         var cost = localShopManager != null ? localShopManager.GetRerollCost() : 0;
         rerollLabel.text = cost > 0 ? $"\uC0C8\uB85C\uACE0\uCE68\n{cost}G" : "\uC0C8\uB85C\uACE0\uCE68";
-        rerollButton?.EnableInClassList("reroll-gold-mode", false);
-        SetPickingMode(rerollButton, PickingMode.Position);
+        rerollButton?.EnableInClassList("reroll-gold-mode", !shopVisible);
+        SetPickingMode(rerollButton, shopVisible ? PickingMode.Position : PickingMode.Ignore);
     }
 
     private void UpdateRoundTimerLabel()
@@ -1590,14 +1583,15 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         SetVisible(hudOptionButton, UIManagers.Instance != null);
 
+        TryGetLocalPlayerResources(out var goldCount, out var wallCount);
         if (hudShopLabel != null)
         {
-            hudShopLabel.text = shopVisible ? "\uC0C1\uC810\n\uB2EB\uAE30" : "\uC0C1\uC810\n\uC5F4\uAE30";
+            var shopAction = shopVisible ? "\uB2EB\uAE30" : "\uC5F4\uAE30";
+            hudShopLabel.text = $"\uC0C1\uC810\n{shopAction}\n{goldCount}G";
         }
 
         UpdateRerollLabel();
 
-        TryGetLocalPlayerResources(out _, out var wallCount);
         var wallModeActive = CanShowPrepareHudActions() && IsWallPlacementActive();
         var wasWallModeActive = hudWallButton != null && hudWallButton.ClassListContains("hud-button-active");
         if (force || wallCount != lastWallCount || wallModeActive != wasWallModeActive)
@@ -1625,17 +1619,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         int goldCount = 0;
         int wallCount = 0;
         bool hasResourceValues = TryGetLocalPlayerResources(out goldCount, out wallCount);
-        bool showResources = gameManagers != null &&
-                             gameManagers.IsReadyForNetworkAccess &&
-                             hasResourceValues;
-
         if (resourceRoot != null)
         {
-            resourceRoot.style.display = showResources ? DisplayStyle.Flex : DisplayStyle.None;
+            resourceRoot.style.display = DisplayStyle.None;
             resourceRoot.pickingMode = PickingMode.Ignore;
         }
 
-        if (!showResources)
+        if (!hasResourceValues)
         {
             return;
         }
@@ -1824,11 +1814,18 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         if (hudRoot != null)
         {
-            hudRoot.style.width = HudActionGroupWidth;
-            hudRoot.style.height = HudButtonSize;
-            hudRoot.style.left = HudActionGroupLeft;
-            hudRoot.style.right = StyleKeyword.Auto;
-            hudRoot.style.top = TopHudY;
+            hudRoot.style.width = ShopToggleButtonSize;
+            hudRoot.style.height = ShopToggleButtonSize;
+            hudRoot.style.left = StyleKeyword.Auto;
+            hudRoot.style.right = HudEdgeInset;
+            hudRoot.style.top = StyleKeyword.Auto;
+            hudRoot.style.bottom = ShopToggleButtonBottom;
+        }
+
+        if (hudShopButton != null)
+        {
+            hudShopButton.style.width = ShopToggleButtonSize;
+            hudShopButton.style.height = ShopToggleButtonSize;
         }
 
         if (shopControlRow != null)
@@ -1848,8 +1845,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         {
             hudWallButton.style.width = WallButtonSize;
             hudWallButton.style.height = WallButtonSize;
-            hudWallButton.style.right = 28f;
-            hudWallButton.style.bottom = 88f;
+            hudWallButton.style.left = HudEdgeInset;
+            hudWallButton.style.right = StyleKeyword.Auto;
+            hudWallButton.style.bottom = HudBottomInset;
         }
 
         if (roundTimerLabel != null)

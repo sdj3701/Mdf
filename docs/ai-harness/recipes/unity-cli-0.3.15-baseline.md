@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-19
-Last verified: 2026-05-19
-Use count: 8
+Last used: 2026-05-22
+Last verified: 2026-05-22
+Use count: 10
 Review after: 2026-08-03
 Triggers: unity-cli, status, list, editor refresh, console, test, screenshot
 Applies to: unity-cli v0.3.15, connector 0.3.15, Unity 2021.3.45f1
-Verified by: see Verification section below; migrated from old Status: verified-local; Mdfproject; unity-cli editor refresh --compile, unity-cli console --type error --stacktrace user; unity-cli editor refresh --compile, unity-cli console --type error --stacktrace user
+Verified by: see Verification section below; migrated from old Status: verified-local; Mdfproject; unity-cli editor refresh --compile, unity-cli console --type error --stacktrace user; unity-cli editor refresh --compile, unity-cli console --type error --stacktrace user; artifacts/mp/20260522-021002-matrix/matrix-summary.json; artifacts/mp/20260522-021953-matrix/matrix-summary.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -45,3 +45,5 @@ Lifecycle notes:
 - 2026-05-19: Verified shop star-based UI image mapping with editor refresh compile and empty Unity error console.
 - 2026-05-19: verified artifact `unity-cli editor refresh --compile`
 - 2026-05-19: verified artifact `unity-cli console --type error --stacktrace user`
+- 2026-05-22: verified artifact `artifacts/mp/20260522-021002-matrix/matrix-summary.json`
+- 2026-05-22: verified artifact `artifacts/mp/20260522-021953-matrix/matrix-summary.json`

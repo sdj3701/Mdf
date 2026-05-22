@@ -473,36 +473,36 @@
 }
 
 .reroll-gold-mode {
-    opacity: 0.92;
+    opacity: 0.62;
 }
 
 .wall-action-button {
     position: absolute;
-    right: 28px;
-    bottom: 88px;
-    width: 96px;
-    min-width: 96px;
-    height: 96px;
+    left: 28px;
+    bottom: 26px;
+    width: 180px;
+    min-width: 180px;
+    height: 180px;
     padding-left: 0;
     padding-right: 0;
-    border-top-left-radius: 48px;
-    border-top-right-radius: 48px;
-    border-bottom-left-radius: 48px;
-    border-bottom-right-radius: 48px;
+    border-top-left-radius: 90px;
+    border-top-right-radius: 90px;
+    border-bottom-left-radius: 90px;
+    border-bottom-right-radius: 90px;
 }
 
 .wall-action-icon {
-    width: 46px;
-    height: 34px;
+    width: 80px;
+    height: 58px;
     margin-right: 0;
-    margin-bottom: 2px;
+    margin-bottom: 8px;
 }
 
 .wall-action-count {
-    width: 84px;
-    height: 28px;
+    width: 160px;
+    height: 44px;
     color: rgb(248, 232, 182);
-    font-size: 24px;
+    font-size: 34px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
     white-space: nowrap;
@@ -511,9 +511,9 @@
 .game-hud-root {
     position: absolute;
     right: 28px;
-    top: 12px;
-    width: 84px;
-    height: 84px;
+    bottom: 26px;
+    width: 180px;
+    height: 180px;
     flex-direction: row;
     align-items: center;
     justify-content: flex-end;
@@ -558,7 +558,13 @@
 }
 
 .hud-action-button {
-    min-width: 84px;
+    width: 180px;
+    min-width: 180px;
+    height: 180px;
+    border-top-left-radius: 90px;
+    border-top-right-radius: 90px;
+    border-bottom-left-radius: 90px;
+    border-bottom-right-radius: 90px;
 }
 
 .hud-action-spaced {
@@ -572,6 +578,12 @@
     -unity-font-style: bold;
     -unity-text-align: middle-center;
     white-space: normal;
+}
+
+.hud-action-button .hud-button-label {
+    width: 160px;
+    height: 150px;
+    font-size: 22px;
 }
 
 .hud-button-active {

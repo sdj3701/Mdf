@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity-cli, asset
 Created: 2026-05-06
-Last used: 2026-05-19
-Last verified: 2026-05-19
-Use count: 6
+Last used: 2026-05-22
+Last verified: 2026-05-22
+Use count: 8
 Review after: 2026-08-04
 Triggers: EditMode test runner returns `total=0` for a newly added method filter, Unity does not appear to pick up new test methods after compile
 Applies to: `unity-cli --project Mdfproject test --mode EditMode`, newly added tests, forced AssetDatabase import
-Verified by: see Verification section below; migrated from old Status: verified; Mdfproject; unity-cli test --mode EditMode --filter MPTestHarnessEditModeTests; unity-cli test --mode EditMode --filter MPTestHarnessEditModeTests
+Verified by: see Verification section below; migrated from old Status: verified; Mdfproject; unity-cli test --mode EditMode --filter MPTestHarnessEditModeTests; unity-cli test --mode EditMode --filter MPTestHarnessEditModeTests; artifacts/mp/20260522-021002-matrix/matrix-summary.json; artifacts/mp/20260522-021953-matrix/matrix-summary.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -43,3 +43,5 @@ Lifecycle notes:
 - 2026-05-19: verified artifact `unity-cli test --mode EditMode --filter MPTestHarnessEditModeTests`
 - 2026-05-19: Verified GamePrepare shop star mapping through MPTestHarnessEditModeTests class filter, 77/77 passed.
 - 2026-05-19: verified artifact `unity-cli test --mode EditMode --filter MPTestHarnessEditModeTests`
+- 2026-05-22: verified artifact `artifacts/mp/20260522-021002-matrix/matrix-summary.json`
+- 2026-05-22: verified artifact `artifacts/mp/20260522-021953-matrix/matrix-summary.json`
