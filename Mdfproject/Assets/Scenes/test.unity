@@ -1016,7 +1016,7 @@ MonoBehaviour:
   targetOverride: {fileID: 1385105355}
   localPositionOffset: {x: -0.10275206, y: 0.14952981, z: 0.21178365}
   rotationOffsetEuler: {x: 48.03351, y: -15.621185, z: -65.756775}
-  rotationMode: 0
+  rotationMode: 1
   scaleMultiplier: 0.2
   playbackSpeed: 1
   vfxPlaybackSpeedCap: 2

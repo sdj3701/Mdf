@@ -178,6 +178,33 @@ public sealed class AttackSlashTuningEditModeTests
     }
 
     [Test]
+    public void CalibratedMeleeSlashUnitDataUsesUnitForwardRotation()
+    {
+        string[] calibratedMeleeUnitDataPaths =
+        {
+            "Assets/GameData/Units/UnitData_Warrior.asset",
+            "Assets/GameData/Units/UnitData_Guardian.asset",
+            "Assets/GameData/Units/UnitData_Assassin.asset"
+        };
+
+        for (int pathIndex = 0; pathIndex < calibratedMeleeUnitDataPaths.Length; pathIndex++)
+        {
+            string path = calibratedMeleeUnitDataPaths[pathIndex];
+            UnitData data = AssetDatabase.LoadAssetAtPath<UnitData>(path);
+            Assert.That(data, Is.Not.Null, path);
+            Assert.That(data.unitType, Is.EqualTo(UnitType.Melee), path);
+
+            data.EnsureBasicAttackVfxConfigArray();
+            for (int starIndex = 0; starIndex < data.basicAttackVfxConfigsByStarLevel.Length; starIndex++)
+            {
+                BasicAttackVfxConfig config = data.basicAttackVfxConfigsByStarLevel[starIndex];
+                Assert.That(config, Is.Not.Null, $"{path} star={starIndex + 1}");
+                Assert.That(config.rotationMode, Is.EqualTo(BasicAttackVfxRotationMode.UnitForward), $"{path} star={starIndex + 1}");
+            }
+        }
+    }
+
+    [Test]
     public void AttackSlashTuningPreviewSimulatesFinalAttackSpeedWithAnimationCap()
     {
         GameObject root = new GameObject("PreviewRoot");

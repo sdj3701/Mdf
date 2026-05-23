@@ -43,9 +43,9 @@ MonoBehaviour:
   - 
   basicAttackVfxConfigsByStarLevel:
   - prefabKey: VFX_AttackSlash_SwordSlash12
-    localPositionOffset: {x: 0.22, y: 0.3, z: -0}
-    rotationOffsetEuler: {x: 215.02, y: 55.4, z: 43.9}
-    rotationMode: 0
+    localPositionOffset: {x: -0.24, y: 0.24, z: 0}
+    rotationOffsetEuler: {x: -35.01, y: 67.8, z: -127.02}
+    rotationMode: 1
     scaleMultiplier: 0.2
     spawnNormalizedTime: 0.303
     playbackSpeed: 1
@@ -56,9 +56,9 @@ MonoBehaviour:
     calibratedAttackClipGuid: 
     calibrationSource: AttackSlashTuningScene
   - prefabKey: VFX_AttackSlash_SwordSlash12
-    localPositionOffset: {x: 0.22, y: 0.3, z: -0}
-    rotationOffsetEuler: {x: 215.02, y: 55.4, z: 43.9}
-    rotationMode: 0
+    localPositionOffset: {x: -0.24, y: 0.24, z: 0}
+    rotationOffsetEuler: {x: -35.01, y: 67.8, z: -127.02}
+    rotationMode: 1
     scaleMultiplier: 0.2
     spawnNormalizedTime: 0.303
     playbackSpeed: 1
@@ -69,9 +69,9 @@ MonoBehaviour:
     calibratedAttackClipGuid: 
     calibrationSource: AttackSlashTuningScene
   - prefabKey: VFX_AttackSlash_SwordSlash12
-    localPositionOffset: {x: 0.22, y: 0.3, z: -0}
-    rotationOffsetEuler: {x: 215.02, y: 55.4, z: 43.9}
-    rotationMode: 0
+    localPositionOffset: {x: -0.24, y: 0.24, z: 0}
+    rotationOffsetEuler: {x: -35.01, y: 67.8, z: -127.02}
+    rotationMode: 1
     scaleMultiplier: 0.2
     spawnNormalizedTime: 0.303
     playbackSpeed: 1
