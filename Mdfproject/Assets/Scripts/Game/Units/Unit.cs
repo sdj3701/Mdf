@@ -2089,6 +2089,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             var scheduler = CombatScheduler.Instance;
             bool schedulerReady = scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning;
             var targetNo = targetTransform.GetComponentInParent<NetworkObject>();
+            int attackPresentationId = 0;
+            if (!isRanged && playedAnim)
+            {
+                attackPresentationId = AllocateBasicAttackVfxId();
+                ScheduleBasicAttackVfxForCurrentAnimation(targetEnemy, attackPresentationId);
+            }
 
             if (isRanged)
             {
@@ -2130,17 +2136,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 if (unitData.attackTargetType == AttackTargetType.Splash && blockedMonsters.Count > 0)
                 {
                     // 스플래시 공격: 저지 중인 모든 몬스터에게 동시에 데미지
-                    int splashAttackId = 0;
                     foreach (var monster in blockedMonsters.ToList())
                     {
                         if (IsMeleeMonsterAttackable(monster))
                         {
-                            if (splashAttackId == 0)
-                            {
-                                splashAttackId = AllocateBasicAttackVfxId();
-                                TryPlayBasicAttackVfxForAttack(monster, splashAttackId);
-                            }
-
                             if (schedulerReady)
                             {
                                 var monsterNo = monster.GetComponent<NetworkObject>();
@@ -2176,7 +2175,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                             ProjectileSpeed = 0f,
                             IsRanged = false,
                             EmitVfx = false,
-                            AttackId = AllocateBasicAttackVfxId()
+                            AttackId = attackPresentationId
                         };
                         _hasPendingAttack = true;
                     }
@@ -2186,14 +2185,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                         {
 
                             Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
-                            TryPlayBasicAttackVfxForAttack(targetEnemy, AllocateBasicAttackVfxId());
                             scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
                                 false, false, 0f);
                         }
                         else if (targetEnemy != null)
                         {
 
-                            TryPlayBasicAttackVfxForAttack(targetEnemy, AllocateBasicAttackVfxId());
                             targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
                         }
                     }
@@ -2226,6 +2223,57 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         return false;
+    }
+
+    private void ScheduleBasicAttackVfxForCurrentAnimation(IEnemy attackTarget, int attackId)
+    {
+        if (attackId <= 0)
+        {
+            return;
+        }
+
+        float delaySeconds = ResolveBasicAttackVfxSpawnDelaySeconds();
+        if (delaySeconds <= 0f)
+        {
+            TryPlayBasicAttackVfxForAttack(attackTarget, attackId);
+            return;
+        }
+
+        PlayBasicAttackVfxAfterDelay(attackTarget, attackId, delaySeconds).Forget();
+    }
+
+    private float ResolveBasicAttackVfxSpawnDelaySeconds()
+    {
+        BasicAttackVfxConfig config = unitData != null ? unitData.GetBasicAttackVfxConfig(starLevel) : null;
+        float normalizedTime = config != null ? Mathf.Clamp(config.spawnNormalizedTime, 0f, 0.95f) : 0f;
+        if (normalizedTime <= 0f)
+        {
+            return 0f;
+        }
+
+        float animRate = GetCappedAttackAnimationRate();
+        if (animRate <= 0f)
+        {
+            return 0f;
+        }
+
+        return normalizedTime / animRate;
+    }
+
+    private async UniTaskVoid PlayBasicAttackVfxAfterDelay(IEnemy attackTarget, int attackId, float delaySeconds)
+    {
+        int delayMilliseconds = Mathf.CeilToInt(Mathf.Max(0f, delaySeconds) * 1000f);
+        if (delayMilliseconds > 0)
+        {
+            await UniTask.Delay(delayMilliseconds, DelayType.DeltaTime, PlayerLoopTiming.Update);
+        }
+
+        if (this == null)
+        {
+            return;
+        }
+
+        TryPlayBasicAttackVfxForAttack(attackTarget, attackId);
     }
 
     private void TryPlayBasicAttackVfxForAttack(IEnemy attackTarget, int attackId)
@@ -2289,11 +2337,6 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             CancelPendingAttack();
             return;
-        }
-
-        if (!_pendingAttack.IsRanged)
-        {
-            TryPlayBasicAttackVfxForAttack(_pendingAttack.TargetEnemy, _pendingAttack.AttackId);
         }
 
         var scheduler = CombatScheduler.Instance;

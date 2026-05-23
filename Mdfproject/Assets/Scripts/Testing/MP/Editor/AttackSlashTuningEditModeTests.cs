@@ -166,6 +166,10 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(unitSource, Does.Contain("public float GetCappedAttackAnimationPlaybackSpeed()"));
         Assert.That(unitSource, Does.Contain("Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond)"));
         Assert.That(unitSource, Does.Contain("CalculateAttackAnimationPlaybackSpeed(animRate)"));
+        Assert.That(unitSource, Does.Contain("ScheduleBasicAttackVfxForCurrentAnimation(targetEnemy, attackPresentationId);"));
+        Assert.That(unitSource, Does.Contain("config.spawnNormalizedTime"));
+        Assert.That(unitSource, Does.Contain("return normalizedTime / animRate;"));
+        Assert.That(unitSource, Does.Not.Contain("TryPlayBasicAttackVfxForAttack(_pendingAttack.TargetEnemy"));
         Assert.That(utilitySource, Does.Contain("renderer.flip = primaryRendererFlip;"));
         Assert.That(utilitySource, Does.Contain("main.simulationSpeed = resolvedPlaybackSpeed;"));
         Assert.That(utilitySource, Does.Contain("StopAndClearForReplay(particles[i]);"));
