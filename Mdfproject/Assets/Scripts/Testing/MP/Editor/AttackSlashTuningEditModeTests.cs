@@ -27,12 +27,9 @@ public sealed class AttackSlashTuningEditModeTests
     public void AttackSlashTuningPreviewCopiesSettingsToUnitData()
     {
         UnitData data = ScriptableObject.CreateInstance<UnitData>();
-        data.basicAttackVfxPrefabsByStarLevel = new[] { "VFX_AttackSlash_SwordSlash5", "VFX_AttackSlash_SwordSlash5", "VFX_AttackSlash_SwordSlash5" };
         data.basicAttackVfxConfigsByStarLevel = new BasicAttackVfxConfig[3];
 
         GameObject root = new GameObject("PreviewRoot");
-        GameObject originObject = new GameObject("SlashOrigin");
-        originObject.transform.SetParent(root.transform, false);
         var preview = root.AddComponent<AttackSlashTuningPreview>();
 
         var serializedPreview = new SerializedObject(preview);
@@ -40,7 +37,6 @@ public sealed class AttackSlashTuningEditModeTests
         serializedPreview.FindProperty("starLevel").intValue = 2;
         serializedPreview.FindProperty("applyToAllStarLevels").boolValue = false;
         serializedPreview.FindProperty("slashPrefabAddress").stringValue = "VFX_AttackSlash_SwordSlash5";
-        serializedPreview.FindProperty("spawnOrigin").objectReferenceValue = originObject.transform;
         serializedPreview.FindProperty("localPositionOffset").vector3Value = new Vector3(0.1f, 0.2f, 0.3f);
         serializedPreview.FindProperty("rotationOffsetEuler").vector3Value = new Vector3(10f, 20f, 30f);
         serializedPreview.FindProperty("rotationMode").enumValueIndex = (int)BasicAttackVfxRotationMode.UnitForward;
@@ -58,7 +54,6 @@ public sealed class AttackSlashTuningEditModeTests
         BasicAttackVfxConfig secondStar = data.basicAttackVfxConfigsByStarLevel[1];
         Assert.That(firstStar.calibrationSource, Is.Not.EqualTo("AttackSlashTuningScene"));
         Assert.That(secondStar.prefabKey, Is.EqualTo("VFX_AttackSlash_SwordSlash5"));
-        Assert.That(secondStar.spawnOriginPath, Is.EqualTo("SlashOrigin"));
         Assert.That(secondStar.localPositionOffset, Is.EqualTo(new Vector3(0.1f, 0.2f, 0.3f)));
         Assert.That(secondStar.rotationOffsetEuler, Is.EqualTo(new Vector3(10f, 20f, 30f)));
         Assert.That(secondStar.rotationMode, Is.EqualTo(BasicAttackVfxRotationMode.UnitForward));
@@ -69,6 +64,8 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(secondStar.minimumVisibleSeconds, Is.EqualTo(0.22f).Within(0.001f));
         Assert.That(secondStar.primaryRendererFlip, Is.EqualTo(new Vector3(0f, 1f, 0f)));
         Assert.That(secondStar.calibrationSource, Is.EqualTo("AttackSlashTuningScene"));
+        Assert.That(preview.TryResolvePreviewWorldPose(out Transform origin, out _, out _, out _), Is.True);
+        Assert.That(origin, Is.EqualTo(root.transform));
 
         Object.DestroyImmediate(root);
         Object.DestroyImmediate(data);
@@ -78,7 +75,6 @@ public sealed class AttackSlashTuningEditModeTests
     public void AttackSlashTuningPreviewPullsTimingAndSpeedFromUnitData()
     {
         UnitData data = ScriptableObject.CreateInstance<UnitData>();
-        data.basicAttackVfxPrefabsByStarLevel = new[] { "VFX_AttackSlash_SwordSlash5", "VFX_AttackSlash_SwordSlash5", "VFX_AttackSlash_SwordSlash5" };
         data.basicAttackVfxConfigsByStarLevel = new[]
         {
             new BasicAttackVfxConfig
@@ -127,6 +123,30 @@ public sealed class AttackSlashTuningEditModeTests
     }
 
     [Test]
+    public void UnitDataBasicAttackVfxUsesConfigOnly()
+    {
+        UnitData data = ScriptableObject.CreateInstance<UnitData>();
+        data.basicAttackVfxConfigsByStarLevel = new[]
+        {
+            BasicAttackVfxConfig.CreateDefault("VFX_AttackSlash_SwordSlash1"),
+            null,
+            new BasicAttackVfxConfig()
+        };
+
+        Assert.That(data.GetBasicAttackVfxConfig(1).prefabKey, Is.EqualTo("VFX_AttackSlash_SwordSlash1"));
+        Assert.That(data.GetBasicAttackVfxConfig(2), Is.Null);
+        Assert.That(data.GetBasicAttackVfxConfig(3), Is.Null);
+
+        string unitDataSource = File.ReadAllText("Assets/Scripts/Game/Units/UnitData.cs");
+        string importerSource = File.ReadAllText("Assets/Scripts/Editor/GoogleSheetDataImporter.cs");
+        Assert.That(unitDataSource, Does.Not.Contain("basicAttackVfxPrefabsByStarLevel"));
+        Assert.That(unitDataSource, Does.Not.Contain("GetBasicAttackVfxKey"));
+        Assert.That(importerSource, Does.Not.Contain("basicAttackVfxPrefabsByStarLevel"));
+
+        Object.DestroyImmediate(data);
+    }
+
+    [Test]
     public void UnitAttackVfxPresenterUsesSharedRuntimeUtilityAndConfigFlip()
     {
         string presenterSource = File.ReadAllText("Assets/Scripts/VFX/UnitAttackVfxPresenter.cs");
@@ -141,11 +161,15 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(presenterSource, Does.Contain("BasicAttackVfxRuntimeUtility.ResolvePlaybackSpeed(configuredPlaybackSpeed, animationPlaybackSpeed, playbackSpeedCap)"));
         Assert.That(presenterSource, Does.Contain("BasicAttackVfxRuntimeUtility.ResolveLifetimeSeconds(lifetimeSeconds, playbackSpeed, minimumVisibleSeconds)"));
         Assert.That(presenterSource, Does.Contain("BasicAttackVfxRuntimeUtility.RestartParticles(instance, primaryRendererFlip, playbackSpeed);"));
+        Assert.That(presenterSource, Does.Not.Contain("spawnOriginPath"));
+        Assert.That(presenterSource, Does.Not.Contain("private Transform spawnOrigin"));
         Assert.That(unitSource, Does.Contain("public float GetCappedAttackAnimationPlaybackSpeed()"));
         Assert.That(unitSource, Does.Contain("Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond)"));
         Assert.That(unitSource, Does.Contain("CalculateAttackAnimationPlaybackSpeed(animRate)"));
         Assert.That(utilitySource, Does.Contain("renderer.flip = primaryRendererFlip;"));
         Assert.That(utilitySource, Does.Contain("main.simulationSpeed = resolvedPlaybackSpeed;"));
+        Assert.That(utilitySource, Does.Contain("StopAndClearForReplay(particles[i]);"));
+        Assert.That(utilitySource, Does.Contain("ParticleSystemStopBehavior.StopEmittingAndClear"));
         Assert.That(utilitySource, Does.Contain("system.randomSeed = PrimarySlashRandomSeed;"));
     }
 
@@ -210,6 +234,7 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(previewSource, Does.Contain("minimumVisibleSeconds = config.ResolveMinimumVisibleSeconds()"));
         Assert.That(previewSource, Does.Contain("ResolvePreviewVfxPlaybackSpeed()"));
         Assert.That(previewSource, Does.Contain("ResolvePreviewVfxLifetimeSeconds()"));
+        Assert.That(previewSource, Does.Not.Contain("spawnOriginPath"));
         Assert.That(previewSource, Does.Not.Contain("AttackSlashTuningPreviewInstance"));
         Assert.That(previewSource, Does.Not.Contain("LastPreviewInstance"));
         Assert.That(previewSource, Does.Not.Contain("EditablePreview"));
@@ -228,6 +253,7 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(editorSource, Does.Contain("Preview Result"));
         Assert.That(editorSource, Does.Contain("Advanced"));
         Assert.That(editorSource, Does.Contain("Animation Speed Cap"));
+        Assert.That(editorSource, Does.Not.Contain("Spawn Origin"));
         Assert.That(editorSource, Does.Not.Contain("Pull From UnitData"));
         Assert.That(editorSource, Does.Not.Contain("Preview VFX"));
         Assert.That(editorSource, Does.Not.Contain("Trigger Attack"));

@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-19
-Last verified: 2026-05-19
-Use count: 49
+Last used: 2026-05-24
+Last verified: 2026-05-24
+Use count: 52
 Review after: 2026-08-03
 Triggers: unity-cli, status, console, test, build
 Applies to: MDF repo layout, unity-cli
@@ -59,3 +59,6 @@ Lifecycle notes:
 - 2026-05-19: verified artifact `unity-cli --project E:/UnityProjects/mdf/Mdfproject status => ready; reserialize Assets/Scenes/test.unity; editor refresh --compile --force => Compilation complete; console errors []`
 - 2026-05-19: verified artifact `unity-cli --project E:/UnityProjects/mdf/Mdfproject status => ready; editor refresh --compile --force => Compilation complete; final console errors []`
 - 2026-05-19: verified artifact `unity-cli --project E:/UnityProjects/mdf/Mdfproject status => ready; editor refresh --compile --force => Compilation complete; console errors []`
+- 2026-05-24: 2026-05-24: unity-cli --project Mdfproject status, reserialize UnitData assets, editor refresh --compile, console errors []
+- 2026-05-24: 2026-05-24: slash VFX particle replay fix; unity-cli --project Mdfproject status, editor refresh --compile, console errors []
+- 2026-05-24: Used unity-cli --project Mdfproject for status/reserialize during root-fixed slash VFX work; refresh/console later blocked by unresponsive connector.

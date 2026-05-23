@@ -19,7 +19,6 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     [Header("VFX")]
     [SerializeField] private GameObject slashPrefab;
     [SerializeField] private string slashPrefabAddress = "VFX_AttackSlash_SwordSlash5";
-    [SerializeField] private Transform spawnOrigin;
     [SerializeField] private Transform targetOverride;
     [SerializeField] private Vector3 localPositionOffset = new Vector3(0f, 0.6f, 0.75f);
     [SerializeField] private Vector3 rotationOffsetEuler = Vector3.zero;
@@ -219,7 +218,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
 
     public bool TryResolvePreviewWorldPose(out Transform origin, out Quaternion attackRotation, out Vector3 position, out Quaternion rotation)
     {
-        origin = ResolveSpawnOrigin();
+        origin = transform;
         Vector3 direction = ResolveDirection(origin);
         attackRotation = BasicAttackVfxRuntimeUtility.ResolveAttackRotation(transform, direction, rotationMode);
         position = origin.position + attackRotation * localPositionOffset;
@@ -248,9 +247,6 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         }
 #endif
 
-        spawnOrigin = !string.IsNullOrWhiteSpace(config.spawnOriginPath)
-            ? transform.Find(config.spawnOriginPath)
-            : null;
         localPositionOffset = config.localPositionOffset;
         rotationOffsetEuler = config.rotationOffsetEuler;
         rotationMode = config.rotationMode;
@@ -308,7 +304,6 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     private void WriteConfig(BasicAttackVfxConfig config)
     {
         config.prefabKey = slashPrefabAddress ?? string.Empty;
-        config.spawnOriginPath = spawnOrigin != null ? GetRelativePath(transform, spawnOrigin) : string.Empty;
         config.localPositionOffset = localPositionOffset;
         config.rotationOffsetEuler = rotationOffsetEuler;
         config.rotationMode = rotationMode;
@@ -458,11 +453,6 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         return Mathf.Max(0.01f, fallbackAttackClipDuration);
     }
 
-    private Transform ResolveSpawnOrigin()
-    {
-        return spawnOrigin != null ? spawnOrigin : transform;
-    }
-
     private Vector3 ResolveDirection(Transform origin)
     {
         Vector3 direction = targetOverride != null ? targetOverride.position - origin.position : transform.forward;
@@ -493,24 +483,6 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
 #endif
 
         return Instantiate(slashPrefab, position, rotation);
-    }
-
-    private static string GetRelativePath(Transform root, Transform child)
-    {
-        if (root == null || child == null || root == child)
-        {
-            return string.Empty;
-        }
-
-        string path = child.name;
-        Transform cursor = child.parent;
-        while (cursor != null && cursor != root)
-        {
-            path = $"{cursor.name}/{path}";
-            cursor = cursor.parent;
-        }
-
-        return cursor == root ? path : string.Empty;
     }
 
 #if UNITY_EDITOR

@@ -62,6 +62,7 @@ public static class BasicAttackVfxRuntimeUtility
         float resolvedPlaybackSpeed = Mathf.Max(0.01f, playbackSpeed);
         for (int i = 0; i < particles.Length; i++)
         {
+            StopAndClearForReplay(particles[i]);
             PreparePrimarySlashParticle(particles[i], primaryRendererFlip);
 
             var main = particles[i].main;
@@ -83,8 +84,19 @@ public static class BasicAttackVfxRuntimeUtility
         {
             var main = particles[i].main;
             main.loop = false;
-            particles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            StopAndClearForReplay(particles[i]);
         }
+    }
+
+    private static void StopAndClearForReplay(ParticleSystem system)
+    {
+        if (system == null)
+        {
+            return;
+        }
+
+        system.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        system.Clear(true);
     }
 
     private static void PreparePrimarySlashParticle(ParticleSystem system, Vector3 primaryRendererFlip)

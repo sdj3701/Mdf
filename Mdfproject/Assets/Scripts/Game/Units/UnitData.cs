@@ -103,11 +103,7 @@ public class UnitData : ScriptableObject
     public string[] projectilePrefabsByStarLevel = new string[3];
 
     [Header("Basic Attack VFX")]
-    [Tooltip("Addressables keys for melee basic attack slash VFX. Element 0 is 1-star, 1 is 2-star, and 2 is 3-star.")]
-    [AddressableKey(typeof(GameObject))]
-    public string[] basicAttackVfxPrefabsByStarLevel = new string[3];
-
-    [Tooltip("Optional calibrated slash VFX placement. Element 0 is 1-star, 1 is 2-star, and 2 is 3-star.")]
+    [Tooltip("Slash VFX prefab and placement settings. Element 0 is 1-star, 1 is 2-star, and 2 is 3-star.")]
     public BasicAttackVfxConfig[] basicAttackVfxConfigsByStarLevel = new BasicAttackVfxConfig[3];
 
     [Tooltip("투사체 속도입니다. 0이면 투사체 프리팹의 기본 속도를 사용합니다.")]
@@ -123,8 +119,7 @@ public class UnitData : ScriptableObject
             return config;
         }
 
-        string legacyKey = GetBasicAttackVfxKey(index);
-        return string.IsNullOrWhiteSpace(legacyKey) ? null : BasicAttackVfxConfig.CreateDefault(legacyKey);
+        return null;
     }
 
     public void EnsureBasicAttackVfxConfigArray()
@@ -148,22 +143,8 @@ public class UnitData : ScriptableObject
         {
             if (basicAttackVfxConfigsByStarLevel[i] == null)
             {
-                basicAttackVfxConfigsByStarLevel[i] = BasicAttackVfxConfig.CreateDefault(GetBasicAttackVfxKey(i));
-            }
-            else if (!basicAttackVfxConfigsByStarLevel[i].HasPrefabKey)
-            {
-                basicAttackVfxConfigsByStarLevel[i].prefabKey = GetBasicAttackVfxKey(i);
+                basicAttackVfxConfigsByStarLevel[i] = BasicAttackVfxConfig.CreateDefault();
             }
         }
-    }
-
-    private string GetBasicAttackVfxKey(int index)
-    {
-        if (basicAttackVfxPrefabsByStarLevel == null || index < 0 || index >= basicAttackVfxPrefabsByStarLevel.Length)
-        {
-            return string.Empty;
-        }
-
-        return basicAttackVfxPrefabsByStarLevel[index];
     }
 }

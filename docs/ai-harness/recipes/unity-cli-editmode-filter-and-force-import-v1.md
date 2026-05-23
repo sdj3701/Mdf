@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli, asset
 Created: 2026-05-06
-Last used: 2026-05-19
-Last verified: 2026-05-19
-Use count: 44
+Last used: 2026-05-24
+Last verified: 2026-05-24
+Use count: 46
 Review after: 2026-08-04
 Triggers: EditMode test runner returns `total=0` for a newly added method filter, Unity does not appear to pick up new test methods after compile
 Applies to: `unity-cli --project Mdfproject test --mode EditMode`, newly added tests, forced AssetDatabase import
@@ -71,3 +71,5 @@ Lifecycle notes:
 - 2026-05-19: verified artifact `AttackSlashTuningEditModeTests => 9/9 passed; EditMode => 85/85 passed`
 - 2026-05-19: verified artifact `AttackSlashTuningEditModeTests => 8/8 passed; EditMode => 84/84 passed`
 - 2026-05-19: verified artifact `AttackSlashTuningEditModeTests => 8/8 passed; EditMode => 84/84 passed`
+- 2026-05-24: 2026-05-24: AttackSlashTuningEditModeTests => 9/9 passed; EditMode => 85/85 passed
+- 2026-05-24: 2026-05-24: slash VFX particle replay fix; AttackSlashTuningEditModeTests => 9/9 passed; EditMode => 85/85 passed

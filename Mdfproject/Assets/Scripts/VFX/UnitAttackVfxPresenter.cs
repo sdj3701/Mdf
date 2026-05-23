@@ -4,7 +4,6 @@ using UnityEngine;
 
 public class UnitAttackVfxPresenter : MonoBehaviour
 {
-    [SerializeField] private Transform spawnOrigin;
     [SerializeField] private float forwardOffset = 0.75f;
     [SerializeField] private float heightOffset = 0.6f;
     [SerializeField] private Vector3 rotationOffsetEuler = Vector3.zero;
@@ -58,7 +57,7 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             return;
         }
 
-        Vector3 direction = ResolveDirection(target, config);
+        Vector3 direction = ResolveDirection(target);
         if (direction.sqrMagnitude <= 1e-6f)
         {
             return;
@@ -110,7 +109,7 @@ public class UnitAttackVfxPresenter : MonoBehaviour
     {
         RemoveInactiveTrackedInstances();
 
-        Transform origin = ResolveSpawnOrigin(config);
+        Transform origin = transform;
         Quaternion attackRotation = ResolveAttackRotation(unit, direction, config);
         Vector3 localOffset = config != null ? config.localPositionOffset : new Vector3(0f, heightOffset, forwardOffset);
         Vector3 eulerOffset = config != null ? config.rotationOffsetEuler : rotationOffsetEuler;
@@ -210,20 +209,6 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         }
     }
 
-    private Transform ResolveSpawnOrigin(BasicAttackVfxConfig config)
-    {
-        if (config != null && !string.IsNullOrWhiteSpace(config.spawnOriginPath))
-        {
-            Transform configuredOrigin = transform.Find(config.spawnOriginPath);
-            if (configuredOrigin != null)
-            {
-                return configuredOrigin;
-            }
-        }
-
-        return spawnOrigin != null ? spawnOrigin : transform;
-    }
-
     private Quaternion ResolveAttackRotation(Unit unit, Vector3 direction, BasicAttackVfxConfig config)
     {
         Transform basis = unit != null ? unit.transform : transform;
@@ -231,10 +216,9 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         return BasicAttackVfxRuntimeUtility.ResolveAttackRotation(basis, direction, rotationMode);
     }
 
-    private Vector3 ResolveDirection(Transform target, BasicAttackVfxConfig config)
+    private Vector3 ResolveDirection(Transform target)
     {
-        Transform origin = ResolveSpawnOrigin(config);
-        Vector3 direction = target != null ? target.position - origin.position : transform.forward;
+        Vector3 direction = target != null ? target.position - transform.position : transform.forward;
         direction.y = 0f;
 
         if (direction.sqrMagnitude <= 1e-6f)

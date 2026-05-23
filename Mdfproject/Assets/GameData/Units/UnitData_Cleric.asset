@@ -41,13 +41,8 @@ MonoBehaviour:
   - BaseProjectile
   - BaseProjectile
   - BaseProjectile
-  basicAttackVfxPrefabsByStarLevel:
-  - 
-  - 
-  - 
   basicAttackVfxConfigsByStarLevel:
   - prefabKey: 
-    spawnOriginPath: 
     localPositionOffset: {x: 0, y: 0.6, z: 0.75}
     rotationOffsetEuler: {x: 0, y: 0, z: 0}
     rotationMode: 0
@@ -61,7 +56,6 @@ MonoBehaviour:
     calibratedAttackClipGuid: 
     calibrationSource: 
   - prefabKey: 
-    spawnOriginPath: 
     localPositionOffset: {x: 0, y: 0.6, z: 0.75}
     rotationOffsetEuler: {x: 0, y: 0, z: 0}
     rotationMode: 0
@@ -75,7 +69,6 @@ MonoBehaviour:
     calibratedAttackClipGuid: 
     calibrationSource: 
   - prefabKey: 
-    spawnOriginPath: 
     localPositionOffset: {x: 0, y: 0.6, z: 0.75}
     rotationOffsetEuler: {x: 0, y: 0, z: 0}
     rotationMode: 0

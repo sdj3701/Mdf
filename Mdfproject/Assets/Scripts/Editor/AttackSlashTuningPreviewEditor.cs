@@ -12,7 +12,6 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
     private SerializedProperty applyToAllStarLevels;
     private SerializedProperty slashPrefab;
     private SerializedProperty slashPrefabAddress;
-    private SerializedProperty spawnOrigin;
     private SerializedProperty targetOverride;
     private SerializedProperty localPositionOffset;
     private SerializedProperty rotationOffsetEuler;
@@ -42,7 +41,6 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
         applyToAllStarLevels = serializedObject.FindProperty("applyToAllStarLevels");
         slashPrefab = serializedObject.FindProperty("slashPrefab");
         slashPrefabAddress = serializedObject.FindProperty("slashPrefabAddress");
-        spawnOrigin = serializedObject.FindProperty("spawnOrigin");
         targetOverride = serializedObject.FindProperty("targetOverride");
         localPositionOffset = serializedObject.FindProperty("localPositionOffset");
         rotationOffsetEuler = serializedObject.FindProperty("rotationOffsetEuler");
@@ -154,7 +152,6 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
 
         EditorGUI.indentLevel++;
         EditorGUILayout.PropertyField(slashPrefabAddress, new GUIContent("Saved Prefab Address"));
-        EditorGUILayout.PropertyField(spawnOrigin, new GUIContent("Spawn Origin"));
         EditorGUILayout.PropertyField(targetOverride, new GUIContent("Target Override"));
         EditorGUILayout.PropertyField(rotationMode, new GUIContent("Rotation Mode"));
         EditorGUILayout.PropertyField(primaryRendererFlip, new GUIContent("Renderer Flip"));

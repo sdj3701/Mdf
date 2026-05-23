@@ -249,7 +249,6 @@ MonoBehaviour:
   slashPrefab: {fileID: 1605427244588492944, guid: 057b0530372e9964899cde3c3c1cee0d,
     type: 3}
   slashPrefabAddress: VFX_AttackSlash_SwordSlash5
-  spawnOrigin: {fileID: 251797288}
   targetOverride: {fileID: 1307302291}
   localPositionOffset: {x: -0.04123473, y: 0.08111346, z: -0.28008613}
   rotationOffsetEuler: {x: 70.19102, y: 104.16525, z: 87.35192}
@@ -571,7 +570,6 @@ MonoBehaviour:
   slashPrefab: {fileID: 7193950115567824334, guid: e7efec0f27ecb364cbff12223659ed77,
     type: 3}
   slashPrefabAddress: VFX_AttackSlash_SwordSlash9
-  spawnOrigin: {fileID: 1431545106}
   targetOverride: {fileID: 1597879570}
   localPositionOffset: {x: -0.0966196, y: 0.24934593, z: -0.13570735}
   rotationOffsetEuler: {x: 317.4, y: 238.34396, z: 6.899991}
@@ -1033,7 +1031,6 @@ MonoBehaviour:
   slashPrefab: {fileID: 1605427244588492944, guid: 057b0530372e9964899cde3c3c1cee0d,
     type: 3}
   slashPrefabAddress: VFX_AttackSlash_SwordSlash5
-  spawnOrigin: {fileID: 2064569916}
   targetOverride: {fileID: 1385105355}
   localPositionOffset: {x: -0.10275206, y: 0.14952981, z: 0.21178365}
   rotationOffsetEuler: {x: 48.03351, y: -15.621185, z: -65.756775}

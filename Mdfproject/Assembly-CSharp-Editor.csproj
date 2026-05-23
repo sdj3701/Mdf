@@ -71,6 +71,8 @@
     <Compile Include="Assets\Scripts\Testing\MP\Editor\BuildAutomation.cs" />
     <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeView.cs" />
     <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\NodeView.cs" />
+    <Compile Include="Assets\Scripts\Editor\AttackSlashTuningPreviewEditor.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\AttackSlashTuningEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\GoogleSheetDataImporter.cs" />
     <Compile Include="Assets\Scripts\Editor\UITKTextSettingsSetup.cs" />
     <Compile Include="Assets\Scripts\Editor\DataExporter.cs" />
@@ -81,8 +83,6 @@
     <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestHarnessEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\AddressableKeyDrawer.cs" />
     <Compile Include="Assets\Resource\VFX\Hovl Studio\HSFiles\Scripts\Editor\ShaderChanger.cs" />
-    <Compile Include="Assets\Scripts\Editor\AttackSlashTuningPreviewEditor.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\AttackSlashTuningEditModeTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Firebase\Editor\FirebaseCrashlytics_version-13.2.0_manifest.txt" />
