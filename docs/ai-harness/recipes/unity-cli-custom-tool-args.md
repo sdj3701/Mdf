@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-18
+Last used: 2026-05-28
 Last verified: 2026-05-18
-Use count: 14
+Use count: 15
 Review after: 2026-08-03
 Triggers: mp_dump_state, mp_assert_state, mp_build_player, custom tool smoke
 Applies to: unity-cli connector 0.3.15 custom tools
@@ -31,4 +31,3 @@ Verification:
 
 Pitfalls:
 - A snapshot from `Title` is only a tool smoke. It is not a gameplay PASS because `GameManagers` and players are absent.
-

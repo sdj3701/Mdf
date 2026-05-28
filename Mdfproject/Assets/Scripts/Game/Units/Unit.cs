@@ -1478,12 +1478,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         // projectileSpeed가 0이면 프리팹에서 속도를 가져옴
-        if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
-        {
-            return;
-        }
-
-        string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
+        string projectileKey = unitData.GetProjectilePrefabKey();
         if (string.IsNullOrEmpty(projectileKey))
         {
             return;
