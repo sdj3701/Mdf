@@ -62,6 +62,7 @@ MonoBehaviour:
     muzzleScaleMultiplier: 1
     muzzlePlaybackSpeed: 1
     muzzleLifetimeSeconds: 1
+    projectileSpeed: 10
     projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
     projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
     projectileScaleMultiplier: 1

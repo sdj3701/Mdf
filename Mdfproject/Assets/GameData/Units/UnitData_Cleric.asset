@@ -39,4 +39,3 @@ MonoBehaviour:
   - Skill_Heal
   basicAttackVfxProfile: {fileID: 11400000, guid: c46eaec223e9c5f419513f063682577d,
     type: 2}
-  projectileSpeed: 10

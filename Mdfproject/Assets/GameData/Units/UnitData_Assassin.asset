@@ -39,4 +39,3 @@ MonoBehaviour:
   - Skill_AreaMeleeDamage
   basicAttackVfxProfile: {fileID: 11400000, guid: 7db0d26b0baf71d438f6bfc5e4cda7b5,
     type: 2}
-  projectileSpeed: 0

@@ -552,6 +552,7 @@ MonoBehaviour:
   projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
   projectileScaleMultiplier: 1
   projectilePlaybackSpeed: 1
+  projectileSpeed: 10
   alignProjectileToDirection: 1
   impactFlashPrefab: {fileID: 0}
   impactFlashAddress: 
@@ -566,7 +567,6 @@ MonoBehaviour:
   attackSpawnNormalizedTime: 0.2
   previewAnimationSpeedCap: 3
   fallbackAttackClipDuration: 1
-  projectileSpeedOverride: 0
   attackTriggerName: AttackTrigger
   pullFromUnitDataOnEnable: 1
   faceTargetOnEnable: 1
@@ -1049,6 +1049,7 @@ MonoBehaviour:
   projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
   projectileScaleMultiplier: 1
   projectilePlaybackSpeed: 1
+  projectileSpeed: 10
   alignProjectileToDirection: 1
   impactFlashPrefab: {fileID: 0}
   impactFlashAddress: 
@@ -1063,7 +1064,6 @@ MonoBehaviour:
   attackSpawnNormalizedTime: 0.2
   previewAnimationSpeedCap: 3
   fallbackAttackClipDuration: 1
-  projectileSpeedOverride: 0
   attackTriggerName: AttackTrigger
   pullFromUnitDataOnEnable: 1
   faceTargetOnEnable: 1
@@ -1569,6 +1569,7 @@ MonoBehaviour:
   projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
   projectileScaleMultiplier: 1
   projectilePlaybackSpeed: 1
+  projectileSpeed: 10
   alignProjectileToDirection: 1
   impactFlashPrefab: {fileID: 0}
   impactFlashAddress: 
@@ -1583,7 +1584,6 @@ MonoBehaviour:
   attackSpawnNormalizedTime: 0.2
   previewAnimationSpeedCap: 3
   fallbackAttackClipDuration: 1
-  projectileSpeedOverride: 0
   attackTriggerName: AttackTrigger
   pullFromUnitDataOnEnable: 1
   faceTargetOnEnable: 1
@@ -2531,6 +2531,7 @@ MonoBehaviour:
   projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
   projectileScaleMultiplier: 1
   projectilePlaybackSpeed: 1
+  projectileSpeed: 10
   alignProjectileToDirection: 1
   impactFlashPrefab: {fileID: 0}
   impactFlashAddress: 
@@ -2545,7 +2546,6 @@ MonoBehaviour:
   attackSpawnNormalizedTime: 0.2
   previewAnimationSpeedCap: 3
   fallbackAttackClipDuration: 1
-  projectileSpeedOverride: 0
   attackTriggerName: AttackTrigger
   pullFromUnitDataOnEnable: 1
   faceTargetOnEnable: 1

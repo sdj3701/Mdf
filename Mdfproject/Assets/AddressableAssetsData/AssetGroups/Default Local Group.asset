@@ -550,6 +550,42 @@ MonoBehaviour:
     m_Address: VFX_AttackSlash_SwordSlash14
     m_ReadOnly: 0
     m_SerializedLabels: []
+  - m_GUID: 3e0b667176390ec48af7e1a45f2a1ca6
+    m_Address: VFX_Projectile_Fire4_Projectile
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: 8a5881744d44dd546a327527e9b89900
+    m_Address: VFX_Projectile_Fire4_Hit
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: c81bf136e2dd0f6488b25b30e0a5de9e
+    m_Address: VFX_Projectile_Fire4_Flash
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: e2aecc938d1dabe4b83b473864616866
+    m_Address: VFX_Projectile_Ice5_Projectile
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: 4eabe4bed225c604db7e3aaa9cf36681
+    m_Address: VFX_Projectile_Ice5_Hit
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: a841b6e5feb94d64998972ee0c9d4a5f
+    m_Address: VFX_Projectile_Ice5_Flash
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: c4ef3641155e0b34794e29c197f57ea9
+    m_Address: VFX_Projectile_Wind7_Projectile
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: 864df08caf13ad04cb694efaeeeaaba3
+    m_Address: VFX_Projectile_Wind7_Hit
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+  - m_GUID: db738b5c07915ce4eb3fbe91be7ff552
+    m_Address: VFX_Projectile_Wind7_Flash
+    m_ReadOnly: 0
+    m_SerializedLabels: []
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

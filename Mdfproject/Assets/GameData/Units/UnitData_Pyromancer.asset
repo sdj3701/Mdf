@@ -39,4 +39,3 @@ MonoBehaviour:
   - Skill_AreaSlowDebuff
   basicAttackVfxProfile: {fileID: 11400000, guid: 3cc01530c8208594c8cbb0902c99e1b4,
     type: 2}
-  projectileSpeed: 10

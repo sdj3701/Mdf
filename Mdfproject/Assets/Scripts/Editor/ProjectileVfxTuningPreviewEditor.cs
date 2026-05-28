@@ -23,6 +23,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
     private SerializedProperty projectileRotationOffsetEuler;
     private SerializedProperty projectileScaleMultiplier;
     private SerializedProperty projectilePlaybackSpeed;
+    private SerializedProperty projectileSpeed;
     private SerializedProperty alignProjectileToDirection;
     private SerializedProperty impactFlashPrefab;
     private SerializedProperty impactFlashAddress;
@@ -37,7 +38,6 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
     private SerializedProperty attackSpawnNormalizedTime;
     private SerializedProperty previewAnimationSpeedCap;
     private SerializedProperty fallbackAttackClipDuration;
-    private SerializedProperty projectileSpeedOverride;
     private SerializedProperty attackTriggerName;
     private SerializedProperty pullFromUnitDataOnEnable;
     private SerializedProperty faceTargetOnEnable;
@@ -61,6 +61,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         projectileRotationOffsetEuler = serializedObject.FindProperty("projectileRotationOffsetEuler");
         projectileScaleMultiplier = serializedObject.FindProperty("projectileScaleMultiplier");
         projectilePlaybackSpeed = serializedObject.FindProperty("projectilePlaybackSpeed");
+        projectileSpeed = serializedObject.FindProperty("projectileSpeed");
         alignProjectileToDirection = serializedObject.FindProperty("alignProjectileToDirection");
         impactFlashPrefab = serializedObject.FindProperty("impactFlashPrefab");
         impactFlashAddress = serializedObject.FindProperty("impactFlashAddress");
@@ -75,7 +76,6 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         attackSpawnNormalizedTime = serializedObject.FindProperty("attackSpawnNormalizedTime");
         previewAnimationSpeedCap = serializedObject.FindProperty("previewAnimationSpeedCap");
         fallbackAttackClipDuration = serializedObject.FindProperty("fallbackAttackClipDuration");
-        projectileSpeedOverride = serializedObject.FindProperty("projectileSpeedOverride");
         attackTriggerName = serializedObject.FindProperty("attackTriggerName");
         pullFromUnitDataOnEnable = serializedObject.FindProperty("pullFromUnitDataOnEnable");
         faceTargetOnEnable = serializedObject.FindProperty("faceTargetOnEnable");
@@ -89,7 +89,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         DrawScriptField();
         DrawSaveTarget();
         DrawStage("Muzzle Flash", muzzleFlashPrefab, muzzleLocalPositionOffset, muzzleRotationOffsetEuler, muzzleScaleMultiplier, muzzlePlaybackSpeed, muzzleLifetimeSeconds, null);
-        DrawStage("Projectile", projectilePrefab, projectileLocalPositionOffset, projectileRotationOffsetEuler, projectileScaleMultiplier, projectilePlaybackSpeed, null, alignProjectileToDirection);
+        DrawStage("Projectile", projectilePrefab, projectileLocalPositionOffset, projectileRotationOffsetEuler, projectileScaleMultiplier, projectilePlaybackSpeed, null, alignProjectileToDirection, projectileSpeed);
         DrawStage("Impact Flash", impactFlashPrefab, impactLocalPositionOffset, impactRotationOffsetEuler, impactScaleMultiplier, impactPlaybackSpeed, impactLifetimeSeconds, alignImpactToDirection);
         DrawLoopPreview();
         DrawAdvanced();
@@ -121,11 +121,25 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         EditorGUILayout.PropertyField(targetOverride, new GUIContent("Target"));
     }
 
-    private static void DrawStage(string title, SerializedProperty prefab, SerializedProperty offset, SerializedProperty rotation, SerializedProperty scale, SerializedProperty playbackSpeed, SerializedProperty lifetime, SerializedProperty align)
+    private static void DrawStage(
+        string title,
+        SerializedProperty prefab,
+        SerializedProperty offset,
+        SerializedProperty rotation,
+        SerializedProperty scale,
+        SerializedProperty playbackSpeed,
+        SerializedProperty lifetime,
+        SerializedProperty align,
+        SerializedProperty travelSpeed = null)
     {
         EditorGUILayout.Space();
         EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
         EditorGUILayout.PropertyField(prefab, new GUIContent("Prefab"));
+        if (travelSpeed != null)
+        {
+            EditorGUILayout.PropertyField(travelSpeed, new GUIContent("Travel Speed"));
+        }
+
         EditorGUILayout.PropertyField(offset, new GUIContent("Position Offset"));
         EditorGUILayout.PropertyField(rotation, new GUIContent("Rotation Offset"));
         EditorGUILayout.PropertyField(scale, new GUIContent("Scale"));
@@ -177,7 +191,6 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         EditorGUILayout.PropertyField(impactFlashAddress, new GUIContent("Impact Address"));
         EditorGUILayout.PropertyField(previewAnimationSpeedCap, new GUIContent("Animation Speed Cap"));
         EditorGUILayout.PropertyField(fallbackAttackClipDuration, new GUIContent("Fallback Clip Duration"));
-        EditorGUILayout.PropertyField(projectileSpeedOverride, new GUIContent("Projectile Speed Override"));
         EditorGUILayout.PropertyField(attackTriggerName, new GUIContent("Attack Trigger"));
         EditorGUILayout.PropertyField(pullFromUnitDataOnEnable, new GUIContent("Pull On Enable"));
         EditorGUILayout.PropertyField(faceTargetOnEnable, new GUIContent("Face Target On Enable"));

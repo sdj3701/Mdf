@@ -60,12 +60,15 @@ public class UnitData : ScriptableObject
     [Tooltip("Shared profile for slash and projectile basic attack VFX. The tuning scenes save into this asset.")]
     public BasicAttackVfxProfile basicAttackVfxProfile;
 
-    [Tooltip("Projectile speed override. 0 uses the projectile prefab's speed.")]
-    public float projectileSpeed = 0f;
-
     public ProjectileVfxConfig GetProjectileVfxConfig()
     {
         return basicAttackVfxProfile != null ? basicAttackVfxProfile.GetProjectileConfig() : null;
+    }
+
+    public float ResolveProjectileSpeed(float fallbackSpeed = ProjectileVfxConfig.DefaultProjectileSpeed)
+    {
+        ProjectileVfxConfig config = GetProjectileVfxConfig();
+        return config != null ? config.ResolveProjectileSpeed(fallbackSpeed) : fallbackSpeed;
     }
 
     public string GetProjectilePrefabKey()

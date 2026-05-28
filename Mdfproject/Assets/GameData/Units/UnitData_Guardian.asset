@@ -39,4 +39,3 @@ MonoBehaviour:
   - 
   basicAttackVfxProfile: {fileID: 11400000, guid: a887381c2d85ae646ad101a3a9f00fa3,
     type: 2}
-  projectileSpeed: 0

@@ -1470,23 +1470,25 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        // UnitData에 projectileSpeed가 설정되어 있으면 해당 값을 우선 사용
-        if (unitData.projectileSpeed > 0f)
+        ProjectileVfxConfig projectileConfig = unitData.GetProjectileVfxConfig();
+        if (projectileConfig != null && projectileConfig.projectileSpeed > 0f)
         {
-            _cachedProjectileSpeed = unitData.projectileSpeed;
+            _cachedProjectileSpeed = projectileConfig.ResolveProjectileSpeed();
             return;
         }
 
-        // projectileSpeed가 0이면 프리팹에서 속도를 가져옴
+        // Legacy projectile prefabs still carry Projectile.Speed; pure VFX wrappers store speed in ProjectileVfxConfig.
         string projectileKey = unitData.GetProjectilePrefabKey();
         if (string.IsNullOrEmpty(projectileKey))
         {
+            _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();
             return;
         }
 
         GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
         if (projectilePrefab == null)
         {
+            _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();
             return;
         }
 
@@ -1494,7 +1496,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (projectile != null)
         {
             _cachedProjectileSpeed = projectile.Speed;
+            return;
         }
+
+        _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();
     }
 
     public async Task Upgrade()

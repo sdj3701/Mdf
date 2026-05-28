@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using UnityEditor;
+using UnityEditor.AddressableAssets;
+using UnityEditor.AddressableAssets.Settings;
 using UnityEngine;
 
 public sealed class ProjectileVfxConfigEditModeTests
@@ -19,6 +21,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(config.ResolveMuzzleScaleMultiplier(), Is.EqualTo(1f).Within(0.001f));
         Assert.That(config.ResolveProjectileScaleMultiplier(), Is.EqualTo(1f).Within(0.001f));
         Assert.That(config.ResolveImpactScaleMultiplier(), Is.EqualTo(1f).Within(0.001f));
+        Assert.That(config.ResolveProjectileSpeed(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileSpeed).Within(0.001f));
         Assert.That(config.ResolveMuzzlePlaybackSpeed(), Is.EqualTo(1f).Within(0.001f));
         Assert.That(config.ResolveProjectilePlaybackSpeed(), Is.EqualTo(1f).Within(0.001f));
         Assert.That(config.ResolveImpactPlaybackSpeed(), Is.EqualTo(1f).Within(0.001f));
@@ -36,6 +39,7 @@ public sealed class ProjectileVfxConfigEditModeTests
 
         Assert.That(data.GetProjectilePrefabKey(), Is.EqualTo("BaseProjectile"));
         Assert.That(data.GetProjectileVfxConfig(), Is.SameAs(profile.projectileVfxConfig));
+        Assert.That(data.ResolveProjectileSpeed(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileSpeed).Within(0.001f));
 
         Object.DestroyImmediate(profile);
         Object.DestroyImmediate(data);
@@ -59,6 +63,7 @@ public sealed class ProjectileVfxConfigEditModeTests
             Assert.That(data.basicAttackVfxProfile, Is.Not.Null, pair.Key);
             Assert.That(data.GetProjectilePrefabKey(), Is.EqualTo(pair.Value), pair.Key);
             Assert.That(data.GetProjectileVfxConfig(), Is.Not.Null, pair.Key);
+            Assert.That(data.GetProjectileVfxConfig().ResolveProjectileSpeed(), Is.EqualTo(10f).Within(0.001f), pair.Key);
         }
     }
 
@@ -78,6 +83,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(scene, Does.Contain("ProjectileTarget_Pyromancer_Slime"));
         Assert.That(scene, Does.Contain("projectileAddress: ArrowProjectile"));
         Assert.That(scene, Does.Contain("projectileAddress: BaseProjectile"));
+        Assert.That(scene, Does.Contain("projectileSpeed: 10"));
     }
 
     [Test]
@@ -107,6 +113,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         serializedPreview.FindProperty("muzzlePlaybackSpeed").floatValue = 0.9f;
         serializedPreview.FindProperty("projectilePlaybackSpeed").floatValue = 1.4f;
         serializedPreview.FindProperty("impactPlaybackSpeed").floatValue = 1.5f;
+        serializedPreview.FindProperty("projectileSpeed").floatValue = 22f;
         serializedPreview.FindProperty("muzzleLifetimeSeconds").floatValue = 0.6f;
         serializedPreview.FindProperty("impactLifetimeSeconds").floatValue = 0.7f;
         serializedPreview.FindProperty("alignProjectileToDirection").boolValue = false;
@@ -131,6 +138,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(config.muzzlePlaybackSpeed, Is.EqualTo(0.9f).Within(0.001f));
         Assert.That(config.projectilePlaybackSpeed, Is.EqualTo(1.4f).Within(0.001f));
         Assert.That(config.impactPlaybackSpeed, Is.EqualTo(1.5f).Within(0.001f));
+        Assert.That(config.projectileSpeed, Is.EqualTo(22f).Within(0.001f));
         Assert.That(config.muzzleLifetimeSeconds, Is.EqualTo(0.6f).Within(0.001f));
         Assert.That(config.impactLifetimeSeconds, Is.EqualTo(0.7f).Within(0.001f));
         Assert.That(config.alignProjectileToDirection, Is.False);
@@ -146,6 +154,7 @@ public sealed class ProjectileVfxConfigEditModeTests
     {
         string source = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
         string previewSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxTuningPreview.cs");
+        string unitDataSource = File.ReadAllText("Assets/Scripts/Game/Units/UnitData.cs");
 
         Assert.That(source, Does.Contain("TryResolveProjectileVfx"));
         Assert.That(source, Does.Contain("SpawnMuzzleFlashAsync"));
@@ -155,6 +164,61 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(source, Does.Contain("ProjectileVfxRuntimeUtility.RestartParticles"));
         Assert.That(previewSource, Does.Contain("CopySettingsToUnitData"));
         Assert.That(previewSource, Does.Contain("loopAttackAndVfx"));
+        Assert.That(previewSource, Does.Contain("projectileSpeed"));
+        Assert.That(unitDataSource, Does.Not.Contain("public float projectileSpeed"));
+    }
+
+    [Test]
+    public void RequestedHovlProjectileWrapperPrefabsExistAsAddressables()
+    {
+        AddressableAssetSettings settings = AddressableAssetSettingsDefaultObject.Settings;
+        Assert.That(settings, Is.Not.Null);
+
+        var expected = new HashSet<string>
+        {
+            "VFX_Projectile_Fire4_Projectile",
+            "VFX_Projectile_Fire4_Hit",
+            "VFX_Projectile_Fire4_Flash",
+            "VFX_Projectile_Ice5_Projectile",
+            "VFX_Projectile_Ice5_Hit",
+            "VFX_Projectile_Ice5_Flash",
+            "VFX_Projectile_Wind7_Projectile",
+            "VFX_Projectile_Wind7_Hit",
+            "VFX_Projectile_Wind7_Flash"
+        };
+
+        foreach (string address in expected)
+        {
+            string path = $"Assets/Prefabs/VFX/Projectile/{address}.prefab";
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+
+            Assert.That(prefab, Is.Not.Null, path);
+            Assert.That(prefab.GetComponent<VFXAutoDestroy>(), Is.Not.Null, path);
+            Assert.That(prefab.transform.childCount, Is.EqualTo(1), path);
+            Assert.That(prefab.GetComponentInChildren<Projectile>(true), Is.Null, path);
+            Assert.That(prefab.GetComponentsInChildren<Collider>(true), Is.Empty, path);
+            Assert.That(prefab.GetComponentsInChildren<Rigidbody>(true), Is.Empty, path);
+
+            var behaviours = prefab.GetComponentsInChildren<MonoBehaviour>(true);
+            for (int i = 0; i < behaviours.Length; i++)
+            {
+                MonoBehaviour behaviour = behaviours[i];
+                if (behaviour == null || !behaviour.GetType().Name.StartsWith("HS_", System.StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                Assert.Fail($"{path} still contains Hovl runtime behaviour {behaviour.GetType().Name}");
+            }
+
+            string guid = AssetDatabase.AssetPathToGUID(path);
+            AddressableAssetEntry entry = settings.FindAssetEntry(guid);
+            Assert.That(entry, Is.Not.Null, path);
+            Assert.That(entry.address, Is.EqualTo(address), path);
+        }
+
+        Assert.That(File.Exists("Assets/Scripts/Editor/TempProjectileVfxWrapperGenerator.cs"), Is.False);
+        Assert.That(File.Exists("Assets/Scripts/Editor/TempProjectileVfxPurifyMigration.cs"), Is.False);
     }
 }
 #endif

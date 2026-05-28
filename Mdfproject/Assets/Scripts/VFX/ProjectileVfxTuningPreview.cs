@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -34,6 +35,8 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     [SerializeField] private Vector3 projectileRotationOffsetEuler = Vector3.zero;
     [SerializeField] private float projectileScaleMultiplier = 1f;
     [SerializeField] private float projectilePlaybackSpeed = 1f;
+    [FormerlySerializedAs("projectileSpeedOverride")]
+    [SerializeField] private float projectileSpeed = ProjectileVfxConfig.DefaultProjectileSpeed;
     [SerializeField] private bool alignProjectileToDirection = true;
 
     [Header("Impact Flash")]
@@ -52,7 +55,6 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     [SerializeField, Range(0f, 0.95f)] private float attackSpawnNormalizedTime = 0.2f;
     [SerializeField] private float previewAnimationSpeedCap = 3f;
     [SerializeField] private float fallbackAttackClipDuration = 1f;
-    [SerializeField] private float projectileSpeedOverride = 0f;
 
     [Header("Animation")]
     [SerializeField] private string attackTriggerName = "AttackTrigger";
@@ -89,7 +91,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         attackSpawnNormalizedTime = Mathf.Clamp(attackSpawnNormalizedTime, 0f, 0.95f);
         previewAnimationSpeedCap = Mathf.Max(0.01f, previewAnimationSpeedCap);
         fallbackAttackClipDuration = Mathf.Max(0.01f, fallbackAttackClipDuration);
-        projectileSpeedOverride = Mathf.Max(0f, projectileSpeedOverride);
+        projectileSpeed = Mathf.Max(0.01f, projectileSpeed);
 
 #if UNITY_EDITOR
         SyncAddressFromPrefab(muzzleFlashPrefab, ref muzzleFlashAddress);
@@ -168,6 +170,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         projectileRotationOffsetEuler = config.projectileRotationOffsetEuler;
         projectileScaleMultiplier = config.ResolveProjectileScaleMultiplier();
         projectilePlaybackSpeed = config.ResolveProjectilePlaybackSpeed();
+        projectileSpeed = config.ResolveProjectileSpeed();
         alignProjectileToDirection = config.alignProjectileToDirection;
         impactLocalPositionOffset = config.impactLocalPositionOffset;
         impactRotationOffsetEuler = config.impactRotationOffsetEuler;
@@ -222,6 +225,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         config.projectileRotationOffsetEuler = projectileRotationOffsetEuler;
         config.projectileScaleMultiplier = Mathf.Max(0.01f, projectileScaleMultiplier);
         config.projectilePlaybackSpeed = Mathf.Max(0.01f, projectilePlaybackSpeed);
+        config.projectileSpeed = Mathf.Max(0.01f, projectileSpeed);
         config.alignProjectileToDirection = alignProjectileToDirection;
         config.impactLocalPositionOffset = impactLocalPositionOffset;
         config.impactRotationOffsetEuler = impactRotationOffsetEuler;
@@ -382,17 +386,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
 
     private float ResolveProjectileTravelSeconds(Vector3 firePos, Vector3 targetPos)
     {
-        float speed = projectileSpeedOverride > 0f ? projectileSpeedOverride : unitData != null ? unitData.projectileSpeed : 0f;
-        if (speed <= 0f && projectilePrefab != null)
-        {
-            Projectile projectile = projectilePrefab.GetComponent<Projectile>();
-            if (projectile != null)
-            {
-                speed = projectile.Speed;
-            }
-        }
-
-        speed = speed > 0f ? speed : 10f;
+        float speed = projectileSpeed > 0f ? projectileSpeed : ProjectileVfxConfig.DefaultProjectileSpeed;
         return Vector3.Distance(firePos, targetPos) / speed;
     }
 

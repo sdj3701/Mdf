@@ -39,4 +39,3 @@ MonoBehaviour:
   - Skill_AreaIceAge
   basicAttackVfxProfile: {fileID: 11400000, guid: 4d62e6f706d627245b28fa897a70ae53,
     type: 2}
-  projectileSpeed: 10

@@ -5,6 +5,7 @@ using UnityEngine;
 public sealed class ProjectileVfxConfig
 {
     public const float DefaultOneShotLifetimeSeconds = 1f;
+    public const float DefaultProjectileSpeed = 10f;
 
     [Header("Addressables")]
     [AddressableKey(typeof(GameObject))]
@@ -25,6 +26,8 @@ public sealed class ProjectileVfxConfig
     public float muzzleLifetimeSeconds = DefaultOneShotLifetimeSeconds;
 
     [Header("Projectile")]
+    [Tooltip("Visual projectile travel speed in world units per second.")]
+    public float projectileSpeed = DefaultProjectileSpeed;
     [Tooltip("Offset in projectile direction space. X is right, Y is up, Z is forward.")]
     public Vector3 projectileLocalPositionOffset = Vector3.zero;
     public Vector3 projectileRotationOffsetEuler = Vector3.zero;
@@ -57,6 +60,7 @@ public sealed class ProjectileVfxConfig
             muzzleScaleMultiplier = 1f,
             muzzlePlaybackSpeed = 1f,
             muzzleLifetimeSeconds = DefaultOneShotLifetimeSeconds,
+            projectileSpeed = DefaultProjectileSpeed,
             projectileLocalPositionOffset = Vector3.zero,
             projectileRotationOffsetEuler = Vector3.zero,
             projectileScaleMultiplier = 1f,
@@ -89,6 +93,16 @@ public sealed class ProjectileVfxConfig
     public float ResolveProjectileScaleMultiplier()
     {
         return projectileScaleMultiplier > 0f ? projectileScaleMultiplier : 1f;
+    }
+
+    public float ResolveProjectileSpeed(float fallbackSpeed = DefaultProjectileSpeed)
+    {
+        if (projectileSpeed > 0f)
+        {
+            return projectileSpeed;
+        }
+
+        return fallbackSpeed > 0f ? fallbackSpeed : DefaultProjectileSpeed;
     }
 
     public float ResolveImpactScaleMultiplier()

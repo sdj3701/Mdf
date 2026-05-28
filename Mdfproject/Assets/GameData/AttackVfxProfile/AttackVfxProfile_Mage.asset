@@ -54,14 +54,15 @@ MonoBehaviour:
     calibratedAttackClipGuid: 
     calibrationSource: 
   projectileVfxConfig:
-    muzzleFlashKey: 
-    projectileKey: BaseProjectile
-    impactFlashKey: 
+    muzzleFlashKey: VFX_Projectile_Ice5_Flash
+    projectileKey: VFX_Projectile_Ice5_Projectile
+    impactFlashKey: VFX_Projectile_Ice5_Hit
     muzzleLocalPositionOffset: {x: 0, y: 0, z: 0}
     muzzleRotationOffsetEuler: {x: 0, y: 0, z: 0}
     muzzleScaleMultiplier: 1
     muzzlePlaybackSpeed: 1
     muzzleLifetimeSeconds: 1
+    projectileSpeed: 10
     projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
     projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
     projectileScaleMultiplier: 1
