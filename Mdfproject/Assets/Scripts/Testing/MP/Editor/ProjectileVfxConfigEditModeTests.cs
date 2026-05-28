@@ -30,11 +30,14 @@ public sealed class ProjectileVfxConfigEditModeTests
     public void UnitDataProjectileLookupUsesSingleConfig()
     {
         UnitData data = ScriptableObject.CreateInstance<UnitData>();
-        data.projectileVfxConfig = ProjectileVfxConfig.CreateDefault("BaseProjectile");
+        BasicAttackVfxProfile profile = ScriptableObject.CreateInstance<BasicAttackVfxProfile>();
+        profile.projectileVfxConfig = ProjectileVfxConfig.CreateDefault("BaseProjectile");
+        data.basicAttackVfxProfile = profile;
 
         Assert.That(data.GetProjectilePrefabKey(), Is.EqualTo("BaseProjectile"));
-        Assert.That(data.GetProjectileVfxConfig(), Is.SameAs(data.projectileVfxConfig));
+        Assert.That(data.GetProjectileVfxConfig(), Is.SameAs(profile.projectileVfxConfig));
 
+        Object.DestroyImmediate(profile);
         Object.DestroyImmediate(data);
     }
 
@@ -53,8 +56,9 @@ public sealed class ProjectileVfxConfigEditModeTests
         {
             UnitData data = AssetDatabase.LoadAssetAtPath<UnitData>(pair.Key);
             Assert.That(data, Is.Not.Null, pair.Key);
+            Assert.That(data.basicAttackVfxProfile, Is.Not.Null, pair.Key);
             Assert.That(data.GetProjectilePrefabKey(), Is.EqualTo(pair.Value), pair.Key);
-            Assert.That(data.projectileVfxConfig, Is.Not.Null, pair.Key);
+            Assert.That(data.GetProjectileVfxConfig(), Is.Not.Null, pair.Key);
         }
     }
 
@@ -80,6 +84,9 @@ public sealed class ProjectileVfxConfigEditModeTests
     public void ProjectileVfxTuningPreviewCopiesSettingsToUnitData()
     {
         UnitData data = ScriptableObject.CreateInstance<UnitData>();
+        BasicAttackVfxProfile profile = ScriptableObject.CreateInstance<BasicAttackVfxProfile>();
+        profile.EnsureConfigs();
+        data.basicAttackVfxProfile = profile;
         GameObject root = new GameObject("ProjectilePreviewRoot");
         var preview = root.AddComponent<ProjectileVfxTuningPreview>();
 
@@ -130,6 +137,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(config.alignImpactToDirection, Is.False);
 
         Object.DestroyImmediate(root);
+        Object.DestroyImmediate(profile);
         Object.DestroyImmediate(data);
     }
 

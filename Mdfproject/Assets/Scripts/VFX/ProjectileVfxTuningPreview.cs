@@ -192,11 +192,24 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         }
 
 #if UNITY_EDITOR
-        Undo.RecordObject(unitData, "Save Projectile VFX Tuning");
+        BasicAttackVfxProfile profile = unitData.basicAttackVfxProfile;
+        if (profile == null)
+        {
+            Debug.LogWarning($"[ProjectileVfxTuningPreview] BasicAttackVfxProfile is missing on {unitData.name}.");
+            return;
+        }
+
+        Undo.RecordObject(profile, "Save Projectile VFX Tuning");
+#else
+        BasicAttackVfxProfile profile = unitData.basicAttackVfxProfile;
+        if (profile == null)
+        {
+            Debug.LogWarning($"[ProjectileVfxTuningPreview] BasicAttackVfxProfile is missing on {unitData.name}.");
+            return;
+        }
 #endif
 
-        unitData.EnsureProjectileVfxConfig();
-        ProjectileVfxConfig config = unitData.projectileVfxConfig;
+        ProjectileVfxConfig config = profile.GetProjectileConfig();
         config.muzzleFlashKey = muzzleFlashAddress ?? string.Empty;
         config.projectileKey = projectileAddress ?? string.Empty;
         config.impactFlashKey = impactFlashAddress ?? string.Empty;
@@ -218,14 +231,14 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         config.alignImpactToDirection = alignImpactToDirection;
 
 #if UNITY_EDITOR
-        EditorUtility.SetDirty(unitData);
+        EditorUtility.SetDirty(profile);
         if (saveAsset)
         {
             AssetDatabase.SaveAssets();
         }
 #endif
 
-        Debug.Log($"[ProjectileVfxTuningPreview] Saved projectile VFX tuning to {unitData.name}.");
+        Debug.Log($"[ProjectileVfxTuningPreview] Saved projectile VFX tuning to {profile.name}. unit={unitData.name}");
     }
 
     public float ResolvePreviewAttackIntervalSeconds()

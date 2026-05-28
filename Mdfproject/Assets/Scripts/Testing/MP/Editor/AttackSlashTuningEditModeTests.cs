@@ -27,7 +27,9 @@ public sealed class AttackSlashTuningEditModeTests
     public void AttackSlashTuningPreviewCopiesSettingsToUnitData()
     {
         UnitData data = ScriptableObject.CreateInstance<UnitData>();
-        data.basicAttackVfxConfigsByStarLevel = new BasicAttackVfxConfig[3];
+        BasicAttackVfxProfile profile = ScriptableObject.CreateInstance<BasicAttackVfxProfile>();
+        profile.EnsureConfigs();
+        data.basicAttackVfxProfile = profile;
 
         GameObject root = new GameObject("PreviewRoot");
         var preview = root.AddComponent<AttackSlashTuningPreview>();
@@ -50,8 +52,8 @@ public sealed class AttackSlashTuningEditModeTests
 
         preview.CopySettingsToUnitData(false);
 
-        BasicAttackVfxConfig firstStar = data.basicAttackVfxConfigsByStarLevel[0];
-        BasicAttackVfxConfig secondStar = data.basicAttackVfxConfigsByStarLevel[1];
+        BasicAttackVfxConfig firstStar = profile.slashConfigsByStarLevel[0];
+        BasicAttackVfxConfig secondStar = profile.slashConfigsByStarLevel[1];
         Assert.That(firstStar.calibrationSource, Is.Not.EqualTo("AttackSlashTuningScene"));
         Assert.That(secondStar.prefabKey, Is.EqualTo("VFX_AttackSlash_SwordSlash5"));
         Assert.That(secondStar.localPositionOffset, Is.EqualTo(new Vector3(0.1f, 0.2f, 0.3f)));
@@ -68,6 +70,7 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(origin, Is.EqualTo(root.transform));
 
         Object.DestroyImmediate(root);
+        Object.DestroyImmediate(profile);
         Object.DestroyImmediate(data);
     }
 
@@ -75,7 +78,8 @@ public sealed class AttackSlashTuningEditModeTests
     public void AttackSlashTuningPreviewPullsTimingAndSpeedFromUnitData()
     {
         UnitData data = ScriptableObject.CreateInstance<UnitData>();
-        data.basicAttackVfxConfigsByStarLevel = new[]
+        BasicAttackVfxProfile profile = ScriptableObject.CreateInstance<BasicAttackVfxProfile>();
+        profile.slashConfigsByStarLevel = new[]
         {
             new BasicAttackVfxConfig
             {
@@ -92,6 +96,7 @@ public sealed class AttackSlashTuningEditModeTests
             null,
             null
         };
+        data.basicAttackVfxProfile = profile;
 
         GameObject slashPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/VFX/Attack/VFX_AttackSlash_SwordSlash5.prefab");
         Assert.That(slashPrefab, Is.Not.Null);
@@ -119,6 +124,7 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(refreshedPreview.FindProperty("minimumVisibleSeconds").floatValue, Is.EqualTo(0.21f).Within(0.001f));
 
         Object.DestroyImmediate(root);
+        Object.DestroyImmediate(profile);
         Object.DestroyImmediate(data);
     }
 
@@ -126,12 +132,14 @@ public sealed class AttackSlashTuningEditModeTests
     public void UnitDataBasicAttackVfxUsesConfigOnly()
     {
         UnitData data = ScriptableObject.CreateInstance<UnitData>();
-        data.basicAttackVfxConfigsByStarLevel = new[]
+        BasicAttackVfxProfile profile = ScriptableObject.CreateInstance<BasicAttackVfxProfile>();
+        profile.slashConfigsByStarLevel = new[]
         {
             BasicAttackVfxConfig.CreateDefault("VFX_AttackSlash_SwordSlash1"),
             null,
             new BasicAttackVfxConfig()
         };
+        data.basicAttackVfxProfile = profile;
 
         Assert.That(data.GetBasicAttackVfxConfig(1).prefabKey, Is.EqualTo("VFX_AttackSlash_SwordSlash1"));
         Assert.That(data.GetBasicAttackVfxConfig(2), Is.Null);
@@ -140,9 +148,12 @@ public sealed class AttackSlashTuningEditModeTests
         string unitDataSource = File.ReadAllText("Assets/Scripts/Game/Units/UnitData.cs");
         string importerSource = File.ReadAllText("Assets/Scripts/Editor/GoogleSheetDataImporter.cs");
         Assert.That(unitDataSource, Does.Not.Contain("basicAttackVfxPrefabsByStarLevel"));
+        Assert.That(unitDataSource, Does.Not.Contain("basicAttackVfxConfigsByStarLevel"));
+        Assert.That(unitDataSource, Does.Not.Contain("projectileVfxConfig"));
         Assert.That(unitDataSource, Does.Not.Contain("GetBasicAttackVfxKey"));
         Assert.That(importerSource, Does.Not.Contain("basicAttackVfxPrefabsByStarLevel"));
 
+        Object.DestroyImmediate(profile);
         Object.DestroyImmediate(data);
     }
 
@@ -194,10 +205,12 @@ public sealed class AttackSlashTuningEditModeTests
             Assert.That(data, Is.Not.Null, path);
             Assert.That(data.unitType, Is.EqualTo(UnitType.Melee), path);
 
-            data.EnsureBasicAttackVfxConfigArray();
-            for (int starIndex = 0; starIndex < data.basicAttackVfxConfigsByStarLevel.Length; starIndex++)
+            BasicAttackVfxProfile profile = data.basicAttackVfxProfile;
+            Assert.That(profile, Is.Not.Null, path);
+            profile.EnsureConfigs();
+            for (int starIndex = 0; starIndex < profile.slashConfigsByStarLevel.Length; starIndex++)
             {
-                BasicAttackVfxConfig config = data.basicAttackVfxConfigsByStarLevel[starIndex];
+                BasicAttackVfxConfig config = profile.slashConfigsByStarLevel[starIndex];
                 Assert.That(config, Is.Not.Null, $"{path} star={starIndex + 1}");
                 Assert.That(config.rotationMode, Is.EqualTo(BasicAttackVfxRotationMode.UnitForward), $"{path} star={starIndex + 1}");
             }

@@ -267,28 +267,42 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         }
 
 #if UNITY_EDITOR
-        Undo.RecordObject(unitData, "Save Attack Slash Tuning");
+        BasicAttackVfxProfile profile = unitData.basicAttackVfxProfile;
+        if (profile == null)
+        {
+            Debug.LogWarning($"[AttackSlashTuningPreview] BasicAttackVfxProfile is missing on {unitData.name}.");
+            return;
+        }
+
+        Undo.RecordObject(profile, "Save Attack Slash Tuning");
+#else
+        BasicAttackVfxProfile profile = unitData.basicAttackVfxProfile;
+        if (profile == null)
+        {
+            Debug.LogWarning($"[AttackSlashTuningPreview] BasicAttackVfxProfile is missing on {unitData.name}.");
+            return;
+        }
 #endif
 
-        unitData.EnsureBasicAttackVfxConfigArray();
+        profile.EnsureConfigs();
         int first = applyToAllStarLevels ? 0 : Mathf.Clamp(starLevel - 1, 0, 2);
         int last = applyToAllStarLevels ? 2 : first;
         for (int i = first; i <= last; i++)
         {
-            BasicAttackVfxConfig config = unitData.basicAttackVfxConfigsByStarLevel[i] ?? BasicAttackVfxConfig.CreateDefault(slashPrefabAddress);
+            BasicAttackVfxConfig config = profile.slashConfigsByStarLevel[i] ?? BasicAttackVfxConfig.CreateDefault(slashPrefabAddress);
             WriteConfig(config);
-            unitData.basicAttackVfxConfigsByStarLevel[i] = config;
+            profile.slashConfigsByStarLevel[i] = config;
         }
 
 #if UNITY_EDITOR
-        EditorUtility.SetDirty(unitData);
+        EditorUtility.SetDirty(profile);
         if (saveAsset)
         {
             AssetDatabase.SaveAssets();
         }
 #endif
 
-        Debug.Log($"[AttackSlashTuningPreview] Saved slash tuning to {unitData.name}. stars={(applyToAllStarLevels ? "all" : starLevel.ToString())}");
+        Debug.Log($"[AttackSlashTuningPreview] Saved slash tuning to {profile.name}. unit={unitData.name}, stars={(applyToAllStarLevels ? "all" : starLevel.ToString())}");
     }
 
     private BasicAttackVfxConfig ResolveConfig()

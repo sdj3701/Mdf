@@ -45,7 +45,6 @@ public class GoogleSheetDataImporter
             so.prefabsByStarLevel = GetStringArray(item, "prefabsByStarLevel");
             so.skillsByStarLevel = GetStringArray(item, "skillsByStarLevel");
             ApplyProjectileVfxConfigFromSheet(so, GetStringArray(item, "projectilePrefabsByStarLevel"));
-            so.EnsureBasicAttackVfxConfigArray();
         });
 
         AssetDatabase.SaveAssets();
@@ -72,10 +71,19 @@ public class GoogleSheetDataImporter
             return;
         }
 
-        unitData.EnsureProjectileVfxConfig();
-        unitData.projectileVfxConfig.projectileKey = projectileKeys == null
+        ProjectileVfxConfig config = unitData.basicAttackVfxProfile != null
+            ? unitData.basicAttackVfxProfile.GetProjectileConfig()
+            : null;
+        if (config == null)
+        {
+            Debug.LogWarning($"[GoogleSheetDataImporter] {unitData.name} has no BasicAttackVfxProfile. Projectile VFX key was not imported.");
+            return;
+        }
+
+        config.projectileKey = projectileKeys == null
             ? string.Empty
             : projectileKeys.FirstOrDefault(key => !string.IsNullOrWhiteSpace(key)) ?? string.Empty;
+        EditorUtility.SetDirty(unitData.basicAttackVfxProfile);
     }
 
     private static string GetString(Dictionary<string, object> item, string key)
