@@ -265,8 +265,11 @@ public sealed class AttackSlashTuningEditModeTests
     {
         string previewSource = File.ReadAllText("Assets/Scripts/VFX/AttackSlashTuningPreview.cs");
         string editorSource = File.ReadAllText("Assets/Scripts/Editor/AttackSlashTuningPreviewEditor.cs");
+        string testScene = File.ReadAllText("Assets/Scenes/test.unity");
 
         Assert.That(previewSource, Does.Contain("loopAttackAndVfx = true"));
+        Assert.That(previewSource, Does.Contain("AttackSlashEffectRoot"));
+        Assert.That(previewSource, Does.Contain("ResolvePreviewRoot()"));
         Assert.That(previewSource, Does.Contain("loopIntervalSeconds"));
         Assert.That(previewSource, Does.Contain("ReplayPreview(false);"));
         Assert.That(previewSource, Does.Contain("TryResolvePreviewWorldPose"));
@@ -296,6 +299,7 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(editorSource, Does.Contain("Save To UnitData"));
         Assert.That(editorSource, Does.Contain("Preview Result"));
         Assert.That(editorSource, Does.Contain("Advanced"));
+        Assert.That(editorSource, Does.Contain("Preview Root"));
         Assert.That(editorSource, Does.Contain("Animation Speed Cap"));
         Assert.That(editorSource, Does.Not.Contain("Spawn Origin"));
         Assert.That(editorSource, Does.Not.Contain("Pull From UnitData"));
@@ -311,6 +315,7 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(editorSource, Does.Not.Contain("Handles.PositionHandle"));
         Assert.That(editorSource, Does.Not.Contain("Handles.RotationHandle"));
         Assert.That(editorSource, Does.Not.Contain("Slash Spawn"));
+        Assert.That(testScene, Does.Contain("AttackSlashEffectRoot"));
     }
 
     [Test]

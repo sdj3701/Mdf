@@ -29,6 +29,14 @@ public static class ProjectileVfxRuntimeUtility
         return new Vector3(baseScale.x * resolvedMultiplier, baseScale.y * resolvedMultiplier, baseScale.z * resolvedMultiplier);
     }
 
+    public static Vector3 MultiplyScale(Vector3 baseScale, Vector3 multiplier)
+    {
+        return new Vector3(
+            baseScale.x * Mathf.Max(0.01f, multiplier.x),
+            baseScale.y * Mathf.Max(0.01f, multiplier.y),
+            baseScale.z * Mathf.Max(0.01f, multiplier.z));
+    }
+
     public static void RestartParticles(GameObject instance, float playbackSpeed)
     {
         if (instance == null)

@@ -21,6 +21,7 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
     private SerializedProperty vfxPlaybackSpeedCap;
     private SerializedProperty minimumVisibleSeconds;
     private SerializedProperty primaryRendererFlip;
+    private SerializedProperty previewRoot;
     private SerializedProperty previewFinalAttackSpeed;
     private SerializedProperty spawnWhenAnimatorAttackStatePlays;
     private SerializedProperty attackStateName;
@@ -50,6 +51,7 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
         vfxPlaybackSpeedCap = serializedObject.FindProperty("vfxPlaybackSpeedCap");
         minimumVisibleSeconds = serializedObject.FindProperty("minimumVisibleSeconds");
         primaryRendererFlip = serializedObject.FindProperty("primaryRendererFlip");
+        previewRoot = serializedObject.FindProperty("previewRoot");
         previewFinalAttackSpeed = serializedObject.FindProperty("previewFinalAttackSpeed");
         spawnWhenAnimatorAttackStatePlays = serializedObject.FindProperty("spawnWhenAnimatorAttackStatePlays");
         attackStateName = serializedObject.FindProperty("attackStateName");
@@ -152,6 +154,7 @@ public sealed class AttackSlashTuningPreviewEditor : Editor
 
         EditorGUI.indentLevel++;
         EditorGUILayout.PropertyField(slashPrefabAddress, new GUIContent("Saved Prefab Address"));
+        EditorGUILayout.PropertyField(previewRoot, new GUIContent("Preview Root"));
         EditorGUILayout.PropertyField(targetOverride, new GUIContent("Target Override"));
         EditorGUILayout.PropertyField(rotationMode, new GUIContent("Rotation Mode"));
         EditorGUILayout.PropertyField(primaryRendererFlip, new GUIContent("Renderer Flip"));

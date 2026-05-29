@@ -60,17 +60,20 @@ MonoBehaviour:
     muzzleLocalPositionOffset: {x: 0, y: 0, z: 0}
     muzzleRotationOffsetEuler: {x: 0, y: 0, z: 0}
     muzzleScaleMultiplier: 1
+    muzzleScaleMultiplierVector: {x: 1, y: 1, z: 1}
     muzzlePlaybackSpeed: 1
     muzzleLifetimeSeconds: 1
     projectileSpeed: 10
     projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
     projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
     projectileScaleMultiplier: 1
+    projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
     projectilePlaybackSpeed: 1
     alignProjectileToDirection: 1
     impactLocalPositionOffset: {x: 0, y: 0, z: 0}
     impactRotationOffsetEuler: {x: 0, y: 0, z: 0}
-    impactScaleMultiplier: 1
+    impactScaleMultiplier: 0.3
+    impactScaleMultiplierVector: {x: 0.3, y: 0.3, z: 0.3}
     impactPlaybackSpeed: 1
     impactLifetimeSeconds: 1
     alignImpactToDirection: 1

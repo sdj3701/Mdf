@@ -21,7 +21,10 @@ public sealed class ProjectileVfxConfig
     [Tooltip("Offset in projectile direction space. X is right, Y is up, Z is forward.")]
     public Vector3 muzzleLocalPositionOffset = Vector3.zero;
     public Vector3 muzzleRotationOffsetEuler = Vector3.zero;
+    [HideInInspector]
     public float muzzleScaleMultiplier = 1f;
+    [InspectorName("Muzzle Scale Multiplier")]
+    public Vector3 muzzleScaleMultiplierVector = Vector3.one;
     public float muzzlePlaybackSpeed = 1f;
     public float muzzleLifetimeSeconds = DefaultOneShotLifetimeSeconds;
 
@@ -31,7 +34,10 @@ public sealed class ProjectileVfxConfig
     [Tooltip("Offset in projectile direction space. X is right, Y is up, Z is forward.")]
     public Vector3 projectileLocalPositionOffset = Vector3.zero;
     public Vector3 projectileRotationOffsetEuler = Vector3.zero;
+    [HideInInspector]
     public float projectileScaleMultiplier = 1f;
+    [InspectorName("Projectile Scale Multiplier")]
+    public Vector3 projectileScaleMultiplierVector = Vector3.one;
     public float projectilePlaybackSpeed = 1f;
     public bool alignProjectileToDirection = true;
 
@@ -39,7 +45,10 @@ public sealed class ProjectileVfxConfig
     [Tooltip("Offset in projectile direction space. X is right, Y is up, Z is forward.")]
     public Vector3 impactLocalPositionOffset = Vector3.zero;
     public Vector3 impactRotationOffsetEuler = Vector3.zero;
+    [HideInInspector]
     public float impactScaleMultiplier = 1f;
+    [InspectorName("Impact Scale Multiplier")]
+    public Vector3 impactScaleMultiplierVector = Vector3.one;
     public float impactPlaybackSpeed = 1f;
     public float impactLifetimeSeconds = DefaultOneShotLifetimeSeconds;
     public bool alignImpactToDirection = true;
@@ -58,17 +67,20 @@ public sealed class ProjectileVfxConfig
             muzzleLocalPositionOffset = Vector3.zero,
             muzzleRotationOffsetEuler = Vector3.zero,
             muzzleScaleMultiplier = 1f,
+            muzzleScaleMultiplierVector = Vector3.one,
             muzzlePlaybackSpeed = 1f,
             muzzleLifetimeSeconds = DefaultOneShotLifetimeSeconds,
             projectileSpeed = DefaultProjectileSpeed,
             projectileLocalPositionOffset = Vector3.zero,
             projectileRotationOffsetEuler = Vector3.zero,
             projectileScaleMultiplier = 1f,
+            projectileScaleMultiplierVector = Vector3.one,
             projectilePlaybackSpeed = 1f,
             alignProjectileToDirection = true,
             impactLocalPositionOffset = Vector3.zero,
             impactRotationOffsetEuler = Vector3.zero,
             impactScaleMultiplier = 1f,
+            impactScaleMultiplierVector = Vector3.one,
             impactPlaybackSpeed = 1f,
             impactLifetimeSeconds = DefaultOneShotLifetimeSeconds,
             alignImpactToDirection = true
@@ -87,12 +99,22 @@ public sealed class ProjectileVfxConfig
 
     public float ResolveMuzzleScaleMultiplier()
     {
-        return muzzleScaleMultiplier > 0f ? muzzleScaleMultiplier : 1f;
+        return ResolveUniformScaleMultiplier(ResolveMuzzleScaleMultiplierVector());
+    }
+
+    public Vector3 ResolveMuzzleScaleMultiplierVector()
+    {
+        return ResolveScaleMultiplierVector(muzzleScaleMultiplierVector, muzzleScaleMultiplier);
     }
 
     public float ResolveProjectileScaleMultiplier()
     {
-        return projectileScaleMultiplier > 0f ? projectileScaleMultiplier : 1f;
+        return ResolveUniformScaleMultiplier(ResolveProjectileScaleMultiplierVector());
+    }
+
+    public Vector3 ResolveProjectileScaleMultiplierVector()
+    {
+        return ResolveScaleMultiplierVector(projectileScaleMultiplierVector, projectileScaleMultiplier);
     }
 
     public float ResolveProjectileSpeed(float fallbackSpeed = DefaultProjectileSpeed)
@@ -107,7 +129,12 @@ public sealed class ProjectileVfxConfig
 
     public float ResolveImpactScaleMultiplier()
     {
-        return impactScaleMultiplier > 0f ? impactScaleMultiplier : 1f;
+        return ResolveUniformScaleMultiplier(ResolveImpactScaleMultiplierVector());
+    }
+
+    public Vector3 ResolveImpactScaleMultiplierVector()
+    {
+        return ResolveScaleMultiplierVector(impactScaleMultiplierVector, impactScaleMultiplier);
     }
 
     public float ResolveMuzzlePlaybackSpeed()
@@ -123,5 +150,39 @@ public sealed class ProjectileVfxConfig
     public float ResolveImpactPlaybackSpeed()
     {
         return impactPlaybackSpeed > 0f ? impactPlaybackSpeed : 1f;
+    }
+
+    private static Vector3 ResolveScaleMultiplierVector(Vector3 configuredScale, float legacyUniformScale)
+    {
+        float resolvedLegacyScale = legacyUniformScale > 0f ? legacyUniformScale : 1f;
+        bool configuredScaleIsValid = configuredScale.x > 0f && configuredScale.y > 0f && configuredScale.z > 0f;
+        bool configuredScaleIsDefault = Approximately(configuredScale.x, 1f)
+            && Approximately(configuredScale.y, 1f)
+            && Approximately(configuredScale.z, 1f);
+
+        if (configuredScaleIsValid && (!configuredScaleIsDefault || Approximately(resolvedLegacyScale, 1f)))
+        {
+            return SanitizeScaleMultiplierVector(configuredScale);
+        }
+
+        return Vector3.one * resolvedLegacyScale;
+    }
+
+    private static Vector3 SanitizeScaleMultiplierVector(Vector3 scale)
+    {
+        return new Vector3(
+            Mathf.Max(0.01f, scale.x),
+            Mathf.Max(0.01f, scale.y),
+            Mathf.Max(0.01f, scale.z));
+    }
+
+    private static float ResolveUniformScaleMultiplier(Vector3 scale)
+    {
+        return Mathf.Max(0.01f, (scale.x + scale.y + scale.z) / 3f);
+    }
+
+    private static bool Approximately(float a, float b)
+    {
+        return Mathf.Abs(a - b) <= 0.0001f;
     }
 }

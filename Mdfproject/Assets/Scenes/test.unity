@@ -419,6 +419,7 @@ MonoBehaviour:
   vfxPlaybackSpeedCap: 2
   minimumVisibleSeconds: 0.16
   primaryRendererFlip: {x: 0, y: 0, z: 0}
+  previewRoot: {fileID: 1824492156}
   previewFinalAttackSpeed: 1
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
@@ -543,6 +544,7 @@ MonoBehaviour:
   muzzleLocalPositionOffset: {x: 0, y: 0, z: 0}
   muzzleRotationOffsetEuler: {x: 0, y: 0, z: 0}
   muzzleScaleMultiplier: 1
+  muzzleScaleMultiplierVector: {x: 1, y: 1, z: 1}
   muzzlePlaybackSpeed: 1
   muzzleLifetimeSeconds: 1
   projectilePrefab: {fileID: 3645011495362617231, guid: 8c44b94147ea3c0408ae6c0565bd5e5c,
@@ -551,6 +553,7 @@ MonoBehaviour:
   projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
   projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
   projectileScaleMultiplier: 1
+  projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
   projectilePlaybackSpeed: 1
   projectileSpeed: 10
   alignProjectileToDirection: 1
@@ -559,6 +562,7 @@ MonoBehaviour:
   impactLocalPositionOffset: {x: 0, y: 0, z: 0}
   impactRotationOffsetEuler: {x: 0, y: 0, z: 0}
   impactScaleMultiplier: 1
+  impactScaleMultiplierVector: {x: 1, y: 1, z: 1}
   impactPlaybackSpeed: 1
   impactLifetimeSeconds: 1
   alignImpactToDirection: 1
@@ -571,6 +575,7 @@ MonoBehaviour:
   pullFromUnitDataOnEnable: 1
   faceTargetOnEnable: 1
   destroyPreviewObjectsOnDisable: 1
+  previewRoot: {fileID: 1300964553}
 --- !u!1 &386853317
 GameObject:
   m_ObjectHideFlags: 0
@@ -605,6 +610,7 @@ Transform:
   - {fileID: 1385105355}
   - {fileID: 1431545105}
   - {fileID: 1597879570}
+  - {fileID: 1824492156}
   m_Father: {fileID: 0}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -1040,6 +1046,7 @@ MonoBehaviour:
   muzzleLocalPositionOffset: {x: 0, y: 0, z: 0}
   muzzleRotationOffsetEuler: {x: 0, y: 0, z: 0}
   muzzleScaleMultiplier: 1
+  muzzleScaleMultiplierVector: {x: 1, y: 1, z: 1}
   muzzlePlaybackSpeed: 1
   muzzleLifetimeSeconds: 1
   projectilePrefab: {fileID: 3645011495362617231, guid: b4a0e6f54c522e440a5d01c7849a9981,
@@ -1048,6 +1055,7 @@ MonoBehaviour:
   projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
   projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
   projectileScaleMultiplier: 1
+  projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
   projectilePlaybackSpeed: 1
   projectileSpeed: 10
   alignProjectileToDirection: 1
@@ -1056,6 +1064,7 @@ MonoBehaviour:
   impactLocalPositionOffset: {x: 0, y: 0, z: 0}
   impactRotationOffsetEuler: {x: 0, y: 0, z: 0}
   impactScaleMultiplier: 1
+  impactScaleMultiplierVector: {x: 1, y: 1, z: 1}
   impactPlaybackSpeed: 1
   impactLifetimeSeconds: 1
   alignImpactToDirection: 1
@@ -1068,6 +1077,7 @@ MonoBehaviour:
   pullFromUnitDataOnEnable: 1
   faceTargetOnEnable: 1
   destroyPreviewObjectsOnDisable: 1
+  previewRoot: {fileID: 1300964553}
 --- !u!1001 &910787220
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1560,6 +1570,7 @@ MonoBehaviour:
   muzzleLocalPositionOffset: {x: 0, y: 0, z: 0}
   muzzleRotationOffsetEuler: {x: 0, y: 0, z: 0}
   muzzleScaleMultiplier: 1
+  muzzleScaleMultiplierVector: {x: 1, y: 1, z: 1}
   muzzlePlaybackSpeed: 1
   muzzleLifetimeSeconds: 1
   projectilePrefab: {fileID: 3645011495362617231, guid: 8c44b94147ea3c0408ae6c0565bd5e5c,
@@ -1568,6 +1579,7 @@ MonoBehaviour:
   projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
   projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
   projectileScaleMultiplier: 1
+  projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
   projectilePlaybackSpeed: 1
   projectileSpeed: 10
   alignProjectileToDirection: 1
@@ -1576,6 +1588,7 @@ MonoBehaviour:
   impactLocalPositionOffset: {x: 0, y: 0, z: 0}
   impactRotationOffsetEuler: {x: 0, y: 0, z: 0}
   impactScaleMultiplier: 1
+  impactScaleMultiplierVector: {x: 1, y: 1, z: 1}
   impactPlaybackSpeed: 1
   impactLifetimeSeconds: 1
   alignImpactToDirection: 1
@@ -1588,12 +1601,44 @@ MonoBehaviour:
   pullFromUnitDataOnEnable: 1
   faceTargetOnEnable: 1
   destroyPreviewObjectsOnDisable: 1
+  previewRoot: {fileID: 1300964553}
 --- !u!4 &1230440040 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 2613645079569365513, guid: 99dda8f6ae322454ca5f9bd87b583efb,
     type: 3}
   m_PrefabInstance: {fileID: 602104464}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &1300964552
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1300964553}
+  m_Layer: 0
+  m_Name: ProjectileVfxEffectRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1300964553
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1300964552}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1896688225}
+  m_RootOrder: 8
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1307302290
 GameObject:
   m_ObjectHideFlags: 0
@@ -1786,6 +1831,7 @@ MonoBehaviour:
   vfxPlaybackSpeedCap: 2
   minimumVisibleSeconds: 0.16
   primaryRendererFlip: {x: 0, y: 0, z: 0}
+  previewRoot: {fileID: 1824492156}
   previewFinalAttackSpeed: 1
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack
@@ -2371,6 +2417,37 @@ Mesh:
     offset: 0
     size: 0
     path: 
+--- !u!1 &1824492155
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1824492156}
+  m_Layer: 0
+  m_Name: AttackSlashEffectRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1824492156
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1824492155}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 386853318}
+  m_RootOrder: 6
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1896688224
 GameObject:
   m_ObjectHideFlags: 0
@@ -2407,6 +2484,7 @@ Transform:
   - {fileID: 662436660}
   - {fileID: 302674850}
   - {fileID: 910787221}
+  - {fileID: 1300964553}
   m_Father: {fileID: 0}
   m_RootOrder: 3
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -2522,6 +2600,7 @@ MonoBehaviour:
   muzzleLocalPositionOffset: {x: 0, y: 0, z: 0}
   muzzleRotationOffsetEuler: {x: 0, y: 0, z: 0}
   muzzleScaleMultiplier: 1
+  muzzleScaleMultiplierVector: {x: 1, y: 1, z: 1}
   muzzlePlaybackSpeed: 1
   muzzleLifetimeSeconds: 1
   projectilePrefab: {fileID: 3645011495362617231, guid: 8c44b94147ea3c0408ae6c0565bd5e5c,
@@ -2530,6 +2609,7 @@ MonoBehaviour:
   projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
   projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
   projectileScaleMultiplier: 1
+  projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
   projectilePlaybackSpeed: 1
   projectileSpeed: 10
   alignProjectileToDirection: 1
@@ -2538,6 +2618,7 @@ MonoBehaviour:
   impactLocalPositionOffset: {x: 0, y: 0, z: 0}
   impactRotationOffsetEuler: {x: 0, y: 0, z: 0}
   impactScaleMultiplier: 1
+  impactScaleMultiplierVector: {x: 1, y: 1, z: 1}
   impactPlaybackSpeed: 1
   impactLifetimeSeconds: 1
   alignImpactToDirection: 1
@@ -2550,6 +2631,7 @@ MonoBehaviour:
   pullFromUnitDataOnEnable: 1
   faceTargetOnEnable: 1
   destroyPreviewObjectsOnDisable: 1
+  previewRoot: {fileID: 1300964553}
 --- !u!1 &1960894089
 GameObject:
   m_ObjectHideFlags: 0
@@ -2881,6 +2963,7 @@ MonoBehaviour:
   vfxPlaybackSpeedCap: 2
   minimumVisibleSeconds: 0.16
   primaryRendererFlip: {x: 0, y: 0, z: 0}
+  previewRoot: {fileID: 1824492156}
   previewFinalAttackSpeed: 1
   spawnWhenAnimatorAttackStatePlays: 1
   attackStateName: Attack

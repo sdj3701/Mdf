@@ -14,14 +14,14 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
     private SerializedProperty muzzleFlashAddress;
     private SerializedProperty muzzleLocalPositionOffset;
     private SerializedProperty muzzleRotationOffsetEuler;
-    private SerializedProperty muzzleScaleMultiplier;
+    private SerializedProperty muzzleScaleMultiplierVector;
     private SerializedProperty muzzlePlaybackSpeed;
     private SerializedProperty muzzleLifetimeSeconds;
     private SerializedProperty projectilePrefab;
     private SerializedProperty projectileAddress;
     private SerializedProperty projectileLocalPositionOffset;
     private SerializedProperty projectileRotationOffsetEuler;
-    private SerializedProperty projectileScaleMultiplier;
+    private SerializedProperty projectileScaleMultiplierVector;
     private SerializedProperty projectilePlaybackSpeed;
     private SerializedProperty projectileSpeed;
     private SerializedProperty alignProjectileToDirection;
@@ -29,7 +29,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
     private SerializedProperty impactFlashAddress;
     private SerializedProperty impactLocalPositionOffset;
     private SerializedProperty impactRotationOffsetEuler;
-    private SerializedProperty impactScaleMultiplier;
+    private SerializedProperty impactScaleMultiplierVector;
     private SerializedProperty impactPlaybackSpeed;
     private SerializedProperty impactLifetimeSeconds;
     private SerializedProperty alignImpactToDirection;
@@ -42,6 +42,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
     private SerializedProperty pullFromUnitDataOnEnable;
     private SerializedProperty faceTargetOnEnable;
     private SerializedProperty destroyPreviewObjectsOnDisable;
+    private SerializedProperty previewRoot;
 
     private void OnEnable()
     {
@@ -52,14 +53,14 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         muzzleFlashAddress = serializedObject.FindProperty("muzzleFlashAddress");
         muzzleLocalPositionOffset = serializedObject.FindProperty("muzzleLocalPositionOffset");
         muzzleRotationOffsetEuler = serializedObject.FindProperty("muzzleRotationOffsetEuler");
-        muzzleScaleMultiplier = serializedObject.FindProperty("muzzleScaleMultiplier");
+        muzzleScaleMultiplierVector = serializedObject.FindProperty("muzzleScaleMultiplierVector");
         muzzlePlaybackSpeed = serializedObject.FindProperty("muzzlePlaybackSpeed");
         muzzleLifetimeSeconds = serializedObject.FindProperty("muzzleLifetimeSeconds");
         projectilePrefab = serializedObject.FindProperty("projectilePrefab");
         projectileAddress = serializedObject.FindProperty("projectileAddress");
         projectileLocalPositionOffset = serializedObject.FindProperty("projectileLocalPositionOffset");
         projectileRotationOffsetEuler = serializedObject.FindProperty("projectileRotationOffsetEuler");
-        projectileScaleMultiplier = serializedObject.FindProperty("projectileScaleMultiplier");
+        projectileScaleMultiplierVector = serializedObject.FindProperty("projectileScaleMultiplierVector");
         projectilePlaybackSpeed = serializedObject.FindProperty("projectilePlaybackSpeed");
         projectileSpeed = serializedObject.FindProperty("projectileSpeed");
         alignProjectileToDirection = serializedObject.FindProperty("alignProjectileToDirection");
@@ -67,7 +68,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         impactFlashAddress = serializedObject.FindProperty("impactFlashAddress");
         impactLocalPositionOffset = serializedObject.FindProperty("impactLocalPositionOffset");
         impactRotationOffsetEuler = serializedObject.FindProperty("impactRotationOffsetEuler");
-        impactScaleMultiplier = serializedObject.FindProperty("impactScaleMultiplier");
+        impactScaleMultiplierVector = serializedObject.FindProperty("impactScaleMultiplierVector");
         impactPlaybackSpeed = serializedObject.FindProperty("impactPlaybackSpeed");
         impactLifetimeSeconds = serializedObject.FindProperty("impactLifetimeSeconds");
         alignImpactToDirection = serializedObject.FindProperty("alignImpactToDirection");
@@ -80,6 +81,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         pullFromUnitDataOnEnable = serializedObject.FindProperty("pullFromUnitDataOnEnable");
         faceTargetOnEnable = serializedObject.FindProperty("faceTargetOnEnable");
         destroyPreviewObjectsOnDisable = serializedObject.FindProperty("destroyPreviewObjectsOnDisable");
+        previewRoot = serializedObject.FindProperty("previewRoot");
     }
 
     public override void OnInspectorGUI()
@@ -88,9 +90,9 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
 
         DrawScriptField();
         DrawSaveTarget();
-        DrawStage("Muzzle Flash", muzzleFlashPrefab, muzzleLocalPositionOffset, muzzleRotationOffsetEuler, muzzleScaleMultiplier, muzzlePlaybackSpeed, muzzleLifetimeSeconds, null);
-        DrawStage("Projectile", projectilePrefab, projectileLocalPositionOffset, projectileRotationOffsetEuler, projectileScaleMultiplier, projectilePlaybackSpeed, null, alignProjectileToDirection, projectileSpeed);
-        DrawStage("Impact Flash", impactFlashPrefab, impactLocalPositionOffset, impactRotationOffsetEuler, impactScaleMultiplier, impactPlaybackSpeed, impactLifetimeSeconds, alignImpactToDirection);
+        DrawStage("Muzzle Flash", muzzleFlashPrefab, muzzleLocalPositionOffset, muzzleRotationOffsetEuler, muzzleScaleMultiplierVector, muzzlePlaybackSpeed, muzzleLifetimeSeconds, null);
+        DrawStage("Projectile", projectilePrefab, projectileLocalPositionOffset, projectileRotationOffsetEuler, projectileScaleMultiplierVector, projectilePlaybackSpeed, null, alignProjectileToDirection, projectileSpeed);
+        DrawStage("Impact Flash", impactFlashPrefab, impactLocalPositionOffset, impactRotationOffsetEuler, impactScaleMultiplierVector, impactPlaybackSpeed, impactLifetimeSeconds, alignImpactToDirection);
         DrawLoopPreview();
         DrawAdvanced();
 
@@ -142,7 +144,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
 
         EditorGUILayout.PropertyField(offset, new GUIContent("Position Offset"));
         EditorGUILayout.PropertyField(rotation, new GUIContent("Rotation Offset"));
-        EditorGUILayout.PropertyField(scale, new GUIContent("Scale"));
+        EditorGUILayout.PropertyField(scale, new GUIContent("Scale XYZ"));
         EditorGUILayout.PropertyField(playbackSpeed, new GUIContent("Playback Speed"));
         if (lifetime != null)
         {
@@ -186,6 +188,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
 
         EditorGUI.indentLevel++;
         EditorGUILayout.PropertyField(firePointOverride, new GUIContent("Fire Point"));
+        EditorGUILayout.PropertyField(previewRoot, new GUIContent("Preview Root"));
         EditorGUILayout.PropertyField(muzzleFlashAddress, new GUIContent("Muzzle Address"));
         EditorGUILayout.PropertyField(projectileAddress, new GUIContent("Projectile Address"));
         EditorGUILayout.PropertyField(impactFlashAddress, new GUIContent("Impact Address"));

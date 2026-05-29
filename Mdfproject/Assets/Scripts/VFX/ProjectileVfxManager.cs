@@ -201,7 +201,7 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        instance.transform.localScale = ProjectileVfxRuntimeUtility.MultiplyScale(prefab.transform.localScale, config.ResolveProjectileScaleMultiplier());
+        instance.transform.localScale = ProjectileVfxRuntimeUtility.MultiplyScale(prefab.transform.localScale, config.ResolveProjectileScaleMultiplierVector());
         ProjectileVfxRuntimeUtility.PrepareVisualProjectile(instance);
         ProjectileVfxRuntimeUtility.RestartParticles(instance, config.ResolveProjectilePlaybackSpeed());
         CancelAutoDestroy(instance);
@@ -363,7 +363,7 @@ public class ProjectileVfxManager : MonoBehaviour
             config.muzzleFlashKey,
             position,
             rotation,
-            config.ResolveMuzzleScaleMultiplier(),
+            config.ResolveMuzzleScaleMultiplierVector(),
             config.ResolveMuzzlePlaybackSpeed(),
             config.ResolveMuzzleLifetimeSeconds());
     }
@@ -381,12 +381,12 @@ public class ProjectileVfxManager : MonoBehaviour
             config.impactFlashKey,
             position,
             rotation,
-            config.ResolveImpactScaleMultiplier(),
+            config.ResolveImpactScaleMultiplierVector(),
             config.ResolveImpactPlaybackSpeed(),
             config.ResolveImpactLifetimeSeconds());
     }
 
-    private async UniTask SpawnOneShotVfxAsync(string key, Vector3 position, Quaternion rotation, float scaleMultiplier, float playbackSpeed, float lifetimeSeconds)
+    private async UniTask SpawnOneShotVfxAsync(string key, Vector3 position, Quaternion rotation, Vector3 scaleMultiplier, float playbackSpeed, float lifetimeSeconds)
     {
         GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(key);
         if (prefab == null)

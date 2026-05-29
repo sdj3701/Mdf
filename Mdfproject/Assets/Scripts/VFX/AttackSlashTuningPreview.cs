@@ -10,6 +10,8 @@ using UnityEditor.AddressableAssets.Settings;
 public sealed class AttackSlashTuningPreview : MonoBehaviour
 {
     private const string ManualTuningSource = "AttackSlashTuningScene";
+    private const string TuningRootName = "AttackSlashTuning_Root";
+    private const string PreviewRootName = "AttackSlashEffectRoot";
 
     [Header("Unit")]
     [SerializeField] private UnitData unitData;
@@ -28,6 +30,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     [SerializeField] private float vfxPlaybackSpeedCap = BasicAttackVfxConfig.DefaultPlaybackSpeedCap;
     [SerializeField] private float minimumVisibleSeconds = BasicAttackVfxConfig.DefaultMinimumVisibleSeconds;
     [SerializeField] private Vector3 primaryRendererFlip = Vector3.zero;
+    [SerializeField] private Transform previewRoot;
 
     [Header("Animation Preview")]
     [SerializeField] private float previewFinalAttackSpeed = 1f;
@@ -485,7 +488,8 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
 #if UNITY_EDITOR
         if (!Application.isPlaying)
         {
-            GameObject editorInstance = PrefabUtility.InstantiatePrefab(slashPrefab) as GameObject;
+            Transform resolvedPreviewRoot = ResolvePreviewRoot();
+            GameObject editorInstance = PrefabUtility.InstantiatePrefab(slashPrefab, resolvedPreviewRoot) as GameObject;
             if (editorInstance != null)
             {
                 Undo.RegisterCreatedObjectUndo(editorInstance, "Spawn Attack Slash Preview");
@@ -496,7 +500,61 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         }
 #endif
 
-        return Instantiate(slashPrefab, position, rotation);
+        return Instantiate(slashPrefab, position, rotation, ResolvePreviewRoot());
+    }
+
+    private Transform ResolvePreviewRoot()
+    {
+        if (previewRoot != null)
+        {
+            return previewRoot;
+        }
+
+        Transform parent = FindAncestor(TuningRootName);
+        if (parent == null)
+        {
+            GameObject namedRoot = GameObject.Find(TuningRootName);
+            parent = namedRoot != null ? namedRoot.transform : transform.parent;
+        }
+
+        if (parent == null)
+        {
+            return null;
+        }
+
+        Transform existing = parent.Find(PreviewRootName);
+        if (existing != null)
+        {
+            previewRoot = existing;
+            return previewRoot;
+        }
+
+        GameObject root = new GameObject(PreviewRootName);
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+        {
+            Undo.RegisterCreatedObjectUndo(root, "Create Attack Slash Preview Root");
+        }
+#endif
+        root.transform.SetParent(parent, false);
+        previewRoot = root.transform;
+        return previewRoot;
+    }
+
+    private Transform FindAncestor(string ancestorName)
+    {
+        Transform current = transform;
+        while (current != null)
+        {
+            if (current.name == ancestorName)
+            {
+                return current;
+            }
+
+            current = current.parent;
+        }
+
+        return null;
     }
 
 #if UNITY_EDITOR

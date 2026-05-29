@@ -12,6 +12,9 @@ using UnityEditor.AddressableAssets.Settings;
 [DisallowMultipleComponent]
 public sealed class ProjectileVfxTuningPreview : MonoBehaviour
 {
+    private const string TuningRootName = "ProjectileVfxTuning_Root";
+    private const string PreviewRootName = "ProjectileVfxEffectRoot";
+
     [Header("Save Target")]
     [SerializeField] private UnitData unitData;
 
@@ -24,7 +27,8 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     [SerializeField] private string muzzleFlashAddress;
     [SerializeField] private Vector3 muzzleLocalPositionOffset = Vector3.zero;
     [SerializeField] private Vector3 muzzleRotationOffsetEuler = Vector3.zero;
-    [SerializeField] private float muzzleScaleMultiplier = 1f;
+    [SerializeField, HideInInspector] private float muzzleScaleMultiplier = 1f;
+    [SerializeField] private Vector3 muzzleScaleMultiplierVector = Vector3.one;
     [SerializeField] private float muzzlePlaybackSpeed = 1f;
     [SerializeField] private float muzzleLifetimeSeconds = 1f;
 
@@ -33,7 +37,8 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     [SerializeField] private string projectileAddress;
     [SerializeField] private Vector3 projectileLocalPositionOffset = Vector3.zero;
     [SerializeField] private Vector3 projectileRotationOffsetEuler = Vector3.zero;
-    [SerializeField] private float projectileScaleMultiplier = 1f;
+    [SerializeField, HideInInspector] private float projectileScaleMultiplier = 1f;
+    [SerializeField] private Vector3 projectileScaleMultiplierVector = Vector3.one;
     [SerializeField] private float projectilePlaybackSpeed = 1f;
     [FormerlySerializedAs("projectileSpeedOverride")]
     [SerializeField] private float projectileSpeed = ProjectileVfxConfig.DefaultProjectileSpeed;
@@ -44,7 +49,8 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     [SerializeField] private string impactFlashAddress;
     [SerializeField] private Vector3 impactLocalPositionOffset = Vector3.zero;
     [SerializeField] private Vector3 impactRotationOffsetEuler = Vector3.zero;
-    [SerializeField] private float impactScaleMultiplier = 1f;
+    [SerializeField, HideInInspector] private float impactScaleMultiplier = 1f;
+    [SerializeField] private Vector3 impactScaleMultiplierVector = Vector3.one;
     [SerializeField] private float impactPlaybackSpeed = 1f;
     [SerializeField] private float impactLifetimeSeconds = 1f;
     [SerializeField] private bool alignImpactToDirection = true;
@@ -63,6 +69,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     [SerializeField] private bool pullFromUnitDataOnEnable = true;
     [SerializeField] private bool faceTargetOnEnable = true;
     [SerializeField] private bool destroyPreviewObjectsOnDisable = true;
+    [SerializeField] private Transform previewRoot;
 
     private readonly List<GameObject> _spawnedObjects = new List<GameObject>();
     private Animator _animator;
@@ -80,11 +87,14 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     private void OnValidate()
     {
         muzzleScaleMultiplier = Mathf.Max(0.01f, muzzleScaleMultiplier);
+        muzzleScaleMultiplierVector = SanitizeScaleMultiplierVector(muzzleScaleMultiplierVector, muzzleScaleMultiplier);
         muzzlePlaybackSpeed = Mathf.Max(0.01f, muzzlePlaybackSpeed);
         muzzleLifetimeSeconds = Mathf.Max(0.01f, muzzleLifetimeSeconds);
         projectileScaleMultiplier = Mathf.Max(0.01f, projectileScaleMultiplier);
+        projectileScaleMultiplierVector = SanitizeScaleMultiplierVector(projectileScaleMultiplierVector, projectileScaleMultiplier);
         projectilePlaybackSpeed = Mathf.Max(0.01f, projectilePlaybackSpeed);
         impactScaleMultiplier = Mathf.Max(0.01f, impactScaleMultiplier);
+        impactScaleMultiplierVector = SanitizeScaleMultiplierVector(impactScaleMultiplierVector, impactScaleMultiplier);
         impactPlaybackSpeed = Mathf.Max(0.01f, impactPlaybackSpeed);
         impactLifetimeSeconds = Mathf.Max(0.01f, impactLifetimeSeconds);
         previewFinalAttackSpeed = Mathf.Max(0.01f, previewFinalAttackSpeed);
@@ -164,17 +174,20 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         muzzleLocalPositionOffset = config.muzzleLocalPositionOffset;
         muzzleRotationOffsetEuler = config.muzzleRotationOffsetEuler;
         muzzleScaleMultiplier = config.ResolveMuzzleScaleMultiplier();
+        muzzleScaleMultiplierVector = config.ResolveMuzzleScaleMultiplierVector();
         muzzlePlaybackSpeed = config.ResolveMuzzlePlaybackSpeed();
         muzzleLifetimeSeconds = config.ResolveMuzzleLifetimeSeconds();
         projectileLocalPositionOffset = config.projectileLocalPositionOffset;
         projectileRotationOffsetEuler = config.projectileRotationOffsetEuler;
         projectileScaleMultiplier = config.ResolveProjectileScaleMultiplier();
+        projectileScaleMultiplierVector = config.ResolveProjectileScaleMultiplierVector();
         projectilePlaybackSpeed = config.ResolveProjectilePlaybackSpeed();
         projectileSpeed = config.ResolveProjectileSpeed();
         alignProjectileToDirection = config.alignProjectileToDirection;
         impactLocalPositionOffset = config.impactLocalPositionOffset;
         impactRotationOffsetEuler = config.impactRotationOffsetEuler;
         impactScaleMultiplier = config.ResolveImpactScaleMultiplier();
+        impactScaleMultiplierVector = config.ResolveImpactScaleMultiplierVector();
         impactPlaybackSpeed = config.ResolveImpactPlaybackSpeed();
         impactLifetimeSeconds = config.ResolveImpactLifetimeSeconds();
         alignImpactToDirection = config.alignImpactToDirection;
@@ -195,6 +208,10 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         }
 
 #if UNITY_EDITOR
+        SyncAddressFromPrefab(muzzleFlashPrefab, ref muzzleFlashAddress);
+        SyncAddressFromPrefab(projectilePrefab, ref projectileAddress);
+        SyncAddressFromPrefab(impactFlashPrefab, ref impactFlashAddress);
+
         BasicAttackVfxProfile profile = unitData.basicAttackVfxProfile;
         if (profile == null)
         {
@@ -218,18 +235,21 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         config.impactFlashKey = impactFlashAddress ?? string.Empty;
         config.muzzleLocalPositionOffset = muzzleLocalPositionOffset;
         config.muzzleRotationOffsetEuler = muzzleRotationOffsetEuler;
-        config.muzzleScaleMultiplier = Mathf.Max(0.01f, muzzleScaleMultiplier);
+        config.muzzleScaleMultiplier = ResolveLegacyUniformScale(muzzleScaleMultiplierVector);
+        config.muzzleScaleMultiplierVector = SanitizeScaleMultiplierVector(muzzleScaleMultiplierVector, config.muzzleScaleMultiplier);
         config.muzzlePlaybackSpeed = Mathf.Max(0.01f, muzzlePlaybackSpeed);
         config.muzzleLifetimeSeconds = Mathf.Max(0.01f, muzzleLifetimeSeconds);
         config.projectileLocalPositionOffset = projectileLocalPositionOffset;
         config.projectileRotationOffsetEuler = projectileRotationOffsetEuler;
-        config.projectileScaleMultiplier = Mathf.Max(0.01f, projectileScaleMultiplier);
+        config.projectileScaleMultiplier = ResolveLegacyUniformScale(projectileScaleMultiplierVector);
+        config.projectileScaleMultiplierVector = SanitizeScaleMultiplierVector(projectileScaleMultiplierVector, config.projectileScaleMultiplier);
         config.projectilePlaybackSpeed = Mathf.Max(0.01f, projectilePlaybackSpeed);
         config.projectileSpeed = Mathf.Max(0.01f, projectileSpeed);
         config.alignProjectileToDirection = alignProjectileToDirection;
         config.impactLocalPositionOffset = impactLocalPositionOffset;
         config.impactRotationOffsetEuler = impactRotationOffsetEuler;
-        config.impactScaleMultiplier = Mathf.Max(0.01f, impactScaleMultiplier);
+        config.impactScaleMultiplier = ResolveLegacyUniformScale(impactScaleMultiplierVector);
+        config.impactScaleMultiplierVector = SanitizeScaleMultiplierVector(impactScaleMultiplierVector, config.impactScaleMultiplier);
         config.impactPlaybackSpeed = Mathf.Max(0.01f, impactPlaybackSpeed);
         config.impactLifetimeSeconds = Mathf.Max(0.01f, impactLifetimeSeconds);
         config.alignImpactToDirection = alignImpactToDirection;
@@ -272,7 +292,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         Vector3 direction = ResolveTravelDirection(firePos, targetPos);
 
         SpawnOneShot(muzzleFlashPrefab, muzzleFlashAddress, firePos, direction, muzzleLocalPositionOffset, muzzleRotationOffsetEuler, true,
-            muzzleScaleMultiplier, muzzlePlaybackSpeed, muzzleLifetimeSeconds);
+            muzzleScaleMultiplierVector, muzzlePlaybackSpeed, muzzleLifetimeSeconds);
 
         GameObject projectile = SpawnProjectileVisual(firePos, targetPos, direction);
         float travelSeconds = ResolveProjectileTravelSeconds(firePos, targetPos);
@@ -287,7 +307,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         }
 
         SpawnOneShot(impactFlashPrefab, impactFlashAddress, targetPos, direction, impactLocalPositionOffset, impactRotationOffsetEuler, alignImpactToDirection,
-            impactScaleMultiplier, impactPlaybackSpeed, impactLifetimeSeconds);
+            impactScaleMultiplierVector, impactPlaybackSpeed, impactLifetimeSeconds);
     }
 
     private GameObject SpawnProjectileVisual(Vector3 firePos, Vector3 targetPos, Vector3 direction)
@@ -299,9 +319,9 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
 
         Quaternion rotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(direction, alignProjectileToDirection, projectileRotationOffsetEuler);
         Vector3 position = ProjectileVfxRuntimeUtility.ApplyLocalOffset(firePos, rotation, projectileLocalPositionOffset);
-        GameObject instance = Instantiate(projectilePrefab, position, rotation, transform.parent);
+        GameObject instance = Instantiate(projectilePrefab, position, rotation, ResolvePreviewRoot());
         instance.name = $"{projectilePrefab.name}_ProjectilePreview_{name}";
-        instance.transform.localScale = ProjectileVfxRuntimeUtility.MultiplyScale(projectilePrefab.transform.localScale, projectileScaleMultiplier);
+        instance.transform.localScale = ProjectileVfxRuntimeUtility.MultiplyScale(projectilePrefab.transform.localScale, projectileScaleMultiplierVector);
         ProjectileVfxRuntimeUtility.PrepareVisualProjectile(instance);
         ProjectileVfxRuntimeUtility.RestartParticles(instance, projectilePlaybackSpeed);
         _spawnedObjects.Add(instance);
@@ -335,7 +355,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         }
     }
 
-    private void SpawnOneShot(GameObject prefab, string address, Vector3 basePosition, Vector3 direction, Vector3 localOffset, Vector3 rotationOffset, bool alignToDirection, float scale, float playbackSpeed, float lifetimeSeconds)
+    private void SpawnOneShot(GameObject prefab, string address, Vector3 basePosition, Vector3 direction, Vector3 localOffset, Vector3 rotationOffset, bool alignToDirection, Vector3 scale, float playbackSpeed, float lifetimeSeconds)
     {
         if (prefab == null || string.IsNullOrWhiteSpace(address))
         {
@@ -344,7 +364,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
 
         Quaternion rotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(direction, alignToDirection, rotationOffset);
         Vector3 position = ProjectileVfxRuntimeUtility.ApplyLocalOffset(basePosition, rotation, localOffset);
-        GameObject instance = Instantiate(prefab, position, rotation, transform.parent);
+        GameObject instance = Instantiate(prefab, position, rotation, ResolvePreviewRoot());
         instance.name = $"{prefab.name}_OneShotPreview_{name}";
         instance.transform.localScale = ProjectileVfxRuntimeUtility.MultiplyScale(prefab.transform.localScale, scale);
         ProjectileVfxRuntimeUtility.RestartParticles(instance, playbackSpeed);
@@ -478,6 +498,80 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
 
         _spawnedObjects.Remove(previewObject);
         Destroy(previewObject);
+    }
+
+    private Transform ResolvePreviewRoot()
+    {
+        if (previewRoot != null)
+        {
+            return previewRoot;
+        }
+
+        Transform parent = FindAncestor(TuningRootName);
+        if (parent == null)
+        {
+            GameObject namedRoot = GameObject.Find(TuningRootName);
+            parent = namedRoot != null ? namedRoot.transform : transform.parent;
+        }
+
+        if (parent == null)
+        {
+            return null;
+        }
+
+        Transform existing = parent.Find(PreviewRootName);
+        if (existing != null)
+        {
+            previewRoot = existing;
+            return previewRoot;
+        }
+
+        GameObject root = new GameObject(PreviewRootName);
+#if UNITY_EDITOR
+        if (!Application.isPlaying)
+        {
+            Undo.RegisterCreatedObjectUndo(root, "Create Projectile VFX Preview Root");
+        }
+#endif
+        root.transform.SetParent(parent, false);
+        previewRoot = root.transform;
+        return previewRoot;
+    }
+
+    private Transform FindAncestor(string ancestorName)
+    {
+        Transform current = transform;
+        while (current != null)
+        {
+            if (current.name == ancestorName)
+            {
+                return current;
+            }
+
+            current = current.parent;
+        }
+
+        return null;
+    }
+
+    private static Vector3 SanitizeScaleMultiplierVector(Vector3 scale, float legacyUniformScale = 1f)
+    {
+        if (scale.x <= 0f && scale.y <= 0f && scale.z <= 0f)
+        {
+            float resolvedLegacyScale = legacyUniformScale > 0f ? legacyUniformScale : 1f;
+            return Vector3.one * resolvedLegacyScale;
+        }
+
+        return new Vector3(
+            Mathf.Max(0.01f, scale.x),
+            Mathf.Max(0.01f, scale.y),
+            Mathf.Max(0.01f, scale.z));
+    }
+
+    private static float ResolveLegacyUniformScale(Vector3 scale)
+    {
+        Vector3 sanitizedScale = SanitizeScaleMultiplierVector(scale);
+        return Mathf.Max(0.01f, (sanitizedScale.x + sanitizedScale.y + sanitizedScale.z) / 3f);
     }
 
 #if UNITY_EDITOR
