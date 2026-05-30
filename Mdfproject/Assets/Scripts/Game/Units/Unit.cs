@@ -154,6 +154,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private float _cachedProjectileSpeed = -1f;
     private UnitAttackVfxPresenter _attackVfxPresenter;
     private bool _hasPendingAttack;
+    private int _pendingAttackVersion;
     private int _nextBasicAttackVfxId;
     private int _lastPlayedBasicAttackVfxId;
     private PendingAttack _pendingAttack;
@@ -323,6 +324,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         public bool EmitVfx;
         public float SplashRadius;
         public int AttackId;
+        public int Version;
     }
 
     private bool isCombatPhase = false;
@@ -995,8 +997,31 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     private void CancelPendingAttack()
     {
+        unchecked
+        {
+            _pendingAttackVersion++;
+            if (_pendingAttackVersion <= 0)
+            {
+                _pendingAttackVersion = 1;
+            }
+        }
+
         _hasPendingAttack = false;
         _pendingAttack = new PendingAttack();
+    }
+
+    private int AllocatePendingAttackVersion()
+    {
+        unchecked
+        {
+            _pendingAttackVersion++;
+            if (_pendingAttackVersion <= 0)
+            {
+                _pendingAttackVersion = 1;
+            }
+
+            return _pendingAttackVersion;
+        }
     }
 
     private int AllocateBasicAttackVfxId()
@@ -1144,7 +1169,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         foreach (var clip in clips)
         {
             if (clip == null) continue;
-            if (clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            if (IsAttackClipName(clip))
             {
                 attackClip = clip;
                 break;
@@ -1158,6 +1183,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
         baseAttackAnimationDuration = Mathf.Max(0.01f, attackClip.length);
         attackClipDurationInitialized = true;
+    }
+
+    private static bool IsAttackClipName(AnimationClip clip)
+    {
+        if (clip == null || string.IsNullOrWhiteSpace(clip.name))
+        {
+            return false;
+        }
+
+        return clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || clip.name.IndexOf("atk", System.StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void EnsureAnimationEventProxy()
@@ -2102,19 +2138,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 {
                     if (canSyncRanged)
                     {
-                        _pendingAttack = new PendingAttack
-                        {
-                            Target = targetNo,
-                            TargetEnemy = targetEnemy,
-                            Damage = currentAttackDamage,
-                            DamageType = unitData.damageType,
-                            ProjectileSpeed = _cachedProjectileSpeed,
-                            IsRanged = true,
-                            EmitVfx = true,
-                            SplashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f,
-                            AttackId = 0
-                        };
-                        _hasPendingAttack = true;
+                        Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                        float splashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f;
+                        float fireDelaySeconds = ResolveProjectileFireDelaySeconds();
+                        scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                            true, true, _cachedProjectileSpeed, splashRadius, enemyLayerMask, fireDelaySeconds);
                     }
                     else
                     {
@@ -2166,6 +2194,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                     // 근접 유닛 단일 공격: 첫 번째 저지 몬스터 공격
                     if (canSyncMelee)
                     {
+                        int attackVersion = AllocatePendingAttackVersion();
                         _pendingAttack = new PendingAttack
                         {
                             Target = targetNo,
@@ -2175,7 +2204,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                             ProjectileSpeed = 0f,
                             IsRanged = false,
                             EmitVfx = false,
-                            AttackId = attackPresentationId
+                            AttackId = attackPresentationId,
+                            Version = attackVersion
                         };
                         _hasPendingAttack = true;
                     }
@@ -2223,6 +2253,24 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         return false;
+    }
+
+    private float ResolveProjectileFireDelaySeconds()
+    {
+        ProjectileVfxConfig config = unitData != null ? unitData.GetProjectileVfxConfig() : null;
+        float normalizedTime = config != null ? config.ResolveProjectileSpawnNormalizedTime() : 0f;
+        if (normalizedTime <= 0f)
+        {
+            return 0f;
+        }
+
+        float animRate = GetCappedAttackAnimationRate();
+        if (animRate <= 0f)
+        {
+            return 0f;
+        }
+
+        return normalizedTime / animRate;
     }
 
     private void ScheduleBasicAttackVfxForCurrentAnimation(IEnemy attackTarget, int attackId)
@@ -2315,6 +2363,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 #endif
         if (!_hasPendingAttack)
+        {
+            return;
+        }
+
+        TryExecutePendingAttack(_pendingAttack.Version);
+    }
+
+    private void TryExecutePendingAttack(int attackVersion)
+    {
+        if (!_hasPendingAttack || _pendingAttack.Version != attackVersion)
         {
             return;
         }

@@ -260,6 +260,8 @@ public sealed class ProjectileVfxConfigEditModeTests
         string previewEditorSource = File.ReadAllText("Assets/Scripts/Editor/ProjectileVfxTuningPreviewEditor.cs");
         string runtimeUtilitySource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxRuntimeUtility.cs");
         string unitDataSource = File.ReadAllText("Assets/Scripts/Game/Units/UnitData.cs");
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
 
         Assert.That(source, Does.Contain("TryResolveProjectileVfx"));
         Assert.That(source, Does.Contain("SpawnMuzzleFlashAsync"));
@@ -280,6 +282,12 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(previewSource, Does.Contain("projectileDynamicLightIntensity"));
         Assert.That(previewSource, Does.Contain("attackSpawnNormalizedTime = config.ResolveProjectileSpawnNormalizedTime()"));
         Assert.That(previewSource, Does.Contain("config.projectileSpawnNormalizedTime"));
+        Assert.That(previewSource, Does.Contain("now - _nextLoopTime >= interval"));
+        Assert.That(previewSource, Does.Contain("TryPlayProjectileSequenceFromAnimatorState"));
+        Assert.That(previewSource, Does.Contain("MatchesAttackState"));
+        Assert.That(previewSource, Does.Contain("_spawnedProjectileForTrackedAttack"));
+        Assert.That(previewSource, Does.Not.Contain("Mathf.FloorToInt(Mathf.Max(attackState.normalizedTime"));
+        Assert.That(previewSource, Does.Contain("IndexOf(\"atk\", System.StringComparison.OrdinalIgnoreCase)"));
         Assert.That(previewEditorSource, Does.Contain("Visual Height Offset"));
         Assert.That(previewEditorSource, Does.Contain("Dynamic Light Intensity"));
         Assert.That(previewEditorSource, Does.Contain("projectileVisualHeightOffset"));
@@ -289,6 +297,17 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(previewSource, Does.Contain("CopySettingsToUnitData"));
         Assert.That(previewSource, Does.Contain("loopAttackAndVfx"));
         Assert.That(previewSource, Does.Contain("projectileSpeed"));
+        Assert.That(unitSource, Does.Contain("ResolveProjectileFireDelaySeconds"));
+        Assert.That(unitSource, Does.Contain("config.ResolveProjectileSpawnNormalizedTime()"));
+        Assert.That(unitSource, Does.Contain("fireDelaySeconds"));
+        Assert.That(unitSource, Does.Contain("IsAttackClipName"));
+        Assert.That(unitSource, Does.Contain("IndexOf(\"atk\", System.StringComparison.OrdinalIgnoreCase)"));
+        Assert.That(unitSource, Does.Not.Contain("SchedulePendingRangedAttackForCurrentAnimation"));
+        Assert.That(unitSource, Does.Not.Contain("UseConfiguredProjectileTiming"));
+        Assert.That(schedulerSource, Does.Contain("PendingFire"));
+        Assert.That(schedulerSource, Does.Contain("ProcessDueFires"));
+        Assert.That(schedulerSource, Does.Contain("fireDelaySeconds"));
+        Assert.That(schedulerSource, Does.Contain("WriteProjectileEvent(attacker, target, fireTick, hitTick)"));
         Assert.That(unitDataSource, Does.Not.Contain("public float projectileSpeed"));
     }
 

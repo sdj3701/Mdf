@@ -77,6 +77,9 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     private readonly List<GameObject> _spawnedObjects = new List<GameObject>();
     private Animator _animator;
     private float _nextLoopTime;
+    private bool _wasInAttackState;
+    private int _trackedAttackStateHash;
+    private bool _spawnedProjectileForTrackedAttack;
 
     private void Awake()
     {
@@ -128,7 +131,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
             FaceTarget();
         }
 
-        _nextLoopTime = 0f;
+        _nextLoopTime = Time.time;
     }
 
     private void OnDisable()
@@ -142,6 +145,8 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         {
             _animator.speed = 1f;
         }
+
+        ResetAttackStateTracking();
     }
 
     private void Update()
@@ -151,14 +156,24 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
             return;
         }
 
-        if (Time.time < _nextLoopTime)
+        float now = Time.time;
+        if (now >= _nextLoopTime)
         {
-            return;
+            float interval = ResolvePreviewAttackIntervalSeconds();
+            while (now - _nextLoopTime >= interval)
+            {
+                _nextLoopTime += interval;
+            }
+
+            _nextLoopTime += interval;
+            bool triggeredAnimation = TriggerAttackAnimation();
+            if (!ShouldUseAnimatorStateForProjectileTiming() && triggeredAnimation)
+            {
+                StartCoroutine(PlayProjectileSequenceAfterDelay(ResolvePreviewSpawnDelaySeconds()));
+            }
         }
 
-        _nextLoopTime = Time.time + ResolvePreviewAttackIntervalSeconds();
-        TriggerAttackAnimation();
-        StartCoroutine(PlayProjectileSequenceAfterDelay(ResolvePreviewSpawnDelaySeconds()));
+        TryPlayProjectileSequenceFromAnimatorState();
     }
 
     public void PullFromUnitData()
@@ -431,7 +446,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         return Vector3.Distance(firePos, targetPos) / speed;
     }
 
-    private void TriggerAttackAnimation()
+    private bool TriggerAttackAnimation()
     {
         if (_animator == null)
         {
@@ -444,12 +459,89 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
 
         if (_animator == null || string.IsNullOrWhiteSpace(attackTriggerName))
         {
-            return;
+            return false;
         }
 
         _animator.speed = ResolvePreviewAnimationPlaybackSpeed();
         _animator.ResetTrigger(attackTriggerName);
         _animator.SetTrigger(attackTriggerName);
+        return true;
+    }
+
+    private bool ShouldUseAnimatorStateForProjectileTiming()
+    {
+        return _animator != null && _animator.isActiveAndEnabled && _animator.layerCount > 0;
+    }
+
+    private void TryPlayProjectileSequenceFromAnimatorState()
+    {
+        if (!Application.isPlaying || !ShouldUseAnimatorStateForProjectileTiming())
+        {
+            return;
+        }
+
+        if (!TryGetAttackState(out AnimatorStateInfo attackState))
+        {
+            if (_wasInAttackState && !_spawnedProjectileForTrackedAttack)
+            {
+                _spawnedProjectileForTrackedAttack = true;
+                StartCoroutine(PlayProjectileSequenceAfterDelay(0f));
+            }
+
+            ResetAttackStateTracking();
+            return;
+        }
+
+        int stateHash = attackState.shortNameHash;
+        float phase = Mathf.Repeat(attackState.normalizedTime, 1f);
+        if (!_wasInAttackState || stateHash != _trackedAttackStateHash)
+        {
+            _spawnedProjectileForTrackedAttack = false;
+        }
+
+        _wasInAttackState = true;
+        _trackedAttackStateHash = stateHash;
+
+        if (_spawnedProjectileForTrackedAttack || phase < attackSpawnNormalizedTime)
+        {
+            return;
+        }
+
+        _spawnedProjectileForTrackedAttack = true;
+        StartCoroutine(PlayProjectileSequenceAfterDelay(0f));
+    }
+
+    private bool TryGetAttackState(out AnimatorStateInfo attackState)
+    {
+        attackState = _animator.GetCurrentAnimatorStateInfo(0);
+        if (MatchesAttackState(attackState))
+        {
+            return true;
+        }
+
+        if (_animator.IsInTransition(0))
+        {
+            AnimatorStateInfo nextState = _animator.GetNextAnimatorStateInfo(0);
+            if (MatchesAttackState(nextState))
+            {
+                attackState = nextState;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool MatchesAttackState(AnimatorStateInfo state)
+    {
+        return state.IsTag("Attack") || state.IsName("Attack") || state.IsName("Base Layer.Attack");
+    }
+
+    private void ResetAttackStateTracking()
+    {
+        _wasInAttackState = false;
+        _trackedAttackStateHash = 0;
+        _spawnedProjectileForTrackedAttack = false;
     }
 
     private void FaceTarget()
@@ -489,7 +581,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
             {
                 foreach (AnimationClip clip in clips)
                 {
-                    if (clip != null && clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    if (IsAttackClipName(clip))
                     {
                         return Mathf.Max(0.01f, clip.length);
                     }
@@ -498,6 +590,17 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         }
 
         return Mathf.Max(0.01f, fallbackAttackClipDuration);
+    }
+
+    private static bool IsAttackClipName(AnimationClip clip)
+    {
+        if (clip == null || string.IsNullOrWhiteSpace(clip.name))
+        {
+            return false;
+        }
+
+        return clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || clip.name.IndexOf("atk", System.StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void DestroySpawnedPreviewObjects()

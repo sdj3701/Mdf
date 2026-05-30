@@ -459,7 +459,7 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
                         continue;
                     }
 
-                    if (clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    if (IsAttackClipName(clip))
                     {
                         return Mathf.Max(0.01f, clip.length);
                     }
@@ -468,6 +468,17 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
         }
 
         return Mathf.Max(0.01f, fallbackAttackClipDuration);
+    }
+
+    private static bool IsAttackClipName(AnimationClip clip)
+    {
+        if (clip == null || string.IsNullOrWhiteSpace(clip.name))
+        {
+            return false;
+        }
+
+        return clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || clip.name.IndexOf("atk", System.StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private Vector3 ResolveDirection(Transform origin)

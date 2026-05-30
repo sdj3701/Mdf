@@ -163,6 +163,7 @@ public sealed class AttackSlashTuningEditModeTests
         string presenterSource = File.ReadAllText("Assets/Scripts/VFX/UnitAttackVfxPresenter.cs");
         string utilitySource = File.ReadAllText("Assets/Scripts/VFX/BasicAttackVfxRuntimeUtility.cs");
         string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string previewSource = File.ReadAllText("Assets/Scripts/VFX/AttackSlashTuningPreview.cs");
 
         Assert.That(presenterSource, Does.Contain("config.primaryRendererFlip"));
         Assert.That(presenterSource, Does.Contain("config.playbackSpeed"));
@@ -180,6 +181,7 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(unitSource, Does.Contain("ScheduleBasicAttackVfxForCurrentAnimation(targetEnemy, attackPresentationId);"));
         Assert.That(unitSource, Does.Contain("config.spawnNormalizedTime"));
         Assert.That(unitSource, Does.Contain("return normalizedTime / animRate;"));
+        Assert.That(previewSource, Does.Contain("IndexOf(\"atk\", System.StringComparison.OrdinalIgnoreCase)"));
         Assert.That(unitSource, Does.Not.Contain("TryPlayBasicAttackVfxForAttack(_pendingAttack.TargetEnemy"));
         Assert.That(utilitySource, Does.Contain("renderer.flip = primaryRendererFlip;"));
         Assert.That(utilitySource, Does.Contain("main.simulationSpeed = resolvedPlaybackSpeed;"));
