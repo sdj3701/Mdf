@@ -237,6 +237,14 @@ def command_counter(snapshot: Any, key: str) -> int:
     return value if isinstance(value, int) else 0
 
 
+def active_status_count(snapshot: Any) -> int:
+    effects = state(snapshot).get("effects")
+    if not isinstance(effects, dict):
+        return 0
+    value = effects.get("activeStatusCount")
+    return value if isinstance(value, int) else 0
+
+
 def has_alive_monster_semantics(snapshot: Any) -> bool:
     for player in players(snapshot):
         monsters = player.get("monsters") if isinstance(player, dict) else None
@@ -790,6 +798,8 @@ def freeze_battle_checkpoint(
     stable_samples: int,
     reason: str,
     client_peer: str = "build-client",
+    status_effect_payload: dict[str, Any] | None = None,
+    require_active_status: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
     write_json(artifact_dir / "build-host-bot-stop-after-battle.json", host.bot_stop(reason=reason))
     if client_human_bot:
@@ -802,6 +812,10 @@ def freeze_battle_checkpoint(
 
     write_json(artifact_dir / "build-host-freeze-game-flow.json", host.freeze_game_flow(True, reason=reason))
     write_json(artifact_dir / "build-client-freeze-game-flow.json", client.freeze_game_flow(True, reason=reason))
+    status_apply_response: dict[str, Any] | None = None
+    if status_effect_payload is not None:
+        status_apply_response = host.apply_status_effect(**status_effect_payload)
+        write_json(artifact_dir / "build-host-apply-status-effect.json", status_apply_response)
 
     deadline = time.time() + 20
     host_state: dict[str, Any] = {}
@@ -817,12 +831,23 @@ def freeze_battle_checkpoint(
             "errors": ["snapshot_not_ready"],
             "warnings": [],
         }
+        host_active_status_count = active_status_count(host_state)
+        client_active_status_count = active_status_count(client_state)
+        active_status_ready = (
+            not require_active_status or
+            (host_active_status_count > 0 and client_active_status_count > 0)
+        )
         write_json(artifact_dir / "battle-checkpoint-freeze-wait-latest.json", {
             "ready": ready,
             "comparison": comparison,
             "stableMatches": stable,
+            "requireActiveStatus": require_active_status,
+            "activeStatusReady": active_status_ready,
+            "hostActiveStatusCount": host_active_status_count,
+            "clientActiveStatusCount": client_active_status_count,
+            "statusApplyResponse": status_apply_response,
         })
-        if ready and comparison.get("success") is True:
+        if ready and comparison.get("success") is True and active_status_ready:
             stable += 1
             if stable >= stable_samples:
                 return host_state, client_state, comparison, True
@@ -1580,6 +1605,7 @@ def run_battle_case(
     require_scroll: bool = False,
     require_any_battle_command: bool = True,
     migrate_after_battle: bool = False,
+    apply_status_before_migration: bool = False,
 ) -> int:
     normalize_common_args(args)
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
@@ -1632,6 +1658,7 @@ def run_battle_case(
         "requireScroll": require_scroll,
         "requireAnyBattleCommand": require_any_battle_command,
         "migrateAfterBattle": migrate_after_battle,
+        "applyStatusBeforeMigration": apply_status_before_migration,
         "dryRun": args.dry_run,
         "headlessPlayer": args.headless_player,
         "cleanup": {
@@ -1866,6 +1893,12 @@ def run_battle_case(
             failures.extend(assertions.get("errors") or [])
 
         if migrate_after_battle and progressed:
+            status_effect_payload = {
+                "targetKind": "monster",
+                "effectType": "Slowed",
+                "durationSeconds": 180,
+                "slowMultiplier": 0.5,
+            } if apply_status_before_migration else None
             host_battle, client_battle, freeze_comparison, freeze_ok = freeze_battle_checkpoint(
                 host,
                 client,
@@ -1874,6 +1907,8 @@ def run_battle_case(
                 client_human_bot,
                 args.stable_samples,
                 "phase12_pre_host_migration_battle_checkpoint",
+                status_effect_payload=status_effect_payload,
+                require_active_status=apply_status_before_migration,
             )
             write_json(artifact_dir / "snapshots" / "build-host-battle-checkpoint-frozen.json", host_battle)
             write_json(artifact_dir / "snapshots" / "build-client-battle-checkpoint-frozen.json", client_battle)

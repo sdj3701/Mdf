@@ -1161,6 +1161,8 @@ public static class MPTestStateSnapshot
         var statusParts = new List<string>();
         int activeBuffCount = 0;
         int activeStatusCount = 0;
+        var statusScheduler = CombatScheduler.Instance;
+        bool useSchedulerStatus = statusScheduler != null && statusScheduler.IsStatusEffectSchedulerActive;
 
         foreach (var buffManager in UnityEngine.Object.FindObjectsOfType<BuffManager>())
         {
@@ -1171,9 +1173,18 @@ public static class MPTestStateSnapshot
 
             string targetKey = BuildEffectTargetKey(buffManager.gameObject);
             activeBuffCount += SafeInt(() => buffManager.ActiveBuffCount, 0);
-            activeStatusCount += SafeInt(() => buffManager.ActiveStatusEffectCount, 0);
             buffParts.AddRange(SafeRef(() => buffManager.BuildActiveBuffSnapshotParts(targetKey), Enumerable.Empty<string>()));
-            statusParts.AddRange(SafeRef(() => buffManager.BuildActiveStatusSnapshotParts(targetKey), Enumerable.Empty<string>()));
+            if (!useSchedulerStatus)
+            {
+                activeStatusCount += SafeInt(() => buffManager.ActiveStatusEffectCount, 0);
+                statusParts.AddRange(SafeRef(() => buffManager.BuildActiveStatusSnapshotParts(targetKey), Enumerable.Empty<string>()));
+            }
+        }
+
+        if (useSchedulerStatus)
+        {
+            activeStatusCount = SafeInt(() => statusScheduler.ActiveStatusEffectCount, 0);
+            statusParts.AddRange(SafeRef(() => statusScheduler.BuildActiveStatusSnapshotParts(BuildEffectTargetKey), Enumerable.Empty<string>()));
         }
 
         var zoneParts = new List<string>();

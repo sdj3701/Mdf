@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: host-migration, security
 Created: 2026-05-06
-Last used: 2026-05-06
-Last verified: 2026-05-06
-Use count: 1
+Last used: 2026-05-31
+Last verified: 2026-05-31
+Use count: 4
 Review after: 2026-08-04
 Triggers: progressed Host Migration, HumanBot checkpoint, process.kill, migration token, durable random state
 Applies to: `tools/harness/mp/run_progressed_host_migration_e2e.py`, Phase 23
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -39,3 +39,6 @@ Pitfalls:
 - If game flow advances during migration, do not loosen comparisons. Use the test-only freeze or add a more explicit test-only migration freeze point.
 - A successful migration callback sequence is insufficient if the pre/post durable fingerprint diverges.
 - During `HostMigrationResume`, do not read Networked `GameManagers` properties immediately after resume-spawn just to log status. Use the cached migration snapshot label until the object is fully safe to access; the bad pattern caused `Error when accessing GameManagers.currentRound. Networked properties can only be accessed when Spawned() has been called` followed by Fusion cleanup noise in raw player logs.
+
+Lifecycle notes:
+- 2026-05-31: verified artifact `artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration`

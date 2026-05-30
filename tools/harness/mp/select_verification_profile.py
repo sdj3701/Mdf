@@ -198,6 +198,7 @@ def select(changed_files: list[str], categories: set[str]) -> dict[str, Any]:
             "progressed-reconnect-after-battle",
             "progressed-disconnect-after-battle",
             "progressed-host-migration-after-battle",
+            "status-effect-host-migration",
         ]:
             add_unique(targeted_cases, case)
         reasons.append("persistent/reconnect/migration changes require lifecycle proof")

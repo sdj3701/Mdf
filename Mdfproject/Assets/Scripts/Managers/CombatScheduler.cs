@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using Fusion;
 using UnityEngine;
 
-public class CombatScheduler : NetworkBehaviour
+public partial class CombatScheduler : NetworkBehaviour
 {
     public static CombatScheduler Instance { get; private set; }
 
@@ -10,14 +10,8 @@ public class CombatScheduler : NetworkBehaviour
     [SerializeField] private int hitBufferSize = 256;
     [SerializeField] private float defaultProjectileSpeed = 20f;
 
-    private const int MaxPlayers = 4;
-    private const int MaxUnitsPerPlayer = 20;
-    private const int MaxAttackVfxPerSecond = 4;
-    private const int MaxProjectileFlightSeconds = 4;
-    private const int EventBufferSafetyMargin = 256;
-    private const int EventBufferCapacity =
-        MaxPlayers * MaxUnitsPerPlayer * MaxAttackVfxPerSecond * MaxProjectileFlightSeconds + EventBufferSafetyMargin;
-    private const int PendingFireCapacity = MaxPlayers * MaxUnitsPerPlayer * MaxAttackVfxPerSecond + EventBufferSafetyMargin;
+    private const int EventBufferCapacity = 192;
+    private const int PendingFireCapacity = 128;
     private const int PendingHitCapacity = EventBufferCapacity;
     private const int FixedPointScale = 1000;
 
@@ -132,17 +126,18 @@ public class CombatScheduler : NetworkBehaviour
 
     public override void Spawned()
     {
-        if (Instance == null)
+        if (Instance == null || Instance == this || !IsInstanceValidForRunner(Instance, Runner))
         {
             Instance = this;
         }
-        else if (Instance != this)
+        else
         {
             return;
         }
 
         InitializeHitBuckets();
         RebuildPendingBucketsFromNetworkSnapshots();
+        RebuildStatusCachesFromNetworkEntries();
     }
 
     private void OnDisable()
@@ -151,6 +146,38 @@ public class CombatScheduler : NetworkBehaviour
         {
             Instance = null;
         }
+    }
+
+    public static void RebindInstanceForMigration(CombatScheduler scheduler, string reason = null)
+    {
+        if (scheduler == null ||
+            scheduler.Runner == null ||
+            !scheduler.Runner.IsRunning ||
+            scheduler.Object == null ||
+            !scheduler.Object.IsValid)
+        {
+            return;
+        }
+
+        bool changed = Instance != scheduler;
+        Instance = scheduler;
+        scheduler.InitializeHitBuckets();
+        scheduler.RebuildPendingBucketsFromNetworkSnapshots();
+        scheduler.RebuildStatusCachesFromNetworkEntries();
+        if (changed)
+        {
+            Debug.Log($"[CombatScheduler] Rebound instance for migration. reason={reason}, runner={scheduler.Runner.name}, stateAuth={scheduler.Object.HasStateAuthority}");
+        }
+    }
+
+    private static bool IsInstanceValidForRunner(CombatScheduler instance, NetworkRunner runner)
+    {
+        return instance != null &&
+               instance.Runner == runner &&
+               instance.Runner != null &&
+               instance.Runner.IsRunning &&
+               instance.Object != null &&
+               instance.Object.IsValid;
     }
 
     public override void FixedUpdateNetwork()
@@ -169,6 +196,7 @@ public class CombatScheduler : NetworkBehaviour
         }
 #endif
 
+        ProcessDueStatusEffects();
         ProcessDueBasicAttackVfx();
         RebuildPendingBucketsFromNetworkSnapshots();
         ProcessDueFires();

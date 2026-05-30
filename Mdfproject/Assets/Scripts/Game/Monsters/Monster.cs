@@ -1229,9 +1229,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             {
                 return;
             }
+            _buffManager?.ClearAllStatusEffects();
             no.Runner.Despawn(no);
             return;
         }
+        _buffManager?.ClearAllStatusEffects();
         Destroy(gameObject);
     }
 

@@ -2480,6 +2480,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             NetworkedIsDead = true;
         }
+
+        _buffManager?.ClearAllStatusEffects();
         
         foreach (var monster in blockedMonsters)
         {

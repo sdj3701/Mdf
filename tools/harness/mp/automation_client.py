@@ -90,6 +90,9 @@ class AutomationClient:
     def freeze_game_flow(self, enabled: bool = True, reason: str = "automation") -> dict[str, Any]:
         return self.request("POST", "/test/freezeGameFlow", {"enabled": enabled, "reason": reason})
 
+    def apply_status_effect(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/applyStatusEffect", kwargs)
+
     def screenshot(self, path: str | None = None) -> dict[str, Any]:
         suffix = "" if not path else "?path=" + urllib.request.pathname2url(path)
         return self.request("GET", "/screenshot" + suffix)

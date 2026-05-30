@@ -283,6 +283,12 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => SetFreezeGameFlow(body)));
         }
 
+        if (path == "/test/applyStatusEffect")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => ApplyStatusEffectForTest(body)));
+        }
+
         if (path == "/screenshot")
         {
             return await RequireMethod(request, "GET", () => MainThread(() => CaptureScreenshot(request)));
@@ -820,6 +826,194 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         });
     }
 
+    private AutomationResponse ApplyStatusEffectForTest(JObject body)
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("status_effect_requires_mptest", "Status effect injection requires --mpTest.");
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.");
+        }
+
+        if (!gameManagers.Runner.IsServer)
+        {
+            return AutomationResponse.Fail("status_effect_requires_server_peer", "Status effect injection must be issued to the server/host peer.");
+        }
+
+        if (gameManagers.Object == null || !gameManagers.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail("status_effect_requires_state_authority", "Status effect injection requires GameManagers State Authority.");
+        }
+
+        var scheduler = CombatScheduler.Instance;
+        if (scheduler == null || !scheduler.IsStatusEffectSchedulerActive || scheduler.Object == null || !scheduler.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail("status_effect_scheduler_unavailable", "CombatScheduler status authority is not ready.");
+        }
+
+        string effectName = GetString(body, "effectType", GetString(body, "effect_type", "Slowed"));
+        if (!Enum.TryParse(effectName, true, out StatusEffectType effectType) || effectType == StatusEffectType.None)
+        {
+            return AutomationResponse.Fail("invalid_status_effect_type", "effectType must be a non-None StatusEffectType.", new { effectType = effectName });
+        }
+
+        string damageTypeName = GetString(body, "damageType", GetString(body, "damage_type", DamageType.Magic.ToString()));
+        if (!Enum.TryParse(damageTypeName, true, out DamageType damageType))
+        {
+            damageType = DamageType.Magic;
+        }
+
+        string targetKind = GetString(body, "targetKind", GetString(body, "target_kind", "monster"));
+        int ownerPlayerId = GetInt(body, "ownerPlayerId", GetInt(body, "owner_player_id", -1));
+        float durationSeconds = Mathf.Max(0.1f, GetFloat(body, "durationSeconds", GetFloat(body, "duration_seconds", 180f)));
+        float tickIntervalSeconds = Mathf.Max(0f, GetFloat(body, "tickIntervalSeconds", GetFloat(body, "tick_interval_seconds", 0f)));
+        float damagePerTick = Mathf.Max(0f, GetFloat(body, "damagePerTick", GetFloat(body, "damage_per_tick", 0f)));
+        float slowMultiplier = Mathf.Clamp(GetFloat(body, "slowMultiplier", GetFloat(body, "slow_multiplier", 0.5f)), 0.1f, 1f);
+
+        if (!TryFindStatusEffectTarget(targetKind, ownerPlayerId, out BuffManager targetBuffManager, out NetworkObject targetObject, out string targetLabel, out string findReason))
+        {
+            return AutomationResponse.Fail("status_effect_target_not_found", "No status effect target was found.", new
+            {
+                targetKind,
+                ownerPlayerId,
+                reason = findReason
+            });
+        }
+
+        int beforeTargetCount = scheduler.GetActiveStatusEffectCountFor(targetBuffManager);
+        int beforeTotalCount = scheduler.ActiveStatusEffectCount;
+        targetBuffManager.ApplyStatusEffect(effectType, durationSeconds, gameObject, tickIntervalSeconds, damagePerTick, slowMultiplier, damageType);
+        int afterTargetCount = scheduler.GetActiveStatusEffectCountFor(targetBuffManager);
+        int afterTotalCount = scheduler.ActiveStatusEffectCount;
+        if (afterTargetCount <= 0 || afterTotalCount <= 0)
+        {
+            return AutomationResponse.Fail("status_effect_apply_failed", "Status effect did not appear in scheduler state.", new
+            {
+                targetKind,
+                ownerPlayerId,
+                target = targetLabel,
+                beforeTargetCount,
+                afterTargetCount,
+                beforeTotalCount,
+                afterTotalCount
+            });
+        }
+
+        MPTestLogger.Log("automation_status_effect", "applied", effectType.ToString(), null, new Dictionary<string, object>
+        {
+            { "targetKind", targetKind },
+            { "ownerPlayerId", ownerPlayerId },
+            { "target", targetLabel },
+            { "targetNetworkId", targetObject.Id.Raw },
+            { "durationSeconds", durationSeconds },
+            { "tickIntervalSeconds", tickIntervalSeconds },
+            { "damagePerTick", damagePerTick },
+            { "slowMultiplier", slowMultiplier },
+            { "beforeTargetCount", beforeTargetCount },
+            { "afterTargetCount", afterTargetCount },
+            { "beforeTotalCount", beforeTotalCount },
+            { "afterTotalCount", afterTotalCount }
+        });
+
+        return AutomationResponse.Ok("status effect applied", new
+        {
+            effectType = effectType.ToString(),
+            damageType = damageType.ToString(),
+            targetKind,
+            ownerPlayerId,
+            target = targetLabel,
+            targetNetworkId = targetObject.Id.Raw,
+            durationSeconds,
+            tickIntervalSeconds,
+            damagePerTick,
+            slowMultiplier,
+            beforeTargetCount,
+            afterTargetCount,
+            beforeTotalCount,
+            afterTotalCount
+        });
+    }
+
+    private static bool TryFindStatusEffectTarget(
+        string targetKind,
+        int ownerPlayerId,
+        out BuffManager buffManager,
+        out NetworkObject networkObject,
+        out string targetLabel,
+        out string reason)
+    {
+        buffManager = null;
+        networkObject = null;
+        targetLabel = null;
+        reason = null;
+
+        if (string.Equals(targetKind, "unit", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var unit in UnityEngine.Object.FindObjectsOfType<Unit>()
+                         .Where(candidate => candidate != null && !candidate.IsDead && candidate.CurrentHealth > 0f)
+                         .OrderBy(candidate => candidate.OwnerPlayerIdForRoster)
+                         .ThenBy(candidate => candidate.Data != null ? candidate.Data.name : candidate.name)
+                         .ThenBy(candidate => candidate.starLevel))
+            {
+                if (ownerPlayerId >= 0 && unit.OwnerPlayerIdForRoster != ownerPlayerId)
+                {
+                    continue;
+                }
+
+                if (!TryResolveStatusTarget(unit.gameObject, out buffManager, out networkObject))
+                {
+                    continue;
+                }
+
+                targetLabel = $"unit:{unit.OwnerPlayerIdForRoster}:{(unit.Data != null ? unit.Data.name : unit.name)}:star={unit.starLevel}";
+                return true;
+            }
+
+            reason = ownerPlayerId >= 0 ? "no_alive_unit_for_owner" : "no_alive_unit";
+            return false;
+        }
+
+        foreach (var monster in UnityEngine.Object.FindObjectsOfType<Monster>()
+                     .Where(candidate => candidate != null && candidate.CurrentHealth > 0f)
+                     .OrderBy(candidate => candidate.SnapshotOwnerPlayerId)
+                     .ThenBy(candidate => candidate.Data != null ? candidate.Data.name : candidate.name))
+        {
+            if (ownerPlayerId >= 0 && monster.SnapshotOwnerPlayerId != ownerPlayerId)
+            {
+                continue;
+            }
+
+            if (!TryResolveStatusTarget(monster.gameObject, out buffManager, out networkObject))
+            {
+                continue;
+            }
+
+            targetLabel = $"monster:{monster.SnapshotOwnerPlayerId}:{(monster.Data != null ? monster.Data.name : monster.name)}";
+            return true;
+        }
+
+        reason = ownerPlayerId >= 0 ? "no_alive_monster_for_owner" : "no_alive_monster";
+        return false;
+    }
+
+    private static bool TryResolveStatusTarget(GameObject target, out BuffManager buffManager, out NetworkObject networkObject)
+    {
+        buffManager = null;
+        networkObject = null;
+        if (target == null)
+        {
+            return false;
+        }
+
+        buffManager = target.GetComponent<BuffManager>() ?? target.GetComponentInChildren<BuffManager>();
+        networkObject = target.GetComponentInParent<NetworkObject>();
+        return buffManager != null && networkObject != null && networkObject.IsValid;
+    }
+
     private bool IsAuthorized(HttpListenerRequest request)
     {
         string token = request.Headers["X-MPTest-Token"];
@@ -933,6 +1127,16 @@ public sealed class MPTestAutomationServer : MonoBehaviour
     private static int GetInt(JObject body, string key, int fallback)
     {
         if (body != null && body.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out JToken token) && int.TryParse(token.ToString(), out int value))
+        {
+            return value;
+        }
+
+        return fallback;
+    }
+
+    private static float GetFloat(JObject body, string key, float fallback)
+    {
+        if (body != null && body.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out JToken token) && float.TryParse(token.ToString(), out float value))
         {
             return value;
         }

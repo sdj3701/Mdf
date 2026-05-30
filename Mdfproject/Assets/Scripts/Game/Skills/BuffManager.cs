@@ -1,4 +1,5 @@
 // Assets/Scripts/Game/Skills/BuffManager.cs
+using Fusion;
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,6 +13,8 @@ public class BuffManager : MonoBehaviour
     private Monster _monster;
     
     private StatusEffectType _currentEffects = StatusEffectType.None;
+    private bool _statusCacheFromScheduler;
+    private float _schedulerSlowMultiplier = 1f;
 
     public StatusEffectType CurrentEffects => _currentEffects;
     
@@ -56,7 +59,10 @@ public class BuffManager : MonoBehaviour
 
         float deltaTime = Time.deltaTime;
         UpdateBuffs(deltaTime);
-        UpdateStatusEffects(deltaTime);
+        if (!IsNetworkStatusSchedulerActive())
+        {
+            UpdateStatusEffects(deltaTime);
+        }
     }
     
     private void HandleGameStateChange(GameManagers.GameState newState)
@@ -208,6 +214,21 @@ public class BuffManager : MonoBehaviour
     {
         if (!HasStateAuthorityOrNoNetwork()) return;
 
+        if (IsNetworkStatusSchedulerActive())
+        {
+            CombatScheduler.Instance.ApplyStatusEffect(
+                this,
+                type,
+                duration,
+                caster,
+                tickInterval,
+                damagePerTick,
+                slowMultiplier,
+                damageType);
+            return;
+        }
+
+        _statusCacheFromScheduler = false;
         var existing = _activeStatusEffects.FirstOrDefault(e => e.Type == type && e.Caster == caster);
         
         if (existing != null)
@@ -230,6 +251,12 @@ public class BuffManager : MonoBehaviour
     {
         if (!HasStateAuthorityOrNoNetwork()) return;
 
+        if (IsNetworkStatusSchedulerActive())
+        {
+            CombatScheduler.Instance.ClearStatusEffectType(this, type);
+            return;
+        }
+
         int removed = _activeStatusEffects.RemoveAll(e => e.Type == type);
         if (removed > 0)
         {
@@ -242,6 +269,12 @@ public class BuffManager : MonoBehaviour
     {
         if (!HasStateAuthorityOrNoNetwork()) return;
 
+        if (IsNetworkStatusSchedulerActive())
+        {
+            CombatScheduler.Instance.ClearStatusEffectsForTarget(this);
+            return;
+        }
+
         if (_activeStatusEffects.Count > 0)
         {
             _activeStatusEffects.Clear();
@@ -252,6 +285,7 @@ public class BuffManager : MonoBehaviour
     
     private void RefreshEffectFlags()
     {
+        _statusCacheFromScheduler = false;
         _currentEffects = StatusEffectType.None;
         foreach (var effect in _activeStatusEffects)
         {
@@ -261,6 +295,11 @@ public class BuffManager : MonoBehaviour
     
     private float CalculateTotalSlowMultiplier()
     {
+        if (_statusCacheFromScheduler)
+        {
+            return _schedulerSlowMultiplier;
+        }
+
         float multiplier = 1f;
         
         foreach (var effect in _activeStatusEffects)
@@ -272,6 +311,14 @@ public class BuffManager : MonoBehaviour
         }
         
         return multiplier;
+    }
+
+    public void ApplyStatusSchedulerCache(StatusEffectType effects, float slowMultiplier)
+    {
+        _statusCacheFromScheduler = true;
+        _currentEffects = effects;
+        _schedulerSlowMultiplier = Mathf.Max(0.1f, slowMultiplier);
+        RecalculateStats();
     }
     
     #endregion
@@ -305,7 +352,9 @@ public class BuffManager : MonoBehaviour
     #endregion
 
     public int ActiveBuffCount => _activeBuffs.Count;
-    public int ActiveStatusEffectCount => _activeStatusEffects.Count;
+    public int ActiveStatusEffectCount => IsNetworkStatusSchedulerActive()
+        ? CombatScheduler.Instance.GetActiveStatusEffectCountFor(this)
+        : _activeStatusEffects.Count;
 
     public IEnumerable<string> BuildActiveBuffSnapshotParts(string targetKey)
     {
@@ -331,6 +380,11 @@ public class BuffManager : MonoBehaviour
 
     public IEnumerable<string> BuildActiveStatusSnapshotParts(string targetKey)
     {
+        if (IsNetworkStatusSchedulerActive())
+        {
+            yield break;
+        }
+
         foreach (var effect in _activeStatusEffects)
         {
             if (effect == null)
@@ -358,6 +412,21 @@ public class BuffManager : MonoBehaviour
         }
 
         return true;
+    }
+
+    private bool IsNetworkStatusSchedulerActive()
+    {
+        var scheduler = CombatScheduler.Instance;
+        if (scheduler == null || !scheduler.IsStatusEffectSchedulerActive)
+        {
+            return false;
+        }
+
+        NetworkObject networkObject = GetComponentInParent<NetworkObject>();
+        return networkObject != null &&
+            networkObject.IsValid &&
+            networkObject.Runner != null &&
+            networkObject.Runner.IsRunning;
     }
 }
 

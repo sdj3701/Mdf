@@ -104,3 +104,4 @@ MonoBehaviour:
   defaultProjectileSpeed: 20
   _EventSequence: 0
   _BasicAttackVfxEventSequence: 0
+  _StatusEffectSequence: 0

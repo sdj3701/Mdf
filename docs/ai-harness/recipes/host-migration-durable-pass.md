@@ -6,11 +6,11 @@ Category: host-migration, security
 Created: 2026-05-05
 Last used: 2026-05-31
 Last verified: 2026-05-31
-Use count: 2
+Use count: 8
 Review after: 2026-08-03
 Triggers: Phase 16, Host Migration durable E2E, wallHash/gold/shop/player identity drift
 Applies to: `HostMigrationHandler`, `PlayerManager`, `FieldManager`, `run_host_migration_e2e.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260530-175140-matrix/20260530-175147-progressed-host-migration-after-battle
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260530-175140-matrix/20260530-175147-progressed-host-migration-after-battle; artifacts/mp/20260530-185259-matrix/20260530-185304-progressed-host-migration-after-battle; artifacts/mp/20260530-185847-matrix/20260530-185854-progressed-host-migration-after-battle; artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -33,3 +33,6 @@ Verification:
 Lifecycle notes:
 - 2026-05-31: Verified CombatScheduler pending fire/hit network snapshot hardening with progressed Host Migration after battle.
 - 2026-05-31: verified artifact `artifacts/mp/20260530-175140-matrix/20260530-175147-progressed-host-migration-after-battle`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-185259-matrix/20260530-185304-progressed-host-migration-after-battle`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-185847-matrix/20260530-185854-progressed-host-migration-after-battle`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration`
