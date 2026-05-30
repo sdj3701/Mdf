@@ -63,6 +63,7 @@ MonoBehaviour:
     muzzleScaleMultiplierVector: {x: 0.6, y: 0.6, z: 0.6}
     muzzlePlaybackSpeed: 1
     muzzleLifetimeSeconds: 1
+    projectileSpawnNormalizedTime: 0.2
     projectileSpeed: 10
     projectileVisualHeightOffset: 0.65
     projectileDynamicLightIntensity: 0

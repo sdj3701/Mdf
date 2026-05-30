@@ -188,6 +188,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         projectileScaleMultiplier = config.ResolveProjectileScaleMultiplier();
         projectileScaleMultiplierVector = config.ResolveProjectileScaleMultiplierVector();
         projectilePlaybackSpeed = config.ResolveProjectilePlaybackSpeed();
+        attackSpawnNormalizedTime = config.ResolveProjectileSpawnNormalizedTime();
         projectileVisualHeightOffset = config.ResolveProjectileVisualHeightOffset();
         projectileDynamicLightIntensity = config.ResolveProjectileDynamicLightIntensity();
         projectileDynamicLightRange = config.ResolveProjectileDynamicLightRange();
@@ -253,6 +254,7 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         config.projectileScaleMultiplier = ResolveLegacyUniformScale(projectileScaleMultiplierVector);
         config.projectileScaleMultiplierVector = SanitizeScaleMultiplierVector(projectileScaleMultiplierVector, config.projectileScaleMultiplier);
         config.projectilePlaybackSpeed = Mathf.Max(0.01f, projectilePlaybackSpeed);
+        config.projectileSpawnNormalizedTime = Mathf.Clamp(attackSpawnNormalizedTime, 0f, 0.95f);
         config.projectileVisualHeightOffset = Mathf.Max(0f, projectileVisualHeightOffset);
         config.projectileDynamicLightIntensity = Mathf.Max(0f, projectileDynamicLightIntensity);
         config.projectileDynamicLightRange = Mathf.Max(0f, projectileDynamicLightRange);

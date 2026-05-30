@@ -22,6 +22,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(config.ResolveMuzzleScaleMultiplierVector(), Is.EqualTo(Vector3.one));
         Assert.That(config.ResolveProjectileScaleMultiplier(), Is.EqualTo(1f).Within(0.001f));
         Assert.That(config.ResolveProjectileScaleMultiplierVector(), Is.EqualTo(Vector3.one));
+        Assert.That(config.ResolveProjectileSpawnNormalizedTime(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileSpawnNormalizedTime).Within(0.001f));
         Assert.That(config.ResolveProjectileVisualHeightOffset(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileVisualHeightOffset).Within(0.001f));
         Assert.That(config.ResolveProjectileDynamicLightIntensity(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileDynamicLightIntensity).Within(0.001f));
         Assert.That(config.ResolveProjectileDynamicLightRange(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileDynamicLightRange).Within(0.001f));
@@ -141,6 +142,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         serializedPreview.FindProperty("muzzlePlaybackSpeed").floatValue = 0.9f;
         serializedPreview.FindProperty("projectilePlaybackSpeed").floatValue = 1.4f;
         serializedPreview.FindProperty("impactPlaybackSpeed").floatValue = 1.5f;
+        serializedPreview.FindProperty("attackSpawnNormalizedTime").floatValue = 0.42f;
         serializedPreview.FindProperty("projectileVisualHeightOffset").floatValue = 0.75f;
         serializedPreview.FindProperty("projectileDynamicLightIntensity").floatValue = 0.2f;
         serializedPreview.FindProperty("projectileDynamicLightRange").floatValue = 0.8f;
@@ -169,6 +171,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(config.muzzlePlaybackSpeed, Is.EqualTo(0.9f).Within(0.001f));
         Assert.That(config.projectilePlaybackSpeed, Is.EqualTo(1.4f).Within(0.001f));
         Assert.That(config.impactPlaybackSpeed, Is.EqualTo(1.5f).Within(0.001f));
+        Assert.That(config.projectileSpawnNormalizedTime, Is.EqualTo(0.42f).Within(0.001f));
         Assert.That(config.projectileVisualHeightOffset, Is.EqualTo(0.75f).Within(0.001f));
         Assert.That(config.projectileDynamicLightIntensity, Is.EqualTo(0.2f).Within(0.001f));
         Assert.That(config.projectileDynamicLightRange, Is.EqualTo(0.8f).Within(0.001f));
@@ -177,6 +180,33 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(config.impactLifetimeSeconds, Is.EqualTo(0.7f).Within(0.001f));
         Assert.That(config.alignProjectileToDirection, Is.False);
         Assert.That(config.alignImpactToDirection, Is.False);
+
+        Object.DestroyImmediate(root);
+        Object.DestroyImmediate(profile);
+        Object.DestroyImmediate(data);
+    }
+
+    [Test]
+    public void ProjectileVfxTuningPreviewPullsSpawnTimingFromUnitData()
+    {
+        UnitData data = ScriptableObject.CreateInstance<UnitData>();
+        BasicAttackVfxProfile profile = ScriptableObject.CreateInstance<BasicAttackVfxProfile>();
+        profile.projectileVfxConfig = ProjectileVfxConfig.CreateDefault("ProjectileKey");
+        profile.projectileVfxConfig.projectileSpawnNormalizedTime = 0.63f;
+        data.basicAttackVfxProfile = profile;
+
+        GameObject root = new GameObject("ProjectilePreviewRoot");
+        var preview = root.AddComponent<ProjectileVfxTuningPreview>();
+
+        var serializedPreview = new SerializedObject(preview);
+        serializedPreview.FindProperty("unitData").objectReferenceValue = data;
+        serializedPreview.FindProperty("attackSpawnNormalizedTime").floatValue = 0.1f;
+        serializedPreview.ApplyModifiedPropertiesWithoutUndo();
+
+        preview.PullFromUnitData();
+
+        serializedPreview.Update();
+        Assert.That(serializedPreview.FindProperty("attackSpawnNormalizedTime").floatValue, Is.EqualTo(0.63f).Within(0.001f));
 
         Object.DestroyImmediate(root);
         Object.DestroyImmediate(profile);
@@ -248,6 +278,8 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(previewSource, Does.Contain("ResolvePreviewRoot()"));
         Assert.That(previewSource, Does.Contain("projectileVisualHeightOffset"));
         Assert.That(previewSource, Does.Contain("projectileDynamicLightIntensity"));
+        Assert.That(previewSource, Does.Contain("attackSpawnNormalizedTime = config.ResolveProjectileSpawnNormalizedTime()"));
+        Assert.That(previewSource, Does.Contain("config.projectileSpawnNormalizedTime"));
         Assert.That(previewEditorSource, Does.Contain("Visual Height Offset"));
         Assert.That(previewEditorSource, Does.Contain("Dynamic Light Intensity"));
         Assert.That(previewEditorSource, Does.Contain("projectileVisualHeightOffset"));

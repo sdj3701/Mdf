@@ -6,7 +6,7 @@ Category: unity-cli
 Created: 2026-05-05
 Last used: 2026-05-30
 Last verified: 2026-05-24
-Use count: 72
+Use count: 73
 Review after: 2026-08-03
 Triggers: unity-cli, status, console, test, build
 Applies to: MDF repo layout, unity-cli

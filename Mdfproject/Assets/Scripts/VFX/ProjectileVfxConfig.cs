@@ -6,6 +6,7 @@ public sealed class ProjectileVfxConfig
 {
     public const float DefaultOneShotLifetimeSeconds = 1f;
     public const float DefaultProjectileSpeed = 10f;
+    public const float DefaultProjectileSpawnNormalizedTime = 0.2f;
     public const float DefaultProjectileVisualHeightOffset = 0.65f;
     public const float DefaultProjectileDynamicLightIntensity = 0f;
     public const float DefaultProjectileDynamicLightRange = 0f;
@@ -32,6 +33,9 @@ public sealed class ProjectileVfxConfig
     public float muzzleLifetimeSeconds = DefaultOneShotLifetimeSeconds;
 
     [Header("Projectile")]
+    [Range(0f, 0.95f)]
+    [Tooltip("Normalized attack animation timing where the projectile sequence starts. 0.2 means 20% into the attack presentation.")]
+    public float projectileSpawnNormalizedTime = DefaultProjectileSpawnNormalizedTime;
     [Tooltip("Visual projectile travel speed in world units per second.")]
     public float projectileSpeed = DefaultProjectileSpeed;
     [Tooltip("Raises only the visual projectile path so it does not clip through board walls. Impact/muzzle positions stay unchanged.")]
@@ -79,6 +83,7 @@ public sealed class ProjectileVfxConfig
             muzzleScaleMultiplierVector = Vector3.one,
             muzzlePlaybackSpeed = 1f,
             muzzleLifetimeSeconds = DefaultOneShotLifetimeSeconds,
+            projectileSpawnNormalizedTime = DefaultProjectileSpawnNormalizedTime,
             projectileSpeed = DefaultProjectileSpeed,
             projectileVisualHeightOffset = DefaultProjectileVisualHeightOffset,
             projectileDynamicLightIntensity = DefaultProjectileDynamicLightIntensity,
@@ -137,6 +142,11 @@ public sealed class ProjectileVfxConfig
         }
 
         return fallbackSpeed > 0f ? fallbackSpeed : DefaultProjectileSpeed;
+    }
+
+    public float ResolveProjectileSpawnNormalizedTime()
+    {
+        return Mathf.Clamp(projectileSpawnNormalizedTime, 0f, 0.95f);
     }
 
     public float ResolveProjectileVisualHeightOffset()
