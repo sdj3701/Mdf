@@ -276,6 +276,10 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(runtimeUtilitySource, Does.Contain("ApplyDynamicLighting"));
         Assert.That(runtimeUtilitySource, Does.Contain("dynamicLightIntensity"));
         Assert.That(runtimeUtilitySource, Does.Contain("lightsModule.enabled = enableDynamicLighting"));
+        Assert.That(runtimeUtilitySource, Does.Contain("PrepareRenderersForVfxVisibility"));
+        Assert.That(runtimeUtilitySource, Does.Contain("allowOcclusionWhenDynamic = false"));
+        Assert.That(runtimeUtilitySource, Does.Contain("BasicAttackVfxSortingOrder"));
+        Assert.That(runtimeUtilitySource, Does.Contain("renderer.sortingOrder"));
         Assert.That(previewSource, Does.Contain("ProjectileVfxEffectRoot"));
         Assert.That(previewSource, Does.Contain("ResolvePreviewRoot()"));
         Assert.That(previewSource, Does.Contain("projectileVisualHeightOffset"));

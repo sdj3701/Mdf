@@ -2,6 +2,8 @@ using UnityEngine;
 
 public static class ProjectileVfxRuntimeUtility
 {
+    private const int BasicAttackVfxSortingOrder = 50;
+
     public static Quaternion ResolveVfxRotation(Vector3 direction, bool useDirection, Vector3 offsetEuler)
     {
         Quaternion baseRotation = useDirection ? DirectionRotation(direction) : Quaternion.identity;
@@ -44,6 +46,7 @@ public static class ProjectileVfxRuntimeUtility
             return;
         }
 
+        PrepareRenderersForVfxVisibility(instance);
         ApplyDynamicLighting(instance, dynamicLightIntensity, dynamicLightRange);
 
         float resolvedPlaybackSpeed = Mathf.Max(0.01f, playbackSpeed);
@@ -69,6 +72,8 @@ public static class ProjectileVfxRuntimeUtility
         {
             return;
         }
+
+        PrepareRenderersForVfxVisibility(instance);
 
         var projectile = instance.GetComponent<Projectile>();
         if (projectile != null)
@@ -106,6 +111,17 @@ public static class ProjectileVfxRuntimeUtility
             {
                 behaviour.enabled = false;
             }
+        }
+    }
+
+    private static void PrepareRenderersForVfxVisibility(GameObject instance)
+    {
+        var renderers = instance.GetComponentsInChildren<Renderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            renderer.allowOcclusionWhenDynamic = false;
+            renderer.sortingOrder = Mathf.Max(renderer.sortingOrder, BasicAttackVfxSortingOrder);
         }
     }
 
