@@ -163,6 +163,8 @@ public sealed class AttackSlashTuningEditModeTests
         string presenterSource = File.ReadAllText("Assets/Scripts/VFX/UnitAttackVfxPresenter.cs");
         string utilitySource = File.ReadAllText("Assets/Scripts/VFX/BasicAttackVfxRuntimeUtility.cs");
         string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string projectileVfxManagerSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
         string previewSource = File.ReadAllText("Assets/Scripts/VFX/AttackSlashTuningPreview.cs");
 
         Assert.That(presenterSource, Does.Contain("config.primaryRendererFlip"));
@@ -178,11 +180,22 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(unitSource, Does.Contain("public float GetCappedAttackAnimationPlaybackSpeed()"));
         Assert.That(unitSource, Does.Contain("Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond)"));
         Assert.That(unitSource, Does.Contain("CalculateAttackAnimationPlaybackSpeed(animRate)"));
-        Assert.That(unitSource, Does.Contain("ScheduleBasicAttackVfxForCurrentAnimation(targetEnemy, attackPresentationId);"));
+        Assert.That(unitSource, Does.Contain("scheduler.ScheduleBasicAttackVfx(Object, targetNo, ResolveBasicAttackVfxSpawnDelaySeconds())"));
+        Assert.That(unitSource, Does.Contain("public bool CanPlayBasicAttackVfxForTarget(Monster targetMonster)"));
+        Assert.That(unitSource, Does.Contain("public void PlayBasicAttackVfxFromCombatEvent(NetworkObject targetObject)"));
         Assert.That(unitSource, Does.Contain("config.spawnNormalizedTime"));
         Assert.That(unitSource, Does.Contain("return normalizedTime / animRate;"));
+        Assert.That(schedulerSource, Does.Contain("BasicAttackVfxEventSequence"));
+        Assert.That(schedulerSource, Does.Contain("ScheduleBasicAttackVfx"));
+        Assert.That(schedulerSource, Does.Contain("ProcessDueBasicAttackVfx"));
+        Assert.That(projectileVfxManagerSource, Does.Contain("ProcessNewBasicAttackVfxEvents"));
+        Assert.That(projectileVfxManagerSource, Does.Contain("TryGetBasicAttackVfxEvent"));
+        Assert.That(projectileVfxManagerSource, Does.Contain("PlayBasicAttackVfxFromCombatEvent"));
         Assert.That(previewSource, Does.Contain("IndexOf(\"atk\", System.StringComparison.OrdinalIgnoreCase)"));
-        Assert.That(unitSource, Does.Not.Contain("TryPlayBasicAttackVfxForAttack(_pendingAttack.TargetEnemy"));
+        Assert.That(unitSource, Does.Not.Contain("ScheduleBasicAttackVfxForCurrentAnimation"));
+        Assert.That(unitSource, Does.Not.Contain("PlayBasicAttackVfxAfterDelay"));
+        Assert.That(unitSource, Does.Not.Contain("TryPlayBasicAttackVfxForAttack"));
+        Assert.That(unitSource, Does.Not.Contain("AllocateBasicAttackVfxId"));
         Assert.That(utilitySource, Does.Contain("renderer.flip = primaryRendererFlip;"));
         Assert.That(utilitySource, Does.Contain("main.simulationSpeed = resolvedPlaybackSpeed;"));
         Assert.That(utilitySource, Does.Contain("StopAndClearForReplay(particles[i]);"));

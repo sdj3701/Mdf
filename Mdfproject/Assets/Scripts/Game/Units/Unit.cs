@@ -155,8 +155,6 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private UnitAttackVfxPresenter _attackVfxPresenter;
     private bool _hasPendingAttack;
     private int _pendingAttackVersion;
-    private int _nextBasicAttackVfxId;
-    private int _lastPlayedBasicAttackVfxId;
     private PendingAttack _pendingAttack;
     private bool _isSkillCasting;
     private Coroutine _skillCastingRoutine;
@@ -323,7 +321,6 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         public bool IsRanged;
         public bool EmitVfx;
         public float SplashRadius;
-        public int AttackId;
         public int Version;
     }
 
@@ -1021,21 +1018,6 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             }
 
             return _pendingAttackVersion;
-        }
-    }
-
-    private int AllocateBasicAttackVfxId()
-    {
-        unchecked
-        {
-            _nextBasicAttackVfxId++;
-            if (_nextBasicAttackVfxId <= 0)
-            {
-                _nextBasicAttackVfxId = 1;
-                _lastPlayedBasicAttackVfxId = 0;
-            }
-
-            return _nextBasicAttackVfxId;
         }
     }
 
@@ -2125,11 +2107,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             var scheduler = CombatScheduler.Instance;
             bool schedulerReady = scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning;
             var targetNo = targetTransform.GetComponentInParent<NetworkObject>();
-            int attackPresentationId = 0;
             if (!isRanged && playedAnim)
             {
-                attackPresentationId = AllocateBasicAttackVfxId();
-                ScheduleBasicAttackVfxForCurrentAnimation(targetEnemy, attackPresentationId);
+                if (schedulerReady && targetNo != null)
+                {
+                    scheduler.ScheduleBasicAttackVfx(Object, targetNo, ResolveBasicAttackVfxSpawnDelaySeconds());
+                }
+                else if (targetNo != null)
+                {
+                    PlayBasicAttackVfxFromCombatEvent(targetNo);
+                }
             }
 
             if (isRanged)
@@ -2204,7 +2191,6 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                             ProjectileSpeed = 0f,
                             IsRanged = false,
                             EmitVfx = false,
-                            AttackId = attackPresentationId,
                             Version = attackVersion
                         };
                         _hasPendingAttack = true;
@@ -2273,23 +2259,6 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return normalizedTime / animRate;
     }
 
-    private void ScheduleBasicAttackVfxForCurrentAnimation(IEnemy attackTarget, int attackId)
-    {
-        if (attackId <= 0)
-        {
-            return;
-        }
-
-        float delaySeconds = ResolveBasicAttackVfxSpawnDelaySeconds();
-        if (delaySeconds <= 0f)
-        {
-            TryPlayBasicAttackVfxForAttack(attackTarget, attackId);
-            return;
-        }
-
-        PlayBasicAttackVfxAfterDelay(attackTarget, attackId, delaySeconds).Forget();
-    }
-
     private float ResolveBasicAttackVfxSpawnDelaySeconds()
     {
         BasicAttackVfxConfig config = unitData != null ? unitData.GetBasicAttackVfxConfig(starLevel) : null;
@@ -2308,35 +2277,20 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return normalizedTime / animRate;
     }
 
-    private async UniTaskVoid PlayBasicAttackVfxAfterDelay(IEnemy attackTarget, int attackId, float delaySeconds)
+    public bool CanPlayBasicAttackVfxForTarget(Monster targetMonster)
     {
-        int delayMilliseconds = Mathf.CeilToInt(Mathf.Max(0f, delaySeconds) * 1000f);
-        if (delayMilliseconds > 0)
-        {
-            await UniTask.Delay(delayMilliseconds, DelayType.DeltaTime, PlayerLoopTiming.Update);
-        }
-
-        if (this == null)
-        {
-            return;
-        }
-
-        TryPlayBasicAttackVfxForAttack(attackTarget, attackId);
-    }
-
-    private void TryPlayBasicAttackVfxForAttack(IEnemy attackTarget, int attackId)
-    {
-        if (attackId <= 0 || _lastPlayedBasicAttackVfxId == attackId)
-        {
-            return;
-        }
-
         if (IsDead || !isCombatPhase || unitData == null || unitData.unitType != UnitType.Melee)
         {
-            return;
+            return false;
         }
 
-        if (!(attackTarget is Monster targetMonster) || !IsMeleeMonsterAttackable(targetMonster))
+        return IsMeleeMonsterAttackable(targetMonster);
+    }
+
+    public void PlayBasicAttackVfxFromCombatEvent(NetworkObject targetObject)
+    {
+        Monster targetMonster = targetObject != null ? targetObject.GetComponent<Monster>() : null;
+        if (!CanPlayBasicAttackVfxForTarget(targetMonster))
         {
             return;
         }
@@ -2350,7 +2304,6 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             }
         }
 
-        _lastPlayedBasicAttackVfxId = attackId;
         _attackVfxPresenter.PlayBasicAttack(this, targetMonster.transform);
     }
 

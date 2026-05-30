@@ -17,7 +17,9 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private CombatScheduler _scheduler;
     private int _lastProcessedSeq;
+    private int _lastProcessedBasicAttackVfxSeq;
     private bool _didCatchup;
+    private bool _didInitializeBasicAttackVfxStream;
     private readonly List<CombatScheduler.ProjectileEventData> _catchupEvents = new List<CombatScheduler.ProjectileEventData>();
     private readonly Dictionary<int, ActiveProjectile> _activeBySeq = new Dictionary<int, ActiveProjectile>();
     private readonly List<ActiveProjectile> _activeProjectiles = new List<ActiveProjectile>();
@@ -76,6 +78,7 @@ public class ProjectileVfxManager : MonoBehaviour
         }
 
         ProcessNewEvents();
+        ProcessNewBasicAttackVfxEvents();
         UpdateActiveProjectiles();
     }
 
@@ -117,6 +120,56 @@ public class ProjectileVfxManager : MonoBehaviour
         }
 
         _lastProcessedSeq = currentSeq;
+    }
+
+    private void ProcessNewBasicAttackVfxEvents()
+    {
+        int currentSeq = _scheduler.BasicAttackVfxEventSequence;
+        if (!_didInitializeBasicAttackVfxStream)
+        {
+            _lastProcessedBasicAttackVfxSeq = currentSeq;
+            _didInitializeBasicAttackVfxStream = true;
+            return;
+        }
+
+        if (currentSeq <= 0)
+        {
+            return;
+        }
+
+        if (_lastProcessedBasicAttackVfxSeq > currentSeq)
+        {
+            _lastProcessedBasicAttackVfxSeq = 0;
+        }
+
+        int minSeq = Mathf.Max(1, currentSeq - _scheduler.BasicAttackVfxEventCapacity + 1);
+        int startSeq = Mathf.Max(_lastProcessedBasicAttackVfxSeq + 1, minSeq);
+
+        for (int seq = startSeq; seq <= currentSeq; seq++)
+        {
+            if (_scheduler.TryGetBasicAttackVfxEvent(seq, out var evt))
+            {
+                HandleBasicAttackVfxEvent(evt);
+            }
+        }
+
+        _lastProcessedBasicAttackVfxSeq = currentSeq;
+    }
+
+    private void HandleBasicAttackVfxEvent(CombatScheduler.BasicAttackVfxEventData evt)
+    {
+        if (evt.Attacker == null)
+        {
+            return;
+        }
+
+        Unit attacker = evt.Attacker.GetComponent<Unit>();
+        if (attacker == null)
+        {
+            return;
+        }
+
+        attacker.PlayBasicAttackVfxFromCombatEvent(evt.Target);
     }
 
     private void HandleProjectileEvent(CombatScheduler.ProjectileEventData evt)
