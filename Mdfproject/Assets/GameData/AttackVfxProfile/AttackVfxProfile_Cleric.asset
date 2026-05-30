@@ -64,6 +64,9 @@ MonoBehaviour:
     muzzlePlaybackSpeed: 1
     muzzleLifetimeSeconds: 1
     projectileSpeed: 10
+    projectileVisualHeightOffset: 0.65
+    projectileDynamicLightIntensity: 0.18
+    projectileDynamicLightRange: 0.85
     projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
     projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
     projectileScaleMultiplier: 1

@@ -6,6 +6,9 @@ public sealed class ProjectileVfxConfig
 {
     public const float DefaultOneShotLifetimeSeconds = 1f;
     public const float DefaultProjectileSpeed = 10f;
+    public const float DefaultProjectileVisualHeightOffset = 0.65f;
+    public const float DefaultProjectileDynamicLightIntensity = 0f;
+    public const float DefaultProjectileDynamicLightRange = 0f;
 
     [Header("Addressables")]
     [AddressableKey(typeof(GameObject))]
@@ -31,6 +34,12 @@ public sealed class ProjectileVfxConfig
     [Header("Projectile")]
     [Tooltip("Visual projectile travel speed in world units per second.")]
     public float projectileSpeed = DefaultProjectileSpeed;
+    [Tooltip("Raises only the visual projectile path so it does not clip through board walls. Impact/muzzle positions stay unchanged.")]
+    public float projectileVisualHeightOffset = DefaultProjectileVisualHeightOffset;
+    [Tooltip("0 disables projectile dynamic lights. Use a small value only for VFX that become unreadable without light.")]
+    public float projectileDynamicLightIntensity = DefaultProjectileDynamicLightIntensity;
+    [Tooltip("0 disables projectile dynamic lights. Keep this low to avoid visible light circles on the board.")]
+    public float projectileDynamicLightRange = DefaultProjectileDynamicLightRange;
     [Tooltip("Offset in projectile direction space. X is right, Y is up, Z is forward.")]
     public Vector3 projectileLocalPositionOffset = Vector3.zero;
     public Vector3 projectileRotationOffsetEuler = Vector3.zero;
@@ -71,6 +80,9 @@ public sealed class ProjectileVfxConfig
             muzzlePlaybackSpeed = 1f,
             muzzleLifetimeSeconds = DefaultOneShotLifetimeSeconds,
             projectileSpeed = DefaultProjectileSpeed,
+            projectileVisualHeightOffset = DefaultProjectileVisualHeightOffset,
+            projectileDynamicLightIntensity = DefaultProjectileDynamicLightIntensity,
+            projectileDynamicLightRange = DefaultProjectileDynamicLightRange,
             projectileLocalPositionOffset = Vector3.zero,
             projectileRotationOffsetEuler = Vector3.zero,
             projectileScaleMultiplier = 1f,
@@ -125,6 +137,21 @@ public sealed class ProjectileVfxConfig
         }
 
         return fallbackSpeed > 0f ? fallbackSpeed : DefaultProjectileSpeed;
+    }
+
+    public float ResolveProjectileVisualHeightOffset()
+    {
+        return Mathf.Max(0f, projectileVisualHeightOffset);
+    }
+
+    public float ResolveProjectileDynamicLightIntensity()
+    {
+        return Mathf.Max(0f, projectileDynamicLightIntensity);
+    }
+
+    public float ResolveProjectileDynamicLightRange()
+    {
+        return Mathf.Max(0f, projectileDynamicLightRange);
     }
 
     public float ResolveImpactScaleMultiplier()

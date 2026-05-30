@@ -146,7 +146,9 @@ public class ProjectileVfxManager : MonoBehaviour
 
         Vector3 firePos = ResolveFirePosition(evt);
         Vector3 targetPos = ResolveTargetPosition(evt, firePos);
-        Vector3 travelDirection = ResolveTravelDirection(firePos, targetPos, evt.Attacker);
+        Vector3 projectileFirePos = ApplyProjectileVisualHeight(firePos, config);
+        Vector3 projectileTargetPos = ApplyProjectileVisualHeight(targetPos, config);
+        Vector3 travelDirection = ResolveTravelDirection(projectileFirePos, projectileTargetPos, evt.Attacker);
         float nowTime = GetRenderTime(runner);
         float fireTime = evt.FireTick * runner.DeltaTime;
         float hitTime = evt.HitTick * runner.DeltaTime;
@@ -180,7 +182,9 @@ public class ProjectileVfxManager : MonoBehaviour
         hitTime = evt.HitTick * runner.DeltaTime;
         firePos = ResolveFirePosition(evt);
         targetPos = ResolveTargetPositionIfTrackable(evt.Target, targetPos);
-        travelDirection = ResolveTravelDirection(firePos, targetPos, evt.Attacker);
+        projectileFirePos = ApplyProjectileVisualHeight(firePos, config);
+        projectileTargetPos = ApplyProjectileVisualHeight(targetPos, config);
+        travelDirection = ResolveTravelDirection(projectileFirePos, projectileTargetPos, evt.Attacker);
 
         if (hitTime <= nowTime)
         {
@@ -189,7 +193,7 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        Vector3 pathPos = CalculateSpawnPosition(firePos, targetPos, fireTime, hitTime, nowTime);
+        Vector3 pathPos = CalculateSpawnPosition(projectileFirePos, projectileTargetPos, fireTime, hitTime, nowTime);
         Quaternion projectileRotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(travelDirection, config.alignProjectileToDirection && alignToDirection, config.projectileRotationOffsetEuler);
         Vector3 spawnPos = ProjectileVfxRuntimeUtility.ApplyLocalOffset(pathPos, projectileRotation, config.projectileLocalPositionOffset);
 
@@ -206,8 +210,10 @@ public class ProjectileVfxManager : MonoBehaviour
         }
 
         instance.transform.localScale = ProjectileVfxRuntimeUtility.MultiplyScale(prefab.transform.localScale, config.ResolveProjectileScaleMultiplierVector());
-        ProjectileVfxRuntimeUtility.PrepareVisualProjectile(instance);
-        ProjectileVfxRuntimeUtility.RestartParticles(instance, config.ResolveProjectilePlaybackSpeed());
+        float dynamicLightIntensity = config.ResolveProjectileDynamicLightIntensity();
+        float dynamicLightRange = config.ResolveProjectileDynamicLightRange();
+        ProjectileVfxRuntimeUtility.PrepareVisualProjectile(instance, dynamicLightIntensity, dynamicLightRange);
+        ProjectileVfxRuntimeUtility.RestartParticles(instance, config.ResolveProjectilePlaybackSpeed(), dynamicLightIntensity, dynamicLightRange);
         CancelAutoDestroy(instance);
 
         Debug.Log($"[ProjectileVfxManager] Projectile spawned successfully: {instance.name} (seq={evt.Sequence})");
@@ -480,6 +486,12 @@ public class ProjectileVfxManager : MonoBehaviour
         return attacker != null ? attacker.transform.forward : Vector3.forward;
     }
 
+    private static Vector3 ApplyProjectileVisualHeight(Vector3 position, ProjectileVfxConfig config)
+    {
+        float visualHeightOffset = config != null ? config.ResolveProjectileVisualHeightOffset() : 0f;
+        return position + Vector3.up * visualHeightOffset;
+    }
+
     private static float GetRenderTime(NetworkRunner runner)
     {
         return runner != null ? (float)runner.LocalRenderTime : Time.time;
@@ -613,15 +625,16 @@ public class ProjectileVfxManager : MonoBehaviour
 
             TryRefreshTrackedTargetPosition(active, out Vector3 targetOrigin);
 
-            Vector3 targetDirection = targetOrigin - active.Instance.transform.position;
+            ProjectileVfxConfig config = active.Config ?? ProjectileVfxConfig.CreateDefault();
+            Vector3 visualTargetOrigin = ApplyProjectileVisualHeight(targetOrigin, config);
+            Vector3 targetDirection = visualTargetOrigin - active.Instance.transform.position;
             if (targetDirection.sqrMagnitude > 1e-6f)
             {
                 active.LastKnownDirection = targetDirection.normalized;
             }
 
-            ProjectileVfxConfig config = active.Config ?? ProjectileVfxConfig.CreateDefault();
             Quaternion rotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(active.LastKnownDirection, config.alignProjectileToDirection && alignToDirection, config.projectileRotationOffsetEuler);
-            Vector3 targetPos = ProjectileVfxRuntimeUtility.ApplyLocalOffset(targetOrigin, rotation, config.projectileLocalPositionOffset);
+            Vector3 targetPos = ProjectileVfxRuntimeUtility.ApplyLocalOffset(visualTargetOrigin, rotation, config.projectileLocalPositionOffset);
             Vector3 direction = targetPos - active.Instance.transform.position;
             float remainingSeconds = Mathf.Max(minRemainingSeconds, hitTime - nowTime);
             float distance = direction.magnitude;

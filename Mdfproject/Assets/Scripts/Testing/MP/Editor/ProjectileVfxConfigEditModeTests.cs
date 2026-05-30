@@ -22,6 +22,9 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(config.ResolveMuzzleScaleMultiplierVector(), Is.EqualTo(Vector3.one));
         Assert.That(config.ResolveProjectileScaleMultiplier(), Is.EqualTo(1f).Within(0.001f));
         Assert.That(config.ResolveProjectileScaleMultiplierVector(), Is.EqualTo(Vector3.one));
+        Assert.That(config.ResolveProjectileVisualHeightOffset(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileVisualHeightOffset).Within(0.001f));
+        Assert.That(config.ResolveProjectileDynamicLightIntensity(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileDynamicLightIntensity).Within(0.001f));
+        Assert.That(config.ResolveProjectileDynamicLightRange(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileDynamicLightRange).Within(0.001f));
         Assert.That(config.ResolveImpactScaleMultiplier(), Is.EqualTo(1f).Within(0.001f));
         Assert.That(config.ResolveImpactScaleMultiplierVector(), Is.EqualTo(Vector3.one));
         Assert.That(config.ResolveProjectileSpeed(), Is.EqualTo(ProjectileVfxConfig.DefaultProjectileSpeed).Within(0.001f));
@@ -83,6 +86,11 @@ public sealed class ProjectileVfxConfigEditModeTests
             Assert.That(data.GetProjectilePrefabKey(), Is.EqualTo(pair.Value.Projectile), pair.Key);
             Assert.That(config.impactFlashKey, Is.EqualTo(pair.Value.Impact), pair.Key);
             Assert.That(config.ResolveProjectileSpeed(), Is.EqualTo(10f).Within(0.001f), pair.Key);
+            if (pair.Key.Contains("Cleric"))
+            {
+                Assert.That(config.ResolveProjectileDynamicLightIntensity(), Is.GreaterThan(0f), pair.Key);
+                Assert.That(config.ResolveProjectileDynamicLightRange(), Is.GreaterThan(0f), pair.Key);
+            }
         }
     }
 
@@ -133,6 +141,9 @@ public sealed class ProjectileVfxConfigEditModeTests
         serializedPreview.FindProperty("muzzlePlaybackSpeed").floatValue = 0.9f;
         serializedPreview.FindProperty("projectilePlaybackSpeed").floatValue = 1.4f;
         serializedPreview.FindProperty("impactPlaybackSpeed").floatValue = 1.5f;
+        serializedPreview.FindProperty("projectileVisualHeightOffset").floatValue = 0.75f;
+        serializedPreview.FindProperty("projectileDynamicLightIntensity").floatValue = 0.2f;
+        serializedPreview.FindProperty("projectileDynamicLightRange").floatValue = 0.8f;
         serializedPreview.FindProperty("projectileSpeed").floatValue = 22f;
         serializedPreview.FindProperty("muzzleLifetimeSeconds").floatValue = 0.6f;
         serializedPreview.FindProperty("impactLifetimeSeconds").floatValue = 0.7f;
@@ -158,6 +169,9 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(config.muzzlePlaybackSpeed, Is.EqualTo(0.9f).Within(0.001f));
         Assert.That(config.projectilePlaybackSpeed, Is.EqualTo(1.4f).Within(0.001f));
         Assert.That(config.impactPlaybackSpeed, Is.EqualTo(1.5f).Within(0.001f));
+        Assert.That(config.projectileVisualHeightOffset, Is.EqualTo(0.75f).Within(0.001f));
+        Assert.That(config.projectileDynamicLightIntensity, Is.EqualTo(0.2f).Within(0.001f));
+        Assert.That(config.projectileDynamicLightRange, Is.EqualTo(0.8f).Within(0.001f));
         Assert.That(config.projectileSpeed, Is.EqualTo(22f).Within(0.001f));
         Assert.That(config.muzzleLifetimeSeconds, Is.EqualTo(0.6f).Within(0.001f));
         Assert.That(config.impactLifetimeSeconds, Is.EqualTo(0.7f).Within(0.001f));
@@ -213,6 +227,8 @@ public sealed class ProjectileVfxConfigEditModeTests
     {
         string source = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
         string previewSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxTuningPreview.cs");
+        string previewEditorSource = File.ReadAllText("Assets/Scripts/Editor/ProjectileVfxTuningPreviewEditor.cs");
+        string runtimeUtilitySource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxRuntimeUtility.cs");
         string unitDataSource = File.ReadAllText("Assets/Scripts/Game/Units/UnitData.cs");
 
         Assert.That(source, Does.Contain("TryResolveProjectileVfx"));
@@ -222,8 +238,19 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(source, Does.Contain("ResolveProjectileScaleMultiplierVector()"));
         Assert.That(source, Does.Not.Contain("projectilePrefabsByStarLevel"));
         Assert.That(source, Does.Contain("ProjectileVfxRuntimeUtility.RestartParticles"));
+        Assert.That(source, Does.Contain("ApplyProjectileVisualHeight"));
+        Assert.That(source, Does.Contain("ResolveProjectileVisualHeightOffset()"));
+        Assert.That(runtimeUtilitySource, Does.Contain("GetComponentsInChildren<Light>"));
+        Assert.That(runtimeUtilitySource, Does.Contain("ApplyDynamicLighting"));
+        Assert.That(runtimeUtilitySource, Does.Contain("dynamicLightIntensity"));
+        Assert.That(runtimeUtilitySource, Does.Contain("lightsModule.enabled = enableDynamicLighting"));
         Assert.That(previewSource, Does.Contain("ProjectileVfxEffectRoot"));
         Assert.That(previewSource, Does.Contain("ResolvePreviewRoot()"));
+        Assert.That(previewSource, Does.Contain("projectileVisualHeightOffset"));
+        Assert.That(previewSource, Does.Contain("projectileDynamicLightIntensity"));
+        Assert.That(previewEditorSource, Does.Contain("Visual Height Offset"));
+        Assert.That(previewEditorSource, Does.Contain("Dynamic Light Intensity"));
+        Assert.That(previewEditorSource, Does.Contain("projectileVisualHeightOffset"));
         Assert.That(previewSource, Does.Contain("muzzleScaleMultiplierVector"));
         Assert.That(previewSource, Does.Contain("projectileScaleMultiplierVector"));
         Assert.That(previewSource, Does.Contain("impactScaleMultiplierVector"));

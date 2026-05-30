@@ -40,6 +40,9 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     [SerializeField, HideInInspector] private float projectileScaleMultiplier = 1f;
     [SerializeField] private Vector3 projectileScaleMultiplierVector = Vector3.one;
     [SerializeField] private float projectilePlaybackSpeed = 1f;
+    [SerializeField] private float projectileVisualHeightOffset = ProjectileVfxConfig.DefaultProjectileVisualHeightOffset;
+    [SerializeField] private float projectileDynamicLightIntensity = ProjectileVfxConfig.DefaultProjectileDynamicLightIntensity;
+    [SerializeField] private float projectileDynamicLightRange = ProjectileVfxConfig.DefaultProjectileDynamicLightRange;
     [FormerlySerializedAs("projectileSpeedOverride")]
     [SerializeField] private float projectileSpeed = ProjectileVfxConfig.DefaultProjectileSpeed;
     [SerializeField] private bool alignProjectileToDirection = true;
@@ -93,6 +96,9 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         projectileScaleMultiplier = Mathf.Max(0.01f, projectileScaleMultiplier);
         projectileScaleMultiplierVector = SanitizeScaleMultiplierVector(projectileScaleMultiplierVector, projectileScaleMultiplier);
         projectilePlaybackSpeed = Mathf.Max(0.01f, projectilePlaybackSpeed);
+        projectileVisualHeightOffset = Mathf.Max(0f, projectileVisualHeightOffset);
+        projectileDynamicLightIntensity = Mathf.Max(0f, projectileDynamicLightIntensity);
+        projectileDynamicLightRange = Mathf.Max(0f, projectileDynamicLightRange);
         impactScaleMultiplier = Mathf.Max(0.01f, impactScaleMultiplier);
         impactScaleMultiplierVector = SanitizeScaleMultiplierVector(impactScaleMultiplierVector, impactScaleMultiplier);
         impactPlaybackSpeed = Mathf.Max(0.01f, impactPlaybackSpeed);
@@ -182,6 +188,9 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         projectileScaleMultiplier = config.ResolveProjectileScaleMultiplier();
         projectileScaleMultiplierVector = config.ResolveProjectileScaleMultiplierVector();
         projectilePlaybackSpeed = config.ResolveProjectilePlaybackSpeed();
+        projectileVisualHeightOffset = config.ResolveProjectileVisualHeightOffset();
+        projectileDynamicLightIntensity = config.ResolveProjectileDynamicLightIntensity();
+        projectileDynamicLightRange = config.ResolveProjectileDynamicLightRange();
         projectileSpeed = config.ResolveProjectileSpeed();
         alignProjectileToDirection = config.alignProjectileToDirection;
         impactLocalPositionOffset = config.impactLocalPositionOffset;
@@ -244,6 +253,9 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         config.projectileScaleMultiplier = ResolveLegacyUniformScale(projectileScaleMultiplierVector);
         config.projectileScaleMultiplierVector = SanitizeScaleMultiplierVector(projectileScaleMultiplierVector, config.projectileScaleMultiplier);
         config.projectilePlaybackSpeed = Mathf.Max(0.01f, projectilePlaybackSpeed);
+        config.projectileVisualHeightOffset = Mathf.Max(0f, projectileVisualHeightOffset);
+        config.projectileDynamicLightIntensity = Mathf.Max(0f, projectileDynamicLightIntensity);
+        config.projectileDynamicLightRange = Mathf.Max(0f, projectileDynamicLightRange);
         config.projectileSpeed = Mathf.Max(0.01f, projectileSpeed);
         config.alignProjectileToDirection = alignProjectileToDirection;
         config.impactLocalPositionOffset = impactLocalPositionOffset;
@@ -289,16 +301,18 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
 
         Vector3 firePos = ResolveFirePosition();
         Vector3 targetPos = ResolveTargetPosition(firePos);
-        Vector3 direction = ResolveTravelDirection(firePos, targetPos);
+        Vector3 projectileFirePos = ApplyProjectileVisualHeight(firePos);
+        Vector3 projectileTargetPos = ApplyProjectileVisualHeight(targetPos);
+        Vector3 direction = ResolveTravelDirection(projectileFirePos, projectileTargetPos);
 
         SpawnOneShot(muzzleFlashPrefab, muzzleFlashAddress, firePos, direction, muzzleLocalPositionOffset, muzzleRotationOffsetEuler, true,
             muzzleScaleMultiplierVector, muzzlePlaybackSpeed, muzzleLifetimeSeconds);
 
-        GameObject projectile = SpawnProjectileVisual(firePos, targetPos, direction);
-        float travelSeconds = ResolveProjectileTravelSeconds(firePos, targetPos);
+        GameObject projectile = SpawnProjectileVisual(projectileFirePos, projectileTargetPos, direction);
+        float travelSeconds = ResolveProjectileTravelSeconds(projectileFirePos, projectileTargetPos);
         if (projectile != null)
         {
-            yield return MoveProjectile(projectile, firePos, targetPos, travelSeconds);
+            yield return MoveProjectile(projectile, projectileFirePos, projectileTargetPos, travelSeconds);
             DestroyPreviewObject(projectile);
         }
         else if (travelSeconds > 0f)
@@ -322,8 +336,8 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
         GameObject instance = Instantiate(projectilePrefab, position, rotation, ResolvePreviewRoot());
         instance.name = $"{projectilePrefab.name}_ProjectilePreview_{name}";
         instance.transform.localScale = ProjectileVfxRuntimeUtility.MultiplyScale(projectilePrefab.transform.localScale, projectileScaleMultiplierVector);
-        ProjectileVfxRuntimeUtility.PrepareVisualProjectile(instance);
-        ProjectileVfxRuntimeUtility.RestartParticles(instance, projectilePlaybackSpeed);
+        ProjectileVfxRuntimeUtility.PrepareVisualProjectile(instance, projectileDynamicLightIntensity, projectileDynamicLightRange);
+        ProjectileVfxRuntimeUtility.RestartParticles(instance, projectilePlaybackSpeed, projectileDynamicLightIntensity, projectileDynamicLightRange);
         _spawnedObjects.Add(instance);
         return instance;
     }
@@ -391,6 +405,11 @@ public sealed class ProjectileVfxTuningPreview : MonoBehaviour
     private Vector3 ResolveTargetPosition(Vector3 fallback)
     {
         return targetOverride != null ? targetOverride.position : fallback + transform.forward * 4f;
+    }
+
+    private Vector3 ApplyProjectileVisualHeight(Vector3 position)
+    {
+        return position + Vector3.up * Mathf.Max(0f, projectileVisualHeightOffset);
     }
 
     private Vector3 ResolveTravelDirection(Vector3 firePos, Vector3 targetPos)

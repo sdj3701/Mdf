@@ -37,12 +37,14 @@ public static class ProjectileVfxRuntimeUtility
             baseScale.z * Mathf.Max(0.01f, multiplier.z));
     }
 
-    public static void RestartParticles(GameObject instance, float playbackSpeed)
+    public static void RestartParticles(GameObject instance, float playbackSpeed, float dynamicLightIntensity = 0f, float dynamicLightRange = 0f)
     {
         if (instance == null)
         {
             return;
         }
+
+        ApplyDynamicLighting(instance, dynamicLightIntensity, dynamicLightRange);
 
         float resolvedPlaybackSpeed = Mathf.Max(0.01f, playbackSpeed);
         var trails = instance.GetComponentsInChildren<TrailRenderer>(true);
@@ -61,7 +63,7 @@ public static class ProjectileVfxRuntimeUtility
         }
     }
 
-    public static void PrepareVisualProjectile(GameObject instance)
+    public static void PrepareVisualProjectile(GameObject instance, float dynamicLightIntensity = 0f, float dynamicLightRange = 0f)
     {
         if (instance == null)
         {
@@ -88,6 +90,8 @@ public static class ProjectileVfxRuntimeUtility
             colliders[i].enabled = false;
         }
 
+        ApplyDynamicLighting(instance, dynamicLightIntensity, dynamicLightRange);
+
         var behaviours = instance.GetComponentsInChildren<MonoBehaviour>(true);
         for (int i = 0; i < behaviours.Length; i++)
         {
@@ -102,6 +106,31 @@ public static class ProjectileVfxRuntimeUtility
             {
                 behaviour.enabled = false;
             }
+        }
+    }
+
+    private static void ApplyDynamicLighting(GameObject instance, float dynamicLightIntensity, float dynamicLightRange)
+    {
+        float resolvedIntensity = Mathf.Max(0f, dynamicLightIntensity);
+        float resolvedRange = Mathf.Max(0f, dynamicLightRange);
+        bool enableDynamicLighting = resolvedIntensity > 0f && resolvedRange > 0f;
+
+        var lights = instance.GetComponentsInChildren<Light>(true);
+        for (int i = 0; i < lights.Length; i++)
+        {
+            lights[i].enabled = enableDynamicLighting;
+            if (enableDynamicLighting)
+            {
+                lights[i].intensity = resolvedIntensity;
+                lights[i].range = resolvedRange;
+            }
+        }
+
+        var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
+        for (int i = 0; i < particles.Length; i++)
+        {
+            var lightsModule = particles[i].lights;
+            lightsModule.enabled = enableDynamicLighting;
         }
     }
 }

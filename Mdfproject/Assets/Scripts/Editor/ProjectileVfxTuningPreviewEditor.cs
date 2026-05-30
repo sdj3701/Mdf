@@ -23,6 +23,9 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
     private SerializedProperty projectileRotationOffsetEuler;
     private SerializedProperty projectileScaleMultiplierVector;
     private SerializedProperty projectilePlaybackSpeed;
+    private SerializedProperty projectileVisualHeightOffset;
+    private SerializedProperty projectileDynamicLightIntensity;
+    private SerializedProperty projectileDynamicLightRange;
     private SerializedProperty projectileSpeed;
     private SerializedProperty alignProjectileToDirection;
     private SerializedProperty impactFlashPrefab;
@@ -62,6 +65,9 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         projectileRotationOffsetEuler = serializedObject.FindProperty("projectileRotationOffsetEuler");
         projectileScaleMultiplierVector = serializedObject.FindProperty("projectileScaleMultiplierVector");
         projectilePlaybackSpeed = serializedObject.FindProperty("projectilePlaybackSpeed");
+        projectileVisualHeightOffset = serializedObject.FindProperty("projectileVisualHeightOffset");
+        projectileDynamicLightIntensity = serializedObject.FindProperty("projectileDynamicLightIntensity");
+        projectileDynamicLightRange = serializedObject.FindProperty("projectileDynamicLightRange");
         projectileSpeed = serializedObject.FindProperty("projectileSpeed");
         alignProjectileToDirection = serializedObject.FindProperty("alignProjectileToDirection");
         impactFlashPrefab = serializedObject.FindProperty("impactFlashPrefab");
@@ -91,7 +97,7 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         DrawScriptField();
         DrawSaveTarget();
         DrawStage("Muzzle Flash", muzzleFlashPrefab, muzzleLocalPositionOffset, muzzleRotationOffsetEuler, muzzleScaleMultiplierVector, muzzlePlaybackSpeed, muzzleLifetimeSeconds, null);
-        DrawStage("Projectile", projectilePrefab, projectileLocalPositionOffset, projectileRotationOffsetEuler, projectileScaleMultiplierVector, projectilePlaybackSpeed, null, alignProjectileToDirection, projectileSpeed);
+        DrawStage("Projectile", projectilePrefab, projectileLocalPositionOffset, projectileRotationOffsetEuler, projectileScaleMultiplierVector, projectilePlaybackSpeed, null, alignProjectileToDirection, projectileSpeed, projectileVisualHeightOffset, projectileDynamicLightIntensity, projectileDynamicLightRange);
         DrawStage("Impact Flash", impactFlashPrefab, impactLocalPositionOffset, impactRotationOffsetEuler, impactScaleMultiplierVector, impactPlaybackSpeed, impactLifetimeSeconds, alignImpactToDirection);
         DrawLoopPreview();
         DrawAdvanced();
@@ -132,7 +138,10 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         SerializedProperty playbackSpeed,
         SerializedProperty lifetime,
         SerializedProperty align,
-        SerializedProperty travelSpeed = null)
+        SerializedProperty travelSpeed = null,
+        SerializedProperty visualHeightOffset = null,
+        SerializedProperty dynamicLightIntensity = null,
+        SerializedProperty dynamicLightRange = null)
     {
         EditorGUILayout.Space();
         EditorGUILayout.LabelField(title, EditorStyles.boldLabel);
@@ -140,6 +149,17 @@ public sealed class ProjectileVfxTuningPreviewEditor : Editor
         if (travelSpeed != null)
         {
             EditorGUILayout.PropertyField(travelSpeed, new GUIContent("Travel Speed"));
+        }
+
+        if (visualHeightOffset != null)
+        {
+            EditorGUILayout.PropertyField(visualHeightOffset, new GUIContent("Visual Height Offset"));
+        }
+
+        if (dynamicLightIntensity != null && dynamicLightRange != null)
+        {
+            EditorGUILayout.PropertyField(dynamicLightIntensity, new GUIContent("Dynamic Light Intensity"));
+            EditorGUILayout.PropertyField(dynamicLightRange, new GUIContent("Dynamic Light Range"));
         }
 
         EditorGUILayout.PropertyField(offset, new GUIContent("Position Offset"));

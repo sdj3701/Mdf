@@ -555,6 +555,9 @@ MonoBehaviour:
   projectileScaleMultiplier: 1
   projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
   projectilePlaybackSpeed: 1
+  projectileVisualHeightOffset: 0.65
+  projectileDynamicLightIntensity: 0
+  projectileDynamicLightRange: 0
   projectileSpeed: 10
   alignProjectileToDirection: 1
   impactFlashPrefab: {fileID: 0}
@@ -1057,6 +1060,9 @@ MonoBehaviour:
   projectileScaleMultiplier: 1
   projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
   projectilePlaybackSpeed: 1
+  projectileVisualHeightOffset: 0.65
+  projectileDynamicLightIntensity: 0
+  projectileDynamicLightRange: 0
   projectileSpeed: 10
   alignProjectileToDirection: 1
   impactFlashPrefab: {fileID: 0}
@@ -1581,6 +1587,9 @@ MonoBehaviour:
   projectileScaleMultiplier: 1
   projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
   projectilePlaybackSpeed: 1
+  projectileVisualHeightOffset: 0.65
+  projectileDynamicLightIntensity: 0
+  projectileDynamicLightRange: 0
   projectileSpeed: 10
   alignProjectileToDirection: 1
   impactFlashPrefab: {fileID: 0}
@@ -2611,6 +2620,9 @@ MonoBehaviour:
   projectileScaleMultiplier: 1
   projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
   projectilePlaybackSpeed: 1
+  projectileVisualHeightOffset: 0.65
+  projectileDynamicLightIntensity: 0
+  projectileDynamicLightRange: 0
   projectileSpeed: 10
   alignProjectileToDirection: 1
   impactFlashPrefab: {fileID: 0}
