@@ -137,14 +137,31 @@ public partial class CombatScheduler : NetworkBehaviour
 
         InitializeHitBuckets();
         RebuildPendingBucketsFromNetworkSnapshots();
+        RebuildZonePayloadsFromNetworkEntries();
+        RebuildStatBuffCachesFromNetworkEntries();
         RebuildStatusCachesFromNetworkEntries();
+    }
+
+    private void OnEnable()
+    {
+        GameEvents.OnGameStateChanged += HandleSchedulerGameStateChanged;
     }
 
     private void OnDisable()
     {
+        GameEvents.OnGameStateChanged -= HandleSchedulerGameStateChanged;
         if (Instance == this)
         {
             Instance = null;
+        }
+    }
+
+    private void HandleSchedulerGameStateChanged(GameManagers.GameState newState)
+    {
+        if (newState != GameManagers.GameState.Battle1 &&
+            newState != GameManagers.GameState.Battle2)
+        {
+            ClearAllScheduledZones($"stateChanged:{newState}");
         }
     }
 
@@ -163,6 +180,8 @@ public partial class CombatScheduler : NetworkBehaviour
         Instance = scheduler;
         scheduler.InitializeHitBuckets();
         scheduler.RebuildPendingBucketsFromNetworkSnapshots();
+        scheduler.RebuildZonePayloadsFromNetworkEntries();
+        scheduler.RebuildStatBuffCachesFromNetworkEntries();
         scheduler.RebuildStatusCachesFromNetworkEntries();
         if (changed)
         {
@@ -196,7 +215,9 @@ public partial class CombatScheduler : NetworkBehaviour
         }
 #endif
 
+        ProcessDueStatBuffs();
         ProcessDueStatusEffects();
+        ProcessDueZones();
         ProcessDueBasicAttackVfx();
         RebuildPendingBucketsFromNetworkSnapshots();
         ProcessDueFires();

@@ -28,6 +28,8 @@ CASES = {
     "3round-host-migration": "run_3round_host_migration.py",
     "progressed-host-migration-after-battle": "run_progressed_host_migration_after_battle.py",
     "status-effect-host-migration": "run_status_effect_host_migration.py",
+    "stat-buff-host-migration": "run_stat_buff_host_migration.py",
+    "zone-host-migration": "run_zone_host_migration.py",
     "progressed-reconnect-after-battle": "run_progressed_reconnect_after_battle.py",
     "progressed-disconnect-after-battle": "run_progressed_disconnect_after_battle.py",
     "battle-seed-sweep": "run_battle_seed_sweep.py",
@@ -74,6 +76,8 @@ LIFECYCLE_CASES = [
     "progressed-disconnect-after-battle",
     "progressed-host-migration-after-battle",
     "status-effect-host-migration",
+    "stat-buff-host-migration",
+    "zone-host-migration",
 ]
 
 LONG_CASES = [
@@ -137,6 +141,8 @@ CLEANUP_FLAG_CASES = {
     "3round-host-migration",
     "progressed-host-migration-after-battle",
     "status-effect-host-migration",
+    "stat-buff-host-migration",
+    "zone-host-migration",
     "progressed-reconnect-after-battle",
     "progressed-disconnect-after-battle",
     "human-bot-seed-sweep",
@@ -159,6 +165,8 @@ ORPHAN_FLAG_CASES = {
     "3round-host-migration",
     "progressed-host-migration-after-battle",
     "status-effect-host-migration",
+    "stat-buff-host-migration",
+    "zone-host-migration",
     "progressed-reconnect-after-battle",
     "progressed-disconnect-after-battle",
     "human-bot-seed-sweep",
@@ -186,6 +194,8 @@ HEADLESS_FLAG_CASES = {
     "progressed-disconnect-after-battle",
     "progressed-host-migration-after-battle",
     "status-effect-host-migration",
+    "stat-buff-host-migration",
+    "zone-host-migration",
     "human-bot-seed-sweep",
     "battle-seed-sweep",
 }

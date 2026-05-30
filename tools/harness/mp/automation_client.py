@@ -93,6 +93,12 @@ class AutomationClient:
     def apply_status_effect(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/test/applyStatusEffect", kwargs)
 
+    def apply_stat_buff(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/applyStatBuff", kwargs)
+
+    def apply_zone(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/applyZone", kwargs)
+
     def screenshot(self, path: str | None = None) -> dict[str, Any]:
         suffix = "" if not path else "?path=" + urllib.request.pathname2url(path)
         return self.request("GET", "/screenshot" + suffix)

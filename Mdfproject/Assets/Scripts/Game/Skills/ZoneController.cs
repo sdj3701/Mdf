@@ -9,9 +9,8 @@ public class ZoneController : MonoBehaviour
     private float skillRange;
     private TargetingStrategy targetingStrategy;
 
-    private float remainingDuration;
-    private float tickTimer;
     private bool isInitialized;
+    private int schedulerSequence;
 
     private void OnEnable()
     {
@@ -23,16 +22,20 @@ public class ZoneController : MonoBehaviour
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
     }
 
-    public void Initialize(ZoneEffect effect, GameObject caster, MonoBehaviour runner, float skillRange, TargetingStrategy targetingStrategy)
+    public void Initialize(
+        ZoneEffect effect,
+        GameObject caster,
+        MonoBehaviour runner,
+        float skillRange,
+        TargetingStrategy targetingStrategy,
+        int schedulerSequence = 0)
     {
         zoneEffect = effect;
         this.caster = caster;
         this.runner = runner;
         this.skillRange = skillRange;
         this.targetingStrategy = targetingStrategy;
-
-        remainingDuration = effect.zoneDuration;
-        tickTimer = 0f;
+        this.schedulerSequence = schedulerSequence;
         isInitialized = true;
 
         LogZone($"<color=magenta>[Zone] {effect.name} created. duration={effect.zoneDuration:F1}s range={skillRange:F1}</color>");
@@ -48,33 +51,25 @@ public class ZoneController : MonoBehaviour
         Debug.LogWarning(message);
     }
 
-    private void Update()
+    public void ApplyScheduledTick()
     {
-        if (!isInitialized || !HasStateAuthorityOrNoNetwork())
+        if (!isInitialized)
         {
-            return;
-        }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        if (MPTestCommandLine.IsGameFlowFrozen)
-        {
-            return;
-        }
-#endif
-
-        remainingDuration -= Time.deltaTime;
-        if (remainingDuration <= 0)
-        {
-            LogZone($"<color=magenta>[Zone] {zoneEffect.name} ended.</color>");
-            Destroy(gameObject);
             return;
         }
 
-        tickTimer -= Time.deltaTime;
-        if (tickTimer <= 0)
+        ApplyTickEffects();
+    }
+
+    public void DestroyScheduledZone()
+    {
+        if (this == null)
         {
-            ApplyTickEffects();
-            tickTimer = zoneEffect.tickInterval;
+            return;
         }
+
+        LogZone($"<color=magenta>[Zone] {(zoneEffect != null ? zoneEffect.name : "unknown")} ended.</color>");
+        Destroy(gameObject);
     }
 
     private void ApplyTickEffects()
@@ -123,37 +118,14 @@ public class ZoneController : MonoBehaviour
         if (newState != GameManagers.GameState.Battle1 &&
             newState != GameManagers.GameState.Battle2)
         {
+            if (schedulerSequence > 0)
+            {
+                CombatScheduler.Instance?.ClearScheduledZone(schedulerSequence, $"stateChanged:{newState}");
+                return;
+            }
+
             Destroy(gameObject);
         }
-    }
-
-    public bool IsSnapshotActive => isInitialized;
-
-    public string BuildSnapshotPart()
-    {
-        string effectName = zoneEffect != null ? zoneEffect.name : "unknown";
-        string targeterName = targetingStrategy != null ? targetingStrategy.name : "unknown";
-        int rangeBucket = Mathf.RoundToInt(skillRange * 10f);
-        int tickBucket = zoneEffect != null ? Mathf.RoundToInt(zoneEffect.tickInterval * 10f) : 0;
-        int durationBucket = zoneEffect != null ? Mathf.RoundToInt(zoneEffect.zoneDuration * 10f) : 0;
-        Vector3 pos = transform.position;
-        int xBucket = Mathf.RoundToInt(pos.x * 10f);
-        int zBucket = Mathf.RoundToInt(pos.z * 10f);
-        return $"zone={effectName};targeting={targeterName};range={rangeBucket};tick={tickBucket};duration={durationBucket};x={xBucket};z={zBucket}";
-    }
-
-    private bool HasStateAuthorityOrNoNetwork()
-    {
-        var gm = GameManagers.Instance;
-        if (gm != null &&
-            gm.Runner != null &&
-            gm.Runner.IsRunning &&
-            gm.Object != null)
-        {
-            return gm.Object.HasStateAuthority;
-        }
-
-        return true;
     }
 
     private void OnDrawGizmosSelected()

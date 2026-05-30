@@ -33,12 +33,14 @@ public sealed class StatusEffectSchedulerEditModeTests
     {
         string buffSource = File.ReadAllText("Assets/Scripts/Game/Skills/BuffManager.cs");
 
-        Assert.That(buffSource, Does.Contain("if (!IsNetworkStatusSchedulerActive())"));
         Assert.That(buffSource, Does.Contain("CombatScheduler.Instance.ApplyStatusEffect("));
         Assert.That(buffSource, Does.Contain("CombatScheduler.Instance.ClearStatusEffectType"));
         Assert.That(buffSource, Does.Contain("CombatScheduler.Instance.ClearStatusEffectsForTarget"));
         Assert.That(buffSource, Does.Contain("public void ApplyStatusSchedulerCache"));
         Assert.That(buffSource, Does.Contain("_statusCacheFromScheduler"));
+        Assert.That(buffSource, Does.Not.Contain("_activeStatusEffects"));
+        Assert.That(buffSource, Does.Not.Contain("UpdateStatusEffects"));
+        Assert.That(File.Exists("Assets/Scripts/Game/Skills/ActiveStatusEffect.cs"), Is.False);
     }
 
     [Test]
@@ -46,9 +48,73 @@ public sealed class StatusEffectSchedulerEditModeTests
     {
         string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
 
-        Assert.That(snapshotSource, Does.Contain("bool useSchedulerStatus = statusScheduler != null && statusScheduler.IsStatusEffectSchedulerActive"));
-        Assert.That(snapshotSource, Does.Contain("activeStatusCount = SafeInt(() => statusScheduler.ActiveStatusEffectCount, 0);"));
-        Assert.That(snapshotSource, Does.Contain("statusScheduler.BuildActiveStatusSnapshotParts(BuildEffectTargetKey)"));
+        Assert.That(snapshotSource, Does.Contain("bool useSchedulerStatus = scheduler != null && scheduler.IsStatusEffectSchedulerActive"));
+        Assert.That(snapshotSource, Does.Contain("activeStatusCount = SafeInt(() => scheduler.ActiveStatusEffectCount, 0);"));
+        Assert.That(snapshotSource, Does.Contain("scheduler.BuildActiveStatusSnapshotParts(BuildEffectTargetKey)"));
+        Assert.That(snapshotSource, Does.Not.Contain("FindObjectsOfType<BuffManager>"));
+        Assert.That(snapshotSource, Does.Not.Contain("BuildActiveStatusSnapshotParts(targetKey)"));
+    }
+
+    [Test]
+    public void StatBuffsUseCombatSchedulerNetworkSlots()
+    {
+        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string statBuffSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.StatBuffs.cs");
+        string buffSource = File.ReadAllText("Assets/Scripts/Game/Skills/BuffManager.cs");
+        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+
+        Assert.That(schedulerSource, Does.Contain("ProcessDueStatBuffs();"));
+        Assert.That(statBuffSource, Does.Contain("private struct StatBuffEntry : INetworkStruct"));
+        Assert.That(statBuffSource, Does.Contain("public struct StatBuffMigrationSnapshot"));
+        Assert.That(statBuffSource, Does.Contain("NetworkArray<StatBuffEntry> StatBuffs"));
+        Assert.That(statBuffSource, Does.Contain("public bool ApplyStatBuff("));
+        Assert.That(statBuffSource, Does.Contain("public IEnumerable<string> BuildActiveStatBuffSnapshotParts"));
+        Assert.That(statBuffSource, Does.Contain("CaptureStatBuffsForMigration"));
+        Assert.That(statBuffSource, Does.Contain("RestoreStatBuffsFromMigration"));
+        Assert.That(statBuffSource, Does.Contain("ClearStatBuffsForTarget"));
+        Assert.That(statBuffSource, Does.Contain("ExpireTick"));
+        Assert.That(buffSource, Does.Contain("CombatScheduler.Instance.ApplyStatBuff(this, buffEffect, caster);"));
+        Assert.That(buffSource, Does.Contain("public void ApplyStatBuffSchedulerCache"));
+        Assert.That(buffSource, Does.Contain("_statBuffCacheFromScheduler"));
+        Assert.That(buffSource, Does.Not.Contain("_activeBuffs"));
+        Assert.That(buffSource, Does.Not.Contain("UpdateBuffs"));
+        Assert.That(buffSource, Does.Not.Contain("public class ActiveBuff"));
+        Assert.That(snapshotSource, Does.Contain("bool useSchedulerBuffs = scheduler != null && scheduler.IsStatBuffSchedulerActive"));
+        Assert.That(snapshotSource, Does.Contain("activeBuffCount = SafeInt(() => scheduler.ActiveStatBuffCount, 0);"));
+        Assert.That(snapshotSource, Does.Contain("scheduler.BuildActiveStatBuffSnapshotParts(BuildEffectTargetKey)"));
+        Assert.That(snapshotSource, Does.Not.Contain("BuildActiveBuffSnapshotParts(targetKey)"));
+    }
+
+    [Test]
+    public void ZonesUseCombatSchedulerNetworkSlots()
+    {
+        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string zoneSchedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.Zones.cs");
+        string zoneEffectSource = File.ReadAllText("Assets/Scripts/Game/Skills/ZoneEffect.cs");
+        string zoneControllerSource = File.ReadAllText("Assets/Scripts/Game/Skills/ZoneController.cs");
+        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+        string hostMigrationSource = File.ReadAllText("Assets/Scripts/Network/HostMigrationHandler.cs");
+
+        Assert.That(schedulerSource, Does.Contain("ProcessDueZones();"));
+        Assert.That(schedulerSource, Does.Contain("RebuildZonePayloadsFromNetworkEntries();"));
+        Assert.That(zoneSchedulerSource, Does.Contain("private struct ZoneEntry : INetworkStruct"));
+        Assert.That(zoneSchedulerSource, Does.Contain("public struct ZoneMigrationSnapshot"));
+        Assert.That(zoneSchedulerSource, Does.Contain("NetworkArray<ZoneEntry> Zones"));
+        Assert.That(zoneSchedulerSource, Does.Contain("public bool TryScheduleZone("));
+        Assert.That(zoneSchedulerSource, Does.Contain("public IEnumerable<string> BuildActiveZoneSnapshotParts"));
+        Assert.That(zoneSchedulerSource, Does.Contain("CaptureZonesForMigration"));
+        Assert.That(zoneSchedulerSource, Does.Contain("RestoreZonesFromMigration"));
+        Assert.That(zoneEffectSource, Does.Contain("scheduler.TryScheduleZone"));
+        Assert.That(zoneControllerSource, Does.Contain("ClearScheduledZone"));
+        Assert.That(zoneControllerSource, Does.Not.Contain("Time.deltaTime"));
+        Assert.That(zoneControllerSource, Does.Not.Contain("remainingDuration"));
+        Assert.That(zoneControllerSource, Does.Not.Contain("tickTimer"));
+        Assert.That(zoneEffectSource, Does.Not.Contain("Object.Instantiate"));
+        Assert.That(snapshotSource, Does.Contain("bool useSchedulerZones = scheduler != null && scheduler.IsZoneSchedulerActive"));
+        Assert.That(snapshotSource, Does.Contain("scheduler.BuildActiveZoneSnapshotParts()"));
+        Assert.That(snapshotSource, Does.Not.Contain("FindObjectsOfType<ZoneController>"));
+        Assert.That(hostMigrationSource, Does.Contain("CaptureDurableZones"));
+        Assert.That(hostMigrationSource, Does.Contain("RestoreCachedZonesForMigration"));
     }
 
     [Test]
@@ -85,6 +151,52 @@ public sealed class StatusEffectSchedulerEditModeTests
         Assert.That(hostMigrationSource, Does.Contain("ResolveGameManagersForRunner.RestoredCandidate"));
         Assert.That(hostMigrationSource, Does.Contain("CaptureDurableStatusEffects"));
         Assert.That(hostMigrationSource, Does.Contain("RestoreCachedStatusEffectsForMigration"));
+    }
+
+    [Test]
+    public void MPHarnessCanInjectAndPreserveActiveStatBuffThroughHostMigration()
+    {
+        string automationServerSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        string automationClientSource = File.ReadAllText("../tools/harness/mp/automation_client.py");
+        string battleCommonSource = File.ReadAllText("../tools/harness/mp/battle_progression_common.py");
+        string runMatrixSource = File.ReadAllText("../tools/harness/mp/run_matrix.py");
+        string caseSource = File.ReadAllText("../tools/harness/mp/run_stat_buff_host_migration.py");
+
+        Assert.That(automationServerSource, Does.Contain("\"/test/applyStatBuff\""));
+        Assert.That(automationServerSource, Does.Contain("ApplyStatBuffForTest"));
+        Assert.That(automationClientSource, Does.Contain("def apply_stat_buff"));
+        Assert.That(battleCommonSource, Does.Contain("apply_stat_buff_before_migration"));
+        Assert.That(battleCommonSource, Does.Contain("require_active_buff"));
+        Assert.That(battleCommonSource, Does.Contain("active_buff_count"));
+        Assert.That(runMatrixSource, Does.Contain("\"stat-buff-host-migration\""));
+        Assert.That(caseSource, Does.Contain("apply_stat_buff_before_migration=True"));
+
+        string hostMigrationSource = File.ReadAllText("Assets/Scripts/Network/HostMigrationHandler.cs");
+        Assert.That(hostMigrationSource, Does.Contain("CaptureDurableStatBuffs"));
+        Assert.That(hostMigrationSource, Does.Contain("RestoreCachedStatBuffsForMigration"));
+    }
+
+    [Test]
+    public void MPHarnessCanInjectAndPreserveActiveZoneThroughHostMigration()
+    {
+        string automationServerSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        string automationClientSource = File.ReadAllText("../tools/harness/mp/automation_client.py");
+        string battleCommonSource = File.ReadAllText("../tools/harness/mp/battle_progression_common.py");
+        string runMatrixSource = File.ReadAllText("../tools/harness/mp/run_matrix.py");
+        string caseSource = File.ReadAllText("../tools/harness/mp/run_zone_host_migration.py");
+
+        Assert.That(automationServerSource, Does.Contain("\"/test/applyZone\""));
+        Assert.That(automationServerSource, Does.Contain("ApplyZoneForTest"));
+        Assert.That(automationClientSource, Does.Contain("def apply_zone"));
+        Assert.That(battleCommonSource, Does.Contain("apply_zone_before_migration"));
+        Assert.That(battleCommonSource, Does.Contain("require_active_zone"));
+        Assert.That(battleCommonSource, Does.Contain("active_zone_count"));
+        Assert.That(runMatrixSource, Does.Contain("\"zone-host-migration\""));
+        Assert.That(caseSource, Does.Contain("apply_zone_before_migration=True"));
+
+        string hostMigrationSource = File.ReadAllText("Assets/Scripts/Network/HostMigrationHandler.cs");
+        Assert.That(hostMigrationSource, Does.Contain("CaptureDurableZones"));
+        Assert.That(hostMigrationSource, Does.Contain("RestoreCachedZonesForMigration"));
     }
 }
 #endif

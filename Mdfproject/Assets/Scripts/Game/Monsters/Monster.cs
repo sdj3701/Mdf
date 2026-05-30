@@ -1867,6 +1867,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// <summary>
     /// 기본 이동속도를 반환합니다. (BuffManager 스탯 계산용)
     /// </summary>
+    public void ApplyStatModifiers(float attackDamage, float attackSpeed, float moveSpeedMultiplier)
+    {
+        _currentAttackDamage = attackDamage;
+        _currentAttackSpeed = Mathf.Max(0.01f, attackSpeed);
+        _currentMoveSpeed = _permanentMoveSpeed * Mathf.Max(0.1f, moveSpeedMultiplier);
+        UpdateMoveAnimationSpeed();
+    }
+
     public float GetBaseMoveSpeed() => _permanentMoveSpeed;
 
     #endregion
@@ -1883,6 +1891,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (SnapshotIsBoss) return;
         
         // [3단계] Permanent 기준으로 버서커 배수 적용
+        if (CombatScheduler.Instance != null &&
+            CombatScheduler.Instance.IsStatBuffSchedulerActive &&
+            _buffManager != null &&
+            CombatScheduler.Instance.ApplyBerserkStatBuffs(_buffManager, gameObject, true, 9999f))
+        {
+            return;
+        }
+
         _currentMoveSpeed = _permanentMoveSpeed * 2f;
         _currentAttackDamage = _permanentAttackDamage * 1.5f;
         _currentAttackSpeed = _permanentAttackSpeed * 1.5f;

@@ -6,11 +6,11 @@ Category: host-migration, security
 Created: 2026-05-06
 Last used: 2026-05-31
 Last verified: 2026-05-31
-Use count: 4
+Use count: 9
 Review after: 2026-08-04
 Triggers: progressed Host Migration, HumanBot checkpoint, process.kill, migration token, durable random state
 Applies to: `tools/harness/mp/run_progressed_host_migration_e2e.py`, Phase 23
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration; artifacts/mp/20260530-212608-matrix/20260530-212613-zone-host-migration; artifacts/mp/20260530-220427-matrix/20260530-220433-zone-host-migration; artifacts/mp/20260530-220028-matrix/20260530-220041-status-effect-host-migration; artifacts/mp/20260530-220233-matrix/20260530-220238-stat-buff-host-migration
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -42,3 +42,7 @@ Pitfalls:
 
 Lifecycle notes:
 - 2026-05-31: verified artifact `artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-212608-matrix/20260530-212613-zone-host-migration`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-220427-matrix/20260530-220433-zone-host-migration`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-220028-matrix/20260530-220041-status-effect-host-migration`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-220233-matrix/20260530-220238-stat-buff-host-migration`

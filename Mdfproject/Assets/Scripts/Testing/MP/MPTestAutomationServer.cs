@@ -289,6 +289,18 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => ApplyStatusEffectForTest(body)));
         }
 
+        if (path == "/test/applyStatBuff")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => ApplyStatBuffForTest(body)));
+        }
+
+        if (path == "/test/applyZone")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => ApplyZoneForTest(body)));
+        }
+
         if (path == "/screenshot")
         {
             return await RequireMethod(request, "GET", () => MainThread(() => CaptureScreenshot(request)));
@@ -938,6 +950,264 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         });
     }
 
+    private AutomationResponse ApplyStatBuffForTest(JObject body)
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("stat_buff_requires_mptest", "Stat buff injection requires --mpTest.");
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.");
+        }
+
+        if (!gameManagers.Runner.IsServer)
+        {
+            return AutomationResponse.Fail("stat_buff_requires_server_peer", "Stat buff injection must be issued to the server/host peer.");
+        }
+
+        if (gameManagers.Object == null || !gameManagers.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail("stat_buff_requires_state_authority", "Stat buff injection requires GameManagers State Authority.");
+        }
+
+        var scheduler = CombatScheduler.Instance;
+        if (scheduler == null || !scheduler.IsStatBuffSchedulerActive || scheduler.Object == null || !scheduler.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail("stat_buff_scheduler_unavailable", "CombatScheduler stat buff authority is not ready.");
+        }
+
+        string statName = GetString(body, "statType", GetString(body, "stat_type", StatType.MoveSpeed.ToString()));
+        if (!Enum.TryParse(statName, true, out StatType statType))
+        {
+            return AutomationResponse.Fail("invalid_stat_type", "statType must be a StatType value.", new { statType = statName });
+        }
+
+        string targetKind = GetString(body, "targetKind", GetString(body, "target_kind", "monster"));
+        int ownerPlayerId = GetInt(body, "ownerPlayerId", GetInt(body, "owner_player_id", -1));
+        float durationSeconds = Mathf.Max(0.1f, GetFloat(body, "durationSeconds", GetFloat(body, "duration_seconds", 180f)));
+        float value = GetFloat(body, "value", 0.5f);
+        bool isPercentage = GetBool(body, "isPercentage", GetBool(body, "is_percentage", true));
+
+        if (!TryFindStatusEffectTarget(targetKind, ownerPlayerId, out BuffManager targetBuffManager, out NetworkObject targetObject, out string targetLabel, out string findReason))
+        {
+            return AutomationResponse.Fail("stat_buff_target_not_found", "No stat buff target was found.", new
+            {
+                targetKind,
+                ownerPlayerId,
+                reason = findReason
+            });
+        }
+
+        int beforeTargetCount = scheduler.GetActiveStatBuffCountFor(targetBuffManager);
+        int beforeTotalCount = scheduler.ActiveStatBuffCount;
+        scheduler.ApplyStatBuff(
+            targetBuffManager,
+            statType,
+            value,
+            isPercentage,
+            durationSeconds,
+            gameObject,
+            Animator.StringToHash("MPTestStatBuff"));
+        int afterTargetCount = scheduler.GetActiveStatBuffCountFor(targetBuffManager);
+        int afterTotalCount = scheduler.ActiveStatBuffCount;
+        if (afterTargetCount <= 0 || afterTotalCount <= 0)
+        {
+            return AutomationResponse.Fail("stat_buff_apply_failed", "Stat buff did not appear in scheduler state.", new
+            {
+                targetKind,
+                ownerPlayerId,
+                target = targetLabel,
+                beforeTargetCount,
+                afterTargetCount,
+                beforeTotalCount,
+                afterTotalCount
+            });
+        }
+
+        MPTestLogger.Log("automation_stat_buff", "applied", statType.ToString(), null, new Dictionary<string, object>
+        {
+            { "targetKind", targetKind },
+            { "ownerPlayerId", ownerPlayerId },
+            { "target", targetLabel },
+            { "targetNetworkId", targetObject.Id.Raw },
+            { "durationSeconds", durationSeconds },
+            { "value", value },
+            { "isPercentage", isPercentage },
+            { "beforeTargetCount", beforeTargetCount },
+            { "afterTargetCount", afterTargetCount },
+            { "beforeTotalCount", beforeTotalCount },
+            { "afterTotalCount", afterTotalCount }
+        });
+
+        return AutomationResponse.Ok("stat buff applied", new
+        {
+            statType = statType.ToString(),
+            targetKind,
+            ownerPlayerId,
+            target = targetLabel,
+            targetNetworkId = targetObject.Id.Raw,
+            durationSeconds,
+            value,
+            isPercentage,
+            beforeTargetCount,
+            afterTargetCount,
+            beforeTotalCount,
+            afterTotalCount
+        });
+    }
+
+    private AutomationResponse ApplyZoneForTest(JObject body)
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("zone_requires_mptest", "Zone injection requires --mpTest.");
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.");
+        }
+
+        if (!gameManagers.Runner.IsServer)
+        {
+            return AutomationResponse.Fail("zone_requires_server_peer", "Zone injection must be issued to the server/host peer.");
+        }
+
+        if (gameManagers.Object == null || !gameManagers.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail("zone_requires_state_authority", "Zone injection requires GameManagers State Authority.");
+        }
+
+        var scheduler = CombatScheduler.Instance;
+        if (scheduler == null || !scheduler.IsZoneSchedulerActive || scheduler.Object == null || !scheduler.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail("zone_scheduler_unavailable", "CombatScheduler zone authority is not ready.");
+        }
+
+        string targetKind = GetString(body, "targetKind", GetString(body, "target_kind", "monster"));
+        int ownerPlayerId = GetInt(body, "ownerPlayerId", GetInt(body, "owner_player_id", -1));
+        float durationSeconds = Mathf.Max(0.1f, GetFloat(body, "durationSeconds", GetFloat(body, "duration_seconds", 180f)));
+        float tickIntervalSeconds = Mathf.Max(0.1f, GetFloat(body, "tickIntervalSeconds", GetFloat(body, "tick_interval_seconds", 3f)));
+        float range = Mathf.Max(0.1f, GetFloat(body, "range", 3f));
+
+        if (!TryFindStatusEffectTarget(targetKind, ownerPlayerId, out _, out NetworkObject targetObject, out string targetLabel, out string findReason))
+        {
+            return AutomationResponse.Fail("zone_target_not_found", "No zone anchor target was found.", new
+            {
+                targetKind,
+                ownerPlayerId,
+                reason = findReason
+            });
+        }
+
+        if (!TryCreateZoneForTest(durationSeconds, tickIntervalSeconds, out ZoneEffect zoneEffect, out TargetingStrategy targetingStrategy, out string zoneSource))
+        {
+            return AutomationResponse.Fail("zone_asset_unavailable", "No ZoneEffect test asset was available.");
+        }
+
+        int beforeCount = scheduler.ActiveZoneCount;
+        scheduler.TryScheduleZone(zoneEffect, targetObject.gameObject, null, range, targetingStrategy, out _);
+        int afterCount = scheduler.ActiveZoneCount;
+        if (afterCount <= beforeCount)
+        {
+            return AutomationResponse.Fail("zone_apply_failed", "Zone did not appear in scheduler state.", new
+            {
+                targetKind,
+                ownerPlayerId,
+                target = targetLabel,
+                beforeCount,
+                afterCount
+            });
+        }
+
+        MPTestLogger.Log("automation_zone", "applied", zoneEffect.name, null, new Dictionary<string, object>
+        {
+            { "targetKind", targetKind },
+            { "ownerPlayerId", ownerPlayerId },
+            { "target", targetLabel },
+            { "targetNetworkId", targetObject.Id.Raw },
+            { "durationSeconds", durationSeconds },
+            { "tickIntervalSeconds", tickIntervalSeconds },
+            { "range", range },
+            { "beforeCount", beforeCount },
+            { "afterCount", afterCount },
+            { "zoneSource", zoneSource }
+        });
+
+        return AutomationResponse.Ok("zone applied", new
+        {
+            targetKind,
+            ownerPlayerId,
+            target = targetLabel,
+            targetNetworkId = targetObject.Id.Raw,
+            durationSeconds,
+            tickIntervalSeconds,
+            range,
+            beforeCount,
+            afterCount,
+            zoneSource,
+            zoneEffect = zoneEffect.name,
+            targetingStrategy = targetingStrategy != null ? targetingStrategy.name : null
+        });
+    }
+
+    private static bool TryCreateZoneForTest(
+        float durationSeconds,
+        float tickIntervalSeconds,
+        out ZoneEffect zoneEffect,
+        out TargetingStrategy targetingStrategy,
+        out string source)
+    {
+        zoneEffect = null;
+        targetingStrategy = null;
+        source = null;
+
+        foreach (var skill in Resources.FindObjectsOfTypeAll<SkillData>())
+        {
+            if (skill == null || skill.effects == null || skill.targetingStrategy == null)
+            {
+                continue;
+            }
+
+            foreach (var effect in skill.effects)
+            {
+                if (effect is ZoneEffect loadedZone)
+                {
+                    zoneEffect = UnityEngine.Object.Instantiate(loadedZone);
+                    zoneEffect.name = loadedZone.name;
+                    zoneEffect.zoneDuration = durationSeconds;
+                    zoneEffect.tickInterval = tickIntervalSeconds;
+                    targetingStrategy = skill.targetingStrategy;
+                    source = $"skill:{skill.name}";
+                    return true;
+                }
+            }
+        }
+
+        ZoneEffect fallbackZone = ScriptableObject.CreateInstance<ZoneEffect>();
+        fallbackZone.name = "MPTestRuntimeZone";
+        fallbackZone.zoneDuration = durationSeconds;
+        fallbackZone.tickInterval = tickIntervalSeconds;
+        fallbackZone.effectsPerTick = new List<SkillEffect>();
+        StatusEffectApplier slow = ScriptableObject.CreateInstance<StatusEffectApplier>();
+        slow.name = "MPTestRuntimeZoneSlow";
+        slow.effectType = StatusEffectType.Slowed;
+        slow.duration = Mathf.Max(1f, tickIntervalSeconds);
+        slow.slowMultiplier = 0.5f;
+        fallbackZone.effectsPerTick.Add(slow);
+
+        MPTestZoneTargetingStrategy fallbackTargeting = ScriptableObject.CreateInstance<MPTestZoneTargetingStrategy>();
+        fallbackTargeting.name = "MPTestRuntimeZoneTargeting";
+        zoneEffect = fallbackZone;
+        targetingStrategy = fallbackTargeting;
+        source = "runtime-fallback";
+        return true;
+    }
+
     private static bool TryFindStatusEffectTarget(
         string targetKind,
         int ownerPlayerId,
@@ -1218,6 +1488,46 @@ public sealed class MPTestAutomationServer : MonoBehaviour
     {
         [JsonProperty("code")] public string Code;
         [JsonProperty("details", NullValueHandling = NullValueHandling.Ignore)] public object Details;
+    }
+}
+
+public sealed class MPTestZoneTargetingStrategy : TargetingStrategy
+{
+    public override List<GameObject> FindTargets(GameObject caster, Vector3 targetPosition, float range)
+    {
+        var targets = new List<GameObject>();
+        foreach (var monster in UnityEngine.Object.FindObjectsOfType<Monster>())
+        {
+            if (monster == null || monster.CurrentHealth <= 0f)
+            {
+                continue;
+            }
+
+            if (Vector3.Distance(monster.transform.position, targetPosition) <= range)
+            {
+                targets.Add(monster.gameObject);
+            }
+        }
+
+        if (targets.Count > 0)
+        {
+            return targets;
+        }
+
+        foreach (var unit in UnityEngine.Object.FindObjectsOfType<Unit>())
+        {
+            if (unit == null || unit.IsDead || unit.CurrentHealth <= 0f)
+            {
+                continue;
+            }
+
+            if (Vector3.Distance(unit.transform.position, targetPosition) <= range)
+            {
+                targets.Add(unit.gameObject);
+            }
+        }
+
+        return targets;
     }
 }
 #endif

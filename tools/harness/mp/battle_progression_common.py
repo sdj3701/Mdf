@@ -245,6 +245,22 @@ def active_status_count(snapshot: Any) -> int:
     return value if isinstance(value, int) else 0
 
 
+def active_buff_count(snapshot: Any) -> int:
+    effects = state(snapshot).get("effects")
+    if not isinstance(effects, dict):
+        return 0
+    value = effects.get("activeBuffCount")
+    return value if isinstance(value, int) else 0
+
+
+def active_zone_count(snapshot: Any) -> int:
+    effects = state(snapshot).get("effects")
+    if not isinstance(effects, dict):
+        return 0
+    value = effects.get("zoneCount")
+    return value if isinstance(value, int) else 0
+
+
 def has_alive_monster_semantics(snapshot: Any) -> bool:
     for player in players(snapshot):
         monsters = player.get("monsters") if isinstance(player, dict) else None
@@ -800,6 +816,10 @@ def freeze_battle_checkpoint(
     client_peer: str = "build-client",
     status_effect_payload: dict[str, Any] | None = None,
     require_active_status: bool = False,
+    stat_buff_payload: dict[str, Any] | None = None,
+    require_active_buff: bool = False,
+    zone_payload: dict[str, Any] | None = None,
+    require_active_zone: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
     write_json(artifact_dir / "build-host-bot-stop-after-battle.json", host.bot_stop(reason=reason))
     if client_human_bot:
@@ -816,6 +836,14 @@ def freeze_battle_checkpoint(
     if status_effect_payload is not None:
         status_apply_response = host.apply_status_effect(**status_effect_payload)
         write_json(artifact_dir / "build-host-apply-status-effect.json", status_apply_response)
+    stat_buff_apply_response: dict[str, Any] | None = None
+    if stat_buff_payload is not None:
+        stat_buff_apply_response = host.apply_stat_buff(**stat_buff_payload)
+        write_json(artifact_dir / "build-host-apply-stat-buff.json", stat_buff_apply_response)
+    zone_apply_response: dict[str, Any] | None = None
+    if zone_payload is not None:
+        zone_apply_response = host.apply_zone(**zone_payload)
+        write_json(artifact_dir / "build-host-apply-zone.json", zone_apply_response)
 
     deadline = time.time() + 20
     host_state: dict[str, Any] = {}
@@ -833,9 +861,21 @@ def freeze_battle_checkpoint(
         }
         host_active_status_count = active_status_count(host_state)
         client_active_status_count = active_status_count(client_state)
+        host_active_buff_count = active_buff_count(host_state)
+        client_active_buff_count = active_buff_count(client_state)
+        host_active_zone_count = active_zone_count(host_state)
+        client_active_zone_count = active_zone_count(client_state)
         active_status_ready = (
             not require_active_status or
             (host_active_status_count > 0 and client_active_status_count > 0)
+        )
+        active_buff_ready = (
+            not require_active_buff or
+            (host_active_buff_count > 0 and client_active_buff_count > 0)
+        )
+        active_zone_ready = (
+            not require_active_zone or
+            (host_active_zone_count > 0 and client_active_zone_count > 0)
         )
         write_json(artifact_dir / "battle-checkpoint-freeze-wait-latest.json", {
             "ready": ready,
@@ -846,8 +886,18 @@ def freeze_battle_checkpoint(
             "hostActiveStatusCount": host_active_status_count,
             "clientActiveStatusCount": client_active_status_count,
             "statusApplyResponse": status_apply_response,
+            "requireActiveBuff": require_active_buff,
+            "activeBuffReady": active_buff_ready,
+            "hostActiveBuffCount": host_active_buff_count,
+            "clientActiveBuffCount": client_active_buff_count,
+            "statBuffApplyResponse": stat_buff_apply_response,
+            "requireActiveZone": require_active_zone,
+            "activeZoneReady": active_zone_ready,
+            "hostActiveZoneCount": host_active_zone_count,
+            "clientActiveZoneCount": client_active_zone_count,
+            "zoneApplyResponse": zone_apply_response,
         })
-        if ready and comparison.get("success") is True and active_status_ready:
+        if ready and comparison.get("success") is True and active_status_ready and active_buff_ready and active_zone_ready:
             stable += 1
             if stable >= stable_samples:
                 return host_state, client_state, comparison, True
@@ -1606,6 +1656,8 @@ def run_battle_case(
     require_any_battle_command: bool = True,
     migrate_after_battle: bool = False,
     apply_status_before_migration: bool = False,
+    apply_stat_buff_before_migration: bool = False,
+    apply_zone_before_migration: bool = False,
 ) -> int:
     normalize_common_args(args)
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
@@ -1659,6 +1711,8 @@ def run_battle_case(
         "requireAnyBattleCommand": require_any_battle_command,
         "migrateAfterBattle": migrate_after_battle,
         "applyStatusBeforeMigration": apply_status_before_migration,
+        "applyStatBuffBeforeMigration": apply_stat_buff_before_migration,
+        "applyZoneBeforeMigration": apply_zone_before_migration,
         "dryRun": args.dry_run,
         "headlessPlayer": args.headless_player,
         "cleanup": {
@@ -1899,6 +1953,19 @@ def run_battle_case(
                 "durationSeconds": 180,
                 "slowMultiplier": 0.5,
             } if apply_status_before_migration else None
+            stat_buff_payload = {
+                "targetKind": "monster",
+                "statType": "MoveSpeed",
+                "durationSeconds": 180,
+                "value": 0.5,
+                "isPercentage": True,
+            } if apply_stat_buff_before_migration else None
+            zone_payload = {
+                "targetKind": "monster",
+                "durationSeconds": 180,
+                "tickIntervalSeconds": 3,
+                "range": 3,
+            } if apply_zone_before_migration else None
             host_battle, client_battle, freeze_comparison, freeze_ok = freeze_battle_checkpoint(
                 host,
                 client,
@@ -1909,6 +1976,10 @@ def run_battle_case(
                 "phase12_pre_host_migration_battle_checkpoint",
                 status_effect_payload=status_effect_payload,
                 require_active_status=apply_status_before_migration,
+                stat_buff_payload=stat_buff_payload,
+                require_active_buff=apply_stat_buff_before_migration,
+                zone_payload=zone_payload,
+                require_active_zone=apply_zone_before_migration,
             )
             write_json(artifact_dir / "snapshots" / "build-host-battle-checkpoint-frozen.json", host_battle)
             write_json(artifact_dir / "snapshots" / "build-client-battle-checkpoint-frozen.json", client_battle)

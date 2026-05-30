@@ -2587,6 +2587,15 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         _isBerserk = true;
 
+        if (CombatScheduler.Instance != null &&
+            CombatScheduler.Instance.IsStatBuffSchedulerActive &&
+            _buffManager != null &&
+            CombatScheduler.Instance.ApplyBerserkStatBuffs(_buffManager, gameObject, false, 9999f))
+        {
+            Debug.Log($"<color=red>[Unit] '{name}' ??＜ 紐⑤뱶 諛쒕룞! (scheduler)</color>");
+            return;
+        }
+
         float berserkDamage = currentAttackDamage * 1.5f;
         float berserkSpeed = currentAttackSpeed * 1.5f;
         _localAttackDamage = berserkDamage;
