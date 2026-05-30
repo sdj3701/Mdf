@@ -59,21 +59,21 @@ MonoBehaviour:
     impactFlashKey: VFX_Projectile_Fire4_Hit
     muzzleLocalPositionOffset: {x: 0, y: 0, z: 0}
     muzzleRotationOffsetEuler: {x: 0, y: 0, z: 0}
-    muzzleScaleMultiplier: 1
-    muzzleScaleMultiplierVector: {x: 1, y: 1, z: 1}
+    muzzleScaleMultiplier: 0.6
+    muzzleScaleMultiplierVector: {x: 0.6, y: 0.6, z: 0.6}
     muzzlePlaybackSpeed: 1
     muzzleLifetimeSeconds: 1
     projectileSpeed: 10
     projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
     projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
-    projectileScaleMultiplier: 0.5
-    projectileScaleMultiplierVector: {x: 0.5, y: 0.5, z: 0.5}
+    projectileScaleMultiplier: 1
+    projectileScaleMultiplierVector: {x: 1, y: 1, z: 1}
     projectilePlaybackSpeed: 1
     alignProjectileToDirection: 1
     impactLocalPositionOffset: {x: 0, y: 0, z: 0}
     impactRotationOffsetEuler: {x: 0, y: 0, z: 0}
-    impactScaleMultiplier: 0.9
-    impactScaleMultiplierVector: {x: 0.9, y: 0.9, z: 0.9}
+    impactScaleMultiplier: 0.7
+    impactScaleMultiplierVector: {x: 0.7, y: 0.7, z: 0.7}
     impactPlaybackSpeed: 1
     impactLifetimeSeconds: 1
     alignImpactToDirection: 1

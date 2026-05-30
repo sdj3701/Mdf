@@ -28,7 +28,11 @@ public class ProjectileVfxManager : MonoBehaviour
         public int FireTick;
         public int HitTick;
         public GameObject Instance;
+        public NetworkObject TargetObject;
+        public uint TargetNetworkIdRaw;
         public Transform TargetTransform;
+        public Unit TargetUnit;
+        public Monster TargetMonster;
         public Vector3 LastKnownTargetPos;
         public Vector3 LastKnownDirection;
         public ProjectileVfxConfig Config;
@@ -175,7 +179,7 @@ public class ProjectileVfxManager : MonoBehaviour
         nowTime = GetRenderTime(runner);
         hitTime = evt.HitTick * runner.DeltaTime;
         firePos = ResolveFirePosition(evt);
-        targetPos = ResolveTargetPosition(evt, firePos);
+        targetPos = ResolveTargetPositionIfTrackable(evt.Target, targetPos);
         travelDirection = ResolveTravelDirection(firePos, targetPos, evt.Attacker);
 
         if (hitTime <= nowTime)
@@ -214,11 +218,11 @@ public class ProjectileVfxManager : MonoBehaviour
             FireTick = evt.FireTick,
             HitTick = evt.HitTick,
             Instance = instance,
-            TargetTransform = evt.Target != null ? evt.Target.transform : null,
             LastKnownTargetPos = targetPos,
             LastKnownDirection = travelDirection,
             Config = config
         };
+        BindTarget(active, evt.Target);
 
         _activeBySeq[evt.Sequence] = active;
         _activeProjectiles.Add(active);
@@ -332,6 +336,137 @@ public class ProjectileVfxManager : MonoBehaviour
     private static Vector3 ResolveTargetPosition(CombatScheduler.ProjectileEventData evt, Vector3 fallback)
     {
         return evt.Target != null ? evt.Target.transform.position : fallback;
+    }
+
+    private static Vector3 ResolveTargetPositionIfTrackable(NetworkObject target, Vector3 fallback)
+    {
+        if (target == null)
+        {
+            return fallback;
+        }
+
+        Transform targetTransform = target.transform;
+        uint targetNetworkIdRaw = target.IsValid ? target.Id.Raw : 0;
+        Unit targetUnit = target.GetComponent<Unit>();
+        Monster targetMonster = target.GetComponent<Monster>();
+        return IsTrackedTargetStillLive(targetTransform, target, targetNetworkIdRaw, targetUnit, targetMonster)
+            ? targetTransform.position
+            : fallback;
+    }
+
+    private static void BindTarget(ActiveProjectile active, NetworkObject target)
+    {
+        if (active == null || target == null)
+        {
+            return;
+        }
+
+        active.TargetObject = target;
+        active.TargetNetworkIdRaw = target.IsValid ? target.Id.Raw : 0;
+        active.TargetTransform = target.transform;
+        active.TargetUnit = target.GetComponent<Unit>();
+        active.TargetMonster = target.GetComponent<Monster>();
+
+        if (!IsTrackedTargetStillLive(active))
+        {
+            FreezeTrackedTarget(active);
+        }
+    }
+
+    private static bool TryRefreshTrackedTargetPosition(ActiveProjectile active, out Vector3 targetOrigin)
+    {
+        targetOrigin = active.LastKnownTargetPos;
+        if (active.TargetTransform == null)
+        {
+            return false;
+        }
+
+        if (!IsTrackedTargetStillLive(active))
+        {
+            FreezeTrackedTarget(active);
+            return false;
+        }
+
+        targetOrigin = active.TargetTransform.position;
+        active.LastKnownTargetPos = targetOrigin;
+        return true;
+    }
+
+    private static bool IsTrackedTargetStillLive(ActiveProjectile active)
+    {
+        if (active == null)
+        {
+            return false;
+        }
+
+        return IsTrackedTargetStillLive(
+            active.TargetTransform,
+            active.TargetObject,
+            active.TargetNetworkIdRaw,
+            active.TargetUnit,
+            active.TargetMonster);
+    }
+
+    private static bool IsTrackedTargetStillLive(
+        Transform targetTransform,
+        NetworkObject targetObject,
+        uint targetNetworkIdRaw,
+        Unit targetUnit,
+        Monster targetMonster)
+    {
+        if (targetTransform == null)
+        {
+            return false;
+        }
+
+        GameObject targetGameObject = targetTransform.gameObject;
+        if (targetGameObject == null || !targetGameObject.activeInHierarchy)
+        {
+            return false;
+        }
+
+        if (targetObject != null)
+        {
+            if (!targetObject.IsValid)
+            {
+                return false;
+            }
+
+            if (targetNetworkIdRaw != 0 && targetObject.Id.Raw != targetNetworkIdRaw)
+            {
+                return false;
+            }
+        }
+
+        if (targetUnit != null)
+        {
+            if (targetUnit.IsDead)
+            {
+                return false;
+            }
+
+            NetworkObject unitObject = targetUnit.Object;
+            if (unitObject != null && unitObject.IsValid && targetUnit.NetworkedIsDead)
+            {
+                return false;
+            }
+        }
+
+        if (targetMonster != null && targetMonster.currentHP <= 0f)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void FreezeTrackedTarget(ActiveProjectile active)
+    {
+        active.TargetObject = null;
+        active.TargetNetworkIdRaw = 0;
+        active.TargetTransform = null;
+        active.TargetUnit = null;
+        active.TargetMonster = null;
     }
 
     private static Vector3 ResolveTravelDirection(Vector3 from, Vector3 to, Component attacker)
@@ -476,12 +611,7 @@ public class ProjectileVfxManager : MonoBehaviour
                 continue;
             }
 
-            Vector3 targetOrigin = active.LastKnownTargetPos;
-            if (active.TargetTransform != null)
-            {
-                targetOrigin = active.TargetTransform.position;
-                active.LastKnownTargetPos = targetOrigin;
-            }
+            TryRefreshTrackedTargetPosition(active, out Vector3 targetOrigin);
 
             Vector3 targetDirection = targetOrigin - active.Instance.transform.position;
             if (targetDirection.sqrMagnitude > 1e-6f)

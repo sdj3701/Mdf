@@ -234,6 +234,39 @@ public sealed class ProjectileVfxConfigEditModeTests
     }
 
     [Test]
+    public void ProjectileVfxManagerFreezesDeadOrPooledTargets()
+    {
+        string source = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
+
+        Assert.That(source, Does.Contain("TargetNetworkIdRaw"));
+        Assert.That(source, Does.Contain("TryRefreshTrackedTargetPosition"));
+        Assert.That(source, Does.Contain("FreezeTrackedTarget(active)"));
+        Assert.That(source, Does.Contain("!targetGameObject.activeInHierarchy"));
+        Assert.That(source, Does.Contain("targetObject.Id.Raw != targetNetworkIdRaw"));
+        Assert.That(source, Does.Contain("targetUnit.IsDead"));
+        Assert.That(source, Does.Contain("targetUnit.NetworkedIsDead"));
+        Assert.That(source, Does.Contain("targetMonster.currentHP <= 0f"));
+    }
+
+    [Test]
+    public void VfxPoolManagerPrewarmsBasicAttackProfileKeysFromUnitData()
+    {
+        string source = File.ReadAllText("Assets/Scripts/VFX/VfxPoolManager.cs");
+
+        Assert.That(source, Does.Contain("prewarmBasicAttackProfilesOnStart = true"));
+        Assert.That(source, Does.Contain("basicAttackProfilePrewarmCount = 20"));
+        Assert.That(source, Does.Contain("LoadManager.Instance.GetAllUnitData()"));
+        Assert.That(source, Does.Contain("CollectBasicAttackVfxKeys"));
+        Assert.That(source, Does.Contain("unitData.GetBasicAttackVfxConfig(starLevel)"));
+        Assert.That(source, Does.Contain("slashConfig.prefabKey"));
+        Assert.That(source, Does.Contain("projectileConfig.muzzleFlashKey"));
+        Assert.That(source, Does.Contain("projectileConfig.projectileKey"));
+        Assert.That(source, Does.Contain("projectileConfig.impactFlashKey"));
+        Assert.That(source, Does.Contain("AssetLoader.LoadAssetAsync<GameObject>(key)"));
+        Assert.That(source, Does.Contain("Prewarm(prefab, basicAttackProfilePrewarmCount"));
+    }
+
+    [Test]
     public void RequestedHovlProjectileWrapperPrefabsExistAsAddressables()
     {
         AddressableAssetSettings settings = AddressableAssetSettingsDefaultObject.Settings;
