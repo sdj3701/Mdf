@@ -311,6 +311,13 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(schedulerSource, Does.Contain("PendingFire"));
         Assert.That(schedulerSource, Does.Contain("ProcessDueFires"));
         Assert.That(schedulerSource, Does.Contain("fireDelaySeconds"));
+        Assert.That(schedulerSource, Does.Contain("PendingFireSnapshot : INetworkStruct"));
+        Assert.That(schedulerSource, Does.Contain("PendingHitSnapshot : INetworkStruct"));
+        Assert.That(schedulerSource, Does.Contain("PendingFireSnapshots"));
+        Assert.That(schedulerSource, Does.Contain("PendingHitSnapshots"));
+        Assert.That(schedulerSource, Does.Contain("RebuildPendingBucketsFromNetworkSnapshots"));
+        Assert.That(schedulerSource, Does.Contain("ClearPendingFireSnapshot"));
+        Assert.That(schedulerSource, Does.Contain("ClearPendingHitSnapshot"));
         Assert.That(schedulerSource, Does.Contain("WriteProjectileEvent(attacker, target, fireTick, hitTick)"));
         Assert.That(unitDataSource, Does.Not.Contain("public float projectileSpeed"));
     }

@@ -17,6 +17,9 @@ public class CombatScheduler : NetworkBehaviour
     private const int EventBufferSafetyMargin = 256;
     private const int EventBufferCapacity =
         MaxPlayers * MaxUnitsPerPlayer * MaxAttackVfxPerSecond * MaxProjectileFlightSeconds + EventBufferSafetyMargin;
+    private const int PendingFireCapacity = MaxPlayers * MaxUnitsPerPlayer * MaxAttackVfxPerSecond + EventBufferSafetyMargin;
+    private const int PendingHitCapacity = EventBufferCapacity;
+    private const int FixedPointScale = 1000;
 
     [Networked] public int EventSequence { get; private set; }
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> EventSeqs { get; }
@@ -29,10 +32,16 @@ public class CombatScheduler : NetworkBehaviour
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> BasicAttackVfxEventTicks { get; }
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<NetworkObject> BasicAttackVfxEventAttackers { get; }
     [Networked, Capacity(EventBufferCapacity)] private NetworkArray<NetworkObject> BasicAttackVfxEventTargets { get; }
+    [Networked] private int PendingFireSequence { get; set; }
+    [Networked, Capacity(PendingFireCapacity)] private NetworkArray<PendingFireSnapshot> PendingFireSnapshots { get; }
+    [Networked] private int PendingHitSequence { get; set; }
+    [Networked, Capacity(PendingHitCapacity)] private NetworkArray<PendingHitSnapshot> PendingHitSnapshots { get; }
 
     private List<PendingFire>[] _fireBuckets;
     private List<PendingHit>[] _hitBuckets;
     private List<PendingBasicAttackVfx>[] _basicAttackVfxBuckets;
+    private readonly HashSet<int> _localPendingFireSequences = new HashSet<int>();
+    private readonly HashSet<int> _localPendingHitSequences = new HashSet<int>();
 
     private struct PendingFire
     {
@@ -47,6 +56,7 @@ public class CombatScheduler : NetworkBehaviour
         public int FireTick;
         public float SplashRadius;
         public LayerMask EnemyLayerMask;
+        public int SnapshotSequence;
     }
 
     private struct PendingHit
@@ -58,6 +68,7 @@ public class CombatScheduler : NetworkBehaviour
         public int HitTick;
         public float SplashRadius;
         public LayerMask EnemyLayerMask;
+        public int SnapshotSequence;
     }
 
     private struct PendingBasicAttackVfx
@@ -65,6 +76,38 @@ public class CombatScheduler : NetworkBehaviour
         public NetworkObject Attacker;
         public NetworkObject Target;
         public int Tick;
+    }
+
+    private struct PendingFireSnapshot : INetworkStruct
+    {
+        public int Sequence;
+        public int FireTick;
+        public NetworkId AttackerId;
+        public NetworkId TargetId;
+        public int FirePositionX;
+        public int FirePositionY;
+        public int FirePositionZ;
+        public int Damage;
+        public int DamageType;
+        public int IsRanged;
+        public int EmitVfx;
+        public int ProjectileSpeedOverride;
+        public int SplashRadius;
+        public int EnemyLayerMask;
+    }
+
+    private struct PendingHitSnapshot : INetworkStruct
+    {
+        public int Sequence;
+        public int HitTick;
+        public NetworkId TargetId;
+        public int ImpactPositionX;
+        public int ImpactPositionY;
+        public int ImpactPositionZ;
+        public int Damage;
+        public int DamageType;
+        public int SplashRadius;
+        public int EnemyLayerMask;
     }
 
     public struct ProjectileEventData
@@ -99,6 +142,7 @@ public class CombatScheduler : NetworkBehaviour
         }
 
         InitializeHitBuckets();
+        RebuildPendingBucketsFromNetworkSnapshots();
     }
 
     private void OnDisable()
@@ -126,6 +170,7 @@ public class CombatScheduler : NetworkBehaviour
 #endif
 
         ProcessDueBasicAttackVfx();
+        RebuildPendingBucketsFromNetworkSnapshots();
         ProcessDueFires();
         ProcessDueHits();
     }
@@ -304,6 +349,7 @@ public class CombatScheduler : NetworkBehaviour
                     fireTick);
             }
 
+            ClearPendingFireSnapshot(fire.SnapshotSequence);
             bucket.RemoveAt(i);
         }
     }
@@ -343,6 +389,7 @@ public class CombatScheduler : NetworkBehaviour
             }
 
             ApplyHit(hit);
+            ClearPendingHitSnapshot(hit.SnapshotSequence);
             bucket.RemoveAt(i);
         }
     }
@@ -426,6 +473,8 @@ public class CombatScheduler : NetworkBehaviour
         _fireBuckets = new List<PendingFire>[size];
         _hitBuckets = new List<PendingHit>[size];
         _basicAttackVfxBuckets = new List<PendingBasicAttackVfx>[size];
+        _localPendingFireSequences.Clear();
+        _localPendingHitSequences.Clear();
         for (int i = 0; i < size; i++)
         {
             _fireBuckets[i] = new List<PendingFire>();
@@ -436,14 +485,34 @@ public class CombatScheduler : NetworkBehaviour
 
     private void EnqueuePendingFire(PendingFire fire)
     {
+        fire.SnapshotSequence = WritePendingFireSnapshot(fire);
+        AddPendingFireToBucket(fire);
+    }
+
+    private void AddPendingFireToBucket(PendingFire fire)
+    {
         int bucketIndex = fire.FireTick % _fireBuckets.Length;
         _fireBuckets[bucketIndex].Add(fire);
+        if (fire.SnapshotSequence > 0)
+        {
+            _localPendingFireSequences.Add(fire.SnapshotSequence);
+        }
     }
 
     private void EnqueuePendingHit(PendingHit hit)
     {
+        hit.SnapshotSequence = WritePendingHitSnapshot(hit);
+        AddPendingHitToBucket(hit);
+    }
+
+    private void AddPendingHitToBucket(PendingHit hit)
+    {
         int bucketIndex = hit.HitTick % _hitBuckets.Length;
         _hitBuckets[bucketIndex].Add(hit);
+        if (hit.SnapshotSequence > 0)
+        {
+            _localPendingHitSequences.Add(hit.SnapshotSequence);
+        }
     }
 
     private void EnqueuePendingBasicAttackVfx(PendingBasicAttackVfx pending)
@@ -461,6 +530,51 @@ public class CombatScheduler : NetworkBehaviour
 
         float deltaTime = Runner != null && Runner.DeltaTime > 0f ? Runner.DeltaTime : Time.deltaTime;
         return Mathf.Max(1, Mathf.CeilToInt(seconds / Mathf.Max(0.0001f, deltaTime)));
+    }
+
+    private void RebuildPendingBucketsFromNetworkSnapshots()
+    {
+        if (Runner == null || _fireBuckets == null || _hitBuckets == null)
+        {
+            return;
+        }
+
+        int nowTick = Runner.Tick;
+        for (int i = 0; i < PendingFireCapacity; i++)
+        {
+            PendingFireSnapshot snapshot = PendingFireSnapshots[i];
+            if (snapshot.Sequence <= 0 || _localPendingFireSequences.Contains(snapshot.Sequence))
+            {
+                continue;
+            }
+
+            NetworkObject target = ResolveNetworkObject(snapshot.TargetId);
+            if (target == null)
+            {
+                if (Object != null && Object.HasStateAuthority && snapshot.FireTick <= nowTick)
+                {
+                    ClearPendingFireSnapshot(snapshot.Sequence);
+                }
+
+                continue;
+            }
+
+            PendingFire fire = ReadPendingFireSnapshot(snapshot, nowTick);
+            fire.Attacker = ResolveNetworkObject(snapshot.AttackerId);
+            fire.Target = target;
+            AddPendingFireToBucket(fire);
+        }
+
+        for (int i = 0; i < PendingHitCapacity; i++)
+        {
+            PendingHitSnapshot snapshot = PendingHitSnapshots[i];
+            if (snapshot.Sequence <= 0 || _localPendingHitSequences.Contains(snapshot.Sequence))
+            {
+                continue;
+            }
+
+            AddPendingHitToBucket(ReadPendingHitSnapshot(snapshot, nowTick));
+        }
     }
 
     private static bool IsPendingFireValid(PendingFire fire)
@@ -552,6 +666,150 @@ public class CombatScheduler : NetworkBehaviour
         }
 
         return attacker.transform.position;
+    }
+
+    private int WritePendingFireSnapshot(PendingFire fire)
+    {
+        int nextSeq = PendingFireSequence + 1;
+        PendingFireSequence = nextSeq;
+
+        int index = nextSeq % PendingFireCapacity;
+        PendingFireSnapshots.Set(index, new PendingFireSnapshot
+        {
+            Sequence = nextSeq,
+            FireTick = fire.FireTick,
+            AttackerId = GetNetworkId(fire.Attacker),
+            TargetId = GetNetworkId(fire.Target),
+            FirePositionX = PackFloat(fire.FirePosition.x),
+            FirePositionY = PackFloat(fire.FirePosition.y),
+            FirePositionZ = PackFloat(fire.FirePosition.z),
+            Damage = PackFloat(fire.Damage),
+            DamageType = (int)fire.DamageType,
+            IsRanged = fire.IsRanged ? 1 : 0,
+            EmitVfx = fire.EmitVfx ? 1 : 0,
+            ProjectileSpeedOverride = PackFloat(fire.ProjectileSpeedOverride),
+            SplashRadius = PackFloat(fire.SplashRadius),
+            EnemyLayerMask = fire.EnemyLayerMask.value
+        });
+
+        return nextSeq;
+    }
+
+    private int WritePendingHitSnapshot(PendingHit hit)
+    {
+        int nextSeq = PendingHitSequence + 1;
+        PendingHitSequence = nextSeq;
+
+        int index = nextSeq % PendingHitCapacity;
+        PendingHitSnapshots.Set(index, new PendingHitSnapshot
+        {
+            Sequence = nextSeq,
+            HitTick = hit.HitTick,
+            TargetId = hit.TargetId,
+            ImpactPositionX = PackFloat(hit.ImpactPosition.x),
+            ImpactPositionY = PackFloat(hit.ImpactPosition.y),
+            ImpactPositionZ = PackFloat(hit.ImpactPosition.z),
+            Damage = PackFloat(hit.Damage),
+            DamageType = (int)hit.DamageType,
+            SplashRadius = PackFloat(hit.SplashRadius),
+            EnemyLayerMask = hit.EnemyLayerMask.value
+        });
+
+        return nextSeq;
+    }
+
+    private void ClearPendingFireSnapshot(int sequence)
+    {
+        if (sequence <= 0)
+        {
+            return;
+        }
+
+        int index = sequence % PendingFireCapacity;
+        if (PendingFireSnapshots[index].Sequence == sequence)
+        {
+            PendingFireSnapshots.Set(index, default);
+        }
+
+        _localPendingFireSequences.Remove(sequence);
+    }
+
+    private void ClearPendingHitSnapshot(int sequence)
+    {
+        if (sequence <= 0)
+        {
+            return;
+        }
+
+        int index = sequence % PendingHitCapacity;
+        if (PendingHitSnapshots[index].Sequence == sequence)
+        {
+            PendingHitSnapshots.Set(index, default);
+        }
+
+        _localPendingHitSequences.Remove(sequence);
+    }
+
+    private PendingFire ReadPendingFireSnapshot(PendingFireSnapshot snapshot, int nowTick)
+    {
+        return new PendingFire
+        {
+            FirePosition = UnpackVector(snapshot.FirePositionX, snapshot.FirePositionY, snapshot.FirePositionZ),
+            Damage = UnpackFloat(snapshot.Damage),
+            DamageType = (DamageType)snapshot.DamageType,
+            IsRanged = snapshot.IsRanged != 0,
+            EmitVfx = snapshot.EmitVfx != 0,
+            ProjectileSpeedOverride = UnpackFloat(snapshot.ProjectileSpeedOverride),
+            FireTick = Mathf.Max(snapshot.FireTick, nowTick),
+            SplashRadius = UnpackFloat(snapshot.SplashRadius),
+            EnemyLayerMask = new LayerMask { value = snapshot.EnemyLayerMask },
+            SnapshotSequence = snapshot.Sequence
+        };
+    }
+
+    private PendingHit ReadPendingHitSnapshot(PendingHitSnapshot snapshot, int nowTick)
+    {
+        return new PendingHit
+        {
+            TargetId = snapshot.TargetId,
+            ImpactPosition = UnpackVector(snapshot.ImpactPositionX, snapshot.ImpactPositionY, snapshot.ImpactPositionZ),
+            Damage = UnpackFloat(snapshot.Damage),
+            DamageType = (DamageType)snapshot.DamageType,
+            HitTick = Mathf.Max(snapshot.HitTick, nowTick),
+            SplashRadius = UnpackFloat(snapshot.SplashRadius),
+            EnemyLayerMask = new LayerMask { value = snapshot.EnemyLayerMask },
+            SnapshotSequence = snapshot.Sequence
+        };
+    }
+
+    private NetworkObject ResolveNetworkObject(NetworkId id)
+    {
+        if (Runner == null || id.Raw == 0)
+        {
+            return null;
+        }
+
+        return Runner.TryFindObject(id, out var networkObject) ? networkObject : null;
+    }
+
+    private static NetworkId GetNetworkId(NetworkObject networkObject)
+    {
+        return networkObject != null && networkObject.IsValid ? networkObject.Id : default;
+    }
+
+    private static int PackFloat(float value)
+    {
+        return Mathf.RoundToInt(value * FixedPointScale);
+    }
+
+    private static float UnpackFloat(int value)
+    {
+        return value / (float)FixedPointScale;
+    }
+
+    private static Vector3 UnpackVector(int x, int y, int z)
+    {
+        return new Vector3(UnpackFloat(x), UnpackFloat(y), UnpackFloat(z));
     }
 
     private void WriteProjectileEvent(NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)

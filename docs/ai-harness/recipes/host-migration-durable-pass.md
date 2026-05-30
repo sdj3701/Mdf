@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: host-migration, security
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-05-31
+Last verified: 2026-05-31
+Use count: 2
 Review after: 2026-08-03
 Triggers: Phase 16, Host Migration durable E2E, wallHash/gold/shop/player identity drift
 Applies to: `HostMigrationHandler`, `PlayerManager`, `FieldManager`, `run_host_migration_e2e.py`
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260530-175140-matrix/20260530-175147-progressed-host-migration-after-battle
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -29,3 +29,7 @@ Verification:
 - `artifacts/mp/20260505-115931-host-migration-e2e/host-migration-e2e-result.json` passed with `failures=[]` after identity/control and durable state restore.
 - `artifacts/mp/20260505-123330-host-migration-e2e/host-migration-e2e-result.json` passed on the latest build after wall-sync hardening.
 - `durable-state-report.json` for the passing run reported no per-player mismatches.
+
+Lifecycle notes:
+- 2026-05-31: Verified CombatScheduler pending fire/hit network snapshot hardening with progressed Host Migration after battle.
+- 2026-05-31: verified artifact `artifacts/mp/20260530-175140-matrix/20260530-175147-progressed-host-migration-after-battle`

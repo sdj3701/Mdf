@@ -6,11 +6,11 @@ Category: cleanup, security
 Created: 2026-05-08
 Last used: 2026-05-31
 Last verified: 2026-05-31
-Use count: 5
+Use count: 6
 Review after: 2026-08-06
 Triggers: many live `MDF-MPTest.exe` processes, D3D resource errors, lobby start timeouts, cleanup report token redaction
 Applies to: `tools/harness/mp/launch_player.py`, cleanup reports, final audit E2E retries
-Verified by: see Verification section below; migrated from old Status: verified with environment blocker; blocker note preserved in recipe body; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/cleanup-report.json; artifacts/mp/20260530-171651-matrix/20260530-171657-human-bot-battle-progression/cleanup-report.json
+Verified by: see Verification section below; migrated from old Status: verified with environment blocker; blocker note preserved in recipe body; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/cleanup-report.json; artifacts/mp/20260530-171651-matrix/20260530-171657-human-bot-battle-progression/cleanup-report.json; artifacts/mp/20260530-175140-matrix/20260530-175147-progressed-host-migration-after-battle/cleanup-report.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -38,3 +38,5 @@ Lifecycle notes:
 - 2026-05-16: verified artifact `artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/cleanup-report.json`
 - 2026-05-31: Confirmed orphan pressure gate and cleanup PASS for targeted battle VFX event integration run.
 - 2026-05-31: verified artifact `artifacts/mp/20260530-171651-matrix/20260530-171657-human-bot-battle-progression/cleanup-report.json`
+- 2026-05-31: Confirmed orphan gate and cleanup PASS for scheduler Host Migration hardening E2E.
+- 2026-05-31: verified artifact `artifacts/mp/20260530-175140-matrix/20260530-175147-progressed-host-migration-after-battle/cleanup-report.json`

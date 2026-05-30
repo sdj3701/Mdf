@@ -6,11 +6,11 @@ Category: battle, feature-workflow
 Created: 2026-05-08
 Last used: 2026-05-31
 Last verified: 2026-05-31
-Use count: 4
+Use count: 5
 Review after: 2026-08-06
 Triggers: matrix cost control, random-aware runs, battle-heavy runs, nightly automation
 Applies to: `tools/harness/mp/run_matrix.py`, matrix docs, HumanBot/battle seed sweeps
-Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-100906-matrix; artifacts/mp/20260530-171651-matrix
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-100906-matrix; artifacts/mp/20260530-171651-matrix; artifacts/mp/20260530-175140-matrix
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -49,3 +49,5 @@ Lifecycle notes:
 - 2026-05-10: verified artifact `artifacts/mp/20260510-100906-matrix`
 - 2026-05-31: Used targeted human-bot-battle-progression case instead of full battle profile for VFX event integration.
 - 2026-05-31: verified artifact `artifacts/mp/20260530-171651-matrix`
+- 2026-05-31: Used targeted progressed-host-migration-after-battle case for scheduler lifecycle hardening.
+- 2026-05-31: verified artifact `artifacts/mp/20260530-175140-matrix`
