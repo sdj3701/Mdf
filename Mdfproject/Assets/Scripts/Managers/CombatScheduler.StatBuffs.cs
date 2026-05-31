@@ -5,8 +5,13 @@ using UnityEngine;
 
 public partial class CombatScheduler
 {
-    private const int MaxActiveStatBuffs = 24;
+    private const int MaxActiveStatBuffs = 96;
     private const int StatBuffSourceBerserk = 1001;
+    private const int StatBuffFlagBerserkBundle = 1 << 0;
+    private const int StatBuffFlagBerserkMoveSpeed = 1 << 1;
+    private const float BerserkAttackDamagePercent = 0.5f;
+    private const float BerserkAttackSpeedPercent = 0.5f;
+    private const float BerserkMoveSpeedPercent = 1f;
 
     [Networked] public int StatBuffSequence { get; private set; }
     [Networked, Capacity(MaxActiveStatBuffs)] private NetworkArray<StatBuffEntry> StatBuffs { get; }
@@ -116,15 +121,21 @@ public partial class CombatScheduler
             return false;
         }
 
-        bool applied = false;
-        applied |= ApplyStatBuff(target, StatType.AttackDamage, 0.5f, true, duration, caster, StatBuffSourceBerserk + 1);
-        applied |= ApplyStatBuff(target, StatType.AttackSpeed, 0.5f, true, duration, caster, StatBuffSourceBerserk + 2);
+        int flags = StatBuffFlagBerserkBundle;
         if (includeMoveSpeed)
         {
-            applied |= ApplyStatBuff(target, StatType.MoveSpeed, 1f, true, duration, caster, StatBuffSourceBerserk + 3);
+            flags |= StatBuffFlagBerserkMoveSpeed;
         }
 
-        return applied;
+        return ApplyStatBuffInternal(
+            target,
+            StatType.AttackDamage,
+            BerserkAttackDamagePercent,
+            true,
+            duration,
+            caster,
+            StatBuffSourceBerserk,
+            flags);
     }
 
     public bool ApplyStatBuff(
@@ -135,6 +146,19 @@ public partial class CombatScheduler
         float duration,
         GameObject caster,
         int sourceKey)
+    {
+        return ApplyStatBuffInternal(target, statType, value, isPercentage, duration, caster, sourceKey, 0);
+    }
+
+    private bool ApplyStatBuffInternal(
+        BuffManager target,
+        StatType statType,
+        float value,
+        bool isPercentage,
+        float duration,
+        GameObject caster,
+        int sourceKey,
+        int flags)
     {
         if (!IsStatBuffSchedulerActive || !Object.HasStateAuthority || target == null || duration <= 0f)
         {
@@ -165,6 +189,7 @@ public partial class CombatScheduler
             StatBuffEntry existing = StatBuffs[existingSlot];
             existing.ExpireTick = Mathf.Max(existing.ExpireTick, expireTick);
             existing.Value = PackFloat(value);
+            existing.PackedMeta = PackStatBuffMeta(sourceKind, (int)statType, isPercentage ? 1 : 0, flags);
             StatBuffs.Set(existingSlot, existing);
             RefreshStatBuffCacheForTarget(targetObject.Id);
             return true;
@@ -189,7 +214,7 @@ public partial class CombatScheduler
             Value = PackFloat(value),
             AppliedTick = now,
             ExpireTick = expireTick,
-            PackedMeta = PackStatBuffMeta(sourceKind, (int)statType, isPercentage ? 1 : 0, 0)
+            PackedMeta = PackStatBuffMeta(sourceKind, (int)statType, isPercentage ? 1 : 0, flags)
         });
 
         RefreshStatBuffCacheForTarget(targetObject.Id);
@@ -251,7 +276,7 @@ public partial class CombatScheduler
                 ? targetKeyBuilder(targetObject.gameObject)
                 : $"targetId={entry.TargetId.Raw}";
             yield return
-                $"{targetKey};seq={entry.Sequence};sourceKind={entry.SourceKind};sourceKey={entry.SourceKey};caster={entry.CasterId.Raw};stat={(StatType)entry.StatType};value={entry.Value};percent={entry.IsPercentage};applied={entry.AppliedTick};expire={entry.ExpireTick}";
+                $"{targetKey};seq={entry.Sequence};sourceKind={entry.SourceKind};sourceKey={entry.SourceKey};caster={entry.CasterId.Raw};stat={(StatType)entry.StatType};value={entry.Value};percent={entry.IsPercentage};flags={entry.Flags};applied={entry.AppliedTick};expire={entry.ExpireTick}";
         }
     }
 
@@ -511,6 +536,18 @@ public partial class CombatScheduler
             }
 
             float value = UnpackFloat(entry.Value);
+            if (IsBerserkBundle(entry))
+            {
+                attackDamagePercentBonus += value;
+                attackSpeedPercentBonus += BerserkAttackSpeedPercent;
+                if ((entry.Flags & StatBuffFlagBerserkMoveSpeed) != 0)
+                {
+                    moveSpeedPercentBonus += BerserkMoveSpeedPercent;
+                }
+
+                continue;
+            }
+
             bool percent = entry.IsPercentage != 0;
             var statType = (StatType)entry.StatType;
             if (statType == StatType.AttackDamage)
@@ -539,6 +576,11 @@ public partial class CombatScheduler
             attackDamagePercentBonus,
             attackSpeedPercentBonus,
             Mathf.Max(0.1f, 1f + moveSpeedPercentBonus));
+    }
+
+    private static bool IsBerserkBundle(StatBuffEntry entry)
+    {
+        return (entry.Flags & StatBuffFlagBerserkBundle) != 0;
     }
 
     private void RefreshAllStatBuffCaches()

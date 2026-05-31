@@ -36,7 +36,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private const int PRESENTED_AUGMENT_SNAPSHOT_CAPACITY = 3;
     [Networked, Capacity(PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> PresentedAugmentSnapshotIds { get; }
     [Networked] private int PresentedAugmentSnapshotCount { get; set; }
-    private const int SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 8;
+    private const int SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 32;
     [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> SelectedAugmentSnapshotIds { get; }
     [Networked] private int SelectedAugmentSnapshotCount { get; set; }
     private const float PERMANENT_BONUS_NETWORK_SCALE = 10000f;
@@ -100,10 +100,16 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Networked] private int AttackMonsterPoolSnapshotCount { get; set; }
     [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<AttackMonsterPoolSnapshotSlot> AttackMonsterPoolSnapshotSlots { get; }
     private int _lastAppliedAttackMonsterPoolRevision;
+    private int _pendingAttackMonsterPoolCommandRevision = -1;
     public int AppliedAttackMonsterPoolRevision =>
         Object != null && Object.HasStateAuthority ? AttackMonsterPoolRevision : _lastAppliedAttackMonsterPoolRevision;
     public bool HasAppliedCurrentAttackMonsterPoolSnapshot =>
         Object != null && Object.HasStateAuthority || _lastAppliedAttackMonsterPoolRevision == AttackMonsterPoolRevision;
+    public bool HasPendingAttackMonsterPoolCommand =>
+        Object != null &&
+        !Object.HasStateAuthority &&
+        _pendingAttackMonsterPoolCommandRevision >= 0 &&
+        _lastAppliedAttackMonsterPoolRevision <= _pendingAttackMonsterPoolCommandRevision;
     [Networked] public int OwnedMagicScrollRevision { get; private set; }
     private int _lastAppliedOwnedMagicScrollRevision;
     private int _latestReceivedOwnedMagicScrollRevision;
@@ -2666,6 +2672,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return true;
     }
 
+    public void MarkAttackMonsterPoolCommandSubmitted(int observedRevision)
+    {
+        if (Object != null && Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (observedRevision >= 0)
+        {
+            _pendingAttackMonsterPoolCommandRevision = Mathf.Max(_pendingAttackMonsterPoolCommandRevision, observedRevision);
+        }
+    }
+
     public bool TryRefundMonsterPoolSlot(int poolSlotIndex)
     {
         if (AttackMonsterPool == null ||
@@ -3294,6 +3313,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private void ApplyAttackMonsterPoolEntries(int revision, List<MonsterPoolEntry> pool)
     {
         _lastAppliedAttackMonsterPoolRevision = Mathf.Max(_lastAppliedAttackMonsterPoolRevision, revision);
+        if (_pendingAttackMonsterPoolCommandRevision >= 0 && revision > _pendingAttackMonsterPoolCommandRevision)
+        {
+            _pendingAttackMonsterPoolCommandRevision = -1;
+        }
+
         if (Object != null && Object.HasStateAuthority)
         {
             AttackMonsterPoolRevision = Mathf.Max(AttackMonsterPoolRevision, revision);

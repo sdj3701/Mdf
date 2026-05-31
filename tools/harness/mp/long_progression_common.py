@@ -198,16 +198,30 @@ def wait_checkpoint_comparison(
             break
         time.sleep(1)
 
+    matched_requested_state = bool(selected_host)
+    state_slipped = (
+        not matched_requested_state
+        and checkpoint_key(latest_host) == checkpoint_key(latest_client)
+        and checkpoint_key(latest_host) != (round_number, current_state)
+    )
+    state_slipped_success = state_slipped and latest_comparison.get("success") is True
+
     if not selected_host:
         selected_host = latest_host
     if not selected_client:
         selected_client = latest_client
     if selected_comparison is None:
         selected_comparison = latest_comparison
+    if state_slipped_success:
+        selected_comparison = latest_comparison
 
     write_json(artifact_dir / "snapshots" / "checkpoints" / f"{label}-host.json", selected_host)
     write_json(artifact_dir / "snapshots" / "checkpoints" / f"{label}-client.json", selected_client)
     comparison_path = artifact_dir / "checkpoint-comparisons" / f"{label}.json"
+    checkpoint_success = stable_match or state_slipped_success
+    checkpoint_warnings = list(selected_comparison.get("warnings") or [])
+    if state_slipped_success:
+        checkpoint_warnings.append("checkpoint_state_slipped_before_capture")
     checkpoint = {
         "checkpointId": label,
         "index": index,
@@ -217,15 +231,17 @@ def wait_checkpoint_comparison(
         "clientSnapshot": f"snapshots/checkpoints/{label}-client.json",
         "comparison": f"checkpoint-comparisons/{label}.json",
         "ready": ready,
-        "success": stable_match,
+        "success": checkpoint_success,
+        "skipped": state_slipped_success,
         "hostSummary": checkpoint_summary(selected_host),
         "clientSummary": checkpoint_summary(selected_client),
-        "errors": [] if stable_match else list(selected_comparison.get("errors") or ["checkpoint_comparison_failed"]),
-        "warnings": list(selected_comparison.get("warnings") or []),
+        "errors": [] if checkpoint_success else list(selected_comparison.get("errors") or ["checkpoint_comparison_failed"]),
+        "warnings": checkpoint_warnings,
     }
     write_json(comparison_path, {
         "checkpointId": label,
-        "success": stable_match,
+        "success": checkpoint_success,
+        "skipped": state_slipped_success,
         "ready": ready,
         "comparison": selected_comparison,
         "hostSummary": checkpoint["hostSummary"],

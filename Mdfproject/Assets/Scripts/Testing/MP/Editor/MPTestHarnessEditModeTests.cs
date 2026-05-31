@@ -1335,6 +1335,10 @@ public sealed class MPTestHarnessEditModeTests
         string emitterSource = File.ReadAllText("Assets/Scripts/AI/Planning/MdfCommandEmitter.cs");
 
         Assert.That(policySource, Does.Contain("new BattleSpawnMonsterCommand"));
+        Assert.That(policySource, Does.Contain("MinimumBattleCommandLeadTime"));
+        Assert.That(policySource, Does.Contain("context.PhaseTimerRemaining"));
+        Assert.That(policySource, Does.Contain("attacker.HasPendingAttackMonsterPoolCommand"));
+        Assert.That(policySource, Does.Contain("!attacker.HasAppliedCurrentAttackMonsterPoolSnapshot"));
         Assert.That(policySource, Does.Contain("new UseMagicScrollCommand"));
         Assert.That(policySource, Does.Contain("DefenderSkillPolicy"));
         Assert.That(policySource, Does.Not.Contain("SpawnMonsterAtPositionAsync"));
@@ -1345,8 +1349,31 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(emitterSource, Does.Contain("CommandProcessor.RequestCommandExecution"));
         Assert.That(emitterSource, Does.Contain("ExecuteBattleSpawnMonsterCommandAsync"));
         Assert.That(emitterSource, Does.Contain("RPC_RequestBattleSpawnMonster"));
+        Assert.That(emitterSource, Does.Contain("MarkAttackMonsterPoolCommandSubmitted"));
         Assert.That(emitterSource, Does.Contain("ExecuteUseMagicScrollCommandAsync"));
         Assert.That(emitterSource, Does.Contain("RPC_RequestUseMagicScrollCommand"));
+    }
+
+    [Test]
+    public void ClientBattleOpponentSnapshotsPreferNetworkedStateOverLocalCache()
+    {
+        string registrySource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.PlayerRegistry.cs");
+
+        Assert.That(registrySource, Does.Contain("Object != null && !Object.HasStateAuthority"));
+        Assert.That(registrySource, Does.Contain("TryReadNetworkedBattleOpponentSnapshot(playerId, out opponentId)"));
+        Assert.That(registrySource, Does.Contain("_battleOpponents[playerId] = opponentId"));
+        Assert.That(registrySource, Does.Contain("TryReadNetworkedMatchFirstAttackerSnapshot(playerId, out firstAttackerId)"));
+        Assert.That(registrySource, Does.Contain("_matchFirstAttacker[playerId] = firstAttackerId"));
+    }
+
+    [Test]
+    public void GameToEndRunnerDoesNotFailWhenTransientCheckpointStateSlips()
+    {
+        string source = File.ReadAllText("../tools/harness/mp/long_progression_common.py");
+
+        Assert.That(source, Does.Contain("state_slipped_success"));
+        Assert.That(source, Does.Contain("checkpoint_state_slipped_before_capture"));
+        Assert.That(source, Does.Contain("\"skipped\": state_slipped_success"));
     }
 
     [Test]
@@ -1449,6 +1476,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(playerSource, Does.Contain("NetworkArray<ShopSnapshotSlot> ShopSnapshotSlots"));
         Assert.That(playerSource, Does.Contain("NetworkArray<int> PresentedAugmentSnapshotIds"));
         Assert.That(playerSource, Does.Contain("NetworkArray<int> SelectedAugmentSnapshotIds"));
+        Assert.That(playerSource, Does.Contain("SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 32"));
         Assert.That(playerSource, Does.Contain("NetworkArray<AttackMonsterPoolSnapshotSlot> AttackMonsterPoolSnapshotSlots"));
         Assert.That(playerSource, Does.Contain("private struct ShopSnapshotSlot : INetworkStruct"));
         Assert.That(playerSource, Does.Contain("private struct AttackMonsterPoolSnapshotSlot : INetworkStruct"));

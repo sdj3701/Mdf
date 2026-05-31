@@ -71,6 +71,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     private bool _hasSpawned;
     private bool _hasLocalHealthValues;
+    private bool _despawnRequested;
     private float _localHP;
     private float _localMaxHP;
     
@@ -665,6 +666,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         isBlocked = false;
         blockingUnit = null;
         isMoving = false;
+        _despawnRequested = false;
         _isBoss = false;
         _originPlayerId = -1;
         _bossUniqueId = -1;
@@ -1309,20 +1311,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         
         // 안전하게 NetworkObject 가져오기 (NetworkBehaviour의 Object 프로퍼티 사용)
-        NetworkObject no = Object;
-        
-        if (no != null && no.Runner != null && no.Runner.IsRunning)
-        {
-            if (!no.HasStateAuthority)
-            {
-                return;
-            }
-            _buffManager?.ClearAllStatusEffects();
-            no.Runner.Despawn(no);
-            return;
-        }
         _buffManager?.ClearAllStatusEffects();
-        Destroy(gameObject);
+        RequestDespawnOrDestroy("Die");
     }
 
     private void OnDestroy()
@@ -1338,14 +1328,32 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     private void DespawnOrDestroy()
     {
+        RequestDespawnOrDestroy("DespawnOrDestroy");
+    }
+
+    private void RequestDespawnOrDestroy(string reason)
+    {
         if (this == null || gameObject == null) return;
-        
+        if (_despawnRequested) return;
+        _despawnRequested = true;
+
+        StopAllCoroutines();
+
         NetworkObject no = Object;
         if (no != null && no.Runner != null && no.Runner.IsRunning)
         {
-            if (no.HasStateAuthority)
+            if (!no.HasStateAuthority || !no.IsValid)
+            {
+                return;
+            }
+
+            try
             {
                 no.Runner.Despawn(no);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Monster] Despawn skipped after Fusion rejected request. reason={reason}, name={name}, id={no.Id}, error={e.Message}");
             }
             return;
         }
@@ -1864,6 +1872,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public void ForceRemoveWithoutPenalty()
     {
         if (this == null || gameObject == null) return;
+        if (_despawnRequested) return;
+        _despawnRequested = true;
         
         // Debug.Log($"<color=gray>[Monster] '{name}' 강제 제거 (전투 종료)</color>");
         
@@ -1880,9 +1890,16 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         NetworkObject no = Object;
         if (no != null && no.Runner != null && no.Runner.IsRunning)
         {
-            if (no.HasStateAuthority)
+            if (no.HasStateAuthority && no.IsValid)
             {
-                no.Runner.Despawn(no);
+                try
+                {
+                    no.Runner.Despawn(no);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[Monster] Despawn skipped after Fusion rejected request. reason=ForceRemoveWithoutPenalty, name={name}, id={no.Id}, error={e.Message}");
+                }
             }
         }
         else

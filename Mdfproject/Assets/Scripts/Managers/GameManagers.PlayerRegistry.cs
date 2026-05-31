@@ -98,6 +98,13 @@ public partial class GameManagers
 
     public bool TryGetBattleOpponentSnapshot(int playerId, out int opponentId)
     {
+        if (Object != null && !Object.HasStateAuthority &&
+            TryReadNetworkedBattleOpponentSnapshot(playerId, out opponentId))
+        {
+            _battleOpponents[playerId] = opponentId;
+            return true;
+        }
+
         if (_battleOpponents.TryGetValue(playerId, out opponentId))
         {
             return true;
@@ -108,6 +115,13 @@ public partial class GameManagers
 
     private bool TryGetMatchFirstAttackerSnapshot(int playerId, out int firstAttackerId)
     {
+        if (Object != null && !Object.HasStateAuthority &&
+            TryReadNetworkedMatchFirstAttackerSnapshot(playerId, out firstAttackerId))
+        {
+            _matchFirstAttacker[playerId] = firstAttackerId;
+            return true;
+        }
+
         if (_matchFirstAttacker.TryGetValue(playerId, out firstAttackerId))
         {
             return true;
@@ -226,7 +240,7 @@ public partial class GameManagers
         int opponentCapacity = Mathf.Min(MAX_PLAYERS, BattleOpponentSnapshotIds.Length);
         for (int i = 0; i < opponentCapacity; i++)
         {
-            if (!_battleOpponents.ContainsKey(i) && TryReadNetworkedBattleOpponentSnapshot(i, out int opponentId))
+            if (TryReadNetworkedBattleOpponentSnapshot(i, out int opponentId))
             {
                 _battleOpponents[i] = opponentId;
             }
@@ -235,7 +249,7 @@ public partial class GameManagers
         int firstAttackerCapacity = Mathf.Min(MAX_PLAYERS, BattleFirstAttackerSnapshotIds.Length);
         for (int i = 0; i < firstAttackerCapacity; i++)
         {
-            if (!_matchFirstAttacker.ContainsKey(i) && TryReadNetworkedMatchFirstAttackerSnapshot(i, out int firstAttackerId))
+            if (TryReadNetworkedMatchFirstAttackerSnapshot(i, out int firstAttackerId))
             {
                 _matchFirstAttacker[i] = firstAttackerId;
             }

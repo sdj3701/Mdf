@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-08
-Last used: 2026-05-08
-Last verified: 2026-05-08
-Use count: 1
+Last used: 2026-06-01
+Last verified: 2026-06-01
+Use count: 6
 Review after: 2026-08-06
 Triggers: need to prove actual GameOver or distinguish timeout/stall/tuning in a bounded run
 Applies to: `tools/harness/mp/run_human_bot_game_to_end.py`, endurance profile, HumanBot long progression
-Verified by: see Verification section below; migrated from old Status: verified
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260531-214305-human-bot-game-to-end
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -28,3 +28,6 @@ Verification:
 Pitfalls:
 - Do not use `--allow-timeout-result` as a shortcut to claim PASS; it only accepts bounded timeout classification when GameOver is not reached.
 - Keep endurance out of smoke/regression/nightly unless explicitly accepted; use `--profile endurance` for opt-in runs.
+
+Lifecycle notes:
+- 2026-06-01: verified artifact `artifacts/mp/20260531-214305-human-bot-game-to-end`

@@ -62,6 +62,7 @@
     <Analyzer Include="C:\Users\k05n1\.vscode\extensions\visualstudiotoolsforunity.vstuc-1.2.2\Analyzers\Microsoft.Unity.Analyzers.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MonsterPrewarmEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\UnitMeleeRangeEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\AssetReserializeTool.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Editor\ReadmeEditor.cs" />

@@ -68,7 +68,11 @@ public sealed class StatusEffectSchedulerEditModeTests
 
         Assert.That(schedulerSource, Does.Contain("ProcessDueStatBuffs();"));
         Assert.That(statBuffSource, Does.Contain("private struct StatBuffEntry : INetworkStruct"));
-        Assert.That(statBuffSource, Does.Contain("private const int MaxActiveStatBuffs = 24;"));
+        Assert.That(statBuffSource, Does.Contain("private const int MaxActiveStatBuffs = 96;"));
+        Assert.That(statBuffSource, Does.Contain("private const int StatBuffFlagBerserkBundle"));
+        Assert.That(statBuffSource, Does.Contain("private const int StatBuffFlagBerserkMoveSpeed"));
+        Assert.That(statBuffSource, Does.Contain("ApplyStatBuffInternal("));
+        Assert.That(statBuffSource, Does.Contain("IsBerserkBundle(entry)"));
         Assert.That(statBuffSource, Does.Contain("public int PackedMeta;"));
         Assert.That(statBuffSource, Does.Contain("PackStatBuffMeta"));
         Assert.That(statBuffSource, Does.Contain("public struct StatBuffMigrationSnapshot"));
