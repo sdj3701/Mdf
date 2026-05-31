@@ -170,8 +170,26 @@ public class PlacementManager : MonoBehaviour
 
     private void HandleMouseInput()
     {
-        if (MdfInput.PrimaryPointerWasPressedThisFrame()) TryPlace();
-        if (MdfInput.SecondaryPointerWasPressedThisFrame()) StopPlacementMode();
+        bool pointerOverUI = MdfInput.IsPointerOverFieldBlockingUI();
+        if (MdfInput.PrimaryPointerWasPressedThisFrame() && !pointerOverUI)
+        {
+            if (currentMode == PlacementMode.Wall && TryRemoveWall())
+            {
+                return;
+            }
+
+            TryPlace();
+        }
+
+        if (MdfInput.SecondaryPointerWasPressedThisFrame())
+        {
+            if (!pointerOverUI && currentMode == PlacementMode.Wall && TryRemoveWall())
+            {
+                return;
+            }
+
+            StopPlacementMode();
+        }
     }
 
     private void TryPlace()
@@ -219,6 +237,11 @@ public class PlacementManager : MonoBehaviour
 
         if (currentMode == PlacementMode.Wall)
         {
+            if (fieldManager == null || fieldManager.GetWallAt(currentMouseGridPosition) == null)
+            {
+                return false;
+            }
+
             // 실제 벽이 있는지 여부는 PlayerManager에서 확인하므로, 여기서는 요청만 보냅니다.
             var command = new RemoveWallCommand(playerManager.playerId, currentMouseGridPosition);
             GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);

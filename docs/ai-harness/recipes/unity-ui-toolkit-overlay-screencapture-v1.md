@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-15
-Last used: 2026-05-22
-Last verified: 2026-05-22
-Use count: 16
+Last used: 2026-05-31
+Last verified: 2026-05-31
+Use count: 19
 Review after: 2026-08-13
 Triggers: UI Toolkit overlay, UIDocument, Game View screenshot, ScreenCapture, prepare UI visual QA
 Applies to: Mdfproject runtime UI Toolkit overlays and Game View visual proof
-Verified by: Mdfproject/artifacts/screenshots/game-augment-offset-screen-capture.png; Mdfproject/artifacts/screenshots/game-character-selection-offset-clean.png; Mdfproject/artifacts/screenshots/shop-card-cost-style-playmode.png; Mdfproject/artifacts/screenshots/gameprepare-uxml-preview.png; Mdfproject/artifacts/screenshots/game-ui-wireframe-paneltarget-delayed.png; Mdfproject/artifacts/screenshots/game-ui-enlarged-game-scene-runtime.png; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json; artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke/screenshots/host-20260520-060610.png; artifacts/mp/20260521-031726-matrix/20260521-031730-editor-host-build-client/screenshots/client-20260521-031752.png; artifacts/mp/20260521-045119-matrix/20260521-045122-four-player-smoke/screenshots/host-20260521-045153.png; artifacts/mp/20260521-081533-two-humanbot-two-ai-smoke/screenshots/host-20260521-081602.png; artifacts/mp/20260521-082714-two-humanbot-two-ai-smoke/screenshots/host-20260521-082744.png; artifacts/mp/20260521-083622-two-humanbot-two-ai-smoke/screenshots/host-20260521-083657.png; artifacts/mp/20260522-021002-matrix/20260522-021005-human-bot-prepare/screenshots/client-20260522-021030.png; artifacts/mp/20260522-021953-matrix/20260522-021956-human-bot-prepare/screenshots/client-20260522-022022.png
+Verified by: Mdfproject/artifacts/screenshots/game-augment-offset-screen-capture.png; Mdfproject/artifacts/screenshots/game-character-selection-offset-clean.png; Mdfproject/artifacts/screenshots/shop-card-cost-style-playmode.png; Mdfproject/artifacts/screenshots/gameprepare-uxml-preview.png; Mdfproject/artifacts/screenshots/game-ui-wireframe-paneltarget-delayed.png; Mdfproject/artifacts/screenshots/game-ui-enlarged-game-scene-runtime.png; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json; artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke/screenshots/host-20260520-060610.png; artifacts/mp/20260521-031726-matrix/20260521-031730-editor-host-build-client/screenshots/client-20260521-031752.png; artifacts/mp/20260521-045119-matrix/20260521-045122-four-player-smoke/screenshots/host-20260521-045153.png; artifacts/mp/20260521-081533-two-humanbot-two-ai-smoke/screenshots/host-20260521-081602.png; artifacts/mp/20260521-082714-two-humanbot-two-ai-smoke/screenshots/host-20260521-082744.png; artifacts/mp/20260521-083622-two-humanbot-two-ai-smoke/screenshots/host-20260521-083657.png; artifacts/mp/20260522-021002-matrix/20260522-021005-human-bot-prepare/screenshots/client-20260522-021030.png; artifacts/mp/20260522-021953-matrix/20260522-021956-human-bot-prepare/screenshots/client-20260522-022022.png; artifacts/mp/20260522-041334-matrix/20260522-041337-editor-host-build-client/screenshots/client-20260522-041402.png
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -56,3 +56,6 @@ Lifecycle notes:
 - 2026-05-21: verified artifact `artifacts/mp/20260521-083622-two-humanbot-two-ai-smoke/screenshots/host-20260521-083657.png`
 - 2026-05-22: verified artifact `artifacts/mp/20260522-021002-matrix/20260522-021005-human-bot-prepare/screenshots/client-20260522-021030.png`
 - 2026-05-22: verified artifact `artifacts/mp/20260522-021953-matrix/20260522-021956-human-bot-prepare/screenshots/client-20260522-022022.png`
+- 2026-05-22: verified artifact `artifacts/mp/20260522-041334-matrix/20260522-041337-editor-host-build-client/screenshots/client-20260522-041402.png`
+- 2026-05-31: Verified Battle1 PlayerRanking HUD screenshot with per-match sword/shield role icons.
+- 2026-05-31: verified artifact `artifacts/mp/20260531-041001-two-humanbot-two-ai-smoke/screenshots/host-battle-hud-crop.png`

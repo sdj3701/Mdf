@@ -94,6 +94,7 @@ public sealed class MPTestHarnessEditModeTests
     public void RankingUiToolkitLayoutProvidesFixedSelfOpponentAndReserveSlots()
     {
         string source = File.ReadAllText("Assets/Scripts/UI/RankingUIController.cs");
+        string registrySource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.PlayerRegistry.cs");
         var layout = Resources.Load<VisualTreeAsset>("UI/PlayerRanking/PlayerRankingPanel");
         var style = Resources.Load<StyleSheet>("UI/PlayerRanking/PlayerRankingPanelStyles");
         var tree = layout != null ? layout.CloneTree() : null;
@@ -109,12 +110,29 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(tree?.Q<VisualElement>("ranking-opponent-avatar"), Is.Not.Null);
         Assert.That(tree?.Q<Label>("ranking-self-name"), Is.Not.Null);
         Assert.That(tree?.Q<Label>("ranking-opponent-name"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-self-battle-role-icon"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-opponent-battle-role-icon"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-reserve-0-battle-role-icon"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-reserve-1-battle-role-icon"), Is.Not.Null);
         Assert.That(source, Does.Contain("UIDocument"));
         Assert.That(source, Does.Contain("ResolveOpponent"));
         Assert.That(source, Does.Contain("GetBattleOpponent"));
         Assert.That(source, Does.Contain("GetHealthFillPercentForDisplay"));
+        Assert.That(source, Does.Contain("ShouldUseAttackBattleRoleIconForDisplay"));
+        Assert.That(source, Does.Contain("TryGetBattleRoleSnapshot"));
+        Assert.That(source, Does.Contain("IsAttackerInCurrentBattle"));
         Assert.That(source, Does.Contain("PanelSortingOrder = 260"));
         Assert.That(source, Does.Contain("SetPickingModeRecursive(toolkitRoot, PickingMode.Ignore)"));
+        Assert.That(source, Does.Contain("Root.pickingMode = PickingMode.Position"));
+        Assert.That(source, Does.Contain("RegisterCallback<PointerUpEvent>"));
+        Assert.That(source, Does.Contain("MoveToPlayerField"));
+        Assert.That(source, Does.Contain("ReturnToOwnField"));
+        Assert.That(source, Does.Contain("ShouldUseAttackModeCamera"));
+        Assert.That(source, Does.Contain("HandleToolkitPointerInput"));
+        Assert.That(source, Does.Contain("FindToolkitCardAtScreenPosition"));
+        Assert.That(source, Does.Contain("RuntimePanelUtils.ScreenToPanel"));
+        Assert.That(source, Does.Contain("ContainsPanelPoint"));
+        Assert.That(source, Does.Contain("lastToolkitCardClickFrame"));
         Assert.That(source, Does.Contain("Display-only overlay"));
         string styleSource = File.ReadAllText("Assets/Resources/UI/PlayerRanking/PlayerRankingPanelStyles.uss");
         Assert.That(styleSource, Does.Contain("left: 104px;"));
@@ -122,6 +140,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("left: 332px;"));
         Assert.That(styleSource, Does.Contain("left: 878px;"));
         Assert.That(styleSource, Does.Contain("left: 1078px;"));
+        Assert.That(styleSource, Does.Contain("PlayerStatus/battle.png"));
+        Assert.That(styleSource, Does.Contain("PlayerStatus/shield.png"));
+        Assert.That(registrySource, Does.Contain("public bool TryGetBattleRoleSnapshot"));
+        Assert.That(registrySource, Does.Contain("TryGetMatchFirstAttackerSnapshot(playerId, out int firstAttackerId)"));
+        Assert.That(registrySource, Does.Contain("currentState == GameState.Battle1 ? isFirstAttacker : !isFirstAttacker"));
     }
 
     [Test]
@@ -132,6 +155,15 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(RankingUIController.GetHealthFillPercentForDisplay(80, 80), Is.EqualTo(1f));
         Assert.That(RankingUIController.GetHealthFillPercentForDisplay(150, 80), Is.EqualTo(1f));
         Assert.That(RankingUIController.GetHealthFillPercentForDisplay(50, 0), Is.EqualTo(0f));
+    }
+
+    [Test]
+    public void RankingUiBattleRoleIconOnlyUsesSwordForActiveAttackers()
+    {
+        Assert.That(RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(true, true), Is.True);
+        Assert.That(RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(true, false), Is.False);
+        Assert.That(RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(false, true), Is.False);
+        Assert.That(RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(false, false), Is.False);
     }
 
     [Test]
@@ -861,6 +893,10 @@ public sealed class MPTestHarnessEditModeTests
         string attackManagerSource = File.ReadAllText("Assets/Scripts/Game/Battle/AttackSequenceManager.cs");
         string inputSource = File.ReadAllText("Assets/Scripts/Managers/MdfInput.cs");
         string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string placementSource = File.ReadAllText("Assets/Scripts/Managers/PlacementManager.cs");
+        string playerManagerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string removeWallCommandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/RemoveWallCommand.cs");
+        string automationSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
         string uxml = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanels.uxml");
         string styleSource = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss");
         var layout = Resources.Load<VisualTreeAsset>("UI/GamePrepare/GamePreparePanels");
@@ -954,8 +990,27 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(attackManagerSource, Does.Contain("BattleCommandValidator.IsInsideBattleSpawnZone"));
         Assert.That(inputSource, Does.Contain("HasNonGamePrepareToolkitUiHit"));
         Assert.That(inputSource, Does.Contain("eventSystem.RaycastAll"));
+        Assert.That(inputSource, Does.Contain("IsPointerOverFieldBlockingUI"));
+        Assert.That(inputSource, Does.Contain("IsFieldPassthroughUi"));
+        Assert.That(inputSource, Does.Contain("GetComponentInParent<StatusBarUI>()"));
         Assert.That(fieldSource, Does.Contain("ShouldAllowUnitDragThroughPrepareToolkit"));
+        Assert.That(fieldSource, Does.Contain("MdfInput.IsPointerOverFieldBlockingUI()"));
         Assert.That(fieldSource, Does.Contain("GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition)"));
+        Assert.That(fieldSource, Does.Contain("TryRequestRemoveWallAt"));
+        Assert.That(fieldSource, Does.Contain("new RemoveWallCommand(playerManager.playerId, gridPosition)"));
+        Assert.That(placementSource, Does.Contain("bool pointerOverUI = MdfInput.IsPointerOverFieldBlockingUI()"));
+        Assert.That(placementSource, Does.Contain("!pointerOverUI"));
+        Assert.That(placementSource, Does.Contain("SecondaryPointerWasPressedThisFrame"));
+        Assert.That(placementSource, Does.Contain("currentMode == PlacementMode.Wall && TryRemoveWall()"));
+        Assert.That(placementSource, Does.Contain("fieldManager.GetWallAt(currentMouseGridPosition) == null"));
+        Assert.That(removeWallCommandSource, Does.Contain("if (fm.GetWallAt(Position) == null)"));
+        Assert.That(removeWallCommandSource, Does.Contain("player.ReturnWall();"));
+        Assert.That(playerManagerSource, Does.Contain("public void ReturnWall()"));
+        Assert.That(playerManagerSource, Does.Not.Contain("wallCount < MAX_WALL_COUNT"));
+        Assert.That(automationSource, Does.Contain("ExecutePlaceWallCommand"));
+        Assert.That(automationSource, Does.Contain("ExecuteRemoveWallCommand"));
+        Assert.That(automationSource, Does.Contain("place_wall"));
+        Assert.That(automationSource, Does.Contain("remove_wall"));
         Assert.That(shopSource, Does.Contain("TryToggleShopFromLegacy"));
         Assert.That(augmentSource, Does.Contain("TryShowAugmentsFromLegacy"));
         Assert.That(playerHudSource, Does.Contain("SetLegacyHudButtonsVisible"));

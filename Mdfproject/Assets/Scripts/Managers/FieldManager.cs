@@ -5172,12 +5172,20 @@ public class FieldManager : MonoBehaviour
         Vector3 mouseWorldPos = GetMouseWorldPosition();
         Vector3Int gridPos = WorldToGridInt(mouseWorldPos);
 
+        if (MdfInput.SecondaryPointerWasPressedThisFrame() && !MdfInput.IsPointerOverFieldBlockingUI())
+        {
+            if (TryRequestRemoveWallAt(gridPos))
+            {
+                return;
+            }
+        }
+
         // 마우스 버튼을 눌렀을 때
         if (MdfInput.PrimaryPointerWasPressedThisFrame())
         {
             // 셀 기반이 아니라 실제 유닛 콜라이더를 클릭해야 드래그 시작
             Unit clickedUnit = GetUnitUnderMouse();
-            bool pointerOverUI = MdfInput.IsPointerOverUI();
+            bool pointerOverUI = MdfInput.IsPointerOverFieldBlockingUI();
             if (pointerOverUI && clickedUnit != null && ShouldAllowUnitDragThroughPrepareToolkit())
             {
                 pointerOverUI = false;
@@ -5416,6 +5424,28 @@ public class FieldManager : MonoBehaviour
             selectedUnitNetworkTransform = null;
             isDragStarted = false;
         }
+    }
+
+    private bool TryRequestRemoveWallAt(Vector3Int gridPosition)
+    {
+        var gm = GameManagers.Instance;
+        if (gm == null || gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
+        {
+            return false;
+        }
+
+        if (playerManager == null || playerManager.playerId < 0 || GetWallAt(gridPosition) == null)
+        {
+            return false;
+        }
+
+        if (gm.CommandProcessor == null)
+        {
+            return false;
+        }
+
+        gm.CommandProcessor.RequestCommandExecution(new RemoveWallCommand(playerManager.playerId, gridPosition));
+        return true;
     }
 
     private bool ShouldAllowUnitDragThroughPrepareToolkit()

@@ -242,6 +242,76 @@ def wait_target_prepare_ready(
     return latest_host, latest_client, comparison, False
 
 
+def wait_target_prepare_wall_stock_restored(
+    host: AutomationClient,
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    timeout_seconds: int,
+    scene: str,
+    label: str,
+    target_round: int,
+    before_snapshot: Any,
+    remove_results: list[dict[str, Any]],
+    require_comparison: bool = True,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    deadline = time.time() + timeout_seconds
+    stable = 0
+    latest_host: dict[str, Any] = {}
+    latest_client: dict[str, Any] = {}
+    comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+    while time.time() < deadline:
+        latest_host = safe_request(host.dump_state)
+        latest_client = safe_request(client.dump_state)
+        write_json(artifact_dir / "snapshots" / f"host-{label}-latest.json", latest_host)
+        write_json(artifact_dir / "snapshots" / f"client-{label}-latest.json", latest_client)
+
+        host_game = game(latest_host)
+        client_game = game(latest_client)
+        host_at_target = host_game.get("currentRound") == target_round and host_game.get("currentState") == "Prepare"
+        client_at_target = client_game.get("currentRound") == target_round and client_game.get("currentState") == "Prepare"
+        ready = {
+            "host": snapshot_ready(latest_host, EXPECTED_PLAYERS, scene) and host_at_target,
+            "client": snapshot_ready(latest_client, EXPECTED_PLAYERS, scene) and client_at_target,
+        }
+        host_stock_restored = wall_stock_restored(before_snapshot, latest_host, remove_results)
+        client_stock_restored = wall_stock_restored(before_snapshot, latest_client, remove_results)
+        if all(ready.values()):
+            comparison = compare_snapshots(latest_host, latest_client)
+            write_json(artifact_dir / f"comparison-{label}-latest.json", comparison)
+        write_json(artifact_dir / f"{label}-wait-latest.json", {
+            "targetRound": target_round,
+            "requireComparison": require_comparison,
+            "ready": ready,
+            "hostGame": host_game,
+            "clientGame": client_game,
+            "reasons": {
+                "host": snapshot_not_ready_reasons(latest_host, EXPECTED_PLAYERS, scene),
+                "client": snapshot_not_ready_reasons(latest_client, EXPECTED_PLAYERS, scene),
+            },
+            "comparison": comparison,
+            "wallStockRestored": {
+                "host": host_stock_restored,
+                "client": client_stock_restored,
+            },
+            "wallCounts": {
+                "before": wall_counts_by_player(before_snapshot),
+                "host": wall_counts_by_player(latest_host),
+                "client": wall_counts_by_player(latest_client),
+            },
+            "stableMatches": stable,
+        })
+        comparison_ready = comparison.get("success") is True
+        stock_restored = host_stock_restored and client_stock_restored
+        if all(ready.values()) and (comparison_ready or not require_comparison) and stock_restored:
+            stable += 1
+            if stable >= 2:
+                return latest_host, latest_client, comparison, True
+        else:
+            stable = 0
+        time.sleep(2)
+    return latest_host, latest_client, comparison, False
+
+
 def wait_game_over_ready(
     host: AutomationClient,
     client: AutomationClient,
@@ -354,6 +424,74 @@ def issue_move_commands(
     return results
 
 
+def command_position(response: dict[str, Any]) -> dict[str, int] | None:
+    data = response.get("data") if isinstance(response.get("data"), dict) else {}
+    position = data.get("position") if isinstance(data.get("position"), dict) else None
+    if not isinstance(position, dict):
+        return None
+    try:
+        return {
+            "x": int(position.get("x")),
+            "y": int(position.get("y")),
+            "z": int(position.get("z") or 0),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def wall_command_player_ids(snapshot: Any) -> list[int]:
+    result: list[int] = []
+    for player in players(snapshot):
+        if player.get("isAI") is not False or not isinstance(player.get("playerId"), int):
+            continue
+        if to_int(player.get("health")) <= 0 or to_int(player.get("wallCount")) <= 0:
+            continue
+        result.append(int(player["playerId"]))
+    return sorted(result)
+
+
+def issue_place_wall_commands(
+    host: AutomationClient,
+    snapshot: Any,
+    artifact_dir: pathlib.Path,
+    label: str,
+    player_ids: list[int] | None = None,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for player_id in (player_ids if player_ids is not None else wall_command_player_ids(snapshot)):
+        result = safe_request(lambda player_id=player_id: host.command(name="place_wall", playerId=player_id))
+        results.append({"playerId": player_id, "response": result})
+        write_json(artifact_dir / f"{label}-player-{player_id}.json", result)
+    write_json(artifact_dir / f"{label}-results.json", results)
+    return results
+
+
+def issue_remove_wall_commands(
+    host: AutomationClient,
+    place_results: list[dict[str, Any]],
+    artifact_dir: pathlib.Path,
+    label: str,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in place_results:
+        response = item.get("response") if isinstance(item.get("response"), dict) else {}
+        if response.get("success") is not True:
+            continue
+        position = command_position(response)
+        if position is None:
+            continue
+        player_id = int(item.get("playerId"))
+        result = safe_request(lambda player_id=player_id, position=position: host.command(
+            name="remove_wall",
+            playerId=player_id,
+            position=position,
+        ))
+        results.append({"playerId": player_id, "position": position, "response": result})
+        write_json(artifact_dir / f"{label}-player-{player_id}.json", result)
+    write_json(artifact_dir / f"{label}-results.json", results)
+    return results
+
+
 def movement_hash_changed(before: Any, after: Any, move_results: list[dict[str, Any]]) -> bool:
     for item in move_results:
         if (item.get("response") or {}).get("success") is not True:
@@ -366,6 +504,44 @@ def movement_hash_changed(before: Any, after: Any, move_results: list[dict[str, 
         if nested(before_player, "field", "placedUnitsHash") != nested(after_player, "field", "placedUnitsHash"):
             return True
     return False
+
+
+def wall_hash_changed(before: Any, after: Any, command_results: list[dict[str, Any]]) -> bool:
+    for item in command_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        player_id = int(item.get("playerId"))
+        before_player = player_by_id(before, player_id)
+        after_player = player_by_id(after, player_id)
+        if before_player is None or after_player is None:
+            continue
+        if nested(before_player, "field", "wallHash") != nested(after_player, "field", "wallHash"):
+            return True
+    return False
+
+
+def wall_counts_by_player(snapshot: Any) -> dict[int, int]:
+    return {
+        int(player["playerId"]): to_int(player.get("wallCount"))
+        for player in players(snapshot)
+        if isinstance(player.get("playerId"), int)
+    }
+
+
+def wall_stock_restored(before: Any, after_remove: Any, remove_results: list[dict[str, Any]]) -> bool:
+    before_counts = wall_counts_by_player(before)
+    after_counts = wall_counts_by_player(after_remove)
+    checked = False
+    for item in remove_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        player_id = int(item.get("playerId"))
+        if player_id not in before_counts or player_id not in after_counts:
+            return False
+        checked = True
+        if after_counts[player_id] < before_counts[player_id]:
+            return False
+    return checked
 
 
 def build_assertions(
@@ -499,12 +675,15 @@ def run_game_to_end_prepare_move_loop(
     start_time = time.time()
     moved_rounds: set[int] = set()
     move_records: list[dict[str, Any]] = []
+    wall_records: list[dict[str, Any]] = []
     progress_timeline: list[dict[str, Any]] = []
     errors: list[str] = []
     warnings: list[str] = []
     final_host: dict[str, Any] = {}
     final_client: dict[str, Any] = {}
     final_comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+    battle_hud_capture: dict[str, Any] = {}
+    battle_hud_captured = False
     limit_reason = "none"
 
     while time.time() < deadline:
@@ -541,6 +720,28 @@ def run_game_to_end_prepare_move_loop(
             "maxRounds": args.max_rounds,
         })
 
+        same_battle_state = (
+            all(ready.values())
+            and host_state in ("Battle1", "Battle2")
+            and host_state == client_state
+        )
+        if same_battle_state and not battle_hud_captured:
+            label = f"battle-hud-round-{current_round}-{str(host_state).lower()}"
+            screenshot_results: dict[str, Any] = {}
+            for name, peer_client in clients.items():
+                screenshot_results[name] = safe_request(peer_client.screenshot)
+                write_json(artifact_dir / f"{name}-{label}-screenshot.json", screenshot_results[name])
+            time.sleep(1.0)
+            captured = all(result.get("success") is True for result in screenshot_results.values())
+            battle_hud_capture = {
+                "captured": captured,
+                "round": current_round,
+                "state": host_state,
+                "screenshots": screenshot_results,
+            }
+            write_json(artifact_dir / "battle-hud-capture.json", battle_hud_capture)
+            battle_hud_captured = captured
+
         if host_state == "GameOver" and client_state == "GameOver":
             limit_reason = "game_over_reached"
             final_host, final_client, final_comparison, game_over_ready = wait_game_over_ready(
@@ -552,10 +753,6 @@ def run_game_to_end_prepare_move_loop(
             )
             if not game_over_ready:
                 warnings.append("game_over_comparison_not_stable_before_timeout")
-            break
-
-        if args.max_rounds > 0 and current_round >= args.max_rounds:
-            limit_reason = "max_rounds_reached"
             break
 
         same_prepare_round = (
@@ -594,12 +791,109 @@ def run_game_to_end_prepare_move_loop(
             if not all((result.get("success") is True) for result in bot_stop_results.values()) or not bots_stopped:
                 errors.append(f"{label}.bot_stop_failed")
 
-            active_humans = active_human_player_ids(before_move_host if before_ready else host_snapshot)
+            command_base_snapshot = before_move_host if before_ready else host_snapshot
+            if args.wall_command_every_prepare:
+                place_label = f"{label}-place-wall"
+                wall_player_ids = wall_command_player_ids(command_base_snapshot)
+                place_results = issue_place_wall_commands(
+                    clients["host"],
+                    command_base_snapshot,
+                    artifact_dir,
+                    label=place_label,
+                    player_ids=wall_player_ids,
+                )
+                after_place_host, after_place_client, after_place_comparison, after_place_ready = wait_target_prepare_ready(
+                    clients["host"],
+                    clients["client"],
+                    artifact_dir,
+                    args.state_timeout,
+                    args.scene,
+                    f"{place_label}-after",
+                    current_round,
+                    require_comparison=False,
+                )
+                remove_label = f"{label}-remove-wall"
+                remove_results = issue_remove_wall_commands(
+                    clients["host"],
+                    place_results,
+                    artifact_dir,
+                    label=remove_label,
+                )
+                successful_places = [item for item in place_results if (item.get("response") or {}).get("success") is True]
+                successful_removes = [item for item in remove_results if (item.get("response") or {}).get("success") is True]
+                if successful_removes:
+                    after_remove_host, after_remove_client, after_remove_comparison, after_remove_ready = wait_target_prepare_wall_stock_restored(
+                        clients["host"],
+                        clients["client"],
+                        artifact_dir,
+                        args.state_timeout,
+                        args.scene,
+                        f"{remove_label}-after",
+                        current_round,
+                        command_base_snapshot,
+                        remove_results,
+                        require_comparison=False,
+                    )
+                else:
+                    after_remove_host, after_remove_client, after_remove_comparison, after_remove_ready = wait_target_prepare_ready(
+                        clients["host"],
+                        clients["client"],
+                        artifact_dir,
+                        args.state_timeout,
+                        args.scene,
+                        f"{remove_label}-after",
+                        current_round,
+                    )
+                wall_record = {
+                    "round": current_round,
+                    "wallPlayerIds": wall_player_ids,
+                    "successfulPlaceWallCommands": len(successful_places),
+                    "successfulRemoveWallCommands": len(successful_removes),
+                    "placeWallHashChanged": wall_hash_changed(command_base_snapshot, after_place_host, place_results),
+                    "removeWallHashChanged": wall_hash_changed(after_place_host, after_remove_host, remove_results),
+                    "wallStockRestored": wall_stock_restored(command_base_snapshot, after_remove_host, remove_results),
+                    "afterPlaceReady": after_place_ready,
+                    "afterRemoveReady": after_remove_ready,
+                    "afterPlaceComparisonSuccess": after_place_comparison.get("success") is True,
+                    "afterRemoveComparisonSuccess": after_remove_comparison.get("success") is True,
+                    "placeResults": place_results,
+                    "removeResults": remove_results,
+                    "errors": [],
+                }
+                if wall_player_ids and len(successful_places) != len(wall_player_ids):
+                    wall_record["errors"].append("not_all_wall_places_succeeded")
+                if successful_places and not wall_record["placeWallHashChanged"]:
+                    wall_record["errors"].append("place_wall_hash_not_changed")
+                if successful_places and len(successful_removes) != len(successful_places):
+                    wall_record["errors"].append("not_all_wall_removes_succeeded")
+                if successful_removes and not wall_record["removeWallHashChanged"]:
+                    wall_record["errors"].append("remove_wall_hash_not_changed")
+                if successful_removes and not wall_record["wallStockRestored"]:
+                    wall_record["errors"].append("wall_stock_not_restored")
+                if not after_place_ready:
+                    wall_record["errors"].append("after_place_wall_ready_timeout")
+                if not after_remove_ready:
+                    wall_record["errors"].append("after_remove_wall_ready_timeout")
+                if after_place_comparison.get("success") is not True:
+                    wall_record.setdefault("warnings", []).extend(
+                        f"place_comparison.{item}" for item in after_place_comparison.get("errors") or ["failed"]
+                    )
+                if after_remove_comparison.get("success") is not True:
+                    wall_record.setdefault("warnings", []).extend(
+                        f"remove_comparison.{item}" for item in after_remove_comparison.get("errors") or ["failed"]
+                    )
+                errors.extend(f"{label}.{error}" for error in wall_record["errors"])
+                wall_records.append(wall_record)
+                write_json(artifact_dir / f"{label}-wall-record.json", wall_record)
+                write_json(artifact_dir / "game-to-end-wall-records.json", wall_records)
+                command_base_snapshot = after_remove_host if after_remove_ready else command_base_snapshot
+
+            active_humans = active_human_player_ids(command_base_snapshot)
             if not active_humans:
                 warnings.append(f"{label}.no_active_human_units")
             move_results = issue_move_commands(
                 clients["host"],
-                before_move_host if before_ready else host_snapshot,
+                command_base_snapshot,
                 artifact_dir,
                 label=label,
                 player_ids=active_humans,
@@ -615,7 +909,7 @@ def run_game_to_end_prepare_move_loop(
                 require_comparison=False,
             )
             successful_moves = [item for item in move_results if (item.get("response") or {}).get("success") is True]
-            hash_changed = movement_hash_changed(before_move_host if before_ready else host_snapshot, after_move_host, move_results)
+            hash_changed = movement_hash_changed(command_base_snapshot, after_move_host, move_results)
             record = {
                 "round": current_round,
                 "activeHumanPlayerIds": active_humans,
@@ -652,6 +946,9 @@ def run_game_to_end_prepare_move_loop(
         if errors and not args.continue_game_end_on_move_error:
             limit_reason = "move_verification_failed"
             break
+        if args.max_rounds > 0 and current_round >= args.max_rounds and (not same_prepare_round or current_round in moved_rounds):
+            limit_reason = "max_rounds_reached"
+            break
         time.sleep(max(0.5, args.poll_interval_seconds))
 
     if limit_reason == "none":
@@ -665,20 +962,35 @@ def run_game_to_end_prepare_move_loop(
     write_json(artifact_dir / "snapshots" / "host-game-end-final.json", final_host)
     write_json(artifact_dir / "snapshots" / "client-game-end-final.json", final_client)
     write_json(artifact_dir / "comparison-game-end-final.json", final_comparison)
+    if not battle_hud_captured:
+        battle_hud_capture = {"captured": False}
+        write_json(artifact_dir / "battle-hud-capture.json", battle_hud_capture)
+        errors.append("battle_hud_screenshot_not_captured")
 
     final_host_game = game(final_host)
     final_client_game = game(final_client)
-    if final_host_game.get("currentState") != "GameOver" or final_client_game.get("currentState") != "GameOver":
+    max_round_pass = (
+        args.allow_max_round_result
+        and limit_reason == "max_rounds_reached"
+        and args.max_rounds > 0
+        and to_int(final_host_game.get("currentRound")) >= args.max_rounds
+        and to_int(final_client_game.get("currentRound")) >= args.max_rounds
+    )
+    game_over_pass = final_host_game.get("currentState") == "GameOver" and final_client_game.get("currentState") == "GameOver"
+    if not game_over_pass and not max_round_pass:
         errors.append("game_over_not_reached")
     if final_comparison.get("success") is not True:
         errors.extend(f"final_comparison.{error}" for error in final_comparison.get("errors") or ["failed"])
     if not move_records:
         errors.append("no_prepare_move_records")
+    if args.wall_command_every_prepare and not wall_records:
+        errors.append("no_prepare_wall_records")
 
     result = {
         "success": not errors,
-        "gameToEndPass": final_host_game.get("currentState") == "GameOver" and final_client_game.get("currentState") == "GameOver" and not errors,
-        "finalStatus": "PASS" if final_host_game.get("currentState") == "GameOver" and final_client_game.get("currentState") == "GameOver" and not errors else "FAIL",
+        "gameToEndPass": game_over_pass and not errors,
+        "boundedProgressionPass": max_round_pass and not errors,
+        "finalStatus": "PASS" if (game_over_pass or max_round_pass) and not errors else "FAIL",
         "limitReason": limit_reason,
         "errors": errors,
         "warnings": warnings,
@@ -686,7 +998,12 @@ def run_game_to_end_prepare_move_loop(
         "prepareMoveRounds": len(move_records),
         "successfulPrepareMoveCommands": sum(to_int(record.get("successfulMoveCommands")) for record in move_records),
         "moveRecordsPath": "game-to-end-move-records.json",
+        "prepareWallRounds": len(wall_records),
+        "successfulPlaceWallCommands": sum(to_int(record.get("successfulPlaceWallCommands")) for record in wall_records),
+        "successfulRemoveWallCommands": sum(to_int(record.get("successfulRemoveWallCommands")) for record in wall_records),
+        "wallRecordsPath": "game-to-end-wall-records.json" if wall_records else None,
         "progressTimelinePath": "game-to-end-progress-timeline.json",
+        "battleHudCapture": battle_hud_capture,
         "finalHost": final_host,
         "finalClient": final_client,
         "finalComparison": final_comparison,
@@ -733,8 +1050,10 @@ def run(args: argparse.Namespace) -> int:
         "expectedAi": EXPECTED_AI,
         "moveRound": args.move_round,
         "moveEveryPrepareUntilGameOver": args.move_every_prepare_until_game_over,
+        "wallCommandEveryPrepare": args.wall_command_every_prepare,
         "maxDurationSeconds": args.max_duration_seconds,
         "maxRounds": args.max_rounds,
+        "allowMaxRoundResult": args.allow_max_round_result,
         "botPrepareMode": args.bot_prepare_mode,
         "headlessPlayer": args.headless_player,
         "dryRun": args.dry_run,
@@ -1000,9 +1319,13 @@ def run(args: argparse.Namespace) -> int:
         extra={
             "comparisonSuccess": final_comparison.get("success") is True,
             "gameToEndPass": game_end_move_result.get("gameToEndPass") if game_end_move_result else None,
+            "boundedProgressionPass": game_end_move_result.get("boundedProgressionPass") if game_end_move_result else None,
             "finalStatus": game_end_move_result.get("finalStatus") if game_end_move_result else None,
             "prepareMoveRounds": game_end_move_result.get("prepareMoveRounds") if game_end_move_result else None,
             "successfulPrepareMoveCommands": game_end_move_result.get("successfulPrepareMoveCommands") if game_end_move_result else None,
+            "prepareWallRounds": game_end_move_result.get("prepareWallRounds") if game_end_move_result else None,
+            "successfulPlaceWallCommands": game_end_move_result.get("successfulPlaceWallCommands") if game_end_move_result else None,
+            "successfulRemoveWallCommands": game_end_move_result.get("successfulRemoveWallCommands") if game_end_move_result else None,
             "gameEndMoveResultPath": "game-to-end-move-result.json" if game_end_move_result else None,
         },
     )
@@ -1024,8 +1347,10 @@ def main() -> int:
     parser.add_argument("--bot-prepare-mode", choices=["full", "augment-only", "skip"], default="full")
     parser.add_argument("--move-round", type=int, default=1)
     parser.add_argument("--move-every-prepare-until-game-over", action="store_true")
+    parser.add_argument("--wall-command-every-prepare", action="store_true")
     parser.add_argument("--max-duration-seconds", type=int, default=1800)
     parser.add_argument("--max-rounds", type=int, default=0)
+    parser.add_argument("--allow-max-round-result", action="store_true")
     parser.add_argument("--poll-interval-seconds", type=float, default=2.0)
     parser.add_argument("--game-over-timeout", type=int, default=120)
     parser.add_argument("--continue-game-end-on-move-error", action="store_true")

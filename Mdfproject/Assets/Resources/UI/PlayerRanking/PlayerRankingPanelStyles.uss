@@ -114,7 +114,7 @@
 }
 
 .ranking-heart-icon,
-.ranking-shield-icon {
+.ranking-battle-role-icon {
     width: 20px;
     height: 20px;
     margin-right: 3px;
@@ -125,8 +125,15 @@
     background-image: url("project://database/Assets/Resource/Image/PlayerStatus/heart.png?fileID=21300000&guid=edae61d5cf460f840b3396dc611e0bcc&type=3#heart");
 }
 
-.ranking-shield-icon {
+.ranking-battle-role-icon {
     margin-left: 8px;
+}
+
+.ranking-battle-role-icon-attacker {
+    background-image: url("project://database/Assets/Resource/Image/PlayerStatus/battle.png?fileID=21300000&guid=529b60433540edb4a9bf116e9330b0a5&type=3#battle");
+}
+
+.ranking-battle-role-icon-defender {
     background-image: url("project://database/Assets/Resource/Image/PlayerStatus/shield.png?fileID=21300000&guid=f37ed53b57fe3624e9b31dc8779169a7&type=3#shield");
 }
 

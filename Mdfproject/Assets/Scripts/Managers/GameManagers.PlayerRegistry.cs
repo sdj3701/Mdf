@@ -106,6 +106,47 @@ public partial class GameManagers
         return TryReadNetworkedBattleOpponentSnapshot(playerId, out opponentId);
     }
 
+    public bool TryGetBattleRoleSnapshot(int playerId, out bool isActivelyFighting, out bool isAttacker)
+    {
+        isActivelyFighting = false;
+        isAttacker = false;
+
+        if (playerId < 0 || (currentState != GameState.Battle1 && currentState != GameState.Battle2))
+        {
+            return false;
+        }
+
+        if (TryGetBattleOpponentSnapshot(playerId, out int opponentId) &&
+            opponentId >= 0 &&
+            TryGetMatchFirstAttackerSnapshot(playerId, out int firstAttackerId) &&
+            firstAttackerId >= 0)
+        {
+            isActivelyFighting = true;
+            bool isFirstAttacker = playerId == firstAttackerId;
+            isAttacker = currentState == GameState.Battle1 ? isFirstAttacker : !isFirstAttacker;
+            return true;
+        }
+
+        var player = GetPlayer(playerId);
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        try
+        {
+            isActivelyFighting = player.IsActivelyFighting;
+            isAttacker = player.IsAttackerInCurrentBattle;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            isActivelyFighting = false;
+            isAttacker = false;
+            return false;
+        }
+    }
+
     private bool TryGetMatchFirstAttackerSnapshot(int playerId, out int firstAttackerId)
     {
         if (_matchFirstAttacker.TryGetValue(playerId, out firstAttackerId))

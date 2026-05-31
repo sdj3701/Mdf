@@ -10,7 +10,7 @@
                         <ui:VisualElement class="ranking-stat-row">
                             <ui:VisualElement class="ranking-heart-icon" />
                             <ui:Label name="ranking-self-hp" text="80" class="ranking-hp" />
-                            <ui:VisualElement class="ranking-shield-icon" />
+                            <ui:VisualElement name="ranking-self-battle-role-icon" class="ranking-battle-role-icon ranking-battle-role-icon-defender" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>
@@ -21,7 +21,7 @@
                         <ui:VisualElement class="ranking-stat-row">
                             <ui:VisualElement class="ranking-heart-icon" />
                             <ui:Label name="ranking-opponent-hp" text="80" class="ranking-hp" />
-                            <ui:VisualElement class="ranking-shield-icon" />
+                            <ui:VisualElement name="ranking-opponent-battle-role-icon" class="ranking-battle-role-icon ranking-battle-role-icon-defender" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>
@@ -32,7 +32,7 @@
                         <ui:VisualElement class="ranking-stat-row">
                             <ui:VisualElement class="ranking-heart-icon" />
                             <ui:Label name="ranking-reserve-0-hp" text="80" class="ranking-hp" />
-                            <ui:VisualElement class="ranking-shield-icon" />
+                            <ui:VisualElement name="ranking-reserve-0-battle-role-icon" class="ranking-battle-role-icon ranking-battle-role-icon-defender" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>
@@ -43,7 +43,7 @@
                         <ui:VisualElement class="ranking-stat-row">
                             <ui:VisualElement class="ranking-heart-icon" />
                             <ui:Label name="ranking-reserve-1-hp" text="80" class="ranking-hp" />
-                            <ui:VisualElement class="ranking-shield-icon" />
+                            <ui:VisualElement name="ranking-reserve-1-battle-role-icon" class="ranking-battle-role-icon ranking-battle-role-icon-defender" />
                         </ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>

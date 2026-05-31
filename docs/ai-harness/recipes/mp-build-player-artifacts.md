@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-22
-Last verified: 2026-05-22
-Use count: 24
+Last used: 2026-05-31
+Last verified: 2026-05-31
+Use count: 28
 Review after: 2026-08-03
 Triggers: Development Build, build artifact, player launch smoke
 Applies to: `mp_build_player`, `tools/harness/mp/build_player.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/mptest-current; artifacts/builds/20260514-035351; artifacts/builds/20260514-044206; artifacts/builds/20260514-051634; artifacts/builds/20260514-054535; artifacts/builds/20260514-064144; artifacts/builds/20260519-040047/build-metadata.json; artifacts/builds/20260519-055613/build-metadata.json; artifacts/builds/20260519-070913; artifacts/builds/20260520-053607; artifacts/builds/20260520-060212; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/mptest-current; artifacts/builds/20260514-035351; artifacts/builds/20260514-044206; artifacts/builds/20260514-051634; artifacts/builds/20260514-054535; artifacts/builds/20260514-064144; artifacts/builds/20260519-040047/build-metadata.json; artifacts/builds/20260519-055613/build-metadata.json; artifacts/builds/20260519-070913; artifacts/builds/20260520-053607; artifacts/builds/20260520-060212; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/MDF-MPTest.exe; artifacts/builds/mptest-current/build-metadata.json; artifacts/mp/20260522-052526-two-humanbot-two-ai-smoke
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -69,3 +69,10 @@ Lifecycle notes:
 - 2026-05-21: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
 - 2026-05-22: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
 - 2026-05-22: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
+- 2026-05-22: verified artifact `artifacts/builds/mptest-current/MDF-MPTest.exe`
+- 2026-05-22: Built mptest-current Development player before 2h2ai round-2 smoke; build result Succeeded.
+- 2026-05-22: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
+- 2026-05-22: Verified wall create/remove refund and move commands through round 5 in 2 HumanBot + 2 AI MP smoke.
+- 2026-05-22: verified artifact `artifacts/mp/20260522-052526-two-humanbot-two-ai-smoke`
+- 2026-05-31: Rebuilt `artifacts/builds/mptest-current` after PlayerRanking role icon and wall placement input fixes; launch smoke cleanupStatus=PASS orphanedPids=[].
+- 2026-05-31: verified artifact `artifacts/builds/mptest-current/build-metadata.json`

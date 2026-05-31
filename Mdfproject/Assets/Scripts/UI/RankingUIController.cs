@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Cysharp.Threading.Tasks;
 using Fusion;
 using UnityEngine;
 using UnityEngine.UI;
@@ -17,6 +18,8 @@ public class RankingUIController : MonoBehaviour
     private const float ToolkitRefreshInterval = 0.25f;
     private const int MaxToolkitReserveCards = 2;
     private const int FallbackPlayerMaxHealth = 80;
+    private const string AttackBattleRoleIconClass = "ranking-battle-role-icon-attacker";
+    private const string DefenseBattleRoleIconClass = "ranking-battle-role-icon-defender";
 
     [Header("Legacy UI Parent Containers")]
     [SerializeField] private Transform leftSideContainer;
@@ -43,9 +46,9 @@ public class RankingUIController : MonoBehaviour
     private bool isInitialized;
     private bool isInitializing;
     private bool toolkitReady;
-    private bool toolkitCallbacksRegistered;
     private float nextInitializeRetryTime;
     private float nextToolkitRefreshTime;
+    private int lastToolkitCardClickFrame = -1;
 
     public static int GetLeftSideSlotCountForDisplay(int playerCount)
     {
@@ -116,6 +119,8 @@ public class RankingUIController : MonoBehaviour
 
         if (useToolkitRanking && EnsureToolkit())
         {
+            HandleToolkitPointerInput();
+
             if (Time.unscaledTime >= nextToolkitRefreshTime)
             {
                 nextToolkitRefreshTime = Time.unscaledTime + ToolkitRefreshInterval;
@@ -308,7 +313,8 @@ public class RankingUIController : MonoBehaviour
         return new RankingCardView(
             cardRoot,
             toolkitRoot.Q<Label>($"{prefix}-name"),
-            toolkitRoot.Q<Label>($"{prefix}-hp"));
+            toolkitRoot.Q<Label>($"{prefix}-hp"),
+            toolkitRoot.Q<VisualElement>($"{prefix}-battle-role-icon"));
     }
 
     private void AddCardIfValid(RankingCardView card)
@@ -321,13 +327,118 @@ public class RankingUIController : MonoBehaviour
 
     private void RegisterToolkitCallbacks()
     {
-        if (toolkitCallbacksRegistered)
+        foreach (var card in toolkitCards)
+        {
+            card.RegisterClickHandler(OnToolkitCardClicked);
+        }
+
+        // Display-only overlay outside the player cards: it must not block GamePrepare augment/shop input.
+    }
+
+    private void OnToolkitCardClicked(RankingCardView card)
+    {
+        if (lastToolkitCardClickFrame == Time.frameCount)
         {
             return;
         }
 
-        // Display-only overlay: it must not block GamePrepare augment/shop input.
-        toolkitCallbacksRegistered = true;
+        lastToolkitCardClickFrame = Time.frameCount;
+
+        if (card == null || !IsPlayerReadable(card.TrackedPlayer))
+        {
+            Debug.Log("[RankingUIController] No tracked player for clicked ranking card.");
+            return;
+        }
+
+        if (CameraManager.Instance == null)
+        {
+            Debug.LogWarning("[RankingUIController] CameraManager is missing.");
+            return;
+        }
+
+        if (card.TrackedPlayer == CameraManager.Instance.OwnField)
+        {
+            CameraManager.Instance.ReturnToOwnField();
+            return;
+        }
+
+        bool isAttackMode = ShouldUseAttackModeCamera(card.TrackedPlayer);
+        CameraManager.Instance.MoveToPlayerField(card.TrackedPlayer, isAttackMode).Forget();
+    }
+
+    private void HandleToolkitPointerInput()
+    {
+        if (!MdfInput.PrimaryPointerWasReleasedThisFrame())
+        {
+            return;
+        }
+
+        var clickedCard = FindToolkitCardAtScreenPosition(MdfInput.PointerPosition);
+        if (clickedCard != null)
+        {
+            OnToolkitCardClicked(clickedCard);
+        }
+    }
+
+    private RankingCardView FindToolkitCardAtScreenPosition(Vector2 screenPosition)
+    {
+        if (toolkitRoot == null || toolkitRoot.panel == null)
+        {
+            return null;
+        }
+
+        Vector2 panelPosition = RuntimePanelUtils.ScreenToPanel(toolkitRoot.panel, screenPosition);
+        var card = FindToolkitCardAtPanelPosition(panelPosition);
+        if (card != null)
+        {
+            return card;
+        }
+
+        Vector2 invertedPanelPosition = new Vector2(screenPosition.x, Screen.height - screenPosition.y);
+        return FindToolkitCardAtPanelPosition(invertedPanelPosition);
+    }
+
+    private RankingCardView FindToolkitCardAtPanelPosition(Vector2 panelPosition)
+    {
+        foreach (var card in toolkitCards)
+        {
+            if (card != null && card.ContainsPanelPoint(panelPosition))
+            {
+                return card;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ShouldUseAttackModeCamera(PlayerManager targetPlayer)
+    {
+        var gm = GameManagers.Instance;
+        var localPlayer = gm?.localPlayer;
+        if (!IsPlayerReadable(localPlayer) || !IsPlayerReadable(targetPlayer))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!localPlayer.IsActivelyFighting || !localPlayer.IsAttackerInCurrentBattle)
+            {
+                return false;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+
+        if (!TryGetPlayerIdSafe(localPlayer, out int localPlayerId) ||
+            !TryGetPlayerIdSafe(targetPlayer, out int targetPlayerId))
+        {
+            return false;
+        }
+
+        return gm.GetBattleOpponent(localPlayerId) == targetPlayerId;
     }
 
     private static void SetPickingModeRecursive(VisualElement element, PickingMode mode)
@@ -520,12 +631,47 @@ public class RankingUIController : MonoBehaviour
             player,
             name,
             displayHp.ToString(),
-            GetHealthFillPercentForDisplay(displayHp, displayMaxHp));
+            GetHealthFillPercentForDisplay(displayHp, displayMaxHp),
+            ShouldUseAttackBattleRoleIcon(player));
     }
 
     public static float GetHealthFillPercentForDisplay(int health, int maxHealth)
     {
         return maxHealth > 0 ? Mathf.Clamp01(health / (float)maxHealth) : 0f;
+    }
+
+    public static bool ShouldUseAttackBattleRoleIconForDisplay(
+        bool isActivelyFighting,
+        bool isAttackerInCurrentBattle)
+    {
+        return isActivelyFighting && isAttackerInCurrentBattle;
+    }
+
+    private static bool ShouldUseAttackBattleRoleIcon(PlayerManager player)
+    {
+        if (!IsPlayerReadable(player))
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (TryGetPlayerIdSafe(player, out int playerId) &&
+            gm != null &&
+            gm.TryGetBattleRoleSnapshot(playerId, out bool isSnapshotFighting, out bool isSnapshotAttacker))
+        {
+            return ShouldUseAttackBattleRoleIconForDisplay(isSnapshotFighting, isSnapshotAttacker);
+        }
+
+        try
+        {
+            return ShouldUseAttackBattleRoleIconForDisplay(
+                player.IsActivelyFighting,
+                player.IsAttackerInCurrentBattle);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static string ResolveNickname(PlayerManager player, NetworkPlayer[] networkPlayers)
@@ -805,44 +951,67 @@ public class RankingUIController : MonoBehaviour
         public readonly string Name;
         public readonly string Health;
         public readonly float HealthFillPercent;
+        public readonly bool UseAttackBattleRoleIcon;
 
         public RankingCardData(
             bool visible,
             PlayerManager player,
             string name,
             string health,
-            float healthFillPercent)
+            float healthFillPercent,
+            bool useAttackBattleRoleIcon)
         {
             Visible = visible;
             Player = player;
             Name = name;
             Health = health;
             HealthFillPercent = healthFillPercent;
+            UseAttackBattleRoleIcon = useAttackBattleRoleIcon;
         }
 
         public static RankingCardData Hidden()
         {
-            return new RankingCardData(false, null, string.Empty, string.Empty, 0f);
+            return new RankingCardData(false, null, string.Empty, string.Empty, 0f, false);
         }
     }
 
     private sealed class RankingCardView
     {
+        private Action<RankingCardView> clickHandler;
+        private bool clickRegistered;
         private readonly Label name;
         private readonly Label health;
+        private readonly VisualElement battleRoleIcon;
 
-        public RankingCardView(VisualElement root, Label name, Label health)
+        public RankingCardView(VisualElement root, Label name, Label health, VisualElement battleRoleIcon)
         {
             Root = root;
             this.name = name;
             this.health = health;
+            this.battleRoleIcon = battleRoleIcon;
 
             Root.pickingMode = PickingMode.Ignore;
         }
 
         public VisualElement Root { get; }
-        public bool IsValid => Root != null && name != null && health != null;
+        public bool IsValid => Root != null && name != null && health != null && battleRoleIcon != null;
         public PlayerManager TrackedPlayer { get; private set; }
+
+        public void RegisterClickHandler(Action<RankingCardView> handler)
+        {
+            if (Root == null || handler == null)
+            {
+                return;
+            }
+
+            clickHandler = handler;
+            Root.pickingMode = PickingMode.Position;
+            if (!clickRegistered)
+            {
+                Root.RegisterCallback<PointerUpEvent>(OnPointerUp);
+                clickRegistered = true;
+            }
+        }
 
         public void Bind(RankingCardData data)
         {
@@ -855,6 +1024,35 @@ public class RankingUIController : MonoBehaviour
 
             SetText(name, data.Name);
             SetText(health, data.Health);
+            SetBattleRoleIcon(data.UseAttackBattleRoleIcon);
+        }
+
+        private void SetBattleRoleIcon(bool useAttackIcon)
+        {
+            if (battleRoleIcon == null)
+            {
+                return;
+            }
+
+            battleRoleIcon.RemoveFromClassList(AttackBattleRoleIconClass);
+            battleRoleIcon.RemoveFromClassList(DefenseBattleRoleIconClass);
+            battleRoleIcon.AddToClassList(useAttackIcon
+                ? AttackBattleRoleIconClass
+                : DefenseBattleRoleIconClass);
+        }
+
+        private void OnPointerUp(PointerUpEvent evt)
+        {
+            clickHandler?.Invoke(this);
+            evt.StopPropagation();
+        }
+
+        public bool ContainsPanelPoint(Vector2 panelPosition)
+        {
+            return Root != null &&
+                   Root.resolvedStyle.display != DisplayStyle.None &&
+                   Root.resolvedStyle.visibility != Visibility.Hidden &&
+                   Root.worldBound.Contains(panelPosition);
         }
 
         private static void SetText(Label label, string value)
