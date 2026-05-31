@@ -21,6 +21,11 @@ public class MonsterSpawner : MonoBehaviour
 
     [Header("정리용 부모 오브젝트")]
     public Transform monsterParent;
+
+    [Header("Monster Prewarm")]
+    [SerializeField] private bool enableMonsterPrewarm = true;
+    [SerializeField, Min(0)] private int prewarmCountPerMonsterPrefab = 12;
+    [SerializeField, Min(0)] private int prewarmCountPerBossPrefab = 2;
     
     private readonly HashSet<string> _activeAutoSpawnKeys = new HashSet<string>();
     private readonly HashSet<string> _completedAutoSpawnKeys = new HashSet<string>();
@@ -211,6 +216,140 @@ public class MonsterSpawner : MonoBehaviour
             // $"[SPAWN-TRACE #{++_spawnTraceSeq}] {step} | monster={monsterName} spawn={spawnPosition} | " +
             // $"{DescribePlayerState(_playerManager, "attacker")} | {DescribeFieldState(targetFieldManager, "targetField")} | " +
             // $"{DescribePlayerState(targetPlayer, "defender")} | {DescribeRunnerState(_playerManager?.Runner)}{suffix}");
+    }
+
+    private struct MonsterPrewarmRequest
+    {
+        public MonsterData MonsterData;
+        public int TargetFreeCount;
+
+        public MonsterPrewarmRequest(MonsterData monsterData, int targetFreeCount)
+        {
+            MonsterData = monsterData;
+            TargetFreeCount = targetFreeCount;
+        }
+    }
+
+    public UniTask PrewarmAttackMonsterPoolAsync(IEnumerable<MonsterPoolEntry> pool, string context = null)
+    {
+        if (!enableMonsterPrewarm || pool == null)
+        {
+            return UniTask.CompletedTask;
+        }
+
+        var requests = new Dictionary<string, MonsterPrewarmRequest>();
+        foreach (var entry in pool)
+        {
+            if (entry?.MonsterData == null || entry.IsEmpty)
+            {
+                continue;
+            }
+
+            int availableCount = Mathf.Max(1, Mathf.Max(entry.RemainingCount, entry.MaxCount));
+            int configuredLimit = entry.IsBoss ? prewarmCountPerBossPrefab : prewarmCountPerMonsterPrefab;
+            int targetCount = Mathf.Min(configuredLimit, availableCount);
+            AddPrewarmRequest(requests, entry.MonsterData, targetCount);
+        }
+
+        return PrewarmRequestsAsync(requests, context ?? "AttackMonsterPool");
+    }
+
+    public UniTask PrewarmWaveAsync(RoundWaveData waveData, string context = null)
+    {
+        if (!enableMonsterPrewarm || waveData?.monsters == null)
+        {
+            return UniTask.CompletedTask;
+        }
+
+        var requests = new Dictionary<string, MonsterPrewarmRequest>();
+        foreach (var entry in waveData.monsters)
+        {
+            if (entry?.monsterData == null || entry.count <= 0)
+            {
+                continue;
+            }
+
+            int targetCount = Mathf.Min(prewarmCountPerMonsterPrefab, Mathf.Max(1, entry.count));
+            AddPrewarmRequest(requests, entry.monsterData, targetCount);
+        }
+
+        return PrewarmRequestsAsync(requests, context ?? "Wave");
+    }
+
+    public UniTask PrewarmMonsterDataAsync(MonsterData monsterData, bool isBoss, int requestedCount, string context = null)
+    {
+        int configuredLimit = isBoss ? prewarmCountPerBossPrefab : prewarmCountPerMonsterPrefab;
+        int targetCount = requestedCount > 0
+            ? Mathf.Min(configuredLimit, requestedCount)
+            : configuredLimit;
+
+        var requests = new Dictionary<string, MonsterPrewarmRequest>();
+        AddPrewarmRequest(requests, monsterData, targetCount);
+        return PrewarmRequestsAsync(requests, context ?? "SingleMonster");
+    }
+
+    private static void AddPrewarmRequest(Dictionary<string, MonsterPrewarmRequest> requests, MonsterData monsterData, int targetCount)
+    {
+        if (requests == null || monsterData == null || targetCount <= 0 || string.IsNullOrEmpty(monsterData.monsterPrefab))
+        {
+            return;
+        }
+
+        string key = monsterData.monsterPrefab;
+        if (requests.TryGetValue(key, out var existing) && existing.TargetFreeCount >= targetCount)
+        {
+            return;
+        }
+
+        requests[key] = new MonsterPrewarmRequest(monsterData, targetCount);
+    }
+
+    private async UniTask PrewarmRequestsAsync(Dictionary<string, MonsterPrewarmRequest> requests, string context)
+    {
+        if (!enableMonsterPrewarm || requests == null || requests.Count == 0)
+        {
+            return;
+        }
+
+        if (_playerManager == null)
+        {
+            _playerManager = GetComponentInParent<PlayerManager>();
+        }
+
+        var runner = _playerManager?.Runner;
+        if (runner == null || !runner.IsRunning)
+        {
+            return;
+        }
+
+        var provider = runner.GetComponent<PooledNetworkObjectProvider>();
+        if (provider == null)
+        {
+            return;
+        }
+
+        int createdTotal = 0;
+        foreach (var request in requests.Values)
+        {
+            if (request.MonsterData == null || request.TargetFreeCount <= 0)
+            {
+                continue;
+            }
+
+            GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(request.MonsterData.monsterPrefab);
+            if (prefab == null || !prefab.TryGetComponent<NetworkObject>(out var netPrefab))
+            {
+                continue;
+            }
+
+            createdTotal += provider.PrewarmPrefab(runner, netPrefab, request.TargetFreeCount);
+            await UniTask.Yield();
+        }
+
+        if (createdTotal > 0)
+        {
+            Debug.Log($"[MonsterSpawner] Prewarmed {createdTotal} monster NetworkObjects. owner={_playerManager?.playerId}, context={context}");
+        }
     }
 
     public bool IsAutoSpawnRunningForKey(string battleBootstrapKey)
@@ -519,6 +658,8 @@ public class MonsterSpawner : MonoBehaviour
             return;
         }
 
+        await PrewarmWaveAsync(waveData, $"SpawnBaseWaveFromFastestOuterDirectionAsync/R{round}");
+
         Vector3 spawnPosition = GetFastestOuterDirectionSpawnPosition(targetFieldManager);
         int delayMs = Mathf.Max(100, Mathf.RoundToInt(Mathf.Max(0.1f, waveData.spawnInterval) * 1000f));
 
@@ -685,6 +826,8 @@ public class MonsterSpawner : MonoBehaviour
             {
                 return;
             }
+
+            await PrewarmAttackMonsterPoolAsync(pool, "StartAutoSpawnFromPool");
 
             // ★ AIAttackStrategy를 사용한 전략적 소환
             // spawnAreaLayerMask를 AttackSequenceManager에서 가져옴

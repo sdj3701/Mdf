@@ -2608,6 +2608,17 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
         SyncAttackMonsterPoolToClientsIfAuthoritative();
+        PrewarmAttackMonsterPoolIfPossible("RefreshAttackMonsterPool");
+    }
+
+    private void PrewarmAttackMonsterPoolIfPossible(string context)
+    {
+        if (monsterSpawner == null || AttackMonsterPool == null || AttackMonsterPool.Count == 0)
+        {
+            return;
+        }
+
+        monsterSpawner.PrewarmAttackMonsterPoolAsync(AttackMonsterPool, context).Forget();
     }
 
     /// <summary>
@@ -3290,6 +3301,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         AttackMonsterPool = pool ?? new List<MonsterPoolEntry>();
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
+        PrewarmAttackMonsterPoolIfPossible("ApplyAttackMonsterPoolEntries");
     }
 
     private static int ReadArrayValue(int[] values, int index, int fallback)
