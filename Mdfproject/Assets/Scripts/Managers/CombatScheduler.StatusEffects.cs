@@ -141,8 +141,9 @@ public partial class CombatScheduler
         int emptySlot = FindEmptyStatusSlot();
         if (emptySlot < 0)
         {
+            RecordNetworkBudgetDrop(NetworkBudgetDropKind.Status);
             Debug.LogWarning($"[CombatScheduler.StatusEffects] Active status capacity exceeded. capacity={MaxActiveStatusEffects}, target={targetObject.Id}, type={type}");
-            return true;
+            return false;
         }
 
         int nextSeq = StatusEffectSequence + 1;
@@ -171,6 +172,7 @@ public partial class CombatScheduler
         });
 
         RefreshStatusCacheForTarget(targetObject.Id);
+        RefreshNetworkBudgetPeaks();
         return true;
     }
 

@@ -29,17 +29,17 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Networked] private int gold { get; set; }
     [Networked] private int wallCount { get; set; }
     private const int SHOP_SNAPSHOT_CAPACITY = 5;
-    [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> ShopSnapshotUnitKeys { get; }
+    [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<int> ShopSnapshotUnitKeyHashes { get; }
     [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<int> ShopSnapshotStarLevels { get; }
     [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<int> ShopSnapshotSoldFlags { get; }
     [Networked] private int ShopSnapshotRevision { get; set; }
     [Networked] private int ShopSnapshotCount { get; set; }
     [Networked] private int ShopSnapshotRound { get; set; }
     private const int PRESENTED_AUGMENT_SNAPSHOT_CAPACITY = 3;
-    [Networked, Capacity(PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> PresentedAugmentSnapshotNames { get; }
+    [Networked, Capacity(PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> PresentedAugmentSnapshotIds { get; }
     [Networked] private int PresentedAugmentSnapshotCount { get; set; }
     private const int SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 8;
-    [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> SelectedAugmentSnapshotNames { get; }
+    [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> SelectedAugmentSnapshotIds { get; }
     [Networked] private int SelectedAugmentSnapshotCount { get; set; }
     private const float PERMANENT_BONUS_NETWORK_SCALE = 10000f;
     [Networked] private int PermanentAttackDamageBonusPermille { get; set; }
@@ -100,7 +100,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Networked] public int AttackMonsterPoolRevision { get; private set; }
     private const int ATTACK_POOL_SNAPSHOT_CAPACITY = 32;
     [Networked] private int AttackMonsterPoolSnapshotCount { get; set; }
-    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<NetworkString<_64>> AttackMonsterPoolSnapshotNames { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotDataIds { get; }
     [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotRemainingCounts { get; }
     [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotMaxCounts { get; }
     [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotIsBossValues { get; }
@@ -152,6 +152,104 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return key.Replace("(Clone)", string.Empty).Trim();
     }
 
+    private static int StableDataKeyHash(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return 0;
+        }
+
+        unchecked
+        {
+            uint hash = 2166136261u;
+            for (int i = 0; i < value.Length; i++)
+            {
+                hash ^= value[i];
+                hash *= 16777619u;
+            }
+
+            return (int)hash;
+        }
+    }
+
+    private static int StableAugmentSnapshotId(string augmentName)
+    {
+        return StableDataKeyHash(string.IsNullOrWhiteSpace(augmentName) ? string.Empty : augmentName.Trim());
+    }
+
+    private static int StableMonsterDataKeyHash(string value)
+    {
+        return StableDataKeyHash(NormalizeShopUnitKey(value));
+    }
+
+    private static string ResolveLoadedUnitDataKeyByStableHash(int unitDataKeyHash)
+    {
+        if (unitDataKeyHash == 0)
+        {
+            return string.Empty;
+        }
+
+        var allUnits = LoadManager.Instance != null ? LoadManager.Instance.GetAllUnitData() : null;
+        if (TryResolveUnitDataKeyByStableHash(allUnits, unitDataKeyHash, out string loadedKey))
+        {
+            return loadedKey;
+        }
+
+        return TryResolveUnitDataKeyByStableHash(Resources.FindObjectsOfTypeAll<UnitData>(), unitDataKeyHash, out string resourceKey)
+            ? resourceKey
+            : string.Empty;
+    }
+
+    private static bool TryResolveUnitDataKeyByStableHash(IEnumerable<UnitData> units, int unitDataKeyHash, out string key)
+    {
+        key = string.Empty;
+        if (units == null)
+        {
+            return false;
+        }
+
+        foreach (var data in units)
+        {
+            if (data == null)
+            {
+                continue;
+            }
+
+            if (StableUnitDataKeyHash(data.name) == unitDataKeyHash ||
+                StableUnitDataKeyHash(data.unitName) == unitDataKeyHash)
+            {
+                key = data.name;
+                return !string.IsNullOrEmpty(key);
+            }
+        }
+
+        return false;
+    }
+
+    private static string ResolveLoadedAugmentNameByStableId(int augmentId)
+    {
+        if (augmentId == 0)
+        {
+            return string.Empty;
+        }
+
+        foreach (var data in Resources.FindObjectsOfTypeAll<AugmentData>())
+        {
+            if (data == null)
+            {
+                continue;
+            }
+
+            if (StableAugmentSnapshotId(data.augmentName) == augmentId ||
+                StableAugmentSnapshotId(data.name) == augmentId)
+            {
+                return !string.IsNullOrWhiteSpace(data.augmentName) ? data.augmentName.Trim() : data.name;
+            }
+        }
+
+        return string.Empty;
+    }
+
     public void PublishShopSnapshot(IReadOnlyList<ShopItem> items, bool[] soldFlags, string context)
     {
         if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
@@ -162,7 +260,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         int count = Mathf.Clamp(items?.Count ?? 0, 0, SHOP_SNAPSHOT_CAPACITY);
         for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
         {
-            ShopSnapshotUnitKeys.Set(i, string.Empty);
+            ShopSnapshotUnitKeyHashes.Set(i, 0);
             ShopSnapshotStarLevels.Set(i, 0);
             ShopSnapshotSoldFlags.Set(i, 0);
         }
@@ -174,7 +272,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             int starLevel = item.StarLevel > 0 ? item.StarLevel : 1;
             int sold = soldFlags != null && i < soldFlags.Length && soldFlags[i] ? 1 : 0;
 
-            ShopSnapshotUnitKeys.Set(i, unitKey);
+            ShopSnapshotUnitKeyHashes.Set(i, StableUnitDataKeyHash(unitKey));
             ShopSnapshotStarLevels.Set(i, starLevel);
             ShopSnapshotSoldFlags.Set(i, sold);
         }
@@ -221,7 +319,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         for (int i = 0; i < count; i++)
         {
-            unitKeys[i] = NormalizeShopUnitKey(ShopSnapshotUnitKeys[i].ToString());
+            int keyHash = ShopSnapshotUnitKeyHashes[i];
+            unitKeys[i] = ResolveLoadedUnitDataKeyByStableHash(keyHash);
+            if (keyHash != 0 && string.IsNullOrEmpty(unitKeys[i]))
+            {
+                return false;
+            }
+
             starLevels[i] = Mathf.Max(1, ShopSnapshotStarLevels[i]);
             soldFlags[i] = ShopSnapshotSoldFlags[i] != 0;
         }
@@ -252,7 +356,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return;
         }
 
-        SelectedAugmentSnapshotNames.Set(SelectedAugmentSnapshotCount, augmentName.Trim());
+        SelectedAugmentSnapshotIds.Set(SelectedAugmentSnapshotCount, StableAugmentSnapshotId(augmentName));
         SelectedAugmentSnapshotCount++;
     }
 
@@ -265,7 +369,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
         {
-            PresentedAugmentSnapshotNames.Set(i, string.Empty);
+            PresentedAugmentSnapshotIds.Set(i, 0);
         }
 
         int count = 0;
@@ -282,7 +386,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 continue;
             }
 
-            PresentedAugmentSnapshotNames.Set(count, name);
+            PresentedAugmentSnapshotIds.Set(count, StableAugmentSnapshotId(name));
             count++;
         }
 
@@ -300,7 +404,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         var names = new List<string>(count);
         for (int i = 0; i < count; i++)
         {
-            string name = PresentedAugmentSnapshotNames.Get(i).ToString();
+            string name = ResolveLoadedAugmentNameByStableId(PresentedAugmentSnapshotIds.Get(i));
             if (!string.IsNullOrWhiteSpace(name))
             {
                 names.Add(name);
@@ -316,7 +420,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         var names = new List<string>(count);
         for (int i = 0; i < count; i++)
         {
-            string name = SelectedAugmentSnapshotNames.Get(i).ToString();
+            string name = ResolveLoadedAugmentNameByStableId(SelectedAugmentSnapshotIds.Get(i));
             if (!string.IsNullOrWhiteSpace(name))
             {
                 names.Add(name);
@@ -338,7 +442,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
         {
-            PresentedAugmentSnapshotNames.Set(i, string.Empty);
+            PresentedAugmentSnapshotIds.Set(i, 0);
         }
 
         int presentedCount = 0;
@@ -355,13 +459,13 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 continue;
             }
 
-            PresentedAugmentSnapshotNames.Set(presentedCount, name);
+            PresentedAugmentSnapshotIds.Set(presentedCount, StableAugmentSnapshotId(name));
             presentedCount++;
         }
 
         for (int i = 0; i < SELECTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
         {
-            SelectedAugmentSnapshotNames.Set(i, string.Empty);
+            SelectedAugmentSnapshotIds.Set(i, 0);
         }
 
         int selectedCount = 0;
@@ -378,7 +482,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 continue;
             }
 
-            SelectedAugmentSnapshotNames.Set(selectedCount, name);
+            SelectedAugmentSnapshotIds.Set(selectedCount, StableAugmentSnapshotId(name));
             selectedCount++;
         }
 
@@ -1584,22 +1688,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     private static int StableUnitDataKeyHash(string value)
     {
-        if (string.IsNullOrEmpty(value))
-        {
-            return 0;
-        }
-
-        unchecked
-        {
-            uint hash = 2166136261u;
-            for (int i = 0; i < value.Length; i++)
-            {
-                hash ^= value[i];
-                hash *= 16777619u;
-            }
-
-            return (int)hash;
-        }
+        return StableDataKeyHash(NormalizeShopUnitKey(value));
     }
 
     private void RememberLatestUnitRegistration(uint unitIdRaw, NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
@@ -1915,7 +2004,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             int count = Mathf.Clamp(shopUnitKeys.Length, 0, SHOP_SNAPSHOT_CAPACITY);
             for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
             {
-                ShopSnapshotUnitKeys.Set(i, string.Empty);
+                ShopSnapshotUnitKeyHashes.Set(i, 0);
                 ShopSnapshotStarLevels.Set(i, 0);
                 ShopSnapshotSoldFlags.Set(i, 0);
             }
@@ -1928,7 +2017,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                     : 1;
                 int sold = shopSoldFlags != null && i < shopSoldFlags.Length && shopSoldFlags[i] ? 1 : 0;
 
-                ShopSnapshotUnitKeys.Set(i, unitKey);
+                ShopSnapshotUnitKeyHashes.Set(i, StableUnitDataKeyHash(unitKey));
                 ShopSnapshotStarLevels.Set(i, starLevel);
                 ShopSnapshotSoldFlags.Set(i, sold);
             }
@@ -2775,7 +2864,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         for (int i = 0; i < count; i++)
         {
-            monsterDataNames[i] = AttackMonsterPoolSnapshotNames.Get(i).ToString();
+            monsterDataNames[i] = ResolveLoadedMonsterDataNameByStableHash(AttackMonsterPoolSnapshotDataIds.Get(i));
+            if (AttackMonsterPoolSnapshotDataIds.Get(i) != 0 && string.IsNullOrEmpty(monsterDataNames[i]))
+            {
+                return false;
+            }
+
             remainingCounts[i] = AttackMonsterPoolSnapshotRemainingCounts[i];
             maxCounts[i] = AttackMonsterPoolSnapshotMaxCounts[i];
             isBossValues[i] = AttackMonsterPoolSnapshotIsBossValues[i];
@@ -2804,7 +2898,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         int count = Mathf.Clamp(monsterDataNames?.Length ?? 0, 0, ATTACK_POOL_SNAPSHOT_CAPACITY);
         for (int i = 0; i < ATTACK_POOL_SNAPSHOT_CAPACITY; i++)
         {
-            AttackMonsterPoolSnapshotNames.Set(i, string.Empty);
+            AttackMonsterPoolSnapshotDataIds.Set(i, 0);
             AttackMonsterPoolSnapshotRemainingCounts.Set(i, 0);
             AttackMonsterPoolSnapshotMaxCounts.Set(i, 0);
             AttackMonsterPoolSnapshotIsBossValues.Set(i, 0);
@@ -2815,7 +2909,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         for (int i = 0; i < count; i++)
         {
-            AttackMonsterPoolSnapshotNames.Set(i, monsterDataNames[i] ?? string.Empty);
+            AttackMonsterPoolSnapshotDataIds.Set(i, StableMonsterDataKeyHash(monsterDataNames[i]));
             AttackMonsterPoolSnapshotRemainingCounts.Set(i, ReadArrayValue(remainingCounts, i, 0));
             AttackMonsterPoolSnapshotMaxCounts.Set(i, ReadArrayValue(maxCounts, i, 0));
             AttackMonsterPoolSnapshotIsBossValues.Set(i, ReadArrayValue(isBossValues, i, 0));
@@ -2960,6 +3054,59 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
     }
 
+    private string ResolveLoadedMonsterDataNameByStableHash(int monsterDataKeyHash)
+    {
+        if (monsterDataKeyHash == 0)
+        {
+            return string.Empty;
+        }
+
+        MonsterData data = FindLoadedMonsterDataByStableHash(monsterDataKeyHash);
+        if (data == null)
+        {
+            data = FindWaveMonsterDataByStableHash(monsterDataKeyHash);
+        }
+
+        return data != null ? data.name : string.Empty;
+    }
+
+    private static MonsterData FindLoadedMonsterDataByStableHash(int monsterDataKeyHash)
+    {
+        var loaded = Resources.FindObjectsOfTypeAll<MonsterData>();
+        foreach (var data in loaded)
+        {
+            if (MatchesMonsterDataHash(data, monsterDataKeyHash))
+            {
+                return data;
+            }
+        }
+
+        return null;
+    }
+
+    private static MonsterData FindWaveMonsterDataByStableHash(int monsterDataKeyHash)
+    {
+        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        if (waveDatabase?.rounds == null)
+        {
+            return null;
+        }
+
+        foreach (var round in waveDatabase.rounds)
+        {
+            if (round?.monsters == null) continue;
+            foreach (var entry in round.monsters)
+            {
+                if (MatchesMonsterDataHash(entry?.monsterData, monsterDataKeyHash))
+                {
+                    return entry.monsterData;
+                }
+            }
+        }
+
+        return null;
+    }
+
     private static MonsterData FindLoadedMonsterDataByName(string monsterDataName)
     {
         var loaded = Resources.FindObjectsOfTypeAll<MonsterData>();
@@ -3007,6 +3154,18 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         return string.Equals(data.name, monsterDataName, System.StringComparison.Ordinal)
             || string.Equals(data.monsterName, monsterDataName, System.StringComparison.Ordinal)
             || string.Equals(data.monsterPrefab, monsterDataName, System.StringComparison.Ordinal);
+    }
+
+    private static bool MatchesMonsterDataHash(MonsterData data, int monsterDataKeyHash)
+    {
+        if (data == null || monsterDataKeyHash == 0)
+        {
+            return false;
+        }
+
+        return StableMonsterDataKeyHash(data.name) == monsterDataKeyHash
+            || StableMonsterDataKeyHash(data.monsterName) == monsterDataKeyHash
+            || StableMonsterDataKeyHash(data.monsterPrefab) == monsterDataKeyHash;
     }
 
     private bool TryBuildAttackMonsterPoolFromRefs(

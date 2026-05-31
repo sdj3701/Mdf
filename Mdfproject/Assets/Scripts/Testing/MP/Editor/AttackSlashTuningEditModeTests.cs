@@ -164,7 +164,6 @@ public sealed class AttackSlashTuningEditModeTests
         string utilitySource = File.ReadAllText("Assets/Scripts/VFX/BasicAttackVfxRuntimeUtility.cs");
         string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
         string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
-        string projectileVfxManagerSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
         string previewSource = File.ReadAllText("Assets/Scripts/VFX/AttackSlashTuningPreview.cs");
 
         Assert.That(presenterSource, Does.Contain("config.primaryRendererFlip"));
@@ -185,12 +184,14 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(unitSource, Does.Contain("public void PlayBasicAttackVfxFromCombatEvent(NetworkObject targetObject)"));
         Assert.That(unitSource, Does.Contain("config.spawnNormalizedTime"));
         Assert.That(unitSource, Does.Contain("return normalizedTime / animRate;"));
-        Assert.That(schedulerSource, Does.Contain("BasicAttackVfxEventSequence"));
         Assert.That(schedulerSource, Does.Contain("ScheduleBasicAttackVfx"));
         Assert.That(schedulerSource, Does.Contain("ProcessDueBasicAttackVfx"));
-        Assert.That(projectileVfxManagerSource, Does.Contain("ProcessNewBasicAttackVfxEvents"));
-        Assert.That(projectileVfxManagerSource, Does.Contain("TryGetBasicAttackVfxEvent"));
-        Assert.That(projectileVfxManagerSource, Does.Contain("PlayBasicAttackVfxFromCombatEvent"));
+        Assert.That(schedulerSource, Does.Contain("RPC_PlayBasicAttackVfx"));
+        Assert.That(schedulerSource, Does.Contain("[Rpc(RpcSources.StateAuthority, RpcTargets.All)]"));
+        Assert.That(schedulerSource, Does.Contain("attackerUnit.PlayBasicAttackVfxFromCombatEvent(target);"));
+        Assert.That(schedulerSource, Does.Not.Contain("BasicAttackVfxEventSequence"));
+        Assert.That(schedulerSource, Does.Not.Contain("TryGetBasicAttackVfxEvent"));
+        Assert.That(schedulerSource, Does.Not.Contain("BasicAttackVfxEventSeqs"));
         Assert.That(previewSource, Does.Contain("IndexOf(\"atk\", System.StringComparison.OrdinalIgnoreCase)"));
         Assert.That(unitSource, Does.Not.Contain("ScheduleBasicAttackVfxForCurrentAnimation"));
         Assert.That(unitSource, Does.Not.Contain("PlayBasicAttackVfxAfterDelay"));

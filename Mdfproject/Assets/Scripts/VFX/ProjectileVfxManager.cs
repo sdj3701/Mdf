@@ -5,6 +5,8 @@ using UnityEngine;
 
 public class ProjectileVfxManager : MonoBehaviour
 {
+    public static ProjectileVfxManager Instance { get; private set; }
+
     [SerializeField] private VfxPoolManager pool;
     [SerializeField] private Transform vfxRoot;
     [SerializeField] private float minRemainingSeconds = 0.02f;
@@ -15,12 +17,7 @@ public class ProjectileVfxManager : MonoBehaviour
     [Tooltip("Limits spawn progress for delayed network events. 0 always spawns at fire position, 1 allows exact catch-up position.")]
     [SerializeField, Range(0f, 1f)] private float maxSpawnProgress = 0.3f;
 
-    private CombatScheduler _scheduler;
-    private int _lastProcessedSeq;
-    private int _lastProcessedBasicAttackVfxSeq;
-    private bool _didCatchup;
-    private bool _didInitializeBasicAttackVfxStream;
-    private readonly List<CombatScheduler.ProjectileEventData> _catchupEvents = new List<CombatScheduler.ProjectileEventData>();
+    private int _nextPresentationSequence;
     private readonly Dictionary<int, ActiveProjectile> _activeBySeq = new Dictionary<int, ActiveProjectile>();
     private readonly List<ActiveProjectile> _activeProjectiles = new List<ActiveProjectile>();
 
@@ -29,6 +26,7 @@ public class ProjectileVfxManager : MonoBehaviour
         public int Sequence;
         public int FireTick;
         public int HitTick;
+        public NetworkRunner Runner;
         public GameObject Instance;
         public NetworkObject TargetObject;
         public uint TargetNetworkIdRaw;
@@ -42,134 +40,65 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private void Awake()
     {
+        if (Instance == null || Instance == this)
+        {
+            Instance = this;
+        }
+
         if (pool == null)
         {
             pool = VfxPoolManager.Instance;
         }
     }
 
-    private static void LogProjectile(string message)
+    private void OnDestroy()
     {
-        Debug.Log(message);
+        if (Instance == this)
+        {
+            Instance = null;
+        }
     }
 
     private void Update()
     {
-        if (_scheduler == null)
-        {
-            _scheduler = CombatScheduler.Instance;
-            if (_scheduler == null)
-            {
-                return;
-            }
-
-            LogProjectile($"[ProjectileVfxManager] Scheduler found: {_scheduler.name}, HasStateAuthority: {_scheduler.Object?.HasStateAuthority}");
-        }
-
-        if (_scheduler.Runner == null || !_scheduler.Runner.IsRunning)
-        {
-            return;
-        }
-
-        if (!_didCatchup)
-        {
-            CatchupInFlight();
-            _didCatchup = true;
-        }
-
-        ProcessNewEvents();
-        ProcessNewBasicAttackVfxEvents();
         UpdateActiveProjectiles();
     }
 
-    private void CatchupInFlight()
+    public static void PlayFromCombatEvent(NetworkRunner runner, NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
     {
-        int nowTick = _scheduler.Runner.Tick;
-        _scheduler.GetInFlightEvents(nowTick, _catchupEvents);
-        for (int i = 0; i < _catchupEvents.Count; i++)
+        ProjectileVfxManager manager = Instance != null
+            ? Instance
+            : UnityEngine.Object.FindObjectOfType<ProjectileVfxManager>();
+        if (manager == null || !manager.isActiveAndEnabled || runner == null || !runner.IsRunning)
         {
-            HandleProjectileEvent(_catchupEvents[i]);
+            return;
         }
 
-        _lastProcessedSeq = _scheduler.EventSequence;
+        if (attacker == null || target == null)
+        {
+            return;
+        }
+
+        manager.HandleProjectileEvent(new CombatScheduler.ProjectileEventData
+        {
+            Sequence = manager.AllocatePresentationSequence(),
+            FireTick = fireTick,
+            HitTick = hitTick,
+            Runner = runner,
+            Attacker = attacker,
+            Target = target
+        });
     }
 
-    private void ProcessNewEvents()
+    private int AllocatePresentationSequence()
     {
-        int currentSeq = _scheduler.EventSequence;
-        if (currentSeq <= 0)
+        if (_nextPresentationSequence == int.MaxValue)
         {
-            return;
+            _nextPresentationSequence = 0;
         }
 
-        int minSeq = Mathf.Max(1, currentSeq - _scheduler.EventCapacity + 1);
-        int startSeq = Mathf.Max(_lastProcessedSeq + 1, minSeq);
-
-        if (startSeq <= currentSeq)
-        {
-            Debug.Log($"[ProjectileVfxManager] Processing events {startSeq} to {currentSeq}");
-        }
-
-        for (int seq = startSeq; seq <= currentSeq; seq++)
-        {
-            if (_scheduler.TryGetEvent(seq, out var evt))
-            {
-                Debug.Log($"[ProjectileVfxManager] Handling event seq={seq}, Attacker={(evt.Attacker != null ? evt.Attacker.name : "null")}, Target={(evt.Target != null ? evt.Target.name : "null")}");
-                HandleProjectileEvent(evt);
-            }
-        }
-
-        _lastProcessedSeq = currentSeq;
-    }
-
-    private void ProcessNewBasicAttackVfxEvents()
-    {
-        int currentSeq = _scheduler.BasicAttackVfxEventSequence;
-        if (!_didInitializeBasicAttackVfxStream)
-        {
-            _lastProcessedBasicAttackVfxSeq = currentSeq;
-            _didInitializeBasicAttackVfxStream = true;
-            return;
-        }
-
-        if (currentSeq <= 0)
-        {
-            return;
-        }
-
-        if (_lastProcessedBasicAttackVfxSeq > currentSeq)
-        {
-            _lastProcessedBasicAttackVfxSeq = 0;
-        }
-
-        int minSeq = Mathf.Max(1, currentSeq - _scheduler.BasicAttackVfxEventCapacity + 1);
-        int startSeq = Mathf.Max(_lastProcessedBasicAttackVfxSeq + 1, minSeq);
-
-        for (int seq = startSeq; seq <= currentSeq; seq++)
-        {
-            if (_scheduler.TryGetBasicAttackVfxEvent(seq, out var evt))
-            {
-                HandleBasicAttackVfxEvent(evt);
-            }
-        }
-
-        _lastProcessedBasicAttackVfxSeq = currentSeq;
-    }
-
-    private void HandleBasicAttackVfxEvent(CombatScheduler.BasicAttackVfxEventData evt)
-    {
-        if (evt.Attacker == null)
-        {
-            return;
-        }
-
-        Unit attacker = evt.Attacker.GetComponent<Unit>();
-        if (attacker == null)
-        {
-            return;
-        }
-
-        attacker.PlayBasicAttackVfxFromCombatEvent(evt.Target);
+        _nextPresentationSequence++;
+        return _nextPresentationSequence;
     }
 
     private void HandleProjectileEvent(CombatScheduler.ProjectileEventData evt)
@@ -184,7 +113,7 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private async UniTaskVoid SpawnProjectileAsync(CombatScheduler.ProjectileEventData evt)
     {
-        var runner = _scheduler.Runner;
+        var runner = evt.Runner;
         if (runner == null)
         {
             Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Runner is null (seq={evt.Sequence})");
@@ -225,12 +154,11 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        if (this == null || !isActiveAndEnabled || _scheduler == null || _scheduler.Runner == null)
+        if (this == null || !isActiveAndEnabled || runner == null || !runner.IsRunning)
         {
             return;
         }
 
-        runner = _scheduler.Runner;
         nowTime = GetRenderTime(runner);
         hitTime = evt.HitTick * runner.DeltaTime;
         firePos = ResolveFirePosition(evt);
@@ -276,6 +204,7 @@ public class ProjectileVfxManager : MonoBehaviour
             Sequence = evt.Sequence,
             FireTick = evt.FireTick,
             HitTick = evt.HitTick,
+            Runner = runner,
             Instance = instance,
             LastKnownTargetPos = targetPos,
             LastKnownDirection = travelDirection,
@@ -650,17 +579,18 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        var runner = _scheduler.Runner;
-        if (runner == null)
-        {
-            return;
-        }
-
-        float nowTime = GetRenderTime(runner);
-
         for (int i = _activeProjectiles.Count - 1; i >= 0; i--)
         {
             var active = _activeProjectiles[i];
+            var runner = active.Runner;
+            if (runner == null || !runner.IsRunning)
+            {
+                DespawnProjectile(active);
+                RemoveActive(active);
+                continue;
+            }
+
+            float nowTime = GetRenderTime(runner);
             if (active.Instance == null)
             {
                 RemoveActive(active);

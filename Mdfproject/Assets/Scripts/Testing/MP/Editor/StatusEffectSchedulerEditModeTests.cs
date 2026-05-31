@@ -118,6 +118,49 @@ public sealed class StatusEffectSchedulerEditModeTests
     }
 
     [Test]
+    public void NetworkBudgetDropsAreExposedAndCapacityFailuresReturnFalse()
+    {
+        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string budgetSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.NetworkBudget.cs");
+        string statusSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.StatusEffects.cs");
+        string statBuffSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.StatBuffs.cs");
+        string zoneSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.Zones.cs");
+        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+        string compareSource = File.ReadAllText("../tools/harness/mp/compare_state_snapshots.py");
+
+        Assert.That(budgetSource, Does.Contain("public struct NetworkBudgetReport"));
+        Assert.That(budgetSource, Does.Contain("case NetworkBudgetDropKind.Status:"));
+        Assert.That(budgetSource, Does.Contain("case NetworkBudgetDropKind.StatBuff:"));
+        Assert.That(budgetSource, Does.Contain("case NetworkBudgetDropKind.Zone:"));
+        Assert.That(budgetSource, Does.Contain("case NetworkBudgetDropKind.PendingFire:"));
+        Assert.That(budgetSource, Does.Contain("case NetworkBudgetDropKind.PendingHit:"));
+        Assert.That(budgetSource, Does.Contain("case NetworkBudgetDropKind.PresentationEvent:"));
+        Assert.That(statusSource, Does.Contain("RecordNetworkBudgetDrop(NetworkBudgetDropKind.Status);"));
+        Assert.That(statBuffSource, Does.Contain("RecordNetworkBudgetDrop(NetworkBudgetDropKind.StatBuff);"));
+        Assert.That(zoneSource, Does.Contain("RecordNetworkBudgetDrop(NetworkBudgetDropKind.Zone);"));
+        Assert.That(schedulerSource, Does.Contain("RecordNetworkBudgetDrop(NetworkBudgetDropKind.PendingFire);"));
+        Assert.That(schedulerSource, Does.Contain("RecordNetworkBudgetDrop(NetworkBudgetDropKind.PendingHit);"));
+        Assert.That(schedulerSource, Does.Contain("RecordNetworkBudgetDrop(NetworkBudgetDropKind.PresentationEvent);"));
+        Assert.That(schedulerSource, Does.Contain("Pending fire capacity exceeded"));
+        Assert.That(schedulerSource, Does.Contain("Pending hit capacity exceeded"));
+        Assert.That(schedulerSource, Does.Contain("FindEmptyPendingFireSnapshotSlot"));
+        Assert.That(schedulerSource, Does.Contain("FindEmptyPendingHitSnapshotSlot"));
+        Assert.That(schedulerSource, Does.Contain("FindPendingFireSnapshotSlot(sequence)"));
+        Assert.That(schedulerSource, Does.Contain("FindPendingHitSnapshotSlot(sequence)"));
+        Assert.That(schedulerSource, Does.Not.Contain("sequence % PendingFireCapacity"));
+        Assert.That(schedulerSource, Does.Not.Contain("sequence % PendingHitCapacity"));
+        Assert.That(schedulerSource, Does.Not.Contain("nextSeq % PendingFireCapacity"));
+        Assert.That(schedulerSource, Does.Not.Contain("nextSeq % PendingHitCapacity"));
+        Assert.That(statusSource, Does.Not.Contain("Active status capacity exceeded. capacity={MaxActiveStatusEffects}, target={targetObject.Id}, type={type}\");\r\n            return true;"));
+        Assert.That(statBuffSource, Does.Not.Contain("Active stat buff capacity exceeded. capacity={MaxActiveStatBuffs}, target={targetObject.Id}, stat={statType}\");\r\n            return true;"));
+        Assert.That(zoneSource, Does.Not.Contain("Active zone capacity exceeded. capacity={MaxActiveZones}, effect={effect.name}\");\r\n            return true;"));
+        Assert.That(snapshotSource, Does.Contain("NetworkBudget = CaptureNetworkBudget(gameManagers)"));
+        Assert.That(snapshotSource, Does.Contain("[JsonProperty(\"networkBudget\")] public NetworkBudgetSnapshot NetworkBudget;"));
+        Assert.That(snapshotSource, Does.Contain("NetworkObject.GetWordCount(networkObject)"));
+        Assert.That(compareSource, Does.Contain("assert_no_network_budget_drops"));
+    }
+
+    [Test]
     public void DeathClearsSchedulerStatusEffects()
     {
         string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");

@@ -4,13 +4,13 @@ Status: stale
 Pinned: true
 Category: host-migration, reconnect, security, battle
 Created: 2026-05-06
-Last used: 2026-05-16
-Last verified: 2026-05-16
-Use count: 3
+Last used: 2026-05-31
+Last verified: 2026-05-31
+Use count: 10
 Review after: 2026-08-04
 Triggers: A post-battle lifecycle E2E must compare a progressed battle checkpoint across client disconnect, same-token reconnect, or Host Migration without hiding normal game-flow advancement as expected randomness
 Applies to: `MPTestCommandLine`, `MPTestAutomationServer`, `battle_progression_common.py`, post-battle reconnect/disconnect/Host Migration runners
-Verified by: see Verification section below; migrated from old Status: provisional; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/battle-preservation-assertions.json
+Verified by: see Verification section below; migrated from old Status: provisional; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/battle-preservation-assertions.json; artifacts/mp/20260531-022409-matrix/20260531-022414-progressed-reconnect-after-battle/result.json; artifacts/mp/20260531-030739-matrix/20260531-030744-progressed-reconnect-after-battle/result.json; artifacts/mp/20260531-030739-matrix/20260531-030744-progressed-reconnect-after-battle/result.json; artifacts/mp/20260531-032610-matrix/20260531-032615-progressed-reconnect-after-battle/result.json; artifacts/mp/20260531-040328-matrix/20260531-040334-progressed-reconnect-after-battle/result.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -38,3 +38,8 @@ Verification:
 
 Lifecycle notes:
 - 2026-05-16: verified artifact `artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/battle-preservation-assertions.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-022409-matrix/20260531-022414-progressed-reconnect-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-030739-matrix/20260531-030744-progressed-reconnect-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-030739-matrix/20260531-030744-progressed-reconnect-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-032610-matrix/20260531-032615-progressed-reconnect-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-040328-matrix/20260531-040334-progressed-reconnect-after-battle/result.json`

@@ -103,8 +103,9 @@ public partial class CombatScheduler
         int slot = FindEmptyZoneSlot();
         if (slot < 0)
         {
+            RecordNetworkBudgetDrop(NetworkBudgetDropKind.Zone);
             Debug.LogWarning($"[CombatScheduler.Zones] Active zone capacity exceeded. capacity={MaxActiveZones}, effect={effect.name}");
-            return true;
+            return false;
         }
 
         int now = Runner.Tick;
@@ -145,6 +146,7 @@ public partial class CombatScheduler
             Controller = CreateZoneController(effect, caster, effectRunner, skillRange, targetingStrategy, nextSeq, position)
         };
 
+        RefreshNetworkBudgetPeaks();
         return true;
     }
 

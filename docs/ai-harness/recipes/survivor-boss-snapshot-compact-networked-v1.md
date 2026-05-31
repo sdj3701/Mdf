@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: other
 Created: 2026-05-08
-Last used: 2026-05-08
+Last used: 2026-05-31
 Last verified: 2026-05-08
-Use count: 1
+Use count: 3
 Review after: 2026-08-06
 Triggers: persistent authority-only gameplay state appears as non-zero on host and `unknown`/zero on client snapshots
 Applies to: `GameManagers`, `SurvivorBossManager`, `MPTestStateSnapshot`, long HumanBot progression

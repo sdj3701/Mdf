@@ -116,6 +116,9 @@ def compare_snapshots(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
     compare_known_or_missing(errors, "effects.activeStatusHash", le.get("activeStatusHash"), re.get("activeStatusHash"))
     compare_known_or_missing(errors, "effects.zoneHash", le.get("zoneHash"), re.get("zoneHash"))
 
+    assert_no_network_budget_drops(errors, "left.networkBudget", normalize_network_budget(left.get("networkBudget")))
+    assert_no_network_budget_drops(errors, "right.networkBudget", normalize_network_budget(right.get("networkBudget")))
+
     return {"success": not errors, "errors": errors, "warnings": warnings}
 
 
@@ -167,6 +170,29 @@ def normalize_effects(obj: Any) -> dict[str, Any]:
         "activeStatusHash": UNKNOWN,
         "zoneHash": UNKNOWN,
     }
+
+
+def normalize_network_budget(obj: Any) -> dict[str, int]:
+    keys = (
+        "statusCapacityDrops",
+        "statBuffCapacityDrops",
+        "zoneCapacityDrops",
+        "pendingFireCapacityDrops",
+        "pendingHitCapacityDrops",
+        "presentationEventDrops",
+    )
+    if not isinstance(obj, dict):
+        return {key: 0 for key in keys}
+    return {
+        key: obj.get(key, 0) if isinstance(obj.get(key, 0), int) else 0
+        for key in keys
+    }
+
+
+def assert_no_network_budget_drops(errors: list[str], prefix: str, budget: dict[str, int]) -> None:
+    for key, value in budget.items():
+        if value != 0:
+            errors.append(f"{prefix}.{key} expected=0 actual={value}")
 
 
 def compare_equal(errors: list[str], field: str, left: Any, right: Any) -> None:

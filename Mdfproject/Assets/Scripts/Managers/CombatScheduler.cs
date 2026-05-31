@@ -10,22 +10,11 @@ public partial class CombatScheduler : NetworkBehaviour
     [SerializeField] private int hitBufferSize = 256;
     [SerializeField] private float defaultProjectileSpeed = 20f;
 
-    private const int EventBufferCapacity = 192;
     private const int PendingFireCapacity = 128;
-    private const int PendingHitCapacity = EventBufferCapacity;
+    private const int PendingHitCapacity = 192;
+    private const int ProjectileEventBufferCapacity = 0;
     private const int FixedPointScale = 1000;
 
-    [Networked] public int EventSequence { get; private set; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> EventSeqs { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> EventFireTicks { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> EventHitTicks { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<NetworkObject> EventAttackers { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<NetworkObject> EventTargets { get; }
-    [Networked] public int BasicAttackVfxEventSequence { get; private set; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> BasicAttackVfxEventSeqs { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<int> BasicAttackVfxEventTicks { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<NetworkObject> BasicAttackVfxEventAttackers { get; }
-    [Networked, Capacity(EventBufferCapacity)] private NetworkArray<NetworkObject> BasicAttackVfxEventTargets { get; }
     [Networked] private int PendingFireSequence { get; set; }
     [Networked, Capacity(PendingFireCapacity)] private NetworkArray<PendingFireSnapshot> PendingFireSnapshots { get; }
     [Networked] private int PendingHitSequence { get; set; }
@@ -109,20 +98,10 @@ public partial class CombatScheduler : NetworkBehaviour
         public int Sequence;
         public int FireTick;
         public int HitTick;
+        public NetworkRunner Runner;
         public NetworkObject Attacker;
         public NetworkObject Target;
     }
-
-    public struct BasicAttackVfxEventData
-    {
-        public int Sequence;
-        public int Tick;
-        public NetworkObject Attacker;
-        public NetworkObject Target;
-    }
-
-    public int EventCapacity => EventBufferCapacity;
-    public int BasicAttackVfxEventCapacity => EventBufferCapacity;
 
     public override void Spawned()
     {
@@ -222,6 +201,7 @@ public partial class CombatScheduler : NetworkBehaviour
         RebuildPendingBucketsFromNetworkSnapshots();
         ProcessDueFires();
         ProcessDueHits();
+        RefreshNetworkBudgetPeaks();
     }
 
     public void ScheduleHit(NetworkObject attacker, NetworkObject target, Vector3 firePos, float damage,
@@ -264,28 +244,6 @@ public partial class CombatScheduler : NetworkBehaviour
             projectileSpeedOverride, splashRadius, enemyLayerMask, fireTick);
     }
 
-    public bool TryGetEvent(int sequence, out ProjectileEventData data)
-    {
-        data = default;
-        if (sequence <= 0)
-        {
-            return false;
-        }
-
-        int index = sequence % EventBufferCapacity;
-        if (EventSeqs[index] != sequence)
-        {
-            return false;
-        }
-
-        data.Sequence = sequence;
-        data.FireTick = EventFireTicks[index];
-        data.HitTick = EventHitTicks[index];
-        data.Attacker = EventAttackers[index];
-        data.Target = EventTargets[index];
-        return true;
-    }
-
     public void ScheduleBasicAttackVfx(NetworkObject attacker, NetworkObject target, float delaySeconds = 0f)
     {
         if (!Object.HasStateAuthority || Runner == null || attacker == null || target == null || _basicAttackVfxBuckets == null)
@@ -314,57 +272,7 @@ public partial class CombatScheduler : NetworkBehaviour
 
         if (IsPendingBasicAttackVfxValid(attacker, target))
         {
-            WriteBasicAttackVfxEvent(attacker, target, tick);
-        }
-    }
-
-    public bool TryGetBasicAttackVfxEvent(int sequence, out BasicAttackVfxEventData data)
-    {
-        data = default;
-        if (sequence <= 0)
-        {
-            return false;
-        }
-
-        int index = sequence % EventBufferCapacity;
-        if (BasicAttackVfxEventSeqs[index] != sequence)
-        {
-            return false;
-        }
-
-        data.Sequence = sequence;
-        data.Tick = BasicAttackVfxEventTicks[index];
-        data.Attacker = BasicAttackVfxEventAttackers[index];
-        data.Target = BasicAttackVfxEventTargets[index];
-        return true;
-    }
-
-    public void GetInFlightEvents(int nowTick, List<ProjectileEventData> results)
-    {
-        if (results == null)
-        {
-            return;
-        }
-
-        results.Clear();
-        int currentSeq = EventSequence;
-        if (currentSeq <= 0)
-        {
-            return;
-        }
-
-        int minSeq = Mathf.Max(1, currentSeq - EventBufferCapacity + 1);
-        for (int seq = minSeq; seq <= currentSeq; seq++)
-        {
-            if (!TryGetEvent(seq, out var evt))
-            {
-                continue;
-            }
-
-            if (evt.HitTick > nowTick)
-            {
-                results.Add(evt);
-            }
+            PublishBasicAttackVfxEvent(attacker, target);
         }
     }
 
@@ -417,8 +325,7 @@ public partial class CombatScheduler : NetworkBehaviour
 
             if (IsPendingBasicAttackVfxValid(pending.Attacker, pending.Target))
             {
-                int tick = Mathf.Max(pending.Tick, Runner.Tick);
-                WriteBasicAttackVfxEvent(pending.Attacker, pending.Target, tick);
+                PublishBasicAttackVfxEvent(pending.Attacker, pending.Target);
             }
 
             bucket.RemoveAt(i);
@@ -472,7 +379,7 @@ public partial class CombatScheduler : NetworkBehaviour
             hitTick = fireTick + 1;
         }
 
-        EnqueuePendingHit(new PendingHit
+        var pendingHit = new PendingHit
         {
             TargetId = target.Id,
             ImpactPosition = targetPosition,
@@ -481,11 +388,16 @@ public partial class CombatScheduler : NetworkBehaviour
             HitTick = hitTick,
             SplashRadius = splashRadius,
             EnemyLayerMask = enemyLayerMask
-        });
+        };
+
+        if (!EnqueuePendingHit(pendingHit))
+        {
+            return;
+        }
 
         if (emitVfx)
         {
-            WriteProjectileEvent(attacker, target, fireTick, hitTick);
+            PublishProjectileVfxEvent(attacker, target, fireTick, hitTick);
         }
     }
 
@@ -532,10 +444,17 @@ public partial class CombatScheduler : NetworkBehaviour
         }
     }
 
-    private void EnqueuePendingFire(PendingFire fire)
+    private bool EnqueuePendingFire(PendingFire fire)
     {
         fire.SnapshotSequence = WritePendingFireSnapshot(fire);
+        if (fire.SnapshotSequence <= 0)
+        {
+            return false;
+        }
+
         AddPendingFireToBucket(fire);
+        RefreshNetworkBudgetPeaks();
+        return true;
     }
 
     private void AddPendingFireToBucket(PendingFire fire)
@@ -548,10 +467,17 @@ public partial class CombatScheduler : NetworkBehaviour
         }
     }
 
-    private void EnqueuePendingHit(PendingHit hit)
+    private bool EnqueuePendingHit(PendingHit hit)
     {
         hit.SnapshotSequence = WritePendingHitSnapshot(hit);
+        if (hit.SnapshotSequence <= 0)
+        {
+            return false;
+        }
+
         AddPendingHitToBucket(hit);
+        RefreshNetworkBudgetPeaks();
+        return true;
     }
 
     private void AddPendingHitToBucket(PendingHit hit)
@@ -669,7 +595,7 @@ public partial class CombatScheduler : NetworkBehaviour
 
     private static bool IsPendingBasicAttackVfxValid(NetworkObject attacker, NetworkObject target)
     {
-        if (attacker == null || target == null || !target.IsValid)
+        if (attacker == null || target == null || !attacker.IsValid || !target.IsValid)
         {
             return false;
         }
@@ -720,9 +646,15 @@ public partial class CombatScheduler : NetworkBehaviour
     private int WritePendingFireSnapshot(PendingFire fire)
     {
         int nextSeq = PendingFireSequence + 1;
-        PendingFireSequence = nextSeq;
+        int index = FindEmptyPendingFireSnapshotSlot();
+        if (index < 0)
+        {
+            RecordNetworkBudgetDrop(NetworkBudgetDropKind.PendingFire);
+            Debug.LogWarning($"[CombatScheduler] Pending fire capacity exceeded. capacity={PendingFireCapacity}, sequence={nextSeq}");
+            return 0;
+        }
 
-        int index = nextSeq % PendingFireCapacity;
+        PendingFireSequence = nextSeq;
         PendingFireSnapshots.Set(index, new PendingFireSnapshot
         {
             Sequence = nextSeq,
@@ -747,9 +679,15 @@ public partial class CombatScheduler : NetworkBehaviour
     private int WritePendingHitSnapshot(PendingHit hit)
     {
         int nextSeq = PendingHitSequence + 1;
-        PendingHitSequence = nextSeq;
+        int index = FindEmptyPendingHitSnapshotSlot();
+        if (index < 0)
+        {
+            RecordNetworkBudgetDrop(NetworkBudgetDropKind.PendingHit);
+            Debug.LogWarning($"[CombatScheduler] Pending hit capacity exceeded. capacity={PendingHitCapacity}, sequence={nextSeq}");
+            return 0;
+        }
 
-        int index = nextSeq % PendingHitCapacity;
+        PendingHitSequence = nextSeq;
         PendingHitSnapshots.Set(index, new PendingHitSnapshot
         {
             Sequence = nextSeq,
@@ -774,8 +712,8 @@ public partial class CombatScheduler : NetworkBehaviour
             return;
         }
 
-        int index = sequence % PendingFireCapacity;
-        if (PendingFireSnapshots[index].Sequence == sequence)
+        int index = FindPendingFireSnapshotSlot(sequence);
+        if (index >= 0)
         {
             PendingFireSnapshots.Set(index, default);
         }
@@ -790,13 +728,65 @@ public partial class CombatScheduler : NetworkBehaviour
             return;
         }
 
-        int index = sequence % PendingHitCapacity;
-        if (PendingHitSnapshots[index].Sequence == sequence)
+        int index = FindPendingHitSnapshotSlot(sequence);
+        if (index >= 0)
         {
             PendingHitSnapshots.Set(index, default);
         }
 
         _localPendingHitSequences.Remove(sequence);
+    }
+
+    private int FindEmptyPendingFireSnapshotSlot()
+    {
+        for (int i = 0; i < PendingFireCapacity; i++)
+        {
+            if (PendingFireSnapshots[i].Sequence <= 0)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private int FindEmptyPendingHitSnapshotSlot()
+    {
+        for (int i = 0; i < PendingHitCapacity; i++)
+        {
+            if (PendingHitSnapshots[i].Sequence <= 0)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private int FindPendingFireSnapshotSlot(int sequence)
+    {
+        for (int i = 0; i < PendingFireCapacity; i++)
+        {
+            if (PendingFireSnapshots[i].Sequence == sequence)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private int FindPendingHitSnapshotSlot(int sequence)
+    {
+        for (int i = 0; i < PendingHitCapacity; i++)
+        {
+            if (PendingHitSnapshots[i].Sequence == sequence)
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private PendingFire ReadPendingFireSnapshot(PendingFireSnapshot snapshot, int nowTick)
@@ -861,28 +851,76 @@ public partial class CombatScheduler : NetworkBehaviour
         return new Vector3(UnpackFloat(x), UnpackFloat(y), UnpackFloat(z));
     }
 
-    private void WriteProjectileEvent(NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
+    private void PublishProjectileVfxEvent(NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
     {
-        int nextSeq = EventSequence + 1;
-        EventSequence = nextSeq;
+        if (attacker == null || target == null || !attacker.IsValid || !target.IsValid)
+        {
+            RecordNetworkBudgetDrop(NetworkBudgetDropKind.PresentationEvent);
+            return;
+        }
 
-        int index = nextSeq % EventBufferCapacity;
-        EventSeqs.Set(index, nextSeq);
-        EventFireTicks.Set(index, fireTick);
-        EventHitTicks.Set(index, hitTick);
-        EventAttackers.Set(index, attacker);
-        EventTargets.Set(index, target);
+        TrackProjectileVfxEventWrite();
+        RPC_PlayProjectileVfx(attacker.Id, target.Id, fireTick, hitTick);
     }
 
-    private void WriteBasicAttackVfxEvent(NetworkObject attacker, NetworkObject target, int tick)
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_PlayProjectileVfx(NetworkId attackerId, NetworkId targetId, int fireTick, int hitTick)
     {
-        int nextSeq = BasicAttackVfxEventSequence + 1;
-        BasicAttackVfxEventSequence = nextSeq;
+        if (Runner == null)
+        {
+            return;
+        }
 
-        int index = nextSeq % EventBufferCapacity;
-        BasicAttackVfxEventSeqs.Set(index, nextSeq);
-        BasicAttackVfxEventTicks.Set(index, tick);
-        BasicAttackVfxEventAttackers.Set(index, attacker);
-        BasicAttackVfxEventTargets.Set(index, target);
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            TrackProjectileVfxEventWrite();
+        }
+
+        if (!Runner.TryFindObject(attackerId, out NetworkObject attacker) ||
+            !Runner.TryFindObject(targetId, out NetworkObject target))
+        {
+            return;
+        }
+
+        ProjectileVfxManager.PlayFromCombatEvent(Runner, attacker, target, fireTick, hitTick);
+    }
+
+    private void PublishBasicAttackVfxEvent(NetworkObject attacker, NetworkObject target)
+    {
+        if (attacker == null || target == null)
+        {
+            return;
+        }
+
+        TrackBasicAttackVfxEventWrite();
+        RPC_PlayBasicAttackVfx(attacker.Id, target.Id);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_PlayBasicAttackVfx(NetworkId attackerId, NetworkId targetId)
+    {
+        if (Runner == null)
+        {
+            return;
+        }
+
+        if (Object == null || !Object.HasStateAuthority)
+        {
+            TrackBasicAttackVfxEventWrite();
+        }
+
+        if (!Runner.TryFindObject(attackerId, out NetworkObject attacker) ||
+            !Runner.TryFindObject(targetId, out NetworkObject target))
+        {
+            return;
+        }
+
+        Unit attackerUnit = attacker.GetComponent<Unit>();
+        if (attackerUnit == null)
+        {
+            return;
+        }
+
+        attackerUnit.PlayBasicAttackVfxFromCombatEvent(target);
     }
 }

@@ -33,6 +33,7 @@ public static class MPTestStateSnapshot
             Players = CapturePlayers(gameManagers, runner, options, errors),
             Objects = CaptureObjects(),
             Effects = CaptureEffects(),
+            NetworkBudget = CaptureNetworkBudget(gameManagers),
             Commands = CaptureCommands(gameManagers),
             HostMigration = CaptureHostMigration(),
             Test = CaptureTest(),
@@ -1195,6 +1196,91 @@ public static class MPTestStateSnapshot
         };
     }
 
+    private static NetworkBudgetSnapshot CaptureNetworkBudget(GameManagers gameManagers)
+    {
+        var scheduler = CombatScheduler.Instance;
+        CombatScheduler.NetworkBudgetReport report = scheduler != null
+            ? SafeRef(() => scheduler.GetNetworkBudgetReport(), default)
+            : default;
+
+        var playerManagers = UnityEngine.Object.FindObjectsOfType<PlayerManager>();
+        var units = UnityEngine.Object.FindObjectsOfType<Unit>();
+        var monsters = UnityEngine.Object.FindObjectsOfType<Monster>();
+
+        int playerWordTotal = 0;
+        int playerWordMax = 0;
+        foreach (var player in playerManagers)
+        {
+            int words = SafeNetworkObjectWordCount(player != null ? player.Object : null);
+            playerWordTotal += words;
+            playerWordMax = Math.Max(playerWordMax, words);
+        }
+
+        int unitWordTotal = 0;
+        int unitWordMax = 0;
+        foreach (var unit in units)
+        {
+            int words = SafeNetworkObjectWordCount(unit != null ? unit.Object : null);
+            unitWordTotal += words;
+            unitWordMax = Math.Max(unitWordMax, words);
+        }
+
+        int monsterWordTotal = 0;
+        int monsterWordMax = 0;
+        foreach (var monster in monsters)
+        {
+            int words = SafeNetworkObjectWordCount(monster != null ? monster.Object : null);
+            monsterWordTotal += words;
+            monsterWordMax = Math.Max(monsterWordMax, words);
+        }
+
+        return new NetworkBudgetSnapshot
+        {
+            SchedulerObjectWordCount = SafeNetworkObjectWordCount(scheduler != null ? scheduler.Object : null),
+            GameManagersObjectWordCount = SafeNetworkObjectWordCount(gameManagers != null ? gameManagers.Object : null),
+            PlayerManagerObjectWordCountTotal = playerWordTotal,
+            PlayerManagerObjectWordCountMax = playerWordMax,
+            UnitObjectWordCountTotal = unitWordTotal,
+            UnitObjectWordCountMax = unitWordMax,
+            MonsterObjectWordCountTotal = monsterWordTotal,
+            MonsterObjectWordCountMax = monsterWordMax,
+            StatusCapacityDrops = report.StatusCapacityDrops,
+            StatBuffCapacityDrops = report.StatBuffCapacityDrops,
+            ZoneCapacityDrops = report.ZoneCapacityDrops,
+            PendingFireCapacityDrops = report.PendingFireCapacityDrops,
+            PendingHitCapacityDrops = report.PendingHitCapacityDrops,
+            PresentationEventDrops = report.PresentationEventDrops,
+            CurrentPendingFireActive = report.CurrentPendingFireActive,
+            CurrentPendingHitActive = report.CurrentPendingHitActive,
+            CurrentActiveStatusEffects = report.CurrentActiveStatusEffects,
+            CurrentActiveStatBuffs = report.CurrentActiveStatBuffs,
+            CurrentActiveZones = report.CurrentActiveZones,
+            MaxPendingFireActive = report.MaxPendingFireActive,
+            MaxPendingHitActive = report.MaxPendingHitActive,
+            MaxActiveStatusEffects = report.MaxActiveStatusEffects,
+            MaxActiveStatBuffs = report.MaxActiveStatBuffs,
+            MaxActiveZones = report.MaxActiveZones,
+            MaxProjectileVfxEventsPerTick = report.MaxProjectileVfxEventsPerTick,
+            MaxBasicAttackVfxEventsPerTick = report.MaxBasicAttackVfxEventsPerTick,
+            PendingFireCapacity = report.PendingFireCapacity,
+            PendingHitCapacity = report.PendingHitCapacity,
+            EventBufferCapacity = report.EventBufferCapacity,
+            StatusCapacity = report.StatusCapacity,
+            StatBuffCapacity = report.StatBuffCapacity,
+            ZoneCapacity = report.ZoneCapacity
+        };
+    }
+
+    private static int SafeNetworkObjectWordCount(NetworkObject networkObject)
+    {
+        if (networkObject == null)
+        {
+            return 0;
+        }
+
+        return SafeInt(() => NetworkObject.GetWordCount(networkObject), 0);
+    }
+
     private static string BuildEffectTargetKey(GameObject target)
     {
         if (target == null)
@@ -1480,6 +1566,7 @@ public static class MPTestStateSnapshot
         [JsonProperty("players")] public PlayerSnapshot[] Players;
         [JsonProperty("objects")] public ObjectsSnapshot Objects;
         [JsonProperty("effects")] public EffectsSnapshot Effects;
+        [JsonProperty("networkBudget")] public NetworkBudgetSnapshot NetworkBudget;
         [JsonProperty("commands")] public CommandsSnapshot Commands;
         [JsonProperty("hostMigration")] public HostMigrationSnapshot HostMigration;
         [JsonProperty("test")] public TestSnapshot Test;
@@ -1638,6 +1725,43 @@ public static class MPTestStateSnapshot
         [JsonProperty("activeBuffHash")] public string ActiveBuffHash;
         [JsonProperty("activeStatusHash")] public string ActiveStatusHash;
         [JsonProperty("zoneHash")] public string ZoneHash;
+    }
+
+    [Serializable]
+    public sealed class NetworkBudgetSnapshot
+    {
+        [JsonProperty("schedulerObjectWordCount")] public int SchedulerObjectWordCount;
+        [JsonProperty("gameManagersObjectWordCount")] public int GameManagersObjectWordCount;
+        [JsonProperty("playerManagerObjectWordCountTotal")] public int PlayerManagerObjectWordCountTotal;
+        [JsonProperty("playerManagerObjectWordCountMax")] public int PlayerManagerObjectWordCountMax;
+        [JsonProperty("unitObjectWordCountTotal")] public int UnitObjectWordCountTotal;
+        [JsonProperty("unitObjectWordCountMax")] public int UnitObjectWordCountMax;
+        [JsonProperty("monsterObjectWordCountTotal")] public int MonsterObjectWordCountTotal;
+        [JsonProperty("monsterObjectWordCountMax")] public int MonsterObjectWordCountMax;
+        [JsonProperty("statusCapacityDrops")] public int StatusCapacityDrops;
+        [JsonProperty("statBuffCapacityDrops")] public int StatBuffCapacityDrops;
+        [JsonProperty("zoneCapacityDrops")] public int ZoneCapacityDrops;
+        [JsonProperty("pendingFireCapacityDrops")] public int PendingFireCapacityDrops;
+        [JsonProperty("pendingHitCapacityDrops")] public int PendingHitCapacityDrops;
+        [JsonProperty("presentationEventDrops")] public int PresentationEventDrops;
+        [JsonProperty("currentPendingFireActive")] public int CurrentPendingFireActive;
+        [JsonProperty("currentPendingHitActive")] public int CurrentPendingHitActive;
+        [JsonProperty("currentActiveStatusEffects")] public int CurrentActiveStatusEffects;
+        [JsonProperty("currentActiveStatBuffs")] public int CurrentActiveStatBuffs;
+        [JsonProperty("currentActiveZones")] public int CurrentActiveZones;
+        [JsonProperty("maxPendingFireActive")] public int MaxPendingFireActive;
+        [JsonProperty("maxPendingHitActive")] public int MaxPendingHitActive;
+        [JsonProperty("maxActiveStatusEffects")] public int MaxActiveStatusEffects;
+        [JsonProperty("maxActiveStatBuffs")] public int MaxActiveStatBuffs;
+        [JsonProperty("maxActiveZones")] public int MaxActiveZones;
+        [JsonProperty("maxProjectileVfxEventsPerTick")] public int MaxProjectileVfxEventsPerTick;
+        [JsonProperty("maxBasicAttackVfxEventsPerTick")] public int MaxBasicAttackVfxEventsPerTick;
+        [JsonProperty("pendingFireCapacity")] public int PendingFireCapacity;
+        [JsonProperty("pendingHitCapacity")] public int PendingHitCapacity;
+        [JsonProperty("eventBufferCapacity")] public int EventBufferCapacity;
+        [JsonProperty("statusCapacity")] public int StatusCapacity;
+        [JsonProperty("statBuffCapacity")] public int StatBuffCapacity;
+        [JsonProperty("zoneCapacity")] public int ZoneCapacity;
     }
 
     [Serializable]

@@ -318,7 +318,15 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(schedulerSource, Does.Contain("RebuildPendingBucketsFromNetworkSnapshots"));
         Assert.That(schedulerSource, Does.Contain("ClearPendingFireSnapshot"));
         Assert.That(schedulerSource, Does.Contain("ClearPendingHitSnapshot"));
-        Assert.That(schedulerSource, Does.Contain("WriteProjectileEvent(attacker, target, fireTick, hitTick)"));
+        Assert.That(schedulerSource, Does.Contain("PublishProjectileVfxEvent(attacker, target, fireTick, hitTick)"));
+        Assert.That(schedulerSource, Does.Contain("RPC_PlayProjectileVfx"));
+        Assert.That(schedulerSource, Does.Contain("ProjectileVfxManager.PlayFromCombatEvent"));
+        Assert.That(schedulerSource, Does.Not.Contain("EventSeqs"));
+        Assert.That(schedulerSource, Does.Not.Contain("TryGetEvent"));
+        Assert.That(schedulerSource, Does.Not.Contain("GetInFlightEvents"));
+        Assert.That(source, Does.Contain("PlayFromCombatEvent"));
+        Assert.That(source, Does.Not.Contain("ProcessNewEvents"));
+        Assert.That(source, Does.Not.Contain("CatchupInFlight"));
         Assert.That(unitDataSource, Does.Not.Contain("public float projectileSpeed"));
     }
 

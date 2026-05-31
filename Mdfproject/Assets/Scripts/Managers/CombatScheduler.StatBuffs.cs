@@ -171,8 +171,9 @@ public partial class CombatScheduler
         int emptySlot = FindEmptyStatBuffSlot();
         if (emptySlot < 0)
         {
+            RecordNetworkBudgetDrop(NetworkBudgetDropKind.StatBuff);
             Debug.LogWarning($"[CombatScheduler.StatBuffs] Active stat buff capacity exceeded. capacity={MaxActiveStatBuffs}, target={targetObject.Id}, stat={statType}");
-            return true;
+            return false;
         }
 
         int nextSeq = StatBuffSequence + 1;
@@ -193,6 +194,7 @@ public partial class CombatScheduler
         });
 
         RefreshStatBuffCacheForTarget(targetObject.Id);
+        RefreshNetworkBudgetPeaks();
         return true;
     }
 

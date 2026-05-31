@@ -1441,6 +1441,24 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(augmentSource, Does.Contain("augment?.monsterSpawnEntries"));
     }
 
+    [Test]
+    public void PlayerManagerDurableSnapshotsUseCompactStableIds()
+    {
+        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+
+        Assert.That(playerSource, Does.Contain("NetworkArray<int> ShopSnapshotUnitKeyHashes"));
+        Assert.That(playerSource, Does.Contain("NetworkArray<int> PresentedAugmentSnapshotIds"));
+        Assert.That(playerSource, Does.Contain("NetworkArray<int> SelectedAugmentSnapshotIds"));
+        Assert.That(playerSource, Does.Contain("NetworkArray<int> AttackMonsterPoolSnapshotDataIds"));
+        Assert.That(playerSource, Does.Contain("ResolveLoadedUnitDataKeyByStableHash"));
+        Assert.That(playerSource, Does.Contain("ResolveLoadedAugmentNameByStableId"));
+        Assert.That(playerSource, Does.Contain("ResolveLoadedMonsterDataNameByStableHash"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> ShopSnapshotUnitKeys"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> PresentedAugmentSnapshotNames"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> SelectedAugmentSnapshotNames"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> AttackMonsterPoolSnapshotNames"));
+    }
+
     private static void AssertComparisonFails(System.Action<MPTestStateSnapshot.Snapshot, MPTestStateSnapshot.Snapshot> mutate, string expectedErrorField)
     {
         var host = BuildSnapshot("host");
