@@ -301,6 +301,12 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => ApplyZoneForTest(body)));
         }
 
+        if (path == "/test/injectPendingCombatLoad")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => InjectPendingCombatLoadForTest(body)));
+        }
+
         if (path == "/screenshot")
         {
             return await RequireMethod(request, "GET", () => MainThread(() => CaptureScreenshot(request)));
@@ -1152,6 +1158,81 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             zoneSource,
             zoneEffect = zoneEffect.name,
             targetingStrategy = targetingStrategy != null ? targetingStrategy.name : null
+        });
+    }
+
+    private AutomationResponse InjectPendingCombatLoadForTest(JObject body)
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("pending_combat_load_requires_mptest", "Pending combat load injection requires --mpTest.");
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.");
+        }
+
+        if (!gameManagers.Runner.IsServer)
+        {
+            return AutomationResponse.Fail("pending_combat_load_requires_server_peer", "Pending combat load injection must be issued to the server/host peer.");
+        }
+
+        if (gameManagers.Object == null || !gameManagers.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail("pending_combat_load_requires_state_authority", "Pending combat load injection requires GameManagers State Authority.");
+        }
+
+        var scheduler = CombatScheduler.Instance;
+        if (scheduler == null || scheduler.Object == null || !scheduler.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail("pending_combat_load_scheduler_unavailable", "CombatScheduler authority is not ready.");
+        }
+
+        int pendingFireCount = Mathf.Max(0, GetInt(body, "pendingFireCount", GetInt(body, "pending_fire_count", 48)));
+        int pendingHitCount = Mathf.Max(0, GetInt(body, "pendingHitCount", GetInt(body, "pending_hit_count", 72)));
+        int delayTicks = Mathf.Max(1, GetInt(body, "delayTicks", GetInt(body, "delay_ticks", 3600)));
+        bool clearExisting = GetBool(body, "clearExisting", GetBool(body, "clear_existing", true));
+
+        int cleared = clearExisting ? scheduler.MPTestClearInjectedPendingCombatLoad() : 0;
+        var before = scheduler.GetNetworkBudgetReport();
+        bool injected = scheduler.MPTestInjectPendingCombatLoad(pendingFireCount, pendingHitCount, delayTicks, out string reason);
+        var after = scheduler.GetNetworkBudgetReport();
+        if (!injected)
+        {
+            return AutomationResponse.Fail("pending_combat_load_inject_failed", reason, new
+            {
+                pendingFireCount,
+                pendingHitCount,
+                delayTicks,
+                cleared,
+                before,
+                after
+            });
+        }
+
+        MPTestLogger.Log("automation_pending_combat_load", "applied", null, reason, new Dictionary<string, object>
+        {
+            { "pendingFireCount", pendingFireCount },
+            { "pendingHitCount", pendingHitCount },
+            { "delayTicks", delayTicks },
+            { "cleared", cleared },
+            { "currentPendingFireActive", after.CurrentPendingFireActive },
+            { "currentPendingHitActive", after.CurrentPendingHitActive },
+            { "maxPendingFireActive", after.MaxPendingFireActive },
+            { "maxPendingHitActive", after.MaxPendingHitActive }
+        });
+
+        return AutomationResponse.Ok("pending combat load injected", new
+        {
+            pendingFireCount,
+            pendingHitCount,
+            delayTicks,
+            cleared,
+            reason,
+            before,
+            after
         });
     }
 

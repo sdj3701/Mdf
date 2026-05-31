@@ -13,6 +13,9 @@ public sealed class StatusEffectSchedulerEditModeTests
         Assert.That(schedulerSource, Does.Contain("public partial class CombatScheduler : NetworkBehaviour"));
         Assert.That(schedulerSource, Does.Contain("ProcessDueStatusEffects();"));
         Assert.That(statusSource, Does.Contain("private struct StatusEffectEntry : INetworkStruct"));
+        Assert.That(statusSource, Does.Contain("private const int MaxActiveStatusEffects = 40;"));
+        Assert.That(statusSource, Does.Contain("public int PackedMeta;"));
+        Assert.That(statusSource, Does.Contain("PackStatusMeta"));
         Assert.That(statusSource, Does.Contain("public struct StatusEffectMigrationSnapshot"));
         Assert.That(statusSource, Does.Contain("NetworkArray<StatusEffectEntry> StatusEffects"));
         Assert.That(statusSource, Does.Contain("public bool ApplyStatusEffect("));
@@ -65,6 +68,9 @@ public sealed class StatusEffectSchedulerEditModeTests
 
         Assert.That(schedulerSource, Does.Contain("ProcessDueStatBuffs();"));
         Assert.That(statBuffSource, Does.Contain("private struct StatBuffEntry : INetworkStruct"));
+        Assert.That(statBuffSource, Does.Contain("private const int MaxActiveStatBuffs = 24;"));
+        Assert.That(statBuffSource, Does.Contain("public int PackedMeta;"));
+        Assert.That(statBuffSource, Does.Contain("PackStatBuffMeta"));
         Assert.That(statBuffSource, Does.Contain("public struct StatBuffMigrationSnapshot"));
         Assert.That(statBuffSource, Does.Contain("NetworkArray<StatBuffEntry> StatBuffs"));
         Assert.That(statBuffSource, Does.Contain("public bool ApplyStatBuff("));
@@ -98,6 +104,9 @@ public sealed class StatusEffectSchedulerEditModeTests
         Assert.That(schedulerSource, Does.Contain("ProcessDueZones();"));
         Assert.That(schedulerSource, Does.Contain("RebuildZonePayloadsFromNetworkEntries();"));
         Assert.That(zoneSchedulerSource, Does.Contain("private struct ZoneEntry : INetworkStruct"));
+        Assert.That(zoneSchedulerSource, Does.Contain("private const int MaxActiveZones = 16;"));
+        Assert.That(zoneSchedulerSource, Does.Contain("public int PackedMeta;"));
+        Assert.That(zoneSchedulerSource, Does.Contain("PackZoneMeta"));
         Assert.That(zoneSchedulerSource, Does.Contain("public struct ZoneMigrationSnapshot"));
         Assert.That(zoneSchedulerSource, Does.Contain("NetworkArray<ZoneEntry> Zones"));
         Assert.That(zoneSchedulerSource, Does.Contain("public bool TryScheduleZone("));
@@ -121,12 +130,20 @@ public sealed class StatusEffectSchedulerEditModeTests
     public void NetworkBudgetDropsAreExposedAndCapacityFailuresReturnFalse()
     {
         string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string schedulerMpTestSource = File.ReadAllText("Assets/Scripts/Testing/MP/CombatScheduler.MPTest.cs");
+        string pendingMigrationSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.PendingMigration.cs");
         string budgetSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.NetworkBudget.cs");
         string statusSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.StatusEffects.cs");
         string statBuffSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.StatBuffs.cs");
         string zoneSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.Zones.cs");
         string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+        string automationServerSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        string automationClientSource = File.ReadAllText("../tools/harness/mp/automation_client.py");
+        string battleCommonSource = File.ReadAllText("../tools/harness/mp/battle_progression_common.py");
         string compareSource = File.ReadAllText("../tools/harness/mp/compare_state_snapshots.py");
+        string runMatrixSource = File.ReadAllText("../tools/harness/mp/run_matrix.py");
+        string pendingStressCaseSource = File.ReadAllText("../tools/harness/mp/run_network_budget_pending_stress.py");
+        string hostMigrationSource = File.ReadAllText("Assets/Scripts/Network/HostMigrationHandler.cs");
 
         Assert.That(budgetSource, Does.Contain("public struct NetworkBudgetReport"));
         Assert.That(budgetSource, Does.Contain("case NetworkBudgetDropKind.Status:"));
@@ -151,6 +168,12 @@ public sealed class StatusEffectSchedulerEditModeTests
         Assert.That(schedulerSource, Does.Not.Contain("sequence % PendingHitCapacity"));
         Assert.That(schedulerSource, Does.Not.Contain("nextSeq % PendingFireCapacity"));
         Assert.That(schedulerSource, Does.Not.Contain("nextSeq % PendingHitCapacity"));
+        Assert.That(pendingMigrationSource, Does.Contain("public struct PendingFireMigrationSnapshot"));
+        Assert.That(pendingMigrationSource, Does.Contain("public struct PendingHitMigrationSnapshot"));
+        Assert.That(pendingMigrationSource, Does.Contain("CapturePendingCombatForMigration"));
+        Assert.That(pendingMigrationSource, Does.Contain("RestorePendingCombatFromMigration"));
+        Assert.That(hostMigrationSource, Does.Contain("CaptureDurablePendingCombat"));
+        Assert.That(hostMigrationSource, Does.Contain("RestoreCachedPendingCombatForMigration"));
         Assert.That(statusSource, Does.Not.Contain("Active status capacity exceeded. capacity={MaxActiveStatusEffects}, target={targetObject.Id}, type={type}\");\r\n            return true;"));
         Assert.That(statBuffSource, Does.Not.Contain("Active stat buff capacity exceeded. capacity={MaxActiveStatBuffs}, target={targetObject.Id}, stat={statType}\");\r\n            return true;"));
         Assert.That(zoneSource, Does.Not.Contain("Active zone capacity exceeded. capacity={MaxActiveZones}, effect={effect.name}\");\r\n            return true;"));
@@ -158,6 +181,16 @@ public sealed class StatusEffectSchedulerEditModeTests
         Assert.That(snapshotSource, Does.Contain("[JsonProperty(\"networkBudget\")] public NetworkBudgetSnapshot NetworkBudget;"));
         Assert.That(snapshotSource, Does.Contain("NetworkObject.GetWordCount(networkObject)"));
         Assert.That(compareSource, Does.Contain("assert_no_network_budget_drops"));
+        Assert.That(schedulerMpTestSource, Does.Contain("#if UNITY_EDITOR || DEVELOPMENT_BUILD"));
+        Assert.That(schedulerMpTestSource, Does.Contain("MPTestInjectPendingCombatLoad"));
+        Assert.That(schedulerMpTestSource, Does.Contain("MPTestClearInjectedPendingCombatLoad"));
+        Assert.That(automationServerSource, Does.Contain("\"/test/injectPendingCombatLoad\""));
+        Assert.That(automationClientSource, Does.Contain("def inject_pending_combat_load"));
+        Assert.That(battleCommonSource, Does.Contain("inject_pending_load_before_migration"));
+        Assert.That(battleCommonSource, Does.Contain("pending_fire_not_restored"));
+        Assert.That(battleCommonSource, Does.Contain("pending_hit_not_restored"));
+        Assert.That(runMatrixSource, Does.Contain("\"network-budget-pending-stress\""));
+        Assert.That(pendingStressCaseSource, Does.Contain("inject_pending_load_before_migration=True"));
     }
 
     [Test]

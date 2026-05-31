@@ -261,6 +261,14 @@ def active_zone_count(snapshot: Any) -> int:
     return value if isinstance(value, int) else 0
 
 
+def network_budget_int(snapshot: Any, key: str) -> int:
+    budget = state(snapshot).get("networkBudget")
+    if not isinstance(budget, dict):
+        return 0
+    value = budget.get(key)
+    return value if isinstance(value, int) else 0
+
+
 def has_alive_monster_semantics(snapshot: Any) -> bool:
     for player in players(snapshot):
         monsters = player.get("monsters") if isinstance(player, dict) else None
@@ -820,6 +828,8 @@ def freeze_battle_checkpoint(
     require_active_buff: bool = False,
     zone_payload: dict[str, Any] | None = None,
     require_active_zone: bool = False,
+    pending_load_payload: dict[str, Any] | None = None,
+    require_pending_load: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
     write_json(artifact_dir / "build-host-bot-stop-after-battle.json", host.bot_stop(reason=reason))
     if client_human_bot:
@@ -844,6 +854,14 @@ def freeze_battle_checkpoint(
     if zone_payload is not None:
         zone_apply_response = host.apply_zone(**zone_payload)
         write_json(artifact_dir / "build-host-apply-zone.json", zone_apply_response)
+    pending_load_response: dict[str, Any] | None = None
+    expected_pending_fire = 0
+    expected_pending_hit = 0
+    if pending_load_payload is not None:
+        expected_pending_fire = int(pending_load_payload.get("pendingFireCount") or pending_load_payload.get("pending_fire_count") or 0)
+        expected_pending_hit = int(pending_load_payload.get("pendingHitCount") or pending_load_payload.get("pending_hit_count") or 0)
+        pending_load_response = host.inject_pending_combat_load(**pending_load_payload)
+        write_json(artifact_dir / "build-host-inject-pending-combat-load.json", pending_load_response)
 
     deadline = time.time() + 20
     host_state: dict[str, Any] = {}
@@ -865,6 +883,10 @@ def freeze_battle_checkpoint(
         client_active_buff_count = active_buff_count(client_state)
         host_active_zone_count = active_zone_count(host_state)
         client_active_zone_count = active_zone_count(client_state)
+        host_pending_fire = network_budget_int(host_state, "currentPendingFireActive")
+        client_pending_fire = network_budget_int(client_state, "currentPendingFireActive")
+        host_pending_hit = network_budget_int(host_state, "currentPendingHitActive")
+        client_pending_hit = network_budget_int(client_state, "currentPendingHitActive")
         active_status_ready = (
             not require_active_status or
             (host_active_status_count > 0 and client_active_status_count > 0)
@@ -876,6 +898,17 @@ def freeze_battle_checkpoint(
         active_zone_ready = (
             not require_active_zone or
             (host_active_zone_count > 0 and client_active_zone_count > 0)
+        )
+        pending_load_ready = (
+            not require_pending_load or
+            (
+                pending_load_response is not None and
+                pending_load_response.get("success") is True and
+                host_pending_fire >= expected_pending_fire and
+                client_pending_fire >= expected_pending_fire and
+                host_pending_hit >= expected_pending_hit and
+                client_pending_hit >= expected_pending_hit
+            )
         )
         write_json(artifact_dir / "battle-checkpoint-freeze-wait-latest.json", {
             "ready": ready,
@@ -896,8 +929,17 @@ def freeze_battle_checkpoint(
             "hostActiveZoneCount": host_active_zone_count,
             "clientActiveZoneCount": client_active_zone_count,
             "zoneApplyResponse": zone_apply_response,
+            "requirePendingLoad": require_pending_load,
+            "pendingLoadReady": pending_load_ready,
+            "expectedPendingFire": expected_pending_fire,
+            "expectedPendingHit": expected_pending_hit,
+            "hostPendingFire": host_pending_fire,
+            "clientPendingFire": client_pending_fire,
+            "hostPendingHit": host_pending_hit,
+            "clientPendingHit": client_pending_hit,
+            "pendingLoadResponse": pending_load_response,
         })
-        if ready and comparison.get("success") is True and active_status_ready and active_buff_ready and active_zone_ready:
+        if ready and comparison.get("success") is True and active_status_ready and active_buff_ready and active_zone_ready and pending_load_ready:
             stable += 1
             if stable >= stable_samples:
                 return host_state, client_state, comparison, True
@@ -915,6 +957,8 @@ def poll_host_migration_after_battle(
     survivor_player_id: int,
     timeout: int,
     scene: str,
+    expected_pending_fire: int = 0,
+    expected_pending_hit: int = 0,
 ) -> tuple[dict[str, Any], dict[str, Any], bool]:
     deadline = time.time() + timeout
     snapshot: dict[str, Any] = {}
@@ -983,6 +1027,26 @@ def poll_host_migration_after_battle(
             expected_players=2,
         )
         errors.extend(preservation.get("errors") or [])
+        post_pending_fire = network_budget_int(snapshot, "currentPendingFireActive")
+        post_pending_hit = network_budget_int(snapshot, "currentPendingHitActive")
+        pending_load_after_migration = {
+            "expectedPendingFire": expected_pending_fire,
+            "expectedPendingHit": expected_pending_hit,
+            "actualPendingFire": post_pending_fire,
+            "actualPendingHit": post_pending_hit,
+            "success": (
+                post_pending_fire >= expected_pending_fire and
+                post_pending_hit >= expected_pending_hit
+            ),
+        }
+        if expected_pending_fire > 0 and post_pending_fire < expected_pending_fire:
+            errors.append(
+                f"pending_fire_not_restored expected>={expected_pending_fire} actual={post_pending_fire}"
+            )
+        if expected_pending_hit > 0 and post_pending_hit < expected_pending_hit:
+            errors.append(
+                f"pending_hit_not_restored expected>={expected_pending_hit} actual={post_pending_hit}"
+            )
 
         result = {
             "success": not errors,
@@ -995,6 +1059,7 @@ def poll_host_migration_after_battle(
             "survivor": survivor,
             "killedHost": killed_host,
             "battlePreservation": preservation,
+            "pendingLoadAfterMigration": pending_load_after_migration,
         }
         write_json(artifact_dir / "post-battle-host-migration-latest.json", result)
         if result["success"]:
@@ -1658,6 +1723,7 @@ def run_battle_case(
     apply_status_before_migration: bool = False,
     apply_stat_buff_before_migration: bool = False,
     apply_zone_before_migration: bool = False,
+    inject_pending_load_before_migration: bool = False,
 ) -> int:
     normalize_common_args(args)
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
@@ -1713,6 +1779,10 @@ def run_battle_case(
         "applyStatusBeforeMigration": apply_status_before_migration,
         "applyStatBuffBeforeMigration": apply_stat_buff_before_migration,
         "applyZoneBeforeMigration": apply_zone_before_migration,
+        "injectPendingLoadBeforeMigration": inject_pending_load_before_migration,
+        "pendingFireCount": int(getattr(args, "pending_fire_count", 0)),
+        "pendingHitCount": int(getattr(args, "pending_hit_count", 0)),
+        "pendingDelayTicks": int(getattr(args, "pending_delay_ticks", 0)),
         "dryRun": args.dry_run,
         "headlessPlayer": args.headless_player,
         "cleanup": {
@@ -1966,6 +2036,12 @@ def run_battle_case(
                 "tickIntervalSeconds": 3,
                 "range": 3,
             } if apply_zone_before_migration else None
+            pending_load_payload = {
+                "pendingFireCount": int(getattr(args, "pending_fire_count", 48)),
+                "pendingHitCount": int(getattr(args, "pending_hit_count", 72)),
+                "delayTicks": int(getattr(args, "pending_delay_ticks", 3600)),
+                "clearExisting": True,
+            } if inject_pending_load_before_migration else None
             host_battle, client_battle, freeze_comparison, freeze_ok = freeze_battle_checkpoint(
                 host,
                 client,
@@ -1980,6 +2056,8 @@ def run_battle_case(
                 require_active_buff=apply_stat_buff_before_migration,
                 zone_payload=zone_payload,
                 require_active_zone=apply_zone_before_migration,
+                pending_load_payload=pending_load_payload,
+                require_pending_load=inject_pending_load_before_migration,
             )
             write_json(artifact_dir / "snapshots" / "build-host-battle-checkpoint-frozen.json", host_battle)
             write_json(artifact_dir / "snapshots" / "build-client-battle-checkpoint-frozen.json", client_battle)
@@ -2014,6 +2092,8 @@ def run_battle_case(
                 int(survivor_player_id) if isinstance(survivor_player_id, int) else -1,
                 args.host_migration_timeout,
                 args.scene,
+                int(pending_load_payload.get("pendingFireCount", 0)) if pending_load_payload else 0,
+                int(pending_load_payload.get("pendingHitCount", 0)) if pending_load_payload else 0,
             )
             write_json(artifact_dir / "snapshots" / "build-client-post-host-migration.json", post_migration_snapshot)
             write_json(artifact_dir / "post-battle-host-migration-result.json", migration_result)

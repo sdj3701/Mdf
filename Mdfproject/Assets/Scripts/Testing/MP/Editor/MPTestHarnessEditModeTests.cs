@@ -1446,17 +1446,43 @@ public sealed class MPTestHarnessEditModeTests
     {
         string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
 
-        Assert.That(playerSource, Does.Contain("NetworkArray<int> ShopSnapshotUnitKeyHashes"));
+        Assert.That(playerSource, Does.Contain("NetworkArray<ShopSnapshotSlot> ShopSnapshotSlots"));
         Assert.That(playerSource, Does.Contain("NetworkArray<int> PresentedAugmentSnapshotIds"));
         Assert.That(playerSource, Does.Contain("NetworkArray<int> SelectedAugmentSnapshotIds"));
-        Assert.That(playerSource, Does.Contain("NetworkArray<int> AttackMonsterPoolSnapshotDataIds"));
+        Assert.That(playerSource, Does.Contain("NetworkArray<AttackMonsterPoolSnapshotSlot> AttackMonsterPoolSnapshotSlots"));
+        Assert.That(playerSource, Does.Contain("private struct ShopSnapshotSlot : INetworkStruct"));
+        Assert.That(playerSource, Does.Contain("private struct AttackMonsterPoolSnapshotSlot : INetworkStruct"));
+        Assert.That(playerSource, Does.Contain("PackShopSnapshotMeta"));
+        Assert.That(playerSource, Does.Contain("PackAttackMonsterCounts"));
         Assert.That(playerSource, Does.Contain("ResolveLoadedUnitDataKeyByStableHash"));
         Assert.That(playerSource, Does.Contain("ResolveLoadedAugmentNameByStableId"));
         Assert.That(playerSource, Does.Contain("ResolveLoadedMonsterDataNameByStableHash"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> ShopSnapshotUnitKeyHashes"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> ShopSnapshotStarLevels"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> ShopSnapshotSoldFlags"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> AttackMonsterPoolSnapshotDataIds"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> AttackMonsterPoolSnapshotRemainingCounts"));
+        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> AttackMonsterPoolSnapshotMaxCounts"));
         Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> ShopSnapshotUnitKeys"));
         Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> PresentedAugmentSnapshotNames"));
         Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> SelectedAugmentSnapshotNames"));
         Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> AttackMonsterPoolSnapshotNames"));
+    }
+
+    [Test]
+    public void RuntimeCombatObjectsUseCompactStableIdentityKeys()
+    {
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string monsterSource = File.ReadAllText("Assets/Scripts/Game/Monsters/Monster.cs");
+        string stableKeySource = File.ReadAllText("Assets/Scripts/Network/StableDataKeyUtility.cs");
+
+        Assert.That(unitSource, Does.Contain("NetworkedUnitDataKeyHash"));
+        Assert.That(unitSource, Does.Contain("TryResolveUnitDataKeyByStableHash"));
+        Assert.That(unitSource, Does.Not.Contain("NetworkString<_64> NetworkedUnitDataKey"));
+        Assert.That(monsterSource, Does.Contain("NetworkedMonsterDataKeyHash"));
+        Assert.That(monsterSource, Does.Contain("TryResolveMonsterDataKeyByStableHash"));
+        Assert.That(monsterSource, Does.Not.Contain("NetworkString<_64> NetworkedMonsterDataKey"));
+        Assert.That(stableKeySource, Does.Contain("StableKeyHash"));
     }
 
     private static void AssertComparisonFails(System.Action<MPTestStateSnapshot.Snapshot, MPTestStateSnapshot.Snapshot> mutate, string expectedErrorField)

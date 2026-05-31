@@ -60,7 +60,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     [Networked] public int NetworkedBossOriginPlayerId { get; set; }
     [Networked] public int NetworkedBossUniqueId { get; set; }
     [Networked] private int NetworkedOwnerPlayerIdEncoded { get; set; }
-    [Networked] private NetworkString<_64> NetworkedMonsterDataKey { get; set; }
+    [Networked] private int NetworkedMonsterDataKeyHash { get; set; }
     [Networked] private int NetworkedMonsterTypeValue { get; set; }
     [Networked] private int NetworkedMonsterTraitsValue { get; set; }
     
@@ -164,6 +164,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private int currentBlockerId = 0;
     private ChangeDetector _changeDetector;
     private bool _networkMonsterDataLoadRequested;
+    private string _localMonsterDataKey = string.Empty;
 
     public bool SnapshotIsBoss => CanReadNetworkedHealth() ? NetworkedIsBoss : _isBoss;
     public int SnapshotBossOriginPlayerId => CanReadNetworkedHealth() ? NetworkedBossOriginPlayerId : _originPlayerId;
@@ -191,11 +192,17 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             if (CanReadNetworkedHealth())
             {
-                string networkKey = NormalizeMonsterDataKey(NetworkedMonsterDataKey.ToString());
-                if (!string.IsNullOrEmpty(networkKey))
+                int networkKeyHash = NetworkedMonsterDataKeyHash;
+                if (networkKeyHash != 0 && TryResolveMonsterDataKeyByStableHash(networkKeyHash, out string networkKey))
                 {
+                    _localMonsterDataKey = networkKey;
                     return networkKey;
                 }
+            }
+
+            if (!string.IsNullOrEmpty(_localMonsterDataKey))
+            {
+                return _localMonsterDataKey;
             }
 
             return BuildSnapshotMonsterDataKey(_monsterData);
@@ -389,9 +396,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
 
         NetworkedOwnerPlayerIdEncoded = 0;
-        NetworkedMonsterDataKey = string.Empty;
+        NetworkedMonsterDataKeyHash = 0;
         NetworkedMonsterTypeValue = 0;
         NetworkedMonsterTraitsValue = 0;
+        _localMonsterDataKey = string.Empty;
     }
 
     private void SyncNetworkSnapshotIdentityFromLocalData()
@@ -402,7 +410,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
 
         NetworkedOwnerPlayerIdEncoded = EncodeSnapshotOwnerId(ownerPlayer != null ? ownerPlayer.playerId : -1);
-        NetworkedMonsterDataKey = BuildSnapshotMonsterDataKey(_monsterData);
+        _localMonsterDataKey = BuildSnapshotMonsterDataKey(_monsterData);
+        NetworkedMonsterDataKeyHash = StableMonsterDataKeyHash(_localMonsterDataKey);
         NetworkedMonsterTypeValue = _monsterData != null ? (int)_monsterData.monsterType + 1 : 0;
         NetworkedMonsterTraitsValue = _monsterData != null ? (int)_monsterData.traits + 1 : 0;
     }
@@ -468,6 +477,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
 
         _monsterData = data;
+        _localMonsterDataKey = BuildSnapshotMonsterDataKey(data);
         name = data.monsterName;
         if (pathfinder != null)
         {
@@ -498,6 +508,82 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             int maxMana = data.skillData != null ? data.skillData.manaCost : 0;
             manaController.Initialize(maxMana);
         }
+    }
+
+    private static int StableMonsterDataKeyHash(string value)
+    {
+        return StableDataKeyUtility.StableKeyHash(value);
+    }
+
+    private static bool TryResolveMonsterDataKeyByStableHash(int monsterDataKeyHash, out string key)
+    {
+        key = string.Empty;
+        if (monsterDataKeyHash == 0)
+        {
+            return false;
+        }
+
+        MonsterData data = FindLoadedMonsterDataByStableHash(monsterDataKeyHash);
+        if (data == null)
+        {
+            data = FindWaveMonsterDataByStableHash(monsterDataKeyHash);
+        }
+
+        key = BuildSnapshotMonsterDataKey(data);
+        return !string.IsNullOrEmpty(key);
+    }
+
+    private static MonsterData FindLoadedMonsterDataByStableHash(int monsterDataKeyHash)
+    {
+        var loaded = Resources.FindObjectsOfTypeAll<MonsterData>();
+        foreach (var data in loaded)
+        {
+            if (MatchesMonsterDataHash(data, monsterDataKeyHash))
+            {
+                return data;
+            }
+        }
+
+        return null;
+    }
+
+    private static MonsterData FindWaveMonsterDataByStableHash(int monsterDataKeyHash)
+    {
+        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        if (waveDatabase?.rounds == null)
+        {
+            return null;
+        }
+
+        foreach (var round in waveDatabase.rounds)
+        {
+            if (round?.monsters == null)
+            {
+                continue;
+            }
+
+            foreach (var entry in round.monsters)
+            {
+                if (MatchesMonsterDataHash(entry?.monsterData, monsterDataKeyHash))
+                {
+                    return entry.monsterData;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesMonsterDataHash(MonsterData data, int monsterDataKeyHash)
+    {
+        if (data == null || monsterDataKeyHash == 0)
+        {
+            return false;
+        }
+
+        return StableMonsterDataKeyHash(data.name) == monsterDataKeyHash
+            || StableMonsterDataKeyHash(data.monsterName) == monsterDataKeyHash
+            || StableMonsterDataKeyHash(data.monsterPrefab) == monsterDataKeyHash;
     }
 
     private void TryApplyPendingHealthToNetworked()
@@ -546,6 +632,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         this.goalTransform = goal;
         this._monsterData = data;
         this._networkMonsterDataLoadRequested = false;
+        this._localMonsterDataKey = BuildSnapshotMonsterDataKey(data);
         this.pathfinder = pathfinder;
         this.releaseScheduler = owner != null ? owner.GetComponentInChildren<MonsterReleaseScheduler>(true) : null;
         this.name = _monsterData.monsterName;
@@ -797,6 +884,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         if (_monsterData != null)
         {
+            _localMonsterDataKey = BuildSnapshotMonsterDataKey(_monsterData);
             this.name = _monsterData.monsterName;
             this.wallLayerMask = pathfinder != null ? pathfinder.wallLayers : default;
             // 클라이언트 초기화: 3단계 스탯 설정 (증강체/버프는 서버에서 동기화)

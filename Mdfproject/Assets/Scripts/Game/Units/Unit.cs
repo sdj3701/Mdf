@@ -33,7 +33,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [Networked] public NetworkBool NetworkedIsDead { get; set; }
     [Networked] public NetworkBool NetworkedIsAttacking { get; set; }
     [Networked] private int NetworkedStarLevel { get; set; }
-    [Networked] private NetworkString<_64> NetworkedUnitDataKey { get; set; }
+    [Networked] private int NetworkedUnitDataKeyHash { get; set; }
     [Networked] private int NetworkedOwnerPlayerId { get; set; }
     [Networked] private NetworkBool NetworkedHasOwnerPlayerId { get; set; }
 
@@ -617,9 +617,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         string key = unitData != null ? NormalizeUnitDataKey(unitData.name) : string.Empty;
-        if (!string.IsNullOrEmpty(key))
+        int keyHash = StableUnitDataKeyHash(key);
+        if (keyHash != 0)
         {
-            NetworkedUnitDataKey = key;
+            NetworkedUnitDataKeyHash = keyHash;
         }
 
         if (owner != null && owner.playerId >= 0)
@@ -679,8 +680,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (CanReadNetworkedIdentity())
         {
-            string networkKey = NormalizeUnitDataKey(NetworkedUnitDataKey.ToString());
-            if (!string.IsNullOrEmpty(networkKey))
+            int networkKeyHash = NetworkedUnitDataKeyHash;
+            if (networkKeyHash != 0 && TryResolveUnitDataKeyByStableHash(networkKeyHash, out string networkKey))
             {
                 _localUnitDataKey = networkKey;
                 return networkKey;
@@ -693,6 +694,54 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         return unitData != null ? NormalizeUnitDataKey(unitData.name) : string.Empty;
+    }
+
+    private static int StableUnitDataKeyHash(string value)
+    {
+        return StableDataKeyUtility.StableKeyHash(value);
+    }
+
+    private static bool TryResolveUnitDataKeyByStableHash(int unitDataKeyHash, out string key)
+    {
+        key = string.Empty;
+        if (unitDataKeyHash == 0)
+        {
+            return false;
+        }
+
+        var lm = LoadManager.Instance;
+        if (lm != null && lm.IsReady && TryResolveUnitDataKeyByStableHash(lm.GetAllUnitData(), unitDataKeyHash, out key))
+        {
+            return true;
+        }
+
+        return TryResolveUnitDataKeyByStableHash(Resources.FindObjectsOfTypeAll<UnitData>(), unitDataKeyHash, out key);
+    }
+
+    private static bool TryResolveUnitDataKeyByStableHash(IEnumerable<UnitData> units, int unitDataKeyHash, out string key)
+    {
+        key = string.Empty;
+        if (units == null)
+        {
+            return false;
+        }
+
+        foreach (var data in units)
+        {
+            if (data == null)
+            {
+                continue;
+            }
+
+            if (StableUnitDataKeyHash(data.name) == unitDataKeyHash ||
+                StableUnitDataKeyHash(data.unitName) == unitDataKeyHash)
+            {
+                key = NormalizeUnitDataKey(data.name);
+                return !string.IsNullOrEmpty(key);
+            }
+        }
+
+        return false;
     }
 
     private void TryRecoverUnitDataFromNetworkIdentity(string context)

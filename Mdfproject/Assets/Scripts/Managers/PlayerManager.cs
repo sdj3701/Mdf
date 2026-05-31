@@ -29,9 +29,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Networked] private int gold { get; set; }
     [Networked] private int wallCount { get; set; }
     private const int SHOP_SNAPSHOT_CAPACITY = 5;
-    [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<int> ShopSnapshotUnitKeyHashes { get; }
-    [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<int> ShopSnapshotStarLevels { get; }
-    [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<int> ShopSnapshotSoldFlags { get; }
+    [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<ShopSnapshotSlot> ShopSnapshotSlots { get; }
     [Networked] private int ShopSnapshotRevision { get; set; }
     [Networked] private int ShopSnapshotCount { get; set; }
     [Networked] private int ShopSnapshotRound { get; set; }
@@ -100,13 +98,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     [Networked] public int AttackMonsterPoolRevision { get; private set; }
     private const int ATTACK_POOL_SNAPSHOT_CAPACITY = 32;
     [Networked] private int AttackMonsterPoolSnapshotCount { get; set; }
-    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotDataIds { get; }
-    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotRemainingCounts { get; }
-    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotMaxCounts { get; }
-    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotIsBossValues { get; }
-    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotBossUniqueIds { get; }
-    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotTargetPlayerIds { get; }
-    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<int> AttackMonsterPoolSnapshotOriginPlayerIds { get; }
+    [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<AttackMonsterPoolSnapshotSlot> AttackMonsterPoolSnapshotSlots { get; }
     private int _lastAppliedAttackMonsterPoolRevision;
     public int AppliedAttackMonsterPoolRevision =>
         Object != null && Object.HasStateAuthority ? AttackMonsterPoolRevision : _lastAppliedAttackMonsterPoolRevision;
@@ -124,6 +116,29 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private ChangeDetector _changeDetector;
     private bool _runtimeInitialized;
     public bool IsReadyForPlayerActions => _runtimeInitialized && playerId >= 0 && fieldManager != null;
+
+    private struct ShopSnapshotSlot : INetworkStruct
+    {
+        public int UnitKeyHash;
+        public int PackedMeta;
+
+        public int StarLevel => PackedMeta & 0xFF;
+        public int Sold => (PackedMeta >> 8) & 0x1;
+    }
+
+    private struct AttackMonsterPoolSnapshotSlot : INetworkStruct
+    {
+        public int DataId;
+        public int CountsAndFlags;
+        public int BossUniqueId;
+        public int PlayerIds;
+
+        public int RemainingCount => CountsAndFlags & 0x7FFF;
+        public int MaxCount => (CountsAndFlags >> 15) & 0x7FFF;
+        public int IsBoss => (CountsAndFlags >> 30) & 0x1;
+        public int TargetPlayerId => UnpackSnapshotPlayerId(PlayerIds & 0xFFFF);
+        public int OriginPlayerId => UnpackSnapshotPlayerId((PlayerIds >> 16) & 0xFFFF);
+    }
 
     public void SetAiControlled(bool isAi)
     {
@@ -180,6 +195,36 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private static int StableMonsterDataKeyHash(string value)
     {
         return StableDataKeyHash(NormalizeShopUnitKey(value));
+    }
+
+    private static int PackShopSnapshotMeta(int starLevel, int sold)
+    {
+        int packedStarLevel = Mathf.Clamp(starLevel, 0, 255);
+        int packedSold = sold != 0 ? 1 : 0;
+        return packedStarLevel | (packedSold << 8);
+    }
+
+    private static int PackAttackMonsterCounts(int remainingCount, int maxCount, int isBoss)
+    {
+        int packedRemaining = Mathf.Clamp(remainingCount, 0, 0x7FFF);
+        int packedMax = Mathf.Clamp(maxCount, 0, 0x7FFF);
+        int packedBoss = isBoss != 0 ? 1 : 0;
+        return packedRemaining | (packedMax << 15) | (packedBoss << 30);
+    }
+
+    private static int PackSnapshotPlayerIds(int targetPlayerId, int originPlayerId)
+    {
+        return PackSnapshotPlayerId(targetPlayerId) | (PackSnapshotPlayerId(originPlayerId) << 16);
+    }
+
+    private static int PackSnapshotPlayerId(int playerIdValue)
+    {
+        return Mathf.Clamp(playerIdValue + 1, 0, 0xFFFF);
+    }
+
+    private static int UnpackSnapshotPlayerId(int packedPlayerId)
+    {
+        return Mathf.Clamp(packedPlayerId, 0, 0xFFFF) - 1;
     }
 
     private static string ResolveLoadedUnitDataKeyByStableHash(int unitDataKeyHash)
@@ -260,9 +305,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         int count = Mathf.Clamp(items?.Count ?? 0, 0, SHOP_SNAPSHOT_CAPACITY);
         for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
         {
-            ShopSnapshotUnitKeyHashes.Set(i, 0);
-            ShopSnapshotStarLevels.Set(i, 0);
-            ShopSnapshotSoldFlags.Set(i, 0);
+            ShopSnapshotSlots.Set(i, default);
         }
 
         for (int i = 0; i < count; i++)
@@ -272,9 +315,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             int starLevel = item.StarLevel > 0 ? item.StarLevel : 1;
             int sold = soldFlags != null && i < soldFlags.Length && soldFlags[i] ? 1 : 0;
 
-            ShopSnapshotUnitKeyHashes.Set(i, StableUnitDataKeyHash(unitKey));
-            ShopSnapshotStarLevels.Set(i, starLevel);
-            ShopSnapshotSoldFlags.Set(i, sold);
+            ShopSnapshotSlots.Set(i, new ShopSnapshotSlot
+            {
+                UnitKeyHash = StableUnitDataKeyHash(unitKey),
+                PackedMeta = PackShopSnapshotMeta(starLevel, sold)
+            });
         }
 
         ShopSnapshotCount = count;
@@ -319,15 +364,16 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         for (int i = 0; i < count; i++)
         {
-            int keyHash = ShopSnapshotUnitKeyHashes[i];
+            var slot = ShopSnapshotSlots[i];
+            int keyHash = slot.UnitKeyHash;
             unitKeys[i] = ResolveLoadedUnitDataKeyByStableHash(keyHash);
             if (keyHash != 0 && string.IsNullOrEmpty(unitKeys[i]))
             {
                 return false;
             }
 
-            starLevels[i] = Mathf.Max(1, ShopSnapshotStarLevels[i]);
-            soldFlags[i] = ShopSnapshotSoldFlags[i] != 0;
+            starLevels[i] = Mathf.Max(1, slot.StarLevel);
+            soldFlags[i] = slot.Sold != 0;
         }
 
         return true;
@@ -2004,9 +2050,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             int count = Mathf.Clamp(shopUnitKeys.Length, 0, SHOP_SNAPSHOT_CAPACITY);
             for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
             {
-                ShopSnapshotUnitKeyHashes.Set(i, 0);
-                ShopSnapshotStarLevels.Set(i, 0);
-                ShopSnapshotSoldFlags.Set(i, 0);
+                ShopSnapshotSlots.Set(i, default);
             }
 
             for (int i = 0; i < count; i++)
@@ -2017,9 +2061,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                     : 1;
                 int sold = shopSoldFlags != null && i < shopSoldFlags.Length && shopSoldFlags[i] ? 1 : 0;
 
-                ShopSnapshotUnitKeyHashes.Set(i, StableUnitDataKeyHash(unitKey));
-                ShopSnapshotStarLevels.Set(i, starLevel);
-                ShopSnapshotSoldFlags.Set(i, sold);
+                ShopSnapshotSlots.Set(i, new ShopSnapshotSlot
+                {
+                    UnitKeyHash = StableUnitDataKeyHash(unitKey),
+                    PackedMeta = PackShopSnapshotMeta(starLevel, sold)
+                });
             }
 
             ShopSnapshotCount = count;
@@ -2864,18 +2910,19 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         for (int i = 0; i < count; i++)
         {
-            monsterDataNames[i] = ResolveLoadedMonsterDataNameByStableHash(AttackMonsterPoolSnapshotDataIds.Get(i));
-            if (AttackMonsterPoolSnapshotDataIds.Get(i) != 0 && string.IsNullOrEmpty(monsterDataNames[i]))
+            var slot = AttackMonsterPoolSnapshotSlots[i];
+            monsterDataNames[i] = ResolveLoadedMonsterDataNameByStableHash(slot.DataId);
+            if (slot.DataId != 0 && string.IsNullOrEmpty(monsterDataNames[i]))
             {
                 return false;
             }
 
-            remainingCounts[i] = AttackMonsterPoolSnapshotRemainingCounts[i];
-            maxCounts[i] = AttackMonsterPoolSnapshotMaxCounts[i];
-            isBossValues[i] = AttackMonsterPoolSnapshotIsBossValues[i];
-            bossUniqueIds[i] = AttackMonsterPoolSnapshotBossUniqueIds[i];
-            targetPlayerIds[i] = AttackMonsterPoolSnapshotTargetPlayerIds[i];
-            originPlayerIds[i] = AttackMonsterPoolSnapshotOriginPlayerIds[i];
+            remainingCounts[i] = slot.RemainingCount;
+            maxCounts[i] = slot.MaxCount;
+            isBossValues[i] = slot.IsBoss;
+            bossUniqueIds[i] = slot.BossUniqueId;
+            targetPlayerIds[i] = slot.TargetPlayerId;
+            originPlayerIds[i] = slot.OriginPlayerId;
         }
 
         return true;
@@ -2898,24 +2945,24 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         int count = Mathf.Clamp(monsterDataNames?.Length ?? 0, 0, ATTACK_POOL_SNAPSHOT_CAPACITY);
         for (int i = 0; i < ATTACK_POOL_SNAPSHOT_CAPACITY; i++)
         {
-            AttackMonsterPoolSnapshotDataIds.Set(i, 0);
-            AttackMonsterPoolSnapshotRemainingCounts.Set(i, 0);
-            AttackMonsterPoolSnapshotMaxCounts.Set(i, 0);
-            AttackMonsterPoolSnapshotIsBossValues.Set(i, 0);
-            AttackMonsterPoolSnapshotBossUniqueIds.Set(i, -1);
-            AttackMonsterPoolSnapshotTargetPlayerIds.Set(i, -1);
-            AttackMonsterPoolSnapshotOriginPlayerIds.Set(i, -1);
+            AttackMonsterPoolSnapshotSlots.Set(i, default);
         }
 
         for (int i = 0; i < count; i++)
         {
-            AttackMonsterPoolSnapshotDataIds.Set(i, StableMonsterDataKeyHash(monsterDataNames[i]));
-            AttackMonsterPoolSnapshotRemainingCounts.Set(i, ReadArrayValue(remainingCounts, i, 0));
-            AttackMonsterPoolSnapshotMaxCounts.Set(i, ReadArrayValue(maxCounts, i, 0));
-            AttackMonsterPoolSnapshotIsBossValues.Set(i, ReadArrayValue(isBossValues, i, 0));
-            AttackMonsterPoolSnapshotBossUniqueIds.Set(i, ReadArrayValue(bossUniqueIds, i, -1));
-            AttackMonsterPoolSnapshotTargetPlayerIds.Set(i, ReadArrayValue(targetPlayerIds, i, -1));
-            AttackMonsterPoolSnapshotOriginPlayerIds.Set(i, ReadArrayValue(originPlayerIds, i, -1));
+            int remainingCount = ReadArrayValue(remainingCounts, i, 0);
+            int maxCount = ReadArrayValue(maxCounts, i, 0);
+            int isBoss = ReadArrayValue(isBossValues, i, 0);
+            int targetPlayerId = ReadArrayValue(targetPlayerIds, i, -1);
+            int originPlayerId = ReadArrayValue(originPlayerIds, i, -1);
+
+            AttackMonsterPoolSnapshotSlots.Set(i, new AttackMonsterPoolSnapshotSlot
+            {
+                DataId = StableMonsterDataKeyHash(monsterDataNames[i]),
+                CountsAndFlags = PackAttackMonsterCounts(remainingCount, maxCount, isBoss),
+                BossUniqueId = ReadArrayValue(bossUniqueIds, i, -1),
+                PlayerIds = PackSnapshotPlayerIds(targetPlayerId, originPlayerId)
+            });
         }
 
         AttackMonsterPoolSnapshotCount = count;

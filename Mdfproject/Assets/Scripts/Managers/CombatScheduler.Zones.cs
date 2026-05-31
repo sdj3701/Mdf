@@ -4,7 +4,7 @@ using UnityEngine;
 
 public partial class CombatScheduler
 {
-    private const int MaxActiveZones = 24;
+    private const int MaxActiveZones = 16;
 
     [Networked] public int ZoneSequence { get; private set; }
     [Networked, Capacity(MaxActiveZones)] private NetworkArray<ZoneEntry> Zones { get; }
@@ -15,7 +15,6 @@ public partial class CombatScheduler
     {
         public int Sequence;
         public NetworkId CasterId;
-        public int SourceKind;
         public int SourceKey;
         public int ZoneEffectHash;
         public int TargetingHash;
@@ -27,7 +26,10 @@ public partial class CombatScheduler
         public int ExpireTick;
         public int NextTick;
         public int TickIntervalTicks;
-        public int Flags;
+        public int PackedMeta;
+
+        public int SourceKind => PackedMeta & 0xF;
+        public int Flags => PackedMeta >> 4;
     }
 
     private sealed class ZonePayload
@@ -121,7 +123,6 @@ public partial class CombatScheduler
         {
             Sequence = nextSeq,
             CasterId = casterId,
-            SourceKind = sourceKind,
             SourceKey = sourceKey,
             ZoneEffectHash = StableObjectHash(effect),
             TargetingHash = StableObjectHash(targetingStrategy),
@@ -133,7 +134,7 @@ public partial class CombatScheduler
             ExpireTick = now + Mathf.Max(1, durationTicks),
             NextTick = now,
             TickIntervalTicks = tickIntervalTicks,
-            Flags = 0
+            PackedMeta = PackZoneMeta(sourceKind, 0)
         };
 
         Zones.Set(slot, entry);
@@ -276,7 +277,6 @@ public partial class CombatScheduler
             {
                 Sequence = snapshot.Sequence,
                 CasterId = snapshot.CasterId,
-                SourceKind = snapshot.SourceKind,
                 SourceKey = snapshot.SourceKey,
                 ZoneEffectHash = snapshot.ZoneEffectHash,
                 TargetingHash = snapshot.TargetingHash,
@@ -288,7 +288,7 @@ public partial class CombatScheduler
                 ExpireTick = snapshot.ExpireTick,
                 NextTick = snapshot.NextTick,
                 TickIntervalTicks = Mathf.Max(1, snapshot.TickIntervalTicks),
-                Flags = snapshot.Flags
+                PackedMeta = PackZoneMeta(snapshot.SourceKind, snapshot.Flags)
             });
             maxSequence = Mathf.Max(maxSequence, snapshot.Sequence);
             restored++;
@@ -501,6 +501,11 @@ public partial class CombatScheduler
         }
 
         return -1;
+    }
+
+    private static int PackZoneMeta(int sourceKind, int flags)
+    {
+        return (sourceKind & 0xF) | (flags << 4);
     }
 
     private static int StableObjectHash(UnityEngine.Object obj)

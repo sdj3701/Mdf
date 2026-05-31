@@ -5,7 +5,7 @@ using UnityEngine;
 
 public partial class CombatScheduler
 {
-    private const int MaxActiveStatusEffects = 48;
+    private const int MaxActiveStatusEffects = 40;
     private const int StatusSourceNetworkObject = 1;
     private const int StatusSourceMagicScroll = 2;
     private const int StatusSourceTransient = 3;
@@ -18,17 +18,19 @@ public partial class CombatScheduler
         public int Sequence;
         public NetworkId TargetId;
         public NetworkId CasterId;
-        public int SourceKind;
         public int SourceKey;
-        public int Type;
         public int AppliedTick;
         public int ExpireTick;
         public int NextTick;
         public int TickIntervalTicks;
         public int DamagePerTick;
-        public int DamageType;
         public int SlowMultiplier;
-        public int Flags;
+        public int PackedMeta;
+
+        public int SourceKind => PackedMeta & 0xF;
+        public int Type => (PackedMeta >> 4) & 0xFF;
+        public int DamageType => (PackedMeta >> 12) & 0xFF;
+        public int Flags => PackedMeta >> 20;
     }
 
     public struct StatusEffectMigrationSnapshot
@@ -158,17 +160,14 @@ public partial class CombatScheduler
             Sequence = nextSeq,
             TargetId = targetObject.Id,
             CasterId = casterId,
-            SourceKind = sourceKind,
             SourceKey = sourceKey,
-            Type = (int)type,
             AppliedTick = now,
             ExpireTick = expireTick,
             NextTick = tickIntervalTicks > 0 && damagePerTick > 0f ? now + tickIntervalTicks : 0,
             TickIntervalTicks = tickIntervalTicks,
             DamagePerTick = PackFloat(damagePerTick),
-            DamageType = (int)damageType,
             SlowMultiplier = PackFloat(Mathf.Max(0f, slowMultiplier)),
-            Flags = 0
+            PackedMeta = PackStatusMeta(sourceKind, (int)type, (int)damageType, 0)
         });
 
         RefreshStatusCacheForTarget(targetObject.Id);
@@ -362,17 +361,14 @@ public partial class CombatScheduler
                 Sequence = snapshot.Sequence,
                 TargetId = snapshot.TargetId,
                 CasterId = snapshot.CasterId,
-                SourceKind = snapshot.SourceKind,
                 SourceKey = snapshot.SourceKey,
-                Type = snapshot.Type,
                 AppliedTick = snapshot.AppliedTick,
                 ExpireTick = snapshot.ExpireTick,
                 NextTick = snapshot.NextTick,
                 TickIntervalTicks = snapshot.TickIntervalTicks,
                 DamagePerTick = snapshot.DamagePerTick,
-                DamageType = snapshot.DamageType,
                 SlowMultiplier = snapshot.SlowMultiplier,
-                Flags = snapshot.Flags
+                PackedMeta = PackStatusMeta(snapshot.SourceKind, snapshot.Type, snapshot.DamageType, snapshot.Flags)
             });
 
             maxSequence = Mathf.Max(maxSequence, snapshot.Sequence);
@@ -542,6 +538,14 @@ public partial class CombatScheduler
         }
 
         return -1;
+    }
+
+    private static int PackStatusMeta(int sourceKind, int type, int damageType, int flags)
+    {
+        return (sourceKind & 0xF) |
+               ((type & 0xFF) << 4) |
+               ((damageType & 0xFF) << 12) |
+               (flags << 20);
     }
 
     private static void AddChangedStatusTarget(List<NetworkId> targetIds, NetworkId targetId)

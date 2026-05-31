@@ -5,7 +5,7 @@ using UnityEngine;
 
 public partial class CombatScheduler
 {
-    private const int MaxActiveStatBuffs = 32;
+    private const int MaxActiveStatBuffs = 24;
     private const int StatBuffSourceBerserk = 1001;
 
     [Networked] public int StatBuffSequence { get; private set; }
@@ -16,14 +16,16 @@ public partial class CombatScheduler
         public int Sequence;
         public NetworkId TargetId;
         public NetworkId CasterId;
-        public int SourceKind;
         public int SourceKey;
-        public int StatType;
         public int Value;
-        public int IsPercentage;
         public int AppliedTick;
         public int ExpireTick;
-        public int Flags;
+        public int PackedMeta;
+
+        public int SourceKind => PackedMeta & 0xF;
+        public int StatType => (PackedMeta >> 4) & 0xFF;
+        public int IsPercentage => (PackedMeta >> 12) & 0x1;
+        public int Flags => PackedMeta >> 13;
     }
 
     public struct StatBuffMigrationSnapshot
@@ -183,14 +185,11 @@ public partial class CombatScheduler
             Sequence = nextSeq,
             TargetId = targetObject.Id,
             CasterId = casterId,
-            SourceKind = sourceKind,
             SourceKey = sourceKey,
-            StatType = (int)statType,
             Value = PackFloat(value),
-            IsPercentage = isPercentage ? 1 : 0,
             AppliedTick = now,
             ExpireTick = expireTick,
-            Flags = 0
+            PackedMeta = PackStatBuffMeta(sourceKind, (int)statType, isPercentage ? 1 : 0, 0)
         });
 
         RefreshStatBuffCacheForTarget(targetObject.Id);
@@ -337,14 +336,11 @@ public partial class CombatScheduler
                 Sequence = snapshot.Sequence,
                 TargetId = snapshot.TargetId,
                 CasterId = snapshot.CasterId,
-                SourceKind = snapshot.SourceKind,
                 SourceKey = snapshot.SourceKey,
-                StatType = snapshot.StatType,
                 Value = snapshot.Value,
-                IsPercentage = snapshot.IsPercentage,
                 AppliedTick = snapshot.AppliedTick,
                 ExpireTick = snapshot.ExpireTick,
-                Flags = snapshot.Flags
+                PackedMeta = PackStatBuffMeta(snapshot.SourceKind, snapshot.StatType, snapshot.IsPercentage, snapshot.Flags)
             });
 
             maxSequence = Mathf.Max(maxSequence, snapshot.Sequence);
@@ -476,6 +472,14 @@ public partial class CombatScheduler
         }
 
         return -1;
+    }
+
+    private static int PackStatBuffMeta(int sourceKind, int statType, int isPercentage, int flags)
+    {
+        return (sourceKind & 0xF) |
+               ((statType & 0xFF) << 4) |
+               ((isPercentage & 0x1) << 12) |
+               (flags << 13);
     }
 
     private void RefreshStatBuffCacheForTarget(NetworkId targetId)

@@ -10,8 +10,8 @@ public partial class CombatScheduler : NetworkBehaviour
     [SerializeField] private int hitBufferSize = 256;
     [SerializeField] private float defaultProjectileSpeed = 20f;
 
-    private const int PendingFireCapacity = 128;
-    private const int PendingHitCapacity = 192;
+    private const int PendingFireCapacity = 64;
+    private const int PendingHitCapacity = 96;
     private const int ProjectileEventBufferCapacity = 0;
     private const int FixedPointScale = 1000;
 
@@ -71,12 +71,14 @@ public partial class CombatScheduler : NetworkBehaviour
         public int FirePositionY;
         public int FirePositionZ;
         public int Damage;
-        public int DamageType;
-        public int IsRanged;
-        public int EmitVfx;
+        public int PackedMeta;
         public int ProjectileSpeedOverride;
         public int SplashRadius;
         public int EnemyLayerMask;
+
+        public int DamageType => PackedMeta & 0xFF;
+        public int IsRanged => (PackedMeta >> 8) & 0x1;
+        public int EmitVfx => (PackedMeta >> 9) & 0x1;
     }
 
     private struct PendingHitSnapshot : INetworkStruct
@@ -665,9 +667,7 @@ public partial class CombatScheduler : NetworkBehaviour
             FirePositionY = PackFloat(fire.FirePosition.y),
             FirePositionZ = PackFloat(fire.FirePosition.z),
             Damage = PackFloat(fire.Damage),
-            DamageType = (int)fire.DamageType,
-            IsRanged = fire.IsRanged ? 1 : 0,
-            EmitVfx = fire.EmitVfx ? 1 : 0,
+            PackedMeta = PackPendingFireMeta((int)fire.DamageType, fire.IsRanged, fire.EmitVfx),
             ProjectileSpeedOverride = PackFloat(fire.ProjectileSpeedOverride),
             SplashRadius = PackFloat(fire.SplashRadius),
             EnemyLayerMask = fire.EnemyLayerMask.value
@@ -849,6 +849,14 @@ public partial class CombatScheduler : NetworkBehaviour
     private static Vector3 UnpackVector(int x, int y, int z)
     {
         return new Vector3(UnpackFloat(x), UnpackFloat(y), UnpackFloat(z));
+    }
+
+    private static int PackPendingFireMeta(int damageType, bool isRanged, bool emitVfx)
+    {
+        int packedDamageType = Mathf.Clamp(damageType, 0, 0xFF);
+        int ranged = isRanged ? 1 : 0;
+        int vfx = emitVfx ? 1 : 0;
+        return packedDamageType | (ranged << 8) | (vfx << 9);
     }
 
     private void PublishProjectileVfxEvent(NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)

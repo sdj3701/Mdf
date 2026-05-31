@@ -313,6 +313,9 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(schedulerSource, Does.Contain("fireDelaySeconds"));
         Assert.That(schedulerSource, Does.Contain("PendingFireSnapshot : INetworkStruct"));
         Assert.That(schedulerSource, Does.Contain("PendingHitSnapshot : INetworkStruct"));
+        Assert.That(schedulerSource, Does.Contain("public int PackedMeta;"));
+        Assert.That(schedulerSource, Does.Contain("public int DamageType => PackedMeta & 0xFF;"));
+        Assert.That(schedulerSource, Does.Contain("PackPendingFireMeta"));
         Assert.That(schedulerSource, Does.Contain("PendingFireSnapshots"));
         Assert.That(schedulerSource, Does.Contain("PendingHitSnapshots"));
         Assert.That(schedulerSource, Does.Contain("RebuildPendingBucketsFromNetworkSnapshots"));

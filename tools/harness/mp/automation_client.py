@@ -99,6 +99,9 @@ class AutomationClient:
     def apply_zone(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/test/applyZone", kwargs)
 
+    def inject_pending_combat_load(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/injectPendingCombatLoad", kwargs)
+
     def screenshot(self, path: str | None = None) -> dict[str, Any]:
         suffix = "" if not path else "?path=" + urllib.request.pathname2url(path)
         return self.request("GET", "/screenshot" + suffix)
