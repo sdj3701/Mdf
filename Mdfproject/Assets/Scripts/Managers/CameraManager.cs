@@ -11,6 +11,7 @@ public class CameraManager : MonoBehaviour
     #region 싱글톤
     private static CameraManager _instance;
     public static CameraManager Instance => _instance;
+    public static event System.Action<PlayerManager> OnCurrentViewingFieldChanged;
 
     private void Awake()
     {
@@ -103,7 +104,7 @@ public class CameraManager : MonoBehaviour
         _ownField = candidate;
         if (!IsPlayerReadable(_currentViewingField))
         {
-            _currentViewingField = candidate;
+            SetCurrentViewingField(candidate);
         }
 
         // Debug.Log($"[CameraManager] ownField 재바인딩 완료 ({context})");
@@ -144,7 +145,7 @@ public class CameraManager : MonoBehaviour
     public void Initialize(PlayerManager ownField)
     {
         _ownField = ownField;
-        _currentViewingField = ownField;
+        SetCurrentViewingField(ownField);
         
         // 본인 필드 중심 위치 계산
         _ownFieldCenter = GetFieldCenter(ownField);
@@ -204,7 +205,7 @@ public class CameraManager : MonoBehaviour
         if (!TryRebindOwnField("MoveToPlayerField")) return;
 
         _isTransitioning = true;
-        _currentViewingField = targetPlayer;
+        SetCurrentViewingField(targetPlayer);
         _isAttackMode = isAttackMode;
 
         Vector3 startPosition = mainCamera.transform.position;
@@ -311,7 +312,7 @@ public class CameraManager : MonoBehaviour
         Vector3 fieldCenter = GetFieldCenter(targetPlayer);
         mainCamera.transform.position = fieldCenter + currentOffset;
         mainCamera.transform.rotation = Quaternion.Euler(currentRotation);
-        _currentViewingField = targetPlayer;
+        SetCurrentViewingField(targetPlayer);
     }
     #endregion
 
@@ -331,4 +332,15 @@ public class CameraManager : MonoBehaviour
     public PlayerManager CurrentViewingField => _currentViewingField;
     public PlayerManager OwnField => _ownField;
     #endregion
+
+    private void SetCurrentViewingField(PlayerManager targetPlayer)
+    {
+        if (_currentViewingField == targetPlayer)
+        {
+            return;
+        }
+
+        _currentViewingField = targetPlayer;
+        OnCurrentViewingFieldChanged?.Invoke(targetPlayer);
+    }
 }

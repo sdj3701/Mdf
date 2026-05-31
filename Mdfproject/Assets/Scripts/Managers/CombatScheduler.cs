@@ -103,6 +103,12 @@ public partial class CombatScheduler : NetworkBehaviour
         public NetworkRunner Runner;
         public NetworkObject Attacker;
         public NetworkObject Target;
+        public bool HasFirePositionOverride;
+        public bool HasTargetPositionOverride;
+        public bool SuppressMuzzleFlash;
+        public bool AllowFullCatchUp;
+        public Vector3 FirePositionOverride;
+        public Vector3 TargetPositionOverride;
     }
 
     public override void Spawned()
@@ -890,6 +896,12 @@ public partial class CombatScheduler : NetworkBehaviour
             return;
         }
 
+        if (!LocalVfxVisibility.ShouldPlay(attacker, target, LocalVfxVisibilityEventKind.Projectile))
+        {
+            ProjectileVfxManager.RecordSkippedCombatEvent(Runner, attacker, target, fireTick, hitTick);
+            return;
+        }
+
         ProjectileVfxManager.PlayFromCombatEvent(Runner, attacker, target, fireTick, hitTick);
     }
 
@@ -919,6 +931,11 @@ public partial class CombatScheduler : NetworkBehaviour
 
         if (!Runner.TryFindObject(attackerId, out NetworkObject attacker) ||
             !Runner.TryFindObject(targetId, out NetworkObject target))
+        {
+            return;
+        }
+
+        if (!LocalVfxVisibility.ShouldPlay(attacker, target, LocalVfxVisibilityEventKind.BasicAttack))
         {
             return;
         }
