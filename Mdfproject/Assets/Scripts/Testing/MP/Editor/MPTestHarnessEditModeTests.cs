@@ -170,6 +170,23 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void GameSceneCameraStartupUsesStableCameraManagerBaseline()
+    {
+        string cameraManagerSource = File.ReadAllText("Assets/Scripts/Managers/CameraManager.cs");
+        string legacyCameraSource = File.ReadAllText("Assets/Scripts/Network/GetPlayerCamera.cs");
+        string sceneSource = File.ReadAllText("Assets/Scenes/03_Game.unity");
+
+        Assert.That(sceneSource, Does.Contain("m_Name: Main Camera"));
+        Assert.That(sceneSource, Does.Contain("m_Name: CameraManager"));
+        Assert.That(cameraManagerSource, Does.Contain("_sceneCameraPosition"));
+        Assert.That(cameraManagerSource, Does.Contain("CaptureSceneCameraPoseIfNeeded();"));
+        Assert.That(cameraManagerSource, Does.Contain("Vector3 sceneCameraPos = _sceneCameraPosition;"));
+        Assert.That(cameraManagerSource, Does.Not.Contain("Vector3 sceneCameraPos = mainCamera.transform.position;"));
+        Assert.That(legacyCameraSource, Does.Contain("HasCameraManagerInScene()"));
+        Assert.That(legacyCameraSource, Does.Contain("FindObjectOfType<CameraManager>(true)"));
+    }
+
+    [Test]
     public void MPTestLoggerEmitsStablePrefixAndFields()
     {
         try
@@ -939,6 +956,15 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(GamePrepareUIToolkitController.AugmentCardCount, Is.EqualTo(3));
         Assert.That(GamePrepareUIToolkitController.MonsterCardCount, Is.EqualTo(9));
         Assert.That(GamePrepareUIToolkitController.ScrollCardCount, Is.EqualTo(5));
+        Assert.That(
+            GamePrepareUIToolkitController.FormatAugmentDisplayName("\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658(\uACF5\uC911)"),
+            Is.EqualTo("\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658\n(\uACF5\uC911)"));
+        Assert.That(
+            GamePrepareUIToolkitController.FormatAugmentDisplayName("\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658(\uC800\uC9C0\uBD88\uAC00)"),
+            Is.EqualTo("\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658\n(\uC800\uC9C0\uBD88\uAC00)"));
+        Assert.That(
+            GamePrepareUIToolkitController.FormatAugmentDisplayName("\uB9C8\uBC95\uC2A4\uD06C\uB864(\uD68C\uBCF5)"),
+            Is.EqualTo("\uB9C8\uBC95\uC2A4\uD06C\uB864(\uD68C\uBCF5)"));
         Assert.That(layout, Is.Not.Null);
         Assert.That(style, Is.Not.Null);
         Assert.That(theme, Is.Not.Null);
@@ -974,6 +1000,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("new BuyUnitCommand(playerId, slotIndex)"));
         Assert.That(controllerSource, Does.Contain("new RerollShopCommand(playerId)"));
         Assert.That(controllerSource, Does.Contain("new SelectAugmentCommand(playerId, index)"));
+        Assert.That(controllerSource, Does.Contain("FormatAugmentDisplayName(augment.augmentName)"));
+        Assert.That(augmentSource, Does.Contain("GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName)"));
         Assert.That(controllerSource, Does.Contain("!root.styleSheets.Contains(styleSheet)"));
         Assert.That(controllerSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
         Assert.That(controllerSource, Does.Contain("ShopCardReferenceWidth"));
@@ -998,6 +1026,9 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("footer.style.backgroundColor = new Color"));
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMagicScroll(scrolls[slotIndex])"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.monster-attack-card \.attack-card-icon\s*\{.*?position:\s*absolute;.*?width:\s*auto;.*?height:\s*auto;.*?scale-and-crop;"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.monster-attack-card \.attack-card-name\s*\{.*?bottom:\s*18px;"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.monster-attack-card \.attack-card-count\s*\{.*?bottom:\s*1px;"));
         Assert.That(controllerSource, Does.Contain("game-gold-count-value"));
         Assert.That(controllerSource, Does.Contain("game-wall-count-label"));
         Assert.That(controllerSource, Does.Contain("root?.Q<VisualElement>($\"shop-cost-icon-{i}\")"));

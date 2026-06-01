@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   scrollName: Heal
   description: 
-  icon: {fileID: 21300000, guid: 35eb2a30abf7da04db6c39b3ecc92e68, type: 3}
+  icon: {fileID: 21300000, guid: dff70d1d31f2b7f43bc06b7515a4a87c, type: 3}
   tier: 1
   tacticalRole: 3
   targetDomain: 1

@@ -325,6 +325,31 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         };
     }
 
+    public static string FormatAugmentDisplayName(string augmentName)
+    {
+        if (string.IsNullOrWhiteSpace(augmentName))
+        {
+            return string.Empty;
+        }
+
+        string trimmedName = augmentName.Trim();
+        const string bossSummonPrefix = "\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658";
+        if (!trimmedName.StartsWith(bossSummonPrefix, StringComparison.Ordinal) ||
+            !trimmedName.EndsWith(")", StringComparison.Ordinal))
+        {
+            return trimmedName;
+        }
+
+        int suffixIndex = trimmedName.LastIndexOf('(');
+        if (suffixIndex <= bossSummonPrefix.Length ||
+            trimmedName[suffixIndex - 1] == '\n')
+        {
+            return trimmedName;
+        }
+
+        return trimmedName.Substring(0, suffixIndex).TrimEnd() + "\n" + trimmedName.Substring(suffixIndex);
+    }
+
     public static Vector2 CalculateCardSize(bool isShop, Vector2 screenSize)
     {
         var scale = CalculateResponsiveScale(screenSize);
@@ -2206,7 +2231,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
 
             SetText(tier, hasAugment ? FormatAugmentTierText(augment.tier) : "-");
-            SetText(name, hasAugment ? augment.augmentName : "-");
+            SetText(name, hasAugment ? FormatAugmentDisplayName(augment.augmentName) : "-");
             SetText(description, hasAugment ? augment.description : string.Empty);
         }
 
@@ -2238,6 +2263,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             this.icon = icon;
             this.name = name;
             this.count = count;
+
+            if (this.icon != null)
+            {
+                this.icon.scaleMode = ScaleMode.ScaleAndCrop;
+            }
         }
 
         public int Index { get; }

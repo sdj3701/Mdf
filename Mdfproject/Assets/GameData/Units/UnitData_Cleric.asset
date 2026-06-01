@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: UnitData_Cleric
   m_EditorClassIdentifier: 
   unitName: Cleric
-  unitIcon: Spr_Port_Archer
+  unitIcon: Spr_Port_Cleric
   cost: 2
   unitType: 1
   baseHealth: 35

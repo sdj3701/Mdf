@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Golem
   monsterType: 0
-  monsterIcon: Spr_Port_Orc
+  monsterIcon: Spr_Port_Golem
   monsterPrefab: Golem
   attackDamage: 60
   attackSpeed: 0.5

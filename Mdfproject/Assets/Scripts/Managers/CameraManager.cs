@@ -18,6 +18,7 @@ public class CameraManager : MonoBehaviour
         if (_instance == null)
         {
             _instance = this;
+            CaptureSceneCameraPoseIfNeeded();
         }
         else
         {
@@ -55,6 +56,9 @@ public class CameraManager : MonoBehaviour
     private Vector3 _originalPosition;  // 자신의 필드를 보는 수비 모드 카메라 위치
     private Quaternion _originalRotation;  // 자신의 필드를 보는 수비 모드 카메라 회전
     private Vector3 _ownFieldCenter;  // 본인 필드 중심 위치
+    private bool _hasSceneCameraPose;
+    private Vector3 _sceneCameraPosition;  // 씬에 배치된 호스트 필드 기준 카메라 위치
+    private Quaternion _sceneCameraRotation;  // 씬에 배치된 호스트 필드 기준 카메라 회전
     
     [Header("필드 간격 설정")]
     [Tooltip("플레이어 간 필드 Z 오프셋 (GameManagers의 Player Offset.z와 동일해야 함)")]
@@ -110,22 +114,36 @@ public class CameraManager : MonoBehaviour
         // Debug.Log($"[CameraManager] ownField 재바인딩 완료 ({context})");
         return true;
     }
-    #endregion
 
-    #region 초기화
-    private void Start()
+    private bool TryResolveMainCamera()
     {
         if (mainCamera == null)
         {
             mainCamera = Camera.main;
         }
-        
-        // 원래 위치 저장
-        if (mainCamera != null)
+
+        return mainCamera != null;
+    }
+
+    private void CaptureSceneCameraPoseIfNeeded()
+    {
+        if (_hasSceneCameraPose || !TryResolveMainCamera())
         {
-            _originalPosition = mainCamera.transform.position;
-            _originalRotation = mainCamera.transform.rotation;
+            return;
         }
+
+        _sceneCameraPosition = mainCamera.transform.position;
+        _sceneCameraRotation = mainCamera.transform.rotation;
+        _hasSceneCameraPose = true;
+        _originalPosition = _sceneCameraPosition;
+        _originalRotation = _sceneCameraRotation;
+    }
+    #endregion
+
+    #region 초기화
+    private void Start()
+    {
+        CaptureSceneCameraPoseIfNeeded();
     }
 
     private void OnEnable()
@@ -149,12 +167,13 @@ public class CameraManager : MonoBehaviour
         
         // 본인 필드 중심 위치 계산
         _ownFieldCenter = GetFieldCenter(ownField);
+        CaptureSceneCameraPoseIfNeeded();
         
-        if (mainCamera != null)
+        if (mainCamera != null && _hasSceneCameraPose)
         {
             // 씬 카메라 위치 (호스트 필드 기준)
-            Vector3 sceneCameraPos = mainCamera.transform.position;
-            Quaternion sceneCameraRot = mainCamera.transform.rotation;
+            Vector3 sceneCameraPos = _sceneCameraPosition;
+            Quaternion sceneCameraRot = _sceneCameraRotation;
             
             // playerId에 따라 z 오프셋 계산
             // Player 0: z값 변화 없음

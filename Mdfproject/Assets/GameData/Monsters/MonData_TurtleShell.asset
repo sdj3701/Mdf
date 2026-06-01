@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: TurtleShell
   monsterType: 0
-  monsterIcon: Spr_Port_Orc
+  monsterIcon: Spr_Port_TurtleShell
   monsterPrefab: TurtleShell
   attackDamage: 8
   attackSpeed: 0.6

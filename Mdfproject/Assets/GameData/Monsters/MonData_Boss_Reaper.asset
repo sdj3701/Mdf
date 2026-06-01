@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Reaper
   monsterType: 0
-  monsterIcon: Spr_Port_Orc
+  monsterIcon: Spr_Port_BossMonsterSymbol
   monsterPrefab: Boss_Reaper
   attackDamage: 120
   attackSpeed: 1.2

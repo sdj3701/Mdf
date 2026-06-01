@@ -53,7 +53,7 @@ MonoBehaviour:
     m_SerializedLabels:
     - UnitData
   - m_GUID: b294db2481416c64fb9edd6bc0222d6e
-    m_Address: UnitData_Assassin
+    m_Address: UnitData_Fighter
     m_ReadOnly: 0
     m_SerializedLabels:
     - UnitData
@@ -230,7 +230,8 @@ MonoBehaviour:
   - m_GUID: 057b0530372e9964899cde3c3c1cee0d
     m_Address: VFX_AttackSlash_SwordSlash5
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: bbbaa5e8ca9294147bc1c80923466b82
     m_Address: Healer1
     m_ReadOnly: 0
@@ -447,8 +448,8 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - MonsterPortrait
-  - m_GUID: a311745136f3110429e1f14b2e628a0e
-    m_Address: Spr_Port_Archer
+  - m_GUID: 60afb2e69de00b84c8644a60261a0a52
+    m_Address: Spr_Port_Fighter
     m_ReadOnly: 0
     m_SerializedLabels:
     - UnitPortrait
@@ -525,67 +526,143 @@ MonoBehaviour:
   - m_GUID: e4e78518e7fbd944590053140f77a39b
     m_Address: VFX_AttackSlash_SwordSlash1
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: d2d62d206cd8f204381286accb57bccc
     m_Address: VFX_AttackSlash_SwordSlash3
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: e7efec0f27ecb364cbff12223659ed77
     m_Address: VFX_AttackSlash_SwordSlash9
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: 9f249e5080f4a8d469f4898c574ae9d7
     m_Address: VFX_AttackSlash_SwordSlash10
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: 017f7a8863953ea46bca6a869525f20a
     m_Address: VFX_AttackSlash_SwordSlash11
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: ad5aced7902075b4095f434fdbea158f
     m_Address: VFX_AttackSlash_SwordSlash12
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: da8205698fc929d4eb3ecd063b056549
     m_Address: VFX_AttackSlash_SwordSlash14
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: 3e0b667176390ec48af7e1a45f2a1ca6
     m_Address: VFX_Projectile_Fire4_Projectile
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: 8a5881744d44dd546a327527e9b89900
     m_Address: VFX_Projectile_Fire4_Hit
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: c81bf136e2dd0f6488b25b30e0a5de9e
     m_Address: VFX_Projectile_Fire4_Flash
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: e2aecc938d1dabe4b83b473864616866
     m_Address: VFX_Projectile_Ice5_Projectile
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: 4eabe4bed225c604db7e3aaa9cf36681
     m_Address: VFX_Projectile_Ice5_Hit
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: a841b6e5feb94d64998972ee0c9d4a5f
     m_Address: VFX_Projectile_Ice5_Flash
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: c4ef3641155e0b34794e29c197f57ea9
     m_Address: VFX_Projectile_Wind7_Projectile
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: 864df08caf13ad04cb694efaeeeaaba3
     m_Address: VFX_Projectile_Wind7_Hit
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
   - m_GUID: db738b5c07915ce4eb3fbe91be7ff552
     m_Address: VFX_Projectile_Wind7_Flash
     m_ReadOnly: 0
-    m_SerializedLabels: []
+    m_SerializedLabels:
+    - VFX
+  - m_GUID: 58a6797714b44f342ba8d527e77e8f26
+    m_Address: Spr_Port_Archer
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitPortrait
+  - m_GUID: 41e4466a7c898104fa280759935460be
+    m_Address: Spr_Port_Mage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitPortrait
+  - m_GUID: 9d084439f28a6de4fbfaf8064ae4f06f
+    m_Address: Spr_Port_Guardian
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitPortrait
+  - m_GUID: 2d344d63d51760f4781261af6eef7108
+    m_Address: Spr_Port_Spider
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonPortrait
+  - m_GUID: f4a28c5deed32e1488e214afe7616866
+    m_Address: Spr_Port_Cleric
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitPortrait
+  - m_GUID: d343d3522249a5240bff399c54de026f
+    m_Address: Spr_Port_Skeleton
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonPortrait
+  - m_GUID: b3f33954be960504f8457531947989d0
+    m_Address: Spr_Port_EvilMage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonPortrait
+  - m_GUID: 0fd06d332e872a84a877e38270d4e8e3
+    m_Address: Spr_Port_Bat
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonPortrait
+  - m_GUID: 50b77d3fd6204c54d9c185a514a991e6
+    m_Address: Spr_Port_Golem
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonPortrait
+  - m_GUID: 045571a21bd83714ba38d4c9d0b22267
+    m_Address: Spr_Port_TurtleShell
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonPortrait
+  - m_GUID: 0ac7ad8ee00cde54d890ba9fa0124a7c
+    m_Address: Spr_Port_BossMonsterSymbol
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonPortrait
+  - m_GUID: 7a016eef59d6e8a4a8424c4d4d90eb1d
+    m_Address: Spr_Port_Slime
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonPortrait
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
   m_SchemaSet:

@@ -855,6 +855,7 @@
     border-top-right-radius: 8px;
     border-bottom-left-radius: 8px;
     border-bottom-right-radius: 8px;
+    overflow: hidden;
 }
 
 .attack-card:hover {
@@ -879,6 +880,18 @@
     -unity-background-scale-mode: scale-to-fit;
 }
 
+.monster-attack-card .attack-card-icon {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: auto;
+    height: auto;
+    margin-bottom: 0;
+    -unity-background-scale-mode: scale-and-crop;
+}
+
 .attack-card-name {
     width: 100%;
     color: rgb(242, 236, 220);
@@ -889,12 +902,33 @@
     overflow: hidden;
 }
 
+.monster-attack-card .attack-card-name {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 18px;
+    height: 18px;
+    padding-left: 2px;
+    padding-right: 2px;
+    background-color: rgba(0, 0, 0, 0.58);
+}
+
 .attack-card-count {
     color: rgb(237, 218, 159);
     font-size: 13px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
     margin-top: 2px;
+}
+
+.monster-attack-card .attack-card-count {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 1px;
+    height: 17px;
+    margin-top: 0;
+    background-color: rgba(0, 0, 0, 0.68);
 }
 
 .scroll-attack-card {

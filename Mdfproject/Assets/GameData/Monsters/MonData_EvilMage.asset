@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: EvilMage
   monsterType: 0
-  monsterIcon: Spr_Port_Orc
+  monsterIcon: Spr_Port_EvilMage
   monsterPrefab: EvilMage
   attackDamage: 10
   attackSpeed: 0.2

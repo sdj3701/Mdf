@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: UnitData_Pyromancer
   m_EditorClassIdentifier: 
   unitName: Pyromancer
-  unitIcon: Spr_Port_Archer
+  unitIcon: Spr_Port_Mage
   cost: 4
   unitType: 1
   baseHealth: 60

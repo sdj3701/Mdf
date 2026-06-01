@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   scrollName: Berserk
   description: 
-  icon: {fileID: 21300000, guid: 1a488ad75fed8cf47aeff44454147552, type: 3}
+  icon: {fileID: 21300000, guid: dff70d1d31f2b7f43bc06b7515a4a87c, type: 3}
   tier: 0
   tacticalRole: 2
   targetDomain: 1

@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: UnitData_Mage
   m_EditorClassIdentifier: 
   unitName: Mage
-  unitIcon: Spr_Port_Archer
+  unitIcon: Spr_Port_Mage
   cost: 3
   unitType: 1
   baseHealth: 50

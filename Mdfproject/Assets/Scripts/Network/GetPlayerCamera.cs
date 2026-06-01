@@ -44,6 +44,12 @@ public class GetPlayerCamera : MonoBehaviour
     void TryApply()
     {
         if (applied) return;
+        if (HasCameraManagerInScene())
+        {
+            applied = true;
+            return;
+        }
+
         var gm = GameManagers.Instance;
         if (gm == null) return;
         var local = gm.localPlayer;
@@ -61,5 +67,11 @@ public class GetPlayerCamera : MonoBehaviour
             cam.transform.LookAt(targetPos);
         }
         applied = true;
+    }
+
+    private static bool HasCameraManagerInScene()
+    {
+        return CameraManager.Instance != null
+            || UnityEngine.Object.FindObjectOfType<CameraManager>(true) != null;
     }
 }

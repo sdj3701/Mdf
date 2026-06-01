@@ -10,10 +10,10 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fd7f31528da94fb448b3d76147381cf6, type: 3}
-  m_Name: UnitData_Assassin
+  m_Name: UnitData_Fighter
   m_EditorClassIdentifier: 
-  unitName: Assassin
-  unitIcon: Spr_Port_Warrior
+  unitName: Fighter
+  unitIcon: Spr_Port_Fighter
   cost: 3
   unitType: 0
   baseHealth: 100
