@@ -24,6 +24,17 @@ public class VFXAutoDestroy : MonoBehaviour
         _despawnRoutine = StartCoroutine(DespawnAfter(lifetime));
     }
 
+    public void Cancel()
+    {
+        if (_despawnRoutine == null)
+        {
+            return;
+        }
+
+        StopCoroutine(_despawnRoutine);
+        _despawnRoutine = null;
+    }
+
     private IEnumerator DespawnAfter(float lifetime)
     {
         yield return new WaitForSeconds(lifetime);

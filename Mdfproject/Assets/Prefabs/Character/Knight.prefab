@@ -1021,6 +1021,37 @@ Transform:
   m_Father: {fileID: 4456485726827004240}
   m_RootOrder: 0
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &2206437613099979127
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4257669208440221941}
+  m_Layer: 0
+  m_Name: AttackVfx_StrikeBase
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4257669208440221941
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2206437613099979127}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.035, y: -0.0005, z: 0.0014}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 8983496565959839190}
+  m_RootOrder: 3
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &2282539646100032373
 GameObject:
   m_ObjectHideFlags: 0
@@ -1242,6 +1273,38 @@ Transform:
   m_Father: {fileID: 1289117627598037389}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &3242243723846784700
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1297961080297350932}
+  m_Layer: 0
+  m_Name: AttackVfx_StrikeTip
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1297961080297350932
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3242243723846784700}
+  m_LocalRotation: {x: 0.000000059604623, y: 0.00000003259628, z: 0.00000010710206,
+    w: 1}
+  m_LocalPosition: {x: 0.015, y: 0.223, z: 0.176}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 8983496565959839190}
+  m_RootOrder: 4
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &3390745386030047411
 GameObject:
   m_ObjectHideFlags: 0
@@ -1263,6 +1326,7 @@ GameObject:
   - component: {fileID: -8293953001451036714}
   - component: {fileID: 537464650844258833}
   - component: {fileID: 210082506468167801}
+  - component: {fileID: 6150147649967418170}
   m_Layer: 14
   m_Name: Knight
   m_TagString: Untagged
@@ -1374,7 +1438,7 @@ MonoBehaviour:
   skillTriggerParam: SkillTrigger
   skillStateTag: Skill
   blockAttacksDuringSkill: 1
-  maxAttackAnimationsPerSecond: 4
+  maxAttackAnimationsPerSecond: 3
   baseAttackAnimationDuration: 1
 --- !u!114 &-1102934789352229394
 MonoBehaviour:
@@ -1505,6 +1569,21 @@ MonoBehaviour:
   SyncParent: 0
   _autoAOIOverride: 1
   DisableSharedModeInterpolation: 0
+--- !u!114 &6150147649967418170
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3390745386030047411}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b98723605f3da749bdfd22649bf0624, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  slashOrigin: {fileID: 4257669208440221941}
+  weaponBase: {fileID: 4257669208440221941}
+  weaponTip: {fileID: 1297961080297350932}
 --- !u!1 &3406743204688566394
 GameObject:
   m_ObjectHideFlags: 0
@@ -2353,6 +2432,8 @@ Transform:
   - {fileID: 8577003907360247287}
   - {fileID: 389400252243095064}
   - {fileID: 7657554703335372010}
+  - {fileID: 4257669208440221941}
+  - {fileID: 1297961080297350932}
   m_Father: {fileID: 8642213143187694007}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}

@@ -24,7 +24,7 @@ public class AugmentSlot : MonoBehaviour
 
         gameObject.SetActive(true);
         iconImage.sprite = data.icon;
-        nameText.text = data.augmentName;
+        nameText.text = GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName);
         descriptionText.text = data.description;
     }
 }

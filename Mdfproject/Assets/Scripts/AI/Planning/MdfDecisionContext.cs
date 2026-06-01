@@ -21,9 +21,8 @@ public sealed class MdfDecisionContext
     public int PlayerId => Actor != null ? Actor.playerId : -1;
     public GameManagers.GameState GameState =>
         GameManagers != null ? GameManagers.GetGameState() : GameManagers.GameState.Setup;
-    public bool IsBattlePhase =>
-        GameState == GameManagers.GameState.Battle1 ||
-        GameState == GameManagers.GameState.Battle2;
+    public float PhaseTimerRemaining => GameManagers != null ? GameManagers.currentPhaseTimer : 0f;
+    public bool IsBattlePhase => BattleCommandValidator.IsBattlePhase(GameManagers);
     public bool IsCurrentBattleAttacker => Actor != null && BattleCommandValidator.IsCurrentBattleAttacker(Actor);
     public bool IsCurrentBattleDefender => Actor != null && BattleCommandValidator.IsCurrentBattleDefender(Actor);
 

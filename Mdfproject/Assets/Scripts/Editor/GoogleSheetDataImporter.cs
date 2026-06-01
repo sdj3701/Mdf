@@ -44,7 +44,7 @@ public class GoogleSheetDataImporter
             // 에셋 참조 배열 (Asset Reference Array) - [핵심 로직]
             so.prefabsByStarLevel = GetStringArray(item, "prefabsByStarLevel");
             so.skillsByStarLevel = GetStringArray(item, "skillsByStarLevel");
-            so.projectilePrefabsByStarLevel = GetStringArray(item, "projectilePrefabsByStarLevel");
+            ApplyProjectileVfxConfigFromSheet(so, GetStringArray(item, "projectilePrefabsByStarLevel"));
         });
 
         AssetDatabase.SaveAssets();
@@ -63,6 +63,29 @@ public class GoogleSheetDataImporter
         // "key1;key2;key3" 와 같은 문자열을 ["key1", "key2", "key3"] 배열로 분리
         return rawString.Split(';').ToArray();
     }
+
+    private static void ApplyProjectileVfxConfigFromSheet(UnitData unitData, string[] projectileKeys)
+    {
+        if (unitData == null)
+        {
+            return;
+        }
+
+        ProjectileVfxConfig config = unitData.basicAttackVfxProfile != null
+            ? unitData.basicAttackVfxProfile.GetProjectileConfig()
+            : null;
+        if (config == null)
+        {
+            Debug.LogWarning($"[GoogleSheetDataImporter] {unitData.name} has no BasicAttackVfxProfile. Projectile VFX key was not imported.");
+            return;
+        }
+
+        config.projectileKey = projectileKeys == null
+            ? string.Empty
+            : projectileKeys.FirstOrDefault(key => !string.IsNullOrWhiteSpace(key)) ?? string.Empty;
+        EditorUtility.SetDirty(unitData.basicAttackVfxProfile);
+    }
+
     private static string GetString(Dictionary<string, object> item, string key)
     {
         return item.ContainsKey(key) && item[key] != null ? item[key].ToString() : "";

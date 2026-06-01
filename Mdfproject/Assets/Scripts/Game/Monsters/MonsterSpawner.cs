@@ -23,6 +23,11 @@ public class MonsterSpawner : MonoBehaviour
 
     [Header("정리용 부모 오브젝트")]
     public Transform monsterParent;
+
+    [Header("Monster Prewarm")]
+    [SerializeField] private bool enableMonsterPrewarm = true;
+    [SerializeField, Min(0)] private int prewarmCountPerMonsterPrefab = 12;
+    [SerializeField, Min(0)] private int prewarmCountPerBossPrefab = 2;
     
     private readonly HashSet<string> _activeAutoSpawnKeys = new HashSet<string>();
     private readonly HashSet<string> _completedAutoSpawnKeys = new HashSet<string>();
@@ -122,7 +127,7 @@ public class MonsterSpawner : MonoBehaviour
     {
         string ownerState = _playerManager == null
             ? "owner=null"
-            : $"owner=Player({_playerManager.playerId}, name={_playerManager.name})";
+            : $"owner=Player({GetPlayerIdForLog(_playerManager)}, name={_playerManager.name})";
         string pathState = _pathfinder == null ? "pathfinder=null" : $"pathfinder={_pathfinder.name}";
         string goalState = goalTransform == null ? "goal=null" : $"goal={goalTransform.name}";
         return $"{ownerState}, {pathState}, {goalState}";
@@ -147,12 +152,12 @@ public class MonsterSpawner : MonoBehaviour
 
         bool hasObject = player.Object != null;
         bool objectValid = hasObject && player.Object.IsValid;
-        bool hasAuthority = hasObject && player.Object.HasStateAuthority;
+        bool hasAuthority = objectValid && player.Object.HasStateAuthority;
         string gridName = player.astarGrid != null ? player.astarGrid.name : "null";
         string goalName = player.goalTransform != null ? player.goalTransform.name : "null";
         string fieldName = player.fieldManager != null ? player.fieldManager.name : "null";
 
-        return $"{label}=Player(id={player.playerId},name={player.name},active={player.isActiveAndEnabled}," +
+        return $"{label}=Player(id={GetPlayerIdForLog(player)},name={player.name},active={player.isActiveAndEnabled}," +
                $"hasObject={hasObject},objectValid={objectValid},stateAuth={hasAuthority}," +
                $"grid={gridName},goal={goalName},field={fieldName})";
     }
@@ -164,9 +169,25 @@ public class MonsterSpawner : MonoBehaviour
             return $"{label}=null";
         }
 
-        string ownerId = field.playerManager != null ? field.playerManager.playerId.ToString() : "null";
+        string ownerId = field.playerManager != null ? GetPlayerIdForLog(field.playerManager) : "null";
         string groundName = field.ground3D != null ? field.ground3D.name : "null";
         return $"{label}=Field(name={field.name},active={field.isActiveAndEnabled},owner={ownerId},ground={groundName})";
+    }
+
+    private static string GetPlayerIdForLog(PlayerManager player)
+    {
+        if (player == null)
+        {
+            return "null";
+        }
+
+        var playerObject = player.Object;
+        if (playerObject == null || !playerObject.IsValid)
+        {
+            return "unspawned";
+        }
+
+        return player.playerId.ToString();
     }
 
     private string BuildAllPlayersSnapshot()
@@ -213,6 +234,140 @@ public class MonsterSpawner : MonoBehaviour
             // $"[SPAWN-TRACE #{++_spawnTraceSeq}] {step} | monster={monsterName} spawn={spawnPosition} | " +
             // $"{DescribePlayerState(_playerManager, "attacker")} | {DescribeFieldState(targetFieldManager, "targetField")} | " +
             // $"{DescribePlayerState(targetPlayer, "defender")} | {DescribeRunnerState(_playerManager?.Runner)}{suffix}");
+    }
+
+    private struct MonsterPrewarmRequest
+    {
+        public MonsterData MonsterData;
+        public int TargetFreeCount;
+
+        public MonsterPrewarmRequest(MonsterData monsterData, int targetFreeCount)
+        {
+            MonsterData = monsterData;
+            TargetFreeCount = targetFreeCount;
+        }
+    }
+
+    public UniTask PrewarmAttackMonsterPoolAsync(IEnumerable<MonsterPoolEntry> pool, string context = null)
+    {
+        if (!enableMonsterPrewarm || pool == null)
+        {
+            return UniTask.CompletedTask;
+        }
+
+        var requests = new Dictionary<string, MonsterPrewarmRequest>();
+        foreach (var entry in pool)
+        {
+            if (entry?.MonsterData == null || entry.IsEmpty)
+            {
+                continue;
+            }
+
+            int availableCount = Mathf.Max(1, Mathf.Max(entry.RemainingCount, entry.MaxCount));
+            int configuredLimit = entry.IsBoss ? prewarmCountPerBossPrefab : prewarmCountPerMonsterPrefab;
+            int targetCount = Mathf.Min(configuredLimit, availableCount);
+            AddPrewarmRequest(requests, entry.MonsterData, targetCount);
+        }
+
+        return PrewarmRequestsAsync(requests, context ?? "AttackMonsterPool");
+    }
+
+    public UniTask PrewarmWaveAsync(RoundWaveData waveData, string context = null)
+    {
+        if (!enableMonsterPrewarm || waveData?.monsters == null)
+        {
+            return UniTask.CompletedTask;
+        }
+
+        var requests = new Dictionary<string, MonsterPrewarmRequest>();
+        foreach (var entry in waveData.monsters)
+        {
+            if (entry?.monsterData == null || entry.count <= 0)
+            {
+                continue;
+            }
+
+            int targetCount = Mathf.Min(prewarmCountPerMonsterPrefab, Mathf.Max(1, entry.count));
+            AddPrewarmRequest(requests, entry.monsterData, targetCount);
+        }
+
+        return PrewarmRequestsAsync(requests, context ?? "Wave");
+    }
+
+    public UniTask PrewarmMonsterDataAsync(MonsterData monsterData, bool isBoss, int requestedCount, string context = null)
+    {
+        int configuredLimit = isBoss ? prewarmCountPerBossPrefab : prewarmCountPerMonsterPrefab;
+        int targetCount = requestedCount > 0
+            ? Mathf.Min(configuredLimit, requestedCount)
+            : configuredLimit;
+
+        var requests = new Dictionary<string, MonsterPrewarmRequest>();
+        AddPrewarmRequest(requests, monsterData, targetCount);
+        return PrewarmRequestsAsync(requests, context ?? "SingleMonster");
+    }
+
+    private static void AddPrewarmRequest(Dictionary<string, MonsterPrewarmRequest> requests, MonsterData monsterData, int targetCount)
+    {
+        if (requests == null || monsterData == null || targetCount <= 0 || string.IsNullOrEmpty(monsterData.monsterPrefab))
+        {
+            return;
+        }
+
+        string key = monsterData.monsterPrefab;
+        if (requests.TryGetValue(key, out var existing) && existing.TargetFreeCount >= targetCount)
+        {
+            return;
+        }
+
+        requests[key] = new MonsterPrewarmRequest(monsterData, targetCount);
+    }
+
+    private async UniTask PrewarmRequestsAsync(Dictionary<string, MonsterPrewarmRequest> requests, string context)
+    {
+        if (!enableMonsterPrewarm || requests == null || requests.Count == 0)
+        {
+            return;
+        }
+
+        if (_playerManager == null)
+        {
+            _playerManager = GetComponentInParent<PlayerManager>();
+        }
+
+        var runner = _playerManager?.Runner;
+        if (runner == null || !runner.IsRunning)
+        {
+            return;
+        }
+
+        var provider = runner.GetComponent<PooledNetworkObjectProvider>();
+        if (provider == null)
+        {
+            return;
+        }
+
+        int createdTotal = 0;
+        foreach (var request in requests.Values)
+        {
+            if (request.MonsterData == null || request.TargetFreeCount <= 0)
+            {
+                continue;
+            }
+
+            GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(request.MonsterData.monsterPrefab);
+            if (prefab == null || !prefab.TryGetComponent<NetworkObject>(out var netPrefab))
+            {
+                continue;
+            }
+
+            createdTotal += provider.PrewarmPrefab(runner, netPrefab, request.TargetFreeCount);
+            await UniTask.Yield();
+        }
+
+        if (createdTotal > 0)
+        {
+            Debug.Log($"[MonsterSpawner] Prewarmed {createdTotal} monster NetworkObjects. owner={GetPlayerIdForLog(_playerManager)}, context={context}");
+        }
     }
 
     public bool IsAutoSpawnRunningForKey(string battleBootstrapKey)
@@ -399,26 +554,74 @@ public class MonsterSpawner : MonoBehaviour
 
     #endregion
 
-    private float GetGroundMonsterHeightOffset(GameObject prefab)
+    private float GetGroundMonsterHeightOffset(GameObject prefab, MonsterData monsterData)
     {
         if (prefab == null) return 0f;
 
-        Monster monsterComponent = prefab.GetComponent<Monster>();
-        if (monsterComponent == null || monsterComponent.Data == null) return 0f;
+        if (monsterData != null && monsterData.monsterType == MonsterType.Flying) return 0f;
 
-        // 비행 몬스터는 높이 오프셋 없음
-        if (monsterComponent.Data.monsterType == MonsterType.Flying) return 0f;
+        if (monsterData == null) return 0f;
 
-        // Collider bounds를 사용하여 정확한 높이 계산
         Collider col = prefab.GetComponent<Collider>();
         if (col != null)
         {
-            // bounds.extents.y는 collider 중심에서 바닥까지의 거리
-            return col.bounds.extents.y;
+            float bottom = GetColliderBottomYInRootSpace(prefab.transform, col);
+            return bottom < 0f ? -bottom : 0f;
         }
 
-        // Collider가 없으면 localScale 기반 폴백
-        return prefab.transform.localScale.y * 0.5f;
+        return 0f;
+    }
+
+    private static float GetColliderBottomYInRootSpace(Transform root, Collider collider)
+    {
+        if (root == null || collider == null)
+        {
+            return 0f;
+        }
+
+        if (collider is BoxCollider box)
+        {
+            return RootLocalY(root, box.transform, box.center + Vector3.down * box.size.y * 0.5f);
+        }
+
+        if (collider is SphereCollider sphere)
+        {
+            return RootLocalY(root, sphere.transform, sphere.center + Vector3.down * sphere.radius);
+        }
+
+        if (collider is CapsuleCollider capsule)
+        {
+            float verticalHalfExtent = capsule.direction == 1
+                ? Mathf.Max(capsule.radius, capsule.height * 0.5f)
+                : capsule.radius;
+            Vector3 localBottom = capsule.center;
+            localBottom.y -= verticalHalfExtent;
+
+            return RootLocalY(root, capsule.transform, localBottom);
+        }
+
+        return root.InverseTransformPoint(collider.bounds.min).y;
+    }
+
+    private static float RootLocalY(Transform root, Transform colliderTransform, Vector3 colliderLocalPoint)
+    {
+        return root.InverseTransformPoint(colliderTransform.TransformPoint(colliderLocalPoint)).y;
+    }
+
+    private static void SnapSpawnTransform(GameObject monsterGO, Vector3 position, Quaternion rotation)
+    {
+        if (monsterGO == null)
+        {
+            return;
+        }
+
+        monsterGO.transform.SetPositionAndRotation(position, rotation);
+
+        var networkTransform = monsterGO.GetComponent<Fusion.NetworkTransform>();
+        if (networkTransform != null && networkTransform.enabled)
+        {
+            networkTransform.Teleport(position, rotation);
+        }
     }
 
     #region 보스 및 증강 몬스터 소환
@@ -520,6 +723,8 @@ public class MonsterSpawner : MonoBehaviour
         {
             return;
         }
+
+        await PrewarmWaveAsync(waveData, $"SpawnBaseWaveFromFastestOuterDirectionAsync/R{round}");
 
         Vector3 spawnPosition = GetFastestOuterDirectionSpawnPosition(targetFieldManager);
         int delayMs = Mathf.Max(100, Mathf.RoundToInt(Mathf.Max(0.1f, waveData.spawnInterval) * 1000f));
@@ -817,6 +1022,8 @@ public class MonsterSpawner : MonoBehaviour
                 return;
             }
 
+            await PrewarmAttackMonsterPoolAsync(pool, "StartAutoSpawnFromPool");
+
             // ★ AIAttackStrategy를 사용한 전략적 소환
             // spawnAreaLayerMask를 AttackSequenceManager에서 가져옴
             LayerMask spawnAreaLayer = default;
@@ -1061,7 +1268,7 @@ public class MonsterSpawner : MonoBehaviour
         Vector3 adjustedSpawnPos = spawnPosition;
         if (monsterData.monsterType != MonsterType.Flying)
         {
-            float groundOffset = GetGroundMonsterHeightOffset(prefab);
+            float groundOffset = GetGroundMonsterHeightOffset(prefab, monsterData);
             adjustedSpawnPos.y += groundOffset;
         }
         
@@ -1075,7 +1282,8 @@ public class MonsterSpawner : MonoBehaviour
         if (runner != null && _playerManager.Object != null && _playerManager.Object.HasStateAuthority && prefab.TryGetComponent<NetworkObject>(out var netPrefab))
         {
             LogSpawnTrace("SpawnMonsterAtPositionAsync:SPAWN_NETWORK", monsterData, adjustedSpawnPos, targetFieldManager, $"prefab={prefab.name}");
-            var spawned = runner.Spawn(netPrefab, adjustedSpawnPos, Quaternion.identity, PlayerRef.None);
+            Quaternion spawnRotation = Quaternion.identity;
+            var spawned = runner.Spawn(netPrefab, adjustedSpawnPos, spawnRotation, PlayerRef.None);
             if (spawned == null)
             {
                 // Debug.LogError($"Runner.Spawn 실패: {prefab.name}", this);
@@ -1088,6 +1296,8 @@ public class MonsterSpawner : MonoBehaviour
             {
                 monsterGO.transform.SetParent(targetMonsterParent, true);
             }
+
+            SnapSpawnTransform(monsterGO, adjustedSpawnPos, spawnRotation);
         }
         else if (runner != null && runner.IsRunning)
         {
@@ -1098,6 +1308,7 @@ public class MonsterSpawner : MonoBehaviour
         {
             LogSpawnTrace("SpawnMonsterAtPositionAsync:SPAWN_LOCAL_INSTANTIATE", monsterData, adjustedSpawnPos, targetFieldManager, $"prefab={prefab.name}");
             monsterGO = Instantiate(prefab, adjustedSpawnPos, Quaternion.identity, targetMonsterParent);
+            SnapSpawnTransform(monsterGO, adjustedSpawnPos, Quaternion.identity);
         }
 
         Monster monster = monsterGO.GetComponent<Monster>();
@@ -1266,7 +1477,7 @@ public class MonsterSpawner : MonoBehaviour
             }
         }
         
-        // Debug.Log($"<color=yellow>[MonsterSpawner] 전투 종료 정리: {monstersToRemove.Count}마리 처리 (Player {_playerManager?.playerId})</color>");
+        // Debug.Log($"<color=yellow>[MonsterSpawner] 전투 종료 정리: {monstersToRemove.Count}마리 처리 (Player {GetPlayerIdForLog(_playerManager)})</color>");
     }
     #endregion
 

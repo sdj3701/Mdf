@@ -15,7 +15,7 @@ MonoBehaviour:
   augmentName: "\uAC74\uC124\uC7AC\uB8CC \uCD94\uAC00"
   description: "\uBCBD\uC744 \uC9C0\uC744 \uC218 \uC788\uB294 \uAC74\uC124\uC7AC\uB8CC\uB97C
     \uD68D\uB4DD\uD569\uB2C8\uB2E4."
-  icon: {fileID: 21300000, guid: 65dbd69fe392da54baae96f1e9535149, type: 3}
+  icon: {fileID: 21300000, guid: 5fc3056e5a7fc37478e9bb4e3fcbd487, type: 3}
   tier: 0
   targetType: 0
   effectType: 3

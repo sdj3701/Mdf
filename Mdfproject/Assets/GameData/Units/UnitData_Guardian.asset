@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: UnitData_Guardian
   m_EditorClassIdentifier: 
   unitName: Guardian
-  unitIcon: Spr_Port_Warrior
+  unitIcon: Spr_Port_Guardian
   cost: 3
   unitType: 0
   baseHealth: 200
@@ -37,8 +37,5 @@ MonoBehaviour:
   - 
   - 
   - 
-  projectilePrefabsByStarLevel:
-  - 
-  - 
-  - 
-  projectileSpeed: 0
+  basicAttackVfxProfile: {fileID: 11400000, guid: a887381c2d85ae646ad101a3a9f00fa3,
+    type: 2}

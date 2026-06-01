@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Slime
   monsterType: 0
-  monsterIcon: Spr_Port_Orc
+  monsterIcon: Spr_Port_Slime
   monsterPrefab: Slime
   attackDamage: 10
   attackSpeed: 1

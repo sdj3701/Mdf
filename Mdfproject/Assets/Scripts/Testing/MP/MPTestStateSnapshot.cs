@@ -33,6 +33,7 @@ public static class MPTestStateSnapshot
             Players = CapturePlayers(gameManagers, runner, options, errors),
             Objects = CaptureObjects(),
             Effects = CaptureEffects(),
+            NetworkBudget = CaptureNetworkBudget(gameManagers),
             Commands = CaptureCommands(gameManagers),
             HostMigration = CaptureHostMigration(),
             Test = CaptureTest(),
@@ -326,7 +327,11 @@ public static class MPTestStateSnapshot
 
         try
         {
-            player.RebindRuntimeReferencesAfterMigration("MPTestStateSnapshot.CapturePlayer", false);
+            player.RebindRuntimeReferencesAfterMigration(
+                "MPTestStateSnapshot.CapturePlayer",
+                false,
+                rebuildUnitMap: false,
+                repairUnitPresentation: false);
         }
         catch (Exception ex)
         {
@@ -1155,30 +1160,29 @@ public static class MPTestStateSnapshot
     {
         var buffParts = new List<string>();
         var statusParts = new List<string>();
+        var zoneParts = new List<string>();
         int activeBuffCount = 0;
         int activeStatusCount = 0;
+        var scheduler = CombatScheduler.Instance;
+        bool useSchedulerBuffs = scheduler != null && scheduler.IsStatBuffSchedulerActive;
+        bool useSchedulerStatus = scheduler != null && scheduler.IsStatusEffectSchedulerActive;
+        bool useSchedulerZones = scheduler != null && scheduler.IsZoneSchedulerActive;
 
-        foreach (var buffManager in UnityEngine.Object.FindObjectsOfType<BuffManager>())
+        if (useSchedulerBuffs)
         {
-            if (buffManager == null)
-            {
-                continue;
-            }
-
-            string targetKey = BuildEffectTargetKey(buffManager.gameObject);
-            activeBuffCount += SafeInt(() => buffManager.ActiveBuffCount, 0);
-            activeStatusCount += SafeInt(() => buffManager.ActiveStatusEffectCount, 0);
-            buffParts.AddRange(SafeRef(() => buffManager.BuildActiveBuffSnapshotParts(targetKey), Enumerable.Empty<string>()));
-            statusParts.AddRange(SafeRef(() => buffManager.BuildActiveStatusSnapshotParts(targetKey), Enumerable.Empty<string>()));
+            activeBuffCount = SafeInt(() => scheduler.ActiveStatBuffCount, 0);
+            buffParts.AddRange(SafeRef(() => scheduler.BuildActiveStatBuffSnapshotParts(BuildEffectTargetKey), Enumerable.Empty<string>()));
         }
 
-        var zoneParts = new List<string>();
-        foreach (var zone in UnityEngine.Object.FindObjectsOfType<ZoneController>())
+        if (useSchedulerStatus)
         {
-            if (zone != null && SafeBool(() => zone.IsSnapshotActive, false))
-            {
-                zoneParts.Add(SafeString(zone.BuildSnapshotPart, Unknown));
-            }
+            activeStatusCount = SafeInt(() => scheduler.ActiveStatusEffectCount, 0);
+            statusParts.AddRange(SafeRef(() => scheduler.BuildActiveStatusSnapshotParts(BuildEffectTargetKey), Enumerable.Empty<string>()));
+        }
+
+        if (useSchedulerZones)
+        {
+            zoneParts.AddRange(SafeRef(() => scheduler.BuildActiveZoneSnapshotParts(), Enumerable.Empty<string>()));
         }
 
         return new EffectsSnapshot
@@ -1190,6 +1194,91 @@ public static class MPTestStateSnapshot
             ActiveStatusHash = HashStableParts(statusParts.Count > 0 ? statusParts : new[] { "activeStatuses=empty" }),
             ZoneHash = HashStableParts(zoneParts.Count > 0 ? zoneParts : new[] { "zones=empty" })
         };
+    }
+
+    private static NetworkBudgetSnapshot CaptureNetworkBudget(GameManagers gameManagers)
+    {
+        var scheduler = CombatScheduler.Instance;
+        CombatScheduler.NetworkBudgetReport report = scheduler != null
+            ? SafeRef(() => scheduler.GetNetworkBudgetReport(), default)
+            : default;
+
+        var playerManagers = UnityEngine.Object.FindObjectsOfType<PlayerManager>();
+        var units = UnityEngine.Object.FindObjectsOfType<Unit>();
+        var monsters = UnityEngine.Object.FindObjectsOfType<Monster>();
+
+        int playerWordTotal = 0;
+        int playerWordMax = 0;
+        foreach (var player in playerManagers)
+        {
+            int words = SafeNetworkObjectWordCount(player != null ? player.Object : null);
+            playerWordTotal += words;
+            playerWordMax = Math.Max(playerWordMax, words);
+        }
+
+        int unitWordTotal = 0;
+        int unitWordMax = 0;
+        foreach (var unit in units)
+        {
+            int words = SafeNetworkObjectWordCount(unit != null ? unit.Object : null);
+            unitWordTotal += words;
+            unitWordMax = Math.Max(unitWordMax, words);
+        }
+
+        int monsterWordTotal = 0;
+        int monsterWordMax = 0;
+        foreach (var monster in monsters)
+        {
+            int words = SafeNetworkObjectWordCount(monster != null ? monster.Object : null);
+            monsterWordTotal += words;
+            monsterWordMax = Math.Max(monsterWordMax, words);
+        }
+
+        return new NetworkBudgetSnapshot
+        {
+            SchedulerObjectWordCount = SafeNetworkObjectWordCount(scheduler != null ? scheduler.Object : null),
+            GameManagersObjectWordCount = SafeNetworkObjectWordCount(gameManagers != null ? gameManagers.Object : null),
+            PlayerManagerObjectWordCountTotal = playerWordTotal,
+            PlayerManagerObjectWordCountMax = playerWordMax,
+            UnitObjectWordCountTotal = unitWordTotal,
+            UnitObjectWordCountMax = unitWordMax,
+            MonsterObjectWordCountTotal = monsterWordTotal,
+            MonsterObjectWordCountMax = monsterWordMax,
+            StatusCapacityDrops = report.StatusCapacityDrops,
+            StatBuffCapacityDrops = report.StatBuffCapacityDrops,
+            ZoneCapacityDrops = report.ZoneCapacityDrops,
+            PendingFireCapacityDrops = report.PendingFireCapacityDrops,
+            PendingHitCapacityDrops = report.PendingHitCapacityDrops,
+            PresentationEventDrops = report.PresentationEventDrops,
+            CurrentPendingFireActive = report.CurrentPendingFireActive,
+            CurrentPendingHitActive = report.CurrentPendingHitActive,
+            CurrentActiveStatusEffects = report.CurrentActiveStatusEffects,
+            CurrentActiveStatBuffs = report.CurrentActiveStatBuffs,
+            CurrentActiveZones = report.CurrentActiveZones,
+            MaxPendingFireActive = report.MaxPendingFireActive,
+            MaxPendingHitActive = report.MaxPendingHitActive,
+            MaxActiveStatusEffects = report.MaxActiveStatusEffects,
+            MaxActiveStatBuffs = report.MaxActiveStatBuffs,
+            MaxActiveZones = report.MaxActiveZones,
+            MaxProjectileVfxEventsPerTick = report.MaxProjectileVfxEventsPerTick,
+            MaxBasicAttackVfxEventsPerTick = report.MaxBasicAttackVfxEventsPerTick,
+            PendingFireCapacity = report.PendingFireCapacity,
+            PendingHitCapacity = report.PendingHitCapacity,
+            EventBufferCapacity = report.EventBufferCapacity,
+            StatusCapacity = report.StatusCapacity,
+            StatBuffCapacity = report.StatBuffCapacity,
+            ZoneCapacity = report.ZoneCapacity
+        };
+    }
+
+    private static int SafeNetworkObjectWordCount(NetworkObject networkObject)
+    {
+        if (networkObject == null)
+        {
+            return 0;
+        }
+
+        return SafeInt(() => NetworkObject.GetWordCount(networkObject), 0);
     }
 
     private static string BuildEffectTargetKey(GameObject target)
@@ -1477,6 +1566,7 @@ public static class MPTestStateSnapshot
         [JsonProperty("players")] public PlayerSnapshot[] Players;
         [JsonProperty("objects")] public ObjectsSnapshot Objects;
         [JsonProperty("effects")] public EffectsSnapshot Effects;
+        [JsonProperty("networkBudget")] public NetworkBudgetSnapshot NetworkBudget;
         [JsonProperty("commands")] public CommandsSnapshot Commands;
         [JsonProperty("hostMigration")] public HostMigrationSnapshot HostMigration;
         [JsonProperty("test")] public TestSnapshot Test;
@@ -1635,6 +1725,43 @@ public static class MPTestStateSnapshot
         [JsonProperty("activeBuffHash")] public string ActiveBuffHash;
         [JsonProperty("activeStatusHash")] public string ActiveStatusHash;
         [JsonProperty("zoneHash")] public string ZoneHash;
+    }
+
+    [Serializable]
+    public sealed class NetworkBudgetSnapshot
+    {
+        [JsonProperty("schedulerObjectWordCount")] public int SchedulerObjectWordCount;
+        [JsonProperty("gameManagersObjectWordCount")] public int GameManagersObjectWordCount;
+        [JsonProperty("playerManagerObjectWordCountTotal")] public int PlayerManagerObjectWordCountTotal;
+        [JsonProperty("playerManagerObjectWordCountMax")] public int PlayerManagerObjectWordCountMax;
+        [JsonProperty("unitObjectWordCountTotal")] public int UnitObjectWordCountTotal;
+        [JsonProperty("unitObjectWordCountMax")] public int UnitObjectWordCountMax;
+        [JsonProperty("monsterObjectWordCountTotal")] public int MonsterObjectWordCountTotal;
+        [JsonProperty("monsterObjectWordCountMax")] public int MonsterObjectWordCountMax;
+        [JsonProperty("statusCapacityDrops")] public int StatusCapacityDrops;
+        [JsonProperty("statBuffCapacityDrops")] public int StatBuffCapacityDrops;
+        [JsonProperty("zoneCapacityDrops")] public int ZoneCapacityDrops;
+        [JsonProperty("pendingFireCapacityDrops")] public int PendingFireCapacityDrops;
+        [JsonProperty("pendingHitCapacityDrops")] public int PendingHitCapacityDrops;
+        [JsonProperty("presentationEventDrops")] public int PresentationEventDrops;
+        [JsonProperty("currentPendingFireActive")] public int CurrentPendingFireActive;
+        [JsonProperty("currentPendingHitActive")] public int CurrentPendingHitActive;
+        [JsonProperty("currentActiveStatusEffects")] public int CurrentActiveStatusEffects;
+        [JsonProperty("currentActiveStatBuffs")] public int CurrentActiveStatBuffs;
+        [JsonProperty("currentActiveZones")] public int CurrentActiveZones;
+        [JsonProperty("maxPendingFireActive")] public int MaxPendingFireActive;
+        [JsonProperty("maxPendingHitActive")] public int MaxPendingHitActive;
+        [JsonProperty("maxActiveStatusEffects")] public int MaxActiveStatusEffects;
+        [JsonProperty("maxActiveStatBuffs")] public int MaxActiveStatBuffs;
+        [JsonProperty("maxActiveZones")] public int MaxActiveZones;
+        [JsonProperty("maxProjectileVfxEventsPerTick")] public int MaxProjectileVfxEventsPerTick;
+        [JsonProperty("maxBasicAttackVfxEventsPerTick")] public int MaxBasicAttackVfxEventsPerTick;
+        [JsonProperty("pendingFireCapacity")] public int PendingFireCapacity;
+        [JsonProperty("pendingHitCapacity")] public int PendingHitCapacity;
+        [JsonProperty("eventBufferCapacity")] public int EventBufferCapacity;
+        [JsonProperty("statusCapacity")] public int StatusCapacity;
+        [JsonProperty("statBuffCapacity")] public int StatBuffCapacity;
+        [JsonProperty("zoneCapacity")] public int ZoneCapacity;
     }
 
     [Serializable]

@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: AI/HumanBot, battle
 Created: 2026-05-06
-Last used: 2026-05-06
+Last used: 2026-06-01
 Last verified: 2026-05-06
-Use count: 1
+Use count: 2
 Review after: 2026-08-04
 Triggers: future edits near monster spawn, magic scrolls, strategic skills, HumanBot, battle command validators
 Applies to: `tools/harness/precommit.py`, battle command architecture, AI/HumanBot policies, scroll presentation, manual skill policy

@@ -31,6 +31,10 @@ Short gameplay/content/AI/UI/network requests, including Korean equivalents of a
 
 Use `unity-cli --project Mdfproject` whenever possible.
 
+## One-off Unity tools
+
+For one-time Unity asset or content generation, prefer a temporary Editor/`[UnityCliTool]` implementation only when Unity APIs are safer than raw YAML or shell file edits. After generating and verifying the requested assets, delete the temporary tool code, its `.meta`, menu entry, CLI registration, and stale docs/tests that imply it is reusable before the final response. Do not leave single-use generator or fixer tools permanently in `Assets/Scripts/Editor` unless the user explicitly asks for a reusable workflow.
+
 ## Unity scanner
 
 `unity-scanner` is optional. Some clones or developer machines may not have it installed.

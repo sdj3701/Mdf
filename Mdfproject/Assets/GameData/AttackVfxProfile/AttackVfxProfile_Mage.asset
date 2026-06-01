@@ -1,0 +1,83 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a7d495671ef84e6f926a74c2407d5132, type: 3}
+  m_Name: AttackVfxProfile_Mage
+  m_EditorClassIdentifier: 
+  profileKind: 2
+  slashConfigsByStarLevel:
+  - prefabKey: 
+    localPositionOffset: {x: 0, y: 0.6, z: 0.75}
+    rotationOffsetEuler: {x: 0, y: 0, z: 0}
+    rotationMode: 0
+    scaleMultiplier: 1
+    spawnNormalizedTime: 0.2
+    playbackSpeed: 1
+    playbackSpeedCap: 2
+    minimumVisibleSeconds: 0.16
+    primaryRendererFlip: {x: 0, y: 0, z: 0}
+    calibrationQuality: 0
+    calibratedAttackClipGuid: 
+    calibrationSource: 
+  - prefabKey: 
+    localPositionOffset: {x: 0, y: 0.6, z: 0.75}
+    rotationOffsetEuler: {x: 0, y: 0, z: 0}
+    rotationMode: 0
+    scaleMultiplier: 1
+    spawnNormalizedTime: 0.2
+    playbackSpeed: 1
+    playbackSpeedCap: 2
+    minimumVisibleSeconds: 0.16
+    primaryRendererFlip: {x: 0, y: 0, z: 0}
+    calibrationQuality: 0
+    calibratedAttackClipGuid: 
+    calibrationSource: 
+  - prefabKey: 
+    localPositionOffset: {x: 0, y: 0.6, z: 0.75}
+    rotationOffsetEuler: {x: 0, y: 0, z: 0}
+    rotationMode: 0
+    scaleMultiplier: 1
+    spawnNormalizedTime: 0.2
+    playbackSpeed: 1
+    playbackSpeedCap: 2
+    minimumVisibleSeconds: 0.16
+    primaryRendererFlip: {x: 0, y: 0, z: 0}
+    calibrationQuality: 0
+    calibratedAttackClipGuid: 
+    calibrationSource: 
+  projectileVfxConfig:
+    muzzleFlashKey: VFX_Projectile_Ice5_Flash
+    projectileKey: VFX_Projectile_Ice5_Projectile
+    impactFlashKey: VFX_Projectile_Ice5_Hit
+    muzzleLocalPositionOffset: {x: 0, y: 0, z: 0}
+    muzzleRotationOffsetEuler: {x: 0, y: 0, z: 0}
+    muzzleScaleMultiplier: 1
+    muzzleScaleMultiplierVector: {x: 1, y: 1, z: 1}
+    muzzlePlaybackSpeed: 1
+    muzzleLifetimeSeconds: 1
+    projectileSpawnNormalizedTime: 0.2
+    projectileSpeed: 10
+    projectileVisualHeightOffset: 0.65
+    projectileDynamicLightIntensity: 0
+    projectileDynamicLightRange: 0
+    projectileLocalPositionOffset: {x: 0, y: 0, z: 0}
+    projectileRotationOffsetEuler: {x: 0, y: 0, z: 0}
+    projectileScaleMultiplier: 0.5
+    projectileScaleMultiplierVector: {x: 0.5, y: 0.5, z: 0.5}
+    projectilePlaybackSpeed: 1
+    alignProjectileToDirection: 1
+    impactLocalPositionOffset: {x: 0, y: 0, z: 0}
+    impactRotationOffsetEuler: {x: 0, y: 0, z: 0}
+    impactScaleMultiplier: 0.4
+    impactScaleMultiplierVector: {x: 0.4, y: 0.4, z: 0.4}
+    impactPlaybackSpeed: 1
+    impactLifetimeSeconds: 1
+    alignImpactToDirection: 1

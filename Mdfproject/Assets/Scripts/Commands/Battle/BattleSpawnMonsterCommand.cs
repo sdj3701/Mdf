@@ -210,6 +210,12 @@ public sealed class BattleSpawnMonsterCommand
             int originPlayerId = ResolveOriginPlayerId(_validatedPoolEntry);
             MonsterData monsterData = _validatedPoolEntry.MonsterData;
 
+            await _validatedAttacker.monsterSpawner.PrewarmMonsterDataAsync(
+                monsterData,
+                isBoss,
+                1,
+                "BattleSpawnMonsterCommand");
+
             if (!_validatedAttacker.TryConsumeMonsterPoolSlot(PoolSlotIndex))
             {
                 return Reject("pool_slot_consume_failed_before_spawn", null, DefenderPlayerId, Scope);

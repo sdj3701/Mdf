@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Bat
   monsterType: 1
-  monsterIcon: Spr_Port_Orc
+  monsterIcon: Spr_Port_Bat
   monsterPrefab: Bat
   attackDamage: 18
   attackSpeed: 1.5

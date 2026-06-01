@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Spider
   monsterType: 0
-  monsterIcon: Spr_Port_Orc
+  monsterIcon: Spr_Port_Spider
   monsterPrefab: Spider
   attackDamage: 12
   attackSpeed: 1.3

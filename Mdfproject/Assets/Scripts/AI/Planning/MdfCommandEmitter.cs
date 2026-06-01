@@ -189,6 +189,7 @@ public sealed class HumanClientCommandEmitter : MdfCommandEmitter
                 decision.BattleSpawnMonster.Count,
                 decision.BattleSpawnMonster.ObservedAttackMonsterPoolRevision,
                 decision.BattleSpawnMonster.SourceReason);
+            Actor.MarkAttackMonsterPoolCommandSubmitted(decision.BattleSpawnMonster.ObservedAttackMonsterPoolRevision);
         }
 
         result = BattleCommandResult.Accepted(CommandType.BattleSpawnMonster, decision.PlayerId, "battle_spawn_submitted", decision.BattleSpawnMonster.DefenderPlayerId, Scope, Source);

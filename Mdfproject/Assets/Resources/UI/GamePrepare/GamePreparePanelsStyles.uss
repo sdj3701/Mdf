@@ -310,7 +310,7 @@
 .shop-art-frame {
     position: relative;
     flex-grow: 1;
-    overflow: hidden;
+    overflow: visible;
     background-color: rgb(4, 8, 13);
 }
 
@@ -335,21 +335,19 @@
 }
 
 .shop-star-label {
-    width: 86px;
-    height: 32px;
-    background-color: rgba(4, 8, 13, 0.72);
-    border-left-width: 1px;
-    border-right-width: 1px;
-    border-top-width: 1px;
-    border-bottom-width: 1px;
-    border-left-color: rgba(215, 184, 100, 0.62);
-    border-right-color: rgba(215, 184, 100, 0.62);
-    border-top-color: rgba(255, 224, 126, 0.74);
-    border-bottom-color: rgba(93, 69, 33, 0.82);
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
+    position: absolute;
+    top: -30px;
+    width: 92px;
+    height: 34px;
+    color: rgb(255, 226, 96);
+    font-size: 33px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    background-color: rgba(0, 0, 0, 0);
+    border-left-width: 0;
+    border-right-width: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
 }
 
 .shop-card .card-name {
@@ -390,10 +388,29 @@
     overflow: hidden;
 }
 
-.shop-footer-cost {
+.shop-footer-cost-row {
     width: 108px;
     height: 48px;
     margin-left: 10px;
+    margin-top: 4px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.shop-footer-cost-icon {
+    width: 24px;
+    height: 22px;
+    margin-right: 5px;
+    margin-top: 12px;
+    flex-shrink: 0;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.shop-footer-cost {
+    width: auto;
+    height: 48px;
     white-space: nowrap;
 }
 
@@ -476,6 +493,35 @@
     opacity: 0.62;
 }
 
+.reroll-button .reroll-main-label {
+    width: 150px;
+    height: 78px;
+}
+
+.reroll-gold-row {
+    width: 150px;
+    height: 38px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+}
+
+.reroll-gold-count {
+    color: rgb(248, 232, 182);
+    font-size: 30px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-right;
+    white-space: nowrap;
+}
+
+.reroll-gold-icon {
+    width: 34px;
+    height: 30px;
+    margin-right: 6px;
+    flex-shrink: 0;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
 .wall-action-button {
     position: absolute;
     left: 28px;
@@ -499,6 +545,9 @@
 }
 
 .wall-action-count {
+    position: absolute;
+    left: 10px;
+    bottom: 8px;
     width: 160px;
     height: 44px;
     color: rgb(248, 232, 182);
@@ -584,6 +633,36 @@
     width: 160px;
     height: 150px;
     font-size: 22px;
+}
+
+.hud-action-button .shop-toggle-main-label {
+    width: 160px;
+    height: 96px;
+    margin-bottom: 4px;
+}
+
+.shop-toggle-gold-row {
+    width: 160px;
+    height: 38px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+}
+
+.shop-toggle-gold-count {
+    color: rgb(248, 232, 182);
+    font-size: 30px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-right;
+    white-space: nowrap;
+}
+
+.shop-toggle-gold-icon {
+    width: 34px;
+    height: 30px;
+    margin-right: 6px;
+    flex-shrink: 0;
+    -unity-background-scale-mode: scale-to-fit;
 }
 
 .hud-button-active {
@@ -681,6 +760,13 @@
     background-image: url("project://database/Assets/Resource/Image/UI/Bricks.png?fileID=21300000&guid=3e2016eabfa81cb47b0e46263210a62f&type=3#Bricks");
 }
 
+.wall-action-button .wall-action-icon.resource-wall-icon {
+    width: 204px;
+    height: 134px;
+    margin-right: 0;
+    margin-bottom: 0;
+}
+
 .resource-value {
     color: rgb(248, 232, 182);
     font-size: 24px;
@@ -693,14 +779,14 @@
     left: 24px;
     right: 184px;
     bottom: 22px;
-    flex-direction: column;
-    align-items: center;
+    flex-direction: column-reverse;
+    align-items: flex-start;
 }
 
 .attack-monster-row {
     flex-direction: row;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     padding-left: 8px;
     padding-right: 8px;
     padding-top: 6px;
@@ -723,7 +809,7 @@
 .attack-scroll-row {
     flex-direction: row;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     padding-left: 8px;
     padding-right: 8px;
     padding-top: 6px;
@@ -744,7 +830,8 @@
 }
 
 .attack-scroll-row {
-    margin-top: 8px;
+    margin-top: 0;
+    margin-bottom: 4px;
 }
 
 .attack-card {
@@ -768,6 +855,7 @@
     border-top-right-radius: 8px;
     border-bottom-left-radius: 8px;
     border-bottom-right-radius: 8px;
+    overflow: hidden;
 }
 
 .attack-card:hover {
@@ -792,6 +880,18 @@
     -unity-background-scale-mode: scale-to-fit;
 }
 
+.monster-attack-card .attack-card-icon {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: auto;
+    height: auto;
+    margin-bottom: 0;
+    -unity-background-scale-mode: scale-and-crop;
+}
+
 .attack-card-name {
     width: 100%;
     color: rgb(242, 236, 220);
@@ -802,12 +902,33 @@
     overflow: hidden;
 }
 
+.monster-attack-card .attack-card-name {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 18px;
+    height: 18px;
+    padding-left: 2px;
+    padding-right: 2px;
+    background-color: rgba(0, 0, 0, 0.58);
+}
+
 .attack-card-count {
     color: rgb(237, 218, 159);
     font-size: 13px;
     -unity-font-style: bold;
     -unity-text-align: middle-center;
     margin-top: 2px;
+}
+
+.monster-attack-card .attack-card-count {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 1px;
+    height: 17px;
+    margin-top: 0;
+    background-color: rgba(0, 0, 0, 0.68);
 }
 
 .scroll-attack-card {

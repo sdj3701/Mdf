@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Dragon
   monsterType: 1
-  monsterIcon: Spr_Port_Orc
+  monsterIcon: Spr_Port_BossMonsterSymbol
   monsterPrefab: Boss_Dragon
   attackDamage: 120
   attackSpeed: 1.2

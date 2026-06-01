@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: host-migration, security
 Created: 2026-05-06
-Last used: 2026-05-06
-Last verified: 2026-05-06
-Use count: 1
+Last used: 2026-05-31
+Last verified: 2026-05-31
+Use count: 20
 Review after: 2026-08-04
 Triggers: progressed Host Migration, HumanBot checkpoint, process.kill, migration token, durable random state
 Applies to: `tools/harness/mp/run_progressed_host_migration_e2e.py`, Phase 23
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration; artifacts/mp/20260530-212608-matrix/20260530-212613-zone-host-migration; artifacts/mp/20260530-220427-matrix/20260530-220433-zone-host-migration; artifacts/mp/20260530-220028-matrix/20260530-220041-status-effect-host-migration; artifacts/mp/20260530-220233-matrix/20260530-220238-stat-buff-host-migration; artifacts/mp/20260531-015519-matrix/20260531-015524-status-effect-host-migration/result.json; artifacts/mp/20260531-022233-matrix/20260531-022242-progressed-host-migration-after-battle/result.json; artifacts/mp/20260531-030606-matrix/20260531-030611-progressed-host-migration-after-battle/result.json; artifacts/mp/20260531-030606-matrix/20260531-030611-progressed-host-migration-after-battle/result.json; artifacts/mp/20260531-032434-matrix/20260531-032446-progressed-host-migration-after-battle/result.json; artifacts/mp/20260531-040151-matrix/20260531-040202-progressed-host-migration-after-battle/result.json; artifacts/mp/20260531-053309-matrix/20260531-053314-zone-host-migration/post-battle-host-migration-result.json; artifacts/mp/20260531-061544-matrix/20260531-061549-progressed-host-migration-after-battle/post-battle-host-migration-result.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -39,3 +39,18 @@ Pitfalls:
 - If game flow advances during migration, do not loosen comparisons. Use the test-only freeze or add a more explicit test-only migration freeze point.
 - A successful migration callback sequence is insufficient if the pre/post durable fingerprint diverges.
 - During `HostMigrationResume`, do not read Networked `GameManagers` properties immediately after resume-spawn just to log status. Use the cached migration snapshot label until the object is fully safe to access; the bad pattern caused `Error when accessing GameManagers.currentRound. Networked properties can only be accessed when Spawned() has been called` followed by Fusion cleanup noise in raw player logs.
+
+Lifecycle notes:
+- 2026-05-31: verified artifact `artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-212608-matrix/20260530-212613-zone-host-migration`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-220427-matrix/20260530-220433-zone-host-migration`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-220028-matrix/20260530-220041-status-effect-host-migration`
+- 2026-05-31: verified artifact `artifacts/mp/20260530-220233-matrix/20260530-220238-stat-buff-host-migration`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-015519-matrix/20260531-015524-status-effect-host-migration/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-022233-matrix/20260531-022242-progressed-host-migration-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-030606-matrix/20260531-030611-progressed-host-migration-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-030606-matrix/20260531-030611-progressed-host-migration-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-032434-matrix/20260531-032446-progressed-host-migration-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-040151-matrix/20260531-040202-progressed-host-migration-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-053309-matrix/20260531-053314-zone-host-migration/post-battle-host-migration-result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-061544-matrix/20260531-061549-progressed-host-migration-after-battle/post-battle-host-migration-result.json`

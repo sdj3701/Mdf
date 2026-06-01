@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: AI/HumanBot, battle, feature-workflow
 Created: 2026-05-08
-Last used: 2026-05-08
+Last used: 2026-05-16
 Last verified: 2026-05-08
-Use count: 1
+Use count: 2
 Review after: 2026-08-06
 Triggers: 새 유닛, 새 스크롤, AI 개선, 증강 추가, 몬스터 추가, add unit, make scroll, improve AI, balance shop, feature request
 Applies to: short MDF gameplay/content/AI/UI/network requests, content workflow docs, verification profile selection

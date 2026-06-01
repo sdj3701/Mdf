@@ -499,6 +499,23 @@ public class FieldManager : MonoBehaviour
         return GridToWorld(new Vector2Int(gridPos.x, gridPos.y), checkForWall);
     }
 
+    public Vector3 GetWallRootWorldPosition(Vector3Int gridPosition)
+    {
+        Vector3 worldPos = GridToWorld(gridPosition, checkForWall: false);
+        worldPos.y += GetWallRootYOffset();
+        return worldPos;
+    }
+
+    private float GetWallRootYOffset()
+    {
+        if (destructibleWallPrefab != null)
+        {
+            return GetWallPrefabHeight() * 0.5f;
+        }
+
+        return wallYOffset * 0.5f;
+    }
+
     /// <summary>
     /// 3D 월드 좌표를 Vector3Int 그리드 좌표로 변환합니다. (호환성용)
     /// </summary>
@@ -1174,6 +1191,18 @@ public class FieldManager : MonoBehaviour
         Unit occupant = GetUnitAt(gridPosition);
         if (occupant != null)
         {
+            if (!UnitBelongsToFieldOwnerDurable(occupant))
+            {
+                Debug.LogWarning($"[WallFlow-Create] abort: occupant is not owned by this field. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                return;
+            }
+
+            if (occupant.Data == null)
+            {
+                Debug.LogWarning($"[WallFlow-Create] abort: occupant unit data is unresolved. owner={BuildWallOwnerTag()}, pos={gridPosition}");
+                return;
+            }
+
             if (occupant.Data.unitType == UnitType.Melee)
             {
                 Vector3Int? alt = FindFirstEmptySlot(occupant.Data);
@@ -1187,9 +1216,7 @@ public class FieldManager : MonoBehaviour
             }
         }
 
-        Vector3 worldPos = GridToWorld(gridPosition);
-        float halfWallHeight = GetWallPrefabHeight() * 0.5f;
-        worldPos.y += halfWallHeight;
+        Vector3 worldPos = GetWallRootWorldPosition(gridPosition);
 
         GameObject wallGO = null;
         var runner = playerManager != null ? playerManager.Runner : null;
@@ -1212,10 +1239,12 @@ public class FieldManager : MonoBehaviour
             {
                 wallGO.transform.SetParent(wallParent, true);
             }
+            SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         }
         else
         {
             wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
+            SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         }
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
 
@@ -1226,12 +1255,7 @@ public class FieldManager : MonoBehaviour
             placedWalls.Add(gridPosition, wallComponent);
             SchedulePathRefresh();
 
-            Unit unitOnCell = GetUnitAt(gridPosition);
-            if (unitOnCell != null && unitOnCell.Data.unitType == UnitType.Ranged)
-            {
-                Vector3 atopPos = GridToWorld(gridPosition, checkForWall: true);
-                MoveUnitImmediate(unitOnCell, atopPos);
-            }
+            RepairUnitPresentationAt(gridPosition, "CreateWallAt");
 
             Debug.Log($"[WallFlow-Create] CreateWallAt SUCCESS owner={BuildWallOwnerTag()}, pos={gridPosition}, worldPos={worldPos}, totalWalls={placedWalls.Count}");
         }
@@ -1471,10 +1495,15 @@ public class FieldManager : MonoBehaviour
     /// <summary>
     /// Host Migration 이후 런타임 유닛 맵(placedUnits)을 월드 오브젝트 기준으로 재구성합니다.
     /// </summary>
-    public bool RebuildUnitMapAfterMigration(string context, bool verboseLog, out string summary)
+    public bool RebuildUnitMapAfterMigration(string context, bool verboseLog, out string summary, bool repairPresentation = false)
     {
         if (_lastUnitMapRebuildFrame == Time.frameCount)
         {
+            if (repairPresentation)
+            {
+                RepairPlacedUnitPresentation($"RebuildUnitMapAfterMigration.{context}", allowMissingGameManagers: true);
+            }
+
             summary = _lastUnitMapRebuildSummary;
             return true;
         }
@@ -1533,10 +1562,6 @@ public class FieldManager : MonoBehaviour
             .Where(kvp => kvp.Value != null)
             .GroupBy(kvp => kvp.Value)
             .ToDictionary(group => group.Key, group => group.First().Key);
-        var ownedUnits = playerManager != null && playerManager.ownedUnits != null
-            ? new HashSet<Unit>(playerManager.ownedUnits.Where(unit => unit != null))
-            : new HashSet<Unit>();
-
         foreach (var unit in unitCandidates.Where(u => u != null).Distinct())
         {
             bool networkRunning = playerManager != null
@@ -1556,7 +1581,7 @@ public class FieldManager : MonoBehaviour
             }
 
             bool wasAlreadyRegistered = existingCellsByUnit.TryGetValue(unit, out Vector3Int registeredCell);
-            bool belongsToPlayer = UnitBelongsToFieldOwner(unit) || UnitHasReplicatedFieldOwner(unit) || ownedUnits.Contains(unit);
+            bool belongsToPlayer = UnitBelongsToFieldOwnerDurable(unit);
             if (!belongsToPlayer && playerManager != null && networkRunning)
             {
                 continue;
@@ -1610,6 +1635,10 @@ public class FieldManager : MonoBehaviour
             preservedPendingUnitPositions,
             preservedPendingUnitDataByPosition,
             preservedPendingNetworkMoves);
+        if (repairPresentation)
+        {
+            RepairPlacedUnitPresentation($"RebuildUnitMapAfterMigration.{context}", allowMissingGameManagers: true);
+        }
 
         bool unitMapChanged = !oldCells.SetEquals(placedUnits.Keys);
         _lastUnitMapRebuildFrame = Time.frameCount;
@@ -1804,8 +1833,7 @@ public class FieldManager : MonoBehaviour
             return false;
         }
 
-        return UnitBelongsToFieldOwner(unit) ||
-               UnitHasReplicatedFieldOwner(unit) ||
+        return UnitBelongsToFieldOwnerDurable(unit) ||
                playerManager != null &&
                playerManager.ownedUnits != null &&
                playerManager.ownedUnits.Contains(unit);
@@ -2598,10 +2626,12 @@ public class FieldManager : MonoBehaviour
             {
                 wallGO.transform.SetParent(wallParent, true);
             }
+            SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         }
         else
         {
             wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+            SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         }
 
         // 레이어 지정 (자식 포함)
@@ -2629,6 +2659,7 @@ public class FieldManager : MonoBehaviour
         worldPos.y += halfH;
 
         GameObject wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+        SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         foreach (var networkObject in wallGO.GetComponentsInChildren<NetworkObject>(true))
         {
             Destroy(networkObject);
@@ -2723,6 +2754,11 @@ public class FieldManager : MonoBehaviour
 
     private void MoveUnitImmediate(Unit unit, Vector3 targetWorldPos)
     {
+        if (unit != null && !unit.IsDead)
+        {
+            unit.EnsureAlivePresentationActive();
+        }
+
         var networkTransform = unit.GetComponent<Fusion.NetworkTransform>();
         if (networkTransform != null)
         {
@@ -2781,6 +2817,31 @@ public class FieldManager : MonoBehaviour
         }
 
         return cells.Count;
+    }
+
+    private void RemovePlacedUnitEntriesFromOtherFields(Unit unit)
+    {
+        if (unit == null)
+        {
+            return;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            return;
+        }
+
+        foreach (var player in gm.AllPlayers)
+        {
+            var otherField = player != null ? player.fieldManager : null;
+            if (otherField == null || otherField == this)
+            {
+                continue;
+            }
+
+            otherField.RemovePlacedUnitEntries(unit);
+        }
     }
 
     private void RemoveOwnedUnitReference(Unit unit)
@@ -3073,7 +3134,7 @@ public class FieldManager : MonoBehaviour
 
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
-            if (unit == null || !UnitBelongsToFieldOwner(unit))
+            if (unit == null || !UnitBelongsToFieldOwnerDurable(unit))
             {
                 return;
             }
@@ -3120,12 +3181,30 @@ public class FieldManager : MonoBehaviour
             return false;
         }
 
+        if (unit.Owner != null &&
+            unit.Owner.playerId >= 0 &&
+            unit.Owner.playerId != playerManager.playerId)
+        {
+            return false;
+        }
+
+        int rosterOwnerId = unit.OwnerPlayerIdForRoster;
+        if (rosterOwnerId >= 0 && rosterOwnerId != playerManager.playerId)
+        {
+            return false;
+        }
+
         if (unit.Owner == playerManager)
         {
             return true;
         }
 
         if (unit.Owner != null && unit.Owner.playerId == playerManager.playerId)
+        {
+            return true;
+        }
+
+        if (unit.OwnerPlayerIdForRoster == playerManager.playerId)
         {
             return true;
         }
@@ -3138,6 +3217,11 @@ public class FieldManager : MonoBehaviour
         return unit != null &&
                playerManager != null &&
                unit.OwnerPlayerIdForRoster == playerManager.playerId;
+    }
+
+    private bool UnitBelongsToFieldOwnerDurable(Unit unit)
+    {
+        return UnitBelongsToFieldOwner(unit) || UnitHasReplicatedFieldOwner(unit);
     }
 
     private void SyncUnitPlacementIdentity(Unit unit, Vector3Int gridPosition)
@@ -3236,7 +3320,7 @@ public class FieldManager : MonoBehaviour
                     continue;
                 }
 
-                if (!UnitBelongsToFieldOwner(unit))
+                if (!UnitBelongsToFieldOwnerDurable(unit))
                 {
                     pendingNetworkMoves.RemoveAt(i);
                     continue;
@@ -3287,6 +3371,13 @@ public class FieldManager : MonoBehaviour
             return;
         }
 
+        if (unitA == null || unitB == null ||
+            !UnitBelongsToFieldOwnerDurable(unitA) ||
+            !UnitBelongsToFieldOwnerDurable(unitB))
+        {
+            return;
+        }
+
         string uNameA = (unitA != null && unitA.Data != null) ? unitA.Data.unitName : (unitA != null ? unitA.name : "UnitA");
         string uNameB = (unitB != null && unitB.Data != null) ? unitB.Data.unitName : (unitB != null ? unitB.name : "UnitB");
         
@@ -3316,11 +3407,12 @@ public class FieldManager : MonoBehaviour
     {
         var runner = playerManager != null ? playerManager.Runner : null;
         bool networkRunning = runner != null && runner.IsRunning;
-
-        foreach (Unit unit in placedUnits.Values)
+        foreach (var entry in placedUnits.ToArray())
         {
+            Unit unit = entry.Value;
             if (unit == null)
             {
+                EnsurePlacedUnitPresentation(entry.Key, unit, "RespawnAllUnits", allowMissingGameManagers: false);
                 continue;
             }
 
@@ -3329,11 +3421,116 @@ public class FieldManager : MonoBehaviour
                 continue;
             }
 
-            if (unit.IsDead || !unit.gameObject.activeSelf || !unit.gameObject.activeInHierarchy)
-            {
-                unit.Respawn();
-            }
+            EnsurePlacedUnitPresentation(entry.Key, unit, "RespawnAllUnits", allowMissingGameManagers: false);
         }
+    }
+
+    private static void SnapSpawnedWallTransform(GameObject wallGO, Vector3 position, Quaternion rotation)
+    {
+        if (wallGO == null)
+        {
+            return;
+        }
+
+        wallGO.transform.SetPositionAndRotation(position, rotation);
+
+        var networkTransform = wallGO.GetComponent<Fusion.NetworkTransform>();
+        if (networkTransform != null && networkTransform.enabled)
+        {
+            networkTransform.Teleport(position, rotation);
+        }
+    }
+
+    public void RepairPlacedUnitPresentation(string context = "manual")
+    {
+        RepairPlacedUnitPresentation(context, allowMissingGameManagers: false);
+    }
+
+    private void RepairPlacedUnitPresentation(string context, bool allowMissingGameManagers)
+    {
+        foreach (var entry in placedUnits.ToArray())
+        {
+            EnsurePlacedUnitPresentation(entry.Key, entry.Value, context, allowMissingGameManagers);
+        }
+    }
+
+    private void RepairUnitPresentationAt(Vector3Int gridPosition, string context)
+    {
+        if (placedUnits.TryGetValue(gridPosition, out var unit))
+        {
+            EnsurePlacedUnitPresentation(gridPosition, unit, context, allowMissingGameManagers: false);
+        }
+    }
+
+    private void EnsurePlacedUnitPresentation(Vector3Int gridPosition, Unit unit, string context, bool allowMissingGameManagers)
+    {
+        if (unit == null)
+        {
+            placedUnits.Remove(gridPosition);
+            pendingUnitPositions.Remove(gridPosition);
+            pendingUnitDataByPosition.Remove(gridPosition);
+            return;
+        }
+
+        if (!IsValidGridPosition(gridPosition))
+        {
+            return;
+        }
+
+        bool belongsToField = playerManager == null || UnitBelongsToFieldOwnerDurable(unit);
+        if (!belongsToField)
+        {
+            return;
+        }
+
+        if (!CanRepairPrepareUnitPresentation(allowMissingGameManagers))
+        {
+            return;
+        }
+
+        if (unit.IsDead || !unit.gameObject.activeSelf || !unit.gameObject.activeInHierarchy)
+        {
+            unit.Respawn();
+        }
+        else
+        {
+            unit.EnsureAlivePresentationActive();
+        }
+
+        Vector3 expectedWorldPos = GridToWorld(gridPosition, checkForWall: true);
+        if ((unit.transform.position - expectedWorldPos).sqrMagnitude > 0.0001f)
+        {
+            MoveUnitImmediate(unit, expectedWorldPos);
+        }
+
+        SyncUnitPlacementIdentity(unit, gridPosition);
+    }
+
+    private bool CanRepairPrepareUnitPresentation(bool allowMissingGameManagers)
+    {
+        if (!Application.isPlaying)
+        {
+            return true;
+        }
+
+        bool networkRunning = playerManager != null &&
+                              playerManager.Runner != null &&
+                              playerManager.Runner.IsRunning;
+        if (networkRunning &&
+            (playerManager.Object == null ||
+             !playerManager.Object.IsValid ||
+             !playerManager.Object.HasStateAuthority))
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            return allowMissingGameManagers;
+        }
+
+        return gm.GetGameState() == GameManagers.GameState.Prepare;
     }
 
     public Vector3Int? FindFirstEmptySlot(UnitData unitData)
@@ -3755,6 +3952,7 @@ public class FieldManager : MonoBehaviour
             // Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
             return;
         }
+        RemovePlacedUnitEntriesFromOtherFields(unit);
         ReleaseReservedUnitPosition(gridPosition);
 
         // Despawn/Destroy 된 유닛 레퍼런스가 남아있을 수 있어 정리합니다.

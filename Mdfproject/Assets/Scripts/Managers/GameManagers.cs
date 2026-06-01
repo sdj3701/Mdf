@@ -1952,7 +1952,11 @@ public partial class GameManagers : NetworkBehaviour
             if (player == null || player.Object == null || !player.Object.IsValid) continue;
             if (!TryGetPlayerIdSafe(player, out int playerId) || playerId < 0) continue;
 
-            player.RebindRuntimeReferencesAfterMigration($"StartBattleForPlayers(Player {playerId})", false);
+            player.RebindRuntimeReferencesAfterMigration(
+                $"StartBattleForPlayers(Player {playerId})",
+                false,
+                rebuildUnitMap: false,
+                repairUnitPresentation: false);
             bool ready = player.IsRuntimeReady(out string readyReason);
             battleReadyMap[playerId] = ready;
             if (!ready)

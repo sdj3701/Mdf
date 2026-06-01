@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Juggernaut
   monsterType: 0
-  monsterIcon: Spr_Port_Orc
+  monsterIcon: Spr_Port_BossMonsterSymbol
   monsterPrefab: Boss_Juggernaut
   attackDamage: 120
   attackSpeed: 1.2

@@ -6,7 +6,7 @@ Category: unity-cli
 Created: 2026-05-07
 Last used: 2026-05-21
 Last verified: 2026-05-21
-Use count: 4
+Use count: 5
 Review after: 2026-08-05
 Triggers: no Unity instances running, not responding, manual Editor launch, status polling
 Applies to: unity-cli connector, Windows PowerShell, Unity 2021.3.45f1

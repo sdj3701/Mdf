@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: AI/HumanBot, battle, asset
 Created: 2026-05-06
-Last used: 2026-05-06
+Last used: 2026-05-28
 Last verified: 2026-05-06
-Use count: 1
+Use count: 3
 Review after: 2026-08-04
 Triggers: adding scroll AI metadata, editing scroll assets, auditing scroll buff/status/zone authority, Phase 6 scroll asset/effect audit
 Applies to: `MagicScrollData`, scroll `.asset` files, `BuffManager`, `ZoneController`, `MPTestStateSnapshot`, `compare_state_snapshots.py`

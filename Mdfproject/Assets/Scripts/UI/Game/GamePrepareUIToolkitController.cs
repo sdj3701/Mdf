@@ -79,10 +79,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private VisualElement shopControlRow;
     private VisualElement rerollButton;
     private Label rerollLabel;
+    private VisualElement rerollGoldRow;
+    private Label rerollGoldLabel;
     private Label shopStatusLabel;
     private VisualElement hudRoot;
     private VisualElement hudShopButton;
     private Label hudShopLabel;
+    private Label hudShopGoldLabel;
     private VisualElement hudWallButton;
     private Label hudWallLabel;
     private VisualElement hudOptionButton;
@@ -296,12 +299,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     public static string FormatCostText(int cost)
     {
-        return cost <= 0 ? "\uBB34\uB8CC" : $"{cost} \uACE8\uB4DC";
+        return cost <= 0 ? "\uBB34\uB8CC" : cost.ToString();
     }
 
     public static string FormatStarText(int star)
     {
-        return star <= 0 ? "-" : $"{star}\uC131";
+        return star <= 1 ? string.Empty : new string('\u2605', Mathf.Clamp(star, 2, 3));
     }
 
     public static string GetShopCardStarClass(int starLevel)
@@ -320,6 +323,31 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             AugmentTier.Prismatic => "\uD504\uB9AC\uC998 \uC99D\uAC15",
             _ => "\uC99D\uAC15"
         };
+    }
+
+    public static string FormatAugmentDisplayName(string augmentName)
+    {
+        if (string.IsNullOrWhiteSpace(augmentName))
+        {
+            return string.Empty;
+        }
+
+        string trimmedName = augmentName.Trim();
+        const string bossSummonPrefix = "\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658";
+        if (!trimmedName.StartsWith(bossSummonPrefix, StringComparison.Ordinal) ||
+            !trimmedName.EndsWith(")", StringComparison.Ordinal))
+        {
+            return trimmedName;
+        }
+
+        int suffixIndex = trimmedName.LastIndexOf('(');
+        if (suffixIndex <= bossSummonPrefix.Length ||
+            trimmedName[suffixIndex - 1] == '\n')
+        {
+            return trimmedName;
+        }
+
+        return trimmedName.Substring(0, suffixIndex).TrimEnd() + "\n" + trimmedName.Substring(suffixIndex);
     }
 
     public static Vector2 CalculateCardSize(bool isShop, Vector2 screenSize)
@@ -384,16 +412,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return false;
         }
 
-        Vector2 panelPosition = RuntimePanelUtils.ScreenToPanel(root.panel, screenPosition);
-        if (IsBlockingElementAtPanelPosition(panelPosition))
-        {
-            return true;
-        }
+        Vector2 panelPosition = RuntimePanelUtils.ScreenToPanel(root.panel, ToPanelScreenPosition(screenPosition));
+        return IsBlockingElementAtPanelPosition(panelPosition);
+    }
 
-        // InputSystem and UI Toolkit can disagree on Y origin depending on panel/event timing.
-        // Keep battle card taps blocked even if the first conversion misses the card bounds.
-        Vector2 invertedPanelPosition = new Vector2(screenPosition.x, Screen.height - screenPosition.y);
-        return IsBlockingElementAtPanelPosition(invertedPanelPosition);
+    private static Vector2 ToPanelScreenPosition(Vector2 screenPosition)
+    {
+        return new Vector2(screenPosition.x, Screen.height - screenPosition.y);
     }
 
     private bool IsBlockingElementAtPanelPosition(Vector2 panelPosition)
@@ -440,6 +465,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         if (attackSequenceVisible)
         {
+            if (ContainsPoint(attackMonsterRow, panelPosition) ||
+                ContainsPoint(attackScrollRow, panelPosition))
+            {
+                return true;
+            }
+
             for (int i = 0; i < monsterCards.Length; i++)
             {
                 if (ContainsPoint(monsterCards[i].Root, panelPosition))
@@ -673,10 +704,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         shopControlRow = root?.Q<VisualElement>("shop-control-row");
         rerollButton = root?.Q<VisualElement>("shop-reroll-button");
         rerollLabel = root?.Q<Label>("shop-reroll-label");
+        rerollGoldRow = root?.Q<VisualElement>("shop-reroll-gold-row");
+        rerollGoldLabel = root?.Q<Label>("shop-reroll-gold-count-label");
         shopStatusLabel = root?.Q<Label>("shop-status-label");
         hudRoot = root?.Q<VisualElement>("game-hud-root");
         hudShopButton = root?.Q<VisualElement>("game-shop-toggle-button");
         hudShopLabel = root?.Q<Label>("game-shop-toggle-label");
+        hudShopGoldLabel = root?.Q<Label>("game-shop-gold-count-label");
         hudWallButton = root?.Q<VisualElement>("game-wall-button");
         hudWallLabel = root?.Q<Label>("game-wall-count-label");
         hudOptionButton = root?.Q<VisualElement>("game-option-button");
@@ -697,6 +731,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 root?.Q<Label>($"shop-star-{i}"),
                 root?.Q<Label>($"shop-name-{i}"),
                 root?.Q<Label>($"shop-cost-{i}"),
+                root?.Q<VisualElement>($"shop-cost-icon-{i}"),
                 root?.Q<Label>($"shop-sold-{i}"));
         }
 
@@ -1514,8 +1549,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         attackSequenceVisible = visible;
         SetVisible(attackSequencePanel, visible);
         SetPickingMode(attackSequencePanel, PickingMode.Ignore);
-        SetPickingMode(attackMonsterRow, PickingMode.Ignore);
-        SetPickingMode(attackScrollRow, PickingMode.Ignore);
+        SetPickingMode(attackMonsterRow, visible ? PickingMode.Position : PickingMode.Ignore);
+        SetPickingMode(attackScrollRow, visible ? PickingMode.Position : PickingMode.Ignore);
         if (!visible)
         {
             selectedMonsterSlotIndex = -1;
@@ -1551,7 +1586,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var cost = localShopManager != null ? localShopManager.GetRerollCost() : 0;
-        rerollLabel.text = cost > 0 ? $"\uC0C8\uB85C\uACE0\uCE68\n{cost}G" : "\uC0C8\uB85C\uACE0\uCE68";
+        rerollLabel.text = "\uC0C8\uB85C\uACE0\uCE68";
+        if (rerollGoldLabel != null)
+        {
+            rerollGoldLabel.text = Mathf.Max(0, cost).ToString();
+        }
+
+        SetVisible(rerollGoldRow, cost > 0);
         rerollButton?.EnableInClassList("reroll-gold-mode", !shopVisible);
         SetPickingMode(rerollButton, shopVisible ? PickingMode.Position : PickingMode.Ignore);
     }
@@ -1612,7 +1653,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         if (hudShopLabel != null)
         {
             var shopAction = shopVisible ? "\uB2EB\uAE30" : "\uC5F4\uAE30";
-            hudShopLabel.text = $"\uC0C1\uC810\n{shopAction}\n{goldCount}G";
+            hudShopLabel.text = $"\uC0C1\uC810\n{shopAction}";
+        }
+
+        if (hudShopGoldLabel != null)
+        {
+            hudShopGoldLabel.text = Mathf.Max(0, goldCount).ToString();
         }
 
         UpdateRerollLabel();
@@ -1978,10 +2024,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         private readonly Label star;
         private readonly Label name;
         private readonly Label cost;
+        private readonly VisualElement costIcon;
         private readonly Label soldOverlay;
         private AsyncOperationHandle<Sprite> iconHandle;
 
-        public ShopCardView(int index, VisualElement root, Image icon, Label star, Label name, Label cost, Label soldOverlay)
+        public ShopCardView(int index, VisualElement root, Image icon, Label star, Label name, Label cost, VisualElement costIcon, Label soldOverlay)
         {
             Index = index;
             Root = root;
@@ -1993,6 +2040,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             this.star = star;
             this.name = name;
             this.cost = cost;
+            this.costIcon = costIcon;
             this.soldOverlay = soldOverlay;
 
             if (this.icon != null)
@@ -2011,7 +2059,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             Root?.SetEnabled(hasItem && !sold);
             Root?.EnableInClassList("is-disabled", !hasItem || sold);
             SetVisible(soldOverlay, sold);
-            ApplyStarBackground(hasItem && item.UnitData != null ? item.StarLevel : 0);
+            ApplyStarBackground(hasItem && item.UnitData != null ? item.UnitData.cost : 0);
 
             if (!hasItem || item.UnitData == null)
             {
@@ -2020,15 +2068,17 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                     icon.sprite = null;
                 }
 
-                SetText(star, "-");
+                SetText(star, string.Empty);
                 SetText(name, "-");
                 SetText(cost, string.Empty);
+                SetVisible(costIcon, false);
                 return;
             }
 
             SetText(star, FormatStarText(item.StarLevel));
             SetText(name, item.UnitData.unitName);
             SetText(cost, FormatCostText(item.CalculatedCost));
+            SetVisible(costIcon, item.CalculatedCost > 0);
             LoadIconAsync(item.UnitData.unitIcon).Forget();
         }
 
@@ -2074,20 +2124,20 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
         }
 
-        private void ApplyStarBackground(int starLevel)
+        private void ApplyStarBackground(int baseCost)
         {
             if (Root == null)
             {
                 return;
             }
 
-            int normalizedStar = starLevel > 0
-                ? Mathf.Clamp(starLevel, MinShopCardStarStyle, MaxShopCardStarStyle)
+            int normalizedCost = baseCost > 0
+                ? Mathf.Clamp(baseCost, MinShopCardStarStyle, MaxShopCardStarStyle)
                 : 0;
 
             for (int starStyle = MinShopCardStarStyle; starStyle <= MaxShopCardStarStyle; starStyle++)
             {
-                Root.EnableInClassList(GetShopCardStarClass(starStyle), starStyle == normalizedStar);
+                Root.EnableInClassList(GetShopCardStarClass(starStyle), starStyle == normalizedCost);
             }
 
             if (topGem != null)
@@ -2181,7 +2231,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
 
             SetText(tier, hasAugment ? FormatAugmentTierText(augment.tier) : "-");
-            SetText(name, hasAugment ? augment.augmentName : "-");
+            SetText(name, hasAugment ? FormatAugmentDisplayName(augment.augmentName) : "-");
             SetText(description, hasAugment ? augment.description : string.Empty);
         }
 
@@ -2213,6 +2263,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             this.icon = icon;
             this.name = name;
             this.count = count;
+
+            if (this.icon != null)
+            {
+                this.icon.scaleMode = ScaleMode.ScaleAndCrop;
+            }
         }
 
         public int Index { get; }

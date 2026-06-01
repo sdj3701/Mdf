@@ -33,7 +33,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [Networked] public NetworkBool NetworkedIsDead { get; set; }
     [Networked] public NetworkBool NetworkedIsAttacking { get; set; }
     [Networked] private int NetworkedStarLevel { get; set; }
-    [Networked] private NetworkString<_64> NetworkedUnitDataKey { get; set; }
+    [Networked] private int NetworkedUnitDataKeyHash { get; set; }
     [Networked] private int NetworkedOwnerPlayerId { get; set; }
     [Networked] private NetworkBool NetworkedHasOwnerPlayerId { get; set; }
 
@@ -140,8 +140,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [SerializeField] private string skillTriggerParam = "SkillTrigger";
     [SerializeField] private string skillStateTag = "Skill";
     [SerializeField] private bool blockAttacksDuringSkill = true;
-    [SerializeField] private float maxAttackAnimationsPerSecond = 4f;
+    [SerializeField] private float maxAttackAnimationsPerSecond = 3f;
     [SerializeField] private float baseAttackAnimationDuration = 1f;
+    private const float MeleeAttackRangeTolerance = 0.1f;
+    private const float MeleeBlockDistance = 0.6f;
+    private const float MeleeBlockDistanceTolerance = 0.15f;
     private float lastAttackAnimTime = -999f;
     private Coroutine animSpeedResetRoutine;
     private bool attackClipDurationInitialized = false;
@@ -149,7 +152,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private PlayerManager owner;
     private float _nextProjectileVfxTime;
     private float _cachedProjectileSpeed = -1f;
+    private UnitAttackVfxPresenter _attackVfxPresenter;
     private bool _hasPendingAttack;
+    private int _pendingAttackVersion;
     private PendingAttack _pendingAttack;
     private bool _isSkillCasting;
     private Coroutine _skillCastingRoutine;
@@ -187,11 +192,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (fieldOwner != null)
         {
-            owner = fieldOwner;
-            if (owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
-            {
-                owner.ownedUnits.Add(this);
-            }
+            SetOwnerReference(fieldOwner);
         }
 
         UpdateLocalNetworkIdentityMirror();
@@ -205,6 +206,20 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             NetworkedOwnerPlayerId = fieldOwner.playerId;
             NetworkedHasOwnerPlayerId = true;
+        }
+    }
+
+    private void SetOwnerReference(PlayerManager newOwner)
+    {
+        if (owner != null && owner != newOwner && owner.ownedUnits != null)
+        {
+            owner.ownedUnits.RemoveAll(unit => unit == null || unit == this);
+        }
+
+        owner = newOwner;
+        if (owner != null && owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
+        {
+            owner.ownedUnits.Add(this);
         }
     }
 
@@ -308,6 +323,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         public bool IsRanged;
         public bool EmitVfx;
         public float SplashRadius;
+        public int Version;
     }
 
     private bool isCombatPhase = false;
@@ -328,6 +344,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         _hasSpawned = false;
         _changeDetector = null;
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        StopAttackPlaybackState();
+        InvalidateAttackPresentationState();
         base.Despawned(runner, hasState);
     }
     
@@ -373,6 +393,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (NetworkedIsDead && !IsDead)
         {
             IsDead = true;
+            CancelPendingAttack();
+            ClearCurrentTarget();
+            StopAttackPlaybackState();
+            InvalidateAttackPresentationState();
             SetDeathPresentationActive(false);
         }
         else if (!NetworkedIsDead && IsDead)
@@ -383,15 +407,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     private void HandleNetworkedAttackStateChanged()
     {
-        if (!gameObject.activeInHierarchy) return;
+        if (!gameObject.activeInHierarchy || IsDead) return;
         
         if (animator != null && Object != null && !Object.HasStateAuthority)
         {
-            float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
+            float animRate = GetCappedAttackAnimationRate();
             if (animRate > 0f)
             {
-                float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
-                animator.speed = Mathf.Max(0.01f, speed);
+                animator.speed = CalculateAttackAnimationPlaybackSpeed(animRate);
                 
                 float minInterval = 1f / animRate;
                 if (animSpeedResetRoutine != null)
@@ -500,20 +523,20 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
         owner = GetComponentInParent<PlayerManager>();
 
-        if (owner == null && Object != null)
+        if (owner == null && TryGetOwnerPlayerIdForRoster(out int ownerPlayerId) && GameManagers.Instance != null)
+        {
+            owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
+                pm != null &&
+                pm.playerId == ownerPlayerId);
+        }
+
+        if (owner == null && Object != null && Object.InputAuthority != PlayerRef.None)
         {
             var allPlayers = FindObjectsOfType<PlayerManager>();
             owner = allPlayers.FirstOrDefault(pm =>
                 pm != null &&
                 pm.Object != null &&
                 pm.Object.InputAuthority == Object.InputAuthority);
-        }
-
-        if (owner == null && TryGetOwnerPlayerIdForRoster(out int ownerPlayerId) && GameManagers.Instance != null)
-        {
-            owner = GameManagers.Instance.AllPlayers.FirstOrDefault(pm =>
-                pm != null &&
-                pm.playerId == ownerPlayerId);
         }
 
         if (owner == null && GameManagers.Instance != null)
@@ -526,7 +549,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
         if (owner != null && owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
         {
-            owner.ownedUnits.Add(this);
+            SetOwnerReference(owner);
         }
     }
 
@@ -596,9 +619,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         string key = unitData != null ? NormalizeUnitDataKey(unitData.name) : string.Empty;
-        if (!string.IsNullOrEmpty(key))
+        int keyHash = StableUnitDataKeyHash(key);
+        if (keyHash != 0)
         {
-            NetworkedUnitDataKey = key;
+            NetworkedUnitDataKeyHash = keyHash;
         }
 
         if (owner != null && owner.playerId >= 0)
@@ -658,8 +682,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (CanReadNetworkedIdentity())
         {
-            string networkKey = NormalizeUnitDataKey(NetworkedUnitDataKey.ToString());
-            if (!string.IsNullOrEmpty(networkKey))
+            int networkKeyHash = NetworkedUnitDataKeyHash;
+            if (networkKeyHash != 0 && TryResolveUnitDataKeyByStableHash(networkKeyHash, out string networkKey))
             {
                 _localUnitDataKey = networkKey;
                 return networkKey;
@@ -672,6 +696,54 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         return unitData != null ? NormalizeUnitDataKey(unitData.name) : string.Empty;
+    }
+
+    private static int StableUnitDataKeyHash(string value)
+    {
+        return StableDataKeyUtility.StableKeyHash(value);
+    }
+
+    private static bool TryResolveUnitDataKeyByStableHash(int unitDataKeyHash, out string key)
+    {
+        key = string.Empty;
+        if (unitDataKeyHash == 0)
+        {
+            return false;
+        }
+
+        var lm = LoadManager.Instance;
+        if (lm != null && lm.IsReady && TryResolveUnitDataKeyByStableHash(lm.GetAllUnitData(), unitDataKeyHash, out key))
+        {
+            return true;
+        }
+
+        return TryResolveUnitDataKeyByStableHash(Resources.FindObjectsOfTypeAll<UnitData>(), unitDataKeyHash, out key);
+    }
+
+    private static bool TryResolveUnitDataKeyByStableHash(IEnumerable<UnitData> units, int unitDataKeyHash, out string key)
+    {
+        key = string.Empty;
+        if (units == null)
+        {
+            return false;
+        }
+
+        foreach (var data in units)
+        {
+            if (data == null)
+            {
+                continue;
+            }
+
+            if (StableUnitDataKeyHash(data.name) == unitDataKeyHash ||
+                StableUnitDataKeyHash(data.unitName) == unitDataKeyHash)
+            {
+                key = NormalizeUnitDataKey(data.name);
+                return !string.IsNullOrEmpty(key);
+            }
+        }
+
+        return false;
     }
 
     private void TryRecoverUnitDataFromNetworkIdentity(string context)
@@ -725,11 +797,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (expectedOwner != null)
         {
-            owner = expectedOwner;
-            if (owner.ownedUnits != null && !owner.ownedUnits.Contains(this))
-            {
-                owner.ownedUnits.Add(this);
-            }
+            SetOwnerReference(expectedOwner);
         }
 
         UpdateLocalNetworkIdentityMirror();
@@ -977,22 +1045,78 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     private void CancelPendingAttack()
     {
+        unchecked
+        {
+            _pendingAttackVersion++;
+            if (_pendingAttackVersion <= 0)
+            {
+                _pendingAttackVersion = 1;
+            }
+        }
+
         _hasPendingAttack = false;
         _pendingAttack = new PendingAttack();
     }
 
+    private int AllocatePendingAttackVersion()
+    {
+        unchecked
+        {
+            _pendingAttackVersion++;
+            if (_pendingAttackVersion <= 0)
+            {
+                _pendingAttackVersion = 1;
+            }
+
+            return _pendingAttackVersion;
+        }
+    }
+
+    private void InvalidateAttackPresentationState()
+    {
+        if (_attackVfxPresenter != null)
+        {
+            _attackVfxPresenter.InvalidatePendingPlays();
+        }
+    }
+
+    private void StopAttackPlaybackState()
+    {
+        if (attackCoroutine != null)
+        {
+            StopCoroutine(attackCoroutine);
+            attackCoroutine = null;
+        }
+
+        if (animSpeedResetRoutine != null)
+        {
+            StopCoroutine(animSpeedResetRoutine);
+            animSpeedResetRoutine = null;
+        }
+
+        if (animator != null)
+        {
+            if (!string.IsNullOrEmpty(attackTriggerParam))
+            {
+                animator.ResetTrigger(attackTriggerParam);
+            }
+
+            animator.speed = 1f;
+        }
+    }
+
     private bool TryPlayAttackAnimation()
     {
+        if (IsDead || !isCombatPhase) return false;
         if (IsSkillCasting()) return false;
         if (animator == null) return false;
-        float animRate = Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
+        float animRate = GetCappedAttackAnimationRate();
         if (animRate <= 0f) return false;
         float now = Time.time;
         float minInterval = 1f / animRate;
         if (now - lastAttackAnimTime < minInterval) return false;
         lastAttackAnimTime = now;
-        float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
-        animator.speed = Mathf.Max(0.01f, speed);
+        animator.speed = CalculateAttackAnimationPlaybackSpeed(animRate);
         animator.ResetTrigger(attackTriggerParam);
         animator.SetTrigger(attackTriggerParam);
         if (animSpeedResetRoutine != null)
@@ -1010,6 +1134,28 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             NetworkedIsAttacking = !NetworkedIsAttacking;
         }
         return true;
+    }
+
+    public float GetCappedAttackAnimationPlaybackSpeed()
+    {
+        float animRate = GetCappedAttackAnimationRate();
+        if (animRate <= 0f)
+        {
+            return 1f;
+        }
+
+        return CalculateAttackAnimationPlaybackSpeed(animRate);
+    }
+
+    private float GetCappedAttackAnimationRate()
+    {
+        return Mathf.Min(currentAttackSpeed, maxAttackAnimationsPerSecond);
+    }
+
+    private float CalculateAttackAnimationPlaybackSpeed(float animRate)
+    {
+        float speed = baseAttackAnimationDuration > 0f ? baseAttackAnimationDuration * animRate : animRate;
+        return Mathf.Max(0.01f, speed);
     }
 
     private IEnumerator ResetAnimatorSpeedAfter(float seconds)
@@ -1056,7 +1202,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         foreach (var clip in clips)
         {
             if (clip == null) continue;
-            if (clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            if (IsAttackClipName(clip))
             {
                 attackClip = clip;
                 break;
@@ -1070,6 +1216,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
         baseAttackAnimationDuration = Mathf.Max(0.01f, attackClip.length);
         attackClipDurationInitialized = true;
+    }
+
+    private static bool IsAttackClipName(AnimationClip clip)
+    {
+        if (clip == null || string.IsNullOrWhiteSpace(clip.name))
+        {
+            return false;
+        }
+
+        return clip.name.IndexOf("attack", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || clip.name.IndexOf("atk", System.StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private void EnsureAnimationEventProxy()
@@ -1142,6 +1299,14 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
 
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        InvalidateAttackPresentationState();
+        if (attackCoroutine != null)
+        {
+            StopCoroutine(attackCoroutine);
+            attackCoroutine = null;
+        }
         UnsubscribeFromAllies();
         if (animSpeedResetRoutine != null)
         {
@@ -1181,11 +1346,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
    public async UniTask Initialize(UnitData data, int initialStarLevel, PlayerManager owner)
     {
         this.unitData = data;
-        this.owner = owner;
-        if (this.owner != null && this.owner.ownedUnits != null && !this.owner.ownedUnits.Contains(this))
-        {
-            this.owner.ownedUnits.Add(this);
-        }
+        SetOwnerReference(owner);
         // NetworkBehaviour이므로 Object 프로퍼티 직접 사용 (별도 캐싱 불필요)
         if(this.unitData == null)
         {
@@ -1266,7 +1427,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             // [Fix] 전투 시작 시 공격 쿨다운 초기화 - 첫 공격 즉시 실행
             lastAttackAnimTime = -999f;
-            _hasPendingAttack = false;
+            targetEnemy = null;
+            targetTransform = null;
+            blockedMonsters.Clear();
+            CancelPendingAttack();
+            InvalidateAttackPresentationState();
             EnsureRuntimeReferences("HandleGameStateChanged(BattleEnter)", false);
             
             StartAttackLoop();
@@ -1280,11 +1445,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         else
         {
-            if (attackCoroutine != null)
-            {
-                StopCoroutine(attackCoroutine);
-                attackCoroutine = null;
-            }
+            StopAttackPlaybackState();
+            CancelPendingAttack();
+            ClearCurrentTarget();
+            InvalidateAttackPresentationState();
             // 전투 종료 시 구독을 해제합니다.
             UnsubscribeFromAllies();
 
@@ -1389,28 +1553,25 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        // UnitData에 projectileSpeed가 설정되어 있으면 해당 값을 우선 사용
-        if (unitData.projectileSpeed > 0f)
+        ProjectileVfxConfig projectileConfig = unitData.GetProjectileVfxConfig();
+        if (projectileConfig != null && projectileConfig.projectileSpeed > 0f)
         {
-            _cachedProjectileSpeed = unitData.projectileSpeed;
+            _cachedProjectileSpeed = projectileConfig.ResolveProjectileSpeed();
             return;
         }
 
-        // projectileSpeed가 0이면 프리팹에서 속도를 가져옴
-        if (unitData.projectilePrefabsByStarLevel == null || unitData.projectilePrefabsByStarLevel.Length < starLevel)
-        {
-            return;
-        }
-
-        string projectileKey = unitData.projectilePrefabsByStarLevel[starLevel - 1];
+        // Legacy projectile prefabs still carry Projectile.Speed; pure VFX wrappers store speed in ProjectileVfxConfig.
+        string projectileKey = unitData.GetProjectilePrefabKey();
         if (string.IsNullOrEmpty(projectileKey))
         {
+            _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();
             return;
         }
 
         GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
         if (projectilePrefab == null)
         {
+            _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();
             return;
         }
 
@@ -1418,7 +1579,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (projectile != null)
         {
             _cachedProjectileSpeed = projectile.Speed;
+            return;
         }
+
+        _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();
     }
 
     public async Task Upgrade()
@@ -1436,6 +1600,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         bool inactive = gameObject != null && (!gameObject.activeSelf || !gameObject.activeInHierarchy);
         if (!IsDead && !inactive) return;
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        InvalidateAttackPresentationState();
         IsDead = false;
         
         if (Object != null && Object.HasStateAuthority)
@@ -1490,6 +1657,21 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 canvas.enabled = active;
             }
         }
+    }
+
+    public void EnsureAlivePresentationActive()
+    {
+        if (IsDead)
+        {
+            return;
+        }
+
+        if (gameObject != null && !gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+
+        SetDeathPresentationActive(true);
     }
 
     private void HandleManaFull()
@@ -1682,6 +1864,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     #region 공격 로직 (이하 동일)
     public void StartAttackLoop()
     {
+        if (IsDead)
+        {
+            CancelPendingAttack();
+            return;
+        }
+
         if (attackCoroutine != null) StopCoroutine(attackCoroutine);
         EnsureRuntimeReferences("StartAttackLoop", false);
         attackCoroutine = StartCoroutine(AttackLoop());
@@ -1701,6 +1889,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 continue;
             }
 #endif
+            if (IsDead)
+            {
+                CancelPendingAttack();
+                ClearCurrentTarget();
+                yield break;
+            }
+
             if (!EnsureRuntimeReferences("AttackLoop", true))
             {
                 yield return null;
@@ -1753,12 +1948,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 FindNearestEnemy();
                 hasTarget = IsCurrentTargetValidForAttack(true);
             }
-            
+
             if (!hasTarget)
             {
                 ClearCurrentTarget();
             }
-            
+
             if (hasTarget)
             {
                 // [Fix] 타겟이 없다가 새로 발견되었을 때 즉시 공격 가능하도록 쿨타임 리셋
@@ -1822,14 +2017,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         foreach (var col in monstersInRange)
         {
-            if (col.TryGetComponent<Monster>(out var monster))
+            var monster = col.GetComponentInParent<Monster>();
+            if (monster != null)
             {
-                if (monster.Data == null || monster.Data.monsterType == MonsterType.Flying || monster.currentHP <= 0)
+                if (!IsMeleeMonsterAttackable(monster))
                 {
                     continue;
                 }
                 
-                float distanceSqr = (transform.position - col.transform.position).sqrMagnitude;
+                Vector3 targetPoint = GetClosestTargetPoint(monster.transform, transform.position);
+                float distanceSqr = FlatDistanceSqr(transform.position, targetPoint);
                 if (distanceSqr < closestDistanceSqr)
                 {
                     closestDistanceSqr = distanceSqr;
@@ -1847,16 +2044,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         for (int i = blockedMonsters.Count - 1; i >= 0; i--)
         {
             var monster = blockedMonsters[i];
-            if (monster == null || !IsValidGroundMeleeMonster(monster))
+            if (!IsMeleeMonsterAttackable(monster, BlockedMonsterReleasePadding))
             {
                 blockedMonsters.RemoveAt(i);
-                continue;
-            }
-
-            if (!IsTargetWithinAttackRange(monster.transform, BlockedMonsterReleasePadding))
-            {
-                blockedMonsters.RemoveAt(i);
-                if (monster.IsBlocked())
+                if (monster != null && monster.IsBlocked() && HasStateAuthorityOrNoNetwork())
                 {
                     monster.Unblock();
                 }
@@ -1876,9 +2067,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return false;
         }
 
-        if (!isRanged && targetTransform.TryGetComponent<Monster>(out var monster) && !IsValidGroundMeleeMonster(monster))
+        if (!isRanged)
         {
-            return false;
+            var monster = targetTransform.GetComponentInParent<Monster>();
+            return IsMeleeMonsterAttackable(monster);
         }
 
         return IsTargetWithinAttackRange(targetTransform, AttackRangePadding);
@@ -1923,6 +2115,75 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         targetTransform = null;
     }
 
+    private bool CanBlockMonster(Monster monster)
+    {
+        if (Data == null || monster == null || monster.Data == null)
+        {
+            return false;
+        }
+
+        if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
+            monster.HasTrait(MonsterTraits.Unblockable) ||
+            monster.Data.monsterType == MonsterType.Flying ||
+            monster.currentHP <= 0 ||
+            Data.blockCount <= 0 || blockedMonsters.Count >= Data.blockCount)
+        {
+            return false;
+        }
+
+        return IsMonsterOnSameField(monster) && IsTargetWithinHorizontalRange(monster.transform, MeleeBlockDistance + MeleeBlockDistanceTolerance);
+    }
+
+    private bool IsMeleeMonsterAttackable(Monster monster)
+    {
+        return IsMeleeMonsterAttackable(monster, AttackRangePadding);
+    }
+
+    private bool IsMeleeMonsterAttackable(Monster monster, float padding)
+    {
+        if (monster == null || monster.Data == null || monster.currentHP <= 0)
+        {
+            return false;
+        }
+
+        if (monster.Data.monsterType == MonsterType.Flying)
+        {
+            return false;
+        }
+
+        return IsMonsterOnSameField(monster) &&
+               IsTargetWithinAttackRange(monster.transform, padding);
+    }
+
+    private bool IsMonsterOnSameField(Monster monster)
+    {
+        if (monster == null)
+        {
+            return false;
+        }
+
+        int unitOwnerId = OwnerPlayerIdForRoster;
+        int monsterOwnerId = monster.SnapshotOwnerPlayerId;
+        if (unitOwnerId < 0 || monsterOwnerId < 0)
+        {
+            return !Application.isPlaying;
+        }
+
+        return monsterOwnerId == unitOwnerId;
+    }
+
+    private bool IsTargetWithinHorizontalRange(Transform target, float allowedRange)
+    {
+        if (target == null || allowedRange < 0f)
+        {
+            return false;
+        }
+
+        Vector3 delta = target.position - transform.position;
+        delta.y = 0f;
+        return delta.sqrMagnitude <= allowedRange * allowedRange;
+    }
+
     private void Attack()
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -1931,6 +2192,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 #endif
+        if (IsDead || !isCombatPhase || unitData == null)
+        {
+            CancelPendingAttack();
+            return;
+        }
+
         if (IsSkillCasting())
         {
             return;
@@ -1943,7 +2210,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
         
-        // 원거리 유닛만 거리 검사 수행 (근접 유닛은 저지 중인 몬스터를 공격하므로 거리 검사 불필요)
+        // Spawn-time trigger jitter must not let melee units keep attacking targets outside their reach.
         if (isRanged)
         {
             if (targetEnemy == null || targetTransform == null || 
@@ -1955,9 +2222,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         else
         {
-            // 근접 유닛: 타겟이 없으면 리턴
-            if (targetEnemy == null || targetTransform == null)
+            // 근접 유닛: 타겟이 없거나 사거리 밖이면 리턴
+            if (!IsMeleeMonsterAttackable(targetEnemy as Monster))
             {
+                ClearCurrentTarget();
                 return;
             }
         }
@@ -1973,6 +2241,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             var scheduler = CombatScheduler.Instance;
             bool schedulerReady = scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning;
             var targetNo = targetTransform.GetComponentInParent<NetworkObject>();
+            if (!isRanged && playedAnim)
+            {
+                if (schedulerReady && targetNo != null)
+                {
+                    scheduler.ScheduleBasicAttackVfx(Object, targetNo, ResolveBasicAttackVfxSpawnDelaySeconds());
+                }
+                else if (targetNo != null)
+                {
+                    PlayBasicAttackVfxFromCombatEvent(targetNo);
+                }
+            }
 
             if (isRanged)
             {
@@ -1980,18 +2259,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 {
                     if (canSyncRanged)
                     {
-                        _pendingAttack = new PendingAttack
-                        {
-                            Target = targetNo,
-                            TargetEnemy = targetEnemy,
-                            Damage = currentAttackDamage,
-                            DamageType = unitData.damageType,
-                            ProjectileSpeed = _cachedProjectileSpeed,
-                            IsRanged = true,
-                            EmitVfx = true,
-                            SplashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f
-                        };
-                        _hasPendingAttack = true;
+                        Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
+                        float splashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f;
+                        float fireDelaySeconds = ResolveProjectileFireDelaySeconds();
+                        scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                            true, true, _cachedProjectileSpeed, splashRadius, enemyLayerMask, fireDelaySeconds);
                     }
                     else
                     {
@@ -2015,11 +2287,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                     // 스플래시 공격: 저지 중인 모든 몬스터에게 동시에 데미지
                     foreach (var monster in blockedMonsters.ToList())
                     {
-                        if (monster != null &&
-                            IsValidGroundMeleeMonster(monster) &&
-                            IsTargetWithinAttackRange(monster.transform, AttackRangePadding))
+                        if (IsMeleeMonsterAttackable(monster))
                         {
-
                             if (schedulerReady)
                             {
                                 var monsterNo = monster.GetComponent<NetworkObject>();
@@ -2046,6 +2315,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                     // 근접 유닛 단일 공격: 첫 번째 저지 몬스터 공격
                     if (canSyncMelee)
                     {
+                        int attackVersion = AllocatePendingAttackVersion();
                         _pendingAttack = new PendingAttack
                         {
                             Target = targetNo,
@@ -2054,7 +2324,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                             DamageType = unitData.damageType,
                             ProjectileSpeed = 0f,
                             IsRanged = false,
-                            EmitVfx = false
+                            EmitVfx = false,
+                            Version = attackVersion
                         };
                         _hasPendingAttack = true;
                     }
@@ -2104,6 +2375,72 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return false;
     }
 
+    private float ResolveProjectileFireDelaySeconds()
+    {
+        ProjectileVfxConfig config = unitData != null ? unitData.GetProjectileVfxConfig() : null;
+        float normalizedTime = config != null ? config.ResolveProjectileSpawnNormalizedTime() : 0f;
+        if (normalizedTime <= 0f)
+        {
+            return 0f;
+        }
+
+        float animRate = GetCappedAttackAnimationRate();
+        if (animRate <= 0f)
+        {
+            return 0f;
+        }
+
+        return normalizedTime / animRate;
+    }
+
+    private float ResolveBasicAttackVfxSpawnDelaySeconds()
+    {
+        BasicAttackVfxConfig config = unitData != null ? unitData.GetBasicAttackVfxConfig(starLevel) : null;
+        float normalizedTime = config != null ? Mathf.Clamp(config.spawnNormalizedTime, 0f, 0.95f) : 0f;
+        if (normalizedTime <= 0f)
+        {
+            return 0f;
+        }
+
+        float animRate = GetCappedAttackAnimationRate();
+        if (animRate <= 0f)
+        {
+            return 0f;
+        }
+
+        return normalizedTime / animRate;
+    }
+
+    public bool CanPlayBasicAttackVfxForTarget(Monster targetMonster)
+    {
+        if (IsDead || !isCombatPhase || unitData == null || unitData.unitType != UnitType.Melee)
+        {
+            return false;
+        }
+
+        return IsMeleeMonsterAttackable(targetMonster);
+    }
+
+    public void PlayBasicAttackVfxFromCombatEvent(NetworkObject targetObject)
+    {
+        Monster targetMonster = targetObject != null ? targetObject.GetComponent<Monster>() : null;
+        if (!CanPlayBasicAttackVfxForTarget(targetMonster))
+        {
+            return;
+        }
+
+        if (_attackVfxPresenter == null)
+        {
+            _attackVfxPresenter = GetComponent<UnitAttackVfxPresenter>();
+            if (_attackVfxPresenter == null)
+            {
+                _attackVfxPresenter = gameObject.AddComponent<UnitAttackVfxPresenter>();
+            }
+        }
+
+        _attackVfxPresenter.PlayBasicAttack(this, targetMonster.transform);
+    }
+
     public void AnimEvent_AttackImpact()
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -2117,17 +2454,39 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
+        TryExecutePendingAttack(_pendingAttack.Version);
+    }
+
+    private void TryExecutePendingAttack(int attackVersion)
+    {
+        if (!_hasPendingAttack || _pendingAttack.Version != attackVersion)
+        {
+            return;
+        }
+
+        if (IsDead || !isCombatPhase || unitData == null)
+        {
+            CancelPendingAttack();
+            return;
+        }
+
+        if (!_pendingAttack.IsRanged && !IsMeleeMonsterAttackable(_pendingAttack.TargetEnemy as Monster))
+        {
+            CancelPendingAttack();
+            return;
+        }
+
         // NetworkBehaviour이므로 Object 프로퍼티 직접 사용
         bool hasAuthority = Object == null || Object.HasStateAuthority;
         if (!hasAuthority)
         {
-            _hasPendingAttack = false;
+            CancelPendingAttack();
             return;
         }
 
         if (!_pendingAttack.IsRanged && !IsPendingMeleeAttackStillValid())
         {
-            _hasPendingAttack = false;
+            CancelPendingAttack();
             return;
         }
 
@@ -2144,7 +2503,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             _pendingAttack.TargetEnemy.TakeDamage(_pendingAttack.Damage, _pendingAttack.DamageType);
         }
 
-        _hasPendingAttack = false;
+        CancelPendingAttack();
     }
 
     private bool IsPendingMeleeAttackStillValid()
@@ -2160,9 +2519,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return false;
         }
 
-        if (targetMono.TryGetComponent<Monster>(out var monster) && !IsValidGroundMeleeMonster(monster))
+        var monster = targetMono.GetComponentInParent<Monster>();
+        if (monster != null)
         {
-            return false;
+            return IsMeleeMonsterAttackable(monster);
         }
 
         return IsTargetWithinAttackRange(targetMono.transform, AttackRangePadding);
@@ -2189,16 +2549,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (other.TryGetComponent<Monster>(out var monster))
         {
-            // Null 체크 추가
-            if (monster.Data == null || Data == null) return;
-            
-            if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
-                monster.HasTrait(MonsterTraits.Unblockable) ||
-                monster.Data.monsterType == MonsterType.Flying || Data.blockCount <= 0 ||
-                blockedMonsters.Count >= Data.blockCount)
+            if (!CanBlockMonster(monster))
             {
                 return;
             }
+
             blockedMonsters.Add(monster);
             monster.Block(this);
         }
@@ -2218,14 +2573,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public bool TryBlockMonster(Monster monster)
     {
-        if (Data == null) return false;
-        if (blockedMonsters.Contains(monster) || monster.IsBlocked() ||
-            monster.HasTrait(MonsterTraits.Unblockable) ||
-            monster.Data.monsterType == MonsterType.Flying ||
-            Data.blockCount <= 0 || blockedMonsters.Count >= Data.blockCount)
+        if (!CanBlockMonster(monster))
         {
             return false;
         }
+
         blockedMonsters.Add(monster);
         monster.Block(this);
         return true;
@@ -2242,6 +2594,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private void OnDestroy()
     {
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        InvalidateAttackPresentationState();
 
         if (owner != null && owner.fieldManager != null)
         {
@@ -2278,11 +2633,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (IsDead) return;
         IsDead = true;
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        StopAttackPlaybackState();
+        InvalidateAttackPresentationState();
         
         if (Object != null && Object.HasStateAuthority)
         {
             NetworkedIsDead = true;
         }
+
+        _buffManager?.ClearAllStatusEffects();
         
         foreach (var monster in blockedMonsters)
         {
@@ -2293,12 +2654,6 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         blockedMonsters.Clear();
         
-        if(attackCoroutine != null)
-        {
-            StopCoroutine(attackCoroutine);
-            attackCoroutine = null;
-        }
-
         SetDeathPresentationActive(false);
         string deadUnitName = unitData != null ? unitData.unitName : name;
         Debug.Log($"<color=red>{deadUnitName}이(가) 전투에서 쓰러졌습니다.</color>");
@@ -2393,6 +2748,15 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (!HasStateAuthorityOrNoNetwork()) return;  // 서버에서만 적용
         
         _isBerserk = true;
+
+        if (CombatScheduler.Instance != null &&
+            CombatScheduler.Instance.IsStatBuffSchedulerActive &&
+            _buffManager != null &&
+            CombatScheduler.Instance.ApplyBerserkStatBuffs(_buffManager, gameObject, false, 9999f))
+        {
+            Debug.Log($"<color=red>[Unit] '{name}' ??＜ 紐⑤뱶 諛쒕룞! (scheduler)</color>");
+            return;
+        }
 
         float berserkDamage = currentAttackDamage * 1.5f;
         float berserkSpeed = currentAttackSpeed * 1.5f;

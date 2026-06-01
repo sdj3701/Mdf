@@ -6,6 +6,9 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityCliConnector;
 using UnityEditor;
+using UnityEditor.AddressableAssets;
+using UnityEditor.AddressableAssets.Build;
+using UnityEditor.AddressableAssets.Settings;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
 
@@ -36,6 +39,12 @@ public static class MPBuildPlayerTool
 
         [ToolParameter("Include AllowDebugging. Default: true")]
         public bool AllowDebugging { get; set; }
+
+        [ToolParameter("Build Addressables player content for the selected target before building the player. Default: true")]
+        public bool BuildAddressables { get; set; }
+
+        [ToolParameter("Restore the Editor active build target after the player build. Default: true")]
+        public bool RestoreBuildTarget { get; set; }
     }
 
     public static object HandleCommand(JObject parameters)
@@ -46,12 +55,11 @@ public static class MPBuildPlayerTool
         var playerName = p.Get("player_name", "MDF-MPTest");
         var developmentBuild = p.GetBool("development_build", true);
         var allowDebugging = p.GetBool("allow_debugging", true);
-        var buildTargetSwitchError = EnsureActiveBuildTarget(target);
-        if (buildTargetSwitchError != null)
-        {
-            return buildTargetSwitchError;
-        }
-
+        var buildAddressables = p.GetBool("build_addressables", true);
+        var restoreBuildTarget = p.GetBool("restore_build_target", true);
+        var originalBuildTarget = EditorUserBuildSettings.activeBuildTarget;
+        var originalBuildTargetGroup = BuildPipeline.GetBuildTargetGroup(originalBuildTarget);
+        bool buildTargetSwitched = false;
         var scenes = EditorBuildSettings.scenes
             .Where(scene => scene.enabled)
             .Select(scene => scene.path)
@@ -70,52 +78,89 @@ public static class MPBuildPlayerTool
 
         Directory.CreateDirectory(outputDir);
         var locationPathName = Path.Combine(outputDir, BuildExecutableName(target, playerName));
-        var options = developmentBuild ? BuildOptions.Development : BuildOptions.None;
-        var effectiveAllowDebugging = developmentBuild && allowDebugging;
-        if (effectiveAllowDebugging)
+        try
         {
-            options |= BuildOptions.AllowDebugging;
+            var buildTargetSwitchError = EnsureActiveBuildTarget(target, out buildTargetSwitched);
+            if (buildTargetSwitchError != null)
+            {
+                return buildTargetSwitchError;
+            }
+
+            object addressablesMetadata = new { skipped = true };
+            if (buildAddressables)
+            {
+                var addressablesBuild = BuildAddressablesForTarget(target);
+                addressablesMetadata = addressablesBuild.Metadata;
+                if (!addressablesBuild.Success)
+                {
+                    return new ErrorResponse("Addressables player content build failed.", addressablesMetadata);
+                }
+            }
+
+            var options = developmentBuild ? BuildOptions.Development : BuildOptions.None;
+            var effectiveAllowDebugging = developmentBuild && allowDebugging;
+            if (effectiveAllowDebugging)
+            {
+                options |= BuildOptions.AllowDebugging;
+            }
+
+            var buildOptions = new BuildPlayerOptions
+            {
+                scenes = scenes,
+                target = target,
+                locationPathName = locationPathName,
+                options = options
+            };
+
+            var report = BuildPipeline.BuildPlayer(buildOptions);
+            var summary = report.summary;
+            var metadata = new
+            {
+                result = summary.result.ToString(),
+                target = target.ToString(),
+                activeBuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString(),
+                outputPath = locationPathName,
+                outputDir,
+                totalSize = summary.totalSize,
+                totalTimeSeconds = summary.totalTime.TotalSeconds,
+                options = options.ToString(),
+                scenes,
+                unityVersion = Application.unityVersion,
+                timestampUtc = DateTime.UtcNow.ToString("o"),
+                developmentBuild = (options & BuildOptions.Development) != 0,
+                allowDebugging = (options & BuildOptions.AllowDebugging) != 0,
+                addressables = addressablesMetadata,
+                restoreBuildTarget,
+                originalBuildTarget = originalBuildTarget.ToString(),
+                originalBuildTargetGroup = originalBuildTargetGroup.ToString(),
+                companyName = Application.companyName,
+                productName = Application.productName,
+                playerLogPath = ResolvePlayerLogPath()
+            };
+
+            var metadataPath = Path.Combine(outputDir, "build-metadata.json");
+            File.WriteAllText(metadataPath, JsonConvert.SerializeObject(metadata, Formatting.Indented));
+
+            if (summary.result == BuildResult.Succeeded)
+            {
+                return new SuccessResponse("Player build succeeded.", new { metadata, metadataPath });
+            }
+
+            return new ErrorResponse("Player build failed.", new { metadata, metadataPath });
         }
-
-        var buildOptions = new BuildPlayerOptions
+        finally
         {
-            scenes = scenes,
-            target = target,
-            locationPathName = locationPathName,
-            options = options
-        };
-
-        var report = BuildPipeline.BuildPlayer(buildOptions);
-        var summary = report.summary;
-        var metadata = new
-        {
-            result = summary.result.ToString(),
-            target = target.ToString(),
-            activeBuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString(),
-            outputPath = locationPathName,
-            outputDir,
-            totalSize = summary.totalSize,
-            totalTimeSeconds = summary.totalTime.TotalSeconds,
-            options = options.ToString(),
-            scenes,
-            unityVersion = Application.unityVersion,
-            timestampUtc = DateTime.UtcNow.ToString("o"),
-            developmentBuild = (options & BuildOptions.Development) != 0,
-            allowDebugging = (options & BuildOptions.AllowDebugging) != 0,
-            companyName = Application.companyName,
-            productName = Application.productName,
-            playerLogPath = ResolvePlayerLogPath()
-        };
-
-        var metadataPath = Path.Combine(outputDir, "build-metadata.json");
-        File.WriteAllText(metadataPath, JsonConvert.SerializeObject(metadata, Formatting.Indented));
-
-        if (summary.result == BuildResult.Succeeded)
-        {
-            return new SuccessResponse("Player build succeeded.", new { metadata, metadataPath });
+            if (restoreBuildTarget &&
+                buildTargetSwitched &&
+                originalBuildTargetGroup != BuildTargetGroup.Unknown &&
+                EditorUserBuildSettings.activeBuildTarget != originalBuildTarget)
+            {
+                if (!EditorUserBuildSettings.SwitchActiveBuildTarget(originalBuildTargetGroup, originalBuildTarget))
+                {
+                    Debug.LogWarning($"[MPBuildPlayerTool] Failed to restore active build target to {originalBuildTarget} ({originalBuildTargetGroup}).");
+                }
+            }
         }
-
-        return new ErrorResponse("Player build failed.", new { metadata, metadataPath });
     }
 
     private static BuildTarget ResolveBuildTarget(string raw)
@@ -133,8 +178,49 @@ public static class MPBuildPlayerTool
         throw new ArgumentException($"Unknown BuildTarget '{raw}'.");
     }
 
-    private static object EnsureActiveBuildTarget(BuildTarget target)
+    private static (bool Success, object Metadata) BuildAddressablesForTarget(BuildTarget target)
     {
+        var settings = AddressableAssetSettingsDefaultObject.Settings;
+        if (settings == null)
+        {
+            return (false, new
+            {
+                success = false,
+                error = "AddressableAssetSettingsDefaultObject.Settings is null.",
+                target = target.ToString()
+            });
+        }
+
+        const string packedModePath = "Assets/AddressableAssetsData/DataBuilders/BuildScriptPackedMode.asset";
+        var packedMode = AssetDatabase.LoadAssetAtPath<ScriptableObject>(packedModePath) as IDataBuilder;
+        if (packedMode != null)
+        {
+            int packedModeIndex = settings.DataBuilders.IndexOf((ScriptableObject)packedMode);
+            if (packedModeIndex >= 0)
+            {
+                settings.ActivePlayerDataBuilderIndex = packedModeIndex;
+            }
+        }
+
+        AddressableAssetSettings.BuildPlayerContent(out AddressablesPlayerBuildResult result);
+        bool success = result != null && string.IsNullOrEmpty(result.Error);
+        return (success, new
+        {
+            success,
+            error = result?.Error,
+            outputPath = result?.OutputPath,
+            durationSeconds = result?.Duration ?? 0.0,
+            target = target.ToString(),
+            activeBuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString(),
+            activePlayerDataBuilderIndex = settings.ActivePlayerDataBuilderIndex,
+            activePlayerDataBuilder = settings.ActivePlayerDataBuilder?.GetType().Name,
+            packedModeBuilderPath = packedModePath
+        });
+    }
+
+    private static object EnsureActiveBuildTarget(BuildTarget target, out bool switched)
+    {
+        switched = false;
         if (EditorUserBuildSettings.activeBuildTarget == target)
         {
             return null;
@@ -158,6 +244,7 @@ public static class MPBuildPlayerTool
                 });
         }
 
+        switched = true;
         return null;
     }
 

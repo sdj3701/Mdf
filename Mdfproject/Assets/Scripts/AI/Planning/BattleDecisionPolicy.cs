@@ -6,6 +6,7 @@ using UnityEngine;
 public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
 {
     private const float DefaultBattleActionCooldown = 0.75f;
+    private const float MinimumBattleCommandLeadTime = 1.25f;
 
     private readonly ScrollTargetEvaluator _scrollTargetEvaluator = new ScrollTargetEvaluator();
     private readonly DefenderSkillPolicy _defenderSkillPolicy = new DefenderSkillPolicy();
@@ -22,6 +23,14 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         if (!context.IsBattlePhase)
         {
             decision = MdfDecision.Observe(context, "observe_non_battle");
+            LogDecision(decision, "info");
+            return false;
+        }
+
+        if (context.PhaseTimerRemaining <= MinimumBattleCommandLeadTime)
+        {
+            decision = MdfDecision.Observe(context, "battle_phase_ending");
+            Arm(context.PlayerId);
             LogDecision(decision, "info");
             return false;
         }
@@ -132,8 +141,15 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
             defender == null ||
             defender.fieldManager == null ||
             attacker.AttackMonsterPool == null ||
-            attacker.AttackMonsterPool.Count == 0)
+            attacker.AttackMonsterPool.Count == 0 ||
+            attacker.HasPendingAttackMonsterPoolCommand)
         {
+            return false;
+        }
+
+        if (!attacker.HasAppliedCurrentAttackMonsterPoolSnapshot)
+        {
+            attacker.RPC_RequestSyncData();
             return false;
         }
 

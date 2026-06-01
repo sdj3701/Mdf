@@ -53,8 +53,9 @@ from run_human_bot_3round_progression import (
 
 
 CASE_NAME = "human-bot-game-to-end"
-EXPECTED_PLAYERS = 2
+DEFAULT_EXPECTED_PLAYERS = 2
 STALL_WINDOW_SECONDS = 180
+INCOMPLETE_CHECKPOINT_ERRORS = {"checkpoint_not_started", "snapshot_not_ready"}
 
 
 def bot_args(args: argparse.Namespace, persona: str, seed: int, journal_path: pathlib.Path) -> list[str]:
@@ -140,6 +141,30 @@ def player_healths(snapshot: Any) -> dict[int, int]:
 def max_monster_alive(snapshot: Any) -> int:
     counts = [to_int(nested(player, "monsters", "aliveCount")) for player in players(snapshot)]
     return max(counts) if counts else 0
+
+
+def all_players_eliminated(snapshot: Any, expected_players: int = 0) -> bool:
+    rows = players(snapshot)
+    if expected_players > 0 and len(rows) < expected_players:
+        return False
+    if not rows:
+        return False
+    healths = [player.get("health") for player in rows]
+    return all(isinstance(health, int) and health <= 0 for health in healths)
+
+
+def game_over_seen_in_logs(artifact_dir: pathlib.Path) -> bool:
+    for log_name in ("build-host.Player.log", "build-client.Player.log"):
+        log_path = artifact_dir / log_name
+        if not log_path.exists():
+            continue
+        size = log_path.stat().st_size
+        with log_path.open("rb") as fh:
+            fh.seek(max(0, size - 512 * 1024))
+            text = fh.read().decode("utf-8", errors="ignore")
+        if "state=GameOver" in text or "currentState=GameOver" in text:
+            return True
+    return False
 
 
 def command_seq(snapshot: Any) -> int:
@@ -233,6 +258,25 @@ def command_sequences_agree(left: Any, right: Any) -> bool:
     return True
 
 
+def checkpoint_errors(checkpoint: dict[str, Any]) -> list[str]:
+    errors = checkpoint.get("errors")
+    if isinstance(errors, list) and errors:
+        return [str(error) for error in errors]
+
+    comparison = checkpoint.get("comparison")
+    if isinstance(comparison, dict):
+        comparison_errors = comparison.get("errors")
+        if isinstance(comparison_errors, list):
+            return [str(error) for error in comparison_errors]
+
+    return []
+
+
+def is_incomplete_checkpoint(checkpoint: dict[str, Any]) -> bool:
+    errors = checkpoint_errors(checkpoint)
+    return bool(errors) and all(error in INCOMPLETE_CHECKPOINT_ERRORS for error in errors)
+
+
 def classify_endurance(
     final_host: Any,
     final_client: Any,
@@ -246,11 +290,22 @@ def classify_endurance(
 ) -> dict[str, Any]:
     host_game = game(final_host)
     client_game = game(final_client)
-    host_game_over = host_game.get("currentState") == "GameOver"
-    client_game_over = client_game.get("currentState") == "GameOver"
+    game_over_reached = limit_reason == "game_over_reached"
+    host_game_over = host_game.get("currentState") == "GameOver" or game_over_reached
+    client_game_over = client_game.get("currentState") == "GameOver" or game_over_reached
     progress = progress_summary(timeline)
     stalled = not recent_progress(timeline, STALL_WINDOW_SECONDS)
-    failed_checkpoints = [checkpoint.get("checkpointId") for checkpoint in checkpoints if checkpoint.get("success") is not True]
+    failed_checkpoints: list[Any] = []
+    incomplete_checkpoints: list[Any] = []
+    final_snapshots_match = final_comparison.get("success") is True
+    for checkpoint in checkpoints:
+        if checkpoint.get("success") is True:
+            continue
+        checkpoint_id = checkpoint.get("checkpointId")
+        if game_over_reached and final_snapshots_match and is_incomplete_checkpoint(checkpoint):
+            incomplete_checkpoints.append(checkpoint_id)
+            continue
+        failed_checkpoints.append(checkpoint_id)
     errors: list[str] = []
     warnings: list[str] = []
 
@@ -262,6 +317,8 @@ def classify_endurance(
         errors.extend(f"final_snapshot:{error}" for error in final_comparison.get("errors") or ["comparison_failed"])
     if failed_checkpoints:
         errors.extend(f"checkpoint_failed:{checkpoint_id}" for checkpoint_id in failed_checkpoints)
+    if incomplete_checkpoints:
+        warnings.extend(f"checkpoint_incomplete_after_game_over:{checkpoint_id}" for checkpoint_id in incomplete_checkpoints)
     if not command_sequences_agree(final_host, final_client):
         errors.append("command_sequence_divergence")
     if mptest_failure_lines:
@@ -323,6 +380,109 @@ def should_capture_checkpoint(
     return state_capture or round_capture or timed, timed
 
 
+def build_peers(args: argparse.Namespace, artifact_dir: pathlib.Path) -> list[dict[str, Any]]:
+    player_count = max(2, min(4, int(args.player_count)))
+    client_personas = ["balanced", "maze", "shop"]
+    peers: list[dict[str, Any]] = []
+    for index in range(player_count):
+        is_host = index == 0
+        name = "host" if is_host else ("client" if player_count == 2 else f"client-{index}")
+        label = "build-host" if is_host else ("build-client" if player_count == 2 else f"build-client-{index}")
+        persona = args.bot_persona if is_host or player_count == 2 else client_personas[(index - 1) % len(client_personas)]
+        peers.append({
+            "name": name,
+            "label": label,
+            "role": "host" if is_host else "client",
+            "token": new_token(),
+            "connection": new_token(),
+            "port": free_port(),
+            "seed": args.seed + index,
+            "botSeed": args.seed + 100 + index,
+            "journalPath": artifact_dir / f"{label}-bot.jsonl",
+            "bot": args.host_human_bot if is_host else True,
+            "persona": persona,
+        })
+    return peers
+
+
+def wait_session_states_many(
+    clients: dict[str, AutomationClient],
+    peers: list[dict[str, Any]],
+    artifact_dir: pathlib.Path,
+    timeout: int,
+    scene: str,
+    expected_players: int,
+) -> tuple[dict[str, dict[str, Any]], bool]:
+    deadline = time.time() + timeout
+    latest: dict[str, dict[str, Any]] = {}
+    stable_matches = 0
+    while time.time() < deadline:
+        ready_by_peer: dict[str, bool] = {}
+        reasons_by_peer: dict[str, list[str]] = {}
+        for peer in peers:
+            name = str(peer["name"])
+            label = str(peer["label"])
+            snapshot = dump_state(clients[name], artifact_dir, label, "lobby-latest")
+            latest[name] = snapshot
+            ready_by_peer[name] = session_ready(snapshot, expected_players, scene)
+            reasons_by_peer[name] = session_not_ready_reasons(snapshot, expected_players, scene)
+
+        write_json(artifact_dir / "session-wait-latest.json", {
+            "readyByPeer": ready_by_peer,
+            "reasonsByPeer": reasons_by_peer,
+            "stableMatches": stable_matches,
+        })
+        if ready_by_peer and all(ready_by_peer.values()):
+            stable_matches += 1
+            if stable_matches >= 2:
+                return latest, True
+        else:
+            stable_matches = 0
+        time.sleep(1)
+    return latest, False
+
+
+def wait_stable_states_many(
+    clients: dict[str, AutomationClient],
+    peers: list[dict[str, Any]],
+    artifact_dir: pathlib.Path,
+    timeout: int,
+    scene: str,
+    label_prefix: str,
+    expected_players: int,
+) -> tuple[dict[str, dict[str, Any]], bool]:
+    deadline = time.time() + timeout
+    latest: dict[str, dict[str, Any]] = {}
+    stable_matches = 0
+    while time.time() < deadline:
+        ready_by_peer: dict[str, bool] = {}
+        reasons_by_peer: dict[str, list[str]] = {}
+        game_by_peer: dict[str, dict[str, Any]] = {}
+        for peer in peers:
+            name = str(peer["name"])
+            label = str(peer["label"])
+            snapshot = dump_state(clients[name], artifact_dir, label, f"{label_prefix}-latest")
+            latest[name] = snapshot
+            ready_by_peer[name] = snapshot_ready(snapshot, expected_players, scene)
+            reasons_by_peer[name] = snapshot_not_ready_reasons(snapshot, expected_players, scene)
+            game_by_peer[name] = game(snapshot)
+
+        write_json(artifact_dir / f"{label_prefix}-state-wait-latest.json", {
+            "readyByPeer": ready_by_peer,
+            "reasonsByPeer": reasons_by_peer,
+            "gameByPeer": game_by_peer,
+            "stableMatches": stable_matches,
+        })
+        if ready_by_peer and all(ready_by_peer.values()):
+            stable_matches += 1
+            if stable_matches >= 2:
+                return latest, True
+        else:
+            stable_matches = 0
+        time.sleep(1)
+    return latest, False
+
+
 def run(args: argparse.Namespace) -> int:
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
     if player_path is None or not player_path.exists():
@@ -330,20 +490,11 @@ def run(args: argparse.Namespace) -> int:
 
     artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
     session = args.session or new_session("hbotend")
-    host_token = new_token()
-    client_token = new_token()
-    host_connection = new_token()
-    client_connection = new_token()
-    host_port = free_port()
-    client_port = free_port()
-    host_seed = args.seed
-    client_seed = args.seed + 1
-    host_bot_seed = args.seed + 100
-    client_bot_seed = args.seed + 101
-    host_journal_path = artifact_dir / "build-host-bot.jsonl"
-    client_journal_path = artifact_dir / "build-client-bot.jsonl"
-    host_proc: PlayerProcess | None = None
-    client_proc: PlayerProcess | None = None
+    peers = build_peers(args, artifact_dir)
+    host_peer = peers[0]
+    primary_client_peer = peers[1]
+    expected_players = len(peers)
+    procs: list[PlayerProcess] = []
     failures: list[str] = []
     checkpoints: list[dict[str, Any]] = []
     checkpoint_keys_seen: set[tuple[int, str]] = set()
@@ -362,16 +513,19 @@ def run(args: argparse.Namespace) -> int:
         artifact_dir,
         args.orphan_threshold,
         args.force_run_with_orphans,
-        [host_token, client_token, host_connection, client_connection],
+        [str(peer["token"]) for peer in peers] + [str(peer["connection"]) for peer in peers],
     )
 
     write_json(artifact_dir / "run.json", {
         "case": CASE_NAME,
         "session": session,
         "playerPath": str(player_path),
+        "playerCount": expected_players,
         "seed": args.seed,
-        "hostBotSeed": host_bot_seed,
-        "clientBotSeed": client_bot_seed,
+        "peers": [
+            {key: str(value) if key == "journalPath" else value for key, value in peer.items() if key not in {"token", "connection"}}
+            for peer in peers
+        ],
         "maxDurationSeconds": args.max_duration_seconds,
         "maxRounds": args.max_rounds,
         "maxCommandsPerBot": args.max_commands_per_bot,
@@ -409,69 +563,58 @@ def run(args: argparse.Namespace) -> int:
         return 0
 
     try:
-        host_proc = launch_player(
-            player_path,
-            "host",
-            session,
-            host_port,
-            host_token,
-            host_connection,
-            artifact_dir,
-            "build-host",
-            max_players=EXPECTED_PLAYERS,
-            scene=args.lobby_scene,
-            case_name=CASE_NAME,
-            auto_start=False,
-            load_game=False,
-            seed=host_seed,
-            scenario=CASE_NAME,
-            extra_args=bot_args(args, args.bot_persona, host_bot_seed, host_journal_path) if args.host_human_bot else [],
-            headless_player=args.headless_player,
-        )
-        host = AutomationClient(host_port, host_token, timeout=args.request_timeout)
-        host_ping = host.wait_ping(timeout_seconds=args.ping_timeout)
-        write_json(artifact_dir / "build-host-ping.json", host_ping)
-        if not host_ping.get("success"):
-            failures.append("host_automation_ping_timeout")
-        if args.host_human_bot:
-            write_json(artifact_dir / "build-host-bot-paused.json", safe_request(lambda: host.bot_stop(reason="endurance_pre_checkpoint_pause")))
-        else:
-            write_json(artifact_dir / "build-host-bot-paused.json", {"success": True, "message": "host HumanBot disabled"})
+        clients: dict[str, AutomationClient] = {}
+        for peer in peers:
+            extra_args = bot_args(
+                args,
+                str(peer["persona"]),
+                int(peer["botSeed"]),
+                pathlib.Path(peer["journalPath"]),
+            ) if peer.get("bot") else []
+            proc = launch_player(
+                player_path,
+                str(peer["role"]),
+                session,
+                int(peer["port"]),
+                str(peer["token"]),
+                str(peer["connection"]),
+                artifact_dir,
+                str(peer["label"]),
+                max_players=expected_players,
+                scene=args.lobby_scene,
+                case_name=CASE_NAME,
+                auto_start=False,
+                load_game=False,
+                seed=int(peer["seed"]),
+                scenario=CASE_NAME,
+                extra_args=extra_args,
+                headless_player=args.headless_player,
+            )
+            procs.append(proc)
+            client = AutomationClient(int(peer["port"]), str(peer["token"]), timeout=args.request_timeout)
+            clients[str(peer["name"])] = client
+            ping = client.wait_ping(timeout_seconds=args.ping_timeout)
+            write_json(artifact_dir / f"{peer['label']}-ping.json", ping)
+            if not ping.get("success"):
+                failures.append(f"{peer['label']}_automation_ping_timeout")
+            if peer.get("bot"):
+                write_json(artifact_dir / f"{peer['label']}-bot-paused.json", safe_request(lambda c=client: c.bot_stop(reason="endurance_pre_checkpoint_pause")))
+            else:
+                write_json(artifact_dir / f"{peer['label']}-bot-paused.json", {"success": True, "message": "HumanBot disabled"})
 
-        client_proc = launch_player(
-            player_path,
-            "client",
-            session,
-            client_port,
-            client_token,
-            client_connection,
-            artifact_dir,
-            "build-client",
-            max_players=EXPECTED_PLAYERS,
-            scene=args.lobby_scene,
-            case_name=CASE_NAME,
-            auto_start=False,
-            load_game=False,
-            seed=client_seed,
-            scenario=CASE_NAME,
-            extra_args=bot_args(args, args.bot_persona, client_bot_seed, client_journal_path),
-            headless_player=args.headless_player,
-        )
-        client = AutomationClient(client_port, client_token, timeout=args.request_timeout)
-        client_ping = client.wait_ping(timeout_seconds=args.ping_timeout)
-        write_json(artifact_dir / "build-client-ping.json", client_ping)
-        if not client_ping.get("success"):
-            failures.append("client_automation_ping_timeout")
-        write_json(artifact_dir / "build-client-bot-paused.json", safe_request(lambda: client.bot_stop(reason="endurance_pre_checkpoint_pause")))
-
-        if not wait_build_peer_started(host.start_host, artifact_dir, "build-host", session, args.lobby_scene, EXPECTED_PLAYERS, args.start_timeout):
+        host = clients[str(host_peer["name"])]
+        client = clients[str(primary_client_peer["name"])]
+        if not wait_build_peer_started(host.start_host, artifact_dir, str(host_peer["label"]), session, args.lobby_scene, expected_players, args.start_timeout):
             failures.append("host_start_timeout")
-        if not wait_build_peer_started(client.join, artifact_dir, "build-client", session, args.lobby_scene, EXPECTED_PLAYERS, args.start_timeout):
-            failures.append("client_join_timeout")
+        for peer in peers[1:]:
+            peer_client = clients[str(peer["name"])]
+            if not wait_build_peer_started(peer_client.join, artifact_dir, str(peer["label"]), session, args.lobby_scene, expected_players, args.start_timeout):
+                failures.append(f"{peer['label']}_join_timeout")
 
-        host_lobby, client_lobby, lobby_ready = wait_session_states(host, client, artifact_dir, args.lobby_timeout, args.lobby_scene)
-        write_json(artifact_dir / "snapshots" / "build-host-lobby.json", host_lobby)
-        write_json(artifact_dir / "snapshots" / "build-client-lobby.json", client_lobby)
+        lobby_latest, lobby_ready = wait_session_states_many(clients, peers, artifact_dir, args.lobby_timeout, args.lobby_scene, expected_players)
+        for peer in peers:
+            name = str(peer["name"])
+            write_json(artifact_dir / "snapshots" / f"{peer['label']}-lobby.json", lobby_latest.get(name, {}))
         if not lobby_ready:
             failures.append("session_join_timeout")
 
@@ -480,33 +623,33 @@ def run(args: argparse.Namespace) -> int:
         if not load_result.get("success"):
             failures.append("host_load_game_failed")
 
-        host_before, client_before, before_ready = wait_stable_states(
-            host, client, artifact_dir, args.state_timeout, args.scene, "before-endurance-bot"
+        before_latest, before_ready = wait_stable_states_many(
+            clients, peers, artifact_dir, args.state_timeout, args.scene, "before-endurance-bot", expected_players
         )
-        write_json(artifact_dir / "snapshots" / "build-host-before-endurance-bot.json", host_before)
-        write_json(artifact_dir / "snapshots" / "build-client-before-endurance-bot.json", client_before)
+        for peer in peers:
+            name = str(peer["name"])
+            write_json(artifact_dir / "snapshots" / f"{peer['label']}-before-endurance-bot.json", before_latest.get(name, {}))
         if not before_ready:
             failures.append("before_endurance_bot_state_ready_timeout")
 
-        for peer, automation, bot_seed, journal in [
-            ("build-host", host, host_bot_seed, host_journal_path),
-            ("build-client", client, client_bot_seed, client_journal_path),
-        ]:
-            if peer == "build-host" and not args.host_human_bot:
+        for peer in peers:
+            if not peer.get("bot"):
                 continue
             start_result = start_bot(
-                automation,
+                clients[str(peer["name"])],
                 artifact_dir,
-                peer,
-                persona=args.bot_persona,
-                seed=bot_seed,
+                str(peer["label"]),
+                persona=str(peer["persona"]),
+                seed=int(peer["botSeed"]),
                 args=args,
-                journal_path=journal,
+                journal_path=pathlib.Path(peer["journalPath"]),
             )
             if start_result.get("success") is not True:
-                failures.append(f"{peer}_bot_start_failed")
+                failures.append(f"{peer['label']}_bot_start_failed")
 
         deadline = time.time() + args.max_duration_seconds
+        last_gameplay_host: dict[str, Any] = {}
+        last_gameplay_client: dict[str, Any] = {}
         while time.time() < deadline and not failures:
             final_host = dump_state(host, artifact_dir, "build-host", "endurance-latest")
             final_client = dump_state(client, artifact_dir, "build-client", "endurance-latest")
@@ -535,7 +678,7 @@ def run(args: argparse.Namespace) -> int:
                     index=len(checkpoints) + 1,
                     round_number=host_key[0],
                     current_state=host_key[1],
-                    expected_players=EXPECTED_PLAYERS,
+                    expected_players=expected_players,
                     scene=args.scene,
                     timeout=args.checkpoint_timeout,
                 ))
@@ -543,6 +686,9 @@ def run(args: argparse.Namespace) -> int:
             current_game = game(final_host)
             current_round = to_int(current_game.get("currentRound"))
             current_state = current_game.get("currentState")
+            if isinstance(current_state, str) and current_state:
+                last_gameplay_host = final_host
+                last_gameplay_client = final_client
             write_json(artifact_dir / "game-to-end-wait-latest.json", {
                 "hostGame": current_game,
                 "clientGame": game(final_client),
@@ -551,6 +697,21 @@ def run(args: argparse.Namespace) -> int:
                 "progress": progress_summary(progress_timeline),
             })
             if current_state == "GameOver":
+                limit_reason = "game_over_reached"
+                break
+            if game_over_seen_in_logs(artifact_dir):
+                if last_gameplay_host:
+                    final_host = last_gameplay_host
+                if last_gameplay_client:
+                    final_client = last_gameplay_client
+                limit_reason = "game_over_reached"
+                break
+            if all_players_eliminated(final_host, expected_players) and all_players_eliminated(final_client, expected_players):
+                limit_reason = "game_over_reached"
+                break
+            if not current_state and all_players_eliminated(last_gameplay_host, expected_players) and all_players_eliminated(last_gameplay_client, expected_players):
+                final_host = last_gameplay_host
+                final_client = last_gameplay_client
                 limit_reason = "game_over_reached"
                 break
             if args.max_rounds > 0 and current_round >= args.max_rounds:
@@ -569,9 +730,12 @@ def run(args: argparse.Namespace) -> int:
         write_json(artifact_dir / "final-snapshot-client.json", final_client)
         write_json(artifact_dir / "snapshots" / "build-host-final.json", final_host)
         write_json(artifact_dir / "snapshots" / "build-client-final.json", final_client)
+        for peer in peers[2:]:
+            peer_snapshot = dump_state(clients[str(peer["name"])], artifact_dir, str(peer["label"]), "final")
+            write_json(artifact_dir / "snapshots" / f"{peer['label']}-final.json", peer_snapshot)
 
         final_key = checkpoint_key(final_host)
-        if final_key is not None and final_key == checkpoint_key(final_client):
+        if limit_reason != "game_over_reached" and final_key is not None and final_key == checkpoint_key(final_client):
             checkpoints.append(wait_checkpoint_comparison(
                 host,
                 client,
@@ -579,7 +743,7 @@ def run(args: argparse.Namespace) -> int:
                 index=len(checkpoints) + 1,
                 round_number=final_key[0],
                 current_state=final_key[1],
-                expected_players=EXPECTED_PLAYERS,
+                expected_players=expected_players,
                 scene=args.scene,
                 timeout=args.checkpoint_timeout,
             ))
@@ -587,32 +751,36 @@ def run(args: argparse.Namespace) -> int:
         final_comparison = compare_snapshots(final_host, final_client)
         write_json(artifact_dir / "final-comparison.json", final_comparison)
 
-        host_status = collect_bot_status(host, artifact_dir, "build-host", "final") if args.host_human_bot else {
-            "success": True,
-            "data": {"enabled": False, "running": False, "commandsIssued": 0, "stopReason": "observer_peer"},
-        }
-        client_status = collect_bot_status(client, artifact_dir, "build-client", "final")
-        write_json(artifact_dir / "bot-status-summary.json", {"host": host_status, "client": client_status})
+        bot_status_summary: dict[str, Any] = {}
+        for peer in peers:
+            if peer.get("bot"):
+                bot_status_summary[str(peer["label"])] = collect_bot_status(clients[str(peer["name"])], artifact_dir, str(peer["label"]), "final")
+            else:
+                bot_status_summary[str(peer["label"])] = {
+                    "success": True,
+                    "data": {"enabled": False, "running": False, "commandsIssued": 0, "stopReason": "observer_peer"},
+                }
+        write_json(artifact_dir / "bot-status-summary.json", bot_status_summary)
 
         if args.headless_player:
             skipped_screenshot = {"success": True, "skipped": True, "reason": "headless_player", "headlessPlayer": True}
-            write_json(artifact_dir / "build-host-screenshot.json", skipped_screenshot)
-            write_json(artifact_dir / "build-client-screenshot.json", skipped_screenshot)
+            for peer in peers:
+                write_json(artifact_dir / f"{peer['label']}-screenshot.json", skipped_screenshot)
         else:
-            write_json(artifact_dir / "build-host-screenshot.json", safe_request(host.screenshot))
-            write_json(artifact_dir / "build-client-screenshot.json", safe_request(client.screenshot))
+            for peer in peers:
+                write_json(artifact_dir / f"{peer['label']}-screenshot.json", safe_request(clients[str(peer["name"])].screenshot))
 
-        host_logs = safe_request(host.logs_recent)
-        client_logs = safe_request(client.logs_recent)
-        write_json(artifact_dir / "build-host-logs-recent.json", host_logs)
-        write_json(artifact_dir / "build-client-logs-recent.json", client_logs)
-        failures.extend(f"mptest_failure_log:{line}" for line in mptest_failures(host_logs, client_logs))
+        recent_logs: list[dict[str, Any]] = []
+        for peer in peers:
+            logs = safe_request(clients[str(peer["name"])].logs_recent)
+            recent_logs.append(logs)
+            write_json(artifact_dir / f"{peer['label']}-logs-recent.json", logs)
+        failures.extend(f"mptest_failure_log:{line}" for line in mptest_failures(*recent_logs))
     finally:
         functional_failures = list(failures)
-        cleanup_processes = [proc for proc in (client_proc, host_proc) if proc is not None]
         cleanup_report = write_case_cleanup_report(
             artifact_dir,
-            cleanup_processes,
+            procs,
             baseline_pids=cleanup_baseline_pids,
             timeout_seconds=args.cleanup_timeout_seconds,
             leave_processes=args.leave_processes_on_fail and bool(functional_failures),
@@ -620,7 +788,7 @@ def run(args: argparse.Namespace) -> int:
         )
 
         collect_player_log(artifact_dir, "build-host-or-last")
-        write_final_timeline(artifact_dir, ["build-host", "build-client"])
+        write_final_timeline(artifact_dir, [str(peer["label"]) for peer in peers])
         write_json(artifact_dir / "progress-timeline.json", progress_timeline)
 
         metrics = progression_metrics(artifact_dir, checkpoints, cleanup_report)
@@ -696,6 +864,7 @@ def main() -> int:
     parser.add_argument("--session")
     parser.add_argument("--scene", default="Game")
     parser.add_argument("--lobby-scene", default="MatchingLobby")
+    parser.add_argument("--player-count", type=int, choices=[2, 3, 4], default=DEFAULT_EXPECTED_PLAYERS)
     parser.add_argument("--max-duration-seconds", type=int, default=2400)
     parser.add_argument("--max-rounds", type=int, default=20)
     parser.add_argument("--max-commands-per-bot", type=int, default=1000)

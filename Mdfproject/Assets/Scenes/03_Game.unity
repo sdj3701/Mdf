@@ -632,6 +632,9 @@ MonoBehaviour:
     parentOverride: {fileID: 1423344283}
   defaultParent: {fileID: 1423344283}
   prewarmOnStart: 1
+  prewarmBasicAttackProfilesOnStart: 1
+  basicAttackProfilePrewarmCount: 20
+  basicAttackProfileParentOverride: {fileID: 0}
 --- !u!114 &1423344282
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -650,6 +653,7 @@ MonoBehaviour:
   maxSpeed: 0
   alignToDirection: 1
   maxSpawnProgress: 0.3
+  catchUpBufferCapacity: 128
 --- !u!4 &1423344283
 Transform:
   m_ObjectHideFlags: 0

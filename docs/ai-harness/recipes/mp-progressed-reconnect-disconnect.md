@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: reconnect, security, AI/HumanBot
 Created: 2026-05-06
-Last used: 2026-05-06
-Last verified: 2026-05-06
-Use count: 1
+Last used: 2026-05-31
+Last verified: 2026-05-31
+Use count: 9
 Review after: 2026-08-04
 Triggers: HumanBot progressed checkpoint, same-token reconnect, disconnect AI takeover, randomized augment/shop/field state
 Applies to: `tools/harness/mp/run_progressed_disconnect_ai_takeover.py`, `tools/harness/mp/run_progressed_same_token_reconnect.py`, Phase 22
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/result.json; artifacts/mp/20260531-022409-matrix/20260531-022414-progressed-reconnect-after-battle/result.json; artifacts/mp/20260531-030739-matrix/20260531-030744-progressed-reconnect-after-battle/result.json; artifacts/mp/20260531-030739-matrix/20260531-030744-progressed-reconnect-after-battle/result.json; artifacts/mp/20260531-032610-matrix/20260531-032615-progressed-reconnect-after-battle/result.json; artifacts/mp/20260531-040328-matrix/20260531-040334-progressed-reconnect-after-battle/result.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -35,3 +35,11 @@ Pitfalls:
 - A support human client consumes the spare Photon slot; do not use that as the same-token workaround.
 - `--mpFreezeGameFlow` is a test-only preservation tool, not a gameplay fix. Do not use it in normal progression tests that are meant to prove battle/round advancement.
 - A live `NotifyAugmentSelectedCommand` update is not enough for reconnect; reconnect clients need Networked selected/presented augment snapshot names.
+
+Lifecycle notes:
+- 2026-05-16: verified artifact `artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-022409-matrix/20260531-022414-progressed-reconnect-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-030739-matrix/20260531-030744-progressed-reconnect-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-030739-matrix/20260531-030744-progressed-reconnect-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-032610-matrix/20260531-032615-progressed-reconnect-after-battle/result.json`
+- 2026-05-31: verified artifact `artifacts/mp/20260531-040328-matrix/20260531-040334-progressed-reconnect-after-battle/result.json`

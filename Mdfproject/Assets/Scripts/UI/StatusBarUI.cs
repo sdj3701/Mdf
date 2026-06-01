@@ -1,9 +1,13 @@
 using UnityEngine;
 using UnityEngine.UI;
 using Cysharp.Threading.Tasks;
+using System.Collections.Generic;
 
 public class StatusBarUI : MonoBehaviour
 {
+    private static readonly List<StatusBarUI> ActiveStatusBars = new List<StatusBarUI>(64);
+    private static readonly Vector3[] ButtonWorldCorners = new Vector3[4];
+
     [Header("컴포넌트")]
     [Tooltip("Fill Amount를 조절할 체력 바 이미지")]
     public Image healthBarImage;
@@ -87,6 +91,7 @@ public class StatusBarUI : MonoBehaviour
     private GraphicRaycaster graphicRaycaster;
     private Canvas cachedCanvas;
     private Camera cachedCamera;
+    private int lastSkillRequestFrame = -1;
 
     private void Awake()
     {
@@ -106,6 +111,11 @@ public class StatusBarUI : MonoBehaviour
 
     private void OnEnable()
     {
+        if (!ActiveStatusBars.Contains(this))
+        {
+            ActiveStatusBars.Add(this);
+        }
+
         GameEvents.OnGameManagersReady += Initialize;
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
@@ -117,6 +127,15 @@ public class StatusBarUI : MonoBehaviour
 
         if (healthComponent != null) healthComponent.OnHealthChanged -= UpdateHealth;
         if (manaComponent != null) manaComponent.OnManaChanged -= UpdateMana;
+        ActiveStatusBars.Remove(this);
+    }
+
+    private void Update()
+    {
+        if (MdfInput.PrimaryPointerWasReleasedThisFrame() && IsPointerOverSkillButton(MdfInput.PointerPosition))
+        {
+            RequestSkillActivation(unitComponent);
+        }
     }
 
     private void Initialize()
@@ -334,6 +353,13 @@ public class StatusBarUI : MonoBehaviour
     /// </summary>
     private void RequestSkillActivation(Unit owner)
     {
+        if (lastSkillRequestFrame == Time.frameCount)
+        {
+            return;
+        }
+
+        lastSkillRequestFrame = Time.frameCount;
+
         if (owner == null || owner.Object == null) return;
         if (owner.Owner == null) return;
         
@@ -343,6 +369,65 @@ public class StatusBarUI : MonoBehaviour
         uint networkId = owner.Object.Id.Raw;
         var command = new ActivateSkillCommand(owner.Owner.playerId, networkId);
         gm.CommandProcessor.RequestCommandExecution(command);
+    }
+
+    public static bool IsPointerOverActiveSkillButton(Vector2 screenPosition)
+    {
+        for (int i = ActiveStatusBars.Count - 1; i >= 0; i--)
+        {
+            var statusBar = ActiveStatusBars[i];
+            if (statusBar == null)
+            {
+                ActiveStatusBars.RemoveAt(i);
+                continue;
+            }
+
+            if (statusBar.isActiveAndEnabled && statusBar.IsPointerOverSkillButton(screenPosition))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsPointerOverSkillButton(Vector2 screenPosition)
+    {
+        if (skillButton == null || !skillButton.gameObject.activeInHierarchy || !skillButton.interactable)
+        {
+            return false;
+        }
+
+        var buttonRect = skillButton.transform as RectTransform;
+        if (buttonRect == null)
+        {
+            return false;
+        }
+
+        Camera eventCamera = null;
+        Canvas buttonCanvas = skillButton.GetComponentInParent<Canvas>();
+        if (buttonCanvas != null && buttonCanvas.renderMode != RenderMode.ScreenSpaceOverlay)
+        {
+            eventCamera = buttonCanvas.worldCamera != null ? buttonCanvas.worldCamera : ResolveCamera();
+        }
+
+        if (RectTransformUtility.RectangleContainsScreenPoint(buttonRect, screenPosition, eventCamera))
+        {
+            return true;
+        }
+
+        if (eventCamera != null)
+        {
+            return false;
+        }
+
+        buttonRect.GetWorldCorners(ButtonWorldCorners);
+        float minX = Mathf.Min(ButtonWorldCorners[0].x, ButtonWorldCorners[2].x);
+        float maxX = Mathf.Max(ButtonWorldCorners[0].x, ButtonWorldCorners[2].x);
+        float minY = Mathf.Min(ButtonWorldCorners[0].y, ButtonWorldCorners[2].y);
+        float maxY = Mathf.Max(ButtonWorldCorners[0].y, ButtonWorldCorners[2].y);
+        return screenPosition.x >= minX && screenPosition.x <= maxX &&
+               screenPosition.y >= minY && screenPosition.y <= maxY;
     }
 
     private Camera ResolveCamera()

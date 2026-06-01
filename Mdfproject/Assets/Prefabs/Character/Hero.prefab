@@ -136,7 +136,7 @@ MonoBehaviour:
   skillTriggerParam: SkillTrigger
   skillStateTag: Skill
   blockAttacksDuringSkill: 1
-  maxAttackAnimationsPerSecond: 4
+  maxAttackAnimationsPerSecond: 3
   baseAttackAnimationDuration: 1
 --- !u!61 &2958327059153163017
 BoxCollider2D:

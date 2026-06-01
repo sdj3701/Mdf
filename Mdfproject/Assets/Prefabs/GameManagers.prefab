@@ -102,4 +102,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   hitBufferSize: 256
   defaultProjectileSpeed: 20
-  _EventSequence: 0
+  _StatBuffSequence: 0
+  _StatusEffectSequence: 0
+  _ZoneSequence: 0

@@ -5,110 +5,138 @@ using UnityEngine;
 
 public class ProjectileVfxManager : MonoBehaviour
 {
+    public static ProjectileVfxManager Instance { get; private set; }
+
     [SerializeField] private VfxPoolManager pool;
     [SerializeField] private Transform vfxRoot;
     [SerializeField] private float minRemainingSeconds = 0.02f;
     [SerializeField] private float maxSpeed = 200f;
     [SerializeField] private bool alignToDirection = true;
-    
-    [Header("Network Compensation")]
-    [Tooltip("네트워크 지연이 있어도 투사체가 발사 위치에서 스폰되도록 progress를 제한합니다. 0이면 항상 발사 위치, 1이면 제한 없음")]
-    [SerializeField, Range(0f, 1f)] private float maxSpawnProgress = 0.3f;
 
-    private CombatScheduler _scheduler;
-    private int _lastProcessedSeq;
-    private bool _didCatchup;
-    private readonly List<CombatScheduler.ProjectileEventData> _catchupEvents = new List<CombatScheduler.ProjectileEventData>();
+    [Header("Network Compensation")]
+    [Tooltip("Limits spawn progress for delayed network events. 0 always spawns at fire position, 1 allows exact catch-up position.")]
+    [SerializeField, Range(0f, 1f)] private float maxSpawnProgress = 0.3f;
+    [SerializeField] private int catchUpBufferCapacity = 128;
+
+    private int _nextPresentationSequence;
     private readonly Dictionary<int, ActiveProjectile> _activeBySeq = new Dictionary<int, ActiveProjectile>();
     private readonly List<ActiveProjectile> _activeProjectiles = new List<ActiveProjectile>();
+    private readonly List<SkippedProjectileEvent> _skippedProjectileEvents = new List<SkippedProjectileEvent>();
 
     private class ActiveProjectile
     {
         public int Sequence;
         public int FireTick;
         public int HitTick;
+        public NetworkRunner Runner;
         public GameObject Instance;
+        public NetworkObject TargetObject;
+        public uint TargetNetworkIdRaw;
         public Transform TargetTransform;
+        public Unit TargetUnit;
+        public Monster TargetMonster;
         public Vector3 LastKnownTargetPos;
+        public Vector3 LastKnownDirection;
+        public ProjectileVfxConfig Config;
+    }
+
+    private struct SkippedProjectileEvent
+    {
+        public int FieldOwnerPlayerId;
+        public int FireTick;
+        public int HitTick;
+        public NetworkRunner Runner;
+        public NetworkId AttackerId;
+        public NetworkId TargetId;
+        public Vector3 FirePosition;
+        public Vector3 TargetPosition;
     }
 
     private void Awake()
     {
+        if (Instance == null || Instance == this)
+        {
+            Instance = this;
+        }
+
         if (pool == null)
         {
             pool = VfxPoolManager.Instance;
         }
     }
 
-    private static void LogProjectile(string message)
+    private void OnDestroy()
     {
-        Debug.Log(message);
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
+
+    private void OnEnable()
+    {
+        CameraManager.OnCurrentViewingFieldChanged += HandleViewingFieldChanged;
+    }
+
+    private void OnDisable()
+    {
+        CameraManager.OnCurrentViewingFieldChanged -= HandleViewingFieldChanged;
     }
 
     private void Update()
     {
-        if (_scheduler == null)
-        {
-            _scheduler = CombatScheduler.Instance;
-            if (_scheduler == null)
-            {
-                return;
-            }
-            LogProjectile($"[ProjectileVfxManager] Scheduler found: {_scheduler.name}, HasStateAuthority: {_scheduler.Object?.HasStateAuthority}");
-        }
-
-        if (_scheduler.Runner == null || !_scheduler.Runner.IsRunning)
-        {
-            return;
-        }
-
-        if (!_didCatchup)
-        {
-            CatchupInFlight();
-            _didCatchup = true;
-        }
-
-        ProcessNewEvents();
         UpdateActiveProjectiles();
+        PruneExpiredCatchUpEvents();
     }
 
-    private void CatchupInFlight()
+    public static void PlayFromCombatEvent(NetworkRunner runner, NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
     {
-        int nowTick = _scheduler.Runner.Tick;
-        _scheduler.GetInFlightEvents(nowTick, _catchupEvents);
-        for (int i = 0; i < _catchupEvents.Count; i++)
-        {
-            HandleProjectileEvent(_catchupEvents[i]);
-        }
-        _lastProcessedSeq = _scheduler.EventSequence;
-    }
-
-    private void ProcessNewEvents()
-    {
-        int currentSeq = _scheduler.EventSequence;
-        if (currentSeq <= 0)
+        ProjectileVfxManager manager = Instance != null
+            ? Instance
+            : UnityEngine.Object.FindObjectOfType<ProjectileVfxManager>();
+        if (manager == null || !manager.isActiveAndEnabled || runner == null || !runner.IsRunning)
         {
             return;
         }
 
-        int minSeq = Mathf.Max(1, currentSeq - _scheduler.EventCapacity + 1);
-        int startSeq = Mathf.Max(_lastProcessedSeq + 1, minSeq);
-
-        if (startSeq <= currentSeq)
+        if (attacker == null || target == null)
         {
-            Debug.Log($"[ProjectileVfxManager] Processing events {startSeq} to {currentSeq}");
+            return;
         }
 
-        for (int seq = startSeq; seq <= currentSeq; seq++)
+        manager.HandleProjectileEvent(new CombatScheduler.ProjectileEventData
         {
-            if (_scheduler.TryGetEvent(seq, out var evt))
-            {
-                Debug.Log($"[ProjectileVfxManager] Handling event seq={seq}, Attacker={(evt.Attacker != null ? evt.Attacker.name : "null")}, Target={(evt.Target != null ? evt.Target.name : "null")}");
-                HandleProjectileEvent(evt);
-            }
+            Sequence = manager.AllocatePresentationSequence(),
+            FireTick = fireTick,
+            HitTick = hitTick,
+            Runner = runner,
+            Attacker = attacker,
+            Target = target
+        });
+    }
+
+    public static void RecordSkippedCombatEvent(NetworkRunner runner, NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
+    {
+        ProjectileVfxManager manager = Instance != null
+            ? Instance
+            : UnityEngine.Object.FindObjectOfType<ProjectileVfxManager>();
+        if (manager == null || !manager.isActiveAndEnabled)
+        {
+            return;
         }
 
-        _lastProcessedSeq = currentSeq;
+        manager.RecordSkippedProjectileEvent(runner, attacker, target, fireTick, hitTick);
+    }
+
+    private int AllocatePresentationSequence()
+    {
+        if (_nextPresentationSequence == int.MaxValue)
+        {
+            _nextPresentationSequence = 0;
+        }
+
+        _nextPresentationSequence++;
+        return _nextPresentationSequence;
     }
 
     private void HandleProjectileEvent(CombatScheduler.ProjectileEventData evt)
@@ -121,54 +149,259 @@ public class ProjectileVfxManager : MonoBehaviour
         SpawnProjectileAsync(evt).Forget();
     }
 
+    private void RecordSkippedProjectileEvent(NetworkRunner runner, NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
+    {
+        if (runner == null || !runner.IsRunning || attacker == null || target == null)
+        {
+            return;
+        }
+
+        float nowTime = GetRenderTime(runner);
+        float hitTime = hitTick * runner.DeltaTime;
+        if (hitTime <= nowTime + minRemainingSeconds)
+        {
+            return;
+        }
+
+        int fieldOwnerPlayerId = LocalVfxVisibility.ResolveEventFieldOwnerPlayerId(attacker, target);
+        if (fieldOwnerPlayerId < 0)
+        {
+            return;
+        }
+
+        for (int i = 0; i < _skippedProjectileEvents.Count; i++)
+        {
+            SkippedProjectileEvent existing = _skippedProjectileEvents[i];
+            if (existing.Runner == runner &&
+                existing.AttackerId.Raw == attacker.Id.Raw &&
+                existing.TargetId.Raw == target.Id.Raw &&
+                existing.FireTick == fireTick &&
+                existing.HitTick == hitTick)
+            {
+                return;
+            }
+        }
+
+        var evt = new CombatScheduler.ProjectileEventData
+        {
+            Runner = runner,
+            Attacker = attacker,
+            Target = target,
+            FireTick = fireTick,
+            HitTick = hitTick
+        };
+        Vector3 firePosition = ResolveFirePosition(evt);
+
+        _skippedProjectileEvents.Add(new SkippedProjectileEvent
+        {
+            FieldOwnerPlayerId = fieldOwnerPlayerId,
+            FireTick = fireTick,
+            HitTick = hitTick,
+            Runner = runner,
+            AttackerId = attacker.Id,
+            TargetId = target.Id,
+            FirePosition = firePosition,
+            TargetPosition = ResolveTargetPosition(evt, firePosition)
+        });
+
+        TrimCatchUpBuffer();
+    }
+
+    private void HandleViewingFieldChanged(PlayerManager viewingField)
+    {
+        CatchUpVisibleProjectiles();
+    }
+
+    private void CatchUpVisibleProjectiles()
+    {
+        if (_skippedProjectileEvents.Count == 0)
+        {
+            return;
+        }
+
+        int viewedPlayerId = LocalVfxVisibility.ResolveViewedPlayerId();
+        if (viewedPlayerId < 0)
+        {
+            return;
+        }
+
+        for (int i = _skippedProjectileEvents.Count - 1; i >= 0; i--)
+        {
+            SkippedProjectileEvent skipped = _skippedProjectileEvents[i];
+            if (!IsCatchUpEventStillInFlight(skipped))
+            {
+                _skippedProjectileEvents.RemoveAt(i);
+                continue;
+            }
+
+            if (skipped.FieldOwnerPlayerId != viewedPlayerId)
+            {
+                continue;
+            }
+
+            if (!TryBuildCatchUpEvent(skipped, out CombatScheduler.ProjectileEventData evt))
+            {
+                _skippedProjectileEvents.RemoveAt(i);
+                continue;
+            }
+
+            _skippedProjectileEvents.RemoveAt(i);
+            HandleProjectileEvent(evt);
+        }
+    }
+
+    private bool TryBuildCatchUpEvent(SkippedProjectileEvent skipped, out CombatScheduler.ProjectileEventData evt)
+    {
+        evt = default;
+        NetworkRunner runner = skipped.Runner;
+        if (runner == null || !runner.IsRunning)
+        {
+            return false;
+        }
+
+        if (!runner.TryFindObject(skipped.AttackerId, out NetworkObject attacker) || attacker == null)
+        {
+            return false;
+        }
+
+        runner.TryFindObject(skipped.TargetId, out NetworkObject target);
+        evt = new CombatScheduler.ProjectileEventData
+        {
+            Sequence = AllocatePresentationSequence(),
+            FireTick = skipped.FireTick,
+            HitTick = skipped.HitTick,
+            Runner = runner,
+            Attacker = attacker,
+            Target = target,
+            HasFirePositionOverride = true,
+            HasTargetPositionOverride = true,
+            SuppressMuzzleFlash = true,
+            AllowFullCatchUp = true,
+            FirePositionOverride = skipped.FirePosition,
+            TargetPositionOverride = skipped.TargetPosition
+        };
+        return true;
+    }
+
+    private bool IsCatchUpEventStillInFlight(SkippedProjectileEvent skipped)
+    {
+        NetworkRunner runner = skipped.Runner;
+        if (runner == null || !runner.IsRunning)
+        {
+            return false;
+        }
+
+        float nowTime = GetRenderTime(runner);
+        float hitTime = skipped.HitTick * runner.DeltaTime;
+        return hitTime > nowTime + minRemainingSeconds;
+    }
+
+    private void PruneExpiredCatchUpEvents()
+    {
+        if (_skippedProjectileEvents.Count == 0)
+        {
+            return;
+        }
+
+        for (int i = _skippedProjectileEvents.Count - 1; i >= 0; i--)
+        {
+            if (!IsCatchUpEventStillInFlight(_skippedProjectileEvents[i]))
+            {
+                _skippedProjectileEvents.RemoveAt(i);
+            }
+        }
+    }
+
+    private void TrimCatchUpBuffer()
+    {
+        int capacity = Mathf.Max(0, catchUpBufferCapacity);
+        if (capacity == 0)
+        {
+            _skippedProjectileEvents.Clear();
+            return;
+        }
+
+        while (_skippedProjectileEvents.Count > capacity)
+        {
+            _skippedProjectileEvents.RemoveAt(0);
+        }
+    }
+
     private async UniTaskVoid SpawnProjectileAsync(CombatScheduler.ProjectileEventData evt)
     {
-        var runner = _scheduler.Runner;
+        var runner = evt.Runner;
         if (runner == null)
         {
             Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Runner is null (seq={evt.Sequence})");
             return;
         }
 
+        if (!TryResolveProjectileVfx(evt, out var config))
+        {
+            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Could not resolve projectile VFX config (seq={evt.Sequence}, Attacker={(evt.Attacker != null ? evt.Attacker.name : "null")})");
+            return;
+        }
+
+        Vector3 firePos = ResolveFirePosition(evt);
+        Vector3 targetPos = ResolveTargetPosition(evt, firePos);
+        Vector3 projectileFirePos = ApplyProjectileVisualHeight(firePos, config);
+        Vector3 projectileTargetPos = ApplyProjectileVisualHeight(targetPos, config);
+        Vector3 travelDirection = ResolveTravelDirection(projectileFirePos, projectileTargetPos, evt.Attacker);
         float nowTime = GetRenderTime(runner);
+        float fireTime = evt.FireTick * runner.DeltaTime;
         float hitTime = evt.HitTick * runner.DeltaTime;
+
         if (hitTime <= nowTime)
         {
             Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
+            SpawnImpactFlashAsync(config, targetPos, travelDirection).Forget();
             return;
         }
 
-        if (!TryResolveProjectileKey(evt, out var projectileKey))
+        if (!evt.SuppressMuzzleFlash)
         {
-            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Could not resolve projectile key (seq={evt.Sequence}, Attacker={(evt.Attacker != null ? evt.Attacker.name : "null")})");
-            return;
+            SpawnMuzzleFlashAsync(config, firePos, travelDirection).Forget();
         }
 
+        string projectileKey = config.projectileKey;
         Debug.Log($"[ProjectileVfxManager] Loading projectile: {projectileKey} (seq={evt.Sequence})");
 
         GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
-        nowTime = GetRenderTime(runner);
-        hitTime = evt.HitTick * runner.DeltaTime;
         if (prefab == null)
         {
             Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Prefab load returned null for key '{projectileKey}' (seq={evt.Sequence})");
             return;
         }
-        if (hitTime <= nowTime)
+
+        if (this == null || !isActiveAndEnabled || runner == null || !runner.IsRunning)
         {
-            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED after load: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
             return;
         }
 
-        Vector3 firePos = ResolveFirePosition(evt);
-        float fireTime = evt.FireTick * runner.DeltaTime;
-        Vector3 spawnPos = CalculateSpawnPosition(firePos, evt, fireTime, hitTime, nowTime);
-        
+        nowTime = GetRenderTime(runner);
+        hitTime = evt.HitTick * runner.DeltaTime;
+        firePos = ResolveFirePosition(evt);
+        targetPos = ResolveTargetPositionIfTrackable(evt.Target, targetPos);
+        projectileFirePos = ApplyProjectileVisualHeight(firePos, config);
+        projectileTargetPos = ApplyProjectileVisualHeight(targetPos, config);
+        travelDirection = ResolveTravelDirection(projectileFirePos, projectileTargetPos, evt.Attacker);
+
+        if (hitTime <= nowTime)
+        {
+            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED after load: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
+            SpawnImpactFlashAsync(config, targetPos, travelDirection).Forget();
+            return;
+        }
+
+        Vector3 pathPos = CalculateSpawnPosition(projectileFirePos, projectileTargetPos, fireTime, hitTime, nowTime, evt.AllowFullCatchUp);
+        Quaternion projectileRotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(travelDirection, config.alignProjectileToDirection && alignToDirection, config.projectileRotationOffsetEuler);
+        Vector3 spawnPos = ProjectileVfxRuntimeUtility.ApplyLocalOffset(pathPos, projectileRotation, config.projectileLocalPositionOffset);
+
         Debug.Log($"[ProjectileVfxManager] Spawning projectile at {spawnPos}, pool={(pool != null ? "exists" : "null")}, vfxRoot={(vfxRoot != null ? vfxRoot.name : "null")} (seq={evt.Sequence})");
-        
+
         GameObject instance = pool != null
-            ? pool.Spawn(prefab, spawnPos, Quaternion.identity, vfxRoot)
-            : Instantiate(prefab, spawnPos, Quaternion.identity, vfxRoot);
+            ? pool.Spawn(prefab, spawnPos, projectileRotation, vfxRoot)
+            : Instantiate(prefab, spawnPos, projectileRotation, vfxRoot);
 
         if (instance == null)
         {
@@ -176,129 +409,128 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        Debug.Log($"[ProjectileVfxManager] Projectile spawned successfully: {instance.name} (seq={evt.Sequence})");
+        instance.transform.localScale = ProjectileVfxRuntimeUtility.MultiplyScale(prefab.transform.localScale, config.ResolveProjectileScaleMultiplierVector());
+        float dynamicLightIntensity = config.ResolveProjectileDynamicLightIntensity();
+        float dynamicLightRange = config.ResolveProjectileDynamicLightRange();
+        ProjectileVfxRuntimeUtility.PrepareVisualProjectile(instance, dynamicLightIntensity, dynamicLightRange);
+        ProjectileVfxRuntimeUtility.RestartParticles(instance, config.ResolveProjectilePlaybackSpeed(), dynamicLightIntensity, dynamicLightRange);
+        CancelAutoDestroy(instance);
 
-        var projectile = instance.GetComponent<Projectile>();
-        if (projectile != null)
-        {
-            projectile.SetVisualOnly(true);
-        }
+        Debug.Log($"[ProjectileVfxManager] Projectile spawned successfully: {instance.name} (seq={evt.Sequence})");
 
         var active = new ActiveProjectile
         {
             Sequence = evt.Sequence,
             FireTick = evt.FireTick,
             HitTick = evt.HitTick,
+            Runner = runner,
             Instance = instance,
-            TargetTransform = evt.Target != null ? evt.Target.transform : null,
-            LastKnownTargetPos = evt.Target != null ? evt.Target.transform.position : firePos
+            LastKnownTargetPos = targetPos,
+            LastKnownDirection = travelDirection,
+            Config = config
         };
+        BindTarget(active, evt.Target);
 
         _activeBySeq[evt.Sequence] = active;
         _activeProjectiles.Add(active);
     }
 
-    private Vector3 CalculateSpawnPosition(Vector3 firePos, CombatScheduler.ProjectileEventData evt, float fireTime, float hitTime, float nowTime)
+    private Vector3 CalculateSpawnPosition(Vector3 firePos, Vector3 targetPos, float fireTime, float hitTime, float nowTime, bool allowFullCatchUp)
     {
         float totalTime = Mathf.Max(0.0001f, hitTime - fireTime);
         float rawProgress = Mathf.Clamp01((nowTime - fireTime) / totalTime);
-        
-        // 네트워크 지연이 있어도 발사 위치 근처에서 스폰되도록 progress 제한
-        // maxSpawnProgress=0.3이면 최대 30% 위치에서 스폰 (나머지는 빠르게 따라잡음)
-        float progress = Mathf.Min(rawProgress, maxSpawnProgress);
-        
-        Vector3 targetPos = evt.Target != null ? evt.Target.transform.position : firePos;
+        float progress = allowFullCatchUp ? rawProgress : Mathf.Min(rawProgress, maxSpawnProgress);
         return Vector3.Lerp(firePos, targetPos, progress);
     }
 
-    private bool TryResolveProjectileKey(CombatScheduler.ProjectileEventData evt, out string projectileKey)
+    private bool TryResolveProjectileVfx(CombatScheduler.ProjectileEventData evt, out ProjectileVfxConfig config)
     {
-        projectileKey = null;
+        config = null;
         if (evt.Attacker == null)
         {
             return false;
         }
 
-        // Unit 투사체 시도
         var unit = evt.Attacker.GetComponent<Unit>();
-        if (unit != null && unit.Data != null && unit.Data.projectilePrefabsByStarLevel != null)
+        if (unit != null && unit.Data != null)
         {
-            int starIndex = Mathf.Clamp(unit.starLevel - 1, 0, unit.Data.projectilePrefabsByStarLevel.Length - 1);
-            projectileKey = unit.Data.projectilePrefabsByStarLevel[starIndex];
+            config = unit.Data.GetProjectileVfxConfig();
+            return config != null && config.HasProjectileKey;
+        }
+
+        var monster = evt.Attacker.GetComponent<Monster>();
+        if (monster != null && TryResolveMonsterProjectileKey(evt, monster, out string monsterProjectileKey))
+        {
+            config = ProjectileVfxConfig.CreateDefault(monsterProjectileKey);
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryResolveMonsterProjectileKey(CombatScheduler.ProjectileEventData evt, Monster monster, out string projectileKey)
+    {
+        projectileKey = null;
+
+        if (monster.Data != null)
+        {
+            projectileKey = monster.Data.projectilePrefab;
             if (!string.IsNullOrEmpty(projectileKey))
             {
                 return true;
             }
+
+            Debug.LogWarning($"[ProjectileVfxManager] Monster '{monster.name}' has Data but projectilePrefab is empty!");
+            return false;
         }
 
-        // Monster 투사체 시도
-        var monster = evt.Attacker.GetComponent<Monster>();
-        if (monster != null)
+        string monsterName = evt.Attacker.name.Replace("(Clone)", "").Trim();
+        Debug.Log($"[ProjectileVfxManager] Monster '{monsterName}' Data is null, trying prefab cache fallback...");
+
+        var prefab = AssetLoader.GetCachedAsset<GameObject>(monsterName);
+        if (prefab == null)
         {
-            // Data가 있으면 바로 사용
-            if (monster.Data != null)
-            {
-                projectileKey = monster.Data.projectilePrefab;
-                if (!string.IsNullOrEmpty(projectileKey))
-                {
-                    return true;
-                }
-                Debug.LogWarning($"[ProjectileVfxManager] Monster '{monster.name}' has Data but projectilePrefab is empty!");
-            }
-            else
-            {
-                // 클라이언트에서 Data가 아직 초기화 안된 경우 (RPC 지연)
-                // 게임오브젝트 이름에서 프리팹 키 추론하여 프리팹의 MonsterData 참조
-                string monsterName = evt.Attacker.name.Replace("(Clone)", "").Trim();
-                Debug.Log($"[ProjectileVfxManager] Monster '{monsterName}' Data is null, trying prefab cache fallback...");
-                
-                // 이미 로드된 프리팹에서 MonsterData 가져오기 시도
-                // AssetLoader의 캐시에서 동기적으로 가져옴 (이미 로드된 경우만)
-                var prefab = AssetLoader.GetCachedAsset<GameObject>(monsterName);
-                if (prefab != null)
-                {
-                    var prefabMonster = prefab.GetComponent<Monster>();
-                    if (prefabMonster != null && prefabMonster.Data != null)
-                    {
-                        projectileKey = prefabMonster.Data.projectilePrefab;
-                        if (!string.IsNullOrEmpty(projectileKey))
-                        {
-                            Debug.Log($"[ProjectileVfxManager] Monster Data fallback from prefab: {monsterName} -> {projectileKey}");
-                            return true;
-                        }
-                        Debug.LogWarning($"[ProjectileVfxManager] Prefab monster '{monsterName}' has Data but projectilePrefab is empty!");
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"[ProjectileVfxManager] Prefab '{monsterName}' found but Monster component or Data is null");
-                    }
-                }
-                else
-                {
-                    Debug.LogWarning($"[ProjectileVfxManager] Monster '{monsterName}' prefab not found in AssetLoader cache");
-                }
-            }
+            Debug.LogWarning($"[ProjectileVfxManager] Monster '{monsterName}' prefab not found in AssetLoader cache");
+            return false;
         }
 
+        var prefabMonster = prefab.GetComponent<Monster>();
+        if (prefabMonster == null || prefabMonster.Data == null)
+        {
+            Debug.LogWarning($"[ProjectileVfxManager] Prefab '{monsterName}' found but Monster component or Data is null");
+            return false;
+        }
+
+        projectileKey = prefabMonster.Data.projectilePrefab;
+        if (!string.IsNullOrEmpty(projectileKey))
+        {
+            Debug.Log($"[ProjectileVfxManager] Monster Data fallback from prefab: {monsterName} -> {projectileKey}");
+            return true;
+        }
+
+        Debug.LogWarning($"[ProjectileVfxManager] Prefab monster '{monsterName}' has Data but projectilePrefab is empty!");
         return false;
     }
 
     // Fire position is resolved from the attacker to keep network payload small.
     private Vector3 ResolveFirePosition(CombatScheduler.ProjectileEventData evt)
     {
+        if (evt.HasFirePositionOverride)
+        {
+            return evt.FirePositionOverride;
+        }
+
         if (evt.Attacker == null)
         {
             return Vector3.zero;
         }
 
-        // Unit 발사 위치
         var unit = evt.Attacker.GetComponent<Unit>();
         if (unit != null && unit.firePoint != null)
         {
             return unit.firePoint.position;
         }
 
-        // Monster 발사 위치 (firePoint가 있으면 사용, 없으면 오프셋)
         var monster = evt.Attacker.GetComponent<Monster>();
         if (monster != null)
         {
@@ -306,15 +538,267 @@ public class ProjectileVfxManager : MonoBehaviour
             {
                 return monster.firePoint.position;
             }
+
             return evt.Attacker.transform.position + Vector3.up * 0.5f;
         }
 
         return evt.Attacker.transform.position;
     }
 
+    private static Vector3 ResolveTargetPosition(CombatScheduler.ProjectileEventData evt, Vector3 fallback)
+    {
+        if (evt.HasTargetPositionOverride)
+        {
+            return evt.TargetPositionOverride;
+        }
+
+        return evt.Target != null ? evt.Target.transform.position : fallback;
+    }
+
+    private static Vector3 ResolveTargetPositionIfTrackable(NetworkObject target, Vector3 fallback)
+    {
+        if (target == null)
+        {
+            return fallback;
+        }
+
+        Transform targetTransform = target.transform;
+        uint targetNetworkIdRaw = target.IsValid ? target.Id.Raw : 0;
+        Unit targetUnit = target.GetComponent<Unit>();
+        Monster targetMonster = target.GetComponent<Monster>();
+        return IsTrackedTargetStillLive(targetTransform, target, targetNetworkIdRaw, targetUnit, targetMonster)
+            ? targetTransform.position
+            : fallback;
+    }
+
+    private static void BindTarget(ActiveProjectile active, NetworkObject target)
+    {
+        if (active == null || target == null)
+        {
+            return;
+        }
+
+        active.TargetObject = target;
+        active.TargetNetworkIdRaw = target.IsValid ? target.Id.Raw : 0;
+        active.TargetTransform = target.transform;
+        active.TargetUnit = target.GetComponent<Unit>();
+        active.TargetMonster = target.GetComponent<Monster>();
+
+        if (!IsTrackedTargetStillLive(active))
+        {
+            FreezeTrackedTarget(active);
+        }
+    }
+
+    private static bool TryRefreshTrackedTargetPosition(ActiveProjectile active, out Vector3 targetOrigin)
+    {
+        targetOrigin = active.LastKnownTargetPos;
+        if (active.TargetTransform == null)
+        {
+            return false;
+        }
+
+        if (!IsTrackedTargetStillLive(active))
+        {
+            FreezeTrackedTarget(active);
+            return false;
+        }
+
+        targetOrigin = active.TargetTransform.position;
+        active.LastKnownTargetPos = targetOrigin;
+        return true;
+    }
+
+    private static bool IsTrackedTargetStillLive(ActiveProjectile active)
+    {
+        if (active == null)
+        {
+            return false;
+        }
+
+        return IsTrackedTargetStillLive(
+            active.TargetTransform,
+            active.TargetObject,
+            active.TargetNetworkIdRaw,
+            active.TargetUnit,
+            active.TargetMonster);
+    }
+
+    private static bool IsTrackedTargetStillLive(
+        Transform targetTransform,
+        NetworkObject targetObject,
+        uint targetNetworkIdRaw,
+        Unit targetUnit,
+        Monster targetMonster)
+    {
+        if (targetTransform == null)
+        {
+            return false;
+        }
+
+        GameObject targetGameObject = targetTransform.gameObject;
+        if (targetGameObject == null || !targetGameObject.activeInHierarchy)
+        {
+            return false;
+        }
+
+        if (targetObject != null)
+        {
+            if (!targetObject.IsValid)
+            {
+                return false;
+            }
+
+            if (targetNetworkIdRaw != 0 && targetObject.Id.Raw != targetNetworkIdRaw)
+            {
+                return false;
+            }
+        }
+
+        if (targetUnit != null)
+        {
+            if (targetUnit.IsDead)
+            {
+                return false;
+            }
+
+            NetworkObject unitObject = targetUnit.Object;
+            if (unitObject != null && unitObject.IsValid && targetUnit.NetworkedIsDead)
+            {
+                return false;
+            }
+        }
+
+        if (targetMonster != null && targetMonster.currentHP <= 0f)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static void FreezeTrackedTarget(ActiveProjectile active)
+    {
+        active.TargetObject = null;
+        active.TargetNetworkIdRaw = 0;
+        active.TargetTransform = null;
+        active.TargetUnit = null;
+        active.TargetMonster = null;
+    }
+
+    private static Vector3 ResolveTravelDirection(Vector3 from, Vector3 to, Component attacker)
+    {
+        Vector3 direction = to - from;
+        if (direction.sqrMagnitude > 1e-6f)
+        {
+            return direction.normalized;
+        }
+
+        return attacker != null ? attacker.transform.forward : Vector3.forward;
+    }
+
+    private static Vector3 ApplyProjectileVisualHeight(Vector3 position, ProjectileVfxConfig config)
+    {
+        float visualHeightOffset = config != null ? config.ResolveProjectileVisualHeightOffset() : 0f;
+        return position + Vector3.up * visualHeightOffset;
+    }
+
     private static float GetRenderTime(NetworkRunner runner)
     {
         return runner != null ? (float)runner.LocalRenderTime : Time.time;
+    }
+
+    private async UniTaskVoid SpawnMuzzleFlashAsync(ProjectileVfxConfig config, Vector3 firePos, Vector3 direction)
+    {
+        if (config == null || !config.HasMuzzleFlashKey)
+        {
+            return;
+        }
+
+        Quaternion rotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(direction, true, config.muzzleRotationOffsetEuler);
+        Vector3 position = ProjectileVfxRuntimeUtility.ApplyLocalOffset(firePos, rotation, config.muzzleLocalPositionOffset);
+        await SpawnOneShotVfxAsync(
+            config.muzzleFlashKey,
+            position,
+            rotation,
+            config.ResolveMuzzleScaleMultiplierVector(),
+            config.ResolveMuzzlePlaybackSpeed(),
+            config.ResolveMuzzleLifetimeSeconds());
+    }
+
+    private async UniTaskVoid SpawnImpactFlashAsync(ProjectileVfxConfig config, Vector3 targetPos, Vector3 direction)
+    {
+        if (config == null || !config.HasImpactFlashKey)
+        {
+            return;
+        }
+
+        Quaternion rotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(direction, config.alignImpactToDirection, config.impactRotationOffsetEuler);
+        Vector3 position = ProjectileVfxRuntimeUtility.ApplyLocalOffset(targetPos, rotation, config.impactLocalPositionOffset);
+        await SpawnOneShotVfxAsync(
+            config.impactFlashKey,
+            position,
+            rotation,
+            config.ResolveImpactScaleMultiplierVector(),
+            config.ResolveImpactPlaybackSpeed(),
+            config.ResolveImpactLifetimeSeconds());
+    }
+
+    private async UniTask SpawnOneShotVfxAsync(string key, Vector3 position, Quaternion rotation, Vector3 scaleMultiplier, float playbackSpeed, float lifetimeSeconds)
+    {
+        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(key);
+        if (prefab == null)
+        {
+            Debug.LogWarning($"[ProjectileVfxManager] One-shot VFX load failed: {key}");
+            return;
+        }
+
+        if (this == null || !isActiveAndEnabled)
+        {
+            return;
+        }
+
+        GameObject instance = pool != null
+            ? pool.Spawn(prefab, position, rotation, vfxRoot)
+            : Instantiate(prefab, position, rotation, vfxRoot);
+
+        if (instance == null)
+        {
+            Debug.LogWarning($"[ProjectileVfxManager] One-shot VFX spawn failed: {key}");
+            return;
+        }
+
+        instance.transform.localScale = ProjectileVfxRuntimeUtility.MultiplyScale(prefab.transform.localScale, scaleMultiplier);
+        ProjectileVfxRuntimeUtility.RestartParticles(instance, playbackSpeed);
+        EnsureAutoDestroy(instance, Mathf.Max(0.01f, lifetimeSeconds));
+    }
+
+    private static void EnsureAutoDestroy(GameObject instance, float lifetimeSeconds)
+    {
+        if (instance == null)
+        {
+            return;
+        }
+
+        if (!instance.TryGetComponent<VFXAutoDestroy>(out var autoDestroy))
+        {
+            autoDestroy = instance.AddComponent<VFXAutoDestroy>();
+        }
+
+        autoDestroy.Initialize(lifetimeSeconds);
+    }
+
+    private static void CancelAutoDestroy(GameObject instance)
+    {
+        if (instance == null)
+        {
+            return;
+        }
+
+        if (instance.TryGetComponent<VFXAutoDestroy>(out var autoDestroy))
+        {
+            autoDestroy.Cancel();
+        }
     }
 
     private void UpdateActiveProjectiles()
@@ -324,17 +808,18 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        var runner = _scheduler.Runner;
-        if (runner == null)
-        {
-            return;
-        }
-
-        float nowTime = GetRenderTime(runner);
-
         for (int i = _activeProjectiles.Count - 1; i >= 0; i--)
         {
             var active = _activeProjectiles[i];
+            var runner = active.Runner;
+            if (runner == null || !runner.IsRunning)
+            {
+                DespawnProjectile(active);
+                RemoveActive(active);
+                continue;
+            }
+
+            float nowTime = GetRenderTime(runner);
             if (active.Instance == null)
             {
                 RemoveActive(active);
@@ -344,18 +829,24 @@ public class ProjectileVfxManager : MonoBehaviour
             float hitTime = active.HitTick * runner.DeltaTime;
             if (nowTime >= hitTime)
             {
+                SpawnImpactFlashAsync(active.Config, active.LastKnownTargetPos, active.LastKnownDirection).Forget();
                 DespawnProjectile(active);
                 RemoveActive(active);
                 continue;
             }
 
-            Vector3 targetPos = active.LastKnownTargetPos;
-            if (active.TargetTransform != null)
+            TryRefreshTrackedTargetPosition(active, out Vector3 targetOrigin);
+
+            ProjectileVfxConfig config = active.Config ?? ProjectileVfxConfig.CreateDefault();
+            Vector3 visualTargetOrigin = ApplyProjectileVisualHeight(targetOrigin, config);
+            Vector3 targetDirection = visualTargetOrigin - active.Instance.transform.position;
+            if (targetDirection.sqrMagnitude > 1e-6f)
             {
-                targetPos = active.TargetTransform.position;
-                active.LastKnownTargetPos = targetPos;
+                active.LastKnownDirection = targetDirection.normalized;
             }
 
+            Quaternion rotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(active.LastKnownDirection, config.alignProjectileToDirection && alignToDirection, config.projectileRotationOffsetEuler);
+            Vector3 targetPos = ProjectileVfxRuntimeUtility.ApplyLocalOffset(visualTargetOrigin, rotation, config.projectileLocalPositionOffset);
             Vector3 direction = targetPos - active.Instance.transform.position;
             float remainingSeconds = Mathf.Max(minRemainingSeconds, hitTime - nowTime);
             float distance = direction.magnitude;
@@ -381,9 +872,9 @@ public class ProjectileVfxManager : MonoBehaviour
                 active.Instance.transform.position += step;
             }
 
-            if (alignToDirection)
+            if (alignToDirection && config.alignProjectileToDirection)
             {
-                active.Instance.transform.rotation = Quaternion.LookRotation(direction.normalized, Vector3.up);
+                active.Instance.transform.rotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(direction.normalized, true, config.projectileRotationOffsetEuler);
             }
         }
     }

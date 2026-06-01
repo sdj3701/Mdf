@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: UnitData_Cleric
   m_EditorClassIdentifier: 
   unitName: Cleric
-  unitIcon: Spr_Port_Archer
+  unitIcon: Spr_Port_Cleric
   cost: 2
   unitType: 1
   baseHealth: 35
@@ -37,8 +37,5 @@ MonoBehaviour:
   - Skill_Heal
   - Skill_Heal
   - Skill_Heal
-  projectilePrefabsByStarLevel:
-  - BaseProjectile
-  - BaseProjectile
-  - BaseProjectile
-  projectileSpeed: 10
+  basicAttackVfxProfile: {fileID: 11400000, guid: c46eaec223e9c5f419513f063682577d,
+    type: 2}

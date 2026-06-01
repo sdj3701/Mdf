@@ -104,6 +104,15 @@ public class HostMigrationHandler : MonoBehaviour
     private float _cachedGameDataCapturedRealtime = -1f;
     private Dictionary<string, PlayerMigrationData> _cachedPlayerData = new Dictionary<string, PlayerMigrationData>();
     private Dictionary<int, DurablePlayerMigrationSnapshot> _cachedDurablePlayersById = new Dictionary<int, DurablePlayerMigrationSnapshot>();
+    private readonly List<CombatScheduler.ZoneMigrationSnapshot> _cachedZonesForMigration = new List<CombatScheduler.ZoneMigrationSnapshot>();
+    private readonly List<CombatScheduler.StatBuffMigrationSnapshot> _cachedStatBuffsForMigration = new List<CombatScheduler.StatBuffMigrationSnapshot>();
+    private readonly List<CombatScheduler.StatusEffectMigrationSnapshot> _cachedStatusEffectsForMigration = new List<CombatScheduler.StatusEffectMigrationSnapshot>();
+    private readonly List<CombatScheduler.PendingFireMigrationSnapshot> _cachedPendingFiresForMigration = new List<CombatScheduler.PendingFireMigrationSnapshot>();
+    private readonly List<CombatScheduler.PendingHitMigrationSnapshot> _cachedPendingHitsForMigration = new List<CombatScheduler.PendingHitMigrationSnapshot>();
+    private int _cachedZoneSourceTick;
+    private int _cachedStatBuffSourceTick;
+    private int _cachedStatusEffectSourceTick;
+    private int _cachedPendingCombatSourceTick;
     
     // 마이그레이션 상태
     private bool _isMigrating = false;
@@ -260,6 +269,10 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         CaptureDurablePlayerState(runner, sourceGameManagers);
+        CaptureDurableZones(runner, sourceGameManagers);
+        CaptureDurableStatBuffs(runner, sourceGameManagers);
+        CaptureDurableStatusEffects(runner, sourceGameManagers);
+        CaptureDurablePendingCombat(runner, sourceGameManagers);
         InferCachedGameStateFromDurablePlayersIfNeeded();
     }
 
@@ -727,6 +740,7 @@ public class HostMigrationHandler : MonoBehaviour
             
             GameManagers.Instance = restoredGM;
             _restoredGameManagersCandidate = restoredGM;
+            RebindCombatSchedulerForGameManagers(restoredGM, "HostMigrationResume.RestoredGameManagers");
             
             // 새 Host라면 StateAuthority 요청
             if (runner.IsServer && restoredGM.Object != null && !restoredGM.Object.HasStateAuthority)
@@ -1005,6 +1019,10 @@ public class HostMigrationHandler : MonoBehaviour
                 Debug.Log("[STEP 5.3] RestoreAfterHostMigration 호출...");
                 gm.RestoreAfterHostMigration();
                 ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
+                RestoreCachedZonesForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
+                RestoreCachedStatBuffsForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
+                RestoreCachedStatusEffectsForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
+                RestoreCachedPendingCombatForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
                 _migrationRecoverySucceeded = true;
                 
                 Debug.Log("<color=green>[STEP 5.4] GameManagers 로컬 상태 복원 완료!</color>");
@@ -1040,6 +1058,10 @@ public class HostMigrationHandler : MonoBehaviour
                 ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout");
                 timeoutGM.RestoreAfterHostMigration();
                 ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
+                RestoreCachedZonesForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
+                RestoreCachedStatBuffsForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
+                RestoreCachedStatusEffectsForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
+                RestoreCachedPendingCombatForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
                 Debug.Log("<color=yellow>[STEP 5] 대기 타임아웃 후 복원 완료 (안전 게이트 통과)</color>");
                 _migrationRecoverySucceeded = true;
             }
@@ -1287,8 +1309,24 @@ public class HostMigrationHandler : MonoBehaviour
     {
         if (expectedRunner == null) return null;
 
+        if (_restoredGameManagersCandidate != null
+            && _restoredGameManagersCandidate.Runner == expectedRunner
+            && _restoredGameManagersCandidate.Object != null
+            && _restoredGameManagersCandidate.Object.IsValid)
+        {
+            if (GameManagers.Instance != _restoredGameManagersCandidate)
+            {
+                Debug.Log($"<color=magenta>[HostMigrationHandler] GameManagers.Instance 복원 후보 우선 재바인딩: oldRunner={(GameManagers.Instance?.Runner != null ? GameManagers.Instance.Runner.name : "null")} -> newRunner={expectedRunner.name}</color>");
+                GameManagers.Instance = _restoredGameManagersCandidate;
+            }
+
+            RebindCombatSchedulerForGameManagers(_restoredGameManagersCandidate, "ResolveGameManagersForRunner.RestoredCandidate");
+            return _restoredGameManagersCandidate;
+        }
+
         if (GameManagers.Instance != null && GameManagers.Instance.Runner == expectedRunner)
         {
+            RebindCombatSchedulerForGameManagers(GameManagers.Instance, "ResolveGameManagersForRunner.StaticInstance");
             return GameManagers.Instance;
         }
 
@@ -1321,6 +1359,7 @@ public class HostMigrationHandler : MonoBehaviour
         {
             Debug.Log($"<color=magenta>[HostMigrationHandler] GameManagers.Instance 재바인딩: oldRunner={(GameManagers.Instance?.Runner != null ? GameManagers.Instance.Runner.name : "null")} -> newRunner={expectedRunner.name}</color>");
             GameManagers.Instance = candidate;
+            RebindCombatSchedulerForGameManagers(candidate, "ResolveGameManagersForRunner.Candidate");
         }
 
         if (candidate == null && (Time.unscaledTime - _lastResolveDebugLogTime) > 0.5f)
@@ -1330,6 +1369,20 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         return candidate;
+    }
+
+    private static void RebindCombatSchedulerForGameManagers(GameManagers gameManagers, string reason)
+    {
+        if (gameManagers == null)
+        {
+            return;
+        }
+
+        var scheduler = gameManagers.GetComponent<CombatScheduler>();
+        if (scheduler != null)
+        {
+            CombatScheduler.RebindInstanceForMigration(scheduler, reason);
+        }
     }
 
     private static string DescribeRunner(NetworkRunner runner)
@@ -1396,6 +1449,235 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         return sb.ToString();
+    }
+
+    private void CaptureDurableZones(NetworkRunner runner, GameManagers gm)
+    {
+        _cachedZonesForMigration.Clear();
+        _cachedZoneSourceTick = runner != null ? runner.Tick : 0;
+
+        CombatScheduler scheduler = gm != null
+            ? gm.GetComponent<CombatScheduler>()
+            : null;
+        if (scheduler == null)
+        {
+            scheduler = CombatScheduler.Instance;
+        }
+
+        int captured = scheduler != null
+            ? scheduler.CaptureZonesForMigration(_cachedZonesForMigration)
+            : 0;
+
+        Debug.Log($"[HostMigrationHandler] durable zone snapshot captured. count={captured}, sourceTick={_cachedZoneSourceTick}, scheduler={(scheduler != null ? scheduler.name : "null")}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_zone_snapshot_captured", runner, null, new Dictionary<string, object>
+        {
+            { "zoneCount", captured },
+            { "sourceTick", _cachedZoneSourceTick }
+        });
+#endif
+    }
+
+    private void RestoreCachedZonesForMigration(GameManagers gm, string context)
+    {
+        if (_cachedZonesForMigration.Count == 0 || gm == null)
+        {
+            return;
+        }
+
+        CombatScheduler scheduler = gm.GetComponent<CombatScheduler>();
+        if (scheduler == null)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] zone restore skipped: CombatScheduler missing. context={context}");
+            return;
+        }
+
+        CombatScheduler.RebindInstanceForMigration(scheduler, $"{context}.Zones");
+        int restored = scheduler.RestoreZonesFromMigration(_cachedZonesForMigration, context);
+        Debug.Log($"[HostMigrationHandler] durable zone snapshot restored. restored={restored}/{_cachedZonesForMigration.Count}, sourceTick={_cachedZoneSourceTick}, context={context}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_zone_snapshot_restored", gm.Runner, null, new Dictionary<string, object>
+        {
+            { "restoredZoneCount", restored },
+            { "cachedZoneCount", _cachedZonesForMigration.Count },
+            { "sourceTick", _cachedZoneSourceTick },
+            { "context", context }
+        });
+#endif
+    }
+
+    private void CaptureDurableStatBuffs(NetworkRunner runner, GameManagers gm)
+    {
+        _cachedStatBuffsForMigration.Clear();
+        _cachedStatBuffSourceTick = runner != null ? runner.Tick : 0;
+
+        CombatScheduler scheduler = gm != null
+            ? gm.GetComponent<CombatScheduler>()
+            : null;
+        if (scheduler == null)
+        {
+            scheduler = CombatScheduler.Instance;
+        }
+
+        int captured = scheduler != null
+            ? scheduler.CaptureStatBuffsForMigration(_cachedStatBuffsForMigration)
+            : 0;
+
+        Debug.Log($"[HostMigrationHandler] durable stat buff snapshot captured. count={captured}, sourceTick={_cachedStatBuffSourceTick}, scheduler={(scheduler != null ? scheduler.name : "null")}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_stat_buff_snapshot_captured", runner, null, new Dictionary<string, object>
+        {
+            { "statBuffCount", captured },
+            { "sourceTick", _cachedStatBuffSourceTick }
+        });
+#endif
+    }
+
+    private void RestoreCachedStatBuffsForMigration(GameManagers gm, string context)
+    {
+        if (_cachedStatBuffsForMigration.Count == 0 || gm == null)
+        {
+            return;
+        }
+
+        CombatScheduler scheduler = gm.GetComponent<CombatScheduler>();
+        if (scheduler == null)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] stat buff restore skipped: CombatScheduler missing. context={context}");
+            return;
+        }
+
+        CombatScheduler.RebindInstanceForMigration(scheduler, $"{context}.StatBuffs");
+        int restored = scheduler.RestoreStatBuffsFromMigration(_cachedStatBuffsForMigration, context);
+        Debug.Log($"[HostMigrationHandler] durable stat buff snapshot restored. restored={restored}/{_cachedStatBuffsForMigration.Count}, sourceTick={_cachedStatBuffSourceTick}, context={context}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_stat_buff_snapshot_restored", gm.Runner, null, new Dictionary<string, object>
+        {
+            { "restoredStatBuffCount", restored },
+            { "cachedStatBuffCount", _cachedStatBuffsForMigration.Count },
+            { "sourceTick", _cachedStatBuffSourceTick },
+            { "context", context }
+        });
+#endif
+    }
+
+    private void CaptureDurableStatusEffects(NetworkRunner runner, GameManagers gm)
+    {
+        _cachedStatusEffectsForMigration.Clear();
+        _cachedStatusEffectSourceTick = runner != null ? runner.Tick : 0;
+
+        CombatScheduler scheduler = gm != null
+            ? gm.GetComponent<CombatScheduler>()
+            : null;
+        if (scheduler == null)
+        {
+            scheduler = CombatScheduler.Instance;
+        }
+
+        int captured = scheduler != null
+            ? scheduler.CaptureStatusEffectsForMigration(_cachedStatusEffectsForMigration)
+            : 0;
+
+        Debug.Log($"[HostMigrationHandler] durable status snapshot captured. count={captured}, sourceTick={_cachedStatusEffectSourceTick}, scheduler={(scheduler != null ? scheduler.name : "null")}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_status_snapshot_captured", runner, null, new Dictionary<string, object>
+        {
+            { "statusCount", captured },
+            { "sourceTick", _cachedStatusEffectSourceTick }
+        });
+#endif
+    }
+
+    private void RestoreCachedStatusEffectsForMigration(GameManagers gm, string context)
+    {
+        if (_cachedStatusEffectsForMigration.Count == 0 || gm == null)
+        {
+            return;
+        }
+
+        CombatScheduler scheduler = gm.GetComponent<CombatScheduler>();
+        if (scheduler == null)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] status restore skipped: CombatScheduler missing. context={context}");
+            return;
+        }
+
+        CombatScheduler.RebindInstanceForMigration(scheduler, $"{context}.StatusEffects");
+        int restored = scheduler.RestoreStatusEffectsFromMigration(_cachedStatusEffectsForMigration, context);
+        Debug.Log($"[HostMigrationHandler] durable status snapshot restored. restored={restored}/{_cachedStatusEffectsForMigration.Count}, sourceTick={_cachedStatusEffectSourceTick}, context={context}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_status_snapshot_restored", gm.Runner, null, new Dictionary<string, object>
+        {
+            { "restoredStatusCount", restored },
+            { "cachedStatusCount", _cachedStatusEffectsForMigration.Count },
+            { "sourceTick", _cachedStatusEffectSourceTick },
+            { "context", context }
+        });
+#endif
+    }
+
+    private void CaptureDurablePendingCombat(NetworkRunner runner, GameManagers gm)
+    {
+        _cachedPendingFiresForMigration.Clear();
+        _cachedPendingHitsForMigration.Clear();
+        _cachedPendingCombatSourceTick = runner != null ? runner.Tick : 0;
+
+        CombatScheduler scheduler = gm != null
+            ? gm.GetComponent<CombatScheduler>()
+            : null;
+        if (scheduler == null)
+        {
+            scheduler = CombatScheduler.Instance;
+        }
+
+        int captured = scheduler != null
+            ? scheduler.CapturePendingCombatForMigration(_cachedPendingFiresForMigration, _cachedPendingHitsForMigration)
+            : 0;
+
+        Debug.Log($"[HostMigrationHandler] durable pending combat snapshot captured. fire={_cachedPendingFiresForMigration.Count}, hit={_cachedPendingHitsForMigration.Count}, total={captured}, sourceTick={_cachedPendingCombatSourceTick}, scheduler={(scheduler != null ? scheduler.name : "null")}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_pending_combat_snapshot_captured", runner, null, new Dictionary<string, object>
+        {
+            { "pendingFireCount", _cachedPendingFiresForMigration.Count },
+            { "pendingHitCount", _cachedPendingHitsForMigration.Count },
+            { "pendingCombatCount", captured },
+            { "sourceTick", _cachedPendingCombatSourceTick }
+        });
+#endif
+    }
+
+    private void RestoreCachedPendingCombatForMigration(GameManagers gm, string context)
+    {
+        if ((_cachedPendingFiresForMigration.Count == 0 && _cachedPendingHitsForMigration.Count == 0) || gm == null)
+        {
+            return;
+        }
+
+        CombatScheduler scheduler = gm.GetComponent<CombatScheduler>();
+        if (scheduler == null)
+        {
+            Debug.LogWarning($"[HostMigrationHandler] pending combat restore skipped: CombatScheduler missing. context={context}");
+            return;
+        }
+
+        CombatScheduler.RebindInstanceForMigration(scheduler, $"{context}.PendingCombat");
+        int restored = scheduler.RestorePendingCombatFromMigration(
+            _cachedPendingFiresForMigration,
+            _cachedPendingHitsForMigration,
+            context);
+        int cached = _cachedPendingFiresForMigration.Count + _cachedPendingHitsForMigration.Count;
+        Debug.Log($"[HostMigrationHandler] durable pending combat snapshot restored. restored={restored}/{cached}, fire={_cachedPendingFiresForMigration.Count}, hit={_cachedPendingHitsForMigration.Count}, sourceTick={_cachedPendingCombatSourceTick}, context={context}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_pending_combat_snapshot_restored", gm.Runner, null, new Dictionary<string, object>
+        {
+            { "restoredPendingCombatCount", restored },
+            { "cachedPendingFireCount", _cachedPendingFiresForMigration.Count },
+            { "cachedPendingHitCount", _cachedPendingHitsForMigration.Count },
+            { "cachedPendingCombatCount", cached },
+            { "sourceTick", _cachedPendingCombatSourceTick },
+            { "context", context }
+        });
+#endif
     }
 
     private void CaptureDurablePlayerState(NetworkRunner runner, GameManagers gm)

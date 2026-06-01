@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: UnitData_Pyromancer
   m_EditorClassIdentifier: 
   unitName: Pyromancer
-  unitIcon: Spr_Port_Archer
+  unitIcon: Spr_Port_Mage
   cost: 4
   unitType: 1
   baseHealth: 60
@@ -37,8 +37,5 @@ MonoBehaviour:
   - Skill_AreaSlowDebuff
   - Skill_AreaSlowDebuff
   - Skill_AreaSlowDebuff
-  projectilePrefabsByStarLevel:
-  - BaseProjectile
-  - BaseProjectile
-  - BaseProjectile
-  projectileSpeed: 10
+  basicAttackVfxProfile: {fileID: 11400000, guid: 3cc01530c8208594c8cbb0902c99e1b4,
+    type: 2}

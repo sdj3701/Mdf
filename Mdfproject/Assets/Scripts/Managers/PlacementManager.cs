@@ -18,11 +18,14 @@ public class PlacementManager : MonoBehaviour
     private PlacementMode currentMode = PlacementMode.None;
     private GameObject unitPrefabToPlace;
     private GameObject previewObject;
+    private Material previewMaterial;
     private MeshRenderer previewMeshRenderer;  // 3D 모드용
     private Vector3Int currentMouseGridPosition;
 
     private PlayerManager playerManager;
     private FieldManager fieldManager;
+    private static readonly int BaseColorPropertyId = Shader.PropertyToID("_BaseColor");
+    private static readonly int ColorPropertyId = Shader.PropertyToID("_Color");
     
     private Camera _cachedPlayerCamera;
     private Camera playerCamera
@@ -51,6 +54,23 @@ public class PlacementManager : MonoBehaviour
     {
         // FieldManager는 Awake에서 초기화되므로, Start에서 참조를 가져오면 안전합니다.
         this.playerManager = fieldManager.playerManager;
+    }
+
+    private void OnDestroy()
+    {
+        if (previewMaterial == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            Destroy(previewMaterial);
+        }
+        else
+        {
+            DestroyImmediate(previewMaterial);
+        }
     }
 
     private bool IsOwnedByLocalPlayer()
@@ -232,6 +252,12 @@ public class PlacementManager : MonoBehaviour
             LogManualWall("ui-block", MdfInput.DescribeFieldBlockingUiHits());
         }
 
+        if (secondaryPressed)
+        {
+            StopPlacementMode();
+            return;
+        }
+
         if (primaryPressed && !pointerOverUI)
         {
             if (currentMode == PlacementMode.Wall && TryRemoveWall())
@@ -240,16 +266,6 @@ public class PlacementManager : MonoBehaviour
             }
 
             TryPlace();
-        }
-
-        if (secondaryPressed)
-        {
-            if (!pointerOverUI && currentMode == PlacementMode.Wall && TryRemoveWall())
-            {
-                return;
-            }
-
-            StopPlacementMode();
         }
     }
 
@@ -376,16 +392,8 @@ public class PlacementManager : MonoBehaviour
             
             previewMeshRenderer = previewCube.GetComponent<MeshRenderer>();
             // 투명 Material 생성
-            Material previewMaterial = new Material(Shader.Find("Standard"));
-            previewMaterial.SetFloat("_Mode", 3); // Transparent
-            previewMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            previewMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            previewMaterial.SetInt("_ZWrite", 0);
-            previewMaterial.DisableKeyword("_ALPHATEST_ON");
-            previewMaterial.EnableKeyword("_ALPHABLEND_ON");
-            previewMaterial.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-            previewMaterial.renderQueue = 3000;
-            previewMeshRenderer.material = previewMaterial;
+            previewMaterial = CreatePreviewMaterial();
+            previewMeshRenderer.sharedMaterial = previewMaterial;
         }
         // 3D 모드: 큐브 크기 조정
         Transform cube = previewObject.transform.GetChild(0);
@@ -512,7 +520,99 @@ public class PlacementManager : MonoBehaviour
         // 3D 프리뷰 색상 적용
         if (previewMeshRenderer != null)
         {
-            previewMeshRenderer.material.color = previewColor;
+            ApplyPreviewColor(previewColor);
+        }
+    }
+
+    private static Material CreatePreviewMaterial()
+    {
+        Shader shader = FindPlacementPreviewShader();
+        Material material = new Material(shader)
+        {
+            name = "PlacementPreviewMaterial",
+            hideFlags = HideFlags.DontSave
+        };
+        ConfigureTransparentPreviewMaterial(material);
+        return material;
+    }
+
+    private static Shader FindPlacementPreviewShader()
+    {
+        return Shader.Find("Universal Render Pipeline/Unlit")
+               ?? Shader.Find("Universal Render Pipeline/Lit")
+               ?? Shader.Find("Sprites/Default")
+               ?? Shader.Find("Legacy Shaders/Transparent/Diffuse")
+               ?? Shader.Find("Hidden/Internal-Colored")
+               ?? Shader.Find("Standard");
+    }
+
+    private static void ConfigureTransparentPreviewMaterial(Material material)
+    {
+        if (material == null)
+        {
+            return;
+        }
+
+        material.SetOverrideTag("RenderType", "Transparent");
+
+        if (material.HasProperty("_Mode"))
+        {
+            material.SetFloat("_Mode", 3f);
+        }
+
+        if (material.HasProperty("_Surface"))
+        {
+            material.SetFloat("_Surface", 1f);
+        }
+
+        if (material.HasProperty("_Blend"))
+        {
+            material.SetFloat("_Blend", 0f);
+        }
+
+        if (material.HasProperty("_SrcBlend"))
+        {
+            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        }
+
+        if (material.HasProperty("_DstBlend"))
+        {
+            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        }
+
+        if (material.HasProperty("_ZWrite"))
+        {
+            material.SetInt("_ZWrite", 0);
+        }
+
+        material.DisableKeyword("_ALPHATEST_ON");
+        material.EnableKeyword("_ALPHABLEND_ON");
+        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        material.SetShaderPassEnabled("ShadowCaster", false);
+        material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+    }
+
+    private void ApplyPreviewColor(Color previewColor)
+    {
+        if (previewMaterial == null)
+        {
+            previewMaterial = previewMeshRenderer != null ? previewMeshRenderer.sharedMaterial : null;
+        }
+
+        if (previewMaterial == null)
+        {
+            return;
+        }
+
+        if (previewMaterial.HasProperty(BaseColorPropertyId))
+        {
+            previewMaterial.SetColor(BaseColorPropertyId, previewColor);
+        }
+
+        if (previewMaterial.HasProperty(ColorPropertyId))
+        {
+            previewMaterial.SetColor(ColorPropertyId, previewColor);
         }
     }
     

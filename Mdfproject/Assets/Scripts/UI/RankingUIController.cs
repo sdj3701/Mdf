@@ -440,15 +440,18 @@ public class RankingUIController : MonoBehaviour
             return null;
         }
 
-        Vector2 panelPosition = RuntimePanelUtils.ScreenToPanel(toolkitRoot.panel, screenPosition);
-        var card = FindToolkitCardAtPanelPosition(panelPosition);
-        if (card != null)
+        if (GamePrepareUIToolkitController.IsPointerOverBlockingElement(screenPosition))
         {
-            return card;
+            return null;
         }
 
-        Vector2 invertedPanelPosition = new Vector2(screenPosition.x, Screen.height - screenPosition.y);
-        return FindToolkitCardAtPanelPosition(invertedPanelPosition);
+        Vector2 panelPosition = RuntimePanelUtils.ScreenToPanel(toolkitRoot.panel, ToPanelScreenPosition(screenPosition));
+        return FindToolkitCardAtPanelPosition(panelPosition);
+    }
+
+    private static Vector2 ToPanelScreenPosition(Vector2 screenPosition)
+    {
+        return new Vector2(screenPosition.x, Screen.height - screenPosition.y);
     }
 
     private RankingCardView FindToolkitCardAtPanelPosition(Vector2 panelPosition)

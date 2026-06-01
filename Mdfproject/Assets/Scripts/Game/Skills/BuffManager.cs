@@ -1,28 +1,31 @@
 // Assets/Scripts/Game/Skills/BuffManager.cs
+using Fusion;
 using UnityEngine;
-using System.Collections.Generic;
-using System.Linq;
 
 public class BuffManager : MonoBehaviour
 {
-    private readonly List<ActiveBuff> _activeBuffs = new List<ActiveBuff>();
-    private readonly List<ActiveStatusEffect> _activeStatusEffects = new List<ActiveStatusEffect>();
-    
     private Unit _unit;
     private Monster _monster;
-    
+
     private StatusEffectType _currentEffects = StatusEffectType.None;
+    private bool _statusCacheFromScheduler;
+    private float _schedulerSlowMultiplier = 1f;
+    private bool _statBuffCacheFromScheduler;
+    private float _schedulerAttackDamageFlatBonus;
+    private float _schedulerAttackDamagePercentBonus;
+    private float _schedulerAttackSpeedPercentBonus;
+    private float _schedulerMoveSpeedMultiplier = 1f;
 
     public StatusEffectType CurrentEffects => _currentEffects;
-    
+
     public bool HasEffect(StatusEffectType effect) => (_currentEffects & effect) != 0;
-    
+
     public bool IsStunned => HasEffect(StatusEffectType.Stunned);
-    
+
     public bool CanMove => !HasEffect(StatusEffectType.Stunned | StatusEffectType.Rooted);
-    
+
     public bool CanAttack => !HasEffect(StatusEffectType.Stunned);
-    
+
     public bool CanUseSkill => !HasEffect(StatusEffectType.Stunned | StatusEffectType.Silenced);
 
     private void Awake()
@@ -41,24 +44,6 @@ public class BuffManager : MonoBehaviour
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
     }
 
-    private void Update()
-    {
-        if (!HasStateAuthorityOrNoNetwork())
-        {
-            return;
-        }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        if (MPTestCommandLine.IsGameFlowFrozen)
-        {
-            return;
-        }
-#endif
-
-        float deltaTime = Time.deltaTime;
-        UpdateBuffs(deltaTime);
-        UpdateStatusEffects(deltaTime);
-    }
-    
     private void HandleGameStateChange(GameManagers.GameState newState)
     {
         if (newState == GameManagers.GameState.Prepare)
@@ -69,134 +54,79 @@ public class BuffManager : MonoBehaviour
     }
 
     #region Buff System
-    
-    private void UpdateBuffs(float deltaTime)
-    {
-        if (_activeBuffs.Count == 0) return;
-
-        bool needsRecalc = false;
-        for (int i = _activeBuffs.Count - 1; i >= 0; i--)
-        {
-            _activeBuffs[i].timer -= deltaTime;
-            if (_activeBuffs[i].timer <= 0)
-            {
-                _activeBuffs.RemoveAt(i);
-                needsRecalc = true;
-            }
-        }
-        
-        if (needsRecalc) RecalculateStats();
-    }
 
     public void ClearAllBuffs()
     {
-        if (!HasStateAuthorityOrNoNetwork()) return;
-
-        if (_activeBuffs.Count > 0)
+        if (!HasStateAuthorityOrNoNetwork())
         {
-            _activeBuffs.Clear();
-            RecalculateStats();
+            return;
         }
+
+        if (IsNetworkStatBuffSchedulerActive())
+        {
+            CombatScheduler.Instance.ClearStatBuffsForTarget(this);
+            return;
+        }
+
+        ApplyStatBuffSchedulerCache(0f, 0f, 0f, 1f);
     }
 
     public void ApplyBuff(BuffStatEffect buffEffect, GameObject caster)
     {
-        if (!HasStateAuthorityOrNoNetwork()) return;
-        if (caster == null) return;
-        
-        var existing = _activeBuffs.FirstOrDefault(b => b.Source == buffEffect && b.Caster == caster);
-        if (existing != null)
+        if (!HasStateAuthorityOrNoNetwork() || buffEffect == null || caster == null)
         {
-            existing.timer = buffEffect.duration;
+            return;
         }
-        else
+
+        if (IsNetworkStatBuffSchedulerActive())
         {
-            _activeBuffs.Add(new ActiveBuff(buffEffect, buffEffect.duration, caster));
+            CombatScheduler.Instance.ApplyStatBuff(this, buffEffect, caster);
+            return;
         }
-        
-        RecalculateStats();
+
+        Debug.LogWarning($"[BuffManager] Ignored stat buff without active CombatScheduler. target={name}, buff={buffEffect.name}");
     }
 
     public void RecalculateStats()
     {
-        if (!HasStateAuthorityOrNoNetwork()) return;
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
 
         if (_unit != null)
         {
             float baseAttackDamage = _unit.PermanentAttackDamage;
             float baseAttackSpeed = _unit.PermanentAttackSpeed;
-            float attackDamageBonus = 0;
-            float attackSpeedBonusPercent = 0;
+            float attackDamageBonus = _statBuffCacheFromScheduler ? _schedulerAttackDamageFlatBonus : 0f;
+            float attackDamageBonusPercent = _statBuffCacheFromScheduler ? _schedulerAttackDamagePercentBonus : 0f;
+            float attackSpeedBonusPercent = _statBuffCacheFromScheduler ? _schedulerAttackSpeedPercentBonus : 0f;
 
-            foreach (var buff in _activeBuffs)
-            {
-                if (buff.Source is BuffStatEffect buffEffect)
-                {
-                    if (buffEffect.statToBuff == StatType.AttackDamage)
-                        attackDamageBonus += buffEffect.value;
-                    else if (buffEffect.statToBuff == StatType.AttackSpeed && buffEffect.isPercentage)
-                        attackSpeedBonusPercent += buffEffect.value;
-                }
-            }
-
-            float finalAttackDamage = baseAttackDamage + attackDamageBonus;
+            float finalAttackDamage = baseAttackDamage * (1 + attackDamageBonusPercent) + attackDamageBonus;
             float finalAttackSpeed = baseAttackSpeed * (1 + attackSpeedBonusPercent);
             _unit.ApplyStatModifiers(finalAttackDamage, finalAttackSpeed);
         }
-        
+
         if (_monster != null)
         {
-            float moveSpeedMultiplier = CalculateTotalSlowMultiplier();
+            float moveSpeedMultiplier = CalculateTotalSlowMultiplier() * CalculateTotalStatMoveSpeedMultiplier();
             moveSpeedMultiplier = Mathf.Max(0.1f, moveSpeedMultiplier);
-            _monster.ApplyMoveSpeedModifier(moveSpeedMultiplier);
+            float attackDamage = _monster.PermanentAttackDamage;
+            float attackSpeed = _monster.PermanentAttackSpeed;
+            if (_statBuffCacheFromScheduler)
+            {
+                attackDamage = attackDamage * (1 + _schedulerAttackDamagePercentBonus) + _schedulerAttackDamageFlatBonus;
+                attackSpeed *= 1 + _schedulerAttackSpeedPercentBonus;
+            }
+
+            _monster.ApplyStatModifiers(attackDamage, attackSpeed, moveSpeedMultiplier);
         }
     }
-    
+
     #endregion
 
     #region Status Effect System
-    
-    private void UpdateStatusEffects(float deltaTime)
-    {
-        if (_activeStatusEffects.Count == 0) return;
-        
-        bool needsRecalc = false;
-        float currentTime = Time.time;
-        
-        for (int i = _activeStatusEffects.Count - 1; i >= 0; i--)
-        {
-            var effect = _activeStatusEffects[i];
-            
-            if (effect.TickInterval > 0 && effect.DamagePerTick > 0 && currentTime >= effect.NextTickTime)
-            {
-                ApplyDotDamage(effect);
-                effect.NextTickTime = currentTime + effect.TickInterval;
-            }
-            
-            effect.RemainingDuration -= deltaTime;
-            
-            if (effect.RemainingDuration <= 0)
-            {
-                _activeStatusEffects.RemoveAt(i);
-                needsRecalc = true;
-            }
-        }
-        
-        if (needsRecalc)
-        {
-            RefreshEffectFlags();
-            RecalculateStats();
-        }
-    }
-    
-    private void ApplyDotDamage(ActiveStatusEffect effect)
-    {
-        if (TryGetComponent<IEnemy>(out var enemy))
-        {
-            enemy.TakeDamage(effect.DamagePerTick, effect.DamageType);
-        }
-    }
-    
+
     public void ApplyStatusEffect(
         StatusEffectType type,
         float duration,
@@ -206,74 +136,92 @@ public class BuffManager : MonoBehaviour
         float slowMultiplier = 1f,
         DamageType damageType = DamageType.Physical)
     {
-        if (!HasStateAuthorityOrNoNetwork()) return;
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
 
-        var existing = _activeStatusEffects.FirstOrDefault(e => e.Type == type && e.Caster == caster);
-        
-        if (existing != null)
+        if (IsNetworkStatusSchedulerActive())
         {
-            existing.RemainingDuration = Mathf.Max(existing.RemainingDuration, duration);
+            CombatScheduler.Instance.ApplyStatusEffect(
+                this,
+                type,
+                duration,
+                caster,
+                tickInterval,
+                damagePerTick,
+                slowMultiplier,
+                damageType);
+            return;
         }
-        else
-        {
-            var newEffect = new ActiveStatusEffect(
-                type, duration, caster, 
-                tickInterval, damagePerTick, slowMultiplier, damageType);
-            _activeStatusEffects.Add(newEffect);
-        }
-        
-        RefreshEffectFlags();
-        RecalculateStats();
+
+        Debug.LogWarning($"[BuffManager] Ignored status effect without active CombatScheduler. target={name}, type={type}");
     }
-    
+
     public void RemoveStatusEffect(StatusEffectType type)
     {
-        if (!HasStateAuthorityOrNoNetwork()) return;
-
-        int removed = _activeStatusEffects.RemoveAll(e => e.Type == type);
-        if (removed > 0)
+        if (!HasStateAuthorityOrNoNetwork())
         {
-            RefreshEffectFlags();
-            RecalculateStats();
+            return;
         }
+
+        if (IsNetworkStatusSchedulerActive())
+        {
+            CombatScheduler.Instance.ClearStatusEffectType(this, type);
+            return;
+        }
+
+        ApplyStatusSchedulerCache(StatusEffectType.None, 1f);
     }
-    
+
     public void ClearAllStatusEffects()
     {
-        if (!HasStateAuthorityOrNoNetwork()) return;
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
 
-        if (_activeStatusEffects.Count > 0)
+        if (IsNetworkStatusSchedulerActive())
         {
-            _activeStatusEffects.Clear();
-            RefreshEffectFlags();
-            RecalculateStats();
+            CombatScheduler.Instance.ClearStatusEffectsForTarget(this);
+            return;
         }
+
+        ApplyStatusSchedulerCache(StatusEffectType.None, 1f);
     }
-    
-    private void RefreshEffectFlags()
-    {
-        _currentEffects = StatusEffectType.None;
-        foreach (var effect in _activeStatusEffects)
-        {
-            _currentEffects |= effect.Type;
-        }
-    }
-    
+
     private float CalculateTotalSlowMultiplier()
     {
-        float multiplier = 1f;
-        
-        foreach (var effect in _activeStatusEffects)
-        {
-            if (effect.SlowMultiplier < 1f)
-            {
-                multiplier *= effect.SlowMultiplier;
-            }
-        }
-        
-        return multiplier;
+        return _statusCacheFromScheduler ? _schedulerSlowMultiplier : 1f;
     }
-    
+
+    private float CalculateTotalStatMoveSpeedMultiplier()
+    {
+        return _statBuffCacheFromScheduler ? _schedulerMoveSpeedMultiplier : 1f;
+    }
+
+    public void ApplyStatusSchedulerCache(StatusEffectType effects, float slowMultiplier)
+    {
+        _statusCacheFromScheduler = true;
+        _currentEffects = effects;
+        _schedulerSlowMultiplier = Mathf.Max(0.1f, slowMultiplier);
+        RecalculateStats();
+    }
+
+    public void ApplyStatBuffSchedulerCache(
+        float attackDamageFlatBonus,
+        float attackDamagePercentBonus,
+        float attackSpeedPercentBonus,
+        float moveSpeedMultiplier)
+    {
+        _statBuffCacheFromScheduler = true;
+        _schedulerAttackDamageFlatBonus = attackDamageFlatBonus;
+        _schedulerAttackDamagePercentBonus = attackDamagePercentBonus;
+        _schedulerAttackSpeedPercentBonus = attackSpeedPercentBonus;
+        _schedulerMoveSpeedMultiplier = Mathf.Max(0.1f, moveSpeedMultiplier);
+        RecalculateStats();
+    }
+
     #endregion
 
     #region Convenience Methods
@@ -304,47 +252,6 @@ public class BuffManager : MonoBehaviour
 
     #endregion
 
-    public int ActiveBuffCount => _activeBuffs.Count;
-    public int ActiveStatusEffectCount => _activeStatusEffects.Count;
-
-    public IEnumerable<string> BuildActiveBuffSnapshotParts(string targetKey)
-    {
-        foreach (var buff in _activeBuffs)
-        {
-            if (buff?.Source == null)
-            {
-                continue;
-            }
-
-            if (buff.Source is BuffStatEffect statEffect)
-            {
-                int valueBucket = Mathf.RoundToInt(statEffect.value * 1000f);
-                int durationBucket = Mathf.RoundToInt(statEffect.duration * 10f);
-                yield return $"target={targetKey};source={statEffect.name};stat={statEffect.statToBuff};value={valueBucket};percent={statEffect.isPercentage};duration={durationBucket}";
-            }
-            else
-            {
-                yield return $"target={targetKey};source={buff.Source.name};type={buff.Source.GetType().Name}";
-            }
-        }
-    }
-
-    public IEnumerable<string> BuildActiveStatusSnapshotParts(string targetKey)
-    {
-        foreach (var effect in _activeStatusEffects)
-        {
-            if (effect == null)
-            {
-                continue;
-            }
-
-            int tickBucket = Mathf.RoundToInt(effect.TickInterval * 10f);
-            int damageBucket = Mathf.RoundToInt(effect.DamagePerTick * 10f);
-            int slowBucket = Mathf.RoundToInt(effect.SlowMultiplier * 1000f);
-            yield return $"target={targetKey};type={effect.Type};tick={tickBucket};damage={damageBucket};slow={slowBucket};damageType={effect.DamageType}";
-        }
-    }
-
     private bool HasStateAuthorityOrNoNetwork()
     {
         if (_unit != null && _unit.Object != null && _unit.Object.IsValid && _unit.Runner != null && _unit.Runner.IsRunning)
@@ -359,18 +266,34 @@ public class BuffManager : MonoBehaviour
 
         return true;
     }
-}
 
-public class ActiveBuff
-{
-    public ScriptableObject Source { get; }
-    public float timer;
-    public GameObject Caster { get; }
-
-    public ActiveBuff(ScriptableObject source, float duration, GameObject caster)
+    private bool IsNetworkStatusSchedulerActive()
     {
-        Source = source;
-        timer = duration;
-        Caster = caster;
+        var scheduler = CombatScheduler.Instance;
+        if (scheduler == null || !scheduler.IsStatusEffectSchedulerActive)
+        {
+            return false;
+        }
+
+        NetworkObject networkObject = GetComponentInParent<NetworkObject>();
+        return networkObject != null &&
+            networkObject.IsValid &&
+            networkObject.Runner != null &&
+            networkObject.Runner.IsRunning;
+    }
+
+    private bool IsNetworkStatBuffSchedulerActive()
+    {
+        var scheduler = CombatScheduler.Instance;
+        if (scheduler == null || !scheduler.IsStatBuffSchedulerActive)
+        {
+            return false;
+        }
+
+        NetworkObject networkObject = GetComponentInParent<NetworkObject>();
+        return networkObject != null &&
+            networkObject.IsValid &&
+            networkObject.Runner != null &&
+            networkObject.Runner.IsRunning;
     }
 }

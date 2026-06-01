@@ -37,8 +37,5 @@ MonoBehaviour:
   - Skill_InspiringShout
   - Skill_InspiringShout
   - Skill_InspiringShout
-  projectilePrefabsByStarLevel:
-  - ArrowProjectile
-  - ArrowProjectile
-  - ArrowProjectile
-  projectileSpeed: 10
+  basicAttackVfxProfile: {fileID: 11400000, guid: d1285812e4b3357418f5a8df20b5f508,
+    type: 2}

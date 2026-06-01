@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.Tilemaps;
 
 
@@ -15,6 +16,8 @@ public static class AssetRegistry
     private static Dictionary<string, Sprite> sprites = new Dictionary<string, Sprite>();
     private static Dictionary<string, GameObject> prefabs = new Dictionary<string, GameObject>();
     private static Dictionary<string, AudioClip> sounds = new Dictionary<string, AudioClip>();
+    private static bool addressablesInitialized;
+    private static System.Threading.Tasks.Task addressablesInitializeTask;
 
     #region Tile 관리
 
@@ -43,8 +46,14 @@ public static class AssetRegistry
     {
         try
         {
+            await EnsureAddressablesInitialized();
             var handle = Addressables.LoadAssetAsync<TileBase>(addressableKey);
             var tile = await handle.Task;
+            if (handle.Status != AsyncOperationStatus.Succeeded || tile == null)
+            {
+                Debug.LogError($"Tile load failed: {addressableKey} - {handle.OperationException?.Message}");
+                return null;
+            }
 
             string id = registryId ?? addressableKey;
             RegisterTile(id, tile);
@@ -80,8 +89,14 @@ public static class AssetRegistry
     {
         try
         {
+            await EnsureAddressablesInitialized();
             var handle = Addressables.LoadAssetAsync<Sprite>(addressableKey);
             var tile = await handle.Task;
+            if (handle.Status != AsyncOperationStatus.Succeeded || tile == null)
+            {
+                Debug.LogError($"Sprite load failed: {addressableKey} - {handle.OperationException?.Message}");
+                return null;
+            }
 
             string id = registryId ?? addressableKey;
             RegisterSprite(id, tile);
@@ -164,4 +179,33 @@ public static class AssetRegistry
     }
 
     #endregion
+
+    private static async System.Threading.Tasks.Task EnsureAddressablesInitialized()
+    {
+        if (addressablesInitialized)
+        {
+            return;
+        }
+
+        if (addressablesInitializeTask == null)
+        {
+            addressablesInitializeTask = InitializeAddressablesAsync();
+        }
+
+        await addressablesInitializeTask;
+    }
+
+    private static async System.Threading.Tasks.Task InitializeAddressablesAsync()
+    {
+        var handle = Addressables.InitializeAsync();
+        await handle.Task;
+
+        if (handle.Status != AsyncOperationStatus.Succeeded)
+        {
+            addressablesInitializeTask = null;
+            throw new System.InvalidOperationException($"Addressables initialize failed: {handle.OperationException?.Message}");
+        }
+
+        addressablesInitialized = true;
+    }
 }

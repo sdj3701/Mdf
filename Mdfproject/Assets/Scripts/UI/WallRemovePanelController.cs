@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System.Collections.Generic;
 
 /// <summary>
 /// 벽 제거 패널 컨트롤러. 벽을 선택했을 때 제거 버튼을 표시합니다.
@@ -7,6 +8,9 @@ using UnityEngine.UI;
 /// </summary>
 public class WallRemovePanelController : MonoBehaviour
 {
+    private static readonly List<WallRemovePanelController> ActiveControllers = new List<WallRemovePanelController>(4);
+    private static readonly Vector3[] ButtonWorldCorners = new Vector3[4];
+
     [Header("UI")]
     [SerializeField] private Button removeButton;
     [SerializeField] private Vector3 worldOffset = new Vector3(0.5f, 2f, 0f);
@@ -21,6 +25,7 @@ public class WallRemovePanelController : MonoBehaviour
     private Camera _targetCamera;
     private RectTransform _rectTransform;
     private Canvas _selfCanvas;
+    private bool _removeRequested;
 
     private void Awake()
     {
@@ -30,6 +35,11 @@ public class WallRemovePanelController : MonoBehaviour
 
     private void OnEnable()
     {
+        if (!ActiveControllers.Contains(this))
+        {
+            ActiveControllers.Add(this);
+        }
+
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
 
@@ -40,10 +50,20 @@ public class WallRemovePanelController : MonoBehaviour
             removeButton.onClick.RemoveListener(OnRemoveButtonClicked);
         }
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+        ActiveControllers.Remove(this);
         _currentWall = null;
         _fieldManager = null;
         _targetCanvas = null;
         _targetCamera = null;
+        _removeRequested = false;
+    }
+
+    private void Update()
+    {
+        if (MdfInput.PrimaryPointerWasReleasedThisFrame() && IsPointerOverRemoveButton(MdfInput.PointerPosition))
+        {
+            OnRemoveButtonClicked();
+        }
     }
 
     private void LateUpdate()
@@ -62,6 +82,7 @@ public class WallRemovePanelController : MonoBehaviour
         _fieldManager = manager;
         _targetCanvas = UIManagers.Instance != null ? UIManagers.Instance.mainCanvas : null;
         _targetCamera = manager != null ? manager.PlayerCamera : Camera.main;
+        _removeRequested = false;
 
         if (_selfCanvas != null && _selfCanvas.renderMode == RenderMode.WorldSpace)
         {
@@ -120,7 +141,13 @@ public class WallRemovePanelController : MonoBehaviour
 
     private void OnRemoveButtonClicked()
     {
+        if (_removeRequested)
+        {
+            return;
+        }
+
         if (!CanRemoveCurrentWall()) return;
+        _removeRequested = true;
 
         var command = new RemoveWallCommand(_fieldManager.playerManager.playerId, _wallGridPosition);
         if (GameManagers.Instance != null && GameManagers.Instance.CommandProcessor != null)
@@ -136,6 +163,65 @@ public class WallRemovePanelController : MonoBehaviour
 
         // 벽 제거 후 모든 선택 UI 패널 숨기기 (유닛 디테일, 유닛 판매, 벽 제거)
         _fieldManager.HideAllSelectionPanels();
+    }
+
+    public static bool IsPointerOverActiveRemoveButton(Vector2 screenPosition)
+    {
+        for (int i = ActiveControllers.Count - 1; i >= 0; i--)
+        {
+            var controller = ActiveControllers[i];
+            if (controller == null)
+            {
+                ActiveControllers.RemoveAt(i);
+                continue;
+            }
+
+            if (controller.isActiveAndEnabled && controller.IsPointerOverRemoveButton(screenPosition))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsPointerOverRemoveButton(Vector2 screenPosition)
+    {
+        if (removeButton == null || !removeButton.gameObject.activeInHierarchy)
+        {
+            return false;
+        }
+
+        var buttonRect = removeButton.transform as RectTransform;
+        if (buttonRect == null)
+        {
+            return false;
+        }
+
+        Camera eventCamera = null;
+        Canvas buttonCanvas = removeButton.GetComponentInParent<Canvas>();
+        if (buttonCanvas != null && buttonCanvas.renderMode != RenderMode.ScreenSpaceOverlay)
+        {
+            eventCamera = buttonCanvas.worldCamera != null ? buttonCanvas.worldCamera : _targetCamera;
+        }
+
+        if (RectTransformUtility.RectangleContainsScreenPoint(buttonRect, screenPosition, eventCamera))
+        {
+            return true;
+        }
+
+        if (eventCamera != null)
+        {
+            return false;
+        }
+
+        buttonRect.GetWorldCorners(ButtonWorldCorners);
+        float minX = Mathf.Min(ButtonWorldCorners[0].x, ButtonWorldCorners[2].x);
+        float maxX = Mathf.Max(ButtonWorldCorners[0].x, ButtonWorldCorners[2].x);
+        float minY = Mathf.Min(ButtonWorldCorners[0].y, ButtonWorldCorners[2].y);
+        float maxY = Mathf.Max(ButtonWorldCorners[0].y, ButtonWorldCorners[2].y);
+        return screenPosition.x >= minX && screenPosition.x <= maxX &&
+               screenPosition.y >= minY && screenPosition.y <= maxY;
     }
 
     private void UpdatePosition()
@@ -182,6 +268,11 @@ public class WallRemovePanelController : MonoBehaviour
     private Vector3 GetAnchorWorldPosition()
     {
         if (_currentWall == null) return Vector3.zero;
+        if (_fieldManager != null && _fieldManager.IsValidGridPosition(_wallGridPosition))
+        {
+            return _fieldManager.GetWallRootWorldPosition(_wallGridPosition) + worldOffset;
+        }
+
         return _currentWall.transform.position + worldOffset;
     }
 
