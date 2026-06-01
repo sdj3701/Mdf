@@ -80,25 +80,10 @@ public static class MPBuildPlayerTool
         var locationPathName = Path.Combine(outputDir, BuildExecutableName(target, playerName));
         try
         {
-            var targetGroup = BuildPipeline.GetBuildTargetGroup(target);
-            if (targetGroup == BuildTargetGroup.Unknown)
+            var buildTargetSwitchError = EnsureActiveBuildTarget(target, out buildTargetSwitched);
+            if (buildTargetSwitchError != null)
             {
-                return new ErrorResponse("Unable to resolve BuildTargetGroup for requested target.", new { target = target.ToString() });
-            }
-
-            if (EditorUserBuildSettings.activeBuildTarget != target)
-            {
-                if (!EditorUserBuildSettings.SwitchActiveBuildTarget(targetGroup, target))
-                {
-                    return new ErrorResponse("Failed to switch active build target before player build.", new
-                    {
-                        requestedTarget = target.ToString(),
-                        requestedGroup = targetGroup.ToString(),
-                        activeTarget = EditorUserBuildSettings.activeBuildTarget.ToString()
-                    });
-                }
-
-                buildTargetSwitched = true;
+                return buildTargetSwitchError;
             }
 
             object addressablesMetadata = new { skipped = true };
@@ -133,6 +118,7 @@ public static class MPBuildPlayerTool
             {
                 result = summary.result.ToString(),
                 target = target.ToString(),
+                activeBuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString(),
                 outputPath = locationPathName,
                 outputDir,
                 totalSize = summary.totalSize,
@@ -230,6 +216,36 @@ public static class MPBuildPlayerTool
             activePlayerDataBuilder = settings.ActivePlayerDataBuilder?.GetType().Name,
             packedModeBuilderPath = packedModePath
         });
+    }
+
+    private static object EnsureActiveBuildTarget(BuildTarget target, out bool switched)
+    {
+        switched = false;
+        if (EditorUserBuildSettings.activeBuildTarget == target)
+        {
+            return null;
+        }
+
+        var group = BuildPipeline.GetBuildTargetGroup(target);
+        if (group == BuildTargetGroup.Unknown)
+        {
+            return new ErrorResponse($"Cannot resolve build target group for {target}.");
+        }
+
+        if (!EditorUserBuildSettings.SwitchActiveBuildTarget(group, target))
+        {
+            return new ErrorResponse(
+                "Failed to switch active build target before player build.",
+                new
+                {
+                    requestedTarget = target.ToString(),
+                    requestedGroup = group.ToString(),
+                    activeBuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString()
+                });
+        }
+
+        switched = true;
+        return null;
     }
 
     private static string ResolveOutputDir(string raw)

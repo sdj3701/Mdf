@@ -6,6 +6,7 @@ using NUnit.Framework;
 using Newtonsoft.Json;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.UIElements;
 
 public sealed class MPTestHarnessEditModeTests
 {
@@ -84,6 +85,85 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(2), Is.EqualTo(1));
         Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(1), Is.EqualTo(1));
         Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(0), Is.EqualTo(0));
+        Assert.That(RankingUIController.GetTopRightReserveCount(4), Is.EqualTo(2));
+        Assert.That(RankingUIController.GetTopRightReserveCount(3), Is.EqualTo(1));
+        Assert.That(RankingUIController.GetTopRightReserveCount(2), Is.EqualTo(0));
+    }
+
+    [Test]
+    public void RankingUiToolkitLayoutProvidesFixedSelfOpponentAndReserveSlots()
+    {
+        string source = File.ReadAllText("Assets/Scripts/UI/RankingUIController.cs");
+        string registrySource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.PlayerRegistry.cs");
+        var layout = Resources.Load<VisualTreeAsset>("UI/PlayerRanking/PlayerRankingPanel");
+        var style = Resources.Load<StyleSheet>("UI/PlayerRanking/PlayerRankingPanelStyles");
+        var tree = layout != null ? layout.CloneTree() : null;
+
+        Assert.That(layout, Is.Not.Null);
+        Assert.That(style, Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-strip"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-self-card"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-opponent-card"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-reserve-card-0"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-reserve-card-1"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-self-avatar"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-opponent-avatar"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("ranking-self-name"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("ranking-opponent-name"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-self-battle-role-icon"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-opponent-battle-role-icon"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-reserve-0-battle-role-icon"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("ranking-reserve-1-battle-role-icon"), Is.Not.Null);
+        Assert.That(source, Does.Contain("UIDocument"));
+        Assert.That(source, Does.Contain("ResolveOpponent"));
+        Assert.That(source, Does.Contain("GetBattleOpponent"));
+        Assert.That(source, Does.Contain("GetHealthFillPercentForDisplay"));
+        Assert.That(source, Does.Contain("ShouldUseAttackBattleRoleIconForDisplay"));
+        Assert.That(source, Does.Contain("TryGetBattleRoleSnapshot"));
+        Assert.That(source, Does.Contain("IsAttackerInCurrentBattle"));
+        Assert.That(source, Does.Contain("PanelSortingOrder = 260"));
+        Assert.That(source, Does.Contain("SetPickingModeRecursive(toolkitRoot, PickingMode.Ignore)"));
+        Assert.That(source, Does.Contain("Root.pickingMode = PickingMode.Position"));
+        Assert.That(source, Does.Contain("RegisterCallback<PointerUpEvent>"));
+        Assert.That(source, Does.Contain("MoveToPlayerField"));
+        Assert.That(source, Does.Contain("ReturnToOwnField"));
+        Assert.That(source, Does.Contain("ShouldUseAttackModeCamera"));
+        Assert.That(source, Does.Contain("HandleToolkitPointerInput"));
+        Assert.That(source, Does.Contain("FindToolkitCardAtScreenPosition"));
+        Assert.That(source, Does.Contain("RuntimePanelUtils.ScreenToPanel"));
+        Assert.That(source, Does.Contain("ContainsPanelPoint"));
+        Assert.That(source, Does.Contain("lastToolkitCardClickFrame"));
+        Assert.That(source, Does.Contain("Display-only overlay"));
+        string styleSource = File.ReadAllText("Assets/Resources/UI/PlayerRanking/PlayerRankingPanelStyles.uss");
+        Assert.That(styleSource, Does.Contain("left: 104px;"));
+        Assert.That(styleSource, Does.Contain("left: 122px;"));
+        Assert.That(styleSource, Does.Contain("left: 332px;"));
+        Assert.That(styleSource, Does.Contain("left: 878px;"));
+        Assert.That(styleSource, Does.Contain("left: 1078px;"));
+        Assert.That(styleSource, Does.Contain("PlayerStatus/battle.png"));
+        Assert.That(styleSource, Does.Contain("PlayerStatus/shield.png"));
+        Assert.That(registrySource, Does.Contain("public bool TryGetBattleRoleSnapshot"));
+        Assert.That(registrySource, Does.Contain("TryGetMatchFirstAttackerSnapshot(playerId, out int firstAttackerId)"));
+        Assert.That(registrySource, Does.Contain("currentState == GameState.Battle1 ? isFirstAttacker : !isFirstAttacker"));
+    }
+
+    [Test]
+    public void RankingUiHealthFillIsClampedToPlayerMax()
+    {
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(-5, 80), Is.EqualTo(0f));
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(40, 80), Is.EqualTo(0.5f));
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(80, 80), Is.EqualTo(1f));
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(150, 80), Is.EqualTo(1f));
+        Assert.That(RankingUIController.GetHealthFillPercentForDisplay(50, 0), Is.EqualTo(0f));
+    }
+
+    [Test]
+    public void RankingUiBattleRoleIconOnlyUsesSwordForActiveAttackers()
+    {
+        Assert.That(RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(true, true), Is.True);
+        Assert.That(RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(true, false), Is.False);
+        Assert.That(RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(false, true), Is.False);
+        Assert.That(RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(false, false), Is.False);
     }
 
     [Test]
@@ -148,6 +228,91 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(MPTestSceneAliases.Matches("03_Game", "Game"), Is.True);
         Assert.That(MPTestSceneAliases.Matches("Game", "03_Game"), Is.True);
         Assert.That(MPTestSceneAliases.Matches("TestMatching", "01_MatchingLobby"), Is.True);
+    }
+
+    [Test]
+    public void MatchingLobbySceneKeepsRuntimeUiToolkitInput()
+    {
+        string sceneSource = File.ReadAllText("Assets/Scenes/01_MatchingLobby.unity");
+
+        Assert.That(sceneSource, Does.Contain("m_Name: EventSystem"));
+        Assert.That(sceneSource, Does.Contain("guid: 01614664b831546d2ae94a42149d80ac"));
+        Assert.That(sceneSource, Does.Contain("m_Name: TestMatching UI Toolkit"));
+        Assert.That(sceneSource, Does.Contain("m_PanelSettings: {fileID: 11400000, guid: 8273b236cf53499fbd9d38004ec35985"));
+    }
+
+    [Test]
+    public void LobbyToolkitKeepsBackgroundImagesButRemovesLeftMenus()
+    {
+        string matchingUxml = File.ReadAllText("Assets/UI/TestMatching/TestMatching.uxml");
+        string matchingStyle = File.ReadAllText("Assets/UI/TestMatching/TestMatching.uss");
+        string joinUxml = File.ReadAllText("Assets/UI/JoinLobby/JoinLobby.uxml");
+        string joinStyle = File.ReadAllText("Assets/UI/JoinLobby/JoinLobby.uss");
+
+        Assert.That(matchingUxml, Does.Not.Contain("name=\"leftMenu\""));
+        Assert.That(joinUxml, Does.Not.Contain("name=\"leftMenu\""));
+        Assert.That(matchingUxml, Does.Contain("name=\"leftMenuImageCover\""));
+        Assert.That(joinUxml, Does.Contain("name=\"leftMenuImageCover\""));
+        Assert.That(matchingStyle, Does.Contain("bg_test_matching_full.png"));
+        Assert.That(joinStyle, Does.Contain("bg_join_lobby_full.png"));
+        Assert.That(matchingStyle, Does.Contain(".tm-left-menu-image-cover"));
+        Assert.That(joinStyle, Does.Contain(".jl-left-menu-image-cover"));
+        Assert.That(joinStyle, Does.Contain("player_portrait_0.png"));
+        Assert.That(joinStyle, Does.Contain("player_portrait_1.png"));
+        Assert.That(joinStyle, Does.Contain("player_portrait_2.png"));
+    }
+
+    [Test]
+    public void NetworkManagerGuardsDuplicateSessionStartRequests()
+    {
+        string networkSource = File.ReadAllText("Assets/Scripts/Network/NetworkManager.cs");
+        string matchingSource = File.ReadAllText("Assets/Scripts/UI/TestMatching/TestMatchingUIToolkitController.cs");
+
+        int startMethod = networkSource.IndexOf("public async void StartGame", System.StringComparison.Ordinal);
+        int duplicateGuard = networkSource.IndexOf("if (_startGameInProgress)", startMethod, System.StringComparison.Ordinal);
+        int armGuard = networkSource.IndexOf("_startGameInProgress = true;", startMethod, System.StringComparison.Ordinal);
+        int fusionStart = networkSource.IndexOf("await _runner.StartGame", startMethod, System.StringComparison.Ordinal);
+        int playerJoined = networkSource.IndexOf("public void OnPlayerJoined", System.StringComparison.Ordinal);
+        int clearOnJoined = networkSource.IndexOf("_startGameInProgress = false;", playerJoined, System.StringComparison.Ordinal);
+        int shutdown = networkSource.IndexOf("public void OnShutdown", System.StringComparison.Ordinal);
+        int clearOnShutdown = networkSource.IndexOf("_startGameInProgress = false;", shutdown, System.StringComparison.Ordinal);
+
+        Assert.That(networkSource, Does.Contain("private bool _startGameInProgress"));
+        Assert.That(networkSource, Does.Contain("StartGame ignored because another session start is already in progress"));
+        Assert.That(duplicateGuard, Is.GreaterThan(startMethod));
+        Assert.That(duplicateGuard, Is.LessThan(armGuard));
+        Assert.That(armGuard, Is.LessThan(fusionStart));
+        Assert.That(clearOnJoined, Is.GreaterThan(playerJoined));
+        Assert.That(clearOnShutdown, Is.GreaterThan(shutdown));
+        Assert.That(matchingSource, Does.Contain("networkManager.IsNetworkUiBlocked"));
+    }
+
+    [Test]
+    public void GameSceneKeepsRuntimeRoots()
+    {
+        string sceneSource = File.ReadAllText("Assets/Scenes/03_Game.unity");
+
+        Assert.That(sceneSource, Does.Contain("m_Name: Main Camera"));
+        Assert.That(sceneSource, Does.Contain("m_Name: EventSystem"));
+        Assert.That(sceneSource, Does.Contain("guid: 01614664b831546d2ae94a42149d80ac"));
+        Assert.That(sceneSource, Does.Contain("m_Name: GameInitialrizer"));
+        Assert.That(sceneSource, Does.Contain("m_Name: Addressable Manager"));
+        Assert.That(sceneSource, Does.Contain("m_Name: VfxManager"));
+    }
+
+    [Test]
+    public void TitleNetworkManagerKeepsPlayerPrefabReference()
+    {
+        string titleSceneSource = File.ReadAllText("Assets/Scenes/00_Title.unity");
+        string playerPrefabSource = File.ReadAllText("Assets/Prefabs/Player_Root.prefab");
+
+        Assert.That(titleSceneSource, Does.Contain("m_Name: NetworkManager"));
+        Assert.That(titleSceneSource, Does.Contain("_playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504"));
+
+        Assert.That(playerPrefabSource, Does.StartWith("%YAML"));
+        Assert.That(playerPrefabSource, Does.Contain("m_Name: Player_Root"));
+        Assert.That(playerPrefabSource, Does.Contain("m_Name: MonsterSpawner"));
+        Assert.That(playerPrefabSource, Does.Contain("m_Name: FieldManager"));
     }
 
     [Test]
@@ -434,6 +599,27 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void BattleSpawnClickZoneAcceptsWholeGroundMap()
+    {
+        var go = new GameObject("battle-spawn-click-zone-test");
+        try
+        {
+            var field = go.AddComponent<FieldManager>();
+            field.gridOrigin = Vector3.zero;
+            field.cellSize = 1f;
+            field.gridSize = new Vector2Int(10, 9);
+
+            Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(0.5f, 0f, 0.5f)), Is.True);
+            Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(-1.5f, 0f, 0.5f)), Is.True);
+            Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(-3.5f, 0f, 0.5f)), Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(go);
+        }
+    }
+
+    [Test]
     public void ServerBattleCommandExecutorRequiresExplicitDelegates()
     {
         string source = File.ReadAllText("Assets/Scripts/Commands/Battle/ServerBattleCommandExecutor.cs");
@@ -706,6 +892,239 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void PurchaseSuccessUiEventCannotBreakCommandProcessing()
+    {
+        string shopSource = File.ReadAllText("Assets/Scripts/UI/ShopUIController.cs");
+        string gameEventsSource = File.ReadAllText("Assets/Scripts/Managers/GameEvents.cs");
+
+        Assert.That(shopSource, Does.Contain("TryGetLocalShopPlayerId(out var localPlayerId)"));
+        Assert.That(shopSource, Does.Contain("shopSlots == null || slotIndex < 0 || slotIndex >= shopSlots.Length"));
+        Assert.That(shopSource, Does.Contain("var slot = shopSlots[slotIndex];"));
+        Assert.That(shopSource, Does.Contain("if (slot == null)"));
+
+        Assert.That(gameEventsSource, Does.Contain("foreach (Action<int, ShopItem, int> handler in handlers.GetInvocationList())"));
+        Assert.That(gameEventsSource, Does.Contain("OnUnitPurchaseSucceeded handler exception"));
+        Assert.That(gameEventsSource, Does.Contain("Debug.LogException(ex);"));
+    }
+
+    [Test]
+    public void GamePrepareToolkitKeepsChoiceCountsAndCommandRoutes()
+    {
+        string controllerSource = File.ReadAllText("Assets/Scripts/UI/Game/GamePrepareUIToolkitController.cs");
+        string shopSource = File.ReadAllText("Assets/Scripts/UI/ShopUIController.cs");
+        string augmentSource = File.ReadAllText("Assets/Scripts/UI/AugmentUIController.cs");
+        string playerHudSource = File.ReadAllText("Assets/Scripts/UI/PlayerHUDController.cs");
+        string attackUiSource = File.ReadAllText("Assets/Scripts/UI/AttackSequence/AttackSequenceUIController.cs");
+        string attackManagerSource = File.ReadAllText("Assets/Scripts/Game/Battle/AttackSequenceManager.cs");
+        string inputSource = File.ReadAllText("Assets/Scripts/Managers/MdfInput.cs");
+        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string placementSource = File.ReadAllText("Assets/Scripts/Managers/PlacementManager.cs");
+        string placementButtonsSource = File.ReadAllText("Assets/Scripts/Button/PlacementButtonsUI.cs");
+        string playerManagerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string removeWallCommandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/RemoveWallCommand.cs");
+        string automationSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        string rankingSource = File.ReadAllText("Assets/Scripts/UI/RankingUIController.cs");
+        string uxml = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanels.uxml");
+        string styleSource = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss");
+        var layout = Resources.Load<VisualTreeAsset>("UI/GamePrepare/GamePreparePanels");
+        var style = Resources.Load<StyleSheet>("UI/GamePrepare/GamePreparePanelsStyles");
+        var theme = Resources.Load<ThemeStyleSheet>("UI/GamePrepare/GamePrepareRuntimeTheme");
+        var tree = layout != null ? layout.CloneTree() : null;
+
+        Assert.That(GamePrepareUIToolkitController.ShopCardCount, Is.EqualTo(5));
+        Assert.That(GamePrepareUIToolkitController.AugmentCardCount, Is.EqualTo(3));
+        Assert.That(GamePrepareUIToolkitController.MonsterCardCount, Is.EqualTo(9));
+        Assert.That(GamePrepareUIToolkitController.ScrollCardCount, Is.EqualTo(5));
+        Assert.That(layout, Is.Not.Null);
+        Assert.That(style, Is.Not.Null);
+        Assert.That(theme, Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("shop-panel"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-prepare-design-space"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("augment-panel"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("attack-sequence-panel"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-resource-root"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-left-wireframe-rail"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-shop-toggle-button"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-wall-button"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-option-button"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-gold-value"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("game-gold-count-value"), Is.Not.Null);
+        Assert.That(tree?.Q<VisualElement>("game-wall-icon"), Is.Not.Null);
+        Assert.That(tree?.Q<Label>("game-wall-count-label"), Is.Not.Null);
+        Assert.That(Regex.Matches(uxml, "name=\"shop-card-\\d\"").Count, Is.EqualTo(5));
+        Assert.That(Regex.Matches(uxml, "class=\"shop-art-frame\"").Count, Is.EqualTo(5));
+        Assert.That(Regex.Matches(uxml, "class=\"shop-text-overlay\"").Count, Is.EqualTo(5));
+        Assert.That(Regex.Matches(uxml, "name=\"augment-card-\\d\"").Count, Is.EqualTo(3));
+        Assert.That(Regex.Matches(uxml, "name=\"attack-monster-card-\\d\"").Count, Is.EqualTo(9));
+        Assert.That(Regex.Matches(uxml, "name=\"attack-scroll-card-\\d\"").Count, Is.EqualTo(5));
+        Assert.That(uxml, Does.Contain("project://database/Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss"));
+        Assert.That(uxml, Does.Contain("name=\"shop-panel\" class=\"prepare-panel shop-panel\""));
+        Assert.That(tree?.Q<VisualElement>("shop-card-0")?.ClassListContains("shop-card-star-1"), Is.True);
+        Assert.That(tree?.Q<VisualElement>("shop-card-4")?.ClassListContains("shop-card-star-5"), Is.True);
+        Assert.That(controllerSource, Does.Contain("new BuyUnitCommand(playerId, slotIndex)"));
+        Assert.That(controllerSource, Does.Contain("new RerollShopCommand(playerId)"));
+        Assert.That(controllerSource, Does.Contain("new SelectAugmentCommand(playerId, index)"));
+        Assert.That(controllerSource, Does.Contain("!root.styleSheets.Contains(styleSheet)"));
+        Assert.That(controllerSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
+        Assert.That(controllerSource, Does.Contain("ShopCardReferenceWidth"));
+        Assert.That(controllerSource, Does.Contain("WallButtonSize"));
+        Assert.That(controllerSource, Does.Contain("private const float WallButtonSize = RerollButtonSize;"));
+        Assert.That(controllerSource, Does.Contain("private const float ShopToggleButtonSize = RerollButtonSize;"));
+        Assert.That(controllerSource, Does.Contain("private const float ShopToggleButtonBottom = HudBottomInset;"));
+        Assert.That(controllerSource, Does.Contain("UpdateDesignScale"));
+        Assert.That(controllerSource, Does.Contain("game-prepare-design-space"));
+        Assert.That(controllerSource, Does.Contain("leftWireframeRail"));
+        Assert.That(controllerSource, Does.Contain("RerollButtonSize"));
+        Assert.That(controllerSource, Does.Contain("StyleKeyword.Auto"));
+        Assert.That(controllerSource, Does.Contain("ApplyStarBackground"));
+        Assert.That(controllerSource, Does.Contain("ScaleMode.ScaleAndCrop"));
+        Assert.That(controllerSource, Does.Contain("icon.style.flexShrink = 0f"));
+        Assert.That(controllerSource, Does.Contain("shop-art-frame"));
+        Assert.That(controllerSource, Does.Contain("item.StarLevel"));
+        Assert.That(controllerSource, Does.Contain("GetShopCardStarClass"));
+        Assert.That(controllerSource, Does.Contain("topGem.style.display = DisplayStyle.None"));
+        Assert.That(controllerSource, Does.Contain("body.style.backgroundColor = Color.clear"));
+        Assert.That(controllerSource, Does.Contain("footer.style.backgroundColor = new Color"));
+        Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
+        Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMagicScroll(scrolls[slotIndex])"));
+        Assert.That(controllerSource, Does.Contain("game-gold-count-value"));
+        Assert.That(controllerSource, Does.Contain("game-wall-count-label"));
+        Assert.That(controllerSource, Does.Contain("reroll-gold-mode"));
+        Assert.That(controllerSource, Does.Contain("EnableInClassList(\"reroll-gold-mode\", !shopVisible)"));
+        Assert.That(controllerSource, Does.Contain("hudShopLabel.text = $\"\\uC0C1\\uC810\\n{shopAction}\\n{goldCount}G\";"));
+        Assert.That(controllerSource, Does.Contain("SetPickingMode(rerollButton, shopVisible ? PickingMode.Position : PickingMode.Ignore)"));
+        Assert.That(styleSource, Does.Contain("Spr_UnitCost.png"));
+        Assert.That(styleSource, Does.Contain("Bricks.png"));
+        Assert.That(controllerSource, Does.Contain("TogglePlacementMode(PlacementMode.Wall)"));
+        Assert.That(controllerSource, Does.Contain("CameraManager.Instance.ReturnToOwnField()"));
+        Assert.That(controllerSource, Does.Contain("SetShopVisible(false)"));
+        Assert.That(controllerSource, Does.Contain("GetUIElement(\"OptionCanvas\")"));
+        Assert.That(controllerSource, Does.Contain("\"\\uB2EB\\uAE30\""));
+        Assert.That(controllerSource, Does.Contain("\"\\uC5F4\\uAE30\""));
+        Assert.That(controllerSource, Does.Contain("Mathf.Max(0, wallCount).ToString()"));
+        Assert.That(controllerSource, Does.Contain("Mathf.Clamp(area.xMin, 0f, screenWidth)"));
+        Assert.That(controllerSource, Does.Contain("UpdateRoundTimerLabel"));
+        Assert.That(controllerSource, Does.Contain("currentPhaseTimer"));
+        Assert.That(controllerSource, Does.Contain("currentSequenceTransitionTimer"));
+        Assert.That(controllerSource, Does.Contain("IsPointerOverBlockingElement"));
+        Assert.That(controllerSource, Does.Contain("IsToolkitRaycastObject"));
+        Assert.That(controllerSource, Does.Contain("IsRuntimePanelRaycasterObject"));
+        Assert.That(controllerSource, Does.Contain("GamePrepareRuntimePanelSettings"));
+        Assert.That(controllerSource, Does.Contain("RegisterCallback<PointerDownEvent>"));
+        Assert.That(controllerSource, Does.Contain("SuppressBattleMapInputForCurrentPointer"));
+        Assert.That(controllerSource, Does.Contain("IsBlockingElementOrDescendant"));
+        Assert.That(attackUiSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
+        Assert.That(attackUiSource, Does.Contain("SetLegacyContentVisibilityOnly(false)"));
+        Assert.That(attackManagerSource, Does.Contain("IsPointerOverBattleActionBlocker"));
+        Assert.That(attackManagerSource, Does.Contain("TryGetSpawnPositionUnderPointer"));
+        Assert.That(attackManagerSource, Does.Contain("ShouldSuppressBattleMapInput"));
+        Assert.That(attackManagerSource, Does.Contain("BattleCommandValidator.IsInsideBattleSpawnZone"));
+        Assert.That(inputSource, Does.Contain("HasNonGamePrepareToolkitUiHit"));
+        Assert.That(inputSource, Does.Contain("eventSystem.RaycastAll"));
+        Assert.That(inputSource, Does.Contain("IsPointerOverFieldBlockingUI"));
+        Assert.That(inputSource, Does.Contain("IsFieldPassthroughUi"));
+        Assert.That(inputSource, Does.Contain("GetComponentInParent<StatusBarUI>()"));
+        Assert.That(inputSource, Does.Contain("GetComponentInParent<RankingUIController>()"));
+        Assert.That(inputSource, Does.Contain("RankingUIController.IsToolkitRaycastObject"));
+        Assert.That(inputSource, Does.Contain("RankingUIController.IsPointerOverBlockingElement(pointerPosition)"));
+        Assert.That(inputSource, Does.Contain("DescribeFieldBlockingUiHits"));
+        Assert.That(rankingSource, Does.Contain("public static bool IsPointerOverBlockingElement"));
+        Assert.That(rankingSource, Does.Contain("public static bool IsToolkitRaycastObject"));
+        Assert.That(rankingSource, Does.Contain("IsRuntimePanelRaycasterObject"));
+        Assert.That(rankingSource, Does.Contain("PlayerRankingRuntimePanelSettings"));
+        Assert.That(rankingSource, Does.Contain("FindToolkitCardAtScreenPosition(screenPosition)"));
+        Assert.That(placementButtonsSource, Does.Contain("CameraManager.Instance.ReturnToOwnField()"));
+        Assert.That(placementButtonsSource, Does.Contain("TrySetShopVisibilityFromLegacy(false"));
+        Assert.That(fieldSource, Does.Contain("ShouldAllowUnitDragThroughPrepareToolkit"));
+        Assert.That(fieldSource, Does.Contain("MdfInput.IsPointerOverFieldBlockingUI()"));
+        Assert.That(fieldSource, Does.Contain("GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition)"));
+        Assert.That(fieldSource, Does.Contain("TryRequestRemoveWallAt"));
+        Assert.That(fieldSource, Does.Contain("new RemoveWallCommand(playerManager.playerId, gridPosition)"));
+        Assert.That(placementSource, Does.Contain("bool pointerOverUI = MdfInput.IsPointerOverFieldBlockingUI()"));
+        Assert.That(placementSource, Does.Contain("if (currentMode == PlacementMode.None)"));
+        Assert.That(placementSource, Does.Not.Contain("currentMode == PlacementMode.None || !showPreview"));
+        Assert.That(placementSource, Does.Contain("BuildWallPlacementInvalidReason"));
+        Assert.That(placementSource, Does.Contain("[ManualWall]"));
+        Assert.That(placementSource, Does.Contain("!pointerOverUI"));
+        Assert.That(placementSource, Does.Contain("SecondaryPointerWasPressedThisFrame"));
+        Assert.That(placementSource, Does.Contain("currentMode == PlacementMode.Wall && TryRemoveWall()"));
+        Assert.That(placementSource, Does.Contain("fieldManager.GetWallAt(currentMouseGridPosition) == null"));
+        Assert.That(removeWallCommandSource, Does.Contain("if (fm.GetWallAt(Position) == null)"));
+        Assert.That(removeWallCommandSource, Does.Contain("player.ReturnWall();"));
+        Assert.That(playerManagerSource, Does.Contain("public void ReturnWall()"));
+        Assert.That(playerManagerSource, Does.Not.Contain("wallCount < MAX_WALL_COUNT"));
+        Assert.That(automationSource, Does.Contain("ExecutePlaceWallCommand"));
+        Assert.That(automationSource, Does.Contain("ExecuteRemoveWallCommand"));
+        Assert.That(automationSource, Does.Contain("place_wall"));
+        Assert.That(automationSource, Does.Contain("remove_wall"));
+        Assert.That(shopSource, Does.Contain("TryToggleShopFromLegacy"));
+        Assert.That(augmentSource, Does.Contain("TryShowAugmentsFromLegacy"));
+        Assert.That(playerHudSource, Does.Contain("SetLegacyHudButtonsVisible"));
+        Assert.That(playerHudSource, Does.Contain("SetLegacyResourceHudVisible"));
+        Assert.That(styleSource, Does.Contain(".game-left-wireframe-rail"));
+        Assert.That(styleSource, Does.Contain(".game-prepare-design-space"));
+        Assert.That(styleSource, Does.Contain("NotoSansKR-VariableFont_wght_UITK.asset"));
+        Assert.That(styleSource, Does.Contain(".wire-status-row"));
+        Assert.That(styleSource, Does.Contain("padding-left: 120px;"));
+        Assert.That(styleSource, Does.Contain("width: 280px;"));
+        Assert.That(styleSource, Does.Contain("height: 350px;"));
+        Assert.That(styleSource, Does.Contain("scale-and-crop"));
+        Assert.That(styleSource, Does.Contain("flex-shrink: 0;"));
+        Assert.That(styleSource, Does.Contain(".shop-art-frame"));
+        Assert.That(styleSource, Does.Contain(".shop-text-overlay"));
+        Assert.That(styleSource, Does.Contain(".shop-footer-row"));
+        Assert.That(styleSource, Does.Contain(".shop-star-label"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.shop-card \.card-name\s*\{.*?-unity-font-style:\s*bold;"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.shop-card \.card-description\s*\{.*?-unity-font-style:\s*bold;"));
+        Assert.That(styleSource, Does.Contain("width: 180px;"));
+        Assert.That(styleSource, Does.Contain("height: 180px;"));
+        Assert.That(styleSource, Does.Contain(".wall-action-button"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.wall-action-button\s*\{.*?left:\s*28px;.*?bottom:\s*26px;.*?width:\s*180px;"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.game-hud-root\s*\{.*?right:\s*28px;.*?bottom:\s*26px;.*?width:\s*180px;"));
+        Assert.That(styleSource, Does.Match(@"(?s)\.hud-action-button\s*\{.*?width:\s*180px;.*?height:\s*180px;"));
+        Assert.That(styleSource, Does.Contain("width: 84px;"));
+        Assert.That(styleSource, Does.Contain("height: 84px;"));
+        Assert.That(styleSource, Does.Contain("width: 320px;"));
+        Assert.That(styleSource, Does.Contain("height: 40px;"));
+        Assert.That(styleSource, Does.Contain("margin-left: 12px;"));
+        Assert.That(styleSource, Does.Contain(".round-timer-label"));
+        Assert.That(styleSource, Does.Contain(".hud-icon-button"));
+        Assert.That(styleSource, Does.Contain("position: absolute;"));
+        Assert.That(styleSource, Does.Contain(".shop-card"));
+        Assert.That(styleSource, Does.Contain("background-image: url"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-1"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-2"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-3"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-4"));
+        Assert.That(styleSource, Does.Contain(".shop-card-star-5"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotGray.png"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotGreen.png"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotBlue.png"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotPurple.png"));
+        Assert.That(styleSource, Does.Contain("Spr_SlotOrange.png"));
+        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotGray.png.meta"), Does.Contain("spriteMeshType: 0"));
+        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotGreen.png.meta"), Does.Contain("spriteMeshType: 0"));
+        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotBlue.png.meta"), Does.Contain("spriteMeshType: 0"));
+        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotPurple.png.meta"), Does.Contain("spriteMeshType: 0"));
+        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotOrange.png.meta"), Does.Contain("spriteMeshType: 0"));
+        Assert.That(uxml, Does.Contain("game-round-timer-label"));
+        Assert.That(uxml, Does.Contain("game-prepare-design-space"));
+        Assert.That(uxml, Does.Contain("wall-action-button"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(1), Is.EqualTo("shop-card-star-1"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(2), Is.EqualTo("shop-card-star-2"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(3), Is.EqualTo("shop-card-star-3"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(4), Is.EqualTo("shop-card-star-4"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(5), Is.EqualTo("shop-card-star-5"));
+        Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(6), Is.EqualTo(string.Empty));
+        Assert.That(GamePrepareUIToolkitController.CalculateCardSize(true, new Vector2(2340, 1080)).x, Is.EqualTo(336f).Within(0.01f));
+        Assert.That(GamePrepareUIToolkitController.CalculateCardSize(true, new Vector2(2340, 1080)).y, Is.EqualTo(420f).Within(0.01f));
+        Assert.That(GamePrepareUIToolkitController.CalculateCardSize(false, new Vector2(2340, 1080)).y, Is.GreaterThanOrEqualTo(64f * 6.0f));
+        Assert.That(GamePrepareUIToolkitController.CalculateShopTopPadding(new Vector2(2340, 1080)), Is.EqualTo(172.8f).Within(0.01f));
+        Assert.That(GamePrepareUIToolkitController.CalculateRerollButtonTop(new Vector2(2340, 1080)), Is.EqualTo(621.6f).Within(0.01f));
+        Assert.That(GamePrepareUIToolkitController.CalculateAugmentTopPadding(new Vector2(2340, 1080)), Is.GreaterThanOrEqualTo(320f));
+    }
+
+    [Test]
     public void FieldUnitRegistrationHandlesLateMovesAndRetiredUnits()
     {
         string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
@@ -770,6 +1189,21 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("TryReserveUnitPosition(gridPosition, data)"));
         Assert.That(fieldSource, Does.Contain("ShouldQueuePendingNetworkMove(Vector3Int from)"));
         Assert.That(fieldSource, Does.Contain("HasPendingUnitAt(from)"));
+        Assert.That(fieldSource, Does.Contain("preservedPendingUnitPositions"));
+        Assert.That(fieldSource, Does.Contain("preservedPendingUnitDataByPosition"));
+        Assert.That(fieldSource, Does.Contain("preservedPendingNetworkMoves"));
+        Assert.That(fieldSource, Does.Contain("RestorePendingStateAfterUnitMapRebuild"));
+
+        int rebuildStart = fieldSource.IndexOf("public bool RebuildUnitMapAfterMigration", System.StringComparison.Ordinal);
+        int preservePendingMoves = fieldSource.IndexOf("preservedPendingNetworkMoves", rebuildStart, System.StringComparison.Ordinal);
+        int unitMapAssigned = fieldSource.IndexOf("placedUnits = rebuiltUnits;", rebuildStart, System.StringComparison.Ordinal);
+        int restorePendingState = fieldSource.IndexOf("RestorePendingStateAfterUnitMapRebuild", unitMapAssigned, System.StringComparison.Ordinal);
+        int replayPendingMoves = fieldSource.IndexOf("ProcessPendingNetworkMoves();", restorePendingState, System.StringComparison.Ordinal);
+        Assert.That(rebuildStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(preservePendingMoves, Is.GreaterThan(rebuildStart));
+        Assert.That(preservePendingMoves, Is.LessThan(unitMapAssigned));
+        Assert.That(restorePendingState, Is.GreaterThan(unitMapAssigned));
+        Assert.That(replayPendingMoves, Is.GreaterThan(restorePendingState));
 
         int createdUnitAdded = fieldSource.IndexOf("placedUnits.Add(gridPosition, newUnitComponent);", System.StringComparison.Ordinal);
         int pendingMovesProcessed = fieldSource.IndexOf("ProcessPendingNetworkMoves();", createdUnitAdded, System.StringComparison.Ordinal);
@@ -887,6 +1321,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("inactiveOrDead && !wasAlreadyRegistered && !belongsToPlayer"));
         Assert.That(fieldSource, Does.Contain("unit.IsDead || !unit.gameObject.activeSelf || !unit.gameObject.activeInHierarchy"));
         Assert.That(fieldSource, Does.Contain("public void RespawnAllUnits()"));
+        Assert.That(fieldSource, Does.Contain("bool networkRunning = runner != null && runner.IsRunning;"));
+        Assert.That(fieldSource, Does.Contain("if (networkRunning && !unit.HasValidNetworkObject)"));
         Assert.That(gameManagersSource, Does.Contain("player?.fieldManager?.RespawnAllUnits();"));
         Assert.That(snapshotSource, Does.Contain("deadUnitCount"));
         Assert.That(snapshotSource, Does.Contain("DeadUnitsHash"));
@@ -968,8 +1404,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(managerSource, Does.Contain("TryResolveSelectedMonster(out var selectedMonster, out int poolSlotIndex)"));
         Assert.That(managerSource, Does.Contain("HasPendingBattleSpawnForCurrentSnapshot(poolSlotIndex)"));
         Assert.That(managerSource, Does.Contain("MarkPendingBattleSpawn(poolSlotIndex)"));
+        Assert.That(managerSource, Does.Contain("SuppressBattleMapInputForCurrentPointer"));
+        Assert.That(managerSource, Does.Not.Contain("FirstOrDefault(entry => entry != null && !entry.IsEmpty)"));
         Assert.That(uiSource, Does.Contain("_attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
-        Assert.That(uiSource, Does.Contain("SelectFirstAvailableMonsterSlot(pool)"));
+        Assert.That(uiSource, Does.Contain("GamePrepareUIToolkitController.TrySyncMonsterSelectionFromLegacy(slotIndex)"));
+        Assert.That(uiSource, Does.Not.Contain("SelectFirstAvailableMonsterSlot(pool);"));
     }
 
     [Test]
@@ -1079,6 +1518,64 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("field.IsUnitAt(to"));
         Assert.That(source, Does.Contain("GetMoveCandidatePriority"));
         Assert.That(source, Does.Contain("IsLikelyPurchaseDefaultArea"));
+    }
+
+    [Test]
+    public void PrepareDecisionPolicyPendingMoveSuppressionDoesNotBlockNextRound()
+    {
+        string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
+
+        int sourceStart = source.IndexOf("private bool IsPendingMoveSource", System.StringComparison.Ordinal);
+        int targetStart = source.IndexOf("private bool IsPendingMoveTarget", System.StringComparison.Ordinal);
+        Assert.That(sourceStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(targetStart, Is.GreaterThanOrEqualTo(0));
+
+        int sourceEnd = source.IndexOf("private void RememberPendingMoveSource", sourceStart, System.StringComparison.Ordinal);
+        int targetEnd = source.IndexOf("private void RememberMoveTarget", targetStart, System.StringComparison.Ordinal);
+        Assert.That(sourceEnd, Is.GreaterThan(sourceStart));
+        Assert.That(targetEnd, Is.GreaterThan(targetStart));
+
+        string sourceMethod = source.Substring(sourceStart, sourceEnd - sourceStart);
+        string targetMethod = source.Substring(targetStart, targetEnd - targetStart);
+
+        Assert.That(sourceMethod, Does.Contain("pendingRound == round"));
+        Assert.That(targetMethod, Does.Contain("pendingRound == round"));
+        Assert.That(sourceMethod, Does.Not.Contain("round - 1"));
+        Assert.That(targetMethod, Does.Not.Contain("round - 1"));
+        Assert.That(source, Does.Contain("lastRound == round"));
+        Assert.That(source, Does.Contain("_lastMoveRoundByUnitKey"));
+        Assert.That(source, Does.Contain("_wallUnblockMoveRoundByUnitKey"));
+        Assert.That(source, Does.Contain("_pendingWallRoundByCellKey"));
+        Assert.That(source, Does.Contain("_pendingBuyRoundBySlotKey"));
+        Assert.That(source, Does.Contain(".Where(pair => pair.Value < round)"));
+        Assert.That(source, Does.Not.Contain("pendingRound >= round - 1"));
+    }
+
+    [Test]
+    public void FieldManagerRestoresDragNetworkTransformForRoundTransitionsAndInvalidDrops()
+    {
+        string source = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+
+        Assert.That(source, Does.Contain("RestoreSelectedUnitNetworkTransform"));
+        Assert.That(source, Does.Contain("originalUnitPosition = GetUnitPosition(selectedUnit) ?? WorldToGridInt(selectedUnit.transform.position);"));
+
+        int stateChangeStart = source.IndexOf("private void HandleGameStateChange", System.StringComparison.Ordinal);
+        int stateChangeEnd = source.IndexOf("#endregion", stateChangeStart, System.StringComparison.Ordinal);
+        Assert.That(stateChangeStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(stateChangeEnd, Is.GreaterThan(stateChangeStart));
+        string stateChangeMethod = source.Substring(stateChangeStart, stateChangeEnd - stateChangeStart);
+        Assert.That(stateChangeMethod, Does.Contain("RestoreSelectedUnitNetworkTransform();"));
+        Assert.That(stateChangeMethod.IndexOf("RestoreSelectedUnitNetworkTransform();", System.StringComparison.Ordinal),
+            Is.LessThan(stateChangeMethod.IndexOf("SnapbackSelectedUnit(originalWorldPos);", System.StringComparison.Ordinal)));
+
+        int releaseStart = source.IndexOf("if (MdfInput.PrimaryPointerWasReleasedThisFrame() && selectedUnit != null)", System.StringComparison.Ordinal);
+        int releaseEnd = source.IndexOf("private bool ShouldAllowUnitDragThroughPrepareToolkit", releaseStart, System.StringComparison.Ordinal);
+        Assert.That(releaseStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(releaseEnd, Is.GreaterThan(releaseStart));
+        string releaseBlock = source.Substring(releaseStart, releaseEnd - releaseStart);
+        Assert.That(releaseBlock, Does.Contain("RestoreSelectedUnitNetworkTransform();"));
+        Assert.That(releaseBlock.IndexOf("RestoreSelectedUnitNetworkTransform();", System.StringComparison.Ordinal),
+            Is.LessThan(releaseBlock.IndexOf("Vector3Int bestGrid = GetBestGridUnderMouse();", System.StringComparison.Ordinal)));
     }
 
     [Test]
@@ -1450,6 +1947,19 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(unitSource, Does.Contain("SyncFieldPlacementIdentity"));
         Assert.That(gameManagersRosterSource, Does.Contain("RPC_ReconcilePlayerUnitRosterCompact"));
         Assert.That(gameManagersRosterSource, Does.Contain("ApplyCompactUnitRosterFromAuthority"));
+    }
+
+    [Test]
+    public void MeleeUnitsRecheckRangeBeforeApplyingDamage()
+    {
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+
+        Assert.That(unitSource, Does.Contain("PruneBlockedMonsters();"));
+        Assert.That(unitSource, Does.Contain("IsCurrentTargetValidForAttack(false)"));
+        Assert.That(unitSource, Does.Contain("IsTargetWithinAttackRange(targetTransform, AttackRangePadding)"));
+        Assert.That(unitSource, Does.Contain("IsPendingMeleeAttackStillValid()"));
+        Assert.That(unitSource, Does.Contain("GetClosestTargetPoint(target, transform.position)"));
+        Assert.That(unitSource, Does.Contain("monster.Unblock();"));
     }
 
     [Test]

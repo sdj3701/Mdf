@@ -1235,7 +1235,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         if (_lastMoveRoundByUnitKey.Count > 0)
         {
             var staleKeys = _lastMoveRoundByUnitKey
-                .Where(pair => pair.Value < round - 1)
+                .Where(pair => pair.Value < round)
                 .Select(pair => pair.Key)
                 .ToArray();
             foreach (var key in staleKeys)
@@ -1247,7 +1247,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         if (_wallUnblockMoveRoundByUnitKey.Count > 0)
         {
             var staleKeys = _wallUnblockMoveRoundByUnitKey
-                .Where(pair => pair.Value < round - 1)
+                .Where(pair => pair.Value < round)
                 .Select(pair => pair.Key)
                 .ToArray();
             foreach (var key in staleKeys)
@@ -1259,7 +1259,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         if (_pendingMoveSourceRoundByCellKey.Count > 0)
         {
             var staleSources = _pendingMoveSourceRoundByCellKey
-                .Where(pair => pair.Value < round - 1)
+                .Where(pair => pair.Value < round)
                 .Select(pair => pair.Key)
                 .ToArray();
             foreach (var key in staleSources)
@@ -1271,7 +1271,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         if (_pendingMoveTargetRoundByCellKey.Count > 0)
         {
             var staleTargets = _pendingMoveTargetRoundByCellKey
-                .Where(pair => pair.Value < round - 1)
+                .Where(pair => pair.Value < round)
                 .Select(pair => pair.Key)
                 .ToArray();
             foreach (var key in staleTargets)
@@ -1296,7 +1296,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         return _pendingMoveSourceRoundByCellKey.TryGetValue(BuildCellMemoryKey(player, candidate), out int pendingRound) &&
-               pendingRound >= round - 1;
+               pendingRound == round;
     }
 
     private void RememberPendingMoveSource(PlayerManager player, Vector3Int candidate, int round)
@@ -1317,7 +1317,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         return _pendingMoveTargetRoundByCellKey.TryGetValue(BuildCellMemoryKey(player, candidate), out int pendingRound) &&
-               pendingRound >= round - 1;
+               pendingRound == round;
     }
 
     private void RememberMoveTarget(PlayerManager player, Vector3Int candidate, int round)
@@ -1361,7 +1361,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         var staleKeys = _pendingWallRoundByCellKey
-            .Where(pair => pair.Value < round - 1)
+            .Where(pair => pair.Value < round)
             .Select(pair => pair.Key)
             .ToArray();
         foreach (var key in staleKeys)
@@ -1531,7 +1531,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         return _pendingBuyRoundBySlotKey.TryGetValue(BuildBuyMemoryKey(player, slot), out int pendingRound) &&
-               pendingRound >= round - 1;
+               pendingRound == round;
     }
 
     private void RememberBuyCandidate(PlayerManager player, int slot, int round)
@@ -1552,7 +1552,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         var staleKeys = _pendingBuyRoundBySlotKey
-            .Where(pair => pair.Value < round - 1)
+            .Where(pair => pair.Value < round)
             .Select(pair => pair.Key)
             .ToArray();
         foreach (var key in staleKeys)

@@ -429,6 +429,12 @@ public sealed class TestMatchingUIToolkitController : MonoBehaviour
             return false;
         }
 
+        if (networkManager.IsNetworkUiBlocked)
+        {
+            ShowStatus("Network action is in progress. Please wait.", StatusKind.Info);
+            return false;
+        }
+
         if (networkManager.State != ConnectionState.InLobby)
         {
             ShowStatus("현재 상태에서는 방 작업을 할 수 없습니다.", StatusKind.Error);

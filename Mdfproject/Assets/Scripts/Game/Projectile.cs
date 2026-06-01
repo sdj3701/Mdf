@@ -1,4 +1,5 @@
 // Assets/Scripts/Game/Projectile.cs
+using System.Collections.Generic;
 using UnityEngine;
 
 public class Projectile : MonoBehaviour
@@ -111,9 +112,10 @@ public class Projectile : MonoBehaviour
         {
             // 스플래시 공격: 폭발 지점 주변 범위 내 모든 적에게 데미지
             Collider[] enemiesInRange = Physics.OverlapSphere(impactPosition, _splashRadius, enemyLayerMask);
+            var damagedTargets = new HashSet<int>();
             foreach (var enemyCollider in enemiesInRange)
             {
-                if (enemyCollider.TryGetComponent<IEnemy>(out var enemy))
+                if (TryResolveUniqueEnemy(enemyCollider, damagedTargets, out var enemy))
                 {
                     enemy.TakeDamage(damage, damageType);
                 }
@@ -131,5 +133,25 @@ public class Projectile : MonoBehaviour
                 }
             }
         }
+    }
+
+    private static bool TryResolveUniqueEnemy(Collider collider, HashSet<int> damagedTargets, out IEnemy enemy)
+    {
+        enemy = null;
+        if (collider == null || damagedTargets == null)
+        {
+            return false;
+        }
+
+        enemy = collider.GetComponentInParent<IEnemy>();
+        if (enemy == null)
+        {
+            return false;
+        }
+
+        int key = enemy is MonoBehaviour behaviour
+            ? behaviour.GetInstanceID()
+            : collider.GetInstanceID();
+        return damagedTargets.Add(key);
     }
 }

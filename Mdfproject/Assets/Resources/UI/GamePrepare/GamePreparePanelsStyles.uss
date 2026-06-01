@@ -1,0 +1,826 @@
+.game-prepare-root {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    flex-grow: 1;
+    -unity-font-definition: url("project://database/Assets/Resources/Fonts%20&%20Materials/NotoSansKR-VariableFont_wght_UITK.asset?fileID=11400000&guid=9c2a7d7936fa41642b7f7f1396b8f8bc&type=2#NotoSansKR-VariableFont_wght_UITK");
+}
+
+.game-prepare-safe-root {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+}
+
+.game-prepare-design-space {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1600px;
+    height: 900px;
+    transform-origin: left top;
+    overflow: hidden;
+    -unity-font-definition: url("project://database/Assets/Resources/Fonts%20&%20Materials/NotoSansKR-VariableFont_wght_UITK.asset?fileID=11400000&guid=9c2a7d7936fa41642b7f7f1396b8f8bc&type=2#NotoSansKR-VariableFont_wght_UITK");
+}
+
+.game-left-wireframe-rail {
+    display: none;
+}
+
+.wire-status-row {
+    flex-direction: row;
+}
+
+.hidden {
+    display: none;
+}
+
+.prepare-panel {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: flex-start;
+    background-color: rgba(4, 7, 10, 0.42);
+}
+
+.augment-panel {
+    padding-left: 48px;
+    padding-right: 48px;
+    padding-top: 250px;
+    padding-bottom: 56px;
+}
+
+.shop-panel {
+    padding-left: 120px;
+    padding-right: 20px;
+    padding-top: 132px;
+    padding-bottom: 42px;
+}
+
+.screen-frame {
+    position: absolute;
+    background-color: rgba(222, 177, 77, 0.88);
+}
+
+.frame-top {
+    left: 30px;
+    right: 30px;
+    top: 18px;
+    height: 2px;
+}
+
+.frame-bottom {
+    left: 30px;
+    right: 30px;
+    bottom: 18px;
+    height: 2px;
+}
+
+.frame-left {
+    left: 18px;
+    top: 30px;
+    bottom: 30px;
+    width: 2px;
+}
+
+.frame-right {
+    right: 18px;
+    top: 30px;
+    bottom: 30px;
+    width: 2px;
+}
+
+.augment-card-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+.shop-card-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+.choice-card {
+    position: relative;
+    margin-left: 14px;
+    margin-right: 14px;
+    background-color: rgb(8, 15, 24);
+    border-left-width: 4px;
+    border-right-width: 4px;
+    border-top-width: 4px;
+    border-bottom-width: 4px;
+    border-left-color: rgb(204, 162, 74);
+    border-right-color: rgb(204, 162, 74);
+    border-top-color: rgb(232, 198, 103);
+    border-bottom-color: rgb(161, 126, 58);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.choice-card:hover {
+    border-left-color: rgb(255, 224, 130);
+    border-right-color: rgb(255, 224, 130);
+    border-top-color: rgb(255, 237, 156);
+    border-bottom-color: rgb(218, 176, 82);
+}
+
+.choice-card:disabled {
+    opacity: 0.54;
+}
+
+.augment-card {
+    width: 332px;
+    height: 480px;
+}
+
+.shop-card {
+    width: 280px;
+    height: 350px;
+    margin-left: 6px;
+    margin-right: 6px;
+    background-color: rgb(8, 15, 24);
+    -unity-background-scale-mode: stretch-to-fill;
+    border-left-width: 0;
+    border-right-width: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.shop-card-star-1 {
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotGray.png?fileID=21300000&guid=e92700a15c3cbf14caa7a22b0252ba33&type=3#Spr_SlotGray");
+}
+
+.shop-card-star-2 {
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotGreen.png?fileID=21300000&guid=3791f64c32ca2c44c9e158cefb12a9b1&type=3#Spr_SlotGreen");
+}
+
+.shop-card-star-3 {
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotBlue.png?fileID=21300000&guid=93b97824a226aa642962af23863abb6b&type=3#Spr_SlotBlue");
+}
+
+.shop-card-star-4 {
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotPurple.png?fileID=21300000&guid=765be8daac9c04344b1a094daeafcf15&type=3#Spr_SlotPurple");
+}
+
+.shop-card-star-5 {
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_SlotOrange.png?fileID=21300000&guid=375a6a7f78ca3754580b29a494ea5e47&type=3#Spr_SlotOrange");
+}
+
+.card-top-gem {
+    position: absolute;
+    top: -24px;
+    left: 50%;
+    width: 42px;
+    height: 42px;
+    margin-left: -21px;
+    background-color: rgb(218, 167, 52);
+    border-left-width: 4px;
+    border-right-width: 4px;
+    border-top-width: 4px;
+    border-bottom-width: 4px;
+    border-left-color: rgb(93, 69, 33);
+    border-right-color: rgb(93, 69, 33);
+    border-top-color: rgb(255, 231, 129);
+    border-bottom-color: rgb(123, 83, 29);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.card-body {
+    flex-grow: 1;
+    align-items: center;
+    justify-content: center;
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 26px;
+    padding-bottom: 16px;
+    background-color: rgb(7, 13, 21);
+}
+
+.card-icon {
+    width: 142px;
+    height: 142px;
+    margin-bottom: 12px;
+    opacity: 0.92;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.augment-icon {
+    width: 150px;
+    height: 150px;
+    opacity: 0.58;
+    margin-bottom: 18px;
+}
+
+.shop-icon {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: auto;
+    height: auto;
+    margin-bottom: 0;
+    opacity: 1;
+    flex-shrink: 0;
+    -unity-background-scale-mode: scale-and-crop;
+}
+
+.card-tier {
+    color: rgb(215, 184, 100);
+    font-size: 19px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    margin-bottom: 8px;
+}
+
+.card-name {
+    color: rgb(242, 236, 220);
+    font-size: 25px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: normal;
+    margin-bottom: 8px;
+}
+
+.card-description {
+    color: rgb(184, 196, 217);
+    font-size: 18px;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.augment-card .card-body {
+    justify-content: flex-start;
+    padding-top: 34px;
+}
+
+.augment-card .card-name {
+    font-size: 24px;
+    margin-bottom: 10px;
+}
+
+.augment-card .card-description {
+    font-size: 17px;
+    white-space: normal;
+}
+
+.card-footer {
+    height: 76px;
+    align-items: center;
+    justify-content: center;
+    background-color: rgb(30, 43, 75);
+    border-top-width: 2px;
+    border-top-color: rgb(82, 92, 113);
+}
+
+.shop-card .card-top-gem {
+    display: none;
+}
+
+.shop-card .card-body {
+    background-color: rgba(0, 0, 0, 0);
+    align-items: stretch;
+    justify-content: flex-start;
+    padding-left: 10px;
+    padding-right: 10px;
+    padding-top: 10px;
+    padding-bottom: 0;
+}
+
+.shop-art-frame {
+    position: relative;
+    flex-grow: 1;
+    overflow: hidden;
+    background-color: rgb(4, 8, 13);
+}
+
+.shop-text-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: flex-start;
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-top: 14px;
+    padding-bottom: 0;
+    background-color: rgba(0, 0, 0, 0);
+}
+
+.shop-card .card-tier {
+    color: rgb(255, 224, 126);
+    margin-bottom: 0;
+}
+
+.shop-star-label {
+    width: 86px;
+    height: 32px;
+    background-color: rgba(4, 8, 13, 0.72);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(215, 184, 100, 0.62);
+    border-right-color: rgba(215, 184, 100, 0.62);
+    border-top-color: rgba(255, 224, 126, 0.74);
+    border-bottom-color: rgba(93, 69, 33, 0.82);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.shop-card .card-name {
+    font-size: 22px;
+    -unity-font-style: bold;
+    margin-bottom: 0;
+    -unity-text-align: middle-left;
+}
+
+.shop-card .card-description {
+    color: rgb(208, 217, 231);
+    font-size: 22px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-right;
+}
+
+.shop-card .card-footer {
+    height: 76px;
+    background-color: rgba(2, 6, 11, 0.68);
+    border-top-width: 0;
+    align-items: stretch;
+    justify-content: center;
+    padding-left: 16px;
+    padding-right: 16px;
+}
+
+.shop-footer-row {
+    flex-grow: 1;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.shop-footer-name {
+    flex-grow: 1;
+    height: 48px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.shop-footer-cost {
+    width: 108px;
+    height: 48px;
+    margin-left: 10px;
+    white-space: nowrap;
+}
+
+.card-footer-label {
+    color: rgb(245, 231, 194);
+    font-size: 22px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.sold-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    color: rgb(241, 234, 215);
+    font-size: 28px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    background-color: rgba(0, 0, 0, 0.68);
+}
+
+.shop-control-row {
+    position: absolute;
+    right: 28px;
+    top: 506px;
+    width: 180px;
+    height: 180px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.shop-status-label {
+    color: rgb(237, 218, 159);
+    font-size: 18px;
+    -unity-font-style: bold;
+    margin-right: 16px;
+}
+
+.toolkit-button {
+    width: 180px;
+    min-width: 180px;
+    height: 180px;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(9, 16, 26, 0.88);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(203, 159, 68);
+    border-right-color: rgb(203, 159, 68);
+    border-top-color: rgb(237, 198, 88);
+    border-bottom-color: rgb(151, 111, 46);
+    border-top-left-radius: 90px;
+    border-top-right-radius: 90px;
+    border-bottom-left-radius: 90px;
+    border-bottom-right-radius: 90px;
+    padding-left: 26px;
+    padding-right: 26px;
+}
+
+.toolkit-button:hover {
+    background-color: rgba(36, 51, 81, 0.96);
+}
+
+.toolkit-button-label {
+    color: rgb(248, 231, 181);
+    font-size: 22px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.reroll-gold-mode {
+    opacity: 0.62;
+}
+
+.wall-action-button {
+    position: absolute;
+    left: 28px;
+    bottom: 26px;
+    width: 180px;
+    min-width: 180px;
+    height: 180px;
+    padding-left: 0;
+    padding-right: 0;
+    border-top-left-radius: 90px;
+    border-top-right-radius: 90px;
+    border-bottom-left-radius: 90px;
+    border-bottom-right-radius: 90px;
+}
+
+.wall-action-icon {
+    width: 80px;
+    height: 58px;
+    margin-right: 0;
+    margin-bottom: 8px;
+}
+
+.wall-action-count {
+    width: 160px;
+    height: 44px;
+    color: rgb(248, 232, 182);
+    font-size: 34px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: nowrap;
+}
+
+.game-hud-root {
+    position: absolute;
+    right: 28px;
+    bottom: 26px;
+    width: 180px;
+    height: 180px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.hud-button {
+    width: 84px;
+    height: 84px;
+    min-width: 84px;
+    margin-left: 0;
+    padding-left: 0;
+    padding-right: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(8, 14, 23, 0.92);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(184, 138, 50);
+    border-right-color: rgb(184, 138, 50);
+    border-top-color: rgb(246, 212, 103);
+    border-bottom-color: rgb(117, 80, 30);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.hud-button:hover {
+    background-color: rgba(33, 47, 74, 0.96);
+    border-left-color: rgb(246, 212, 103);
+    border-right-color: rgb(246, 212, 103);
+}
+
+.hud-icon-button {
+    position: absolute;
+    left: 28px;
+    top: 12px;
+    margin-left: 0;
+    min-width: 84px;
+}
+
+.hud-action-button {
+    width: 180px;
+    min-width: 180px;
+    height: 180px;
+    border-top-left-radius: 90px;
+    border-top-right-radius: 90px;
+    border-bottom-left-radius: 90px;
+    border-bottom-right-radius: 90px;
+}
+
+.hud-action-spaced {
+    margin-left: 12px;
+}
+
+.hud-button-label {
+    width: 84px;
+    color: rgb(248, 232, 182);
+    font-size: 18px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+.hud-action-button .hud-button-label {
+    width: 160px;
+    height: 150px;
+    font-size: 22px;
+}
+
+.hud-button-active {
+    background-color: rgba(42, 58, 92, 0.98);
+    border-left-color: rgb(255, 232, 128);
+    border-right-color: rgb(255, 232, 128);
+    border-top-color: rgb(255, 241, 164);
+    border-bottom-color: rgb(206, 153, 55);
+}
+
+.round-timer-label {
+    position: absolute;
+    left: 640px;
+    top: 12px;
+    width: 320px;
+    height: 40px;
+    color: rgb(248, 232, 182);
+    font-size: 26px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    background-color: rgba(8, 14, 23, 0.92);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(184, 138, 50);
+    border-right-color: rgb(184, 138, 50);
+    border-top-color: rgb(246, 212, 103);
+    border-bottom-color: rgb(117, 80, 30);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.is-disabled {
+    opacity: 0.46;
+}
+
+.game-resource-root {
+    position: absolute;
+    right: 28px;
+    bottom: 26px;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.resource-pill {
+    min-width: 146px;
+    height: 46px;
+    margin-top: 8px;
+    padding-left: 16px;
+    padding-right: 18px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    background-color: rgba(8, 14, 23, 0.92);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(184, 138, 50);
+    border-right-color: rgb(184, 138, 50);
+    border-top-color: rgb(246, 212, 103);
+    border-bottom-color: rgb(117, 80, 30);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.resource-label {
+    color: rgb(215, 184, 100);
+    font-size: 18px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    margin-right: 18px;
+}
+
+.resource-icon {
+    width: 38px;
+    height: 32px;
+    margin-right: 16px;
+    flex-shrink: 0;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.resource-gold-icon {
+    background-image: url("project://database/Assets/Resource/Image/UI/SlotUI/Spr_UnitCost.png?fileID=21300000&guid=85e2a7d8e271c9a47b30d810e9c71612&type=3#Spr_UnitCost");
+}
+
+.resource-wall-icon {
+    width: 48px;
+    height: 34px;
+    background-image: url("project://database/Assets/Resource/Image/UI/Bricks.png?fileID=21300000&guid=3e2016eabfa81cb47b0e46263210a62f&type=3#Bricks");
+}
+
+.resource-value {
+    color: rgb(248, 232, 182);
+    font-size: 24px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-right;
+}
+
+.attack-sequence-panel {
+    position: absolute;
+    left: 24px;
+    right: 184px;
+    bottom: 22px;
+    flex-direction: column;
+    align-items: center;
+}
+
+.attack-monster-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    background-color: rgba(5, 10, 17, 0.78);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(179, 139, 61, 0.74);
+    border-right-color: rgba(179, 139, 61, 0.74);
+    border-top-color: rgba(231, 190, 86, 0.82);
+    border-bottom-color: rgba(111, 76, 31, 0.82);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.attack-scroll-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    background-color: rgba(5, 10, 17, 0.78);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(179, 139, 61, 0.74);
+    border-right-color: rgba(179, 139, 61, 0.74);
+    border-top-color: rgba(231, 190, 86, 0.82);
+    border-bottom-color: rgba(111, 76, 31, 0.82);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.attack-scroll-row {
+    margin-top: 8px;
+}
+
+.attack-card {
+    position: relative;
+    width: 82px;
+    height: 96px;
+    margin-left: 4px;
+    margin-right: 4px;
+    align-items: center;
+    justify-content: center;
+    background-color: rgb(8, 15, 24);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(130, 101, 51);
+    border-right-color: rgb(130, 101, 51);
+    border-top-color: rgb(199, 163, 78);
+    border-bottom-color: rgb(92, 69, 34);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.attack-card:hover {
+    border-left-color: rgb(246, 212, 103);
+    border-right-color: rgb(246, 212, 103);
+    border-top-color: rgb(255, 236, 146);
+    border-bottom-color: rgb(194, 142, 49);
+}
+
+.attack-card-selected {
+    background-color: rgb(27, 39, 63);
+    border-left-color: rgb(255, 229, 118);
+    border-right-color: rgb(255, 229, 118);
+    border-top-color: rgb(255, 245, 164);
+    border-bottom-color: rgb(215, 158, 55);
+}
+
+.attack-card-icon {
+    width: 42px;
+    height: 42px;
+    margin-bottom: 4px;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.attack-card-name {
+    width: 100%;
+    color: rgb(242, 236, 220);
+    font-size: 12px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.attack-card-count {
+    color: rgb(237, 218, 159);
+    font-size: 13px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    margin-top: 2px;
+}
+
+.scroll-attack-card {
+    height: 84px;
+    background-color: rgb(20, 15, 35);
+}
+
+.scroll-attack-icon {
+    width: 38px;
+    height: 38px;
+}
+
+.scroll-attack-name {
+    color: rgb(225, 211, 248);
+    font-size: 12px;
+}

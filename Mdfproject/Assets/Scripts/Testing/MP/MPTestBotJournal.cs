@@ -48,6 +48,7 @@ public sealed class MPTestBotJournal
         File.AppendAllText(Path, json + Environment.NewLine);
     }
 
+#pragma warning disable CS0618
     public static object BuildDecisionEntry(MPTestHumanBotDriver.BotStatus status, MPTestHumanBotPolicy.Decision decision)
     {
         return new
@@ -68,6 +69,7 @@ public sealed class MPTestBotJournal
             }
         };
     }
+#pragma warning restore CS0618
 
     public static object BuildDecisionEntry(MPTestHumanBotDriver.BotStatus status, MdfDecision decision)
     {

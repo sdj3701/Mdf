@@ -6,11 +6,11 @@ Category: harness
 Created: 2026-05-05
 Last used: 2026-06-01
 Last verified: 2026-06-01
-Use count: 37
+Use count: 60
 Review after: 2026-08-03
 Triggers: Development Build, build artifact, player launch smoke
 Applies to: `mp_build_player`, `tools/harness/mp/build_player.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/mptest-current; artifacts/builds/unit-roster-battle-fix-win-aa; artifacts/builds/20260516-043105; artifacts/builds/20260516-050308; artifacts/builds/20260516-071517; artifacts/builds/20260516-083348; artifacts/builds/20260516-180032-slash-vfx-win; artifacts/builds/20260530-212020/MDF-MPTest.exe; artifacts/builds/20260531-065812/build-metadata.json; artifacts/builds/20260531-014628/build-metadata.json; artifacts/builds/20260531-022040/build-metadata.json; artifacts/builds/20260531-030203/build-metadata.json; artifacts/builds/20260531-030203/build-metadata.json; artifacts/builds/20260531-032232/build-metadata.json; artifacts/builds/20260531-040001/build-metadata.json; artifacts/builds/20260531-044700-win/build-metadata.json; artifacts/builds/20260531-052700-win/build-metadata.json; artifacts/builds/20260531-150548-player-snapshot-pack-win/build-metadata.json; artifacts/builds/20260531-153300-pending-fire-pack-win/build-metadata.json; artifacts/builds/20260531-identity-key-pack-win/build-metadata.json; artifacts\builds\20260531-084700-monster-prewarm-win64\build-metadata.json; artifacts/builds/20260601-074444-vfx-catchup-win64/build-metadata.json; artifacts/builds/20260601-074444-vfx-catchup-win64/build-metadata.json; artifacts/builds/20260601-033310/build-metadata.json
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/mptest-current; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/builds/unit-roster-battle-fix-win-aa; artifacts/builds/20260516-043105; artifacts/builds/20260516-050308; artifacts/builds/20260516-071517; artifacts/builds/20260516-083348; artifacts/builds/20260516-180032-slash-vfx-win; artifacts/builds/20260530-212020/MDF-MPTest.exe; artifacts/builds/20260531-065812/build-metadata.json; artifacts/builds/20260531-014628/build-metadata.json; artifacts/builds/20260531-022040/build-metadata.json; artifacts/builds/20260531-030203/build-metadata.json; artifacts/builds/20260531-032232/build-metadata.json; artifacts/builds/20260531-040001/build-metadata.json; artifacts/builds/20260531-044700-win/build-metadata.json; artifacts/builds/20260531-052700-win/build-metadata.json; artifacts/builds/20260531-150548-player-snapshot-pack-win/build-metadata.json; artifacts/builds/20260531-153300-pending-fire-pack-win/build-metadata.json; artifacts/builds/20260531-identity-key-pack-win/build-metadata.json; artifacts\builds\20260531-084700-monster-prewarm-win64\build-metadata.json; artifacts/builds/20260601-074444-vfx-catchup-win64/build-metadata.json; artifacts/builds/20260601-033310/build-metadata.json; artifacts/builds/20260514-035351; artifacts/builds/20260514-044206; artifacts/builds/20260514-051634; artifacts/builds/20260514-054535; artifacts/builds/20260514-064144; artifacts/builds/20260519-040047/build-metadata.json; artifacts/builds/20260519-055613/build-metadata.json; artifacts/builds/20260519-070913; artifacts/builds/20260520-053607; artifacts/builds/20260520-060212; artifacts/builds/mptest-current/build-metadata.json; artifacts/builds/mptest-current/MDF-MPTest.exe; artifacts/mp/20260522-052526-two-humanbot-two-ai-smoke
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -53,7 +53,6 @@ Lifecycle notes:
 - 2026-05-31: verified artifact `artifacts/builds/20260531-014628/build-metadata.json`
 - 2026-05-31: verified artifact `artifacts/builds/20260531-022040/build-metadata.json`
 - 2026-05-31: verified artifact `artifacts/builds/20260531-030203/build-metadata.json`
-- 2026-05-31: verified artifact `artifacts/builds/20260531-030203/build-metadata.json`
 - 2026-05-31: verified artifact `artifacts/builds/20260531-032232/build-metadata.json`
 - 2026-05-31: verified artifact `artifacts/builds/20260531-040001/build-metadata.json`
 - 2026-05-31: verified artifact `artifacts/builds/20260531-044700-win/build-metadata.json`
@@ -63,5 +62,36 @@ Lifecycle notes:
 - 2026-05-31: verified artifact `artifacts/builds/20260531-identity-key-pack-win/build-metadata.json`
 - 2026-05-31: verified artifact `artifacts\builds\20260531-084700-monster-prewarm-win64\build-metadata.json`
 - 2026-06-01: verified artifact `artifacts/builds/20260601-074444-vfx-catchup-win64/build-metadata.json`
-- 2026-06-01: verified artifact `artifacts/builds/20260601-074444-vfx-catchup-win64/build-metadata.json`
 - 2026-06-01: verified artifact `artifacts/builds/20260601-033310/build-metadata.json`
+- 2026-05-13: verified artifact `artifacts/builds/mptest-current`
+- 2026-05-13: Rebuilt `artifacts/builds/mptest-current` for 2 HumanBot + 2 AI MoveUnit smoke; launch smoke cleanup PASS.
+- 2026-05-14: Rebuilt Development player for UIToolkit attack sequence/resource HUD change; launch smoke cleanup PASS orphanedPids=[].
+- 2026-05-14: verified artifact `artifacts/builds/20260514-035351`
+- 2026-05-14: Rebuilt Development player for whole-ground monster spawn click fix; launch smoke cleanup PASS orphanedPids=[].
+- 2026-05-14: verified artifact `artifacts/builds/20260514-044206`
+- 2026-05-14: Rebuilt Development player after explicit monster-card selection input fix; launch smoke cleanup PASS orphanedPids=[].
+- 2026-05-14: verified artifact `artifacts/builds/20260514-051634`
+- 2026-05-14: Verified Development player build and launch smoke before round 2 MP move test.
+- 2026-05-14: verified artifact `artifacts/builds/20260514-054535`
+- 2026-05-14: Rebuilt Development player after round-agnostic movement and drag NetworkTransform restore; launch smoke cleanup PASS orphanedPids=[].
+- 2026-05-14: verified artifact `artifacts/builds/20260514-064144`
+- 2026-05-19: Verified Windows player build after active build target switch; launch smoke cleanupStatus=PASS orphanedPids=[].
+- 2026-05-19: verified artifact `artifacts/builds/20260519-040047/build-metadata.json`
+- 2026-05-19: Rebuilt Windows player after lobby image restore and ranking input passthrough; launch smoke cleanupStatus=PASS orphanedPids=[].
+- 2026-05-19: verified artifact `artifacts/builds/20260519-055613/build-metadata.json`
+- 2026-05-19: Built Development player artifacts/builds/20260519-070913/MDF-MPTest.exe and launch smoke exited cleanly with cleanupStatus=PASS orphanedPids=[].
+- 2026-05-19: verified artifact `artifacts/builds/20260519-070913`
+- 2026-05-20: verified artifact `artifacts/builds/20260520-053607`
+- 2026-05-20: verified artifact `artifacts/builds/20260520-060212`
+- 2026-05-21: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
+- 2026-05-21: Rebuilt Development player after ranking UI HP max display fix; launch smoke cleanupStatus=PASS orphanedPids=[].
+- 2026-05-21: Verified for UI Toolkit build used by two-humanbot-two-ai smoke.
+- 2026-05-21: Verified development player rebuild for PlayerRanking UI layout change.
+- 2026-05-21: Verified development player rebuild for PlayerRanking self/opponent position adjustment.
+- 2026-05-22: verified artifact `artifacts/builds/mptest-current/build-metadata.json`
+- 2026-05-22: verified artifact `artifacts/builds/mptest-current/MDF-MPTest.exe`
+- 2026-05-22: Built mptest-current Development player before 2h2ai round-2 smoke; build result Succeeded.
+- 2026-05-22: Verified wall create/remove refund and move commands through round 5 in 2 HumanBot + 2 AI MP smoke.
+- 2026-05-22: verified artifact `artifacts/mp/20260522-052526-two-humanbot-two-ai-smoke`
+- 2026-05-31: Rebuilt `artifacts/builds/mptest-current` after PlayerRanking role icon and wall placement input fixes; launch smoke cleanupStatus=PASS orphanedPids=[].
+- 2026-05-31: verified artifact `artifacts/builds/mptest-current/build-metadata.json`

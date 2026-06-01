@@ -44,7 +44,27 @@ public static class GameEvents
     // --- 상점 및 배치 이벤트 ---
     // [수정됨] 구매 '요청'이 아닌 '성공 결과'를 알리는 이벤트. UI 업데이트 등 후처리에 사용됩니다.
     public static event Action<int, ShopItem, int> OnUnitPurchaseSucceeded; // playerID, 구매한 아이템, 상점 슬롯 인덱스
-    public static void TriggerUnitPurchaseSucceeded(int playerID, ShopItem item, int slotIndex) => OnUnitPurchaseSucceeded?.Invoke(playerID, item, slotIndex);
+    public static void TriggerUnitPurchaseSucceeded(int playerID, ShopItem item, int slotIndex)
+    {
+        var handlers = OnUnitPurchaseSucceeded;
+        if (handlers == null)
+        {
+            return;
+        }
+
+        foreach (Action<int, ShopItem, int> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(playerID, item, slotIndex);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[GameEvents] OnUnitPurchaseSucceeded handler exception: {handler.Method.DeclaringType?.Name}.{handler.Method.Name}");
+                Debug.LogException(ex);
+            }
+        }
+    }
 
     public static event Action<int, string> OnPurchaseFailed; // playerID, 실패 사유
     public static void TriggerPurchaseFailed(int playerID, string reason) => OnPurchaseFailed?.Invoke(playerID, reason);

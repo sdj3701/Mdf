@@ -29,6 +29,17 @@ public class PlacementButtonsUI : MonoBehaviour
     {
         if (TryGetReadyLocalPlayer(out var localPlayer))
         {
+            bool enablingWallMode = localPlayer.fieldManager.GetPlacementMode() != PlacementMode.Wall;
+            if (enablingWallMode && CameraManager.Instance != null && !CameraManager.Instance.IsViewingOwnField)
+            {
+                CameraManager.Instance.ReturnToOwnField();
+            }
+
+            if (enablingWallMode)
+            {
+                GamePrepareUIToolkitController.TrySetShopVisibilityFromLegacy(false, out _);
+            }
+
             localPlayer.fieldManager.TogglePlacementMode(PlacementMode.Wall);
         }
     }

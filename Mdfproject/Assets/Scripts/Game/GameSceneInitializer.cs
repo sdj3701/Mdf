@@ -32,6 +32,7 @@ public class GameSceneInitializer : MonoBehaviour
     {
         // 중복 등록 경고를 막기 위해 씬 시작 시 레지스트리를 초기화합니다.
         ComponentRegistry.Clear();
+        GamePrepareUIToolkitController.EnsureExists();
 
         // NetworkManager가 존재하면 멀티플레이 흐름을 우선시하고 싱글플레이 초기화를 건너뜁니다.
         if (NetworkManager.Instance != null)

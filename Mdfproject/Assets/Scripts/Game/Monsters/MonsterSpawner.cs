@@ -14,6 +14,8 @@ public class MonsterSpawner : MonoBehaviour
     private AstarGrid _pathfinder;
     private float _lastRuntimeResolveLogTime;
     private static int _spawnTraceSeq;
+    private const int SpawnSeparationSearchRadius = 2;
+    private const float SpawnSeparationDistanceFactor = 0.55f;
 
     [Header("스폰 설정 (자동 할당됨)")]
     [SerializeField] private Transform goalTransform;
@@ -815,6 +817,135 @@ public class MonsterSpawner : MonoBehaviour
             : default;
     }
 
+    private Vector3 ResolveSeparatedSpawnPosition(
+        Vector3 requestedPosition,
+        FieldManager targetFieldManager,
+        AstarGrid targetGrid,
+        Transform targetGoal,
+        MonsterData monsterData)
+    {
+        Transform targetMonsterParent = targetFieldManager?.playerManager?.monsterSpawner?.monsterParent;
+        if (targetMonsterParent == null || targetFieldManager == null || targetGrid == null || targetGoal == null)
+        {
+            return requestedPosition;
+        }
+
+        float cellSize = Mathf.Max(0.25f, targetFieldManager.cellSize);
+        float minSeparation = Mathf.Max(0.25f, cellSize * SpawnSeparationDistanceFactor);
+        if (!HasLivingMonsterNear(targetMonsterParent, requestedPosition, minSeparation))
+        {
+            return requestedPosition;
+        }
+
+        foreach (Vector3 candidate in BuildSpawnSeparationCandidates(requestedPosition, targetFieldManager))
+        {
+            if (HasLivingMonsterNear(targetMonsterParent, candidate, minSeparation))
+            {
+                continue;
+            }
+
+            if (!HasValidSpawnPath(targetFieldManager, targetGrid, targetGoal, candidate, monsterData))
+            {
+                continue;
+            }
+
+            return candidate;
+        }
+
+        return requestedPosition;
+    }
+
+    private static IEnumerable<Vector3> BuildSpawnSeparationCandidates(Vector3 requestedPosition, FieldManager targetFieldManager)
+    {
+        if (targetFieldManager == null)
+        {
+            yield break;
+        }
+
+        Vector2Int center = targetFieldManager.WorldToNavigationCell(requestedPosition);
+        var seen = new HashSet<Vector2Int> { center };
+        for (int radius = 1; radius <= SpawnSeparationSearchRadius; radius++)
+        {
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                for (int dy = -radius; dy <= radius; dy++)
+                {
+                    if (Mathf.Max(Mathf.Abs(dx), Mathf.Abs(dy)) != radius)
+                    {
+                        continue;
+                    }
+
+                    var cell = new Vector2Int(center.x + dx, center.y + dy);
+                    if (!targetFieldManager.IsValidNavigationCell(cell) || !seen.Add(cell))
+                    {
+                        continue;
+                    }
+
+                    Vector3 candidate = targetFieldManager.NavigationCellToWorld(cell);
+                    candidate.y = requestedPosition.y;
+                    yield return candidate;
+                }
+            }
+        }
+    }
+
+    private static bool HasLivingMonsterNear(Transform monsterParent, Vector3 position, float minDistance)
+    {
+        if (monsterParent == null)
+        {
+            return false;
+        }
+
+        float minDistanceSqr = minDistance * minDistance;
+        foreach (Transform child in monsterParent)
+        {
+            if (child == null || !child.gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+
+            if (!child.TryGetComponent<Monster>(out var monster))
+            {
+                continue;
+            }
+
+            if (monster.Object != null && !monster.Object.IsValid)
+            {
+                continue;
+            }
+
+            if (monster.CurrentHealth <= 0f)
+            {
+                continue;
+            }
+
+            if (FlatDistanceSqr(child.position, position) <= minDistanceSqr)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasValidSpawnPath(
+        FieldManager targetFieldManager,
+        AstarGrid targetGrid,
+        Transform targetGoal,
+        Vector3 spawnWorldPosition,
+        MonsterData monsterData)
+    {
+        bool ignoreBreakableWalls = monsterData != null && (monsterData.traits & MonsterTraits.Destroyer) != 0;
+        return CalculatePathLength(targetFieldManager, targetGrid, targetGoal, spawnWorldPosition, ignoreBreakableWalls) > 0;
+    }
+
+    private static float FlatDistanceSqr(Vector3 a, Vector3 b)
+    {
+        float dx = a.x - b.x;
+        float dz = a.z - b.z;
+        return dx * dx + dz * dz;
+    }
+
     private static int CalculatePathLength(
         FieldManager targetFieldManager,
         AstarGrid targetGrid,
@@ -1086,6 +1217,37 @@ public class MonsterSpawner : MonoBehaviour
             return null;
         }
 
+        var targetGrid = targetFieldManager.playerManager?.astarGrid;
+        var targetGoal = targetFieldManager.playerManager?.goalTransform;
+        if (targetGrid == null || targetGoal == null)
+        {
+            // Debug.LogError("[MonsterSpawner] 대상 필드의 AstarGrid 또는 goalTransform이 null");
+            LogSpawnTrace(
+                "SpawnMonsterAtPositionAsync:ABORT_TARGET_GRID_OR_GOAL_NULL",
+                monsterData,
+                spawnPosition,
+                targetFieldManager,
+                $"targetGrid={(targetGrid != null ? targetGrid.name : "null")},targetGoal={(targetGoal != null ? targetGoal.name : "null")}");
+            return null;
+        }
+
+        Vector3 separatedSpawnPosition = ResolveSeparatedSpawnPosition(
+            spawnPosition,
+            targetFieldManager,
+            targetGrid,
+            targetGoal,
+            monsterData);
+        if ((separatedSpawnPosition - spawnPosition).sqrMagnitude > 0.0001f)
+        {
+            LogSpawnTrace(
+                "SpawnMonsterAtPositionAsync:SEPARATED_STACKED_SPAWN",
+                monsterData,
+                separatedSpawnPosition,
+                targetFieldManager,
+                $"requested=({spawnPosition.x:F2},{spawnPosition.y:F2},{spawnPosition.z:F2})");
+            spawnPosition = separatedSpawnPosition;
+        }
+
         // 프리팹 로드
         if (string.IsNullOrEmpty(monsterData.monsterPrefab))
         {
@@ -1163,25 +1325,6 @@ public class MonsterSpawner : MonoBehaviour
         if (monsterGO.GetComponent<BuffManager>() == null)
         {
             monsterGO.AddComponent<BuffManager>();
-        }
-
-        // 상대 필드의 목표 지점을 사용하여 초기화
-        var targetGrid = targetFieldManager.playerManager?.astarGrid;
-        var targetGoal = targetFieldManager.playerManager?.goalTransform;
-        
-        if (targetGrid == null || targetGoal == null)
-        {
-            // Debug.LogError("[MonsterSpawner] 대상 필드의 AstarGrid 또는 goalTransform이 null");
-            LogSpawnTrace(
-                "SpawnMonsterAtPositionAsync:ABORT_TARGET_GRID_OR_GOAL_NULL",
-                monsterData,
-                adjustedSpawnPos,
-                targetFieldManager,
-                $"targetGrid={(targetGrid != null ? targetGrid.name : "null")},targetGoal={(targetGoal != null ? targetGoal.name : "null")}");
-            // Debug.LogWarning($"[SPAWN-TRACE] {BuildAllPlayersSnapshot()}");
-            // Debug.LogWarning($"[SPAWN-TRACE] {BuildAllFieldsSnapshot()}");
-            CleanupFailedSpawn(monsterGO, spawnedNetworkObject);
-            return null;
         }
 
         // 몬스터 초기화 (상대 필드 목표 사용)

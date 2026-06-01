@@ -87,6 +87,13 @@ public class AugmentUIController : MonoBehaviour
             return;
         }
 
+        if (GamePrepareUIToolkitController.TryShowAugmentsFromLegacy(player, choices))
+        {
+            InitializeAndHide();
+            BuildDebugGUI.LogClient("[AugmentUI] Routed to UI Toolkit panel.");
+            return;
+        }
+
         this.localPlayer = player;
         this.currentChoices = choices;
         _presentationVersion++;

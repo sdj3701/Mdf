@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: battle
 Created: 2026-05-06
-Last used: 2026-05-10
-Last verified: 2026-05-06
-Use count: 2
+Last used: 2026-05-20
+Last verified: 2026-05-20
+Use count: 6
 Review after: 2026-08-04
 Triggers: battle E2E reaches command execution on the host, but the client returns to `MatchingLobby` or the final snapshot is back in `Prepare`
 Applies to: `tools/harness/mp/run_battle_spawn_monster_command.py`, `tools/harness/mp/run_magic_scroll_command.py`, `tools/harness/mp/run_human_bot_battle_progression.py`, battle command snapshot checks
-Verified by: see Verification section below; migrated from old Status: verified
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051807-battle-spawn-monster-command; artifacts/mp/20260520-054126-battle-spawn-monster-command
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -38,3 +38,12 @@ Verification:
 - `artifacts/mp/20260506-084714-battle-spawn-monster-command` passed with `acceptedBattleCommandSeq=1`, `spawnMonsterSeq=1`, matching host/client command counters, `spawnSemanticsObserved=true`, and `spawn-semantic-comparison.json` success.
 - `artifacts/mp/20260506-084621-magic-scroll-command` passed with `acceptedBattleCommandSeq=2`, `spawnMonsterSeq=1`, `useMagicScrollSeq=1`, matching host/client command counters, `scroll_accepted`, `scroll_effect_applied`, and client `scroll_presentation` timeline entries. The bot selected `Aug_Scroll_Heal` with `preferScrollAugment=true`.
 - `artifacts/mp/20260506-084753-human-bot-battle-progression` passed with `acceptedBattleCommandSeq=2`, `spawnMonsterSeq=2`, matching host/client command counters, and no failures.
+
+Lifecycle notes:
+- 2026-05-14: Observer client battle command E2E stayed synchronized; spawn semantics observed on host and client.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-035543-battle-spawn-monster-command`
+- 2026-05-14: Observer client stayed synchronized after whole-ground battle spawn-zone validation change; host/client command counters matched and spawn semantics were observed.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-044344-battle-spawn-monster-command`
+- 2026-05-14: Observer client battle command E2E stayed synchronized after explicit card selection/map touch split.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-051807-battle-spawn-monster-command`
+- 2026-05-20: verified artifact `artifacts/mp/20260520-054126-battle-spawn-monster-command`
