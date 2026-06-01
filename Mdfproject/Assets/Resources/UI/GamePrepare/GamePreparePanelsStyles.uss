@@ -779,14 +779,14 @@
     left: 24px;
     right: 184px;
     bottom: 22px;
-    flex-direction: column;
-    align-items: center;
+    flex-direction: column-reverse;
+    align-items: flex-start;
 }
 
 .attack-monster-row {
     flex-direction: row;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     padding-left: 8px;
     padding-right: 8px;
     padding-top: 6px;
@@ -809,7 +809,7 @@
 .attack-scroll-row {
     flex-direction: row;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     padding-left: 8px;
     padding-right: 8px;
     padding-top: 6px;
@@ -830,7 +830,8 @@
 }
 
 .attack-scroll-row {
-    margin-top: 8px;
+    margin-top: 0;
+    margin-bottom: 4px;
 }
 
 .attack-card {
