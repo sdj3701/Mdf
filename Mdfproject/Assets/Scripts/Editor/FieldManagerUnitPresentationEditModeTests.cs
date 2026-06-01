@@ -109,6 +109,47 @@ public sealed class FieldManagerUnitPresentationEditModeTests
         }
     }
 
+    [Test]
+    public void WallRemovePanelAnchorsToLogicalGridCellWhenWallTransformDrifts()
+    {
+        var fieldGo = new GameObject("field");
+        var wallGo = new GameObject("wall");
+        var panelGo = new GameObject("panel");
+
+        try
+        {
+            var field = fieldGo.AddComponent<FieldManager>();
+            field.gridOrigin = Vector3.zero;
+            field.gridSize = new Vector2Int(4, 4);
+            field.cellSize = 1f;
+            SetPrivateField(field, "wallYOffset", 0.4f);
+
+            var wall = wallGo.AddComponent<DestructibleWall>();
+            wallGo.transform.position = new Vector3(99f, 12f, -50f);
+
+            var controller = panelGo.AddComponent<WallRemovePanelController>();
+            var cell = new Vector3Int(2, 1, 0);
+            SetPrivateField(controller, "_currentWall", wall);
+            SetPrivateField(controller, "_fieldManager", field);
+            SetPrivateField(controller, "_wallGridPosition", cell);
+
+            var method = typeof(WallRemovePanelController).GetMethod("GetAnchorWorldPosition", InstancePrivate);
+            Assert.That(method, Is.Not.Null);
+
+            var anchor = (Vector3)method.Invoke(controller, null);
+
+            Assert.That(anchor.x, Is.EqualTo(3f).Within(0.0001f));
+            Assert.That(anchor.y, Is.EqualTo(2.2f).Within(0.0001f));
+            Assert.That(anchor.z, Is.EqualTo(1.5f).Within(0.0001f));
+        }
+        finally
+        {
+            Object.DestroyImmediate(panelGo);
+            Object.DestroyImmediate(wallGo);
+            Object.DestroyImmediate(fieldGo);
+        }
+    }
+
     private static void SetPrivateField<TTarget, TValue>(TTarget target, string fieldName, TValue value)
     {
         var field = typeof(TTarget).GetField(fieldName, InstancePrivate);

@@ -499,6 +499,23 @@ public class FieldManager : MonoBehaviour
         return GridToWorld(new Vector2Int(gridPos.x, gridPos.y), checkForWall);
     }
 
+    public Vector3 GetWallRootWorldPosition(Vector3Int gridPosition)
+    {
+        Vector3 worldPos = GridToWorld(gridPosition, checkForWall: false);
+        worldPos.y += GetWallRootYOffset();
+        return worldPos;
+    }
+
+    private float GetWallRootYOffset()
+    {
+        if (destructibleWallPrefab != null)
+        {
+            return GetWallPrefabHeight() * 0.5f;
+        }
+
+        return wallYOffset * 0.5f;
+    }
+
     /// <summary>
     /// 3D 월드 좌표를 Vector3Int 그리드 좌표로 변환합니다. (호환성용)
     /// </summary>
@@ -1199,9 +1216,7 @@ public class FieldManager : MonoBehaviour
             }
         }
 
-        Vector3 worldPos = GridToWorld(gridPosition);
-        float halfWallHeight = GetWallPrefabHeight() * 0.5f;
-        worldPos.y += halfWallHeight;
+        Vector3 worldPos = GetWallRootWorldPosition(gridPosition);
 
         GameObject wallGO = null;
         var runner = playerManager != null ? playerManager.Runner : null;
@@ -1224,10 +1239,12 @@ public class FieldManager : MonoBehaviour
             {
                 wallGO.transform.SetParent(wallParent, true);
             }
+            SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         }
         else
         {
             wallGO = Instantiate(destructibleWallPrefab, worldPos, Quaternion.identity, wallParent);
+            SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         }
         DestructibleWall wallComponent = wallGO.GetComponent<DestructibleWall>();
 
@@ -2609,10 +2626,12 @@ public class FieldManager : MonoBehaviour
             {
                 wallGO.transform.SetParent(wallParent, true);
             }
+            SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         }
         else
         {
             wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+            SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         }
 
         // 레이어 지정 (자식 포함)
@@ -2640,6 +2659,7 @@ public class FieldManager : MonoBehaviour
         worldPos.y += halfH;
 
         GameObject wallGO = Instantiate(prefab, worldPos, Quaternion.identity, wallParent);
+        SnapSpawnedWallTransform(wallGO, worldPos, Quaternion.identity);
         foreach (var networkObject in wallGO.GetComponentsInChildren<NetworkObject>(true))
         {
             Destroy(networkObject);
@@ -3402,6 +3422,22 @@ public class FieldManager : MonoBehaviour
             }
 
             EnsurePlacedUnitPresentation(entry.Key, unit, "RespawnAllUnits", allowMissingGameManagers: false);
+        }
+    }
+
+    private static void SnapSpawnedWallTransform(GameObject wallGO, Vector3 position, Quaternion rotation)
+    {
+        if (wallGO == null)
+        {
+            return;
+        }
+
+        wallGO.transform.SetPositionAndRotation(position, rotation);
+
+        var networkTransform = wallGO.GetComponent<Fusion.NetworkTransform>();
+        if (networkTransform != null && networkTransform.enabled)
+        {
+            networkTransform.Teleport(position, rotation);
         }
     }
 

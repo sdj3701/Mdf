@@ -1381,7 +1381,8 @@ public sealed class MPTestHarnessEditModeTests
     {
         string buildSource = File.ReadAllText("Assets/Scripts/Testing/MP/Editor/BuildAutomation.cs");
 
-        Assert.That(buildSource, Does.Contain("SwitchActiveBuildTarget(targetGroup, target)"));
+        Assert.That(buildSource, Does.Contain("EnsureActiveBuildTarget(target, out buildTargetSwitched)"));
+        Assert.That(buildSource, Does.Contain("SwitchActiveBuildTarget(group, target)"));
         Assert.That(buildSource, Does.Contain("build_addressables"));
         Assert.That(buildSource, Does.Contain("restore_build_target"));
         Assert.That(buildSource, Does.Contain("originalBuildTarget"));

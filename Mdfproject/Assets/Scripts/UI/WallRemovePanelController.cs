@@ -182,6 +182,11 @@ public class WallRemovePanelController : MonoBehaviour
     private Vector3 GetAnchorWorldPosition()
     {
         if (_currentWall == null) return Vector3.zero;
+        if (_fieldManager != null && _fieldManager.IsValidGridPosition(_wallGridPosition))
+        {
+            return _fieldManager.GetWallRootWorldPosition(_wallGridPosition) + worldOffset;
+        }
+
         return _currentWall.transform.position + worldOffset;
     }
 

@@ -105,7 +105,12 @@ public sealed class UnitMeleeRangeEditModeTests
 
     private static bool InvokeMeleeAttackable(Unit unit, Monster monster)
     {
-        var method = typeof(Unit).GetMethod("IsMeleeMonsterAttackable", InstancePrivate);
+        var method = typeof(Unit).GetMethod(
+            "IsMeleeMonsterAttackable",
+            InstancePrivate,
+            binder: null,
+            types: new[] { typeof(Monster) },
+            modifiers: null);
         Assert.That(method, Is.Not.Null);
         return (bool)method.Invoke(unit, new object[] { monster });
     }
