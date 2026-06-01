@@ -599,7 +599,7 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
-    public void BattleSpawnClickZoneAcceptsWholeGroundMap()
+    public void BattleSpawnClickZoneRejectsDefenderInnerField()
     {
         var go = new GameObject("battle-spawn-click-zone-test");
         try
@@ -609,7 +609,8 @@ public sealed class MPTestHarnessEditModeTests
             field.cellSize = 1f;
             field.gridSize = new Vector2Int(10, 9);
 
-            Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(0.5f, 0f, 0.5f)), Is.True);
+            Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(0.5f, 0f, 0.5f)), Is.False);
+            Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(9.5f, 0f, 8.5f)), Is.False);
             Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(-1.5f, 0f, 0.5f)), Is.True);
             Assert.That(BattleCommandValidator.IsInsideBattleSpawnZone(field, new Vector3(-3.5f, 0f, 0.5f)), Is.False);
         }

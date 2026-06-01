@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: battle
 Created: 2026-05-06
-Last used: 2026-05-20
+Last used: 2026-06-01
 Last verified: 2026-05-20
-Use count: 6
+Use count: 7
 Review after: 2026-08-04
 Triggers: battle E2E reaches command execution on the host, but the client returns to `MatchingLobby` or the final snapshot is back in `Prepare`
 Applies to: `tools/harness/mp/run_battle_spawn_monster_command.py`, `tools/harness/mp/run_magic_scroll_command.py`, `tools/harness/mp/run_human_bot_battle_progression.py`, battle command snapshot checks

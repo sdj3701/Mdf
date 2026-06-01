@@ -164,7 +164,8 @@ public static class BattleCommandValidator
 
     public static bool IsInsideBattleSpawnZone(FieldManager defenderField, Vector3 position)
     {
-        return IsWithinTotalFieldBounds(defenderField, position);
+        return IsWithinTotalFieldBounds(defenderField, position) &&
+               !IsWithinInnerGridBounds(defenderField, position);
     }
 
     public static bool IsInsideScrollTargetDomain(MagicScrollData scroll, FieldManager defenderField, Vector3 position)
@@ -183,6 +184,28 @@ public static class BattleCommandValidator
 
         Vector3 origin = field.TotalGridOrigin;
         Vector2Int size = field.TotalGridSize;
+        float cellSize = field.cellSize;
+        float epsilon = Mathf.Max(0.01f, cellSize * 0.05f);
+        float minX = origin.x - epsilon;
+        float minZ = origin.z - epsilon;
+        float maxX = origin.x + size.x * cellSize + epsilon;
+        float maxZ = origin.z + size.y * cellSize + epsilon;
+
+        return position.x >= minX &&
+               position.x <= maxX &&
+               position.z >= minZ &&
+               position.z <= maxZ;
+    }
+
+    private static bool IsWithinInnerGridBounds(FieldManager field, Vector3 position)
+    {
+        if (field == null || !IsFiniteTargetPosition(position))
+        {
+            return false;
+        }
+
+        Vector3 origin = field.gridOrigin;
+        Vector2Int size = field.gridSize;
         float cellSize = field.cellSize;
         float epsilon = Mathf.Max(0.01f, cellSize * 0.05f);
         float minX = origin.x - epsilon;
