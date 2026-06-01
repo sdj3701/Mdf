@@ -138,10 +138,11 @@ public static class MdfInput
             }
 
             bool prepareToolkit = GamePrepareUIToolkitController.IsToolkitRaycastObject(target);
+            bool rankingToolkit = RankingUIController.IsToolkitRaycastObject(target);
             bool passthrough = IsFieldPassthroughUi(target, pointerPosition);
             bool blocks = !prepareToolkit && !passthrough;
             string module = result.module != null ? result.module.GetType().Name : "none";
-            parts.Add($"{i}:{target.name}:blocks={blocks}:prepareToolkit={prepareToolkit}:passthrough={passthrough}:module={module}");
+            parts.Add($"{i}:{target.name}:blocks={blocks}:prepareToolkit={prepareToolkit}:rankingToolkit={rankingToolkit}:passthrough={passthrough}:module={module}");
         }
 
         return string.Join(" | ", parts);
@@ -168,10 +169,13 @@ public static class MdfInput
                 continue;
             }
 
-            if (!GamePrepareUIToolkitController.IsToolkitRaycastObject(result.gameObject))
+            if (GamePrepareUIToolkitController.IsToolkitRaycastObject(result.gameObject) ||
+                IsFieldPassthroughUi(result.gameObject, pointerPosition))
             {
-                return true;
+                continue;
             }
+
+            return true;
         }
 
         return false;
@@ -220,6 +224,11 @@ public static class MdfInput
         }
 
         if (target.GetComponentInParent<RankingUIController>() != null)
+        {
+            return !RankingUIController.IsPointerOverBlockingElement(pointerPosition);
+        }
+
+        if (RankingUIController.IsToolkitRaycastObject(target))
         {
             return !RankingUIController.IsPointerOverBlockingElement(pointerPosition);
         }

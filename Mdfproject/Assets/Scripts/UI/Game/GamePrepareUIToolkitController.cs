@@ -21,6 +21,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const string LayoutResourcePath = "UI/GamePrepare/GamePreparePanels";
     private const string StyleResourcePath = "UI/GamePrepare/GamePreparePanelsStyles";
     private const string ThemeResourcePath = "UI/GamePrepare/GamePrepareRuntimeTheme";
+    private const string RuntimePanelSettingsName = "GamePrepareRuntimePanelSettings";
     private const string ShopCardStarClassPrefix = "shop-card-star-";
     private const int PanelSortingOrder = 280;
     private const int MinShopCardStarStyle = 1;
@@ -129,6 +130,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         return target == instance.gameObject
                || (instance.document != null && target == instance.document.gameObject)
+               || IsRuntimePanelRaycasterObject(target)
                || target.GetComponentInParent<GamePrepareUIToolkitController>() != null;
     }
 
@@ -544,10 +546,22 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                element.resolvedStyle.visibility != Visibility.Hidden;
     }
 
+    private static bool IsRuntimePanelRaycasterObject(GameObject target)
+    {
+        if (target == null || instance?.document == null)
+        {
+            return false;
+        }
+
+        var panelSettings = instance.document.panelSettings;
+        return target.name == RuntimePanelSettingsName ||
+               (panelSettings != null && target.name == panelSettings.name);
+    }
+
     private static PanelSettings CreateRuntimePanelSettings()
     {
         var settings = ScriptableObject.CreateInstance<PanelSettings>();
-        settings.name = "GamePrepareRuntimePanelSettings";
+        settings.name = RuntimePanelSettingsName;
         settings.scaleMode = PanelScaleMode.ConstantPixelSize;
         settings.sortingOrder = PanelSortingOrder;
         settings.referenceResolution = new Vector2Int((int)ReferenceWidth, (int)ReferenceHeight);
@@ -1288,6 +1302,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         if (enablingWallMode && CameraManager.Instance != null && !CameraManager.Instance.IsViewingOwnField)
         {
             CameraManager.Instance.ReturnToOwnField();
+        }
+
+        if (enablingWallMode && shopVisible)
+        {
+            SetShopVisible(false);
         }
 
         localPlayer.fieldManager.TogglePlacementMode(PlacementMode.Wall);

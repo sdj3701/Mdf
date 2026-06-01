@@ -12,6 +12,7 @@ public class RankingUIController : MonoBehaviour
     private const string LayoutResourcePath = "UI/PlayerRanking/PlayerRankingPanel";
     private const string StyleResourcePath = "UI/PlayerRanking/PlayerRankingPanelStyles";
     private const string ThemeResourcePath = "UI/GamePrepare/GamePrepareRuntimeTheme";
+    private const string RuntimePanelSettingsName = "PlayerRankingRuntimePanelSettings";
     private const int PanelSortingOrder = 260;
     private const float ReferenceWidth = 1600f;
     private const float ReferenceHeight = 900f;
@@ -86,6 +87,23 @@ public class RankingUIController : MonoBehaviour
         }
 
         return controller.FindToolkitCardAtScreenPosition(screenPosition) != null;
+    }
+
+    public static bool IsToolkitRaycastObject(GameObject target)
+    {
+        var controller = activeToolkitInstance;
+        if (target == null ||
+            controller == null ||
+            !controller.isActiveAndEnabled ||
+            !controller.useToolkitRanking)
+        {
+            return false;
+        }
+
+        return target == controller.gameObject
+               || (controller.toolkitDocument != null && target == controller.toolkitDocument.gameObject)
+               || controller.IsRuntimePanelRaycasterObject(target)
+               || target.GetComponentInParent<RankingUIController>() != null;
     }
 
     private void Awake()
@@ -290,7 +308,7 @@ public class RankingUIController : MonoBehaviour
     private static PanelSettings CreateRuntimePanelSettings()
     {
         var settings = ScriptableObject.CreateInstance<PanelSettings>();
-        settings.name = "PlayerRankingRuntimePanelSettings";
+        settings.name = RuntimePanelSettingsName;
         settings.scaleMode = PanelScaleMode.ConstantPixelSize;
         settings.sortingOrder = PanelSortingOrder;
         settings.referenceResolution = new Vector2Int((int)ReferenceWidth, (int)ReferenceHeight);
@@ -302,6 +320,18 @@ public class RankingUIController : MonoBehaviour
         }
 
         return settings;
+    }
+
+    private bool IsRuntimePanelRaycasterObject(GameObject target)
+    {
+        if (target == null || toolkitDocument == null)
+        {
+            return false;
+        }
+
+        var panelSettings = toolkitDocument.panelSettings;
+        return target.name == RuntimePanelSettingsName ||
+               (panelSettings != null && target.name == panelSettings.name);
     }
 
     private void BindToolkitElements()

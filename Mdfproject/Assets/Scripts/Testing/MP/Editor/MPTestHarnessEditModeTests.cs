@@ -263,6 +263,31 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void NetworkManagerGuardsDuplicateSessionStartRequests()
+    {
+        string networkSource = File.ReadAllText("Assets/Scripts/Network/NetworkManager.cs");
+        string matchingSource = File.ReadAllText("Assets/Scripts/UI/TestMatching/TestMatchingUIToolkitController.cs");
+
+        int startMethod = networkSource.IndexOf("public async void StartGame", System.StringComparison.Ordinal);
+        int duplicateGuard = networkSource.IndexOf("if (_startGameInProgress)", startMethod, System.StringComparison.Ordinal);
+        int armGuard = networkSource.IndexOf("_startGameInProgress = true;", startMethod, System.StringComparison.Ordinal);
+        int fusionStart = networkSource.IndexOf("await _runner.StartGame", startMethod, System.StringComparison.Ordinal);
+        int playerJoined = networkSource.IndexOf("public void OnPlayerJoined", System.StringComparison.Ordinal);
+        int clearOnJoined = networkSource.IndexOf("_startGameInProgress = false;", playerJoined, System.StringComparison.Ordinal);
+        int shutdown = networkSource.IndexOf("public void OnShutdown", System.StringComparison.Ordinal);
+        int clearOnShutdown = networkSource.IndexOf("_startGameInProgress = false;", shutdown, System.StringComparison.Ordinal);
+
+        Assert.That(networkSource, Does.Contain("private bool _startGameInProgress"));
+        Assert.That(networkSource, Does.Contain("StartGame ignored because another session start is already in progress"));
+        Assert.That(duplicateGuard, Is.GreaterThan(startMethod));
+        Assert.That(duplicateGuard, Is.LessThan(armGuard));
+        Assert.That(armGuard, Is.LessThan(fusionStart));
+        Assert.That(clearOnJoined, Is.GreaterThan(playerJoined));
+        Assert.That(clearOnShutdown, Is.GreaterThan(shutdown));
+        Assert.That(matchingSource, Does.Contain("networkManager.IsNetworkUiBlocked"));
+    }
+
+    [Test]
     public void GameSceneKeepsRuntimeRoots()
     {
         string sceneSource = File.ReadAllText("Assets/Scenes/03_Game.unity");
@@ -894,6 +919,7 @@ public sealed class MPTestHarnessEditModeTests
         string inputSource = File.ReadAllText("Assets/Scripts/Managers/MdfInput.cs");
         string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
         string placementSource = File.ReadAllText("Assets/Scripts/Managers/PlacementManager.cs");
+        string placementButtonsSource = File.ReadAllText("Assets/Scripts/Button/PlacementButtonsUI.cs");
         string playerManagerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
         string removeWallCommandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/RemoveWallCommand.cs");
         string automationSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
@@ -971,6 +997,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("Bricks.png"));
         Assert.That(controllerSource, Does.Contain("TogglePlacementMode(PlacementMode.Wall)"));
         Assert.That(controllerSource, Does.Contain("CameraManager.Instance.ReturnToOwnField()"));
+        Assert.That(controllerSource, Does.Contain("SetShopVisible(false)"));
         Assert.That(controllerSource, Does.Contain("GetUIElement(\"OptionCanvas\")"));
         Assert.That(controllerSource, Does.Contain("\"\\uB2EB\\uAE30\""));
         Assert.That(controllerSource, Does.Contain("\"\\uC5F4\\uAE30\""));
@@ -981,6 +1008,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("currentSequenceTransitionTimer"));
         Assert.That(controllerSource, Does.Contain("IsPointerOverBlockingElement"));
         Assert.That(controllerSource, Does.Contain("IsToolkitRaycastObject"));
+        Assert.That(controllerSource, Does.Contain("IsRuntimePanelRaycasterObject"));
+        Assert.That(controllerSource, Does.Contain("GamePrepareRuntimePanelSettings"));
         Assert.That(controllerSource, Does.Contain("RegisterCallback<PointerDownEvent>"));
         Assert.That(controllerSource, Does.Contain("SuppressBattleMapInputForCurrentPointer"));
         Assert.That(controllerSource, Does.Contain("IsBlockingElementOrDescendant"));
@@ -996,10 +1025,16 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(inputSource, Does.Contain("IsFieldPassthroughUi"));
         Assert.That(inputSource, Does.Contain("GetComponentInParent<StatusBarUI>()"));
         Assert.That(inputSource, Does.Contain("GetComponentInParent<RankingUIController>()"));
+        Assert.That(inputSource, Does.Contain("RankingUIController.IsToolkitRaycastObject"));
         Assert.That(inputSource, Does.Contain("RankingUIController.IsPointerOverBlockingElement(pointerPosition)"));
         Assert.That(inputSource, Does.Contain("DescribeFieldBlockingUiHits"));
         Assert.That(rankingSource, Does.Contain("public static bool IsPointerOverBlockingElement"));
+        Assert.That(rankingSource, Does.Contain("public static bool IsToolkitRaycastObject"));
+        Assert.That(rankingSource, Does.Contain("IsRuntimePanelRaycasterObject"));
+        Assert.That(rankingSource, Does.Contain("PlayerRankingRuntimePanelSettings"));
         Assert.That(rankingSource, Does.Contain("FindToolkitCardAtScreenPosition(screenPosition)"));
+        Assert.That(placementButtonsSource, Does.Contain("CameraManager.Instance.ReturnToOwnField()"));
+        Assert.That(placementButtonsSource, Does.Contain("TrySetShopVisibilityFromLegacy(false"));
         Assert.That(fieldSource, Does.Contain("ShouldAllowUnitDragThroughPrepareToolkit"));
         Assert.That(fieldSource, Does.Contain("MdfInput.IsPointerOverFieldBlockingUI()"));
         Assert.That(fieldSource, Does.Contain("GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition)"));

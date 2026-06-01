@@ -73,6 +73,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
     private int playerCount;
     private NetworkUiBlockReason _networkUiBlockReason = NetworkUiBlockReason.None;
+    private bool _startGameInProgress;
     private EventInfo _cloudConnectionLostEventInfo;
     private Delegate _cloudConnectionLostHandlerDelegate;
     private MethodInfo _getPlayerConnectionTokenMethod;
@@ -194,6 +195,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     /// <param name="sessionName">참여하거나 생성할 방의 이름</param>
     public async void StartGame(GameMode mode, string sessionName, string sceneName = null)
     {
+        if (_startGameInProgress)
+        {
+            Debug.LogWarning($"[NetworkManager] StartGame ignored because another session start is already in progress. mode={mode}, session={sessionName}");
+            return;
+        }
+
         if (_runner == null || State != ConnectionState.InLobby)
         {
             // Debug.LogWarning("로비 입장 중입니다. 완료될 때까지 기다리세요.");
@@ -205,6 +212,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         string finalSessionName = string.IsNullOrWhiteSpace(sessionName)
             ? PlayerPrefs.GetString("PlayerNickname", "Host")
             : sessionName;
+        _startGameInProgress = true;
         SetNetworkUiBlock(mode == GameMode.Host ? NetworkUiBlockReason.CreateRoom : NetworkUiBlockReason.JoinRoom);
 
         // Debug.Log($"Starting Game with session name: {finalSessionName}, loading scene: {sceneName}");
@@ -227,6 +235,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (sceneIndex < 0)
         {
             // Debug.LogError($"'{sceneName}' 씬을 빌드 설정에서 찾을 수 없습니다!");
+            _startGameInProgress = false;
             SetNetworkUiBlock(NetworkUiBlockReason.None);
             return;
         }
@@ -241,21 +250,32 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         // StartGameArgs를 설정하여 게임을 시작합니다.
         // 참고: Host Migration은 Fusion > Network Project Config에서 활성화해야 합니다.
-        var result = await _runner.StartGame(new StartGameArgs()
+        try
         {
-            GameMode = mode,
-            SessionName = finalSessionName,
-            Scene = scene, // Fusion이 이 씬을 로드하도록 지정합니다.
-            SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
-            ObjectProvider = objectProvider,
-            PlayerCount = maxSessionPlayers, // Inspector에서 설정한 최대 플레이어 수
-            
-            // 플레이어 식별용 연결 토큰 (재참여 시 사용)
-            ConnectionToken = GetConnectionToken(),
-        });
+            var result = await _runner.StartGame(new StartGameArgs()
+            {
+                GameMode = mode,
+                SessionName = finalSessionName,
+                Scene = scene, // Fusion이 이 씬을 로드하도록 지정합니다.
+                SceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>(),
+                ObjectProvider = objectProvider,
+                PlayerCount = maxSessionPlayers, // Inspector에서 설정한 최대 플레이어 수
 
-        if (!result.Ok)
+                // 플레이어 식별용 연결 토큰 (재참여 시 사용)
+                ConnectionToken = GetConnectionToken(),
+            });
+
+            if (!result.Ok)
+            {
+                Debug.LogError($"[NetworkManager] StartGame failed. mode={mode}, session={finalSessionName}, reason={result.ShutdownReason}");
+                _startGameInProgress = false;
+                SetNetworkUiBlock(NetworkUiBlockReason.None);
+            }
+        }
+        catch (Exception ex)
         {
+            Debug.LogError($"[NetworkManager] StartGame exception. mode={mode}, session={finalSessionName}, error={ex}");
+            _startGameInProgress = false;
             SetNetworkUiBlock(NetworkUiBlockReason.None);
         }
     }
@@ -267,6 +287,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (_runner != null)
         {
+            _startGameInProgress = false;
             SetNetworkUiBlock(NetworkUiBlockReason.LeaveRoom);
             // Runner를 종료하면 OnShutdown 콜백이 호출됩니다.
             _runner.Shutdown();
@@ -397,6 +418,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void OnPlayerJoined(NetworkRunner runner, PlayerRef player)
     {
         // Debug.Log($"Player {player} Joined.");
+        _startGameInProgress = false;
         State = ConnectionState.InGame; // 상태를 '게임 중'으로 변경
         SetNetworkUiBlock(NetworkUiBlockReason.None);
 
@@ -536,6 +558,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
         
         State = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
+        _startGameInProgress = false;
         SetNetworkUiBlock(NetworkUiBlockReason.None);
         _sessionList.Clear(); // 방 목록 초기화
 
@@ -1284,6 +1307,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         CancelPendingConnectionLossFallback();
         State = ConnectionState.Disconnected;
+        _startGameInProgress = false;
         _sessionList.Clear();
 
         Debug.LogWarning(BuildConnectionLossTrace("ExecuteFallback", $"source={source}"));
@@ -1370,6 +1394,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         int sceneIndex = GetBuildIndexForScene(resolvedSceneName);
         if (_runner != null)
         {
+            _startGameInProgress = false;
             _runner.Shutdown();
         }
         if (sceneIndex >= 0)
