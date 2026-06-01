@@ -1,0 +1,53 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/Resources/UI/PlayerRanking/PlayerRankingPanelStyles.uss?fileID=7433441132597879392&amp;guid=a8b5c29e91f642349b072878a3fdd23c&amp;type=3#PlayerRankingPanelStyles" />
+    <ui:VisualElement name="ranking-root" class="ranking-root">
+        <ui:VisualElement name="ranking-design-space" class="ranking-design-space">
+            <ui:VisualElement name="ranking-strip" class="ranking-strip">
+                <ui:VisualElement name="ranking-self-card" class="ranking-card ranking-card-self">
+                    <ui:VisualElement name="ranking-self-avatar" class="ranking-avatar" />
+                    <ui:VisualElement class="ranking-copy">
+                        <ui:Label name="ranking-self-name" text="Player" class="ranking-name" />
+                        <ui:VisualElement class="ranking-stat-row">
+                            <ui:VisualElement class="ranking-heart-icon" />
+                            <ui:Label name="ranking-self-hp" text="80" class="ranking-hp" />
+                            <ui:VisualElement name="ranking-self-battle-role-icon" class="ranking-battle-role-icon ranking-battle-role-icon-defender" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="ranking-opponent-card" class="ranking-card ranking-card-opponent">
+                    <ui:VisualElement name="ranking-opponent-avatar" class="ranking-avatar" />
+                    <ui:VisualElement class="ranking-copy">
+                        <ui:Label name="ranking-opponent-name" text="Opponent" class="ranking-name" />
+                        <ui:VisualElement class="ranking-stat-row">
+                            <ui:VisualElement class="ranking-heart-icon" />
+                            <ui:Label name="ranking-opponent-hp" text="80" class="ranking-hp" />
+                            <ui:VisualElement name="ranking-opponent-battle-role-icon" class="ranking-battle-role-icon ranking-battle-role-icon-defender" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="ranking-reserve-card-0" class="ranking-card ranking-card-reserve">
+                    <ui:VisualElement name="ranking-reserve-0-avatar" class="ranking-avatar" />
+                    <ui:VisualElement class="ranking-copy">
+                        <ui:Label name="ranking-reserve-0-name" text="Player" class="ranking-name" />
+                        <ui:VisualElement class="ranking-stat-row">
+                            <ui:VisualElement class="ranking-heart-icon" />
+                            <ui:Label name="ranking-reserve-0-hp" text="80" class="ranking-hp" />
+                            <ui:VisualElement name="ranking-reserve-0-battle-role-icon" class="ranking-battle-role-icon ranking-battle-role-icon-defender" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="ranking-reserve-card-1" class="ranking-card ranking-card-reserve">
+                    <ui:VisualElement name="ranking-reserve-1-avatar" class="ranking-avatar" />
+                    <ui:VisualElement class="ranking-copy">
+                        <ui:Label name="ranking-reserve-1-name" text="Player" class="ranking-name" />
+                        <ui:VisualElement class="ranking-stat-row">
+                            <ui:VisualElement class="ranking-heart-icon" />
+                            <ui:Label name="ranking-reserve-1-hp" text="80" class="ranking-hp" />
+                            <ui:VisualElement name="ranking-reserve-1-battle-role-icon" class="ranking-battle-role-icon ranking-battle-role-icon-defender" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

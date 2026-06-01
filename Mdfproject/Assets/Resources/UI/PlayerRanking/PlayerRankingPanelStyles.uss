@@ -1,0 +1,148 @@
+.ranking-root {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    flex-grow: 1;
+    -unity-font-definition: url("project://database/Assets/Resources/Fonts%20&%20Materials/NotoSansKR-VariableFont_wght_UITK.asset?fileID=11400000&guid=9c2a7d7936fa41642b7f7f1396b8f8bc&type=2#NotoSansKR-VariableFont_wght_UITK");
+}
+
+.ranking-design-space {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1600px;
+    height: 900px;
+    transform-origin: left top;
+}
+
+.ranking-strip {
+    position: absolute;
+    left: 104px;
+    top: 6px;
+    width: 1296px;
+    height: 56px;
+}
+
+.ranking-card {
+    position: absolute;
+    width: 188px;
+    height: 52px;
+    flex-direction: row;
+    align-items: center;
+    background-color: rgba(117, 142, 80, 0.78);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(238, 220, 151, 0.76);
+    border-right-color: rgba(57, 73, 47, 0.82);
+    border-top-color: rgba(245, 231, 165, 0.82);
+    border-bottom-color: rgba(49, 62, 43, 0.86);
+}
+
+.ranking-card-self {
+    left: 122px;
+    top: 0;
+    width: 200px;
+    background-color: rgba(96, 132, 84, 0.86);
+}
+
+.ranking-card-opponent {
+    left: 332px;
+    top: 0;
+    background-color: rgba(112, 128, 86, 0.86);
+}
+
+.ranking-card-reserve {
+    background-color: rgba(102, 122, 76, 0.72);
+}
+
+#ranking-reserve-card-0 {
+    left: 878px;
+    top: 0;
+}
+
+#ranking-reserve-card-1 {
+    left: 1078px;
+    top: 0;
+}
+
+.ranking-avatar {
+    width: 48px;
+    height: 48px;
+    margin-left: 2px;
+    margin-right: 6px;
+    background-image: url("project://database/Assets/Resource/Image/PlayerStatus/portrait.png?fileID=21300000&guid=03ffa3cf9ff213c43b0ff2e6aa2b8e55&type=3#portrait");
+    -unity-background-scale-mode: scale-and-crop;
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(239, 225, 167, 0.84);
+    border-right-color: rgba(48, 58, 43, 0.9);
+    border-top-color: rgba(249, 238, 185, 0.92);
+    border-bottom-color: rgba(47, 58, 42, 0.92);
+}
+
+.ranking-card-opponent .ranking-avatar {
+    background-image: url("project://database/Assets/Resource/Image/PlayerStatus/portrait2.png?fileID=21300000&guid=7f40b043f845c7943a6d32a783658960&type=3#portrait2");
+}
+
+.ranking-copy {
+    width: 128px;
+    height: 48px;
+    justify-content: center;
+}
+
+.ranking-name {
+    width: 128px;
+    height: 24px;
+    color: rgb(30, 25, 19);
+    font-size: 19px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-left;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.ranking-stat-row {
+    height: 22px;
+    flex-direction: row;
+    align-items: center;
+}
+
+.ranking-heart-icon,
+.ranking-battle-role-icon {
+    width: 20px;
+    height: 20px;
+    margin-right: 3px;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.ranking-heart-icon {
+    background-image: url("project://database/Assets/Resource/Image/PlayerStatus/heart.png?fileID=21300000&guid=edae61d5cf460f840b3396dc611e0bcc&type=3#heart");
+}
+
+.ranking-battle-role-icon {
+    margin-left: 8px;
+}
+
+.ranking-battle-role-icon-attacker {
+    background-image: url("project://database/Assets/Resource/Image/PlayerStatus/battle.png?fileID=21300000&guid=529b60433540edb4a9bf116e9330b0a5&type=3#battle");
+}
+
+.ranking-battle-role-icon-defender {
+    background-image: url("project://database/Assets/Resource/Image/PlayerStatus/shield.png?fileID=21300000&guid=f37ed53b57fe3624e9b31dc8779169a7&type=3#shield");
+}
+
+.ranking-hp {
+    width: 38px;
+    height: 22px;
+    color: rgb(27, 21, 17);
+    font-size: 18px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-left;
+    white-space: nowrap;
+}

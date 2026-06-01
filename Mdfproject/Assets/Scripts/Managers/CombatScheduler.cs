@@ -98,10 +98,10 @@ public class CombatScheduler : NetworkBehaviour
             if (hit.SplashRadius > 0f)
             {
                 Collider[] enemiesInRange = Physics.OverlapSphere(hit.ImpactPosition, hit.SplashRadius, hit.EnemyLayerMask);
+                var damagedTargets = new HashSet<int>();
                 foreach (var enemyCollider in enemiesInRange)
                 {
-                    var enemy = enemyCollider.GetComponent<IEnemy>();
-                    if (enemy != null)
+                    if (TryResolveUniqueEnemy(enemyCollider, damagedTargets, out var enemy))
                     {
                         enemy.TakeDamage(hit.Damage, hit.DamageType);
                     }
@@ -247,5 +247,25 @@ public class CombatScheduler : NetworkBehaviour
         EventHitTicks.Set(index, hitTick);
         EventAttackers.Set(index, attacker);
         EventTargets.Set(index, target);
+    }
+
+    private static bool TryResolveUniqueEnemy(Collider collider, HashSet<int> damagedTargets, out IEnemy enemy)
+    {
+        enemy = null;
+        if (collider == null || damagedTargets == null)
+        {
+            return false;
+        }
+
+        enemy = collider.GetComponentInParent<IEnemy>();
+        if (enemy == null)
+        {
+            return false;
+        }
+
+        int key = enemy is MonoBehaviour behaviour
+            ? behaviour.GetInstanceID()
+            : collider.GetInstanceID();
+        return damagedTargets.Add(key);
     }
 }

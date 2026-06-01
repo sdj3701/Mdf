@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-13
+Last used: 2026-05-31
 Last verified: 2026-05-10
-Use count: 8
+Use count: 11
 Review after: 2026-08-03
 Triggers: unity-cli, status, console, test, build
 Applies to: MDF repo layout, unity-cli

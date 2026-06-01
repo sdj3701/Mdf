@@ -3,7 +3,6 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using Cysharp.Threading.Tasks;
 using Fusion;
-using System.Linq;
 
 /// <summary>
 /// 공격 시퀀스를 관리하는 매니저.
@@ -34,6 +33,8 @@ public class AttackSequenceManager : MonoBehaviour
     
     private float _lastSpawnTime;
     private bool _isHolding;
+    private bool _suppressMapInputUntilPointerRelease;
+    private int _suppressMapInputThroughFrame = -1;
     private Camera _playerCamera;
     
     [Header("스폰 영역 설정")]
@@ -83,20 +84,6 @@ public class AttackSequenceManager : MonoBehaviour
         _selectedScroll = null;
         IsScrollMode = false;
         
-        // 첫 번째 몬스터 자동 선택
-        var pool = _playerManager.AttackMonsterPool;
-        if (pool != null && pool.Count > 0)
-        {
-            var firstValid = pool.FirstOrDefault(entry => entry != null && !entry.IsEmpty);
-            if (firstValid != null)
-            {
-                SelectMonster(firstValid);
-            }
-        }
-        else
-        {
-            // Debug.LogWarning($"[AttackSequenceManager] 공격 시퀀스 시작 시 몬스터 풀 비어있음. player={_playerManager.playerId}");
-        }
 
         // Debug.Log($"<color=green>[AttackSequenceManager] 공격 시퀀스 시작! 상대: Player {opponent.playerId} ({DescribeRuntimeState()})</color>");
     }
@@ -109,6 +96,8 @@ public class AttackSequenceManager : MonoBehaviour
         _selectedScroll = null;
         _opponentFieldManager = null;
         _isHolding = false;
+        _suppressMapInputUntilPointerRelease = false;
+        _suppressMapInputThroughFrame = -1;
         IsScrollMode = false;
     }
     #endregion
@@ -138,6 +127,7 @@ public class AttackSequenceManager : MonoBehaviour
         _selectedMonsterSlotIndex = -1;
         _selectedScroll = null;
         IsScrollMode = false;
+        SuppressBattleMapInputForCurrentPointer();
         AttackSequenceUIController.Instance?.SyncMonsterSelectionFromManager(slotIndex);
         // Debug.Log($"<color=yellow>[AttackSequenceManager] 몬스터 선택: {entry.MonsterData.monsterName} (남은 수량: {entry.RemainingCount})</color>");
     }
@@ -153,7 +143,20 @@ public class AttackSequenceManager : MonoBehaviour
         _selectedMonsterSlotIndex = slotIndex;
         _selectedScroll = null;
         IsScrollMode = false;
+        SuppressBattleMapInputForCurrentPointer();
         AttackSequenceUIController.Instance?.SyncMonsterSelectionFromManager(slotIndex);
+    }
+
+    public void SuppressBattleMapInputForCurrentPointer()
+    {
+        if (MdfInput.PrimaryPointerIsPressed() ||
+            MdfInput.PrimaryPointerWasPressedThisFrame() ||
+            MdfInput.PrimaryPointerWasReleasedThisFrame())
+        {
+            _suppressMapInputUntilPointerRelease = true;
+            _suppressMapInputThroughFrame = Time.frameCount + 1;
+            _isHolding = false;
+        }
     }
 
     public MonsterPoolEntry GetSelectedMonster() => _selectedMonster;
@@ -171,6 +174,7 @@ public class AttackSequenceManager : MonoBehaviour
         _selectedMonster = null;
         _selectedMonsterSlotIndex = -1;
         IsScrollMode = true;
+        SuppressBattleMapInputForCurrentPointer();
 
         int slotIndex = -1;
         var ownedScrolls = _playerManager?.OwnedScrolls;
@@ -206,7 +210,11 @@ public class AttackSequenceManager : MonoBehaviour
     private void HandleInput()
     {
         // UI 위에서 클릭하면 스폰 처리 스킵 (UI 관통 방지)
-        bool isPointerOverUI = MdfInput.IsPointerOverUI();
+        bool isPointerOverUI = IsPointerOverBattleActionBlocker();
+        if (ShouldSuppressBattleMapInput())
+        {
+            return;
+        }
 
         // 마우스 왼쪽 버튼 클릭/홀드
         if (MdfInput.PrimaryPointerWasPressedThisFrame())
@@ -255,6 +263,32 @@ public class AttackSequenceManager : MonoBehaviour
                 }
             }
         }
+    }
+
+    private bool ShouldSuppressBattleMapInput()
+    {
+        bool pointerActive = MdfInput.PrimaryPointerIsPressed() ||
+                             MdfInput.PrimaryPointerWasPressedThisFrame() ||
+                             MdfInput.PrimaryPointerWasReleasedThisFrame();
+
+        if (!_suppressMapInputUntilPointerRelease && Time.frameCount > _suppressMapInputThroughFrame)
+        {
+            return false;
+        }
+
+        if (_suppressMapInputUntilPointerRelease && !pointerActive && Time.frameCount > _suppressMapInputThroughFrame)
+        {
+            _suppressMapInputUntilPointerRelease = false;
+            return false;
+        }
+
+        if (pointerActive || Time.frameCount <= _suppressMapInputThroughFrame)
+        {
+            _isHolding = false;
+            return true;
+        }
+
+        return false;
     }
     #endregion
 
@@ -376,6 +410,12 @@ public class AttackSequenceManager : MonoBehaviour
             return;
         }
 
+        if (TryGetSpawnPositionUnderPointer(out Vector3 resolvedSpawnPosition))
+        {
+            SpawnMonsterAsync(resolvedSpawnPosition).Forget();
+            return;
+        }
+
         if (_playerCamera == null)
         {
             // Debug.LogWarning("[AttackSequenceManager] 카메라가 없습니다");
@@ -398,6 +438,41 @@ public class AttackSequenceManager : MonoBehaviour
                 // Debug.Log("[AttackSequenceManager] 유효하지 않은 스폰 영역입니다");
             }
         }
+    }
+
+    private bool IsPointerOverBattleActionBlocker()
+    {
+        if (GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition))
+        {
+            return true;
+        }
+
+        if (!MdfInput.IsPointerOverUI())
+        {
+            return false;
+        }
+
+        // UIToolkit panels and some legacy canvases can raycast across the screen.
+        // If the pointer still resolves to a valid battle spawn ground point, keep the map click alive.
+        return !TryGetSpawnPositionUnderPointer(out _);
+    }
+
+    private bool TryGetSpawnPositionUnderPointer(out Vector3 spawnPosition)
+    {
+        spawnPosition = default;
+        if (_playerCamera == null)
+        {
+            return false;
+        }
+
+        Ray ray = _playerCamera.ScreenPointToRay(MdfInput.PointerPosition);
+        if (!Physics.Raycast(ray, out RaycastHit hit, 100f, spawnAreaLayerMask))
+        {
+            return false;
+        }
+
+        spawnPosition = hit.point;
+        return IsValidSpawnZone(spawnPosition);
     }
 
     private async UniTask SpawnMonsterAsync(Vector3 position)
@@ -465,16 +540,6 @@ public class AttackSequenceManager : MonoBehaviour
                 return;
             }
 
-            if (false)
-            {
-
-                // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
-            }
-
-            if (false)
-            {
-                // Debug.LogWarning("[AttackSequenceManager] 호스트 소환 성공 후 몬스터 풀 소비 실패");
-            }
         }
         else
         {
@@ -483,19 +548,7 @@ public class AttackSequenceManager : MonoBehaviour
                 return;
             }
 
-            if (false)
-            {
-
-                // Debug.Log($"<color=red>[AttackSequenceManager] 보스 소환! ID:{bossUniqueId}, 타겟: Player {defenderPlayerId}</color>");
-            }
-
             // 클라이언트 경로는 기존 동작 유지 (로컬 UI 즉시 반영)
-            if (false)
-            {
-                // Debug.LogWarning("[AttackSequenceManager] 몬스터 풀에서 소비 실패");
-                return;
-            }
-
             // 클라이언트: 서버에 RPC 요청
             if (!_playerManager.HasAppliedCurrentAttackMonsterPoolSnapshot)
             {
@@ -719,29 +772,8 @@ public class AttackSequenceManager : MonoBehaviour
     /// </summary>
     private bool IsValidSpawnZone(Vector3 worldPosition)
     {
-        if (_opponentFieldManager == null) return false;
-
-        // 클램핑 없이 직접 그리드 좌표 계산 (FieldManager.WorldToGrid는 클램핑되어 있음)
-        Vector3 gridOrigin = _opponentFieldManager.gridOrigin;
-        float cellSize = _opponentFieldManager.cellSize;
-        Vector2Int gridSize = _opponentFieldManager.gridSize;
-
-        int rawGridX = Mathf.FloorToInt((worldPosition.x - gridOrigin.x) / cellSize);
-        int rawGridY = Mathf.FloorToInt((worldPosition.z - gridOrigin.z) / cellSize);
-
-        // 그리드 **안쪽**이면 소환 불가 (그리드 바깥만 허용)
-        bool isInsideGrid = rawGridX >= 0 && rawGridX < gridSize.x &&
-                            rawGridY >= 0 && rawGridY < gridSize.y;
-
-        if (isInsideGrid)
-        {
-            // Debug.Log($"[AttackSequenceManager] 그리드 안쪽 위치 (소환 불가): ({rawGridX}, {rawGridY})");
-            return false;
-        }
-
-        // 그리드 바깥이면 소환 가능
-        // Debug.Log($"[AttackSequenceManager] 그리드 바깥 위치 (소환 가능): ({rawGridX}, {rawGridY})");
-        return true;
+        // Keep local click filtering aligned with server validation.
+        return BattleCommandValidator.IsInsideBattleSpawnZone(_opponentFieldManager, worldPosition);
     }
     #endregion
 }

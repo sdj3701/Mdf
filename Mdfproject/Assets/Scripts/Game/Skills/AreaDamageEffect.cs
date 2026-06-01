@@ -15,12 +15,33 @@ public class AreaDamageEffect : SkillEffect
     {
         // if (runner != null && !runner.IsServer) return; // 네트워크 모드에서는 이 라인이 필요합니다.
 
+        var damagedTargets = new HashSet<int>();
         foreach (var target in targets)
         {
-            if (target != null && target.TryGetComponent<IEnemy>(out var enemy))
+            if (TryResolveUniqueEnemy(target, damagedTargets, out var enemy))
             {
                 enemy.TakeDamage(damageAmount, damageType);
             }
         }
+    }
+
+    private static bool TryResolveUniqueEnemy(GameObject target, HashSet<int> damagedTargets, out IEnemy enemy)
+    {
+        enemy = null;
+        if (target == null || damagedTargets == null)
+        {
+            return false;
+        }
+
+        enemy = target.GetComponentInParent<IEnemy>();
+        if (enemy == null)
+        {
+            return false;
+        }
+
+        int key = enemy is MonoBehaviour behaviour
+            ? behaviour.GetInstanceID()
+            : target.GetInstanceID();
+        return damagedTargets.Add(key);
     }
 }

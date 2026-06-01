@@ -100,6 +100,39 @@
         }
     }
 
+    private static bool TryUseAttackBattleRoleIconSafe(PlayerManager player, out bool useAttackIcon)
+    {
+        useAttackIcon = false;
+
+        var gm = GameManagers.Instance;
+        if (TryGetPlayerIdSafe(player, out int playerId) &&
+            gm != null &&
+            gm.TryGetBattleRoleSnapshot(playerId, out bool isSnapshotFighting, out bool isSnapshotAttacker))
+        {
+            useAttackIcon = RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(
+                isSnapshotFighting,
+                isSnapshotAttacker);
+            return true;
+        }
+
+        if (!TryGetFightStateSafe(player, out bool isFighting))
+        {
+            return false;
+        }
+
+        try
+        {
+            useAttackIcon = RankingUIController.ShouldUseAttackBattleRoleIconForDisplay(
+                isFighting,
+                player.IsAttackerInCurrentBattle);
+            return true;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Inspector에 바인딩되지 않은 UI 요소가 있으면 자식 오브젝트에서 자동으로 찾아 바인딩을 시도합니다.
     /// 순서:
@@ -444,13 +477,13 @@
                  // 초기 전투 상태 설정
                  battleStatusImage.gameObject.SetActive(true); // 이미지를 다시 활성화
                  // 플레이어의 전투 상태에 따라 표시 (HasStateAuthority 조건 제거 - 모든 플레이어 표시)
-                 if (TryGetFightStateSafe(trackedPlayer, out bool isFighting) && isFighting)
+                 if (TryUseAttackBattleRoleIconSafe(trackedPlayer, out bool useAttackIcon) && useAttackIcon)
                  {
-                     battleStatusImage.sprite = combatSprite; // 싸우는 중이면 칼 모양
+                     battleStatusImage.sprite = combatSprite; // attacker
                  }
                  else
                  {
-                     battleStatusImage.sprite = waitingSprite; // 싸움이 끝났으면 방패 모양
+                     battleStatusImage.sprite = waitingSprite; // defender or standby
                  }
              }
              else
@@ -601,13 +634,13 @@
          // 전투 상태 업데이트(개별 플레이어 기준)
          if (battleStatusImage != null)
          {
-             if (TryGetFightStateSafe(trackedPlayer, out bool isFighting) && isFighting)
+             if (TryUseAttackBattleRoleIconSafe(trackedPlayer, out bool useAttackIcon) && useAttackIcon)
              {
-                 battleStatusImage.sprite = combatSprite; // 싸우는 중이면 칼 모양
+                 battleStatusImage.sprite = combatSprite; // attacker
              }
              else
              {
-                 battleStatusImage.sprite = waitingSprite; // 싸움이 끝났으면 방패 모양
+                 battleStatusImage.sprite = waitingSprite; // defender or standby
              }
          }
      }

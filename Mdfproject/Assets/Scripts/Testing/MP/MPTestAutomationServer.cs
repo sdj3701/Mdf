@@ -408,7 +408,19 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecuteMoveUnitCommand(body, commandName);
         }
 
-        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop and move_unit are currently supported by the runtime command harness.", new
+        if (string.Equals(commandName, "place_wall", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "PlaceWall", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecutePlaceWallCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "remove_wall", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "RemoveWall", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteRemoveWallCommand(body, commandName);
+        }
+
+        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, and remove_wall are currently supported by the runtime command harness.", new
         {
             command = commandName
         });
@@ -677,6 +689,292 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             toPosition = new { to.x, to.y, to.z },
             unit = unitName
         });
+    }
+
+    private AutomationResponse ExecutePlaceWallCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        if (!TryGetPrepareCommandContext(commandName, playerId, out var gameManagers, out var player, out var field, out var failure))
+        {
+            return failure;
+        }
+
+        bool hasExplicitPosition = TryGetVector3Int(body, "position", out Vector3Int position)
+            || TryGetVector3Int(body, "target", out position)
+            || TryGetVector3IntByPrefix(body, "position", out position);
+        if (!hasExplicitPosition &&
+            !TryFindPlaceWallPosition(player, field, out position, out string findReason))
+        {
+            return AutomationResponse.Fail("place_wall_target_not_found", "No legal place_wall target was found.", new
+            {
+                command = commandName,
+                playerId,
+                reason = findReason
+            });
+        }
+
+        if (!ValidatePlaceWallTarget(player, field, position, out string validationReason))
+        {
+            return AutomationResponse.Fail(validationReason, "place_wall target failed validation.", new
+            {
+                command = commandName,
+                playerId,
+                position = new { position.x, position.y, position.z }
+            });
+        }
+
+        int wallCountBefore = player.GetWallCount();
+        gameManagers.CommandProcessor.RequestCommandExecution(new PlaceWallCommand(playerId, position));
+        MPTestLogger.Log("automation_command", "begin", "place_wall", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "position", position.ToString() },
+            { "wallCountBefore", wallCountBefore }
+        });
+
+        return AutomationResponse.Ok("command queued", new
+        {
+            command = "place_wall",
+            playerId,
+            position = new { position.x, position.y, position.z },
+            wallCountBefore
+        });
+    }
+
+    private AutomationResponse ExecuteRemoveWallCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        if (!TryGetPrepareCommandContext(commandName, playerId, out var gameManagers, out var player, out var field, out var failure))
+        {
+            return failure;
+        }
+
+        bool hasExplicitPosition = TryGetVector3Int(body, "position", out Vector3Int position)
+            || TryGetVector3Int(body, "target", out position)
+            || TryGetVector3IntByPrefix(body, "position", out position);
+        if (!hasExplicitPosition &&
+            !TryFindRemoveWallPosition(field, out position, out string findReason))
+        {
+            return AutomationResponse.Fail("remove_wall_target_not_found", "No removable wall target was found.", new
+            {
+                command = commandName,
+                playerId,
+                reason = findReason
+            });
+        }
+
+        if (!ValidateRemoveWallTarget(field, position, out string validationReason))
+        {
+            return AutomationResponse.Fail(validationReason, "remove_wall target failed validation.", new
+            {
+                command = commandName,
+                playerId,
+                position = new { position.x, position.y, position.z }
+            });
+        }
+
+        int wallCountBefore = player.GetWallCount();
+        gameManagers.CommandProcessor.RequestCommandExecution(new RemoveWallCommand(playerId, position));
+        MPTestLogger.Log("automation_command", "begin", "remove_wall", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "position", position.ToString() },
+            { "wallCountBefore", wallCountBefore }
+        });
+
+        return AutomationResponse.Ok("command queued", new
+        {
+            command = "remove_wall",
+            playerId,
+            position = new { position.x, position.y, position.z },
+            wallCountBefore
+        });
+    }
+
+    private static bool TryGetPrepareCommandContext(
+        string commandName,
+        int playerId,
+        out GameManagers gameManagers,
+        out PlayerManager player,
+        out FieldManager field,
+        out AutomationResponse failure)
+    {
+        gameManagers = GameManagers.Instance;
+        player = null;
+        field = null;
+        failure = null;
+
+        if (playerId < 0)
+        {
+            failure = AutomationResponse.Fail("invalid_player_id", "playerId must be >= 0.", new { command = commandName, playerId });
+            return false;
+        }
+
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            failure = AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.", new { command = commandName, playerId });
+            return false;
+        }
+
+        if (!gameManagers.Runner.IsServer || gameManagers.Object == null || !gameManagers.Object.HasStateAuthority)
+        {
+            failure = AutomationResponse.Fail("command_requires_state_authority", "Command must be issued to the server/State Authority peer.", new { command = commandName, playerId });
+            return false;
+        }
+
+        if (gameManagers.GetGameState() != GameManagers.GameState.Prepare || gameManagers.IsSequenceTransitioning)
+        {
+            failure = AutomationResponse.Fail("command_requires_prepare_phase", "Command requires a stable Prepare phase.", new
+            {
+                command = commandName,
+                playerId,
+                state = gameManagers.GetGameState().ToString(),
+                gameManagers.IsSequenceTransitioning
+            });
+            return false;
+        }
+
+        if (gameManagers.CommandProcessor == null)
+        {
+            failure = AutomationResponse.Fail("command_processor_missing", "GameManagers.CommandProcessor is not available.", new { command = commandName, playerId });
+            return false;
+        }
+
+        player = gameManagers.GetPlayer(playerId);
+        if (player == null || player.fieldManager == null)
+        {
+            failure = AutomationResponse.Fail("player_or_field_missing", "Target player or FieldManager is missing.", new { command = commandName, playerId });
+            return false;
+        }
+
+        player.RebindRuntimeReferencesAfterMigration($"MPTestAutomationServer.{commandName}", false);
+        field = player.fieldManager;
+        if (field == null)
+        {
+            failure = AutomationResponse.Fail("field_not_ready", "Target FieldManager is not ready.", new { command = commandName, playerId });
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryFindPlaceWallPosition(PlayerManager player, FieldManager field, out Vector3Int position, out string reason)
+    {
+        position = default;
+        reason = null;
+        if (player == null || field == null)
+        {
+            reason = "player_or_field_missing";
+            return false;
+        }
+
+        for (int y = 0; y < field.gridSize.y; y++)
+        {
+            for (int x = 0; x < field.gridSize.x; x++)
+            {
+                var candidate = new Vector3Int(x, y, 0);
+                if (field.HasWallAt(candidate) || field.GetUnitAt(candidate) != null)
+                {
+                    continue;
+                }
+
+                if (ValidatePlaceWallTarget(player, field, candidate, out _))
+                {
+                    position = candidate;
+                    return true;
+                }
+            }
+        }
+
+        reason = "no_empty_wall_cell";
+        return false;
+    }
+
+    private static bool TryFindRemoveWallPosition(FieldManager field, out Vector3Int position, out string reason)
+    {
+        position = default;
+        reason = null;
+        if (field == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        for (int y = 0; y < field.gridSize.y; y++)
+        {
+            for (int x = 0; x < field.gridSize.x; x++)
+            {
+                var candidate = new Vector3Int(x, y, 0);
+                if (field.GetWallAt(candidate) != null)
+                {
+                    position = candidate;
+                    return true;
+                }
+            }
+        }
+
+        reason = "no_destructible_wall";
+        return false;
+    }
+
+    private static bool ValidatePlaceWallTarget(PlayerManager player, FieldManager field, Vector3Int position, out string reason)
+    {
+        if (field == null || player == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (!field.IsValidGridPosition(position))
+        {
+            reason = "wall_position_out_of_range";
+            return false;
+        }
+
+        if (field.HasWallAt(position))
+        {
+            reason = "wall_position_occupied";
+            return false;
+        }
+
+        if (player.GetWallCount() <= 0)
+        {
+            reason = "insufficient_wall_stock";
+            return false;
+        }
+
+        if (player.goalTransform != null && position == field.WorldToGridInt(player.goalTransform.position))
+        {
+            reason = "wall_goal_cell_blocked";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private static bool ValidateRemoveWallTarget(FieldManager field, Vector3Int position, out string reason)
+    {
+        if (field == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        if (!field.IsValidGridPosition(position))
+        {
+            reason = "remove_wall_position_out_of_range";
+            return false;
+        }
+
+        if (field.GetWallAt(position) == null)
+        {
+            reason = "remove_wall_missing";
+            return false;
+        }
+
+        reason = null;
+        return true;
     }
 
     private static bool TryFindMoveUnitPositions(

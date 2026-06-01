@@ -149,15 +149,16 @@ public class PlayerHUDController : MonoBehaviour
     private void HandleGameStateChange(GameManagers.GameState newState)
     {
         bool isPreparePhase = (newState == GameManagers.GameState.Prepare);
+        bool useToolkitHud = GamePrepareUIToolkitController.IsToolkitActive;
 
         if (wallPlacementButton != null)
         {
-            wallPlacementButton.SetActive(isPreparePhase);
+            wallPlacementButton.SetActive(isPreparePhase && !useToolkitHud);
         }
 
         if (shopToggleButton != null)
         {
-            shopToggleButton.gameObject.SetActive(isPreparePhase);
+            shopToggleButton.gameObject.SetActive(isPreparePhase && !useToolkitHud);
         }
 
         if (!isPreparePhase && shopUIController != null)
@@ -172,6 +173,32 @@ public class PlayerHUDController : MonoBehaviour
         }
 
         RefreshShopToggleText();
+    }
+
+    public void SetLegacyHudButtonsVisible(bool visible)
+    {
+        if (wallPlacementButton != null)
+        {
+            wallPlacementButton.SetActive(visible);
+        }
+
+        if (shopToggleButton != null)
+        {
+            shopToggleButton.gameObject.SetActive(visible);
+        }
+    }
+
+    public void SetLegacyResourceHudVisible(bool visible)
+    {
+        if (goldText != null)
+        {
+            goldText.gameObject.SetActive(visible);
+        }
+
+        if (wallCountText != null)
+        {
+            wallCountText.gameObject.SetActive(visible);
+        }
     }
 
     private void HandleBattleSequenceStarted(bool isAttacking)

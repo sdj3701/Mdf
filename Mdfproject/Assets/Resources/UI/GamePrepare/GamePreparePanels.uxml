@@ -1,0 +1,280 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss?fileID=7433441132597879392&amp;guid=12e2b01ce1cb87a4481891b411a29971&amp;type=3#GamePreparePanelsStyles" />
+    <ui:VisualElement name="game-prepare-root" class="game-prepare-root">
+        <ui:VisualElement name="game-prepare-safe-root" class="game-prepare-safe-root">
+            <ui:VisualElement name="game-prepare-design-space" class="game-prepare-design-space">
+                <ui:VisualElement name="game-left-wireframe-rail" class="game-left-wireframe-rail">
+                    <ui:VisualElement class="wire-status-row wire-status-active">
+                        <ui:Label text="1" class="wire-status-icon" />
+                        <ui:VisualElement class="wire-status-copy">
+                            <ui:Label text="&#xC804;&#xD22C;" class="wire-status-name" />
+                            <ui:Label text="2 / 2" class="wire-status-count" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="wire-status-row">
+                        <ui:Label text="2" class="wire-status-icon" />
+                        <ui:VisualElement class="wire-status-copy">
+                            <ui:Label text="&#xC0C1;&#xC810;" class="wire-status-name" />
+                            <ui:Label text="1 / 1" class="wire-status-count" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="wire-status-row">
+                        <ui:Label text="3" class="wire-status-icon" />
+                        <ui:VisualElement class="wire-status-copy">
+                            <ui:Label text="&#xBCBD;" class="wire-status-name" />
+                            <ui:Label text="4 / 6" class="wire-status-count" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="wire-status-row">
+                        <ui:Label text="4" class="wire-status-icon" />
+                        <ui:VisualElement class="wire-status-copy">
+                            <ui:Label text="&#xB9C8;&#xBC95;" class="wire-status-name" />
+                            <ui:Label text="2 / 4" class="wire-status-count" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement class="wire-status-row">
+                        <ui:Label text="5" class="wire-status-icon" />
+                        <ui:VisualElement class="wire-status-copy">
+                            <ui:Label text="&#xB77C;&#xC6B4;&#xB4DC;" class="wire-status-name" />
+                            <ui:Label text="1 / 3" class="wire-status-count" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="augment-panel" class="prepare-panel augment-panel hidden">
+                    <ui:VisualElement class="screen-frame frame-top" />
+                    <ui:VisualElement class="screen-frame frame-bottom" />
+                    <ui:VisualElement class="screen-frame frame-left" />
+                    <ui:VisualElement class="screen-frame frame-right" />
+                    <ui:VisualElement name="augment-card-row" class="augment-card-row">
+                        <ui:VisualElement name="augment-card-0" class="choice-card augment-card">
+                            <ui:VisualElement class="card-top-gem" />
+                            <ui:VisualElement class="card-body">
+                                <ui:Image name="augment-icon-0" class="card-icon augment-icon" />
+                                <ui:Label name="augment-tier-0" text="AUGMENT" class="card-tier" />
+                                <ui:Label name="augment-name-0" text="-" class="card-name" />
+                                <ui:Label name="augment-description-0" class="card-description" />
+                            </ui:VisualElement>
+                            <ui:VisualElement class="card-footer">
+                                <ui:Label name="augment-pick-0" text="&#xC120;&#xD0DD;" class="card-footer-label" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
+                        <ui:VisualElement name="augment-card-1" class="choice-card augment-card">
+                            <ui:VisualElement class="card-top-gem" />
+                            <ui:VisualElement class="card-body">
+                                <ui:Image name="augment-icon-1" class="card-icon augment-icon" />
+                                <ui:Label name="augment-tier-1" text="AUGMENT" class="card-tier" />
+                                <ui:Label name="augment-name-1" text="-" class="card-name" />
+                                <ui:Label name="augment-description-1" class="card-description" />
+                            </ui:VisualElement>
+                            <ui:VisualElement class="card-footer">
+                                <ui:Label name="augment-pick-1" text="&#xC120;&#xD0DD;" class="card-footer-label" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
+                        <ui:VisualElement name="augment-card-2" class="choice-card augment-card">
+                            <ui:VisualElement class="card-top-gem" />
+                            <ui:VisualElement class="card-body">
+                                <ui:Image name="augment-icon-2" class="card-icon augment-icon" />
+                                <ui:Label name="augment-tier-2" text="AUGMENT" class="card-tier" />
+                                <ui:Label name="augment-name-2" text="-" class="card-name" />
+                                <ui:Label name="augment-description-2" class="card-description" />
+                            </ui:VisualElement>
+                            <ui:VisualElement class="card-footer">
+                                <ui:Label name="augment-pick-2" text="&#xC120;&#xD0DD;" class="card-footer-label" />
+                            </ui:VisualElement>
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="shop-panel" class="prepare-panel shop-panel">
+                    <ui:VisualElement name="shop-card-row" class="shop-card-row">
+                        <ui:VisualElement name="shop-card-0" class="choice-card shop-card shop-card-star-1">
+                            <ui:VisualElement class="card-top-gem" />
+                            <ui:VisualElement class="card-body">
+                                <ui:VisualElement class="shop-art-frame">
+                                    <ui:Image name="shop-icon-0" class="card-icon shop-icon" />
+                                    <ui:VisualElement class="shop-text-overlay">
+                                        <ui:Label name="shop-star-0" text="-" class="card-tier shop-star-label" />
+                                    </ui:VisualElement>
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:VisualElement class="card-footer">
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-0" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-0" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:Label name="shop-sold-0" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="shop-card-1" class="choice-card shop-card shop-card-star-2">
+                            <ui:VisualElement class="card-top-gem" />
+                            <ui:VisualElement class="card-body">
+                                <ui:VisualElement class="shop-art-frame">
+                                    <ui:Image name="shop-icon-1" class="card-icon shop-icon" />
+                                    <ui:VisualElement class="shop-text-overlay">
+                                        <ui:Label name="shop-star-1" text="-" class="card-tier shop-star-label" />
+                                    </ui:VisualElement>
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:VisualElement class="card-footer">
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-1" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-1" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:Label name="shop-sold-1" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="shop-card-2" class="choice-card shop-card shop-card-star-3">
+                            <ui:VisualElement class="card-top-gem" />
+                            <ui:VisualElement class="card-body">
+                                <ui:VisualElement class="shop-art-frame">
+                                    <ui:Image name="shop-icon-2" class="card-icon shop-icon" />
+                                    <ui:VisualElement class="shop-text-overlay">
+                                        <ui:Label name="shop-star-2" text="-" class="card-tier shop-star-label" />
+                                    </ui:VisualElement>
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:VisualElement class="card-footer">
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-2" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-2" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:Label name="shop-sold-2" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="shop-card-3" class="choice-card shop-card shop-card-star-4">
+                            <ui:VisualElement class="card-top-gem" />
+                            <ui:VisualElement class="card-body">
+                                <ui:VisualElement class="shop-art-frame">
+                                    <ui:Image name="shop-icon-3" class="card-icon shop-icon" />
+                                    <ui:VisualElement class="shop-text-overlay">
+                                        <ui:Label name="shop-star-3" text="-" class="card-tier shop-star-label" />
+                                    </ui:VisualElement>
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:VisualElement class="card-footer">
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-3" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-3" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:Label name="shop-sold-3" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="shop-card-4" class="choice-card shop-card shop-card-star-5">
+                            <ui:VisualElement class="card-top-gem" />
+                            <ui:VisualElement class="card-body">
+                                <ui:VisualElement class="shop-art-frame">
+                                    <ui:Image name="shop-icon-4" class="card-icon shop-icon" />
+                                    <ui:VisualElement class="shop-text-overlay">
+                                        <ui:Label name="shop-star-4" text="-" class="card-tier shop-star-label" />
+                                    </ui:VisualElement>
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:VisualElement class="card-footer">
+                                <ui:VisualElement class="shop-footer-row">
+                                    <ui:Label name="shop-name-4" text="-" class="card-name shop-footer-name" />
+                                    <ui:Label name="shop-cost-4" class="card-description shop-footer-cost" />
+                                </ui:VisualElement>
+                            </ui:VisualElement>
+                            <ui:Label name="shop-sold-4" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="shop-control-row" class="shop-control-row">
+                    <ui:Label name="shop-status-label" class="shop-status-label" />
+                    <ui:VisualElement name="shop-reroll-button" class="toolkit-button reroll-button">
+                        <ui:Label name="shop-reroll-label" text="0" class="toolkit-button-label" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="attack-sequence-panel" class="attack-sequence-panel hidden">
+                    <ui:VisualElement name="attack-monster-row" class="attack-monster-row">
+                        <ui:VisualElement name="attack-monster-card-0" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-0" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-0" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-0" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-1" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-1" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-1" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-1" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-2" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-2" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-2" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-2" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-3" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-3" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-3" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-3" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-4" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-4" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-4" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-4" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-5" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-5" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-5" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-5" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-6" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-6" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-6" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-6" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-7" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-7" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-7" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-7" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-8" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-8" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-8" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-8" class="attack-card-count" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement name="attack-scroll-row" class="attack-scroll-row">
+                        <ui:VisualElement name="attack-scroll-card-0" class="attack-card scroll-attack-card">
+                            <ui:Image name="attack-scroll-icon-0" class="attack-card-icon scroll-attack-icon" />
+                            <ui:Label name="attack-scroll-name-0" class="attack-card-name scroll-attack-name" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-scroll-card-1" class="attack-card scroll-attack-card">
+                            <ui:Image name="attack-scroll-icon-1" class="attack-card-icon scroll-attack-icon" />
+                            <ui:Label name="attack-scroll-name-1" class="attack-card-name scroll-attack-name" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-scroll-card-2" class="attack-card scroll-attack-card">
+                            <ui:Image name="attack-scroll-icon-2" class="attack-card-icon scroll-attack-icon" />
+                            <ui:Label name="attack-scroll-name-2" class="attack-card-name scroll-attack-name" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-scroll-card-3" class="attack-card scroll-attack-card">
+                            <ui:Image name="attack-scroll-icon-3" class="attack-card-icon scroll-attack-icon" />
+                            <ui:Label name="attack-scroll-name-3" class="attack-card-name scroll-attack-name" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-scroll-card-4" class="attack-card scroll-attack-card">
+                            <ui:Image name="attack-scroll-icon-4" class="attack-card-icon scroll-attack-icon" />
+                            <ui:Label name="attack-scroll-name-4" class="attack-card-name scroll-attack-name" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="game-resource-root" class="game-resource-root">
+                    <ui:VisualElement class="resource-pill resource-gold">
+                        <ui:VisualElement name="game-gold-value" class="resource-icon resource-gold-icon" />
+                        <ui:Label name="game-gold-count-value" text="0" class="resource-value" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement name="game-wall-button" class="toolkit-button wall-action-button">
+                    <ui:VisualElement name="game-wall-icon" class="wall-action-icon resource-wall-icon" />
+                    <ui:Label name="game-wall-count-label" text="0" class="wall-action-count" />
+                </ui:VisualElement>
+                <ui:VisualElement name="game-option-button" class="hud-button hud-icon-button">
+                    <ui:Label name="game-option-label" text="&#xC635;&#xC158;" class="hud-button-label" />
+                </ui:VisualElement>
+                <ui:Label name="game-round-timer-label" text="ROUND 1 00" class="round-timer-label" />
+                <ui:VisualElement name="game-hud-root" class="game-hud-root">
+                    <ui:VisualElement name="game-shop-toggle-button" class="hud-button hud-action-button">
+                        <ui:Label name="game-shop-toggle-label" text="Shop" class="hud-button-label" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

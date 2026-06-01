@@ -6,10 +6,9 @@ using UnityEngine;
 /// <summary>
 /// 선택한 에셋 또는 특정 타입의 에셋을 강제로 리시리얼라이즈하는 에디터 도구
 /// </summary>
-[InitializeOnLoad]
 public class AssetReserializeTool
 {
-    private static readonly string[] AutoReserializeFolders =
+    private static readonly string[] TargetReserializeFolders =
     {
         "Assets/Prefabs",
         "Assets/GameData",
@@ -19,33 +18,21 @@ public class AssetReserializeTool
         // "Assets/Etc"
     };
 
-    static AssetReserializeTool()
-    {
-        EditorApplication.delayCall += OnEditorStartup;
-    }
-
-    private static void OnEditorStartup()
-    {
-        EditorApplication.delayCall -= OnEditorStartup;
-        
-        // 플레이 모드에서는 리시리얼라이즈 불가
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-        {
-            return;
-        }
-        
-        ReserializeTargetFolders();
-    }
-
     /// <summary>
     /// 목록 폴더들을 리시리얼라이즈합니다.
     /// </summary>
     [MenuItem("Tools/Asset/Reserialize Target Folders")]
     private static void ReserializeTargetFolders()
     {
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
+        {
+            Debug.LogWarning("[AssetReserializeTool] 플레이 모드에서는 리시리얼라이즈할 수 없습니다.");
+            return;
+        }
+
         var paths = new List<string>();
 
-        foreach (var folder in AutoReserializeFolders)
+        foreach (var folder in TargetReserializeFolders)
         {
             if (AssetDatabase.IsValidFolder(folder) == false) continue;
 
@@ -63,7 +50,7 @@ public class AssetReserializeTool
         if (paths.Count == 0) return;
 
         AssetDatabase.ForceReserializeAssets(paths);
-        Debug.Log($"[AssetReserializeTool] 에디터 시작 시 자동 리시리얼라이즈 완료: {paths.Count}개");
+        Debug.Log($"[AssetReserializeTool] 대상 폴더 리시리얼라이즈 완료: {paths.Count}개");
     }
 
     /// <summary>

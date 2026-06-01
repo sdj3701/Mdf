@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-05-21
+Last verified: 2026-05-21
+Use count: 2
 Review after: 2026-08-03
 Triggers: 4-player smoke, build host + 3 build clients, field wall snapshots
 Applies to: `tools/harness/mp/run_four_player_smoke.py`
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260521-045119-matrix/20260521-045122-four-player-smoke
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -30,3 +30,7 @@ Verification:
 - `artifacts/mp/20260504-222127-four-player-smoke/comparison-host-vs-client-1.json` passed.
 - `artifacts/mp/20260504-222127-four-player-smoke/comparison-host-vs-client-2.json` passed.
 - `artifacts/mp/20260504-222127-four-player-smoke/comparison-host-vs-client-3.json` passed.
+
+Lifecycle notes:
+- 2026-05-21: Verified four-player smoke visual run after ranking UI HP max display fix; cleanupStatus=PASS orphanedPids=[].
+- 2026-05-21: verified artifact `artifacts/mp/20260521-045119-matrix/20260521-045122-four-player-smoke`

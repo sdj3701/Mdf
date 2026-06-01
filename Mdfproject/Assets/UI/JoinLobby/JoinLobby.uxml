@@ -3,6 +3,7 @@
     <ui:VisualElement name="joinlobby-root" class="jl-root">
         <ui:VisualElement name="joinlobby-design-space" class="jl-design-space">
             <ui:VisualElement name="background" class="jl-background" />
+            <ui:VisualElement name="leftMenuImageCover" class="jl-left-menu-image-cover" />
             <ui:VisualElement name="topHud" class="jl-top-hud">
                 <ui:Label text="용사의 길" class="jl-player-name" />
                 <ui:Label text="LV. 42" class="jl-player-level" />
@@ -11,17 +12,6 @@
                 <ui:Label text="5,420" class="jl-currency jl-currency--blue" />
                 <ui:Label text="860" class="jl-currency jl-currency--purple" />
                 <ui:Label text="1" class="jl-alert-badge jl-alert-badge--bell" />
-            </ui:VisualElement>
-            <ui:VisualElement name="leftMenu" class="jl-left-menu">
-                <ui:Label text="로비" class="jl-menu-label jl-menu-label--lobby" />
-                <ui:Label text="퀘스트" class="jl-menu-label jl-menu-label--quest" />
-                <ui:Label text="영웅" class="jl-menu-label jl-menu-label--hero" />
-                <ui:Label text="가방" class="jl-menu-label jl-menu-label--bag" />
-                <ui:Label text="길드" class="jl-menu-label jl-menu-label--guild" />
-                <ui:Label text="상점" class="jl-menu-label jl-menu-label--shop" />
-                <ui:Label text="우편" class="jl-menu-label jl-menu-label--mail" />
-                <ui:Label text="설정" class="jl-menu-label jl-menu-label--settings" />
-                <ui:Label text="1" class="jl-alert-badge jl-alert-badge--settings" />
             </ui:VisualElement>
             <ui:VisualElement name="roomPanel" class="jl-room-panel">
                 <ui:Label name="roomNameLabel" text="빛의 성채 원정대" class="jl-room-title" />

@@ -2,9 +2,12 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
+using System.Collections.Generic;
 
 public static class MdfInput
 {
+    private static readonly List<RaycastResult> uiRaycastResults = new List<RaycastResult>(16);
+
     public static Vector2 PointerPosition
     {
         get
@@ -56,23 +59,181 @@ public static class MdfInput
             return false;
         }
 
+        Vector2 pointerPosition = PointerPosition;
+        bool gamePrepareToolkitBlocks = GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition);
+        bool hasNonToolkitUiHit = HasNonGamePrepareToolkitUiHit(eventSystem, pointerPosition);
+        if (hasNonToolkitUiHit || gamePrepareToolkitBlocks)
+        {
+            return true;
+        }
+
         var mouse = Mouse.current;
         if (mouse != null
             && (eventSystem.IsPointerOverGameObject()
                 || eventSystem.IsPointerOverGameObject(mouse.deviceId)))
         {
-            return true;
+            return !GamePrepareUIToolkitController.IsToolkitActive;
         }
 
         var touch = Touchscreen.current;
         if (touch != null)
         {
             int touchId = touch.primaryTouch.touchId.ReadValue();
-            return (touchId != 0 && eventSystem.IsPointerOverGameObject(touchId))
-                   || eventSystem.IsPointerOverGameObject(touch.deviceId);
+            bool touchOverUi = (touchId != 0 && eventSystem.IsPointerOverGameObject(touchId))
+                               || eventSystem.IsPointerOverGameObject(touch.deviceId);
+            return touchOverUi && !GamePrepareUIToolkitController.IsToolkitActive;
         }
 
-        return eventSystem.IsPointerOverGameObject();
+        return eventSystem.IsPointerOverGameObject() && !GamePrepareUIToolkitController.IsToolkitActive;
+    }
+
+    public static bool IsPointerOverFieldBlockingUI()
+    {
+        var eventSystem = EventSystem.current;
+        if (eventSystem == null)
+        {
+            return false;
+        }
+
+        Vector2 pointerPosition = PointerPosition;
+        if (GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition))
+        {
+            return true;
+        }
+
+        return HasFieldBlockingUiHit(eventSystem, pointerPosition);
+    }
+
+    public static string DescribeFieldBlockingUiHits()
+    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var eventSystem = EventSystem.current;
+        if (eventSystem == null)
+        {
+            return "eventSystem=null";
+        }
+
+        Vector2 pointerPosition = PointerPosition;
+        var pointerData = new PointerEventData(eventSystem)
+        {
+            position = pointerPosition
+        };
+
+        uiRaycastResults.Clear();
+        eventSystem.RaycastAll(pointerData, uiRaycastResults);
+
+        var parts = new List<string>(uiRaycastResults.Count + 1)
+        {
+            $"pointer={pointerPosition} prepareToolkitBlocks={GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition)} rankingBlocks={RankingUIController.IsPointerOverBlockingElement(pointerPosition)} hits={uiRaycastResults.Count}"
+        };
+
+        for (int i = 0; i < uiRaycastResults.Count; i++)
+        {
+            var result = uiRaycastResults[i];
+            var target = result.gameObject;
+            if (target == null)
+            {
+                parts.Add($"{i}:null");
+                continue;
+            }
+
+            bool prepareToolkit = GamePrepareUIToolkitController.IsToolkitRaycastObject(target);
+            bool rankingToolkit = RankingUIController.IsToolkitRaycastObject(target);
+            bool passthrough = IsFieldPassthroughUi(target, pointerPosition);
+            bool blocks = !prepareToolkit && !passthrough;
+            string module = result.module != null ? result.module.GetType().Name : "none";
+            parts.Add($"{i}:{target.name}:blocks={blocks}:prepareToolkit={prepareToolkit}:rankingToolkit={rankingToolkit}:passthrough={passthrough}:module={module}");
+        }
+
+        return string.Join(" | ", parts);
+#else
+        return string.Empty;
+#endif
+    }
+
+    private static bool HasNonGamePrepareToolkitUiHit(EventSystem eventSystem, Vector2 pointerPosition)
+    {
+        var pointerData = new PointerEventData(eventSystem)
+        {
+            position = pointerPosition
+        };
+
+        uiRaycastResults.Clear();
+        eventSystem.RaycastAll(pointerData, uiRaycastResults);
+
+        for (int i = 0; i < uiRaycastResults.Count; i++)
+        {
+            var result = uiRaycastResults[i];
+            if (result.gameObject == null)
+            {
+                continue;
+            }
+
+            if (GamePrepareUIToolkitController.IsToolkitRaycastObject(result.gameObject) ||
+                IsFieldPassthroughUi(result.gameObject, pointerPosition))
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasFieldBlockingUiHit(EventSystem eventSystem, Vector2 pointerPosition)
+    {
+        var pointerData = new PointerEventData(eventSystem)
+        {
+            position = pointerPosition
+        };
+
+        uiRaycastResults.Clear();
+        eventSystem.RaycastAll(pointerData, uiRaycastResults);
+
+        for (int i = 0; i < uiRaycastResults.Count; i++)
+        {
+            var result = uiRaycastResults[i];
+            if (result.gameObject == null)
+            {
+                continue;
+            }
+
+            if (GamePrepareUIToolkitController.IsToolkitRaycastObject(result.gameObject) ||
+                IsFieldPassthroughUi(result.gameObject, pointerPosition))
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsFieldPassthroughUi(GameObject target, Vector2 pointerPosition)
+    {
+        if (target == null)
+        {
+            return false;
+        }
+
+        if (target.GetComponentInParent<StatusBarUI>() != null)
+        {
+            return true;
+        }
+
+        if (target.GetComponentInParent<RankingUIController>() != null)
+        {
+            return !RankingUIController.IsPointerOverBlockingElement(pointerPosition);
+        }
+
+        if (RankingUIController.IsToolkitRaycastObject(target))
+        {
+            return !RankingUIController.IsPointerOverBlockingElement(pointerPosition);
+        }
+
+        return false;
     }
 
     public static bool GetKeyDown(KeyCode keyCode)

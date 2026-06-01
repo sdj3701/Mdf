@@ -157,6 +157,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private BuffManager _buffManager;
     private float _lastRecoverFailureLogTime;
     private float _lastMissingUnitDataLogTime;
+    private const float AttackRangePadding = 0.1f;
+    private const float BlockedMonsterReleasePadding = 0.65f;
 
     /// <summary>
     /// 이 유닛의 소유자(PlayerManager)에 대한 외부 접근자.
@@ -1224,6 +1226,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         // InitializeStats가 비동기 함수가 되었으므로 await로 호출을 기다립니다.
         await InitializeStats();
+        if (this == null)
+        {
+            return;
+        }
+
         await CacheProjectileSpeedAsync();
     }
 
@@ -1334,6 +1341,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             // 주소(string)를 사용해 AssetLoader로 실제 SkillData를 로드합니다.
             string skillKey = unitData.skillsByStarLevel[starLevel - 1];
             _loadedSkillData = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+            if (this == null)
+            {
+                return;
+            }
 
             if (_loadedSkillData != null)
             {
@@ -1353,7 +1364,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         // --- [수정 끝] ---
 
-        manaController.Initialize(newMaxMana);
+        if (this == null)
+        {
+            return;
+        }
+
+        manaController?.Initialize(newMaxMana);
 
         if (statusBarUI != null)
         {
@@ -1716,26 +1732,31 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             
             if (isMelee)
             {
-                blockedMonsters.RemoveAll(m => m == null || m.currentHP <= 0);
+                PruneBlockedMonsters();
                 
                 if (blockedMonsters.Count > 0)
                 {
                     var firstBlocked = blockedMonsters[0];
                     targetEnemy = firstBlocked;
                     targetTransform = firstBlocked.transform;
-                    hasTarget = true;
+                    hasTarget = IsCurrentTargetValidForAttack(false);
                 }
                 else
                 {
                     FindNearestGroundMonster();
-                    hasTarget = targetEnemy != null;
+                    hasTarget = IsCurrentTargetValidForAttack(false);
                 }
             }
             else
             {
                 // 원거리 유닛: 기존 로직 (OverlapSphere로 범위 내 적 탐색)
                 FindNearestEnemy();
-                hasTarget = targetEnemy != null;
+                hasTarget = IsCurrentTargetValidForAttack(true);
+            }
+            
+            if (!hasTarget)
+            {
+                ClearCurrentTarget();
             }
             
             if (hasTarget)
@@ -1820,6 +1841,88 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         targetEnemy = nearestMonster;
         targetTransform = nearestMonster != null ? nearestMonster.transform : null;
     }
+
+    private void PruneBlockedMonsters()
+    {
+        for (int i = blockedMonsters.Count - 1; i >= 0; i--)
+        {
+            var monster = blockedMonsters[i];
+            if (monster == null || !IsValidGroundMeleeMonster(monster))
+            {
+                blockedMonsters.RemoveAt(i);
+                continue;
+            }
+
+            if (!IsTargetWithinAttackRange(monster.transform, BlockedMonsterReleasePadding))
+            {
+                blockedMonsters.RemoveAt(i);
+                if (monster.IsBlocked())
+                {
+                    monster.Unblock();
+                }
+            }
+        }
+    }
+
+    private bool IsCurrentTargetValidForAttack(bool isRanged)
+    {
+        if (targetEnemy == null || targetTransform == null)
+        {
+            return false;
+        }
+
+        if (targetEnemy is IHealth healthTarget && healthTarget.CurrentHealth <= 0f)
+        {
+            return false;
+        }
+
+        if (!isRanged && targetTransform.TryGetComponent<Monster>(out var monster) && !IsValidGroundMeleeMonster(monster))
+        {
+            return false;
+        }
+
+        return IsTargetWithinAttackRange(targetTransform, AttackRangePadding);
+    }
+
+    private bool IsValidGroundMeleeMonster(Monster monster)
+    {
+        return monster != null &&
+               monster.Data != null &&
+               monster.Data.monsterType != MonsterType.Flying &&
+               monster.currentHP > 0f;
+    }
+
+    private bool IsTargetWithinAttackRange(Transform target, float padding)
+    {
+        if (target == null)
+        {
+            return false;
+        }
+
+        float allowedRange = Mathf.Max(0f, currentAttackRange) + Mathf.Max(0f, padding);
+        Vector3 targetPoint = GetClosestTargetPoint(target, transform.position);
+        return FlatDistanceSqr(transform.position, targetPoint) <= allowedRange * allowedRange;
+    }
+
+    private static Vector3 GetClosestTargetPoint(Transform target, Vector3 from)
+    {
+        var targetCollider = target.GetComponentInChildren<Collider>();
+        return targetCollider != null ? targetCollider.ClosestPoint(from) : target.position;
+    }
+
+    private static float FlatDistanceSqr(Vector3 a, Vector3 b)
+    {
+        float dx = a.x - b.x;
+        float dz = a.z - b.z;
+        return dx * dx + dz * dz;
+    }
+
+    private void ClearCurrentTarget()
+    {
+        targetEnemy = null;
+        targetTransform = null;
+    }
+
     private void Attack()
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -1834,12 +1937,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         
         bool isRanged = unitData.unitType == UnitType.Ranged;
+        if (!IsCurrentTargetValidForAttack(isRanged))
+        {
+            ClearCurrentTarget();
+            return;
+        }
         
         // 원거리 유닛만 거리 검사 수행 (근접 유닛은 저지 중인 몬스터를 공격하므로 거리 검사 불필요)
         if (isRanged)
         {
             if (targetEnemy == null || targetTransform == null || 
-                Vector3.Distance(transform.position, targetTransform.position) > currentAttackRange + 0.1f)
+                !IsTargetWithinAttackRange(targetTransform, AttackRangePadding))
             {
                 targetEnemy = null;
                 return;
@@ -1907,7 +2015,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                     // 스플래시 공격: 저지 중인 모든 몬스터에게 동시에 데미지
                     foreach (var monster in blockedMonsters.ToList())
                     {
-                        if (monster != null && monster.currentHP > 0)
+                        if (monster != null &&
+                            IsValidGroundMeleeMonster(monster) &&
+                            IsTargetWithinAttackRange(monster.transform, AttackRangePadding))
                         {
 
                             if (schedulerReady)
@@ -2015,6 +2125,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
+        if (!_pendingAttack.IsRanged && !IsPendingMeleeAttackStillValid())
+        {
+            _hasPendingAttack = false;
+            return;
+        }
+
         var scheduler = CombatScheduler.Instance;
         if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && _pendingAttack.Target != null)
         {
@@ -2029,6 +2145,27 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         _hasPendingAttack = false;
+    }
+
+    private bool IsPendingMeleeAttackStillValid()
+    {
+        var targetMono = _pendingAttack.TargetEnemy as MonoBehaviour;
+        if (targetMono == null)
+        {
+            return false;
+        }
+
+        if (_pendingAttack.TargetEnemy is IHealth healthTarget && healthTarget.CurrentHealth <= 0f)
+        {
+            return false;
+        }
+
+        if (targetMono.TryGetComponent<Monster>(out var monster) && !IsValidGroundMeleeMonster(monster))
+        {
+            return false;
+        }
+
+        return IsTargetWithinAttackRange(targetMono.transform, AttackRangePadding);
     }
 
     public void AnimEvent_SkillEnd()

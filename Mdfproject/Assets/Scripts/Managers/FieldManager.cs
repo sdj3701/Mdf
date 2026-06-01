@@ -1087,6 +1087,11 @@ public class FieldManager : MonoBehaviour
         placementManager.StopPlacementMode();
     }
 
+    public PlacementMode GetPlacementMode()
+    {
+        return placementManager != null ? placementManager.GetCurrentMode() : PlacementMode.None;
+    }
+
     public void TogglePlacementMode(PlacementMode mode, GameObject unitPrefab = null)
     {
         if (placementManager.GetCurrentMode() == mode)
@@ -1126,6 +1131,7 @@ public class FieldManager : MonoBehaviour
             if (selectedUnit != null)
             {
                 Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
+                RestoreSelectedUnitNetworkTransform();
                 SnapbackSelectedUnit(originalWorldPos);
                 // 드래그 중에는 placedUnits에서 제거되지 않으므로, 다시 Add할 필요가 없습니다.
                 
@@ -1474,6 +1480,9 @@ public class FieldManager : MonoBehaviour
         }
 
         var oldCells = new HashSet<Vector3Int>(placedUnits.Keys);
+        var preservedPendingUnitPositions = new HashSet<Vector3Int>(pendingUnitPositions);
+        var preservedPendingUnitDataByPosition = new Dictionary<Vector3Int, UnitData>(pendingUnitDataByPosition);
+        var preservedPendingNetworkMoves = pendingNetworkMoves.ToList();
         var rebuiltUnits = new Dictionary<Vector3Int, Unit>();
 
         int candidates = 0;
@@ -1597,9 +1606,10 @@ public class FieldManager : MonoBehaviour
         }
 
         placedUnits = rebuiltUnits;
-        pendingUnitPositions.Clear();
-        pendingUnitDataByPosition.Clear();
-        pendingNetworkMoves.Clear();
+        RestorePendingStateAfterUnitMapRebuild(
+            preservedPendingUnitPositions,
+            preservedPendingUnitDataByPosition,
+            preservedPendingNetworkMoves);
 
         bool unitMapChanged = !oldCells.SetEquals(placedUnits.Keys);
         _lastUnitMapRebuildFrame = Time.frameCount;
@@ -1613,6 +1623,53 @@ public class FieldManager : MonoBehaviour
         }
 
         return true;
+    }
+
+    private void RestorePendingStateAfterUnitMapRebuild(
+        HashSet<Vector3Int> preservedPendingUnitPositions,
+        Dictionary<Vector3Int, UnitData> preservedPendingUnitDataByPosition,
+        List<PendingNetworkMove> preservedPendingNetworkMoves)
+    {
+        pendingUnitPositions.Clear();
+        pendingUnitDataByPosition.Clear();
+
+        foreach (var position in preservedPendingUnitPositions)
+        {
+            if (!IsValidGridPosition(position) || placedUnits.ContainsKey(position))
+            {
+                continue;
+            }
+
+            pendingUnitPositions.Add(position);
+            if (preservedPendingUnitDataByPosition.TryGetValue(position, out UnitData unitData) && unitData != null)
+            {
+                pendingUnitDataByPosition[position] = unitData;
+            }
+        }
+
+        pendingNetworkMoves.Clear();
+        int oldestAllowedFrame = Time.frameCount - PendingNetworkMoveLifetimeFrames;
+        foreach (var move in preservedPendingNetworkMoves)
+        {
+            if (move.CreatedFrame < oldestAllowedFrame)
+            {
+                continue;
+            }
+
+            if (!IsValidGridPosition(move.From) || !IsValidGridPosition(move.To))
+            {
+                continue;
+            }
+
+            if (pendingNetworkMoves.Any(existing => existing.From == move.From && existing.To == move.To))
+            {
+                continue;
+            }
+
+            pendingNetworkMoves.Add(move);
+        }
+
+        ProcessPendingNetworkMoves();
     }
 
     public string BuildWallCellHash()
@@ -3257,9 +3314,17 @@ public class FieldManager : MonoBehaviour
 
     public void RespawnAllUnits()
     {
+        var runner = playerManager != null ? playerManager.Runner : null;
+        bool networkRunning = runner != null && runner.IsRunning;
+
         foreach (Unit unit in placedUnits.Values)
         {
-            if (unit == null || !unit.HasValidNetworkObject)
+            if (unit == null)
+            {
+                continue;
+            }
+
+            if (networkRunning && !unit.HasValidNetworkObject)
             {
                 continue;
             }
@@ -5107,12 +5172,24 @@ public class FieldManager : MonoBehaviour
         Vector3 mouseWorldPos = GetMouseWorldPosition();
         Vector3Int gridPos = WorldToGridInt(mouseWorldPos);
 
+        if (MdfInput.SecondaryPointerWasPressedThisFrame() && !MdfInput.IsPointerOverFieldBlockingUI())
+        {
+            if (TryRequestRemoveWallAt(gridPos))
+            {
+                return;
+            }
+        }
+
         // 마우스 버튼을 눌렀을 때
         if (MdfInput.PrimaryPointerWasPressedThisFrame())
         {
             // 셀 기반이 아니라 실제 유닛 콜라이더를 클릭해야 드래그 시작
             Unit clickedUnit = GetUnitUnderMouse();
-            bool pointerOverUI = MdfInput.IsPointerOverUI();
+            bool pointerOverUI = MdfInput.IsPointerOverFieldBlockingUI();
+            if (pointerOverUI && clickedUnit != null && ShouldAllowUnitDragThroughPrepareToolkit())
+            {
+                pointerOverUI = false;
+            }
 
             // 패널이 열려있는 상태에서
             if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
@@ -5152,7 +5229,7 @@ public class FieldManager : MonoBehaviour
                 mouseDownTimer = 0f;
                 isDragStarted = false;
                 // [3D Migration] 유닛의 현재 위치를 그리드 좌표로 변환
-                originalUnitPosition = WorldToGridInt(selectedUnit.transform.position);
+                originalUnitPosition = GetUnitPosition(selectedUnit) ?? WorldToGridInt(selectedUnit.transform.position);
                 // 3D 드래그를 위한 XZ 오프셋 및 기준 Y 저장
                 dragBaseY = selectedUnit.transform.position.y;
                 offsetXZ = new Vector2(
@@ -5234,6 +5311,8 @@ public class FieldManager : MonoBehaviour
         {
             if (isDragStarted)
             {
+                RestoreSelectedUnitNetworkTransform();
+
                 // 드래그 종료: 화면상 마우스와 가장 겹쳐 보이는 셀을 최종 선택
                 Vector3Int bestGrid = GetBestGridUnderMouse();
                 bestGrid.x = Mathf.Clamp(bestGrid.x, 0, gridSize.x - 1);
@@ -5344,6 +5423,52 @@ public class FieldManager : MonoBehaviour
             selectedUnit = null;
             selectedUnitNetworkTransform = null;
             isDragStarted = false;
+        }
+    }
+
+    private bool TryRequestRemoveWallAt(Vector3Int gridPosition)
+    {
+        var gm = GameManagers.Instance;
+        if (gm == null || gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
+        {
+            return false;
+        }
+
+        if (playerManager == null || playerManager.playerId < 0 || GetWallAt(gridPosition) == null)
+        {
+            return false;
+        }
+
+        if (gm.CommandProcessor == null)
+        {
+            return false;
+        }
+
+        gm.CommandProcessor.RequestCommandExecution(new RemoveWallCommand(playerManager.playerId, gridPosition));
+        return true;
+    }
+
+    private bool ShouldAllowUnitDragThroughPrepareToolkit()
+    {
+        var gm = GameManagers.Instance;
+        if (gm == null || gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
+        {
+            return false;
+        }
+
+        if (!GamePrepareUIToolkitController.IsToolkitActive)
+        {
+            return false;
+        }
+
+        return !GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition);
+    }
+
+    private void RestoreSelectedUnitNetworkTransform()
+    {
+        if (selectedUnitNetworkTransform != null && !selectedUnitNetworkTransform.enabled)
+        {
+            selectedUnitNetworkTransform.enabled = true;
         }
     }
 

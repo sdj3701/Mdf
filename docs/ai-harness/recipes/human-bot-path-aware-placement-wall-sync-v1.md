@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: AI/HumanBot, multiplayer snapshot
 Created: 2026-05-08
-Last used: 2026-05-10
-Last verified: 2026-05-09
-Use count: 18
+Last used: 2026-06-01
+Last verified: 2026-06-01
+Use count: 27
 Review after: 2026-08-06
 Triggers: host HumanBot moves only near buy slots, repeated same-round `MoveUnit` oscillation, no host `PlaceWall` before R3, `pathAwarePlacement=false`, `monsterPathCount=0`, or `player.*.field.wallHash` snapshot mismatch after `PlaceWall`
 Applies to: `PrepareDecisionPolicy`, `AttackRangeCoverageConsideration`, `FieldManager` wall hashes, `run_human_bot_3round_progression.py`
-Verified by: `python tools/harness/precommit.py --all`; `unity-cli --project Mdfproject editor refresh --compile`; `unity-cli --project Mdfproject console --type error --stacktrace user`; `unity-cli --project Mdfproject test --mode EditMode`; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --headless-player --player-path artifacts/builds/20260508-145605/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --no-headless-player --player-path artifacts/builds/20260508-151911/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; artifacts/mp/20260508-154650-human-bot-3round-progression; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --no-headless-player --player-path artifacts/builds/20260508-161632/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; artifacts/mp/20260508-161704-human-bot-3round-progression; artifacts/mp/20260508-215126-human-bot-3round-progression; artifacts/mp/20260509-002238-human-bot-3round-progression; artifacts/mp/20260509-050614-human-bot-3round-progression; artifacts/mp/20260509-051915-human-bot-3round-progression; artifacts/mp/20260509-065548-human-bot-3round-progression; artifacts/mp/20260509-073035-human-bot-3round-progression; artifacts/mp/20260509-075615-human-bot-3round-progression; artifacts/mp/20260509-081237-human-bot-3round-progression; artifacts/mp/20260509-102408-human-bot-3round-progression; artifacts/mp/20260509-103658-human-bot-3round-progression; artifacts/mp/20260509-104817-human-bot-3round-progression; artifacts/mp/20260509-105726-human-bot-3round-progression
+Verified by: `python tools/harness/precommit.py --all`; `unity-cli --project Mdfproject editor refresh --compile`; `unity-cli --project Mdfproject console --type error --stacktrace user`; `unity-cli --project Mdfproject test --mode EditMode`; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --headless-player --player-path artifacts/builds/20260508-145605/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --no-headless-player --player-path artifacts/builds/20260508-151911/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; artifacts/mp/20260508-154650-human-bot-3round-progression; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --no-headless-player --player-path artifacts/builds/20260508-161632/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; artifacts/mp/20260508-161704-human-bot-3round-progression; artifacts/mp/20260508-215126-human-bot-3round-progression; artifacts/mp/20260509-002238-human-bot-3round-progression; artifacts/mp/20260509-050614-human-bot-3round-progression; artifacts/mp/20260509-051915-human-bot-3round-progression; artifacts/mp/20260509-065548-human-bot-3round-progression; artifacts/mp/20260509-073035-human-bot-3round-progression; artifacts/mp/20260509-075615-human-bot-3round-progression; artifacts/mp/20260509-081237-human-bot-3round-progression; artifacts/mp/20260509-102408-human-bot-3round-progression; artifacts/mp/20260509-103658-human-bot-3round-progression; artifacts/mp/20260509-104817-human-bot-3round-progression; artifacts/mp/20260509-105726-human-bot-3round-progression; artifacts/mp/20260513-122134-matrix/20260513-122142-human-bot-prepare; artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke; artifacts/mp/20260519-071043-two-humanbot-two-ai-smoke; artifacts/mp/20260522-044836-two-humanbot-two-ai-smoke/result.json; artifacts/mp/20260522-052526-two-humanbot-two-ai-smoke; artifacts/mp/20260601-021130-two-humanbot-two-ai-smoke/game-to-end-wall-records.json; artifacts/mp/20260601-032131-two-humanbot-two-ai-smoke/game-to-end-wall-records.json
 Replacement: none
 Archive policy: archive only after HumanBot prepare placement no longer uses `FieldManager.FindBestSpotForAI` or dynamic wall cell state is authoritative network state instead of scene-discovered wall maps.
 
@@ -63,3 +63,19 @@ Lifecycle notes:
 - 2026-05-09: verified artifact `artifacts/mp/20260509-104817-human-bot-3round-progression`
 - 2026-05-09: Verified wall-plan cache invalidates on wall hash changes and MazePlanner keeps neutral scaffold walls so host spends maze budget; visible 2P 3-round reached R4 with host wallCount 3 after R1 build.
 - 2026-05-09: verified artifact `artifacts/mp/20260509-105726-human-bot-3round-progression`
+- 2026-05-13: verified artifact `artifacts/mp/20260513-122134-matrix/20260513-122142-human-bot-prepare`
+- 2026-05-14: Verified round 2 Prepare move_unit after current-round pending move suppression.
+- 2026-05-14: verified artifact `artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke`
+- 2026-05-14: Verified current-round move suppression and drag NetworkTransform restore through GameOver movement records. `artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke` reached GameOver at round 26 with 26 Prepare move rounds and 52 successful HumanBot move commands, but full E2E remained failed by separate final snapshot divergence.
+- 2026-05-14: verified movement artifact `artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke`
+- 2026-05-19: Verified 2 HumanBot peers can resume and accept manual MoveUnit in round-2 Prepare while 2 AI fill players stay synchronized.
+- 2026-05-19: verified artifact `artifacts/mp/20260519-071043-two-humanbot-two-ai-smoke`
+- 2026-05-22: Verified round-2 move_unit remains accepted after field/UI hit-filter fix; two-humanbot-two-ai smoke PASS cleanupStatus=PASS orphanedPids=[].
+- 2026-05-22: verified artifact `artifacts/mp/20260522-044836-two-humanbot-two-ai-smoke/result.json`
+- 2026-05-22: Verified wall create/remove refund and move commands through round 5 in 2 HumanBot + 2 AI MP smoke.
+- 2026-05-22: verified artifact `artifacts/mp/20260522-052526-two-humanbot-two-ai-smoke`
+- 2026-05-31: Verified wall create/remove commands over 3 Prepare rounds in 2 HumanBot + 2 AI visual smoke; 6 PlaceWall and 6 RemoveWall commands succeeded, wall hashes changed, and wall stock was restored.
+- 2026-05-31: verified artifact `artifacts/mp/20260531-041001-two-humanbot-two-ai-smoke/game-to-end-wall-records.json`
+- 2026-06-01: Verified wall place/remove on host player 0 and client player 1 for 3 prepare rounds; comparison after place/remove succeeded each round.
+- 2026-06-01: verified artifact `artifacts/mp/20260601-021130-two-humanbot-two-ai-smoke/game-to-end-wall-records.json`
+- 2026-06-01: verified artifact `artifacts/mp/20260601-032131-two-humanbot-two-ai-smoke/game-to-end-wall-records.json`

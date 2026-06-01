@@ -3,6 +3,7 @@
     <ui:VisualElement name="testmatching-root" class="tm-root">
         <ui:VisualElement name="testmatching-design-space" class="tm-design-space">
             <ui:VisualElement name="background" class="tm-background" />
+            <ui:VisualElement name="leftMenuImageCover" class="tm-left-menu-image-cover" />
             <ui:VisualElement name="topHud" class="tm-top-hud">
                 <ui:Label text="모험가" class="tm-player-name" />
                 <ui:Label text="LV. 28" class="tm-player-level" />
@@ -11,16 +12,6 @@
                 <ui:Label text="2,450" class="tm-currency tm-currency--blue" />
                 <ui:Label text="310" class="tm-currency tm-currency--purple" />
                 <ui:Label text="1" class="tm-alert-badge tm-alert-badge--bell" />
-            </ui:VisualElement>
-            <ui:VisualElement name="leftMenu" class="tm-left-menu">
-                <ui:Label text="홈" class="tm-menu-label tm-menu-label--home" />
-                <ui:Label text="영웅" class="tm-menu-label tm-menu-label--hero" />
-                <ui:Label text="가방" class="tm-menu-label tm-menu-label--bag" />
-                <ui:Label text="퀘스트" class="tm-menu-label tm-menu-label--quest" />
-                <ui:Label text="길드" class="tm-menu-label tm-menu-label--guild" />
-                <ui:Label text="상점" class="tm-menu-label tm-menu-label--shop" />
-                <ui:Label text="설정" class="tm-menu-label tm-menu-label--settings" />
-                <ui:Label text="1" class="tm-alert-badge tm-alert-badge--settings" />
             </ui:VisualElement>
             <ui:VisualElement name="lobbyPanel" class="tm-lobby-panel">
                 <ui:Label text="로비" class="tm-lobby-title" />

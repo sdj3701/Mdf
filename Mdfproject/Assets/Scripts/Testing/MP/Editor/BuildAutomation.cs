@@ -46,6 +46,12 @@ public static class MPBuildPlayerTool
         var playerName = p.Get("player_name", "MDF-MPTest");
         var developmentBuild = p.GetBool("development_build", true);
         var allowDebugging = p.GetBool("allow_debugging", true);
+        var buildTargetSwitchError = EnsureActiveBuildTarget(target);
+        if (buildTargetSwitchError != null)
+        {
+            return buildTargetSwitchError;
+        }
+
         var scenes = EditorBuildSettings.scenes
             .Where(scene => scene.enabled)
             .Select(scene => scene.path)
@@ -85,6 +91,7 @@ public static class MPBuildPlayerTool
         {
             result = summary.result.ToString(),
             target = target.ToString(),
+            activeBuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString(),
             outputPath = locationPathName,
             outputDir,
             totalSize = summary.totalSize,
@@ -124,6 +131,34 @@ public static class MPBuildPlayerTool
         }
 
         throw new ArgumentException($"Unknown BuildTarget '{raw}'.");
+    }
+
+    private static object EnsureActiveBuildTarget(BuildTarget target)
+    {
+        if (EditorUserBuildSettings.activeBuildTarget == target)
+        {
+            return null;
+        }
+
+        var group = BuildPipeline.GetBuildTargetGroup(target);
+        if (group == BuildTargetGroup.Unknown)
+        {
+            return new ErrorResponse($"Cannot resolve build target group for {target}.");
+        }
+
+        if (!EditorUserBuildSettings.SwitchActiveBuildTarget(group, target))
+        {
+            return new ErrorResponse(
+                "Failed to switch active build target before player build.",
+                new
+                {
+                    requestedTarget = target.ToString(),
+                    requestedGroup = group.ToString(),
+                    activeBuildTarget = EditorUserBuildSettings.activeBuildTarget.ToString()
+                });
+        }
+
+        return null;
     }
 
     private static string ResolveOutputDir(string raw)

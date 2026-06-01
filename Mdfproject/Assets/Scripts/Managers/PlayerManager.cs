@@ -44,7 +44,6 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private const float PERMANENT_BONUS_NETWORK_SCALE = 10000f;
     [Networked] private int PermanentAttackDamageBonusPermille { get; set; }
     [Networked] private int PermanentAttackSpeedBonusPermille { get; set; }
-    private const int MAX_WALL_COUNT = 5;
     [SerializeField] private int wallReserveK = 2;
     [SerializeField] private Vector2 wallBuildDelayRange = new Vector2(0.3f, 0.8f);
     [SerializeField] private Vector2 unitPurchaseDelayRange = new Vector2(0.5f, 1.0f);
@@ -1865,6 +1864,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     #region Public Getters & Stat Modifiers
 
     public int GetHealth() => health;
+    public int GetMaxHealth() => Mathf.Max(1, initialHealth);
     public int GetGold() => gold;
     public int GetWallCount() => wallCount;
     public int GetWallReserveK() => wallReserveK;
@@ -3261,17 +3261,15 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
     public void ReturnWall()
     {
-        if (wallCount < MAX_WALL_COUNT)
+        if (!HasStateAuthorityOrNoNetwork())
         {
-            if (!HasStateAuthorityOrNoNetwork())
-            {
-                return;
-            }
-            wallCount++;
-            if (Runner == null || !Runner.IsRunning)
-            {
-                GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
-            }
+            return;
+        }
+
+        wallCount++;
+        if (Runner == null || !Runner.IsRunning)
+        {
+            GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
         }
     }
 

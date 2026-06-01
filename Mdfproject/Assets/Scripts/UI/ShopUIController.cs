@@ -40,18 +40,35 @@ public class ShopUIController : MonoBehaviour
 
     private string SafeOwnerId()
     {
+        if (!TryGetLocalShopPlayerId(out var playerId))
+        {
+            return "?";
+        }
+
+        return playerId.ToString();
+    }
+
+    private bool TryGetLocalShopPlayerId(out int playerId)
+    {
+        playerId = -1;
+
         if (localPlayerShopManager == null || localPlayerShopManager.playerManager == null)
         {
-            return "null";
+            return false;
         }
 
         try
         {
-            return localPlayerShopManager.playerManager.playerId.ToString();
+            playerId = localPlayerShopManager.playerManager.playerId;
+            return playerId >= 0;
         }
         catch (InvalidOperationException)
         {
-            return "?";
+            return false;
+        }
+        catch (MissingReferenceException)
+        {
+            return false;
         }
     }
 
@@ -85,7 +102,7 @@ public class ShopUIController : MonoBehaviour
         GameEvents.OnShopRefreshed -= HandleShopRefreshed;
         GameEvents.OnUnitPurchaseSucceeded -= HandleUnitPurchaseSucceeded;
         _uiState = UiLifecycleState.Hidden;
-        SetContentVisibility(false);
+        SetLegacyContentVisibilityOnly(false);
     }
 
     private void HandleGameStateChange(GameManagers.GameState newState)
@@ -103,13 +120,24 @@ public class ShopUIController : MonoBehaviour
         }
 
         bool isPreparePhase = newState == GameManagers.GameState.Prepare;
-        rerollButton.interactable = isPreparePhase;
-
-        foreach (var slot in shopSlots)
+        if (rerollButton != null)
         {
-            if (!slot.IsPurchased())
+            rerollButton.interactable = isPreparePhase;
+        }
+
+        if (shopSlots != null)
+        {
+            foreach (var slot in shopSlots)
             {
-                slot.buyButton.interactable = isPreparePhase;
+                if (slot == null)
+                {
+                    continue;
+                }
+
+                if (!slot.IsPurchased() && slot.buyButton != null)
+                {
+                    slot.buyButton.interactable = isPreparePhase;
+                }
             }
         }
 
@@ -126,12 +154,18 @@ public class ShopUIController : MonoBehaviour
             return;
         }
 
-        rerollButton.onClick.RemoveAllListeners();
-        rerollButton.onClick.AddListener(OnRerollButtonClick);
-
-        for (int i = 0; i < shopSlots.Length; i++)
+        if (rerollButton != null)
         {
-            shopSlots[i].Initialize(localPlayerShopManager, i);
+            rerollButton.onClick.RemoveAllListeners();
+            rerollButton.onClick.AddListener(OnRerollButtonClick);
+        }
+
+        if (shopSlots != null)
+        {
+            for (int i = 0; i < shopSlots.Length; i++)
+            {
+                shopSlots[i]?.Initialize(localPlayerShopManager, i);
+            }
         }
 
         UpdateInfoText();
@@ -139,12 +173,12 @@ public class ShopUIController : MonoBehaviour
 
     private void OnRerollButtonClick()
     {
-        if (localPlayerShopManager == null)
+        if (!TryGetLocalShopPlayerId(out var playerId) || GameManagers.Instance == null || GameManagers.Instance.CommandProcessor == null)
         {
             return;
         }
 
-        var command = new RerollShopCommand(localPlayerShopManager.playerManager.playerId);
+        var command = new RerollShopCommand(playerId);
         GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
     }
 
@@ -160,15 +194,23 @@ public class ShopUIController : MonoBehaviour
 
     private void HandleUnitPurchaseSucceeded(int playerID, ShopItem purchasedItem, int slotIndex)
     {
-        if (localPlayerShopManager == null || localPlayerShopManager.playerManager.playerId != playerID)
+        if (!TryGetLocalShopPlayerId(out var localPlayerId) || localPlayerId != playerID)
         {
             return;
         }
 
-        if (slotIndex >= 0 && slotIndex < shopSlots.Length)
+        if (shopSlots == null || slotIndex < 0 || slotIndex >= shopSlots.Length)
         {
-            shopSlots[slotIndex].SetPurchased();
+            return;
         }
+
+        var slot = shopSlots[slotIndex];
+        if (slot == null)
+        {
+            return;
+        }
+
+        slot.SetPurchased();
     }
 
     public void UpdateShopSlots()
@@ -196,19 +238,28 @@ public class ShopUIController : MonoBehaviour
         _uiState = UiLifecycleState.DataBinding;
         BuildDebugGUI.LogClient($"[ShopUI] DisplayShopItems count={items.Count}");
 
-        for (int i = 0; i < shopSlots.Length; i++)
+        if (shopSlots != null)
         {
-            if (i < items.Count)
+            for (int i = 0; i < shopSlots.Length; i++)
             {
-                shopSlots[i].DisplayUnit(items[i]);
-                if (localPlayerShopManager != null && localPlayerShopManager.IsSlotSold(i))
+                var slot = shopSlots[i];
+                if (slot == null)
                 {
-                    shopSlots[i].SetPurchased();
+                    continue;
                 }
-            }
-            else
-            {
-                shopSlots[i].DisplayUnit(new ShopItem());
+
+                if (i < items.Count)
+                {
+                    slot.DisplayUnit(items[i]);
+                    if (localPlayerShopManager != null && localPlayerShopManager.IsSlotSold(i))
+                    {
+                        slot.SetPurchased();
+                    }
+                }
+                else
+                {
+                    slot.DisplayUnit(new ShopItem());
+                }
             }
         }
 
@@ -227,7 +278,7 @@ public class ShopUIController : MonoBehaviour
 
     public void UpdateInfoText()
     {
-        if (localPlayerShopManager != null)
+        if (localPlayerShopManager != null && rerollCostText != null)
         {
             rerollCostText.text = $"{localPlayerShopManager.GetRerollCost()} G";
         }
@@ -235,17 +286,46 @@ public class ShopUIController : MonoBehaviour
 
     public bool IsContentVisible()
     {
+        if (GamePrepareUIToolkitController.TryGetShopVisible(out var toolkitVisible))
+        {
+            return toolkitVisible;
+        }
+
         return slotsContainer != null && slotsContainer.activeSelf;
     }
 
     public bool ToggleContent()
     {
+        if (GamePrepareUIToolkitController.TryToggleShopFromLegacy(out var toolkitVisible))
+        {
+            ApplyContentVisibility(false, false);
+            OnContentVisibilityChanged?.Invoke(toolkitVisible);
+            return toolkitVisible;
+        }
+
         bool newVisibility = !IsContentVisible();
         SetContentVisibility(newVisibility);
         return newVisibility;
     }
 
     public void SetContentVisibility(bool isVisible)
+    {
+        if (GamePrepareUIToolkitController.TrySetShopVisibilityFromLegacy(isVisible, out var toolkitVisible))
+        {
+            ApplyContentVisibility(false, false);
+            OnContentVisibilityChanged?.Invoke(toolkitVisible);
+            return;
+        }
+
+        ApplyContentVisibility(isVisible, true);
+    }
+
+    public void SetLegacyContentVisibilityOnly(bool isVisible)
+    {
+        ApplyContentVisibility(isVisible, false);
+    }
+
+    private void ApplyContentVisibility(bool isVisible, bool notify)
     {
         if (slotsContainer != null)
         {
@@ -259,13 +339,16 @@ public class ShopUIController : MonoBehaviour
 
         SetPanelRootVisibility(isVisible);
         _uiState = isVisible ? UiLifecycleState.Visible : UiLifecycleState.Hidden;
-        OnContentVisibilityChanged?.Invoke(isVisible);
+        if (notify)
+        {
+            OnContentVisibilityChanged?.Invoke(isVisible);
+        }
     }
 
     public void InitializeAndHide()
     {
         _uiState = UiLifecycleState.Hidden;
-        SetContentVisibility(false);
+        SetLegacyContentVisibilityOnly(false);
     }
 
     public void ShowWithItems(List<ShopItem> items)
@@ -276,6 +359,13 @@ public class ShopUIController : MonoBehaviour
         if (IsContentVisible() && signature == _lastDisplaySignature && now - _lastDisplayRealtime < 1f)
         {
             BuildDebugGUI.LogClient($"[ShopUI] ShowWithItems skipped duplicate signature: {signature}");
+            return;
+        }
+
+        if (GamePrepareUIToolkitController.TryShowShopFromLegacy(resolvedItems, out var toolkitVisible))
+        {
+            ApplyContentVisibility(false, false);
+            OnContentVisibilityChanged?.Invoke(toolkitVisible);
             return;
         }
 
