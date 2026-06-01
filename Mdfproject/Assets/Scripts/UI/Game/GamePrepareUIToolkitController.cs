@@ -79,10 +79,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private VisualElement shopControlRow;
     private VisualElement rerollButton;
     private Label rerollLabel;
+    private VisualElement rerollGoldRow;
+    private Label rerollGoldLabel;
     private Label shopStatusLabel;
     private VisualElement hudRoot;
     private VisualElement hudShopButton;
     private Label hudShopLabel;
+    private Label hudShopGoldLabel;
     private VisualElement hudWallButton;
     private Label hudWallLabel;
     private VisualElement hudOptionButton;
@@ -296,7 +299,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     public static string FormatCostText(int cost)
     {
-        return cost <= 0 ? "\uBB34\uB8CC" : $"{cost} \uACE8\uB4DC";
+        return cost <= 0 ? "\uBB34\uB8CC" : cost.ToString();
     }
 
     public static string FormatStarText(int star)
@@ -673,10 +676,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         shopControlRow = root?.Q<VisualElement>("shop-control-row");
         rerollButton = root?.Q<VisualElement>("shop-reroll-button");
         rerollLabel = root?.Q<Label>("shop-reroll-label");
+        rerollGoldRow = root?.Q<VisualElement>("shop-reroll-gold-row");
+        rerollGoldLabel = root?.Q<Label>("shop-reroll-gold-count-label");
         shopStatusLabel = root?.Q<Label>("shop-status-label");
         hudRoot = root?.Q<VisualElement>("game-hud-root");
         hudShopButton = root?.Q<VisualElement>("game-shop-toggle-button");
         hudShopLabel = root?.Q<Label>("game-shop-toggle-label");
+        hudShopGoldLabel = root?.Q<Label>("game-shop-gold-count-label");
         hudWallButton = root?.Q<VisualElement>("game-wall-button");
         hudWallLabel = root?.Q<Label>("game-wall-count-label");
         hudOptionButton = root?.Q<VisualElement>("game-option-button");
@@ -697,6 +703,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 root?.Q<Label>($"shop-star-{i}"),
                 root?.Q<Label>($"shop-name-{i}"),
                 root?.Q<Label>($"shop-cost-{i}"),
+                root?.Q<VisualElement>($"shop-cost-icon-{i}"),
                 root?.Q<Label>($"shop-sold-{i}"));
         }
 
@@ -1551,7 +1558,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var cost = localShopManager != null ? localShopManager.GetRerollCost() : 0;
-        rerollLabel.text = cost > 0 ? $"\uC0C8\uB85C\uACE0\uCE68\n{cost}G" : "\uC0C8\uB85C\uACE0\uCE68";
+        rerollLabel.text = "\uC0C8\uB85C\uACE0\uCE68";
+        if (rerollGoldLabel != null)
+        {
+            rerollGoldLabel.text = Mathf.Max(0, cost).ToString();
+        }
+
+        SetVisible(rerollGoldRow, cost > 0);
         rerollButton?.EnableInClassList("reroll-gold-mode", !shopVisible);
         SetPickingMode(rerollButton, shopVisible ? PickingMode.Position : PickingMode.Ignore);
     }
@@ -1612,7 +1625,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         if (hudShopLabel != null)
         {
             var shopAction = shopVisible ? "\uB2EB\uAE30" : "\uC5F4\uAE30";
-            hudShopLabel.text = $"\uC0C1\uC810\n{shopAction}\n{goldCount}G";
+            hudShopLabel.text = $"\uC0C1\uC810\n{shopAction}";
+        }
+
+        if (hudShopGoldLabel != null)
+        {
+            hudShopGoldLabel.text = Mathf.Max(0, goldCount).ToString();
         }
 
         UpdateRerollLabel();
@@ -1978,10 +1996,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         private readonly Label star;
         private readonly Label name;
         private readonly Label cost;
+        private readonly VisualElement costIcon;
         private readonly Label soldOverlay;
         private AsyncOperationHandle<Sprite> iconHandle;
 
-        public ShopCardView(int index, VisualElement root, Image icon, Label star, Label name, Label cost, Label soldOverlay)
+        public ShopCardView(int index, VisualElement root, Image icon, Label star, Label name, Label cost, VisualElement costIcon, Label soldOverlay)
         {
             Index = index;
             Root = root;
@@ -1993,6 +2012,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             this.star = star;
             this.name = name;
             this.cost = cost;
+            this.costIcon = costIcon;
             this.soldOverlay = soldOverlay;
 
             if (this.icon != null)
@@ -2023,12 +2043,14 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 SetText(star, "-");
                 SetText(name, "-");
                 SetText(cost, string.Empty);
+                SetVisible(costIcon, false);
                 return;
             }
 
             SetText(star, FormatStarText(item.StarLevel));
             SetText(name, item.UnitData.unitName);
             SetText(cost, FormatCostText(item.CalculatedCost));
+            SetVisible(costIcon, item.CalculatedCost > 0);
             LoadIconAsync(item.UnitData.unitIcon).Forget();
         }
 

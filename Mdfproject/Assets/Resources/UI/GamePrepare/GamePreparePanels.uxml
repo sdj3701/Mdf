@@ -99,7 +99,10 @@
                             <ui:VisualElement class="card-footer">
                                 <ui:VisualElement class="shop-footer-row">
                                     <ui:Label name="shop-name-0" text="-" class="card-name shop-footer-name" />
-                                    <ui:Label name="shop-cost-0" class="card-description shop-footer-cost" />
+                                    <ui:VisualElement name="shop-cost-row-0" class="shop-footer-cost-row">
+                                        <ui:VisualElement name="shop-cost-icon-0" class="shop-footer-cost-icon resource-gold-icon" />
+                                        <ui:Label name="shop-cost-0" class="card-description shop-footer-cost" />
+                                    </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-0" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
@@ -117,7 +120,10 @@
                             <ui:VisualElement class="card-footer">
                                 <ui:VisualElement class="shop-footer-row">
                                     <ui:Label name="shop-name-1" text="-" class="card-name shop-footer-name" />
-                                    <ui:Label name="shop-cost-1" class="card-description shop-footer-cost" />
+                                    <ui:VisualElement name="shop-cost-row-1" class="shop-footer-cost-row">
+                                        <ui:VisualElement name="shop-cost-icon-1" class="shop-footer-cost-icon resource-gold-icon" />
+                                        <ui:Label name="shop-cost-1" class="card-description shop-footer-cost" />
+                                    </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-1" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
@@ -135,7 +141,10 @@
                             <ui:VisualElement class="card-footer">
                                 <ui:VisualElement class="shop-footer-row">
                                     <ui:Label name="shop-name-2" text="-" class="card-name shop-footer-name" />
-                                    <ui:Label name="shop-cost-2" class="card-description shop-footer-cost" />
+                                    <ui:VisualElement name="shop-cost-row-2" class="shop-footer-cost-row">
+                                        <ui:VisualElement name="shop-cost-icon-2" class="shop-footer-cost-icon resource-gold-icon" />
+                                        <ui:Label name="shop-cost-2" class="card-description shop-footer-cost" />
+                                    </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-2" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
@@ -153,7 +162,10 @@
                             <ui:VisualElement class="card-footer">
                                 <ui:VisualElement class="shop-footer-row">
                                     <ui:Label name="shop-name-3" text="-" class="card-name shop-footer-name" />
-                                    <ui:Label name="shop-cost-3" class="card-description shop-footer-cost" />
+                                    <ui:VisualElement name="shop-cost-row-3" class="shop-footer-cost-row">
+                                        <ui:VisualElement name="shop-cost-icon-3" class="shop-footer-cost-icon resource-gold-icon" />
+                                        <ui:Label name="shop-cost-3" class="card-description shop-footer-cost" />
+                                    </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-3" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
@@ -171,7 +183,10 @@
                             <ui:VisualElement class="card-footer">
                                 <ui:VisualElement class="shop-footer-row">
                                     <ui:Label name="shop-name-4" text="-" class="card-name shop-footer-name" />
-                                    <ui:Label name="shop-cost-4" class="card-description shop-footer-cost" />
+                                    <ui:VisualElement name="shop-cost-row-4" class="shop-footer-cost-row">
+                                        <ui:VisualElement name="shop-cost-icon-4" class="shop-footer-cost-icon resource-gold-icon" />
+                                        <ui:Label name="shop-cost-4" class="card-description shop-footer-cost" />
+                                    </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
                             <ui:Label name="shop-sold-4" text="&#xAD6C;&#xB9E4; &#xC644;&#xB8CC;" class="sold-overlay hidden" />
@@ -181,7 +196,11 @@
                 <ui:VisualElement name="shop-control-row" class="shop-control-row">
                     <ui:Label name="shop-status-label" class="shop-status-label" />
                     <ui:VisualElement name="shop-reroll-button" class="toolkit-button reroll-button">
-                        <ui:Label name="shop-reroll-label" text="0" class="toolkit-button-label" />
+                        <ui:Label name="shop-reroll-label" text="&#xC0C8;&#xB85C;&#xACE0;&#xCE68;" class="toolkit-button-label reroll-main-label" />
+                        <ui:VisualElement name="shop-reroll-gold-row" class="reroll-gold-row">
+                            <ui:VisualElement name="shop-reroll-gold-icon" class="reroll-gold-icon resource-gold-icon" />
+                            <ui:Label name="shop-reroll-gold-count-label" text="0" class="reroll-gold-count" />
+                        </ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>
                 <ui:VisualElement name="attack-sequence-panel" class="attack-sequence-panel hidden">
@@ -271,7 +290,11 @@
                 <ui:Label name="game-round-timer-label" text="ROUND 1 00" class="round-timer-label" />
                 <ui:VisualElement name="game-hud-root" class="game-hud-root">
                     <ui:VisualElement name="game-shop-toggle-button" class="hud-button hud-action-button">
-                        <ui:Label name="game-shop-toggle-label" text="Shop" class="hud-button-label" />
+                        <ui:Label name="game-shop-toggle-label" text="Shop" class="hud-button-label shop-toggle-main-label" />
+                        <ui:VisualElement name="game-shop-gold-row" class="shop-toggle-gold-row">
+                            <ui:VisualElement name="game-shop-gold-icon" class="shop-toggle-gold-icon resource-gold-icon" />
+                            <ui:Label name="game-shop-gold-count-label" text="0" class="shop-toggle-gold-count" />
+                        </ui:VisualElement>
                     </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
