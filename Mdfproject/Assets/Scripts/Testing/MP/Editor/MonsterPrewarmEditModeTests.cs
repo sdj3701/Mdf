@@ -33,5 +33,20 @@ public sealed class MonsterPrewarmEditModeTests
         Assert.That(prewarmIndex, Is.GreaterThanOrEqualTo(0));
         Assert.That(consumeIndex, Is.GreaterThan(prewarmIndex));
     }
+
+    [Test]
+    public void MonsterSpawnSnapsPooledNetworkTransformBeforePathing()
+    {
+        string spawner = File.ReadAllText("Assets/Scripts/Game/Monsters/MonsterSpawner.cs");
+        string monster = File.ReadAllText("Assets/Scripts/Game/Monsters/Monster.cs");
+
+        Assert.That(spawner, Does.Contain("SnapSpawnTransform(monsterGO, adjustedSpawnPos"));
+        Assert.That(spawner, Does.Contain("networkTransform.Teleport(position, rotation)"));
+        Assert.That(spawner, Does.Contain("bottom < 0f ? -bottom : 0f"));
+        Assert.That(spawner, Does.Contain("GetPlayerIdForLog(_playerManager)"));
+        Assert.That(spawner, Does.Not.Contain("_playerManager?.playerId"));
+        Assert.That(monster, Does.Contain("ResetTransientRuntimeStateForReuse();"));
+        Assert.That(monster, Does.Contain("StopAllCoroutines();"));
+    }
 }
 #endif

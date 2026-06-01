@@ -6,7 +6,7 @@ Category: AI/HumanBot
 Created: 2026-05-08
 Last used: 2026-06-01
 Last verified: 2026-06-01
-Use count: 6
+Use count: 7
 Review after: 2026-08-06
 Triggers: need to prove actual GameOver or distinguish timeout/stall/tuning in a bounded run
 Applies to: `tools/harness/mp/run_human_bot_game_to_end.py`, endurance profile, HumanBot long progression

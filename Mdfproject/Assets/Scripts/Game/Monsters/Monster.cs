@@ -263,6 +263,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         if (_hasSpawned)
         {
+            ResetTransientRuntimeStateForReuse();
             _hasLocalHealthValues = false;
             _localHP = 0;
             _localMaxHP = 0;
@@ -284,6 +285,37 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _hasSpawned = true;
         TryRebindOwnerFromNetworkSnapshot();
         TryRecoverMonsterDataFromNetworkSnapshot();
+    }
+
+    private void ResetTransientRuntimeStateForReuse()
+    {
+        StopAllCoroutines();
+        movementCoroutine = null;
+        attackCoroutine = null;
+        resumeCoroutine = null;
+        _rangedAttackCoroutine = null;
+
+        isMoving = false;
+        isBlocked = false;
+        blockingUnit = null;
+        currentBlockerId = 0;
+        _hasPendingAttack = false;
+        _pendingAttackTarget = null;
+        _rangedTarget = null;
+        _isRangedAttacking = false;
+        _nextRangedAttackTime = 0f;
+        _despawnRequested = false;
+        _hasRegisteredAsSurvivor = false;
+
+        if (manaController != null)
+        {
+            manaController.OnManaFull -= ActivateSkill;
+        }
+
+        if (animator != null && !string.IsNullOrEmpty(isWalkingParam))
+        {
+            animator.SetBool(isWalkingParam, false);
+        }
     }
     
     /// <summary>
@@ -710,6 +742,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
         manaController = GetComponent<ManaController>();
         _buffManager = GetComponent<BuffManager>();
+        if (manaController != null)
+        {
+            manaController.OnManaFull -= ActivateSkill;
+        }
 
         // 일반 몬스터만 벽 파괴 이벤트 구독 (Initialize에서 _monsterData가 설정된 후)
         if (_monsterData != null && !HasTrait(MonsterTraits.Destroyer))
@@ -723,9 +759,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (_monsterData.skillData != null)
         {
             maxMana = _monsterData.skillData.manaCost;
-            manaController.OnManaFull += ActivateSkill;
+            if (manaController != null)
+            {
+                manaController.OnManaFull += ActivateSkill;
+            }
         }
-        manaController.Initialize(maxMana);
+        manaController?.Initialize(maxMana);
         
         // 원거리 몬스터: unitLayerMask 자동 설정
         if (_monsterData.attackType == MonsterAttackType.Ranged && unitLayerMask == 0)
