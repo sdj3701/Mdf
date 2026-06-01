@@ -988,6 +988,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("icon.style.flexShrink = 0f"));
         Assert.That(controllerSource, Does.Contain("shop-art-frame"));
         Assert.That(controllerSource, Does.Contain("item.StarLevel"));
+        Assert.That(controllerSource, Does.Contain("ApplyStarBackground(hasItem && item.UnitData != null ? item.UnitData.cost : 0);"));
         Assert.That(controllerSource, Does.Contain("GetShopCardStarClass"));
         Assert.That(controllerSource, Does.Contain("topGem.style.display = DisplayStyle.None"));
         Assert.That(controllerSource, Does.Contain("body.style.backgroundColor = Color.clear"));

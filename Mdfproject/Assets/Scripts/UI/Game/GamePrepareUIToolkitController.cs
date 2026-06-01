@@ -2031,7 +2031,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             Root?.SetEnabled(hasItem && !sold);
             Root?.EnableInClassList("is-disabled", !hasItem || sold);
             SetVisible(soldOverlay, sold);
-            ApplyStarBackground(hasItem && item.UnitData != null ? item.StarLevel : 0);
+            ApplyStarBackground(hasItem && item.UnitData != null ? item.UnitData.cost : 0);
 
             if (!hasItem || item.UnitData == null)
             {
@@ -2096,20 +2096,20 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
         }
 
-        private void ApplyStarBackground(int starLevel)
+        private void ApplyStarBackground(int baseCost)
         {
             if (Root == null)
             {
                 return;
             }
 
-            int normalizedStar = starLevel > 0
-                ? Mathf.Clamp(starLevel, MinShopCardStarStyle, MaxShopCardStarStyle)
+            int normalizedCost = baseCost > 0
+                ? Mathf.Clamp(baseCost, MinShopCardStarStyle, MaxShopCardStarStyle)
                 : 0;
 
             for (int starStyle = MinShopCardStarStyle; starStyle <= MaxShopCardStarStyle; starStyle++)
             {
-                Root.EnableInClassList(GetShopCardStarClass(starStyle), starStyle == normalizedStar);
+                Root.EnableInClassList(GetShopCardStarClass(starStyle), starStyle == normalizedCost);
             }
 
             if (topGem != null)
