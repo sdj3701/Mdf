@@ -131,6 +131,9 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("HandleToolkitPointerInput"));
         Assert.That(source, Does.Contain("FindToolkitCardAtScreenPosition"));
         Assert.That(source, Does.Contain("RuntimePanelUtils.ScreenToPanel"));
+        Assert.That(source, Does.Contain("ToPanelScreenPosition(screenPosition)"));
+        Assert.That(source, Does.Contain("Screen.height - screenPosition.y"));
+        Assert.That(source, Does.Not.Contain("invertedPanelPosition"));
         Assert.That(source, Does.Contain("ContainsPanelPoint"));
         Assert.That(source, Does.Contain("lastToolkitCardClickFrame"));
         Assert.That(source, Does.Contain("Display-only overlay"));
@@ -1027,6 +1030,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("RegisterCallback<PointerDownEvent>"));
         Assert.That(controllerSource, Does.Contain("SuppressBattleMapInputForCurrentPointer"));
         Assert.That(controllerSource, Does.Contain("IsBlockingElementOrDescendant"));
+        Assert.That(controllerSource, Does.Contain("ToPanelScreenPosition(screenPosition)"));
+        Assert.That(controllerSource, Does.Not.Contain("invertedPanelPosition"));
         Assert.That(attackUiSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
         Assert.That(attackUiSource, Does.Contain("SetLegacyContentVisibilityOnly(false)"));
         Assert.That(attackManagerSource, Does.Contain("IsPointerOverBattleActionBlocker"));
@@ -1061,6 +1066,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(placementSource, Does.Contain("[ManualWall]"));
         Assert.That(placementSource, Does.Contain("!pointerOverUI"));
         Assert.That(placementSource, Does.Contain("SecondaryPointerWasPressedThisFrame"));
+        Assert.That(placementSource, Does.Match(@"(?s)if \(secondaryPressed\)\s*\{\s*StopPlacementMode\(\);\s*return;\s*\}"));
+        Assert.That(placementSource, Does.Not.Match(@"(?s)if \(secondaryPressed\)\s*\{[^}]*TryRemoveWall\("));
         Assert.That(placementSource, Does.Contain("currentMode == PlacementMode.Wall && TryRemoveWall()"));
         Assert.That(placementSource, Does.Contain("fieldManager.GetWallAt(currentMouseGridPosition) == null"));
         Assert.That(removeWallCommandSource, Does.Contain("if (fm.GetWallAt(Position) == null)"));

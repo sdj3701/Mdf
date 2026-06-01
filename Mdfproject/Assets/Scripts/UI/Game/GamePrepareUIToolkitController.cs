@@ -387,16 +387,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return false;
         }
 
-        Vector2 panelPosition = RuntimePanelUtils.ScreenToPanel(root.panel, screenPosition);
-        if (IsBlockingElementAtPanelPosition(panelPosition))
-        {
-            return true;
-        }
+        Vector2 panelPosition = RuntimePanelUtils.ScreenToPanel(root.panel, ToPanelScreenPosition(screenPosition));
+        return IsBlockingElementAtPanelPosition(panelPosition);
+    }
 
-        // InputSystem and UI Toolkit can disagree on Y origin depending on panel/event timing.
-        // Keep battle card taps blocked even if the first conversion misses the card bounds.
-        Vector2 invertedPanelPosition = new Vector2(screenPosition.x, Screen.height - screenPosition.y);
-        return IsBlockingElementAtPanelPosition(invertedPanelPosition);
+    private static Vector2 ToPanelScreenPosition(Vector2 screenPosition)
+    {
+        return new Vector2(screenPosition.x, Screen.height - screenPosition.y);
     }
 
     private bool IsBlockingElementAtPanelPosition(Vector2 panelPosition)
@@ -443,6 +440,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         if (attackSequenceVisible)
         {
+            if (ContainsPoint(attackMonsterRow, panelPosition) ||
+                ContainsPoint(attackScrollRow, panelPosition))
+            {
+                return true;
+            }
+
             for (int i = 0; i < monsterCards.Length; i++)
             {
                 if (ContainsPoint(monsterCards[i].Root, panelPosition))
@@ -1521,8 +1524,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         attackSequenceVisible = visible;
         SetVisible(attackSequencePanel, visible);
         SetPickingMode(attackSequencePanel, PickingMode.Ignore);
-        SetPickingMode(attackMonsterRow, PickingMode.Ignore);
-        SetPickingMode(attackScrollRow, PickingMode.Ignore);
+        SetPickingMode(attackMonsterRow, visible ? PickingMode.Position : PickingMode.Ignore);
+        SetPickingMode(attackScrollRow, visible ? PickingMode.Position : PickingMode.Ignore);
         if (!visible)
         {
             selectedMonsterSlotIndex = -1;

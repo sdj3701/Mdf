@@ -252,6 +252,12 @@ public class PlacementManager : MonoBehaviour
             LogManualWall("ui-block", MdfInput.DescribeFieldBlockingUiHits());
         }
 
+        if (secondaryPressed)
+        {
+            StopPlacementMode();
+            return;
+        }
+
         if (primaryPressed && !pointerOverUI)
         {
             if (currentMode == PlacementMode.Wall && TryRemoveWall())
@@ -260,16 +266,6 @@ public class PlacementManager : MonoBehaviour
             }
 
             TryPlace();
-        }
-
-        if (secondaryPressed)
-        {
-            if (!pointerOverUI && currentMode == PlacementMode.Wall && TryRemoveWall())
-            {
-                return;
-            }
-
-            StopPlacementMode();
         }
     }
 
