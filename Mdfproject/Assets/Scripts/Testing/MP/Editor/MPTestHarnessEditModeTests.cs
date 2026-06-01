@@ -897,6 +897,7 @@ public sealed class MPTestHarnessEditModeTests
         string playerManagerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
         string removeWallCommandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/RemoveWallCommand.cs");
         string automationSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        string rankingSource = File.ReadAllText("Assets/Scripts/UI/RankingUIController.cs");
         string uxml = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanels.uxml");
         string styleSource = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss");
         var layout = Resources.Load<VisualTreeAsset>("UI/GamePrepare/GamePreparePanels");
@@ -969,6 +970,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("Spr_UnitCost.png"));
         Assert.That(styleSource, Does.Contain("Bricks.png"));
         Assert.That(controllerSource, Does.Contain("TogglePlacementMode(PlacementMode.Wall)"));
+        Assert.That(controllerSource, Does.Contain("CameraManager.Instance.ReturnToOwnField()"));
         Assert.That(controllerSource, Does.Contain("GetUIElement(\"OptionCanvas\")"));
         Assert.That(controllerSource, Does.Contain("\"\\uB2EB\\uAE30\""));
         Assert.That(controllerSource, Does.Contain("\"\\uC5F4\\uAE30\""));
@@ -993,12 +995,21 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(inputSource, Does.Contain("IsPointerOverFieldBlockingUI"));
         Assert.That(inputSource, Does.Contain("IsFieldPassthroughUi"));
         Assert.That(inputSource, Does.Contain("GetComponentInParent<StatusBarUI>()"));
+        Assert.That(inputSource, Does.Contain("GetComponentInParent<RankingUIController>()"));
+        Assert.That(inputSource, Does.Contain("RankingUIController.IsPointerOverBlockingElement(pointerPosition)"));
+        Assert.That(inputSource, Does.Contain("DescribeFieldBlockingUiHits"));
+        Assert.That(rankingSource, Does.Contain("public static bool IsPointerOverBlockingElement"));
+        Assert.That(rankingSource, Does.Contain("FindToolkitCardAtScreenPosition(screenPosition)"));
         Assert.That(fieldSource, Does.Contain("ShouldAllowUnitDragThroughPrepareToolkit"));
         Assert.That(fieldSource, Does.Contain("MdfInput.IsPointerOverFieldBlockingUI()"));
         Assert.That(fieldSource, Does.Contain("GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition)"));
         Assert.That(fieldSource, Does.Contain("TryRequestRemoveWallAt"));
         Assert.That(fieldSource, Does.Contain("new RemoveWallCommand(playerManager.playerId, gridPosition)"));
         Assert.That(placementSource, Does.Contain("bool pointerOverUI = MdfInput.IsPointerOverFieldBlockingUI()"));
+        Assert.That(placementSource, Does.Contain("if (currentMode == PlacementMode.None)"));
+        Assert.That(placementSource, Does.Not.Contain("currentMode == PlacementMode.None || !showPreview"));
+        Assert.That(placementSource, Does.Contain("BuildWallPlacementInvalidReason"));
+        Assert.That(placementSource, Does.Contain("[ManualWall]"));
         Assert.That(placementSource, Does.Contain("!pointerOverUI"));
         Assert.That(placementSource, Does.Contain("SecondaryPointerWasPressedThisFrame"));
         Assert.That(placementSource, Does.Contain("currentMode == PlacementMode.Wall && TryRemoveWall()"));

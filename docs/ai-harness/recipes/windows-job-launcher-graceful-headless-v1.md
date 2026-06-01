@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-08
-Last used: 2026-05-20
+Last used: 2026-06-01
 Last verified: 2026-05-20
-Use count: 15
+Use count: 16
 Review after: 2026-08-06
 Triggers: Windows cleanup blocker, `/quit` timeout, D3D/GPU pressure, headless smoke/prepare E2E
 Applies to: `tools/harness/mp/launch_player.py`, `build_player.py`, `run_matrix.py`, `MPTestGracefulQuit.cs`
@@ -66,3 +66,5 @@ Lifecycle notes:
 - 2026-05-19: Headless smoke matrix stayed cleanupStatus=PASS orphanedPids=[] after UI fixes.
 - 2026-05-19: verified artifact `artifacts/mp/20260519-055718-matrix/matrix-summary.json`
 - 2026-05-20: verified artifact `artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke`
+- 2026-06-01: Used strict headless cleanup; cleanupStatus=PASS orphanedPids=[] after 2-process MP run.
+- 2026-06-01: verified artifact `artifacts/mp/20260601-021130-two-humanbot-two-ai-smoke/cleanup-report.json`

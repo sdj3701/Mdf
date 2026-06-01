@@ -1284,6 +1284,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
+        bool enablingWallMode = localPlayer.fieldManager.GetPlacementMode() != PlacementMode.Wall;
+        if (enablingWallMode && CameraManager.Instance != null && !CameraManager.Instance.IsViewingOwnField)
+        {
+            CameraManager.Instance.ReturnToOwnField();
+        }
+
         localPlayer.fieldManager.TogglePlacementMode(PlacementMode.Wall);
         UpdateHudState(true);
     }

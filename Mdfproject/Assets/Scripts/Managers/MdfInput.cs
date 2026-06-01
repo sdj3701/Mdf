@@ -104,6 +104,52 @@ public static class MdfInput
         return HasFieldBlockingUiHit(eventSystem, pointerPosition);
     }
 
+    public static string DescribeFieldBlockingUiHits()
+    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        var eventSystem = EventSystem.current;
+        if (eventSystem == null)
+        {
+            return "eventSystem=null";
+        }
+
+        Vector2 pointerPosition = PointerPosition;
+        var pointerData = new PointerEventData(eventSystem)
+        {
+            position = pointerPosition
+        };
+
+        uiRaycastResults.Clear();
+        eventSystem.RaycastAll(pointerData, uiRaycastResults);
+
+        var parts = new List<string>(uiRaycastResults.Count + 1)
+        {
+            $"pointer={pointerPosition} prepareToolkitBlocks={GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition)} rankingBlocks={RankingUIController.IsPointerOverBlockingElement(pointerPosition)} hits={uiRaycastResults.Count}"
+        };
+
+        for (int i = 0; i < uiRaycastResults.Count; i++)
+        {
+            var result = uiRaycastResults[i];
+            var target = result.gameObject;
+            if (target == null)
+            {
+                parts.Add($"{i}:null");
+                continue;
+            }
+
+            bool prepareToolkit = GamePrepareUIToolkitController.IsToolkitRaycastObject(target);
+            bool passthrough = IsFieldPassthroughUi(target, pointerPosition);
+            bool blocks = !prepareToolkit && !passthrough;
+            string module = result.module != null ? result.module.GetType().Name : "none";
+            parts.Add($"{i}:{target.name}:blocks={blocks}:prepareToolkit={prepareToolkit}:passthrough={passthrough}:module={module}");
+        }
+
+        return string.Join(" | ", parts);
+#else
+        return string.Empty;
+#endif
+    }
+
     private static bool HasNonGamePrepareToolkitUiHit(EventSystem eventSystem, Vector2 pointerPosition)
     {
         var pointerData = new PointerEventData(eventSystem)
@@ -150,7 +196,7 @@ public static class MdfInput
             }
 
             if (GamePrepareUIToolkitController.IsToolkitRaycastObject(result.gameObject) ||
-                IsFieldPassthroughUi(result.gameObject))
+                IsFieldPassthroughUi(result.gameObject, pointerPosition))
             {
                 continue;
             }
@@ -161,9 +207,24 @@ public static class MdfInput
         return false;
     }
 
-    private static bool IsFieldPassthroughUi(GameObject target)
+    private static bool IsFieldPassthroughUi(GameObject target, Vector2 pointerPosition)
     {
-        return target != null && target.GetComponentInParent<StatusBarUI>() != null;
+        if (target == null)
+        {
+            return false;
+        }
+
+        if (target.GetComponentInParent<StatusBarUI>() != null)
+        {
+            return true;
+        }
+
+        if (target.GetComponentInParent<RankingUIController>() != null)
+        {
+            return !RankingUIController.IsPointerOverBlockingElement(pointerPosition);
+        }
+
+        return false;
     }
 
     public static bool GetKeyDown(KeyCode keyCode)

@@ -49,6 +49,7 @@ public class RankingUIController : MonoBehaviour
     private float nextInitializeRetryTime;
     private float nextToolkitRefreshTime;
     private int lastToolkitCardClickFrame = -1;
+    private static RankingUIController activeToolkitInstance;
 
     public static int GetLeftSideSlotCountForDisplay(int playerCount)
     {
@@ -72,8 +73,24 @@ public class RankingUIController : MonoBehaviour
         return Mathf.Clamp(playerCount - 2, 0, 2);
     }
 
+    public static bool IsPointerOverBlockingElement(Vector2 screenPosition)
+    {
+        var controller = activeToolkitInstance;
+        if (controller == null ||
+            !controller.isActiveAndEnabled ||
+            !controller.useToolkitRanking ||
+            controller.toolkitRoot == null ||
+            controller.toolkitRoot.resolvedStyle.display == DisplayStyle.None)
+        {
+            return false;
+        }
+
+        return controller.FindToolkitCardAtScreenPosition(screenPosition) != null;
+    }
+
     private void Awake()
     {
+        activeToolkitInstance = this;
         if (useToolkitRanking)
         {
             EnsureToolkit();
@@ -82,6 +99,7 @@ public class RankingUIController : MonoBehaviour
 
     private void OnEnable()
     {
+        activeToolkitInstance = this;
         GameManagers.OnPlayersDataReady += OnPlayersDataReady;
         GameEvents.OnGameManagersReady += OnGameManagersReady;
         GameEvents.OnGameStateChanged += OnGameStateChanged;
@@ -97,6 +115,11 @@ public class RankingUIController : MonoBehaviour
 
     private void OnDisable()
     {
+        if (activeToolkitInstance == this)
+        {
+            activeToolkitInstance = null;
+        }
+
         GameManagers.OnPlayersDataReady -= OnPlayersDataReady;
         GameEvents.OnGameManagersReady -= OnGameManagersReady;
         GameEvents.OnGameStateChanged -= OnGameStateChanged;
