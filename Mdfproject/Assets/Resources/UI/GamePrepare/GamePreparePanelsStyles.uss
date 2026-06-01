@@ -310,7 +310,7 @@
 .shop-art-frame {
     position: relative;
     flex-grow: 1;
-    overflow: hidden;
+    overflow: visible;
     background-color: rgb(4, 8, 13);
 }
 
@@ -335,21 +335,19 @@
 }
 
 .shop-star-label {
-    width: 86px;
-    height: 32px;
-    background-color: rgba(4, 8, 13, 0.72);
-    border-left-width: 1px;
-    border-right-width: 1px;
-    border-top-width: 1px;
-    border-bottom-width: 1px;
-    border-left-color: rgba(215, 184, 100, 0.62);
-    border-right-color: rgba(215, 184, 100, 0.62);
-    border-top-color: rgba(255, 224, 126, 0.74);
-    border-bottom-color: rgba(93, 69, 33, 0.82);
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
+    position: absolute;
+    top: -30px;
+    width: 92px;
+    height: 34px;
+    color: rgb(255, 226, 96);
+    font-size: 33px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    background-color: rgba(0, 0, 0, 0);
+    border-left-width: 0;
+    border-right-width: 0;
+    border-top-width: 0;
+    border-bottom-width: 0;
 }
 
 .shop-card .card-name {

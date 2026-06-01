@@ -1130,6 +1130,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(4), Is.EqualTo("shop-card-star-4"));
         Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(5), Is.EqualTo("shop-card-star-5"));
         Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(6), Is.EqualTo(string.Empty));
+        Assert.That(GamePrepareUIToolkitController.FormatStarText(0), Is.EqualTo(string.Empty));
+        Assert.That(GamePrepareUIToolkitController.FormatStarText(1), Is.EqualTo(string.Empty));
+        Assert.That(GamePrepareUIToolkitController.FormatStarText(2), Is.EqualTo("\u2605\u2605"));
+        Assert.That(GamePrepareUIToolkitController.FormatStarText(3), Is.EqualTo("\u2605\u2605\u2605"));
         Assert.That(GamePrepareUIToolkitController.CalculateCardSize(true, new Vector2(2340, 1080)).x, Is.EqualTo(336f).Within(0.01f));
         Assert.That(GamePrepareUIToolkitController.CalculateCardSize(true, new Vector2(2340, 1080)).y, Is.EqualTo(420f).Within(0.01f));
         Assert.That(GamePrepareUIToolkitController.CalculateCardSize(false, new Vector2(2340, 1080)).y, Is.GreaterThanOrEqualTo(64f * 6.0f));

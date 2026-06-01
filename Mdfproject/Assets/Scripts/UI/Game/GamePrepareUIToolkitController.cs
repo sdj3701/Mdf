@@ -304,7 +304,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     public static string FormatStarText(int star)
     {
-        return star <= 0 ? "-" : $"{star}\uC131";
+        return star <= 1 ? string.Empty : new string('\u2605', Mathf.Clamp(star, 2, 3));
     }
 
     public static string GetShopCardStarClass(int starLevel)
@@ -2040,7 +2040,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                     icon.sprite = null;
                 }
 
-                SetText(star, "-");
+                SetText(star, string.Empty);
                 SetText(name, "-");
                 SetText(cost, string.Empty);
                 SetVisible(costIcon, false);

@@ -92,7 +92,7 @@
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-0" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-0" text="-" class="card-tier shop-star-label" />
+                                        <ui:Label name="shop-star-0" text="" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
@@ -113,7 +113,7 @@
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-1" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-1" text="-" class="card-tier shop-star-label" />
+                                        <ui:Label name="shop-star-1" text="" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
@@ -134,7 +134,7 @@
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-2" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-2" text="-" class="card-tier shop-star-label" />
+                                        <ui:Label name="shop-star-2" text="" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
@@ -155,7 +155,7 @@
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-3" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-3" text="-" class="card-tier shop-star-label" />
+                                        <ui:Label name="shop-star-3" text="" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
@@ -176,7 +176,7 @@
                                 <ui:VisualElement class="shop-art-frame">
                                     <ui:Image name="shop-icon-4" class="card-icon shop-icon" />
                                     <ui:VisualElement class="shop-text-overlay">
-                                        <ui:Label name="shop-star-4" text="-" class="card-tier shop-star-label" />
+                                        <ui:Label name="shop-star-4" text="" class="card-tier shop-star-label" />
                                     </ui:VisualElement>
                                 </ui:VisualElement>
                             </ui:VisualElement>
