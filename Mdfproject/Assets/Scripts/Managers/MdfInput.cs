@@ -101,6 +101,11 @@ public static class MdfInput
             return true;
         }
 
+        if (StatusBarUI.IsPointerOverActiveSkillButton(pointerPosition))
+        {
+            return true;
+        }
+
         if (GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition))
         {
             return true;
@@ -225,7 +230,7 @@ public static class MdfInput
 
         if (target.GetComponentInParent<StatusBarUI>() != null)
         {
-            return true;
+            return !StatusBarUI.IsPointerOverActiveSkillButton(pointerPosition);
         }
 
         if (target.GetComponentInParent<RankingUIController>() != null)
