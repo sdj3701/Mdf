@@ -89,6 +89,7 @@
     <Compile Include="Assets\Scripts\Editor\AddressableKeyDrawer.cs" />
     <Compile Include="Assets\Resource\VFX\Hovl Studio\HSFiles\Scripts\Editor\ShaderChanger.cs" />
     <Compile Include="Assets\Scripts\Editor\PlacementPreviewMaterialEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Editor\WallRemovePanelInputEditModeTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Firebase\Editor\FirebaseCrashlytics_version-13.2.0_manifest.txt" />

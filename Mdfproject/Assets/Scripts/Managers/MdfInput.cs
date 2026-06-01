@@ -96,6 +96,11 @@ public static class MdfInput
         }
 
         Vector2 pointerPosition = PointerPosition;
+        if (WallRemovePanelController.IsPointerOverActiveRemoveButton(pointerPosition))
+        {
+            return true;
+        }
+
         if (GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition))
         {
             return true;
