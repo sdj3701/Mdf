@@ -33,6 +33,7 @@ public sealed class MPTestHarnessEditModeTests
             "--mpScenario", "prepare_smoke",
             "--mpDisableAiFill",
             "--mpFreezeGameFlow",
+            "--mpHideBuildDebugGUI",
             "--mpHumanBot",
             "--mpBotPersona", "maze",
             "--mpBotSeed", "222",
@@ -60,6 +61,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(options.Scenario, Is.EqualTo("prepare_smoke"));
         Assert.That(options.DisableAiFill, Is.True);
         Assert.That(options.FreezeGameFlow, Is.True);
+        Assert.That(options.HideBuildDebugGUI, Is.True);
         Assert.That(options.HumanBot, Is.True);
         Assert.That(options.BotPersona, Is.EqualTo("maze"));
         Assert.That(options.BotSeed, Is.EqualTo(222));

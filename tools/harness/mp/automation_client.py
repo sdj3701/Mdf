@@ -90,6 +90,9 @@ class AutomationClient:
     def freeze_game_flow(self, enabled: bool = True, reason: str = "automation") -> dict[str, Any]:
         return self.request("POST", "/test/freezeGameFlow", {"enabled": enabled, "reason": reason})
 
+    def hide_transient_ui(self) -> dict[str, Any]:
+        return self.request("POST", "/test/hideTransientUi", {})
+
     def apply_status_effect(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/test/applyStatusEffect", kwargs)
 

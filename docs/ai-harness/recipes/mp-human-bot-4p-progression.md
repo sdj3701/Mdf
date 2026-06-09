@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-06
-Last used: 2026-06-01
-Last verified: 2026-06-01
-Use count: 9
+Last used: 2026-06-09
+Last verified: 2026-06-09
+Use count: 13
 Review after: 2026-08-04
 Triggers: 4-player HumanBot, build host + 3 build clients, random-aware host-vs-client comparison
 Applies to: `tools/harness/mp/run_human_bot_4p_progression.py`, Phase 21 HumanBot progression smoke
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260531-214305-human-bot-game-to-end; artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke; artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke; artifacts/mp/20260601-021130-two-humanbot-two-ai-smoke/result.json
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260531-214305-human-bot-game-to-end; artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke; artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke; artifacts/mp/20260601-021130-two-humanbot-two-ai-smoke/result.json; artifacts/mp/20260603-042245-two-humanbot-two-ai-smoke/result.json; artifacts/mp/20260605-042337-two-humanbot-two-ai-smoke/result.json; artifacts/mp/20260609-032334-two-humanbot-two-ai-smoke/result.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -40,3 +40,12 @@ Lifecycle notes:
 - 2026-05-20: verified artifact `artifacts/mp/20260520-060539-two-humanbot-two-ai-smoke`
 - 2026-06-01: Verified 2 HumanBot + 2 AI smoke after host wall input passthrough fix: finalStatus=PASS cleanupStatus=PASS orphanedPids=[] successfulPlaceWallCommands=6 successfulRemoveWallCommands=6.
 - 2026-06-01: verified artifact `artifacts/mp/20260601-021130-two-humanbot-two-ai-smoke/result.json`
+- 2026-06-03: Verified 2 HumanBot + 2 AI bounded 3-round progression with clean visual capture.
+- 2026-06-03: verified artifact `artifacts/mp/20260603-042245-two-humanbot-two-ai-smoke/result.json`
+- 2026-06-05: Verified 2 HumanBot + 2 AI visual pass after arena background rotation and scale change.
+- 2026-06-05: verified artifact `artifacts/mp/20260605-042337-two-humanbot-two-ai-smoke/result.json`
+- 2026-06-05: Verified 2 HumanBot + 2 AI visual pass after attack-camera background plane and Skeleton icon key fixes; finalStatus=PASS comparisonSuccess=true.
+- 2026-06-05: verified artifact `artifacts/mp/20260605-050259-two-humanbot-two-ai-smoke/result.json`
+- 2026-06-09: Consulted for 2 HumanBot + 2 AI flow; basic smoke PASS at artifacts/mp/20260609-024600-two-humanbot-two-ai-smoke/result.json, but bounded 3-round run failed on player.2 augment host/client mismatch at artifacts/mp/20260609-024708-two-humanbot-two-ai-smoke/result.json.
+- 2026-06-09: Verified bounded 3-round 2 HumanBot + 2 AI progression after final max-round stable snapshot wait; finalStatus=PASS comparisonSuccess=true boundedProgressionPass=true cleanupStatus=PASS orphanedPids=[].
+- 2026-06-09: verified artifact `artifacts/mp/20260609-032334-two-humanbot-two-ai-smoke/result.json`

@@ -83,6 +83,7 @@ def human_player_ids(snapshot: Any) -> list[int]:
 
 def bot_args(args: argparse.Namespace, peer: dict[str, Any], artifact_dir: pathlib.Path) -> list[str]:
     result = [
+        "--mpHideBuildDebugGUI",
         "--mpHumanBot",
         "--mpBotPersona",
         str(peer["persona"]),
@@ -101,6 +102,33 @@ def bot_args(args: argparse.Namespace, peer: dict[str, Any], artifact_dir: pathl
         result.append("--mpBotPrepareAugmentOnly")
     elif args.bot_prepare_mode == "skip":
         result.append("--mpBotSkipPrepare")
+    return result
+
+
+def capture_prepare_visual_baseline(
+    clients: dict[str, AutomationClient],
+    artifact_dir: pathlib.Path,
+    label: str = "clean-prepare",
+) -> dict[str, Any]:
+    cleanup_results: dict[str, Any] = {}
+    for name, peer_client in clients.items():
+        cleanup_results[name] = safe_request(peer_client.hide_transient_ui)
+        write_json(artifact_dir / f"{name}-{label}-hide-ui.json", cleanup_results[name])
+    time.sleep(0.5)
+
+    screenshots: dict[str, Any] = {}
+    for name, peer_client in clients.items():
+        screenshots[name] = safe_request(peer_client.screenshot)
+        write_json(artifact_dir / f"{name}-{label}-screenshot.json", screenshots[name])
+    time.sleep(1.0)
+    result = {
+        "captured": all(item.get("success") is True for item in screenshots.values()),
+        "uiHidden": all(item.get("success") is True for item in cleanup_results.values()),
+        "label": label,
+        "hideUi": cleanup_results,
+        "screenshots": screenshots,
+    }
+    write_json(artifact_dir / f"{label}-visual-capture.json", result)
     return result
 
 
@@ -933,6 +961,26 @@ def run_game_to_end_prepare_move_loop(
             move_records.append(record)
             write_json(artifact_dir / f"{label}-record.json", record)
             write_json(artifact_dir / "game-to-end-move-records.json", move_records)
+            moved_rounds.add(current_round)
+
+            if args.max_rounds > 0 and current_round >= args.max_rounds:
+                final_host, final_client, final_comparison, final_ready = wait_target_prepare_ready(
+                    clients["host"],
+                    clients["client"],
+                    artifact_dir,
+                    args.state_timeout,
+                    args.scene,
+                    f"{label}-final",
+                    current_round,
+                    require_comparison=True,
+                )
+                if not final_ready:
+                    warnings.append(f"{label}.final_stable_comparison_timeout")
+                    final_host = final_host or after_move_host
+                    final_client = final_client or after_move_client
+                    final_comparison = final_comparison or after_comparison
+                limit_reason = "max_rounds_reached"
+                break
 
             start_results = start_human_bots(clients, peers, artifact_dir, args, f"after-{label}")
             if not all((result.get("success") is True) for result in start_results.values()):
@@ -941,7 +989,6 @@ def run_game_to_end_prepare_move_loop(
                 artifact_dir / f"unfreeze-game-flow-{label}.json",
                 safe_request(lambda label=label: clients["host"].freeze_game_flow(False, f"two_humanbot_two_ai_{label}_resume")),
             )
-            moved_rounds.add(current_round)
 
         if errors and not args.continue_game_end_on_move_error:
             limit_reason = "move_verification_failed"
@@ -1055,6 +1102,7 @@ def run(args: argparse.Namespace) -> int:
         "maxRounds": args.max_rounds,
         "allowMaxRoundResult": args.allow_max_round_result,
         "botPrepareMode": args.bot_prepare_mode,
+        "hideBuildDebugGUI": True,
         "headlessPlayer": args.headless_player,
         "dryRun": args.dry_run,
     })
@@ -1134,6 +1182,10 @@ def run(args: argparse.Namespace) -> int:
         write_json(artifact_dir / "comparison-before-bot.json", before_comparison)
         if not before_ready:
             failures.append("before_bot_ready_timeout")
+        elif not args.headless_player:
+            visual_baseline = capture_prepare_visual_baseline(clients, artifact_dir)
+            if visual_baseline.get("captured") is not True:
+                failures.append("clean_prepare_screenshot_not_captured")
 
         if args.move_every_prepare_until_game_over:
             write_json(artifact_dir / "freeze-game-flow.json", {

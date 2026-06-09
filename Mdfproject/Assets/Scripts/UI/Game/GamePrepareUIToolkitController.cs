@@ -252,6 +252,19 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         return true;
     }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    public static bool TryHideTransientPanelsForMpTest()
+    {
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        instance.HideTransientPanelsForMpTest();
+        return true;
+    }
+#endif
+
     public static bool TryRefreshAttackSequenceFromLegacy(
         PlayerManager player,
         AttackSequenceManager attackManager)
@@ -341,7 +354,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         int suffixIndex = trimmedName.LastIndexOf('(');
-        if (suffixIndex <= bossSummonPrefix.Length ||
+        if (suffixIndex < bossSummonPrefix.Length ||
             trimmedName[suffixIndex - 1] == '\n')
         {
             return trimmedName;
@@ -1161,6 +1174,15 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         SetAugmentVisible(currentAugments.Count > 0);
         return true;
     }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    private void HideTransientPanelsForMpTest()
+    {
+        SetShopVisible(false);
+        SetAugmentVisible(false);
+        SetAttackSequenceVisible(false);
+    }
+#endif
 
     private void ShowAttackSequence(PlayerManager player, AttackSequenceManager manager, bool isAttacking)
     {

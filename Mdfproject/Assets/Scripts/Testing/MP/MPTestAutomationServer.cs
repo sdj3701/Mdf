@@ -283,6 +283,11 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => SetFreezeGameFlow(body)));
         }
 
+        if (path == "/test/hideTransientUi")
+        {
+            return await RequireMethod(request, "POST", () => MainThread(HideTransientUiForTest));
+        }
+
         if (path == "/test/applyStatusEffect")
         {
             JObject body = await ReadBody(request);
@@ -1140,6 +1145,62 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             enabled = options.FreezeGameFlow,
             reason
         });
+    }
+
+    private AutomationResponse HideTransientUiForTest()
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("hide_transient_ui_requires_mptest", "Transient UI hiding requires --mpTest.");
+        }
+
+        bool toolkitHidden = GamePrepareUIToolkitController.TryHideTransientPanelsForMpTest();
+        var returnedPools = new List<string>();
+        if (UIManagers.Instance != null)
+        {
+            ReturnPoolIfActive("UI_Pnl_Augment", returnedPools);
+            ReturnPoolIfActive("UI_Pnl_Shop", returnedPools);
+            ReturnPoolIfActive("UI_Pnl_UnitDetail", returnedPools);
+            ReturnPoolIfActive("UI_Can_UnitSell", returnedPools);
+            ReturnPoolIfActive("UI_Can_WallRemove", returnedPools);
+        }
+
+        int fieldsCleared = 0;
+        foreach (var field in UnityEngine.Object.FindObjectsOfType<FieldManager>())
+        {
+            if (field == null)
+            {
+                continue;
+            }
+
+            field.HideAllSelectionPanels();
+            fieldsCleared++;
+        }
+
+        MPTestLogger.Log("automation_hide_transient_ui", "complete", null, null, new Dictionary<string, object>
+        {
+            { "toolkitHidden", toolkitHidden },
+            { "returnedPools", returnedPools.Count },
+            { "fieldsCleared", fieldsCleared }
+        });
+
+        return AutomationResponse.Ok("transient ui hidden", new
+        {
+            toolkitHidden,
+            returnedPools,
+            fieldsCleared
+        });
+    }
+
+    private static void ReturnPoolIfActive(string uiName, List<string> returnedPools)
+    {
+        if (UIManagers.Instance == null || !UIManagers.Instance.IsUIElementActive(uiName))
+        {
+            return;
+        }
+
+        UIManagers.Instance.ReturnUIElement(uiName);
+        returnedPools.Add(uiName);
     }
 
     private AutomationResponse ApplyStatusEffectForTest(JObject body)

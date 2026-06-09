@@ -25,12 +25,24 @@ public class BuildDebugGUI : MonoBehaviour
         if (Instance == null)
         {
             Instance = this;
+            ApplyCommandLineVisibility();
             DontDestroyOnLoad(gameObject);
         }
         else
         {
             Destroy(gameObject);
         }
+    }
+
+    private void ApplyCommandLineVisibility()
+    {
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+        var options = MPTestCommandLine.GetOptions();
+        if (options.HideBuildDebugGUI)
+        {
+            visible = false;
+        }
+#endif
     }
 
     private void Update()

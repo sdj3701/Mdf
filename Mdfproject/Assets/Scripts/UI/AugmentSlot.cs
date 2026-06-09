@@ -16,6 +16,14 @@ public class AugmentSlot : MonoBehaviour
     /// </summary>
     public void Display(AugmentData data)
     {
+        string displayName = data != null
+            ? GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName)
+            : string.Empty;
+        Display(data, displayName);
+    }
+
+    public void Display(AugmentData data, string displayName)
+    {
         if (data == null)
         {
             gameObject.SetActive(false);
@@ -24,7 +32,7 @@ public class AugmentSlot : MonoBehaviour
 
         gameObject.SetActive(true);
         iconImage.sprite = data.icon;
-        nameText.text = GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName);
+        nameText.text = displayName;
         descriptionText.text = data.description;
     }
 }

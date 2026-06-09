@@ -97,6 +97,7 @@ public static class MPTestCommandLine
             Scenario = Get(values, "--mpScenario", "game_smoke"),
             DisableAiFill = enabled && (flags.Contains("--mpDisableAiFill") || values.ContainsKey("--mpDisableAiFill")),
             FreezeGameFlow = enabled && (flags.Contains("--mpFreezeGameFlow") || values.ContainsKey("--mpFreezeGameFlow")),
+            HideBuildDebugGUI = enabled && (flags.Contains("--mpHideBuildDebugGUI") || values.ContainsKey("--mpHideBuildDebugGUI")),
             HumanBot = enabled && (flags.Contains("--mpHumanBot") || values.ContainsKey("--mpHumanBot")),
             BotPersona = Get(values, "--mpBotPersona", "balanced"),
             BotSeed = GetInt(values, "--mpBotSeed", GetInt(values, "--mpSeed", 0)),
@@ -144,6 +145,7 @@ public static class MPTestCommandLine
         public string Scenario;
         public bool DisableAiFill;
         public bool FreezeGameFlow;
+        public bool HideBuildDebugGUI;
         public bool HumanBot;
         public string BotPersona;
         public int BotSeed;

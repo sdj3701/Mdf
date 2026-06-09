@@ -152,7 +152,9 @@ public class AugmentUIController : MonoBehaviour
         {
             if (i < choices.Count)
             {
-                augmentSlots[i].Display(choices[i]);
+                AugmentData data = choices[i];
+                string displayName = GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName);
+                augmentSlots[i].Display(data, displayName);
 
                 // 리스너 중복 추가를 방지하기 위해 항상 먼저 제거합니다.
                 augmentSlots[i].selectButton.onClick.RemoveAllListeners();
