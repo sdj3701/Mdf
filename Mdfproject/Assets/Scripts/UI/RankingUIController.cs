@@ -21,6 +21,7 @@ public class RankingUIController : MonoBehaviour
     private const int FallbackPlayerMaxHealth = 80;
     private const string AttackBattleRoleIconClass = "ranking-battle-role-icon-attacker";
     private const string DefenseBattleRoleIconClass = "ranking-battle-role-icon-defender";
+    private const float NetworkPlayerCacheRefreshInterval = 1.0f;
 
     [Header("Legacy UI Parent Containers")]
     [SerializeField] private Transform leftSideContainer;
@@ -36,6 +37,7 @@ public class RankingUIController : MonoBehaviour
     private readonly List<PlayerManager> allPlayers = new List<PlayerManager>();
     private readonly List<RankingCardView> toolkitCards = new List<RankingCardView>(4);
     private readonly List<int> lastPlayerHealths = new List<int>();
+    private readonly Dictionary<PlayerRef, string> networkPlayerNamesByAuthority = new Dictionary<PlayerRef, string>();
 
     private VisualElement toolkitRoot;
     private VisualElement designSpace;
@@ -49,7 +51,9 @@ public class RankingUIController : MonoBehaviour
     private bool toolkitReady;
     private float nextInitializeRetryTime;
     private float nextToolkitRefreshTime;
+    private float nextNetworkPlayerCacheRefreshTime;
     private int lastToolkitCardClickFrame = -1;
+    private bool networkPlayerCacheDirty = true;
     private static RankingUIController activeToolkitInstance;
 
     public static int GetLeftSideSlotCountForDisplay(int playerCount)
@@ -121,6 +125,8 @@ public class RankingUIController : MonoBehaviour
         GameManagers.OnPlayersDataReady += OnPlayersDataReady;
         GameEvents.OnGameManagersReady += OnGameManagersReady;
         GameEvents.OnGameStateChanged += OnGameStateChanged;
+        GameEvents.OnGameStateRestored += OnGameStateChanged;
+        GameEvents.OnHostMigrationCompleted += OnHostMigrationCompleted;
         GameEvents.OnRoundStart += OnRoundStart;
         GameEvents.OnBattleSequenceStarted += OnBattleSequenceStarted;
 
@@ -141,6 +147,8 @@ public class RankingUIController : MonoBehaviour
         GameManagers.OnPlayersDataReady -= OnPlayersDataReady;
         GameEvents.OnGameManagersReady -= OnGameManagersReady;
         GameEvents.OnGameStateChanged -= OnGameStateChanged;
+        GameEvents.OnGameStateRestored -= OnGameStateChanged;
+        GameEvents.OnHostMigrationCompleted -= OnHostMigrationCompleted;
         GameEvents.OnRoundStart -= OnRoundStart;
         GameEvents.OnBattleSequenceStarted -= OnBattleSequenceStarted;
     }
@@ -176,6 +184,7 @@ public class RankingUIController : MonoBehaviour
 
     private void OnPlayersDataReady()
     {
+        MarkNetworkPlayerCacheDirty();
         if (useToolkitRanking)
         {
             RefreshToolkitDisplay(true);
@@ -194,21 +203,31 @@ public class RankingUIController : MonoBehaviour
 
     private void OnGameManagersReady()
     {
+        MarkNetworkPlayerCacheDirty();
         RefreshToolkitDisplay(true);
     }
 
     private void OnGameStateChanged(GameManagers.GameState state)
     {
+        MarkNetworkPlayerCacheDirty();
         RefreshToolkitDisplay(true);
     }
 
     private void OnRoundStart(int round)
     {
+        MarkNetworkPlayerCacheDirty();
         RefreshToolkitDisplay(true);
     }
 
     private void OnBattleSequenceStarted(bool isAttacking)
     {
+        MarkNetworkPlayerCacheDirty();
+        RefreshToolkitDisplay(true);
+    }
+
+    private void OnHostMigrationCompleted(bool isNewHost)
+    {
+        MarkNetworkPlayerCacheDirty();
         RefreshToolkitDisplay(true);
     }
 
@@ -560,13 +579,13 @@ public class RankingUIController : MonoBehaviour
 
         SetToolkitVisible(true);
 
-        var networkPlayers = FindObjectsOfType<NetworkPlayer>();
+        var networkPlayerNames = GetNetworkPlayerNameLookup(force);
         var local = ResolveLocalPlayer(gm, players);
         var opponent = ResolveOpponent(gm, local, players);
 
-        selfCard.Bind(BuildCardData(local, networkPlayers));
+        selfCard.Bind(BuildCardData(local, networkPlayerNames));
         opponentCard.Bind(opponent != null
-            ? BuildCardData(opponent, networkPlayers)
+            ? BuildCardData(opponent, networkPlayerNames)
             : RankingCardData.Hidden());
 
         var reservePlayers = players
@@ -576,11 +595,71 @@ public class RankingUIController : MonoBehaviour
             .ToList();
 
         reserveCard0.Bind(reservePlayers.Count > 0
-            ? BuildCardData(reservePlayers[0], networkPlayers)
+            ? BuildCardData(reservePlayers[0], networkPlayerNames)
             : RankingCardData.Hidden());
         reserveCard1.Bind(reservePlayers.Count > 1
-            ? BuildCardData(reservePlayers[1], networkPlayers)
+            ? BuildCardData(reservePlayers[1], networkPlayerNames)
             : RankingCardData.Hidden());
+    }
+
+    private IReadOnlyDictionary<PlayerRef, string> GetNetworkPlayerNameLookup(bool force)
+    {
+        if (force ||
+            networkPlayerCacheDirty ||
+            Time.unscaledTime >= nextNetworkPlayerCacheRefreshTime)
+        {
+            RefreshNetworkPlayerNameCache();
+        }
+
+        return networkPlayerNamesByAuthority;
+    }
+
+    private void RefreshNetworkPlayerNameCache()
+    {
+        nextNetworkPlayerCacheRefreshTime = Time.unscaledTime + NetworkPlayerCacheRefreshInterval;
+        networkPlayerCacheDirty = false;
+        networkPlayerNamesByAuthority.Clear();
+
+        var networkPlayers = FindObjectsOfType<NetworkPlayer>();
+        for (int i = 0; i < networkPlayers.Length; i++)
+        {
+            var networkPlayer = networkPlayers[i];
+            if (networkPlayer == null || networkPlayer.Object == null)
+            {
+                continue;
+            }
+
+            if (TryGetNetworkPlayerNickname(networkPlayer, out string nickname))
+            {
+                networkPlayerNamesByAuthority[networkPlayer.Object.InputAuthority] = nickname;
+            }
+        }
+    }
+
+    private static bool TryGetNetworkPlayerNickname(NetworkPlayer networkPlayer, out string nickname)
+    {
+        nickname = null;
+        if (networkPlayer == null || networkPlayer.Object == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            nickname = networkPlayer.Nickname.ToString();
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+
+        return !string.IsNullOrWhiteSpace(nickname);
+    }
+
+    private void MarkNetworkPlayerCacheDirty()
+    {
+        networkPlayerCacheDirty = true;
+        nextNetworkPlayerCacheRefreshTime = 0f;
     }
 
     private void SetToolkitVisible(bool visible)
@@ -664,14 +743,14 @@ public class RankingUIController : MonoBehaviour
 
     private static RankingCardData BuildCardData(
         PlayerManager player,
-        NetworkPlayer[] networkPlayers)
+        IReadOnlyDictionary<PlayerRef, string> networkPlayerNames)
     {
         if (!IsPlayerReadable(player))
         {
             return RankingCardData.Hidden();
         }
 
-        string name = ResolveNickname(player, networkPlayers);
+        string name = ResolveNickname(player, networkPlayerNames);
         int playerId = TryGetPlayerIdSafe(player, out int id) ? id : -1;
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -730,29 +809,17 @@ public class RankingUIController : MonoBehaviour
         }
     }
 
-    private static string ResolveNickname(PlayerManager player, NetworkPlayer[] networkPlayers)
+    private static string ResolveNickname(PlayerManager player, IReadOnlyDictionary<PlayerRef, string> networkPlayerNames)
     {
-        if (player == null || networkPlayers == null)
+        if (player == null || player.Object == null || networkPlayerNames == null)
         {
             return null;
         }
 
-        for (int i = 0; i < networkPlayers.Length; i++)
+        if (networkPlayerNames.TryGetValue(player.Object.InputAuthority, out string nickname) &&
+            !string.IsNullOrWhiteSpace(nickname))
         {
-            var networkPlayer = networkPlayers[i];
-            if (networkPlayer == null || networkPlayer.Object == null || player.Object == null)
-            {
-                continue;
-            }
-
-            if (networkPlayer.Object.InputAuthority == player.Object.InputAuthority)
-            {
-                string nickname = networkPlayer.Nickname.ToString();
-                if (!string.IsNullOrWhiteSpace(nickname))
-                {
-                    return nickname;
-                }
-            }
+            return nickname;
         }
 
         return null;
@@ -1029,6 +1096,16 @@ public class RankingUIController : MonoBehaviour
         {
             return new RankingCardData(false, null, string.Empty, string.Empty, 0f, false);
         }
+
+        public bool HasSameDisplayData(RankingCardData other)
+        {
+            return Visible == other.Visible &&
+                   Player == other.Player &&
+                   string.Equals(Name, other.Name, StringComparison.Ordinal) &&
+                   string.Equals(Health, other.Health, StringComparison.Ordinal) &&
+                   Mathf.Approximately(HealthFillPercent, other.HealthFillPercent) &&
+                   UseAttackBattleRoleIcon == other.UseAttackBattleRoleIcon;
+        }
     }
 
     private sealed class RankingCardView
@@ -1038,6 +1115,8 @@ public class RankingUIController : MonoBehaviour
         private readonly Label name;
         private readonly Label health;
         private readonly VisualElement battleRoleIcon;
+        private RankingCardData lastData;
+        private bool hasLastData;
 
         public RankingCardView(VisualElement root, Label name, Label health, VisualElement battleRoleIcon)
         {
@@ -1072,6 +1151,13 @@ public class RankingUIController : MonoBehaviour
         public void Bind(RankingCardData data)
         {
             TrackedPlayer = data.Player;
+            if (hasLastData && lastData.HasSameDisplayData(data))
+            {
+                return;
+            }
+
+            hasLastData = true;
+            lastData = data;
             Root.style.display = data.Visible ? DisplayStyle.Flex : DisplayStyle.None;
             if (!data.Visible)
             {
@@ -1115,7 +1201,11 @@ public class RankingUIController : MonoBehaviour
         {
             if (label != null)
             {
-                label.text = value ?? string.Empty;
+                string resolvedValue = value ?? string.Empty;
+                if (label.text != resolvedValue)
+                {
+                    label.text = resolvedValue;
+                }
             }
         }
     }

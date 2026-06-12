@@ -1,8 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using UnityEngine.AddressableAssets; // 어드레서블 시스템 사용을 위해 추가
-using UnityEngine.ResourceManagement.AsyncOperations; // 비동기 작업 핸들 관리를 위해 추가
+using Cysharp.Threading.Tasks;
 
 public class ShopSlot : MonoBehaviour
 {
@@ -22,8 +21,7 @@ public class ShopSlot : MonoBehaviour
     private bool isPurchased = false;
     private int slotIndex;
 
-    // 아이콘을 비동기 로드할 때 메모리 관리를 위해 로딩 핸들을 저장합니다.
-    private AsyncOperationHandle<Sprite> iconLoadHandle;
+    private int iconBindVersion;
 
     /// <summary>
     /// ShopUIController에 의해 호출되어 슬롯을 초기화합니다.
@@ -43,24 +41,15 @@ public class ShopSlot : MonoBehaviour
     public async void DisplayUnit(ShopItem shopItem)
     {
         this.currentShopItem = shopItem;
-        
-        // --- 1. 이전 아이콘 로딩 작업이 있었다면 해제 (메모리 누수 방지) ---
-        if (iconLoadHandle.IsValid())
-        {
-            Addressables.Release(iconLoadHandle);
-        }
-        // 아이콘을 잠시 기본 이미지나 null로 초기화합니다.
+        int bindVersion = ++iconBindVersion;
         unitIcon.sprite = null;
 
-        // --- 2. 아이템 데이터 유효성 검사 ---
         if (shopItem.UnitData == null)
         {
-            // 유효하지 않은 아이템이면 슬롯을 비활성화하고 종료합니다.
             gameObject.SetActive(false);
             return;
         }
 
-        // --- 3. 슬롯 상태 초기화 및 기본 정보 표시 ---
         gameObject.SetActive(true);
         isPurchased = false;
         
@@ -83,19 +72,14 @@ public class ShopSlot : MonoBehaviour
         buyButton.interactable = true;
         if(purchasedOverlay) purchasedOverlay.SetActive(false);
 
-        // --- 4. 어드레서블을 통해 아이콘 비동기 로드 ---
         if (!string.IsNullOrEmpty(shopItem.UnitData.unitIcon))
         {
-            // 주소를 사용해 스프라이트 로딩 작업을 시작하고 핸들을 저장합니다.
-            iconLoadHandle = Addressables.LoadAssetAsync<Sprite>(shopItem.UnitData.unitIcon);
-            
-            // 로딩이 완료될 때까지 기다립니다.
-            await iconLoadHandle.Task;
-
-            // 로딩이 완료된 후, 이 오브젝트가 여전히 유효하고 로딩에 성공했다면 스프라이트를 적용합니다.
-            if (this != null && iconLoadHandle.Status == AsyncOperationStatus.Succeeded)
+            Sprite loadedIcon = await UISpriteCache.LoadAsync(shopItem.UnitData.unitIcon);
+            if (this != null &&
+                bindVersion == iconBindVersion &&
+                loadedIcon != null)
             {
-                unitIcon.sprite = iconLoadHandle.Result;
+                unitIcon.sprite = loadedIcon;
             }
         }
     }
@@ -129,12 +113,8 @@ public class ShopSlot : MonoBehaviour
     /// </summary>
     public bool IsPurchased() => isPurchased;
 
-    // 오브젝트가 파괴될 때 로드된 어드레서블 에셋을 확실히 해제하여 메모리 누수를 방지합니다.
     private void OnDestroy()
     {
-        if (iconLoadHandle.IsValid())
-        {
-            Addressables.Release(iconLoadHandle);
-        }
+        iconBindVersion++;
     }
 }

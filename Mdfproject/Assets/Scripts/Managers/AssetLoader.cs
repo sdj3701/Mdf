@@ -1,7 +1,9 @@
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using System.Collections.Generic;
+using System;
 using Cysharp.Threading.Tasks; // UniTask 사용
+using UnityEngine.ResourceManagement.AsyncOperations;
 
 public static class AssetLoader
 {
@@ -74,5 +76,112 @@ public static class AssetLoader
     {
         _assetCache.Clear();
         // Addressables.ClearDependencyCacheAsync(); // 필요 시 더 강력한 캐시 클리어
+    }
+}
+
+public static class UISpriteCache
+{
+    private static readonly Dictionary<string, Sprite> CachedSprites = new Dictionary<string, Sprite>();
+    private static readonly Dictionary<string, AsyncOperationHandle<Sprite>> LoadedHandles = new Dictionary<string, AsyncOperationHandle<Sprite>>();
+    private static readonly Dictionary<string, AsyncOperationHandle<Sprite>> PendingHandles = new Dictionary<string, AsyncOperationHandle<Sprite>>();
+
+    public static async UniTask<Sprite> LoadAsync(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            return null;
+        }
+
+        if (CachedSprites.TryGetValue(key, out Sprite cachedSprite))
+        {
+            return cachedSprite;
+        }
+
+        if (LoadedHandles.TryGetValue(key, out AsyncOperationHandle<Sprite> loadedHandle) &&
+            loadedHandle.IsValid() &&
+            loadedHandle.Status == AsyncOperationStatus.Succeeded)
+        {
+            Sprite loadedSprite = loadedHandle.Result;
+            if (loadedSprite != null)
+            {
+                CachedSprites[key] = loadedSprite;
+            }
+
+            return loadedSprite;
+        }
+
+        if (PendingHandles.TryGetValue(key, out AsyncOperationHandle<Sprite> pendingHandle))
+        {
+            return await AwaitPendingHandle(key, pendingHandle);
+        }
+
+        AsyncOperationHandle<Sprite> handle = Addressables.LoadAssetAsync<Sprite>(key);
+        PendingHandles[key] = handle;
+        return await AwaitPendingHandle(key, handle);
+    }
+
+    public static Sprite GetCached(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+        {
+            return null;
+        }
+
+        return CachedSprites.TryGetValue(key, out Sprite cachedSprite) ? cachedSprite : null;
+    }
+
+    public static void Clear()
+    {
+        foreach (var handle in LoadedHandles.Values)
+        {
+            ReleaseIfValid(handle);
+        }
+
+        foreach (var handle in PendingHandles.Values)
+        {
+            ReleaseIfValid(handle);
+        }
+
+        CachedSprites.Clear();
+        LoadedHandles.Clear();
+        PendingHandles.Clear();
+    }
+
+    private static async UniTask<Sprite> AwaitPendingHandle(string key, AsyncOperationHandle<Sprite> handle)
+    {
+        try
+        {
+            Sprite sprite = await handle.Task;
+            if (handle.IsValid() && handle.Status == AsyncOperationStatus.Succeeded && sprite != null)
+            {
+                CachedSprites[key] = sprite;
+                LoadedHandles[key] = handle;
+                return sprite;
+            }
+
+            ReleaseIfValid(handle);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogWarning($"[UISpriteCache] Failed to load sprite '{key}': {ex.Message}");
+            ReleaseIfValid(handle);
+            return null;
+        }
+        finally
+        {
+            if (PendingHandles.TryGetValue(key, out AsyncOperationHandle<Sprite> current) && current.Equals(handle))
+            {
+                PendingHandles.Remove(key);
+            }
+        }
+    }
+
+    private static void ReleaseIfValid(AsyncOperationHandle<Sprite> handle)
+    {
+        if (handle.IsValid())
+        {
+            Addressables.Release(handle);
+        }
     }
 }

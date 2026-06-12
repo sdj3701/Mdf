@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.UIElements;
 
 /// <summary>
@@ -55,6 +53,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const float RoundTimerHeight = 40f;
     private const float AugmentPanelTopMin = 220f;
     private const float AugmentPanelTopMax = 380f;
+    private const float RuntimeReferenceFallbackInterval = 0.5f;
+    private const float HudFallbackRefreshInterval = 0.25f;
 
     private static GamePrepareUIToolkitController instance;
 
@@ -113,8 +113,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private int lastGoldCount = int.MinValue;
     private int lastResourceWallCount = int.MinValue;
     private int lastWallCount = int.MinValue;
+    private int lastRoundTimerRound = int.MinValue;
+    private int lastRoundTimerSeconds = int.MinValue;
     private bool lastPrepareButtonsVisible;
     private bool legacyHudHidden;
+    private bool hudStateDirty = true;
+    private float nextRuntimeReferenceFallbackTime;
+    private float nextHudFallbackRefreshTime;
 
     public static GamePrepareUIToolkitController Instance => instance;
     public static bool IsToolkitActive => instance != null && instance.isActiveAndEnabled;
@@ -666,14 +671,19 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private void Update()
     {
-        RefreshRuntimeReferences();
+        if (ShouldRefreshRuntimeReferences())
+        {
+            RefreshRuntimeReferences();
+        }
+
+        UpdateRoundTimerLabel(false);
         UpdateHudState(false);
     }
 
     private void OnDisable()
     {
         UnsubscribeEvents();
-        ReleaseIconHandles();
+        InvalidateIconLoads();
     }
 
     private void OnDestroy()
@@ -988,6 +998,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void HandleGameManagersReady()
     {
         RefreshRuntimeReferences();
+        MarkHudDirty();
         HideLegacyContent();
         RefreshShopCards();
         UpdateHudState(true);
@@ -996,6 +1007,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
         RefreshRuntimeReferences();
+        MarkHudDirty();
         if (newState != GameManagers.GameState.Prepare)
         {
             SetShopVisible(false);
@@ -1018,7 +1030,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void HandleHostMigrationCompleted(bool isNewHost)
     {
         RefreshRuntimeReferences();
+        MarkHudDirty();
         RefreshShopCards();
+        UpdateHudState(true);
     }
 
     private void HandleShopRefreshed(PlayerManager player)
@@ -1031,6 +1045,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         BindShopCards(localShopManager?.GetCurrentShopItems());
         UpdateRerollLabel();
+        MarkHudDirty();
     }
 
     private void HandleUnitPurchaseSucceeded(int playerID, ShopItem item, int slotIndex)
@@ -1077,7 +1092,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
-        UpdateResourceState(true);
+        MarkHudDirty();
+        UpdateHudState(true);
     }
 
     private void HandlePlayerWallCountChanged(int playerId, int newWallCount)
@@ -1087,7 +1103,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
-        UpdateResourceState(true);
+        MarkHudDirty();
+        UpdateHudState(true);
     }
 
     private void HandleMonsterPoolChanged(int playerId, List<MonsterPoolEntry> pool)
@@ -1238,11 +1255,57 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
     }
 
-    private void RefreshRuntimeReferences()
+    private bool RefreshRuntimeReferences()
     {
-        gameManagers = GameManagers.Instance;
-        localPlayer = gameManagers != null ? gameManagers.localPlayer : null;
-        localShopManager = localPlayer != null ? localPlayer.shopManager : null;
+        var latestGameManagers = GameManagers.Instance;
+        var latestLocalPlayer = latestGameManagers != null ? latestGameManagers.localPlayer : null;
+        var latestShopManager = latestLocalPlayer != null ? latestLocalPlayer.shopManager : null;
+        bool changed = latestGameManagers != gameManagers ||
+                       latestLocalPlayer != localPlayer ||
+                       latestShopManager != localShopManager;
+
+        gameManagers = latestGameManagers;
+        localPlayer = latestLocalPlayer;
+        localShopManager = latestShopManager;
+
+        if (changed)
+        {
+            MarkHudDirty();
+        }
+
+        return changed;
+    }
+
+    private bool ShouldRefreshRuntimeReferences()
+    {
+        if (Time.unscaledTime < nextRuntimeReferenceFallbackTime)
+        {
+            return false;
+        }
+
+        nextRuntimeReferenceFallbackTime = Time.unscaledTime + RuntimeReferenceFallbackInterval;
+        if (gameManagers != GameManagers.Instance)
+        {
+            return true;
+        }
+
+        if (gameManagers != null && gameManagers.localPlayer != localPlayer)
+        {
+            return true;
+        }
+
+        if (localPlayer != null && localPlayer.shopManager != localShopManager)
+        {
+            return true;
+        }
+
+        return gameManagers == null || localPlayer == null;
+    }
+
+    private void MarkHudDirty()
+    {
+        hudStateDirty = true;
+        nextHudFallbackRefreshTime = 0f;
     }
 
     private void RefreshShopCards()
@@ -1547,6 +1610,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void SetShopVisible(bool visible)
     {
         shopVisible = visible;
+        MarkHudDirty();
         SetVisible(shopPanel, visible);
         UpdateHudState(true);
         if (visible)
@@ -1558,6 +1622,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void SetAugmentVisible(bool visible)
     {
         augmentVisible = visible;
+        MarkHudDirty();
         SetVisible(augmentPanel, visible);
         UpdateHudState(true);
         if (visible)
@@ -1608,10 +1673,10 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var cost = localShopManager != null ? localShopManager.GetRerollCost() : 0;
-        rerollLabel.text = "\uC0C8\uB85C\uACE0\uCE68";
+        SetText(rerollLabel, "\uC0C8\uB85C\uACE0\uCE68");
         if (rerollGoldLabel != null)
         {
-            rerollGoldLabel.text = Mathf.Max(0, cost).ToString();
+            SetText(rerollGoldLabel, Mathf.Max(0, cost).ToString());
         }
 
         SetVisible(rerollGoldRow, cost > 0);
@@ -1619,7 +1684,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         SetPickingMode(rerollButton, shopVisible ? PickingMode.Position : PickingMode.Ignore);
     }
 
-    private void UpdateRoundTimerLabel()
+    private void UpdateRoundTimerLabel(bool force)
     {
         if (roundTimerLabel == null)
         {
@@ -1649,19 +1714,34 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var seconds = Mathf.Max(0, Mathf.CeilToInt(remainingTime));
-        roundTimerLabel.text = $"ROUND {round}  {seconds:00}";
+        if (!force && round == lastRoundTimerRound && seconds == lastRoundTimerSeconds)
+        {
+            return;
+        }
+
+        SetText(roundTimerLabel, $"ROUND {round}  {seconds:00}");
+        lastRoundTimerRound = round;
+        lastRoundTimerSeconds = seconds;
     }
 
     private void SetStatusText(string text)
     {
         if (shopStatusLabel != null)
         {
-            shopStatusLabel.text = text ?? string.Empty;
+            SetText(shopStatusLabel, text);
         }
     }
 
     private void UpdateHudState(bool force)
     {
+        if (!force && !hudStateDirty && Time.unscaledTime < nextHudFallbackRefreshTime)
+        {
+            return;
+        }
+
+        nextHudFallbackRefreshTime = Time.unscaledTime + HudFallbackRefreshInterval;
+        hudStateDirty = false;
+
         var prepareButtonsVisible = CanShowPrepareHudActions() && !augmentVisible;
         SetVisible(shopControlRow, prepareButtonsVisible);
         SetPickingMode(shopControlRow, PickingMode.Ignore);
@@ -1675,12 +1755,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         if (hudShopLabel != null)
         {
             var shopAction = shopVisible ? "\uB2EB\uAE30" : "\uC5F4\uAE30";
-            hudShopLabel.text = $"\uC0C1\uC810\n{shopAction}";
+            SetText(hudShopLabel, $"\uC0C1\uC810\n{shopAction}");
         }
 
         if (hudShopGoldLabel != null)
         {
-            hudShopGoldLabel.text = Mathf.Max(0, goldCount).ToString();
+            SetText(hudShopGoldLabel, Mathf.Max(0, goldCount).ToString());
         }
 
         UpdateRerollLabel();
@@ -1691,7 +1771,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         {
             if (hudWallLabel != null)
             {
-                hudWallLabel.text = Mathf.Max(0, wallCount).ToString();
+                SetText(hudWallLabel, Mathf.Max(0, wallCount).ToString());
             }
 
             hudWallButton?.EnableInClassList("hud-button-active", wallModeActive);
@@ -1699,7 +1779,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         hudShopButton?.EnableInClassList("hud-button-active", shopVisible);
-        UpdateRoundTimerLabel();
+        UpdateRoundTimerLabel(force);
         UpdateResourceState(force);
         if (force || !legacyHudHidden)
         {
@@ -2028,11 +2108,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         attackUi?.SetLegacyContentVisibilityOnly(false);
     }
 
-    private void ReleaseIconHandles()
+    private void InvalidateIconLoads()
     {
         foreach (var shopCard in shopCards)
         {
-            shopCard.ReleaseIconHandle();
+            shopCard?.InvalidateIconLoad();
         }
     }
 
@@ -2048,7 +2128,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         private readonly Label cost;
         private readonly VisualElement costIcon;
         private readonly Label soldOverlay;
-        private AsyncOperationHandle<Sprite> iconHandle;
+        private int iconBindVersion;
 
         public ShopCardView(int index, VisualElement root, Image icon, Label star, Label name, Label cost, VisualElement costIcon, Label soldOverlay)
         {
@@ -2076,7 +2156,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         public void Bind(ShopItem item, bool hasItem, bool sold)
         {
-            ReleaseIconHandle();
+            iconBindVersion++;
 
             Root?.SetEnabled(hasItem && !sold);
             Root?.EnableInClassList("is-disabled", !hasItem || sold);
@@ -2101,7 +2181,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             SetText(name, item.UnitData.unitName);
             SetText(cost, FormatCostText(item.CalculatedCost));
             SetVisible(costIcon, item.CalculatedCost > 0);
-            LoadIconAsync(item.UnitData.unitIcon).Forget();
+            LoadIconAsync(item.UnitData.unitIcon, iconBindVersion).Forget();
         }
 
         public void ApplySize(float width, float height, float scale)
@@ -2179,17 +2259,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
         }
 
-        public void ReleaseIconHandle()
+        public void InvalidateIconLoad()
         {
-            if (iconHandle.IsValid())
-            {
-                Addressables.Release(iconHandle);
-            }
-
-            iconHandle = default;
+            iconBindVersion++;
         }
 
-        private async UniTask LoadIconAsync(string key)
+        private async UniTask LoadIconAsync(string key, int bindVersion)
         {
             if (string.IsNullOrEmpty(key))
             {
@@ -2201,17 +2276,14 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 return;
             }
 
-            var handle = Addressables.LoadAssetAsync<Sprite>(key);
-            iconHandle = handle;
             try
             {
-                await handle.Task;
+                Sprite sprite = await UISpriteCache.LoadAsync(key);
                 if (icon != null &&
-                    iconHandle.Equals(handle) &&
-                    handle.IsValid() &&
-                    handle.Status == AsyncOperationStatus.Succeeded)
+                    bindVersion == iconBindVersion &&
+                    sprite != null)
                 {
-                    icon.sprite = handle.Result;
+                    icon.sprite = sprite;
                 }
             }
             catch (Exception ex)
@@ -2350,7 +2422,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 return;
             }
 
-            Sprite loaded = await AssetLoader.LoadAssetAsync<Sprite>(monsterData.monsterIcon);
+            Sprite loaded = await UISpriteCache.LoadAsync(monsterData.monsterIcon);
             if (version == bindVersion && icon != null)
             {
                 icon.sprite = loaded;
@@ -2411,7 +2483,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         if (label != null)
         {
-            label.text = text ?? string.Empty;
+            string value = text ?? string.Empty;
+            if (label.text != value)
+            {
+                label.text = value;
+            }
         }
     }
 }

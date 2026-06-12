@@ -27,6 +27,7 @@ public class MonsterSlotUI : MonoBehaviour
     private AttackSequenceUIController _controller;
     private int _slotIndex;
     private bool _isSelected;
+    private int _bindVersion;
     #endregion
 
     #region 초기화
@@ -51,6 +52,7 @@ public class MonsterSlotUI : MonoBehaviour
     public async UniTask UpdateSlot(MonsterPoolEntry entry)
     {
         _poolEntry = entry;
+        int bindVersion = ++_bindVersion;
 
         if (entry == null || entry.MonsterData == null)
         {
@@ -62,7 +64,7 @@ public class MonsterSlotUI : MonoBehaviour
         UpdateCount();
 
         // 아이콘 로드
-        await LoadMonsterIcon(entry.MonsterData);
+        await LoadMonsterIcon(entry.MonsterData, bindVersion);
 
         // 비어있으면 어둡게 처리
         UpdateVisualState();
@@ -94,6 +96,7 @@ public class MonsterSlotUI : MonoBehaviour
 
     private void SetEmpty()
     {
+        _bindVersion++;
         if (monsterIconImage != null)
         {
             monsterIconImage.sprite = null;
@@ -159,7 +162,7 @@ public class MonsterSlotUI : MonoBehaviour
         }
     }
 
-    private async UniTask LoadMonsterIcon(MonsterData monsterData)
+    private async UniTask LoadMonsterIcon(MonsterData monsterData, int bindVersion)
     {
         if (monsterIconImage == null) return;
         
@@ -169,8 +172,8 @@ public class MonsterSlotUI : MonoBehaviour
             return;
         }
 
-        Sprite icon = await AssetLoader.LoadAssetAsync<Sprite>(monsterData.monsterIcon);
-        if (icon != null && monsterIconImage != null)
+        Sprite icon = await UISpriteCache.LoadAsync(monsterData.monsterIcon);
+        if (icon != null && monsterIconImage != null && bindVersion == _bindVersion)
         {
             monsterIconImage.sprite = icon;
             monsterIconImage.color = Color.white;

@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-06-01
+Last used: 2026-06-11
 Last verified: 2026-05-31
-Use count: 101
+Use count: 102
 Review after: 2026-08-03
 Triggers: unity-cli, status, console, test, build
 Applies to: MDF repo layout, unity-cli
@@ -84,3 +84,4 @@ Lifecycle notes:
 - 2026-05-31: verified artifact `artifacts/mp/20260531-061353-matrix/20260531-061359-network-budget-pending-stress/post-battle-host-migration-result.json`
 - 2026-05-31: verified artifact `artifacts/mp/20260531-063526-matrix/20260531-063541-network-budget-pending-stress/post-battle-host-migration-result.json`
 - 2026-05-31: verified artifact `unity-cli --project Mdfproject status/compile/console/EditMode 110 passed on 2026-05-31`
+- 2026-06-11: Consulted while checking current Unity project status before UI baseline run.

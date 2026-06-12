@@ -5,6 +5,9 @@ using TMPro;
 
 public class PlayerHUDController : MonoBehaviour
 {
+    private const float RuntimeReferenceFallbackInterval = 0.5f;
+    private const float HudFallbackRefreshInterval = 0.25f;
+
     [Header("HUD UI 요소")]
     public TextMeshProUGUI goldText;
     public TextMeshProUGUI roundText;
@@ -19,14 +22,22 @@ public class PlayerHUDController : MonoBehaviour
 
     private PlayerManager localPlayer;
     private GameManagers gameManager;
+    private bool hudDirty = true;
+    private float nextRuntimeReferenceFallbackTime;
+    private float nextHudFallbackRefreshTime;
+    private int lastDisplayedGold = int.MinValue;
+    private int lastDisplayedRound = int.MinValue;
+    private int lastDisplayedWallCount = int.MinValue;
 
-    private void RefreshRuntimeReferences(bool verboseLog = false)
+    private bool RefreshRuntimeReferences(bool verboseLog = false)
     {
+        bool changed = false;
         var latestGameManager = GameManagers.Instance;
         if (latestGameManager != gameManager)
         {
             gameManager = latestGameManager;
             localPlayer = null;
+            changed = true;
 
             if (verboseLog && gameManager != null)
             {
@@ -37,11 +48,19 @@ public class PlayerHUDController : MonoBehaviour
         if (gameManager != null && gameManager.localPlayer != localPlayer)
         {
             localPlayer = gameManager.localPlayer;
+            changed = true;
             if (verboseLog && localPlayer != null)
             {
                 Debug.Log($"[PlayerHUDController] localPlayer 재바인딩 완료: Player {localPlayer.playerId}");
             }
         }
+
+        if (changed)
+        {
+            MarkHudDirty();
+        }
+
+        return changed;
     }
 
     void OnEnable()
@@ -49,6 +68,10 @@ public class PlayerHUDController : MonoBehaviour
         GameEvents.OnGameManagersReady += OnGameManagersReady;
         GameEvents.OnGameStateChanged += HandleGameStateChange;
         GameEvents.OnBattleSequenceStarted += HandleBattleSequenceStarted;
+        GameEvents.OnGameStateRestored += HandleGameStateChange;
+        GameEvents.OnHostMigrationCompleted += HandleHostMigrationCompleted;
+        GameEvents.OnPlayerStatsChanged += HandlePlayerStatsChanged;
+        GameEvents.OnPlayerWallCountChanged += HandlePlayerWallCountChanged;
 
         if (shopToggleButton != null)
         {
@@ -63,6 +86,10 @@ public class PlayerHUDController : MonoBehaviour
         GameEvents.OnGameManagersReady -= OnGameManagersReady;
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
         GameEvents.OnBattleSequenceStarted -= HandleBattleSequenceStarted;
+        GameEvents.OnGameStateRestored -= HandleGameStateChange;
+        GameEvents.OnHostMigrationCompleted -= HandleHostMigrationCompleted;
+        GameEvents.OnPlayerStatsChanged -= HandlePlayerStatsChanged;
+        GameEvents.OnPlayerWallCountChanged -= HandlePlayerWallCountChanged;
 
         if (shopToggleButton != null)
         {
@@ -105,8 +132,37 @@ public class PlayerHUDController : MonoBehaviour
 
     void Update()
     {
-        // Host Migration 후 Instance 교체를 반영하기 위해 매 프레임 최신 참조를 확인합니다.
-        RefreshRuntimeReferences();
+        if (ShouldRefreshRuntimeReferences())
+        {
+            RefreshRuntimeReferences();
+        }
+
+        RefreshHud(false);
+    }
+
+    private bool ShouldRefreshRuntimeReferences()
+    {
+        if (Time.unscaledTime < nextRuntimeReferenceFallbackTime)
+        {
+            return false;
+        }
+
+        nextRuntimeReferenceFallbackTime = Time.unscaledTime + RuntimeReferenceFallbackInterval;
+        if (gameManager != GameManagers.Instance)
+        {
+            return true;
+        }
+
+        if (gameManager != null && gameManager.localPlayer != localPlayer)
+        {
+            return true;
+        }
+
+        return gameManager == null || localPlayer == null;
+    }
+
+    private void RefreshHud(bool force)
+    {
         if (gameManager == null)
         {
             return;
@@ -129,25 +185,39 @@ public class PlayerHUDController : MonoBehaviour
             return;
         }
 
-        // HUD UI 업데이트
-        if (goldText != null)
+        if (!force && !hudDirty && Time.unscaledTime < nextHudFallbackRefreshTime)
         {
-            goldText.text = localPlayer.GetGold().ToString();
+            return;
         }
 
-        if (roundText != null)
+        nextHudFallbackRefreshTime = Time.unscaledTime + HudFallbackRefreshInterval;
+        hudDirty = false;
+
+        int gold = localPlayer.GetGold();
+        if ((force || gold != lastDisplayedGold) && goldText != null)
         {
-            roundText.text = $"ROUND\n{Mathf.Max(1, gameManager.currentRound)}";
+            goldText.text = gold.ToString();
+            lastDisplayedGold = gold;
         }
 
-        if (wallCountText != null)
+        int round = Mathf.Max(1, gameManager.currentRound);
+        if ((force || round != lastDisplayedRound) && roundText != null)
         {
-            wallCountText.text = localPlayer.GetWallCount().ToString();
+            roundText.text = $"ROUND\n{round}";
+            lastDisplayedRound = round;
+        }
+
+        int wallCount = localPlayer.GetWallCount();
+        if ((force || wallCount != lastDisplayedWallCount) && wallCountText != null)
+        {
+            wallCountText.text = wallCount.ToString();
+            lastDisplayedWallCount = wallCount;
         }
     }
 
     private void HandleGameStateChange(GameManagers.GameState newState)
     {
+        MarkHudDirty();
         bool isPreparePhase = (newState == GameManagers.GameState.Prepare);
         bool useToolkitHud = GamePrepareUIToolkitController.IsToolkitActive;
 
@@ -173,6 +243,36 @@ public class PlayerHUDController : MonoBehaviour
         }
 
         RefreshShopToggleText();
+        RefreshHud(true);
+    }
+
+    private void HandleHostMigrationCompleted(bool isNewHost)
+    {
+        RefreshRuntimeReferences(true);
+        MarkHudDirty();
+        RefreshHud(true);
+    }
+
+    private void HandlePlayerStatsChanged(int playerId, int newHealth, int newGold)
+    {
+        if (!IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        MarkHudDirty();
+        RefreshHud(true);
+    }
+
+    private void HandlePlayerWallCountChanged(int playerId, int newWallCount)
+    {
+        if (!IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        MarkHudDirty();
+        RefreshHud(true);
     }
 
     public void SetLegacyHudButtonsVisible(bool visible)
@@ -203,6 +303,7 @@ public class PlayerHUDController : MonoBehaviour
 
     private void HandleBattleSequenceStarted(bool isAttacking)
     {
+        RefreshRuntimeReferences();
         if (opponentNameText == null) return;
         if (localPlayer == null) return;
 
@@ -243,6 +344,30 @@ public class PlayerHUDController : MonoBehaviour
 
         bool isVisible = shopUIController != null && shopUIController.IsContentVisible();
         shopToggleButtonText.text = isVisible ? "Close" : "Open";
+    }
+
+    private bool IsLocalPlayerId(int playerId)
+    {
+        RefreshRuntimeReferences();
+        if (localPlayer == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return localPlayer.playerId == playerId;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private void MarkHudDirty()
+    {
+        hudDirty = true;
+        nextHudFallbackRefreshTime = 0f;
     }
 
     private void SubscribeToShopVisibility()

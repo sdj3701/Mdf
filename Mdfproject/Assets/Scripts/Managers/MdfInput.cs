@@ -7,6 +7,9 @@ using System.Collections.Generic;
 public static class MdfInput
 {
     private static readonly List<RaycastResult> uiRaycastResults = new List<RaycastResult>(16);
+    private static EventSystem cachedRaycastEventSystem;
+    private static int cachedRaycastFrame = -1;
+    private static Vector2 cachedRaycastPointerPosition;
 
     public static Vector2 PointerPosition
     {
@@ -124,22 +127,16 @@ public static class MdfInput
         }
 
         Vector2 pointerPosition = PointerPosition;
-        var pointerData = new PointerEventData(eventSystem)
+        var results = GetUiRaycastResults(eventSystem, pointerPosition);
+
+        var parts = new List<string>(results.Count + 1)
         {
-            position = pointerPosition
+            $"pointer={pointerPosition} prepareToolkitBlocks={GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition)} rankingBlocks={RankingUIController.IsPointerOverBlockingElement(pointerPosition)} hits={results.Count}"
         };
 
-        uiRaycastResults.Clear();
-        eventSystem.RaycastAll(pointerData, uiRaycastResults);
-
-        var parts = new List<string>(uiRaycastResults.Count + 1)
+        for (int i = 0; i < results.Count; i++)
         {
-            $"pointer={pointerPosition} prepareToolkitBlocks={GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition)} rankingBlocks={RankingUIController.IsPointerOverBlockingElement(pointerPosition)} hits={uiRaycastResults.Count}"
-        };
-
-        for (int i = 0; i < uiRaycastResults.Count; i++)
-        {
-            var result = uiRaycastResults[i];
+            var result = results[i];
             var target = result.gameObject;
             if (target == null)
             {
@@ -163,17 +160,11 @@ public static class MdfInput
 
     private static bool HasNonGamePrepareToolkitUiHit(EventSystem eventSystem, Vector2 pointerPosition)
     {
-        var pointerData = new PointerEventData(eventSystem)
-        {
-            position = pointerPosition
-        };
+        var results = GetUiRaycastResults(eventSystem, pointerPosition);
 
-        uiRaycastResults.Clear();
-        eventSystem.RaycastAll(pointerData, uiRaycastResults);
-
-        for (int i = 0; i < uiRaycastResults.Count; i++)
+        for (int i = 0; i < results.Count; i++)
         {
-            var result = uiRaycastResults[i];
+            var result = results[i];
             if (result.gameObject == null)
             {
                 continue;
@@ -193,17 +184,11 @@ public static class MdfInput
 
     private static bool HasFieldBlockingUiHit(EventSystem eventSystem, Vector2 pointerPosition)
     {
-        var pointerData = new PointerEventData(eventSystem)
-        {
-            position = pointerPosition
-        };
+        var results = GetUiRaycastResults(eventSystem, pointerPosition);
 
-        uiRaycastResults.Clear();
-        eventSystem.RaycastAll(pointerData, uiRaycastResults);
-
-        for (int i = 0; i < uiRaycastResults.Count; i++)
+        for (int i = 0; i < results.Count; i++)
         {
-            var result = uiRaycastResults[i];
+            var result = results[i];
             if (result.gameObject == null)
             {
                 continue;
@@ -219,6 +204,35 @@ public static class MdfInput
         }
 
         return false;
+    }
+
+    private static List<RaycastResult> GetUiRaycastResults(EventSystem eventSystem, Vector2 pointerPosition)
+    {
+        if (eventSystem == null)
+        {
+            uiRaycastResults.Clear();
+            return uiRaycastResults;
+        }
+
+        if (cachedRaycastFrame == Time.frameCount &&
+            cachedRaycastEventSystem == eventSystem &&
+            cachedRaycastPointerPosition == pointerPosition)
+        {
+            return uiRaycastResults;
+        }
+
+        cachedRaycastFrame = Time.frameCount;
+        cachedRaycastEventSystem = eventSystem;
+        cachedRaycastPointerPosition = pointerPosition;
+
+        var pointerData = new PointerEventData(eventSystem)
+        {
+            position = pointerPosition
+        };
+
+        uiRaycastResults.Clear();
+        eventSystem.RaycastAll(pointerData, uiRaycastResults);
+        return uiRaycastResults;
     }
 
     private static bool IsFieldPassthroughUi(GameObject target, Vector2 pointerPosition)
