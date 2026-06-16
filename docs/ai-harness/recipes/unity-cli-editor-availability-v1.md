@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-07
-Last used: 2026-06-11
-Last verified: 2026-05-21
-Use count: 6
+Last used: 2026-06-16
+Last verified: 2026-06-16
+Use count: 8
 Review after: 2026-08-05
 Triggers: no Unity instances running, not responding, manual Editor launch, status polling
 Applies to: unity-cli connector, Windows PowerShell, Unity 2021.3.45f1
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260521-031558-matrix/matrix-summary.json
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260521-031558-matrix/matrix-summary.json; unity-cli --project Mdfproject status ready; compile PASS; console []
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -32,3 +32,4 @@ Pitfalls:
 Lifecycle notes:
 - 2026-05-15: Opened Unity 2021.3.45f1 via Start-Process, polled unity-cli --project Mdfproject status through no-instance startup until ready on port 8090.
 - 2026-05-21: verified artifact `artifacts/mp/20260521-031558-matrix/matrix-summary.json`
+- 2026-06-16: verified artifact `unity-cli --project Mdfproject status ready; compile PASS; console []`

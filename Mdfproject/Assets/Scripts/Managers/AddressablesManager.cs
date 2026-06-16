@@ -11,7 +11,7 @@ public class AddressablesManager : MonoBehaviour
     public static AddressablesManager Instance { get; private set; }
 
     [Header("Preload Settings")]
-    [SerializeField] private bool autoPreloadAllOnStart = true;
+    [SerializeField] private bool autoPreloadAllOnStart = false;
     [SerializeField] private bool logPreloadProgress = true;
 
     [Header("Game Prefabs (Addressables AssetReference)")]
@@ -23,6 +23,7 @@ public class AddressablesManager : MonoBehaviour
     public bool AssetsReady { get; private set; }
     public bool IsPreloading { get; private set; }
     public bool GamePrefabsLoaded { get; private set; }
+    public bool AutoPreloadAllOnStart => autoPreloadAllOnStart;
 
     // 캐시된 게임 프리팹
     private GameObject _playerManagerPrefab;
@@ -39,6 +40,7 @@ public class AddressablesManager : MonoBehaviour
     private bool _preloadCompleted;
     private AsyncOperationHandle<IList<Object>> _preloadHandle;
     private bool _gamePrefabsLoading;
+    private string _gamePrefabsLoadReason = "direct";
 
     private void Awake()
     {
@@ -59,6 +61,35 @@ public class AddressablesManager : MonoBehaviour
         {
             await PreloadAllAsync();
         }
+    }
+
+    public void BeginGamePrefabsPreload(string reason)
+    {
+        string safeReason = string.IsNullOrEmpty(reason) ? "unknown" : reason;
+        if (GamePrefabsLoaded && AreGamePrefabCachesReady())
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            LogLoadMarker("game_prefabs_preload_cached", new Dictionary<string, object>
+            {
+                { "reason", safeReason }
+            });
+#endif
+            return;
+        }
+
+        if (_gamePrefabsLoading)
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            LogLoadMarker("game_prefabs_preload_joined", new Dictionary<string, object>
+            {
+                { "reason", safeReason }
+            });
+#endif
+            return;
+        }
+
+        _gamePrefabsLoadReason = safeReason;
+        LoadGamePrefabsAsync().Forget();
     }
 
     /// <summary>
@@ -144,6 +175,15 @@ public class AddressablesManager : MonoBehaviour
 
         Debug.Log("[AddressablesManager] 게임 프리팹 로딩 시작...");
         _gamePrefabsLoading = true;
+        float startTime = Time.realtimeSinceStartup;
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        LogLoadMarker("game_prefabs_load_begin", new Dictionary<string, object>
+        {
+            { "reason", _gamePrefabsLoadReason },
+            { "cacheSummary", BuildGamePrefabCacheSummary() }
+        });
+#endif
 
         try
         {
@@ -183,6 +223,16 @@ public class AddressablesManager : MonoBehaviour
         }
         finally
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            LogLoadMarker("game_prefabs_load_end", new Dictionary<string, object>
+            {
+                { "reason", _gamePrefabsLoadReason },
+                { "elapsedMs", Mathf.RoundToInt((Time.realtimeSinceStartup - startTime) * 1000f) },
+                { "loaded", GamePrefabsLoaded },
+                { "cacheSummary", BuildGamePrefabCacheSummary() }
+            });
+#endif
+            _gamePrefabsLoadReason = "direct";
             _gamePrefabsLoading = false;
         }
     }
@@ -298,6 +348,18 @@ public class AddressablesManager : MonoBehaviour
     {
         return $"PlayerManager={IsLoadedAssetValid(_playerManagerPrefab)}, Grid={IsLoadedAssetValid(_gridPrefab)}, Monster={IsLoadedAssetValid(_defaultMonsterPrefab)}, WaveDatabase={IsLoadedAssetValid(_waveDatabase)}";
     }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    private static void LogLoadMarker(string code, IDictionary<string, object> fields)
+    {
+        if (!MPTestCommandLine.IsEnabled)
+        {
+            return;
+        }
+
+        MPTestLogger.Log("load_marker", "pass", code, null, fields);
+    }
+#endif
 
     private static List<IResourceLocation> CollectAllObjectLocations()
     {

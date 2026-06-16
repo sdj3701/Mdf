@@ -3766,7 +3766,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4899e616a48886d42b4696e3f88fd470, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  autoPreloadAllOnStart: 1
+  autoPreloadAllOnStart: 0
   logPreloadProgress: 1
   playerManagerPrefabRef:
     m_AssetGUID: 1831533972272eb408da1971d3a1e504

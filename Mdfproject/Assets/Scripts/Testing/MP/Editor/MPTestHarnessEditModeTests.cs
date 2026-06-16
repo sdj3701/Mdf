@@ -338,6 +338,27 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void LoadTimeOptimizationPreloadsGameCoreBeforeGameScene()
+    {
+        string addressablesSource = File.ReadAllText("Assets/Scripts/Managers/AddressablesManager.cs");
+        string bootstrapSource = File.ReadAllText("Assets/Scripts/Bootstrap/AppBootstrapper.cs");
+        string networkSource = File.ReadAllText("Assets/Scripts/Network/NetworkManager.cs");
+        string titleSceneSource = File.ReadAllText("Assets/Scenes/00_Title.unity");
+        string gameSceneSource = File.ReadAllText("Assets/Scenes/03_Game.unity");
+
+        Assert.That(addressablesSource, Does.Contain("private bool autoPreloadAllOnStart = false"));
+        Assert.That(addressablesSource, Does.Contain("public bool AutoPreloadAllOnStart => autoPreloadAllOnStart"));
+        Assert.That(addressablesSource, Does.Contain("public void BeginGamePrefabsPreload(string reason)"));
+        Assert.That(addressablesSource, Does.Contain("LoadGamePrefabsAsync().Forget();"));
+        Assert.That(bootstrapSource, Does.Contain("if (AddressablesManager.Instance.AutoPreloadAllOnStart)"));
+        Assert.That(addressablesSource, Does.Contain("LogLoadMarker(\"game_prefabs_load_begin\""));
+        Assert.That(addressablesSource, Does.Contain("LogLoadMarker(\"game_prefabs_load_end\""));
+        Assert.That(networkSource, Does.Not.Contain("BeginGameCorePreload("));
+        Assert.That(titleSceneSource, Does.Contain("autoPreloadAllOnStart: 0"));
+        Assert.That(gameSceneSource, Does.Contain("autoPreloadAllOnStart: 0"));
+    }
+
+    [Test]
     public void BasicAssertionComparesScenesAliasAware()
     {
         var snapshot = BuildSnapshot("host");
