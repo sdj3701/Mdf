@@ -1,10 +1,156 @@
 #if UNITY_EDITOR
 using System.IO;
+using System.Reflection;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.AddressableAssets;
 using UnityEditor.AddressableAssets.Settings;
 using UnityEngine;
+
+public sealed class UnitAttackAnimationEditModeTests
+{
+    [Test]
+    public void UnitAttackPlaybackResetWaitsForRealAnimatorAttackExit()
+    {
+        RuntimeAnimatorController controller = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(
+            "Assets/Resource/Animations/Unit_Base_Controller.controller");
+        Assert.That(controller, Is.Not.Null);
+
+        GameObject root = new GameObject("UnitAttackPlaybackResetTest");
+        try
+        {
+            Animator testAnimator = root.AddComponent<Animator>();
+            testAnimator.runtimeAnimatorController = controller;
+            testAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            Unit unit = root.AddComponent<Unit>();
+
+            SerializedObject serializedUnit = new SerializedObject(unit);
+            serializedUnit.FindProperty("animator").objectReferenceValue = testAnimator;
+            serializedUnit.ApplyModifiedPropertiesWithoutUndo();
+
+            testAnimator.Rebind();
+            testAnimator.Update(0f);
+            testAnimator.speed = 3f;
+            testAnimator.ResetTrigger("AttackTrigger");
+            testAnimator.SetTrigger("AttackTrigger");
+
+            MethodInfo resetMethod = typeof(Unit).GetMethod(
+                "ResetAnimatorSpeedWhenAttackAnimationFinishes",
+                BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.That(resetMethod, Is.Not.Null);
+            var resetRoutine = (System.Collections.IEnumerator)resetMethod.Invoke(unit, new object[] { 1f / 3f });
+            Assert.That(resetRoutine, Is.Not.Null);
+            Assert.That(resetRoutine.MoveNext(), Is.True, "The reset routine must yield before sampling Animator state.");
+
+            bool observedIncomingAttackTransition = false;
+            bool observedAttackState = false;
+            bool observedOutgoingAttackTransition = false;
+            bool resetCompleted = false;
+
+            for (int frame = 0; frame < 600; frame++)
+            {
+                testAnimator.Update(1f / 60f);
+                bool isInTransition = testAnimator.IsInTransition(0);
+                AnimatorStateInfo currentState = testAnimator.GetCurrentAnimatorStateInfo(0);
+                AnimatorStateInfo nextState = isInTransition
+                    ? testAnimator.GetNextAnimatorStateInfo(0)
+                    : default;
+                bool currentIsAttack = currentState.IsTag("Attack");
+                bool nextIsAttack = nextState.IsTag("Attack");
+
+                observedIncomingAttackTransition |= isInTransition && !currentIsAttack && nextIsAttack;
+                observedAttackState |= currentIsAttack;
+                observedOutgoingAttackTransition |= isInTransition && currentIsAttack && !nextIsAttack;
+
+                if (currentIsAttack || isInTransition && nextIsAttack)
+                {
+                    Assert.That(testAnimator.speed, Is.EqualTo(3f).Within(0.001f), $"frame={frame}");
+                }
+
+                if (!resetRoutine.MoveNext())
+                {
+                    resetCompleted = true;
+                    break;
+                }
+            }
+
+            Assert.That(observedIncomingAttackTransition, Is.True);
+            Assert.That(observedAttackState, Is.True);
+            Assert.That(observedOutgoingAttackTransition, Is.True);
+            Assert.That(resetCompleted, Is.True);
+            Assert.That(testAnimator.GetCurrentAnimatorStateInfo(0).IsTag("Attack"), Is.False);
+            Assert.That(testAnimator.speed, Is.EqualTo(1f).Within(0.001f));
+        }
+        finally
+        {
+            Object.DestroyImmediate(root);
+        }
+    }
+
+    [TestCase(true, false, false, true, TestName = "AttackPlayback_CurrentAttackState_RemainsAccelerated")]
+    [TestCase(false, true, true, true, TestName = "AttackPlayback_IncomingAttackTransition_RemainsAccelerated")]
+    [TestCase(true, true, false, true, TestName = "AttackPlayback_OutgoingAttackTransition_RemainsAccelerated")]
+    [TestCase(false, true, false, false, TestName = "AttackPlayback_NonAttackTransition_CanReset")]
+    [TestCase(false, false, false, false, TestName = "AttackPlayback_IdleState_CanReset")]
+    public void UnitAttackPlaybackTracksCurrentAndNextAttackStates(
+        bool currentStateIsAttack,
+        bool isInTransition,
+        bool nextStateIsAttack,
+        bool expected)
+    {
+        MethodInfo method = typeof(Unit).GetMethod(
+            "IsAttackPlaybackActive",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.That(method, Is.Not.Null);
+        bool actual = (bool)method.Invoke(
+            null,
+            new object[] { currentStateIsAttack, isInTransition, nextStateIsAttack });
+        Assert.That(actual, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void UnitAttackSimulationAndSpeedResetUseSingleAuthorityPresentationPath()
+    {
+        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        int startAttackLoopIndex = unitSource.IndexOf("public void StartAttackLoop()", System.StringComparison.Ordinal);
+        int attackLoopIndex = unitSource.IndexOf("private IEnumerator AttackLoop()", startAttackLoopIndex, System.StringComparison.Ordinal);
+        int findTargetIndex = unitSource.IndexOf("private void FindNearestEnemy()", attackLoopIndex, System.StringComparison.Ordinal);
+        int networkAttackHandlerIndex = unitSource.IndexOf("private void HandleNetworkedAttackStateChanged()", System.StringComparison.Ordinal);
+        int canWriteHealthIndex = unitSource.IndexOf("private bool CanWriteNetworkedHealth()", networkAttackHandlerIndex, System.StringComparison.Ordinal);
+        int resetRoutineIndex = unitSource.IndexOf("private IEnumerator ResetAnimatorSpeedWhenAttackAnimationFinishes", System.StringComparison.Ordinal);
+        int playbackHelperIndex = unitSource.IndexOf("private static bool IsAttackPlaybackActive", resetRoutineIndex, System.StringComparison.Ordinal);
+
+        Assert.That(startAttackLoopIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(attackLoopIndex, Is.GreaterThan(startAttackLoopIndex));
+        Assert.That(findTargetIndex, Is.GreaterThan(attackLoopIndex));
+        Assert.That(networkAttackHandlerIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(canWriteHealthIndex, Is.GreaterThan(networkAttackHandlerIndex));
+        Assert.That(resetRoutineIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(playbackHelperIndex, Is.GreaterThan(resetRoutineIndex));
+
+        string startAttackLoopSource = unitSource.Substring(startAttackLoopIndex, attackLoopIndex - startAttackLoopIndex);
+        string attackLoopSource = unitSource.Substring(attackLoopIndex, findTargetIndex - attackLoopIndex);
+        string networkAttackHandlerSource = unitSource.Substring(networkAttackHandlerIndex, canWriteHealthIndex - networkAttackHandlerIndex);
+        string resetRoutineSource = unitSource.Substring(resetRoutineIndex, playbackHelperIndex - resetRoutineIndex);
+        int setTriggerIndex = networkAttackHandlerSource.IndexOf("animator.SetTrigger(attackTriggerParam)", System.StringComparison.Ordinal);
+        int startResetRoutineIndex = networkAttackHandlerSource.IndexOf("StartCoroutine(ResetAnimatorSpeedWhenAttackAnimationFinishes", System.StringComparison.Ordinal);
+        int firstYieldIndex = resetRoutineSource.IndexOf("yield return null;", System.StringComparison.Ordinal);
+        int animatorStateLoopIndex = resetRoutineSource.IndexOf("while (animator != null)", System.StringComparison.Ordinal);
+
+        Assert.That(startAttackLoopSource, Does.Contain("if (!HasStateAuthorityOrNoNetwork())"));
+        Assert.That(attackLoopSource, Does.Contain("if (!HasStateAuthorityOrNoNetwork())"));
+        Assert.That(setTriggerIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(startResetRoutineIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(firstYieldIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(animatorStateLoopIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(setTriggerIndex, Is.LessThan(startResetRoutineIndex));
+        Assert.That(firstYieldIndex, Is.LessThan(animatorStateLoopIndex));
+        Assert.That(unitSource, Does.Contain("ResetAnimatorSpeedWhenAttackAnimationFinishes"));
+        Assert.That(unitSource, Does.Contain("IsAttackPlaybackActive("));
+        Assert.That(unitSource, Does.Not.Contain("private IEnumerator ResetAnimatorSpeedAfter"));
+    }
+}
 
 public sealed class AttackSlashTuningEditModeTests
 {

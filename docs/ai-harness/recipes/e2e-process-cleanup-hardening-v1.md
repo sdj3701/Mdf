@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: cleanup, battle
 Created: 2026-05-08
-Last used: 2026-05-08
-Last verified: 2026-05-08
-Use count: 1
+Last used: 2026-07-12
+Last verified: 2026-07-12
+Use count: 3
 Review after: 2026-08-06
 Triggers: `MDF-MPTest.exe` left running after E2E, Windows process cleanup, orphan detection
 Applies to: `tools/harness/mp/launch_player.py`, HumanBot prepare/battle runners, matrix runner
-Verified by: see Verification section below; migrated from old Status: verified with environment blocker; blocker note preserved in recipe body
+Verified by: see Verification section below; migrated from old Status: verified with environment blocker; blocker note preserved in recipe body; artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/cleanup-report.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -39,3 +39,6 @@ Verification:
 Pitfalls:
 - Do not use `Popen.poll()` alone as cleanup proof on Windows. This environment showed `Popen` exit code `1` while CIM/tasklist still listed the same `MDF-MPTest.exe` PID.
 - Do not redact or omit cleanup failures. Report exact orphan PIDs and separate cleanup status from gameplay assertions.
+
+Lifecycle notes:
+- 2026-07-12: verified artifact `artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/cleanup-report.json`

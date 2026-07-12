@@ -142,6 +142,8 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [SerializeField] private bool blockAttacksDuringSkill = true;
     [SerializeField] private float maxAttackAnimationsPerSecond = 3f;
     [SerializeField] private float baseAttackAnimationDuration = 1f;
+    private const string AttackStateTag = "Attack";
+    private const int AttackPlaybackInactiveFramesBeforeReset = 2;
     private const float MeleeAttackRangeTolerance = 0.1f;
     private const float MeleeBlockDistance = 0.6f;
     private const float MeleeBlockDistanceTolerance = 0.15f;
@@ -412,20 +414,24 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (animator != null && Object != null && !Object.HasStateAuthority)
         {
             float animRate = GetCappedAttackAnimationRate();
+            float minInterval = 0f;
             if (animRate > 0f)
             {
                 animator.speed = CalculateAttackAnimationPlaybackSpeed(animRate);
-                
-                float minInterval = 1f / animRate;
+                minInterval = 1f / animRate;
+            }
+
+            animator.ResetTrigger(attackTriggerParam);
+            animator.SetTrigger(attackTriggerParam);
+
+            if (minInterval > 0f)
+            {
                 if (animSpeedResetRoutine != null)
                 {
                     StopCoroutine(animSpeedResetRoutine);
                 }
-                animSpeedResetRoutine = StartCoroutine(ResetAnimatorSpeedAfter(minInterval));
+                animSpeedResetRoutine = StartCoroutine(ResetAnimatorSpeedWhenAttackAnimationFinishes(minInterval));
             }
-            
-            animator.ResetTrigger(attackTriggerParam);
-            animator.SetTrigger(attackTriggerParam);
         }
     }
 
@@ -1123,7 +1129,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             StopCoroutine(animSpeedResetRoutine);
         }
-        animSpeedResetRoutine = StartCoroutine(ResetAnimatorSpeedAfter(minInterval));
+        animSpeedResetRoutine = StartCoroutine(ResetAnimatorSpeedWhenAttackAnimationFinishes(minInterval));
         if (!attackClipDurationInitialized && attackClipDetectRoutine == null)
         {
             attackClipDetectRoutine = StartCoroutine(CaptureAttackClipDuration());
@@ -1158,14 +1164,68 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return Mathf.Max(0.01f, speed);
     }
 
-    private IEnumerator ResetAnimatorSpeedAfter(float seconds)
+    private IEnumerator ResetAnimatorSpeedWhenAttackAnimationFinishes(float fallbackSeconds)
     {
-        yield return new WaitForSeconds(seconds);
+        float fallbackRemaining = Mathf.Max(0f, fallbackSeconds);
+        bool observedAttackPlayback = false;
+        int inactiveFrames = 0;
+
+        // StartCoroutine executes immediately until its first yield. Let Animator consume the
+        // trigger before inspecting state so a hitch cannot synchronously reset this attack to 1x.
+        yield return null;
+
+        while (animator != null)
+        {
+            bool isInTransition = animator.IsInTransition(0);
+            AnimatorStateInfo currentState = animator.GetCurrentAnimatorStateInfo(0);
+            AnimatorStateInfo nextState = isInTransition
+                ? animator.GetNextAnimatorStateInfo(0)
+                : default;
+            bool isAttackPlaybackActive = IsAttackPlaybackActive(
+                currentState.IsTag(AttackStateTag),
+                isInTransition,
+                nextState.IsTag(AttackStateTag));
+
+            if (isAttackPlaybackActive)
+            {
+                observedAttackPlayback = true;
+                inactiveFrames = 0;
+            }
+            else if (observedAttackPlayback)
+            {
+                // Give a queued trigger time to enter its Attack transition before resetting
+                // the global Animator speed. This is especially important on observer clients.
+                inactiveFrames++;
+                if (inactiveFrames >= AttackPlaybackInactiveFramesBeforeReset)
+                {
+                    break;
+                }
+            }
+            else
+            {
+                fallbackRemaining -= Time.deltaTime;
+                if (fallbackRemaining <= 0f)
+                {
+                    break;
+                }
+            }
+
+            yield return null;
+        }
+
         if (animator != null)
         {
             animator.speed = 1f;
         }
         animSpeedResetRoutine = null;
+    }
+
+    private static bool IsAttackPlaybackActive(
+        bool currentStateIsAttack,
+        bool isInTransition,
+        bool nextStateIsAttack)
+    {
+        return currentStateIsAttack || isInTransition && nextStateIsAttack;
     }
 
     private IEnumerator CaptureAttackClipDuration()
@@ -1176,7 +1236,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             if (animator == null) break;
             var st = animator.GetCurrentAnimatorStateInfo(0);
-            if (st.IsTag("Attack"))
+            if (st.IsTag(AttackStateTag))
             {
                 var infos = animator.GetCurrentAnimatorClipInfo(0);
                 if (infos != null && infos.Length > 0 && infos[0].clip != null)
@@ -1864,13 +1924,25 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     #region 공격 로직 (이하 동일)
     public void StartAttackLoop()
     {
+        if (attackCoroutine != null)
+        {
+            StopCoroutine(attackCoroutine);
+            attackCoroutine = null;
+        }
+
         if (IsDead)
         {
             CancelPendingAttack();
             return;
         }
 
-        if (attackCoroutine != null) StopCoroutine(attackCoroutine);
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            CancelPendingAttack();
+            ClearCurrentTarget();
+            return;
+        }
+
         EnsureRuntimeReferences("StartAttackLoop", false);
         attackCoroutine = StartCoroutine(AttackLoop());
     }
@@ -1882,6 +1954,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         while (isCombatPhase)
         {
+            if (!HasStateAuthorityOrNoNetwork())
+            {
+                CancelPendingAttack();
+                ClearCurrentTarget();
+                yield break;
+            }
+
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (MPTestCommandLine.IsGameFlowFrozen)
             {
@@ -2192,6 +2271,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 #endif
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
+
         if (IsDead || !isCombatPhase || unitData == null)
         {
             CancelPendingAttack();
