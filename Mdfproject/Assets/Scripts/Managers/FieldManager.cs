@@ -410,6 +410,7 @@ public partial class FieldManager : MonoBehaviour
     {
         this.playerManager = owner;
         this.ground3D = ground3DObject;
+        InvalidateCombatTargetRegistry();
         pendingUnitPositions.Clear();
         pendingUnitDataByPosition.Clear();
         pendingNetworkMoves.Clear();
@@ -1670,6 +1671,7 @@ public partial class FieldManager : MonoBehaviour
         }
 
         placedUnits = rebuiltUnits;
+        RefreshCombatTargetRegistryAfterRosterRebuild();
         RestorePendingStateAfterUnitMapRebuild(
             preservedPendingUnitPositions,
             preservedPendingUnitDataByPosition,
@@ -6938,6 +6940,7 @@ public partial class FieldManager : MonoBehaviour
 
     void OnDestroy()
     {
+        DisposeCombatTargetRegistry();
         DestroyGridLines();
         if (_lineMaterial != null)
         {

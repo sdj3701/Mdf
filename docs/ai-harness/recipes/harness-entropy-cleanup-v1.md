@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-08
-Last used: 2026-07-12
+Last used: 2026-07-13
 Last verified: 2026-05-10
-Use count: 4
+Use count: 5
 Review after: 2026-08-06
 Triggers: context bundle drift, stale prompts, generated session state, root BAT cleanup, precommit guardrails
 Applies to: `.gitignore`, `_context_packer`, `.codex/session-state`, `tools/harness/precommit.py`, harness docs

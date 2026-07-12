@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: multiplayer
 Created: 2026-05-08
-Last used: 2026-07-12
-Last verified: 2026-05-19
-Use count: 23
+Last used: 2026-07-13
+Last verified: 2026-07-13
+Use count: 25
 Review after: 2026-08-06
 Triggers: placedUnitsHash mismatch, unit combine/despawn, late MoveUnit, battle transition snapshot mismatch, host placed unit missing on client, `Networked properties can only be accessed when Spawned() has been called`
 Applies to: `FieldManager`, `PlayerManager`, `GameManagers.StartBattleForPlayers`, `Unit`, `ManaController`, MP state snapshots
-Verified by: `python tools/harness/precommit.py --all`; `unity-cli --project Mdfproject editor refresh --compile`; `unity-cli --project Mdfproject console --type error --stacktrace user`; `unity-cli --project Mdfproject test --mode EditMode`; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --no-headless-player --player-path artifacts/builds/20260508-142926/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260509-040924-2human-aifill-visible-3round-respawn-v6; artifacts/mp/20260509-045354-human-bot-3round-progression; artifacts/mp/20260509-051915-human-bot-3round-progression; artifacts/mp/20260509-100252-human-bot-3round-progression; artifacts\mp\20260509-223416-2human-aifill-visible-3round; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/singleplayer-visual-melee-regression-latest.log; artifacts/mp/20260516-032200-matrix/20260516-032206-human-bot-battle-progression; artifacts/singleplayer-ai-field-battle-audit-latest.log; artifacts/mp/20260519-071043-two-humanbot-two-ai-smoke
+Verified by: `python tools/harness/precommit.py --all`; `unity-cli --project Mdfproject editor refresh --compile`; `unity-cli --project Mdfproject console --type error --stacktrace user`; `unity-cli --project Mdfproject test --mode EditMode`; `python tools/harness/mp/run_human_bot_3round_progression.py --seed 8101 --host-human-bot --bot-prepare-mode full --no-headless-player --player-path artifacts/builds/20260508-142926/MDF-MPTest.exe --cleanup-timeout-seconds 20 --orphan-threshold 0`; artifacts/mp/20260509-023108-2human-aifill-visible-3round; artifacts/mp/20260509-040924-2human-aifill-visible-3round-respawn-v6; artifacts/mp/20260509-045354-human-bot-3round-progression; artifacts/mp/20260509-051915-human-bot-3round-progression; artifacts/mp/20260509-100252-human-bot-3round-progression; artifacts\mp\20260509-223416-2human-aifill-visible-3round; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/singleplayer-visual-melee-regression-latest.log; artifacts/mp/20260516-032200-matrix/20260516-032206-human-bot-battle-progression; artifacts/singleplayer-ai-field-battle-audit-latest.log; artifacts/mp/20260519-071043-two-humanbot-two-ai-smoke; artifacts/mp/20260712-215401-two-humanbot-two-ai-smoke/result.json
 Replacement: none
 Archive policy: keep active while Fusion unit registration, combine/despawn, Host Migration, or reconnect can rebuild field maps
 
@@ -46,3 +46,5 @@ Lifecycle notes:
 - 2026-05-16: verified artifact `artifacts/singleplayer-ai-field-battle-audit-latest.log`
 - 2026-05-19: Preserved pending unit reservations and pending MoveUnit replay across unit-map rebuilds; verified round-2 Prepare moves in 2 HumanBot + 2 AI smoke.
 - 2026-05-19: verified artifact `artifacts/mp/20260519-071043-two-humanbot-two-ai-smoke`
+- 2026-07-13: Round-1 combat reached round-2 Prepare with 20 synchronized live field units.
+- 2026-07-13: verified artifact `artifacts/mp/20260712-215401-two-humanbot-two-ai-smoke/result.json`

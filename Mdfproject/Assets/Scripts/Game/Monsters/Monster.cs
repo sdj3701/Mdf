@@ -40,17 +40,25 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     // 대기 중인 공격 정보 (애니메이션 이벤트 기반 데미지 적용용)
     private bool _hasPendingAttack;
     private IEnemy _pendingAttackTarget;
+    private CombatTargetHandle _pendingAttackTargetHandle;
     
     // 원거리 공격 관련
     [Header("원거리 공격 설정")]
     [Tooltip("원거리 몬스터의 투사체 발사 위치입니다. 비어있으면 몬스터 위치 + Vector3.up * 0.5f를 사용합니다.")]
     public Transform firePoint;
     private Unit _rangedTarget;              // 원거리 공격 대상 유닛
+    private CombatTargetHandle _rangedTargetHandle;
     private Coroutine _rangedAttackCoroutine;
     private float _nextRangedAttackTime;
     private bool _isRangedAttacking;         // 원거리 공격 중 플래그
     [SerializeField] private LayerMask unitLayerMask; // Unit 레이어
     [SerializeField] private float postRangedAttackDelay = 0.5f; // 원거리 공격 후 정지 시간
+    private const float BasicTargetSearchInterval = 0.15f;
+    private const int InitialFallbackTargetBufferSize = 256;
+    private const int MaxFallbackTargetBufferSize = 2048;
+    private static Collider[] s_fallbackTargetBuffer = new Collider[InitialFallbackTargetBufferSize];
+    private bool _hasFallbackTargetSearchSchedule;
+    private float _nextFallbackTargetSearchTime;
     #endregion
 
     // === 현재 상태 (Networked) ===
@@ -116,6 +124,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     private Transform goalTransform;
     private PlayerManager ownerPlayer;
+    private FieldManager _registeredCombatTargetField;
     private AstarGrid pathfinder;
     private bool isBlocked = false;
     private Unit blockingUnit;
@@ -175,6 +184,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public bool SnapshotIsBoss => CanReadNetworkedHealth() ? NetworkedIsBoss : _isBoss;
     public int SnapshotBossOriginPlayerId => CanReadNetworkedHealth() ? NetworkedBossOriginPlayerId : _originPlayerId;
     public int SnapshotBossUniqueId => CanReadNetworkedHealth() ? NetworkedBossUniqueId : _bossUniqueId;
+    public int CombatTargetLifecycleGeneration => _spawnGeneration;
     public int SnapshotOwnerPlayerId
     {
         get
@@ -189,6 +199,41 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             }
 
             return ownerPlayer != null ? ownerPlayer.playerId : -1;
+        }
+    }
+
+    private void SetOwnerPlayerReference(PlayerManager newOwner)
+    {
+        FieldManager newField = newOwner != null ? newOwner.fieldManager : null;
+        if (ownerPlayer == newOwner && _registeredCombatTargetField == newField)
+        {
+            if (newField != null && !newField.IsCombatMonsterRegistered(this))
+            {
+                newField.RegisterCombatMonster(this);
+            }
+            return;
+        }
+
+        if (_registeredCombatTargetField != null && _registeredCombatTargetField != newField)
+        {
+            _registeredCombatTargetField.UnregisterCombatMonster(this);
+            _registeredCombatTargetField = null;
+        }
+
+        ownerPlayer = newOwner;
+        if (newField != null)
+        {
+            newField.RegisterCombatMonster(this);
+            _registeredCombatTargetField = newField;
+        }
+    }
+
+    private void UnregisterCombatTarget()
+    {
+        if (_registeredCombatTargetField != null)
+        {
+            _registeredCombatTargetField.UnregisterCombatMonster(this);
+            _registeredCombatTargetField = null;
         }
     }
 
@@ -256,6 +301,16 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             return true;
         }
         return Object.HasStateAuthority;
+    }
+
+    private bool CanRunCombatSimulation()
+    {
+        if (Runner == null)
+        {
+            return Object == null || !Object.IsValid;
+        }
+
+        return Runner.IsRunning && Object != null && Object.IsValid && Object.HasStateAuthority;
     }
 
     /// <summary>
@@ -337,6 +392,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     private void ResetTransientRuntimeStateForReuse()
     {
+        SetOwnerPlayerReference(null);
+        releaseScheduler = null;
+        CancelRangedAttackState(clearTarget: true);
         StopAllCoroutines();
         GameEvents.OnWallDestroyed -= OnWallDestroyed;
         movementCoroutine = null;
@@ -348,11 +406,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         isBlocked = false;
         blockingUnit = null;
         currentBlockerId = 0;
-        _hasPendingAttack = false;
-        _pendingAttackTarget = null;
+        ClearPendingAttackTarget();
         _rangedTarget = null;
+        _rangedTargetHandle = default;
         _isRangedAttacking = false;
         _nextRangedAttackTime = 0f;
+        _hasFallbackTargetSearchSchedule = false;
+        _nextFallbackTargetSearchTime = 0f;
         _despawnRequested = false;
         _hasRegisteredAsSurvivor = false;
 
@@ -513,7 +573,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        ownerPlayer = owner;
+        SetOwnerPlayerReference(owner);
         if (owner.astarGrid != null)
         {
             pathfinder = owner.astarGrid;
@@ -719,7 +779,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public void Initialize(PlayerManager owner, Transform goal, MonsterData data, AstarGrid pathfinder)
     {
         GameEvents.OnWallDestroyed -= OnWallDestroyed;
-        this.ownerPlayer = owner;
+        SetOwnerPlayerReference(owner);
+        ResetTargetSearchSchedule();
         this.goalTransform = goal;
         this._monsterData = data;
         this._networkMonsterDataLoadRequested = false;
@@ -772,8 +833,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             resumeCoroutine = null;
         }
         currentBlockerId = 0;
-        _hasPendingAttack = false;
-        _pendingAttackTarget = null;
+        ClearPendingAttackTarget();
 
         // [Fix] 오브젝트 풀 재사용 시 HP 강제 리셋
         // StateAuthority가 있으면 NetworkedHP에 직접 쓰기
@@ -959,7 +1019,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         
         // 필수 참조 설정
-        this.ownerPlayer = owner;
+        SetOwnerPlayerReference(owner);
         this.pathfinder = owner.astarGrid;
         var monsterParent = owner.monsterSpawner != null ? owner.monsterSpawner.monsterParent : null;
         if (monsterParent != null && transform.parent != monsterParent)
@@ -1051,7 +1111,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     void Update()
     {
-        if (!HasStateAuthorityOrNoNetwork()) return;
+        if (!CanRunCombatSimulation()) return;
+        if (IsCombatSuspendedForHostMigration())
+        {
+            CancelRangedAttackState(clearTarget: true);
+            return;
+        }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         if (MPTestCommandLine.IsGameFlowFrozen)
         {
@@ -1083,12 +1148,22 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (_isRangedAttacking) return;
         if (_buffManager != null && !_buffManager.CanAttack) return;
         if (Time.time < _nextRangedAttackTime) return;
-        
-        Unit target = FindBestTargetUnit();
+
+        Unit target = _rangedTarget;
+        if (!IsRangedTargetValid(target))
+        {
+            ClearRangedTarget();
+            if (!ShouldSearchForTarget())
+            {
+                return;
+            }
+
+            target = FindBestTargetUnit();
+        }
         if (target == null) return;
         
         // 원거리 몬스터는 항상 정지 후 공격
-        StartCoroutine(PauseAndRangedAttack(target));
+        _rangedAttackCoroutine = StartCoroutine(PauseAndRangedAttack(target));
     }
     
     /// <summary>
@@ -1102,6 +1177,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             yield return null;
         }
 #endif
+        if (!IsRangedTargetValid(target))
+        {
+            ClearRangedTarget();
+            _rangedAttackCoroutine = null;
+            yield break;
+        }
+
         // 원거리 공격 중 플래그 설정
         _isRangedAttacking = true;
         
@@ -1117,16 +1199,16 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         
         // 공격 수행 (애니메이션 트리거 + pendingAttack 설정)
-        if (target == null || target.IsDead)
+        if (!IsRangedTargetValid(target))
         {
             _isRangedAttacking = false;
+            ClearRangedTarget();
+            _rangedAttackCoroutine = null;
             if (isMoving) SetWalkingAnimation(true);
             yield break;
         }
-        
-        _rangedTarget = target;
-        _hasPendingAttack = true;
-        _pendingAttackTarget = target;
+
+        SetPendingAttackTarget(target, _rangedTargetHandle);
         TriggerAttackAnimation();
         
         // 공격 애니메이션 전체 시간 대기 (Animation Event가 중간에 발사)
@@ -1178,6 +1260,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             SetWalkingAnimation(true);
         }
+        _rangedAttackCoroutine = null;
     }
     
     /// <summary>
@@ -1186,48 +1269,268 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     private Unit FindBestTargetUnit()
     {
-        Collider[] unitsInRange = Physics.OverlapSphere(transform.position, _monsterData.attackRange, unitLayerMask);
-        if (unitsInRange.Length == 0) return null;
-        
+        if (TryGetCombatTargetRegistry(out FieldCombatTargetRegistry registry))
+        {
+            FieldCombatTargetRegistry.QueryStatus status = registry.FindPriorityUnit(
+                this,
+                _monsterData.attackRange,
+                unitLayerMask,
+                out CombatTargetHandle handle);
+            if (status == FieldCombatTargetRegistry.QueryStatus.Found && handle.Actor is Unit registryTarget)
+            {
+                SetRangedTarget(registryTarget, handle);
+                return registryTarget;
+            }
+
+            if (status == FieldCombatTargetRegistry.QueryStatus.NoTarget)
+            {
+                ClearRangedTarget();
+                return null;
+            }
+
+            if (!CanUsePhysicsTargetFallback())
+            {
+                ClearRangedTarget();
+                return null;
+            }
+        }
+        else if (!CanUsePhysicsTargetFallback())
+        {
+            ClearRangedTarget();
+            return null;
+        }
+
+        int count = OverlapTargetsNonAlloc(transform.position, _monsterData.attackRange, unitLayerMask);
         Unit bestRangedUnit = null;
         Unit bestMeleeUnit = null;
-        float closestRangedDist = float.MaxValue;
-        float closestMeleeDist = float.MaxValue;
-        
-        foreach (var col in unitsInRange)
+        Collider bestRangedCollider = null;
+        Collider bestMeleeCollider = null;
+        float closestRangedDistSqr = float.MaxValue;
+        float closestMeleeDistSqr = float.MaxValue;
+
+        for (int i = 0; i < count; i++)
         {
+            Collider col = s_fallbackTargetBuffer[i];
+            if (col == null) continue;
             if (!col.TryGetComponent<Unit>(out var unit)) continue;
-            if (unit.IsDead || unit.Data == null) continue;
-            
-            float distance = Vector3.Distance(transform.position, unit.transform.position);
-            
+            if (!IsFallbackUnitCandidateValid(unit)) continue;
+
+            float distanceSqr = (transform.position - unit.transform.position).sqrMagnitude;
+
             if (unit.Data.unitType == UnitType.Ranged)
             {
-                if (distance < closestRangedDist)
+                if (distanceSqr < closestRangedDistSqr)
                 {
-                    closestRangedDist = distance;
+                    closestRangedDistSqr = distanceSqr;
                     bestRangedUnit = unit;
+                    bestRangedCollider = col;
                 }
             }
             else // Melee
             {
-                if (distance < closestMeleeDist)
+                if (distanceSqr < closestMeleeDistSqr)
                 {
-                    closestMeleeDist = distance;
+                    closestMeleeDistSqr = distanceSqr;
                     bestMeleeUnit = unit;
+                    bestMeleeCollider = col;
                 }
             }
         }
-        
+
         // 원거리 유닛 우선
-        return bestRangedUnit != null ? bestRangedUnit : bestMeleeUnit;
+        Unit result = bestRangedUnit != null ? bestRangedUnit : bestMeleeUnit;
+        Collider resultCollider = bestRangedUnit != null ? bestRangedCollider : bestMeleeCollider;
+        if (result != null)
+        {
+            SetRangedTarget(result, CombatTargetHandle.Capture(result, resultCollider));
+        }
+        else
+        {
+            ClearRangedTarget();
+        }
+        return result;
+    }
+
+    private bool ShouldSearchForTarget()
+    {
+        if (TryGetCombatTargetRegistry(out FieldCombatTargetRegistry registry))
+        {
+            return registry.TryBeginSearch(this, Time.time, BasicTargetSearchInterval);
+        }
+
+        if (!_hasFallbackTargetSearchSchedule)
+        {
+            _hasFallbackTargetSearchSchedule = true;
+            _nextFallbackTargetSearchTime = Time.time +
+                FieldCombatTargetRegistry.ComputeInitialSearchDelay(GetInstanceID(), BasicTargetSearchInterval);
+            return false;
+        }
+
+        if (Time.time + Mathf.Epsilon < _nextFallbackTargetSearchTime)
+        {
+            return false;
+        }
+
+        _nextFallbackTargetSearchTime = Time.time + BasicTargetSearchInterval;
+        return true;
+    }
+
+    private void ResetTargetSearchSchedule()
+    {
+        if (TryGetCombatTargetRegistry(out FieldCombatTargetRegistry registry))
+        {
+            registry.ResetSearchSchedule(this);
+        }
+
+        _hasFallbackTargetSearchSchedule = false;
+        _nextFallbackTargetSearchTime = 0f;
+    }
+
+    private bool TryGetCombatTargetRegistry(out FieldCombatTargetRegistry registry)
+    {
+        registry = null;
+        FieldManager field = ownerPlayer != null ? ownerPlayer.fieldManager : null;
+        return field != null && field.TryGetCombatTargetRegistry(out registry);
+    }
+
+    private void SetRangedTarget(Unit target, CombatTargetHandle handle)
+    {
+        _rangedTarget = target;
+        _rangedTargetHandle = target != null
+            ? (handle.Actor != null ? handle : CombatTargetHandle.Capture(target))
+            : default;
+    }
+
+    private void ClearRangedTarget()
+    {
+        _rangedTarget = null;
+        _rangedTargetHandle = default;
+    }
+
+    private void SetPendingAttackTarget(IEnemy target, CombatTargetHandle handle = default)
+    {
+        _pendingAttackTarget = target;
+        MonoBehaviour targetBehaviour = target as MonoBehaviour;
+        _pendingAttackTargetHandle = targetBehaviour != null
+            ? (handle.Actor != null ? handle : CombatTargetHandle.Capture(targetBehaviour))
+            : default;
+        _hasPendingAttack = target != null;
+    }
+
+    private void ClearPendingAttackTarget()
+    {
+        _hasPendingAttack = false;
+        _pendingAttackTarget = null;
+        _pendingAttackTargetHandle = default;
+    }
+
+    private void CancelRangedAttackState(bool clearTarget)
+    {
+        if (_rangedAttackCoroutine != null)
+        {
+            StopCoroutine(_rangedAttackCoroutine);
+            _rangedAttackCoroutine = null;
+        }
+
+        _isRangedAttacking = false;
+        ClearPendingAttackTarget();
+        if (clearTarget)
+        {
+            ClearRangedTarget();
+        }
+    }
+
+    private bool IsRangedTargetValid(Unit target)
+    {
+        if (!CanRunCombatSimulation() || IsCombatSuspendedForHostMigration() ||
+            target == null || target.IsDead || target.Data == null || target.CurrentHealth <= 0f ||
+            !_rangedTargetHandle.IsCurrentLifecycle(target))
+        {
+            return false;
+        }
+
+        Collider targetCollider = _rangedTargetHandle.Collider;
+        if (targetCollider == null || !targetCollider.enabled || !targetCollider.gameObject.activeInHierarchy ||
+            (unitLayerMask.value & (1 << targetCollider.gameObject.layer)) == 0)
+        {
+            return false;
+        }
+
+        if (!IsUnitOnSameField(target))
+        {
+            return false;
+        }
+
+        float range = Mathf.Max(0f, _monsterData != null ? _monsterData.attackRange : 0f);
+        return (transform.position - target.transform.position).sqrMagnitude <= range * range;
+    }
+
+    private bool IsFallbackUnitCandidateValid(Unit unit)
+    {
+        return unit != null &&
+               unit.gameObject.activeInHierarchy &&
+               !unit.IsDead &&
+               unit.Data != null &&
+               unit.CurrentHealth > 0f &&
+               IsUnitOnSameField(unit);
+    }
+
+    private bool IsUnitOnSameField(Unit unit)
+    {
+        if (unit == null)
+        {
+            return false;
+        }
+
+        int monsterOwnerId = SnapshotOwnerPlayerId;
+        int unitOwnerId = unit.OwnerPlayerIdForRoster;
+        if (monsterOwnerId < 0 || unitOwnerId < 0)
+        {
+            return !Application.isPlaying;
+        }
+
+        return monsterOwnerId == unitOwnerId;
+    }
+
+    private static int OverlapTargetsNonAlloc(Vector3 position, float range, LayerMask layerMask)
+    {
+        int count;
+        while (true)
+        {
+            count = Physics.OverlapSphereNonAlloc(position, range, s_fallbackTargetBuffer, layerMask);
+            if (count < s_fallbackTargetBuffer.Length || s_fallbackTargetBuffer.Length >= MaxFallbackTargetBufferSize)
+            {
+                return count;
+            }
+
+            int nextSize = Mathf.Min(s_fallbackTargetBuffer.Length * 2, MaxFallbackTargetBufferSize);
+            Array.Resize(ref s_fallbackTargetBuffer, nextSize);
+        }
+    }
+
+    private bool CanUsePhysicsTargetFallback()
+    {
+        FieldManager field = ownerPlayer != null ? ownerPlayer.fieldManager : null;
+        NetworkRunner fieldRunner = field != null && field.playerManager != null
+            ? field.playerManager.Runner
+            : null;
+        return !IsCombatSuspendedForHostMigration() &&
+               fieldRunner == null &&
+               Runner == null &&
+               (Object == null || !Object.IsValid);
+    }
+
+    private static bool IsCombatSuspendedForHostMigration()
+    {
+        return HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
     }
     
     #endregion
 
     private void ActivateSkill()
     {
-        if (!HasStateAuthorityOrNoNetwork()) return;
+        if (!CanRunCombatSimulation()) return;
+        if (IsCombatSuspendedForHostMigration()) return;
         
         if (_buffManager != null && !_buffManager.CanUseSkill) return;
         
@@ -1443,6 +1746,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     private void OnDestroy()
     {
+        UnregisterCombatTarget();
         if (manaController != null) manaController.OnManaFull -= ActivateSkill;
         
         // 파괴 시 벽 파괴 이벤트 구독 해제 (이벤트 콜백에서 MissingReferenceException 방지)
@@ -1463,6 +1767,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (_despawnRequested) return;
         _despawnRequested = true;
 
+        CancelRangedAttackState(clearTarget: true);
         StopAllCoroutines();
 
         NetworkObject no = Object;
@@ -1493,6 +1798,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private void StartAttacking(IEnemy target)
     {
         if (target == null) return;
+        CancelRangedAttackState(clearTarget: true);
         StopAllCoroutines();
         resumeCoroutine = null;
         currentBlockerId = 0;
@@ -1521,6 +1827,19 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         while (target != null && (target as MonoBehaviour) != null)
         {
+            if (!CanRunCombatSimulation())
+            {
+                ClearPendingAttackTarget();
+                yield break;
+            }
+
+            if (IsCombatSuspendedForHostMigration())
+            {
+                ClearPendingAttackTarget();
+                yield return null;
+                continue;
+            }
+
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (MPTestCommandLine.IsGameFlowFrozen)
             {
@@ -1556,8 +1875,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 break;
             }
 
-            _pendingAttackTarget = target;
-            _hasPendingAttack = true;
+            SetPendingAttackTarget(target);
             TriggerAttackAnimation();
             
             yield return new WaitForSeconds(0.5f);
@@ -1575,8 +1893,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
         // Debug.Log("공격 대상이 사라졌습니다. 이동을 재개합니다.");
         attackCoroutine = null;
-        _hasPendingAttack = false;
-        _pendingAttackTarget = null;
+        ClearPendingAttackTarget();
 
         ScheduleResumeFromBlocker();
     }
@@ -1598,12 +1915,22 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
 #endif
         if (!_hasPendingAttack || _pendingAttackTarget == null) return;
+        if (!CanRunCombatSimulation())
+        {
+            ClearPendingAttackTarget();
+            return;
+        }
+        if (IsCombatSuspendedForHostMigration())
+        {
+            ClearPendingAttackTarget();
+            return;
+        }
         
         var targetMono = _pendingAttackTarget as MonoBehaviour;
-        if (targetMono == null) 
+        if (targetMono == null || !_pendingAttackTargetHandle.IsCurrentLifecycle(targetMono) ||
+            _pendingAttackTarget is IHealth targetHealth && targetHealth.CurrentHealth <= 0f)
         {
-            _hasPendingAttack = false;
-            _pendingAttackTarget = null;
+            ClearPendingAttackTarget();
             return;
         }
         
@@ -1615,7 +1942,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             var scheduler = CombatScheduler.Instance;
             var targetNo = targetMono.GetComponentInParent<NetworkObject>();
             
-            if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && targetNo != null)
+            if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning &&
+                targetNo != null && targetNo.IsValid)
             {
                 // firePoint가 있으면 사용, 없으면 기본 오프셋
                 Vector3 firePos = firePoint != null ? firePoint.position : transform.position + Vector3.up * 0.5f;
@@ -1649,9 +1977,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             // Debug.Log($"{_monsterData.monsterName}이(가) {targetName}을(를) 공격!");
         }
         
-        _hasPendingAttack = false;
-        _pendingAttackTarget = null;
-        _rangedTarget = null;
+        ClearPendingAttackTarget();
     }
 
     private void ScheduleResumeFromBlocker()
@@ -1765,6 +2091,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             isMoving = false;
             return;
         }
+        CancelRangedAttackState(clearTarget: false);
         StopAllCoroutines();
 
         isMoving = true;
@@ -2010,6 +2337,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         
         // 코루틴 정지
+        CancelRangedAttackState(clearTarget: true);
         StopAllCoroutines();
         
         // 네트워크 또는 로컬 제거

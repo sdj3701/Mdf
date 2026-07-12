@@ -124,7 +124,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private ChangeDetector _changeDetector;
     private bool _runtimeInitialized;
     public bool IsReadyForPlayerActions => _runtimeInitialized && playerId >= 0 && fieldManager != null;
-    private readonly HashSet<int> _pendingShopPurchaseSlots = new HashSet<int>();
+    private PlayerShopPurchaseCoordinator _shopPurchaseCoordinator;
+    internal int CurrentShopSnapshotRevision => ShopSnapshotRevision;
 
     public struct PurchaseUnitResult
     {
@@ -3556,146 +3557,19 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     public bool IsShopPurchaseTransactionPending(int shopSlotIndex)
     {
-        return _pendingShopPurchaseSlots.Contains(shopSlotIndex);
+        return GetShopPurchaseCoordinator().IsPending(shopSlotIndex);
     }
 
     public async UniTask<PurchaseUnitResult> TryPurchaseShopUnitAsync(
         int shopSlotIndex,
         CancellationToken cancellationToken = default)
     {
-        var gameManagers = GameManagers.Instance;
-        bool networkSessionExpected =
-            (gameManagers != null && gameManagers.Runner != null && gameManagers.Runner.IsRunning) ||
-            (Object != null && Object.IsValid);
-        if (networkSessionExpected &&
-            (Runner == null || !Runner.IsRunning || gameManagers == null || gameManagers.Runner != Runner ||
-            (Object == null || !Object.IsValid || !Object.HasStateAuthority)))
-        {
-            return PurchaseUnitResult.Failure(shopSlotIndex, "state_authority_required");
-        }
-        if (shopManager == null || !shopManager.IsDatabaseLoaded)
-        {
-            return PurchaseUnitResult.Failure(shopSlotIndex, "shop_not_ready");
-        }
-        if (fieldManager == null)
-        {
-            return PurchaseUnitResult.Failure(shopSlotIndex, "field_not_ready");
-        }
+        return await GetShopPurchaseCoordinator().ExecuteAsync(shopSlotIndex, cancellationToken);
+    }
 
-        if (gameManagers == null || gameManagers.currentState != GameManagers.GameState.Prepare || gameManagers.IsSequenceTransitioning)
-        {
-            return PurchaseUnitResult.Failure(shopSlotIndex, "command_requires_stable_prepare_phase");
-        }
-        if (!_pendingShopPurchaseSlots.Add(shopSlotIndex))
-        {
-            return PurchaseUnitResult.Failure(shopSlotIndex, "shop_slot_purchase_pending");
-        }
-
-        Unit placedUnit = null;
-        int committedCost = 0;
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var items = shopManager.GetCurrentShopItems();
-            if (shopSlotIndex < 0 || shopSlotIndex >= items.Count)
-            {
-                return PurchaseUnitResult.Failure(shopSlotIndex, "shop_slot_out_of_range");
-            }
-            if (shopManager.IsSlotSold(shopSlotIndex))
-            {
-                return PurchaseUnitResult.Failure(shopSlotIndex, "shop_slot_already_sold");
-            }
-
-            ShopItem observedItem = items[shopSlotIndex];
-            if (observedItem.UnitData == null)
-            {
-                return PurchaseUnitResult.Failure(shopSlotIndex, "shop_item_missing_unit_data");
-            }
-
-            int observedRevision = ShopSnapshotRevision;
-            int observedCost = observedItem.CalculatedCost;
-            UnitData observedUnitData = observedItem.UnitData;
-            int observedStarLevel = observedItem.StarLevel;
-            if (observedCost < 0 || GetGold() < observedCost)
-            {
-                return PurchaseUnitResult.Failure(shopSlotIndex, "insufficient_gold");
-            }
-
-            bool markAsAIPurchased = ComponentRegistry.Has<AIPlayerController>(playerId.ToString());
-            FieldManager.UnitPlacementResult placement = await fieldManager.TryCreateAndPlaceUnitOnFieldAsync(
-                observedUnitData,
-                observedStarLevel,
-                markAsAIPurchased,
-                suppressCombination: true,
-                cancellationToken: cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!placement.Succeeded)
-            {
-                return PurchaseUnitResult.Failure(
-                    shopSlotIndex,
-                    string.IsNullOrEmpty(placement.FailureReason) ? "unit_placement_failed" : placement.FailureReason);
-            }
-            placedUnit = placement.Unit;
-
-            items = shopManager.GetCurrentShopItems();
-            bool transactionStillCurrent =
-                gameManagers == GameManagers.Instance &&
-                gameManagers.currentState == GameManagers.GameState.Prepare &&
-                !gameManagers.IsSequenceTransitioning &&
-                ShopSnapshotRevision == observedRevision &&
-                shopSlotIndex >= 0 &&
-                shopSlotIndex < items.Count &&
-                !shopManager.IsSlotSold(shopSlotIndex) &&
-                ReferenceEquals(items[shopSlotIndex].UnitData, observedUnitData) &&
-                items[shopSlotIndex].StarLevel == observedStarLevel &&
-                items[shopSlotIndex].CalculatedCost == observedCost &&
-                GetGold() >= observedCost;
-
-            if (!transactionStillCurrent)
-            {
-                fieldManager.TryRollbackPlacedUnit(placement.Unit, "PurchaseStateChanged");
-                return PurchaseUnitResult.Failure(shopSlotIndex, "purchase_state_changed_during_spawn");
-            }
-            if (!SpendGold(observedCost))
-            {
-                fieldManager.TryRollbackPlacedUnit(placement.Unit, "PurchaseGoldCommitFailed");
-                return PurchaseUnitResult.Failure(shopSlotIndex, "gold_commit_failed");
-            }
-            committedCost = observedCost;
-
-            shopManager.MarkSlotAsPurchased(shopSlotIndex);
-            fieldManager.CheckForCombination();
-            return PurchaseUnitResult.Success(shopSlotIndex, observedCost, placement.Unit);
-        }
-        catch (OperationCanceledException)
-        {
-            if (placedUnit != null)
-            {
-                fieldManager.TryRollbackPlacedUnit(placedUnit, "PurchaseCancelled");
-            }
-            if (committedCost > 0)
-            {
-                AddGold(committedCost);
-            }
-            throw;
-        }
-        catch (Exception exception)
-        {
-            Debug.LogException(exception, this);
-            if (placedUnit != null)
-            {
-                fieldManager.TryRollbackPlacedUnit(placedUnit, "PurchaseException");
-            }
-            if (committedCost > 0)
-            {
-                AddGold(committedCost);
-            }
-            return PurchaseUnitResult.Failure(shopSlotIndex, "purchase_transaction_failed");
-        }
-        finally
-        {
-            _pendingShopPurchaseSlots.Remove(shopSlotIndex);
-        }
+    private PlayerShopPurchaseCoordinator GetShopPurchaseCoordinator()
+    {
+        return _shopPurchaseCoordinator ?? (_shopPurchaseCoordinator = new PlayerShopPurchaseCoordinator(this));
     }
 
     public void AddWalls(int amount)
