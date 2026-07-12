@@ -19,11 +19,21 @@ public class RemoveWallCommand : ICommand
             Debug.Log($"[RemoveWallCommand] Ignored on non-server peer. Player={PlayerId}, Pos={Position}");
             return;
         }
+        if (gm.Object == null || !gm.Object.IsValid || !gm.Object.HasStateAuthority ||
+            gm.currentState != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
+        {
+            Debug.LogWarning($"[RemoveWallCommand] Rejected outside authoritative stable Prepare. Player={PlayerId}, Pos={Position}");
+            return;
+        }
 
         var player = gm.GetPlayer(PlayerId);
         if (player == null)
         {
             Debug.LogError($"[RemoveWallCommand] Player not found for PlayerId {PlayerId}");
+            return;
+        }
+        if (player.Object == null || !player.Object.IsValid || !player.Object.HasStateAuthority)
+        {
             return;
         }
 

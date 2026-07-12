@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-07-12
+Last verified: 2026-07-12
+Use count: 6
 Review after: 2026-08-03
 Triggers: normal client disconnect, AI takeover, same `playerId` field preservation
 Applies to: `NetworkManager.OnPlayerLeft`, `AIPlayerController`, `tools/harness/mp/run_disconnect_ai_takeover.py`
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260712-113515-progressed-disconnect-ai-takeover; artifacts/mp/20260712-115553-progressed-disconnect-ai-takeover
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -29,3 +29,7 @@ Verification:
 
 Pitfalls:
 - `NetworkManager._spawnedCharacters` may point to the lobby/network player object, not the Game `PlayerManager`. Disconnect takeover must find the runtime `PlayerManager` by `InputAuthority`, cache by connection token, clear input authority, and attach `AIPlayerController` without despawning the durable slot.
+
+Lifecycle notes:
+- 2026-07-12: verified artifact `artifacts/mp/20260712-113515-progressed-disconnect-ai-takeover`
+- 2026-07-12: verified artifact `artifacts/mp/20260712-115553-progressed-disconnect-ai-takeover`

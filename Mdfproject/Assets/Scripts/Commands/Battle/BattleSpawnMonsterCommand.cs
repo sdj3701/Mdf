@@ -11,6 +11,8 @@ public sealed class BattleSpawnMonsterCommand
     private FieldManager _validatedDefenderField;
     private MonsterPoolEntry _validatedPoolEntry;
     private int _validatedCount;
+    private int _reservedPoolRevision = -1;
+    private int _reservedRemainingCount = -1;
     private bool _spawnRejectedLogged;
 
     public int AttackerPlayerId { get; }
@@ -71,6 +73,8 @@ public sealed class BattleSpawnMonsterCommand
         _validatedDefender = null;
         _validatedDefenderField = null;
         _validatedPoolEntry = null;
+        _reservedPoolRevision = -1;
+        _reservedRemainingCount = -1;
 
         var gm = GameManagers.Instance;
         if (!BattleCommandValidator.ResolveActorPlayer(
@@ -197,6 +201,12 @@ public sealed class BattleSpawnMonsterCommand
             return Reject("attacker_monster_spawner_missing", null, DefenderPlayerId, Scope);
         }
 
+        int battleGeneration = _validatedAttacker.monsterSpawner.CaptureBattleGeneration();
+        if (battleGeneration < 0)
+        {
+            return Reject("battle_generation_unavailable", null, DefenderPlayerId, Scope);
+        }
+
         int spawnedCount = 0;
         for (int i = 0; i < _validatedCount; i++)
         {
@@ -210,15 +220,32 @@ public sealed class BattleSpawnMonsterCommand
             int originPlayerId = ResolveOriginPlayerId(_validatedPoolEntry);
             MonsterData monsterData = _validatedPoolEntry.MonsterData;
 
+            if (!_validatedAttacker.TryConsumeMonsterPoolSlot(PoolSlotIndex))
+            {
+                return Reject("pool_slot_reserve_failed_before_prewarm", null, DefenderPlayerId, Scope);
+            }
+
+            _reservedPoolRevision = _validatedAttacker.AttackMonsterPoolRevision;
+            _reservedRemainingCount = _validatedPoolEntry.RemainingCount;
+
+            bool spawnCommitted = false;
+            try
+            {
+
             await _validatedAttacker.monsterSpawner.PrewarmMonsterDataAsync(
                 monsterData,
                 isBoss,
                 1,
                 "BattleSpawnMonsterCommand");
 
-            if (!_validatedAttacker.TryConsumeMonsterPoolSlot(PoolSlotIndex))
+            if (!_validatedAttacker.monsterSpawner.IsBattleGenerationCurrent(battleGeneration))
             {
-                return Reject("pool_slot_consume_failed_before_spawn", null, DefenderPlayerId, Scope);
+                return Reject("battle_changed_during_spawn_prewarm", null, DefenderPlayerId, Scope);
+            }
+
+            if (!RevalidateAfterAwait(out string revalidationReason))
+            {
+                return Reject(revalidationReason, null, DefenderPlayerId, Scope);
             }
 
             var monster = await _validatedAttacker.monsterSpawner.SpawnMonsterAtPositionAsync(
@@ -227,13 +254,21 @@ public sealed class BattleSpawnMonsterCommand
                 _validatedDefenderField,
                 isBoss,
                 bossUniqueId,
-                originPlayerId);
+                originPlayerId,
+                battleGeneration);
+
+            if (!_validatedAttacker.monsterSpawner.IsBattleGenerationCurrent(battleGeneration))
+            {
+                _validatedAttacker.monsterSpawner.CleanupCanceledBattleSpawn(monster);
+                return Reject("battle_changed_during_monster_spawn", null, DefenderPlayerId, Scope);
+            }
 
             if (monster == null)
             {
-                _validatedAttacker.TryRefundMonsterPoolSlot(PoolSlotIndex);
                 return Reject("battle_spawn_runner_spawn_failed", null, DefenderPlayerId, Scope);
             }
+
+            spawnCommitted = true;
 
             if (isBoss)
             {
@@ -241,6 +276,19 @@ public sealed class BattleSpawnMonsterCommand
             }
 
             spawnedCount++;
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogException(exception);
+                return Reject("battle_spawn_exception", null, DefenderPlayerId, Scope);
+            }
+            finally
+            {
+                if (!spawnCommitted)
+                {
+                    _validatedAttacker.TryRefundMonsterPoolSlot(PoolSlotIndex);
+                }
+            }
         }
 
         if (spawnedCount <= 0)
@@ -249,6 +297,49 @@ public sealed class BattleSpawnMonsterCommand
         }
 
         return Executed(spawnedCount, "battle_spawn_executed");
+    }
+
+    private bool RevalidateAfterAwait(out string reason)
+    {
+        reason = null;
+        GameManagers gm = GameManagers.Instance;
+        if (gm == null || gm.Object == null || !gm.Object.HasStateAuthority ||
+            gm.IsSequenceTransitioning ||
+            (gm.currentState != GameManagers.GameState.Battle1 && gm.currentState != GameManagers.GameState.Battle2))
+        {
+            reason = "battle_authority_or_phase_changed_during_await";
+            return false;
+        }
+
+        if (gm.GetPlayer(AttackerPlayerId) != _validatedAttacker ||
+            gm.GetPlayer(DefenderPlayerId) != _validatedDefender ||
+            !BattleCommandValidator.IsCurrentBattleAttacker(_validatedAttacker) ||
+            !BattleCommandValidator.IsCurrentBattleDefender(_validatedDefender))
+        {
+            reason = "battle_participants_changed_during_await";
+            return false;
+        }
+
+        if (_validatedAttacker.AttackMonsterPool == null ||
+            PoolSlotIndex < 0 ||
+            PoolSlotIndex >= _validatedAttacker.AttackMonsterPool.Count)
+        {
+            reason = "battle_pool_slot_changed_during_await";
+            return false;
+        }
+
+        MonsterPoolEntry currentEntry = _validatedAttacker.AttackMonsterPool[PoolSlotIndex];
+        if (!ReferenceEquals(currentEntry, _validatedPoolEntry) ||
+            currentEntry == null ||
+            currentEntry.MonsterData != _validatedPoolEntry.MonsterData ||
+            _validatedAttacker.AttackMonsterPoolRevision != _reservedPoolRevision ||
+            currentEntry.RemainingCount != _reservedRemainingCount)
+        {
+            reason = "battle_pool_reservation_changed_during_await";
+            return false;
+        }
+
+        return true;
     }
 
     private bool TryResolvePoolSlot(PlayerManager attacker, out MonsterPoolEntry entry, out string reason)

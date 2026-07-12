@@ -36,6 +36,19 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 서버에서 플레이어들을 관리하기 위한 딕셔너리입니다.
     private readonly Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
     private readonly Dictionary<PlayerRef, string> _connectionTokensByPlayer = new Dictionary<PlayerRef, string>();
+    private readonly Dictionary<int, PendingDisconnectedAiTakeover> _pendingDisconnectedAiTakeovers = new Dictionary<int, PendingDisconnectedAiTakeover>();
+    private int _disconnectedAiTakeoverGeneration;
+
+    private sealed class PendingDisconnectedAiTakeover
+    {
+        public int PlayerId;
+        public string ConnectionToken;
+        public PlayerRef DisconnectedPlayer;
+        public NetworkRunner Runner;
+        public PlayerManager PlayerManager;
+        public int Generation;
+        public Coroutine Coroutine;
+    }
 
     [Header("Lobby & UI")]
     // 현재 로비에 있는 세션(방) 목록을 저장합니다.
@@ -116,6 +129,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (Instance == this)
         {
+            CancelAllPendingDisconnectedAiTakeovers();
             CancelPendingConnectionLossFallback();
             UnregisterCloudConnectionLostHandlerIfAvailable();
         }
@@ -464,6 +478,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
                 NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, Vector3.zero, Quaternion.identity, player);
                 _spawnedCharacters[player] = networkPlayerObject;
+                PublishDurableConnectionTokenHash(runner, player, networkPlayerObject);
             }
         }
 
@@ -481,6 +496,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         PlayerManager runtimePlayer = FindPlayerManagerForInputAuthority(runner, player);
         NetworkObject preservedObject = runtimePlayer != null ? runtimePlayer.Object : null;
         NetworkObject cacheObject = preservedObject != null && preservedObject.IsValid ? preservedObject : networkObject;
+        string disconnectedToken = GetCachedOrCurrentConnectionToken(runner, player);
 
         CacheDisconnectedPlayerData(runner, player, cacheObject);
 
@@ -490,9 +506,23 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
             if (!isMigrating && runner != null && runner.IsServer)
             {
-                if (!TryEnableDisconnectedAiTakeover(runner, player, runtimePlayer, out string notReadyReason))
+                int disconnectedPlayerId = runtimePlayer.playerId;
+                CancelPendingDisconnectedAiTakeover(disconnectedPlayerId, null);
+                if (!TryEnableDisconnectedAiTakeover(
+                        runner,
+                        player,
+                        runtimePlayer,
+                        disconnectedPlayerId,
+                        disconnectedToken,
+                        out string notReadyReason))
                 {
-                    StartCoroutine(RetryDisconnectedAiTakeover(runner, player, runtimePlayer, notReadyReason));
+                    ScheduleDisconnectedAiTakeoverRetry(
+                        runner,
+                        player,
+                        runtimePlayer,
+                        disconnectedPlayerId,
+                        disconnectedToken,
+                        notReadyReason);
                 }
             }
 
@@ -526,6 +556,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // Runner가 종료되었을 때 호출됩니다. (연결 끊김, 스스로 나가기 등)
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
+        CancelPendingDisconnectedAiTakeoversForRunner(runner);
+
         string runnerName = runner != null ? runner.name : "null";
         string activeRunnerName = _runner != null ? _runner.name : "null";
         bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
@@ -556,7 +588,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             Destroy(runner);
             return;
         }
-        
+
+        HostMigrationHandler.Instance?.ClearReconnectCacheForMatchEnd();
+        _connectionTokensByPlayer.Clear();
+
         State = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
         _startGameInProgress = false;
         SetNetworkUiBlock(NetworkUiBlockReason.None);
@@ -694,7 +729,13 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    private bool TryEnableDisconnectedAiTakeover(NetworkRunner runner, PlayerRef player, PlayerManager playerManager, out string reason)
+    private bool TryEnableDisconnectedAiTakeover(
+        NetworkRunner runner,
+        PlayerRef player,
+        PlayerManager playerManager,
+        int expectedPlayerId,
+        string expectedConnectionToken,
+        out string reason)
     {
         reason = null;
 
@@ -708,6 +749,39 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             reason = "player_manager_invalid";
             return false;
+        }
+
+        if (playerManager.Runner != runner || !playerManager.Object.HasStateAuthority)
+        {
+            reason = "player_manager_not_authoritative";
+            return false;
+        }
+
+        _connectionTokensByPlayer.TryGetValue(player, out string cachedConnectionToken);
+        bool hasInputAuthority = playerManager.Object.InputAuthority != PlayerRef.None;
+        bool hasActiveConnection = HasActiveConnectionForDurablePlayer(runner, expectedPlayerId);
+        if (!ValidateDisconnectedAiTakeoverIdentity(
+                expectedPlayerId,
+                expectedConnectionToken,
+                playerManager.playerId,
+                cachedConnectionToken,
+                hasInputAuthority,
+                hasActiveConnection,
+                out reason))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(expectedConnectionToken))
+        {
+            var migrationHandler = HostMigrationHandler.Instance;
+            if (migrationHandler == null
+                || !migrationHandler.TryGetCachedPlayerData(expectedConnectionToken, out var cachedPlayerData)
+                || cachedPlayerData.PlayerId != expectedPlayerId)
+            {
+                reason = "durable_identity_cache_mismatch";
+                return false;
+            }
         }
 
         var gameManagers = GameManagers.Instance;
@@ -766,27 +840,207 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         return true;
     }
 
-    private IEnumerator RetryDisconnectedAiTakeover(NetworkRunner runner, PlayerRef player, PlayerManager playerManager, string initialReason)
+    private static bool ValidateDisconnectedAiTakeoverIdentity(
+        int expectedPlayerId,
+        string expectedConnectionToken,
+        int actualPlayerId,
+        string cachedConnectionToken,
+        bool hasInputAuthority,
+        bool hasActiveConnection,
+        out string reason)
+    {
+        if (expectedPlayerId < 0 || actualPlayerId != expectedPlayerId)
+        {
+            reason = "durable_player_id_mismatch";
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(expectedConnectionToken)
+            && !string.Equals(expectedConnectionToken, cachedConnectionToken, StringComparison.Ordinal))
+        {
+            reason = "durable_connection_token_mismatch";
+            return false;
+        }
+
+        if (hasInputAuthority)
+        {
+            reason = "input_authority_reassigned";
+            return false;
+        }
+
+        if (hasActiveConnection)
+        {
+            reason = "durable_player_reconnected";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool HasActiveConnectionForDurablePlayer(NetworkRunner runner, int expectedPlayerId)
+    {
+        if (runner == null || expectedPlayerId < 0)
+        {
+            return false;
+        }
+
+        var candidates = FindObjectsOfType<PlayerManager>(true);
+        foreach (var candidate in candidates)
+        {
+            if (candidate == null
+                || candidate.playerId != expectedPlayerId
+                || candidate.Runner != runner
+                || candidate.Object == null
+                || !candidate.Object.IsValid)
+            {
+                continue;
+            }
+
+            PlayerRef inputAuthority = candidate.Object.InputAuthority;
+            if (inputAuthority != PlayerRef.None && IsActivePlayer(runner, inputAuthority))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void ScheduleDisconnectedAiTakeoverRetry(
+        NetworkRunner runner,
+        PlayerRef player,
+        PlayerManager playerManager,
+        int expectedPlayerId,
+        string expectedConnectionToken,
+        string initialReason)
+    {
+        CancelPendingDisconnectedAiTakeover(expectedPlayerId, null);
+
+        var pending = new PendingDisconnectedAiTakeover
+        {
+            PlayerId = expectedPlayerId,
+            ConnectionToken = expectedConnectionToken,
+            DisconnectedPlayer = player,
+            Runner = runner,
+            PlayerManager = playerManager,
+            Generation = ++_disconnectedAiTakeoverGeneration
+        };
+
+        _pendingDisconnectedAiTakeovers[expectedPlayerId] = pending;
+        Coroutine coroutine = StartCoroutine(RetryDisconnectedAiTakeover(pending, initialReason));
+        if (IsCurrentDisconnectedAiTakeover(pending))
+        {
+            pending.Coroutine = coroutine;
+        }
+    }
+
+    private IEnumerator RetryDisconnectedAiTakeover(PendingDisconnectedAiTakeover pending, string initialReason)
     {
         string reason = initialReason;
         float deadline = Time.realtimeSinceStartup + 10f;
         while (Time.realtimeSinceStartup < deadline)
         {
-            if (TryEnableDisconnectedAiTakeover(runner, player, playerManager, out reason))
+            if (!IsCurrentDisconnectedAiTakeover(pending))
             {
+                yield break;
+            }
+
+            if (TryEnableDisconnectedAiTakeover(
+                    pending.Runner,
+                    pending.DisconnectedPlayer,
+                    pending.PlayerManager,
+                    pending.PlayerId,
+                    pending.ConnectionToken,
+                    out reason))
+            {
+                CompleteDisconnectedAiTakeoverRetry(pending);
                 yield break;
             }
 
             yield return new WaitForSeconds(0.5f);
         }
 
+        CompleteDisconnectedAiTakeoverRetry(pending);
+
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestLogger.Log("disconnect_ai_takeover", "fail", "not_ready", reason, new Dictionary<string, object>
         {
-            { "leftPlayerRef", player.ToString() },
+            { "leftPlayerRef", pending.DisconnectedPlayer.ToString() },
+            { "playerId", pending.PlayerId },
+            { "generation", pending.Generation },
             { "initialReason", initialReason ?? "unknown" }
         });
 #endif
+    }
+
+    private bool IsCurrentDisconnectedAiTakeover(PendingDisconnectedAiTakeover pending)
+    {
+        return pending != null
+            && _pendingDisconnectedAiTakeovers.TryGetValue(pending.PlayerId, out var current)
+            && ReferenceEquals(current, pending)
+            && current.Generation == pending.Generation;
+    }
+
+    private void CompleteDisconnectedAiTakeoverRetry(PendingDisconnectedAiTakeover pending)
+    {
+        if (IsCurrentDisconnectedAiTakeover(pending))
+        {
+            _pendingDisconnectedAiTakeovers.Remove(pending.PlayerId);
+        }
+    }
+
+    private void CancelPendingDisconnectedAiTakeover(int playerId, string expectedConnectionToken)
+    {
+        if (!_pendingDisconnectedAiTakeovers.TryGetValue(playerId, out var pending))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(expectedConnectionToken)
+            && !string.IsNullOrEmpty(pending.ConnectionToken)
+            && !string.Equals(expectedConnectionToken, pending.ConnectionToken, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _pendingDisconnectedAiTakeovers.Remove(playerId);
+        if (pending.Coroutine != null)
+        {
+            StopCoroutine(pending.Coroutine);
+        }
+    }
+
+    private void CancelPendingDisconnectedAiTakeoversForRunner(NetworkRunner runner)
+    {
+        if (runner == null)
+        {
+            CancelAllPendingDisconnectedAiTakeovers();
+            return;
+        }
+
+        var playerIds = new List<int>();
+        foreach (var entry in _pendingDisconnectedAiTakeovers)
+        {
+            if (entry.Value.Runner == runner)
+            {
+                playerIds.Add(entry.Key);
+            }
+        }
+
+        for (int i = 0; i < playerIds.Count; i++)
+        {
+            CancelPendingDisconnectedAiTakeover(playerIds[i], null);
+        }
+    }
+
+    private void CancelAllPendingDisconnectedAiTakeovers()
+    {
+        var playerIds = new List<int>(_pendingDisconnectedAiTakeovers.Keys);
+        for (int i = 0; i < playerIds.Count; i++)
+        {
+            CancelPendingDisconnectedAiTakeover(playerIds[i], null);
+        }
     }
 
     private void ReleaseDisconnectedAiTakeover(PlayerManager playerManager, PlayerRef joinedPlayer)
@@ -963,7 +1217,38 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (!string.IsNullOrEmpty(token))
         {
             _connectionTokensByPlayer[player] = token;
+            return;
         }
+
+        // PlayerRef values are reusable across runners/sessions. Never let a missing
+        // token read on a fresh join fall back to another session's raw token.
+        _connectionTokensByPlayer.Remove(player);
+    }
+
+    private void PublishDurableConnectionTokenHash(
+        NetworkRunner runner,
+        PlayerRef player,
+        NetworkObject playerObject = null)
+    {
+        if (runner == null || !runner.IsServer)
+        {
+            return;
+        }
+
+        string token = GetCachedOrCurrentConnectionToken(runner, player);
+        string tokenHash = DurableConnectionTokenIdentity.BuildHash(token);
+        if (!PlayerManager.IsValidDurableConnectionTokenHash(tokenHash))
+        {
+            return;
+        }
+
+        PlayerManager playerManager = null;
+        if (playerObject != null && playerObject.IsValid)
+        {
+            playerObject.TryGetComponent(out playerManager);
+        }
+        playerManager ??= FindPlayerManagerForInputAuthority(runner, player);
+        playerManager?.TrySetDurableConnectionTokenHashFromAuthority(tokenHash);
     }
 
     private void CacheDisconnectedPlayerData(NetworkRunner runner, PlayerRef player, NetworkObject networkObject)
@@ -994,6 +1279,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             IsAI = playerManager.GetComponent<AIPlayerController>() != null
         };
 
+        playerManager.TrySetDurableConnectionTokenHashFromAuthority(
+            DurableConnectionTokenIdentity.BuildHash(token));
+
         HostMigrationHandler.Instance.CacheDisconnectedPlayer(token, data);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestLogger.Log("disconnect_cache", "pass", null, null, new Dictionary<string, object>
@@ -1018,7 +1306,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return false;
         }
 
-        if (!HostMigrationHandler.Instance.TryGetCachedPlayerData(token, out var cachedData))
+        bool hasRawCache = HostMigrationHandler.Instance.TryGetCachedPlayerData(token, out var cachedData);
+        string tokenHash = DurableConnectionTokenIdentity.BuildHash(token);
+        if (!hasRawCache && !PlayerManager.IsValidDurableConnectionTokenHash(tokenHash))
         {
             return false;
         }
@@ -1032,9 +1322,23 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                 continue;
             }
 
-            if (candidate.playerId == cachedData.PlayerId)
+            bool matchesRawCache = hasRawCache && candidate.playerId == cachedData.PlayerId;
+            bool matchesMigratedHash = PlayerManager.IsValidDurableConnectionTokenHash(tokenHash)
+                && string.Equals(candidate.GetDurableConnectionTokenHash(), tokenHash, StringComparison.OrdinalIgnoreCase);
+            if (matchesRawCache || matchesMigratedHash)
             {
                 targetPlayer = candidate;
+                if (!hasRawCache)
+                {
+                    cachedData = new PlayerMigrationData
+                    {
+                        PlayerId = candidate.playerId,
+                        ConnectionToken = token,
+                        Health = candidate.GetHealth(),
+                        Gold = candidate.GetGold(),
+                        IsAI = candidate.GetComponent<AIPlayerController>() != null
+                    };
+                }
                 break;
             }
         }
@@ -1066,6 +1370,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return false;
         }
 
+        targetPlayer.TrySetDurableConnectionTokenHashFromAuthority(tokenHash);
+        CancelPendingDisconnectedAiTakeover(cachedData.PlayerId, token);
         ReleaseDisconnectedAiTakeover(targetPlayer, joinedPlayer);
         StartCoroutine(BroadcastReconnectStateSyncCoroutine(runner, targetPlayer.playerId));
 
@@ -1084,6 +1390,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         _spawnedCharacters[joinedPlayer] = targetPlayer.Object;
+        if (hasRawCache)
+        {
+            HostMigrationHandler.Instance.ForgetCachedPlayerData(token);
+        }
         // Debug.Log($"[NetworkManager] Reassociated reconnect player {joinedPlayer} -> playerId={cachedData.PlayerId}, token={token}");
         return true;
     }

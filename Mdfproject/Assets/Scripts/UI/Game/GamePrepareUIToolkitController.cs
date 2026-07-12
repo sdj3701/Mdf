@@ -67,6 +67,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private readonly MonsterCardView[] monsterCards = new MonsterCardView[MonsterCardCount];
     private readonly ScrollCardView[] scrollCards = new ScrollCardView[ScrollCardCount];
     private readonly List<AugmentData> currentAugments = new List<AugmentData>(AugmentCardCount);
+    private readonly HashSet<int> pendingShopPurchaseSlots = new HashSet<int>();
 
     private VisualElement root;
     private VisualElement safeRoot;
@@ -939,6 +940,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         GameEvents.OnHostMigrationCompleted += HandleHostMigrationCompleted;
         GameEvents.OnShopRefreshed += HandleShopRefreshed;
         GameEvents.OnUnitPurchaseSucceeded += HandleUnitPurchaseSucceeded;
+        GameEvents.OnPurchaseFailed += HandlePurchaseFailed;
         GameEvents.OnAugmentPhaseStart += HandleAugmentPhaseStart;
         GameEvents.OnAugmentApplied += HandleAugmentApplied;
         GameEvents.OnPlayerStatsChanged += HandlePlayerStatsChanged;
@@ -962,6 +964,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         GameEvents.OnHostMigrationCompleted -= HandleHostMigrationCompleted;
         GameEvents.OnShopRefreshed -= HandleShopRefreshed;
         GameEvents.OnUnitPurchaseSucceeded -= HandleUnitPurchaseSucceeded;
+        GameEvents.OnPurchaseFailed -= HandlePurchaseFailed;
         GameEvents.OnAugmentPhaseStart -= HandleAugmentPhaseStart;
         GameEvents.OnAugmentApplied -= HandleAugmentApplied;
         GameEvents.OnPlayerStatsChanged -= HandlePlayerStatsChanged;
@@ -1016,6 +1019,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
+        pendingShopPurchaseSlots.Clear();
         BindShopCards(localShopManager?.GetCurrentShopItems());
         UpdateRerollLabel();
     }
@@ -1038,6 +1042,18 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
         }
 
+        pendingShopPurchaseSlots.Remove(slotIndex);
+        RefreshShopCards();
+    }
+
+    private void HandlePurchaseFailed(int playerID, int slotIndex, string reason)
+    {
+        if (!TryGetLocalPlayerId(out int localPlayerId) || localPlayerId != playerID)
+        {
+            return;
+        }
+
+        pendingShopPurchaseSlots.Remove(slotIndex);
         RefreshShopCards();
     }
 
@@ -1298,13 +1314,24 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var items = localShopManager.GetCurrentShopItems();
-        if (slotIndex < 0 || slotIndex >= items.Count || localShopManager.IsSlotSold(slotIndex))
+        if (slotIndex < 0
+            || slotIndex >= items.Count
+            || localShopManager.IsSlotSold(slotIndex)
+            || pendingShopPurchaseSlots.Contains(slotIndex))
         {
             return;
         }
 
+        pendingShopPurchaseSlots.Add(slotIndex);
         var command = new BuyUnitCommand(playerId, slotIndex);
-        GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+        if (GameManagers.Instance?.CommandProcessor != null)
+        {
+            GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+        }
+        else
+        {
+            pendingShopPurchaseSlots.Remove(slotIndex);
+        }
     }
 
     private void HandleRerollClicked()

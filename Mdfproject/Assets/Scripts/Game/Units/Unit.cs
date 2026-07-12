@@ -36,12 +36,15 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [Networked] private int NetworkedUnitDataKeyHash { get; set; }
     [Networked] private int NetworkedOwnerPlayerId { get; set; }
     [Networked] private NetworkBool NetworkedHasOwnerPlayerId { get; set; }
+    [Networked] private SkillActivationType NetworkedSkillActivationType { get; set; }
+    [Networked] private NetworkBool NetworkedHasSkillActivationType { get; set; }
 
     private bool _hasSpawned;
     private string _localUnitDataKey = string.Empty;
     private int _localOwnerPlayerId = -1;
     private bool _localHasOwnerPlayerId;
     private bool _hasLocalHealthValues;
+    private SkillActivationType _localSkillActivationType;
     private float _localHP;
     private float _localMaxHP;
     
@@ -125,7 +128,53 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public float PermanentMagicResistance => BaseMagicResistance;
     #endregion
     
-    public SkillActivationType currentSkillActivationType { get; set; }
+    public SkillActivationType currentSkillActivationType
+    {
+        get => CanReadNetworkedState && NetworkedHasSkillActivationType
+            ? NetworkedSkillActivationType
+            : _localSkillActivationType;
+        private set
+        {
+            _localSkillActivationType = value;
+            if (CanWriteNetworkedIdentity())
+            {
+                NetworkedSkillActivationType = value;
+                NetworkedHasSkillActivationType = true;
+            }
+        }
+    }
+
+    private void InitializeSkillActivationMode(SkillActivationType defaultMode)
+    {
+        if (CanReadNetworkedState && NetworkedHasSkillActivationType)
+        {
+            _localSkillActivationType = NetworkedSkillActivationType;
+            return;
+        }
+
+        currentSkillActivationType = defaultMode;
+    }
+
+    public bool TrySetSkillActivationModeAuthoritative(SkillActivationType mode)
+    {
+        if (mode != SkillActivationType.Automatic && mode != SkillActivationType.Manual)
+        {
+            return false;
+        }
+
+        if (Object != null && Runner != null && Runner.IsRunning && !Object.HasStateAuthority)
+        {
+            return false;
+        }
+
+        if (!DoesHaveSkill())
+        {
+            return false;
+        }
+
+        currentSkillActivationType = mode;
+        return true;
+    }
     private SkillData _loadedSkillData;
     private ManaController manaController;
     private StatusBarUI statusBarUI;
@@ -1573,7 +1622,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             if (_loadedSkillData != null)
             {
                 newMaxMana = _loadedSkillData.manaCost;
-                currentSkillActivationType = _loadedSkillData.activationType;
+                InitializeSkillActivationMode(_loadedSkillData.activationType);
                 // If this unit was created by an AI purchase and requested auto-skill, override activation type.
                 if (_forceSkillAutoUseOnNextInitialize)
                 {

@@ -6,9 +6,11 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
     [Header("벽 스탯")]
     [SerializeField] private float maxHealth = 200f;
     private float currentHealth;
+    private int stateRevision;
 
     public float CurrentHealth => currentHealth;
     public float MaxHealth => maxHealth;
+    public int StateRevision => stateRevision;
     public event System.Action<float, float> OnHealthChanged;
 
     [SerializeField] private float defense = 10f;
@@ -30,6 +32,7 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
         this.fieldManager = manager;
         this.wallGridPosition = gridPosition;
         this.currentHealth = maxHealth;
+        stateRevision++;
         OnHealthChanged?.Invoke(currentHealth, maxHealth);
     }
 
@@ -47,6 +50,26 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
         }
     }
 
+    /// <summary>
+    /// State Authority가 캡처한 cell/HP/revision을 Host Migration 뒤 재적용합니다.
+    /// 프리팹의 maxHealth가 달라졌다면 절대값 대신 기존 HP 비율을 보존합니다.
+    /// </summary>
+    public bool RestoreHealthAfterMigration(float restoredHealth, float restoredMaxHealth, int restoredRevision)
+    {
+        if (float.IsNaN(restoredHealth) || float.IsInfinity(restoredHealth)
+            || float.IsNaN(restoredMaxHealth) || float.IsInfinity(restoredMaxHealth)
+            || restoredMaxHealth <= 0f || restoredRevision < 0)
+        {
+            return false;
+        }
+
+        float normalizedHealth = Mathf.Clamp01(restoredHealth / restoredMaxHealth);
+        currentHealth = maxHealth * normalizedHealth;
+        stateRevision = Mathf.Max(stateRevision, restoredRevision);
+        OnHealthChanged?.Invoke(currentHealth, maxHealth);
+        return true;
+    }
+
     public void TakeDamage(float baseDamage, DamageType damageType)
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -57,7 +80,13 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
 #endif
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, defense, magicResistance);
         currentHealth -= finalDamage;
+        stateRevision++;
         OnHealthChanged?.Invoke(currentHealth, maxHealth);
+
+        if (currentHealth > 0f)
+        {
+            fieldManager?.PublishDestructibleWallHealthDelta(this, "wall_damage");
+        }
 
         if (currentHealth <= 0)
         {
@@ -94,8 +123,10 @@ public class DestructibleWall : MonoBehaviour, IEnemy, IHealth
 
         // 최대 체력을 넘지 않도록 체력을 회복합니다.
         currentHealth = Mathf.Min(currentHealth + amount, maxHealth);
+        stateRevision++;
         
         // 체력 바 UI 등을 업데이트하기 위해 이벤트를 호출합니다.
         OnHealthChanged?.Invoke(currentHealth, maxHealth);
+        fieldManager?.PublishDestructibleWallHealthDelta(this, "wall_heal");
     }
 }

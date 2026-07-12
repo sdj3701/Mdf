@@ -147,6 +147,7 @@ def random_progression_evidence(snapshot: Any, progression: dict[str, Any]) -> d
 def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
     return {
         "playerId": player.get("playerId"),
+        "connectionTokenHash": player.get("connectionTokenHash"),
         "health": player.get("health"),
         "gold": player.get("gold"),
         "wallCount": player.get("wallCount"),
@@ -174,6 +175,7 @@ def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
             "destructibleWallCount": nested(player, "field", "destructibleWallCount"),
             "permanentWallCount": nested(player, "field", "permanentWallCount"),
             "wallHash": nested(player, "field", "wallHash"),
+            "destructibleWallHealthHash": nested(player, "field", "destructibleWallHealthHash"),
             "pathReady": nested(player, "field", "pathReady"),
             "goalReady": nested(player, "field", "goalReady"),
         },
@@ -196,6 +198,10 @@ def durable_fingerprint(snapshot: Any) -> dict[str, Any]:
             "currentRound": game.get("currentRound"),
             "battleOpponentsHash": game.get("battleOpponentsHash"),
             "matchFirstAttackerHash": game.get("matchFirstAttackerHash"),
+            "survivorBossPendingCount": game.get("survivorBossPendingCount"),
+            "survivorBossPendingHash": game.get("survivorBossPendingHash"),
+            "survivorBossAssignmentCount": game.get("survivorBossAssignmentCount"),
+            "survivorBossAssignmentHash": game.get("survivorBossAssignmentHash"),
         },
         "players": [
             durable_player_fingerprint(player)
@@ -205,6 +211,12 @@ def durable_fingerprint(snapshot: Any) -> dict[str, Any]:
 
 
 def compare_values(errors: list[str], mismatches: list[dict[str, Any]], field: str, before: Any, after: Any) -> None:
+    # An optional hash can legitimately be unavailable at the pre-migration
+    # checkpoint (for example, pairing data outside Battle).  A value first
+    # becoming observable after recovery is not state loss.  Once a concrete
+    # value was captured, however, recovery must preserve it exactly.
+    if before == UNKNOWN:
+        return
     if before != after:
         errors.append(f"{field} before={before} after={after}")
         mismatches.append({"field": field, "before": before, "after": after})
@@ -251,6 +263,7 @@ def progressed_migration_assertions(
         errors.append("no_connected_human_survivor")
 
     bot_player = player_by_id(post_snapshot, bot_player_id)
+    checkpoint_bot_player = player_by_id(checkpoint_snapshot, bot_player_id)
     if bot_player is None:
         errors.append(f"bot_player_missing_after_migration:{bot_player_id}")
     else:
@@ -260,6 +273,17 @@ def progressed_migration_assertions(
             errors.append(f"bot_player_is_ai_after_migration:{bot_player_id}")
         if nested(bot_player, "ai", "controllerRegistered") is not False:
             errors.append(f"bot_ai_controller_registered_after_migration:{bot_player_id}")
+
+    checkpoint_token_hash = (
+        checkpoint_bot_player.get("connectionTokenHash")
+        if isinstance(checkpoint_bot_player, dict)
+        else None
+    )
+    post_token_hash = bot_player.get("connectionTokenHash") if isinstance(bot_player, dict) else None
+    if not known_hash(checkpoint_token_hash) or len(checkpoint_token_hash) != 64:
+        errors.append(f"checkpoint_connection_token_hash_invalid:{bot_player_id}")
+    if not known_hash(post_token_hash) or len(post_token_hash) != 64:
+        errors.append(f"post_migration_connection_token_hash_invalid:{bot_player_id}")
 
     pre_fp = durable_fingerprint(checkpoint_snapshot)
     post_fp = durable_fingerprint(post_snapshot)

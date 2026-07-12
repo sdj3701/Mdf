@@ -89,7 +89,8 @@ public class UnitDetailPanelController : MonoBehaviour
             unit.Data.skillsByStarLevel[unit.starLevel - 1] != null)
         {
             skillActivationToggle.gameObject.SetActive(true);
-            skillActivationToggle.isOn = (unit.currentSkillActivationType == SkillActivationType.Automatic);
+            skillActivationToggle.interactable = unit.IsLocalPlayerOwned;
+            skillActivationToggle.SetIsOnWithoutNotify(unit.currentSkillActivationType == SkillActivationType.Automatic);
             skillActivationToggle.onValueChanged.AddListener(OnSkillActivationToggleChanged);
         }
         else
@@ -100,9 +101,67 @@ public class UnitDetailPanelController : MonoBehaviour
 
     private void OnSkillActivationToggleChanged(bool isAutomatic)
     {
-        if (currentUnit != null)
+        Unit unit = currentUnit;
+        if (unit == null || !unit.IsLocalPlayerOwned)
         {
-            currentUnit.currentSkillActivationType = isAutomatic ? SkillActivationType.Automatic : SkillActivationType.Manual;
+            return;
+        }
+
+        SkillActivationType requestedMode = isAutomatic
+            ? SkillActivationType.Automatic
+            : SkillActivationType.Manual;
+        var gm = GameManagers.Instance;
+
+        if (unit.Object == null || gm == null || gm.Runner == null || !gm.Runner.IsRunning)
+        {
+            unit.TrySetSkillActivationModeAuthoritative(requestedMode);
+            skillActivationToggle.SetIsOnWithoutNotify(
+                unit.currentSkillActivationType == SkillActivationType.Automatic);
+            return;
+        }
+
+        int ownerPlayerId = unit.OwnerPlayerIdForRoster;
+        if (ownerPlayerId < 0 || !unit.Object.IsValid)
+        {
+            skillActivationToggle.SetIsOnWithoutNotify(
+                unit.currentSkillActivationType == SkillActivationType.Automatic);
+            return;
+        }
+
+        if (gm.CommandProcessor == null)
+        {
+            skillActivationToggle.SetIsOnWithoutNotify(
+                unit.currentSkillActivationType == SkillActivationType.Automatic);
+            return;
+        }
+
+        gm.CommandProcessor.RequestCommandExecution(
+            new SetSkillActivationModeCommand(ownerPlayerId, unit.Object.Id.Raw, requestedMode));
+        RefreshSkillToggleFromAuthorityAsync(unit, requestedMode).Forget();
+    }
+
+    private async UniTaskVoid RefreshSkillToggleFromAuthorityAsync(
+        Unit requestedUnit,
+        SkillActivationType requestedMode)
+    {
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            await UniTask.Delay(125, DelayType.Realtime);
+            if (this == null || currentUnit != requestedUnit || skillActivationToggle == null)
+            {
+                return;
+            }
+
+            if (requestedUnit != null && requestedUnit.currentSkillActivationType == requestedMode)
+            {
+                break;
+            }
+        }
+
+        if (requestedUnit != null && currentUnit == requestedUnit && skillActivationToggle != null)
+        {
+            skillActivationToggle.SetIsOnWithoutNotify(
+                requestedUnit.currentSkillActivationType == SkillActivationType.Automatic);
         }
     }
 

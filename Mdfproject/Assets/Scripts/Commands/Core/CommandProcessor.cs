@@ -4,11 +4,44 @@ using UnityEngine;
 using Cysharp.Threading.Tasks;
 using System.Linq;
 using Fusion;
+using System.Threading;
 
 public class CommandProcessor
 {
     // 1. 서버가 실행해야 할 커맨드들을 담는 큐 (네트워크로부터 수신)
-    private Queue<ICommand> _commandQueue = new Queue<ICommand>();
+    private readonly Queue<PendingCommand> _commandQueue = new Queue<PendingCommand>();
+    private readonly CancellationTokenSource _processorCancellation = new CancellationTokenSource();
+    private bool _isProcessing;
+
+    private readonly struct PendingCommand
+    {
+        public readonly ICommand Command;
+        public readonly CommandType Type;
+        public readonly int[] IntParams;
+        public readonly string[] StringParams;
+        public readonly Vector3[] VectorParams;
+        public readonly bool IsSerialized;
+
+        public PendingCommand(ICommand command)
+        {
+            Command = command;
+            Type = default;
+            IntParams = Array.Empty<int>();
+            StringParams = Array.Empty<string>();
+            VectorParams = Array.Empty<Vector3>();
+            IsSerialized = false;
+        }
+
+        public PendingCommand(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
+        {
+            Command = null;
+            Type = type;
+            IntParams = intParams != null ? intParams.ToArray() : Array.Empty<int>();
+            StringParams = stringParams != null ? stringParams.ToArray() : Array.Empty<string>();
+            VectorParams = vectorParams != null ? vectorParams.ToArray() : Array.Empty<Vector3>();
+            IsSerialized = true;
+        }
+    }
 
     /// <summary>
     /// [수정됨] 클라이언트(AI, UI)가 커맨드 실행을 '요청'할 때 호출하는 메서드입니다.
@@ -27,14 +60,11 @@ public class CommandProcessor
             // 서버(호스트)라면 곧장 브로드캐스트 실행
             if (gm.Object != null && gm.Object.HasStateAuthority)
             {
-                if (command is ActivateSkillCommand)
-                {
-                    command.Execute();
-                    return;
-                }
-
                 ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
-                gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+                if (ShouldBroadcastCommandToClients(type))
+                {
+                    gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+                }
                 return;
             }
 
@@ -67,11 +97,17 @@ public class CommandProcessor
         ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
     }
 
+    public static bool ShouldBroadcastCommandToClients(CommandType type)
+    {
+        int value = (int)type;
+        return value >= 100 && value < 300;
+    }
+
     /// <summary>
     /// [수정됨] 서버로부터 브로드캐스팅된 커맨드 데이터 또는 싱글플레이어용 데이터를 받아
     /// 역직렬화하고 실행 큐에 추가합니다.
     /// </summary>
-    public async void ReceiveAndEnqueueCommand(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
+    public void ReceiveAndEnqueueCommand(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
     {
         var gm = GameManagers.Instance;
         bool isClient = gm != null && gm.Runner != null && gm.Runner.IsRunning && !gm.Runner.IsServer;
@@ -79,11 +115,9 @@ public class CommandProcessor
         {
             Debug.Log($"<color=#3399FF>[ClientFlow] Enqueue {type}</color>");
         }
-        ICommand command = await DeserializeCommand(type, intParams, stringParams, vectorParams);
-        if (command != null)
-        {
-            EnqueueCommandFromServer(command);
-        }
+        // Deserialize inside the same FIFO worker that executes commands. A
+        // slow Addressables command can no longer be overtaken by a later one.
+        _commandQueue.Enqueue(new PendingCommand(type, intParams, stringParams, vectorParams));
     }
 
     /// <summary>
@@ -114,6 +148,8 @@ public class CommandProcessor
                 return (CommandType.SelectAugment, new int[] { cmd.PlayerId, cmd.AugmentIndex }, Array.Empty<string>(), Array.Empty<Vector3>());
             case ActivateSkillCommand cmd:
                 return (CommandType.ActivateSkill, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkId }, Array.Empty<string>(), Array.Empty<Vector3>());
+            case SetSkillActivationModeCommand cmd:
+                return (CommandType.SetSkillActivationMode, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkId, (int)cmd.Mode }, Array.Empty<string>(), Array.Empty<Vector3>());
             case RearrangeUnitsCommand cmd:
                 return (CommandType.RearrangeUnits, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
 
@@ -174,7 +210,12 @@ public class CommandProcessor
     /// <summary>
     /// [신규] 네트워크로부터 받은 데이터로 ICommand 객체를 복원(역직렬화)합니다.
     /// </summary>
-    private async UniTask<ICommand> DeserializeCommand(CommandType type, int[] ints, string[] texts, Vector3[] vectors)
+    private async UniTask<ICommand> DeserializeCommand(
+        CommandType type,
+        int[] ints,
+        string[] texts,
+        Vector3[] vectors,
+        CancellationToken cancellationToken)
     {
         switch (type)
         {
@@ -194,9 +235,12 @@ public class CommandProcessor
             case CommandType.PlaceUnit:
                 if (LoadManager.Instance == null)
                 {
-                    await UniTask.WaitUntil(() => LoadManager.Instance != null);
+                    await UniTask.WaitUntil(
+                        () => LoadManager.Instance != null,
+                        cancellationToken: cancellationToken);
                 }
                 await LoadManager.Instance.WaitUntilReady();
+                cancellationToken.ThrowIfCancellationRequested();
                 UnitData unitData = LoadManager.Instance.GetUnitData(texts[0]);
                 if (unitData == null)
                 {
@@ -218,6 +262,8 @@ public class CommandProcessor
                 return new SelectAugmentCommand(ints[0], ints[1]);
             case CommandType.ActivateSkill:
                 return new ActivateSkillCommand(ints[0], (uint)ints[1]);
+            case CommandType.SetSkillActivationMode:
+                return new SetSkillActivationModeCommand(ints[0], (uint)ints[1], (SkillActivationType)ints[2]);
             case CommandType.RearrangeUnits:
                 return new RearrangeUnitsCommand(ints[0]);
 
@@ -287,7 +333,10 @@ public class CommandProcessor
     /// </summary>
     public void EnqueueCommandFromServer(ICommand command)
     {
-        _commandQueue.Enqueue(command);
+        if (command != null)
+        {
+            _commandQueue.Enqueue(new PendingCommand(command));
+        }
     }
 
     /// <summary>
@@ -296,11 +345,79 @@ public class CommandProcessor
     /// </summary>
     public void ProcessCommands()
     {
-        while (_commandQueue.Count > 0)
+        if (_isProcessing || _commandQueue.Count == 0 || _processorCancellation.IsCancellationRequested)
         {
-            ICommand command = _commandQueue.Dequeue();
-            // 서버가 승인한 커맨드이므로, 검증 없이 그대로 실행하여 게임 상태를 변경합니다.
-            command.Execute();
+            return;
+        }
+
+        _isProcessing = true;
+        ProcessCommandsSequentiallyAsync(_processorCancellation.Token).Forget();
+    }
+
+    public void CancelPendingCommands()
+    {
+        if (!_processorCancellation.IsCancellationRequested)
+        {
+            _processorCancellation.Cancel();
+        }
+        _commandQueue.Clear();
+    }
+
+    private async UniTaskVoid ProcessCommandsSequentiallyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (_commandQueue.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                PendingCommand pending = _commandQueue.Dequeue();
+                ICommand command = pending.IsSerialized
+                    ? await DeserializeCommand(
+                        pending.Type,
+                        pending.IntParams,
+                        pending.StringParams,
+                        pending.VectorParams,
+                        cancellationToken)
+                    : pending.Command;
+
+                cancellationToken.ThrowIfCancellationRequested();
+                if (command == null)
+                {
+                    continue;
+                }
+
+                CommandExecutionResult result;
+                if (command is IAsyncCommand asyncCommand)
+                {
+                    result = await asyncCommand.ExecuteAsync(cancellationToken);
+                }
+                else
+                {
+                    command.Execute();
+                    result = CommandExecutionResult.Completed();
+                }
+
+                if (!result.Success && !result.Cancelled)
+                {
+                    Debug.LogWarning($"[CommandProcessor] Command failed. type={command.GetType().Name}, error={result.Error}");
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the owning GameManagers lifecycle is replaced.
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[CommandProcessor] Sequential command execution failed: {ex}");
+        }
+        finally
+        {
+            _isProcessing = false;
+            if (_commandQueue.Count > 0 && !_processorCancellation.IsCancellationRequested)
+            {
+                ProcessCommands();
+            }
         }
     }
 }

@@ -256,6 +256,12 @@ public static class MPTestAssertions
         CompareNullable(result, $"player.{playerId}.field.destructibleWallCount", expected.DestructibleWallCount, actual.DestructibleWallCount);
         CompareNullable(result, $"player.{playerId}.field.permanentWallCount", expected.PermanentWallCount, actual.PermanentWallCount);
         CompareKnownHash(result, $"player.{playerId}.field.wallHash", expected.WallHash, actual.WallHash);
+        CompareKnownOrRequired(
+            result,
+            $"player.{playerId}.field.destructibleWallHealthHash",
+            expected.DestructibleWallHealthHash,
+            actual.DestructibleWallHealthHash,
+            CountPositive(expected.DestructibleWallCount) || CountPositive(actual.DestructibleWallCount));
         CompareEqual(result, $"player.{playerId}.field.pathReady", expected.PathReady, actual.PathReady);
         CompareEqual(result, $"player.{playerId}.field.goalReady", expected.GoalReady, actual.GoalReady);
     }

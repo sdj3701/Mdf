@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: security, battle
 Created: 2026-05-05
-Last used: 2026-05-05
+Last used: 2026-07-12
 Last verified: 2026-05-05
-Use count: 1
+Use count: 4
 Review after: 2026-08-03
 Triggers: precommit `client_trust`, `rpc_all`, `playerref_durable`, Authority Hardening
 Applies to: `PlayerManager.RPC_RequestCommandToServer`, `GameManagers.RPC_RequestSpawnMonster`, `NetworkManager.CacheDisconnectedPlayerData`

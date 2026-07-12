@@ -4,11 +4,12 @@ using UnityEngine;
 using Cysharp.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 /// <summary>
 /// 서버에서 생성한 상점 아이템을 클라이언트에 동기화하는 커맨드입니다.
 /// </summary>
-public class SyncShopItemsCommand : ICommand
+public class SyncShopItemsCommand : ICommand, IAsyncCommand
 {
     public int PlayerId { get; set; }
     public string[] UnitDataNames { get; private set; }
@@ -28,20 +29,21 @@ public class SyncShopItemsCommand : ICommand
         StarLevels = starLevels ?? System.Array.Empty<int>();
     }
 
-    private async UniTask<PlayerManager> WaitForPlayerAsync(GameManagers gm)
+    private async UniTask<PlayerManager> WaitForPlayerAsync(GameManagers gm, CancellationToken cancellationToken)
     {
         const float timeoutSeconds = 12f;
         float waited = 0f;
 
         while (waited < timeoutSeconds)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var player = gm.GetPlayer(PlayerId);
             if (player != null)
             {
                 return player;
             }
 
-            await UniTask.Delay(100);
+            await UniTask.Delay(100, cancellationToken: cancellationToken);
             waited += 0.1f;
         }
 
@@ -49,7 +51,32 @@ public class SyncShopItemsCommand : ICommand
         return null;
     }
 
-    public async void Execute()
+    public void Execute()
+    {
+        ExecuteAsync(CancellationToken.None).Forget();
+    }
+
+    public async UniTask<CommandExecutionResult> ExecuteAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await ExecuteCoreAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return CommandExecutionResult.Completed();
+        }
+        catch (System.OperationCanceledException)
+        {
+            return CommandExecutionResult.Canceled();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[SyncShopItemsCommand] Execution failed. target={PlayerId}, error={ex}");
+            return CommandExecutionResult.Failed(ex.Message);
+        }
+    }
+
+    private async UniTask ExecuteCoreAsync(CancellationToken cancellationToken)
     {
         var gm = GameManagers.Instance;
         if (gm == null) return;
@@ -59,6 +86,7 @@ public class SyncShopItemsCommand : ICommand
 
         TraceClient($"Execute enter target={PlayerId}, items={UnitDataNames.Length}");
         bool uiReady = await gm.EnsureGameUIReadyForSyncCommands();
+        cancellationToken.ThrowIfCancellationRequested();
         if (!uiReady)
         {
             Debug.LogWarning($"[SyncShopItemsCommand] UI readiness timeout before sync. target={PlayerId}");
@@ -69,7 +97,8 @@ public class SyncShopItemsCommand : ICommand
             TraceClient("UI readiness confirmed.");
         }
 
-        var player = await WaitForPlayerAsync(gm);
+        var player = await WaitForPlayerAsync(gm, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         if (player == null)
         {
             // Debug.LogWarning($"[SyncShopItemsCommand] Player {PlayerId} not ready. Sync skipped.");
@@ -102,6 +131,7 @@ public class SyncShopItemsCommand : ICommand
         }
 
         await player.shopManager.SetShopItemsFromServerAsync(UnitDataNames, StarLevels);
+        cancellationToken.ThrowIfCancellationRequested();
         TraceClient($"SetShopItems applied target={PlayerId}, items={UnitDataNames.Length}");
         // Debug.Log($"<color=cyan>[SyncShopItemsCommand] Player {PlayerId}: {UnitDataNames.Length}개 상점 아이템 동기화 완료</color>");
     }

@@ -31,7 +31,7 @@ public sealed class MonsterPrewarmEditModeTests
         int prewarmIndex = command.IndexOf("PrewarmMonsterDataAsync", StringComparison.Ordinal);
         int consumeIndex = command.IndexOf("TryConsumeMonsterPoolSlot", StringComparison.Ordinal);
         Assert.That(prewarmIndex, Is.GreaterThanOrEqualTo(0));
-        Assert.That(consumeIndex, Is.GreaterThan(prewarmIndex));
+        Assert.That(consumeIndex, Is.LessThan(prewarmIndex), "pool slot must be reserved before the async prewarm");
     }
 
     [Test]

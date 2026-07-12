@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Fusion;
 using Cysharp.Threading.Tasks;
+using System.Threading;
 
 public class MonsterSpawner : MonoBehaviour
 {
@@ -31,6 +32,9 @@ public class MonsterSpawner : MonoBehaviour
     
     private readonly HashSet<string> _activeAutoSpawnKeys = new HashSet<string>();
     private readonly HashSet<string> _completedAutoSpawnKeys = new HashSet<string>();
+    private int _battleGeneration;
+    private CancellationTokenSource _battleCancellation;
+    private GameManagers.GameState _battleGenerationState;
 
     // _isSpawningWave 제거됨 (CS0414 - 사용되지 않음)
 
@@ -38,12 +42,80 @@ public class MonsterSpawner : MonoBehaviour
 
     #region 초기화
 
-    /// <summary>
-    /// MonsterSpawner를 초기화합니다.
-    /// </summary>
-    /// <param name="owner">소유 플레이어</param>
-    /// <param name="grid">경로 탐색용 그리드</param>
-    /// <param name="goalTransform">목표 위치</param>
+    /// <summary>Subscribes battle lifecycle cancellation.</summary>
+    private void OnEnable()
+    {
+        GameEvents.OnGameStateChanged += HandleGameStateChanged;
+    }
+
+    private void OnDisable()
+    {
+        GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+        RotateBattleGeneration(GameManagers.GameState.GameOver, createCancellation: false);
+        _activeAutoSpawnKeys.Clear();
+    }
+
+    private void HandleGameStateChanged(GameManagers.GameState newState)
+    {
+        bool isBattle = IsBattleState(newState);
+        RotateBattleGeneration(newState, isBattle);
+        if (!isBattle)
+        {
+            _activeAutoSpawnKeys.Clear();
+        }
+    }
+
+    private void RotateBattleGeneration(GameManagers.GameState state, bool createCancellation)
+    {
+        _battleGeneration++;
+        _battleGenerationState = state;
+        if (_battleCancellation != null)
+        {
+            _battleCancellation.Cancel();
+            _battleCancellation.Dispose();
+            _battleCancellation = null;
+        }
+
+        if (createCancellation)
+        {
+            _battleCancellation = new CancellationTokenSource();
+        }
+    }
+
+    private static bool IsBattleState(GameManagers.GameState state)
+    {
+        return state == GameManagers.GameState.Battle1 || state == GameManagers.GameState.Battle2;
+    }
+
+    public int CaptureBattleGeneration()
+    {
+        GameManagers gm = GameManagers.Instance;
+        if (gm == null || !IsBattleState(gm.currentState))
+        {
+            return -1;
+        }
+
+        if (_battleCancellation == null || _battleGenerationState != gm.currentState)
+        {
+            RotateBattleGeneration(gm.currentState, createCancellation: true);
+        }
+
+        return _battleGeneration;
+    }
+
+    public bool IsBattleGenerationCurrent(int generation)
+    {
+        GameManagers gm = GameManagers.Instance;
+        return generation >= 0 &&
+               generation == _battleGeneration &&
+               _battleCancellation != null &&
+               !_battleCancellation.IsCancellationRequested &&
+               gm != null &&
+               gm.currentState == _battleGenerationState &&
+               IsBattleState(gm.currentState);
+    }
+
+    /// <summary>Initializes the owner, pathfinder, and goal references.</summary>
     public void Initialize(PlayerManager owner, AstarGrid grid, Transform goalTransform)
     {
         _playerManager = owner;
@@ -645,7 +717,10 @@ public class MonsterSpawner : MonoBehaviour
             return;
         }
 
-        if (SurvivorBossManager.Instance == null) return;
+        SurvivorBossManager survivorBossManager = SurvivorBossManager.Instance;
+        if (survivorBossManager == null) return;
+        int battleGeneration = CaptureBattleGeneration();
+        if (battleGeneration < 0) return;
         if (_playerManager == null)
         {
             // Debug.LogError($"[MonsterSpawner] SpawnSurvivorBossesAsync 중단: playerManager null ({DescribeRuntimeState()})");
@@ -653,14 +728,19 @@ public class MonsterSpawner : MonoBehaviour
         }
         
         // 이 플레이어를 타겟으로 하는 생존 보스 중 이번 턴에 침공하지 않은 보스만 추출
-        var pendingBosses = SurvivorBossManager.Instance.ExtractBossesForBattleSequence(_playerManager.playerId);
+        int targetPlayerId = _playerManager.playerId;
+        var pendingBosses = survivorBossManager.ExtractBossesForBattleSequence(targetPlayerId, out int extractionLease);
+        var unspawnedBosses = new List<SurvivorBossData>(pendingBosses);
         
         if (pendingBosses.Count == 0) return;
+        try
+        {
         
         // Debug.Log($"<color=cyan>[MonsterSpawner] Player {_playerManager.playerId}: 생존 보스 {pendingBosses.Count}마리 소환 시작</color>");
         
         foreach (var bossData in pendingBosses)
         {
+            if (!IsBattleGenerationCurrent(battleGeneration)) return;
             if (bossData.BossData == null) continue;
             
             // 아우터 그리드 랜덤 위치에서 소환
@@ -673,17 +753,33 @@ public class MonsterSpawner : MonoBehaviour
                 _playerManager.fieldManager,
                 true, // isBoss
                 bossData.BossUniqueId,
-                bossData.OriginPlayerId
+                bossData.OriginPlayerId,
+                battleGeneration
             );
+
+            if (!IsBattleGenerationCurrent(battleGeneration)) return;
             
             if (monster != null)
             {
                 // 이전 라운드 HP 유지
                 monster.SetCurrentHP(bossData.RemainingHP, bossData.MaxHP);
+                unspawnedBosses.RemoveAll(boss => boss.BossUniqueId == bossData.BossUniqueId);
                 // Debug.Log($"<color=red>[MonsterSpawner] 생존 보스 재소환! Player {_playerManager.playerId}에게 침공. 위치: {spawnPos}, HP: {bossData.RemainingHP:F0}/{bossData.MaxHP:F0}, ID: {bossData.BossUniqueId}</color>");
             }
             
             await UniTask.Delay(500); // 0.5초 간격
+            if (!IsBattleGenerationCurrent(battleGeneration)) return;
+        }
+        }
+        finally
+        {
+            if (unspawnedBosses.Count > 0 && survivorBossManager != null && SurvivorBossManager.Instance == survivorBossManager)
+            {
+                survivorBossManager.ReturnUnspawnedBossesForBattleSequence(
+                    targetPlayerId,
+                    extractionLease,
+                    unspawnedBosses);
+            }
         }
     }
 
@@ -717,6 +813,12 @@ public class MonsterSpawner : MonoBehaviour
             return;
         }
 
+        int battleGeneration = CaptureBattleGeneration();
+        if (battleGeneration < 0)
+        {
+            return;
+        }
+
         var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
         var waveData = waveDatabase?.GetWaveForRound(round);
         if (waveData?.monsters == null || waveData.monsters.Count == 0)
@@ -725,6 +827,10 @@ public class MonsterSpawner : MonoBehaviour
         }
 
         await PrewarmWaveAsync(waveData, $"SpawnBaseWaveFromFastestOuterDirectionAsync/R{round}");
+        if (!IsBattleGenerationCurrent(battleGeneration))
+        {
+            return;
+        }
 
         Vector3 spawnPosition = GetFastestOuterDirectionSpawnPosition(targetFieldManager);
         int delayMs = Mathf.Max(100, Mathf.RoundToInt(Mathf.Max(0.1f, waveData.spawnInterval) * 1000f));
@@ -738,12 +844,22 @@ public class MonsterSpawner : MonoBehaviour
 
             for (int i = 0; i < entry.count; i++)
             {
+                if (!IsBattleGenerationCurrent(battleGeneration))
+                {
+                    return;
+                }
+
                 await SpawnMonsterAtPositionAsync(
                     entry.monsterData,
                     spawnPosition,
-                    targetFieldManager);
+                    targetFieldManager,
+                    expectedBattleGeneration: battleGeneration);
 
                 await UniTask.Delay(delayMs);
+                if (!IsBattleGenerationCurrent(battleGeneration))
+                {
+                    return;
+                }
             }
         }
     }
@@ -1016,6 +1132,12 @@ public class MonsterSpawner : MonoBehaviour
                 return;
             }
 
+            int battleGeneration = CaptureBattleGeneration();
+            if (battleGeneration < 0)
+            {
+                return;
+            }
+
             var pool = _playerManager.AttackMonsterPool;
             if (pool == null || pool.Count == 0)
             {
@@ -1023,6 +1145,10 @@ public class MonsterSpawner : MonoBehaviour
             }
 
             await PrewarmAttackMonsterPoolAsync(pool, "StartAutoSpawnFromPool");
+            if (!IsBattleGenerationCurrent(battleGeneration))
+            {
+                return;
+            }
 
             // ★ AIAttackStrategy를 사용한 전략적 소환
             // spawnAreaLayerMask를 AttackSequenceManager에서 가져옴
@@ -1038,9 +1164,9 @@ public class MonsterSpawner : MonoBehaviour
             var plan = strategy.BuildSpawnPlan(pool);
 
             // 계획에 따라 전략적 소환 실행
-            await ExecuteSpawnPlanAsync(plan, targetFieldManager);
+            await ExecuteSpawnPlanAsync(plan, targetFieldManager, battleGeneration);
 
-            completed = true;
+            completed = IsBattleGenerationCurrent(battleGeneration);
         }
         finally
         {
@@ -1054,7 +1180,10 @@ public class MonsterSpawner : MonoBehaviour
     /// <summary>
     /// AIAttackStrategy가 생성한 소환 계획을 페이즈별로 실행합니다.
     /// </summary>
-    private async UniTask ExecuteSpawnPlanAsync(AI.BehaviorTree.Nodes.Actions.AISpawnPlan plan, FieldManager targetFieldManager)
+    private async UniTask ExecuteSpawnPlanAsync(
+        AI.BehaviorTree.Nodes.Actions.AISpawnPlan plan,
+        FieldManager targetFieldManager,
+        int battleGeneration)
     {
         if (plan == null || plan.Phases.Count == 0) return;
 
@@ -1062,22 +1191,24 @@ public class MonsterSpawner : MonoBehaviour
 
         foreach (var phase in plan.Phases)
         {
+            if (!IsBattleGenerationCurrent(battleGeneration)) return;
             // 페이즈 시작 전 대기
             if (phase.DelayBeforePhase > 0)
             {
                 await UniTask.Delay((int)(phase.DelayBeforePhase * 1000));
+                if (!IsBattleGenerationCurrent(battleGeneration)) return;
             }
-            await WaitWhileMpTestGameFlowFrozen();
+            if (!await WaitWhileMpTestGameFlowFrozen(battleGeneration)) return;
 
             foreach (var order in phase.Orders)
             {
-                await WaitWhileMpTestGameFlowFrozen();
+                if (!await WaitWhileMpTestGameFlowFrozen(battleGeneration)) return;
                 if (order.PoolEntry == null || order.PoolEntry.IsEmpty) continue;
 
                 int spawnCount = Mathf.Min(order.Count, order.PoolEntry.RemainingCount);
                 for (int i = 0; i < spawnCount; i++)
                 {
-                    await WaitWhileMpTestGameFlowFrozen();
+                    if (!await WaitWhileMpTestGameFlowFrozen(battleGeneration)) return;
                     if (order.PoolEntry.IsEmpty) break;
 
                     int poolSlotIndex = pool.IndexOf(order.PoolEntry);
@@ -1107,6 +1238,7 @@ public class MonsterSpawner : MonoBehaviour
                     BattleCommandResult result = await gm.ExecuteBattleSpawnMonsterCommandAsync(
                         command,
                         CommandExecutionScope.ServerAuthorityOnly);
+                    if (!IsBattleGenerationCurrent(battleGeneration)) return;
                     if (!result.Success)
                     {
                         break;
@@ -1118,22 +1250,24 @@ public class MonsterSpawner : MonoBehaviour
 
                     // 소환 간격
                     await UniTask.Delay(300); // 0.3초 간격
-                    await WaitWhileMpTestGameFlowFrozen();
+                    if (!await WaitWhileMpTestGameFlowFrozen(battleGeneration)) return;
                 }
             }
         }
     }
 
-    private static async UniTask WaitWhileMpTestGameFlowFrozen()
+    private async UniTask<bool> WaitWhileMpTestGameFlowFrozen(int battleGeneration)
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         while (MPTestCommandLine.IsGameFlowFrozen)
         {
+            if (!IsBattleGenerationCurrent(battleGeneration)) return false;
             await UniTask.Yield();
         }
 #else
         await UniTask.CompletedTask;
 #endif
+        return IsBattleGenerationCurrent(battleGeneration);
     }
     
     /// <summary>
@@ -1195,7 +1329,8 @@ public class MonsterSpawner : MonoBehaviour
         FieldManager targetFieldManager,
         bool isBoss = false,
         int bossUniqueId = -1,
-        int originPlayerId = -1)
+        int originPlayerId = -1,
+        int expectedBattleGeneration = -1)
     {
         LogSpawnTrace(
             "SpawnMonsterAtPositionAsync:ENTER",
@@ -1257,6 +1392,12 @@ public class MonsterSpawner : MonoBehaviour
         }
 
         GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(monsterData.monsterPrefab);
+        if (expectedBattleGeneration >= 0 && !IsBattleGenerationCurrent(expectedBattleGeneration))
+        {
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_STALE_BATTLE_GENERATION", monsterData, spawnPosition, targetFieldManager);
+            return null;
+        }
+
         if (prefab == null)
         {
             // Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 프리팹 로드 실패!", monsterData);
@@ -1309,6 +1450,13 @@ public class MonsterSpawner : MonoBehaviour
             LogSpawnTrace("SpawnMonsterAtPositionAsync:SPAWN_LOCAL_INSTANTIATE", monsterData, adjustedSpawnPos, targetFieldManager, $"prefab={prefab.name}");
             monsterGO = Instantiate(prefab, adjustedSpawnPos, Quaternion.identity, targetMonsterParent);
             SnapSpawnTransform(monsterGO, adjustedSpawnPos, Quaternion.identity);
+        }
+
+        if (expectedBattleGeneration >= 0 && !IsBattleGenerationCurrent(expectedBattleGeneration))
+        {
+            CleanupFailedSpawn(monsterGO, spawnedNetworkObject);
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_STALE_BATTLE_AFTER_SPAWN", monsterData, adjustedSpawnPos, targetFieldManager);
+            return null;
         }
 
         Monster monster = monsterGO.GetComponent<Monster>();
@@ -1377,6 +1525,13 @@ public class MonsterSpawner : MonoBehaviour
             return null;
         }
 
+        if (expectedBattleGeneration >= 0 && !IsBattleGenerationCurrent(expectedBattleGeneration))
+        {
+            CleanupFailedSpawn(monsterGO, spawnedNetworkObject);
+            LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_STALE_BATTLE_BEFORE_COMMIT", monsterData, adjustedSpawnPos, targetFieldManager);
+            return null;
+        }
+
         string bossTag = isBoss ? " [BOSS]" : "";
         // Debug.Log($"<color=green>[MonsterSpawner] 수동 소환: {monsterData.monsterName}{bossTag} at {spawnPosition}, 경로 시작: {startPos}</color>");
         LogSpawnTrace("SpawnMonsterAtPositionAsync:SUCCESS", monsterData, adjustedSpawnPos, targetFieldManager, $"start={startPos},end={endPos},isBoss={isBoss}");
@@ -1399,6 +1554,19 @@ public class MonsterSpawner : MonoBehaviour
         {
             Destroy(monsterGO);
         }
+    }
+
+    public void CleanupCanceledBattleSpawn(Monster monster)
+    {
+        if (monster == null)
+        {
+            return;
+        }
+
+        NetworkObject networkObject = monster.Object != null && monster.Object.IsValid
+            ? monster.Object
+            : monster.GetComponent<NetworkObject>();
+        CleanupFailedSpawn(monster.gameObject, networkObject);
     }
 
 

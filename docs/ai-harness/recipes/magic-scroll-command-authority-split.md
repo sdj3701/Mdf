@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: battle
 Created: 2026-05-06
-Last used: 2026-05-31
+Last used: 2026-07-12
 Last verified: 2026-05-31
-Use count: 5
+Use count: 6
 Review after: 2026-08-04
 Triggers: magic scroll use, client-side VFX broadcast, scroll inventory hash drift, buff/status/zone side effects
 Applies to: `UseMagicScrollCommand`, `GameManagers.RPC_RequestUseMagicScrollCommand`, `PlayerManager.OwnedScrolls`, `ScrollCaster`, `MPTestStateSnapshot`

@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: host-migration, battle
 Created: 2026-05-06
-Last used: 2026-05-11
+Last used: 2026-07-12
 Last verified: 2026-05-11
-Use count: 3
+Use count: 4
 Review after: 2026-08-04
 Triggers: late-game sync drift, survivor boss assignment, active augment effects, monster spawn/combat divergence
 Applies to: `MPTestStateSnapshot`, `MPTestAssertions`, `compare_state_snapshots.py`, HumanBot/Host Migration battle progression

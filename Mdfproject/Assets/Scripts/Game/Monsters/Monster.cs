@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Fusion;
 using Cysharp.Threading.Tasks;
+using System.Threading;
 
 public class Monster : NetworkBehaviour, IEnemy, IHealth
 {
@@ -70,6 +71,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     [Networked] public float NetworkedAttackSpeedRatio { get; set; } // 공격속도 비율
 
     private bool _hasSpawned;
+    private bool _hasEverSpawned;
+    private int _spawnGeneration;
+    private CancellationTokenSource _spawnLifecycleCancellation;
     private bool _hasLocalHealthValues;
     private bool _despawnRequested;
     private float _localHP;
@@ -260,9 +264,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public override void Spawned()
     {
         base.Spawned();
+        BeginSpawnLifecycle();
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
         
-        if (_hasSpawned)
+        if (_hasEverSpawned)
         {
             ResetTransientRuntimeStateForReuse();
             _hasLocalHealthValues = false;
@@ -270,6 +275,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             _localMaxHP = 0;
             _isDying = false;
             _networkMonsterDataLoadRequested = false;
+            _monsterData = null;
+            _localMonsterDataKey = string.Empty;
             
             if (Object != null && Object.HasStateAuthority)
             {
@@ -285,13 +292,53 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             existingStatusBar?.ResetForReuse(initializeImmediately: false);
         }
         _hasSpawned = true;
+        _hasEverSpawned = true;
         TryRebindOwnerFromNetworkSnapshot();
         TryRecoverMonsterDataFromNetworkSnapshot();
+    }
+
+    public override void Despawned(NetworkRunner runner, bool hasState)
+    {
+        CancelSpawnLifecycle();
+        _hasSpawned = false;
+        _changeDetector = null;
+        ResetTransientRuntimeStateForReuse();
+        base.Despawned(runner, hasState);
+    }
+
+    private void BeginSpawnLifecycle()
+    {
+        CancelSpawnLifecycle();
+        _spawnGeneration++;
+        _spawnLifecycleCancellation = new CancellationTokenSource();
+    }
+
+    private void CancelSpawnLifecycle()
+    {
+        _spawnGeneration++;
+        if (_spawnLifecycleCancellation != null)
+        {
+            _spawnLifecycleCancellation.Cancel();
+            _spawnLifecycleCancellation.Dispose();
+            _spawnLifecycleCancellation = null;
+        }
+    }
+
+    private bool IsSpawnLifecycleCurrent(int generation, uint networkIdRaw)
+    {
+        return _hasSpawned &&
+               generation == _spawnGeneration &&
+               _spawnLifecycleCancellation != null &&
+               !_spawnLifecycleCancellation.IsCancellationRequested &&
+               Object != null &&
+               Object.IsValid &&
+               Object.Id.Raw == networkIdRaw;
     }
 
     private void ResetTransientRuntimeStateForReuse()
     {
         StopAllCoroutines();
+        GameEvents.OnWallDestroyed -= OnWallDestroyed;
         movementCoroutine = null;
         attackCoroutine = null;
         resumeCoroutine = null;
@@ -499,12 +546,22 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
 
         _networkMonsterDataLoadRequested = true;
-        RecoverMonsterDataFromNetworkSnapshotAsync(key).Forget();
+        int generation = _spawnGeneration;
+        uint networkIdRaw = Object != null && Object.IsValid ? Object.Id.Raw : 0;
+        RecoverMonsterDataFromNetworkSnapshotAsync(key, generation, networkIdRaw).Forget();
     }
 
-    private async UniTaskVoid RecoverMonsterDataFromNetworkSnapshotAsync(string key)
+    private async UniTaskVoid RecoverMonsterDataFromNetworkSnapshotAsync(
+        string key,
+        int generation,
+        uint networkIdRaw)
     {
         MonsterData data = await AssetLoader.LoadAssetAsync<MonsterData>(key);
+        if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+        {
+            return;
+        }
+
         if (data == null)
         {
             _networkMonsterDataLoadRequested = false;
@@ -641,6 +698,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     
     private void OnEnable()
     {
+        GameEvents.OnWallDestroyed -= OnWallDestroyed;
         // 일반 몬스터만 벽 파괴 이벤트 구독 (파괴자는 이미 최단 경로로 이동)
         if (_monsterData != null && !HasTrait(MonsterTraits.Destroyer))
         {
@@ -650,10 +708,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     
     private void OnDisable()
     {
-        if (_monsterData != null && !HasTrait(MonsterTraits.Destroyer))
-        {
-            GameEvents.OnWallDestroyed -= OnWallDestroyed;
-        }
+        GameEvents.OnWallDestroyed -= OnWallDestroyed;
     }
 
     public void SetStatusBar(StatusBarUI ui)
@@ -663,6 +718,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     public void Initialize(PlayerManager owner, Transform goal, MonsterData data, AstarGrid pathfinder)
     {
+        GameEvents.OnWallDestroyed -= OnWallDestroyed;
         this.ownerPlayer = owner;
         this.goalTransform = goal;
         this._monsterData = data;
@@ -833,11 +889,22 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         // Debug.Log($"<color=yellow>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 시작 (monsterDataName={monsterDataName})</color>");
         
-        InitializeOnClientAsync(ownerPlayerId, monsterDataName).Forget();
+        int generation = _spawnGeneration;
+        uint networkIdRaw = Object != null && Object.IsValid ? Object.Id.Raw : 0;
+        InitializeOnClientAsync(ownerPlayerId, monsterDataName, generation, networkIdRaw).Forget();
     }
     
-    private async UniTaskVoid InitializeOnClientAsync(NetworkId ownerPlayerId, string monsterDataName)
+    private async UniTaskVoid InitializeOnClientAsync(
+        NetworkId ownerPlayerId,
+        string monsterDataName,
+        int generation,
+        uint networkIdRaw)
     {
+        if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+        {
+            return;
+        }
+
         // ownerPlayer 찾기
         NetworkObject ownerNO = null;
         int attempts = 0;
@@ -850,6 +917,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             if (ownerNO == null)
             {
                 await UniTask.Yield();
+                if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+                {
+                    return;
+                }
                 attempts++;
             }
         }
@@ -868,7 +939,13 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (_monsterData == null && !string.IsNullOrEmpty(monsterDataName))
         {
             // AssetLoader를 통해 MonsterData 로드
-            _monsterData = await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
+            MonsterData loadedMonsterData = await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
+            if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+            {
+                return;
+            }
+
+            _monsterData = loadedMonsterData;
             _networkMonsterDataLoadRequested = false;
             
             if (_monsterData == null)
@@ -900,6 +977,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             while (owner.goalTransform == null && goalAttempts < 30)
             {
                 await UniTask.Yield();
+                if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+                {
+                    return;
+                }
                 goalAttempts++;
             }
             

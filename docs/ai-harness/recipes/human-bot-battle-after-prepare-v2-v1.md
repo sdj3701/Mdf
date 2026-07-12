@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: AI/HumanBot, battle
 Created: 2026-05-08
-Last used: 2026-06-01
+Last used: 2026-07-12
 Last verified: 2026-06-01
-Use count: 26
+Use count: 27
 Review after: 2026-08-06
 Triggers: Prepare v2 recheck, HumanBot battle progression, battle command sync
 Applies to: `run_human_bot_battle_progression.py`, `battle_progression_common.py`, `PrepareDecisionPolicy`, `BattleDecisionPolicy`

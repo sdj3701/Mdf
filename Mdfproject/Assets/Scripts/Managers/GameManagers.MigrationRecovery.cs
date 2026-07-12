@@ -42,8 +42,18 @@ public partial class GameManagers
         float currentRemaining = phaseTimer.IsRunning ? (phaseTimer.RemainingTime(Runner) ?? 0f) : 0f;
         bool sameRoundSameState = currentRound == cachedData.CurrentRound && currentRank == cachedRank;
         bool shouldPromoteTimerOnly = !shouldPromoteState && sameRoundSameState && adjustedCachedRemaining > currentRemaining + 1f;
+        bool timerRequired =
+            cachedState == GameState.Prepare ||
+            cachedState == GameState.Battle1 ||
+            cachedState == GameState.Battle2;
+        bool shouldRestoreExpiredBoundaryTimer =
+            !shouldPromoteState &&
+            sameRoundSameState &&
+            timerRequired &&
+            !phaseTimer.IsRunning &&
+            cachedData.RemainingPhaseTime > 0f;
 
-        if (!shouldPromoteState && !shouldPromoteTimerOnly)
+        if (!shouldPromoteState && !shouldPromoteTimerOnly && !shouldRestoreExpiredBoundaryTimer)
         {
             return false;
         }
@@ -58,18 +68,14 @@ public partial class GameManagers
             TransitionToState(cachedState, "TryApplyCachedStateForMigration");
         }
 
-        bool timerRequired =
-            cachedState == GameState.Prepare ||
-            cachedState == GameState.Battle1 ||
-            cachedState == GameState.Battle2;
-
-        if (timerRequired && adjustedCachedRemaining > 0.25f)
+        if (timerRequired && (shouldPromoteState || shouldPromoteTimerOnly || shouldRestoreExpiredBoundaryTimer))
         {
-            phaseTimer = TickTimer.CreateFromSeconds(Runner, adjustedCachedRemaining);
-        }
-        else if (timerRequired && shouldPromoteState)
-        {
-            phaseTimer = TickTimer.None;
+            // Migration 직전 timer가 만료 경계(<= 0.25s)에 있었더라도 None으로 만들면
+            // 복구 gate의 phaseTimerNotRunning 조건과 모순되어 8초 timeout으로 빠진다.
+            // 짧은 grace tick을 복원한 뒤 기존 pause/resume 경로가 결정적으로 다음
+            // 상태 전이를 처리하도록 한다.
+            float restoredRemaining = Mathf.Max(0.25f, adjustedCachedRemaining);
+            phaseTimer = TickTimer.CreateFromSeconds(Runner, restoredRemaining);
         }
 
         Debug.Log($"<color=magenta>[GameManagers] HostMigration 캐시 상태 적용 ({context})\n  before=R{beforeRound}/{beforeState} {beforeRemaining:F1}s\n  cached=R{cachedData.CurrentRound}/{cachedState} {cachedData.RemainingPhaseTime:F1}s (elapsed={elapsed:F1})\n  after=R{currentRound}/{currentState} {currentPhaseTimer:F1}s</color>");

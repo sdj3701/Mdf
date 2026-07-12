@@ -31,6 +31,10 @@ public struct GameMigrationData
     public int ActivateSkillSeq;
     public int RejectedBattleCommandCount;
     public string LastBattleCommand;
+    public bool HasSurvivorBossPayload;
+    public SurvivorBossReplicatedRow[] SurvivorBossRows;
+    public int SurvivorBossNextUniqueId;
+    public bool SurvivorBossPayloadOverflow;
 }
 
 /// <summary>
@@ -69,6 +73,7 @@ public class HostMigrationHandler : MonoBehaviour
         public bool IsAI;
         public bool IsConnected;
         public bool HasInputAuthority;
+        public string DurableConnectionTokenHash;
         public string[] ShopUnitKeys;
         public int[] ShopStarLevels;
         public bool[] ShopSoldFlags;
@@ -82,6 +87,15 @@ public class HostMigrationHandler : MonoBehaviour
         public int[] FieldUnitFlatPositions;
         public string[] PresentedAugmentNames;
         public string[] SelectedAugmentNames;
+        public string[] ChosenAugmentNames;
+        public string[] ActiveMonsterSummonAugmentNames;
+        public string[] OwnedBossAugmentNames;
+        public int[] DestructibleWallFlatPositions;
+        public float[] DestructibleWallCurrentHealth;
+        public float[] DestructibleWallMaxHealth;
+        public int[] DestructibleWallRevisions;
+        public bool MigrationPayloadOverflow;
+        public string MigrationPayloadOverflowReason;
         public int AttackPoolRevision;
         public MonsterData[] AttackPoolMonsterDataRefs;
         public string[] AttackPoolMonsterDataNames;
@@ -129,6 +143,10 @@ public class HostMigrationHandler : MonoBehaviour
     private Coroutine _aiReconciliationCoroutine;
     private bool _aiTakeoverReady = true;
     public bool IsAiTakeoverReady => _aiTakeoverReady;
+    private int _migrationAttemptGeneration;
+    private NetworkRunner _pendingMigrationRunner;
+    private GameObject _pendingMigrationRunnerObject;
+    private int _pendingMigrationRunnerGeneration;
 
     private void Awake()
     {
@@ -196,6 +214,7 @@ public class HostMigrationHandler : MonoBehaviour
         MPTestHostMigrationEvents.Record("handler_start_migration", runner, hostMigrationToken);
 #endif
         _isMigrating = true;
+        int attemptGeneration = ++_migrationAttemptGeneration;
         _migrationRecoverySucceeded = false;
         _aiTakeoverReady = false;
         if (_aiReconciliationCoroutine != null)
@@ -216,7 +235,7 @@ public class HostMigrationHandler : MonoBehaviour
         // [세션 재시작 방식]
         // HostMigrationToken을 사용하여 새 Host로 세션을 재시작
         // 이 방식으로 남은 클라이언트가 새 Host가 됨!
-        StartCoroutine(RestartAsNewHostCoroutine(runner, hostMigrationToken));
+        StartCoroutine(RestartAsNewHostCoroutine(runner, hostMigrationToken, attemptGeneration));
     }
 
     /// <summary>
@@ -269,6 +288,7 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         CaptureDurablePlayerState(runner, sourceGameManagers);
+        CaptureDurableSurvivorBossState(sourceGameManagers);
         CaptureDurableZones(runner, sourceGameManagers);
         CaptureDurableStatBuffs(runner, sourceGameManagers);
         CaptureDurableStatusEffects(runner, sourceGameManagers);
@@ -276,11 +296,143 @@ public class HostMigrationHandler : MonoBehaviour
         InferCachedGameStateFromDurablePlayersIfNeeded();
     }
 
+    private void CaptureDurableSurvivorBossState(GameManagers gm)
+    {
+        if (gm != null && gm.IsReadyForNetworkAccess)
+        {
+            bool captureSucceeded = gm.CaptureSurvivorBossPayloadForMigration(
+                out SurvivorBossReplicatedRow[] replicatedRows,
+                out int replicatedNextId,
+                out bool overflow);
+            _cachedGameData.HasSurvivorBossPayload = true;
+            _cachedGameData.SurvivorBossRows = replicatedRows ?? Array.Empty<SurvivorBossReplicatedRow>();
+            _cachedGameData.SurvivorBossNextUniqueId = Mathf.Max(1, replicatedNextId);
+            _cachedGameData.SurvivorBossPayloadOverflow = overflow || !captureSucceeded;
+        }
+        else
+        {
+            var manager = SurvivorBossManager.Instance;
+            if (manager == null)
+            {
+                _cachedGameData.HasSurvivorBossPayload = false;
+                _cachedGameData.SurvivorBossRows = Array.Empty<SurvivorBossReplicatedRow>();
+                _cachedGameData.SurvivorBossNextUniqueId = 1;
+                _cachedGameData.SurvivorBossPayloadOverflow = false;
+                return;
+            }
+
+            _cachedGameData.SurvivorBossRows = manager.CaptureDurableReplicatedRows(
+                out _cachedGameData.SurvivorBossNextUniqueId);
+            _cachedGameData.HasSurvivorBossPayload = true;
+            _cachedGameData.SurvivorBossPayloadOverflow = false;
+        }
+
+        int pendingCount = (_cachedGameData.SurvivorBossRows ?? Array.Empty<SurvivorBossReplicatedRow>()).Count(row => row.State == 1);
+        int assignmentCount = (_cachedGameData.SurvivorBossRows ?? Array.Empty<SurvivorBossReplicatedRow>()).Count(row => row.State == 2);
+        Debug.Log($"[HostMigrationHandler] survivor boss payload captured. pending={pendingCount}, assigned={assignmentCount}, total={_cachedGameData.SurvivorBossRows?.Length ?? 0}, nextId={_cachedGameData.SurvivorBossNextUniqueId}, overflow={_cachedGameData.SurvivorBossPayloadOverflow}");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record("handler_survivor_boss_payload_captured", gm != null ? gm.Runner : null, null, new Dictionary<string, object>
+        {
+            { "pendingCount", pendingCount },
+            { "assignmentCount", assignmentCount },
+            { "payloadCount", _cachedGameData.SurvivorBossRows?.Length ?? 0 },
+            { "nextBossUniqueId", _cachedGameData.SurvivorBossNextUniqueId },
+            { "overflow", _cachedGameData.SurvivorBossPayloadOverflow }
+        });
+#endif
+    }
+
+    private bool RestoreDurableSurvivorBossState(GameManagers gm, string context)
+    {
+        if (!_cachedGameData.HasSurvivorBossPayload)
+        {
+            return true;
+        }
+
+        if (_cachedGameData.SurvivorBossPayloadOverflow)
+        {
+            Debug.LogError($"[HostMigrationHandler] survivor boss payload overflow prevents safe restore ({context}).");
+            return false;
+        }
+
+        var manager = SurvivorBossManager.Instance;
+        if (manager == null || gm == null || gm.Object == null || !gm.Object.IsValid || !gm.Object.HasStateAuthority)
+        {
+            Debug.LogError($"[HostMigrationHandler] survivor boss payload restore unavailable ({context}). manager={manager != null}, authority={gm?.Object?.HasStateAuthority}");
+            return false;
+        }
+
+        bool applied = manager.ApplyDurableReplicatedRows(
+            _cachedGameData.SurvivorBossRows,
+            _cachedGameData.SurvivorBossNextUniqueId,
+            out int unresolvedCount);
+        gm.SyncSurvivorBossStateToClientsIfAuthoritative($"HostMigration/{context}");
+
+        SurvivorBossReplicatedRow[] restoredRows = manager.CaptureDurableReplicatedRows(out int restoredNextId);
+        bool success = applied
+            && unresolvedCount == 0
+            && SurvivorBossRowsEqual(_cachedGameData.SurvivorBossRows, restoredRows)
+            && restoredNextId >= _cachedGameData.SurvivorBossNextUniqueId;
+
+        if (!success)
+        {
+            Debug.LogError($"[HostMigrationHandler] survivor boss payload verification failed ({context}). captured={_cachedGameData.SurvivorBossRows?.Length ?? 0}, restored={restoredRows?.Length ?? 0}, unresolved={unresolvedCount}");
+        }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record(
+            success ? "handler_survivor_boss_payload_restored" : "handler_survivor_boss_payload_restore_fail",
+            gm.Runner,
+            null,
+            new Dictionary<string, object>
+            {
+                { "context", context },
+                { "payloadCount", restoredRows?.Length ?? 0 },
+                { "unresolvedCount", unresolvedCount },
+                { "nextBossUniqueId", restoredNextId }
+            });
+#endif
+        return success;
+    }
+
+    private static bool SurvivorBossRowsEqual(
+        SurvivorBossReplicatedRow[] expected,
+        SurvivorBossReplicatedRow[] actual)
+    {
+        expected ??= Array.Empty<SurvivorBossReplicatedRow>();
+        actual ??= Array.Empty<SurvivorBossReplicatedRow>();
+        if (expected.Length != actual.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < expected.Length; i++)
+        {
+            SurvivorBossReplicatedRow left = expected[i];
+            SurvivorBossReplicatedRow right = actual[i];
+            if (left.DataKeyHash != right.DataKeyHash
+                || left.State != right.State
+                || left.BossUniqueId != right.BossUniqueId
+                || left.OriginPlayerId != right.OriginPlayerId
+                || left.TargetPlayerId != right.TargetPlayerId
+                || Mathf.Abs(left.RemainingHP - right.RemainingHP) > 0.01f
+                || Mathf.Abs(left.MaxHP - right.MaxHP) > 0.01f
+                || (bool)left.Invaded != (bool)right.Invaded)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>
     /// [새 방식] HostMigrationToken을 사용하여 새 Host로 세션을 재시작합니다.
     /// 이 방식으로 남은 클라이언트가 새 Host가 되어 StateAuthority를 획득합니다.
     /// </summary>
-    private IEnumerator RestartAsNewHostCoroutine(NetworkRunner oldRunner, HostMigrationToken hostMigrationToken)
+    private IEnumerator RestartAsNewHostCoroutine(
+        NetworkRunner oldRunner,
+        HostMigrationToken hostMigrationToken,
+        int attemptGeneration)
     {
         Debug.Log("<color=magenta>═══ [STEP 2] 세션 재시작 준비 ═══</color>");
         int migrationStartFrame = Time.frameCount;
@@ -303,7 +455,7 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.Log("<color=magenta>═══ [STEP 3] 새 Runner로 세션 재시작 ═══</color>");
         
         // async 메서드를 별도로 실행하고 완료를 기다림
-        var startTask = StartGameWithMigrationTokenAsync(hostMigrationToken);
+        var startTask = StartGameWithMigrationTokenAsync(hostMigrationToken, attemptGeneration);
         NetworkRunner newRunner = null;
         
         // 완료 대기 (최대 30초)
@@ -318,9 +470,26 @@ public class HostMigrationHandler : MonoBehaviour
         if (!startTask.IsCompleted)
         {
             Debug.LogError("<color=red>[HostMigrationHandler] 세션 재시작 타임아웃!</color>");
+            if (_migrationAttemptGeneration == attemptGeneration)
+            {
+                _migrationAttemptGeneration++;
+            }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             MPTestHostMigrationEvents.Record("handler_restart_timeout", oldRunner, hostMigrationToken);
 #endif
+            if (_pendingMigrationRunnerGeneration == attemptGeneration)
+            {
+                NetworkRunner timedOutRunner = _pendingMigrationRunner;
+                GameObject timedOutRunnerObject = _pendingMigrationRunnerObject;
+                _pendingMigrationRunner = null;
+                _pendingMigrationRunnerObject = null;
+                _pendingMigrationRunnerGeneration = 0;
+                yield return ShutdownRunnerForMigration(timedOutRunner, null, "START_TIMEOUT");
+                if (timedOutRunnerObject != null)
+                {
+                    Destroy(timedOutRunnerObject);
+                }
+            }
             OnMigrationComplete();
             yield break;
         }
@@ -362,6 +531,12 @@ public class HostMigrationHandler : MonoBehaviour
                 { "actualMode", newRunner.GameMode }
             });
 #endif
+            GameObject mismatchedRunnerObject = newRunner.gameObject;
+            yield return ShutdownRunnerForMigration(newRunner, null, "MODE_MISMATCH");
+            if (mismatchedRunnerObject != null)
+            {
+                Destroy(mismatchedRunnerObject);
+            }
             OnMigrationComplete();
             yield break;
         }
@@ -409,14 +584,11 @@ public class HostMigrationHandler : MonoBehaviour
             yield break;
         }
         
-        // New host must take over disconnected player slots with server-driven AI.
-        if (_aiReconciliationCoroutine != null)
+        if (!_aiTakeoverReady)
         {
-            StopCoroutine(_aiReconciliationCoroutine);
-            _aiReconciliationCoroutine = null;
+            Debug.LogError("[HostMigrationHandler] GameManagers flow resumed without completed AI reconciliation.");
+            _migrationRecoverySucceeded = false;
         }
-
-        yield return ReconcileAIControllersAfterMigrationCoroutine(newRunner);
         
         // 완료!
         Debug.Log("[STEP 6] OnMigrationComplete 호출...");
@@ -427,12 +599,13 @@ public class HostMigrationHandler : MonoBehaviour
     /// 코루틴에서 await 결과를 명시적으로 다룰 수 있도록 Task를 반환합니다.
     /// </summary>
     private async System.Threading.Tasks.Task<NetworkRunner> StartGameWithMigrationTokenAsync(
-        HostMigrationToken hostMigrationToken)
+        HostMigrationToken hostMigrationToken,
+        int attemptGeneration)
     {
         try
         {
             Debug.Log("[HostMigrationHandler] StartGameWithMigrationTokenAsync 시작...");
-            var runner = await StartGameWithMigrationToken(hostMigrationToken);
+            var runner = await StartGameWithMigrationToken(hostMigrationToken, attemptGeneration);
             Debug.Log($"[HostMigrationHandler] StartGameWithMigrationToken 완료, runner: {runner?.name}");
             return runner;
         }
@@ -488,8 +661,12 @@ public class HostMigrationHandler : MonoBehaviour
     /// <summary>
     /// HostMigrationToken을 사용하여 새 Host로 게임을 시작합니다.
     /// </summary>
-    private async System.Threading.Tasks.Task<NetworkRunner> StartGameWithMigrationToken(HostMigrationToken hostMigrationToken)
+    private async System.Threading.Tasks.Task<NetworkRunner> StartGameWithMigrationToken(
+        HostMigrationToken hostMigrationToken,
+        int attemptGeneration)
     {
+        GameObject newRunnerGO = null;
+        NetworkRunner newRunner = null;
         try
         {
             Debug.Log("[HostMigrationHandler] StartGame with HostMigrationToken...");
@@ -498,13 +675,13 @@ public class HostMigrationHandler : MonoBehaviour
             // 기존 Runner가 있는 GameObject를 건드리지 않음 (파괴 문제 방지)
             
             // 새 Runner용 GameObject 생성
-            var newRunnerGO = new GameObject("NetworkRunner_Migrated");
+            newRunnerGO = new GameObject("NetworkRunner_Migrated");
             UnityEngine.Object.DontDestroyOnLoad(newRunnerGO);
             
             Debug.Log("[HostMigrationHandler] 새 Runner GameObject 생성 완료");
             
             // 새 Runner 생성
-            var newRunner = newRunnerGO.AddComponent<NetworkRunner>();
+            newRunner = newRunnerGO.AddComponent<NetworkRunner>();
             
             if (newRunner == null)
             {
@@ -512,6 +689,10 @@ public class HostMigrationHandler : MonoBehaviour
                 UnityEngine.Object.Destroy(newRunnerGO);
                 return null;
             }
+
+            _pendingMigrationRunner = newRunner;
+            _pendingMigrationRunnerObject = newRunnerGO;
+            _pendingMigrationRunnerGeneration = attemptGeneration;
             
             // NetworkManager를 콜백으로 등록
             newRunner.AddCallbacks(NetworkManager.Instance);
@@ -560,10 +741,19 @@ public class HostMigrationHandler : MonoBehaviour
             
             if (result.Ok)
             {
+                if (attemptGeneration != _migrationAttemptGeneration || !_isMigrating)
+                {
+                    Debug.LogWarning($"[HostMigrationHandler] 늦게 완료된 migration runner를 폐기합니다. attempt={attemptGeneration}, active={_migrationAttemptGeneration}");
+                    await CleanupCreatedMigrationRunnerAsync(newRunner, newRunnerGO, "late_completion");
+                    ClearPendingMigrationRunnerOwnership(newRunner, newRunnerGO, attemptGeneration);
+                    return null;
+                }
+
                 Debug.Log("<color=green>[HostMigrationHandler] StartGame 성공!</color>");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 MPTestHostMigrationEvents.Record("handler_start_game_success", newRunner, hostMigrationToken);
 #endif
+                ClearPendingMigrationRunnerOwnership(newRunner, newRunnerGO, attemptGeneration);
                 return newRunner;
             }
             else
@@ -575,6 +765,8 @@ public class HostMigrationHandler : MonoBehaviour
                     { "shutdownReason", result.ShutdownReason }
                 });
 #endif
+                await CleanupCreatedMigrationRunnerAsync(newRunner, newRunnerGO, "start_game_failed");
+                ClearPendingMigrationRunnerOwnership(newRunner, newRunnerGO, attemptGeneration);
                 return null;
             }
         }
@@ -587,8 +779,55 @@ public class HostMigrationHandler : MonoBehaviour
                 { "error", e.Message }
             });
 #endif
+            await CleanupCreatedMigrationRunnerAsync(newRunner, newRunnerGO, "start_game_exception");
+            ClearPendingMigrationRunnerOwnership(newRunner, newRunnerGO, attemptGeneration);
             // Debug.LogException(e);
             return null;
+        }
+    }
+
+    private void ClearPendingMigrationRunnerOwnership(
+        NetworkRunner runner,
+        GameObject runnerObject,
+        int attemptGeneration)
+    {
+        if (_pendingMigrationRunnerGeneration == attemptGeneration &&
+            _pendingMigrationRunner == runner && _pendingMigrationRunnerObject == runnerObject)
+        {
+            _pendingMigrationRunner = null;
+            _pendingMigrationRunnerObject = null;
+            _pendingMigrationRunnerGeneration = 0;
+        }
+    }
+
+    private static async System.Threading.Tasks.Task CleanupCreatedMigrationRunnerAsync(
+        NetworkRunner runner,
+        GameObject runnerGameObject,
+        string reason)
+    {
+        if (runner != null)
+        {
+            try
+            {
+                if (NetworkManager.Instance != null)
+                {
+                    runner.RemoveCallbacks(NetworkManager.Instance);
+                }
+
+                if (runner.IsRunning)
+                {
+                    await runner.Shutdown(false, ShutdownReason.HostMigration, false);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[HostMigrationHandler] failed runner cleanup ({reason}): {e.Message}");
+            }
+        }
+
+        if (runnerGameObject != null)
+        {
+            UnityEngine.Object.Destroy(runnerGameObject);
         }
     }
 
@@ -1015,17 +1254,31 @@ public class HostMigrationHandler : MonoBehaviour
                 // Debug.Log($"  - HasStateAuthority: {gm.Object?.HasStateAuthority}");
                 
                 TryApplyCachedStateBeforeRestore(gm, "WaitAndRestoreGameManagers.Ready");
-                ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready");
+                DurablePlayerRestoreResult preRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready");
+                bool survivorBossRestored = RestoreDurableSurvivorBossState(gm, "WaitAndRestoreGameManagers.Ready");
                 Debug.Log("[STEP 5.3] RestoreAfterHostMigration 호출...");
                 gm.RestoreAfterHostMigration();
-                ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
+                DurablePlayerRestoreResult postRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
                 RestoreCachedZonesForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
                 RestoreCachedStatBuffsForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
                 RestoreCachedStatusEffectsForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
                 RestoreCachedPendingCombatForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
-                _migrationRecoverySucceeded = true;
+
+                if (_aiReconciliationCoroutine != null)
+                {
+                    StopCoroutine(_aiReconciliationCoroutine);
+                }
+                _aiReconciliationCoroutine = StartCoroutine(ReconcileAIControllersAfterMigrationCoroutine(expectedRunner));
+
+                yield return WaitForGameManagersRecoveryTerminal(
+                    gm,
+                    expectedRunner,
+                    survivorBossRestored,
+                    preRestoreResult.PlayerStateSucceeded && postRestoreResult.FullRestoreSucceeded);
                 
-                Debug.Log("<color=green>[STEP 5.4] GameManagers 로컬 상태 복원 완료!</color>");
+                Debug.Log(_migrationRecoverySucceeded
+                    ? "<color=green>[STEP 5.4] GameManagers flow-resume 복원 완료!</color>"
+                    : $"<color=red>[STEP 5.4] GameManagers 복원 실패. stage={gm.HostMigrationRecoveryStageName}</color>");
                 yield break;
             }
             
@@ -1052,23 +1305,42 @@ public class HostMigrationHandler : MonoBehaviour
                 yield break;
             }
             
+            bool shouldWaitForTerminal = false;
+            bool timeoutSurvivorBossRestored = false;
+            bool timeoutDurableStateRestored = false;
             try
             {
                 TryApplyCachedStateBeforeRestore(timeoutGM, "WaitAndRestoreGameManagers.Timeout");
-                ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout");
+                DurablePlayerRestoreResult preRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout");
                 timeoutGM.RestoreAfterHostMigration();
-                ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
+                DurablePlayerRestoreResult postRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
                 RestoreCachedZonesForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
                 RestoreCachedStatBuffsForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
                 RestoreCachedStatusEffectsForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
                 RestoreCachedPendingCombatForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
                 Debug.Log("<color=yellow>[STEP 5] 대기 타임아웃 후 복원 완료 (안전 게이트 통과)</color>");
-                _migrationRecoverySucceeded = true;
+                timeoutSurvivorBossRestored = RestoreDurableSurvivorBossState(timeoutGM, "WaitAndRestoreGameManagers.Timeout");
+                timeoutDurableStateRestored = preRestoreResult.PlayerStateSucceeded && postRestoreResult.FullRestoreSucceeded;
+                if (_aiReconciliationCoroutine != null)
+                {
+                    StopCoroutine(_aiReconciliationCoroutine);
+                }
+                _aiReconciliationCoroutine = StartCoroutine(ReconcileAIControllersAfterMigrationCoroutine(expectedRunner));
+                shouldWaitForTerminal = true;
             }
             catch (Exception e)
             {
                 Debug.LogError($"[STEP 5] 대기 타임아웃 복원 중 예외: {e.Message}");
                 _migrationRecoverySucceeded = false;
+            }
+
+            if (shouldWaitForTerminal)
+            {
+                yield return WaitForGameManagersRecoveryTerminal(
+                    timeoutGM,
+                    expectedRunner,
+                    timeoutSurvivorBossRestored,
+                    timeoutDurableStateRestored);
             }
         }
         else
@@ -1085,6 +1357,86 @@ public class HostMigrationHandler : MonoBehaviour
         }
         
         Debug.Log("<color=yellow>[STEP 5] WaitAndRestoreGameManagers 코루틴 종료</color>");
+    }
+
+    private IEnumerator WaitForGameManagersRecoveryTerminal(
+        GameManagers gm,
+        NetworkRunner expectedRunner,
+        bool survivorBossRestored,
+        bool durablePlayersRestored)
+    {
+        const float maxWaitSeconds = 12f;
+        float waited = 0f;
+        _migrationRecoverySucceeded = false;
+
+        while (waited < maxWaitSeconds)
+        {
+            if (gm == null || expectedRunner == null || !expectedRunner.IsRunning || gm.Runner != expectedRunner)
+            {
+                yield break;
+            }
+
+            if (gm.HasHostMigrationRecoveryFailed)
+            {
+                Debug.LogError($"[HostMigrationHandler] GameManagers reported migration failure. stage={gm.HostMigrationRecoveryStageName}");
+                yield break;
+            }
+
+            if (gm.IsHostMigrationFlowResumed)
+            {
+                if (!AreDurableFieldUnitRestoresTerminal(expectedRunner, gm, out bool fieldsSucceeded, out string fieldReason))
+                {
+                    yield return new WaitForSeconds(0.1f);
+                    waited += 0.1f;
+                    continue;
+                }
+
+                _migrationRecoverySucceeded = survivorBossRestored && durablePlayersRestored && _aiTakeoverReady;
+                _migrationRecoverySucceeded &= fieldsSucceeded;
+                if (!_migrationRecoverySucceeded)
+                {
+                    Debug.LogError($"[HostMigrationHandler] terminal migration gate failed. survivorBossRestored={survivorBossRestored}, durablePlayersRestored={durablePlayersRestored}, fieldsSucceeded={fieldsSucceeded}, fieldReason={fieldReason}, aiTakeoverReady={_aiTakeoverReady}");
+                }
+                yield break;
+            }
+
+            yield return new WaitForSeconds(0.1f);
+            waited += 0.1f;
+        }
+
+        Debug.LogError($"[HostMigrationHandler] GameManagers recovery terminal timeout. stage={gm?.HostMigrationRecoveryStageName ?? "null"}");
+    }
+
+    private static bool AreDurableFieldUnitRestoresTerminal(
+        NetworkRunner expectedRunner,
+        GameManagers gm,
+        out bool succeeded,
+        out string reason)
+    {
+        succeeded = true;
+        reason = string.Empty;
+        foreach (PlayerManager player in ResolvePlayerManagersForRunner(expectedRunner, gm))
+        {
+            if (player?.fieldManager == null)
+            {
+                continue;
+            }
+
+            if (!player.fieldManager.IsHostMigrationUnitRestoreTerminal(out bool fieldSucceeded, out string fieldReason))
+            {
+                succeeded = false;
+                reason = $"P{player.playerId}:{fieldReason}";
+                return false;
+            }
+
+            if (!fieldSucceeded)
+            {
+                succeeded = false;
+                reason = $"P{player.playerId}:{fieldReason}";
+            }
+        }
+
+        return true;
     }
 
     private bool EnsurePlayersRuntimeReady(NetworkRunner expectedRunner, string context, bool verboseLog, out string notReadySummary)
@@ -1185,9 +1537,9 @@ public class HostMigrationHandler : MonoBehaviour
             elapsed += passInterval;
         }
 
-        _aiTakeoverReady = true;
+        _aiTakeoverReady = false;
         _aiReconciliationCoroutine = null;
-        Debug.LogWarning("[HostMigrationHandler] AI takeover reconciliation timeout. Proceeding with best-effort state.");
+        Debug.LogError("[HostMigrationHandler] AI takeover reconciliation timeout. Migration recovery cannot be marked successful.");
     }
 
     /// <summary>
@@ -1701,6 +2053,7 @@ public class HostMigrationHandler : MonoBehaviour
                 IsAI = player.GetComponent<AIPlayerController>() != null,
                 IsConnected = IsInputAuthorityActive(player),
                 HasInputAuthority = player.Object != null && player.Object.HasInputAuthority,
+                DurableConnectionTokenHash = player.GetDurableConnectionTokenHash(),
                 ShopUnitKeys = Array.Empty<string>(),
                 ShopStarLevels = Array.Empty<int>(),
                 ShopSoldFlags = Array.Empty<bool>(),
@@ -1714,6 +2067,15 @@ public class HostMigrationHandler : MonoBehaviour
                 FieldUnitFlatPositions = Array.Empty<int>(),
                 PresentedAugmentNames = Array.Empty<string>(),
                 SelectedAugmentNames = Array.Empty<string>(),
+                ChosenAugmentNames = Array.Empty<string>(),
+                ActiveMonsterSummonAugmentNames = Array.Empty<string>(),
+                OwnedBossAugmentNames = Array.Empty<string>(),
+                DestructibleWallFlatPositions = Array.Empty<int>(),
+                DestructibleWallCurrentHealth = Array.Empty<float>(),
+                DestructibleWallMaxHealth = Array.Empty<float>(),
+                DestructibleWallRevisions = Array.Empty<int>(),
+                MigrationPayloadOverflow = false,
+                MigrationPayloadOverflowReason = string.Empty,
                 AttackPoolRevision = 0,
                 AttackPoolMonsterDataRefs = Array.Empty<MonsterData>(),
                 AttackPoolMonsterDataNames = Array.Empty<string>(),
@@ -1747,6 +2109,11 @@ public class HostMigrationHandler : MonoBehaviour
                 player.fieldManager.RebuildWallMapsAfterMigration("HostMigrationHandler.CaptureDurablePlayerState", false, out _);
                 snapshot.PermanentWallFlatPositions = player.fieldManager.GetPermanentWallFlatPositions() ?? Array.Empty<int>();
                 snapshot.WallHash = player.fieldManager.BuildWallCellHash();
+                player.fieldManager.TryGetDestructibleWallMigrationSnapshot(
+                    out snapshot.DestructibleWallFlatPositions,
+                    out snapshot.DestructibleWallCurrentHealth,
+                    out snapshot.DestructibleWallMaxHealth,
+                    out snapshot.DestructibleWallRevisions);
 
                 if (player.fieldManager.TryGetFieldUnitSnapshot(
                         out UnitData[] fieldUnitDataRefs,
@@ -1763,6 +2130,10 @@ public class HostMigrationHandler : MonoBehaviour
 
             snapshot.PresentedAugmentNames = player.GetPresentedAugmentSnapshotNames() ?? Array.Empty<string>();
             snapshot.SelectedAugmentNames = player.GetSelectedAugmentSnapshotNames() ?? Array.Empty<string>();
+            snapshot.ChosenAugmentNames = player.GetChosenAugmentMigrationNames() ?? Array.Empty<string>();
+            snapshot.ActiveMonsterSummonAugmentNames = player.GetActiveMonsterSummonAugmentMigrationNames() ?? Array.Empty<string>();
+            snapshot.OwnedBossAugmentNames = player.GetOwnedBossAugmentMigrationNames() ?? Array.Empty<string>();
+            snapshot.MigrationPayloadOverflow = player.HasDurableMigrationPayloadOverflow(out snapshot.MigrationPayloadOverflowReason);
 
             if (player.TryGetAttackMonsterPoolSnapshot(
                     out int attackPoolRevision,
@@ -1846,11 +2217,51 @@ public class HostMigrationHandler : MonoBehaviour
         Debug.LogWarning($"[HostMigrationHandler] GameManagers snapshot unavailable; inferred Prepare/R{inferredRound} from durable shop snapshots.");
     }
 
-    private void ApplyCachedDurablePlayerState(NetworkRunner expectedRunner, GameManagers gm, string context)
+    private readonly struct DurablePlayerRestoreResult
+    {
+        public readonly int CapturedPlayers;
+        public readonly int RestoredPlayers;
+        public readonly int MissingPlayers;
+        public readonly int ExpectedUnitFields;
+        public readonly int RestoredUnitFields;
+        public readonly int FailedUnitFields;
+        public readonly int CriticalStateFailures;
+        public readonly bool RequiredFieldRestore;
+
+        public DurablePlayerRestoreResult(
+            int capturedPlayers,
+            int restoredPlayers,
+            int missingPlayers,
+            int expectedUnitFields,
+            int restoredUnitFields,
+            int failedUnitFields,
+            int criticalStateFailures,
+            bool requiredFieldRestore)
+        {
+            CapturedPlayers = capturedPlayers;
+            RestoredPlayers = restoredPlayers;
+            MissingPlayers = missingPlayers;
+            ExpectedUnitFields = expectedUnitFields;
+            RestoredUnitFields = restoredUnitFields;
+            FailedUnitFields = failedUnitFields;
+            CriticalStateFailures = criticalStateFailures;
+            RequiredFieldRestore = requiredFieldRestore;
+        }
+
+        public bool PlayerStateSucceeded =>
+            CapturedPlayers == RestoredPlayers && MissingPlayers == 0 && CriticalStateFailures == 0;
+
+        public bool FullRestoreSucceeded =>
+            PlayerStateSucceeded &&
+            FailedUnitFields == 0 &&
+            (!RequiredFieldRestore || RestoredUnitFields == ExpectedUnitFields);
+    }
+
+    private DurablePlayerRestoreResult ApplyCachedDurablePlayerState(NetworkRunner expectedRunner, GameManagers gm, string context)
     {
         if (_cachedDurablePlayersById.Count == 0)
         {
-            return;
+            return new DurablePlayerRestoreResult(0, 0, 0, 0, 0, 0, 0, ShouldRestoreFieldUnitsForContext(context));
         }
 
         var allPlayers = ResolvePlayerManagersForRunner(expectedRunner, gm);
@@ -1860,9 +2271,13 @@ public class HostMigrationHandler : MonoBehaviour
         int restoredWalls = 0;
         int restoredUnitFields = 0;
         int failedUnitFields = 0;
+        int criticalStateFailures = 0;
         var missingPlayers = new List<int>();
         var restoredPlayersBySnapshotId = new Dictionary<int, PlayerManager>();
         bool shouldRestoreFieldUnits = ShouldRestoreFieldUnitsForContext(context);
+        int expectedUnitFields = shouldRestoreFieldUnits
+            ? _cachedDurablePlayersById.Count
+            : 0;
 
         foreach (var kv in _cachedDurablePlayersById
                      .OrderByDescending(kv => kv.Value.HasInputAuthority)
@@ -1878,8 +2293,25 @@ public class HostMigrationHandler : MonoBehaviour
             }
 
             usedPlayerInstanceIds.Add(player.GetInstanceID());
+            if (snapshot.MigrationPayloadOverflow)
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] durable player payload overflow P{snapshot.PlayerId} ({context}): {snapshot.MigrationPayloadOverflowReason}");
+            }
             player.RebindRuntimeReferencesAfterMigration($"HostMigrationHandler.ApplyCachedDurablePlayerState.{context}", false);
             RestoreInputAuthorityForDurableSnapshot(expectedRunner, player, snapshot, context);
+            if (PlayerManager.IsValidDurableConnectionTokenHash(snapshot.DurableConnectionTokenHash)
+                && !player.TrySetDurableConnectionTokenHashFromAuthority(snapshot.DurableConnectionTokenHash))
+            {
+                criticalStateFailures++;
+            }
+            else if (snapshot.IsConnected
+                     && !snapshot.IsAI
+                     && !PlayerManager.IsValidDurableConnectionTokenHash(snapshot.DurableConnectionTokenHash))
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] missing durable connection token hash for connected human P{snapshot.PlayerId} ({context})");
+            }
             player.RestoreDurableStateAfterHostMigration(
                 snapshot.PlayerId,
                 snapshot.Health,
@@ -1911,6 +2343,16 @@ public class HostMigrationHandler : MonoBehaviour
                 snapshot.PresentedAugmentNames,
                 snapshot.SelectedAugmentNames,
                 context);
+            if (!player.RestoreAugmentGameplayStateAfterHostMigration(
+                    snapshot.ChosenAugmentNames,
+                    snapshot.ActiveMonsterSummonAugmentNames,
+                    snapshot.OwnedBossAugmentNames,
+                    context,
+                    out string augmentFailureReason))
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] augment gameplay restore failed P{snapshot.PlayerId} ({context}): {augmentFailureReason}");
+            }
             restoredPlayers++;
             restoredPlayersBySnapshotId[snapshot.PlayerId] = player;
 
@@ -1918,6 +2360,27 @@ public class HostMigrationHandler : MonoBehaviour
             {
                 player.fieldManager.RestorePermanentWallsAfterHostMigration(snapshot.PermanentWallFlatPositions, context);
                 restoredWalls++;
+            }
+
+            if (shouldRestoreFieldUnits && player.fieldManager != null)
+            {
+                bool wallHealthRestored = player.fieldManager.RestoreDestructibleWallHealthAfterHostMigration(
+                    snapshot.DestructibleWallFlatPositions,
+                    snapshot.DestructibleWallCurrentHealth,
+                    snapshot.DestructibleWallMaxHealth,
+                    snapshot.DestructibleWallRevisions,
+                    context,
+                    out int restoredWallHealthCount,
+                    out int failedWallHealthCount);
+                if (!wallHealthRestored || failedWallHealthCount > 0)
+                {
+                    criticalStateFailures++;
+                    Debug.LogError($"[HostMigrationHandler] destructible wall HP restore failed P{snapshot.PlayerId} ({context}) restored={restoredWallHealthCount}, failed={failedWallHealthCount}");
+                }
+            }
+            else if (shouldRestoreFieldUnits && (snapshot.DestructibleWallCurrentHealth?.Length ?? 0) > 0)
+            {
+                criticalStateFailures++;
             }
         }
 
@@ -1930,6 +2393,7 @@ public class HostMigrationHandler : MonoBehaviour
                 var snapshot = kv.Value;
                 if (!restoredPlayersBySnapshotId.TryGetValue(snapshot.PlayerId, out var player) || player == null || player.fieldManager == null)
                 {
+                    failedUnitFields++;
                     continue;
                 }
 
@@ -1950,7 +2414,7 @@ public class HostMigrationHandler : MonoBehaviour
             }
         }
 
-        Debug.Log($"[HostMigrationHandler] durable player snapshot applied ({context}). restoredPlayers={restoredPlayers}/{_cachedDurablePlayersById.Count}, restoredWallFields={restoredWalls}, restoredUnitFields={restoredUnitFields}, failedUnitFields={failedUnitFields}, missingPlayers={string.Join(",", missingPlayers)}");
+        Debug.Log($"[HostMigrationHandler] durable player snapshot applied ({context}). restoredPlayers={restoredPlayers}/{_cachedDurablePlayersById.Count}, restoredWallFields={restoredWalls}, restoredUnitFields={restoredUnitFields}, failedUnitFields={failedUnitFields}, criticalStateFailures={criticalStateFailures}, missingPlayers={string.Join(",", missingPlayers)}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestHostMigrationEvents.Record("handler_durable_snapshot_applied", expectedRunner, null, new Dictionary<string, object>
         {
@@ -1960,9 +2424,19 @@ public class HostMigrationHandler : MonoBehaviour
             { "restoredWallFields", restoredWalls },
             { "restoredUnitFields", restoredUnitFields },
             { "failedUnitFields", failedUnitFields },
+            { "criticalStateFailures", criticalStateFailures },
             { "missingPlayers", string.Join(",", missingPlayers) }
         });
 #endif
+        return new DurablePlayerRestoreResult(
+            _cachedDurablePlayersById.Count,
+            restoredPlayers,
+            missingPlayers.Count,
+            expectedUnitFields,
+            restoredUnitFields,
+            failedUnitFields,
+            criticalStateFailures,
+            shouldRestoreFieldUnits);
     }
 
     private static bool ShouldRestoreFieldUnitsForContext(string context)
@@ -2238,9 +2712,13 @@ public class HostMigrationHandler : MonoBehaviour
 
         _restoredGameManagersCandidate = null;
 
-        // 캐시 클리어
-        _cachedPlayerData.Clear();
-        _cachedDurablePlayersById.Clear();
+        // Raw connection-token cache는 같은 match의 재접속 identity에 계속 필요하다.
+        // Durable migration payload만 실제 복구 성공 뒤 해제하고, 실패 시에는 진단/재시도를
+        // 위해 보존한다. Raw token cache는 성공적인 reassociation 또는 match 종료 시 제거한다.
+        if (_migrationRecoverySucceeded)
+        {
+            _cachedDurablePlayersById.Clear();
+        }
 
         // [Observer Pattern] Migration 완료 이벤트 발행
         bool isNewHost = NetworkManager.Instance?._runner?.IsServer ?? false;
@@ -2532,6 +3010,19 @@ public class HostMigrationHandler : MonoBehaviour
     public bool TryGetCachedPlayerData(string connectionToken, out PlayerMigrationData data)
     {
         return _cachedPlayerData.TryGetValue(connectionToken, out data);
+    }
+
+    public void ForgetCachedPlayerData(string connectionToken)
+    {
+        if (!string.IsNullOrEmpty(connectionToken))
+        {
+            _cachedPlayerData.Remove(connectionToken);
+        }
+    }
+
+    public void ClearReconnectCacheForMatchEnd()
+    {
+        _cachedPlayerData.Clear();
     }
     
     /// <summary>

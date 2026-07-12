@@ -82,6 +82,14 @@ def compare_snapshots(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
         compare_known(errors, f"player.{player_id}.field.deadUnitsHash", nested(lp, "field", "deadUnitsHash"), nested(rp, "field", "deadUnitsHash"))
         compare_known(errors, f"player.{player_id}.field.placedUnitsHash", nested(lp, "field", "placedUnitsHash"), nested(rp, "field", "placedUnitsHash"))
         compare_known(errors, f"player.{player_id}.field.wallHash", nested(lp, "field", "wallHash"), nested(rp, "field", "wallHash"))
+        compare_known_or_required(
+            errors,
+            f"player.{player_id}.field.destructibleWallHealthHash",
+            nested(lp, "field", "destructibleWallHealthHash"),
+            nested(rp, "field", "destructibleWallHealthHash"),
+            required=(nested(lp, "field", "destructibleWallCount") or 0) > 0
+            or (nested(rp, "field", "destructibleWallCount") or 0) > 0,
+        )
         compare_equal(errors, f"player.{player_id}.monsters.aliveCount", nested(lp, "monsters", "aliveCount"), nested(rp, "monsters", "aliveCount"))
         compare_known(errors, f"player.{player_id}.monsters.livingHash", nested(lp, "monsters", "livingHash"), nested(rp, "monsters", "livingHash"))
         compare_known_or_missing(errors, f"player.{player_id}.monsters.typeHash", nested(lp, "monsters", "typeHash"), nested(rp, "monsters", "typeHash"))

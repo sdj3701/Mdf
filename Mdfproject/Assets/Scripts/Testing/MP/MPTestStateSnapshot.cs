@@ -294,7 +294,11 @@ public static class MPTestStateSnapshot
             PlayerId = playerId,
             NetworkId = networkId,
             PlayerRef = playerRef,
-            ConnectionTokenHash = isLocal ? options.ConnectionTokenHash : Unknown,
+            ConnectionTokenHash = PlayerManager.IsValidDurableConnectionTokenHash(player.GetDurableConnectionTokenHash())
+                ? player.GetDurableConnectionTokenHash()
+                : (isLocal && PlayerManager.IsValidDurableConnectionTokenHash(options.ConnectionTokenHash)
+                    ? options.ConnectionTokenHash
+                    : Unknown),
             HasInputAuthority = isLocal,
             HasStateAuthority = networkObjectValid && SafeBool(() => networkObject.HasStateAuthority, false),
             IsLocal = isLocal,
@@ -762,6 +766,7 @@ public static class MPTestStateSnapshot
                 DestructibleWallCount = null,
                 PermanentWallCount = null,
                 WallHash = Unknown,
+                DestructibleWallHealthHash = Unknown,
                 PathReady = false,
                 GoalReady = SafeBool(() => player.goalTransform != null, false)
             };
@@ -771,6 +776,7 @@ public static class MPTestStateSnapshot
         string[] wallParts = string.IsNullOrEmpty(wallCells)
             ? Array.Empty<string>()
             : wallCells.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+        string destructibleWallHealth = SafeString(field.BuildDestructibleWallHealthSnapshot, string.Empty);
 
         List<Unit> units = new List<Unit>();
         try
@@ -810,6 +816,7 @@ public static class MPTestStateSnapshot
             DestructibleWallCount = wallParts.Count(part => part.StartsWith("D", StringComparison.Ordinal)),
             PermanentWallCount = wallParts.Count(part => part.StartsWith("P", StringComparison.Ordinal)),
             WallHash = HashStableString(wallCells),
+            DestructibleWallHealthHash = HashStableString(destructibleWallHealth),
             PathReady = SafeBool(() => player.astarGrid != null, false),
             GoalReady = SafeBool(() => player.goalTransform != null, false)
         };
@@ -1678,6 +1685,7 @@ public static class MPTestStateSnapshot
         [JsonProperty("destructibleWallCount")] public int? DestructibleWallCount;
         [JsonProperty("permanentWallCount")] public int? PermanentWallCount;
         [JsonProperty("wallHash")] public string WallHash;
+        [JsonProperty("destructibleWallHealthHash")] public string DestructibleWallHealthHash;
         [JsonProperty("pathReady")] public bool PathReady;
         [JsonProperty("goalReady")] public bool GoalReady;
     }

@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: multiplayer
 Created: 2026-05-08
-Last used: 2026-05-19
+Last used: 2026-07-12
 Last verified: 2026-05-19
-Use count: 20
+Use count: 23
 Review after: 2026-08-06
 Triggers: placedUnitsHash mismatch, unit combine/despawn, late MoveUnit, battle transition snapshot mismatch, host placed unit missing on client, `Networked properties can only be accessed when Spawned() has been called`
 Applies to: `FieldManager`, `PlayerManager`, `GameManagers.StartBattleForPlayers`, `Unit`, `ManaController`, MP state snapshots

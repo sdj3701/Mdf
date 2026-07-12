@@ -805,9 +805,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(commandSource, Does.Contain("IsVolatileNoOpReason"));
         Assert.That(playerManagerSource, Does.Contain("ActivateSkillCommand.IsVolatileNoOp"));
         Assert.That(playerManagerSource, Does.Contain("type == CommandType.ActivateSkill"));
-        Assert.That(playerManagerSource, Does.Contain("new ActivateSkillCommand(playerId"));
-        Assert.That(commandProcessorSource, Does.Contain("command is ActivateSkillCommand"));
-        Assert.That(commandProcessorSource, Does.Contain("command.Execute()"));
+        Assert.That(playerManagerSource, Does.Contain("ValidateActivateSkillRequest"));
+        Assert.That(playerManagerSource, Does.Not.Contain("new ActivateSkillCommand(playerId"));
+        Assert.That(commandProcessorSource, Does.Not.Contain("command is ActivateSkillCommand"));
+        Assert.That(commandProcessorSource, Does.Contain("ReceiveAndEnqueueCommand(type"));
     }
 
     [Test]
@@ -2043,7 +2044,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(playerSource, Does.Contain("NetworkArray<ShopSnapshotSlot> ShopSnapshotSlots"));
         Assert.That(playerSource, Does.Contain("NetworkArray<int> PresentedAugmentSnapshotIds"));
         Assert.That(playerSource, Does.Contain("NetworkArray<int> SelectedAugmentSnapshotIds"));
-        Assert.That(playerSource, Does.Contain("SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 32"));
+        Assert.That(playerSource, Does.Contain("SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 64"));
+        Assert.That(playerSource, Does.Contain("NetworkArray<int> SelectedAugmentSnapshotCounts"));
         Assert.That(playerSource, Does.Contain("NetworkArray<AttackMonsterPoolSnapshotSlot> AttackMonsterPoolSnapshotSlots"));
         Assert.That(playerSource, Does.Contain("private struct ShopSnapshotSlot : INetworkStruct"));
         Assert.That(playerSource, Does.Contain("private struct AttackMonsterPoolSnapshotSlot : INetworkStruct"));

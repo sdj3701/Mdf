@@ -20,6 +20,7 @@ public class ShopSlot : MonoBehaviour
     private ShopItem currentShopItem;
     private ShopManager shopManager;
     private bool isPurchased = false;
+    private bool isPurchasePending;
     private int slotIndex;
 
     // 아이콘을 비동기 로드할 때 메모리 관리를 위해 로딩 핸들을 저장합니다.
@@ -34,6 +35,18 @@ public class ShopSlot : MonoBehaviour
         this.slotIndex = index; // 인덱스 저장
         buyButton.onClick.RemoveAllListeners(); 
         buyButton.onClick.AddListener(OnBuyButtonClick);
+    }
+
+    private void OnEnable()
+    {
+        GameEvents.OnUnitPurchaseSucceeded += HandlePurchaseSucceeded;
+        GameEvents.OnPurchaseFailed += HandlePurchaseFailed;
+    }
+
+    private void OnDisable()
+    {
+        GameEvents.OnUnitPurchaseSucceeded -= HandlePurchaseSucceeded;
+        GameEvents.OnPurchaseFailed -= HandlePurchaseFailed;
     }
 
     /// <summary>
@@ -63,6 +76,7 @@ public class ShopSlot : MonoBehaviour
         // --- 3. 슬롯 상태 초기화 및 기본 정보 표시 ---
         gameObject.SetActive(true);
         isPurchased = false;
+        isPurchasePending = false;
         
         unitNameText.text = shopItem.UnitData.unitName;
         unitCostText.text = $"{shopItem.CalculatedCost}";
@@ -105,13 +119,48 @@ public class ShopSlot : MonoBehaviour
     /// </summary>
     private void OnBuyButtonClick()
     {
-        if (currentShopItem.UnitData != null && shopManager != null && !isPurchased)
+        if (currentShopItem.UnitData != null && shopManager != null && !isPurchased && !isPurchasePending)
         {
+            isPurchasePending = true;
+            buyButton.interactable = false;
             // 기존: GameEvents.TriggerUnitPurchased(...)
             // 변경: BuyUnitCommand 생성 및 실행
             var command = new BuyUnitCommand(shopManager.playerManager.playerId, this.slotIndex);
-            GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+            if (GameManagers.Instance?.CommandProcessor != null)
+            {
+                GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+            }
+            else
+            {
+                isPurchasePending = false;
+                buyButton.interactable = true;
+            }
         }
+    }
+
+    private void HandlePurchaseSucceeded(int playerId, ShopItem item, int purchasedSlotIndex)
+    {
+        if (shopManager?.playerManager == null
+            || shopManager.playerManager.playerId != playerId
+            || purchasedSlotIndex != slotIndex)
+        {
+            return;
+        }
+
+        isPurchasePending = false;
+        SetPurchased();
+    }
+
+    private void HandlePurchaseFailed(int playerId, int failedSlotIndex, string reason)
+    {
+        if (shopManager?.playerManager == null || shopManager.playerManager.playerId != playerId ||
+            failedSlotIndex != slotIndex)
+        {
+            return;
+        }
+
+        isPurchasePending = false;
+        buyButton.interactable = !isPurchased;
     }
 
     /// <summary>

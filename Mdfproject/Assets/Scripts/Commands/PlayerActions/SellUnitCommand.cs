@@ -14,10 +14,13 @@ public class SellUnitCommand : ICommand
     public void Execute()
     {
         var gm = GameManagers.Instance;
-        if (gm == null) return;
+        if (gm == null || gm.Runner == null || !gm.Runner.IsServer || gm.Object == null ||
+            !gm.Object.IsValid || !gm.Object.HasStateAuthority ||
+            gm.currentState != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning) return;
 
         var player = gm.GetPlayer(PlayerId);
-        if (player == null || player.fieldManager == null) return;
+        if (player == null || player.fieldManager == null || player.Object == null ||
+            !player.Object.IsValid || !player.Object.HasStateAuthority) return;
 
         player.fieldManager.TrySellUnitAt(Position);
     }

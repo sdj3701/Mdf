@@ -161,6 +161,22 @@ public partial class GameManagers : NetworkBehaviour
     /// </summary>
     public bool IsReadyForNetworkAccess => Object != null && Object.IsValid && _isSpawned;
 
+    /// <summary>
+    /// HostMigrationHandler가 비동기 복구의 실제 완료를 기다릴 수 있도록 노출하는 읽기 전용 상태입니다.
+    /// 호출자는 문자열 로그가 아니라 이 terminal 상태를 성공 gate로 사용해야 합니다.
+    /// </summary>
+    public bool IsHostMigrationRecoveryTerminal =>
+        _migrationRestoreStage == MigrationRestoreStage.FlowResumed ||
+        _migrationRestoreStage == MigrationRestoreStage.Failed;
+
+    public bool IsHostMigrationFlowResumed =>
+        _migrationRestoreStage == MigrationRestoreStage.FlowResumed;
+
+    public bool HasHostMigrationRecoveryFailed =>
+        _migrationRestoreStage == MigrationRestoreStage.Failed;
+
+    public string HostMigrationRecoveryStageName => _migrationRestoreStage.ToString();
+
     private bool IsMigrationRestoreInProgress =>
         _migrationRestoreStage != MigrationRestoreStage.None &&
         _migrationRestoreStage != MigrationRestoreStage.FlowResumed &&
@@ -299,6 +315,7 @@ public partial class GameManagers : NetworkBehaviour
 
         CancelAndDisposeToken(ref _migrationCts);
         CancelAndDisposeToken(ref _lifecycleCts);
+        CommandProcessor?.CancelPendingCommands();
     }
 
     private void EnsureLifecycleCancellationToken()
@@ -1196,6 +1213,22 @@ public partial class GameManagers : NetworkBehaviour
     {
         var cmd = new NotifyPurchaseSucceededCommand(playerID, slotIndex);
         CommandProcessor.RequestCommandExecution(cmd);
+    }
+
+    public void NotifyPurchaseFailed(int playerID, int slotIndex, string reason)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        RPC_NotifyPurchaseFailed(playerID, slotIndex, reason ?? "purchase_failed");
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_NotifyPurchaseFailed(int playerID, int slotIndex, string reason)
+    {
+        GameEvents.TriggerPurchaseFailed(playerID, slotIndex, reason);
     }
 
     /// <summary>

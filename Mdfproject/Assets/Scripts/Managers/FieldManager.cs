@@ -3,12 +3,13 @@ using UnityEngine;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Fusion;
 using AI.UtilitySystem;
 using AI.UtilitySystem.Considerations.Placement;
 [RequireComponent(typeof(PlacementManager))]
-public class FieldManager : MonoBehaviour
+public partial class FieldManager : MonoBehaviour
 {
     public enum BorderDirection
     {
@@ -127,6 +128,8 @@ public class FieldManager : MonoBehaviour
     private Dictionary<Vector3Int, Unit> placedUnits = new Dictionary<Vector3Int, Unit>();
     private readonly HashSet<Vector3Int> pendingUnitPositions = new HashSet<Vector3Int>();
     private readonly Dictionary<Vector3Int, UnitData> pendingUnitDataByPosition = new Dictionary<Vector3Int, UnitData>();
+    private readonly HashSet<Unit> _combinationReservedUnits = new HashSet<Unit>();
+    private bool _combinationInProgress;
     private const int PendingNetworkMoveLifetimeFrames = 300;
     private struct PendingNetworkMove
     {
@@ -139,6 +142,36 @@ public class FieldManager : MonoBehaviour
     {
         public Vector3Int Position;
         public UnitData UnitData;
+    }
+
+    public struct UnitPlacementResult
+    {
+        public bool Succeeded;
+        public Unit Unit;
+        public Vector3Int Position;
+        public string FailureReason;
+
+        public static UnitPlacementResult Success(Unit unit, Vector3Int position)
+        {
+            return new UnitPlacementResult
+            {
+                Succeeded = true,
+                Unit = unit,
+                Position = position,
+                FailureReason = null
+            };
+        }
+
+        public static UnitPlacementResult Failure(Vector3Int position, string reason)
+        {
+            return new UnitPlacementResult
+            {
+                Succeeded = false,
+                Unit = null,
+                Position = position,
+                FailureReason = reason
+            };
+        }
     }
     private readonly List<PendingNetworkMove> pendingNetworkMoves = new List<PendingNetworkMove>();
     private readonly HashSet<uint> retiredNetworkUnitIds = new HashSet<uint>();
@@ -157,6 +190,10 @@ public class FieldManager : MonoBehaviour
     private float _lastClientUnitMapReconcileTime = -999f;
     private const float ClientUnitMapReconcileIntervalSeconds = 0.25f;
     private string _hostMigrationUnitRestoreInProgressSignature = string.Empty;
+    private int _hostMigrationUnitRestoreGeneration;
+    private bool _hostMigrationUnitRestoreRunning;
+    private bool _hostMigrationUnitRestoreSucceeded = true;
+    private string _hostMigrationUnitRestoreFailureReason = string.Empty;
     private Coroutine _awaitNetworkPermanentWallsCoroutine;
 
     private string BuildWallOwnerTag()
@@ -1253,6 +1290,7 @@ public class FieldManager : MonoBehaviour
             AttachStatusBar(wallGO, wallComponent.SetStatusBar);
             wallComponent.Initialize(this, gridPosition);
             placedWalls.Add(gridPosition, wallComponent);
+            PublishDestructibleWallHealthMigrationState("create_wall");
             SchedulePathRefresh();
 
             RepairUnitPresentationAt(gridPosition, "CreateWallAt");
@@ -1302,6 +1340,7 @@ public class FieldManager : MonoBehaviour
                 Destroy(wall.gameObject);
             }
             placedWalls.Remove(gridPosition);
+            PublishDestructibleWallHealthMigrationState("remove_wall");
             SchedulePathRefresh();
         }
     }
@@ -1793,6 +1832,9 @@ public class FieldManager : MonoBehaviour
         if (BuildCurrentFieldUnitMigrationSignature() == desiredSignature)
         {
             _hostMigrationUnitRestoreInProgressSignature = string.Empty;
+            _hostMigrationUnitRestoreRunning = false;
+            _hostMigrationUnitRestoreSucceeded = true;
+            _hostMigrationUnitRestoreFailureReason = string.Empty;
             return true;
         }
 
@@ -1801,29 +1843,106 @@ public class FieldManager : MonoBehaviour
             return true;
         }
 
-        _hostMigrationUnitRestoreInProgressSignature = desiredSignature;
-        ClearCurrentUnitsForHostMigrationRestore(context);
-
-        int requested = 0;
-        int missingData = 0;
+        var resolvedEntries = new List<(UnitData Data, int StarLevel, Vector3Int Position)>();
         foreach (var entry in desiredEntries)
         {
             UnitData data = ResolveMigrationUnitData(entry.UnitDataRef, entry.UnitDataKey);
             if (data == null)
             {
-                missingData++;
-                continue;
+                _hostMigrationUnitRestoreRunning = false;
+                _hostMigrationUnitRestoreSucceeded = false;
+                _hostMigrationUnitRestoreFailureReason = $"unit_data_missing:{entry.UnitDataKey}";
+                Debug.LogError($"[UnitFlow-Migration] RestoreFieldUnitsAfterHostMigration rejected before mutation. context={context}, reason={_hostMigrationUnitRestoreFailureReason}");
+                return false;
             }
 
-            CreateUnitAt(data, entry.Position, Mathf.Max(1, entry.StarLevel), false, suppressCombination: true);
-            requested++;
+            resolvedEntries.Add((data, Mathf.Max(1, entry.StarLevel), entry.Position));
         }
 
-        _lastUnitMapRebuildFrame = Time.frameCount;
-        _lastUnitMapRebuildSummary =
-            $"ctx={context},restoreRequested={requested},missingData={missingData},snapshotUnits={desiredEntries.Count}";
-        Debug.Log($"[UnitFlow-Migration] RestoreFieldUnitsAfterHostMigration {_lastUnitMapRebuildSummary}");
-        return missingData == 0;
+        int generation = ++_hostMigrationUnitRestoreGeneration;
+        _hostMigrationUnitRestoreInProgressSignature = desiredSignature;
+        _hostMigrationUnitRestoreRunning = true;
+        _hostMigrationUnitRestoreSucceeded = false;
+        _hostMigrationUnitRestoreFailureReason = string.Empty;
+        RestoreFieldUnitsAfterHostMigrationAsync(resolvedEntries, desiredSignature, context, generation).Forget();
+        return true;
+    }
+
+    public bool IsHostMigrationUnitRestoreTerminal(out bool succeeded, out string reason)
+    {
+        succeeded = !_hostMigrationUnitRestoreRunning && _hostMigrationUnitRestoreSucceeded;
+        reason = _hostMigrationUnitRestoreRunning
+            ? "field_unit_restore_running"
+            : _hostMigrationUnitRestoreFailureReason;
+        return !_hostMigrationUnitRestoreRunning;
+    }
+
+    private async UniTaskVoid RestoreFieldUnitsAfterHostMigrationAsync(
+        List<(UnitData Data, int StarLevel, Vector3Int Position)> entries,
+        string desiredSignature,
+        string context,
+        int generation)
+    {
+        int restored = 0;
+        try
+        {
+            ClearCurrentUnitsForHostMigrationRestore(context);
+            foreach (var entry in entries)
+            {
+                if (generation != _hostMigrationUnitRestoreGeneration)
+                {
+                    return;
+                }
+
+                UnitPlacementResult result = await TryCreateUnitAtAsync(
+                    entry.Data,
+                    entry.Position,
+                    entry.StarLevel,
+                    false,
+                    suppressCombination: true);
+                if (!result.Succeeded)
+                {
+                    _hostMigrationUnitRestoreFailureReason =
+                        $"unit_restore_failed:{entry.Position}:{result.FailureReason}";
+                    return;
+                }
+                restored++;
+            }
+
+            if (generation != _hostMigrationUnitRestoreGeneration)
+            {
+                return;
+            }
+
+            _hostMigrationUnitRestoreSucceeded =
+                string.Equals(BuildCurrentFieldUnitMigrationSignature(), desiredSignature, StringComparison.Ordinal);
+            if (!_hostMigrationUnitRestoreSucceeded)
+            {
+                _hostMigrationUnitRestoreFailureReason = "field_unit_signature_mismatch";
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            _hostMigrationUnitRestoreFailureReason = "field_unit_restore_exception";
+        }
+        finally
+        {
+            if (generation == _hostMigrationUnitRestoreGeneration)
+            {
+                _hostMigrationUnitRestoreRunning = false;
+                if (_hostMigrationUnitRestoreSucceeded)
+                {
+                    _hostMigrationUnitRestoreInProgressSignature = string.Empty;
+                    _hostMigrationUnitRestoreFailureReason = string.Empty;
+                }
+
+                _lastUnitMapRebuildFrame = Time.frameCount;
+                _lastUnitMapRebuildSummary =
+                    $"ctx={context},restoreCompleted={restored}/{entries.Count},success={_hostMigrationUnitRestoreSucceeded},reason={_hostMigrationUnitRestoreFailureReason}";
+                Debug.Log($"[UnitFlow-Migration] RestoreFieldUnitsAfterHostMigration {_lastUnitMapRebuildSummary}");
+            }
+        }
     }
 
     private bool IsFieldUnitSnapshotCandidate(Unit unit)
@@ -2930,24 +3049,7 @@ public class FieldManager : MonoBehaviour
 
     public void CreateAndPlaceUnitOnField(UnitData unitData, int starLevel)
     {
-        // AI 플레이어인지 ComponentRegistry를 통해 확인합니다. AIPlayerController가 자신의 ID로 등록한다고 가정합니다.
-        if (ComponentRegistry.Has<AIPlayerController>(playerManager.playerId.ToString()))
-        {
-            CreateAndPlaceUnitOnFieldForAI(unitData, starLevel);
-            return; // AI 로직을 수행했으면 여기서 종료
-        }
-
-        Vector3Int? emptySlot = FindFirstEmptySlot(unitData);
-        if (emptySlot.HasValue)
-        {
-            CreateUnitAt(unitData, emptySlot.Value, starLevel);
-        }
-        else
-        {
-            // Debug.LogWarning("[FieldManager] 필드에 빈 공간이 없어 유닛을 배치할 수 없습니다! 골드를 환불합니다.");
-            int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
-            playerManager.AddGold(refundCost);
-        }
+        TryCreateAndPlaceUnitOnFieldAsync(unitData, starLevel).Forget();
     }
 
     /// <summary>
@@ -2955,21 +3057,299 @@ public class FieldManager : MonoBehaviour
     /// </summary>
     public void CreateAndPlaceUnitOnFieldForAI(UnitData unitData, int starLevel)
     {
-        Vector3Int? placementPos = FindFirstEmptySlot(unitData);
+        TryCreateAndPlaceUnitOnFieldAsync(unitData, starLevel, true).Forget();
+    }
 
-        if (placementPos.HasValue)
+    public async UniTask<UnitPlacementResult> TryCreateAndPlaceUnitOnFieldAsync(
+        UnitData unitData,
+        int starLevel,
+        bool markAsAIPurchased = false,
+        bool suppressCombination = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (unitData == null)
         {
-            CreateUnitAt(unitData, placementPos.Value, starLevel, true);
+            return UnitPlacementResult.Failure(default, "unit_data_missing");
         }
-        else
+
+        Vector3Int? placementPosition = FindFirstEmptySlot(unitData);
+        if (!placementPosition.HasValue)
         {
-            // Debug.LogWarning($"[FieldManager (AI)] {unitData.unitName}을(를) 배치할 유효한 위치를 찾지 못했습니다. 골드를 환불합니다.");
-            int refundCost = (starLevel == 2) ? unitData.cost * 4 : unitData.cost;
-            playerManager.AddGold(refundCost);
+            return UnitPlacementResult.Failure(default, "field_full");
+        }
+
+        return await TryCreateUnitAtAsync(
+            unitData,
+            placementPosition.Value,
+            starLevel,
+            markAsAIPurchased,
+            suppressCombination,
+            cancellationToken);
+    }
+
+    public async UniTask<UnitPlacementResult> TryCreateUnitAtAsync(
+        UnitData data,
+        Vector3Int gridPosition,
+        int starLevel,
+        bool markAsAIPurchased = false,
+        bool suppressCombination = false,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsValidGridPosition(gridPosition))
+        {
+            return UnitPlacementResult.Failure(gridPosition, "grid_position_invalid");
+        }
+        if (data == null)
+        {
+            return UnitPlacementResult.Failure(gridPosition, "unit_data_missing");
+        }
+        if (IsUnitAt(gridPosition))
+        {
+            return UnitPlacementResult.Failure(gridPosition, "grid_position_occupied");
+        }
+        if (data.prefabsByStarLevel == null || data.prefabsByStarLevel.Length == 0)
+        {
+            return UnitPlacementResult.Failure(gridPosition, "unit_prefab_table_missing");
+        }
+        if (starLevel < 1 || starLevel > data.prefabsByStarLevel.Length)
+        {
+            return UnitPlacementResult.Failure(gridPosition, "unit_star_level_invalid");
+        }
+
+        string prefabKey = data.prefabsByStarLevel[starLevel - 1];
+        if (string.IsNullOrEmpty(prefabKey))
+        {
+            return UnitPlacementResult.Failure(gridPosition, "unit_prefab_key_missing");
+        }
+        if (!TryReserveUnitPosition(gridPosition, data))
+        {
+            return UnitPlacementResult.Failure(gridPosition, "grid_position_reserved");
+        }
+
+        GameObject newUnitGO = null;
+        NetworkObject spawnedNetworkObject = null;
+        var runner = playerManager != null ? playerManager.Runner : null;
+        GameManagers expectedGameManagers = GameManagers.Instance;
+        bool networkSessionExpected =
+            (expectedGameManagers != null && expectedGameManagers.Runner != null && expectedGameManagers.Runner.IsRunning) ||
+            (playerManager != null && playerManager.Object != null && playerManager.Object.IsValid);
+        NetworkRunner expectedRunner = runner != null && runner.IsRunning
+            ? runner
+            : expectedGameManagers != null && expectedGameManagers.Runner != null && expectedGameManagers.Runner.IsRunning
+                ? expectedGameManagers.Runner
+                : null;
+        if (networkSessionExpected &&
+            (expectedRunner == null || playerManager == null || playerManager.Object == null ||
+             !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority))
+        {
+            ReleaseReservedUnitPosition(gridPosition);
+            return UnitPlacementResult.Failure(gridPosition, "network_session_player_not_authoritative");
+        }
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (prefabToCreate == null)
+            {
+                return UnitPlacementResult.Failure(gridPosition, "unit_prefab_load_failed");
+            }
+
+            runner = playerManager != null ? playerManager.Runner : null;
+            if (networkSessionExpected &&
+                (expectedGameManagers != GameManagers.Instance || runner != expectedRunner || expectedRunner == null ||
+                 !expectedRunner.IsRunning || playerManager.Object == null ||
+                 !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority))
+            {
+                return UnitPlacementResult.Failure(gridPosition, "runner_or_authority_changed_during_load");
+            }
+
+            Vector3 worldPos = GridToWorld(gridPosition, checkForWall: true);
+            bool hasNetPrefab = prefabToCreate.TryGetComponent<NetworkObject>(out var networkPrefab);
+            if (runner != null && runner.IsRunning && hasNetPrefab)
+            {
+                if (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority)
+                {
+                    return UnitPlacementResult.Failure(gridPosition, "state_authority_required");
+                }
+
+                spawnedNetworkObject = runner.Spawn(
+                    networkPrefab,
+                    worldPos,
+                    Quaternion.identity,
+                    playerManager.Object.InputAuthority);
+                if (spawnedNetworkObject == null)
+                {
+                    return UnitPlacementResult.Failure(gridPosition, "network_spawn_failed");
+                }
+
+                retiredNetworkUnitIds.Remove(spawnedNetworkObject.Id.Raw);
+                newUnitGO = spawnedNetworkObject.gameObject;
+                if (unitParent != null)
+                {
+                    newUnitGO.transform.SetParent(unitParent, true);
+                }
+            }
+            else if (!networkSessionExpected)
+            {
+                newUnitGO = Instantiate(prefabToCreate, worldPos, Quaternion.identity, unitParent);
+            }
+            else
+            {
+                return UnitPlacementResult.Failure(gridPosition, "network_unit_prefab_required");
+            }
+
+            Unit newUnitComponent = newUnitGO != null ? newUnitGO.GetComponent<Unit>() : null;
+            if (newUnitComponent == null)
+            {
+                CleanupUncommittedUnit(newUnitGO, spawnedNetworkObject, runner);
+                newUnitGO = null;
+                spawnedNetworkObject = null;
+                return UnitPlacementResult.Failure(gridPosition, "unit_component_missing");
+            }
+
+            var orientationFixer = newUnitGO.GetComponent<UnitOrientationFixer>();
+            if (orientationFixer == null)
+            {
+                orientationFixer = newUnitGO.AddComponent<UnitOrientationFixer>();
+                orientationFixer.rigRootName = "Armature";
+                orientationFixer.rigLocalEulerTarget = new Vector3(-90f, 180f, 0f);
+                orientationFixer.faceCameraOnSpawn = true;
+                orientationFixer.enforceEveryLateUpdate = true;
+                orientationFixer.targetCamera = playerCamera;
+                orientationFixer.yawOffsetDeg = 180f;
+            }
+
+            if (markAsAIPurchased)
+            {
+                newUnitComponent.SetForceSkillAutoUse(true);
+            }
+            AttachStatusBar(newUnitGO, newUnitComponent.SetStatusBar);
+            await newUnitComponent.Initialize(data, starLevel, playerManager);
+            cancellationToken.ThrowIfCancellationRequested();
+            runner = playerManager != null ? playerManager.Runner : null;
+            if (networkSessionExpected &&
+                (expectedGameManagers != GameManagers.Instance || runner != expectedRunner || expectedRunner == null ||
+                 !expectedRunner.IsRunning || playerManager.Object == null ||
+                 !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority))
+            {
+                CleanupUncommittedUnit(newUnitGO, spawnedNetworkObject, expectedRunner);
+                newUnitGO = null;
+                spawnedNetworkObject = null;
+                return UnitPlacementResult.Failure(gridPosition, "runner_or_authority_changed_during_initialize");
+            }
+            if (newUnitComponent == null || newUnitComponent.Data != data || newUnitComponent.starLevel != starLevel)
+            {
+                CleanupUncommittedUnit(newUnitGO, spawnedNetworkObject, runner);
+                newUnitGO = null;
+                spawnedNetworkObject = null;
+                return UnitPlacementResult.Failure(gridPosition, "unit_initialization_incomplete");
+            }
+
+            if (placedUnits.ContainsKey(gridPosition))
+            {
+                CleanupUncommittedUnit(newUnitGO, spawnedNetworkObject, runner);
+                newUnitGO = null;
+                spawnedNetworkObject = null;
+                return UnitPlacementResult.Failure(gridPosition, "grid_position_occupied_after_spawn");
+            }
+
+            placedUnits.Add(gridPosition, newUnitComponent);
+            SyncUnitPlacementIdentity(newUnitComponent, gridPosition);
+            ProcessPendingNetworkMoves();
+            if (spawnedNetworkObject != null && playerManager != null)
+            {
+                playerManager.RPC_RegisterUnitAt(
+                    spawnedNetworkObject.Id,
+                    gridPosition.x,
+                    gridPosition.y,
+                    data.name,
+                    starLevel);
+            }
+            BroadcastAuthoritativeUnitRoster("TryCreateUnitAtAsync");
+            if (!suppressCombination)
+            {
+                CheckForCombination();
+            }
+
+            return UnitPlacementResult.Success(newUnitComponent, gridPosition);
+        }
+        catch (OperationCanceledException)
+        {
+            CleanupUncommittedUnit(newUnitGO, spawnedNetworkObject, runner);
+            throw;
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            CleanupUncommittedUnit(newUnitGO, spawnedNetworkObject, runner);
+            return UnitPlacementResult.Failure(gridPosition, "unit_initialization_failed");
+        }
+        finally
+        {
+            ReleaseReservedUnitPosition(gridPosition);
         }
     }
 
-     public async void CreateUnitAt(UnitData data, Vector3Int gridPosition, int starLevel, bool markAsAIPurchased = false, bool suppressCombination = false)
+    private void CleanupUncommittedUnit(GameObject unitObject, NetworkObject networkObject, NetworkRunner runner)
+    {
+        if (unitObject == null)
+        {
+            return;
+        }
+
+        Unit uncommittedUnit = unitObject.GetComponent<Unit>();
+        if (uncommittedUnit != null)
+        {
+            RemoveOwnedUnitReference(uncommittedUnit);
+        }
+
+        if (networkObject != null && runner != null && runner.IsRunning && playerManager != null &&
+            playerManager.Object != null && playerManager.Object.HasStateAuthority)
+        {
+            runner.Despawn(networkObject);
+            return;
+        }
+
+        Destroy(unitObject);
+    }
+
+    public bool TryRollbackPlacedUnit(Unit unit, string context)
+    {
+        if (unit == null)
+        {
+            return false;
+        }
+
+        Vector3Int? position = GetUnitPosition(unit);
+        if (!position.HasValue)
+        {
+            return false;
+        }
+
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && runner.IsRunning &&
+            (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority))
+        {
+            return false;
+        }
+
+        BroadcastUnitUnregistered(unit, position.Value, GetUnitDataRegistrationKey(unit), unit.starLevel);
+        UnitDied(unit);
+        if (runner != null && runner.IsRunning && unit.TryGetComponent<NetworkObject>(out var networkObject))
+        {
+            runner.Despawn(networkObject);
+        }
+        else
+        {
+            Destroy(unit.gameObject);
+        }
+
+        BroadcastAuthoritativeUnitRoster($"RollbackPlacedUnit:{context}");
+        return true;
+    }
+
+     private async UniTask LegacyCreateUnitAtUnsafe(UnitData data, Vector3Int gridPosition, int starLevel, bool markAsAIPurchased = false, bool suppressCombination = false)
     {
         if (!IsValidGridPosition(gridPosition))
         {
@@ -3135,6 +3515,10 @@ public class FieldManager : MonoBehaviour
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
             if (unit == null || !UnitBelongsToFieldOwnerDurable(unit))
+            {
+                return;
+            }
+            if (_combinationReservedUnits.Contains(unit))
             {
                 return;
             }
@@ -3813,6 +4197,10 @@ public class FieldManager : MonoBehaviour
         }
 
         if (!placedUnits.TryGetValue(gridPosition, out Unit unit) || unit == null)
+        {
+            return false;
+        }
+        if (_combinationReservedUnits.Contains(unit))
         {
             return false;
         }
@@ -4811,7 +5199,391 @@ public class FieldManager : MonoBehaviour
 
     #endregion
 
-    public async void CheckForCombination()
+    public void CheckForCombination()
+    {
+        ProcessCombinationsAsync().Forget();
+    }
+
+    private async UniTask ProcessCombinationsAsync()
+    {
+        if (_combinationInProgress)
+        {
+            return;
+        }
+
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && runner.IsRunning &&
+            (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority))
+        {
+            return;
+        }
+
+        _combinationInProgress = true;
+        try
+        {
+            while (TryFindCombinableUnits(out List<Unit> unitsToCombine))
+            {
+                bool allReserved = true;
+                foreach (Unit unit in unitsToCombine)
+                {
+                    if (unit == null || !_combinationReservedUnits.Add(unit))
+                    {
+                        allReserved = false;
+                        break;
+                    }
+                }
+
+                if (!allReserved)
+                {
+                    foreach (Unit unit in unitsToCombine)
+                    {
+                        if (unit != null)
+                        {
+                            _combinationReservedUnits.Remove(unit);
+                        }
+                    }
+                    break;
+                }
+
+                bool combined;
+                try
+                {
+                    combined = await TryCombineUnitsTransactionAsync(unitsToCombine);
+                }
+                finally
+                {
+                    foreach (Unit unit in unitsToCombine)
+                    {
+                        if (unit != null)
+                        {
+                            _combinationReservedUnits.Remove(unit);
+                        }
+                    }
+                }
+
+                if (!combined)
+                {
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            _combinationInProgress = false;
+        }
+    }
+
+    private bool TryFindCombinableUnits(out List<Unit> unitsToCombine)
+    {
+        unitsToCombine = null;
+        var group = placedUnits
+            .Where(kvp => kvp.Value != null && kvp.Value.Data != null && kvp.Value.starLevel < 3)
+            .GroupBy(kvp => kvp.Value)
+            .Select(unitGroup => new
+            {
+                Unit = unitGroup.Key,
+                Position = unitGroup.Select(kvp => kvp.Key)
+                    .OrderBy(cell => cell.x)
+                    .ThenBy(cell => cell.y)
+                    .ThenBy(cell => cell.z)
+                    .First()
+            })
+            .OrderBy(entry => entry.Position.x)
+            .ThenBy(entry => entry.Position.y)
+            .ThenBy(entry => entry.Position.z)
+            .GroupBy(entry => new { entry.Unit.Data, entry.Unit.starLevel })
+            .FirstOrDefault(candidate => candidate.Count() >= 3);
+
+        if (group == null)
+        {
+            return false;
+        }
+
+        unitsToCombine = group.Select(entry => entry.Unit).Take(3).ToList();
+        return unitsToCombine.Count == 3;
+    }
+
+    private async UniTask<bool> TryCombineUnitsTransactionAsync(List<Unit> unitsToCombine)
+    {
+        if (unitsToCombine == null || unitsToCombine.Count != 3 || unitsToCombine.Any(unit => unit == null))
+        {
+            return false;
+        }
+
+        Unit baseUnit = unitsToCombine[2];
+        UnitData unitData = baseUnit.Data;
+        int oldStarLevel = baseUnit.starLevel;
+        int newStarLevel = oldStarLevel + 1;
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.currentState != GameManagers.GameState.Prepare || gameManagers.IsSequenceTransitioning)
+        {
+            return false;
+        }
+        if (unitData == null || unitData.prefabsByStarLevel == null ||
+            oldStarLevel < 1 || newStarLevel > unitData.prefabsByStarLevel.Length)
+        {
+            return false;
+        }
+
+        var positions = new Vector3Int[3];
+        for (int i = 0; i < unitsToCombine.Count; i++)
+        {
+            Vector3Int? position = GetUnitPosition(unitsToCombine[i]);
+            if (!position.HasValue || GetUnitAt(position.Value) != unitsToCombine[i] ||
+                unitsToCombine[i].Data != unitData || unitsToCombine[i].starLevel != oldStarLevel)
+            {
+                return false;
+            }
+            positions[i] = position.Value;
+        }
+
+        string oldPrefabKey = unitData.prefabsByStarLevel[oldStarLevel - 1];
+        string newPrefabKey = unitData.prefabsByStarLevel[newStarLevel - 1];
+        if (string.Equals(oldPrefabKey, newPrefabKey, StringComparison.Ordinal))
+        {
+            try
+            {
+                await baseUnit.Initialize(unitData, newStarLevel, playerManager);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, baseUnit);
+                try
+                {
+                    await baseUnit.Initialize(unitData, oldStarLevel, playerManager);
+                }
+                catch (Exception rollbackException)
+                {
+                    Debug.LogException(rollbackException, baseUnit);
+                }
+                return false;
+            }
+
+            if (!AreCombinationInputsCurrent(unitsToCombine, positions, unitData, oldStarLevel, baseUnit, newStarLevel))
+            {
+                if (baseUnit != null)
+                {
+                    try
+                    {
+                        await baseUnit.Initialize(unitData, oldStarLevel, playerManager);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        Debug.LogException(rollbackException, baseUnit);
+                    }
+                }
+                return false;
+            }
+
+            RemoveCombinedUnit(unitsToCombine[0], positions[0]);
+            RemoveCombinedUnit(unitsToCombine[1], positions[1]);
+            BroadcastPromotedUnitRegistration(baseUnit, positions[2], unitData, newStarLevel);
+            BroadcastAuthoritativeUnitRoster("CheckForCombination.InPlacePromotion");
+            return true;
+        }
+
+        Unit stagedReplacement = await TryStageCombinedReplacementAsync(unitData, newStarLevel, positions[2]);
+        if (stagedReplacement == null)
+        {
+            return false;
+        }
+
+        if (!AreCombinationInputsCurrent(unitsToCombine, positions, unitData, oldStarLevel, null, 0))
+        {
+            var currentRunner = playerManager != null ? playerManager.Runner : null;
+            NetworkObject stagedNetworkObject = stagedReplacement.Object != null && stagedReplacement.Object.IsValid
+                ? stagedReplacement.Object
+                : stagedReplacement.GetComponent<NetworkObject>();
+            CleanupUncommittedUnit(stagedReplacement.gameObject, stagedNetworkObject, currentRunner);
+            return false;
+        }
+
+        for (int i = 0; i < unitsToCombine.Count; i++)
+        {
+            RemoveCombinedUnit(unitsToCombine[i], positions[i]);
+        }
+
+        placedUnits[positions[2]] = stagedReplacement;
+        SyncUnitPlacementIdentity(stagedReplacement, positions[2]);
+        AttachStatusBar(stagedReplacement.gameObject, stagedReplacement.SetStatusBar);
+        BroadcastPromotedUnitRegistration(stagedReplacement, positions[2], unitData, newStarLevel);
+        BroadcastAuthoritativeUnitRoster("CheckForCombination.StagedReplacement");
+        return true;
+    }
+
+    private bool AreCombinationInputsCurrent(
+        IReadOnlyList<Unit> units,
+        IReadOnlyList<Vector3Int> positions,
+        UnitData expectedData,
+        int expectedStarLevel,
+        Unit promotedUnit,
+        int promotedStarLevel)
+    {
+        GameManagers gm = GameManagers.Instance;
+        if (gm == null || gm.currentState != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning ||
+            units == null || positions == null || units.Count != 3 || positions.Count != 3)
+        {
+            return false;
+        }
+
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && runner.IsRunning &&
+            (playerManager.Object == null || !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < units.Count; i++)
+        {
+            Unit unit = units[i];
+            int requiredStar = unit == promotedUnit ? promotedStarLevel : expectedStarLevel;
+            if (unit == null || GetUnitAt(positions[i]) != unit || unit.Data != expectedData ||
+                unit.starLevel != requiredStar || !_combinationReservedUnits.Contains(unit))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private async UniTask<Unit> TryStageCombinedReplacementAsync(UnitData unitData, int starLevel, Vector3Int position)
+    {
+        string prefabKey = unitData.prefabsByStarLevel[starLevel - 1];
+        if (string.IsNullOrWhiteSpace(prefabKey))
+        {
+            return null;
+        }
+
+        GameManagers expectedGameManagers = GameManagers.Instance;
+        bool networkSessionExpected =
+            (expectedGameManagers != null && expectedGameManagers.Runner != null && expectedGameManagers.Runner.IsRunning) ||
+            (playerManager != null && playerManager.Object != null && playerManager.Object.IsValid);
+        NetworkRunner expectedRunner = playerManager != null && playerManager.Runner != null && playerManager.Runner.IsRunning
+            ? playerManager.Runner
+            : expectedGameManagers != null && expectedGameManagers.Runner != null && expectedGameManagers.Runner.IsRunning
+                ? expectedGameManagers.Runner
+                : null;
+        if (networkSessionExpected &&
+            (expectedRunner == null || playerManager == null || playerManager.Object == null ||
+             !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority))
+        {
+            return null;
+        }
+        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+        if (prefab == null)
+        {
+            return null;
+        }
+
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (networkSessionExpected &&
+            (expectedGameManagers != GameManagers.Instance || runner != expectedRunner || expectedRunner == null ||
+             !expectedRunner.IsRunning || playerManager.Object == null ||
+             !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority))
+        {
+            return null;
+        }
+        GameObject stagedObject;
+        NetworkObject stagedNetworkObject = null;
+        Vector3 worldPosition = GridToWorld(position, checkForWall: true);
+        if (runner != null && runner.IsRunning && prefab.TryGetComponent<NetworkObject>(out var networkPrefab))
+        {
+            if (playerManager == null || playerManager.Object == null || !playerManager.Object.HasStateAuthority)
+            {
+                return null;
+            }
+
+            stagedNetworkObject = runner.Spawn(
+                networkPrefab,
+                worldPosition,
+                Quaternion.identity,
+                playerManager.Object.InputAuthority);
+            if (stagedNetworkObject == null)
+            {
+                return null;
+            }
+            retiredNetworkUnitIds.Remove(stagedNetworkObject.Id.Raw);
+            stagedObject = stagedNetworkObject.gameObject;
+            if (unitParent != null)
+            {
+                stagedObject.transform.SetParent(unitParent, true);
+            }
+        }
+        else if (!networkSessionExpected)
+        {
+            stagedObject = Instantiate(prefab, worldPosition, Quaternion.identity, unitParent);
+        }
+        else
+        {
+            return null;
+        }
+
+        Unit stagedUnit = stagedObject != null ? stagedObject.GetComponent<Unit>() : null;
+        if (stagedUnit == null)
+        {
+            CleanupUncommittedUnit(stagedObject, stagedNetworkObject, runner);
+            return null;
+        }
+
+        try
+        {
+            await stagedUnit.Initialize(unitData, starLevel, playerManager);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, stagedUnit);
+            CleanupUncommittedUnit(stagedObject, stagedNetworkObject, runner);
+            return null;
+        }
+
+        runner = playerManager != null ? playerManager.Runner : null;
+        if (networkSessionExpected &&
+            (expectedGameManagers != GameManagers.Instance || runner != expectedRunner || expectedRunner == null ||
+             !expectedRunner.IsRunning || playerManager.Object == null ||
+             !playerManager.Object.IsValid || !playerManager.Object.HasStateAuthority))
+        {
+            CleanupUncommittedUnit(stagedObject, stagedNetworkObject, expectedRunner);
+            return null;
+        }
+
+        if (stagedUnit == null || stagedUnit.Data != unitData || stagedUnit.starLevel != starLevel)
+        {
+            CleanupUncommittedUnit(stagedObject, stagedNetworkObject, runner);
+            return null;
+        }
+        return stagedUnit;
+    }
+
+    private void RemoveCombinedUnit(Unit unit, Vector3Int position)
+    {
+        if (unit == null)
+        {
+            return;
+        }
+
+        BroadcastUnitUnregistered(unit, position, GetUnitDataRegistrationKey(unit), unit.starLevel);
+        UnitDied(unit);
+        var runner = playerManager != null ? playerManager.Runner : null;
+        if (runner != null && runner.IsRunning && unit.TryGetComponent<NetworkObject>(out var networkObject))
+        {
+            runner.Despawn(networkObject);
+        }
+        else
+        {
+            Destroy(unit.gameObject);
+        }
+    }
+
+    private void BroadcastPromotedUnitRegistration(Unit unit, Vector3Int position, UnitData data, int starLevel)
+    {
+        if (playerManager != null && unit != null && unit.TryGetComponent<NetworkObject>(out var networkObject))
+        {
+            playerManager.RPC_RegisterUnitAt(networkObject.Id, position.x, position.y, data.name, starLevel);
+        }
+    }
+
+    private async UniTask LegacyCheckForCombinationUnsafe()
     {
         var runner = playerManager != null ? playerManager.Runner : null;
         if (runner != null
@@ -4874,12 +5646,12 @@ public class FieldManager : MonoBehaviour
 
             Unit baseUnit = unitsToCombine[2];
             await baseUnit.Upgrade();
-            ReplaceUnitPrefab(baseUnit);
+            await ReplaceUnitPrefab(baseUnit);
             CheckForCombination();
         }
     }
 
-    private async void ReplaceUnitPrefab(Unit unitToReplace)
+    private async UniTask ReplaceUnitPrefab(Unit unitToReplace)
     {
         // 현재 위치를 먼저 저장 (UnitDied 전에)
         if (!placedUnits.ContainsValue(unitToReplace))

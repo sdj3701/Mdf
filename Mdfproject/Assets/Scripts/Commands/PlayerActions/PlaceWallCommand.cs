@@ -19,11 +19,21 @@ public class PlaceWallCommand : ICommand
             Debug.Log($"[PlaceWallCommand] Ignored on non-server peer. Player={PlayerId}, Pos={Position}");
             return;
         }
+        if (gm.Object == null || !gm.Object.IsValid || !gm.Object.HasStateAuthority ||
+            gm.currentState != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
+        {
+            Debug.LogWarning($"[PlaceWallCommand] Rejected outside authoritative stable Prepare. Player={PlayerId}, Pos={Position}");
+            return;
+        }
 
         var player = gm.GetPlayer(PlayerId);
         if (player == null)
         {
             Debug.LogError($"[PlaceWallCommand] Player not found for PlayerId {PlayerId}");
+            return;
+        }
+        if (player.Object == null || !player.Object.IsValid || !player.Object.HasStateAuthority)
+        {
             return;
         }
 

@@ -157,6 +157,6 @@ public static class MPTestCommandLine
 
         public string SafeRole => string.IsNullOrEmpty(Role) ? "unknown" : Role.ToLowerInvariant();
         public string AutomationTokenHash => MPTestLogger.HashForLog(AutomationToken);
-        public string ConnectionTokenHash => MPTestLogger.HashForLog(ConnectionToken);
+        public string ConnectionTokenHash => DurableConnectionTokenIdentity.BuildHash(ConnectionToken);
     }
 }

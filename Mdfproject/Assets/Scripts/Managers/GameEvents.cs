@@ -66,8 +66,9 @@ public static class GameEvents
         }
     }
 
-    public static event Action<int, string> OnPurchaseFailed; // playerID, 실패 사유
-    public static void TriggerPurchaseFailed(int playerID, string reason) => OnPurchaseFailed?.Invoke(playerID, reason);
+    public static event Action<int, int, string> OnPurchaseFailed; // playerID, slotIndex, 실패 사유
+    public static void TriggerPurchaseFailed(int playerID, int slotIndex, string reason) =>
+        OnPurchaseFailed?.Invoke(playerID, slotIndex, reason);
 
     public static event Action<PlayerManager> OnShopRefreshed;
     public static void TriggerShopRefreshed(PlayerManager owner) => OnShopRefreshed?.Invoke(owner);

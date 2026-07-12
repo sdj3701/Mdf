@@ -8,8 +8,9 @@ using UnityEngine.Serialization;
 using System.Linq;
 using Fusion; // Fusion 네임스페이스 추가
 using Cysharp.Threading.Tasks;
+using System.Threading;
 
-public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> NetworkBehaviour
+public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> NetworkBehaviour
 {
     // [수정] playerId를 모든 클라이언트가 동기화할 수 있도록 [Networked] 프로퍼티로 변경합니다.
     [Networked] public int playerId { get; set; }
@@ -36,9 +37,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private const int PRESENTED_AUGMENT_SNAPSHOT_CAPACITY = 3;
     [Networked, Capacity(PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> PresentedAugmentSnapshotIds { get; }
     [Networked] private int PresentedAugmentSnapshotCount { get; set; }
-    private const int SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 32;
+    private const int SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 64;
     [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> SelectedAugmentSnapshotIds { get; }
+    [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> SelectedAugmentSnapshotCounts { get; }
     [Networked] private int SelectedAugmentSnapshotCount { get; set; }
+    [Networked] private NetworkBool SelectedAugmentSnapshotOverflow { get; set; }
     private const float PERMANENT_BONUS_NETWORK_SCALE = 10000f;
     [Networked] private int PermanentAttackDamageBonusPermille { get; set; }
     [Networked] private int PermanentAttackSpeedBonusPermille { get; set; }
@@ -121,6 +124,40 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
     private ChangeDetector _changeDetector;
     private bool _runtimeInitialized;
     public bool IsReadyForPlayerActions => _runtimeInitialized && playerId >= 0 && fieldManager != null;
+    private readonly HashSet<int> _pendingShopPurchaseSlots = new HashSet<int>();
+
+    public struct PurchaseUnitResult
+    {
+        public bool Succeeded;
+        public int ShopSlotIndex;
+        public int Cost;
+        public Unit Unit;
+        public string FailureReason;
+
+        public static PurchaseUnitResult Success(int shopSlotIndex, int cost, Unit unit)
+        {
+            return new PurchaseUnitResult
+            {
+                Succeeded = true,
+                ShopSlotIndex = shopSlotIndex,
+                Cost = cost,
+                Unit = unit,
+                FailureReason = null
+            };
+        }
+
+        public static PurchaseUnitResult Failure(int shopSlotIndex, string reason)
+        {
+            return new PurchaseUnitResult
+            {
+                Succeeded = false,
+                ShopSlotIndex = shopSlotIndex,
+                Cost = 0,
+                Unit = null,
+                FailureReason = reason
+            };
+        }
+    }
 
     private struct ShopSnapshotSlot : INetworkStruct
     {
@@ -401,14 +438,27 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return;
         }
 
-        if (SelectedAugmentSnapshotCount >= SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
+        int augmentId = StableAugmentSnapshotId(augmentName);
+        int uniqueCount = Mathf.Clamp(SelectedAugmentSnapshotCount, 0, SELECTED_AUGMENT_SNAPSHOT_CAPACITY);
+        for (int i = 0; i < uniqueCount; i++)
         {
-            Debug.LogWarning($"[PlayerManager] Selected augment snapshot capacity exceeded. playerId={playerId}, augment={augmentName}");
+            if (SelectedAugmentSnapshotIds.Get(i) == augmentId)
+            {
+                SelectedAugmentSnapshotCounts.Set(i, Mathf.Max(1, SelectedAugmentSnapshotCounts.Get(i)) + 1);
+                return;
+            }
+        }
+
+        if (uniqueCount >= SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
+        {
+            SelectedAugmentSnapshotOverflow = true;
+            Debug.LogError($"[PlayerManager] Selected augment durable snapshot capacity exceeded. playerId={playerId}, augment={augmentName}");
             return;
         }
 
-        SelectedAugmentSnapshotIds.Set(SelectedAugmentSnapshotCount, StableAugmentSnapshotId(augmentName));
-        SelectedAugmentSnapshotCount++;
+        SelectedAugmentSnapshotIds.Set(uniqueCount, augmentId);
+        SelectedAugmentSnapshotCounts.Set(uniqueCount, 1);
+        SelectedAugmentSnapshotCount = uniqueCount + 1;
     }
 
     public void PublishPresentedAugmentSnapshot(IEnumerable<string> augmentNames)
@@ -474,7 +524,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             string name = ResolveLoadedAugmentNameByStableId(SelectedAugmentSnapshotIds.Get(i));
             if (!string.IsNullOrWhiteSpace(name))
             {
-                names.Add(name);
+                int repetitions = Mathf.Max(1, SelectedAugmentSnapshotCounts.Get(i));
+                for (int repetition = 0; repetition < repetitions; repetition++)
+                {
+                    names.Add(name);
+                }
             }
         }
 
@@ -517,24 +571,35 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         for (int i = 0; i < SELECTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
         {
             SelectedAugmentSnapshotIds.Set(i, 0);
+            SelectedAugmentSnapshotCounts.Set(i, 0);
         }
 
-        int selectedCount = 0;
+        var selectedCountsById = new Dictionary<int, int>();
+        var selectedOrder = new List<int>();
         foreach (var rawName in selectedAugmentNames ?? System.Array.Empty<string>())
         {
-            if (selectedCount >= SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
-            {
-                break;
-            }
-
             string name = rawName != null ? rawName.Trim() : string.Empty;
             if (string.IsNullOrWhiteSpace(name))
             {
                 continue;
             }
 
-            SelectedAugmentSnapshotIds.Set(selectedCount, StableAugmentSnapshotId(name));
-            selectedCount++;
+            int augmentId = StableAugmentSnapshotId(name);
+            if (!selectedCountsById.ContainsKey(augmentId))
+            {
+                selectedCountsById[augmentId] = 0;
+                selectedOrder.Add(augmentId);
+            }
+            selectedCountsById[augmentId]++;
+        }
+
+        SelectedAugmentSnapshotOverflow = selectedOrder.Count > SELECTED_AUGMENT_SNAPSHOT_CAPACITY;
+        int selectedCount = Mathf.Min(selectedOrder.Count, SELECTED_AUGMENT_SNAPSHOT_CAPACITY);
+        for (int i = 0; i < selectedCount; i++)
+        {
+            int augmentId = selectedOrder[i];
+            SelectedAugmentSnapshotIds.Set(i, augmentId);
+            SelectedAugmentSnapshotCounts.Set(i, selectedCountsById[augmentId]);
         }
 
         PresentedAugmentSnapshotCount = presentedCount;
@@ -593,6 +658,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
 
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
         ApplyPermanentBonusesFromNetworkSnapshot();
+        ApplyPendingDurableConnectionTokenHashOnSpawn();
 
         // Host Migration 복원 직후에도 런타임 참조가 비지 않도록 즉시 재결선
         RebindRuntimeReferencesAfterMigration("PlayerManager.Spawned", false);
@@ -2095,6 +2161,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augment != null)
         {
             _activeMonsterSummonAugments.Add(augment);
+            PublishAugmentRuntimeMigrationStateFromAuthority("register_active_summon");
             // Debug.Log($"<color=orange>[PlayerManager] Player {playerId}: 몬스터 소환 증강 '{augment.augmentName}' 등록 (누적 {_activeMonsterSummonAugments.Count}개)</color>");
         }
     }
@@ -2114,6 +2181,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augment?.bossMonsterData != null)
         {
             _ownedBossAugments.Add(augment);
+            PublishAugmentRuntimeMigrationStateFromAuthority("add_owned_boss");
             // Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{augment.bossMonsterData.monsterName}' 보유 추가 (총 {_ownedBossAugments.Count}마리)</color>");
         }
     }
@@ -2126,6 +2194,7 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (augment != null)
         {
             _ownedBossAugments.Remove(augment);
+            PublishAugmentRuntimeMigrationStateFromAuthority("consume_owned_boss");
             SyncOwnedBossRemovalToClientsIfAuthoritative(bossData);
             // Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보스 '{bossData.monsterName}' 소환 → 보유에서 제거 (남은 {_ownedBossAugments.Count}마리)</color>");
             return true;
@@ -3485,6 +3554,150 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         }
     }
 
+    public bool IsShopPurchaseTransactionPending(int shopSlotIndex)
+    {
+        return _pendingShopPurchaseSlots.Contains(shopSlotIndex);
+    }
+
+    public async UniTask<PurchaseUnitResult> TryPurchaseShopUnitAsync(
+        int shopSlotIndex,
+        CancellationToken cancellationToken = default)
+    {
+        var gameManagers = GameManagers.Instance;
+        bool networkSessionExpected =
+            (gameManagers != null && gameManagers.Runner != null && gameManagers.Runner.IsRunning) ||
+            (Object != null && Object.IsValid);
+        if (networkSessionExpected &&
+            (Runner == null || !Runner.IsRunning || gameManagers == null || gameManagers.Runner != Runner ||
+            (Object == null || !Object.IsValid || !Object.HasStateAuthority)))
+        {
+            return PurchaseUnitResult.Failure(shopSlotIndex, "state_authority_required");
+        }
+        if (shopManager == null || !shopManager.IsDatabaseLoaded)
+        {
+            return PurchaseUnitResult.Failure(shopSlotIndex, "shop_not_ready");
+        }
+        if (fieldManager == null)
+        {
+            return PurchaseUnitResult.Failure(shopSlotIndex, "field_not_ready");
+        }
+
+        if (gameManagers == null || gameManagers.currentState != GameManagers.GameState.Prepare || gameManagers.IsSequenceTransitioning)
+        {
+            return PurchaseUnitResult.Failure(shopSlotIndex, "command_requires_stable_prepare_phase");
+        }
+        if (!_pendingShopPurchaseSlots.Add(shopSlotIndex))
+        {
+            return PurchaseUnitResult.Failure(shopSlotIndex, "shop_slot_purchase_pending");
+        }
+
+        Unit placedUnit = null;
+        int committedCost = 0;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var items = shopManager.GetCurrentShopItems();
+            if (shopSlotIndex < 0 || shopSlotIndex >= items.Count)
+            {
+                return PurchaseUnitResult.Failure(shopSlotIndex, "shop_slot_out_of_range");
+            }
+            if (shopManager.IsSlotSold(shopSlotIndex))
+            {
+                return PurchaseUnitResult.Failure(shopSlotIndex, "shop_slot_already_sold");
+            }
+
+            ShopItem observedItem = items[shopSlotIndex];
+            if (observedItem.UnitData == null)
+            {
+                return PurchaseUnitResult.Failure(shopSlotIndex, "shop_item_missing_unit_data");
+            }
+
+            int observedRevision = ShopSnapshotRevision;
+            int observedCost = observedItem.CalculatedCost;
+            UnitData observedUnitData = observedItem.UnitData;
+            int observedStarLevel = observedItem.StarLevel;
+            if (observedCost < 0 || GetGold() < observedCost)
+            {
+                return PurchaseUnitResult.Failure(shopSlotIndex, "insufficient_gold");
+            }
+
+            bool markAsAIPurchased = ComponentRegistry.Has<AIPlayerController>(playerId.ToString());
+            FieldManager.UnitPlacementResult placement = await fieldManager.TryCreateAndPlaceUnitOnFieldAsync(
+                observedUnitData,
+                observedStarLevel,
+                markAsAIPurchased,
+                suppressCombination: true,
+                cancellationToken: cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!placement.Succeeded)
+            {
+                return PurchaseUnitResult.Failure(
+                    shopSlotIndex,
+                    string.IsNullOrEmpty(placement.FailureReason) ? "unit_placement_failed" : placement.FailureReason);
+            }
+            placedUnit = placement.Unit;
+
+            items = shopManager.GetCurrentShopItems();
+            bool transactionStillCurrent =
+                gameManagers == GameManagers.Instance &&
+                gameManagers.currentState == GameManagers.GameState.Prepare &&
+                !gameManagers.IsSequenceTransitioning &&
+                ShopSnapshotRevision == observedRevision &&
+                shopSlotIndex >= 0 &&
+                shopSlotIndex < items.Count &&
+                !shopManager.IsSlotSold(shopSlotIndex) &&
+                ReferenceEquals(items[shopSlotIndex].UnitData, observedUnitData) &&
+                items[shopSlotIndex].StarLevel == observedStarLevel &&
+                items[shopSlotIndex].CalculatedCost == observedCost &&
+                GetGold() >= observedCost;
+
+            if (!transactionStillCurrent)
+            {
+                fieldManager.TryRollbackPlacedUnit(placement.Unit, "PurchaseStateChanged");
+                return PurchaseUnitResult.Failure(shopSlotIndex, "purchase_state_changed_during_spawn");
+            }
+            if (!SpendGold(observedCost))
+            {
+                fieldManager.TryRollbackPlacedUnit(placement.Unit, "PurchaseGoldCommitFailed");
+                return PurchaseUnitResult.Failure(shopSlotIndex, "gold_commit_failed");
+            }
+            committedCost = observedCost;
+
+            shopManager.MarkSlotAsPurchased(shopSlotIndex);
+            fieldManager.CheckForCombination();
+            return PurchaseUnitResult.Success(shopSlotIndex, observedCost, placement.Unit);
+        }
+        catch (OperationCanceledException)
+        {
+            if (placedUnit != null)
+            {
+                fieldManager.TryRollbackPlacedUnit(placedUnit, "PurchaseCancelled");
+            }
+            if (committedCost > 0)
+            {
+                AddGold(committedCost);
+            }
+            throw;
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            if (placedUnit != null)
+            {
+                fieldManager.TryRollbackPlacedUnit(placedUnit, "PurchaseException");
+            }
+            if (committedCost > 0)
+            {
+                AddGold(committedCost);
+            }
+            return PurchaseUnitResult.Failure(shopSlotIndex, "purchase_transaction_failed");
+        }
+        finally
+        {
+            _pendingShopPurchaseSlots.Remove(shopSlotIndex);
+        }
+    }
+
     public void AddWalls(int amount)
     {
         if (amount <= 0) return;
@@ -3592,21 +3805,11 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             // Debug.Log("<color=green>[NetFlow] GameManagers resolved via FindObjectOfType on server.</color>");
         }
 
-        if (type == CommandType.ActivateSkill)
-        {
-            if (intParams.Length < 2)
-            {
-                return;
-            }
-
-            uint skillUnitNetworkId = (uint)intParams[1];
-            var command = new ActivateSkillCommand(playerId, skillUnitNetworkId);
-            command.Execute();
-            return;
-        }
-
         gm.CommandProcessor?.ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
-        gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+        if (CommandProcessor.ShouldBroadcastCommandToClients(type))
+        {
+            gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+        }
     }
 
     private bool ValidateClientCommandRequest(
@@ -3690,6 +3893,8 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
                 return ValidateSelectAugmentRequest(gm, intParams, out reason);
             case CommandType.ActivateSkill:
                 return ValidateActivateSkillRequest(gm, intParams, out reason);
+            case CommandType.SetSkillActivationMode:
+                return ValidateSetSkillActivationModeRequest(gm, intParams, out reason);
             case CommandType.RequestSyncData:
                 return true;
             default:
@@ -3763,6 +3968,12 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
             return false;
         }
 
+        if (IsShopPurchaseTransactionPending(slotIndex))
+        {
+            reason = "shop_slot_purchase_pending";
+            return false;
+        }
+
         var item = items[slotIndex];
         if (item.UnitData == null)
         {
@@ -3773,6 +3984,54 @@ public class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> Netwo
         if (GetGold() < item.CalculatedCost)
         {
             reason = "insufficient_gold";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateSetSkillActivationModeRequest(GameManagers gm, int[] intParams, out string reason)
+    {
+        if (gm == null || gm.IsSequenceTransitioning ||
+            (gm.currentState != GameManagers.GameState.Prepare &&
+             gm.currentState != GameManagers.GameState.Battle1 &&
+             gm.currentState != GameManagers.GameState.Battle2))
+        {
+            reason = "skill_activation_mode_phase_invalid";
+            return false;
+        }
+        if (intParams == null || intParams.Length < 3)
+        {
+            reason = "skill_activation_mode_payload_missing";
+            return false;
+        }
+        if (intParams[0] != playerId)
+        {
+            reason = "skill_activation_mode_player_mismatch";
+            return false;
+        }
+        if (intParams[1] == 0)
+        {
+            reason = "skill_activation_mode_network_id_invalid";
+            return false;
+        }
+
+        var requestedMode = (SkillActivationType)intParams[2];
+        if (requestedMode != SkillActivationType.Manual && requestedMode != SkillActivationType.Automatic)
+        {
+            reason = "skill_activation_mode_value_invalid";
+            return false;
+        }
+        uint requestedNetworkId = unchecked((uint)intParams[1]);
+        if (!SetSkillActivationModeCommand.TryValidate(
+                gm,
+                playerId,
+                requestedNetworkId,
+                requestedMode,
+                out _,
+                out reason))
+        {
             return false;
         }
 

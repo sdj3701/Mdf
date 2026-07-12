@@ -4,6 +4,11 @@
 
 Snapshots must contain stable comparable game state, not raw Unity object dumps.
 
+`connectionTokenHash` is the durable one-way identity carrier replicated by the
+authoritative `PlayerManager`; raw connection tokens must never appear in snapshots.
+When `destructibleWallCount > 0`, `destructibleWallHealthHash` is required and is
+compared across peers and across host migration.
+
 ## JSON shape
 
 ```json
@@ -44,7 +49,7 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
       "playerId": 0,
       "networkId": "123",
       "playerRef": "PlayerRef:1",
-      "connectionTokenHash": "sha256:...",
+      "connectionTokenHash": "64 lowercase SHA-256 hex chars",
       "hasInputAuthority": true,
       "hasStateAuthority": true,
       "isLocal": true,
@@ -82,6 +87,7 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
         "placedUnitCount": 2,
         "placedUnitsHash": "sha256:...",
         "destructibleWallCount": 3,
+        "destructibleWallHealthHash": "sha256:...",
         "permanentWallCount": 5,
         "wallHash": "sha256:...",
         "pathReady": true,
