@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
+using MDF.Runtime.Assets;
 using UnityEngine;
 using UnityEngine.Serialization;
 
@@ -9,7 +11,7 @@ public class VfxPoolManager : MonoBehaviour
     private class PoolConfig
     {
         public GameObject prefab;
-        public int prewarmCount = 8;
+        public int prewarmCount = 4;
         public Transform parentOverride;
     }
 
@@ -17,12 +19,19 @@ public class VfxPoolManager : MonoBehaviour
     [SerializeField] private Transform defaultParent;
     [SerializeField] private bool prewarmOnStart = true;
 
-    [Header("Basic Attack VFX Profile Prewarm")]
-    [SerializeField, FormerlySerializedAs("prewarmProjectileProfilesOnStart")] private bool prewarmBasicAttackProfilesOnStart = true;
-    [SerializeField, FormerlySerializedAs("projectileProfilePrewarmCount"), Min(0)] private int basicAttackProfilePrewarmCount = 20;
+    [Header("Optional Bounded VFX Warmup")]
+    [SerializeField, FormerlySerializedAs("prewarmProjectileProfilesOnStart")] private bool prewarmBasicAttackProfilesOnStart;
+    [SerializeField, FormerlySerializedAs("projectileProfilePrewarmCount"), Min(0)] private int basicAttackProfilePrewarmCount = 1;
+    [SerializeField, Min(0)] private int basicAttackProfilePrewarmKeyBudget = 8;
     [SerializeField, FormerlySerializedAs("projectileProfileParentOverride")] private Transform basicAttackProfileParentOverride;
+    [SerializeField, Min(1)] private int maxRetainedInstancesPerPrefab = 32;
 
-    private readonly Dictionary<GameObject, Queue<GameObject>> _pools = new Dictionary<GameObject, Queue<GameObject>>();
+    private readonly Dictionary<GameObject, BoundedUnityObjectPool<GameObject>> _pools =
+        new Dictionary<GameObject, BoundedUnityObjectPool<GameObject>>();
+    private readonly Dictionary<string, AddressableAssetLease<GameObject>> _addressablePrefabLeases =
+        new Dictionary<string, AddressableAssetLease<GameObject>>(StringComparer.Ordinal);
+    private readonly Dictionary<string, UniTask<GameObject>> _addressablePrefabLoads =
+        new Dictionary<string, UniTask<GameObject>>(StringComparer.Ordinal);
     private bool _basicAttackProfilePrewarmStarted;
 
     public static VfxPoolManager Instance { get; private set; }
@@ -64,16 +73,16 @@ public class VfxPoolManager : MonoBehaviour
             return null;
         }
 
-        if (!_pools.TryGetValue(prefab, out var pool))
-        {
-            pool = new Queue<GameObject>();
-            _pools[prefab] = pool;
-        }
-
-        GameObject instance = pool.Count > 0 ? pool.Dequeue() : CreateInstance(prefab, parent);
+        BoundedUnityObjectPool<GameObject> pool = GetOrCreatePool(prefab);
+        GameObject instance = pool.TryRent(out GameObject rented) ? rented : CreateInstance(prefab, parent);
         if (instance == null)
         {
             return null;
+        }
+
+        if (instance.TryGetComponent(out PooledObject pooled))
+        {
+            pooled.MarkRented();
         }
 
         var targetParent = parent != null ? parent : defaultParent;
@@ -81,6 +90,45 @@ public class VfxPoolManager : MonoBehaviour
         instance.transform.SetPositionAndRotation(position, rotation);
         instance.SetActive(true);
         return instance;
+    }
+
+    /// <summary>
+    /// Lazily loads a VFX prefab once and keeps its Addressables lease for the lifetime of this pool.
+    /// Concurrent requests for the same key share one in-flight load.
+    /// </summary>
+    public async UniTask<GameObject> LoadAddressablePrefabAsync(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return null;
+        }
+
+        string normalizedKey = key.Trim();
+        if (_addressablePrefabLeases.TryGetValue(normalizedKey, out AddressableAssetLease<GameObject> lease))
+        {
+            if (lease.Asset != null)
+            {
+                return lease.Asset;
+            }
+
+            lease.Dispose();
+            _addressablePrefabLeases.Remove(normalizedKey);
+            _addressablePrefabLoads.Remove(normalizedKey);
+        }
+
+        if (!_addressablePrefabLoads.TryGetValue(normalizedKey, out UniTask<GameObject> pendingLoad))
+        {
+            pendingLoad = LoadAndRetainAddressablePrefabAsync(normalizedKey).Preserve();
+            _addressablePrefabLoads.Add(normalizedKey, pendingLoad);
+        }
+
+        GameObject prefab = await pendingLoad;
+        if (prefab == null && this != null)
+        {
+            _addressablePrefabLoads.Remove(normalizedKey);
+        }
+
+        return prefab;
     }
 
     public void Despawn(GameObject instance)
@@ -96,17 +144,20 @@ public class VfxPoolManager : MonoBehaviour
             Destroy(instance);
             return;
         }
+        if (!pooled.TryBeginReturn())
+        {
+            return;
+        }
 
         ResetInstance(instance);
         instance.SetActive(false);
         instance.transform.SetParent(defaultParent, false);
 
-        if (!_pools.TryGetValue(pooled.OriginPrefab, out var pool))
+        BoundedUnityObjectPool<GameObject> pool = GetOrCreatePool(pooled.OriginPrefab);
+        if (!pool.TryReturn(instance))
         {
-            pool = new Queue<GameObject>();
-            _pools[pooled.OriginPrefab] = pool;
+            Destroy(instance);
         }
-        pool.Enqueue(instance);
     }
 
     public void Prewarm(GameObject prefab, int count, Transform parent = null)
@@ -121,14 +172,11 @@ public class VfxPoolManager : MonoBehaviour
             defaultParent = transform;
         }
 
-        if (!_pools.TryGetValue(prefab, out var pool))
-        {
-            pool = new Queue<GameObject>();
-            _pools[prefab] = pool;
-        }
+        BoundedUnityObjectPool<GameObject> pool = GetOrCreatePool(prefab);
 
         Transform targetParent = parent != null ? parent : defaultParent;
-        for (int i = pool.Count; i < count; i++)
+        int targetCount = Mathf.Min(count, Mathf.Max(1, maxRetainedInstancesPerPrefab));
+        for (int i = pool.Count; i < targetCount; i++)
         {
             var instance = CreateInstance(prefab, targetParent);
             if (instance != null)
@@ -136,6 +184,17 @@ public class VfxPoolManager : MonoBehaviour
                 Despawn(instance);
             }
         }
+    }
+
+    private BoundedUnityObjectPool<GameObject> GetOrCreatePool(GameObject prefab)
+    {
+        if (!_pools.TryGetValue(prefab, out BoundedUnityObjectPool<GameObject> pool))
+        {
+            pool = new BoundedUnityObjectPool<GameObject>(Mathf.Max(1, maxRetainedInstancesPerPrefab));
+            _pools.Add(prefab, pool);
+        }
+
+        return pool;
     }
 
     private GameObject CreateInstance(GameObject prefab, Transform parent)
@@ -166,7 +225,8 @@ public class VfxPoolManager : MonoBehaviour
 
     private async UniTaskVoid PrewarmBasicAttackProfilesAsync()
     {
-        if (_basicAttackProfilePrewarmStarted || basicAttackProfilePrewarmCount <= 0)
+        if (_basicAttackProfilePrewarmStarted || basicAttackProfilePrewarmCount <= 0 ||
+            basicAttackProfilePrewarmKeyBudget <= 0)
         {
             return;
         }
@@ -178,17 +238,24 @@ public class VfxPoolManager : MonoBehaviour
             await UniTask.WaitUntil(() => LoadManager.Instance != null);
             await LoadManager.Instance.WaitUntilReady();
 
-            HashSet<string> keys = CollectBasicAttackVfxKeys(LoadManager.Instance.GetAllUnitData());
+            var keys = new List<string>(CollectBasicAttackVfxKeys(LoadManager.Instance.GetAllUnitData()));
             if (keys.Count == 0)
             {
                 return;
             }
 
+            keys.Sort(StringComparer.Ordinal);
+
             int prewarmedCount = 0;
             Transform parent = basicAttackProfileParentOverride != null ? basicAttackProfileParentOverride : defaultParent;
             foreach (string key in keys)
             {
-                GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(key);
+                if (prewarmedCount >= basicAttackProfilePrewarmKeyBudget)
+                {
+                    break;
+                }
+
+                GameObject prefab = await LoadAddressablePrefabAsync(key);
                 if (prefab == null)
                 {
                     Debug.LogWarning($"[VfxPoolManager] Basic attack VFX profile prewarm skipped. key={key}");
@@ -204,7 +271,8 @@ public class VfxPoolManager : MonoBehaviour
                 prewarmedCount++;
             }
 
-            Debug.Log($"[VfxPoolManager] Basic attack VFX profile prewarm complete. keys={prewarmedCount}/{keys.Count}, countPerKey={basicAttackProfilePrewarmCount}");
+            Debug.Log($"[VfxPoolManager] Bounded VFX warmup complete. keys={prewarmedCount}/{keys.Count}, " +
+                      $"keyBudget={basicAttackProfilePrewarmKeyBudget}, countPerKey={basicAttackProfilePrewarmCount}");
         }
         catch (System.Exception e)
         {
@@ -260,16 +328,72 @@ public class VfxPoolManager : MonoBehaviour
 
     private static void ResetInstance(GameObject instance)
     {
-        var trails = instance.GetComponentsInChildren<TrailRenderer>(true);
-        for (int i = 0; i < trails.Length; i++)
+        if (instance.TryGetComponent(out UnitAttackVfxInstance attackVfxInstance))
         {
-            trails[i].Clear();
+            attackVfxInstance.ClearOwner();
+        }
+        if (instance.TryGetComponent(out VFXAutoDestroy autoDestroy))
+        {
+            autoDestroy.Cancel();
         }
 
-        var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
+        ProjectileVfxComponentCache cache = ProjectileVfxComponentCache.GetOrCreate(instance);
+        TrailRenderer[] trails = cache.Trails;
+        for (int i = 0; i < trails.Length; i++)
+        {
+            if (trails[i] != null)
+            {
+                trails[i].Clear();
+            }
+        }
+
+        ParticleSystem[] particles = cache.Particles;
         for (int i = 0; i < particles.Length; i++)
         {
-            particles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            if (particles[i] != null)
+            {
+                particles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            }
+        }
+    }
+
+    private async UniTask<GameObject> LoadAndRetainAddressablePrefabAsync(string key)
+    {
+        AddressableAssetLease<GameObject> lease = await AssetLoader.AcquireAssetAsync<GameObject>(key);
+        if (lease == null)
+        {
+            return null;
+        }
+
+        if (this == null)
+        {
+            lease.Dispose();
+            return null;
+        }
+
+        if (_addressablePrefabLeases.TryGetValue(key, out AddressableAssetLease<GameObject> existing))
+        {
+            lease.Dispose();
+            return existing.Asset;
+        }
+
+        _addressablePrefabLeases.Add(key, lease);
+        return lease.Asset;
+    }
+
+    private void OnDestroy()
+    {
+        foreach (AddressableAssetLease<GameObject> lease in _addressablePrefabLeases.Values)
+        {
+            lease.Dispose();
+        }
+
+        _addressablePrefabLeases.Clear();
+        _addressablePrefabLoads.Clear();
+
+        if (Instance == this)
+        {
+            Instance = null;
         }
     }
 }

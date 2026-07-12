@@ -5,14 +5,16 @@ using UnityEngine;
 
 public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvider
 {
+    private const int DefaultMaxPoolCountPerPrefab = 128;
+
     [Tooltip("If true, Acquire will Retry while the scene manager is busy.")]
     public bool DelayIfSceneManagerIsBusy = true;
 
-    [Tooltip("0 or negative keeps all released instances in the pool.")]
-    [SerializeField] private int maxPoolCount = 0;
+    [Tooltip("Maximum retained instances per network prefab. Extra releases are destroyed.")]
+    [SerializeField, Min(1)] private int maxPoolCount = DefaultMaxPoolCountPerPrefab;
 
-    private readonly Dictionary<NetworkPrefabId, Queue<NetworkObject>> _free = new Dictionary<NetworkPrefabId, Queue<NetworkObject>>();
-    private readonly Dictionary<string, Queue<NetworkObject>> _freeByPrefabName = new Dictionary<string, Queue<NetworkObject>>();
+    private readonly Dictionary<NetworkPrefabId, BoundedUnityObjectPool<NetworkObject>> _free = new Dictionary<NetworkPrefabId, BoundedUnityObjectPool<NetworkObject>>();
+    private readonly Dictionary<string, BoundedUnityObjectPool<NetworkObject>> _freeByPrefabName = new Dictionary<string, BoundedUnityObjectPool<NetworkObject>>();
     private readonly HashSet<NetworkPrefabId> _missingPrefabWarnings = new HashSet<NetworkPrefabId>();
     private Transform _poolRoot;
 
@@ -29,27 +31,32 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
         return _poolRoot;
     }
 
-    private Queue<NetworkObject> GetOrCreateQueue(NetworkPrefabId prefabId)
+    private BoundedUnityObjectPool<NetworkObject> GetOrCreatePool(NetworkPrefabId prefabId)
     {
-        if (!_free.TryGetValue(prefabId, out var freeQueue))
+        if (!_free.TryGetValue(prefabId, out var freePool))
         {
-            freeQueue = new Queue<NetworkObject>();
-            _free.Add(prefabId, freeQueue);
+            freePool = new BoundedUnityObjectPool<NetworkObject>(ResolveMaxPoolCount());
+            _free.Add(prefabId, freePool);
         }
 
-        return freeQueue;
+        return freePool;
     }
 
-    private Queue<NetworkObject> GetOrCreateNamedQueue(string prefabName)
+    private BoundedUnityObjectPool<NetworkObject> GetOrCreateNamedPool(string prefabName)
     {
         prefabName = NormalizePrefabName(prefabName);
-        if (!_freeByPrefabName.TryGetValue(prefabName, out var freeQueue))
+        if (!_freeByPrefabName.TryGetValue(prefabName, out var freePool))
         {
-            freeQueue = new Queue<NetworkObject>();
-            _freeByPrefabName.Add(prefabName, freeQueue);
+            freePool = new BoundedUnityObjectPool<NetworkObject>(ResolveMaxPoolCount());
+            _freeByPrefabName.Add(prefabName, freePool);
         }
 
-        return freeQueue;
+        return freePool;
+    }
+
+    private int ResolveMaxPoolCount()
+    {
+        return Mathf.Max(1, maxPoolCount);
     }
 
     private static string NormalizePrefabName(string prefabName)
@@ -59,49 +66,25 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             : prefabName.Replace("(Clone)", string.Empty).Trim();
     }
 
-    private static int PruneDeadInstances(Queue<NetworkObject> freeQueue)
-    {
-        if (freeQueue == null || freeQueue.Count == 0)
-        {
-            return 0;
-        }
-
-        int originalCount = freeQueue.Count;
-        int liveCount = 0;
-        for (int i = 0; i < originalCount; i++)
-        {
-            var instance = freeQueue.Dequeue();
-            if (instance == null || instance.gameObject == null)
-            {
-                continue;
-            }
-
-            freeQueue.Enqueue(instance);
-            liveCount++;
-        }
-
-        return liveCount;
-    }
-
     public int GetFreeCount(NetworkPrefabId prefabId)
     {
-        if (!_free.TryGetValue(prefabId, out var freeQueue))
+        if (!_free.TryGetValue(prefabId, out var freePool))
         {
             return 0;
         }
 
-        return PruneDeadInstances(freeQueue);
+        return freePool.Count;
     }
 
     public int GetFreeCount(string prefabName)
     {
         prefabName = NormalizePrefabName(prefabName);
-        if (!_freeByPrefabName.TryGetValue(prefabName, out var freeQueue))
+        if (!_freeByPrefabName.TryGetValue(prefabName, out var freePool))
         {
             return 0;
         }
 
-        return PruneDeadInstances(freeQueue);
+        return freePool.Count;
     }
 
     public int PrewarmPrefab(NetworkRunner runner, NetworkObject prefab, int targetFreeCount)
@@ -121,13 +104,10 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             return 0;
         }
 
-        if (maxPoolCount > 0)
-        {
-            targetFreeCount = Mathf.Min(targetFreeCount, maxPoolCount);
-        }
+        targetFreeCount = Mathf.Min(targetFreeCount, ResolveMaxPoolCount());
 
-        var freeQueue = GetOrCreateQueue(prefabId);
-        int currentFreeCount = PruneDeadInstances(freeQueue);
+        var freePool = GetOrCreatePool(prefabId);
+        int currentFreeCount = freePool.Count;
         int createCount = Mathf.Max(0, targetFreeCount - currentFreeCount);
         if (createCount <= 0)
         {
@@ -145,8 +125,14 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             }
 
             instance.gameObject.SetActive(false);
-            freeQueue.Enqueue(instance);
-            created++;
+            if (freePool.TryReturn(instance))
+            {
+                created++;
+            }
+            else
+            {
+                Destroy(instance.gameObject);
+            }
         }
 
         return created;
@@ -159,14 +145,11 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             return 0;
         }
 
-        if (maxPoolCount > 0)
-        {
-            targetFreeCount = Mathf.Min(targetFreeCount, maxPoolCount);
-        }
+        targetFreeCount = Mathf.Min(targetFreeCount, ResolveMaxPoolCount());
 
         string prefabName = NormalizePrefabName(prefab.name);
-        var freeQueue = GetOrCreateNamedQueue(prefabName);
-        int currentFreeCount = PruneDeadInstances(freeQueue);
+        var freePool = GetOrCreateNamedPool(prefabName);
+        int currentFreeCount = freePool.Count;
         int createCount = Mathf.Max(0, targetFreeCount - currentFreeCount);
         if (createCount <= 0)
         {
@@ -184,8 +167,14 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             }
 
             instance.gameObject.SetActive(false);
-            freeQueue.Enqueue(instance);
-            created++;
+            if (freePool.TryReturn(instance))
+            {
+                created++;
+            }
+            else
+            {
+                Destroy(instance.gameObject);
+            }
         }
 
         return created;
@@ -194,22 +183,18 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
     private void PromoteNamedPool(NetworkPrefabId prefabId, string prefabName)
     {
         prefabName = NormalizePrefabName(prefabName);
-        if (string.IsNullOrEmpty(prefabName) || !_freeByPrefabName.TryGetValue(prefabName, out var namedQueue))
+        if (string.IsNullOrEmpty(prefabName) || !_freeByPrefabName.TryGetValue(prefabName, out var namedPool))
         {
             return;
         }
 
-        var prefabQueue = GetOrCreateQueue(prefabId);
-        PruneDeadInstances(namedQueue);
-        while (namedQueue.Count > 0)
+        var prefabPool = GetOrCreatePool(prefabId);
+        while (namedPool.TryRent(out var instance))
         {
-            var instance = namedQueue.Dequeue();
-            if (instance == null || instance.gameObject == null)
+            if (!prefabPool.TryReturn(instance))
             {
-                continue;
+                Destroy(instance.gameObject);
             }
-
-            prefabQueue.Enqueue(instance);
         }
 
         _freeByPrefabName.Remove(prefabName);
@@ -218,23 +203,13 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
     protected virtual NetworkObject InstantiatePrefab(NetworkRunner runner, NetworkObject prefab, NetworkPrefabId prefabId)
     {
         // 풀에서 재사용 가능한 인스턴스 확인
-        if (_free.TryGetValue(prefabId, out var freeQueue) && freeQueue.Count > 0)
+        if (_free.TryGetValue(prefabId, out var freePool) && freePool.TryRent(out var instance))
         {
-            var instance = freeQueue.Dequeue();
-            // 풀에 있던 인스턴스가 파괴되었는지 확인
-            if (instance == null || instance.gameObject == null)
-            {
-                // Debug.Log($"[PooledNetworkObjectProvider] 풀에서 가져온 인스턴스가 null입니다. PrefabId: {prefabId}. 새로 생성합니다.");
-                // 계속해서 새 인스턴스 생성으로 진행
-            }
-            else
-            {
-                instance.gameObject.SetActive(true);
-                return instance;
-            }
+            instance.gameObject.SetActive(true);
+            return instance;
         }
 
-        GetOrCreateQueue(prefabId);
+        GetOrCreatePool(prefabId);
 
         // 프리팹이 null인지 확인
         if (prefab == null)
@@ -249,10 +224,13 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
 
     protected virtual void DestroyPrefabInstance(NetworkRunner runner, NetworkPrefabId prefabId, NetworkObject instance)
     {
-        var freeQueue = GetOrCreateQueue(prefabId);
-        PruneDeadInstances(freeQueue);
+        var freePool = GetOrCreatePool(prefabId);
+        if (freePool.Contains(instance))
+        {
+            return;
+        }
 
-        if (maxPoolCount > 0 && freeQueue.Count >= maxPoolCount)
+        if (freePool.Count >= freePool.Capacity)
         {
             Destroy(instance.gameObject);
             return;
@@ -260,7 +238,10 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
 
         instance.transform.SetParent(GetPoolRoot(), false);
         instance.gameObject.SetActive(false);
-        freeQueue.Enqueue(instance);
+        if (!freePool.TryReturn(instance))
+        {
+            Destroy(instance.gameObject);
+        }
     }
 
     public NetworkObjectAcquireResult AcquirePrefabInstance(NetworkRunner runner, in NetworkPrefabAcquireContext context,
@@ -351,28 +332,12 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
     {
         foreach (var pair in _free)
         {
-            var freeQueue = pair.Value;
-            while (freeQueue != null && freeQueue.Count > 0)
-            {
-                var instance = freeQueue.Dequeue();
-                if (instance != null && instance.gameObject != null)
-                {
-                    Destroy(instance.gameObject);
-                }
-            }
+            pair.Value?.Drain(DestroyNetworkObject);
         }
 
         foreach (var pair in _freeByPrefabName)
         {
-            var freeQueue = pair.Value;
-            while (freeQueue != null && freeQueue.Count > 0)
-            {
-                var instance = freeQueue.Dequeue();
-                if (instance != null && instance.gameObject != null)
-                {
-                    Destroy(instance.gameObject);
-                }
-            }
+            pair.Value?.Drain(DestroyNetworkObject);
         }
 
         _free.Clear();
@@ -387,6 +352,23 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
 
     public void SetMaxPoolCount(int count)
     {
-        maxPoolCount = count;
+        maxPoolCount = Mathf.Max(1, count);
+        foreach (var pool in _free.Values)
+        {
+            pool.SetCapacity(maxPoolCount, DestroyNetworkObject);
+        }
+
+        foreach (var pool in _freeByPrefabName.Values)
+        {
+            pool.SetCapacity(maxPoolCount, DestroyNetworkObject);
+        }
+    }
+
+    private void DestroyNetworkObject(NetworkObject instance)
+    {
+        if (instance != null && instance.gameObject != null)
+        {
+            Destroy(instance.gameObject);
+        }
     }
 }

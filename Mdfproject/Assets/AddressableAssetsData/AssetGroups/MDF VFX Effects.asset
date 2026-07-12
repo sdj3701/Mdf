@@ -1,0 +1,73 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: MDF VFX Effects
+  m_EditorClassIdentifier: 
+  m_GroupName: MDF VFX Effects
+  m_Data:
+    m_SerializedData: []
+  m_GUID: fbbd4fbc2fadec5478189bcef818e126
+  m_SerializeEntries:
+  - m_GUID: 057b0530372e9964899cde3c3c1cee0d
+    m_Address: VFX_AttackSlash_SwordSlash5
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-effect
+  - m_GUID: e4e78518e7fbd944590053140f77a39b
+    m_Address: VFX_AttackSlash_SwordSlash1
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-effect
+  - m_GUID: d2d62d206cd8f204381286accb57bccc
+    m_Address: VFX_AttackSlash_SwordSlash3
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-effect
+  - m_GUID: e7efec0f27ecb364cbff12223659ed77
+    m_Address: VFX_AttackSlash_SwordSlash9
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-effect
+  - m_GUID: 9f249e5080f4a8d469f4898c574ae9d7
+    m_Address: VFX_AttackSlash_SwordSlash10
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-effect
+  - m_GUID: 017f7a8863953ea46bca6a869525f20a
+    m_Address: VFX_AttackSlash_SwordSlash11
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-effect
+  - m_GUID: ad5aced7902075b4095f434fdbea158f
+    m_Address: VFX_AttackSlash_SwordSlash12
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-effect
+  - m_GUID: da8205698fc929d4eb3ecd063b056549
+    m_Address: VFX_AttackSlash_SwordSlash14
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-effect
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: f324dc15a3df26645ac8c21152625f8f, type: 2}
+    - {fileID: 11400000, guid: 5a78fc8fcbc46424fa6eac57be60eed6, type: 2}

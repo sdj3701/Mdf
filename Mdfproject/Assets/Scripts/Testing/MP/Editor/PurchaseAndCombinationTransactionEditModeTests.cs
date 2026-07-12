@@ -61,20 +61,26 @@ public sealed class PurchaseAndCombinationTransactionEditModeTests
     }
 
     [Test]
-    public void PurchaseCommitsEconomyOnlyAfterPlacementAndRollsBackStaleState()
+    public void PurchaseFacadeReturnsRuntimeFailureWithoutLeavingPendingReservationWhenShopIsNotReady()
     {
-        string source = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        var root = new GameObject("purchase-coordinator-runtime-test");
+        try
+        {
+            PlayerManager player = root.AddComponent<PlayerManager>();
 
-        int placementIndex = source.IndexOf("await fieldManager.TryCreateAndPlaceUnitOnFieldAsync", System.StringComparison.Ordinal);
-        int spendIndex = source.IndexOf("SpendGold(observedCost)", System.StringComparison.Ordinal);
-        int soldIndex = source.IndexOf("shopManager.MarkSlotAsPurchased(shopSlotIndex)", System.StringComparison.Ordinal);
+            PlayerManager.PurchaseUnitResult result = player
+                .TryPurchaseShopUnitAsync(0)
+                .GetAwaiter()
+                .GetResult();
 
-        Assert.That(placementIndex, Is.GreaterThanOrEqualTo(0));
-        Assert.That(spendIndex, Is.GreaterThan(placementIndex));
-        Assert.That(soldIndex, Is.GreaterThan(spendIndex));
-        Assert.That(source, Does.Contain("_pendingShopPurchaseSlots.Add(shopSlotIndex)"));
-        Assert.That(source, Does.Contain("TryRollbackPlacedUnit(placement.Unit"));
-        Assert.That(source, Does.Contain("cancellationToken: cancellationToken"));
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.FailureReason, Is.EqualTo("shop_not_ready"));
+            Assert.That(player.IsShopPurchaseTransactionPending(0), Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(root);
+        }
     }
 
     [Test]

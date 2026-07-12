@@ -6,11 +6,11 @@ Category: cleanup, battle
 Created: 2026-05-08
 Last used: 2026-07-13
 Last verified: 2026-07-13
-Use count: 4
+Use count: 5
 Review after: 2026-08-06
 Triggers: `MDF-MPTest.exe` left running after E2E, Windows process cleanup, orphan detection
 Applies to: `tools/harness/mp/launch_player.py`, HumanBot prepare/battle runners, matrix runner
-Verified by: see Verification section below; migrated from old Status: verified with environment blocker; blocker note preserved in recipe body; artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/cleanup-report.json; artifacts/mp/20260712-214518-matrix/20260712-214655-build-host-build-client/cleanup-report.json
+Verified by: see Verification section below; migrated from old Status: verified with environment blocker; blocker note preserved in recipe body; artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/cleanup-report.json; artifacts/mp/20260712-214518-matrix/20260712-214655-build-host-build-client/cleanup-report.json; artifacts/mp/20260712-234448-matrix/matrix-summary.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -44,3 +44,5 @@ Lifecycle notes:
 - 2026-07-12: verified artifact `artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/cleanup-report.json`
 - 2026-07-13: Strict smoke cleanup passed with orphanedPids=[].
 - 2026-07-13: verified artifact `artifacts/mp/20260712-214518-matrix/20260712-214655-build-host-build-client/cleanup-report.json`
+- 2026-07-13: Battle profile completed with cleanupStatus=PASS and orphanedPids=[] for all cases.
+- 2026-07-13: verified artifact `artifacts/mp/20260712-234448-matrix/matrix-summary.json`

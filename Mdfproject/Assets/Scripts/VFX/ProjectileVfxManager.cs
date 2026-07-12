@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using Fusion;
+using MDF.Runtime.Assets;
 using UnityEngine;
 
 public class ProjectileVfxManager : MonoBehaviour
@@ -22,6 +23,10 @@ public class ProjectileVfxManager : MonoBehaviour
     private readonly Dictionary<int, ActiveProjectile> _activeBySeq = new Dictionary<int, ActiveProjectile>();
     private readonly List<ActiveProjectile> _activeProjectiles = new List<ActiveProjectile>();
     private readonly List<SkippedProjectileEvent> _skippedProjectileEvents = new List<SkippedProjectileEvent>();
+    private readonly Dictionary<string, AddressableAssetLease<GameObject>> _unpooledPrefabLeases =
+        new Dictionary<string, AddressableAssetLease<GameObject>>(System.StringComparer.Ordinal);
+    private readonly Dictionary<string, UniTask<GameObject>> _unpooledPrefabLoads =
+        new Dictionary<string, UniTask<GameObject>>(System.StringComparer.Ordinal);
 
     private class ActiveProjectile
     {
@@ -67,6 +72,14 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        foreach (AddressableAssetLease<GameObject> lease in _unpooledPrefabLeases.Values)
+        {
+            lease.Dispose();
+        }
+
+        _unpooledPrefabLeases.Clear();
+        _unpooledPrefabLoads.Clear();
+
         if (Instance == this)
         {
             Instance = null;
@@ -81,6 +94,19 @@ public class ProjectileVfxManager : MonoBehaviour
     private void OnDisable()
     {
         CameraManager.OnCurrentViewingFieldChanged -= HandleViewingFieldChanged;
+        ClearActiveProjectiles();
+        _skippedProjectileEvents.Clear();
+    }
+
+    private void ClearActiveProjectiles()
+    {
+        for (int i = _activeProjectiles.Count - 1; i >= 0; i--)
+        {
+            DespawnProjectile(_activeProjectiles[i]);
+        }
+
+        _activeProjectiles.Clear();
+        _activeBySeq.Clear();
     }
 
     private void Update()
@@ -353,7 +379,7 @@ public class ProjectileVfxManager : MonoBehaviour
 
         if (hitTime <= nowTime)
         {
-            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
+            LogDiagnosticWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
             SpawnImpactFlashAsync(config, targetPos, travelDirection).Forget();
             return;
         }
@@ -364,9 +390,8 @@ public class ProjectileVfxManager : MonoBehaviour
         }
 
         string projectileKey = config.projectileKey;
-        Debug.Log($"[ProjectileVfxManager] Loading projectile: {projectileKey} (seq={evt.Sequence})");
 
-        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
+        GameObject prefab = await LoadVfxPrefabAsync(projectileKey);
         if (prefab == null)
         {
             Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Prefab load returned null for key '{projectileKey}' (seq={evt.Sequence})");
@@ -388,7 +413,7 @@ public class ProjectileVfxManager : MonoBehaviour
 
         if (hitTime <= nowTime)
         {
-            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED after load: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
+            LogDiagnosticWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED after load: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
             SpawnImpactFlashAsync(config, targetPos, travelDirection).Forget();
             return;
         }
@@ -396,8 +421,6 @@ public class ProjectileVfxManager : MonoBehaviour
         Vector3 pathPos = CalculateSpawnPosition(projectileFirePos, projectileTargetPos, fireTime, hitTime, nowTime, evt.AllowFullCatchUp);
         Quaternion projectileRotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(travelDirection, config.alignProjectileToDirection && alignToDirection, config.projectileRotationOffsetEuler);
         Vector3 spawnPos = ProjectileVfxRuntimeUtility.ApplyLocalOffset(pathPos, projectileRotation, config.projectileLocalPositionOffset);
-
-        Debug.Log($"[ProjectileVfxManager] Spawning projectile at {spawnPos}, pool={(pool != null ? "exists" : "null")}, vfxRoot={(vfxRoot != null ? vfxRoot.name : "null")} (seq={evt.Sequence})");
 
         GameObject instance = pool != null
             ? pool.Spawn(prefab, spawnPos, projectileRotation, vfxRoot)
@@ -415,8 +438,6 @@ public class ProjectileVfxManager : MonoBehaviour
         ProjectileVfxRuntimeUtility.PrepareVisualProjectile(instance, dynamicLightIntensity, dynamicLightRange);
         ProjectileVfxRuntimeUtility.RestartParticles(instance, config.ResolveProjectilePlaybackSpeed(), dynamicLightIntensity, dynamicLightRange);
         CancelAutoDestroy(instance);
-
-        Debug.Log($"[ProjectileVfxManager] Projectile spawned successfully: {instance.name} (seq={evt.Sequence})");
 
         var active = new ActiveProjectile
         {
@@ -485,7 +506,7 @@ public class ProjectileVfxManager : MonoBehaviour
         }
 
         string monsterName = evt.Attacker.name.Replace("(Clone)", "").Trim();
-        Debug.Log($"[ProjectileVfxManager] Monster '{monsterName}' Data is null, trying prefab cache fallback...");
+        LogDiagnostic($"[ProjectileVfxManager] Monster '{monsterName}' Data is null, trying prefab cache fallback...");
 
         var prefab = AssetLoader.GetCachedAsset<GameObject>(monsterName);
         if (prefab == null)
@@ -504,7 +525,7 @@ public class ProjectileVfxManager : MonoBehaviour
         projectileKey = prefabMonster.Data.projectilePrefab;
         if (!string.IsNullOrEmpty(projectileKey))
         {
-            Debug.Log($"[ProjectileVfxManager] Monster Data fallback from prefab: {monsterName} -> {projectileKey}");
+            LogDiagnostic($"[ProjectileVfxManager] Monster Data fallback from prefab: {monsterName} -> {projectileKey}");
             return true;
         }
 
@@ -746,7 +767,7 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private async UniTask SpawnOneShotVfxAsync(string key, Vector3 position, Quaternion rotation, Vector3 scaleMultiplier, float playbackSpeed, float lifetimeSeconds)
     {
-        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(key);
+        GameObject prefab = await LoadVfxPrefabAsync(key);
         if (prefab == null)
         {
             Debug.LogWarning($"[ProjectileVfxManager] One-shot VFX load failed: {key}");
@@ -900,5 +921,88 @@ public class ProjectileVfxManager : MonoBehaviour
     {
         _activeBySeq.Remove(active.Sequence);
         _activeProjectiles.Remove(active);
+    }
+
+    private async UniTask<GameObject> LoadVfxPrefabAsync(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return null;
+        }
+
+        if (pool == null)
+        {
+            pool = VfxPoolManager.Instance;
+        }
+
+        if (pool != null)
+        {
+            return await pool.LoadAddressablePrefabAsync(key);
+        }
+
+        string normalizedKey = key.Trim();
+        if (_unpooledPrefabLeases.TryGetValue(normalizedKey, out AddressableAssetLease<GameObject> lease))
+        {
+            if (lease.Asset != null)
+            {
+                return lease.Asset;
+            }
+
+            lease.Dispose();
+            _unpooledPrefabLeases.Remove(normalizedKey);
+            _unpooledPrefabLoads.Remove(normalizedKey);
+        }
+
+        if (!_unpooledPrefabLoads.TryGetValue(normalizedKey, out UniTask<GameObject> pendingLoad))
+        {
+            pendingLoad = LoadAndRetainUnpooledPrefabAsync(normalizedKey).Preserve();
+            _unpooledPrefabLoads.Add(normalizedKey, pendingLoad);
+        }
+
+        GameObject prefab = await pendingLoad;
+        if (prefab == null && this != null)
+        {
+            _unpooledPrefabLoads.Remove(normalizedKey);
+        }
+
+        return prefab;
+    }
+
+    private async UniTask<GameObject> LoadAndRetainUnpooledPrefabAsync(string key)
+    {
+        AddressableAssetLease<GameObject> lease = await AssetLoader.AcquireAssetAsync<GameObject>(key);
+        if (lease == null)
+        {
+            return null;
+        }
+
+        if (this == null)
+        {
+            lease.Dispose();
+            return null;
+        }
+
+        if (_unpooledPrefabLeases.TryGetValue(key, out AddressableAssetLease<GameObject> existing))
+        {
+            lease.Dispose();
+            return existing.Asset;
+        }
+
+        _unpooledPrefabLeases.Add(key, lease);
+        return lease.Asset;
+    }
+
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+    private static void LogDiagnostic(string message)
+    {
+        Debug.Log(message);
+    }
+
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+    private static void LogDiagnosticWarning(string message)
+    {
+        Debug.LogWarning(message);
     }
 }

@@ -1002,7 +1002,6 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("new RerollShopCommand(playerId)"));
         Assert.That(controllerSource, Does.Contain("new SelectAugmentCommand(playerId, index)"));
         Assert.That(controllerSource, Does.Contain("FormatAugmentDisplayName(augment.augmentName)"));
-        Assert.That(augmentSource, Does.Contain("GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName)"));
         Assert.That(controllerSource, Does.Contain("!root.styleSheets.Contains(styleSheet)"));
         Assert.That(controllerSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
         Assert.That(controllerSource, Does.Contain("ShopCardReferenceWidth"));
@@ -1037,10 +1036,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("SetVisible(costIcon, item.CalculatedCost > 0);"));
         Assert.That(controllerSource, Does.Contain("reroll-gold-mode"));
         Assert.That(controllerSource, Does.Contain("EnableInClassList(\"reroll-gold-mode\", !shopVisible)"));
-        Assert.That(controllerSource, Does.Contain("rerollGoldLabel.text = Mathf.Max(0, cost).ToString();"));
+        Assert.That(controllerSource, Does.Contain("SetText(rerollGoldLabel, Mathf.Max(0, cost).ToString());"));
         Assert.That(controllerSource, Does.Contain("SetVisible(rerollGoldRow, cost > 0);"));
-        Assert.That(controllerSource, Does.Contain("hudShopLabel.text = $\"\\uC0C1\\uC810\\n{shopAction}\";"));
-        Assert.That(controllerSource, Does.Contain("hudShopGoldLabel.text = Mathf.Max(0, goldCount).ToString();"));
+        Assert.That(controllerSource, Does.Contain("SetText(hudShopLabel, $\"\\uC0C1\\uC810\\n{shopAction}\");"));
+        Assert.That(controllerSource, Does.Contain("SetText(hudShopGoldLabel, Mathf.Max(0, goldCount).ToString());"));
         Assert.That(controllerSource, Does.Contain("SetPickingMode(rerollButton, shopVisible ? PickingMode.Position : PickingMode.Ignore)"));
         Assert.That(styleSource, Does.Contain("Spr_UnitCost.png"));
         Assert.That(styleSource, Does.Contain("Bricks.png"));

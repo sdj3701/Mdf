@@ -17,7 +17,7 @@ MonoBehaviour:
     serializedVersion: 2
     Hash: 00000000000000000000000000000000
   m_OptimizeCatalogSize: 0
-  m_BuildRemoteCatalog: 1
+  m_BuildRemoteCatalog: 0
   m_BundleLocalCatalog: 0
   m_CatalogRequestsTimeout: 0
   m_DisableCatalogUpdateOnStart: 0
@@ -48,6 +48,15 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 6c680c6581adace4083d14a9543cdbbe, type: 2}
   - {fileID: 11400000, guid: 976fecd8cb2f4854daf721a93732b8b5, type: 2}
   - {fileID: 11400000, guid: d13899aee1c0b874284edebb996a4e30, type: 2}
+  - {fileID: 11400000, guid: 40b793ec7f4f9884b82c6e31cd9e0516, type: 2}
+  - {fileID: 11400000, guid: 0e05a483c2ee9f1439da78584d410b4d, type: 2}
+  - {fileID: 11400000, guid: 7a9c7f08ed1df41458a1fc9a32daa962, type: 2}
+  - {fileID: 11400000, guid: eb4b87f25d129174ba7887429195413c, type: 2}
+  - {fileID: 11400000, guid: a561bdc5d9401d9418586163dd305b99, type: 2}
+  - {fileID: 11400000, guid: 63ff441d1734d904fab17c0752a6da0a, type: 2}
+  - {fileID: 11400000, guid: c3e5d4b568601b54d921137ea4201f86, type: 2}
+  - {fileID: 11400000, guid: 56e6b42926f6f3e4fbd42f46d6cecd55, type: 2}
+  - {fileID: 11400000, guid: 3c6b8eacbb43bd940bf58eac80331fe7, type: 2}
   m_BuildSettings:
     m_CompileScriptsInVirtualMode: 0
     m_CleanupStreamingAssetsAfterBuilds: 1
@@ -113,6 +122,16 @@ MonoBehaviour:
     - Scroll
     - Tile
     - VFX
+    - mdf-gameplay-data
+    - mdf-ui
+    - mdf-vfx-projectile
+    - mdf-vfx-effect
+    - mdf-boot-data
+    - mdf-runtime-world
+    - mdf-unit-prefab
+    - mdf-monster-prefab
+    - mdf-portrait
+    - mdf-projectile
   m_SchemaTemplates: []
   m_GroupTemplateObjects:
   - {fileID: 11400000, guid: 296fe4b267b8c2b49955d16e6a872c12, type: 2}

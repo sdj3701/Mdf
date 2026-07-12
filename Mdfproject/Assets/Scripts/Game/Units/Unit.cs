@@ -1745,7 +1745,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
+        VfxPoolManager vfxPool = VfxPoolManager.Instance;
+        GameObject projectilePrefab = vfxPool != null
+            ? await vfxPool.LoadAddressablePrefabAsync(projectileKey)
+            : await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
         if (projectilePrefab == null)
         {
             _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();

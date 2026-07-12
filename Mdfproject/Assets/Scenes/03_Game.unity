@@ -534,8 +534,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4899e616a48886d42b4696e3f88fd470, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  autoPreloadAllOnStart: 1
-  logPreloadProgress: 1
+  autoInitializeOnStart: 1
+  logInitializationProgress: 1
   playerManagerPrefabRef:
     m_AssetGUID: 1831533972272eb408da1971d3a1e504
     m_SubObjectName: 
@@ -621,20 +621,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 832fcdcd42ed7fb43b1602b954cc3f89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  initialPools:
-  - prefab: {fileID: 3645011495362617231, guid: b4a0e6f54c522e440a5d01c7849a9981,
-      type: 3}
-    prewarmCount: 20
-    parentOverride: {fileID: 1423344283}
-  - prefab: {fileID: 3645011495362617231, guid: 8c44b94147ea3c0408ae6c0565bd5e5c,
-      type: 3}
-    prewarmCount: 20
-    parentOverride: {fileID: 1423344283}
+  initialPools: []
   defaultParent: {fileID: 1423344283}
-  prewarmOnStart: 1
-  prewarmBasicAttackProfilesOnStart: 1
-  basicAttackProfilePrewarmCount: 20
+  prewarmOnStart: 0
+  prewarmBasicAttackProfilesOnStart: 0
+  basicAttackProfilePrewarmCount: 1
+  basicAttackProfilePrewarmKeyBudget: 8
   basicAttackProfileParentOverride: {fileID: 0}
+  maxRetainedInstancesPerPrefab: 32
 --- !u!114 &1423344282
 MonoBehaviour:
   m_ObjectHideFlags: 0

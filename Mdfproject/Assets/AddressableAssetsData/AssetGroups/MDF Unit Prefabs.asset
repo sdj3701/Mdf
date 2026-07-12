@@ -1,0 +1,61 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: MDF Unit Prefabs
+  m_EditorClassIdentifier: 
+  m_GroupName: MDF Unit Prefabs
+  m_Data:
+    m_SerializedData: []
+  m_GUID: 3d51c4a44aedd344fa876afb3ac4841b
+  m_SerializeEntries:
+  - m_GUID: 99dda8f6ae322454ca5f9bd87b583efb
+    m_Address: Knight
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
+    - mdf-unit-prefab
+  - m_GUID: a177306eb7631374bae91b51e268e10d
+    m_Address: Mage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
+    - mdf-unit-prefab
+  - m_GUID: 3447654d71522a14ab4865b30fced05d
+    m_Address: Warrior
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
+    - mdf-unit-prefab
+  - m_GUID: 0124f803e5038a7439210e2b3662c4dd
+    m_Address: Fighter1
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
+    - mdf-unit-prefab
+  - m_GUID: 84213799d640f5a4eb323e202e581293
+    m_Address: Archer1
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
+    - mdf-unit-prefab
+  - m_GUID: bbbaa5e8ca9294147bc1c80923466b82
+    m_Address: Healer1
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
+    - mdf-unit-prefab
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: 8af537f49a84d4245b5756ef2ebab8a7, type: 2}
+    - {fileID: 11400000, guid: 5bce9bc2db2aa4a479a0aaadac8781e7, type: 2}

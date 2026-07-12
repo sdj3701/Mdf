@@ -1,5 +1,6 @@
 using Cysharp.Threading.Tasks;
 using System.Collections.Generic;
+using MDF.Runtime.Assets;
 using UnityEngine;
 
 public class UnitAttackVfxPresenter : MonoBehaviour
@@ -15,9 +16,10 @@ public class UnitAttackVfxPresenter : MonoBehaviour
     private string _cachedKey;
     private GameObject _cachedPrefab;
     private float _lastPlayTime = -999f;
-    private bool _isLoading;
     private int _playGeneration;
     private readonly List<GameObject> _activeInstances = new List<GameObject>();
+    private readonly Dictionary<string, AddressableAssetLease<GameObject>> _localPrefabLeases =
+        new Dictionary<string, AddressableAssetLease<GameObject>>(System.StringComparer.Ordinal);
 
     public void InvalidatePendingPlays()
     {
@@ -37,6 +39,13 @@ public class UnitAttackVfxPresenter : MonoBehaviour
     private void OnDestroy()
     {
         InvalidatePendingPlays();
+
+        foreach (AddressableAssetLease<GameObject> lease in _localPrefabLeases.Values)
+        {
+            lease.Dispose();
+        }
+
+        _localPrefabLeases.Clear();
     }
 
     public void PlayBasicAttack(Unit unit, Transform target)
@@ -87,22 +96,67 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             return _cachedPrefab;
         }
 
-        if (_isLoading)
+        VfxPoolManager poolManager = VfxPoolManager.Instance;
+        GameObject loaded;
+        if (poolManager != null)
         {
-            return null;
+            loaded = await poolManager.LoadAddressablePrefabAsync(vfxKey);
+        }
+        else if (_localPrefabLeases.TryGetValue(vfxKey, out AddressableAssetLease<GameObject> existingLease))
+        {
+            if (existingLease.Asset != null)
+            {
+                loaded = existingLease.Asset;
+            }
+            else
+            {
+                existingLease.Dispose();
+                _localPrefabLeases.Remove(vfxKey);
+                loaded = await AcquireLocalPrefabAsync(vfxKey);
+            }
+        }
+        else
+        {
+            loaded = await AcquireLocalPrefabAsync(vfxKey);
         }
 
-        _isLoading = true;
-        GameObject loaded = await AssetLoader.LoadAssetAsync<GameObject>(vfxKey);
-        _isLoading = false;
-
-        if (loaded != null)
+        if (loaded != null && this != null)
         {
             _cachedKey = vfxKey;
             _cachedPrefab = loaded;
         }
 
         return loaded;
+    }
+
+    private async UniTask<GameObject> AcquireLocalPrefabAsync(string vfxKey)
+    {
+        AddressableAssetLease<GameObject> lease = await AssetLoader.AcquireAssetAsync<GameObject>(vfxKey);
+        if (lease == null)
+        {
+            return null;
+        }
+
+        if (this == null)
+        {
+            lease.Dispose();
+            return null;
+        }
+
+        if (_localPrefabLeases.TryGetValue(vfxKey, out AddressableAssetLease<GameObject> existingLease))
+        {
+            if (existingLease.Asset != null)
+            {
+                lease.Dispose();
+                return existingLease.Asset;
+            }
+
+            existingLease.Dispose();
+            _localPrefabLeases.Remove(vfxKey);
+        }
+
+        _localPrefabLeases.Add(vfxKey, lease);
+        return lease.Asset;
     }
 
     private void Spawn(Unit unit, GameObject prefab, Vector3 direction, BasicAttackVfxConfig config)
@@ -164,6 +218,10 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             GameObject instance = _activeInstances[i];
             _activeInstances.RemoveAt(i);
             if (instance == null)
+            {
+                continue;
+            }
+            if (!instance.activeInHierarchy)
             {
                 continue;
             }

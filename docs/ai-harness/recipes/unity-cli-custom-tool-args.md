@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-31
-Last verified: 2026-05-18
-Use count: 21
+Last used: 2026-07-13
+Last verified: 2026-07-13
+Use count: 23
 Review after: 2026-08-03
 Triggers: mp_dump_state, mp_assert_state, mp_build_player, custom tool smoke
 Applies to: unity-cli connector 0.3.15 custom tools
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/20260713-performance-memory-final-v2-win64/build-metadata.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -31,3 +31,7 @@ Verification:
 
 Pitfalls:
 - A snapshot from `Title` is only a tool smoke. It is not a gameplay PASS because `GameManagers` and players are absent.
+
+Lifecycle notes:
+- 2026-07-13: mp_build_player flags produced the final StandaloneWindows64 build.
+- 2026-07-13: verified artifact `artifacts/builds/20260713-performance-memory-final-v2-win64/build-metadata.json`

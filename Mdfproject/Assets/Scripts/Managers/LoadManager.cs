@@ -2,18 +2,22 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 using Cysharp.Threading.Tasks;
 
 public class LoadManager : MonoBehaviour
 {
+    private const string BootUnitDataLabel = "mdf-boot-data";
     public static LoadManager Instance { get; private set; }
-
-    [SerializeField] private List<UnitData> inspectorUnitData = new List<UnitData>();
 
     private bool _isReady = false;
     private List<UnitData> _allUnits = new List<UnitData>();
     private Dictionary<string, UnitData> _unitByKey = new Dictionary<string, UnitData>();
     private UniTaskCompletionSource<bool> _unitLoadTcs = new UniTaskCompletionSource<bool>();
+    private AsyncOperationHandle<IList<UnitData>> _unitDataHandle;
+    private bool _hasUnitDataHandle;
+    private bool _isInitializing;
+    private bool _hasLoadAttempted;
 
     /// <summary>
     /// 싱글톤 인스턴스를 초기화하고 씬 전환 시에도 유지되도록 설정합니다.
@@ -38,19 +42,36 @@ public class LoadManager : MonoBehaviour
     {
         if (_isReady) return;
 
+        if (_isInitializing)
+        {
+            await WaitUntilReady();
+            return;
+        }
+
+        if (_hasLoadAttempted)
+        {
+            _unitLoadTcs = new UniTaskCompletionSource<bool>();
+        }
+        else
+        {
+            _hasLoadAttempted = true;
+        }
+        _isInitializing = true;
+
         try
         {
             // 데이터 소스 결정: 인스펙터 우선, 없으면 Addressables
-            if (inspectorUnitData != null && inspectorUnitData.Count > 0)
+            _unitDataHandle = Addressables.LoadAssetsAsync<UnitData>(BootUnitDataLabel, null);
+            _hasUnitDataHandle = true;
+            var result = await _unitDataHandle.Task;
+
+            if (_unitDataHandle.Status != AsyncOperationStatus.Succeeded)
             {
-                _allUnits = inspectorUnitData.Where(u => u != null).ToList();
+                throw _unitDataHandle.OperationException ??
+                      new System.InvalidOperationException("UnitData boot label load failed.");
             }
-            else
-            {
-                var handle = Addressables.LoadAssetsAsync<UnitData>("UnitData", null);
-                var result = await handle.Task;
-                _allUnits = result?.ToList() ?? new List<UnitData>();
-            }
+
+            _allUnits = result?.Where(unit => unit != null).ToList() ?? new List<UnitData>();
 
             // 딕셔너리 생성 (공통)
             _unitByKey = _allUnits
@@ -66,6 +87,12 @@ public class LoadManager : MonoBehaviour
         {
             Debug.LogError($"[LoadManager] UnitData 로드 실패: {e.Message}");
             _unitLoadTcs.TrySetException(e);
+            ReleaseUnitDataHandle();
+            throw;
+        }
+        finally
+        {
+            _isInitializing = false;
         }
     }
 
@@ -94,5 +121,26 @@ public class LoadManager : MonoBehaviour
         if (string.IsNullOrEmpty(key)) return null;
         _unitByKey.TryGetValue(key, out var data);
         return data;
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance != this)
+        {
+            return;
+        }
+
+        ReleaseUnitDataHandle();
+        Instance = null;
+    }
+
+    private void ReleaseUnitDataHandle()
+    {
+        if (_hasUnitDataHandle && _unitDataHandle.IsValid())
+        {
+            Addressables.Release(_unitDataHandle);
+        }
+
+        _hasUnitDataHandle = false;
     }
 }

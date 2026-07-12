@@ -357,7 +357,7 @@ public sealed class AttackSlashTuningEditModeTests
         {
             "Assets/GameData/Units/UnitData_Warrior.asset",
             "Assets/GameData/Units/UnitData_Guardian.asset",
-            "Assets/GameData/Units/UnitData_Assassin.asset"
+            "Assets/GameData/Units/UnitData_Fighter.asset"
         };
 
         for (int pathIndex = 0; pathIndex < calibratedMeleeUnitDataPaths.Length; pathIndex++)

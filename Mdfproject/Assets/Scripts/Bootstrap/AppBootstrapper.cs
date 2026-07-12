@@ -110,7 +110,7 @@ public sealed class AppBootstrapper : MonoBehaviour
                 return;
             }
 
-            await AddressablesManager.Instance.PreloadAllAsync();
+            await AddressablesManager.Instance.InitializeAsync();
             await LoadManager.Instance.InitializeAsync();
 
             IsBootReady = true;

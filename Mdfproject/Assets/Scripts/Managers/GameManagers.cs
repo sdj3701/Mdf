@@ -1010,9 +1010,14 @@ public partial class GameManagers : NetworkBehaviour
             Debug.LogError("[GameManagers] AddressablesManager.Instance is null.");
             return;
         }
-        await AddressablesManager.Instance.LoadGamePrefabsAsync();
+        bool gamePrefabsReady = await AddressablesManager.Instance.LoadGamePrefabsAsync();
         if (Object == null || !Object.IsValid || Instance != this)
         {
+            return;
+        }
+        if (!gamePrefabsReady || !AddressablesManager.Instance.GamePrefabsLoaded)
+        {
+            Debug.LogError("[GameManagers] Required Addressables failed after retry. Game flow remains safely stopped in Setup.");
             return;
         }
         

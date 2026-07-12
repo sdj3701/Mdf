@@ -259,6 +259,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         string previewSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxTuningPreview.cs");
         string previewEditorSource = File.ReadAllText("Assets/Scripts/Editor/ProjectileVfxTuningPreviewEditor.cs");
         string runtimeUtilitySource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxRuntimeUtility.cs");
+        string componentCacheSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxComponentCache.cs");
         string unitDataSource = File.ReadAllText("Assets/Scripts/Game/Units/UnitData.cs");
         string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
         string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
@@ -272,7 +273,7 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(source, Does.Contain("ProjectileVfxRuntimeUtility.RestartParticles"));
         Assert.That(source, Does.Contain("ApplyProjectileVisualHeight"));
         Assert.That(source, Does.Contain("ResolveProjectileVisualHeightOffset()"));
-        Assert.That(runtimeUtilitySource, Does.Contain("GetComponentsInChildren<Light>"));
+        Assert.That(componentCacheSource, Does.Contain("GetComponentsInChildren<Light>"));
         Assert.That(runtimeUtilitySource, Does.Contain("ApplyDynamicLighting"));
         Assert.That(runtimeUtilitySource, Does.Contain("dynamicLightIntensity"));
         Assert.That(runtimeUtilitySource, Does.Contain("lightsModule.enabled = enableDynamicLighting"));
@@ -349,12 +350,15 @@ public sealed class ProjectileVfxConfigEditModeTests
     }
 
     [Test]
-    public void VfxPoolManagerPrewarmsBasicAttackProfileKeysFromUnitData()
+    public void VfxPoolManagerUsesLazyLeaseBackedAndBoundedProfileWarmup()
     {
         string source = File.ReadAllText("Assets/Scripts/VFX/VfxPoolManager.cs");
+        string scene = File.ReadAllText("Assets/Scenes/03_Game.unity");
 
-        Assert.That(source, Does.Contain("prewarmBasicAttackProfilesOnStart = true"));
-        Assert.That(source, Does.Contain("basicAttackProfilePrewarmCount = 20"));
+        Assert.That(source, Does.Not.Contain("prewarmBasicAttackProfilesOnStart = true"));
+        Assert.That(source, Does.Not.Contain("basicAttackProfilePrewarmCount = 20"));
+        Assert.That(source, Does.Contain("basicAttackProfilePrewarmKeyBudget"));
+        Assert.That(source, Does.Contain("maxRetainedInstancesPerPrefab"));
         Assert.That(source, Does.Contain("LoadManager.Instance.GetAllUnitData()"));
         Assert.That(source, Does.Contain("CollectBasicAttackVfxKeys"));
         Assert.That(source, Does.Contain("unitData.GetBasicAttackVfxConfig(starLevel)"));
@@ -362,8 +366,64 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(source, Does.Contain("projectileConfig.muzzleFlashKey"));
         Assert.That(source, Does.Contain("projectileConfig.projectileKey"));
         Assert.That(source, Does.Contain("projectileConfig.impactFlashKey"));
-        Assert.That(source, Does.Contain("AssetLoader.LoadAssetAsync<GameObject>(key)"));
+        Assert.That(source, Does.Contain("AssetLoader.AcquireAssetAsync<GameObject>(key)"));
+        Assert.That(source, Does.Contain("LoadAddressablePrefabAsync(key)"));
         Assert.That(source, Does.Contain("Prewarm(prefab, basicAttackProfilePrewarmCount"));
+        Assert.That(scene, Does.Contain("prewarmBasicAttackProfilesOnStart: 0"));
+        Assert.That(scene, Does.Contain("basicAttackProfilePrewarmCount: 1"));
+    }
+
+    [Test]
+    public void ProjectileRuntimeComponentCacheIsReusedAcrossPrepareAndRestart()
+    {
+        GameObject root = new GameObject("ProjectileCacheRoot");
+        GameObject child = new GameObject("ProjectileCacheChild");
+        child.transform.SetParent(root.transform);
+        try
+        {
+            Rigidbody body = root.AddComponent<Rigidbody>();
+            Collider collider = root.AddComponent<SphereCollider>();
+            TrailRenderer trail = child.AddComponent<TrailRenderer>();
+            ParticleSystem particle = child.AddComponent<ParticleSystem>();
+            Renderer renderer = child.GetComponent<ParticleSystemRenderer>();
+            Light light = child.AddComponent<Light>();
+
+            ProjectileVfxComponentCache cache = ProjectileVfxComponentCache.GetOrCreate(root);
+            ParticleSystem[] cachedParticles = cache.Particles;
+            Renderer[] cachedRenderers = cache.Renderers;
+
+            ProjectileVfxRuntimeUtility.PrepareVisualProjectile(root, 2f, 3f);
+            ProjectileVfxRuntimeUtility.RestartParticles(root, 1.5f, 2f, 3f);
+
+            Assert.That(cache.RefreshCount, Is.EqualTo(1));
+            Assert.That(cache.Particles, Is.SameAs(cachedParticles));
+            Assert.That(cache.Renderers, Is.SameAs(cachedRenderers));
+            Assert.That(body.isKinematic, Is.True);
+            Assert.That(collider.enabled, Is.False);
+            Assert.That(renderer.allowOcclusionWhenDynamic, Is.False);
+            Assert.That(renderer.sortingOrder, Is.GreaterThanOrEqualTo(50));
+            Assert.That(light.enabled, Is.True);
+            Assert.That(light.intensity, Is.EqualTo(2f).Within(0.001f));
+            Assert.That(light.range, Is.EqualTo(3f).Within(0.001f));
+            Assert.That(particle.main.simulationSpeed, Is.EqualTo(1.5f).Within(0.001f));
+            Assert.That(trail, Is.Not.Null);
+        }
+        finally
+        {
+            Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
+    public void ProjectileManagerKeepsFailuresButRemovesSuccessPathLogging()
+    {
+        string source = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
+
+        Assert.That(source, Does.Not.Contain("Loading projectile:"));
+        Assert.That(source, Does.Not.Contain("Spawning projectile at"));
+        Assert.That(source, Does.Not.Contain("Projectile spawned successfully"));
+        Assert.That(source, Does.Contain("Debug.LogWarning($\"[ProjectileVfxManager] SpawnProjectile FAILED"));
+        Assert.That(source, Does.Contain("[System.Diagnostics.Conditional(\"DEVELOPMENT_BUILD\")]"));
     }
 
     [Test]

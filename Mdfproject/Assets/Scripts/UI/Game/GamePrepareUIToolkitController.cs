@@ -115,6 +115,16 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private int lastResourceWallCount = int.MinValue;
     private int lastWallCount = int.MinValue;
     private bool lastPrepareButtonsVisible;
+    private bool lastHudOptionVisible;
+    private bool lastHudShopVisible;
+    private bool lastWallModeActive;
+    private bool lastHasResourceValues;
+    private bool hudStateInitialized;
+    private bool resourceRootConfigured;
+    private int lastHudGoldCount = int.MinValue;
+    private int lastRerollCost = int.MinValue;
+    private int lastRound = int.MinValue;
+    private int lastRoundSeconds = int.MinValue;
     private bool legacyHudHidden;
 
     public static GamePrepareUIToolkitController Instance => instance;
@@ -342,7 +352,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         int suffixIndex = trimmedName.LastIndexOf('(');
-        if (suffixIndex <= bossSummonPrefix.Length ||
+        if (suffixIndex < bossSummonPrefix.Length ||
             trimmedName[suffixIndex - 1] == '\n')
         {
             return trimmedName;
@@ -1021,7 +1031,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         pendingShopPurchaseSlots.Clear();
         BindShopCards(localShopManager?.GetCurrentShopItems());
-        UpdateRerollLabel();
+        UpdateRerollLabel(true);
     }
 
     private void HandleUnitPurchaseSucceeded(int playerID, ShopItem item, int slotIndex)
@@ -1080,7 +1090,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
-        UpdateResourceState(true);
+        RefreshResourceState(true);
     }
 
     private void HandlePlayerWallCountChanged(int playerId, int newWallCount)
@@ -1090,7 +1100,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
-        UpdateResourceState(true);
+        RefreshResourceState(true);
     }
 
     private void HandleMonsterPoolChanged(int playerId, List<MonsterPoolEntry> pool)
@@ -1138,7 +1148,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         RefreshRuntimeReferences();
         SetShopVisible(true);
         BindShopCards(localShopManager?.GetCurrentShopItems());
-        UpdateRerollLabel();
+        UpdateRerollLabel(true);
 
         if (localShopManager == null)
         {
@@ -1243,7 +1253,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         RefreshRuntimeReferences();
         BindShopCards(localShopManager?.GetCurrentShopItems());
-        UpdateRerollLabel();
+        UpdateRerollLabel(true);
     }
 
     private void BindShopCards(List<ShopItem> items)
@@ -1605,7 +1615,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
     }
 
-    private void UpdateRerollLabel()
+    private void UpdateRerollLabel(bool force)
     {
         if (rerollLabel == null)
         {
@@ -1613,18 +1623,26 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var cost = localShopManager != null ? localShopManager.GetRerollCost() : 0;
-        rerollLabel.text = "\uC0C8\uB85C\uACE0\uCE68";
-        if (rerollGoldLabel != null)
+        if (force || lastRerollCost == int.MinValue)
         {
-            rerollGoldLabel.text = Mathf.Max(0, cost).ToString();
+            SetText(rerollLabel, "\uC0C8\uB85C\uACE0\uCE68");
         }
 
-        SetVisible(rerollGoldRow, cost > 0);
-        rerollButton?.EnableInClassList("reroll-gold-mode", !shopVisible);
-        SetPickingMode(rerollButton, shopVisible ? PickingMode.Position : PickingMode.Ignore);
+        if (force || cost != lastRerollCost)
+        {
+            SetText(rerollGoldLabel, Mathf.Max(0, cost).ToString());
+            SetVisible(rerollGoldRow, cost > 0);
+            lastRerollCost = cost;
+        }
+
+        if (force || shopVisible != lastHudShopVisible)
+        {
+            rerollButton?.EnableInClassList("reroll-gold-mode", !shopVisible);
+            SetPickingMode(rerollButton, shopVisible ? PickingMode.Position : PickingMode.Ignore);
+        }
     }
 
-    private void UpdateRoundTimerLabel()
+    private void UpdateRoundTimerLabel(bool force)
     {
         if (roundTimerLabel == null)
         {
@@ -1654,91 +1672,124 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var seconds = Mathf.Max(0, Mathf.CeilToInt(remainingTime));
-        roundTimerLabel.text = $"ROUND {round}  {seconds:00}";
+        if (ShouldRefreshRoundTimer(force, round, seconds, lastRound, lastRoundSeconds))
+        {
+            roundTimerLabel.text = $"ROUND {round}  {seconds:00}";
+            lastRound = round;
+            lastRoundSeconds = seconds;
+        }
+    }
+
+    private static bool ShouldRefreshRoundTimer(
+        bool force,
+        int round,
+        int seconds,
+        int previousRound,
+        int previousSeconds)
+    {
+        return force || round != previousRound || seconds != previousSeconds;
     }
 
     private void SetStatusText(string text)
     {
         if (shopStatusLabel != null)
         {
-            shopStatusLabel.text = text ?? string.Empty;
+            SetText(shopStatusLabel, text);
         }
     }
 
     private void UpdateHudState(bool force)
     {
+        force |= !hudStateInitialized;
         var prepareButtonsVisible = CanShowPrepareHudActions() && !augmentVisible;
-        SetVisible(shopControlRow, prepareButtonsVisible);
-        SetPickingMode(shopControlRow, PickingMode.Ignore);
-        SetVisible(hudShopButton, prepareButtonsVisible);
-        SetVisible(hudWallButton, prepareButtonsVisible);
-        lastPrepareButtonsVisible = prepareButtonsVisible;
+        if (force || prepareButtonsVisible != lastPrepareButtonsVisible)
+        {
+            SetVisible(shopControlRow, prepareButtonsVisible);
+            SetPickingMode(shopControlRow, PickingMode.Ignore);
+            SetVisible(hudShopButton, prepareButtonsVisible);
+            SetVisible(hudWallButton, prepareButtonsVisible);
+            lastPrepareButtonsVisible = prepareButtonsVisible;
+        }
 
-        SetVisible(hudOptionButton, UIManagers.Instance != null);
+        bool hudOptionVisible = UIManagers.Instance != null;
+        if (force || hudOptionVisible != lastHudOptionVisible)
+        {
+            SetVisible(hudOptionButton, hudOptionVisible);
+            lastHudOptionVisible = hudOptionVisible;
+        }
 
-        TryGetLocalPlayerResources(out var goldCount, out var wallCount);
-        if (hudShopLabel != null)
+        bool hasResourceValues = TryGetLocalPlayerResources(out var goldCount, out var wallCount);
+        bool shopVisibilityChanged = force || shopVisible != lastHudShopVisible;
+        if (shopVisibilityChanged)
         {
             var shopAction = shopVisible ? "\uB2EB\uAE30" : "\uC5F4\uAE30";
-            hudShopLabel.text = $"\uC0C1\uC810\n{shopAction}";
+            SetText(hudShopLabel, $"\uC0C1\uC810\n{shopAction}");
+            hudShopButton?.EnableInClassList("hud-button-active", shopVisible);
         }
 
-        if (hudShopGoldLabel != null)
+        if (force || goldCount != lastHudGoldCount)
         {
-            hudShopGoldLabel.text = Mathf.Max(0, goldCount).ToString();
+            SetText(hudShopGoldLabel, Mathf.Max(0, goldCount).ToString());
+            lastHudGoldCount = goldCount;
         }
 
-        UpdateRerollLabel();
+        UpdateRerollLabel(force);
 
         var wallModeActive = CanShowPrepareHudActions() && IsWallPlacementActive();
-        var wasWallModeActive = hudWallButton != null && hudWallButton.ClassListContains("hud-button-active");
-        if (force || wallCount != lastWallCount || wallModeActive != wasWallModeActive)
+        if (force || wallCount != lastWallCount || wallModeActive != lastWallModeActive)
         {
-            if (hudWallLabel != null)
-            {
-                hudWallLabel.text = Mathf.Max(0, wallCount).ToString();
-            }
-
+            SetText(hudWallLabel, Mathf.Max(0, wallCount).ToString());
             hudWallButton?.EnableInClassList("hud-button-active", wallModeActive);
             lastWallCount = wallCount;
+            lastWallModeActive = wallModeActive;
         }
 
-        hudShopButton?.EnableInClassList("hud-button-active", shopVisible);
-        UpdateRoundTimerLabel();
-        UpdateResourceState(force);
+        UpdateRoundTimerLabel(force);
+        UpdateResourceState(force, hasResourceValues, goldCount, wallCount);
         if (force || !legacyHudHidden)
         {
             HideLegacyHudContent();
         }
+
+        lastHudShopVisible = shopVisible;
+        hudStateInitialized = true;
     }
 
-    private void UpdateResourceState(bool force)
+    private void UpdateResourceState(bool force, bool hasResourceValues, int goldCount, int wallCount)
     {
-        int goldCount = 0;
-        int wallCount = 0;
-        bool hasResourceValues = TryGetLocalPlayerResources(out goldCount, out wallCount);
-        if (resourceRoot != null)
+        if (resourceRoot != null && (force || !resourceRootConfigured))
         {
             resourceRoot.style.display = DisplayStyle.None;
             resourceRoot.pickingMode = PickingMode.Ignore;
+            resourceRootConfigured = true;
         }
 
         if (!hasResourceValues)
         {
+            lastHasResourceValues = false;
             return;
         }
 
-        if (force || goldCount != lastGoldCount)
+        bool resourcesBecameAvailable = !lastHasResourceValues;
+        if (force || resourcesBecameAvailable || goldCount != lastGoldCount)
         {
             SetText(resourceGoldValue, goldCount.ToString());
             lastGoldCount = goldCount;
         }
 
-        if (force || wallCount != lastResourceWallCount)
+        if (force || resourcesBecameAvailable || wallCount != lastResourceWallCount)
         {
             SetText(resourceWallValue, wallCount.ToString());
             lastResourceWallCount = wallCount;
         }
+
+        lastHasResourceValues = true;
+    }
+
+    private void RefreshResourceState(bool force)
+    {
+        bool hasResourceValues = TryGetLocalPlayerResources(out int goldCount, out int wallCount);
+        UpdateResourceState(force, hasResourceValues, goldCount, wallCount);
     }
 
     private bool TryGetLocalPlayerResources(out int goldCount, out int wallCount)
@@ -2416,7 +2467,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         if (label != null)
         {
-            label.text = text ?? string.Empty;
+            string resolvedText = text ?? string.Empty;
+            if (!string.Equals(label.text, resolvedText, StringComparison.Ordinal))
+            {
+                label.text = resolvedText;
+            }
         }
     }
 }

@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: MDF UI
+  m_EditorClassIdentifier: 
+  m_GroupName: MDF UI
+  m_Data:
+    m_SerializedData: []
+  m_GUID: 846c25ab18b3b4f48a00fb554481f91a
+  m_SerializeEntries:
+  - m_GUID: 3faf75177209dda4780b3dd0458107a7
+    m_Address: UI_Pnl_PlayerRanking
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+    - mdf-ui
+  - m_GUID: 53ef04ccc8fd56d4e904555c7c4b7449
+    m_Address: UI_SkillRangeIndicator
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+    - mdf-ui
+  - m_GUID: fe466910ad4bce1449daf555db79121d
+    m_Address: UI_AttackRangeIndicator
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UI
+    - mdf-ui
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: 557e9ff4fdb63af4987739d510d2ff40, type: 2}
+    - {fileID: 11400000, guid: e0800d60ffb0fff47aab47bf1d6fb974, type: 2}

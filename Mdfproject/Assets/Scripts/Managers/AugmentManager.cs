@@ -16,6 +16,8 @@ public class AugmentManager : MonoBehaviour
     private List<AugmentData> prismaticAugments = new List<AugmentData>();
     private bool isDataLoaded = false;
     private bool isDataLoading = false;
+    private AsyncOperationHandle<IList<AugmentData>> _augmentDataHandle;
+    private bool _hasAugmentDataHandle;
     private List<AugmentData> presentedAugments = new List<AugmentData>();
     private const float AugmentDataWaitTimeoutSeconds = 12f;
     private const int AugmentDataPollMilliseconds = 100;
@@ -224,7 +226,10 @@ public class AugmentManager : MonoBehaviour
 
         try
         {
-            AsyncOperationHandle<IList<AugmentData>> handle = Addressables.LoadAssetsAsync<AugmentData>("Augment", null);
+            ReleaseAugmentDataHandle();
+            _augmentDataHandle = Addressables.LoadAssetsAsync<AugmentData>("Augment", null);
+            _hasAugmentDataHandle = true;
+            AsyncOperationHandle<IList<AugmentData>> handle = _augmentDataHandle;
             await handle.Task;
 
             if (handle.Status == AsyncOperationStatus.Succeeded)
@@ -259,8 +264,27 @@ public class AugmentManager : MonoBehaviour
         }
         finally
         {
+            if (!isDataLoaded)
+            {
+                ReleaseAugmentDataHandle();
+            }
             isDataLoading = false;
         }
+    }
+
+    private void OnDestroy()
+    {
+        ReleaseAugmentDataHandle();
+    }
+
+    private void ReleaseAugmentDataHandle()
+    {
+        if (_hasAugmentDataHandle && _augmentDataHandle.IsValid())
+        {
+            Addressables.Release(_augmentDataHandle);
+        }
+
+        _hasAugmentDataHandle = false;
     }
 
     /// <summary>
