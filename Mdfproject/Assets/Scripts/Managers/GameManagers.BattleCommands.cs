@@ -12,6 +12,7 @@ public partial class GameManagers
         Vector3 spawnWorldPosition,
         int count,
         int observedAttackMonsterPoolRevision,
+        int observedBlackMagicRevision,
         string sourceReason,
         RpcInfo info = default)
     {
@@ -28,7 +29,8 @@ public partial class GameManagers
             spawnWorldPosition,
             count,
             reason,
-            observedAttackMonsterPoolRevision);
+            observedAttackMonsterPoolRevision,
+            observedBlackMagicRevision);
 
         var attacker = GetPlayer(attackerPlayerId);
         if (!IsRpcSourceAuthorizedForPlayer(attacker, info.Source))

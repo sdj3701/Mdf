@@ -14,6 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: TurtleShell
   monsterType: 0
+  monsterRank: 0
+  blackMagicCost: 3
   monsterIcon: Spr_Port_TurtleShell
   monsterPrefab: TurtleShell
   attackDamage: 8

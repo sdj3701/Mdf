@@ -10,22 +10,21 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
-  m_Name: Aug_Spawn_Skelton_Normal
+  m_Name: Aug_Util_BlackMagicMax_Normal
   m_EditorClassIdentifier: 
-  augmentName: "\uC2A4\uCF08\uB808\uD1A4 \uAC15\uD654"
-  description: "\uC18C\uD658\uD558\uB294 \uC2A4\uCF08\uB808\uD1A4\uC758 \uCCB4\uB825\uACFC
-    \uACF5\uACA9\uB825\uC774 20% \uC99D\uAC00\uD569\uB2C8\uB2E4."
-  icon: {fileID: 21300000, guid: d343d3522249a5240bff399c54de026f, type: 3}
+  augmentName: "\uD751\uB9C8\uB825 \uD655\uC7A5"
+  description: "\uB2E4\uC74C \uACF5\uACA9 \uC2DC\uD000\uC2A4\uBD80\uD130 \uCD5C\uB300
+    \uD751\uB9C8\uB825\uC774 3 \uC99D\uAC00\uD569\uB2C8\uB2E4."
+  icon: {fileID: 21300000, guid: 937f5225918eaf54f822d66ee8ff864b, type: 3}
   tier: 0
   targetType: 0
-  effectType: 8
-  value: 0
+  effectType: 9
+  value: 3
   isBossSummon: 0
   bossMonsterData: {fileID: 0}
   monsterSpawnEntries: []
-  strengthenedMonsterData: {fileID: 11400000, guid: 7813937e9a3ea3c46a5cc8c68e61ae5a,
-    type: 2}
-  monsterHealthBonusPercent: 0.2
-  monsterDamageBonusPercent: 0.2
+  strengthenedMonsterData: {fileID: 0}
+  monsterHealthBonusPercent: 0
+  monsterDamageBonusPercent: 0
   monsterMoveSpeedBonusPercent: 0
   magicScrollData: {fileID: 0}

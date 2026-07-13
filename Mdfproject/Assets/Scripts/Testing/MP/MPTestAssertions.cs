@@ -77,6 +77,18 @@ public static class MPTestAssertions
             {
                 result.AddError($"player.{player.PlayerId}.wallCount_negative {player.WallCount}");
             }
+
+            if (player.BlackMagicCurrent < 0 || player.BlackMagicMaximum < 0 || player.BlackMagicMaxBonus < 0)
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.blackMagic_negative current={player.BlackMagicCurrent} maximum={player.BlackMagicMaximum} bonus={player.BlackMagicMaxBonus}");
+            }
+
+            if (player.BlackMagicCurrent > player.BlackMagicMaximum)
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.blackMagic_exceeds_maximum current={player.BlackMagicCurrent} maximum={player.BlackMagicMaximum}");
+            }
         }
 
         if (snapshot.Errors != null && snapshot.Errors.Count > 0)
@@ -153,6 +165,11 @@ public static class MPTestAssertions
             CompareEqual(result, $"player.{left.PlayerId}.health", left.Health, right.Health);
             CompareEqual(result, $"player.{left.PlayerId}.gold", left.Gold, right.Gold);
             CompareEqual(result, $"player.{left.PlayerId}.wallCount", left.WallCount, right.WallCount);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicCurrent", left.BlackMagicCurrent, right.BlackMagicCurrent);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicMaximum", left.BlackMagicMaximum, right.BlackMagicMaximum);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicMaxBonus", left.BlackMagicMaxBonus, right.BlackMagicMaxBonus);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicRevision", left.BlackMagicRevision, right.BlackMagicRevision);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicSequenceId", left.BlackMagicSequenceId, right.BlackMagicSequenceId);
             CompareKnownOrMissing(result, $"player.{left.PlayerId}.attackMonsterPoolHash", left.AttackMonsterPoolHash, right.AttackMonsterPoolHash);
             CompareKnownOrMissing(result, $"player.{left.PlayerId}.ownedScrollsHash", left.OwnedScrollsHash, right.OwnedScrollsHash);
             CompareEqual(result, $"player.{left.PlayerId}.ownedScrollRevision", left.OwnedScrollRevision, right.OwnedScrollRevision);

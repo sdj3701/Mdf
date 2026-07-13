@@ -60,6 +60,11 @@ compared across peers and across host migration.
       "wallCount": 5,
       "isActivelyFighting": false,
       "isAttackerInCurrentBattle": false,
+      "blackMagicCurrent": 10,
+      "blackMagicMaximum": 10,
+      "blackMagicMaxBonus": 0,
+      "blackMagicRevision": 1,
+      "blackMagicSequenceId": 5,
       "attackMonsterPoolHash": "sha256:...",
       "ownedScrollsHash": "sha256:...",
       "ownedScrollRevision": 0,
@@ -186,13 +191,14 @@ Exact or hash-equal after stable wait:
 - survivor boss pending/assignment counts and hashes when available; non-zero state on only one peer is a failure
 - player ids and player count
 - player HP/gold/wall counts
+- player Black Magic current/maximum/personal maximum bonus/revision/attack-sequence identity
 - shop snapshot hashes
 - augment presented/selected counts, active effect/target counts, and active effect/target hashes when available
 - field unit/wall aggregate hashes
 - monster alive counts, legacy living hashes, semantic type hashes, owner/origin hashes, type/count/HP-bucket hashes, target/player hashes, HP bucket hashes, and boss/pool identity hashes after battle stabilization
 - active buff/status/zone counts and semantic hashes after scroll or skill effects
 - command sequence/last durable command, including accepted battle command sequence, monster spawn sequence, magic scroll use sequence, and rejected battle command count
-- attack monster pool hash after authoritative spawn acceptance
+- attack monster pool hash after authoritative spawn acceptance; each slot part includes its `blackMagicCost` and spend `mode` (`black-magic` or `boss-entitlement`)
 - manual/strategic skill readiness hashes after defender skill state stabilizes
 - For conditional Phase 10 required values such as battle hashes during `Battle1`/`Battle2`, survivor hashes with non-zero counts, and `commands.lastCommand` with advanced battle command counters, any `unknown`/missing value is a failure, including both peers missing the value. For optional absent state, such as no living boss monsters, both sides may remain `unknown`.
 
@@ -243,6 +249,7 @@ Battle smoke:
 - `battleOpponentsHash` and `matchFirstAttackerHash` come from the state-authority battle map or its Networked read-only fallback, not from mutating lookup methods
 - active battle flags are consistent
 - `attackMonsterPoolHash` is deterministic for null, empty, and non-empty pools; empty-vs-nonempty pool drift must not be hidden behind `unknown`
+- attacker `blackMagicCurrent`, `blackMagicMaximum`, `blackMagicMaxBonus`, `blackMagicRevision`, and `blackMagicSequenceId` are exact-equal across peers; migration must preserve them without refilling the active sequence
 - `ownedScrollsHash` is deterministic for null, empty, and non-empty scroll inventories and includes the authoritative scroll revision
 - `useMagicScrollSeq` increments only when State Authority applies a scroll's gameplay effects
 - `activateSkillSeq` increments only when State Authority executes an accepted manual/strategic `ActivateSkillCommand`
@@ -260,6 +267,7 @@ Host migration:
 - migration callback/resume events exist in logs
 - post-migration GameManagers exists on active runner
 - player/field/wall/shop/AI state restored
+- Black Magic current/maximum/bonus/revision/sequence id restored exactly; host migration never starts a new attack-sequence refill by itself
 - no duplicate `playerId`
 - stale `PlayerRef` not used as durable identity
 

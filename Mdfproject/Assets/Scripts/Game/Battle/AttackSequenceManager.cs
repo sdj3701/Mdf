@@ -22,6 +22,7 @@ public class AttackSequenceManager : MonoBehaviour
     private int _selectedMonsterSlotIndex = -1;
     private int _pendingBattleSpawnSlotIndex = -1;
     private int _pendingBattleSpawnRevision = -1;
+    private int _pendingBattleSpawnBlackMagicRevision = -1;
     private float _pendingBattleSpawnStartedAt;
     private const float PendingBattleSpawnTimeoutSeconds = 1.25f;
 
@@ -527,7 +528,8 @@ public class AttackSequenceManager : MonoBehaviour
                 position,
                 1,
                 "human_host_attack_sequence",
-                _playerManager.AppliedAttackMonsterPoolRevision);
+                _playerManager.AppliedAttackMonsterPoolRevision,
+                _playerManager.AppliedBlackMagicRevision);
 
             BattleCommandResult result = await gameManagers.ExecuteBattleSpawnMonsterCommandAsync(
                 command,
@@ -565,6 +567,7 @@ public class AttackSequenceManager : MonoBehaviour
                     position,
                     1,
                     _playerManager.AppliedAttackMonsterPoolRevision,
+                    _playerManager.AppliedBlackMagicRevision,
                     "human_client_attack_sequence"
                 );
                 MarkPendingBattleSpawn(poolSlotIndex);
@@ -685,6 +688,7 @@ public class AttackSequenceManager : MonoBehaviour
 
         if (_playerManager == null
             || _playerManager.AppliedAttackMonsterPoolRevision != _pendingBattleSpawnRevision
+            || _playerManager.AppliedBlackMagicRevision != _pendingBattleSpawnBlackMagicRevision
             || Time.unscaledTime - _pendingBattleSpawnStartedAt > PendingBattleSpawnTimeoutSeconds)
         {
             ClearPendingBattleSpawn();
@@ -700,6 +704,9 @@ public class AttackSequenceManager : MonoBehaviour
         _pendingBattleSpawnRevision = _playerManager != null
             ? _playerManager.AppliedAttackMonsterPoolRevision
             : -1;
+        _pendingBattleSpawnBlackMagicRevision = _playerManager != null
+            ? _playerManager.AppliedBlackMagicRevision
+            : -1;
         _pendingBattleSpawnStartedAt = Time.unscaledTime;
     }
 
@@ -707,6 +714,7 @@ public class AttackSequenceManager : MonoBehaviour
     {
         _pendingBattleSpawnSlotIndex = -1;
         _pendingBattleSpawnRevision = -1;
+        _pendingBattleSpawnBlackMagicRevision = -1;
         _pendingBattleSpawnStartedAt = 0f;
     }
     #endregion

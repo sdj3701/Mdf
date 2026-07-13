@@ -1045,7 +1045,7 @@ public sealed class MPTestHarnessEditModeTests
 
         Assert.That(GamePrepareUIToolkitController.ShopCardCount, Is.EqualTo(5));
         Assert.That(GamePrepareUIToolkitController.AugmentCardCount, Is.EqualTo(3));
-        Assert.That(GamePrepareUIToolkitController.MonsterCardCount, Is.EqualTo(9));
+        Assert.That(GamePrepareUIToolkitController.MonsterCardCount, Is.EqualTo(12));
         Assert.That(GamePrepareUIToolkitController.ScrollCardCount, Is.EqualTo(5));
         Assert.That(
             GamePrepareUIToolkitController.FormatAugmentDisplayName("\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658(\uACF5\uC911)"),
@@ -1082,7 +1082,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(CountElementsWithClass(tree, "shop-art-frame"), Is.EqualTo(5));
         Assert.That(CountElementsWithClass(tree, "shop-text-overlay"), Is.EqualTo(5));
         AssertNamedElements(tree, "augment-card-", 3);
-        AssertNamedElements(tree, "attack-monster-card-", 9);
+        AssertNamedElements(tree, "attack-monster-card-", 12);
         AssertNamedElements(tree, "attack-scroll-card-", 5);
         Assert.That(tree.styleSheets.Contains(style), Is.True);
         Assert.That(tree.Q<VisualElement>("shop-panel")?.ClassListContains("prepare-panel"), Is.True);
@@ -2045,7 +2045,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(typeof(BattleDecisionPolicy).GetField("MinimumBattleCommandLeadTime", BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null);
         Assert.That(typeof(BattleDecisionPolicy).GetField("_defenderSkillPolicy", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType,
             Is.EqualTo(typeof(DefenderSkillPolicy)));
-        Assert.That(MdfCompiledCodePolicy.ReferencesAnyMethod(typeof(BattleDecisionPolicy), typeof(MonsterSpawner), "SpawnMonsterAtPositionAsync", "TryConsumeMonsterPoolSlot"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(MonsterSpawner), "SpawnMonsterAtPositionAsync"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesAnyMethod(
+            typeof(BattleDecisionPolicy),
+            typeof(PlayerManager),
+            "TryReserveBattleSpawnResource", "CommitBattleSpawnReservation", "TryRefundBattleSpawnReservation"), Is.False);
         Assert.That(MdfCompiledCodePolicy.ReferencesAnyMethod(typeof(BattleDecisionPolicy), typeof(PlayerManager), "TryConsumeMagicScrollSlot"), Is.False);
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(SkillEffect), "CastGameplay"), Is.False);
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(Unit), "ActivateSkill"), Is.False);

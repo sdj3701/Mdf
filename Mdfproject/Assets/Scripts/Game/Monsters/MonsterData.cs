@@ -8,6 +8,16 @@ public class MonsterData : ScriptableObject
     public string monsterName;
     public MonsterType monsterType; // 지상, 공중 구분
 
+    [Header("Attack Sequence")]
+    [Tooltip("Boss monsters remain augment-only. Non-boss monsters are available from the attack sequence catalog.")]
+    public MonsterRank monsterRank = MonsterRank.Normal;
+
+    [Tooltip("Black Magic spent when this monster is summoned during an attack sequence. Bosses do not use Black Magic.")]
+    [Min(0)]
+    public int blackMagicCost = 1;
+
+    public bool IsBoss => monsterRank == MonsterRank.Boss;
+
     [Tooltip("UI에서 사용될 몬스터 아이콘입니다.")]
     [AddressableKey(typeof(Sprite))]
     public string monsterIcon;

@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: host-migration, battle
 Created: 2026-05-06
-Last used: 2026-07-12
-Last verified: 2026-05-11
-Use count: 4
+Last used: 2026-07-13
+Last verified: 2026-07-13
+Use count: 6
 Review after: 2026-08-04
 Triggers: late-game sync drift, survivor boss assignment, active augment effects, monster spawn/combat divergence
 Applies to: `MPTestStateSnapshot`, `MPTestAssertions`, `compare_state_snapshots.py`, HumanBot/Host Migration battle progression
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260713-031819-progressed-host-migration-after-battle/post-battle-host-migration-result.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -48,3 +48,5 @@ Lifecycle notes:
 - 2026-05-10: verified artifact `artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless`
 - 2026-05-11: Snapshot monster parts exposed Networked HP, status bar visibility, and fill permille for HP bar pooling verification.
 - 2026-05-11: verified artifact `artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless`
+- 2026-07-13: Battle snapshots now compare exact Black Magic state and pool spend mode/cost across peers and migration.
+- 2026-07-13: verified artifact `artifacts/mp/20260713-031819-progressed-host-migration-after-battle/post-battle-host-migration-result.json`

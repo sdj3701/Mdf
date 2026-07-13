@@ -14,6 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Spider
   monsterType: 0
+  monsterRank: 0
+  blackMagicCost: 2
   monsterIcon: Spr_Port_Spider
   monsterPrefab: Spider
   attackDamage: 12

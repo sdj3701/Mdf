@@ -105,9 +105,10 @@ public sealed class MonsterPrewarmEditModeTests
         Assert.That(player, Does.Contain("PrewarmAttackMonsterPoolIfPossible(\"ApplyAttackMonsterPoolEntries\")"));
 
         int prewarmIndex = command.IndexOf("PrewarmMonsterDataAsync", StringComparison.Ordinal);
-        int consumeIndex = command.IndexOf("TryConsumeMonsterPoolSlot", StringComparison.Ordinal);
+        int consumeIndex = command.IndexOf("TryReserveBattleSpawnResource", StringComparison.Ordinal);
         Assert.That(prewarmIndex, Is.GreaterThanOrEqualTo(0));
-        Assert.That(consumeIndex, Is.LessThan(prewarmIndex), "pool slot must be reserved before the async prewarm");
+        Assert.That(consumeIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(consumeIndex, Is.LessThan(prewarmIndex), "pool/black-magic resource must be reserved before the async prewarm");
     }
 
     [Test]

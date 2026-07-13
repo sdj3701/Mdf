@@ -67,7 +67,7 @@ MonoBehaviour:
   scrollSlotContainer: {fileID: 9198309733723403067}
   scrollSlotPrefab: {fileID: 746106310306622962, guid: 023e86bb5d5919544951bbfa65ef4240,
     type: 3}
-  maxSlots: 9
+  maxSlots: 12
   maxScrollSlots: 5
 --- !u!1 &3956059727125371213
 GameObject:

@@ -309,6 +309,11 @@ public static class MPTestStateSnapshot
             WallCount = SafeInt(player.GetWallCount, 0),
             IsActivelyFighting = SafeBool(() => player.IsActivelyFighting, false),
             IsAttackerInCurrentBattle = SafeBool(() => player.IsAttackerInCurrentBattle, false),
+            BlackMagicCurrent = SafeInt(() => player.BlackMagicCurrent, 0),
+            BlackMagicMaximum = SafeInt(() => player.BlackMagicMaximum, 0),
+            BlackMagicMaxBonus = SafeInt(() => player.BlackMagicMaxBonus, 0),
+            BlackMagicRevision = SafeInt(() => player.BlackMagicRevision, 0),
+            BlackMagicSequenceId = SafeInt(() => player.BlackMagicSequenceId, 0),
             AttackMonsterPoolHash = CaptureAttackMonsterPoolHash(player),
             AttackMonsterPoolParts = CaptureAttackMonsterPoolParts(player),
             OwnedScrollsHash = CaptureOwnedScrollsHash(player),
@@ -501,12 +506,15 @@ public static class MPTestStateSnapshot
 
         var parts = monsterDataNames.Select((monsterDataName, index) =>
         {
+            bool isBoss = ReadArrayValue(isBossValues, index, 0) != 0;
+            int blackMagicCost = ResolveAttackMonsterPoolBlackMagicCost(player, index, isBoss);
+            string spendMode = isBoss ? "boss-entitlement" : "black-magic";
             if (string.IsNullOrWhiteSpace(monsterDataName))
             {
-                return $"{index}:null";
+                return $"{index}:type=null;remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={isBoss};mode={spendMode};blackMagicCost={blackMagicCost};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)}";
             }
 
-            return $"{index}:type={monsterDataName.Trim()};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={ReadArrayValue(isBossValues, index, 0) != 0};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)}";
+            return $"{index}:type={monsterDataName.Trim()};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={isBoss};mode={spendMode};blackMagicCost={blackMagicCost};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)}";
         }).Concat(new[] { $"revision={revision}" });
         return HashStableParts(parts);
     }
@@ -551,8 +559,28 @@ public static class MPTestStateSnapshot
         return monsterDataNames.Select((monsterDataName, index) =>
         {
             string type = string.IsNullOrWhiteSpace(monsterDataName) ? "null" : monsterDataName.Trim();
-            return $"{index}:type={type};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={ReadArrayValue(isBossValues, index, 0) != 0};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)};revision={revision}";
+            bool isBoss = ReadArrayValue(isBossValues, index, 0) != 0;
+            int blackMagicCost = ResolveAttackMonsterPoolBlackMagicCost(player, index, isBoss);
+            string spendMode = isBoss ? "boss-entitlement" : "black-magic";
+            return $"{index}:type={type};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={isBoss};mode={spendMode};blackMagicCost={blackMagicCost};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)};revision={revision}";
         }).ToArray();
+    }
+
+    private static int ResolveAttackMonsterPoolBlackMagicCost(PlayerManager player, int index, bool isBoss)
+    {
+        if (isBoss)
+        {
+            return 0;
+        }
+
+        var pool = SafeRef(() => player.AttackMonsterPool, null);
+        if (pool == null || index < 0 || index >= pool.Count)
+        {
+            return -1;
+        }
+
+        MonsterData monsterData = pool[index]?.MonsterData;
+        return monsterData != null ? Mathf.Max(0, monsterData.blackMagicCost) : -1;
     }
 
     private static int ReadArrayValue(int[] values, int index, int fallback)
@@ -720,6 +748,19 @@ public static class MPTestStateSnapshot
         if (augment.effectType == EffectType.GrantMagicScroll)
         {
             return "scroll=" + BuildScriptableObjectKey(augment.magicScrollData, augment.magicScrollData != null ? augment.magicScrollData.scrollName : string.Empty);
+        }
+
+        if (augment.effectType == EffectType.StrengthenMonsterType)
+        {
+            int healthPermille = Mathf.RoundToInt(SafeFloat(() => augment.monsterHealthBonusPercent, 0f) * 1000f);
+            int damagePermille = Mathf.RoundToInt(SafeFloat(() => augment.monsterDamageBonusPercent, 0f) * 1000f);
+            int moveSpeedPermille = Mathf.RoundToInt(SafeFloat(() => augment.monsterMoveSpeedBonusPercent, 0f) * 1000f);
+            return $"monster={BuildMonsterDataKey(augment.strengthenedMonsterData)};healthPermille={healthPermille};damagePermille={damagePermille};moveSpeedPermille={moveSpeedPermille}";
+        }
+
+        if (augment.effectType == EffectType.IncreaseBlackMagicMaximum)
+        {
+            return $"blackMagicMaximumDelta={Mathf.RoundToInt(SafeFloat(() => augment.value, 0f))}";
         }
 
         return "none";
@@ -1633,6 +1674,11 @@ public static class MPTestStateSnapshot
         [JsonProperty("wallCount")] public int WallCount;
         [JsonProperty("isActivelyFighting")] public bool IsActivelyFighting;
         [JsonProperty("isAttackerInCurrentBattle")] public bool IsAttackerInCurrentBattle;
+        [JsonProperty("blackMagicCurrent")] public int BlackMagicCurrent;
+        [JsonProperty("blackMagicMaximum")] public int BlackMagicMaximum;
+        [JsonProperty("blackMagicMaxBonus")] public int BlackMagicMaxBonus;
+        [JsonProperty("blackMagicRevision")] public int BlackMagicRevision;
+        [JsonProperty("blackMagicSequenceId")] public int BlackMagicSequenceId;
         [JsonProperty("attackMonsterPoolHash")] public string AttackMonsterPoolHash;
         [JsonProperty("attackMonsterPoolParts")] public string[] AttackMonsterPoolParts;
         [JsonProperty("ownedScrollsHash")] public string OwnedScrollsHash;

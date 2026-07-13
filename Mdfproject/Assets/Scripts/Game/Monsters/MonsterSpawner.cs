@@ -608,6 +608,21 @@ public class MonsterSpawner : MonoBehaviour
 
         foreach (var augment in _playerManager.chosenAugments)
         {
+            if (augment == null)
+            {
+                continue;
+            }
+
+            if (augment.effectType == EffectType.StrengthenMonsterType
+                && augment.strengthenedMonsterData != null
+                && augment.strengthenedMonsterData == monster.Data)
+            {
+                healthMultiplier += Mathf.Max(0f, augment.monsterHealthBonusPercent);
+                speedMultiplier += Mathf.Max(0f, augment.monsterMoveSpeedBonusPercent);
+                damageMultiplier += Mathf.Max(0f, augment.monsterDamageBonusPercent);
+                continue;
+            }
+
             // 상대 필드에 적용되는 몬스터 강화 증강체
             if (augment.targetType == TargetType.Opponent)
             {
@@ -1240,7 +1255,8 @@ public class MonsterSpawner : MonoBehaviour
                         order.SpawnPosition,
                         1,
                         "server_ai_spawn_plan",
-                        _playerManager.AttackMonsterPoolRevision);
+                        _playerManager.AttackMonsterPoolRevision,
+                        _playerManager.BlackMagicRevision);
 
                     BattleCommandResult result = await gm.ExecuteBattleSpawnMonsterCommandAsync(
                         command,

@@ -14,9 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Skeleton
   monsterType: 0
-  monsterIcon: "\uC774 \uBAAC\uC2A4\uD130\uB85C\uB3C4 \uC880 \uC804\uC758 \uD53D\uC140\uC544\uD2B8
-    \uB290\uB08C \uADF8\uB9BC\uCCB4\uB85C \uADF8\uB824\uC918 \uB098\uBA38\uC9C0 \uC870\uAC74\uC740
-    \uAC19\uC544 3\uC7A5 \uADF8\uB824\uC918"
+  monsterRank: 0
+  blackMagicCost: 3
+  monsterIcon: Spr_Port_Skeleton
   monsterPrefab: Skeleton
   attackDamage: 30
   attackSpeed: 1.1

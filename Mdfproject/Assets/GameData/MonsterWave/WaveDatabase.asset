@@ -12,6 +12,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9df4057dd2fc53442bf603fff122b7fd, type: 3}
   m_Name: WaveDatabase
   m_EditorClassIdentifier: 
+  attackSequenceMonsterCatalog:
+  - {fileID: 11400000, guid: 467e13ba307d4c44fa072f30306c41b2, type: 2}
+  - {fileID: 11400000, guid: 38bd09580b24c144ebfb111f6b7a4580, type: 2}
+  - {fileID: 11400000, guid: 29cf65ff007c29842b0f94f054e2b808, type: 2}
+  - {fileID: 11400000, guid: 7813937e9a3ea3c46a5cc8c68e61ae5a, type: 2}
+  - {fileID: 11400000, guid: 0306cf61f03caa14788271cd945bc75c, type: 2}
+  - {fileID: 11400000, guid: 37c1410f39a37ce48baec7d335019032, type: 2}
+  - {fileID: 11400000, guid: ae8a69e0ccd88974d8e8035798f0c066, type: 2}
+  - {fileID: 11400000, guid: 6c2b00d43e78aa34986b6826eb09d294, type: 2}
+  baseBlackMagicMaximum: 10
+  blackMagicMaximumPerRound: 2
   rounds:
   - roundNumber: 1
     monsters:

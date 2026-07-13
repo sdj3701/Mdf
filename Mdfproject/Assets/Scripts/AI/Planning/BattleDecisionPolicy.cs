@@ -153,11 +153,19 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
+        var affordablePool = attacker.AttackMonsterPool
+            .Where(attacker.CanAffordAttackMonster)
+            .ToList();
+        if (affordablePool.Count == 0)
+        {
+            return false;
+        }
+
         var strategy = new AIAttackStrategy(
             defender.fieldManager,
             attacker,
             ResolveSpawnAreaLayer(attacker));
-        var plan = strategy.BuildSpawnPlan(attacker.AttackMonsterPool.ToList());
+        var plan = strategy.BuildSpawnPlan(affordablePool);
         var order = plan.Phases
             .SelectMany(phase => phase.Orders)
             .FirstOrDefault(candidate => candidate != null &&
@@ -182,7 +190,8 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
             order.SpawnPosition,
             1,
             "battle_decision_policy_spawn",
-            attacker.AppliedAttackMonsterPoolRevision);
+            attacker.AppliedAttackMonsterPoolRevision,
+            attacker.AppliedBlackMagicRevision);
 
         decision = MdfDecision.ForBattleSpawnMonster(
             context,
@@ -195,6 +204,8 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
                 { "poolSlotIndex", poolSlotIndex },
                 { "plannedCount", order.Count },
                 { "monster", order.PoolEntry.MonsterData != null ? order.PoolEntry.MonsterData.name : "unknown" },
+                { "blackMagicCost", order.PoolEntry.MonsterData != null ? order.PoolEntry.MonsterData.blackMagicCost : 0 },
+                { "blackMagicCurrent", attacker.AppliedBlackMagicCurrent },
                 { "defenderPlayerId", defender.playerId }
             });
         return true;

@@ -153,6 +153,11 @@ def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
         "wallCount": player.get("wallCount"),
         "isActivelyFighting": player.get("isActivelyFighting"),
         "isAttackerInCurrentBattle": player.get("isAttackerInCurrentBattle"),
+        "blackMagicCurrent": player.get("blackMagicCurrent"),
+        "blackMagicMaximum": player.get("blackMagicMaximum"),
+        "blackMagicMaxBonus": player.get("blackMagicMaxBonus"),
+        "blackMagicRevision": player.get("blackMagicRevision"),
+        "blackMagicSequenceId": player.get("blackMagicSequenceId"),
         "shop": {
             "available": nested(player, "shop", "available"),
             "revision": nested(player, "shop", "revision"),

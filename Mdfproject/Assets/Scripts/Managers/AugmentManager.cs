@@ -314,6 +314,11 @@ public class AugmentManager : MonoBehaviour
                 return augment.bossMonsterData;
             }
 
+            if (MatchesMonsterData(augment?.strengthenedMonsterData, monsterDataName))
+            {
+                return augment.strengthenedMonsterData;
+            }
+
             var entries = augment?.monsterSpawnEntries;
             if (entries == null) continue;
             foreach (var entry in entries)
@@ -486,8 +491,13 @@ public class AugmentManager : MonoBehaviour
                 }
                 else
                 {
-                    playerManager.RegisterActiveMonsterSummonAugment(augment);
-                    Debug.Log($"<color=orange>[AugmentManager] Player {playerManager.playerId}의 일반 몬스터 소환 증강 '{augment.augmentName}' 등록 (매 라운드 상대 침공)</color>");
+                    Debug.LogWarning($"[AugmentManager] Legacy non-boss summon augment '{augment.augmentName}' was ignored. Non-boss monsters are now available through the Black Magic catalog.");
+                }
+                return;
+            case EffectType.StrengthenMonsterType:
+                if (augment.strengthenedMonsterData == null)
+                {
+                    Debug.LogWarning($"[AugmentManager] Monster strengthening augment '{augment.augmentName}' has no strengthenedMonsterData.");
                 }
                 return;
             case EffectType.GrantMagicScroll:
@@ -531,6 +541,14 @@ public class AugmentManager : MonoBehaviour
             case EffectType.IncreaseMyUnitAttackSpeed:
                 target.AddPermanentAttackSpeedPercent(augment.value);
                 Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격속도 버프 적용 (+{augment.value:P0})");
+                break;
+            case EffectType.IncreaseBlackMagicMaximum:
+                int blackMagicBonus = Mathf.Max(0, Mathf.RoundToInt(augment.value));
+                if (blackMagicBonus > 0)
+                {
+                    target.AddBlackMagicMaximumBonus(blackMagicBonus);
+                    Debug.Log($"[AugmentManager] Player {target.playerId} gained +{blackMagicBonus} maximum Black Magic from '{augment.augmentName}'. It applies from the next attack sequence refill.");
+                }
                 break;
             case EffectType.IncreaseEnemyHealth:
             case EffectType.IncreaseEnemyMoveSpeed:

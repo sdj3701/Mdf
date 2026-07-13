@@ -23,6 +23,12 @@ MonoBehaviour:
     m_SerializedLabels:
     - Augment
     - mdf-gameplay-data
+  - m_GUID: b41c9f249ec84d0eab1ca982e191d641
+    m_Address: Aug_Util_BlackMagicMax_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
   - m_GUID: 9b35a58cbdefd5444ab3d66967b548f7
     m_Address: Aug_Enemy_MoveSpeed_Normal
     m_ReadOnly: 0

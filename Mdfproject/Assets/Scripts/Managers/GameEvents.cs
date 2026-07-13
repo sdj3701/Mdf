@@ -113,6 +113,29 @@ public static class GameEvents
         }
     }
 
+    public static event Action<int, int, int, int, int> OnBlackMagicChanged;
+    public static void TriggerBlackMagicChanged(int playerID, int current, int maximum, int maxBonus, int revision)
+    {
+        var handlers = OnBlackMagicChanged;
+        if (handlers == null)
+        {
+            return;
+        }
+
+        foreach (Action<int, int, int, int, int> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(playerID, current, maximum, maxBonus, revision);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[GameEvents] OnBlackMagicChanged handler failed: {handler.Method.DeclaringType?.Name}.{handler.Method.Name}");
+                Debug.LogException(ex);
+            }
+        }
+    }
+
     /// <summary>
     /// 마법 스크롤 보유 목록이 변경되었을 때 (UI 갱신용)
     /// </summary>

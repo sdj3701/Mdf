@@ -14,6 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Reaper
   monsterType: 0
+  monsterRank: 2
+  blackMagicCost: 0
   monsterIcon: Spr_Port_BossMonsterSymbol
   monsterPrefab: Boss_Reaper
   attackDamage: 120

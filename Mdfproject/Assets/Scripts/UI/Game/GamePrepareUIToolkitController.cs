@@ -14,7 +14,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 {
     public const int ShopCardCount = 5;
     public const int AugmentCardCount = 3;
-    public const int MonsterCardCount = 9;
+    public const int MonsterCardCount = 12;
     public const int ScrollCardCount = 5;
 
     private const string LayoutResourcePath = "UI/GamePrepare/GamePreparePanels";
@@ -95,6 +95,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private Label resourceWallValue;
     private VisualElement attackSequencePanel;
     private VisualElement attackMonsterRow;
+    private Label attackBlackMagicLabel;
     private VisualElement attackScrollRow;
 
     private GameManagers gameManagers;
@@ -730,6 +731,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         resourceWallValue = root?.Q<Label>("game-wall-count-label");
         attackSequencePanel = root?.Q<VisualElement>("attack-sequence-panel");
         attackMonsterRow = root?.Q<VisualElement>("attack-monster-row");
+        attackBlackMagicLabel = root?.Q<Label>("attack-black-magic-label");
         attackScrollRow = root?.Q<VisualElement>("attack-scroll-row");
 
         for (var i = 0; i < ShopCardCount; i++)
@@ -955,6 +957,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         GameEvents.OnPlayerStatsChanged += HandlePlayerStatsChanged;
         GameEvents.OnPlayerWallCountChanged += HandlePlayerWallCountChanged;
         GameEvents.OnMonsterPoolChanged += HandleMonsterPoolChanged;
+        GameEvents.OnBlackMagicChanged += HandleBlackMagicChanged;
         GameEvents.OnMagicScrollPoolChanged += HandleMagicScrollPoolChanged;
         GameEvents.OnBattleSequenceStarted += HandleBattleSequenceStarted;
         eventsSubscribed = true;
@@ -979,6 +982,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         GameEvents.OnPlayerStatsChanged -= HandlePlayerStatsChanged;
         GameEvents.OnPlayerWallCountChanged -= HandlePlayerWallCountChanged;
         GameEvents.OnMonsterPoolChanged -= HandleMonsterPoolChanged;
+        GameEvents.OnBlackMagicChanged -= HandleBlackMagicChanged;
         GameEvents.OnMagicScrollPoolChanged -= HandleMagicScrollPoolChanged;
         GameEvents.OnBattleSequenceStarted -= HandleBattleSequenceStarted;
         eventsSubscribed = false;
@@ -1112,6 +1116,17 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         RefreshAttackSequence(attackSequencePlayer, attackSequenceManager);
     }
 
+    private void HandleBlackMagicChanged(int playerId, int current, int maximum, int maxBonus, int revision)
+    {
+        if (!attackSequenceVisible || !IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        SetText(attackBlackMagicLabel, $"{current} / {maximum}");
+        BindMonsterCards(attackSequencePlayer?.AttackMonsterPool);
+    }
+
     private void HandleMagicScrollPoolChanged(int playerId, IReadOnlyList<MagicScrollData> scrolls)
     {
         if (!attackSequenceVisible || !IsLocalPlayerId(playerId))
@@ -1219,6 +1234,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 ? attackSequenceManager
                 : attackSequencePlayer != null ? attackSequencePlayer.GetComponent<AttackSequenceManager>() : null;
 
+        BindBlackMagicState();
         BindMonsterCards(attackSequencePlayer?.AttackMonsterPool);
         BindScrollCards(attackSequencePlayer?.OwnedScrolls);
 
@@ -1278,22 +1294,72 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private void BindMonsterCards(List<MonsterPoolEntry> pool)
     {
+        int availableBlackMagic = GetCurrentBlackMagic();
         for (var i = 0; i < monsterCards.Length; i++)
         {
             var entry = pool != null && i < pool.Count ? pool[i] : null;
             bool hasSlot = entry != null && entry.MonsterData != null;
             SetVisible(monsterCards[i].Root, hasSlot);
-            monsterCards[i].Bind(entry);
+            monsterCards[i].Bind(entry, availableBlackMagic);
         }
 
         if (selectedMonsterSlotIndex >= 0 &&
             (pool == null ||
              selectedMonsterSlotIndex >= pool.Count ||
              pool[selectedMonsterSlotIndex] == null ||
-             pool[selectedMonsterSlotIndex].IsEmpty))
+             pool[selectedMonsterSlotIndex].IsEmpty ||
+             !CanAffordMonster(pool[selectedMonsterSlotIndex])))
         {
             selectedMonsterSlotIndex = -1;
         }
+    }
+
+    private void BindBlackMagicState()
+    {
+        int current = 0;
+        int maximum = 0;
+        if (attackSequencePlayer != null)
+        {
+            try
+            {
+                current = attackSequencePlayer.AppliedBlackMagicCurrent;
+                maximum = attackSequencePlayer.AppliedBlackMagicMaximum;
+            }
+            catch (InvalidOperationException)
+            {
+                current = 0;
+                maximum = 0;
+            }
+        }
+
+        SetText(attackBlackMagicLabel, $"{current} / {maximum}");
+    }
+
+    private int GetCurrentBlackMagic()
+    {
+        if (attackSequencePlayer == null)
+        {
+            return 0;
+        }
+
+        try
+        {
+            return attackSequencePlayer.AppliedBlackMagicCurrent;
+        }
+        catch (InvalidOperationException)
+        {
+            return 0;
+        }
+    }
+
+    private bool CanAffordMonster(MonsterPoolEntry entry)
+    {
+        if (entry == null || entry.MonsterData == null || entry.IsEmpty)
+        {
+            return false;
+        }
+
+        return entry.IsBoss || GetCurrentBlackMagic() >= Mathf.Max(0, entry.MonsterData.blackMagicCost);
     }
 
     private void BindScrollCards(IReadOnlyList<MagicScrollData> scrolls)
@@ -1430,7 +1496,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         var entry = pool[slotIndex];
-        if (entry == null || entry.IsEmpty)
+        if (entry == null || entry.IsEmpty || !CanAffordMonster(entry))
         {
             return false;
         }
@@ -2350,12 +2416,15 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         public int Index { get; }
         public VisualElement Root { get; }
 
-        public void Bind(MonsterPoolEntry entry)
+        public void Bind(MonsterPoolEntry entry, int availableBlackMagic)
         {
             ReleaseIconHandle();
             bool hasEntry = entry != null && entry.MonsterData != null && !entry.IsEmpty;
-            Root?.SetEnabled(hasEntry);
-            Root?.EnableInClassList("is-disabled", !hasEntry);
+            bool isAffordable = hasEntry && (entry.IsBoss
+                || availableBlackMagic >= Mathf.Max(0, entry.MonsterData.blackMagicCost));
+            Root?.SetEnabled(isAffordable);
+            Root?.EnableInClassList("is-disabled", !isAffordable);
+            Root?.EnableInClassList("is-unaffordable", hasEntry && !isAffordable);
 
             if (!hasEntry)
             {
@@ -2370,7 +2439,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
 
             SetText(name, entry.MonsterData.monsterName);
-            SetText(count, $"{entry.RemainingCount}/{entry.MaxCount}");
+            SetText(count, entry.IsBoss
+                ? $"x{entry.RemainingCount}"
+                : $"\uD751\uB9C8\uB825 {Mathf.Max(0, entry.MonsterData.blackMagicCost)}");
             LoadIconAsync(entry.MonsterData, bindVersion).Forget();
         }
 

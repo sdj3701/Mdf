@@ -83,7 +83,9 @@ public class MonsterSlotUI : MonoBehaviour
         
         if (countText != null)
         {
-            countText.text = $"{_poolEntry.RemainingCount}/{_poolEntry.MaxCount}";
+            countText.text = _poolEntry.IsBoss
+                ? $"x{_poolEntry.RemainingCount}"
+                : $"흑마력 {Mathf.Max(0, _poolEntry.MonsterData.blackMagicCost)}";
         }
 
         UpdateVisualState();
@@ -124,6 +126,7 @@ public class MonsterSlotUI : MonoBehaviour
         if (_poolEntry == null) return;
 
         bool isEmpty = _poolEntry.IsEmpty;
+        bool canAfford = CanAffordCurrentEntry();
 
         // 배경 색상
         if (slotBackgroundImage != null)
@@ -146,22 +149,50 @@ public class MonsterSlotUI : MonoBehaviour
         if (monsterIconImage != null)
         {
             Color iconColor = monsterIconImage.color;
-            iconColor.a = isEmpty ? 0.3f : 1f;
+            iconColor.a = isEmpty || !canAfford ? 0.3f : 1f;
             monsterIconImage.color = iconColor;
         }
 
         // 버튼 활성화
         if (slotButton != null)
         {
-            slotButton.interactable = !isEmpty;
+            slotButton.interactable = !isEmpty && canAfford;
         }
 
         // 텍스트 투명도
         if (countText != null)
         {
             Color countColor = countText.color;
-            countColor.a = isEmpty ? 0.3f : 1f;
+            countColor.a = isEmpty || !canAfford ? 0.3f : 1f;
             countText.color = countColor;
+        }
+    }
+
+    private bool CanAffordCurrentEntry()
+    {
+        if (_poolEntry == null || _poolEntry.MonsterData == null || _poolEntry.IsEmpty)
+        {
+            return false;
+        }
+
+        if (_poolEntry.IsBoss)
+        {
+            return true;
+        }
+
+        PlayerManager localPlayer = GameManagers.Instance?.localPlayer;
+        if (localPlayer == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return localPlayer.AppliedBlackMagicCurrent >= Mathf.Max(0, _poolEntry.MonsterData.blackMagicCost);
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
         }
     }
 
@@ -195,7 +226,7 @@ public class MonsterSlotUI : MonoBehaviour
     #region 이벤트
     private void OnSlotClicked()
     {
-        if (_poolEntry == null || _poolEntry.IsEmpty) return;
+        if (_poolEntry == null || _poolEntry.IsEmpty || !CanAffordCurrentEntry()) return;
         _controller?.OnMonsterSlotSelected(_slotIndex, _poolEntry);
     }
 

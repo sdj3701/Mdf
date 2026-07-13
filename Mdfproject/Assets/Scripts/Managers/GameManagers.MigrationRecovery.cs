@@ -640,8 +640,24 @@ public partial class GameManagers
             defender.SetFightingState(true);
 
             // Battle 시작 RPC를 재발행해서 로컬 공격 UI/카메라/입력 경로를 재정렬한다.
-            RPC_NotifyBattleStart(attackerId, true, defenderId);
-            RPC_NotifyBattleStart(defenderId, false, attackerId);
+            RPC_NotifyBattleStart(
+                attackerId,
+                true,
+                defenderId,
+                attacker.BlackMagicCurrent,
+                attacker.BlackMagicMaximum,
+                attacker.BlackMagicMaxBonus,
+                attacker.BlackMagicRevision,
+                attacker.BlackMagicSequenceId);
+            RPC_NotifyBattleStart(
+                defenderId,
+                false,
+                attackerId,
+                defender.BlackMagicCurrent,
+                defender.BlackMagicMaximum,
+                defender.BlackMagicMaxBonus,
+                defender.BlackMagicRevision,
+                defender.BlackMagicSequenceId);
 
             bool isAiAttacker = ComponentRegistry.Has<AIPlayerController>(attackerId.ToString());
             LogMigrationTrace(

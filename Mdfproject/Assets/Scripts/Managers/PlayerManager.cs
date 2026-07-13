@@ -106,15 +106,42 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     [Networked, Capacity(ATTACK_POOL_SNAPSHOT_CAPACITY)] private NetworkArray<AttackMonsterPoolSnapshotSlot> AttackMonsterPoolSnapshotSlots { get; }
     private int _lastAppliedAttackMonsterPoolRevision;
     private int _pendingAttackMonsterPoolCommandRevision = -1;
+    private int _pendingBlackMagicCommandRevision = -1;
+    private float _pendingAttackMonsterPoolCommandStartedAt;
+    private const float ATTACK_MONSTER_COMMAND_PENDING_TIMEOUT_SECONDS = 2f;
     public int AppliedAttackMonsterPoolRevision =>
         Object != null && Object.HasStateAuthority ? AttackMonsterPoolRevision : _lastAppliedAttackMonsterPoolRevision;
     public bool HasAppliedCurrentAttackMonsterPoolSnapshot =>
         Object != null && Object.HasStateAuthority || _lastAppliedAttackMonsterPoolRevision == AttackMonsterPoolRevision;
-    public bool HasPendingAttackMonsterPoolCommand =>
-        Object != null &&
-        !Object.HasStateAuthority &&
-        _pendingAttackMonsterPoolCommandRevision >= 0 &&
-        _lastAppliedAttackMonsterPoolRevision <= _pendingAttackMonsterPoolCommandRevision;
+    public bool HasPendingAttackMonsterPoolCommand
+    {
+        get
+        {
+            bool pending = Object != null &&
+                           !Object.HasStateAuthority &&
+                           _pendingAttackMonsterPoolCommandRevision >= 0 &&
+                           _lastAppliedAttackMonsterPoolRevision <= _pendingAttackMonsterPoolCommandRevision &&
+                           (_pendingBlackMagicCommandRevision < 0 ||
+                            AppliedBlackMagicRevision <= _pendingBlackMagicCommandRevision);
+            if (!pending)
+            {
+                ClearPendingAttackMonsterPoolCommand();
+                return false;
+            }
+
+            if (Time.unscaledTime - _pendingAttackMonsterPoolCommandStartedAt <= ATTACK_MONSTER_COMMAND_PENDING_TIMEOUT_SECONDS)
+            {
+                return true;
+            }
+
+            ClearPendingAttackMonsterPoolCommand();
+            if (Object.HasInputAuthority)
+            {
+                RPC_RequestSyncData();
+            }
+            return false;
+        }
+    }
     [Networked] public int OwnedMagicScrollRevision { get; private set; }
     private int _lastAppliedOwnedMagicScrollRevision;
     private int _latestReceivedOwnedMagicScrollRevision;
@@ -682,6 +709,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 ApplyPermanentBonusesFromNetworkSnapshot();
             }
         }
+
+        PublishBlackMagicChangedFromRenderIfNeeded();
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -2521,7 +2550,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     }
     #endregion
     /// <summary>
-    /// 라운드별 공격 몬스터 풀을 갱신합니다. (기본 웨이브 + 증강 공격 유닛 + 보스)
+    /// 공격 시퀀스 풀을 갱신합니다. 일반 몬스터는 흑마력으로 반복 소환하는
+    /// 고정 카탈로그이며, 보스만 증강으로 획득한 수량을 소비합니다.
     /// </summary>
     /// <param name="round">현재 라운드</param>
     /// <param name="currentBattleOpponentId">현재 전투에서 매칭된 상대 ID (-1이면 opponentManager 사용)</param>
@@ -2537,75 +2567,54 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
 
         AttackMonsterPool.Clear();
-        
-        // 1. 기본 웨이브 몬스터 가져오기
+
+        // 1. 모든 비보스 몬스터를 재사용 가능한 카탈로그 항목으로 노출합니다.
+        // RemainingCount=1은 기존 UI/AI의 가용성 표현을 유지하기 위한 값이며,
+        // 일반 몬스터 소환 시에는 이 수량을 소비하지 않고 흑마력만 소비합니다.
         var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-        if (waveDatabase != null)
+        if (waveDatabase?.attackSequenceMonsterCatalog != null)
         {
-            var waveData = waveDatabase.GetWaveForRound(round);
-            if (waveData?.monsters != null)
+            var seenNormalMonsters = new HashSet<MonsterData>();
+            foreach (var monsterData in waveDatabase.attackSequenceMonsterCatalog)
             {
-                foreach (var entry in waveData.monsters)
+                if (monsterData == null ||
+                    monsterData.monsterRank == MonsterRank.Boss ||
+                    !seenNormalMonsters.Add(monsterData))
                 {
-                    if (entry?.monsterData != null && entry.count > 0)
-                    {
-                        // 기존 풀에 같은 몬스터가 있으면 수량 추가
-                        var existing = AttackMonsterPool.Find(p => p.MonsterData == entry.monsterData && !p.IsBoss);
-                        if (existing != null)
-                        {
-                            existing.RemainingCount += entry.count;
-                            existing.MaxCount += entry.count;
-                        }
-                        else
-                        {
-                            AttackMonsterPool.Add(new MonsterPoolEntry(entry.monsterData, entry.count));
-                        }
-                    }
+                    continue;
                 }
+
+                AttackMonsterPool.Add(new MonsterPoolEntry(monsterData, 1));
             }
+        }
+        else
+        {
+            Debug.LogError($"[PlayerManager] Attack sequence monster catalog is missing for P{playerId}, round={round}.");
         }
 
-        // 2. 증강 공격 유닛 추가
-        foreach (var augment in _activeMonsterSummonAugments)
+        // 2. 보유 보스는 종류별로 합쳐 기존 증강 획득 수량만큼 표시합니다.
+        foreach (var bossGroup in _ownedBossAugments
+                     .Where(augment => augment?.bossMonsterData != null)
+                     .GroupBy(augment => augment.bossMonsterData))
         {
-            if (augment?.monsterSpawnEntries == null) continue;
-            
-            foreach (var entry in augment.monsterSpawnEntries)
-            {
-                if (entry?.monsterData != null && entry.count > 0)
-                {
-                    var existing = AttackMonsterPool.Find(p => p.MonsterData == entry.monsterData && !p.IsBoss);
-                    if (existing != null)
-                    {
-                        existing.RemainingCount += entry.count;
-                        existing.MaxCount += entry.count;
-                    }
-                    else
-                    {
-                        AttackMonsterPool.Add(new MonsterPoolEntry(entry.monsterData, entry.count));
-                    }
-                }
-            }
-        }
-        
-        // 3. 보유 보스 표시 (영구 보유, 소환 시에만 제거)
-        foreach (var augment in _ownedBossAugments)
-        {
-            if (augment?.bossMonsterData == null) continue;
-            
+            MonsterData bossData = bossGroup.Key;
             AttackMonsterPool.Add(new MonsterPoolEntry(
-                augment.bossMonsterData,
-                1,
+                bossData,
+                bossGroup.Count(),
                 -1,
                 -1,
                 this.playerId
             ));
-            
-            // Debug.Log($"<color=red>[PlayerManager] Player {playerId}: 보유 보스 '{augment.bossMonsterData.monsterName}' 풀에 표시</color>");
         }
 
-        // Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 공격 몬스터 풀 갱신 완료 ({AttackMonsterPool.Count}종류, 보유 보스: {_ownedBossAugments.Count}마리)</color>");
-        
+        if (AttackMonsterPool.Count > ATTACK_POOL_SNAPSHOT_CAPACITY)
+        {
+            Debug.LogError($"[PlayerManager] Attack monster pool capacity exceeded: P{playerId} count={AttackMonsterPool.Count} capacity={ATTACK_POOL_SNAPSHOT_CAPACITY}.");
+            AttackMonsterPool.RemoveRange(
+                ATTACK_POOL_SNAPSHOT_CAPACITY,
+                AttackMonsterPool.Count - ATTACK_POOL_SNAPSHOT_CAPACITY);
+        }
+
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
         SyncAttackMonsterPoolToClientsIfAuthoritative();
@@ -2622,52 +2631,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         monsterSpawner.PrewarmAttackMonsterPoolAsync(AttackMonsterPool, context).Forget();
     }
 
-    /// <summary>
-    /// 풀에서 몬스터 1마리를 소비합니다.
-    /// </summary>
-    /// <param name="monsterData">소비할 몬스터 데이터</param>
-    /// <returns>성공 여부</returns>
-    public bool TryConsumeMonsterFromPool(MonsterData monsterData)
-    {
-        if (monsterData == null) return false;
-
-        var entry = AttackMonsterPool.Find(p => p.MonsterData == monsterData);
-        if (entry == null || entry.IsEmpty) return false;
-
-        entry.TryConsume();
-        
-        // 이벤트 발생 (UI 갱신용)
-        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
-        SyncAttackMonsterPoolToClientsIfAuthoritative();
-        return true;
-    }
-
-    public bool TryConsumeMonsterPoolSlot(int poolSlotIndex)
-    {
-        if (AttackMonsterPool == null ||
-            poolSlotIndex < 0 ||
-            poolSlotIndex >= AttackMonsterPool.Count)
-        {
-            return false;
-        }
-
-        var entry = AttackMonsterPool[poolSlotIndex];
-        if (entry == null || entry.IsEmpty)
-        {
-            return false;
-        }
-
-        if (!entry.TryConsume())
-        {
-            return false;
-        }
-
-        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
-        SyncAttackMonsterPoolToClientsIfAuthoritative();
-        return true;
-    }
-
-    public void MarkAttackMonsterPoolCommandSubmitted(int observedRevision)
+    public void MarkAttackMonsterPoolCommandSubmitted(int observedRevision, int observedBlackMagicRevision = -1)
     {
         if (Object != null && Object.HasStateAuthority)
         {
@@ -2678,30 +2642,18 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         {
             _pendingAttackMonsterPoolCommandRevision = Mathf.Max(_pendingAttackMonsterPoolCommandRevision, observedRevision);
         }
+        if (observedBlackMagicRevision >= 0)
+        {
+            _pendingBlackMagicCommandRevision = Mathf.Max(_pendingBlackMagicCommandRevision, observedBlackMagicRevision);
+        }
+        _pendingAttackMonsterPoolCommandStartedAt = Time.unscaledTime;
     }
 
-    public bool TryRefundMonsterPoolSlot(int poolSlotIndex)
+    private void ClearPendingAttackMonsterPoolCommand()
     {
-        if (AttackMonsterPool == null ||
-            poolSlotIndex < 0 ||
-            poolSlotIndex >= AttackMonsterPool.Count)
-        {
-            return false;
-        }
-
-        var entry = AttackMonsterPool[poolSlotIndex];
-        if (entry == null)
-        {
-            return false;
-        }
-
-        int max = Mathf.Max(entry.MaxCount, entry.RemainingCount + 1);
-        entry.RemainingCount = Mathf.Min(max, entry.RemainingCount + 1);
-        entry.MaxCount = max;
-
-        GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
-        SyncAttackMonsterPoolToClientsIfAuthoritative();
-        return true;
+        _pendingAttackMonsterPoolCommandRevision = -1;
+        _pendingBlackMagicCommandRevision = -1;
+        _pendingAttackMonsterPoolCommandStartedAt = 0f;
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -3159,10 +3111,23 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private static MonsterData FindWaveMonsterDataByStableHash(int monsterDataKeyHash)
     {
         var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-        if (waveDatabase?.rounds == null)
+        if (waveDatabase == null)
         {
             return null;
         }
+
+        if (waveDatabase.attackSequenceMonsterCatalog != null)
+        {
+            foreach (var monsterData in waveDatabase.attackSequenceMonsterCatalog)
+            {
+                if (MatchesMonsterDataHash(monsterData, monsterDataKeyHash))
+                {
+                    return monsterData;
+                }
+            }
+        }
+
+        if (waveDatabase.rounds == null) return null;
 
         foreach (var round in waveDatabase.rounds)
         {
@@ -3196,10 +3161,23 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private static MonsterData FindWaveMonsterDataByName(string monsterDataName)
     {
         var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-        if (waveDatabase?.rounds == null)
+        if (waveDatabase == null)
         {
             return null;
         }
+
+        if (waveDatabase.attackSequenceMonsterCatalog != null)
+        {
+            foreach (var monsterData in waveDatabase.attackSequenceMonsterCatalog)
+            {
+                if (MatchesMonsterData(monsterData, monsterDataName))
+                {
+                    return monsterData;
+                }
+            }
+        }
+
+        if (waveDatabase.rounds == null) return null;
 
         foreach (var round in waveDatabase.rounds)
         {
@@ -3310,7 +3288,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         _lastAppliedAttackMonsterPoolRevision = Mathf.Max(_lastAppliedAttackMonsterPoolRevision, revision);
         if (_pendingAttackMonsterPoolCommandRevision >= 0 && revision > _pendingAttackMonsterPoolCommandRevision)
         {
-            _pendingAttackMonsterPoolCommandRevision = -1;
+            ClearPendingAttackMonsterPoolCommand();
         }
 
         if (Object != null && Object.HasStateAuthority)

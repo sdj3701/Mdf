@@ -250,6 +250,25 @@
                             <ui:Label name="attack-monster-name-8" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-8" class="attack-card-count" />
                         </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-9" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-9" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-9" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-9" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-10" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-10" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-10" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-10" class="attack-card-count" />
+                        </ui:VisualElement>
+                        <ui:VisualElement name="attack-monster-card-11" class="attack-card monster-attack-card">
+                            <ui:Image name="attack-monster-icon-11" class="attack-card-icon" />
+                            <ui:Label name="attack-monster-name-11" class="attack-card-name" />
+                            <ui:Label name="attack-monster-count-11" class="attack-card-count" />
+                        </ui:VisualElement>
+                    </ui:VisualElement>
+                    <ui:VisualElement name="attack-black-magic-row" class="attack-black-magic-row">
+                        <ui:Label text="&#xD751;&#xB9C8;&#xB825;" class="attack-black-magic-title" />
+                        <ui:Label name="attack-black-magic-label" text="0 / 0" class="attack-black-magic-value" />
                     </ui:VisualElement>
                     <ui:VisualElement name="attack-scroll-row" class="attack-scroll-row">
                         <ui:VisualElement name="attack-scroll-card-0" class="attack-card scroll-attack-card">

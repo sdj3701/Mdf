@@ -467,7 +467,9 @@ BATTLE_COMMAND_REQUIRED_TOKENS = {
         'BattleCommandValidator.IsAuthorizedClientSource',
         'BattleCommandValidator.IsServerAiOrTestAuthority',
         'BattleCommandValidator.TryResolveExactBattleSpawnPosition',
-        'TryConsumeMonsterPoolSlot',
+        'TryReserveBattleSpawnResource',
+        'CommitBattleSpawnReservation',
+        'TryRefundBattleSpawnReservation',
         'SpawnMonsterAtExactPositionAsync',
     ],
     'UseMagicScrollCommand.cs': [
@@ -596,8 +598,8 @@ def battle_guardrail_warns(txt: str, r: str) -> list[tuple[str, str, str]]:
         warns.append((r, 'scroll_gameplay_direct_call', 'Scroll gameplay casting should route through UseMagicScrollCommand on State Authority.'))
     if re.search(r'\.\s*TryConsumeMagicScrollSlot\s*\(', txt) and not r.endswith('/Commands/Battle/UseMagicScrollCommand.cs'):
         warns.append((r, 'scroll_inventory_direct_consume', 'Scroll inventory consumption should occur after UseMagicScrollCommand validation.'))
-    if re.search(r'\.\s*TryConsumeMonsterPoolSlot\s*\(', txt) and not r.endswith('/Commands/Battle/BattleSpawnMonsterCommand.cs'):
-        warns.append((r, 'attack_pool_direct_consume', 'Attack monster pool consumption should occur after BattleSpawnMonsterCommand validation.'))
+    if re.search(r'\.\s*(?:TryReserveBattleSpawnResource|CommitBattleSpawnReservation|TryRefundBattleSpawnReservation)\s*\(', txt) and not r.endswith('/Commands/Battle/BattleSpawnMonsterCommand.cs'):
+        warns.append((r, 'attack_resource_direct_transaction', 'Attack pool/Black Magic transactions should occur only inside BattleSpawnMonsterCommand.'))
     return warns
 
 

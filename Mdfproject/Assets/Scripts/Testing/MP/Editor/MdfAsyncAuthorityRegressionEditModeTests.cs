@@ -144,8 +144,9 @@ public class MdfAsyncAuthorityRegressionEditModeTests
         Assert.That(battleCommand, Does.Contain("battle_changed_during_spawn_prewarm"));
         Assert.That(battleCommand, Does.Contain("RevalidateAfterAwait"));
         Assert.That(battleCommand, Does.Contain("battle_pool_reservation_changed_during_await"));
-        Assert.That(battleCommand, Does.Contain("AttackMonsterPoolRevision != _reservedPoolRevision"));
-        Assert.That(battleCommand, Does.Contain("currentEntry.RemainingCount != _reservedRemainingCount"));
+        Assert.That(battleCommand, Does.Contain("IsBattleSpawnReservationCurrent"));
+        Assert.That(battleCommand, Does.Contain("ObservedBlackMagicRevision"));
+        Assert.That(battleCommand, Does.Contain("TryRefundBattleSpawnReservation"));
         Assert.That(spawner, Does.Contain("CaptureBattleGeneration"));
         Assert.That(spawner, Does.Contain("ABORT_STALE_BATTLE_GENERATION"));
         Assert.That(spawner, Does.Contain("ReturnUnspawnedBossesForBattleSequence"));
@@ -153,13 +154,14 @@ public class MdfAsyncAuthorityRegressionEditModeTests
         Assert.That(spawner, Does.Contain("if (!allowNearbyCellFallback)"));
         Assert.That(spawner, Does.Contain("ResolveSeparatedSpawnPosition"),
             "non-strategic/base-wave spawns must retain their existing separation policy");
-        Assert.That(battleCommand.IndexOf("TryConsumeMonsterPoolSlot", System.StringComparison.Ordinal),
-            Is.LessThan(battleCommand.IndexOf("PrewarmMonsterDataAsync", System.StringComparison.Ordinal)));
-        Assert.That(battleCommand.IndexOf("_reservedPoolRevision = _validatedAttacker.AttackMonsterPoolRevision", System.StringComparison.Ordinal),
-            Is.LessThan(battleCommand.IndexOf("PrewarmMonsterDataAsync", System.StringComparison.Ordinal)));
-        Assert.That(battleCommand.IndexOf("TryResolveExactBattleSpawnPosition", StringComparison.Ordinal),
-            Is.LessThan(battleCommand.IndexOf("TryConsumeMonsterPoolSlot", StringComparison.Ordinal)),
-            "authority must reject an invalid exact spawn cell before reserving the pool slot");
+        int reserveResourceIndex = battleCommand.IndexOf("TryReserveBattleSpawnResource", StringComparison.Ordinal);
+        int prewarmIndex = battleCommand.IndexOf("PrewarmMonsterDataAsync", StringComparison.Ordinal);
+        int exactCellIndex = battleCommand.IndexOf("TryResolveExactBattleSpawnPosition", StringComparison.Ordinal);
+        Assert.That(reserveResourceIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(prewarmIndex, Is.GreaterThan(reserveResourceIndex));
+        Assert.That(exactCellIndex, Is.GreaterThanOrEqualTo(0));
+        Assert.That(exactCellIndex, Is.LessThan(reserveResourceIndex),
+            "authority must reject an invalid exact spawn cell before reserving the pool/black-magic resource");
         Assert.That(battleCommand, Does.Contain("SpawnMonsterAtExactPositionAsync"));
         Assert.That(battleCommand, Does.Contain("spawn_cell_changed_during_await"));
         Assert.That(monster, Does.Contain("IsSpawnLifecycleCurrent"));

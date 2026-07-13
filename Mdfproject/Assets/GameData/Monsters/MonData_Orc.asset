@@ -14,6 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Orc
   monsterType: 0
+  monsterRank: 0
+  blackMagicCost: 4
   monsterIcon: Spr_Port_Orc
   monsterPrefab: Orc
   attackDamage: 50

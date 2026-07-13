@@ -14,6 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Slime
   monsterType: 0
+  monsterRank: 0
+  blackMagicCost: 2
   monsterIcon: Spr_Port_Slime
   monsterPrefab: Slime
   attackDamage: 10

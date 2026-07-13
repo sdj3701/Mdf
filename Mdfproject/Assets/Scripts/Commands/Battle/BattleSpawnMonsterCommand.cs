@@ -13,8 +13,7 @@ public sealed class BattleSpawnMonsterCommand
     private Vector2Int _validatedSpawnNavigationCell;
     private Vector3 _validatedSpawnWorldPosition;
     private int _validatedCount;
-    private int _reservedPoolRevision = -1;
-    private int _reservedRemainingCount = -1;
+    private PlayerManager.BattleSpawnResourceReservation _resourceReservation;
     private bool _spawnRejectedLogged;
 
     public int AttackerPlayerId { get; }
@@ -24,6 +23,7 @@ public sealed class BattleSpawnMonsterCommand
     public int Count { get; }
     public string SourceReason { get; }
     public int ObservedAttackMonsterPoolRevision { get; }
+    public int ObservedBlackMagicRevision { get; }
     public CommandExecutionScope Scope { get; private set; }
 
     public BattleSpawnMonsterCommand(
@@ -33,7 +33,8 @@ public sealed class BattleSpawnMonsterCommand
         Vector3 spawnWorldPosition,
         int count = 1,
         string sourceReason = null,
-        int observedAttackMonsterPoolRevision = -1)
+        int observedAttackMonsterPoolRevision = -1,
+        int observedBlackMagicRevision = -1)
     {
         AttackerPlayerId = attackerPlayerId;
         DefenderPlayerId = defenderPlayerId;
@@ -42,6 +43,7 @@ public sealed class BattleSpawnMonsterCommand
         Count = count;
         SourceReason = sourceReason;
         ObservedAttackMonsterPoolRevision = observedAttackMonsterPoolRevision;
+        ObservedBlackMagicRevision = observedBlackMagicRevision;
     }
 
     public async UniTask<BattleCommandResult> ExecuteAsync(
@@ -77,8 +79,7 @@ public sealed class BattleSpawnMonsterCommand
         _validatedPoolEntry = null;
         _validatedSpawnNavigationCell = default;
         _validatedSpawnWorldPosition = default;
-        _reservedPoolRevision = -1;
-        _reservedRemainingCount = -1;
+        _resourceReservation = default;
 
         var gm = GameManagers.Instance;
         if (!BattleCommandValidator.ResolveActorPlayer(
@@ -138,6 +139,20 @@ public sealed class BattleSpawnMonsterCommand
                     DefenderPlayerId,
                     scope);
             }
+
+            if (ObservedBlackMagicRevision < 0)
+            {
+                return Reject("black_magic_revision_required", null, DefenderPlayerId, scope);
+            }
+
+            if (ObservedBlackMagicRevision != _validatedAttacker.BlackMagicRevision)
+            {
+                return Reject(
+                    "black_magic_revision_mismatch",
+                    $"observed={ObservedBlackMagicRevision},authority={_validatedAttacker.BlackMagicRevision}",
+                    DefenderPlayerId,
+                    scope);
+            }
         }
         else if (!BattleCommandValidator.IsServerAiOrTestAuthority(_validatedAttacker, scope))
         {
@@ -175,6 +190,15 @@ public sealed class BattleSpawnMonsterCommand
         if (availableCount < _validatedCount)
         {
             return Reject("pool_slot_insufficient_count", $"available={availableCount},requested={_validatedCount}", DefenderPlayerId, scope);
+        }
+
+        if (!_validatedAttacker.CanAffordAttackMonster(_validatedPoolEntry))
+        {
+            return Reject(
+                "black_magic_insufficient",
+                $"current={_validatedAttacker.BlackMagicCurrent},cost={Mathf.Max(0, _validatedPoolEntry.MonsterData.blackMagicCost)}",
+                DefenderPlayerId,
+                scope);
         }
 
         if (!BattleCommandValidator.TryValidateBattleSpawnPath(
@@ -233,13 +257,21 @@ public sealed class BattleSpawnMonsterCommand
             int originPlayerId = ResolveOriginPlayerId(_validatedPoolEntry);
             MonsterData monsterData = _validatedPoolEntry.MonsterData;
 
-            if (!_validatedAttacker.TryConsumeMonsterPoolSlot(PoolSlotIndex))
+            int expectedBlackMagicRevision = ObservedBlackMagicRevision >= 0
+                ? ObservedBlackMagicRevision
+                : _validatedAttacker.BlackMagicRevision;
+            int expectedPoolRevision = ObservedAttackMonsterPoolRevision >= 0
+                ? ObservedAttackMonsterPoolRevision
+                : _validatedAttacker.AttackMonsterPoolRevision;
+            if (!_validatedAttacker.TryReserveBattleSpawnResource(
+                    PoolSlotIndex,
+                    expectedPoolRevision,
+                    expectedBlackMagicRevision,
+                    out _resourceReservation,
+                    out string reservationReason))
             {
-                return Reject("pool_slot_reserve_failed_before_prewarm", null, DefenderPlayerId, Scope);
+                return Reject(reservationReason ?? "battle_spawn_resource_reserve_failed", null, DefenderPlayerId, Scope);
             }
-
-            _reservedPoolRevision = _validatedAttacker.AttackMonsterPoolRevision;
-            _reservedRemainingCount = _validatedPoolEntry.RemainingCount;
 
             bool spawnCommitted = false;
             try
@@ -306,6 +338,12 @@ public sealed class BattleSpawnMonsterCommand
                 return Reject("battle_spawn_runner_spawn_failed", null, DefenderPlayerId, Scope);
             }
 
+            if (!_validatedAttacker.CommitBattleSpawnReservation(_resourceReservation))
+            {
+                _validatedAttacker.monsterSpawner.CleanupCanceledBattleSpawn(monster);
+                return Reject("battle_spawn_reservation_changed_before_commit", null, DefenderPlayerId, Scope);
+            }
+
             spawnCommitted = true;
 
             if (isBoss)
@@ -324,7 +362,7 @@ public sealed class BattleSpawnMonsterCommand
             {
                 if (!spawnCommitted)
                 {
-                    _validatedAttacker.TryRefundMonsterPoolSlot(PoolSlotIndex);
+                    _validatedAttacker.TryRefundBattleSpawnReservation(_resourceReservation);
                 }
             }
         }
@@ -370,8 +408,7 @@ public sealed class BattleSpawnMonsterCommand
         if (!ReferenceEquals(currentEntry, _validatedPoolEntry) ||
             currentEntry == null ||
             currentEntry.MonsterData != _validatedPoolEntry.MonsterData ||
-            _validatedAttacker.AttackMonsterPoolRevision != _reservedPoolRevision ||
-            currentEntry.RemainingCount != _reservedRemainingCount)
+            !_validatedAttacker.IsBattleSpawnReservationCurrent(_resourceReservation))
         {
             reason = "battle_pool_reservation_changed_during_await";
             return false;

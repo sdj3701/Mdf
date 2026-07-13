@@ -785,6 +785,7 @@
 
 .attack-monster-row {
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-start;
     padding-left: 8px;
@@ -804,6 +805,42 @@
     border-top-right-radius: 8px;
     border-bottom-left-radius: 8px;
     border-bottom-right-radius: 8px;
+}
+
+.attack-black-magic-row {
+    flex-direction: row;
+    align-items: center;
+    min-width: 178px;
+    height: 34px;
+    margin-bottom: 4px;
+    padding-left: 12px;
+    padding-right: 12px;
+    background-color: rgba(24, 7, 35, 0.92);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(113, 58, 148);
+    border-right-color: rgb(113, 58, 148);
+    border-top-color: rgb(193, 111, 235);
+    border-bottom-color: rgb(70, 34, 94);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.attack-black-magic-title {
+    margin-right: 10px;
+    color: rgb(216, 174, 240);
+    font-size: 14px;
+    -unity-font-style: bold;
+}
+
+.attack-black-magic-value {
+    color: rgb(250, 226, 255);
+    font-size: 17px;
+    -unity-font-style: bold;
 }
 
 .attack-scroll-row {

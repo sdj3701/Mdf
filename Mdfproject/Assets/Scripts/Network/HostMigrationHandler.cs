@@ -97,6 +97,11 @@ public class HostMigrationHandler : MonoBehaviour
         public bool MigrationPayloadOverflow;
         public string MigrationPayloadOverflowReason;
         public int AttackPoolRevision;
+        public int BlackMagicCurrent;
+        public int BlackMagicMaximum;
+        public int BlackMagicMaxBonus;
+        public int BlackMagicRevision;
+        public int BlackMagicSequenceId;
         public MonsterData[] AttackPoolMonsterDataRefs;
         public string[] AttackPoolMonsterDataNames;
         public int[] AttackPoolRemainingCounts;
@@ -2077,6 +2082,11 @@ public class HostMigrationHandler : MonoBehaviour
                 MigrationPayloadOverflow = false,
                 MigrationPayloadOverflowReason = string.Empty,
                 AttackPoolRevision = 0,
+                BlackMagicCurrent = player.BlackMagicCurrent,
+                BlackMagicMaximum = player.BlackMagicMaximum,
+                BlackMagicMaxBonus = player.BlackMagicMaxBonus,
+                BlackMagicRevision = player.BlackMagicRevision,
+                BlackMagicSequenceId = player.BlackMagicSequenceId,
                 AttackPoolMonsterDataRefs = Array.Empty<MonsterData>(),
                 AttackPoolMonsterDataNames = Array.Empty<string>(),
                 AttackPoolRemainingCounts = Array.Empty<int>(),
@@ -2323,6 +2333,17 @@ public class HostMigrationHandler : MonoBehaviour
                 snapshot.ShopRevision,
                 snapshot.ShopRound,
                 context);
+            if (!player.RestoreBlackMagicAfterHostMigration(
+                    snapshot.BlackMagicCurrent,
+                    snapshot.BlackMagicMaximum,
+                    snapshot.BlackMagicMaxBonus,
+                    snapshot.BlackMagicRevision,
+                    snapshot.BlackMagicSequenceId,
+                    context))
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] black magic restore failed P{snapshot.PlayerId} ({context})");
+            }
             player.RestoreAttackMonsterPoolFromMigrationSnapshot(
                 snapshot.AttackPoolRevision,
                 snapshot.AttackPoolMonsterDataRefs,

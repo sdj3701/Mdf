@@ -14,6 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   monsterName: Bat
   monsterType: 1
+  monsterRank: 0
+  blackMagicCost: 2
   monsterIcon: Spr_Port_Bat
   monsterPrefab: Bat
   attackDamage: 18
