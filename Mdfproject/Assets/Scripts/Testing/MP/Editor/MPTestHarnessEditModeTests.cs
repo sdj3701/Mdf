@@ -150,6 +150,65 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void HostMigrationRankingClickRebindsByDurablePlayerId()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+
+        MethodInfo moveByPlayerId = typeof(CameraManager).GetMethod(
+            "MoveToPlayerField",
+            members,
+            null,
+            new[] { typeof(int), typeof(bool) },
+            null);
+        Assert.That(moveByPlayerId, Is.Not.Null, "Camera navigation must accept durable playerId.");
+        Assert.That(typeof(CameraManager).GetProperty("OwnPlayerId", members), Is.Not.Null);
+        Assert.That(typeof(CameraManager).GetProperty("CurrentViewingPlayerId", members), Is.Not.Null);
+        Assert.That(typeof(CameraManager).GetProperty("IsTransitioning", members), Is.Not.Null);
+
+        MethodInfo legacyClick = typeof(PlayerRankSlot).GetMethod("OnSlotClicked", members);
+        MethodInfo toolkitClick = typeof(RankingUIController).GetMethod("OnToolkitCardClicked", members);
+        MethodInfo playersReady = typeof(RankingUIController).GetMethod("OnPlayersDataReady", members);
+        Assert.That(legacyClick, Is.Not.Null);
+        Assert.That(toolkitClick, Is.Not.Null);
+        Assert.That(playersReady, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(legacyClick, typeof(GameManagers), "GetPlayer"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(legacyClick, typeof(CameraManager), "MoveToPlayerField"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(toolkitClick, typeof(GameManagers), "GetPlayer"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(toolkitClick, typeof(CameraManager), "MoveToPlayerField"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            playersReady,
+            typeof(RankingUIController),
+            "RebindLegacyPlayersFromActiveRegistry"), Is.True);
+        Assert.That(typeof(PlayerRankSlot).GetProperty("TrackedPlayerId", members), Is.Not.Null);
+
+        System.Type toolkitCard = typeof(RankingUIController).GetNestedType(
+            "RankingCardView",
+            BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.That(toolkitCard?.GetProperty("TrackedPlayerId", members), Is.Not.Null);
+        Assert.That(toolkitCard?.GetProperty("TrackedPlayer", members), Is.Null,
+            "Toolkit cards must not retain a replaceable PlayerManager object.");
+
+        MethodInfo presentationRebind = typeof(GameManagers).GetMethod(
+            "RebindLocalPresentationAfterPlayerRegistryChanged",
+            members);
+        MethodInfo migrationRestore = typeof(GameManagers).GetMethod("RestoreAfterHostMigration", members);
+        Assert.That(presentationRebind, Is.Not.Null);
+        Assert.That(migrationRestore, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            presentationRebind,
+            typeof(CameraManager),
+            "RebindAfterPlayerRegistryChanged"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(
+            presentationRebind,
+            typeof(GameManagers),
+            "OnPlayersDataReady"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            migrationRestore,
+            typeof(GameManagers),
+            "RebindLocalPresentationAfterPlayerRegistryChanged"), Is.True);
+    }
+
+    [Test]
     public void RankingUiHealthFillIsClampedToPlayerMax()
     {
         Assert.That(RankingUIController.GetHealthFillPercentForDisplay(-5, 80), Is.EqualTo(0f));
@@ -1387,6 +1446,19 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MPTestAutomationServer), typeof(MoveUnitCommand), ".ctor"), Is.True);
         Assert.That(snapshotSource, Does.Contain("if (MPTestCommandLine.IsEnabled)"));
         Assert.That(snapshotSource, Does.Contain("return true;"));
+    }
+
+    [Test]
+    public void RuntimeHarnessProbesPostMigrationPortraitNavigationByDurablePlayerId()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo probe = typeof(MPTestAutomationServer).GetMethod("ExecuteViewPlayerFieldCommand", members);
+
+        Assert.That(probe, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(MPTestAutomationServer), "view_player_field"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(probe, typeof(GameManagers), "GetPlayer"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(probe, typeof(CameraManager), "MoveToPlayerField"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(probe, typeof(CameraManager), "get_CurrentViewingPlayerId"), Is.True);
     }
 
     [Test]

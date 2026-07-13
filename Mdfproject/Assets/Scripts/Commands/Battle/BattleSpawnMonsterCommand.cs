@@ -10,6 +10,8 @@ public sealed class BattleSpawnMonsterCommand
     private PlayerManager _validatedDefender;
     private FieldManager _validatedDefenderField;
     private MonsterPoolEntry _validatedPoolEntry;
+    private Vector2Int _validatedSpawnNavigationCell;
+    private Vector3 _validatedSpawnWorldPosition;
     private int _validatedCount;
     private int _reservedPoolRevision = -1;
     private int _reservedRemainingCount = -1;
@@ -73,6 +75,8 @@ public sealed class BattleSpawnMonsterCommand
         _validatedDefender = null;
         _validatedDefenderField = null;
         _validatedPoolEntry = null;
+        _validatedSpawnNavigationCell = default;
+        _validatedSpawnWorldPosition = default;
         _reservedPoolRevision = -1;
         _reservedRemainingCount = -1;
 
@@ -146,14 +150,14 @@ public sealed class BattleSpawnMonsterCommand
             return Reject("defender_field_missing", null, DefenderPlayerId, scope);
         }
 
-        if (!BattleCommandValidator.IsFiniteTargetPosition(SpawnWorldPosition))
+        if (!BattleCommandValidator.TryResolveExactBattleSpawnPosition(
+                _validatedDefenderField,
+                SpawnWorldPosition,
+                out _validatedSpawnNavigationCell,
+                out _validatedSpawnWorldPosition,
+                out string spawnPositionReason))
         {
-            return Reject("spawn_position_not_finite", null, DefenderPlayerId, scope);
-        }
-
-        if (!BattleCommandValidator.IsInsideBattleSpawnZone(_validatedDefenderField, SpawnWorldPosition))
-        {
-            return Reject("spawn_position_outside_battle_spawn_zone", null, DefenderPlayerId, scope);
+            return Reject(spawnPositionReason, null, DefenderPlayerId, scope);
         }
 
         if (!TryResolvePoolSlot(_validatedAttacker, out _validatedPoolEntry, out string poolReason))
@@ -171,6 +175,15 @@ public sealed class BattleSpawnMonsterCommand
         if (availableCount < _validatedCount)
         {
             return Reject("pool_slot_insufficient_count", $"available={availableCount},requested={_validatedCount}", DefenderPlayerId, scope);
+        }
+
+        if (!BattleCommandValidator.TryValidateBattleSpawnPath(
+                _validatedDefenderField,
+                _validatedSpawnWorldPosition,
+                _validatedPoolEntry.MonsterData,
+                out string spawnPathReason))
+        {
+            return Reject(spawnPathReason, null, DefenderPlayerId, scope);
         }
 
         int sequence = BattleCommandTelemetry.RecordAccepted(Type);
@@ -248,9 +261,9 @@ public sealed class BattleSpawnMonsterCommand
                 return Reject(revalidationReason, null, DefenderPlayerId, Scope);
             }
 
-            var monster = await _validatedAttacker.monsterSpawner.SpawnMonsterAtPositionAsync(
+            var monster = await _validatedAttacker.monsterSpawner.SpawnMonsterAtExactPositionAsync(
                 monsterData,
-                SpawnWorldPosition,
+                _validatedSpawnWorldPosition,
                 _validatedDefenderField,
                 isBoss,
                 bossUniqueId,
@@ -265,6 +278,31 @@ public sealed class BattleSpawnMonsterCommand
 
             if (monster == null)
             {
+                if (!BattleCommandValidator.TryResolveExactBattleSpawnPosition(
+                        _validatedDefenderField,
+                        SpawnWorldPosition,
+                        out Vector2Int failedSpawnCell,
+                        out Vector3 failedSpawnPosition,
+                        out string exactSpawnFailureReason))
+                {
+                    return Reject(exactSpawnFailureReason, null, DefenderPlayerId, Scope);
+                }
+
+                if (failedSpawnCell != _validatedSpawnNavigationCell ||
+                    (failedSpawnPosition - _validatedSpawnWorldPosition).sqrMagnitude > 0.0001f)
+                {
+                    return Reject("spawn_cell_changed_during_spawn", null, DefenderPlayerId, Scope);
+                }
+
+                if (!BattleCommandValidator.TryValidateBattleSpawnPath(
+                        _validatedDefenderField,
+                        _validatedSpawnWorldPosition,
+                        monsterData,
+                        out exactSpawnFailureReason))
+                {
+                    return Reject(exactSpawnFailureReason, null, DefenderPlayerId, Scope);
+                }
+
                 return Reject("battle_spawn_runner_spawn_failed", null, DefenderPlayerId, Scope);
             }
 
@@ -336,6 +374,32 @@ public sealed class BattleSpawnMonsterCommand
             currentEntry.RemainingCount != _reservedRemainingCount)
         {
             reason = "battle_pool_reservation_changed_during_await";
+            return false;
+        }
+
+        if (!BattleCommandValidator.TryResolveExactBattleSpawnPosition(
+                _validatedDefenderField,
+                SpawnWorldPosition,
+                out Vector2Int currentSpawnCell,
+                out Vector3 currentSpawnWorldPosition,
+                out reason))
+        {
+            return false;
+        }
+
+        if (currentSpawnCell != _validatedSpawnNavigationCell ||
+            (currentSpawnWorldPosition - _validatedSpawnWorldPosition).sqrMagnitude > 0.0001f)
+        {
+            reason = "spawn_cell_changed_during_await";
+            return false;
+        }
+
+        if (!BattleCommandValidator.TryValidateBattleSpawnPath(
+                _validatedDefenderField,
+                _validatedSpawnWorldPosition,
+                _validatedPoolEntry.MonsterData,
+                out reason))
+        {
             return false;
         }
 

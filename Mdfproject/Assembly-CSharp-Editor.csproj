@@ -91,6 +91,19 @@
     <Compile Include="Assets\Scripts\Testing\MP\Editor\StatusEffectSchedulerEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\AddressableKeyDrawer.cs" />
     <Compile Include="Assets\Resource\VFX\Hovl Studio\HSFiles\Scripts\Editor\ShaderChanger.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MdfAsyncAuthorityRegressionEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\HostMigrationDurableStateEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\PurchaseAndCombinationTransactionEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\NetworkManagerReconnectAiTakeoverEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\FieldCombatTargetRegistryEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\ProjectPerformanceSettingsEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\RuntimePerformanceGuardsEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\AddressablesLoadingPolicyEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\ManagerResponsibilityExtractionEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MdfSourcePolicy.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MdfCompiledCodePolicy.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\RuntimeLifecycleRegressionEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestGracefulQuitEditModeTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Firebase\Editor\FirebaseCrashlytics_version-13.2.0_manifest.txt" />
@@ -1383,6 +1396,10 @@
     <ProjectReference Include="ToonyColorsPro.Editor.csproj" />
     <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
     <ProjectReference Include="KinoBloom.Runtime.csproj" />
+    <ProjectReference Include="MDF.Runtime.Assets.csproj" />
+    <ProjectReference Include="MDF.Runtime.Foundation.csproj" />
+    <ProjectReference Include="MDF.Runtime.Grid.csproj" />
+    <ProjectReference Include="MDF.Runtime.Pooling.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <ItemGroup>

@@ -188,13 +188,21 @@ public class RankingUIController : MonoBehaviour
         }
         else
         {
+            RebindLegacyPlayersFromActiveRegistry();
             SortAndDisplayPlayers();
         }
     }
 
     private void OnGameManagersReady()
     {
-        RefreshToolkitDisplay(true);
+        if (useToolkitRanking)
+        {
+            RefreshToolkitDisplay(true);
+        }
+        else
+        {
+            OnPlayersDataReady();
+        }
     }
 
     private void OnGameStateChanged(GameManagers.GameState state)
@@ -397,9 +405,18 @@ public class RankingUIController : MonoBehaviour
 
         lastToolkitCardClickFrame = Time.frameCount;
 
-        if (card == null || !IsPlayerReadable(card.TrackedPlayer))
+        if (card == null || card.TrackedPlayerId < 0)
         {
             Debug.Log("[RankingUIController] No tracked player for clicked ranking card.");
+            return;
+        }
+
+        // PlayerManager objects are replaced during Host Migration. The card keeps the durable
+        // playerId and resolves the active runner's object for every click.
+        var targetPlayer = GameManagers.Instance?.GetPlayer(card.TrackedPlayerId);
+        if (!IsPlayerReadable(targetPlayer))
+        {
+            Debug.Log($"[RankingUIController] Player {card.TrackedPlayerId} is not available in the active registry.");
             return;
         }
 
@@ -409,14 +426,14 @@ public class RankingUIController : MonoBehaviour
             return;
         }
 
-        if (card.TrackedPlayer == CameraManager.Instance.OwnField)
+        if (card.TrackedPlayerId == CameraManager.Instance.OwnPlayerId)
         {
             CameraManager.Instance.ReturnToOwnField();
             return;
         }
 
-        bool isAttackMode = ShouldUseAttackModeCamera(card.TrackedPlayer);
-        CameraManager.Instance.MoveToPlayerField(card.TrackedPlayer, isAttackMode).Forget();
+        bool isAttackMode = ShouldUseAttackModeCamera(targetPlayer);
+        CameraManager.Instance.MoveToPlayerField(card.TrackedPlayerId, isAttackMode).Forget();
     }
 
     private void HandleToolkitPointerInput()
@@ -684,7 +701,7 @@ public class RankingUIController : MonoBehaviour
         int displayMaxHp = Mathf.Max(1, maxHp);
         return new RankingCardData(
             true,
-            player,
+            playerId,
             name,
             displayHp.ToString(),
             GetHealthFillPercentForDisplay(displayHp, displayMaxHp),
@@ -773,9 +790,13 @@ public class RankingUIController : MonoBehaviour
 
     private static bool IsPlayerReadable(PlayerManager player)
     {
-        return player != null
-            && player.Object != null
-            && player.Object.IsValid;
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        return gm == null || gm.Runner == null || player.Runner == gm.Runner;
     }
 
     private static bool TryGetHealthSafe(PlayerManager player, out int health)
@@ -862,6 +883,25 @@ public class RankingUIController : MonoBehaviour
         {
             lastPlayerHealths.Add(TryGetHealthSafe(allPlayers[i], out int health) ? health : 0);
         }
+    }
+
+    private void RebindLegacyPlayersFromActiveRegistry()
+    {
+        var gm = GameManagers.Instance;
+        if (gm == null)
+        {
+            return;
+        }
+
+        var reboundPlayers = GetValidPlayers(gm);
+        if (reboundPlayers.Count == 0)
+        {
+            return;
+        }
+
+        allPlayers.Clear();
+        allPlayers.AddRange(reboundPlayers.Take(allSlots.Count));
+        UpdateLastPlayerHealths();
     }
 
     private async void InitializePlayersAndSlots()
@@ -1003,7 +1043,7 @@ public class RankingUIController : MonoBehaviour
     private readonly struct RankingCardData
     {
         public readonly bool Visible;
-        public readonly PlayerManager Player;
+        public readonly int PlayerId;
         public readonly string Name;
         public readonly string Health;
         public readonly float HealthFillPercent;
@@ -1011,14 +1051,14 @@ public class RankingUIController : MonoBehaviour
 
         public RankingCardData(
             bool visible,
-            PlayerManager player,
+            int playerId,
             string name,
             string health,
             float healthFillPercent,
             bool useAttackBattleRoleIcon)
         {
             Visible = visible;
-            Player = player;
+            PlayerId = playerId;
             Name = name;
             Health = health;
             HealthFillPercent = healthFillPercent;
@@ -1027,7 +1067,7 @@ public class RankingUIController : MonoBehaviour
 
         public static RankingCardData Hidden()
         {
-            return new RankingCardData(false, null, string.Empty, string.Empty, 0f, false);
+            return new RankingCardData(false, -1, string.Empty, string.Empty, 0f, false);
         }
     }
 
@@ -1051,7 +1091,7 @@ public class RankingUIController : MonoBehaviour
 
         public VisualElement Root { get; }
         public bool IsValid => Root != null && name != null && health != null && battleRoleIcon != null;
-        public PlayerManager TrackedPlayer { get; private set; }
+        public int TrackedPlayerId { get; private set; } = -1;
 
         public void RegisterClickHandler(Action<RankingCardView> handler)
         {
@@ -1071,7 +1111,7 @@ public class RankingUIController : MonoBehaviour
 
         public void Bind(RankingCardData data)
         {
-            TrackedPlayer = data.Player;
+            TrackedPlayerId = data.PlayerId;
             Root.style.display = data.Visible ? DisplayStyle.Flex : DisplayStyle.None;
             if (!data.Visible)
             {

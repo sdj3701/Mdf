@@ -168,6 +168,102 @@ public static class BattleCommandValidator
                !IsWithinInnerGridBounds(defenderField, position);
     }
 
+    public static bool TryResolveExactBattleSpawnPosition(
+        FieldManager defenderField,
+        Vector3 requestedPosition,
+        out Vector2Int navigationCell,
+        out Vector3 exactWorldPosition,
+        out string errorCode)
+    {
+        navigationCell = default;
+        exactWorldPosition = default;
+        errorCode = null;
+
+        if (defenderField == null)
+        {
+            errorCode = "defender_field_missing";
+            return false;
+        }
+
+        if (!IsFiniteTargetPosition(requestedPosition))
+        {
+            errorCode = "spawn_position_not_finite";
+            return false;
+        }
+
+        float cellSize = Mathf.Max(Mathf.Epsilon, defenderField.cellSize);
+        Vector3 totalOrigin = defenderField.TotalGridOrigin;
+        navigationCell = new Vector2Int(
+            Mathf.FloorToInt((requestedPosition.x - totalOrigin.x) / cellSize),
+            Mathf.FloorToInt((requestedPosition.z - totalOrigin.z) / cellSize));
+        if (!defenderField.IsValidNavigationCell(navigationCell))
+        {
+            errorCode = "spawn_cell_outside_navigation_grid";
+            return false;
+        }
+
+        if (defenderField.TryNavigationCellToInnerCell(navigationCell, out Vector3Int innerCell))
+        {
+            if (defenderField.HasWallAt(innerCell))
+            {
+                errorCode = "spawn_cell_blocked_by_wall";
+                return false;
+            }
+
+            if (defenderField.IsUnitAt(innerCell))
+            {
+                errorCode = "spawn_cell_occupied";
+                return false;
+            }
+        }
+
+        if (IsLivingMonsterInNavigationCell(defenderField, navigationCell))
+        {
+            errorCode = "spawn_cell_occupied";
+            return false;
+        }
+
+        if (!IsInsideBattleSpawnZone(defenderField, requestedPosition))
+        {
+            errorCode = "spawn_position_outside_battle_spawn_zone";
+            return false;
+        }
+
+        exactWorldPosition = defenderField.NavigationCellToWorld(navigationCell);
+        exactWorldPosition.y = requestedPosition.y;
+        return true;
+    }
+
+    public static bool TryValidateBattleSpawnPath(
+        FieldManager defenderField,
+        Vector3 exactWorldPosition,
+        MonsterData monsterData,
+        out string errorCode)
+    {
+        errorCode = null;
+        AstarGrid grid = defenderField?.playerManager?.astarGrid;
+        Transform goal = defenderField?.playerManager?.goalTransform;
+        if (grid == null || goal == null)
+        {
+            errorCode = "spawn_path_context_missing";
+            return false;
+        }
+
+        Vector2Int start = defenderField.WorldToNavigationCell(exactWorldPosition);
+        Vector2Int end = defenderField.WorldToNavigationCell(goal.position);
+        bool ignoreBreakableWalls = monsterData != null &&
+                                    (monsterData.traits & MonsterTraits.Destroyer) != 0;
+        if (!grid.FindPath(start, end, ignoreWalls: false, ignoreBreakableWalls: ignoreBreakableWalls) ||
+            grid.FinalPath == null ||
+            grid.FinalPath.Count == 0)
+        {
+            errorCode = "spawn_cell_path_unavailable";
+            return false;
+        }
+
+        return true;
+    }
+
     public static bool IsInsideScrollTargetDomain(MagicScrollData scroll, FieldManager defenderField, Vector3 position)
     {
         return scroll != null &&
@@ -242,5 +338,36 @@ public static class BattleCommandValidator
         {
             return -1;
         }
+    }
+
+    private static bool IsLivingMonsterInNavigationCell(FieldManager defenderField, Vector2Int navigationCell)
+    {
+        Transform monsterParent = defenderField?.playerManager?.monsterSpawner?.monsterParent;
+        if (monsterParent == null)
+        {
+            return false;
+        }
+
+        foreach (Transform child in monsterParent)
+        {
+            if (child == null || !child.gameObject.activeInHierarchy ||
+                !child.TryGetComponent(out Monster monster) ||
+                monster.CurrentHealth <= 0f)
+            {
+                continue;
+            }
+
+            if (monster.Object != null && !monster.Object.IsValid)
+            {
+                continue;
+            }
+
+            if (defenderField.WorldToNavigationCell(child.position) == navigationCell)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

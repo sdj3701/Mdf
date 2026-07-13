@@ -7,6 +7,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 using Fusion;
 using GameCore.Enums;
 using Newtonsoft.Json;
@@ -20,7 +21,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
     private CancellationTokenSource _cancellation;
     private MPTestCommandLine.Options _options;
     private string _automationToken;
-    private bool _stopping;
+    private int _stopping;
     private bool _acceptingCommands = true;
     private bool _quitRequested;
 
@@ -63,6 +64,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
         _options = options;
         _automationToken = options.AutomationToken;
+        _stopping = 0;
         _acceptingCommands = true;
         _quitRequested = false;
         _cancellation = new CancellationTokenSource();
@@ -82,17 +84,17 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
     public void StopServer()
     {
-        if (_stopping)
+        if (Interlocked.Exchange(ref _stopping, 1) != 0)
         {
             return;
         }
 
-        _stopping = true;
+        CancellationTokenSource cancellation = Interlocked.Exchange(ref _cancellation, null);
+        HttpListener listener = Interlocked.Exchange(ref _listener, null);
         try
         {
-            _cancellation?.Cancel();
-            _listener?.Stop();
-            _listener?.Close();
+            cancellation?.Cancel();
+            listener?.Abort();
         }
         catch (Exception ex)
         {
@@ -100,9 +102,23 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         }
         finally
         {
-            _listener = null;
-            _cancellation = null;
+            try
+            {
+                listener?.Close();
+            }
+            catch (Exception ex)
+            {
+                MPTestLogger.Fail("automation_server", "close_error", ex.GetType().Name);
+            }
+
+            cancellation?.Dispose();
         }
+    }
+
+    public void BeginShutdown()
+    {
+        _quitRequested = true;
+        _acceptingCommands = false;
     }
 
     private void OnDestroy()
@@ -112,12 +128,18 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
     private async Task ListenLoop(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested && _listener != null && _listener.IsListening)
+        while (!cancellationToken.IsCancellationRequested)
         {
+            HttpListener listener = _listener;
+            if (listener == null || !listener.IsListening)
+            {
+                return;
+            }
+
             HttpListenerContext context = null;
             try
             {
-                context = await _listener.GetContextAsync();
+                context = await listener.GetContextAsync();
                 _ = Task.Run(() => HandleContext(context), cancellationToken);
             }
             catch (ObjectDisposedException)
@@ -208,8 +230,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         {
             return await RequireMethod(request, "POST", () => MainThread(() =>
             {
-                _quitRequested = true;
-                _acceptingCommands = false;
+                BeginShutdown();
                 bool scheduled = MPTestGracefulQuit.RequestQuit(
                     _options,
                     "automation_quit",
@@ -444,10 +465,100 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecuteRemoveWallCommand(body, commandName);
         }
 
-        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, and remove_wall are currently supported by the runtime command harness.", new
+        if (string.Equals(commandName, "view_player_field", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "ViewPlayerField", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteViewPlayerFieldCommand(body, commandName);
+        }
+
+        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, remove_wall, and view_player_field are currently supported by the runtime command harness.", new
         {
             command = commandName
         });
+    }
+
+    private AutomationResponse ExecuteViewPlayerFieldCommand(JObject body, string commandName)
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("view_player_field_requires_mptest", "Field viewing probe requires --mpTest.");
+        }
+
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        if (playerId < 0)
+        {
+            return AutomationResponse.Fail("invalid_player_id", "playerId must be >= 0.", new { command = commandName, playerId });
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.", new { command = commandName, playerId });
+        }
+
+        var cameraManager = CameraManager.Instance;
+        if (cameraManager == null)
+        {
+            return AutomationResponse.Fail("camera_manager_unavailable", "CameraManager is not available.", new { command = commandName, playerId });
+        }
+
+        PlayerManager registryTarget = gameManagers.GetPlayer(playerId);
+        bool targetOnCurrentRunner = registryTarget != null &&
+                                     registryTarget.Object != null &&
+                                     registryTarget.Object.IsValid &&
+                                     registryTarget.Runner == gameManagers.Runner;
+        if (!targetOnCurrentRunner)
+        {
+            return AutomationResponse.Fail("view_target_not_on_current_runner", "Target player was not resolved from the current runner registry.", new
+            {
+                command = commandName,
+                playerId,
+                targetOnCurrentRunner
+            });
+        }
+
+        bool requestNavigation = GetBool(body, "requestNavigation", GetBool(body, "request_navigation", true));
+        if (requestNavigation)
+        {
+            cameraManager.MoveToPlayerField(playerId, isAttackMode: false).Forget();
+        }
+
+        PlayerManager currentViewingField = cameraManager.CurrentViewingField;
+        bool currentViewingMatchesRegistry = currentViewingField == registryTarget;
+        bool switched = cameraManager.CurrentViewingPlayerId == playerId && currentViewingMatchesRegistry;
+        var result = new
+        {
+            command = "view_player_field",
+            requestedPlayerId = playerId,
+            requestNavigation,
+            ownPlayerId = cameraManager.OwnPlayerId,
+            viewingPlayerId = cameraManager.CurrentViewingPlayerId,
+            currentViewingMatchesRegistry,
+            targetOnCurrentRunner,
+            transitioning = cameraManager.IsTransitioning,
+            switched
+        };
+
+        bool commandSucceeded = !requestNavigation || switched;
+        MPTestLogger.Log("automation_command", commandSucceeded ? "complete" : "fail", "view_player_field", commandSucceeded ? null : "view target did not switch", new Dictionary<string, object>
+        {
+            { "requestedPlayerId", playerId },
+            { "viewingPlayerId", cameraManager.CurrentViewingPlayerId },
+            { "ownPlayerId", cameraManager.OwnPlayerId },
+            { "requestNavigation", requestNavigation },
+            { "currentViewingMatchesRegistry", currentViewingMatchesRegistry },
+            { "targetOnCurrentRunner", targetOnCurrentRunner },
+            { "transitioning", cameraManager.IsTransitioning }
+        });
+
+        if (!requestNavigation)
+        {
+            return AutomationResponse.Ok("field view inspected", result);
+        }
+
+        return switched
+            ? AutomationResponse.Ok("field view resolved from durable playerId", result)
+            : AutomationResponse.Fail("view_player_field_not_switched", "CameraManager did not switch to the current registry target.", result);
     }
 
     private AutomationResponse StartBot(JObject body)

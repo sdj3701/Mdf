@@ -57,10 +57,17 @@ public sealed class MPTestBootstrap : MonoBehaviour
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestMainThreadDispatcher.Ensure();
+        MPTestAutomationServer automationServer = null;
         if (MPTestAutomationServer.CanStart(_options, out _))
         {
-            gameObject.AddComponent<MPTestAutomationServer>().StartServer(_options);
+            automationServer = gameObject.AddComponent<MPTestAutomationServer>();
+            automationServer.StartServer(_options);
         }
+
+        MPTestGracefulQuit.Configure(
+            _options,
+            automationServer != null ? automationServer.BeginShutdown : (Action)null,
+            automationServer != null ? automationServer.StopServer : (Action)null);
 
         if (_options.HumanBot)
         {

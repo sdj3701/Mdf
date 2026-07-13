@@ -162,8 +162,8 @@ public partial class GameManagers
         
         // 2. 로컬 플레이어 참조 재연결
         Debug.Log("[복원] 2. 로컬 플레이어 재연결...");
-        RelinkLocalPlayer();
         RebuildNetworkPlayersAfterMigration("RestoreAfterHostMigration");
+        RebindLocalPresentationAfterPlayerRegistryChanged("RestoreAfterHostMigration");
         Debug.Log($"[복원] localPlayer: {(localPlayer != null ? $"Player {localPlayer.playerId}" : "null")}");
         
         // 3. CommandProcessor 초기화 (필요 시)

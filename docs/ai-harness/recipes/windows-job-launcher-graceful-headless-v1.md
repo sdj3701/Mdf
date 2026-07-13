@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-08
-Last used: 2026-07-12
-Last verified: 2026-07-12
-Use count: 22
+Last used: 2026-07-13
+Last verified: 2026-07-13
+Use count: 25
 Review after: 2026-08-06
 Triggers: Windows cleanup blocker, `/quit` timeout, D3D/GPU pressure, headless smoke/prepare E2E
 Applies to: `tools/harness/mp/launch_player.py`, `build_player.py`, `run_matrix.py`, `MPTestGracefulQuit.cs`
-Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/cleanup-report.json; artifacts/mp/20260601-033513-two-hbot-two-ai-monster-spawn/cleanup-report.json; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke, artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke; artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke; artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke; artifacts/mp/20260514-072736-two-humanbot-two-ai-smoke; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json; artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke; artifacts/mp/20260601-032131-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/builds/20260712-085324-win64/launch-smoke-artifacts/cleanup-report.json
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/cleanup-report.json; artifacts/mp/20260601-033513-two-hbot-two-ai-monster-spawn/cleanup-report.json; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke, artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke; artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke; artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke; artifacts/mp/20260514-072736-two-humanbot-two-ai-smoke; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json; artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke; artifacts/mp/20260601-032131-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/builds/20260712-085324-win64/launch-smoke-artifacts/cleanup-report.json; artifacts/mp/20260713-021757-window-close-graceful/result.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -72,3 +72,4 @@ Lifecycle notes:
 - 2026-06-01: verified artifact `artifacts/mp/20260601-021130-two-humanbot-two-ai-smoke/cleanup-report.json`
 - 2026-06-01: verified artifact `artifacts/mp/20260601-032131-two-humanbot-two-ai-smoke/cleanup-report.json`
 - 2026-07-12: verified artifact `artifacts/builds/20260712-085324-win64/launch-smoke-artifacts/cleanup-report.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-021757-window-close-graceful/result.json`

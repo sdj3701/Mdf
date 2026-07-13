@@ -489,6 +489,18 @@ public partial class GameManagers
         }
     }
 
+    /// <summary>
+    /// Rebinds presentation-only references after Fusion has rebuilt the player objects.
+    /// Durable gameplay identity remains playerId; no networked state is written here.
+    /// </summary>
+    private void RebindLocalPresentationAfterPlayerRegistryChanged(string context)
+    {
+        RelinkLocalPlayer();
+        CameraManager.Instance?.RebindAfterPlayerRegistryChanged();
+        OnPlayersDataReady?.Invoke();
+        Debug.Log($"[MigrationRestore] Local player presentation registry rebound ({context}).");
+    }
+
     private void RebuildNetworkPlayersAfterMigration(string context)
     {
         if (Runner == null || Object == null || !Object.HasStateAuthority)

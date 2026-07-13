@@ -11,7 +11,12 @@ public sealed class MPTestGracefulQuit : MonoBehaviour
     private const float RunnerShutdownTimeoutSeconds = 8f;
 
     private static MPTestGracefulQuit _instance;
+    private MPTestCommandLine.Options _options;
+    private Action _beginAutomationShutdown;
+    private Action _stopAutomationServer;
     private bool _quitStarted;
+    private bool _allowImmediateQuit;
+    private bool _quitHookRegistered;
 
     public static MPTestGracefulQuit Ensure()
     {
@@ -41,6 +46,37 @@ public sealed class MPTestGracefulQuit : MonoBehaviour
         return Ensure().BeginQuit(options, reason, exitCode, stopAutomationServer, delaySeconds);
     }
 
+    public static void Configure(
+        MPTestCommandLine.Options options,
+        Action beginAutomationShutdown = null,
+        Action stopAutomationServer = null)
+    {
+        if (!options.Enabled)
+        {
+            return;
+        }
+
+        MPTestGracefulQuit instance = Ensure();
+        instance._options = options;
+        if (beginAutomationShutdown != null)
+        {
+            instance._beginAutomationShutdown = beginAutomationShutdown;
+        }
+
+        if (stopAutomationServer != null)
+        {
+            instance._stopAutomationServer = stopAutomationServer;
+        }
+    }
+
+    public static bool ShouldInterceptWindowClose(
+        bool mpTestEnabled,
+        bool isEditor,
+        bool allowImmediateQuit)
+    {
+        return mpTestEnabled && !isEditor && !allowImmediateQuit;
+    }
+
     private void Awake()
     {
         if (_instance != null && _instance != this)
@@ -51,6 +87,59 @@ public sealed class MPTestGracefulQuit : MonoBehaviour
 
         _instance = this;
         DontDestroyOnLoad(gameObject);
+        RegisterQuitHook();
+    }
+
+    private void OnDestroy()
+    {
+        if (_instance != this)
+        {
+            return;
+        }
+
+        UnregisterQuitHook();
+        _instance = null;
+    }
+
+    private void RegisterQuitHook()
+    {
+        if (_quitHookRegistered)
+        {
+            return;
+        }
+
+        Application.wantsToQuit += HandleWantsToQuit;
+        _quitHookRegistered = true;
+    }
+
+    private void UnregisterQuitHook()
+    {
+        if (!_quitHookRegistered)
+        {
+            return;
+        }
+
+        Application.wantsToQuit -= HandleWantsToQuit;
+        _quitHookRegistered = false;
+    }
+
+    private bool HandleWantsToQuit()
+    {
+        MPTestCommandLine.Options options = _options.Enabled
+            ? _options
+            : MPTestCommandLine.GetOptions();
+        if (!ShouldInterceptWindowClose(options.Enabled, Application.isEditor, _allowImmediateQuit))
+        {
+            return true;
+        }
+
+        if (!_quitStarted)
+        {
+            MPTestLogger.Log("window_close_intercepted", "begin", "os_window_close");
+            BeginQuit(options, "os_window_close", 0, _stopAutomationServer, 0f);
+        }
+
+        return false;
     }
 
     private bool BeginQuit(
@@ -70,6 +159,21 @@ public sealed class MPTestGracefulQuit : MonoBehaviour
         }
 
         _quitStarted = true;
+        _options = options;
+        if (stopAutomationServer != null)
+        {
+            _stopAutomationServer = stopAutomationServer;
+        }
+
+        try
+        {
+            _beginAutomationShutdown?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            MPTestLogger.Log("automation_server_stop_accepting", "fail", ex.GetType().Name, ex.Message);
+        }
+
         MPTestLogger.Log("quit_requested", "begin", reason, null, new Dictionary<string, object>
         {
             { "exitCode", exitCode },
@@ -94,21 +198,45 @@ public sealed class MPTestGracefulQuit : MonoBehaviour
         StopHumanBot(reason);
         FreezeGameFlow(reason);
 
-        var runner = FindActiveRunner();
-        if (runner != null && runner.IsRunning)
+        List<NetworkRunner> runners = FindActiveRunners();
+        if (runners.Count > 0)
         {
-            yield return ShutdownRunner(runner, reason);
+            float deadline = Time.realtimeSinceStartup + RunnerShutdownTimeoutSeconds;
+            for (int i = 0; i < runners.Count; i++)
+            {
+                NetworkRunner runner = runners[i];
+                if (runner == null || !runner.IsRunning)
+                {
+                    continue;
+                }
+
+                if (Time.realtimeSinceStartup >= deadline)
+                {
+                    MPTestLogger.Log("runner_shutdown_timeout", "fail", "total_timeout", reason, RunnerFields(runner));
+                    break;
+                }
+
+                yield return ShutdownRunner(runner, reason, deadline);
+            }
         }
         else
         {
             MPTestLogger.Log("runner_shutdown_complete", "info", "no_active_runner", reason);
         }
 
-        if (stopAutomationServer != null)
+        Action stopServer = stopAutomationServer ?? _stopAutomationServer;
+        if (stopServer != null)
         {
             MPTestLogger.Log("automation_server_stop", "begin", reason);
-            stopAutomationServer();
-            MPTestLogger.Log("automation_server_stop", "complete", reason);
+            try
+            {
+                stopServer();
+                MPTestLogger.Log("automation_server_stop", "complete", reason);
+            }
+            catch (Exception ex)
+            {
+                MPTestLogger.Log("automation_server_stop", "fail", ex.GetType().Name, ex.Message);
+            }
         }
         else
         {
@@ -119,6 +247,7 @@ public sealed class MPTestGracefulQuit : MonoBehaviour
         {
             { "exitCode", exitCode }
         });
+        _allowImmediateQuit = true;
         Application.Quit(exitCode);
     }
 
@@ -141,7 +270,7 @@ public sealed class MPTestGracefulQuit : MonoBehaviour
         });
     }
 
-    private static IEnumerator ShutdownRunner(NetworkRunner runner, string reason)
+    private static IEnumerator ShutdownRunner(NetworkRunner runner, string reason, float deadline)
     {
         MPTestLogger.Log("runner_shutdown_begin", "begin", reason, null, RunnerFields(runner));
         Task shutdownTask = null;
@@ -155,7 +284,6 @@ public sealed class MPTestGracefulQuit : MonoBehaviour
             yield break;
         }
 
-        float deadline = Time.realtimeSinceStartup + RunnerShutdownTimeoutSeconds;
         while (shutdownTask != null && !shutdownTask.IsCompleted && Time.realtimeSinceStartup < deadline)
         {
             yield return null;
@@ -176,27 +304,34 @@ public sealed class MPTestGracefulQuit : MonoBehaviour
             yield break;
         }
 
+        if (shutdownTask != null && shutdownTask.IsCanceled)
+        {
+            MPTestLogger.Log("runner_shutdown_complete", "fail", "task_canceled", reason, RunnerFields(runner));
+            yield break;
+        }
+
         MPTestLogger.Log("runner_shutdown_complete", "pass", reason, null, RunnerFields(runner));
     }
 
-    private static NetworkRunner FindActiveRunner()
+    private static List<NetworkRunner> FindActiveRunners()
     {
+        var active = new List<NetworkRunner>();
         var networkManager = NetworkManager.Instance;
         if (networkManager != null && networkManager._runner != null && networkManager._runner.IsRunning)
         {
-            return networkManager._runner;
+            active.Add(networkManager._runner);
         }
 
         var runners = FindObjectsOfType<NetworkRunner>(true);
         foreach (var runner in runners)
         {
-            if (runner != null && runner.IsRunning)
+            if (runner != null && runner.IsRunning && !active.Contains(runner))
             {
-                return runner;
+                active.Add(runner);
             }
         }
 
-        return null;
+        return active;
     }
 
     private static Dictionary<string, object> RunnerFields(NetworkRunner runner)

@@ -1068,6 +1068,101 @@ def poll_host_migration_after_battle(
     return snapshot, result, False
 
 
+def probe_post_migration_portrait_navigation(
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    target_player_id: int,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    deadline = time.time() + timeout
+    readiness: dict[str, Any] = {}
+    while time.time() < deadline:
+        readiness = client.command(
+            name="view_player_field",
+            playerId=target_player_id,
+            requestNavigation=False,
+        )
+        readiness_payload = readiness.get("data") if isinstance(readiness, dict) else None
+        if (
+            readiness.get("success") is True and
+            isinstance(readiness_payload, dict) and
+            readiness_payload.get("transitioning") is False
+        ):
+            break
+        time.sleep(0.25)
+
+    readiness_payload = readiness.get("data") if isinstance(readiness, dict) else None
+    if readiness.get("success") is not True:
+        error = readiness.get("error") or {}
+        errors.append(f"portrait_view_readiness_failed:{error.get('code') or readiness.get('message')}")
+    elif not isinstance(readiness_payload, dict) or readiness_payload.get("transitioning") is not False:
+        errors.append("portrait_view_initial_transition_did_not_settle")
+
+    request = client.command(
+        name="view_player_field",
+        playerId=target_player_id,
+        requestNavigation=True,
+    ) if not errors else {}
+    write_json(artifact_dir / "post-migration-portrait-view-command.json", request)
+    if request.get("success") is not True:
+        error = request.get("error") or {}
+        errors.append(f"portrait_view_command_failed:{error.get('code') or request.get('message')}")
+
+    inspection: dict[str, Any] = request
+    deadline = time.time() + timeout
+    while not errors and time.time() < deadline:
+        inspection = client.command(
+            name="view_player_field",
+            playerId=target_player_id,
+            requestNavigation=False,
+        )
+        payload = inspection.get("data") if isinstance(inspection, dict) else None
+        if (
+            inspection.get("success") is True and
+            isinstance(payload, dict) and
+            payload.get("viewingPlayerId") == target_player_id and
+            payload.get("currentViewingMatchesRegistry") is True and
+            payload.get("targetOnCurrentRunner") is True and
+            payload.get("transitioning") is False and
+            payload.get("switched") is True
+        ):
+            break
+        time.sleep(0.25)
+
+    payload = inspection.get("data") if isinstance(inspection, dict) else None
+    if not errors:
+        if inspection.get("success") is not True:
+            error = inspection.get("error") or {}
+            errors.append(f"portrait_view_inspection_failed:{error.get('code') or inspection.get('message')}")
+        elif not isinstance(payload, dict):
+            errors.append("portrait_view_payload_missing")
+        else:
+            if payload.get("viewingPlayerId") != target_player_id:
+                errors.append(
+                    f"portrait_viewing_player_mismatch expected={target_player_id} actual={payload.get('viewingPlayerId')}"
+                )
+            if payload.get("currentViewingMatchesRegistry") is not True:
+                errors.append("portrait_view_not_bound_to_current_registry")
+            if payload.get("targetOnCurrentRunner") is not True:
+                errors.append("portrait_view_target_not_on_current_runner")
+            if payload.get("transitioning") is not False:
+                errors.append("portrait_view_transition_did_not_complete")
+            if payload.get("switched") is not True:
+                errors.append("portrait_view_not_switched")
+
+    report = {
+        "success": not errors,
+        "errors": errors,
+        "targetPlayerId": target_player_id,
+        "readiness": readiness,
+        "request": request,
+        "inspection": inspection,
+    }
+    write_json(artifact_dir / "post-migration-portrait-view-result.json", report)
+    return report
+
+
 def battle_takeover_assertions(
     snapshot: dict[str, Any],
     checkpoint_snapshot: dict[str, Any],
@@ -1724,6 +1819,7 @@ def run_battle_case(
     apply_stat_buff_before_migration: bool = False,
     apply_zone_before_migration: bool = False,
     inject_pending_load_before_migration: bool = False,
+    probe_portrait_after_migration: bool = False,
 ) -> int:
     normalize_common_args(args)
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
@@ -1746,6 +1842,7 @@ def run_battle_case(
     host_proc: PlayerProcess | None = None
     client_proc: PlayerProcess | None = None
     host_was_killed = False
+    portrait_view_result: dict[str, Any] | None = None
     failures: list[str] = []
     cleanup_baseline_pids = mdf_player_pids()
     cleanup_report: dict[str, Any] = {
@@ -1780,6 +1877,7 @@ def run_battle_case(
         "applyStatBuffBeforeMigration": apply_stat_buff_before_migration,
         "applyZoneBeforeMigration": apply_zone_before_migration,
         "injectPendingLoadBeforeMigration": inject_pending_load_before_migration,
+        "probePortraitAfterMigration": probe_portrait_after_migration,
         "pendingFireCount": int(getattr(args, "pending_fire_count", 0)),
         "pendingHitCount": int(getattr(args, "pending_hit_count", 0)),
         "pendingDelayTicks": int(getattr(args, "pending_delay_ticks", 0)),
@@ -2100,6 +2198,16 @@ def run_battle_case(
             if not migration_ok:
                 failures.append("post_battle_host_migration_failed")
                 failures.extend(migration_result.get("errors") or [])
+            elif probe_portrait_after_migration and isinstance(killed_host_player_id, int):
+                portrait_view_result = probe_post_migration_portrait_navigation(
+                    client,
+                    artifact_dir,
+                    killed_host_player_id,
+                )
+                failures.extend(
+                    f"post_migration_portrait_view:{error}"
+                    for error in portrait_view_result.get("errors") or []
+                )
 
         if args.headless_player:
             skipped_screenshot = {
@@ -2130,6 +2238,7 @@ def run_battle_case(
             "failures": failures,
             "artifactDir": str(artifact_dir),
             "battleCommandEvidence": assertions,
+            "postMigrationPortraitView": portrait_view_result,
             "headlessPlayer": args.headless_player,
         })
         if failures:

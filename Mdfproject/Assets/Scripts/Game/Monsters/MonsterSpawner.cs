@@ -1330,6 +1330,26 @@ public class MonsterSpawner : MonoBehaviour
     /// <param name="isBoss">보스 몬스터 여부</param>
     /// <param name="bossUniqueId">보스 고유 ID (생존 추적용)</param>
     /// <param name="originPlayerId">보스 소환자 플레이어 ID</param>
+    public UniTask<Monster> SpawnMonsterAtExactPositionAsync(
+        MonsterData monsterData,
+        Vector3 spawnPosition,
+        FieldManager targetFieldManager,
+        bool isBoss = false,
+        int bossUniqueId = -1,
+        int originPlayerId = -1,
+        int expectedBattleGeneration = -1)
+    {
+        return SpawnMonsterAtPositionAsync(
+            monsterData,
+            spawnPosition,
+            targetFieldManager,
+            isBoss,
+            bossUniqueId,
+            originPlayerId,
+            expectedBattleGeneration,
+            allowNearbyCellFallback: false);
+    }
+
     public async UniTask<Monster> SpawnMonsterAtPositionAsync(
         MonsterData monsterData, 
         Vector3 spawnPosition, 
@@ -1337,7 +1357,8 @@ public class MonsterSpawner : MonoBehaviour
         bool isBoss = false,
         int bossUniqueId = -1,
         int originPlayerId = -1,
-        int expectedBattleGeneration = -1)
+        int expectedBattleGeneration = -1,
+        bool allowNearbyCellFallback = true)
     {
         LogSpawnTrace(
             "SpawnMonsterAtPositionAsync:ENTER",
@@ -1373,21 +1394,55 @@ public class MonsterSpawner : MonoBehaviour
             return null;
         }
 
-        Vector3 separatedSpawnPosition = ResolveSeparatedSpawnPosition(
-            spawnPosition,
-            targetFieldManager,
-            targetGrid,
-            targetGoal,
-            monsterData);
-        if ((separatedSpawnPosition - spawnPosition).sqrMagnitude > 0.0001f)
+        Vector2Int exactSpawnCell = default;
+        if (!allowNearbyCellFallback)
         {
-            LogSpawnTrace(
-                "SpawnMonsterAtPositionAsync:SEPARATED_STACKED_SPAWN",
-                monsterData,
-                separatedSpawnPosition,
+            bool exactCellValid = BattleCommandValidator.TryResolveExactBattleSpawnPosition(
                 targetFieldManager,
-                $"requested=({spawnPosition.x:F2},{spawnPosition.y:F2},{spawnPosition.z:F2})");
-            spawnPosition = separatedSpawnPosition;
+                spawnPosition,
+                out exactSpawnCell,
+                out Vector3 exactSpawnPosition,
+                out string exactSpawnReason);
+            if (exactCellValid)
+            {
+                exactCellValid = BattleCommandValidator.TryValidateBattleSpawnPath(
+                    targetFieldManager,
+                    exactSpawnPosition,
+                    monsterData,
+                    out exactSpawnReason);
+            }
+
+            if (!exactCellValid)
+            {
+                LogSpawnTrace(
+                    "SpawnMonsterAtPositionAsync:ABORT_EXACT_SPAWN_CELL",
+                    monsterData,
+                    spawnPosition,
+                    targetFieldManager,
+                    $"reason={exactSpawnReason}");
+                return null;
+            }
+
+            spawnPosition = exactSpawnPosition;
+        }
+        else
+        {
+            Vector3 separatedSpawnPosition = ResolveSeparatedSpawnPosition(
+                spawnPosition,
+                targetFieldManager,
+                targetGrid,
+                targetGoal,
+                monsterData);
+            if ((separatedSpawnPosition - spawnPosition).sqrMagnitude > 0.0001f)
+            {
+                LogSpawnTrace(
+                    "SpawnMonsterAtPositionAsync:SEPARATED_STACKED_SPAWN",
+                    monsterData,
+                    separatedSpawnPosition,
+                    targetFieldManager,
+                    $"requested=({spawnPosition.x:F2},{spawnPosition.y:F2},{spawnPosition.z:F2})");
+                spawnPosition = separatedSpawnPosition;
+            }
         }
 
         // 프리팹 로드
@@ -1410,6 +1465,43 @@ public class MonsterSpawner : MonoBehaviour
             // Debug.LogError($"[MonsterSpawner] '{monsterData.monsterName}'의 프리팹 로드 실패!", monsterData);
             LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_PREFAB_LOAD_FAIL", monsterData, spawnPosition, targetFieldManager, $"prefabKey={monsterData.monsterPrefab}");
             return null;
+        }
+
+        if (!allowNearbyCellFallback)
+        {
+            bool exactCellStillValid = BattleCommandValidator.TryResolveExactBattleSpawnPosition(
+                targetFieldManager,
+                spawnPosition,
+                out Vector2Int currentExactCell,
+                out Vector3 currentExactPosition,
+                out string exactSpawnReason);
+            if (exactCellStillValid && currentExactCell != exactSpawnCell)
+            {
+                exactCellStillValid = false;
+                exactSpawnReason = "spawn_cell_changed_during_asset_load";
+            }
+
+            if (exactCellStillValid)
+            {
+                exactCellStillValid = BattleCommandValidator.TryValidateBattleSpawnPath(
+                    targetFieldManager,
+                    currentExactPosition,
+                    monsterData,
+                    out exactSpawnReason);
+            }
+
+            if (!exactCellStillValid)
+            {
+                LogSpawnTrace(
+                    "SpawnMonsterAtPositionAsync:ABORT_EXACT_SPAWN_CELL_AFTER_LOAD",
+                    monsterData,
+                    spawnPosition,
+                    targetFieldManager,
+                    $"reason={exactSpawnReason}");
+                return null;
+            }
+
+            spawnPosition = currentExactPosition;
         }
 
         // 지상 몬스터 높이 조정
