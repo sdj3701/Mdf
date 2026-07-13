@@ -128,19 +128,7 @@ public class RegisterUnitAtCommand : ICommand, IAsyncCommand
             }
 
             // StatusBar 생성
-            if (player.fieldManager.statusBarPrefab != null)
-            {
-                var existingStatusBar = unit.GetComponentInChildren<StatusBarUI>(includeInactive: true);
-                if (existingStatusBar == null)
-                {
-                    var statusBarGO = Object.Instantiate(player.fieldManager.statusBarPrefab, unit.transform);
-                    var statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
-                    if (statusBarUI != null)
-                    {
-                        unit.SetStatusBar(statusBarUI);
-                    }
-                }
-            }
+            player.fieldManager.AttachStatusBar(unit.gameObject, unit.SetStatusBar);
 
             // 유닛 초기화 (필요시)
             bool needInit = unit.Data == null || (!string.IsNullOrEmpty(UnitDataKey) && unit.Data.name != UnitDataKey);

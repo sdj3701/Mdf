@@ -110,6 +110,8 @@
     <Compile Include="Assets\Scripts\Testing\MP\Editor\KingRuntimeEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\KingContentAssetsEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\KingHarnessContractEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\WallUpgradeAndFirstSpawnPrewarmEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\UnitFirstPurchasePrewarmEditModeTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Firebase\Editor\FirebaseCrashlytics_version-13.2.0_manifest.txt" />

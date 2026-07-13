@@ -277,11 +277,19 @@ public sealed class BattleSpawnMonsterCommand
             try
             {
 
-            await _validatedAttacker.monsterSpawner.PrewarmMonsterDataAsync(
-                monsterData,
-                isBoss,
-                1,
-                "BattleSpawnMonsterCommand");
+            try
+            {
+                await _validatedAttacker.monsterSpawner.PrewarmMonsterDataAsync(
+                    monsterData,
+                    isBoss,
+                    1,
+                    "BattleSpawnMonsterCommand",
+                    _validatedAttacker.monsterSpawner.GetBattleCancellationToken(battleGeneration));
+            }
+            catch (System.OperationCanceledException)
+            {
+                return Reject("battle_changed_during_spawn_prewarm", null, DefenderPlayerId, Scope);
+            }
 
             if (!_validatedAttacker.monsterSpawner.IsBattleGenerationCurrent(battleGeneration))
             {

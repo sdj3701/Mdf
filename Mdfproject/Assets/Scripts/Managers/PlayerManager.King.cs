@@ -61,6 +61,8 @@ public partial class PlayerManager
     private GameObject _kingPresentation;
     private Animator _kingAnimator;
     private HeadLookController _kingHeadLookController;
+    private bool _kingUsesBaseIdleHeadPose;
+    private UnitOrientationFixer _kingOrientationFixer;
     private Renderer[] _kingRenderers = Array.Empty<Renderer>();
     private MaterialPropertyBlock[] _kingPropertyBlocks = Array.Empty<MaterialPropertyBlock>();
     private MaterialPropertyBlock[] _kingOriginalPropertyBlocks = Array.Empty<MaterialPropertyBlock>();
@@ -81,8 +83,6 @@ public partial class PlayerManager
     private Vector3 _kingRigLocalScale = Vector3.one;
     private bool _kingRigPinRequired;
     private bool _kingHasRigLocalRotation;
-    private bool _kingFacesCamera;
-    private float _kingCameraYawOffsetDegrees;
     private readonly List<Monster> _kingSkillTargetSnapshot = new List<Monster>(64);
 
     public KingUnitData SelectedKingData => _selectedKingData;
@@ -738,44 +738,57 @@ public partial class PlayerManager
                 prefab,
                 presentationAnchor,
                 out Animator animator,
-                out Dictionary<Transform, Transform> transformMap);
+                out _);
             if (instance == null)
             {
                 RegisterKingPresentationLoadFailure($"visual-only clone failed: {prefabKey}");
                 return;
             }
 
-            instance.name = $"KingPresentation_{baseData.name}";
             Transform instanceTransform = instance.transform;
             instanceTransform.localPosition = data.presentationOffset;
             instanceTransform.localRotation = Quaternion.Euler(data.presentationEulerAngles);
-            instanceTransform.localScale = Vector3.Scale(
+            // Keep the authored Animator/model root at its base-prefab scale. The outer goal
+            // anchor owns the King multiplier so Humanoid retargeting and IK run in the exact
+            // same local scale space as an ordinary field unit.
+            instanceTransform.localScale = prefab.transform.localScale;
+            _kingExpectedWorldScale = Vector3.Scale(
                 prefab.transform.localScale,
                 Vector3.one * Mathf.Max(0.1f, data.presentationScale));
-            _kingExpectedWorldScale = instanceTransform.localScale;
 
             _kingPresentation = instance;
             _kingAnimator = animator;
             _kingHeadLookController = instance.GetComponentInChildren<HeadLookController>(true);
-            ApplyKingHeadLookTuning(_kingHeadLookController, data);
-            RefreshKingHeadLookTarget();
-            ConfigureKingRigPresentation(prefab, transformMap);
+            _kingUsesBaseIdleHeadPose = ShouldUseBaseIdleHeadPose(prefabKey);
+            if (_kingHeadLookController != null && _kingUsesBaseIdleHeadPose)
+            {
+                // Mage's authored idle already presents the face correctly. Its field-unit
+                // Humanoid LookAt over-rotates the wide hat at the centered Goal position.
+                _kingHeadLookController.enabled = false;
+            }
+            _kingOrientationFixer = instance.GetComponentInChildren<UnitOrientationFixer>(true);
+            ConfigureKingBasePresentationOrientation();
             CaptureKingCanonicalTransform();
             CaptureKingRendererPropertyBlocks(instance);
-            instance.SetActive(true);
 
             if (_kingAnimator != null)
             {
+                // A King persists while another player's field is being viewed. Keep its native
+                // prefab Animator updating offscreen so Humanoid IK is already valid on return.
                 _kingAnimator.enabled = true;
-                _kingAnimator.applyRootMotion = false;
-                // Kings are limited to one per player. Keeping these few animators alive also
-                // guarantees that their head-look IK is ready immediately after field switching.
                 _kingAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            }
+
+            instance.SetActive(true);
+            if (_kingAnimator != null)
+            {
+                // The safety strip removes gameplay components and reparents the visual before
+                // activation. Bind the Humanoid once against that final hierarchy, matching a
+                // normally-instantiated base unit before its first rendered frame.
                 _kingAnimator.Rebind();
                 _kingAnimator.Update(0f);
             }
-
-            EnforceKingRigPresentationTransform();
+            ApplyKingBasePresentationOrientation(true);
             _kingPresentationLoadFailureCount = 0;
             _kingPresentationRetryNotBefore = 0f;
             instance = null;
@@ -816,22 +829,6 @@ public partial class PlayerManager
                && _selectedKingData.kingSkill != null;
     }
 
-    internal static void ApplyKingHeadLookTuning(
-        HeadLookController headLookController,
-        KingUnitData data)
-    {
-        if (headLookController == null || data == null || !data.overridePresentationHeadLook)
-        {
-            return;
-        }
-
-        headLookController.lookAtWeight = Mathf.Clamp01(data.presentationHeadLookWeight);
-        headLookController.tiltAngle = Mathf.Clamp(data.presentationHeadLookTiltAngle, 0f, 5f);
-        headLookController.lookAtBodyWeight = Mathf.Clamp01(data.presentationHeadLookBodyWeight);
-        headLookController.lookAtHeadWeight = Mathf.Clamp01(data.presentationHeadLookHeadWeight);
-        headLookController.lookAtClampWeight = Mathf.Clamp01(data.presentationHeadLookClampWeight);
-    }
-
     private void RegisterKingDataLoadFailure(int keyHash, string detail)
     {
         if (keyHash != _kingLoadRequestedHash)
@@ -860,6 +857,18 @@ public partial class PlayerManager
             this);
     }
 
+    public static bool ShouldUseBaseIdleHeadPose(string basePrefabKey)
+    {
+        // Use the serialized Addressables key instead of the instantiated object name.
+        // Mage and Pyromancer currently share this exact visual prefab, so both retain
+        // its authored Animator idle pose even if Unity decorates or renames the clone.
+        return string.Equals(basePrefabKey?.Trim(), "Mage", StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal string KingHeadPresentationMode => _kingUsesBaseIdleHeadPose
+        ? "base_idle"
+        : "base_head_look";
+
     public static float ComputeKingLoadRetryDelay(int failureCount)
     {
         int exponent = Mathf.Clamp(failureCount - 1, 0, 8);
@@ -868,9 +877,7 @@ public partial class PlayerManager
             KING_LOAD_RETRY_MIN_SECONDS * Mathf.Pow(2f, exponent));
     }
 
-    private void ConfigureKingRigPresentation(
-        GameObject sourcePrefab,
-        Dictionary<Transform, Transform> transformMap)
+    private void ConfigureKingBasePresentationOrientation()
     {
         _kingRigRoot = null;
         _kingRigLocalPosition = Vector3.zero;
@@ -879,75 +886,51 @@ public partial class PlayerManager
         _kingRigPinRequired = false;
         _kingHasRigLocalRotation = false;
 
-        UnitOrientationFixer sourceFixer = sourcePrefab != null
-            ? sourcePrefab.GetComponentInChildren<UnitOrientationFixer>(true)
-            : null;
-        _kingFacesCamera = sourceFixer == null
-            || sourceFixer.faceCameraOnSpawn
-            || sourceFixer.faceCameraEveryFrame;
-        _kingCameraYawOffsetDegrees = sourceFixer != null ? sourceFixer.yawOffsetDeg : 180f;
-        if (sourceFixer == null)
+        if (_kingOrientationFixer == null)
         {
             return;
         }
 
-        Transform sourceRigRoot = sourceFixer.rigRoot;
-        if (sourceRigRoot == null && !string.IsNullOrWhiteSpace(sourceFixer.rigRootName))
-        {
-            sourceRigRoot = FindKingSourceRig(sourceFixer.transform, sourceFixer.rigRootName);
-        }
-
-        if (sourceRigRoot == null)
-        {
-            return;
-        }
-
-        if (sourcePrefab != null && sourceRigRoot == sourcePrefab.transform)
-        {
-            // Some character prefabs point UnitOrientationFixer.rigRoot at the prefab root.
-            // Enforcing that transform here would overwrite the King's camera-facing root yaw.
-            return;
-        }
-
-        _kingRigPinRequired = true;
-        if (!transformMap.TryGetValue(sourceRigRoot, out Transform clonedRigRoot)
-            || clonedRigRoot == null
-            || (_kingPresentation != null && clonedRigRoot == _kingPresentation.transform))
+        // PlayerManager restores the King's goal anchor first, then invokes the exact same
+        // orientation component used by the base unit. Disable the component's own LateUpdate
+        // to avoid an undefined cross-component execution order.
+        _kingOrientationFixer.SetExternalLateUpdateDriver(true);
+        Transform clonedRigRoot = _kingOrientationFixer.ResolveRigRoot();
+        if (clonedRigRoot == null)
         {
             return;
         }
 
         _kingRigRoot = clonedRigRoot;
+        _kingRigPinRequired = _kingOrientationFixer.enforceEveryLateUpdate
+                              && (_kingPresentation == null
+                                  || clonedRigRoot != _kingPresentation.transform);
+        if (!_kingRigPinRequired)
+        {
+            return;
+        }
+
         _kingRigLocalPosition = clonedRigRoot.localPosition;
-        _kingRigLocalRotation = Quaternion.Euler(sourceFixer.rigLocalEulerTarget);
+        _kingRigLocalRotation = Quaternion.Euler(_kingOrientationFixer.rigLocalEulerTarget);
         _kingRigLocalScale = clonedRigRoot.localScale;
         _kingHasRigLocalRotation = true;
     }
 
-    private static Transform FindKingSourceRig(Transform root, string rigName)
+    private bool ApplyKingBasePresentationOrientation(bool includeInitialCameraFacing)
     {
-        if (root == null || string.IsNullOrWhiteSpace(rigName))
+        if (_kingOrientationFixer == null
+            || !_kingOrientationFixer.enabled
+            || _kingPresentation == null)
         {
-            return null;
+            return false;
         }
 
-        Transform direct = root.Find(rigName);
-        if (direct != null)
+        _kingOrientationFixer.ApplyPresentationOrientation(includeInitialCameraFacing);
+        if (_kingHasCanonicalTransform)
         {
-            return direct;
+            _kingCanonicalLocalRotation = _kingPresentation.transform.localRotation;
         }
-
-        Transform[] descendants = root.GetComponentsInChildren<Transform>(true);
-        for (int i = 0; i < descendants.Length; i++)
-        {
-            Transform candidate = descendants[i];
-            if (candidate != null && candidate.name == rigName)
-            {
-                return candidate;
-            }
-        }
-
-        return null;
+        return true;
     }
 
     private void CaptureKingCanonicalTransform()
@@ -983,21 +966,15 @@ public partial class PlayerManager
         }
     }
 
-    private void EnforceKingRigPresentationTransform()
-    {
-        if (_kingHasRigLocalRotation && _kingRigRoot != null)
-        {
-            _kingRigRoot.localPosition = _kingRigLocalPosition;
-            _kingRigRoot.localRotation = _kingRigLocalRotation;
-            _kingRigRoot.localScale = _kingRigLocalScale;
-        }
-    }
-
     private void LateUpdate()
     {
         if (_kingPresentation != null && _kingPresentation.activeInHierarchy)
         {
-            AlignKingPresentationAnchor(_kingPresentationAnchor, goalTransform);
+            AlignKingPresentationAnchor(
+                _kingPresentationAnchor,
+                goalTransform,
+                ResolveKingPresentationParent());
+            ApplyConfiguredKingScaleToAnchor(_kingPresentationAnchor);
             if (!_kingDamageReactionPlaying && _kingHasCanonicalTransform)
             {
                 Transform kingTransform = _kingPresentation.transform;
@@ -1005,62 +982,8 @@ public partial class PlayerManager
                 kingTransform.localRotation = _kingCanonicalLocalRotation;
                 kingTransform.localScale = _kingCanonicalLocalScale;
             }
-            ApplyKingCameraFacingRotation();
-            RefreshKingHeadLookTarget();
-            EnforceKingRigPresentationTransform();
+            ApplyKingBasePresentationOrientation(false);
         }
-    }
-
-    private Camera ResolveKingPresentationCamera()
-    {
-        Camera camera = fieldManager != null ? fieldManager.PlayerCamera : null;
-        return camera != null ? camera : Camera.main;
-    }
-
-    private void RefreshKingHeadLookTarget()
-    {
-        if (_kingHeadLookController == null)
-        {
-            return;
-        }
-
-        Camera camera = _selectedKingData != null && _selectedKingData.presentationHeadLookAtCamera
-            ? ResolveKingPresentationCamera()
-            : null;
-        if (camera != null)
-        {
-            _kingHeadLookController.SetRuntimeLookAtTarget(camera.transform);
-        }
-        else
-        {
-            _kingHeadLookController.ClearRuntimeLookAtTarget();
-        }
-    }
-
-    private bool ApplyKingCameraFacingRotation()
-    {
-        if (!_kingFacesCamera || _kingPresentation == null)
-        {
-            return false;
-        }
-
-        Transform presentation = _kingPresentation.transform;
-        Camera camera = ResolveKingPresentationCamera();
-        if (!UnitOrientationFixer.TryResolveCameraFacingYaw(
-                presentation.position,
-                camera,
-                _kingCameraYawOffsetDegrees,
-                out Quaternion cameraFacingRotation))
-        {
-            return false;
-        }
-
-        Quaternion presentationOffset = _selectedKingData != null
-            ? Quaternion.Euler(_selectedKingData.presentationEulerAngles)
-            : Quaternion.identity;
-        presentation.rotation = cameraFacingRotation * presentationOffset;
-        _kingCanonicalLocalRotation = presentation.localRotation;
-        return true;
     }
 
     private Transform GetOrCreateKingPresentationAnchor()
@@ -1076,18 +999,60 @@ public partial class PlayerManager
             _kingPresentationAnchor = anchorObject.transform;
         }
 
-        AlignKingPresentationAnchor(_kingPresentationAnchor, goalTransform);
+        AlignKingPresentationAnchor(
+            _kingPresentationAnchor,
+            goalTransform,
+            ResolveKingPresentationParent());
+        ApplyConfiguredKingScaleToAnchor(_kingPresentationAnchor);
         return _kingPresentationAnchor;
     }
 
+    private Transform ResolveKingPresentationParent()
+    {
+        return fieldManager != null && fieldManager.unitParent != null
+            ? fieldManager.unitParent
+            : goalTransform != null ? goalTransform.parent : null;
+    }
+
+    private void ApplyConfiguredKingScaleToAnchor(Transform anchor)
+    {
+        float scaleMultiplier = _selectedKingData != null
+            ? Mathf.Max(0.1f, _selectedKingData.presentationScale)
+            : 1f;
+        ApplyKingScaleToAnchor(anchor, scaleMultiplier);
+    }
+
+    internal static void ApplyKingScaleToAnchor(Transform anchor, float scaleMultiplier)
+    {
+        if (anchor == null)
+        {
+            return;
+        }
+
+        float safeScale = Mathf.Max(0.1f, scaleMultiplier);
+        Vector3 parentScale = anchor.parent != null ? anchor.parent.lossyScale : Vector3.one;
+        anchor.localScale = new Vector3(
+            safeScale * SafeInverseScale(parentScale.x),
+            safeScale * SafeInverseScale(parentScale.y),
+            safeScale * SafeInverseScale(parentScale.z));
+    }
+
     internal static void AlignKingPresentationAnchor(Transform anchor, Transform goal)
+    {
+        AlignKingPresentationAnchor(anchor, goal, null);
+    }
+
+    internal static void AlignKingPresentationAnchor(
+        Transform anchor,
+        Transform goal,
+        Transform preferredParent)
     {
         if (anchor == null || goal == null || anchor == goal)
         {
             return;
         }
 
-        Transform desiredParent = goal.parent;
+        Transform desiredParent = preferredParent != null ? preferredParent : goal.parent;
         if (anchor.parent != desiredParent)
         {
             anchor.SetParent(desiredParent, true);
@@ -1143,9 +1108,10 @@ public partial class PlayerManager
             new Vector2(presentationPosition.x, presentationPosition.z),
             new Vector2(goalPosition.x, goalPosition.z));
         worldScaleDrift = Vector3.Distance(presentation.lossyScale, _kingExpectedWorldScale);
+        Transform expectedParent = ResolveKingPresentationParent();
         usesNeutralGoalAnchor =
             _kingPresentationAnchor != goalTransform &&
-            _kingPresentationAnchor.parent == goalTransform.parent &&
+            _kingPresentationAnchor.parent == expectedParent &&
             presentation.parent == _kingPresentationAnchor;
 
         presentationTransformDrift = _kingHasCanonicalTransform
@@ -1178,27 +1144,28 @@ public partial class PlayerManager
                          && _kingAnimator.isActiveAndEnabled;
         headLookApplied = headLookActive
                           && _kingHeadLookController.WasLookAtAppliedRecently(3);
-        if (!_kingFacesCamera || _kingPresentation == null)
+        if (_kingOrientationFixer == null
+            || !_kingOrientationFixer.enabled
+            || (!_kingOrientationFixer.faceCameraOnSpawn
+                && !_kingOrientationFixer.faceCameraEveryFrame)
+            || _kingPresentation == null)
         {
             return false;
         }
 
-        Camera camera = ResolveKingPresentationCamera();
+        Camera camera = _kingOrientationFixer.ResolveTargetCamera();
         if (!UnitOrientationFixer.TryResolveCameraFacingYaw(
                 _kingPresentation.transform.position,
                 camera,
-                _kingCameraYawOffsetDegrees,
+                _kingOrientationFixer.yawOffsetDeg,
                 out Quaternion expectedRotation))
         {
             return false;
         }
 
-        Quaternion presentationOffset = _selectedKingData != null
-            ? Quaternion.Euler(_selectedKingData.presentationEulerAngles)
-            : Quaternion.identity;
         cameraFacingAngle = Quaternion.Angle(
             _kingPresentation.transform.rotation,
-            expectedRotation * presentationOffset);
+            expectedRotation);
         return true;
     }
 
@@ -1248,7 +1215,7 @@ public partial class PlayerManager
             _kingCanonicalLocalRotation = Quaternion.Euler(_selectedKingData.presentationEulerAngles);
             _kingCanonicalLocalScale = kingTransform.localScale.sqrMagnitude > 0.001f
                 ? kingTransform.localScale
-                : Vector3.one * Mathf.Max(0.1f, _selectedKingData.presentationScale);
+                : Vector3.one;
             _kingHasCanonicalTransform = true;
         }
 
@@ -1496,11 +1463,6 @@ public partial class PlayerManager
         }
         ResetKingDamageReactionPresentation();
 
-        if (_kingHeadLookController != null)
-        {
-            _kingHeadLookController.ClearRuntimeLookAtTarget();
-        }
-
         if (_kingPresentation != null)
         {
             DestroyKingPresentationObject(_kingPresentation);
@@ -1513,6 +1475,8 @@ public partial class PlayerManager
         _kingPresentation = null;
         _kingAnimator = null;
         _kingHeadLookController = null;
+        _kingUsesBaseIdleHeadPose = false;
+        _kingOrientationFixer = null;
         _kingRenderers = Array.Empty<Renderer>();
         _kingPropertyBlocks = Array.Empty<MaterialPropertyBlock>();
         _kingOriginalPropertyBlocks = Array.Empty<MaterialPropertyBlock>();
@@ -1532,8 +1496,6 @@ public partial class PlayerManager
         _kingRigLocalScale = Vector3.one;
         _kingRigPinRequired = false;
         _kingHasRigLocalRotation = false;
-        _kingFacesCamera = false;
-        _kingCameraYawOffsetDegrees = 0f;
     }
 
     private static void DestroyKingPresentationObject(GameObject target)

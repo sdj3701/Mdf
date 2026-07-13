@@ -94,6 +94,19 @@ public partial class PlayerManager
              + Mathf.Max(0, personalBonus);
     }
 
+    public int GetProjectedBlackMagicMaximumForRound(int round)
+    {
+        WaveDatabase waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        int personalBonus = Mathf.Max(0, AppliedBlackMagicMaxBonus);
+        return waveDatabase != null
+            ? waveDatabase.GetBlackMagicMaximumForRound(round, personalBonus)
+            : CalculateBlackMagicMaximum(
+                round,
+                FallbackBaseBlackMagicMaximum,
+                FallbackBlackMagicMaximumPerRound,
+                personalBonus);
+    }
+
     public bool BeginAttackSequenceBlackMagic(int round, GameManagers.GameState state)
     {
         if (!HasStateAuthorityOrNoNetwork())
@@ -107,14 +120,7 @@ public partial class PlayerManager
             return false;
         }
 
-        WaveDatabase waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-        int maximum = waveDatabase != null
-            ? waveDatabase.GetBlackMagicMaximumForRound(round, BlackMagicMaxBonus)
-            : CalculateBlackMagicMaximum(
-                round,
-                FallbackBaseBlackMagicMaximum,
-                FallbackBlackMagicMaximumPerRound,
-                BlackMagicMaxBonus);
+        int maximum = GetProjectedBlackMagicMaximumForRound(round);
 
         BlackMagicSequenceId = sequenceId;
         BlackMagicMaximum = maximum;

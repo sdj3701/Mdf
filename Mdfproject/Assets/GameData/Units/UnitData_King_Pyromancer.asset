@@ -18,13 +18,6 @@ MonoBehaviour:
   presentationScale: 1.3
   presentationOffset: {x: 0, y: 0, z: 0}
   presentationEulerAngles: {x: 0, y: 0, z: 0}
-  overridePresentationHeadLook: 1
-  presentationHeadLookAtCamera: 1
-  presentationHeadLookWeight: 1
-  presentationHeadLookTiltAngle: 5
-  presentationHeadLookBodyWeight: 0.1
-  presentationHeadLookHeadWeight: 1
-  presentationHeadLookClampWeight: 0.2
   baseAttackDamageMultiplier: 1.5
   baseAttackSpeedMultiplier: 1
   attackDamageGrowthPerRound: 0.12

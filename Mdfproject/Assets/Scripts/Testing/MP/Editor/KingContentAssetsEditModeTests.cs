@@ -123,61 +123,132 @@ public sealed class KingContentAssetsEditModeTests
     }
 
     [Test]
-    public void MageFamilyKingsRelaxOnlyTheirKingPresentationHeadLookClamp()
+    public void EveryKingPresentationClonePreservesBasePoseComponentsAndMappedReferences()
     {
         AddressableAssetSettings settings = AddressableAssetSettingsDefaultObject.Settings;
         NUnitAssert.That(settings, Is.Not.Null);
-        string[] correctedKingKeys =
+
+        foreach (KingSelectionCatalog.Entry entry in KingSelectionCatalog.Entries)
         {
-            "UnitData_King_Mage",
-            "UnitData_King_Pyromancer"
-        };
-        foreach (string key in correctedKingKeys)
-        {
-            KingUnitData corrected = AssetDatabase.LoadAssetAtPath<KingUnitData>(
+            string key = entry.KingUnitKey;
+            KingUnitData king = AssetDatabase.LoadAssetAtPath<KingUnitData>(
                 $"{UnitsRoot}/{key}.asset");
-            NUnitAssert.That(corrected, Is.Not.Null, key);
-            NUnitAssert.That(corrected.overridePresentationHeadLook, Is.True, key);
-            NUnitAssert.That(corrected.baseUnitData, Is.Not.Null, key);
-            NUnitAssert.That(corrected.baseUnitData.prefabsByStarLevel, Is.Not.Null.And.Not.Empty, key);
+            NUnitAssert.That(king, Is.Not.Null, key);
+            NUnitAssert.That(king.baseUnitData, Is.Not.Null, key);
+            NUnitAssert.That(king.baseUnitData.prefabsByStarLevel, Is.Not.Null.And.Not.Empty, key);
 
             AddressableAssetEntry prefabEntry = FindAddressableEntryByAddress(
                 settings,
-                corrected.baseUnitData.prefabsByStarLevel[0]);
+                king.baseUnitData.prefabsByStarLevel[0]);
             NUnitAssert.That(prefabEntry, Is.Not.Null, key);
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
                 AssetDatabase.GUIDToAssetPath(prefabEntry.guid));
             NUnitAssert.That(prefab, Is.Not.Null, key);
+
             HeadLookController sourceHeadLook = prefab.GetComponentInChildren<HeadLookController>(true);
+            UnitOrientationFixer sourceOrientation = prefab.GetComponentInChildren<UnitOrientationFixer>(true);
+            BodyScaler sourceBodyScaler = prefab.GetComponentInChildren<BodyScaler>(true);
             NUnitAssert.That(sourceHeadLook, Is.Not.Null, key);
+            NUnitAssert.That(sourceOrientation, Is.Not.Null, key);
+            NUnitAssert.That(sourceBodyScaler, Is.Not.Null, key);
+            Animator sourceAnimator = sourceHeadLook.GetComponent<Animator>();
+            NUnitAssert.That(sourceAnimator, Is.Not.Null, key);
 
-            NUnitAssert.That(
-                corrected.presentationHeadLookWeight,
-                Is.EqualTo(sourceHeadLook.lookAtWeight).Within(0.0001f),
-                key);
-            NUnitAssert.That(
-                corrected.presentationHeadLookTiltAngle,
-                Is.EqualTo(sourceHeadLook.tiltAngle).Within(0.0001f),
-                key);
-            NUnitAssert.That(corrected.presentationHeadLookBodyWeight,
-                Is.EqualTo(0.2f).Within(0.0001f), key);
-            NUnitAssert.That(corrected.presentationHeadLookHeadWeight,
-                Is.EqualTo(1f).Within(0.0001f), key);
-            NUnitAssert.That(corrected.presentationHeadLookClampWeight,
-                Is.LessThan(sourceHeadLook.lookAtClampWeight), key);
-        }
-
-        foreach (KingSelectionCatalog.Entry entry in KingSelectionCatalog.Entries)
-        {
-            if (correctedKingKeys.Contains(entry.KingUnitKey))
+            GameObject clone = KingVisualCloneUtility.CreateVisualOnly(
+                prefab,
+                null,
+                out Animator primaryCloneAnimator,
+                out Dictionary<Transform, Transform> transformMap);
+            try
             {
-                continue;
-            }
+                NUnitAssert.That(clone, Is.Not.Null, key);
+                NUnitAssert.That(KingVisualCloneUtility.IsPresentationOnly(clone), Is.True, key);
 
-            KingUnitData unaffected = AssetDatabase.LoadAssetAtPath<KingUnitData>(
-                $"{UnitsRoot}/{entry.KingUnitKey}.asset");
-            NUnitAssert.That(unaffected.overridePresentationHeadLook, Is.False,
-                $"{entry.KingUnitKey} should retain its working base prefab pose.");
+                Animator cloneAnimator = GetMappedComponent<Animator>(
+                    transformMap,
+                    sourceAnimator.transform,
+                    key);
+                HeadLookController cloneHeadLook = GetMappedComponent<HeadLookController>(
+                    transformMap,
+                    sourceHeadLook.transform,
+                    key);
+                UnitOrientationFixer cloneOrientation = GetMappedComponent<UnitOrientationFixer>(
+                    transformMap,
+                    sourceOrientation.transform,
+                    key);
+                BodyScaler cloneBodyScaler = GetMappedComponent<BodyScaler>(
+                    transformMap,
+                    sourceBodyScaler.transform,
+                    key);
+
+                NUnitAssert.That(cloneHeadLook, Is.Not.Null, key);
+                NUnitAssert.That(cloneAnimator, Is.Not.Null, key);
+                NUnitAssert.That(cloneOrientation, Is.Not.Null, key);
+                NUnitAssert.That(cloneBodyScaler, Is.Not.Null, key);
+                NUnitAssert.That(primaryCloneAnimator, Is.SameAs(cloneAnimator), key);
+
+                NUnitAssert.That(cloneAnimator.avatar, Is.SameAs(sourceAnimator.avatar), key);
+                NUnitAssert.That(
+                    cloneAnimator.runtimeAnimatorController,
+                    Is.SameAs(sourceAnimator.runtimeAnimatorController),
+                    key);
+                NUnitAssert.That(cloneAnimator.applyRootMotion, Is.EqualTo(sourceAnimator.applyRootMotion), key);
+                NUnitAssert.That(cloneAnimator.updateMode, Is.EqualTo(sourceAnimator.updateMode), key);
+                NUnitAssert.That(cloneAnimator.cullingMode, Is.EqualTo(sourceAnimator.cullingMode), key);
+                NUnitAssert.That(cloneAnimator.speed, Is.EqualTo(sourceAnimator.speed), key);
+                NUnitAssert.That(cloneAnimator.fireEvents, Is.EqualTo(sourceAnimator.fireEvents), key);
+                NUnitAssert.That(cloneAnimator.enabled, Is.EqualTo(sourceAnimator.enabled), key);
+
+                NUnitAssert.That(cloneHeadLook.enabled, Is.EqualTo(sourceHeadLook.enabled), key);
+                NUnitAssert.That(cloneHeadLook.lookAtWeight,
+                    Is.EqualTo(sourceHeadLook.lookAtWeight).Within(0.0001f), key);
+                NUnitAssert.That(cloneHeadLook.tiltAngle,
+                    Is.EqualTo(sourceHeadLook.tiltAngle).Within(0.0001f), key);
+                NUnitAssert.That(cloneHeadLook.lookAtBodyWeight,
+                    Is.EqualTo(sourceHeadLook.lookAtBodyWeight).Within(0.0001f), key);
+                NUnitAssert.That(cloneHeadLook.lookAtHeadWeight,
+                    Is.EqualTo(sourceHeadLook.lookAtHeadWeight).Within(0.0001f), key);
+                NUnitAssert.That(cloneHeadLook.lookAtClampWeight,
+                    Is.EqualTo(sourceHeadLook.lookAtClampWeight).Within(0.0001f), key);
+
+                NUnitAssert.That(
+                    cloneOrientation.rigRoot,
+                    Is.SameAs(GetMappedTransform(transformMap, sourceOrientation.rigRoot, key)),
+                    $"{key}: UnitOrientationFixer.rigRoot must reference the cloned hierarchy.");
+                NUnitAssert.That(cloneOrientation.rigRootName, Is.EqualTo(sourceOrientation.rigRootName), key);
+                NUnitAssert.That(
+                    cloneOrientation.rigLocalEulerTarget,
+                    Is.EqualTo(sourceOrientation.rigLocalEulerTarget),
+                    key);
+                NUnitAssert.That(
+                    cloneOrientation.faceCameraOnSpawn,
+                    Is.EqualTo(sourceOrientation.faceCameraOnSpawn),
+                    key);
+                NUnitAssert.That(
+                    cloneOrientation.faceCameraEveryFrame,
+                    Is.EqualTo(sourceOrientation.faceCameraEveryFrame),
+                    key);
+                NUnitAssert.That(
+                    cloneOrientation.enforceEveryLateUpdate,
+                    Is.EqualTo(sourceOrientation.enforceEveryLateUpdate),
+                    key);
+                NUnitAssert.That(
+                    cloneOrientation.targetCamera == sourceOrientation.targetCamera,
+                    Is.True,
+                    $"{key}: targetCamera must preserve Unity object/null reference semantics.");
+                NUnitAssert.That(cloneOrientation.yawOffsetDeg,
+                    Is.EqualTo(sourceOrientation.yawOffsetDeg).Within(0.0001f), key);
+                NUnitAssert.That(cloneOrientation.enabled, Is.EqualTo(sourceOrientation.enabled), key);
+
+                AssertMappedBodyScaler(sourceBodyScaler, cloneBodyScaler, transformMap, key);
+            }
+            finally
+            {
+                if (clone != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(clone);
+                }
+            }
         }
     }
 
@@ -254,6 +325,70 @@ public sealed class KingContentAssetsEditModeTests
             NUnitAssert.That(addressable, Is.Not.Null);
             NUnitAssert.That(addressable.address, Is.EqualTo(name));
             NUnitAssert.That(addressable.labels, Does.Contain("Augment"));
+        }
+    }
+
+    private static T GetMappedComponent<T>(
+        IReadOnlyDictionary<Transform, Transform> transformMap,
+        Transform sourceTransform,
+        string context)
+        where T : Component
+    {
+        Transform mappedTransform = GetMappedTransform(transformMap, sourceTransform, context);
+        return mappedTransform != null ? mappedTransform.GetComponent<T>() : null;
+    }
+
+    private static Transform GetMappedTransform(
+        IReadOnlyDictionary<Transform, Transform> transformMap,
+        Transform sourceTransform,
+        string context)
+    {
+        if (sourceTransform == null)
+        {
+            return null;
+        }
+
+        NUnitAssert.That(
+            transformMap.TryGetValue(sourceTransform, out Transform mappedTransform),
+            Is.True,
+            $"{context}: source transform '{sourceTransform.name}' is absent from the clone map.");
+        NUnitAssert.That(mappedTransform, Is.Not.Null, context);
+        NUnitAssert.That(mappedTransform, Is.Not.SameAs(sourceTransform), context);
+        return mappedTransform;
+    }
+
+    private static void AssertMappedBodyScaler(
+        BodyScaler source,
+        BodyScaler clone,
+        IReadOnlyDictionary<Transform, Transform> transformMap,
+        string context)
+    {
+        NUnitAssert.That(clone.enabled, Is.EqualTo(source.enabled), context);
+        NUnitAssert.That(clone.bodyWidth, Is.EqualTo(source.bodyWidth).Within(0.0001f), context);
+        NUnitAssert.That(clone.bodyHeight, Is.EqualTo(source.bodyHeight).Within(0.0001f), context);
+        NUnitAssert.That(clone.bodyDepth, Is.EqualTo(source.bodyDepth).Within(0.0001f), context);
+        NUnitAssert.That(clone.headWidth, Is.EqualTo(source.headWidth).Within(0.0001f), context);
+        NUnitAssert.That(clone.headHeight, Is.EqualTo(source.headHeight).Within(0.0001f), context);
+        NUnitAssert.That(clone.headDepth, Is.EqualTo(source.headDepth).Within(0.0001f), context);
+        NUnitAssert.That(
+            clone.headBone,
+            Is.SameAs(GetMappedTransform(transformMap, source.headBone, context)),
+            $"{context}: BodyScaler.headBone must reference the cloned hierarchy.");
+
+        if (source.bodyBones == null)
+        {
+            NUnitAssert.That(clone.bodyBones, Is.Null, context);
+            return;
+        }
+
+        NUnitAssert.That(clone.bodyBones, Is.Not.Null, context);
+        NUnitAssert.That(clone.bodyBones, Has.Length.EqualTo(source.bodyBones.Length), context);
+        for (int i = 0; i < source.bodyBones.Length; i++)
+        {
+            NUnitAssert.That(
+                clone.bodyBones[i],
+                Is.SameAs(GetMappedTransform(transformMap, source.bodyBones[i], context)),
+                $"{context}: BodyScaler.bodyBones[{i}] must reference the cloned hierarchy.");
         }
     }
 

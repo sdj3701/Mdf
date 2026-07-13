@@ -537,6 +537,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         _combatTargetLifecycleGeneration++;
         _hasSpawned = false;
         _changeDetector = null;
+        statusBarUI?.ResetForReuse(initializeImmediately: false);
         UnregisterCombatTarget();
         CancelPendingAttack();
         ClearCurrentTarget();

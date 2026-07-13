@@ -157,6 +157,38 @@ public static class PlayerSnapshotCodec
         currentHealth = Math.Max(0f, maxHealth) * (quantizedHealth / (float)ushort.MaxValue);
     }
 
+    public static int PackWallUpgradeState(int level, int investedGold)
+    {
+        if (!TryPackWallUpgradeState(level, investedGold, out int packedUpgradeState))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(investedGold),
+                investedGold,
+                "Wall level must be in [1, 255] and invested gold in [0, 16777215].");
+        }
+
+        return packedUpgradeState;
+    }
+
+    public static bool TryPackWallUpgradeState(int level, int investedGold, out int packedUpgradeState)
+    {
+        const int maxInvestedGold = 0x00FFFFFF;
+        if (level < 1 || level > byte.MaxValue || investedGold < 0 || investedGold > maxInvestedGold)
+        {
+            packedUpgradeState = 0;
+            return false;
+        }
+
+        packedUpgradeState = (level & 0xFF) | (investedGold << 8);
+        return true;
+    }
+
+    public static void UnpackWallUpgradeState(int packedUpgradeState, out int level, out int investedGold)
+    {
+        level = packedUpgradeState & 0xFF;
+        investedGold = (packedUpgradeState >> 8) & 0x00FFFFFF;
+    }
+
     private static float Clamp01(float value)
     {
         if (value < 0f) return 0f;

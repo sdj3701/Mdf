@@ -74,6 +74,8 @@ public sealed class PlayerCommandRequestValidator
                 return ValidatePlaceWallRequest(gm, intParams, vectorParams, out reason);
             case CommandType.RemoveWall:
                 return ValidateRemoveWallRequest(gm, vectorParams, out reason);
+            case CommandType.UpgradeWall:
+                return ValidateUpgradeWallRequest(gm, intParams, vectorParams, out reason);
             case CommandType.RerollShop:
                 return ValidateRerollShopRequest(gm, out reason);
             case CommandType.SelectAugment:
@@ -558,6 +560,35 @@ public sealed class PlayerCommandRequestValidator
 
         reason = null;
         return true;
+    }
+
+    private bool ValidateUpgradeWallRequest(
+        GameManagers gm,
+        int[] intParams,
+        Vector3[] vectorParams,
+        out string reason)
+    {
+        if (intParams == null || intParams.Length < 2)
+        {
+            reason = "missing_wall_upgrade_expected_level";
+            return false;
+        }
+        if (vectorParams == null || vectorParams.Length < 1)
+        {
+            reason = "missing_wall_upgrade_position";
+            return false;
+        }
+
+        return UpgradeWallCommand.TryValidate(
+            gm,
+            _player.playerId,
+            Vector3Int.RoundToInt(vectorParams[0]),
+            intParams[1],
+            requireStateAuthority: true,
+            out _,
+            out _,
+            out _,
+            out reason);
     }
 
     private bool ValidateRerollShopRequest(GameManagers gm, out string reason)

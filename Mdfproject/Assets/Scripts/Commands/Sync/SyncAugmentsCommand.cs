@@ -308,6 +308,42 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
                 return;
             }
 
+            // State Authority is already running the bounded Prepare prewarm in GameManagers.
+            // This command owns the client-side presentation warmup only.
+            if (player.monsterSpawner != null &&
+                (player.Object == null || !player.Object.IsValid || !player.Object.HasStateAuthority))
+            {
+                MonsterData[] presentedBosses = player.augmentManager.GetPresentedAugments()
+                    .Where(augment => augment?.bossMonsterData != null)
+                    .Select(augment => augment.bossMonsterData)
+                    .Distinct()
+                    .ToArray();
+                if (presentedBosses.Length > 0)
+                {
+                    try
+                    {
+                        // Client providers must be warm too: replicated monster spawns instantiate
+                        // locally even though only State Authority may choose or spawn the boss.
+                        await player.monsterSpawner.PrewarmMonsterDataSetAsync(
+                            presentedBosses,
+                            isBoss: true,
+                            requestedCount: 1,
+                            context: $"SyncPresentedBosses.P{PlayerId}",
+                            cancellationToken: cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+                    catch (System.OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        Debug.LogWarning(
+                            $"[SyncAugmentsCommand] Boss presentation prewarm skipped. target={PlayerId}, error={ex.Message}");
+                    }
+                }
+            }
+
             TraceClient($"SetPresentedAugments applied. target={PlayerId}, count={AugmentNames.Length}");
             bool uiReady = await gm.EnsureGameUIReadyForSyncCommands();
             cancellationToken.ThrowIfCancellationRequested();

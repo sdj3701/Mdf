@@ -6,18 +6,52 @@ using UnityEngine;
 
 public partial class FieldManager
 {
+    public bool TryResolveDestructibleWallMaxHealth(int level, out float maxHealth)
+    {
+        maxHealth = 0f;
+        if (level < 1 || destructibleWallPrefab == null)
+        {
+            return false;
+        }
+
+        DestructibleWall configuredWall = destructibleWallPrefab.GetComponent<DestructibleWall>();
+        WallProgressionData progression = configuredWall != null ? configuredWall.ProgressionData : null;
+        if (progression != null
+            && progression.TryGetLevel(level, out WallLevelData levelData)
+            && levelData != null
+            && levelData.MaxHealth > 0f)
+        {
+            maxHealth = levelData.MaxHealth;
+            return true;
+        }
+
+        // Retain a level-one fallback for older prefabs that have not yet adopted progression
+        // assets. Higher levels must resolve through explicit data rather than local wall state.
+        if (level == 1 && configuredWall != null && configuredWall.MaxHealth > 0f)
+        {
+            maxHealth = configuredWall.MaxHealth;
+            return true;
+        }
+
+        return false;
+    }
+
     public bool TryGetDestructibleWallMigrationSnapshot(
         out int[] flatPositions,
         out float[] currentHealth,
         out float[] maxHealth,
-        out int[] revisions)
+        out int[] revisions,
+        out int[] levels,
+        out int[] upgradeInvestments)
     {
         if (playerManager != null
             && playerManager.TryGetDurableDestructibleWallMigrationSnapshot(
                 out flatPositions,
                 out currentHealth,
                 out maxHealth,
-                out revisions))
+                out revisions,
+                out levels,
+                out upgradeInvestments))
         {
             return true;
         }
@@ -26,14 +60,18 @@ public partial class FieldManager
             out flatPositions,
             out currentHealth,
             out maxHealth,
-            out revisions);
+            out revisions,
+            out levels,
+            out upgradeInvestments);
     }
 
     public bool CaptureLocalDestructibleWallMigrationSnapshot(
         out int[] flatPositions,
         out float[] currentHealth,
         out float[] maxHealth,
-        out int[] revisions)
+        out int[] revisions,
+        out int[] levels,
+        out int[] upgradeInvestments)
     {
         RebuildWallMapsAfterMigration("FieldManager.CaptureDestructibleWallHealth", false, out _);
         var entries = placedWalls
@@ -47,6 +85,8 @@ public partial class FieldManager
         currentHealth = new float[entries.Length];
         maxHealth = new float[entries.Length];
         revisions = new int[entries.Length];
+        levels = new int[entries.Length];
+        upgradeInvestments = new int[entries.Length];
         for (int i = 0; i < entries.Length; i++)
         {
             flatPositions[i * 2] = entries[i].Key.x;
@@ -54,6 +94,8 @@ public partial class FieldManager
             currentHealth[i] = entries[i].Value.CurrentHealth;
             maxHealth[i] = entries[i].Value.MaxHealth;
             revisions[i] = entries[i].Value.StateRevision;
+            levels[i] = entries[i].Value.CurrentLevel;
+            upgradeInvestments[i] = entries[i].Value.InvestedUpgradeGold;
         }
 
         return true;
@@ -76,6 +118,8 @@ public partial class FieldManager
             wall.CurrentHealth,
             wall.MaxHealth,
             wall.StateRevision,
+            wall.CurrentLevel,
+            wall.InvestedUpgradeGold,
             context);
     }
 
@@ -84,6 +128,8 @@ public partial class FieldManager
         float[] currentHealth,
         float[] maxHealth,
         int[] revisions,
+        int[] levels,
+        int[] upgradeInvestments,
         string context,
         out int restoredCount,
         out int failedCount)
@@ -94,12 +140,18 @@ public partial class FieldManager
         int healthCount = currentHealth?.Length ?? 0;
         int maxHealthCount = maxHealth?.Length ?? 0;
         int revisionCount = revisions?.Length ?? 0;
+        int levelCount = levels?.Length ?? 0;
+        int investmentCount = upgradeInvestments?.Length ?? 0;
         if ((flatPositions?.Length ?? 0) % 2 != 0
             || positionCount != healthCount
             || positionCount != maxHealthCount
-            || positionCount != revisionCount)
+            || positionCount != revisionCount
+            || positionCount != levelCount
+            || positionCount != investmentCount)
         {
-            failedCount = Math.Max(positionCount, Math.Max(healthCount, Math.Max(maxHealthCount, revisionCount)));
+            failedCount = Math.Max(
+                Math.Max(positionCount, healthCount),
+                Math.Max(Math.Max(maxHealthCount, revisionCount), Math.Max(levelCount, investmentCount)));
             return false;
         }
 
@@ -119,6 +171,7 @@ public partial class FieldManager
             if (!IsValidGridPosition(position)
                 || !placedWalls.TryGetValue(position, out DestructibleWall wall)
                 || wall == null
+                || !wall.RestoreProgressionAfterMigration(levels[i], upgradeInvestments[i])
                 || !wall.RestoreHealthAfterMigration(currentHealth[i], maxHealth[i], revisions[i]))
             {
                 failedCount++;
@@ -146,7 +199,9 @@ public partial class FieldManager
             out int[] flatPositions,
             out float[] currentHealth,
             out float[] maxHealth,
-            out int[] revisions);
+            out int[] revisions,
+            out int[] levels,
+            out int[] upgradeInvestments);
         var parts = new List<string>(currentHealth.Length);
         for (int i = 0; i < currentHealth.Length; i++)
         {
@@ -155,7 +210,9 @@ public partial class FieldManager
                 flatPositions[i * 2 + 1].ToString(CultureInfo.InvariantCulture),
                 currentHealth[i].ToString("R", CultureInfo.InvariantCulture),
                 maxHealth[i].ToString("R", CultureInfo.InvariantCulture),
-                revisions[i].ToString(CultureInfo.InvariantCulture)));
+                revisions[i].ToString(CultureInfo.InvariantCulture),
+                levels[i].ToString(CultureInfo.InvariantCulture),
+                upgradeInvestments[i].ToString(CultureInfo.InvariantCulture)));
         }
         return string.Join("|", parts);
     }

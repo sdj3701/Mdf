@@ -9,10 +9,12 @@ public sealed class WallRemovePanelInputEditModeTests
         string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/UI/WallRemovePanelController.cs");
 
         Assert.That(source, Does.Contain("ActiveControllers"));
-        Assert.That(source, Does.Contain("IsPointerOverActiveRemoveButton"));
+        Assert.That(source, Does.Contain("IsPointerOverActiveActionButton"));
         Assert.That(source, Does.Contain("MdfInput.PrimaryPointerWasReleasedThisFrame()"));
-        Assert.That(source, Does.Contain("IsPointerOverRemoveButton(MdfInput.PointerPosition)"));
+        Assert.That(source, Does.Contain("IsPointerOverButton(upgradeButton, pointerPosition)"));
+        Assert.That(source, Does.Contain("IsPointerOverButton(removeButton, pointerPosition)"));
         Assert.That(source, Does.Contain("OnRemoveButtonClicked();"));
+        Assert.That(source, Does.Contain("OnUpgradeButtonClicked();"));
         Assert.That(source, Does.Contain("RectTransformUtility.RectangleContainsScreenPoint"));
         Assert.That(source, Does.Contain("_removeRequested"));
     }
@@ -25,7 +27,7 @@ public sealed class WallRemovePanelInputEditModeTests
         Assert.That(methodStart, Is.GreaterThanOrEqualTo(0));
 
         string methodSource = source.Substring(methodStart);
-        int wallButtonCheck = methodSource.IndexOf("WallRemovePanelController.IsPointerOverActiveRemoveButton(pointerPosition)", System.StringComparison.Ordinal);
+        int wallButtonCheck = methodSource.IndexOf("WallRemovePanelController.IsPointerOverActiveActionButton(pointerPosition)", System.StringComparison.Ordinal);
         int toolkitCheck = methodSource.IndexOf("GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition)", System.StringComparison.Ordinal);
 
         Assert.That(wallButtonCheck, Is.GreaterThanOrEqualTo(0));

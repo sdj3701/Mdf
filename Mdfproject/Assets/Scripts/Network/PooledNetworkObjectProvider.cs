@@ -223,7 +223,7 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
         // 풀에서 재사용 가능한 인스턴스 확인
         if (_free.TryGetValue(prefabId, out var freePool) && freePool.TryRent(out var instance))
         {
-            instance.gameObject.SetActive(true);
+            PreparePooledInstanceForAcquire(instance, prefab);
             return instance;
         }
 
@@ -240,6 +240,30 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
         return Instantiate(prefab);
     }
 
+    private static void PreparePooledInstanceForAcquire(NetworkObject instance, NetworkObject prefab)
+    {
+        if (instance == null)
+        {
+            return;
+        }
+
+        // The inactive pool root is parented under NetworkManager. Some title/lobby layouts give
+        // that object a non-identity transform, so handing a still-parented object to Fusion shifts
+        // every replicated world pose by the manager's offset on that peer. Return a true root and
+        // restore the prefab transform before Fusion applies the authoritative spawn pose.
+        Transform instanceTransform = instance.transform;
+        instanceTransform.SetParent(null, false);
+        if (prefab != null)
+        {
+            Transform prefabTransform = prefab.transform;
+            instanceTransform.localPosition = prefabTransform.localPosition;
+            instanceTransform.localRotation = prefabTransform.localRotation;
+            instanceTransform.localScale = prefabTransform.localScale;
+        }
+
+        instance.gameObject.SetActive(true);
+    }
+
     protected virtual void DestroyPrefabInstance(NetworkRunner runner, NetworkPrefabId prefabId, NetworkObject instance)
     {
         var freePool = GetOrCreatePool(prefabId);
@@ -254,8 +278,8 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             return;
         }
 
-        instance.transform.SetParent(GetPoolRoot(), false);
         instance.gameObject.SetActive(false);
+        instance.transform.SetParent(GetPoolRoot(), false);
         if (!freePool.TryReturn(instance))
         {
             Destroy(instance.gameObject);

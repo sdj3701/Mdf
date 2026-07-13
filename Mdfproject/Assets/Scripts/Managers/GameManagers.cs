@@ -198,6 +198,29 @@ public partial class GameManagers : NetworkBehaviour
     private bool hasCombatBeenShortened = false;
     private bool firstPrepareDurationUsed = false;
     private bool isTransitioningRound = false; // 라운드 전환 중 중복 호출 방지
+    private const float LocalMonsterPrewarmTimeoutSeconds = 20f;
+    private const float RemoteMonsterPrewarmAckTimeoutSeconds = 22f;
+
+    private readonly struct RemoteMonsterPrewarmAck
+    {
+        public int PlayerId { get; }
+        public int Round { get; }
+        public int Revision { get; }
+        public bool Succeeded { get; }
+        public string Summary { get; }
+
+        public RemoteMonsterPrewarmAck(int playerId, int round, int revision, bool succeeded, string summary)
+        {
+            PlayerId = playerId;
+            Round = round;
+            Revision = revision;
+            Succeeded = succeeded;
+            Summary = summary ?? string.Empty;
+        }
+    }
+
+    private readonly Dictionary<PlayerRef, RemoteMonsterPrewarmAck> _remoteMonsterPrewarmAcks =
+        new Dictionary<PlayerRef, RemoteMonsterPrewarmAck>();
     private bool _hasBerserkTriggered = false;  // 폭주 모드 트리거 여부
     private bool _hasBerserkTriggeredBattle2 = false;  // Battle2 폭주 모드 트리거 여부
     
@@ -741,6 +764,173 @@ public partial class GameManagers : NetworkBehaviour
         {
             Debug.LogWarning($"[StartNextRound] Player initialization timeout: {string.Join(", ", pending)}");
         }
+    }
+
+    internal void RecordRemoteMonsterPrewarmCompletion(
+        PlayerRef source,
+        int playerId,
+        int round,
+        int revision,
+        bool succeeded,
+        string summary)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority || Runner == null || !Runner.IsRunning)
+        {
+            return;
+        }
+
+        PlayerManager player = GetPlayer(playerId);
+        bool sourceIsActive = source != PlayerRef.None && Runner.ActivePlayers.Contains(source);
+        bool sourceOwnsPlayer = player?.Object != null && player.Object.IsValid && player.Object.InputAuthority == source;
+        if (!sourceIsActive || !sourceOwnsPlayer)
+        {
+            Debug.LogWarning(
+                $"[StartNextRound] Rejected monster prewarm acknowledgement. " +
+                $"source={source}, playerId={playerId}, sourceActive={sourceIsActive}, sourceOwnsPlayer={sourceOwnsPlayer}");
+            return;
+        }
+
+        if (round != currentRound || revision != player.AttackMonsterPoolRevision)
+        {
+            Debug.LogWarning(
+                $"[StartNextRound] Ignored stale monster prewarm acknowledgement. " +
+                $"source={source}, playerId={playerId}, round={round}/{currentRound}, " +
+                $"revision={revision}/{player.AttackMonsterPoolRevision}");
+            return;
+        }
+
+        _remoteMonsterPrewarmAcks[source] = new RemoteMonsterPrewarmAck(
+            playerId,
+            round,
+            revision,
+            succeeded,
+            summary);
+    }
+
+    private async UniTask<MonsterPrewarmReport> AwaitMonsterPrewarmBoundedAsync(
+        System.Func<CancellationToken, UniTask<MonsterPrewarmReport>> prewarmFactory,
+        string context)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(GetLifecycleCancellationToken());
+        timeoutCts.CancelAfter(System.TimeSpan.FromSeconds(LocalMonsterPrewarmTimeoutSeconds));
+        try
+        {
+            return await prewarmFactory(timeoutCts.Token);
+        }
+        catch (System.OperationCanceledException)
+        {
+            string reason = _lifecycleCts != null && _lifecycleCts.IsCancellationRequested
+                ? "lifecycle canceled"
+                : $"timeout after {LocalMonsterPrewarmTimeoutSeconds:F0}s";
+            var canceled = MonsterPrewarmReport.Failed(context, 1, reason);
+            Debug.LogWarning($"[StartNextRound] Monster prewarm canceled; Prepare will continue. {canceled}");
+            return canceled;
+        }
+        catch (System.Exception exception)
+        {
+            var failure = MonsterPrewarmReport.Failed(context, 1, exception.Message);
+            Debug.LogWarning($"[StartNextRound] Monster prewarm failed; Prepare will continue. {failure}");
+            return failure;
+        }
+    }
+
+    private static void LogMonsterPrewarmReports(IReadOnlyList<MonsterPrewarmReport> reports, int round)
+    {
+        if (reports == null || reports.Count == 0)
+        {
+            Debug.LogWarning($"[StartNextRound] No monster prewarm work was scheduled for round {round}.");
+            return;
+        }
+
+        int failed = reports.Sum(report => report.FailedPrefabCount);
+        int requestedPrefabs = reports.Sum(report => report.RequestedPrefabCount);
+        int completedPrefabs = reports.Sum(report => report.CompletedPrefabCount);
+        if (failed > 0)
+        {
+            string details = string.Join(" || ", reports.Where(report => !report.Succeeded).Select(report => report.ToString()));
+            Debug.LogWarning(
+                $"[StartNextRound] Monster prewarm finished with failures; Prepare will continue. " +
+                $"round={round}, prefabs={completedPrefabs}/{requestedPrefabs}, failed={failed}, details={details}");
+            return;
+        }
+
+        Debug.Log(
+            $"[StartNextRound] Monster prewarm ready. round={round}, " +
+            $"prefabs={completedPrefabs}/{requestedPrefabs}");
+    }
+
+    private async UniTask WaitForRemoteMonsterPrewarmAcksAsync(int round)
+    {
+        if (Application.isBatchMode ||
+            Runner == null ||
+            !Runner.IsRunning ||
+            Runner.GameMode == GameMode.Single ||
+            Object == null ||
+            !Object.IsValid ||
+            !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        PlayerRef localRef = Runner.LocalPlayer;
+        var expectedPlayers = AllPlayers
+            .Where(player => player?.Object != null &&
+                             player.Object.IsValid &&
+                             player.GetHealth() > 0 &&
+                             player.Object.InputAuthority != PlayerRef.None &&
+                             player.Object.InputAuthority != localRef &&
+                             Runner.ActivePlayers.Contains(player.Object.InputAuthority))
+            .ToList();
+        if (expectedPlayers.Count == 0)
+        {
+            return;
+        }
+
+        float startedAt = Time.realtimeSinceStartup;
+        while (Time.realtimeSinceStartup - startedAt < RemoteMonsterPrewarmAckTimeoutSeconds)
+        {
+            if (Object == null ||
+                !Object.IsValid ||
+                !Object.HasStateAuthority ||
+                currentState != GameState.Prepare ||
+                currentRound != round)
+            {
+                return;
+            }
+
+            bool allCompleted = expectedPlayers.All(player =>
+                _remoteMonsterPrewarmAcks.TryGetValue(player.Object.InputAuthority, out RemoteMonsterPrewarmAck ack) &&
+                ack.PlayerId == player.playerId &&
+                ack.Round == round &&
+                ack.Revision == player.AttackMonsterPoolRevision);
+            if (allCompleted)
+            {
+                foreach (PlayerManager player in expectedPlayers)
+                {
+                    RemoteMonsterPrewarmAck ack = _remoteMonsterPrewarmAcks[player.Object.InputAuthority];
+                    if (!ack.Succeeded)
+                    {
+                        Debug.LogWarning(
+                            $"[StartNextRound] Remote monster prewarm reported failure; Prepare will continue. " +
+                            $"source={player.Object.InputAuthority}, playerId={ack.PlayerId}, round={round}, " +
+                            $"revision={ack.Revision}, summary={ack.Summary}");
+                    }
+                }
+                return;
+            }
+
+            await UniTask.Delay(50, DelayType.Realtime);
+        }
+
+        string pending = string.Join(", ", expectedPlayers
+            .Where(player => !_remoteMonsterPrewarmAcks.TryGetValue(player.Object.InputAuthority, out RemoteMonsterPrewarmAck ack) ||
+                             ack.PlayerId != player.playerId ||
+                             ack.Round != round ||
+                             ack.Revision != player.AttackMonsterPoolRevision)
+            .Select(player => $"{player.Object.InputAuthority}/P{player.playerId}/rev{player.AttackMonsterPoolRevision}"));
+        Debug.LogWarning(
+            $"[StartNextRound] Remote monster prewarm acknowledgement timeout after " +
+            $"{RemoteMonsterPrewarmAckTimeoutSeconds:F0}s; Prepare will continue. round={round}, pending={pending}");
     }
 
     private float _lastStateAuthorityLogTime = 0f;
@@ -1656,6 +1846,7 @@ public partial class GameManagers : NetworkBehaviour
 
         TryPushMigrationSnapshotForCriticalTransition($"StartNextRound:BeforePrepareTransition:R{currentRound}");
         TransitionToPrepareState("StartNextRound");
+        int preparePrewarmRound = currentRound;
 
         foreach (var player in AllPlayers)
         {
@@ -1663,6 +1854,16 @@ public partial class GameManagers : NetworkBehaviour
             player?.fieldManager?.BroadcastAuthoritativeUnitRoster("StartNextRound.RespawnAllUnits");
         }
 
+        List<PlayerManager> activePrewarmPlayers = AllPlayers
+            .Where(player => player != null && player.GetHealth() > 0)
+            .ToList();
+        int activePrewarmPlayerCount = Mathf.Max(1, activePrewarmPlayers.Count);
+        int maximumProjectedBlackMagic = activePrewarmPlayers
+            .Select(player => player.GetProjectedBlackMagicMaximumForRound(currentRound))
+            .DefaultIfEmpty(0)
+            .Max();
+        RoundWaveData nextWaveData = AddressablesManager.Instance?.WaveDatabase?.GetWaveForRound(currentRound);
+        var monsterPrewarmTasks = new List<UniTask<MonsterPrewarmReport>>();
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
@@ -1745,6 +1946,108 @@ public partial class GameManagers : NetworkBehaviour
             
             var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentNames);
             CommandProcessor.RequestCommandExecution(syncAugmentCmd);
+
+            if (player.monsterSpawner != null)
+            {
+                MonsterData[] presentedBosses = presentedAugments
+                    .Where(augment => augment?.bossMonsterData != null)
+                    .Select(augment => augment.bossMonsterData)
+                    .Distinct()
+                    .ToArray();
+                if (presentedBosses.Length > 0)
+                {
+                    // A boss acquired from this Prepare's choices is absent from the owned pool
+                    // until selection. Warm every offered candidate before the countdown starts.
+                    string bossPrewarmContext =
+                        $"StartNextRound.PresentedBosses.R{currentRound}.P{player.playerId}";
+                    monsterPrewarmTasks.Add(
+                        AwaitMonsterPrewarmBoundedAsync(
+                            cancellationToken => player.monsterSpawner.PrewarmMonsterDataSetAsync(
+                                presentedBosses,
+                                isBoss: true,
+                                requestedCount: 1,
+                                context: bossPrewarmContext,
+                                cancellationToken: cancellationToken),
+                            bossPrewarmContext));
+                }
+            }
+        }
+
+        // Build the next attack catalog during Prepare, not after Battle has already begun. The
+        // replicated snapshot makes every peer preload the same non-boss catalog; the authority
+        // also waits for its bounded pools and hidden shader warmup before arming the phase timer.
+        foreach (var player in AllPlayers)
+        {
+            if (player == null || !player.IsReadyForPlayerActions)
+            {
+                continue;
+            }
+
+            player.RefreshAttackMonsterPool(currentRound, schedulePrewarm: false);
+            if (player.monsterSpawner != null && player.AttackMonsterPool != null)
+            {
+                string catalogPrewarmContext =
+                    $"StartNextRound.Prepare.R{currentRound}.P{player.playerId}";
+                monsterPrewarmTasks.Add(
+                    AwaitMonsterPrewarmBoundedAsync(
+                        cancellationToken => player.monsterSpawner.PrewarmAttackMonsterPoolAsync(
+                            player.AttackMonsterPool,
+                            catalogPrewarmContext,
+                            activePrewarmPlayerCount,
+                            maximumProjectedBlackMagic,
+                            nextWaveData,
+                            cancellationToken),
+                        catalogPrewarmContext));
+            }
+        }
+        MonsterSpawner wavePrewarmSpawner = activePrewarmPlayers
+            .Select(player => player.monsterSpawner)
+            .FirstOrDefault(spawner => spawner != null);
+        if (nextWaveData != null && wavePrewarmSpawner != null)
+        {
+            string wavePrewarmContext = $"StartNextRound.NextWave.R{currentRound}";
+            monsterPrewarmTasks.Add(
+                AwaitMonsterPrewarmBoundedAsync(
+                    cancellationToken => wavePrewarmSpawner.PrewarmWaveAsync(
+                        nextWaveData,
+                        wavePrewarmContext,
+                        activePrewarmPlayerCount,
+                        cancellationToken),
+                    wavePrewarmContext));
+        }
+        else
+        {
+            Debug.LogWarning(
+                $"[StartNextRound] Next wave prewarm could not be scheduled. " +
+                $"round={currentRound}, waveReady={nextWaveData != null}, spawnerReady={wavePrewarmSpawner != null}");
+        }
+
+        if (monsterPrewarmTasks.Count > 0)
+        {
+            MonsterPrewarmReport[] monsterPrewarmReports = await UniTask.WhenAll(monsterPrewarmTasks);
+            LogMonsterPrewarmReports(monsterPrewarmReports, currentRound);
+        }
+
+        if (Object == null ||
+            !Object.IsValid ||
+            !Object.HasStateAuthority ||
+            currentState != GameState.Prepare ||
+            currentRound != preparePrewarmRound)
+        {
+            Debug.LogWarning(
+                $"[StartNextRound] Prepare generation changed during monster prewarm; timer will not be armed. " +
+                $"expectedRound={preparePrewarmRound}, actualRound={currentRound}, state={currentState}");
+            return;
+        }
+
+        await WaitForRemoteMonsterPrewarmAcksAsync(preparePrewarmRound);
+        if (Object == null ||
+            !Object.IsValid ||
+            !Object.HasStateAuthority ||
+            currentState != GameState.Prepare ||
+            currentRound != preparePrewarmRound)
+        {
+            return;
         }
 
         // UI 로직이 완료될 때까지 대기

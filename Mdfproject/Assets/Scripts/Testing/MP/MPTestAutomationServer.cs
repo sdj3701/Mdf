@@ -465,6 +465,12 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecuteRemoveWallCommand(body, commandName);
         }
 
+        if (string.Equals(commandName, "upgrade_wall", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "UpgradeWall", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteUpgradeWallCommand(body, commandName);
+        }
+
         if (string.Equals(commandName, "grant_permanent_walls", StringComparison.OrdinalIgnoreCase))
         {
             return ExecuteGrantPermanentWallsCommand(body, commandName);
@@ -493,7 +499,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecutePrepareVisualCaptureCommand(commandName);
         }
 
-        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, remove_wall, grant_permanent_walls, select_king, activate_king_skill, view_player_field, and prepare_visual_capture are currently supported by the runtime command harness.", new
+        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, upgrade_wall, remove_wall, grant_permanent_walls, select_king, activate_king_skill, view_player_field, and prepare_visual_capture are currently supported by the runtime command harness.", new
         {
             command = commandName
         });
@@ -1197,6 +1203,78 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         });
     }
 
+    private AutomationResponse ExecuteUpgradeWallCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        if (!TryGetPrepareCommandContext(commandName, playerId, out var gameManagers, out var player, out var field, out var failure))
+        {
+            return failure;
+        }
+
+        bool hasExplicitPosition = TryGetVector3Int(body, "position", out Vector3Int position)
+            || TryGetVector3Int(body, "target", out position)
+            || TryGetVector3IntByPrefix(body, "position", out position);
+        if (!hasExplicitPosition && !TryFindUpgradeWallPosition(field, out position, out string findReason))
+        {
+            return AutomationResponse.Fail("upgrade_wall_target_not_found", "No upgradeable destructible wall was found.", new
+            {
+                command = commandName,
+                playerId,
+                reason = findReason
+            });
+        }
+
+        DestructibleWall wall = field.GetWallAt(position);
+        int expectedLevel = GetInt(
+            body,
+            "expectedLevel",
+            GetInt(body, "expected_level", wall != null ? wall.CurrentLevel : -1));
+        if (!UpgradeWallCommand.TryValidate(
+                gameManagers,
+                playerId,
+                position,
+                expectedLevel,
+                requireStateAuthority: true,
+                out _,
+                out wall,
+                out int cost,
+                out string validationReason))
+        {
+            return AutomationResponse.Fail(validationReason, "upgrade_wall target failed validation.", new
+            {
+                command = commandName,
+                playerId,
+                expectedLevel,
+                position = new { position.x, position.y, position.z }
+            });
+        }
+
+        int goldBefore = player.GetGold();
+        int investmentBefore = wall.InvestedUpgradeGold;
+        gameManagers.CommandProcessor.RequestCommandExecution(
+            new UpgradeWallCommand(playerId, position, expectedLevel));
+        MPTestLogger.Log("automation_command", "begin", "upgrade_wall", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "position", position.ToString() },
+            { "expectedLevel", expectedLevel },
+            { "cost", cost },
+            { "goldBefore", goldBefore },
+            { "investmentBefore", investmentBefore }
+        });
+
+        return AutomationResponse.Ok("command queued", new
+        {
+            command = "upgrade_wall",
+            playerId,
+            position = new { position.x, position.y, position.z },
+            expectedLevel,
+            cost,
+            goldBefore,
+            investmentBefore
+        });
+    }
+
     private static bool TryGetPrepareCommandContext(
         string commandName,
         int playerId,
@@ -1320,6 +1398,34 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         }
 
         reason = "no_removable_wall";
+        return false;
+    }
+
+    private static bool TryFindUpgradeWallPosition(FieldManager field, out Vector3Int position, out string reason)
+    {
+        position = default;
+        reason = null;
+        if (field == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        for (int y = 0; y < field.gridSize.y; y++)
+        {
+            for (int x = 0; x < field.gridSize.x; x++)
+            {
+                var candidate = new Vector3Int(x, y, 0);
+                DestructibleWall wall = field.GetWallAt(candidate);
+                if (wall != null && wall.TryGetUpgradeQuote(wall.CurrentLevel, out _, out _, out _))
+                {
+                    position = candidate;
+                    return true;
+                }
+            }
+        }
+
+        reason = "no_upgradeable_destructible_wall";
         return false;
     }
 

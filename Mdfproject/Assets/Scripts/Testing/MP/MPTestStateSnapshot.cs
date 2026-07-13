@@ -304,6 +304,8 @@ public static class MPTestStateSnapshot
         float kingCameraFacingAngle = -1f;
         bool kingHeadLookActive = false;
         bool kingHeadLookApplied = false;
+        bool kingBaseHeadPoseComparable = false;
+        KingBaseHeadPoseDiagnostics kingBaseHeadPose = default;
         try
         {
             kingPresentationReady = player.TryCaptureKingPresentationDiagnostics(
@@ -319,6 +321,8 @@ public static class MPTestStateSnapshot
                 out kingCameraFacingAngle,
                 out kingHeadLookActive,
                 out kingHeadLookApplied);
+            kingBaseHeadPoseComparable = player.TryCaptureKingBaseHeadPoseDiagnostics(
+                out kingBaseHeadPose);
         }
         catch (Exception ex)
         {
@@ -376,6 +380,10 @@ public static class MPTestStateSnapshot
             KingCameraFacingAngle = kingOrientationReady ? kingCameraFacingAngle : (float?)null,
             KingHeadLookActive = kingOrientationReady ? kingHeadLookActive : (bool?)null,
             KingHeadLookApplied = kingOrientationReady ? kingHeadLookApplied : (bool?)null,
+            KingHeadPresentationMode = player.KingHeadPresentationMode,
+            KingHeadPose = string.IsNullOrEmpty(kingBaseHeadPose.BaseUnitKey)
+                ? null
+                : CaptureKingHeadPoseSnapshot(kingBaseHeadPoseComparable, kingBaseHeadPose),
             AttackMonsterPoolHash = CaptureAttackMonsterPoolHash(player),
             AttackMonsterPoolParts = CaptureAttackMonsterPoolParts(player),
             OwnedScrollsHash = CaptureOwnedScrollsHash(player),
@@ -386,6 +394,56 @@ public static class MPTestStateSnapshot
             Field = CaptureField(player, errors),
             Monsters = CaptureMonsters(player),
             Ai = CaptureAi(playerId, player)
+        };
+    }
+
+    private static KingHeadPoseSnapshot CaptureKingHeadPoseSnapshot(
+        bool comparable,
+        KingBaseHeadPoseDiagnostics source)
+    {
+        return new KingHeadPoseSnapshot
+        {
+            Comparable = comparable,
+            KingHeadFound = source.KingHeadFound,
+            BaseUnitFound = source.BaseUnitFound,
+            CameraFound = source.CameraFound,
+            BaseUnitKey = source.BaseUnitKey,
+            BaseUnitName = source.BaseUnitName,
+            KingHeadLookRecent = source.KingHeadFound ? source.KingHeadLookRecent : (bool?)null,
+            BaseHeadLookRecent = source.BaseUnitFound ? source.BaseHeadLookRecent : (bool?)null,
+            KingHeadLookFrameAge = source.KingHeadLookFrameAge >= 0
+                ? source.KingHeadLookFrameAge
+                : (int?)null,
+            BaseHeadLookFrameAge = source.BaseHeadLookFrameAge >= 0
+                ? source.BaseHeadLookFrameAge
+                : (int?)null,
+            KingAnimatorCullingMode = string.IsNullOrEmpty(source.KingAnimatorCullingMode)
+                ? null
+                : source.KingAnimatorCullingMode,
+            BaseAnimatorCullingMode = string.IsNullOrEmpty(source.BaseAnimatorCullingMode)
+                ? null
+                : source.BaseAnimatorCullingMode,
+            RootRelativeRotationDeltaDeg = comparable
+                ? source.RootRelativeRotationDeltaDeg
+                : (float?)null,
+            KingForwardElevationDeg = source.KingHeadFound
+                ? source.KingForwardElevationDeg
+                : (float?)null,
+            BaseForwardElevationDeg = source.BaseUnitFound
+                ? source.BaseForwardElevationDeg
+                : (float?)null,
+            KingToCameraAngleDeg = source.KingHeadFound && source.CameraFound
+                ? source.KingToCameraAngleDeg
+                : (float?)null,
+            BaseToCameraAngleDeg = source.BaseUnitFound && source.CameraFound
+                ? source.BaseToCameraAngleDeg
+                : (float?)null,
+            KingToConfiguredLookAngleDeg = source.KingHeadFound
+                ? source.KingToConfiguredLookAngleDeg
+                : (float?)null,
+            BaseToConfiguredLookAngleDeg = source.BaseUnitFound
+                ? source.BaseToConfiguredLookAngleDeg
+                : (float?)null
         };
     }
 
@@ -871,7 +929,9 @@ public static class MPTestStateSnapshot
                 PlayerPlacedPermanentWallCount = null,
                 PlayerPlacedPermanentWallHash = Unknown,
                 WallHash = Unknown,
+                WallParts = Array.Empty<string>(),
                 DestructibleWallHealthHash = Unknown,
+                DestructibleWallHealthParts = Array.Empty<string>(),
                 PathReady = false,
                 GoalReady = SafeBool(() => player.goalTransform != null, false),
                 GoalCell = Unknown,
@@ -884,6 +944,9 @@ public static class MPTestStateSnapshot
             ? Array.Empty<string>()
             : wallCells.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
         string destructibleWallHealth = SafeString(field.BuildDestructibleWallHealthSnapshot, string.Empty);
+        string[] destructibleWallHealthParts = string.IsNullOrEmpty(destructibleWallHealth)
+            ? Array.Empty<string>()
+            : destructibleWallHealth.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
         int[] playerPlacedPermanentWalls = SafeRef(
             field.GetPlayerPlacedPermanentWallFlatPositions,
             Array.Empty<int>());
@@ -933,7 +996,9 @@ public static class MPTestStateSnapshot
             PlayerPlacedPermanentWallCount = playerPlacedPermanentWallParts.Count,
             PlayerPlacedPermanentWallHash = HashStableParts(playerPlacedPermanentWallParts),
             WallHash = HashStableString(wallCells),
+            WallParts = wallParts,
             DestructibleWallHealthHash = HashStableString(destructibleWallHealth),
+            DestructibleWallHealthParts = destructibleWallHealthParts,
             PathReady = SafeBool(() => player.astarGrid != null, false),
             GoalReady = SafeBool(() => player.goalTransform != null, false),
             GoalCell = SafeString(() =>
@@ -1787,6 +1852,8 @@ public static class MPTestStateSnapshot
         [JsonProperty("kingCameraFacingAngle")] public float? KingCameraFacingAngle;
         [JsonProperty("kingHeadLookActive")] public bool? KingHeadLookActive;
         [JsonProperty("kingHeadLookApplied")] public bool? KingHeadLookApplied;
+        [JsonProperty("kingHeadPresentationMode")] public string KingHeadPresentationMode;
+        [JsonProperty("kingHeadPose")] public KingHeadPoseSnapshot KingHeadPose;
         [JsonProperty("attackMonsterPoolHash")] public string AttackMonsterPoolHash;
         [JsonProperty("attackMonsterPoolParts")] public string[] AttackMonsterPoolParts;
         [JsonProperty("ownedScrollsHash")] public string OwnedScrollsHash;
@@ -1797,6 +1864,30 @@ public static class MPTestStateSnapshot
         [JsonProperty("field")] public FieldSnapshot Field;
         [JsonProperty("monsters")] public MonsterSnapshot Monsters;
         [JsonProperty("ai")] public AiSnapshot Ai;
+    }
+
+    [Serializable]
+    public sealed class KingHeadPoseSnapshot
+    {
+        [JsonProperty("comparable")] public bool Comparable;
+        [JsonProperty("kingHeadFound")] public bool KingHeadFound;
+        [JsonProperty("baseUnitFound")] public bool BaseUnitFound;
+        [JsonProperty("cameraFound")] public bool CameraFound;
+        [JsonProperty("baseUnitKey")] public string BaseUnitKey;
+        [JsonProperty("baseUnitName")] public string BaseUnitName;
+        [JsonProperty("kingHeadLookRecent")] public bool? KingHeadLookRecent;
+        [JsonProperty("baseHeadLookRecent")] public bool? BaseHeadLookRecent;
+        [JsonProperty("kingHeadLookFrameAge")] public int? KingHeadLookFrameAge;
+        [JsonProperty("baseHeadLookFrameAge")] public int? BaseHeadLookFrameAge;
+        [JsonProperty("kingAnimatorCullingMode")] public string KingAnimatorCullingMode;
+        [JsonProperty("baseAnimatorCullingMode")] public string BaseAnimatorCullingMode;
+        [JsonProperty("rootRelativeRotationDeltaDeg")] public float? RootRelativeRotationDeltaDeg;
+        [JsonProperty("kingForwardElevationDeg")] public float? KingForwardElevationDeg;
+        [JsonProperty("baseForwardElevationDeg")] public float? BaseForwardElevationDeg;
+        [JsonProperty("kingToCameraAngleDeg")] public float? KingToCameraAngleDeg;
+        [JsonProperty("baseToCameraAngleDeg")] public float? BaseToCameraAngleDeg;
+        [JsonProperty("kingToConfiguredLookAngleDeg")] public float? KingToConfiguredLookAngleDeg;
+        [JsonProperty("baseToConfiguredLookAngleDeg")] public float? BaseToConfiguredLookAngleDeg;
     }
 
     [Serializable]
@@ -1841,7 +1932,9 @@ public static class MPTestStateSnapshot
         [JsonProperty("playerPlacedPermanentWallCount")] public int? PlayerPlacedPermanentWallCount;
         [JsonProperty("playerPlacedPermanentWallHash")] public string PlayerPlacedPermanentWallHash;
         [JsonProperty("wallHash")] public string WallHash;
+        [JsonProperty("wallParts")] public string[] WallParts;
         [JsonProperty("destructibleWallHealthHash")] public string DestructibleWallHealthHash;
+        [JsonProperty("destructibleWallHealthParts")] public string[] DestructibleWallHealthParts;
         [JsonProperty("pathReady")] public bool PathReady;
         [JsonProperty("goalReady")] public bool GoalReady;
         [JsonProperty("goalCell")] public string GoalCell;

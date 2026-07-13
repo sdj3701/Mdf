@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using System.Collections.Generic;
+using TMPro;
 
 /// <summary>
 /// 벽 제거 패널 컨트롤러. 벽을 선택했을 때 제거 버튼을 표시합니다.
@@ -13,6 +14,8 @@ public class WallRemovePanelController : MonoBehaviour
 
     [Header("UI")]
     [SerializeField] private Button removeButton;
+    [SerializeField] private Button upgradeButton;
+    [SerializeField] private TMP_Text upgradeLabel;
     [SerializeField] private Vector3 worldOffset = new Vector3(0.5f, 2f, 0f);
     [SerializeField] private Vector2 screenOffset = Vector2.zero;
     [SerializeField] private bool overrideSorting = true;
@@ -26,11 +29,24 @@ public class WallRemovePanelController : MonoBehaviour
     private RectTransform _rectTransform;
     private Canvas _selfCanvas;
     private bool _removeRequested;
+    private bool _upgradeRequested;
+    private int _lastRemoveDispatchFrame = -1;
+    private int _lastUpgradeDispatchFrame = -1;
+    private int _requestedUpgradeLevel;
+    private float _upgradeRequestDeadline;
+    private DestructibleWall _currentDestructibleWall;
+    private RectTransform _removeButtonRect;
+    private Vector2 _removeWithUpgradePosition;
 
     private void Awake()
     {
         _rectTransform = GetComponent<RectTransform>();
         _selfCanvas = GetComponent<Canvas>();
+        _removeButtonRect = removeButton != null ? removeButton.transform as RectTransform : null;
+        if (_removeButtonRect != null)
+        {
+            _removeWithUpgradePosition = _removeButtonRect.anchoredPosition;
+        }
     }
 
     private void OnEnable()
@@ -41,6 +57,7 @@ public class WallRemovePanelController : MonoBehaviour
         }
 
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
+        GameEvents.OnPlayerStatsChanged += HandlePlayerStatsChanged;
     }
 
     private void OnDisable()
@@ -49,18 +66,43 @@ public class WallRemovePanelController : MonoBehaviour
         {
             removeButton.onClick.RemoveListener(OnRemoveButtonClicked);
         }
+        if (upgradeButton != null)
+        {
+            upgradeButton.onClick.RemoveListener(OnUpgradeButtonClicked);
+        }
+        UnsubscribeFromCurrentWall();
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
+        GameEvents.OnPlayerStatsChanged -= HandlePlayerStatsChanged;
         ActiveControllers.Remove(this);
         _currentWall = null;
         _fieldManager = null;
         _targetCanvas = null;
         _targetCamera = null;
         _removeRequested = false;
+        _upgradeRequested = false;
+        _lastRemoveDispatchFrame = -1;
+        _lastUpgradeDispatchFrame = -1;
     }
 
     private void Update()
     {
-        if (MdfInput.PrimaryPointerWasReleasedThisFrame() && IsPointerOverRemoveButton(MdfInput.PointerPosition))
+        if (_upgradeRequested && Time.unscaledTime >= _upgradeRequestDeadline)
+        {
+            _upgradeRequested = false;
+            UpdateActionSection();
+        }
+
+        if (!MdfInput.PrimaryPointerWasReleasedThisFrame())
+        {
+            return;
+        }
+
+        Vector2 pointerPosition = MdfInput.PointerPosition;
+        if (IsPointerOverButton(upgradeButton, pointerPosition))
+        {
+            OnUpgradeButtonClicked();
+        }
+        else if (IsPointerOverButton(removeButton, pointerPosition))
         {
             OnRemoveButtonClicked();
         }
@@ -77,12 +119,21 @@ public class WallRemovePanelController : MonoBehaviour
     /// </summary>
     public void Bind(GameObject wall, Vector3Int gridPosition, FieldManager manager)
     {
+        UnsubscribeFromCurrentWall();
         _currentWall = wall;
+        _currentDestructibleWall = wall != null ? wall.GetComponent<DestructibleWall>() : null;
+        if (_currentDestructibleWall != null)
+        {
+            _currentDestructibleWall.OnUpgradeChanged += HandleWallUpgradeChanged;
+        }
         _wallGridPosition = gridPosition;
         _fieldManager = manager;
         _targetCanvas = UIManagers.Instance != null ? UIManagers.Instance.mainCanvas : null;
         _targetCamera = manager != null ? manager.PlayerCamera : Camera.main;
         _removeRequested = false;
+        _upgradeRequested = false;
+        _lastRemoveDispatchFrame = -1;
+        _lastUpgradeDispatchFrame = -1;
 
         if (_selfCanvas != null && _selfCanvas.renderMode == RenderMode.WorldSpace)
         {
@@ -95,28 +146,89 @@ public class WallRemovePanelController : MonoBehaviour
         }
 
         ApplyBillboardCamera(_targetCamera);
-        HookRemoveButton();
-        UpdateRemoveSection();
+        HookButtons();
+        UpdateActionSection();
         UpdatePosition();
     }
 
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
-        UpdateRemoveSection();
+        UpdateActionSection();
     }
 
-    private void HookRemoveButton()
+    private void HandlePlayerStatsChanged(int playerId, int health, int gold)
     {
-        if (removeButton == null) return;
-        removeButton.onClick.RemoveListener(OnRemoveButtonClicked);
-        removeButton.onClick.AddListener(OnRemoveButtonClicked);
+        if (_fieldManager != null && _fieldManager.playerManager != null &&
+            _fieldManager.playerManager.playerId == playerId)
+        {
+            UpdateActionSection();
+        }
     }
 
-    private void UpdateRemoveSection()
+    private void HandleWallUpgradeChanged(int level, int investedGold)
+    {
+        if (_upgradeRequested && level != _requestedUpgradeLevel)
+        {
+            _upgradeRequested = false;
+        }
+        UpdateActionSection();
+    }
+
+    private void HookButtons()
+    {
+        if (removeButton != null)
+        {
+            removeButton.onClick.RemoveListener(OnRemoveButtonClicked);
+            removeButton.onClick.AddListener(OnRemoveButtonClicked);
+        }
+        if (upgradeButton != null)
+        {
+            upgradeButton.onClick.RemoveListener(OnUpgradeButtonClicked);
+            upgradeButton.onClick.AddListener(OnUpgradeButtonClicked);
+        }
+    }
+
+    private void UpdateActionSection()
     {
         if (removeButton != null)
         {
             removeButton.interactable = CanRemoveCurrentWall();
+        }
+
+        bool isUpgradeableWall = _currentDestructibleWall != null;
+        if (upgradeButton != null)
+        {
+            upgradeButton.gameObject.SetActive(isUpgradeableWall);
+        }
+        if (_removeButtonRect != null)
+        {
+            _removeButtonRect.anchoredPosition = isUpgradeableWall
+                ? _removeWithUpgradePosition
+                : new Vector2(0f, _removeWithUpgradePosition.y);
+        }
+        if (!isUpgradeableWall)
+        {
+            return;
+        }
+
+        int currentLevel = _currentDestructibleWall.CurrentLevel;
+        bool hasQuote = _currentDestructibleWall.TryGetUpgradeQuote(
+            currentLevel,
+            out int nextLevel,
+            out int cost,
+            out _);
+        PlayerManager owner = _fieldManager != null ? _fieldManager.playerManager : null;
+        bool canUpgrade = hasQuote && !_upgradeRequested && CanRemoveCurrentWall() &&
+                          owner != null && owner.GetGold() >= cost;
+        if (upgradeButton != null)
+        {
+            upgradeButton.interactable = canUpgrade;
+        }
+        if (upgradeLabel != null)
+        {
+            upgradeLabel.text = hasQuote
+                ? $"UP {currentLevel}>{nextLevel}\n{cost}"
+                : $"Lv.{currentLevel} MAX";
         }
     }
 
@@ -141,34 +253,77 @@ public class WallRemovePanelController : MonoBehaviour
 
     private void OnRemoveButtonClicked()
     {
-        if (_removeRequested)
+        int dispatchFrame = Time.frameCount;
+        if (_removeRequested || _lastRemoveDispatchFrame == dispatchFrame)
         {
             return;
         }
 
         if (!CanRemoveCurrentWall()) return;
-        _removeRequested = true;
-
         var commandProcessor = GameManagers.Instance != null
             ? GameManagers.Instance.CommandProcessor
             : null;
-        if (commandProcessor != null)
-        {
-            var command = new RemoveWallCommand(_fieldManager.playerManager.playerId, _wallGridPosition);
-            commandProcessor.RequestCommandExecution(command);
-        }
-        else
+        if (commandProcessor == null)
         {
             // Durable wall state is authority-owned; never mutate or refund directly from UI.
-            _removeRequested = false;
             return;
         }
 
         // 벽 제거 후 모든 선택 UI 패널 숨기기 (유닛 디테일, 유닛 판매, 벽 제거)
+        // World-space fallback input and Unity's Button.onClick can both fire for one release.
+        // Keep this guard even when the authority completes the command within the same frame.
+        _lastRemoveDispatchFrame = dispatchFrame;
+        _removeRequested = true;
+        var command = new RemoveWallCommand(_fieldManager.playerManager.playerId, _wallGridPosition);
+        commandProcessor.RequestCommandExecution(command);
         _fieldManager.HideAllSelectionPanels();
     }
 
+    private void OnUpgradeButtonClicked()
+    {
+        int dispatchFrame = Time.frameCount;
+        if (_upgradeRequested || _lastUpgradeDispatchFrame == dispatchFrame ||
+            _currentDestructibleWall == null)
+        {
+            return;
+        }
+
+        int expectedLevel = _currentDestructibleWall.CurrentLevel;
+        if (!_currentDestructibleWall.TryGetUpgradeQuote(expectedLevel, out _, out int cost, out _))
+        {
+            return;
+        }
+        PlayerManager owner = _fieldManager != null ? _fieldManager.playerManager : null;
+        if (!CanRemoveCurrentWall() || owner == null || owner.GetGold() < cost)
+        {
+            return;
+        }
+
+        CommandProcessor commandProcessor = GameManagers.Instance != null
+            ? GameManagers.Instance.CommandProcessor
+            : null;
+        if (commandProcessor == null)
+        {
+            return;
+        }
+
+        // The command may finish synchronously on the host and clear _upgradeRequested before
+        // Button.onClick runs. The frame gate still prevents one release from buying two levels.
+        _lastUpgradeDispatchFrame = dispatchFrame;
+        _upgradeRequested = true;
+        _requestedUpgradeLevel = expectedLevel;
+        _upgradeRequestDeadline = Time.unscaledTime + 2f;
+        UpdateActionSection();
+        commandProcessor.RequestCommandExecution(
+            new UpgradeWallCommand(owner.playerId, _wallGridPosition, expectedLevel));
+    }
+
     public static bool IsPointerOverActiveRemoveButton(Vector2 screenPosition)
+    {
+        return IsPointerOverActiveActionButton(screenPosition);
+    }
+
+    public static bool IsPointerOverActiveActionButton(Vector2 screenPosition)
     {
         for (int i = ActiveControllers.Count - 1; i >= 0; i--)
         {
@@ -179,7 +334,9 @@ public class WallRemovePanelController : MonoBehaviour
                 continue;
             }
 
-            if (controller.isActiveAndEnabled && controller.IsPointerOverRemoveButton(screenPosition))
+            if (controller.isActiveAndEnabled &&
+                (controller.IsPointerOverButton(controller.removeButton, screenPosition) ||
+                 controller.IsPointerOverButton(controller.upgradeButton, screenPosition)))
             {
                 return true;
             }
@@ -188,21 +345,21 @@ public class WallRemovePanelController : MonoBehaviour
         return false;
     }
 
-    private bool IsPointerOverRemoveButton(Vector2 screenPosition)
+    private bool IsPointerOverButton(Button button, Vector2 screenPosition)
     {
-        if (removeButton == null || !removeButton.gameObject.activeInHierarchy)
+        if (button == null || !button.gameObject.activeInHierarchy)
         {
             return false;
         }
 
-        var buttonRect = removeButton.transform as RectTransform;
+        var buttonRect = button.transform as RectTransform;
         if (buttonRect == null)
         {
             return false;
         }
 
         Camera eventCamera = null;
-        Canvas buttonCanvas = removeButton.GetComponentInParent<Canvas>();
+        Canvas buttonCanvas = button.GetComponentInParent<Canvas>();
         if (buttonCanvas != null && buttonCanvas.renderMode != RenderMode.ScreenSpaceOverlay)
         {
             eventCamera = buttonCanvas.worldCamera != null ? buttonCanvas.worldCamera : _targetCamera;
@@ -225,6 +382,15 @@ public class WallRemovePanelController : MonoBehaviour
         float maxY = Mathf.Max(ButtonWorldCorners[0].y, ButtonWorldCorners[2].y);
         return screenPosition.x >= minX && screenPosition.x <= maxX &&
                screenPosition.y >= minY && screenPosition.y <= maxY;
+    }
+
+    private void UnsubscribeFromCurrentWall()
+    {
+        if (_currentDestructibleWall != null)
+        {
+            _currentDestructibleWall.OnUpgradeChanged -= HandleWallUpgradeChanged;
+        }
+        _currentDestructibleWall = null;
     }
 
     private void UpdatePosition()

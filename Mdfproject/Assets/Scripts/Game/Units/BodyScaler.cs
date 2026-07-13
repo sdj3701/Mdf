@@ -71,16 +71,19 @@ public class BodyScaler : MonoBehaviour
         if (!isScalingNeeded) return;
 
         // 1. 몸통 뼈들의 스케일을 조절합니다.
-        foreach (Transform bone in bodyBones)
+        if (bodyBones != null)
         {
-            if (originalLocalScales.TryGetValue(bone, out Vector3 originalScale))
+            foreach (Transform bone in bodyBones)
             {
-                // [최종 축 매핑] 모든 피드백을 반영한 최종 축 설정
-                bone.localScale = new Vector3(
-                    originalScale.x * bodyHeight, // X축 -> 높이(Height)
-                    originalScale.y * bodyDepth,  // Y축 -> 깊이(Depth)
-                    originalScale.z * bodyWidth   // Z축 -> 너비(Width)
-                );
+                if (bone != null && originalLocalScales.TryGetValue(bone, out Vector3 originalScale))
+                {
+                    // [최종 축 매핑] 모든 피드백을 반영한 최종 축 설정
+                    bone.localScale = new Vector3(
+                        originalScale.x * bodyHeight, // X축 -> 높이(Height)
+                        originalScale.y * bodyDepth,  // Y축 -> 깊이(Depth)
+                        originalScale.z * bodyWidth   // Z축 -> 너비(Width)
+                    );
+                }
             }
         }
 

@@ -1,12 +1,14 @@
+using System;
 using System.Collections.Generic;
 using Fusion;
 using UnityEngine;
 
 /// <summary>
-/// Creates a presentation-only copy of a unit prefab without instantiating any gameplay component.
-/// The source prefab is treated as a read-only visual template: only transforms, renderers, meshes,
-/// native Animator settings, and the presentation-only head-look controller are copied into
-/// newly-created objects.
+/// Creates a presentation-only copy of a unit prefab without ever activating its gameplay code.
+/// The complete serialized prefab is cloned under an inactive staging parent first, then every
+/// non-presentation component is removed before the result can enter the active hierarchy. This
+/// preserves native Animator/Humanoid bindings and renderer state exactly as authored on the base
+/// unit instead of reconstructing those components at runtime.
 /// </summary>
 public static class KingVisualCloneUtility
 {
@@ -23,23 +25,54 @@ public static class KingVisualCloneUtility
             return null;
         }
 
-        GameObject root = CreateTransformHierarchy(source.transform, parent, transformMap, true);
-        if (root == null)
+        GameObject stagingRoot = new GameObject("KingVisualCloneStaging");
+        stagingRoot.SetActive(false);
+        if (parent != null)
         {
-            return null;
+            stagingRoot.transform.SetParent(parent, false);
         }
 
-        CopyVisualComponents(source.transform, transformMap, ref primaryAnimator);
-        if (!IsPresentationOnly(root))
+        GameObject clone = null;
+        try
         {
-            Debug.LogError($"[King] Unsafe gameplay component was found in visual-only clone '{source.name}'.");
-            DestroySafely(root);
+            // activeInHierarchy remains false while Unity copies the serialized prefab, so Unit,
+            // NetworkBehaviour, and other gameplay lifecycle methods cannot run before stripping.
+            clone = UnityEngine.Object.Instantiate(source, stagingRoot.transform, false);
+            clone.SetActive(false);
+            clone.name = source.name;
+
+            MapTransformHierarchy(source.transform, clone.transform, transformMap);
+            StripNonPresentationComponents(clone);
+
+            clone.transform.SetParent(parent, false);
+            primaryAnimator = clone.GetComponentInChildren<Animator>(true);
+            if (!IsPresentationOnly(clone))
+            {
+                Debug.LogError($"[King] Unsafe gameplay component remained in visual-only clone '{source.name}'.");
+                DestroyImmediately(clone);
+                clone = null;
+                primaryAnimator = null;
+                transformMap.Clear();
+            }
+
+            return clone;
+        }
+        catch (Exception exception)
+        {
+            Debug.LogError($"[King] Failed to create visual-only clone '{source.name}': {exception.Message}");
+            if (clone != null)
+            {
+                DestroyImmediately(clone);
+            }
+
             primaryAnimator = null;
             transformMap.Clear();
             return null;
         }
-
-        return root;
+        finally
+        {
+            DestroyImmediately(stagingRoot);
+        }
     }
 
     public static bool IsPresentationOnly(GameObject root)
@@ -54,10 +87,10 @@ public static class KingVisualCloneUtility
             return false;
         }
 
-        MonoBehaviour[] behaviours = root.GetComponentsInChildren<MonoBehaviour>(true);
-        for (int i = 0; i < behaviours.Length; i++)
+        Component[] components = root.GetComponentsInChildren<Component>(true);
+        for (int i = 0; i < components.Length; i++)
         {
-            if (!(behaviours[i] is HeadLookController))
+            if (!IsAllowedPresentationComponent(components[i]))
             {
                 return false;
             }
@@ -66,236 +99,70 @@ public static class KingVisualCloneUtility
         return true;
     }
 
-    private static GameObject CreateTransformHierarchy(
-        Transform source,
-        Transform parent,
-        Dictionary<Transform, Transform> transformMap,
-        bool isRoot)
+    private static void StripNonPresentationComponents(GameObject root)
     {
-        if (source == null)
-        {
-            return null;
-        }
+        Component[] components = root.GetComponentsInChildren<Component>(true);
 
-        var clone = new GameObject(source.name);
-        if (isRoot)
+        // Remove gameplay behaviours first so native dependencies such as NetworkObject and
+        // Rigidbody can then be removed without leaving a live behaviour attached to them.
+        for (int i = 0; i < components.Length; i++)
         {
-            // Keep the complete hierarchy inactive until every visual component is configured.
-            clone.SetActive(false);
-        }
-
-        clone.layer = source.gameObject.layer;
-        Transform cloneTransform = clone.transform;
-        cloneTransform.SetParent(parent, false);
-        cloneTransform.localPosition = source.localPosition;
-        cloneTransform.localRotation = source.localRotation;
-        cloneTransform.localScale = source.localScale;
-        transformMap[source] = cloneTransform;
-
-        int childCount = source.childCount;
-        for (int i = 0; i < childCount; i++)
-        {
-            Transform sourceChild = source.GetChild(i);
-            GameObject clonedChild = CreateTransformHierarchy(
-                sourceChild,
-                cloneTransform,
-                transformMap,
-                false);
-            if (clonedChild != null)
+            Component component = components[i];
+            if (component != null
+                && component is MonoBehaviour
+                && !(component is NetworkObject)
+                && !IsAllowedPresentationComponent(component))
             {
-                clonedChild.SetActive(sourceChild.gameObject.activeSelf);
+                DestroyImmediately(component);
             }
         }
 
-        return clone;
-    }
-
-    private static void CopyVisualComponents(
-        Transform sourceRoot,
-        Dictionary<Transform, Transform> transformMap,
-        ref Animator primaryAnimator)
-    {
-        Transform[] sourceTransforms = sourceRoot.GetComponentsInChildren<Transform>(true);
-        for (int i = 0; i < sourceTransforms.Length; i++)
+        components = root.GetComponentsInChildren<Component>(true);
+        for (int i = 0; i < components.Length; i++)
         {
-            Transform sourceTransform = sourceTransforms[i];
-            if (sourceTransform == null || !transformMap.TryGetValue(sourceTransform, out Transform cloneTransform))
+            Component component = components[i];
+            if (component != null && !IsAllowedPresentationComponent(component))
             {
-                continue;
+                DestroyImmediately(component);
             }
-
-            CopyMeshFilter(sourceTransform, cloneTransform);
-            CopyMeshRenderer(sourceTransform, cloneTransform);
-            CopySkinnedMeshRenderer(sourceTransform, cloneTransform, transformMap);
-            CopySpriteRenderer(sourceTransform, cloneTransform);
-            CopyAnimator(sourceTransform, cloneTransform, ref primaryAnimator);
-            CopyHeadLookController(sourceTransform, cloneTransform);
         }
     }
 
-    private static void CopyMeshFilter(Transform source, Transform clone)
+    private static bool IsAllowedPresentationComponent(Component component)
     {
-        MeshFilter sourceFilter = source.GetComponent<MeshFilter>();
-        if (sourceFilter == null)
-        {
-            return;
-        }
-
-        MeshFilter cloneFilter = clone.gameObject.AddComponent<MeshFilter>();
-        cloneFilter.sharedMesh = sourceFilter.sharedMesh;
+        return component is Transform
+               || component is Animator
+               || component is Renderer
+               || component is MeshFilter
+               || component is HeadLookController
+               || component is UnitOrientationFixer
+               || component is BodyScaler;
     }
 
-    private static void CopyMeshRenderer(Transform source, Transform clone)
-    {
-        MeshRenderer sourceRenderer = source.GetComponent<MeshRenderer>();
-        if (sourceRenderer == null)
-        {
-            return;
-        }
-
-        MeshRenderer cloneRenderer = clone.gameObject.AddComponent<MeshRenderer>();
-        CopyRendererSettings(sourceRenderer, cloneRenderer);
-    }
-
-    private static void CopySkinnedMeshRenderer(
+    private static void MapTransformHierarchy(
         Transform source,
         Transform clone,
         Dictionary<Transform, Transform> transformMap)
     {
-        SkinnedMeshRenderer sourceRenderer = source.GetComponent<SkinnedMeshRenderer>();
-        if (sourceRenderer == null)
+        if (source == null || clone == null)
         {
             return;
         }
 
-        SkinnedMeshRenderer cloneRenderer = clone.gameObject.AddComponent<SkinnedMeshRenderer>();
-        CopyRendererSettings(sourceRenderer, cloneRenderer);
-        cloneRenderer.sharedMesh = sourceRenderer.sharedMesh;
-        cloneRenderer.quality = sourceRenderer.quality;
-        cloneRenderer.updateWhenOffscreen = sourceRenderer.updateWhenOffscreen;
-        cloneRenderer.skinnedMotionVectors = sourceRenderer.skinnedMotionVectors;
-        cloneRenderer.localBounds = sourceRenderer.localBounds;
-
-        Transform[] sourceBones = sourceRenderer.bones;
-        var cloneBones = new Transform[sourceBones.Length];
-        for (int i = 0; i < sourceBones.Length; i++)
+        transformMap[source] = clone;
+        int childCount = Mathf.Min(source.childCount, clone.childCount);
+        for (int i = 0; i < childCount; i++)
         {
-            Transform sourceBone = sourceBones[i];
-            if (sourceBone != null)
-            {
-                transformMap.TryGetValue(sourceBone, out cloneBones[i]);
-            }
-        }
-        cloneRenderer.bones = cloneBones;
-
-        if (sourceRenderer.rootBone != null
-            && transformMap.TryGetValue(sourceRenderer.rootBone, out Transform cloneRootBone))
-        {
-            cloneRenderer.rootBone = cloneRootBone;
-        }
-
-        Mesh mesh = sourceRenderer.sharedMesh;
-        if (mesh == null)
-        {
-            return;
-        }
-
-        int blendShapeCount = mesh.blendShapeCount;
-        for (int i = 0; i < blendShapeCount; i++)
-        {
-            cloneRenderer.SetBlendShapeWeight(i, sourceRenderer.GetBlendShapeWeight(i));
+            MapTransformHierarchy(source.GetChild(i), clone.GetChild(i), transformMap);
         }
     }
 
-    private static void CopySpriteRenderer(Transform source, Transform clone)
+    private static void DestroyImmediately(UnityEngine.Object target)
     {
-        SpriteRenderer sourceRenderer = source.GetComponent<SpriteRenderer>();
-        if (sourceRenderer == null)
+        if (target != null)
         {
-            return;
-        }
-
-        SpriteRenderer cloneRenderer = clone.gameObject.AddComponent<SpriteRenderer>();
-        CopyRendererSettings(sourceRenderer, cloneRenderer);
-        cloneRenderer.sprite = sourceRenderer.sprite;
-        cloneRenderer.color = sourceRenderer.color;
-        cloneRenderer.flipX = sourceRenderer.flipX;
-        cloneRenderer.flipY = sourceRenderer.flipY;
-        cloneRenderer.drawMode = sourceRenderer.drawMode;
-        cloneRenderer.size = sourceRenderer.size;
-        cloneRenderer.tileMode = sourceRenderer.tileMode;
-        cloneRenderer.maskInteraction = sourceRenderer.maskInteraction;
-        cloneRenderer.spriteSortPoint = sourceRenderer.spriteSortPoint;
-    }
-
-    private static void CopyAnimator(Transform source, Transform clone, ref Animator primaryAnimator)
-    {
-        Animator sourceAnimator = source.GetComponent<Animator>();
-        if (sourceAnimator == null)
-        {
-            return;
-        }
-
-        Animator cloneAnimator = clone.gameObject.AddComponent<Animator>();
-        cloneAnimator.runtimeAnimatorController = sourceAnimator.runtimeAnimatorController;
-        cloneAnimator.avatar = sourceAnimator.avatar;
-        cloneAnimator.applyRootMotion = false;
-        cloneAnimator.updateMode = sourceAnimator.updateMode;
-        cloneAnimator.cullingMode = sourceAnimator.cullingMode;
-        cloneAnimator.speed = sourceAnimator.speed;
-        cloneAnimator.fireEvents = sourceAnimator.fireEvents;
-        cloneAnimator.enabled = sourceAnimator.enabled;
-        if (primaryAnimator == null)
-        {
-            primaryAnimator = cloneAnimator;
-        }
-    }
-
-    private static void CopyHeadLookController(Transform source, Transform clone)
-    {
-        HeadLookController sourceHeadLook = source.GetComponent<HeadLookController>();
-        if (sourceHeadLook == null || clone.GetComponent<Animator>() == null)
-        {
-            return;
-        }
-
-        HeadLookController cloneHeadLook = clone.gameObject.AddComponent<HeadLookController>();
-        cloneHeadLook.enabled = sourceHeadLook.enabled;
-        cloneHeadLook.lookAtWeight = sourceHeadLook.lookAtWeight;
-        cloneHeadLook.tiltAngle = sourceHeadLook.tiltAngle;
-        cloneHeadLook.lookAtBodyWeight = sourceHeadLook.lookAtBodyWeight;
-        cloneHeadLook.lookAtHeadWeight = sourceHeadLook.lookAtHeadWeight;
-        cloneHeadLook.lookAtClampWeight = sourceHeadLook.lookAtClampWeight;
-    }
-
-    private static void CopyRendererSettings(Renderer source, Renderer clone)
-    {
-        clone.enabled = source.enabled;
-        clone.sharedMaterials = source.sharedMaterials;
-        clone.shadowCastingMode = source.shadowCastingMode;
-        clone.receiveShadows = source.receiveShadows;
-        clone.lightProbeUsage = source.lightProbeUsage;
-        clone.reflectionProbeUsage = source.reflectionProbeUsage;
-        clone.motionVectorGenerationMode = source.motionVectorGenerationMode;
-        clone.allowOcclusionWhenDynamic = source.allowOcclusionWhenDynamic;
-        clone.sortingLayerID = source.sortingLayerID;
-        clone.sortingOrder = source.sortingOrder;
-    }
-
-    private static void DestroySafely(GameObject target)
-    {
-        if (target == null)
-        {
-            return;
-        }
-
-        if (Application.isPlaying)
-        {
-            Object.Destroy(target);
-        }
-        else
-        {
-            Object.DestroyImmediate(target);
+            // The clone must be stripped synchronously while its staging hierarchy is inactive.
+            UnityEngine.Object.DestroyImmediate(target);
         }
     }
 }

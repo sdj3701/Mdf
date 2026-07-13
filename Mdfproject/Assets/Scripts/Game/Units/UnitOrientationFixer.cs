@@ -39,6 +39,7 @@ public class UnitOrientationFixer : MonoBehaviour
 
     private Animator _animator;
     private bool _didInitialFaceCamera;
+    private bool _hasExternalLateUpdateDriver;
 
     private void Awake()
     {
@@ -51,6 +52,11 @@ public class UnitOrientationFixer : MonoBehaviour
         yield return null;
         // Some controllers apply orientation on the second update; wait one more frame for safety
         yield return null;
+
+        if (_hasExternalLateUpdateDriver)
+        {
+            yield break;
+        }
 
         // One-time face camera (yaw only)
         if (faceCameraOnSpawn && !_didInitialFaceCamera)
@@ -65,16 +71,47 @@ public class UnitOrientationFixer : MonoBehaviour
 
     private void LateUpdate()
     {
+        if (!_hasExternalLateUpdateDriver)
+        {
+            ApplyPresentationOrientation(false);
+        }
+    }
+
+    /// <summary>
+    /// Lets a presentation owner invoke this component after restoring its canonical transform.
+    /// Ordinary units and externally-owned visuals still share the same orientation code path.
+    /// </summary>
+    internal void SetExternalLateUpdateDriver(bool externallyDriven)
+    {
+        _hasExternalLateUpdateDriver = externallyDriven;
+    }
+
+    internal void ApplyPresentationOrientation(bool includeInitialCameraFacing)
+    {
         if (enforceEveryLateUpdate)
         {
             EnforceRigLocalRotation();
         }
-        
-        // 네트워크 동기화를 덮어쓰기 위해 매 프레임 카메라를 바라봄
-        if (faceCameraEveryFrame)
+
+        bool shouldFaceCamera = faceCameraEveryFrame
+                                || (includeInitialCameraFacing
+                                    && faceCameraOnSpawn
+                                    && !_didInitialFaceCamera);
+        if (shouldFaceCamera)
         {
             FaceCameraYaw();
+            _didInitialFaceCamera = true;
         }
+    }
+
+    internal Transform ResolveRigRoot()
+    {
+        return EnsureRigRoot();
+    }
+
+    internal Camera ResolveTargetCamera()
+    {
+        return targetCamera != null ? targetCamera : Camera.main;
     }
 
     private void EnforceRigLocalRotation()
@@ -128,7 +165,7 @@ public class UnitOrientationFixer : MonoBehaviour
     private void FaceCameraYaw()
     {
         // Camera.main 사용 (각 클라이언트에서 자신의 메인 카메라 반환)
-        Camera cam = targetCamera != null ? targetCamera : Camera.main;
+        Camera cam = ResolveTargetCamera();
         if (TryResolveCameraFacingYaw(transform.position, cam, yawOffsetDeg, out Quaternion rotation))
         {
             transform.rotation = rotation;

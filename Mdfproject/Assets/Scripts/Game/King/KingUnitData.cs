@@ -13,17 +13,6 @@ public class KingUnitData : ScriptableObject
     public Vector3 presentationOffset = Vector3.zero;
     public Vector3 presentationEulerAngles = Vector3.zero;
 
-    [Header("King head presentation")]
-    [Tooltip("Use King-only HeadLook values instead of changing the shared base-unit prefab.")]
-    public bool overridePresentationHeadLook;
-    [Tooltip("Aim this King presentation at the active local camera instead of using the base unit's fixed look direction.")]
-    public bool presentationHeadLookAtCamera;
-    [Range(0f, 1f)] public float presentationHeadLookWeight = 0.407f;
-    [Range(0f, 5f)] public float presentationHeadLookTiltAngle = 1.75f;
-    [Range(0f, 1f)] public float presentationHeadLookBodyWeight;
-    [Range(0f, 1f)] public float presentationHeadLookHeadWeight = 1f;
-    [Range(0f, 1f)] public float presentationHeadLookClampWeight = 0.5f;
-
     [Header("King combat")]
     [Min(0f)] public float baseAttackDamageMultiplier = 1f;
     [Min(0f)] public float baseAttackSpeedMultiplier = 1f;

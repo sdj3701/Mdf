@@ -35,6 +35,8 @@ LOBBY_HUMAN_PEERS = 2
 EXPECTED_PLAYERS = 4
 EXPECTED_HUMANS = 2
 EXPECTED_AI = 2
+WALL_UPGRADE_COST_BY_LEVEL = {1: 2, 2: 4}
+WALL_UPGRADE_TOTAL_COST = sum(WALL_UPGRADE_COST_BY_LEVEL.values())
 
 
 def safe_request(call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -243,6 +245,79 @@ def wait_target_prepare_ready(
     return latest_host, latest_client, comparison, False
 
 
+def wait_target_prepare_wall_upgrade_applied(
+    host: AutomationClient,
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    timeout_seconds: int,
+    scene: str,
+    label: str,
+    target_round: int,
+    before_host: Any,
+    before_client: Any,
+    upgrade_results: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    deadline = time.time() + timeout_seconds
+    stable = 0
+    latest_host: dict[str, Any] = {}
+    latest_client: dict[str, Any] = {}
+    comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+    while time.time() < deadline:
+        latest_host = safe_request(host.dump_state)
+        latest_client = safe_request(client.dump_state)
+        write_json(artifact_dir / "snapshots" / f"host-{label}-latest.json", latest_host)
+        write_json(artifact_dir / "snapshots" / f"client-{label}-latest.json", latest_client)
+
+        host_game = game(latest_host)
+        client_game = game(latest_client)
+        ready = {
+            "host": snapshot_ready(latest_host, EXPECTED_PLAYERS, scene)
+            and host_game.get("currentRound") == target_round
+            and host_game.get("currentState") == "Prepare",
+            "client": snapshot_ready(latest_client, EXPECTED_PLAYERS, scene)
+            and client_game.get("currentRound") == target_round
+            and client_game.get("currentState") == "Prepare",
+        }
+        host_gold_applied = upgrade_gold_applied(latest_host, upgrade_results)
+        client_gold_applied = upgrade_gold_applied(latest_client, upgrade_results)
+        host_level_hash_changed = destructible_wall_level_hash_changed(before_host, latest_host, upgrade_results)
+        client_level_hash_changed = destructible_wall_level_hash_changed(before_client, latest_client, upgrade_results)
+        if all(ready.values()):
+            comparison = compare_snapshots(latest_host, latest_client)
+            write_json(artifact_dir / f"comparison-{label}-latest.json", comparison)
+        write_json(artifact_dir / f"{label}-wait-latest.json", {
+            "targetRound": target_round,
+            "ready": ready,
+            "hostGame": host_game,
+            "clientGame": client_game,
+            "comparison": comparison,
+            "goldApplied": {"host": host_gold_applied, "client": client_gold_applied},
+            "destructibleWallLevelHashChanged": {
+                "host": host_level_hash_changed,
+                "client": client_level_hash_changed,
+            },
+            "gold": {
+                "host": gold_by_player(latest_host),
+                "client": gold_by_player(latest_client),
+            },
+            "stableMatches": stable,
+        })
+        applied = (
+            host_gold_applied
+            and client_gold_applied
+            and host_level_hash_changed
+            and client_level_hash_changed
+        )
+        if all(ready.values()) and comparison.get("success") is True and applied:
+            stable += 1
+            if stable >= 2:
+                return latest_host, latest_client, comparison, True
+        else:
+            stable = 0
+        time.sleep(2)
+    return latest_host, latest_client, comparison, False
+
+
 def wait_target_prepare_wall_stock_restored(
     host: AutomationClient,
     client: AutomationClient,
@@ -276,6 +351,8 @@ def wait_target_prepare_wall_stock_restored(
         }
         host_stock_restored = wall_stock_restored(before_snapshot, latest_host, remove_results)
         client_stock_restored = wall_stock_restored(before_snapshot, latest_client, remove_results)
+        host_gold_restored = gold_restored(before_snapshot, latest_host, remove_results)
+        client_gold_restored = gold_restored(before_snapshot, latest_client, remove_results)
         if all(ready.values()):
             comparison = compare_snapshots(latest_host, latest_client)
             write_json(artifact_dir / f"comparison-{label}-latest.json", comparison)
@@ -294,16 +371,31 @@ def wait_target_prepare_wall_stock_restored(
                 "host": host_stock_restored,
                 "client": client_stock_restored,
             },
+            "upgradeGoldRestored": {
+                "host": host_gold_restored,
+                "client": client_gold_restored,
+            },
             "wallCounts": {
                 "before": wall_counts_by_player(before_snapshot),
                 "host": wall_counts_by_player(latest_host),
                 "client": wall_counts_by_player(latest_client),
             },
+            "gold": {
+                "before": gold_by_player(before_snapshot),
+                "host": gold_by_player(latest_host),
+                "client": gold_by_player(latest_client),
+            },
             "stableMatches": stable,
         })
         comparison_ready = comparison.get("success") is True
         stock_restored = host_stock_restored and client_stock_restored
-        if all(ready.values()) and (comparison_ready or not require_comparison) and stock_restored:
+        upgrade_gold_restored = host_gold_restored and client_gold_restored
+        if (
+            all(ready.values())
+            and (comparison_ready or not require_comparison)
+            and stock_restored
+            and upgrade_gold_restored
+        ):
             stable += 1
             if stable >= 2:
                 return latest_host, latest_client, comparison, True
@@ -440,12 +532,16 @@ def command_position(response: dict[str, Any]) -> dict[str, int] | None:
         return None
 
 
-def wall_command_player_ids(snapshot: Any) -> list[int]:
+def wall_command_player_ids(snapshot: Any, minimum_gold: int = 0) -> list[int]:
     result: list[int] = []
     for player in players(snapshot):
         if player.get("isAI") is not False or not isinstance(player.get("playerId"), int):
             continue
-        if to_int(player.get("health")) <= 0 or to_int(player.get("wallCount")) <= 0:
+        if (
+            to_int(player.get("health")) <= 0
+            or to_int(player.get("wallCount")) <= 0
+            or to_int(player.get("gold")) < minimum_gold
+        ):
             continue
         result.append(int(player["playerId"]))
     return sorted(result)
@@ -486,6 +582,60 @@ def issue_remove_wall_commands(
             name="remove_wall",
             playerId=player_id,
             position=position,
+        ))
+        results.append({"playerId": player_id, "position": position, "response": result})
+        write_json(artifact_dir / f"{label}-player-{player_id}.json", result)
+    write_json(artifact_dir / f"{label}-results.json", results)
+    return results
+
+
+def issue_upgrade_wall_commands(
+    host: AutomationClient,
+    previous_results: list[dict[str, Any]],
+    artifact_dir: pathlib.Path,
+    label: str,
+    expected_level: int,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in previous_results:
+        response = item.get("response") if isinstance(item.get("response"), dict) else {}
+        if response.get("success") is not True:
+            continue
+        position = item.get("position") if isinstance(item.get("position"), dict) else command_position(response)
+        if position is None:
+            continue
+        player_id = int(item.get("playerId"))
+        result = safe_request(lambda player_id=player_id, position=position: host.command(
+            name="upgrade_wall",
+            playerId=player_id,
+            position=position,
+            expectedLevel=expected_level,
+        ))
+        results.append({"playerId": player_id, "position": position, "response": result})
+        write_json(artifact_dir / f"{label}-player-{player_id}.json", result)
+    write_json(artifact_dir / f"{label}-results.json", results)
+    return results
+
+
+def issue_max_level_wall_probes(
+    host: AutomationClient,
+    level_three_results: list[dict[str, Any]],
+    artifact_dir: pathlib.Path,
+    label: str,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in level_three_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        position = item.get("position") if isinstance(item.get("position"), dict) else None
+        if position is None:
+            continue
+        player_id = int(item.get("playerId"))
+        result = safe_request(lambda player_id=player_id, position=position: host.command(
+            name="upgrade_wall",
+            playerId=player_id,
+            position=position,
+            expectedLevel=3,
         ))
         results.append({"playerId": player_id, "position": position, "response": result})
         write_json(artifact_dir / f"{label}-player-{player_id}.json", result)
@@ -545,6 +695,123 @@ def wall_stock_restored(before: Any, after_remove: Any, remove_results: list[dic
     return checked
 
 
+def gold_by_player(snapshot: Any) -> dict[int, int]:
+    return {
+        int(player["playerId"]): to_int(player.get("gold"))
+        for player in players(snapshot)
+        if isinstance(player.get("playerId"), int)
+    }
+
+
+def gold_restored(before: Any, after_remove: Any, remove_results: list[dict[str, Any]]) -> bool:
+    before_gold = gold_by_player(before)
+    after_gold = gold_by_player(after_remove)
+    checked = False
+    for item in remove_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        player_id = int(item.get("playerId"))
+        if player_id not in before_gold or player_id not in after_gold:
+            return False
+        checked = True
+        if after_gold[player_id] != before_gold[player_id]:
+            return False
+    return checked
+
+
+def upgrade_gold_applied(after: Any, upgrade_results: list[dict[str, Any]]) -> bool:
+    after_gold = gold_by_player(after)
+    checked = False
+    for item in upgrade_results:
+        response = item.get("response") if isinstance(item.get("response"), dict) else {}
+        if response.get("success") is not True:
+            continue
+        data = response.get("data") if isinstance(response.get("data"), dict) else {}
+        player_id = int(item.get("playerId"))
+        if player_id not in after_gold:
+            return False
+        checked = True
+        if after_gold[player_id] != to_int(data.get("goldBefore")) - to_int(data.get("cost")):
+            return False
+    return checked
+
+
+def cumulative_upgrade_gold_spent(
+    before: Any,
+    after: Any,
+    level_three_results: list[dict[str, Any]],
+) -> bool:
+    before_gold = gold_by_player(before)
+    after_gold = gold_by_player(after)
+    checked = False
+    for item in level_three_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        player_id = int(item.get("playerId"))
+        if player_id not in before_gold or player_id not in after_gold:
+            return False
+        checked = True
+        if after_gold[player_id] != before_gold[player_id] - WALL_UPGRADE_TOTAL_COST:
+            return False
+    return checked
+
+
+def destructible_wall_level_hash_changed(
+    before: Any,
+    after: Any,
+    upgrade_results: list[dict[str, Any]],
+) -> bool:
+    checked = False
+    for item in upgrade_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        player_id = int(item.get("playerId"))
+        before_player = player_by_id(before, player_id)
+        after_player = player_by_id(after, player_id)
+        if before_player is None or after_player is None:
+            return False
+        before_hash = nested(before_player, "field", "destructibleWallHealthHash")
+        after_hash = nested(after_player, "field", "destructibleWallHealthHash")
+        checked = True
+        if before_hash in (None, "unknown") or after_hash in (None, "unknown") or before_hash == after_hash:
+            return False
+    return checked
+
+
+def upgrade_result_contract_errors(
+    upgrade_results: list[dict[str, Any]],
+    expected_level: int,
+    expected_cost: int,
+) -> list[str]:
+    errors: list[str] = []
+    for item in upgrade_results:
+        player_id = int(item.get("playerId"))
+        response = item.get("response") if isinstance(item.get("response"), dict) else {}
+        data = response.get("data") if isinstance(response.get("data"), dict) else {}
+        if response.get("success") is not True:
+            errors.append(f"player_{player_id}_upgrade_command_failed")
+            continue
+        if to_int(data.get("expectedLevel"), -1) != expected_level:
+            errors.append(f"player_{player_id}_expected_level_response_mismatch")
+        if to_int(data.get("cost"), -1) != expected_cost:
+            errors.append(f"player_{player_id}_upgrade_cost_response_mismatch")
+    return errors
+
+
+def max_level_probe_errors(probe_results: list[dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
+    for item in probe_results:
+        player_id = int(item.get("playerId"))
+        response = item.get("response") if isinstance(item.get("response"), dict) else {}
+        if response.get("success") is not False:
+            errors.append(f"player_{player_id}_level_three_accepted_extra_upgrade")
+        elif nested(response, "error", "code") != "wall_upgrade_max_level":
+            errors.append(
+                f"player_{player_id}_level_three_probe_reason_{nested(response, 'error', 'code')}"
+            )
+    return errors
+
+
 def king_goal_snapshot_errors(snapshot: Any, peer_name: str) -> list[str]:
     errors: list[str] = []
     snapshot_players = players(snapshot)
@@ -592,10 +859,20 @@ def king_goal_snapshot_errors(snapshot: Any, peer_name: str) -> list[str]:
             errors.append(f"{prefix}.kingRigPinActive=missing")
         elif rig_pin_required is True and rig_pin_active is not True:
             errors.append(f"{prefix}.kingRigPinActive expected=true when required")
-        if player.get("kingHeadLookActive") is not True:
-            errors.append(f"{prefix}.kingHeadLookActive")
-        if player.get("kingHeadLookApplied") is not True:
-            errors.append(f"{prefix}.kingHeadLookApplied")
+        head_presentation_mode = player.get("kingHeadPresentationMode")
+        if head_presentation_mode == "base_idle":
+            if player.get("kingHeadLookActive") is not False:
+                errors.append(f"{prefix}.kingHeadLookActive expected=false for base_idle")
+        elif head_presentation_mode == "base_head_look":
+            if player.get("kingHeadLookActive") is not True:
+                errors.append(f"{prefix}.kingHeadLookActive")
+            if player.get("kingHeadLookApplied") is not True:
+                errors.append(f"{prefix}.kingHeadLookApplied")
+        else:
+            errors.append(
+                f"{prefix}.kingHeadPresentationMode expected=base_idle|base_head_look "
+                f"actual={head_presentation_mode!r}"
+            )
         if field.get("regularUnitGoalViolationCount") != 0:
             errors.append(
                 f"{prefix}.field.regularUnitGoalViolationCount expected=0 "
@@ -745,7 +1022,10 @@ def capture_ai_field_screenshots(
         )
         orientation_ready = (
             isinstance(viewed_player, dict)
-            and viewed_player.get("kingHeadLookApplied") is True
+            and (
+                viewed_player.get("kingHeadPresentationMode") == "base_idle"
+                or viewed_player.get("kingHeadLookApplied") is True
+            )
         )
         if not orientation_ready:
             errors.append(f"ai_field_king_head_look_not_applied:{player_id}")
@@ -1179,7 +1459,10 @@ def run_game_to_end_prepare_move_loop(
             command_base_snapshot = before_move_host if before_ready else host_snapshot
             if args.wall_command_every_prepare:
                 place_label = f"{label}-place-wall"
-                wall_player_ids = wall_command_player_ids(command_base_snapshot)
+                wall_player_ids = wall_command_player_ids(
+                    command_base_snapshot,
+                    minimum_gold=WALL_UPGRADE_TOTAL_COST,
+                )
                 place_results = issue_place_wall_commands(
                     clients["host"],
                     command_base_snapshot,
@@ -1196,6 +1479,79 @@ def run_game_to_end_prepare_move_loop(
                     f"{place_label}-after",
                     current_round,
                     require_comparison=False,
+                )
+                level_two_label = f"{label}-upgrade-wall-level-2"
+                level_two_results = issue_upgrade_wall_commands(
+                    clients["host"],
+                    place_results,
+                    artifact_dir,
+                    label=level_two_label,
+                    expected_level=1,
+                )
+                successful_level_two = [
+                    item for item in level_two_results
+                    if (item.get("response") or {}).get("success") is True
+                ]
+                if successful_level_two:
+                    after_level_two_host, after_level_two_client, after_level_two_comparison, after_level_two_ready = (
+                        wait_target_prepare_wall_upgrade_applied(
+                            clients["host"],
+                            clients["client"],
+                            artifact_dir,
+                            args.state_timeout,
+                            args.scene,
+                            f"{level_two_label}-after",
+                            current_round,
+                            after_place_host,
+                            after_place_client,
+                            level_two_results,
+                        )
+                    )
+                else:
+                    after_level_two_host = after_place_host
+                    after_level_two_client = after_place_client
+                    after_level_two_comparison = after_place_comparison
+                    after_level_two_ready = False
+
+                level_three_label = f"{label}-upgrade-wall-level-3"
+                level_three_results = issue_upgrade_wall_commands(
+                    clients["host"],
+                    level_two_results,
+                    artifact_dir,
+                    label=level_three_label,
+                    expected_level=2,
+                )
+                successful_level_three = [
+                    item for item in level_three_results
+                    if (item.get("response") or {}).get("success") is True
+                ]
+                if successful_level_three:
+                    after_level_three_host, after_level_three_client, after_level_three_comparison, after_level_three_ready = (
+                        wait_target_prepare_wall_upgrade_applied(
+                            clients["host"],
+                            clients["client"],
+                            artifact_dir,
+                            args.state_timeout,
+                            args.scene,
+                            f"{level_three_label}-after",
+                            current_round,
+                            after_level_two_host,
+                            after_level_two_client,
+                            level_three_results,
+                        )
+                    )
+                else:
+                    after_level_three_host = after_level_two_host
+                    after_level_three_client = after_level_two_client
+                    after_level_three_comparison = after_level_two_comparison
+                    after_level_three_ready = False
+
+                max_level_probe_label = f"{label}-upgrade-wall-max-level-probe"
+                max_level_probe_results = issue_max_level_wall_probes(
+                    clients["host"],
+                    level_three_results,
+                    artifact_dir,
+                    label=max_level_probe_label,
                 )
                 remove_label = f"{label}-remove-wall"
                 remove_results = issue_remove_wall_commands(
@@ -1233,30 +1589,116 @@ def run_game_to_end_prepare_move_loop(
                     "round": current_round,
                     "wallPlayerIds": wall_player_ids,
                     "successfulPlaceWallCommands": len(successful_places),
+                    "successfulLevelTwoUpgradeCommands": len(successful_level_two),
+                    "successfulLevelThreeUpgradeCommands": len(successful_level_three),
                     "successfulRemoveWallCommands": len(successful_removes),
                     "placeWallHashChanged": wall_hash_changed(command_base_snapshot, after_place_host, place_results),
+                    "levelTwoHashChangedOnHost": destructible_wall_level_hash_changed(
+                        after_place_host,
+                        after_level_two_host,
+                        level_two_results,
+                    ),
+                    "levelTwoHashChangedOnClient": destructible_wall_level_hash_changed(
+                        after_place_client,
+                        after_level_two_client,
+                        level_two_results,
+                    ),
+                    "levelThreeHashChangedOnHost": destructible_wall_level_hash_changed(
+                        after_level_two_host,
+                        after_level_three_host,
+                        level_three_results,
+                    ),
+                    "levelThreeHashChangedOnClient": destructible_wall_level_hash_changed(
+                        after_level_two_client,
+                        after_level_three_client,
+                        level_three_results,
+                    ),
+                    "levelTwoGoldSpent": upgrade_gold_applied(after_level_two_host, level_two_results),
+                    "levelThreeGoldSpent": upgrade_gold_applied(after_level_three_host, level_three_results),
+                    "totalUpgradeGoldSpent": cumulative_upgrade_gold_spent(
+                        command_base_snapshot,
+                        after_level_three_host,
+                        level_three_results,
+                    ),
+                    "levelThreeMaxLevelConfirmed": (
+                        len(max_level_probe_results) == len(successful_level_three)
+                        and not max_level_probe_errors(max_level_probe_results)
+                    ),
                     "removeWallHashChanged": wall_hash_changed(after_place_host, after_remove_host, remove_results),
                     "wallStockRestored": wall_stock_restored(command_base_snapshot, after_remove_host, remove_results),
+                    "upgradeGoldRestored": gold_restored(command_base_snapshot, after_remove_host, remove_results),
                     "afterPlaceReady": after_place_ready,
+                    "afterLevelTwoReady": after_level_two_ready,
+                    "afterLevelThreeReady": after_level_three_ready,
                     "afterRemoveReady": after_remove_ready,
                     "afterPlaceComparisonSuccess": after_place_comparison.get("success") is True,
+                    "afterLevelTwoComparisonSuccess": after_level_two_comparison.get("success") is True,
+                    "afterLevelThreeComparisonSuccess": after_level_three_comparison.get("success") is True,
                     "afterRemoveComparisonSuccess": after_remove_comparison.get("success") is True,
                     "placeResults": place_results,
+                    "levelTwoUpgradeResults": level_two_results,
+                    "levelThreeUpgradeResults": level_three_results,
+                    "maxLevelProbeResults": max_level_probe_results,
                     "removeResults": remove_results,
                     "errors": [],
                 }
+                if not wall_player_ids:
+                    wall_record["errors"].append("no_wall_upgrade_eligible_players")
                 if wall_player_ids and len(successful_places) != len(wall_player_ids):
                     wall_record["errors"].append("not_all_wall_places_succeeded")
                 if successful_places and not wall_record["placeWallHashChanged"]:
                     wall_record["errors"].append("place_wall_hash_not_changed")
+                wall_record["errors"].extend(
+                    upgrade_result_contract_errors(
+                        level_two_results,
+                        expected_level=1,
+                        expected_cost=WALL_UPGRADE_COST_BY_LEVEL[1],
+                    )
+                )
+                wall_record["errors"].extend(
+                    upgrade_result_contract_errors(
+                        level_three_results,
+                        expected_level=2,
+                        expected_cost=WALL_UPGRADE_COST_BY_LEVEL[2],
+                    )
+                )
+                wall_record["errors"].extend(max_level_probe_errors(max_level_probe_results))
+                if successful_places and len(successful_level_two) != len(successful_places):
+                    wall_record["errors"].append("not_all_level_two_upgrades_succeeded")
+                if successful_level_two and len(successful_level_three) != len(successful_level_two):
+                    wall_record["errors"].append("not_all_level_three_upgrades_succeeded")
+                if successful_level_two and (
+                    not wall_record["levelTwoHashChangedOnHost"]
+                    or not wall_record["levelTwoHashChangedOnClient"]
+                ):
+                    wall_record["errors"].append("level_two_wall_state_hash_not_changed_on_both_peers")
+                if successful_level_three and (
+                    not wall_record["levelThreeHashChangedOnHost"]
+                    or not wall_record["levelThreeHashChangedOnClient"]
+                ):
+                    wall_record["errors"].append("level_three_wall_state_hash_not_changed_on_both_peers")
+                if successful_level_two and not wall_record["levelTwoGoldSpent"]:
+                    wall_record["errors"].append("level_two_gold_cost_not_applied")
+                if successful_level_three and not wall_record["levelThreeGoldSpent"]:
+                    wall_record["errors"].append("level_three_gold_cost_not_applied")
+                if successful_level_three and not wall_record["totalUpgradeGoldSpent"]:
+                    wall_record["errors"].append("total_upgrade_gold_cost_not_six")
+                if successful_level_three and not wall_record["levelThreeMaxLevelConfirmed"]:
+                    wall_record["errors"].append("level_three_max_level_not_confirmed")
                 if successful_places and len(successful_removes) != len(successful_places):
                     wall_record["errors"].append("not_all_wall_removes_succeeded")
                 if successful_removes and not wall_record["removeWallHashChanged"]:
                     wall_record["errors"].append("remove_wall_hash_not_changed")
                 if successful_removes and not wall_record["wallStockRestored"]:
                     wall_record["errors"].append("wall_stock_not_restored")
+                if successful_removes and not wall_record["upgradeGoldRestored"]:
+                    wall_record["errors"].append("upgrade_gold_not_fully_refunded")
                 if not after_place_ready:
                     wall_record["errors"].append("after_place_wall_ready_timeout")
+                if successful_level_two and not after_level_two_ready:
+                    wall_record["errors"].append("after_level_two_upgrade_ready_timeout")
+                if successful_level_three and not after_level_three_ready:
+                    wall_record["errors"].append("after_level_three_upgrade_ready_timeout")
                 if not after_remove_ready:
                     wall_record["errors"].append("after_remove_wall_ready_timeout")
                 if after_place_comparison.get("success") is not True:
@@ -1331,7 +1773,12 @@ def run_game_to_end_prepare_move_loop(
         if errors and not args.continue_game_end_on_move_error:
             limit_reason = "move_verification_failed"
             break
-        if args.max_rounds > 0 and current_round >= args.max_rounds and (not same_prepare_round or current_round in moved_rounds):
+        if (
+            args.max_rounds > 0
+            and current_round >= args.max_rounds
+            and (not same_prepare_round or current_round in moved_rounds)
+            and battle_hud_captured
+        ):
             limit_reason = "max_rounds_reached"
             break
         time.sleep(max(0.5, args.poll_interval_seconds))
@@ -1385,6 +1832,12 @@ def run_game_to_end_prepare_move_loop(
         "moveRecordsPath": "game-to-end-move-records.json",
         "prepareWallRounds": len(wall_records),
         "successfulPlaceWallCommands": sum(to_int(record.get("successfulPlaceWallCommands")) for record in wall_records),
+        "successfulLevelTwoUpgradeCommands": sum(
+            to_int(record.get("successfulLevelTwoUpgradeCommands")) for record in wall_records
+        ),
+        "successfulLevelThreeUpgradeCommands": sum(
+            to_int(record.get("successfulLevelThreeUpgradeCommands")) for record in wall_records
+        ),
         "successfulRemoveWallCommands": sum(to_int(record.get("successfulRemoveWallCommands")) for record in wall_records),
         "wallRecordsPath": "game-to-end-wall-records.json" if wall_records else None,
         "progressTimelinePath": "game-to-end-progress-timeline.json",
@@ -1775,6 +2228,8 @@ def run(args: argparse.Namespace) -> int:
             "successfulPrepareMoveCommands": game_end_move_result.get("successfulPrepareMoveCommands") if game_end_move_result else None,
             "prepareWallRounds": game_end_move_result.get("prepareWallRounds") if game_end_move_result else None,
             "successfulPlaceWallCommands": game_end_move_result.get("successfulPlaceWallCommands") if game_end_move_result else None,
+            "successfulLevelTwoUpgradeCommands": game_end_move_result.get("successfulLevelTwoUpgradeCommands") if game_end_move_result else None,
+            "successfulLevelThreeUpgradeCommands": game_end_move_result.get("successfulLevelThreeUpgradeCommands") if game_end_move_result else None,
             "successfulRemoveWallCommands": game_end_move_result.get("successfulRemoveWallCommands") if game_end_move_result else None,
             "gameEndMoveResultPath": "game-to-end-move-result.json" if game_end_move_result else None,
             "kingGoalPlacementVerification": king_goal_verification.get("success") if king_goal_verification else None,
@@ -1803,7 +2258,15 @@ def main() -> int:
     parser.add_argument("--bot-prepare-mode", choices=["full", "augment-only", "skip"], default="full")
     parser.add_argument("--move-round", type=int, default=1)
     parser.add_argument("--move-every-prepare-until-game-over", action="store_true")
-    parser.add_argument("--wall-command-every-prepare", action="store_true")
+    parser.add_argument(
+        "--wall-command-every-prepare",
+        action="store_true",
+        help=(
+            "During every frozen Prepare checkpoint, place a destructible wall, upgrade it "
+            "from level 1 to 2 (2 gold) and 2 to 3 (4 gold), verify replicated wall-state "
+            "hashes and gold spend, then remove it and require full stock/gold refund."
+        ),
+    )
     parser.add_argument("--max-duration-seconds", type=int, default=1800)
     parser.add_argument("--max-rounds", type=int, default=0)
     parser.add_argument("--allow-max-round-result", action="store_true")

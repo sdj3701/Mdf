@@ -96,7 +96,7 @@ public static class MdfInput
         }
 
         Vector2 pointerPosition = PointerPosition;
-        if (WallRemovePanelController.IsPointerOverActiveRemoveButton(pointerPosition))
+        if (WallRemovePanelController.IsPointerOverActiveActionButton(pointerPosition))
         {
             return true;
         }

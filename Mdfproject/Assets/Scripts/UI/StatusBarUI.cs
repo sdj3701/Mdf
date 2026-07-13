@@ -64,21 +64,39 @@ public class StatusBarUI : MonoBehaviour
     public void ResetForReuse(bool initializeImmediately = true)
     {
         skillInitializationVersion++;
+        _addressableAssets?.Dispose();
+        _addressableAssets = new AddressableAssetOwner();
         UnbindVitalComponents();
+        unitComponent = GetComponentInParent<Unit>();
+        isUnit = unitComponent != null;
         isInitialized = false;
         isCombatPhase = false;
+        lastSkillRequestFrame = -1;
         
         ResetBarFillValues();
         SetHealthBarVisibility(false);
         SetManaBarVisibility(false);
         if (skillButton != null)
         {
+            skillButton.onClick.RemoveAllListeners();
             skillButton.gameObject.SetActive(false);
+        }
+        if (skillIconImage != null)
+        {
+            skillIconImage.sprite = null;
+        }
+        if (graphicRaycaster != null)
+        {
+            graphicRaycaster.enabled = false;
         }
         
         if (initializeImmediately && GameManagers.Instance != null)
         {
             Initialize();
+            if (unitComponent != null && unitComponent.Data != null)
+            {
+                InitializeSkillButton(unitComponent).Forget();
+            }
         }
     }
     private Unit unitComponent;

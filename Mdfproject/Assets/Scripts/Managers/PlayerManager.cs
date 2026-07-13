@@ -108,6 +108,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private int _pendingAttackMonsterPoolCommandRevision = -1;
     private int _pendingBlackMagicCommandRevision = -1;
     private float _pendingAttackMonsterPoolCommandStartedAt;
+    private CancellationTokenSource _attackMonsterPrewarmCancellation;
+    private int _attackMonsterPrewarmGeneration;
     private const float ATTACK_MONSTER_COMMAND_PENDING_TIMEOUT_SECONDS = 2f;
     public int AppliedAttackMonsterPoolRevision =>
         Object != null && Object.HasStateAuthority ? AttackMonsterPoolRevision : _lastAppliedAttackMonsterPoolRevision;
@@ -791,6 +793,21 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             {
                 // Debug.Log($"[Player {playerId}]: FieldManager를 3D 모드로 초기화합니다.");
                 fieldManager.Initialize(this, ground3D);
+                if (LoadManager.Instance != null && Runner != null && Runner.IsRunning)
+                {
+                    try
+                    {
+                        // All PlayerManager initializers on this peer share one runner-scoped task.
+                        // Keep player actions closed until prefab Awake/Instantiate work is pooled.
+                        int unitPoolTarget = LoadManager.Instance.ResolveUnitNetworkPoolTarget(Runner);
+                        await LoadManager.Instance.PrewarmUnitNetworkPoolAsync(Runner, unitPoolTarget);
+                    }
+                    catch (System.Exception exception)
+                    {
+                        Debug.LogWarning(
+                            $"[PlayerManager] Unit network pool prewarm skipped for P{id}: {exception.Message}");
+                    }
+                }
             }
             else
             {
@@ -2019,19 +2036,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 }
             }
 
-            if (fieldManager.statusBarPrefab != null)
-            {
-                var preExistingStatusBar = unit.GetComponentInChildren<StatusBarUI>(includeInactive: true);
-                if (preExistingStatusBar == null)
-                {
-                    var statusBarGO = UnityEngine.Object.Instantiate(fieldManager.statusBarPrefab, unit.transform);
-                    var statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
-                    if (statusBarUI != null)
-                    {
-                        unit.SetStatusBar(statusBarUI);
-                    }
-                }
-            }
+            fieldManager.AttachStatusBar(unit.gameObject, unit.SetStatusBar);
 
             bool needInit =
                 unit.Data == null ||
@@ -2070,19 +2075,6 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 }
             }
 
-            if (fieldManager.statusBarPrefab != null)
-            {
-                var existingStatusBar = unit.GetComponentInChildren<StatusBarUI>(includeInactive: true);
-                if (existingStatusBar == null)
-                {
-                    var statusBarGO = UnityEngine.Object.Instantiate(fieldManager.statusBarPrefab, unit.transform);
-                    var statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
-                    if (statusBarUI != null)
-                    {
-                        unit.SetStatusBar(statusBarUI);
-                    }
-                }
-            }
             if (unit.Data == null)
             {
                 // Debug.LogWarning($"<color=yellow>[RPC_Internal] unit.Data still null after resolve. Skip Register. key='{unitDataKey}', pos={pos}</color>");
@@ -2573,7 +2565,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     /// </summary>
     /// <param name="round">현재 라운드</param>
     /// <param name="currentBattleOpponentId">현재 전투에서 매칭된 상대 ID (-1이면 opponentManager 사용)</param>
-    public void RefreshAttackMonsterPool(int round, int currentBattleOpponentId = -1)
+    public void RefreshAttackMonsterPool(
+        int round,
+        int currentBattleOpponentId = -1,
+        bool schedulePrewarm = true)
     {
         if (Object != null && Object.IsValid && !Object.HasStateAuthority)
         {
@@ -2636,7 +2631,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         // 이벤트 발생 (UI 갱신용)
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
         SyncAttackMonsterPoolToClientsIfAuthoritative();
-        PrewarmAttackMonsterPoolIfPossible("RefreshAttackMonsterPool");
+        if (schedulePrewarm)
+        {
+            PrewarmAttackMonsterPoolIfPossible("RefreshAttackMonsterPool");
+        }
     }
 
     private void PrewarmAttackMonsterPoolIfPossible(string context)
@@ -2676,6 +2674,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
     public void RPC_SyncAttackMonsterPool(
+        int prepareRound,
         int revision,
         string[] monsterDataNames,
         int[] remainingCounts,
@@ -2686,6 +2685,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         int[] originPlayerIds)
     {
         ApplyAttackMonsterPoolSnapshotAsync(
+            prepareRound,
             revision,
             monsterDataNames,
             remainingCounts,
@@ -2696,6 +2696,39 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             originPlayerIds,
             false,
             "RPC_SyncAttackMonsterPool").Forget();
+    }
+
+    [Rpc(RpcSources.All, RpcTargets.StateAuthority)]
+    private void RPC_ReportMonsterPrewarmComplete(
+        int revision,
+        NetworkBool succeeded,
+        int failedPrefabCount,
+        RpcInfo info = default)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        if (info.Source == PlayerRef.None || Object.InputAuthority != info.Source)
+        {
+            Debug.LogWarning(
+                $"[PlayerManager] Rejected monster prewarm completion from unauthorized source. " +
+                $"source={info.Source}, owner={Object.InputAuthority}, playerId={playerId}, " +
+                $"revision={revision}");
+            return;
+        }
+
+        int authorityRound = GameManagers.Instance != null
+            ? Mathf.Max(1, GameManagers.Instance.currentRound)
+            : 1;
+        GameManagers.Instance?.RecordRemoteMonsterPrewarmCompletion(
+            info.Source,
+            playerId,
+            authorityRound,
+            revision,
+            succeeded,
+            $"failedPrefabs={Mathf.Max(0, failedPrefabCount)}");
     }
 
     public bool TryGetAttackMonsterPoolSnapshot(
@@ -2806,6 +2839,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
 
         ApplyAttackMonsterPoolSnapshotAsync(
+            GameManagers.Instance != null ? Mathf.Max(1, GameManagers.Instance.currentRound) : 1,
             revision,
             monsterDataNames,
             remainingCounts,
@@ -2860,6 +2894,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             originPlayerIds);
 
         RPC_SyncAttackMonsterPool(
+            GameManagers.Instance != null ? Mathf.Max(1, GameManagers.Instance.currentRound) : 1,
             AttackMonsterPoolRevision,
             monsterDataNames,
             remainingCounts,
@@ -2998,6 +3033,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     }
 
     private async UniTask ApplyAttackMonsterPoolSnapshotAsync(
+        int prepareRound,
         int revision,
         string[] monsterDataNames,
         int[] remainingCounts,
@@ -3056,12 +3092,196 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return;
         }
 
-        ApplyAttackMonsterPoolEntries(revision, syncedPool);
+        ApplyAttackMonsterPoolEntries(revision, syncedPool, schedulePrewarm: false);
+        if (!allowStateAuthorityApply && Object != null && Object.IsValid && !Object.HasStateAuthority)
+        {
+            CancellationTokenSource generationCts = BeginAttackMonsterPrewarmGeneration(out int prewarmGeneration);
+            MonsterPrewarmReport prewarmReport;
+            try
+            {
+                prewarmReport = await PrewarmAppliedAttackMonsterPoolAsync(
+                    prepareRound,
+                    revision,
+                    prewarmGeneration,
+                    context,
+                    generationCts.Token);
+            }
+            finally
+            {
+                CompleteAttackMonsterPrewarmGeneration(generationCts);
+            }
+
+            if (IsAttackMonsterPrewarmGenerationCurrent(prewarmGeneration, revision) &&
+                Object != null &&
+                Object.IsValid &&
+                Object.HasInputAuthority)
+            {
+                RPC_ReportMonsterPrewarmComplete(
+                    revision,
+                    prewarmReport.Succeeded,
+                    prewarmReport.FailedPrefabCount);
+            }
+        }
+
         if (allowStateAuthorityApply)
         {
             ResendAttackMonsterPoolToClientsIfAuthoritative();
             Debug.Log($"[PlayerManager] AttackMonsterPool async restore complete ({context}) P{playerId} rev={AttackMonsterPoolRevision} entries={AttackMonsterPool.Count}");
         }
+    }
+
+    private async UniTask<MonsterPrewarmReport> PrewarmAppliedAttackMonsterPoolAsync(
+        int prepareRound,
+        int revision,
+        int prewarmGeneration,
+        string context,
+        CancellationToken generationCancellationToken)
+    {
+        string prewarmContext = $"{context}.ClientPrewarm.P{playerId}.Rev{revision}";
+        if (monsterSpawner == null)
+        {
+            MonsterPrewarmReport missingSpawner = MonsterPrewarmReport.Failed(
+                prewarmContext,
+                1,
+                "MonsterSpawner unavailable");
+            Debug.LogWarning($"[PlayerManager] Client monster prewarm failed. {missingSpawner}");
+            return missingSpawner;
+        }
+
+        try
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(generationCancellationToken);
+            timeoutCts.CancelAfter(System.TimeSpan.FromSeconds(20));
+            return await PrewarmAppliedAttackMonsterPoolCoreAsync(
+                prepareRound,
+                revision,
+                prewarmGeneration,
+                prewarmContext,
+                timeoutCts.Token);
+        }
+        catch (System.OperationCanceledException)
+        {
+            string reason = generationCancellationToken.IsCancellationRequested
+                ? "generation canceled"
+                : "timeout after 20s";
+            MonsterPrewarmReport canceled = MonsterPrewarmReport.Failed(
+                prewarmContext,
+                1,
+                reason);
+            Debug.LogWarning($"[PlayerManager] Client monster prewarm canceled; snapshot apply will continue. {canceled}");
+            return canceled;
+        }
+        catch (System.Exception exception)
+        {
+            MonsterPrewarmReport failure = MonsterPrewarmReport.Failed(prewarmContext, 1, exception.Message);
+            Debug.LogWarning($"[PlayerManager] Client monster prewarm failed; snapshot apply will continue. {failure}");
+            return failure;
+        }
+    }
+
+    private async UniTask<MonsterPrewarmReport> PrewarmAppliedAttackMonsterPoolCoreAsync(
+        int prepareRound,
+        int revision,
+        int prewarmGeneration,
+        string context,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        int round = Mathf.Max(1, prepareRound);
+        bool isLocalInputPlayer = Object != null && Object.IsValid && Object.HasInputAuthority;
+        RoundWaveData waveData = isLocalInputPlayer
+            ? AddressablesManager.Instance?.WaveDatabase?.GetWaveForRound(round)
+            : null;
+        List<PlayerManager> activePlayers = GameManagers.Instance != null
+            ? GameManagers.Instance.AllPlayers
+                .Where(player => player != null && player.GetHealth() > 0)
+                .ToList()
+            : new List<PlayerManager>();
+        int activePlayerCount = Mathf.Max(1, activePlayers.Count);
+        int maximumProjectedBlackMagic = activePlayers
+            .Select(player => player.GetProjectedBlackMagicMaximumForRound(round))
+            .DefaultIfEmpty(GetProjectedBlackMagicMaximumForRound(round))
+            .Max();
+        MonsterPrewarmReport poolReport = await monsterSpawner.PrewarmAttackMonsterPoolAsync(
+            AttackMonsterPool,
+            $"{context}.Catalog",
+            activePlayerCount,
+            maximumProjectedBlackMagic,
+            concurrentWaveData: waveData,
+            cancellationToken: cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfAttackMonsterPrewarmGenerationStale(prewarmGeneration, revision, cancellationToken);
+
+        if (!isLocalInputPlayer)
+        {
+            return poolReport;
+        }
+
+        MonsterPrewarmReport waveReport = waveData != null
+            ? await monsterSpawner.PrewarmWaveAsync(
+                waveData,
+                $"{context}.NextWave.R{round}",
+                activePlayerCount,
+                cancellationToken)
+            : MonsterPrewarmReport.Failed($"{context}.NextWave.R{round}", 1, "RoundWaveData unavailable");
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfAttackMonsterPrewarmGenerationStale(prewarmGeneration, revision, cancellationToken);
+        MonsterPrewarmReport combined = MonsterPrewarmReport.Combine(context, poolReport, waveReport);
+        if (!combined.Succeeded)
+        {
+            Debug.LogWarning($"[PlayerManager] Client monster prewarm completed with failures. {combined}");
+        }
+        else
+        {
+            Debug.Log($"[PlayerManager] Client monster prewarm ready. {combined}");
+        }
+
+        return combined;
+    }
+
+    private CancellationTokenSource BeginAttackMonsterPrewarmGeneration(out int generation)
+    {
+        _attackMonsterPrewarmCancellation?.Cancel();
+        _attackMonsterPrewarmCancellation?.Dispose();
+        _attackMonsterPrewarmCancellation = new CancellationTokenSource();
+        generation = ++_attackMonsterPrewarmGeneration;
+        return _attackMonsterPrewarmCancellation;
+    }
+
+    private void CompleteAttackMonsterPrewarmGeneration(CancellationTokenSource generationCts)
+    {
+        if (ReferenceEquals(_attackMonsterPrewarmCancellation, generationCts))
+        {
+            _attackMonsterPrewarmCancellation = null;
+        }
+
+        generationCts?.Dispose();
+    }
+
+    private bool IsAttackMonsterPrewarmGenerationCurrent(int generation, int revision)
+    {
+        return generation == _attackMonsterPrewarmGeneration &&
+               revision == _lastAppliedAttackMonsterPoolRevision;
+    }
+
+    private void ThrowIfAttackMonsterPrewarmGenerationStale(
+        int generation,
+        int revision,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsAttackMonsterPrewarmGenerationCurrent(generation, revision))
+        {
+            throw new System.OperationCanceledException("Monster prewarm generation became stale.", cancellationToken);
+        }
+    }
+
+    private void CancelAttackMonsterPrewarm()
+    {
+        _attackMonsterPrewarmGeneration++;
+        _attackMonsterPrewarmCancellation?.Cancel();
+        _attackMonsterPrewarmCancellation?.Dispose();
+        _attackMonsterPrewarmCancellation = null;
     }
 
     private async UniTask<MonsterData> ResolveAttackMonsterDataAsync(string monsterDataName)
@@ -3301,7 +3521,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         return entry;
     }
 
-    private void ApplyAttackMonsterPoolEntries(int revision, List<MonsterPoolEntry> pool)
+    private void ApplyAttackMonsterPoolEntries(
+        int revision,
+        List<MonsterPoolEntry> pool,
+        bool schedulePrewarm = true)
     {
         _lastAppliedAttackMonsterPoolRevision = Mathf.Max(_lastAppliedAttackMonsterPoolRevision, revision);
         if (_pendingAttackMonsterPoolCommandRevision >= 0 && revision > _pendingAttackMonsterPoolCommandRevision)
@@ -3316,7 +3539,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
         AttackMonsterPool = pool ?? new List<MonsterPoolEntry>();
         GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
-        PrewarmAttackMonsterPoolIfPossible("ApplyAttackMonsterPoolEntries");
+        if (schedulePrewarm)
+        {
+            PrewarmAttackMonsterPoolIfPossible("ApplyAttackMonsterPoolEntries");
+        }
     }
 
     private static int ReadArrayValue(int[] values, int index, int fallback)
@@ -3750,6 +3976,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     public override void Despawned(NetworkRunner runner, bool hasState)
     {
+        CancelAttackMonsterPrewarm();
         DisposeKingRuntime();
         _assetOwner?.Dispose();
         base.Despawned(runner, hasState);
@@ -3757,6 +3984,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     private void OnDestroy()
     {
+        CancelAttackMonsterPrewarm();
         DisposeKingRuntime();
         _assetOwner?.Dispose();
     }

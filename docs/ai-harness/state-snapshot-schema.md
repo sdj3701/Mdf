@@ -88,6 +88,28 @@ compared across peers and across host migration.
       "kingCameraFacingAngle": 0.0,
       "kingHeadLookActive": true,
       "kingHeadLookApplied": true,
+      "kingHeadPresentationMode": "base_head_look",
+      "kingHeadPose": {
+        "comparable": true,
+        "kingHeadFound": true,
+        "baseUnitFound": true,
+        "cameraFound": true,
+        "baseUnitKey": "UnitData_Mage",
+        "baseUnitName": "Mage(Clone)",
+        "kingHeadLookRecent": true,
+        "baseHeadLookRecent": true,
+        "kingHeadLookFrameAge": 1,
+        "baseHeadLookFrameAge": 1,
+        "kingAnimatorCullingMode": "AlwaysAnimate",
+        "baseAnimatorCullingMode": "CullUpdateTransforms",
+        "rootRelativeRotationDeltaDeg": 0.5,
+        "kingForwardElevationDeg": 42.0,
+        "baseForwardElevationDeg": 41.8,
+        "kingToCameraAngleDeg": 8.0,
+        "baseToCameraAngleDeg": 8.4,
+        "kingToConfiguredLookAngleDeg": 4.0,
+        "baseToConfiguredLookAngleDeg": 4.2
+      },
       "attackMonsterPoolHash": "sha256:...",
       "ownedScrollsHash": "sha256:...",
       "ownedScrollRevision": 0,
@@ -227,7 +249,8 @@ Exact or hash-equal after stable wait:
 - attack monster pool hash after authoritative spawn acceptance; each slot part includes its `blackMagicCost` and spend `mode` (`black-magic` or `boss-entitlement`)
 - manual/strategic skill readiness hashes after defender skill state stabilizes
 - King skill readiness is phase- and role-dependent presentation state; durable comparisons use selection, consumed flag, defense sequence, and cumulative bonuses rather than requiring `kingCanUseSkill` to match during transient phase changes
-- King presentation diagnostics are local visual assertions: a stable Prepare sample requires a neutral sibling anchor, planar Goal distance near zero, configured scale multiplier `1.3`, near-zero world-scale/root/rig drift, a camera-facing yaw error near zero, an active copied head-look controller, and `kingHeadLookApplied=true` from a recent valid Humanoid Head Animator IK callback. Compare these per peer rather than treating their transient readiness as durable network state.
+- King presentation diagnostics are local visual assertions: a stable Prepare sample requires a neutral sibling anchor, planar Goal distance near zero, configured scale multiplier `1.3`, near-zero world-scale/root/rig drift, and a camera-facing yaw error near zero. `kingHeadPresentationMode=base_head_look` additionally requires an active copied head-look controller and `kingHeadLookApplied=true`; `base_idle` intentionally disables field-unit LookAt and uses the base prefab Animator's idle head pose. Compare these per peer rather than treating their transient readiness as durable network state.
+- `kingHeadPose` is optional local visual telemetry and exists only when the selected King's base UnitData is loaded. `comparable=true` additionally requires a live ordinary field unit with the same UnitData and valid Humanoid Head bones. A large `rootRelativeRotationDeltaDeg`, materially different forward elevations, or different configured-look angles while both `*HeadLookRecent` values are true proves an Animator/IK pose divergence. Near-equal pose values with a bad screenshot points instead to camera framing, scale, renderer, or model accessories. This object is diagnostic and is not a durable cross-peer state assertion.
 - `field.goalCell` and `field.regularUnitGoalViolationCount` are durable placement invariants. The violation count must be zero on every peer; Goal-targeted regular-unit requests must be rejected without changing `placedUnitsHash`.
 - For conditional Phase 10 required values such as battle hashes during `Battle1`/`Battle2`, survivor hashes with non-zero counts, and `commands.lastCommand` with advanced battle command counters, any `unknown`/missing value is a failure, including both peers missing the value. For optional absent state, such as no living boss monsters, both sides may remain `unknown`.
 

@@ -142,6 +142,8 @@ public class CommandProcessor
                 return (CommandType.PlaceWall, new int[] { cmd.PlayerId, (int)cmd.Kind }, Array.Empty<string>(), new Vector3[] { cmd.Position });
             case RemoveWallCommand cmd:
                 return (CommandType.RemoveWall, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.Position });
+            case UpgradeWallCommand cmd:
+                return (CommandType.UpgradeWall, new int[] { cmd.PlayerId, cmd.ExpectedCurrentLevel }, Array.Empty<string>(), new Vector3[] { cmd.Position });
             case RerollShopCommand cmd:
                 return (CommandType.RerollShop, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
             case SelectAugmentCommand cmd:
@@ -260,6 +262,9 @@ public class CommandProcessor
             
             case CommandType.RemoveWall:
                 return new RemoveWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]));
+
+            case CommandType.UpgradeWall:
+                return new UpgradeWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]), ints[1]);
             
             case CommandType.RerollShop:
                 return new RerollShopCommand(ints[0]);

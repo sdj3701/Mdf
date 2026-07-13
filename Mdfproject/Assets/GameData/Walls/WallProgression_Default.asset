@@ -1,0 +1,18 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1f9bc5f323c299d41ab678a6e7d834f5, type: 3}
+  m_Name: WallProgression_Default
+  m_EditorClassIdentifier: 
+  levels:
+  - {fileID: 11400000, guid: 33c5ef20eebc0dc4bbe6199caf11e812, type: 2}
+  - {fileID: 11400000, guid: 9bc78c064348fba4fb24b5f2ef7306f4, type: 2}
+  - {fileID: 11400000, guid: d5763454e93a46d4d810482caa4cab29, type: 2}

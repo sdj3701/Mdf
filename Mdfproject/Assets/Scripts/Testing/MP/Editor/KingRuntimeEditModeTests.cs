@@ -74,50 +74,37 @@ public class KingRuntimeEditModeTests
     }
 
     [Test]
-    public void KingHeadLookTuningChangesOnlyOptedInPresentationClone()
+    public void KingPresentationHasNoKingSpecificHeadPoseOverridePath()
     {
-        var gameObject = new GameObject("king-head-look-tuning-test");
-        KingUnitData king = ScriptableObject.CreateInstance<KingUnitData>();
-        try
+        const BindingFlags members = BindingFlags.Instance
+                                     | BindingFlags.Static
+                                     | BindingFlags.Public
+                                     | BindingFlags.NonPublic;
+        string[] removedFields =
         {
-            MethodInfo applyTuning = typeof(PlayerManager).GetMethod(
-                "ApplyKingHeadLookTuning",
-                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-            Assert.That(applyTuning, Is.Not.Null);
-            gameObject.AddComponent<Animator>();
-            HeadLookController headLook = gameObject.AddComponent<HeadLookController>();
-            headLook.lookAtWeight = 0.9f;
-            headLook.tiltAngle = 4f;
-            headLook.lookAtBodyWeight = 0.1f;
-            headLook.lookAtHeadWeight = 0.8f;
-            headLook.lookAtClampWeight = 0.5f;
+            "overridePresentationHeadLook",
+            "presentationHeadLookAtCamera",
+            "presentationHeadLookWeight",
+            "presentationHeadLookTiltAngle",
+            "presentationHeadLookBodyWeight",
+            "presentationHeadLookHeadWeight",
+            "presentationHeadLookClampWeight"
+        };
 
-            applyTuning.Invoke(null, new object[] { headLook, king });
-            Assert.That(headLook.lookAtWeight, Is.EqualTo(0.9f).Within(0.0001f));
-            Assert.That(headLook.tiltAngle, Is.EqualTo(4f).Within(0.0001f));
-            Assert.That(headLook.lookAtBodyWeight, Is.EqualTo(0.1f).Within(0.0001f));
-            Assert.That(headLook.lookAtHeadWeight, Is.EqualTo(0.8f).Within(0.0001f));
-            Assert.That(headLook.lookAtClampWeight, Is.EqualTo(0.5f).Within(0.0001f));
-
-            king.overridePresentationHeadLook = true;
-            king.presentationHeadLookWeight = 1f;
-            king.presentationHeadLookTiltAngle = 5f;
-            king.presentationHeadLookBodyWeight = 0.2f;
-            king.presentationHeadLookHeadWeight = 1f;
-            king.presentationHeadLookClampWeight = 0.2f;
-            applyTuning.Invoke(null, new object[] { headLook, king });
-
-            Assert.That(headLook.lookAtWeight, Is.EqualTo(1f).Within(0.0001f));
-            Assert.That(headLook.tiltAngle, Is.EqualTo(5f).Within(0.0001f));
-            Assert.That(headLook.lookAtBodyWeight, Is.EqualTo(0.2f).Within(0.0001f));
-            Assert.That(headLook.lookAtHeadWeight, Is.EqualTo(1f).Within(0.0001f));
-            Assert.That(headLook.lookAtClampWeight, Is.EqualTo(0.2f).Within(0.0001f));
-        }
-        finally
+        foreach (string fieldName in removedFields)
         {
-            Object.DestroyImmediate(king);
-            Object.DestroyImmediate(gameObject);
+            Assert.That(
+                typeof(KingUnitData).GetField(fieldName, members),
+                Is.Null,
+                $"KingUnitData must not override the base unit pose through '{fieldName}'.");
         }
+
+        Assert.That(
+            typeof(PlayerManager).GetMethod("ApplyKingHeadLookTuning", members),
+            Is.Null,
+            "The King must use the cloned base HeadLookController without a second tuning path.");
+        Assert.That(PlayerManager.ShouldUseBaseIdleHeadPose("Mage"), Is.True);
+        Assert.That(PlayerManager.ShouldUseBaseIdleHeadPose("Archer"), Is.False);
     }
 
     [Test]
@@ -234,9 +221,10 @@ public class KingRuntimeEditModeTests
     }
 
     [Test]
-    public void VisualOnlyKingCloneDoesNotCopyGameplayOrPhysicsComponents()
+    public void VisualOnlyKingCloneRemapsBasePoseControllersWithoutGameplayOrPhysicsComponents()
     {
         var source = new GameObject("KingVisualSource");
+        var cameraObject = new GameObject("KingVisualCamera");
         GameObject clone = null;
         Mesh mesh = null;
         try
@@ -256,9 +244,39 @@ public class KingRuntimeEditModeTests
 
             var visualChild = new GameObject("VisualMesh");
             visualChild.transform.SetParent(source.transform, false);
+            var bodyBone = new GameObject("BodyBone");
+            bodyBone.transform.SetParent(source.transform, false);
+            var headBone = new GameObject("HeadBone");
+            headBone.transform.SetParent(bodyBone.transform, false);
             mesh = new Mesh { name = "KingVisualTestMesh" };
             visualChild.AddComponent<MeshFilter>().sharedMesh = mesh;
             visualChild.AddComponent<MeshRenderer>();
+
+            Camera sourceCamera = cameraObject.AddComponent<Camera>();
+            UnitOrientationFixer sourceOrientation = source.AddComponent<UnitOrientationFixer>();
+            sourceOrientation.rigRoot = source.transform;
+            sourceOrientation.rigRootName = "CustomRig";
+            sourceOrientation.rigLocalEulerTarget = new Vector3(11f, 22f, 33f);
+            sourceOrientation.faceCameraOnSpawn = false;
+            sourceOrientation.faceCameraEveryFrame = true;
+            sourceOrientation.enforceEveryLateUpdate = false;
+            sourceOrientation.targetCamera = sourceCamera;
+            sourceOrientation.yawOffsetDeg = 17f;
+
+            BodyScaler sourceBodyScaler = source.AddComponent<BodyScaler>();
+            sourceBodyScaler.bodyBones = new[]
+            {
+                visualChild.transform,
+                bodyBone.transform,
+                null
+            };
+            sourceBodyScaler.headBone = headBone.transform;
+            sourceBodyScaler.bodyWidth = 1.1f;
+            sourceBodyScaler.bodyHeight = 1.2f;
+            sourceBodyScaler.bodyDepth = 1.3f;
+            sourceBodyScaler.headWidth = 0.8f;
+            sourceBodyScaler.headHeight = 0.9f;
+            sourceBodyScaler.headDepth = 1.4f;
 
             clone = KingVisualCloneUtility.CreateVisualOnly(
                 source,
@@ -274,7 +292,7 @@ public class KingRuntimeEditModeTests
             Assert.That(clone.GetComponentInChildren<Rigidbody>(true), Is.Null);
             Assert.That(clone.GetComponentInChildren<MeshFilter>(true)?.sharedMesh, Is.SameAs(mesh));
             Assert.That(animator, Is.Not.Null);
-            Assert.That(transformMap.Count, Is.EqualTo(2));
+            Assert.That(transformMap.Count, Is.EqualTo(4));
 
             HeadLookController clonedHeadLook = clone.GetComponentInChildren<HeadLookController>(true);
             Assert.That(clonedHeadLook, Is.Not.Null);
@@ -283,15 +301,45 @@ public class KingRuntimeEditModeTests
             Assert.That(clonedHeadLook.lookAtBodyWeight, Is.EqualTo(0.2f).Within(0.0001f));
             Assert.That(clonedHeadLook.lookAtHeadWeight, Is.EqualTo(0.9f).Within(0.0001f));
             Assert.That(clonedHeadLook.lookAtClampWeight, Is.EqualTo(0.15f).Within(0.0001f));
-            MonoBehaviour[] clonedBehaviours = clone.GetComponentsInChildren<MonoBehaviour>(true);
-            Assert.That(clonedBehaviours, Has.Length.EqualTo(1));
-            Assert.That(clonedBehaviours[0], Is.TypeOf<HeadLookController>());
 
-            clone.AddComponent<UnitOrientationFixer>();
+            UnitOrientationFixer clonedOrientation = clone.GetComponentInChildren<UnitOrientationFixer>(true);
+            Assert.That(clonedOrientation, Is.Not.Null);
+            Assert.That(clonedOrientation.rigRoot, Is.SameAs(transformMap[source.transform]));
+            Assert.That(clonedOrientation.rigRoot, Is.Not.SameAs(sourceOrientation.rigRoot));
+            Assert.That(clonedOrientation.rigRootName, Is.EqualTo(sourceOrientation.rigRootName));
+            Assert.That(clonedOrientation.rigLocalEulerTarget, Is.EqualTo(sourceOrientation.rigLocalEulerTarget));
+            Assert.That(clonedOrientation.faceCameraOnSpawn, Is.EqualTo(sourceOrientation.faceCameraOnSpawn));
+            Assert.That(clonedOrientation.faceCameraEveryFrame, Is.EqualTo(sourceOrientation.faceCameraEveryFrame));
+            Assert.That(clonedOrientation.enforceEveryLateUpdate, Is.EqualTo(sourceOrientation.enforceEveryLateUpdate));
+            Assert.That(clonedOrientation.targetCamera, Is.SameAs(sourceOrientation.targetCamera));
+            Assert.That(clonedOrientation.yawOffsetDeg, Is.EqualTo(sourceOrientation.yawOffsetDeg));
+
+            BodyScaler clonedBodyScaler = clone.GetComponentInChildren<BodyScaler>(true);
+            Assert.That(clonedBodyScaler, Is.Not.Null);
+            Assert.That(clonedBodyScaler.bodyBones, Has.Length.EqualTo(3));
+            Assert.That(clonedBodyScaler.bodyBones[0], Is.SameAs(transformMap[visualChild.transform]));
+            Assert.That(clonedBodyScaler.bodyBones[1], Is.SameAs(transformMap[bodyBone.transform]));
+            Assert.That(clonedBodyScaler.bodyBones[2], Is.Null);
+            Assert.That(clonedBodyScaler.headBone, Is.SameAs(transformMap[headBone.transform]));
+            Assert.That(clonedBodyScaler.headBone, Is.Not.SameAs(sourceBodyScaler.headBone));
+            Assert.That(clonedBodyScaler.bodyWidth, Is.EqualTo(sourceBodyScaler.bodyWidth));
+            Assert.That(clonedBodyScaler.bodyHeight, Is.EqualTo(sourceBodyScaler.bodyHeight));
+            Assert.That(clonedBodyScaler.bodyDepth, Is.EqualTo(sourceBodyScaler.bodyDepth));
+            Assert.That(clonedBodyScaler.headWidth, Is.EqualTo(sourceBodyScaler.headWidth));
+            Assert.That(clonedBodyScaler.headHeight, Is.EqualTo(sourceBodyScaler.headHeight));
+            Assert.That(clonedBodyScaler.headDepth, Is.EqualTo(sourceBodyScaler.headDepth));
+
+            MonoBehaviour[] clonedBehaviours = clone.GetComponentsInChildren<MonoBehaviour>(true);
+            Assert.That(clonedBehaviours, Has.Length.EqualTo(3));
+            Assert.That(clone.GetComponentsInChildren<HeadLookController>(true), Has.Length.EqualTo(1));
+            Assert.That(clone.GetComponentsInChildren<UnitOrientationFixer>(true), Has.Length.EqualTo(1));
+            Assert.That(clone.GetComponentsInChildren<BodyScaler>(true), Has.Length.EqualTo(1));
+
+            clone.AddComponent<PooledObject>();
             Assert.That(
                 KingVisualCloneUtility.IsPresentationOnly(clone),
                 Is.False,
-                "Only HeadLookController is allow-listed on the presentation clone.");
+                "HeadLookController, UnitOrientationFixer, and BodyScaler must remain the complete MonoBehaviour allow-list.");
         }
         finally
         {
@@ -300,6 +348,7 @@ public class KingRuntimeEditModeTests
                 Object.DestroyImmediate(clone);
             }
             Object.DestroyImmediate(source);
+            Object.DestroyImmediate(cameraObject);
             if (mesh != null)
             {
                 Object.DestroyImmediate(mesh);
@@ -308,37 +357,60 @@ public class KingRuntimeEditModeTests
     }
 
     [Test]
-    public void KingLateUpdateFacesCameraAndAttackDoesNotPersistTargetYaw()
+    public void KingLateUpdateUsesBaseOrientationFixerAndAttackDoesNotPersistTargetYaw()
     {
         const BindingFlags instanceMembers = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
         var playerObject = new GameObject("king-facing-player");
         var presentationObject = new GameObject("king-facing-presentation");
         var cameraObject = new GameObject("king-facing-camera");
-        var fieldObject = new GameObject("king-facing-field");
 
         try
         {
             PlayerManager player = playerObject.AddComponent<PlayerManager>();
-            FieldManager field = fieldObject.AddComponent<FieldManager>();
             Camera camera = cameraObject.AddComponent<Camera>();
             cameraObject.transform.position = new Vector3(9f, 20f, -3f);
             presentationObject.transform.position = new Vector3(-1f, 0f, -3f);
             presentationObject.transform.SetParent(playerObject.transform, true);
 
-            FieldInfo cachedCamera = typeof(FieldManager).GetField(
-                "_cachedPlayerCamera",
-                instanceMembers);
-            Assert.That(cachedCamera, Is.Not.Null);
-            cachedCamera.SetValue(field, camera);
-            player.fieldManager = field;
+            UnitOrientationFixer orientation = presentationObject.AddComponent<UnitOrientationFixer>();
+            orientation.rigRoot = presentationObject.transform;
+            orientation.rigLocalEulerTarget = Vector3.zero;
+            orientation.faceCameraOnSpawn = true;
+            orientation.faceCameraEveryFrame = true;
+            orientation.enforceEveryLateUpdate = true;
+            orientation.targetCamera = camera;
+            orientation.yawOffsetDeg = 0f;
 
             SetPlayerField(player, "_kingPresentation", presentationObject);
+            SetPlayerField(player, "_kingOrientationFixer", orientation);
             SetPlayerField(player, "_kingHasCanonicalTransform", true);
             SetPlayerField(player, "_kingCanonicalLocalPosition", presentationObject.transform.localPosition);
             SetPlayerField(player, "_kingCanonicalLocalRotation", Quaternion.Euler(0f, 35f, 0f));
             SetPlayerField(player, "_kingCanonicalLocalScale", Vector3.one);
-            SetPlayerField(player, "_kingFacesCamera", true);
-            SetPlayerField(player, "_kingCameraYawOffsetDegrees", 0f);
+
+            MethodInfo configureOrientation = typeof(PlayerManager).GetMethod(
+                "ConfigureKingBasePresentationOrientation",
+                instanceMembers);
+            MethodInfo applyOrientation = typeof(PlayerManager).GetMethod(
+                "ApplyKingBasePresentationOrientation",
+                instanceMembers);
+            Assert.That(configureOrientation, Is.Not.Null);
+            Assert.That(applyOrientation, Is.Not.Null);
+            Assert.That(
+                MdfCompiledCodePolicy.ReferencesMethod(
+                    configureOrientation,
+                    typeof(UnitOrientationFixer),
+                    "SetExternalLateUpdateDriver"),
+                Is.True,
+                "PlayerManager must only schedule the cloned base orientation component after restoring the King transform.");
+            Assert.That(
+                MdfCompiledCodePolicy.ReferencesMethod(
+                    applyOrientation,
+                    typeof(UnitOrientationFixer),
+                    "ApplyPresentationOrientation"),
+                Is.True,
+                "King camera-facing and rig correction must execute the base unit's orientation implementation.");
+            configureOrientation.Invoke(player, null);
 
             MethodInfo lateUpdate = typeof(PlayerManager).GetMethod("LateUpdate", instanceMembers);
             Assert.That(lateUpdate, Is.Not.Null);
@@ -373,9 +445,7 @@ public class KingRuntimeEditModeTests
         finally
         {
             Object.DestroyImmediate(playerObject);
-            Object.DestroyImmediate(presentationObject);
             Object.DestroyImmediate(cameraObject);
-            Object.DestroyImmediate(fieldObject);
         }
     }
 
@@ -402,7 +472,10 @@ public class KingRuntimeEditModeTests
 
             MethodInfo alignAnchor = typeof(PlayerManager).GetMethod(
                 "AlignKingPresentationAnchor",
-                staticMembers);
+                staticMembers,
+                null,
+                new[] { typeof(Transform), typeof(Transform) },
+                null);
             Assert.That(alignAnchor, Is.Not.Null);
             alignAnchor.Invoke(null, new object[] { anchorObject.transform, goalObject.transform });
 
@@ -411,6 +484,20 @@ public class KingRuntimeEditModeTests
             Assert.That(anchorObject.transform.lossyScale.x, Is.EqualTo(1f).Within(0.0001f));
             Assert.That(anchorObject.transform.lossyScale.y, Is.EqualTo(1f).Within(0.0001f));
             Assert.That(anchorObject.transform.lossyScale.z, Is.EqualTo(1f).Within(0.0001f));
+
+            MethodInfo applyScaleToAnchor = typeof(PlayerManager).GetMethod(
+                "ApplyKingScaleToAnchor",
+                staticMembers);
+            Assert.That(applyScaleToAnchor, Is.Not.Null);
+            applyScaleToAnchor.Invoke(null, new object[] { anchorObject.transform, 1.3f });
+            Assert.That(anchorObject.transform.lossyScale.x, Is.EqualTo(1.3f).Within(0.0001f));
+            Assert.That(anchorObject.transform.lossyScale.y, Is.EqualTo(1.3f).Within(0.0001f));
+            Assert.That(anchorObject.transform.lossyScale.z, Is.EqualTo(1.3f).Within(0.0001f));
+
+            // The outer anchor owns presentation scaling; the authored model/Animator root stays
+            // at its prefab-local scale. Reset the standalone alignment probe before the rest of
+            // this transform-pinning test.
+            alignAnchor.Invoke(null, new object[] { anchorObject.transform, goalObject.transform });
 
             presentationObject.transform.SetParent(anchorObject.transform, false);
             rigObject.transform.SetParent(presentationObject.transform, false);
@@ -422,28 +509,42 @@ public class KingRuntimeEditModeTests
             var canonicalRigScale = new Vector3(1f, 1.1f, 0.9f);
 
             var player = playerObject.AddComponent<PlayerManager>();
+            UnitOrientationFixer orientation = presentationObject.AddComponent<UnitOrientationFixer>();
+            orientation.rigRoot = rigObject.transform;
+            orientation.rigRootName = rigObject.name;
+            orientation.rigLocalEulerTarget = canonicalRigRotation.eulerAngles;
+            orientation.faceCameraOnSpawn = false;
+            orientation.faceCameraEveryFrame = false;
+            orientation.enforceEveryLateUpdate = true;
+
+            presentationObject.transform.localPosition = canonicalPosition;
+            presentationObject.transform.localRotation = canonicalRotation;
+            presentationObject.transform.localScale = canonicalScale;
+            rigObject.transform.localPosition = canonicalRigPosition;
+            rigObject.transform.localRotation = canonicalRigRotation;
+            rigObject.transform.localScale = canonicalRigScale;
+
             SetPlayerField(player, "<goalTransform>k__BackingField", goalObject.transform);
             SetPlayerField(player, "_kingPresentationAnchor", anchorObject.transform);
             SetPlayerField(player, "_kingPresentation", presentationObject);
+            SetPlayerField(player, "_kingOrientationFixer", orientation);
             SetPlayerField(player, "_kingHasCanonicalTransform", true);
             SetPlayerField(player, "_kingCanonicalLocalPosition", canonicalPosition);
             SetPlayerField(player, "_kingCanonicalLocalRotation", canonicalRotation);
             SetPlayerField(player, "_kingCanonicalLocalScale", canonicalScale);
             SetPlayerField(player, "_kingExpectedWorldScale", canonicalScale);
             SetPlayerField(player, "_kingDamageReactionPlaying", false);
-            SetPlayerField(player, "_kingRigRoot", rigObject.transform);
-            SetPlayerField(player, "_kingRigLocalPosition", canonicalRigPosition);
-            SetPlayerField(player, "_kingRigLocalRotation", canonicalRigRotation);
-            SetPlayerField(player, "_kingRigLocalScale", canonicalRigScale);
-            SetPlayerField(player, "_kingRigPinRequired", true);
-            SetPlayerField(player, "_kingHasRigLocalRotation", true);
+
+            MethodInfo configureOrientation = typeof(PlayerManager).GetMethod(
+                "ConfigureKingBasePresentationOrientation",
+                instanceMembers);
+            Assert.That(configureOrientation, Is.Not.Null);
+            configureOrientation.Invoke(player, null);
 
             presentationObject.transform.localPosition = new Vector3(8f, 9f, 10f);
             presentationObject.transform.localRotation = Quaternion.Euler(20f, 70f, 15f);
             presentationObject.transform.localScale = Vector3.one * 4f;
-            rigObject.transform.localPosition = new Vector3(4f, 5f, 6f);
             rigObject.transform.localRotation = Quaternion.identity;
-            rigObject.transform.localScale = Vector3.one * 3f;
 
             MethodInfo lateUpdate = typeof(PlayerManager).GetMethod("LateUpdate", instanceMembers);
             Assert.That(lateUpdate, Is.Not.Null);

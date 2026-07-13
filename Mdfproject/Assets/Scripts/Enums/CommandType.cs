@@ -21,6 +21,7 @@ public enum CommandType
     UseMagicScroll = 13,
     SetSkillActivationMode = 14,
     ActivateKingSkill = 15,
+    UpgradeWall = 16,
 
 
     // ===== Sync Commands (100-199) =====

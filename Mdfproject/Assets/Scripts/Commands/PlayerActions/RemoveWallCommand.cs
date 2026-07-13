@@ -62,7 +62,8 @@ public class RemoveWallCommand : ICommand
             return;
         }
 
-        bool hasDestructibleWall = fm.GetWallAt(Position) != null;
+        DestructibleWall destructibleWall = fm.GetWallAt(Position);
+        bool hasDestructibleWall = destructibleWall != null;
         bool hasPlayerPermanentWall = fm.IsPlayerPlacedPermanentWallAt(Position);
         if (!hasDestructibleWall && !hasPlayerPermanentWall)
         {
@@ -70,6 +71,9 @@ public class RemoveWallCommand : ICommand
             return;
         }
 
+        int upgradeRefund = hasDestructibleWall
+            ? Mathf.Max(0, destructibleWall.InvestedUpgradeGold)
+            : 0;
         bool removed;
         if (hasPlayerPermanentWall)
         {
@@ -91,9 +95,10 @@ public class RemoveWallCommand : ICommand
             else
             {
                 player.ReturnWall();
+                player.AddGold(upgradeRefund);
             }
             gm.NotifyWallRemovalSucceeded(player.playerId, Position.x, Position.y);
-            Debug.Log($"[RemoveWallCommand] SUCCESS player={player.playerId}, pos={Position}, kind={(hasPlayerPermanentWall ? WallPlacementKind.Permanent : WallPlacementKind.Destructible)}");
+            Debug.Log($"[RemoveWallCommand] SUCCESS player={player.playerId}, pos={Position}, kind={(hasPlayerPermanentWall ? WallPlacementKind.Permanent : WallPlacementKind.Destructible)}, upgradeRefund={upgradeRefund}");
         }
         else
         {

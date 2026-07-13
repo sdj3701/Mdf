@@ -31,6 +31,10 @@ public partial class FieldManager : MonoBehaviour
     [Tooltip("몬스터가 공격하거나 플레이어가 설치할 때 사용되는 파괴 가능한 벽 프리팹입니다.")]
     public GameObject destructibleWallPrefab;
     public GameObject statusBarPrefab;
+    [Tooltip("Status bars created during field loading so the first unit/wall interaction does not instantiate a world-space canvas.")]
+    [SerializeField, Min(0)] private int statusBarPrewarmCount = 4;
+    private readonly List<StatusBarUI> _prewarmedStatusBars = new List<StatusBarUI>();
+    private Transform _statusBarReserveRoot;
 
     [Header("영구 벽 설정")]
     [Tooltip("게임 시작 시 자동 배치할 파괴 불가(영구) 벽 프리팹입니다. 미지정 시 Addressables 키 'PermanentWallPrefab'로 로드합니다.")]
@@ -399,6 +403,7 @@ public partial class FieldManager : MonoBehaviour
         placementManager = GetComponent<PlacementManager>();
         UpdateWallYOffsetFromPrefab();
         wallLayer = LayerMask.NameToLayer(wallLayerName);
+        PrewarmStatusBarReserve();
     }
 
     // ✅ [추가된 핵심 로직] PlayerManager가 호출하여 초기화
@@ -407,6 +412,7 @@ public partial class FieldManager : MonoBehaviour
     {
         this.playerManager = owner;
         this.ground3D = ground3DObject;
+        PrewarmStatusBarReserve();
         InvalidateCombatTargetRegistry();
         pendingUnitPositions.Clear();
         pendingUnitDataByPosition.Clear();
@@ -1388,7 +1394,7 @@ public partial class FieldManager : MonoBehaviour
         // Network Spawn된 파괴 가능 벽은 migration 이후 wallParent에 속하지 않을 수 있으므로
         // 전역 후보도 함께 훑어 현재 필드 범위에 속한 벽을 다시 수집합니다.
         var globalDestructibleCandidates = UnityEngine.Object.FindObjectsOfType<DestructibleWall>(true)
-            .Where(wall => wall != null && IsWorldPositionInsideOwnedGrid(wall.transform.position));
+            .Where(wall => wall != null && TryResolveOwnedDestructibleWallCell(wall, out _));
 
         foreach (var wall in globalDestructibleCandidates)
         {
@@ -1397,8 +1403,12 @@ public partial class FieldManager : MonoBehaviour
 
         foreach (var wall in destructibleWalls.Where(IsLiveDestructibleWallCandidate).Distinct())
         {
+            if (!TryResolveOwnedDestructibleWallCell(wall, out Vector3Int cell))
+            {
+                continue;
+            }
+
             destructibleCandidates++;
-            Vector3Int cell = WorldToGridInt(wall.transform.position);
             if (!IsValidGridPosition(cell))
             {
                 outOfBounds++;
@@ -2348,6 +2358,39 @@ public partial class FieldManager : MonoBehaviour
         return worldPos.x >= minX && worldPos.x <= maxX && worldPos.z >= minZ && worldPos.z <= maxZ;
     }
 
+    private bool TryResolveOwnedDestructibleWallCell(DestructibleWall wall, out Vector3Int cell)
+    {
+        cell = default;
+        if (wall == null)
+        {
+            return false;
+        }
+
+        // Networked placement metadata is the durable source of truth. A replicated wall can
+        // temporarily have an unsnapped transform or a stale parent on non-authority peers, so
+        // world-space bounds must not override a known owner/cell pair.
+        if (wall.TryGetReplicatedPlacement(out int ownerPlayerId, out Vector3Int replicatedCell))
+        {
+            if (playerManager == null || ownerPlayerId != playerManager.playerId)
+            {
+                return false;
+            }
+
+            cell = replicatedCell;
+            return true;
+        }
+
+        // Scene-authored and legacy non-network walls have no replicated placement metadata.
+        // Keep the previous world-space fallback only for those objects.
+        if (!IsWorldPositionInsideOwnedGrid(wall.transform.position))
+        {
+            return false;
+        }
+
+        cell = WorldToGridInt(wall.transform.position);
+        return true;
+    }
+
     private bool IsLikelyPermanentWallObject(GameObject obj)
     {
         if (obj == null)
@@ -3177,17 +3220,110 @@ public partial class FieldManager : MonoBehaviour
         }
     }
 
-    private void AttachStatusBar(GameObject host, Action<StatusBarUI> setter)
+    /// <summary>
+    /// Binds one status bar to a unit/wall lifecycle. Fusion pooled objects keep their child
+    /// hierarchy, so always reuse the existing inactive child before creating a new instance.
+    /// Resetting before initialization also removes subscriptions and skill-button listeners from
+    /// the object's previous pooled lifetime.
+    /// </summary>
+    internal StatusBarUI AttachStatusBar(GameObject host, Action<StatusBarUI> setter)
     {
-        if (statusBarPrefab != null)
+        if (host == null)
         {
-            GameObject statusBarGO = Instantiate(statusBarPrefab, host.transform);
-            var statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
-            if (statusBarUI != null)
-            {
-                setter?.Invoke(statusBarUI);
-            }
+            return null;
         }
+
+        StatusBarUI statusBarUI = host.GetComponentInChildren<StatusBarUI>(includeInactive: true);
+        if (statusBarUI == null && statusBarPrefab != null)
+        {
+            GameObject statusBarGO = TakePrewarmedStatusBar(host.transform);
+            if (statusBarGO == null)
+            {
+                statusBarGO = Instantiate(statusBarPrefab, host.transform);
+            }
+            statusBarUI = statusBarGO != null ? statusBarGO.GetComponent<StatusBarUI>() : null;
+        }
+
+        if (statusBarUI == null)
+        {
+            return null;
+        }
+
+        setter?.Invoke(statusBarUI);
+        bool needsEnable = !statusBarUI.gameObject.activeSelf;
+        statusBarUI.ResetForReuse(
+            initializeImmediately: !needsEnable && host.activeInHierarchy && statusBarUI.isActiveAndEnabled);
+        if (needsEnable)
+        {
+            statusBarUI.gameObject.SetActive(true);
+        }
+        return statusBarUI;
+    }
+
+    internal int AvailablePrewarmedStatusBarCount
+    {
+        get
+        {
+            _prewarmedStatusBars.RemoveAll(statusBar => statusBar == null);
+            return _prewarmedStatusBars.Count;
+        }
+    }
+
+    private void PrewarmStatusBarReserve()
+    {
+        if (statusBarPrefab == null || statusBarPrewarmCount <= 0)
+        {
+            return;
+        }
+
+        _prewarmedStatusBars.RemoveAll(statusBar => statusBar == null);
+        if (_statusBarReserveRoot == null)
+        {
+            var reserveObject = new GameObject("[StatusBarReserve]");
+            reserveObject.transform.SetParent(transform, false);
+            reserveObject.SetActive(false);
+            _statusBarReserveRoot = reserveObject.transform;
+        }
+
+        int targetCount = Mathf.Max(0, statusBarPrewarmCount);
+        while (_prewarmedStatusBars.Count < targetCount)
+        {
+            GameObject instance = Instantiate(statusBarPrefab, _statusBarReserveRoot);
+            if (instance == null)
+            {
+                break;
+            }
+
+            instance.SetActive(false);
+            StatusBarUI statusBar = instance.GetComponent<StatusBarUI>();
+            if (statusBar == null)
+            {
+                Destroy(instance);
+                break;
+            }
+
+            statusBar.ResetForReuse(initializeImmediately: false);
+            _prewarmedStatusBars.Add(statusBar);
+        }
+    }
+
+    private GameObject TakePrewarmedStatusBar(Transform host)
+    {
+        while (_prewarmedStatusBars.Count > 0)
+        {
+            int lastIndex = _prewarmedStatusBars.Count - 1;
+            StatusBarUI statusBar = _prewarmedStatusBars[lastIndex];
+            _prewarmedStatusBars.RemoveAt(lastIndex);
+            if (statusBar == null)
+            {
+                continue;
+            }
+
+            statusBar.transform.SetParent(host, false);
+            return statusBar.gameObject;
+        }
+
+        return null;
     }
 
     private void MoveUnitImmediate(Unit unit, Vector3 targetWorldPos)
@@ -5598,6 +5734,8 @@ public partial class FieldManager : MonoBehaviour
     void OnDestroy()
     {
         _assetOwner.Dispose();
+        _prewarmedStatusBars.Clear();
+        _statusBarReserveRoot = null;
         DisposeCombatTargetRegistry();
         DisposeGridDebugVisualization();
     }

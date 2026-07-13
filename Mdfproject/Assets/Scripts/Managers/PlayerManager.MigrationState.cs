@@ -22,6 +22,7 @@ public partial class PlayerManager
     {
         public int PackedCell;
         public int PackedHealthAndRevision;
+        public int PackedUpgradeState;
     }
 
     [Networked] private NetworkString<_64> DurableConnectionTokenHashHex { get; set; }
@@ -143,7 +144,9 @@ public partial class PlayerManager
             out int[] flatPositions,
             out float[] currentHealth,
             out float[] maxHealth,
-            out int[] revisions);
+            out int[] revisions,
+            out int[] levels,
+            out int[] upgradeInvestments);
         int count = currentHealth?.Length ?? 0;
         if (count > WALL_HEALTH_MIGRATION_CAPACITY)
         {
@@ -164,10 +167,14 @@ public partial class PlayerManager
                         currentHealth[i],
                         maxHealth[i],
                         revisions[i],
-                        out row.PackedHealthAndRevision))
+                        out row.PackedHealthAndRevision)
+                    || !PlayerSnapshotCodec.TryPackWallUpgradeState(
+                        levels[i],
+                        upgradeInvestments[i],
+                        out row.PackedUpgradeState))
                 {
                     WallHealthMigrationOverflow = true;
-                    Debug.LogError($"[PlayerManager] Durable wall HP row out of range ({context}) P{playerId}: cell=({x},{y}), revision={revisions[i]}");
+                    Debug.LogError($"[PlayerManager] Durable wall row out of range ({context}) P{playerId}: cell=({x},{y}), revision={revisions[i]}, level={levels[i]}, invested={upgradeInvestments[i]}");
                     return false;
                 }
             }
@@ -195,6 +202,8 @@ public partial class PlayerManager
         float currentHealth,
         float maxHealth,
         int revision,
+        int level,
+        int upgradeInvestment,
         string context)
     {
         if (Object == null || !Object.IsValid || !Object.HasStateAuthority ||
@@ -208,7 +217,11 @@ public partial class PlayerManager
                 currentHealth,
                 maxHealth,
                 revision,
-                out int packedHealthAndRevision))
+                out int packedHealthAndRevision)
+            || !PlayerSnapshotCodec.TryPackWallUpgradeState(
+                level,
+                upgradeInvestment,
+                out int packedUpgradeState))
         {
             WallHealthMigrationOverflow = true;
             Debug.LogError($"[PlayerManager] Durable wall HP delta out of range ({context}) P{playerId}: cell={position}, revision={revision}");
@@ -225,6 +238,7 @@ public partial class PlayerManager
             }
 
             row.PackedHealthAndRevision = packedHealthAndRevision;
+            row.PackedUpgradeState = packedUpgradeState;
             WallHealthMigrationRows.Set(i, row);
             WallHealthMigrationRevision = Math.Max(1, WallHealthMigrationRevision + 1);
             return true;
@@ -237,12 +251,16 @@ public partial class PlayerManager
         out int[] flatPositions,
         out float[] currentHealth,
         out float[] maxHealth,
-        out int[] revisions)
+        out int[] revisions,
+        out int[] levels,
+        out int[] upgradeInvestments)
     {
         flatPositions = Array.Empty<int>();
         currentHealth = Array.Empty<float>();
         maxHealth = Array.Empty<float>();
         revisions = Array.Empty<int>();
+        levels = Array.Empty<int>();
+        upgradeInvestments = Array.Empty<int>();
         if (Object == null || !Object.IsValid || WallHealthMigrationRevision <= 0)
         {
             return false;
@@ -253,12 +271,36 @@ public partial class PlayerManager
         currentHealth = new float[count];
         maxHealth = new float[count];
         revisions = new int[count];
+        levels = new int[count];
+        upgradeInvestments = new int[count];
         for (int i = 0; i < count; i++)
         {
             WallHealthMigrationRow row = WallHealthMigrationRows.Get(i);
             PlayerSnapshotCodec.UnpackCell(row.PackedCell, out int x, out int y);
             DestructibleWall wall = fieldManager != null ? fieldManager.GetWallAt(new Vector3Int(x, y, 0)) : null;
-            float resolvedMaxHealth = wall != null ? wall.MaxHealth : 1f;
+            PlayerSnapshotCodec.UnpackWallUpgradeState(
+                row.PackedUpgradeState,
+                out int resolvedLevel,
+                out int resolvedUpgradeInvestment);
+            if (resolvedLevel <= 0)
+            {
+                resolvedLevel = 1;
+            }
+            float resolvedMaxHealth = 1f;
+            if (fieldManager != null
+                && fieldManager.TryResolveDestructibleWallMaxHealth(
+                    resolvedLevel,
+                    out float configuredMaxHealth))
+            {
+                resolvedMaxHealth = configuredMaxHealth;
+            }
+            else if (wall != null)
+            {
+                WallProgressionData progression = wall.ProgressionData;
+                resolvedMaxHealth = progression != null && progression.TryGetLevel(resolvedLevel, out WallLevelData levelData)
+                    ? levelData.MaxHealth
+                    : wall.MaxHealth;
+            }
             PlayerSnapshotCodec.UnpackHealthAndRevision(
                 row.PackedHealthAndRevision,
                 resolvedMaxHealth,
@@ -269,6 +311,8 @@ public partial class PlayerManager
             maxHealth[i] = resolvedMaxHealth;
             currentHealth[i] = resolvedCurrentHealth;
             revisions[i] = revision;
+            levels[i] = resolvedLevel;
+            upgradeInvestments[i] = resolvedUpgradeInvestment;
         }
 
         return true;

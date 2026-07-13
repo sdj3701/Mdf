@@ -99,6 +99,8 @@ public class HostMigrationHandler : MonoBehaviour
         public float[] DestructibleWallCurrentHealth;
         public float[] DestructibleWallMaxHealth;
         public int[] DestructibleWallRevisions;
+        public int[] DestructibleWallLevels;
+        public int[] DestructibleWallUpgradeInvestments;
         public bool MigrationPayloadOverflow;
         public string MigrationPayloadOverflowReason;
         public int AttackPoolRevision;
@@ -2090,6 +2092,8 @@ public class HostMigrationHandler : MonoBehaviour
                 DestructibleWallCurrentHealth = Array.Empty<float>(),
                 DestructibleWallMaxHealth = Array.Empty<float>(),
                 DestructibleWallRevisions = Array.Empty<int>(),
+                DestructibleWallLevels = Array.Empty<int>(),
+                DestructibleWallUpgradeInvestments = Array.Empty<int>(),
                 MigrationPayloadOverflow = false,
                 MigrationPayloadOverflowReason = string.Empty,
                 AttackPoolRevision = 0,
@@ -2146,7 +2150,9 @@ public class HostMigrationHandler : MonoBehaviour
                     out snapshot.DestructibleWallFlatPositions,
                     out snapshot.DestructibleWallCurrentHealth,
                     out snapshot.DestructibleWallMaxHealth,
-                    out snapshot.DestructibleWallRevisions);
+                    out snapshot.DestructibleWallRevisions,
+                    out snapshot.DestructibleWallLevels,
+                    out snapshot.DestructibleWallUpgradeInvestments);
 
                 if (unitMapReady && player.fieldManager.TryGetFieldUnitSnapshot(
                         out UnitData[] fieldUnitDataRefs,
@@ -2450,6 +2456,8 @@ public class HostMigrationHandler : MonoBehaviour
                     snapshot.DestructibleWallCurrentHealth,
                     snapshot.DestructibleWallMaxHealth,
                     snapshot.DestructibleWallRevisions,
+                    snapshot.DestructibleWallLevels,
+                    snapshot.DestructibleWallUpgradeInvestments,
                     context,
                     out int restoredWallHealthCount,
                     out int failedWallHealthCount);

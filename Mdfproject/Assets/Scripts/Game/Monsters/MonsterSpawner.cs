@@ -5,7 +5,106 @@ using UnityEngine;
 using Fusion;
 using Cysharp.Threading.Tasks;
 using System.Threading;
+using System.Linq;
 using MDF.Runtime.Assets;
+
+public readonly struct MonsterPrewarmReport
+{
+    public string Context { get; }
+    public int RequestedPrefabCount { get; }
+    public int CompletedPrefabCount { get; }
+    public int RequestedInstanceCount { get; }
+    public int CreatedInstanceCount { get; }
+    public int FailedPrefabCount { get; }
+    public string FailureSummary { get; }
+    public string SkippedReason { get; }
+
+    public bool Succeeded => FailedPrefabCount == 0;
+    public bool WasAttempted => RequestedPrefabCount > 0;
+
+    public MonsterPrewarmReport(
+        string context,
+        int requestedPrefabCount,
+        int completedPrefabCount,
+        int requestedInstanceCount,
+        int createdInstanceCount,
+        int failedPrefabCount,
+        string failureSummary,
+        string skippedReason = null)
+    {
+        Context = context ?? string.Empty;
+        RequestedPrefabCount = Mathf.Max(0, requestedPrefabCount);
+        CompletedPrefabCount = Mathf.Max(0, completedPrefabCount);
+        RequestedInstanceCount = Mathf.Max(0, requestedInstanceCount);
+        CreatedInstanceCount = Mathf.Max(0, createdInstanceCount);
+        FailedPrefabCount = Mathf.Max(0, failedPrefabCount);
+        FailureSummary = failureSummary ?? string.Empty;
+        SkippedReason = skippedReason ?? string.Empty;
+    }
+
+    public static MonsterPrewarmReport Skipped(string context, string reason)
+    {
+        return new MonsterPrewarmReport(context, 0, 0, 0, 0, 0, string.Empty, reason);
+    }
+
+    public static MonsterPrewarmReport Failed(string context, int requestedPrefabCount, string reason)
+    {
+        int failures = Mathf.Max(1, requestedPrefabCount);
+        return new MonsterPrewarmReport(
+            context,
+            Mathf.Max(0, requestedPrefabCount),
+            0,
+            0,
+            0,
+            failures,
+            reason);
+    }
+
+    public static MonsterPrewarmReport Combine(string context, params MonsterPrewarmReport[] reports)
+    {
+        if (reports == null || reports.Length == 0)
+        {
+            return Skipped(context, "no reports");
+        }
+
+        int requestedPrefabs = 0;
+        int completedPrefabs = 0;
+        int requestedInstances = 0;
+        int createdInstances = 0;
+        int failures = 0;
+        var failureParts = new List<string>();
+        foreach (MonsterPrewarmReport report in reports)
+        {
+            requestedPrefabs += report.RequestedPrefabCount;
+            completedPrefabs += report.CompletedPrefabCount;
+            requestedInstances += report.RequestedInstanceCount;
+            createdInstances += report.CreatedInstanceCount;
+            failures += report.FailedPrefabCount;
+            if (!string.IsNullOrWhiteSpace(report.FailureSummary))
+            {
+                failureParts.Add(report.FailureSummary);
+            }
+        }
+
+        return new MonsterPrewarmReport(
+            context,
+            requestedPrefabs,
+            completedPrefabs,
+            requestedInstances,
+            createdInstances,
+            failures,
+            string.Join(" | ", failureParts));
+    }
+
+    public override string ToString()
+    {
+        string skipped = string.IsNullOrWhiteSpace(SkippedReason) ? string.Empty : $", skipped={SkippedReason}";
+        string failures = string.IsNullOrWhiteSpace(FailureSummary) ? string.Empty : $", errors={FailureSummary}";
+        return $"context={Context}, prefabs={CompletedPrefabCount}/{RequestedPrefabCount}, " +
+               $"requestedInstances={RequestedInstanceCount}, createdInstances={CreatedInstanceCount}, " +
+               $"failedPrefabs={FailedPrefabCount}{skipped}{failures}";
+    }
+}
 
 public class MonsterSpawner : MonoBehaviour
 {
@@ -29,7 +128,10 @@ public class MonsterSpawner : MonoBehaviour
 
     [Header("Monster Prewarm")]
     [SerializeField] private bool enableMonsterPrewarm = true;
-    [SerializeField, Min(0)] private int prewarmCountPerMonsterPrefab = 12;
+    [Tooltip("Soft upper bound per normal monster prefab. The network pool may impose a lower hard cap.")]
+    [SerializeField, Min(1)] private int maxNormalPrewarmCountPerMonsterPrefab = 32;
+    [Tooltip("Soft upper bound per base-wave monster prefab.")]
+    [SerializeField, Min(1)] private int maxWavePrewarmCountPerMonsterPrefab = 24;
     [SerializeField, Min(0)] private int prewarmCountPerBossPrefab = 2;
     
     private readonly HashSet<string> _activeAutoSpawnKeys = new HashSet<string>();
@@ -120,6 +222,13 @@ public class MonsterSpawner : MonoBehaviour
                gm != null &&
                gm.currentState == _battleGenerationState &&
                IsBattleState(gm.currentState);
+    }
+
+    public CancellationToken GetBattleCancellationToken(int generation)
+    {
+        return IsBattleGenerationCurrent(generation) && _battleCancellation != null
+            ? _battleCancellation.Token
+            : new CancellationToken(canceled: true);
     }
 
     /// <summary>Initializes the owner, pathfinder, and goal references.</summary>
@@ -327,37 +436,67 @@ public class MonsterSpawner : MonoBehaviour
         }
     }
 
-    public UniTask PrewarmAttackMonsterPoolAsync(IEnumerable<MonsterPoolEntry> pool, string context = null)
+    public async UniTask<MonsterPrewarmReport> PrewarmAttackMonsterPoolAsync(
+        IEnumerable<MonsterPoolEntry> pool,
+        string context = null,
+        int activePlayerCount = 0,
+        int maximumBlackMagic = 0,
+        RoundWaveData concurrentWaveData = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        context = context ?? "AttackMonsterPool";
         if (!enableMonsterPrewarm || pool == null)
         {
-            return UniTask.CompletedTask;
+            return MonsterPrewarmReport.Skipped(context, !enableMonsterPrewarm ? "disabled" : "pool missing");
         }
 
+        var entries = pool.Where(entry => entry?.MonsterData != null && !entry.IsEmpty).ToList();
+        ResolveAttackDemandInputs(ref activePlayerCount, ref maximumBlackMagic);
+        int minimumNormalCost = entries
+            .Where(entry => !entry.IsBoss)
+            .Select(entry => Mathf.Max(0, entry.MonsterData.blackMagicCost))
+            .Where(cost => cost > 0)
+            .DefaultIfEmpty(1)
+            .Min();
         var requests = new Dictionary<string, MonsterPrewarmRequest>();
-        foreach (var entry in pool)
+        foreach (var entry in entries)
         {
-            if (entry?.MonsterData == null || entry.IsEmpty)
-            {
-                continue;
-            }
-
             int availableCount = Mathf.Max(1, Mathf.Max(entry.RemainingCount, entry.MaxCount));
-            int configuredLimit = entry.IsBoss ? prewarmCountPerBossPrefab : prewarmCountPerMonsterPrefab;
-            int targetCount = Mathf.Min(configuredLimit, availableCount);
+            int concurrentWaveCount = entry.IsBoss
+                ? 0
+                : ResolveWaveCountForPrefab(concurrentWaveData, entry.MonsterData.monsterPrefab);
+            int targetCount = entry.IsBoss
+                ? Mathf.Min(prewarmCountPerBossPrefab, availableCount)
+                : EstimateNormalPrewarmTarget(
+                    activePlayerCount,
+                    maximumBlackMagic,
+                    minimumNormalCost,
+                    maxNormalPrewarmCountPerMonsterPrefab,
+                    concurrentWaveCount);
             AddPrewarmRequest(requests, entry.MonsterData, targetCount);
         }
 
-        return PrewarmRequestsAsync(requests, context ?? "AttackMonsterPool");
+        cancellationToken.ThrowIfCancellationRequested();
+        return await PrewarmRequestsAsync(requests, context, cancellationToken);
     }
 
-    public UniTask PrewarmWaveAsync(RoundWaveData waveData, string context = null)
+    public async UniTask<MonsterPrewarmReport> PrewarmWaveAsync(
+        RoundWaveData waveData,
+        string context = null,
+        int activePlayerCount = 0,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        context = context ?? "Wave";
         if (!enableMonsterPrewarm || waveData?.monsters == null)
         {
-            return UniTask.CompletedTask;
+            return MonsterPrewarmReport.Skipped(context, !enableMonsterPrewarm ? "disabled" : "wave missing");
         }
 
+        int ignoredMaximum = 0;
+        ResolveAttackDemandInputs(ref activePlayerCount, ref ignoredMaximum);
+        int concurrentBattleSlots = ResolveConcurrentBattleSlots(activePlayerCount);
         var requests = new Dictionary<string, MonsterPrewarmRequest>();
         foreach (var entry in waveData.monsters)
         {
@@ -366,23 +505,142 @@ public class MonsterSpawner : MonoBehaviour
                 continue;
             }
 
-            int targetCount = Mathf.Min(prewarmCountPerMonsterPrefab, Mathf.Max(1, entry.count));
+            int totalWaveCount = ResolveWaveCountForPrefab(waveData, entry.monsterData.monsterPrefab);
+            long concurrentWaveDemand = (long)Mathf.Max(1, totalWaveCount) * concurrentBattleSlots;
+            int targetCount = concurrentWaveDemand >= maxWavePrewarmCountPerMonsterPrefab
+                ? maxWavePrewarmCountPerMonsterPrefab
+                : Mathf.Max(1, (int)concurrentWaveDemand);
             AddPrewarmRequest(requests, entry.monsterData, targetCount);
         }
 
-        return PrewarmRequestsAsync(requests, context ?? "Wave");
+        cancellationToken.ThrowIfCancellationRequested();
+        return await PrewarmRequestsAsync(requests, context, cancellationToken);
     }
 
-    public UniTask PrewarmMonsterDataAsync(MonsterData monsterData, bool isBoss, int requestedCount, string context = null)
+    public async UniTask<MonsterPrewarmReport> PrewarmMonsterDataAsync(
+        MonsterData monsterData,
+        bool isBoss,
+        int requestedCount,
+        string context = null,
+        CancellationToken cancellationToken = default)
     {
-        int configuredLimit = isBoss ? prewarmCountPerBossPrefab : prewarmCountPerMonsterPrefab;
+        cancellationToken.ThrowIfCancellationRequested();
+        int configuredLimit = isBoss ? prewarmCountPerBossPrefab : maxNormalPrewarmCountPerMonsterPrefab;
         int targetCount = requestedCount > 0
             ? Mathf.Min(configuredLimit, requestedCount)
             : configuredLimit;
 
         var requests = new Dictionary<string, MonsterPrewarmRequest>();
         AddPrewarmRequest(requests, monsterData, targetCount);
-        return PrewarmRequestsAsync(requests, context ?? "SingleMonster");
+        return await PrewarmRequestsAsync(requests, context ?? "SingleMonster", cancellationToken);
+    }
+
+    public async UniTask<MonsterPrewarmReport> PrewarmMonsterDataSetAsync(
+        IEnumerable<MonsterData> monsterDataSet,
+        bool isBoss,
+        int requestedCount,
+        string context = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!enableMonsterPrewarm || monsterDataSet == null)
+        {
+            return MonsterPrewarmReport.Skipped(
+                context ?? "MonsterSet",
+                !enableMonsterPrewarm ? "disabled" : "data set missing");
+        }
+
+        int configuredLimit = isBoss ? prewarmCountPerBossPrefab : maxNormalPrewarmCountPerMonsterPrefab;
+        int targetCount = requestedCount > 0
+            ? Mathf.Min(configuredLimit, requestedCount)
+            : configuredLimit;
+        var requests = new Dictionary<string, MonsterPrewarmRequest>();
+        foreach (MonsterData monsterData in monsterDataSet)
+        {
+            AddPrewarmRequest(requests, monsterData, targetCount);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return await PrewarmRequestsAsync(requests, context ?? "MonsterSet", cancellationToken);
+    }
+
+    public static int EstimateNormalPrewarmTarget(
+        int activePlayerCount,
+        int maximumBlackMagic,
+        int minimumBlackMagicCost,
+        int perPrefabCap,
+        int waveCountPerBattleForPrefab = 0)
+    {
+        int boundedCap = Mathf.Max(1, perPrefabCap);
+        int concurrentAttackers = ResolveConcurrentBattleSlots(activePlayerCount);
+        int summonsPerAttacker = Mathf.Max(
+            1,
+            Mathf.CeilToInt(Mathf.Max(0, maximumBlackMagic) / (float)Mathf.Max(1, minimumBlackMagicCost)));
+        long estimatedDemand = (long)concurrentAttackers *
+                               (summonsPerAttacker + Mathf.Max(0, waveCountPerBattleForPrefab));
+        return estimatedDemand >= boundedCap ? boundedCap : Mathf.Max(1, (int)estimatedDemand);
+    }
+
+    private static int ResolveConcurrentBattleSlots(int activePlayerCount)
+    {
+        return Mathf.Max(1, (Mathf.Max(1, activePlayerCount) + 1) / 2);
+    }
+
+    private static int ResolveWaveCountForPrefab(RoundWaveData waveData, string monsterPrefabKey)
+    {
+        if (waveData?.monsters == null || string.IsNullOrWhiteSpace(monsterPrefabKey))
+        {
+            return 0;
+        }
+
+        long total = 0;
+        foreach (WaveMonsterEntry entry in waveData.monsters)
+        {
+            if (entry?.monsterData == null ||
+                !string.Equals(entry.monsterData.monsterPrefab, monsterPrefabKey, System.StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            total += Mathf.Max(0, entry.count);
+            if (total >= int.MaxValue)
+            {
+                return int.MaxValue;
+            }
+        }
+
+        return (int)total;
+    }
+
+    private void ResolveAttackDemandInputs(ref int activePlayerCount, ref int maximumBlackMagic)
+    {
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers != null)
+        {
+            List<PlayerManager> activePlayers = gameManagers.AllPlayers
+                .Where(player => player != null && player.GetHealth() > 0)
+                .ToList();
+            if (activePlayerCount <= 0)
+            {
+                activePlayerCount = activePlayers.Count;
+            }
+
+            if (maximumBlackMagic <= 0)
+            {
+                int round = Mathf.Max(1, gameManagers.currentRound);
+                maximumBlackMagic = activePlayers
+                    .Select(player => player.GetProjectedBlackMagicMaximumForRound(round))
+                    .DefaultIfEmpty(0)
+                    .Max();
+            }
+        }
+
+        activePlayerCount = Mathf.Max(1, activePlayerCount);
+        if (maximumBlackMagic <= 0 && _playerManager != null)
+        {
+            int round = GameManagers.Instance != null ? Mathf.Max(1, GameManagers.Instance.currentRound) : 1;
+            maximumBlackMagic = _playerManager.GetProjectedBlackMagicMaximumForRound(round);
+        }
     }
 
     private static void AddPrewarmRequest(Dictionary<string, MonsterPrewarmRequest> requests, MonsterData monsterData, int targetCount)
@@ -401,11 +659,15 @@ public class MonsterSpawner : MonoBehaviour
         requests[key] = new MonsterPrewarmRequest(monsterData, targetCount);
     }
 
-    private async UniTask PrewarmRequestsAsync(Dictionary<string, MonsterPrewarmRequest> requests, string context)
+    private async UniTask<MonsterPrewarmReport> PrewarmRequestsAsync(
+        Dictionary<string, MonsterPrewarmRequest> requests,
+        string context,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!enableMonsterPrewarm || requests == null || requests.Count == 0)
         {
-            return;
+            return MonsterPrewarmReport.Skipped(context, !enableMonsterPrewarm ? "disabled" : "no requests");
         }
 
         if (_playerManager == null)
@@ -416,37 +678,131 @@ public class MonsterSpawner : MonoBehaviour
         var runner = _playerManager?.Runner;
         if (runner == null || !runner.IsRunning)
         {
-            return;
+            MonsterPrewarmReport failure = MonsterPrewarmReport.Failed(context, requests.Count, "runner unavailable");
+            Debug.LogWarning($"[MonsterSpawner] Monster prewarm failed. {failure}");
+            return failure;
         }
 
         var provider = runner.GetComponent<PooledNetworkObjectProvider>();
         if (provider == null)
         {
-            return;
+            MonsterPrewarmReport failure = MonsterPrewarmReport.Failed(context, requests.Count, "network pool provider unavailable");
+            Debug.LogWarning($"[MonsterSpawner] Monster prewarm failed. {failure}");
+            return failure;
         }
 
         int createdTotal = 0;
+        int completedPrefabs = 0;
+        int requestedInstances = requests.Values.Sum(request => Mathf.Max(0, request.TargetFreeCount));
+        int failedPrefabs = 0;
+        var failures = new List<string>();
         foreach (var request in requests.Values)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (request.MonsterData == null || request.TargetFreeCount <= 0)
             {
                 continue;
             }
 
-            GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(request.MonsterData.monsterPrefab, _addressableAssets);
-            if (prefab == null || !prefab.TryGetComponent<NetworkObject>(out var netPrefab))
+            GameObject prefab;
+            try
             {
+                prefab = await AssetLoader.LoadAssetAsync<GameObject>(request.MonsterData.monsterPrefab, _addressableAssets);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (System.OperationCanceledException)
+            {
+                throw;
+            }
+            catch (System.Exception exception)
+            {
+                failedPrefabs++;
+                failures.Add($"{request.MonsterData.monsterPrefab}: load exception ({exception.Message})");
                 continue;
             }
 
-            createdTotal += provider.PrewarmPrefab(runner, netPrefab, request.TargetFreeCount);
+            if (prefab == null)
+            {
+                failedPrefabs++;
+                failures.Add($"{request.MonsterData.monsterPrefab}: prefab load returned null");
+                continue;
+            }
+
+            if (!prefab.TryGetComponent<NetworkObject>(out var netPrefab))
+            {
+                failedPrefabs++;
+                failures.Add($"{request.MonsterData.monsterPrefab}: NetworkObject missing");
+                continue;
+            }
+
+            try
+            {
+                await FirstSpawnPresentationPrewarmer.WarmPrefabAsync(
+                    prefab,
+                    $"monster:{request.MonsterData.monsterPrefab}",
+                    cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (System.OperationCanceledException)
+            {
+                throw;
+            }
+            catch (System.Exception exception)
+            {
+                // Presentation warmup is an optimization. A graphics-driver/editor failure must
+                // not prevent the authoritative pool from being prepared or the phase advancing.
+                Debug.LogWarning(
+                    $"[MonsterSpawner] Presentation prewarm skipped for " +
+                    $"'{request.MonsterData.monsterPrefab}': {exception.Message}");
+                failedPrefabs++;
+                failures.Add($"{request.MonsterData.monsterPrefab}: presentation ({exception.Message})");
+            }
+
+            if (this == null || !isActiveAndEnabled || runner == null || !runner.IsRunning || provider == null)
+            {
+                failedPrefabs++;
+                failures.Add($"{request.MonsterData.monsterPrefab}: lifecycle ended");
+                break;
+            }
+
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                createdTotal += provider.PrewarmPrefab(runner, netPrefab, request.TargetFreeCount);
+                completedPrefabs++;
+            }
+            catch (System.OperationCanceledException)
+            {
+                throw;
+            }
+            catch (System.Exception exception)
+            {
+                failedPrefabs++;
+                failures.Add($"{request.MonsterData.monsterPrefab}: pool ({exception.Message})");
+            }
             await UniTask.Yield();
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
+        var report = new MonsterPrewarmReport(
+            context,
+            requests.Count,
+            completedPrefabs,
+            requestedInstances,
+            createdTotal,
+            failedPrefabs,
+            string.Join(" | ", failures));
         if (createdTotal > 0)
         {
-            Debug.Log($"[MonsterSpawner] Prewarmed {createdTotal} monster NetworkObjects. owner={GetPlayerIdForLog(_playerManager)}, context={context}");
+            Debug.Log($"[MonsterSpawner] Monster prewarm complete. owner={GetPlayerIdForLog(_playerManager)}, {report}");
         }
+
+        if (!report.Succeeded)
+        {
+            Debug.LogWarning($"[MonsterSpawner] Monster prewarm completed with failures. owner={GetPlayerIdForLog(_playerManager)}, {report}");
+        }
+
+        return report;
     }
 
     public bool IsAutoSpawnRunningForKey(string battleBootstrapKey)
@@ -848,7 +1204,17 @@ public class MonsterSpawner : MonoBehaviour
             return;
         }
 
-        await PrewarmWaveAsync(waveData, $"SpawnBaseWaveFromFastestOuterDirectionAsync/R{round}");
+        try
+        {
+            await PrewarmWaveAsync(
+                waveData,
+                $"SpawnBaseWaveFromFastestOuterDirectionAsync/R{round}",
+                cancellationToken: GetBattleCancellationToken(battleGeneration));
+        }
+        catch (System.OperationCanceledException)
+        {
+            return;
+        }
         if (!IsBattleGenerationCurrent(battleGeneration))
         {
             return;
@@ -1166,7 +1532,17 @@ public class MonsterSpawner : MonoBehaviour
                 return;
             }
 
-            await PrewarmAttackMonsterPoolAsync(pool, "StartAutoSpawnFromPool");
+            try
+            {
+                await PrewarmAttackMonsterPoolAsync(
+                    pool,
+                    "StartAutoSpawnFromPool",
+                    cancellationToken: GetBattleCancellationToken(battleGeneration));
+            }
+            catch (System.OperationCanceledException)
+            {
+                return;
+            }
             if (!IsBattleGenerationCurrent(battleGeneration))
             {
                 return;

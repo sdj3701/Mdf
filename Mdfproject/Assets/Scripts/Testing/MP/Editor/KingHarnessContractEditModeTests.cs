@@ -70,8 +70,31 @@ public sealed class KingHarnessContractEditModeTests
             KingRigPinRequired = true,
             KingRigPinActive = true,
             KingCameraFacingAngle = 0.25f,
-            KingHeadLookActive = true,
-            KingHeadLookApplied = true,
+            KingHeadLookActive = false,
+            KingHeadLookApplied = false,
+            KingHeadPresentationMode = "base_idle",
+            KingHeadPose = new MPTestStateSnapshot.KingHeadPoseSnapshot
+            {
+                Comparable = true,
+                KingHeadFound = true,
+                BaseUnitFound = true,
+                CameraFound = true,
+                BaseUnitKey = "UnitData_Mage",
+                BaseUnitName = "Mage(Clone)",
+                KingHeadLookRecent = false,
+                BaseHeadLookRecent = true,
+                KingHeadLookFrameAge = -1,
+                BaseHeadLookFrameAge = 2,
+                KingAnimatorCullingMode = "AlwaysAnimate",
+                BaseAnimatorCullingMode = "CullUpdateTransforms",
+                RootRelativeRotationDeltaDeg = 3.5f,
+                KingForwardElevationDeg = 42f,
+                BaseForwardElevationDeg = 39f,
+                KingToCameraAngleDeg = 8f,
+                BaseToCameraAngleDeg = 9f,
+                KingToConfiguredLookAngleDeg = 4f,
+                BaseToConfiguredLookAngleDeg = 5f
+            },
             Field = new MPTestStateSnapshot.FieldSnapshot
             {
                 GoalReady = true,
@@ -114,8 +137,19 @@ public sealed class KingHarnessContractEditModeTests
         NUnitAssert.That((bool)player?["kingRigPinRequired"], Is.True);
         NUnitAssert.That((bool)player?["kingRigPinActive"], Is.True);
         NUnitAssert.That((float)player?["kingCameraFacingAngle"], Is.EqualTo(0.25f).Within(0.00001f));
-        NUnitAssert.That((bool)player?["kingHeadLookActive"], Is.True);
-        NUnitAssert.That((bool)player?["kingHeadLookApplied"], Is.True);
+        NUnitAssert.That((bool)player?["kingHeadLookActive"], Is.False);
+        NUnitAssert.That((bool)player?["kingHeadLookApplied"], Is.False);
+        NUnitAssert.That((string)player?["kingHeadPresentationMode"], Is.EqualTo("base_idle"));
+        NUnitAssert.That((bool)player?["kingHeadPose"]?["comparable"], Is.True);
+        NUnitAssert.That((string)player?["kingHeadPose"]?["baseUnitKey"], Is.EqualTo("UnitData_Mage"));
+        NUnitAssert.That((float)player?["kingHeadPose"]?["rootRelativeRotationDeltaDeg"],
+            Is.EqualTo(3.5f).Within(0.00001f));
+        NUnitAssert.That((float)player?["kingHeadPose"]?["kingForwardElevationDeg"],
+            Is.EqualTo(42f).Within(0.00001f));
+        NUnitAssert.That((float)player?["kingHeadPose"]?["baseForwardElevationDeg"],
+            Is.EqualTo(39f).Within(0.00001f));
+        NUnitAssert.That((string)player?["kingHeadPose"]?["kingAnimatorCullingMode"],
+            Is.EqualTo("AlwaysAnimate"));
         NUnitAssert.That((string)player?["field"]?["goalCell"], Is.EqualTo("5,4,0"));
         NUnitAssert.That((int)player?["field"]?["regularUnitGoalViolationCount"], Is.Zero);
 
@@ -132,8 +166,14 @@ public sealed class KingHarnessContractEditModeTests
         NUnitAssert.That(restored.Players[0].KingRigPinRequired, Is.True);
         NUnitAssert.That(restored.Players[0].KingRigPinActive, Is.True);
         NUnitAssert.That(restored.Players[0].KingCameraFacingAngle, Is.EqualTo(0.25f).Within(0.00001f));
-        NUnitAssert.That(restored.Players[0].KingHeadLookActive, Is.True);
-        NUnitAssert.That(restored.Players[0].KingHeadLookApplied, Is.True);
+        NUnitAssert.That(restored.Players[0].KingHeadLookActive, Is.False);
+        NUnitAssert.That(restored.Players[0].KingHeadLookApplied, Is.False);
+        NUnitAssert.That(restored.Players[0].KingHeadPresentationMode, Is.EqualTo("base_idle"));
+        NUnitAssert.That(restored.Players[0].KingHeadPose, Is.Not.Null);
+        NUnitAssert.That(restored.Players[0].KingHeadPose.Comparable, Is.True);
+        NUnitAssert.That(restored.Players[0].KingHeadPose.BaseUnitKey, Is.EqualTo("UnitData_Mage"));
+        NUnitAssert.That(restored.Players[0].KingHeadPose.RootRelativeRotationDeltaDeg,
+            Is.EqualTo(3.5f).Within(0.00001f));
         NUnitAssert.That(restored.Players[0].Field.GoalCell, Is.EqualTo("5,4,0"));
         NUnitAssert.That(restored.Players[0].Field.RegularUnitGoalViolationCount, Is.Zero);
     }
