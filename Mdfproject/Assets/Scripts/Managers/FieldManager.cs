@@ -6,11 +6,12 @@ using System.Linq;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Fusion;
-using AI.UtilitySystem;
-using AI.UtilitySystem.Considerations.Placement;
+using MDF.Runtime.Assets;
 [RequireComponent(typeof(PlacementManager))]
 public partial class FieldManager : MonoBehaviour
 {
+    private readonly AddressableAssetOwner _assetOwner = new AddressableAssetOwner();
+
     public enum BorderDirection
     {
         North,
@@ -94,17 +95,20 @@ public partial class FieldManager : MonoBehaviour
     /// <summary>
     /// 외곽 확장을 포함한 전체 그리드 크기 (A* 경로 탐색에 사용)
     /// </summary>
-    public Vector2Int TotalGridSize => new Vector2Int(gridSize.x + outerGridMargin * 2, gridSize.y + outerGridMargin * 2);
+    public Vector2Int TotalGridSize => GridGeometry.TotalSize;
 
     /// <summary>
     /// 전체 그리드의 원점 (외곽 확장 포함)
     /// </summary>
-    public Vector3 TotalGridOrigin => new Vector3(gridOrigin.x - outerGridMargin * cellSize, gridOrigin.y, gridOrigin.z - outerGridMargin * cellSize);
+    public Vector3 TotalGridOrigin => GridGeometry.TotalOrigin;
 
     /// <summary>
     /// 외곽 확장 마진 (셀 단위)
     /// </summary>
     public int OuterGridMargin => outerGridMargin;
+
+    private FieldGridGeometry GridGeometry =>
+        new FieldGridGeometry(gridOrigin, cellSize, gridSize, outerGridMargin);
 
     [Tooltip("Ground Renderer의 Bounds로부터 그리드 Origin/Size를 자동 유도합니다. 끄면 인스펙터 설정값을 그대로 사용합니다.")]
     public bool deriveGridFromGroundBounds = false;
@@ -284,20 +288,6 @@ public partial class FieldManager : MonoBehaviour
     private Vector3 offset;
     private Fusion.NetworkTransform selectedUnitNetworkTransform; // 드래그 중 NetworkTransform 참조
 
-    private readonly List<Consideration> _placementConsiderations = new List<Consideration>
-    {
-        // --- 근접 유닛 우선순위 (요청사항에 따라 가중치 조정) ---
-        new MeleePlacementConsideration { weight = 3.0f },      // 0. Ground 타일 (가장 중요)
-        new OnMonsterPathConsideration { weight = 10.0f },      // 1. 몬스터 경로 위 (최우선)
-        new MeleeProtectsRangedConsideration { weight = 1.6f }, // 2. 경로 위에서 원거리 유닛 보호
-
-        // --- 공통 / 원거리 유닛 우선순위 ---
-        new ProximityToAlliesConsideration { weight = 1.2f },   // 유닛끼리 뭉치기
-        new AttackRangeCoverageConsideration { weight = 1.0f }, // 공격 범위 효율
-        new RangedUnitSynergyConsideration { weight = 1.5f },   // 원거리 유닛이 근접 유닛 근처에
-    };
-
-    // 유닛 클릭/드래그 및 상세 정보 패널 관련 변수
     private float mouseDownTimer;
     private const float dragDelay = 0.2f; // 0.2초 이상 누르면 드래그 시작
     [Header("드래그 설정")]
@@ -317,21 +307,6 @@ public partial class FieldManager : MonoBehaviour
     private Vector2 offsetXZ;          // 마우스 대비 유닛의 XZ 평면 오프셋
 
     // AI 배치 디버그용 변수들
-    private Dictionary<Vector3Int, float> _debugTileScores = new Dictionary<Vector3Int, float>();
-    private Dictionary<Vector3Int, DebugScoreBreakdown> _debugScoreBreakdowns = new Dictionary<Vector3Int, DebugScoreBreakdown>();
-#pragma warning disable CS0414 // 디버그 시각화용 변수 (추후 사용 예정)
-    private bool _showDebugScores = false;
-#pragma warning restore CS0414
-    private UnitData _debugUnitData;
-
-    // 디버그용 점수 세부사항 구조체
-    public struct DebugScoreBreakdown
-    {
-        public float groundScore;
-        public float pathScore;
-        public float allyScore;
-        public float totalScore;
-    }
     private bool isDragStarted = false;
     private GameObject unitDetailPanelInstance;
     private Unit unitDisplayedInPanel;
@@ -496,9 +471,6 @@ public partial class FieldManager : MonoBehaviour
     public Vector3 GridToWorld(Vector2Int gridPos, bool checkForWall = false)
     {
         // 그리드 좌표를 3D 월드 좌표로 변환
-        float worldX = gridOrigin.x + (gridPos.x + 0.5f) * cellSize;
-        float worldZ = gridOrigin.z + (gridPos.y + 0.5f) * cellSize;
-
         // Y 오프셋 계산 (벽 위인지 확인)
         float yOffset = gridOrigin.y + groundYOffset;
         if (checkForWall && ground3D != null)
@@ -510,7 +482,7 @@ public partial class FieldManager : MonoBehaviour
             }
         }
 
-        return new Vector3(worldX, yOffset, worldZ);
+        return GridGeometry.InnerCellToWorld(gridPos, yOffset);
     }
 
     /// <summary>
@@ -521,12 +493,7 @@ public partial class FieldManager : MonoBehaviour
     public Vector2Int WorldToGrid(Vector3 worldPos)
     {
         // 3D 월드 좌표를 그리드 좌표로 변환 (X, Z 사용)
-        int gridX = Mathf.FloorToInt((worldPos.x - gridOrigin.x) / cellSize);
-        int gridY = Mathf.FloorToInt((worldPos.z - gridOrigin.z) / cellSize);
-        // 경계에서의 미세한 오차로 인해 size 인덱스가 되는 것을 방지하기 위해 유효 범위로 클램프
-        gridX = Mathf.Clamp(gridX, 0, Mathf.Max(0, gridSize.x - 1));
-        gridY = Mathf.Clamp(gridY, 0, Mathf.Max(0, gridSize.y - 1));
-        return new Vector2Int(gridX, gridY);
+        return GridGeometry.WorldToInnerCell(worldPos);
     }
 
     /// <summary>
@@ -565,7 +532,7 @@ public partial class FieldManager : MonoBehaviour
 
     public Vector2Int InnerCellToNavigationCell(Vector2Int innerCell)
     {
-        return new Vector2Int(innerCell.x + outerGridMargin, innerCell.y + outerGridMargin);
+        return GridGeometry.InnerToNavigation(innerCell);
     }
 
     public Vector2Int InnerCellToNavigationCell(Vector3Int innerCell)
@@ -575,43 +542,28 @@ public partial class FieldManager : MonoBehaviour
 
     public bool TryNavigationCellToInnerCell(Vector2Int navigationCell, out Vector3Int innerCell)
     {
-        int innerX = navigationCell.x - outerGridMargin;
-        int innerY = navigationCell.y - outerGridMargin;
-        innerCell = new Vector3Int(innerX, innerY, 0);
-        return IsValidGridPosition(innerCell);
+        return GridGeometry.TryNavigationToInner(navigationCell, out innerCell);
     }
 
     public bool IsValidNavigationCell(Vector2Int navigationCell)
     {
-        Vector2Int totalGridSize = TotalGridSize;
-        return navigationCell.x >= 0 && navigationCell.x < totalGridSize.x &&
-               navigationCell.y >= 0 && navigationCell.y < totalGridSize.y;
+        return GridGeometry.IsValidNavigation(navigationCell);
     }
 
     public Vector2Int WorldToNavigationCell(Vector3 worldPos)
     {
-        Vector3 totalGridOrigin = TotalGridOrigin;
-        Vector2Int totalGridSize = TotalGridSize;
-        int gridX = Mathf.FloorToInt((worldPos.x - totalGridOrigin.x) / cellSize);
-        int gridY = Mathf.FloorToInt((worldPos.z - totalGridOrigin.z) / cellSize);
-        gridX = Mathf.Clamp(gridX, 0, Mathf.Max(0, totalGridSize.x - 1));
-        gridY = Mathf.Clamp(gridY, 0, Mathf.Max(0, totalGridSize.y - 1));
-        return new Vector2Int(gridX, gridY);
+        return GridGeometry.WorldToNavigation(worldPos);
     }
 
     public Vector3 NavigationCellToWorld(Vector2Int navigationCell, bool checkForWall = false)
     {
-        Vector3 totalGridOrigin = TotalGridOrigin;
-        float worldX = totalGridOrigin.x + (navigationCell.x + 0.5f) * cellSize;
-        float worldZ = totalGridOrigin.z + (navigationCell.y + 0.5f) * cellSize;
-
         float yOffset = gridOrigin.y + groundYOffset;
         if (checkForWall && TryNavigationCellToInnerCell(navigationCell, out var innerCell) && HasWallAt(innerCell))
         {
             yOffset = gridOrigin.y + wallYOffset;
         }
 
-        return new Vector3(worldX, yOffset, worldZ);
+        return GridGeometry.NavigationCellToWorld(navigationCell, yOffset);
     }
 
     public List<AstarNode> ConvertNavigationPathToInnerField(List<AstarNode> navigationPath)
@@ -640,16 +592,7 @@ public partial class FieldManager : MonoBehaviour
 
     public List<Vector3Int> GetBorderGapCells()
     {
-        int centerX = gridSize.x / 2;
-        int centerY = gridSize.y / 2;
-
-        return new List<Vector3Int>(4)
-        {
-            new Vector3Int(centerX, gridSize.y - 1, 0),
-            new Vector3Int(centerX, 0, 0),
-            new Vector3Int(gridSize.x - 1, centerY, 0),
-            new Vector3Int(0, centerY, 0)
-        };
+        return new List<Vector3Int>(GridGeometry.BuildBorderGapCells());
     }
 
     public List<Vector3Int> GetOpenBorderGaps()
@@ -837,15 +780,7 @@ public partial class FieldManager : MonoBehaviour
     /// </summary>
     public Vector3 ClampToGrid(Vector3 worldPos)
     {
-        float minX = gridOrigin.x;
-        float minZ = gridOrigin.z;
-        float maxXExclusive = gridOrigin.x + gridSize.x * cellSize;
-        float maxZExclusive = gridOrigin.z + gridSize.y * cellSize;
-        float epsilon = Mathf.Max(1e-4f * cellSize, Mathf.Epsilon);
-
-        float clampedX = Mathf.Clamp(worldPos.x, minX, maxXExclusive - epsilon);
-        float clampedZ = Mathf.Clamp(worldPos.z, minZ, maxZExclusive - epsilon);
-        return new Vector3(clampedX, worldPos.y, clampedZ);
+        return GridGeometry.ClampWorldToInnerBounds(worldPos);
     }
 
     /// <summary>
@@ -853,8 +788,7 @@ public partial class FieldManager : MonoBehaviour
     /// </summary>
     public bool IsValidGridPosition(Vector2Int gridPos)
     {
-        return gridPos.x >= 0 && gridPos.x < gridSize.x &&
-               gridPos.y >= 0 && gridPos.y < gridSize.y;
+        return GridGeometry.IsValidInner(gridPos);
     }
 
     public bool IsValidGridPosition(Vector3Int gridPos)
@@ -2311,7 +2245,7 @@ public partial class FieldManager : MonoBehaviour
         GameObject prefab = permanentWallPrefab;
         if (prefab == null && !string.IsNullOrEmpty(permanentWallAddressKey))
         {
-            prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey);
+            prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey, _assetOwner);
             Debug.Log($"[WallFlow-Auto] prefab loaded from addressables. key={permanentWallAddressKey}, success={prefab != null}");
         }
 
@@ -2524,7 +2458,7 @@ public partial class FieldManager : MonoBehaviour
         GameObject prefab = permanentWallPrefab;
         if (prefab == null && !string.IsNullOrEmpty(permanentWallAddressKey))
         {
-            prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey);
+            prefab = await AssetLoader.LoadAssetAsync<GameObject>(permanentWallAddressKey, _assetOwner);
         }
 
         if (prefab == null)
@@ -3149,7 +3083,7 @@ public partial class FieldManager : MonoBehaviour
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+            GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey, _assetOwner);
             cancellationToken.ThrowIfCancellationRequested();
             if (prefabToCreate == null)
             {
@@ -3391,7 +3325,7 @@ public partial class FieldManager : MonoBehaviour
 
         try
         {
-            GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+            GameObject prefabToCreate = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey, _assetOwner);
 
             if (prefabToCreate == null)
             {
@@ -4470,732 +4404,30 @@ public partial class FieldManager : MonoBehaviour
 
     #region AI 배치 Helper
 
-    public Vector3Int? FindBestSpotForAI(UnitData unitData, List<AstarNode> monsterPathContext, List<Unit> alliedUnitsContext = null, HashSet<Vector3Int> occupiedTiles = null, Vector3Int? movingUnitOriginalPos = null)
-    {
+    private FieldAiPlacementService _aiPlacementService;
 
-        // 디버그 정보 초기화
-        _debugTileScores.Clear();
-        _debugScoreBreakdowns.Clear();
-        _showDebugScores = true;
-        _debugUnitData = unitData;
+    private FieldAiPlacementService AiPlacementService =>
+        _aiPlacementService ?? (_aiPlacementService = new FieldAiPlacementService(this));
 
-        var allValidTiles = GetValidPlacementTiles(unitData.unitType);
-        if (allValidTiles == null || allValidTiles.Count == 0)
-        {
-            // Debug.LogWarning($"AI가 {unitData.unitType} 타입의 유닛을 배치할 유효한 타일을 찾지 못했습니다.");
-            return null;
-        }
-
-        List<Vector3Int> candidateTiles = allValidTiles;
-        HashSet<Vector3Int> rangedPathTiles = null;
-        HashSet<Vector3Int> meleePathTiles = null;
-
-        // [핵심 수정] 근접 유닛의 경우, 배치 후보지를 몬스터 경로 위로 먼저 한정합니다.
-        if (unitData.unitType == UnitType.Melee && monsterPathContext != null && monsterPathContext.Count > 0)
-        {
-            // 디버그: AI 필드 타일 범위와 몬스터 경로 범위 확인 (필요시 주석 해제)
-            // var fieldTileRange = $"필드 타일 범위: ({allValidTiles.Min(t => t.x)}, {allValidTiles.Min(t => t.y)}) ~ ({allValidTiles.Max(t => t.x)}, {allValidTiles.Max(t => t.y)})";
-            // var pathRange = $"받은 몬스터 경로 범위: ({monsterPathContext.Min(n => n.x)}, {monsterPathContext.Min(n => n.y)}) ~ ({monsterPathContext.Max(n => n.x)}, {monsterPathContext.Max(n => n.y)})";
-            // Debug.Log($"[AI Placement Debug] {fieldTileRange}");
-            // Debug.Log($"[AI Placement Debug] {pathRange}");
-            // Debug.Log($"[AI Placement Debug] 받은 경로 첫 번째 노드: ({monsterPathContext[0].x}, {monsterPathContext[0].y}), 마지막 노드: ({monsterPathContext[monsterPathContext.Count-1].x}, {monsterPathContext[monsterPathContext.Count-1].y})");
-
-            meleePathTiles = BuildMonsterPathTileSet(monsterPathContext);
-            var onPathTiles = allValidTiles.Where(tile => meleePathTiles.Contains(tile)).ToList();
-
-            // 경로 위에 배치 가능한 타일이 있다면, 후보지를 그 타일들로 제한합니다.
-            if (onPathTiles.Count > 0)
-            {
-                candidateTiles = onPathTiles;
-                // Debug.Log($"[AI Placement] 근접 유닛 {unitData.unitName} 배치: 몬스터 경로 위 {onPathTiles.Count}개 타일로 후보지 제한");
-            }
-            else
-            {
-                // Debug.Log($"[AI Placement] 근접 유닛 {unitData.unitName} 배치: 몬스터 경로 위에 배치 가능한 타일이 없어 전체 {allValidTiles.Count}개 타일 대상");
-            }
-            // 경로 위에 배치할 곳이 없다면, 원래의 모든 유효 타일을 대상으로 점수를 계산합니다(폴백).
-        }
-
-        if (unitData.unitType == UnitType.Ranged && monsterPathContext != null && monsterPathContext.Count > 0)
-        {
-            rangedPathTiles = BuildMonsterPathTileSet(monsterPathContext);
-            candidateTiles = FilterRangedCandidatesForMonsterPath(allValidTiles, monsterPathContext, unitData.attackRange);
-            if (candidateTiles == null || candidateTiles.Count == 0)
-            {
-                candidateTiles = allValidTiles;
-            }
-        }
-
-        if (unitData.unitType == UnitType.Ranged)
-        {
-            candidateTiles = SelectPreferredRangedCandidateTier(candidateTiles, occupiedTiles, movingUnitOriginalPos);
-            if ((candidateTiles == null || candidateTiles.Count == 0) && !ReferenceEquals(candidateTiles, allValidTiles))
-            {
-                candidateTiles = SelectPreferredRangedCandidateTier(allValidTiles, occupiedTiles, movingUnitOriginalPos);
-            }
-        }
-
-        var alliedUnits = alliedUnitsContext ?? GetAlliedUnitsOnField();
-
-        Vector3Int bestPosition = Vector3Int.zero;
-        float highestScore = -1f;
-
-        // 후보 타일들('candidateTiles')을 순회하며 최고 점수 위치를 찾습니다.
-        foreach (var tilePos in candidateTiles)
-        {
-            if (occupiedTiles != null)
-            {
-                if (occupiedTiles.Contains(tilePos)) continue;
-            }
-            else
-            {
-                // 현재 이동시키려는 유닛의 원래 위치가 아니라면, 점유된 타일은 건너뜁니다.
-                bool isSpotOfMovingUnit = movingUnitOriginalPos.HasValue && tilePos == movingUnitOriginalPos.Value;
-                if (IsUnitAt(tilePos) && !isSpotOfMovingUnit)
-                {
-                    continue;
-                }
-            }
-
-            var context = new AIContext(playerManager, unitData, tilePos, alliedUnits, monsterPathContext);
-            float currentScore = CalculateScore(context, _placementConsiderations, tilePos);
-            if (unitData.unitType == UnitType.Ranged && rangedPathTiles != null && rangedPathTiles.Count > 0)
-            {
-                currentScore += CalculateRangedPathPriorityBonus(tilePos, rangedPathTiles, unitData.attackRange);
-            }
-            else if (unitData.unitType == UnitType.Melee && meleePathTiles != null && meleePathTiles.Contains(tilePos))
-            {
-                currentScore += CalculateNearbyRangedAllyBonus(tilePos, alliedUnits);
-            }
-
-            // 디버그용 점수 저장
-            _debugTileScores[tilePos] = currentScore;
-
-            if (currentScore > highestScore)
-            {
-                highestScore = currentScore;
-                bestPosition = tilePos;
-            }
-        }
-
-        if (highestScore > -1f)
-        {
-            if (movingUnitOriginalPos.HasValue &&
-                bestPosition == movingUnitOriginalPos.Value &&
-                ShouldForceMoveAwayFromOriginal(movingUnitOriginalPos))
-            {
-                var fallback = unitData.unitType == UnitType.Ranged
-                    ? FindBestRangedFallbackAwayFromOriginal(
-                        unitData,
-                        allValidTiles,
-                        alliedUnits,
-                        monsterPathContext,
-                        rangedPathTiles,
-                        occupiedTiles,
-                        movingUnitOriginalPos)
-                    : FindBestMeleeFallbackAwayFromOriginal(
-                        unitData,
-                        allValidTiles,
-                        alliedUnits,
-                        monsterPathContext,
-                        occupiedTiles,
-                        movingUnitOriginalPos);
-                if (fallback.HasValue)
-                {
-                    ClearDebugScores();
-                    return fallback.Value;
-                }
-            }
-            // Debug.Log($"[AI Placement] {unitData.unitName}을(를) {bestPosition}에 배치 (점수: {highestScore:F2})");
-
-            // 3초 후 디버그 표시 끄기
-            Invoke(nameof(ClearDebugScores), 3.0f);
-
-            return bestPosition;
-        }
-
-        // 점수 계산에 실패했더라도, 배치 가능한 첫 번째 위치라도 반환합니다.
-        if (unitData.unitType == UnitType.Ranged)
-        {
-            var fallback = FindBestRangedFallbackAwayFromOriginal(
-                unitData,
-                allValidTiles,
-                alliedUnits,
-                monsterPathContext,
-                rangedPathTiles,
-                occupiedTiles,
-                movingUnitOriginalPos);
-            if (fallback.HasValue)
-            {
-                ClearDebugScores();
-                return fallback.Value;
-            }
-
-            if (rangedPathTiles != null && rangedPathTiles.Count > 0)
-            {
-                ClearDebugScores();
-                return movingUnitOriginalPos;
-            }
-        }
-
-        if (unitData.unitType == UnitType.Melee)
-        {
-            var fallback = FindBestMeleeFallbackAwayFromOriginal(
-                unitData,
-                allValidTiles,
-                alliedUnits,
-                monsterPathContext,
-                occupiedTiles,
-                movingUnitOriginalPos);
-            if (fallback.HasValue)
-            {
-                ClearDebugScores();
-                return fallback.Value;
-            }
-        }
-
-        ClearDebugScores();
-        return FindFirstEmptySlot(unitData);
-    }
-
-    private Vector3Int? FindBestRangedFallbackAwayFromOriginal(
+    public Vector3Int? FindBestSpotForAI(
         UnitData unitData,
-        List<Vector3Int> allValidTiles,
-        List<Unit> alliedUnits,
         List<AstarNode> monsterPathContext,
-        HashSet<Vector3Int> rangedPathTiles,
-        HashSet<Vector3Int> occupiedTiles,
-        Vector3Int? movingUnitOriginalPos)
+        List<Unit> alliedUnitsContext = null,
+        HashSet<Vector3Int> occupiedTiles = null,
+        Vector3Int? movingUnitOriginalPos = null)
     {
-        if (unitData == null || allValidTiles == null || allValidTiles.Count == 0)
-        {
-            return null;
-        }
-
-        var fallbackTiles = SelectPreferredRangedCandidateTier(allValidTiles, occupiedTiles, movingUnitOriginalPos);
-        if (fallbackTiles == null || fallbackTiles.Count == 0)
-        {
-            return null;
-        }
-
-        Vector3Int bestPosition = Vector3Int.zero;
-        float highestScore = -1f;
-        foreach (var tilePos in fallbackTiles)
-        {
-            if (movingUnitOriginalPos.HasValue && tilePos == movingUnitOriginalPos.Value)
-            {
-                continue;
-            }
-
-            if (occupiedTiles != null && occupiedTiles.Contains(tilePos))
-            {
-                continue;
-            }
-
-            if (IsUnitAt(tilePos))
-            {
-                continue;
-            }
-
-            var context = new AIContext(playerManager, unitData, tilePos, alliedUnits, monsterPathContext);
-            float currentScore = CalculateScore(context, _placementConsiderations, tilePos);
-            currentScore += CalculateRangedPathPriorityBonus(tilePos, rangedPathTiles, unitData.attackRange);
-            currentScore += CalculateFieldCenterScore(tilePos) * 3.0f;
-
-            if (IsOuterRingCell(tilePos) || IsBorderGapCell(tilePos))
-            {
-                currentScore -= 20.0f;
-            }
-            else if (IsNearFieldEdgeCell(tilePos))
-            {
-                currentScore -= 8.0f;
-            }
-
-            if (currentScore > highestScore)
-            {
-                highestScore = currentScore;
-                bestPosition = tilePos;
-            }
-        }
-
-        return highestScore > -1f ? bestPosition : (Vector3Int?)null;
+        return AiPlacementService.FindBestSpot(
+            unitData,
+            monsterPathContext,
+            alliedUnitsContext,
+            occupiedTiles,
+            movingUnitOriginalPos);
     }
 
-    private Vector3Int? FindBestMeleeFallbackAwayFromOriginal(
-        UnitData unitData,
-        List<Vector3Int> allValidTiles,
-        List<Unit> alliedUnits,
-        List<AstarNode> monsterPathContext,
-        HashSet<Vector3Int> occupiedTiles,
-        Vector3Int? movingUnitOriginalPos)
+    internal void ScheduleAiPlacementDebugClear()
     {
-        if (unitData == null || allValidTiles == null || allValidTiles.Count == 0)
-        {
-            return null;
-        }
-
-        var pathTiles = BuildMonsterPathTileSet(monsterPathContext);
-        var pathCandidates = pathTiles.Count > 0
-            ? allValidTiles.Where(tile => pathTiles.Contains(tile)).ToList()
-            : new List<Vector3Int>();
-        var fallbackTiles = pathCandidates.Count > 0 ? pathCandidates : allValidTiles;
-
-        Vector3Int bestPosition = Vector3Int.zero;
-        float highestScore = -1f;
-        foreach (var tilePos in fallbackTiles)
-        {
-            if (movingUnitOriginalPos.HasValue && tilePos == movingUnitOriginalPos.Value)
-            {
-                continue;
-            }
-
-            if (occupiedTiles != null && occupiedTiles.Contains(tilePos))
-            {
-                continue;
-            }
-
-            if (IsUnitAt(tilePos) || HasWallAt(tilePos))
-            {
-                continue;
-            }
-
-            var context = new AIContext(playerManager, unitData, tilePos, alliedUnits, monsterPathContext);
-            float currentScore = CalculateScore(context, _placementConsiderations, tilePos);
-            if (pathTiles.Contains(tilePos))
-            {
-                currentScore += 20.0f;
-                currentScore += CalculateNearbyRangedAllyBonus(tilePos, alliedUnits);
-            }
-
-            currentScore += CalculateFieldCenterScore(tilePos) * 2.0f;
-            if (IsOuterRingCell(tilePos) || IsBorderGapCell(tilePos))
-            {
-                currentScore -= 20.0f;
-            }
-            else if (IsNearFieldEdgeCell(tilePos))
-            {
-                currentScore -= 8.0f;
-            }
-
-            if (currentScore > highestScore)
-            {
-                highestScore = currentScore;
-                bestPosition = tilePos;
-            }
-        }
-
-        return highestScore > -1f ? bestPosition : (Vector3Int?)null;
-    }
-
-    private bool ShouldForceMoveAwayFromOriginal(Vector3Int? movingUnitOriginalPos)
-    {
-        if (!movingUnitOriginalPos.HasValue)
-        {
-            return false;
-        }
-
-        var original = movingUnitOriginalPos.Value;
-        return IsNearFieldEdgeCell(original) || IsBorderGapCell(original);
-    }
-
-    private List<Vector3Int> FilterRangedCandidatesForMonsterPath(
-        List<Vector3Int> allValidTiles,
-        List<AstarNode> monsterPathContext,
-        float attackRange)
-    {
-        if (allValidTiles == null || allValidTiles.Count == 0 || monsterPathContext == null || monsterPathContext.Count == 0)
-        {
-            return allValidTiles;
-        }
-
-        var pathTiles = BuildMonsterPathTileSet(monsterPathContext);
-
-        if (pathTiles.Count == 0)
-        {
-            return new List<Vector3Int>();
-        }
-
-        var pathCoveringTiles = allValidTiles
-            .Where(tile => CountCoveredMonsterPathTiles(tile, pathTiles, attackRange) > 0)
-            .ToList();
-        if (pathCoveringTiles.Count == 0)
-        {
-            return new List<Vector3Int>();
-        }
-
-        var coverageByTile = pathCoveringTiles
-            .ToDictionary(tile => tile, tile => CountCoveredMonsterPathTiles(tile, pathTiles, attackRange));
-        int maxCovered = coverageByTile.Values.Max();
-        int minStrongCovered = Mathf.Max(1, Mathf.CeilToInt(maxCovered * 0.85f));
-        var strongCoverageTiles = coverageByTile
-            .Where(kvp => kvp.Value >= minStrongCovered)
-            .Select(kvp => kvp.Key)
-            .ToList();
-        var maxCoverageTiles = coverageByTile
-            .Where(kvp => kvp.Value == maxCovered)
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        var centralStrongCoverageTiles = strongCoverageTiles
-            .Where(tile => !IsOuterRingCell(tile) &&
-                           !IsNearFieldEdgeCell(tile) &&
-                           !IsBorderGapCell(tile) &&
-                           CalculateFieldCenterScore(tile) >= 0.55f)
-            .ToList();
-        if (centralStrongCoverageTiles.Count > 0)
-        {
-            return centralStrongCoverageTiles;
-        }
-
-        var centralMaxCoverageTiles = maxCoverageTiles
-            .Where(tile => !IsOuterRingCell(tile) &&
-                           !IsNearFieldEdgeCell(tile) &&
-                           !IsBorderGapCell(tile) &&
-                           CalculateFieldCenterScore(tile) >= 0.55f)
-            .ToList();
-        if (centralMaxCoverageTiles.Count > 0)
-        {
-            return centralMaxCoverageTiles;
-        }
-
-        var interiorPathCoveringTiles = strongCoverageTiles
-            .Where(tile => !IsOuterRingCell(tile) &&
-                           !IsNearFieldEdgeCell(tile) &&
-                           !IsBorderGapCell(tile))
-            .ToList();
-        if (interiorPathCoveringTiles.Count > 0)
-        {
-            var centralInteriorTiles = interiorPathCoveringTiles
-                .Where(tile => CalculateFieldCenterScore(tile) >= 0.55f)
-                .ToList();
-            return centralInteriorTiles.Count > 0
-                ? centralInteriorTiles
-                : interiorPathCoveringTiles;
-        }
-
-        var centralAnyCoverageTiles = pathCoveringTiles
-            .Where(tile => !IsOuterRingCell(tile) &&
-                           !IsNearFieldEdgeCell(tile) &&
-                           !IsBorderGapCell(tile) &&
-                           CalculateFieldCenterScore(tile) >= 0.45f)
-            .ToList();
-        if (centralAnyCoverageTiles.Count > 0)
-        {
-            int centralMaxCovered = centralAnyCoverageTiles.Max(tile => coverageByTile[tile]);
-            int minCentralCovered = Mathf.Max(1, Mathf.CeilToInt(centralMaxCovered * 0.70f));
-            var centralCoverageBand = centralAnyCoverageTiles
-                .Where(tile => coverageByTile[tile] >= minCentralCovered)
-                .ToList();
-            return centralCoverageBand.Count > 0 ? centralCoverageBand : centralAnyCoverageTiles;
-        }
-
-        return new List<Vector3Int>();
-    }
-
-    private List<Vector3Int> SelectPreferredRangedCandidateTier(
-        List<Vector3Int> candidateTiles,
-        HashSet<Vector3Int> occupiedTiles,
-        Vector3Int? movingUnitOriginalPos)
-    {
-        if (candidateTiles == null || candidateTiles.Count == 0)
-        {
-            return candidateTiles;
-        }
-
-        var strictInterior = candidateTiles
-            .Where(tile => IsStrictInteriorRangedCell(tile))
-            .ToList();
-        if (HasAvailablePlacementTile(strictInterior, occupiedTiles, movingUnitOriginalPos))
-        {
-            return strictInterior;
-        }
-
-        var innerRing = candidateTiles
-            .Where(tile => !IsOuterRingCell(tile) && !IsBorderGapCell(tile))
-            .ToList();
-        if (HasAvailablePlacementTile(innerRing, occupiedTiles, movingUnitOriginalPos))
-        {
-            return innerRing;
-        }
-
-        var nonGap = candidateTiles
-            .Where(tile => !IsBorderGapCell(tile))
-            .ToList();
-        if (HasAvailablePlacementTile(nonGap, occupiedTiles, movingUnitOriginalPos))
-        {
-            return nonGap;
-        }
-
-        return candidateTiles;
-    }
-
-    private bool HasAvailablePlacementTile(
-        List<Vector3Int> candidateTiles,
-        HashSet<Vector3Int> occupiedTiles,
-        Vector3Int? movingUnitOriginalPos)
-    {
-        if (candidateTiles == null || candidateTiles.Count == 0)
-        {
-            return false;
-        }
-
-        foreach (var tile in candidateTiles)
-        {
-            if (occupiedTiles != null && occupiedTiles.Contains(tile))
-            {
-                continue;
-            }
-
-            bool isSpotOfMovingUnit = movingUnitOriginalPos.HasValue && tile == movingUnitOriginalPos.Value;
-            if (IsUnitAt(tile) && !isSpotOfMovingUnit)
-            {
-                continue;
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-
-    private HashSet<Vector3Int> BuildMonsterPathTileSet(List<AstarNode> monsterPathContext)
-    {
-        var pathTiles = new HashSet<Vector3Int>();
-        if (monsterPathContext == null)
-        {
-            return pathTiles;
-        }
-
-        foreach (var node in monsterPathContext)
-        {
-            if (node == null)
-            {
-                continue;
-            }
-
-            var tile = new Vector3Int(node.x, node.y, 0);
-            if (IsValidGridPosition(tile))
-            {
-                pathTiles.Add(tile);
-            }
-        }
-
-        return pathTiles;
-    }
-
-    private float CalculateRangedPathPriorityBonus(Vector3Int position, HashSet<Vector3Int> pathTiles, float attackRange)
-    {
-        if (pathTiles == null || pathTiles.Count == 0)
-        {
-            return 0f;
-        }
-
-        int covered = CountCoveredMonsterPathTiles(position, pathTiles, attackRange);
-        if (covered <= 0)
-        {
-            return 0f;
-        }
-
-        int usefulTargetCount = Mathf.Max(1, Mathf.Min(pathTiles.Count, CountTilesInAttackCircle(attackRange)));
-        float coverageScore = Mathf.Clamp01((float)covered / usefulTargetCount);
-        float centerScore = CalculateFieldCenterScore(position);
-        float edgePenalty = IsNearFieldEdgeCell(position) ? -3.5f : 0f;
-        float borderPenalty = IsOuterRingCell(position) || IsBorderGapCell(position) ? -6.0f : 0f;
-        return covered * 4.0f + coverageScore * 6.0f + centerScore * 8.0f + edgePenalty + borderPenalty;
-    }
-
-    private float CalculateNearbyRangedAllyBonus(Vector3Int position, List<Unit> alliedUnits)
-    {
-        if (alliedUnits == null || alliedUnits.Count == 0)
-        {
-            return 0f;
-        }
-
-        float bestBonus = 0f;
-        foreach (var ally in alliedUnits)
-        {
-            if (ally == null || ally.Data == null || ally.Data.unitType != UnitType.Ranged)
-            {
-                continue;
-            }
-
-            if (!TryGetUnitGridPosition(ally, out var allyCell) || allyCell == position)
-            {
-                continue;
-            }
-
-            int distance = Mathf.Max(Mathf.Abs(allyCell.x - position.x), Mathf.Abs(allyCell.y - position.y));
-            if (distance <= 1)
-            {
-                bestBonus = Mathf.Max(bestBonus, 34f);
-            }
-            else if (distance == 2)
-            {
-                bestBonus = Mathf.Max(bestBonus, 18f);
-            }
-            else if (distance == 3)
-            {
-                bestBonus = Mathf.Max(bestBonus, 8f);
-            }
-        }
-
-        return bestBonus;
-    }
-
-    private bool TryGetUnitGridPosition(Unit unit, out Vector3Int position)
-    {
-        position = default(Vector3Int);
-        if (unit == null)
-        {
-            return false;
-        }
-
-        var registeredPosition = GetUnitPosition(unit);
-        if (registeredPosition.HasValue)
-        {
-            position = registeredPosition.Value;
-            return true;
-        }
-
-        position = WorldToGridInt(unit.transform.position);
-        return IsValidGridPosition(position);
-    }
-
-    private int CountTilesInAttackCircle(float attackRange)
-    {
-        int count = 0;
-        int intRange = Mathf.CeilToInt(Mathf.Max(0f, attackRange));
-        float sqrRange = attackRange * attackRange;
-        for (int x = -intRange; x <= intRange; x++)
-        {
-            for (int y = -intRange; y <= intRange; y++)
-            {
-                if (x * x + y * y <= sqrRange)
-                {
-                    count++;
-                }
-            }
-        }
-
-        return Mathf.Max(1, count);
-    }
-
-    private float CalculateFieldCenterScore(Vector3Int position)
-    {
-        float centerX = (gridSize.x - 1) * 0.5f;
-        float centerY = (gridSize.y - 1) * 0.5f;
-        float maxDistance = Mathf.Sqrt(centerX * centerX + centerY * centerY);
-        if (maxDistance <= 0f)
-        {
-            return 1f;
-        }
-
-        float distance = Vector2.Distance(new Vector2(position.x, position.y), new Vector2(centerX, centerY));
-        return 1f - Mathf.Clamp01(distance / maxDistance);
-    }
-
-    private int CountCoveredMonsterPathTiles(Vector3Int position, HashSet<Vector3Int> pathTiles, float attackRange)
-    {
-        if (pathTiles == null || pathTiles.Count == 0)
-        {
-            return 0;
-        }
-
-        int covered = 0;
-        int intRange = Mathf.CeilToInt(Mathf.Max(0f, attackRange));
-        float sqrRange = attackRange * attackRange;
-        for (int x = -intRange; x <= intRange; x++)
-        {
-            for (int y = -intRange; y <= intRange; y++)
-            {
-                if (x * x + y * y > sqrRange)
-                {
-                    continue;
-                }
-
-                if (pathTiles.Contains(position + new Vector3Int(x, y, 0)))
-                {
-                    covered++;
-                }
-            }
-        }
-
-        return covered;
-    }
-
-    private bool IsOuterRingCell(Vector3Int cell)
-    {
-        return cell.x <= 0 ||
-               cell.y <= 0 ||
-               cell.x >= gridSize.x - 1 ||
-               cell.y >= gridSize.y - 1;
-    }
-
-    private bool IsNearFieldEdgeCell(Vector3Int cell)
-    {
-        return cell.x <= 1 ||
-               cell.y <= 1 ||
-               cell.x >= gridSize.x - 2 ||
-               cell.y >= gridSize.y - 2;
-    }
-
-    private bool IsStrictInteriorRangedCell(Vector3Int cell)
-    {
-        return !IsNearFieldEdgeCell(cell) && !IsBorderGapCell(cell);
-    }
-
-    private bool IsBorderGapCell(Vector3Int cell)
-    {
-        foreach (var gap in GetBorderGapCells())
-        {
-            if (gap.x == cell.x && gap.y == cell.y)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private float CalculateScore(AIContext context, List<Consideration> considerations, Vector3Int tilePos)
-    {
-        float totalScore = 0;
-        float weightSum = 0;
-
-        // 디버그용 세부 점수 저장
-        var breakdown = new DebugScoreBreakdown();
-
-        foreach (var consideration in considerations)
-        {
-            float score = consideration.Score(context);
-            float weightedScore = score * consideration.weight;
-            totalScore += weightedScore;
-            weightSum += consideration.weight;
-
-            // 주요 고려사항들의 점수를 별도로 저장
-            if (consideration is MeleePlacementConsideration)
-            {
-                breakdown.groundScore = score;
-            }
-            else if (consideration is OnMonsterPathConsideration)
-            {
-                breakdown.pathScore = score;
-            }
-            else if (consideration is MeleeProtectsRangedConsideration)
-            {
-                breakdown.allyScore = score;
-            }
-        }
-
-        float finalScore = (weightSum > 0) ? totalScore / weightSum : 0;
-        breakdown.totalScore = finalScore;
-
-        // 디버그 정보 저장
-        _debugScoreBreakdowns[tilePos] = breakdown;
-
-
-
-        return finalScore;
+        CancelInvoke(nameof(ClearDebugScores));
+        Invoke(nameof(ClearDebugScores), 3.0f);
     }
 
     #endregion
@@ -5471,7 +4703,7 @@ public partial class FieldManager : MonoBehaviour
         {
             return null;
         }
-        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey, _assetOwner);
         if (prefab == null)
         {
             return null;
@@ -5710,7 +4942,7 @@ public partial class FieldManager : MonoBehaviour
             return;
         }
 
-        var prefab = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey);
+        var prefab = await AssetLoader.LoadAssetAsync<GameObject>(prefabKey, _assetOwner);
         if (prefab == null)
         {
             // Debug.LogError($"[FieldManager] ReplaceUnitPrefab: 프리팹 로드 실패 ({prefabKey})");
@@ -5791,821 +5023,6 @@ public partial class FieldManager : MonoBehaviour
 
     #endregion
 
-    #region 유닛 상세 정보 패널 및 드래그 앤 드롭
-
-    /// <summary>
-    /// [3D] 마우스 위치를 3D 월드 좌표로 변환합니다. Ground 평면과의 교차점을 사용합니다.
-    /// </summary>
-    private Vector3 GetMouseWorldPosition()
-    {
-        if (ground3D == null) return Vector3.zero;
-        Ray ray = playerCamera.ScreenPointToRay(MdfInput.PointerPosition);
-        Plane groundPlane = new Plane(Vector3.up, gridOrigin);
-        if (groundPlane.Raycast(ray, out float enter))
-        {
-            return ray.GetPoint(enter);
-        }
-        return Vector3.zero;
-    }
-
-    /// <summary>
-    /// 마우스 아래의 유닛을 찾습니다. 3D Raycast를 사용하고, 실패 시 스크린 거리 근사치를 사용합니다.
-    /// </summary>
-    private Unit GetUnitUnderMouse()
-    {
-        if (playerCamera == null) return null;
-
-        Vector2 mouseScreen = MdfInput.PointerPosition;
-        Ray ray = playerCamera.ScreenPointToRay(mouseScreen);
-        RaycastHit[] hits = Physics.RaycastAll(ray, 1000f);
-        if (hits != null && hits.Length > 0)
-        {
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            foreach (var hit in hits)
-            {
-                var unit3D = hit.collider.GetComponentInParent<Unit>();
-                if (unit3D == null || !placedUnits.ContainsValue(unit3D)) continue;
-
-                if (TryGetUnitScreenRect(unit3D, out Rect rect, out _))
-                {
-                    if (rect.Contains(mouseScreen))
-                    {
-                        return unit3D;
-                    }
-                }
-                else
-                {
-                    return unit3D;
-                }
-            }
-        }
-
-        Unit screenHit = GetUnitFromScreenBounds(mouseScreen);
-        if (screenHit != null)
-        {
-            return screenHit;
-        }
-
-        if (useWorldDistanceFallback && clickPickMaxWorldDistance > 0f && placedUnits.Count > 0 && ground3D != null)
-        {
-            Vector3 mouseWorld = GetMouseWorldPosition();
-            float thresholdSq = clickPickMaxWorldDistance * clickPickMaxWorldDistance;
-            Unit bestUnit = null;
-            float bestDistSq = thresholdSq;
-
-            foreach (var unit in placedUnits.Values)
-            {
-                if (unit == null) continue;
-                Vector3 unitPos = unit.transform.position;
-                Vector2 delta = new Vector2(unitPos.x - mouseWorld.x, unitPos.z - mouseWorld.z);
-                float distSq = delta.sqrMagnitude;
-                if (distSq <= bestDistSq)
-                {
-                    bestDistSq = distSq;
-                    bestUnit = unit;
-                }
-            }
-
-            if (bestUnit != null)
-            {
-                return bestUnit;
-            }
-        }
-
-        return null;
-    }
-
-    private Unit GetUnitFromScreenBounds(Vector2 mouseScreen)
-    {
-        if (placedUnits.Count == 0) return null;
-
-        Unit bestUnit = null;
-        float bestDepth = float.MaxValue;
-
-        foreach (var unit in placedUnits.Values)
-        {
-            if (unit == null) continue;
-            if (!TryGetUnitScreenRect(unit, out Rect rect, out float depth)) continue;
-            if (!rect.Contains(mouseScreen)) continue;
-
-            if (depth < bestDepth)
-            {
-                bestDepth = depth;
-                bestUnit = unit;
-            }
-        }
-
-        return bestUnit;
-    }
-
-    private bool TryGetUnitScreenRect(Unit unit, out Rect rect, out float depth)
-    {
-        rect = default;
-        depth = float.MaxValue;
-        if (playerCamera == null) return false;
-        if (!TryGetUnitBounds(unit, out Bounds bounds)) return false;
-
-        Vector3 center = bounds.center;
-        Vector3 extents = bounds.extents;
-        float minX = float.PositiveInfinity;
-        float maxX = float.NegativeInfinity;
-        float minY = float.PositiveInfinity;
-        float maxY = float.NegativeInfinity;
-        bool anyInFront = false;
-
-        anyInFront |= AccumulateScreenRect(center + new Vector3(-extents.x, -extents.y, -extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
-        anyInFront |= AccumulateScreenRect(center + new Vector3(-extents.x, -extents.y, extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
-        anyInFront |= AccumulateScreenRect(center + new Vector3(-extents.x, extents.y, -extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
-        anyInFront |= AccumulateScreenRect(center + new Vector3(-extents.x, extents.y, extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
-        anyInFront |= AccumulateScreenRect(center + new Vector3(extents.x, -extents.y, -extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
-        anyInFront |= AccumulateScreenRect(center + new Vector3(extents.x, -extents.y, extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
-        anyInFront |= AccumulateScreenRect(center + new Vector3(extents.x, extents.y, -extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
-        anyInFront |= AccumulateScreenRect(center + new Vector3(extents.x, extents.y, extents.z), ref minX, ref maxX, ref minY, ref maxY, ref depth);
-
-        if (!anyInFront) return false;
-
-        rect = Rect.MinMaxRect(minX, minY, maxX, maxY);
-        return true;
-    }
-
-    private bool AccumulateScreenRect(
-        Vector3 worldPoint,
-        ref float minX,
-        ref float maxX,
-        ref float minY,
-        ref float maxY,
-        ref float minDepth)
-    {
-        Vector3 screen = playerCamera.WorldToScreenPoint(worldPoint);
-        if (screen.z <= 0f) return false;
-
-        if (screen.x < minX) minX = screen.x;
-        if (screen.x > maxX) maxX = screen.x;
-        if (screen.y < minY) minY = screen.y;
-        if (screen.y > maxY) maxY = screen.y;
-        if (screen.z < minDepth) minDepth = screen.z;
-        return true;
-    }
-
-    private bool TryGetUnitBounds(Unit unit, out Bounds bounds)
-    {
-        bounds = default;
-        if (unit == null) return false;
-
-        bool hasBounds = false;
-        Renderer[] renderers = unit.GetComponentsInChildren<Renderer>();
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            Renderer renderer = renderers[i];
-            if (renderer == null || !renderer.enabled) continue;
-            if (!hasBounds)
-            {
-                bounds = renderer.bounds;
-                hasBounds = true;
-            }
-            else
-            {
-                bounds.Encapsulate(renderer.bounds);
-            }
-        }
-
-        if (hasBounds) return true;
-
-        Collider[] colliders = unit.GetComponentsInChildren<Collider>();
-        for (int i = 0; i < colliders.Length; i++)
-        {
-            Collider collider = colliders[i];
-            if (collider == null || !collider.enabled) continue;
-            if (!hasBounds)
-            {
-                bounds = collider.bounds;
-                hasBounds = true;
-            }
-            else
-            {
-                bounds.Encapsulate(collider.bounds);
-            }
-        }
-
-        return hasBounds;
-    }
-
-    private void HandleUnitDragAndDrop()
-    {
-        if (GameManagers.Instance == null)
-        {
-            // 아직 GameManagers가 준비되지 않았으면 아무것도 하지 않고 함수를 종료합니다.
-            return;
-        }
-        var gameState = GameManagers.Instance.GetGameState();
-        bool isActiveGameState = gameState == GameManagers.GameState.Prepare 
-            || gameState == GameManagers.GameState.Battle1 
-            || gameState == GameManagers.GameState.Battle2;
-        if (!isActiveGameState) return;
-
-        if (playerCamera == null)
-        {
-            // Debug.LogWarning("[FieldManager] playerCamera is null!");
-            return;
-        }
-
-        // [3D] 초기화 확인 - Host Migration 후 재할당 필요할 수 있음
-        if (ground3D == null)
-        {
-            // Debug.Log($"[FieldManager] ground3D null 감지, fallback 시도... playerManager={playerManager?.name}");
-            
-            // 방법 1: 부모 계층에서 Ground 찾기
-            var parentTransform = transform.parent;
-            // Debug.Log($"[FieldManager] parentTransform={parentTransform?.name}");
-            
-            if (parentTransform != null)
-            {
-                var groundTransform = parentTransform.Find("Ground") ?? parentTransform.Find("Field");
-                if (groundTransform != null)
-                {
-                    ground3D = groundTransform.gameObject;
-                    // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법1: parent.Find)");
-                }
-                else
-                {
-                    var meshRenderer = parentTransform.GetComponentInChildren<MeshRenderer>(true);
-                    if (meshRenderer != null)
-                    {
-                        ground3D = meshRenderer.gameObject;
-                        // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법2: MeshRenderer)");
-                    }
-                }
-            }
-            
-            // 방법 2: playerManager.astarGrid에서 찾기
-            if (ground3D == null && playerManager != null && playerManager.astarGrid != null)
-            {
-                var gridParent = playerManager.astarGrid.transform.parent;
-                // Debug.Log($"[FieldManager] astarGrid.parent={gridParent?.name}");
-                
-                if (gridParent != null)
-                {
-                    var groundTransform = gridParent.Find("Ground") ?? gridParent.Find("Field");
-                    if (groundTransform != null)
-                    {
-                        ground3D = groundTransform.gameObject;
-                        // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법3: astarGrid.parent)");
-                    }
-                    else
-                    {
-                        // 자식 전체 순회
-                        foreach (Transform child in gridParent)
-                        {
-                            if (child.name.Contains("Ground") || child.name.Contains("Field"))
-                            {
-                                ground3D = child.gameObject;
-                                // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법4: 자식 순회)");
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // 방법 3: GameManagers.localPlayer에서 찾기
-            if (ground3D == null && GameManagers.Instance != null)
-            {
-                var localPlayer = GameManagers.Instance.localPlayer;
-                // Debug.Log($"[FieldManager] GameManagers.localPlayer={localPlayer?.name}");
-                
-                if (localPlayer != null && localPlayer.astarGrid != null)
-                {
-                    var gridParent = localPlayer.astarGrid.transform.parent;
-                    if (gridParent != null)
-                    {
-                        var groundTransform = gridParent.Find("Ground") ?? gridParent.Find("Field");
-                        if (groundTransform != null)
-                        {
-                            ground3D = groundTransform.gameObject;
-                            // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법5: GameManagers)");
-                        }
-                    }
-                }
-            }
-            
-            // 방법 4: FindObjectOfType으로 AstarGrid 찾아서 parent에서 Ground 찾기
-            if (ground3D == null)
-            {
-                // Debug.Log("[FieldManager] 방법6 시도: FindObjectOfType<AstarGrid>");
-                var allGrids = UnityEngine.Object.FindObjectsOfType<AstarGrid>(true);
-                // Debug.Log($"[FieldManager] 발견된 AstarGrid 수: {allGrids.Length}");
-                
-                foreach (var grid in allGrids)
-                {
-                    var gridParent = grid.transform.parent;
-                    if (gridParent != null)
-                    {
-                        var groundTransform = gridParent.Find("Ground") ?? gridParent.Find("Field");
-                        if (groundTransform != null)
-                        {
-                            ground3D = groundTransform.gameObject;
-                            
-                            // astarGrid도 복구
-                            if (playerManager != null && playerManager.astarGrid == null)
-                            {
-                                playerManager.astarGrid = grid;
-                                // Debug.Log($"[FieldManager] astarGrid도 재할당: {grid.name}");
-                            }
-                            
-                            // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법6: FindObjectOfType)");
-                            break;
-                        }
-                    }
-                }
-            }
-            
-            // 방법 5: 마지막으로 Ground 이름이 포함된 모든 오브젝트 찾기
-            if (ground3D == null)
-            {
-                // Debug.Log("[FieldManager] 방법7 시도: GameObject.Find");
-                var foundGround = GameObject.Find("Ground");
-                if (foundGround != null)
-                {
-                    ground3D = foundGround;
-                    // Debug.Log($"[FieldManager] ground3D 재할당 완료: {ground3D.name} (방법7: GameObject.Find)");
-                }
-            }
-            
-            // 그래도 못 찾으면 에러
-            if (ground3D == null)
-            {
-                // Debug.LogWarning("[FieldManager] ground3D is null - 모든 fallback 실패!");
-                return;
-            }
-        }
-
-        // [3D Migration] 마우스 월드 좌표 및 그리드 좌표 계산
-        Vector3 mouseWorldPos = GetMouseWorldPosition();
-        Vector3Int gridPos = WorldToGridInt(mouseWorldPos);
-
-        if (MdfInput.SecondaryPointerWasPressedThisFrame() && !MdfInput.IsPointerOverFieldBlockingUI())
-        {
-            if (TryRequestRemoveWallAt(gridPos))
-            {
-                return;
-            }
-        }
-
-        // 마우스 버튼을 눌렀을 때
-        if (MdfInput.PrimaryPointerWasPressedThisFrame())
-        {
-            // 셀 기반이 아니라 실제 유닛 콜라이더를 클릭해야 드래그 시작
-            Unit clickedUnit = GetUnitUnderMouse();
-            bool pointerOverUI = MdfInput.IsPointerOverFieldBlockingUI();
-            if (pointerOverUI && clickedUnit != null && ShouldAllowUnitDragThroughPrepareToolkit())
-            {
-                pointerOverUI = false;
-            }
-
-            // 패널이 열려있는 상태에서
-            if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
-            {
-                // 표시된 유닛을 다시 클릭한 경우 -> 패널 닫고 아무것도 안 함
-                if (!pointerOverUI && clickedUnit != null && clickedUnit == unitDisplayedInPanel)
-                {
-                    UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
-                    unitDetailPanelInstance = null;
-                    unitDisplayedInPanel = null;
-                    HideUnitSellPanel();
-                    HideWallRemovePanel();
-                    selectedUnit = null; // 모든 상태 초기화
-                    return;
-                }
-
-                // UI가 아닌 다른 곳을 클릭한 경우 -> 패널 닫고 클릭한 대상에 대한 처리 계속
-                if (!pointerOverUI)
-                {
-                    UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
-                    unitDetailPanelInstance = null;
-                    unitDisplayedInPanel = null;
-                    HideUnitSellPanel();
-                    HideWallRemovePanel();
-                }
-            }
-
-            // 이제 클릭한 대상에 대한 처리 (드래그 시작 또는 새 패널 열기 준비)
-            // UI 위를 클릭한 경우에는 새 선택/드래그를 시작하지 않습니다.
-            if (pointerOverUI)
-            {
-                return;
-            }
-            if (clickedUnit != null)
-            {
-                selectedUnit = clickedUnit;
-                mouseDownTimer = 0f;
-                isDragStarted = false;
-                // [3D Migration] 유닛의 현재 위치를 그리드 좌표로 변환
-                originalUnitPosition = GetUnitPosition(selectedUnit) ?? WorldToGridInt(selectedUnit.transform.position);
-                // 3D 드래그를 위한 XZ 오프셋 및 기준 Y 저장
-                dragBaseY = selectedUnit.transform.position.y;
-                offsetXZ = new Vector2(
-                    selectedUnit.transform.position.x - mouseWorldPos.x,
-                    selectedUnit.transform.position.z - mouseWorldPos.z
-                );
-
-                // NetworkTransform 참조 저장 (드래그 시작 시 비활성화할 예정)
-                selectedUnitNetworkTransform = selectedUnit.GetComponent<Fusion.NetworkTransform>();
-            }
-            else
-            {
-                // 유닛이 없는 곳을 클릭함 -> 벽만 있는지 확인
-                Vector3Int clickedGridPos = WorldToGridInt(mouseWorldPos);
-                var clickedWall = GetWallAt(clickedGridPos);
-                if (clickedWall != null)
-                {
-                    // 벽만 있는 경우: 벽 제거 패널만 표시
-                    ShowWallRemovePanel(clickedWall, clickedGridPos);
-                }
-                else
-                {
-                    // 유닛도 벽도 없는 빈 공간: 벽 제거 패널 숨김
-                    HideWallRemovePanel();
-                }
-            }
-        }
-
-        // 마우스 버튼을 누르고 있을 때
-        if (MdfInput.PrimaryPointerIsPressed() && selectedUnit != null)
-        {
-            // 아직 드래그가 시작되지 않았다면, 타이머를 확인하여 드래그 상태로 전환할지 결정합니다.
-            if (!isDragStarted)
-            {
-                mouseDownTimer += Time.deltaTime;
-                // 준비 단계일 때만 드래그를 시작할 수 있습니다.
-                if (mouseDownTimer >= dragDelay && gameState == GameManagers.GameState.Prepare)
-                {
-                    // 드래그 시작
-                    isDragStarted = true;
-                    // offset과 originalUnitPosition은 이미 GetMouseButtonDown에서 설정되었습니다.
-
-                    // ✅ NetworkTransform 비활성화 (로컬 드래그를 위해)
-                    if (selectedUnitNetworkTransform != null)
-                    {
-                        selectedUnitNetworkTransform.enabled = false;
-                        string selName = (selectedUnit != null && selectedUnit.Data != null) ? selectedUnit.Data.unitName : (selectedUnit != null ? selectedUnit.name : "Unit");
-                    }
-
-                    // 드래그가 시작되면 열려있던 상세 정보 패널을 닫음
-                    if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
-                    {
-                        UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
-                        unitDetailPanelInstance = null;
-                        unitDisplayedInPanel = null;
-                        HideUnitSellPanel();
-                    }
-                }
-            }
-            else
-            {
-                // 드래그 중: 유닛이 마우스를 부드럽게 따라감 (XZ는 마우스, Y는 들어올림)
-                float targetX = mouseWorldPos.x + offsetXZ.x;
-                float targetZ = mouseWorldPos.z + offsetXZ.y;
-                float targetY = dragBaseY + dragLiftHeight;
-                Vector3 targetPos = new Vector3(targetX, targetY, targetZ);
-
-                // NetworkTransform이 비활성화되어 있으므로 직접 transform.position 변경 가능
-                selectedUnit.transform.position = Vector3.MoveTowards(
-                    selectedUnit.transform.position,
-                    targetPos,
-                    dragFollowSpeed * Time.deltaTime
-                );
-            }
-        }
-
-        // 마우스 버튼을 뗐을 때
-        if (MdfInput.PrimaryPointerWasReleasedThisFrame() && selectedUnit != null)
-        {
-            if (isDragStarted)
-            {
-                RestoreSelectedUnitNetworkTransform();
-
-                // 드래그 종료: 화면상 마우스와 가장 겹쳐 보이는 셀을 최종 선택
-                Vector3Int bestGrid = GetBestGridUnderMouse();
-                bestGrid.x = Mathf.Clamp(bestGrid.x, 0, gridSize.x - 1);
-                bestGrid.y = Mathf.Clamp(bestGrid.y, 0, gridSize.y - 1);
-
-                if (placementManager.IsPositionValidForPlacement(bestGrid, selectedUnit.Data))
-                {
-                    // 네트워크 준비 상태 확인 (Runner가 실행 중이면 localPlayer와 InputAuthority 확인)
-                    bool canSend = IsNetworkReadyAndHasInputAuthority();
-
-                    // 드래그 중 비활성화한 NetworkTransform을 성공 드랍 시 항상 복구
-                    if (selectedUnitNetworkTransform != null && !selectedUnitNetworkTransform.enabled)
-                    {
-                        selectedUnitNetworkTransform.enabled = true;
-                    }
-
-                    if (canSend)
-                    {
-                        var command = new MoveUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
-                        GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
-                    }
-                    else
-                    {
-                        // 네트워크 준비가 안 되었으면 원위치 복귀
-                        Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-                        SnapbackSelectedUnit(originalWorldPos);
-                    }
-                }
-                else
-                {
-                    Unit target = GetUnitAt(bestGrid);
-                    if (target != null)
-                    {
-                        bool destWallForSelected = HasWallAt(bestGrid);
-                        bool destWallForTarget = HasWallAt(originalUnitPosition);
-                        bool invalidForSelected = selectedUnit.Data != null && selectedUnit.Data.unitType == UnitType.Melee && destWallForSelected;
-                        bool invalidForTarget = target.Data != null && target.Data.unitType == UnitType.Melee && destWallForTarget;
-                        if (!invalidForSelected && !invalidForTarget)
-                        {
-                            // 네트워크 준비 상태 확인
-                            bool canSend = IsNetworkReadyAndHasInputAuthority();
-
-                            // 성공 드랍 경로에서도 NetworkTransform 복구
-                            if (selectedUnitNetworkTransform != null && !selectedUnitNetworkTransform.enabled)
-                            {
-                                selectedUnitNetworkTransform.enabled = true;
-                            }
-
-                            if (canSend)
-                            {
-                                var swapCmd = new SwapUnitCommand(playerManager.playerId, originalUnitPosition, bestGrid);
-                                GameManagers.Instance.CommandProcessor.RequestCommandExecution(swapCmd);
-                            }
-                            else
-                            {
-                                
-                                // 네트워크 준비가 안 되었으면 원위치 복귀
-                                Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-                                SnapbackSelectedUnit(originalWorldPos);
-                            }
-                        }
-                        else
-                        {
-                            
-                            Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-
-                            // ✅ NetworkTransform 처리
-                            SnapbackSelectedUnit(originalWorldPos);
-                        }
-                    }
-                    else
-                    {
-                        
-                        Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-
-                        // ✅ NetworkTransform 처리
-                        SnapbackSelectedUnit(originalWorldPos);
-                    }
-                }
-            }
-            else
-            {
-                // 짧은 클릭: 이 FieldManager 소유 유닛만 스냅백. (교차 플레이어 유닛 보호)
-                if (placedUnits.ContainsValue(selectedUnit))
-                {
-                    Vector3 originalWorldPos = GridToWorld(originalUnitPosition, checkForWall: true);
-                    SnapbackSelectedUnit(originalWorldPos);
-                }
-                // 죽은 유닛인 경우 UI 표시 건너뛰기
-                if (selectedUnit.IsDead)
-                {
-                    selectedUnit = null;
-                    selectedUnitNetworkTransform = null;
-                    isDragStarted = false;
-                    return;
-                }
-                ShowUnitDetailPanel(selectedUnit);
-                ShowUnitSellPanel(selectedUnit);
-                // 유닛이 서 있는 그리드에 벽이 있으면 벽 제거 패널도 표시
-                var wallAtUnitPos = GetWallAt(originalUnitPosition);
-                if (wallAtUnitPos != null)
-                {
-                    ShowWallRemovePanel(wallAtUnitPos, originalUnitPosition);
-                }
-            }
-
-            // 상태 초기화
-            selectedUnit = null;
-            selectedUnitNetworkTransform = null;
-            isDragStarted = false;
-        }
-    }
-
-    private bool TryRequestRemoveWallAt(Vector3Int gridPosition)
-    {
-        var gm = GameManagers.Instance;
-        if (gm == null || gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
-        {
-            return false;
-        }
-
-        if (playerManager == null || playerManager.playerId < 0 || GetWallAt(gridPosition) == null)
-        {
-            return false;
-        }
-
-        if (gm.CommandProcessor == null)
-        {
-            return false;
-        }
-
-        gm.CommandProcessor.RequestCommandExecution(new RemoveWallCommand(playerManager.playerId, gridPosition));
-        return true;
-    }
-
-    private bool ShouldAllowUnitDragThroughPrepareToolkit()
-    {
-        var gm = GameManagers.Instance;
-        if (gm == null || gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
-        {
-            return false;
-        }
-
-        if (!GamePrepareUIToolkitController.IsToolkitActive)
-        {
-            return false;
-        }
-
-        return !GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition);
-    }
-
-    private void RestoreSelectedUnitNetworkTransform()
-    {
-        if (selectedUnitNetworkTransform != null && !selectedUnitNetworkTransform.enabled)
-        {
-            selectedUnitNetworkTransform.enabled = true;
-        }
-    }
-
-    private async void ShowUnitDetailPanel(Unit unit)
-    {
-        // 죽은 유닛인 경우 패널을 표시하지 않음
-        if (unit == null || unit.IsDead) return;
-
-        // 패널 인스턴스가 없으면 UIManagers를 통해 가져옵니다.
-        // 이는 씬에 미리 배치된 패널을 찾거나, 없을 경우 새로 생성하는 역할을 합니다.
-        if (unitDetailPanelInstance == null)
-        {
-            unitDetailPanelInstance = await UIManagers.Instance.GetUIElement("UI_Pnl_UnitDetail");
-        }
-
-        if (unitDetailPanelInstance != null)
-        {
-            var controller = unitDetailPanelInstance.GetComponent<UnitDetailPanelController>();
-            if (controller != null)
-            {
-                controller.DisplayUnitInfo(unit);
-                // 패널의 위치는 프리팹/씬에 설정된 고정 위치를 사용하므로, 여기서 위치를 변경하지 않습니다.
-                unitDetailPanelInstance.SetActive(true);
-                unitDisplayedInPanel = unit;
-            }
-        }
-    }
-
-    private async void ShowUnitSellPanel(Unit unit)
-    {
-        if (unit == null || UIManagers.Instance == null) return;
-
-        // 전투 시퀀스에서는 판매 패널을 표시하지 않음
-        var gm = GameManagers.Instance;
-        if (gm != null && (gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning))
-        {
-            return;
-        }
-
-        if (unitSellPanelInstance == null)
-        {
-            unitSellPanelInstance = await UIManagers.Instance.GetUIElement("UI_Can_UnitSell");
-        }
-
-        if (unitSellPanelInstance != null)
-        {
-            unitSellPanelInstance.transform.SetParent(unit.transform, false);
-
-            var rootCanvas = unitSellPanelInstance.GetComponent<Canvas>();
-            if (rootCanvas != null)
-            {
-                rootCanvas.renderMode = RenderMode.WorldSpace;
-                rootCanvas.worldCamera = playerCamera;
-            }
-
-            var controller = unitSellPanelInstance.GetComponentInChildren<UnitSellPanelController>(true);
-            if (controller != null)
-            {
-                var controllerCanvas = controller.GetComponent<Canvas>();
-                if (controllerCanvas != null && controllerCanvas != rootCanvas)
-                {
-                    controllerCanvas.renderMode = RenderMode.WorldSpace;
-                    controllerCanvas.worldCamera = playerCamera;
-                }
-                controller.Bind(unit, this);
-                unitSellPanelInstance.SetActive(true);
-                unitDisplayedInSellPanel = unit;
-            }
-        }
-    }
-
-    private void HideUnitSellPanel()
-    {
-        if (unitSellPanelInstance != null && UIManagers.Instance != null)
-        {
-            UIManagers.Instance.ReturnUIElement("UI_Can_UnitSell");
-        }
-        unitSellPanelInstance = null;
-        unitDisplayedInSellPanel = null;
-    }
-
-    /// <summary>
-    /// 벽 제거 패널을 표시합니다.
-    /// </summary>
-    private async void ShowWallRemovePanel(DestructibleWall wall, Vector3Int gridPosition)
-    {
-        if (wall == null || UIManagers.Instance == null) return;
-
-        // 전투 시퀀스에서는 벽 제거 패널을 표시하지 않음
-        var gm = GameManagers.Instance;
-        if (gm != null && (gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning))
-        {
-            return;
-        }
-
-        if (wallRemovePanelInstance == null)
-        {
-            wallRemovePanelInstance = await UIManagers.Instance.GetUIElement("UI_Can_WallRemove");
-        }
-
-        if (wallRemovePanelInstance != null)
-        {
-            // 벽의 자식이 아닌 FieldManager의 자식으로 설정하여 렌더링 순서 문제 해결
-            wallRemovePanelInstance.transform.SetParent(transform, false);
-
-            var rootCanvas = wallRemovePanelInstance.GetComponent<Canvas>();
-            if (rootCanvas != null)
-            {
-                rootCanvas.renderMode = RenderMode.WorldSpace;
-                rootCanvas.worldCamera = playerCamera;
-                rootCanvas.overrideSorting = true;
-                rootCanvas.sortingOrder = 300;
-            }
-
-            var controller = wallRemovePanelInstance.GetComponentInChildren<WallRemovePanelController>(true);
-            if (controller != null)
-            {
-                var controllerCanvas = controller.GetComponent<Canvas>();
-                if (controllerCanvas != null && controllerCanvas != rootCanvas)
-                {
-                    controllerCanvas.renderMode = RenderMode.WorldSpace;
-                    controllerCanvas.worldCamera = playerCamera;
-                    controllerCanvas.overrideSorting = true;
-                    controllerCanvas.sortingOrder = 300;
-                }
-                controller.Bind(wall, gridPosition, this);
-                wallRemovePanelInstance.SetActive(true);
-                wallDisplayedInRemovePanel = wall;
-            }
-        }
-    }
-
-    /// <summary>
-    /// 모든 선택 관련 UI 패널을 숨깁니다. (유닛 디테일, 유닛 판매, 벽 제거)
-    /// </summary>
-    public void HideAllSelectionPanels()
-    {
-        // 유닛 디테일 패널 숨기기
-        if (unitDetailPanelInstance != null && UIManagers.Instance != null)
-        {
-            UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
-            unitDetailPanelInstance = null;
-            unitDisplayedInPanel = null;
-        }
-
-        // 유닛 판매 패널 숨기기
-        HideUnitSellPanel();
-
-        // 벽 제거 패널 숨기기
-        HideWallRemovePanel();
-    }
-
-    /// <summary>
-    /// 벽 제거 패널을 숨깁니다.
-    /// </summary>
-    private void HideWallRemovePanel()
-    {
-        if (wallRemovePanelInstance != null && UIManagers.Instance != null)
-        {
-            UIManagers.Instance.ReturnUIElement("UI_Can_WallRemove");
-        }
-        wallRemovePanelInstance = null;
-        wallDisplayedInRemovePanel = null;
-    }
-    #endregion
-
     #region 범위 표시
 
     /// <summary>
@@ -6629,7 +5046,7 @@ public partial class FieldManager : MonoBehaviour
             string skillKey = unit.Data.skillsByStarLevel[unit.starLevel - 1];
             if (!string.IsNullOrEmpty(skillKey))
             {
-                SkillData currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+                SkillData currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey, _assetOwner);
                 if (currentSkill != null)
                 {
                     skillRange = currentSkill.range;
@@ -6724,10 +5141,7 @@ public partial class FieldManager : MonoBehaviour
     // 디버그 표시를 끄는 메서드 (배치 완료 후 호출)
     public void ClearDebugScores()
     {
-        _showDebugScores = false;
-        _debugTileScores.Clear();
-        _debugScoreBreakdowns.Clear();
-        _debugUnitData = null;
+        _aiPlacementService?.ClearDebugScores();
     }
 
     #endregion
@@ -6752,6 +5166,7 @@ public partial class FieldManager : MonoBehaviour
 
     void OnDestroy()
     {
+        _assetOwner.Dispose();
         DisposeCombatTargetRegistry();
         DisposeGridDebugVisualization();
     }

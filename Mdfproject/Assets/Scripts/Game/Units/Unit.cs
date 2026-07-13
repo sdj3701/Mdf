@@ -8,8 +8,16 @@ using System.Linq;
 using Cysharp.Threading.Tasks;
 using System.Threading.Tasks;
 using Fusion;
+using MDF.Runtime.Assets;
 public class Unit : NetworkBehaviour, IEnemy, IHealth
 {
+    private AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
+
+    internal UniTask<T> LoadOwnedAddressableAsync<T>(string key) where T : class
+    {
+        return AssetLoader.LoadAssetAsync<T>(key, _addressableAssets);
+    }
+
     [Header("참조 데이터")]
     [SerializeField] private UnitData unitData;
     public UnitData Data => unitData;
@@ -51,6 +59,64 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     
     public bool HasValidNetworkObject => Object != null && Object.IsValid;
     public int CombatTargetLifecycleGeneration => _combatTargetLifecycleGeneration;
+
+    private readonly struct AsyncLifecycleStamp
+    {
+        public AsyncLifecycleStamp(
+            int generation,
+            uint networkIdRaw,
+            PlayerManager capturedOwner,
+            UnitData capturedData,
+            AddressableAssetOwner assetOwner)
+        {
+            Generation = generation;
+            NetworkIdRaw = networkIdRaw;
+            CapturedOwner = capturedOwner;
+            CapturedData = capturedData;
+            AssetOwner = assetOwner;
+        }
+
+        public int Generation { get; }
+        public uint NetworkIdRaw { get; }
+        public PlayerManager CapturedOwner { get; }
+        public UnitData CapturedData { get; }
+        public AddressableAssetOwner AssetOwner { get; }
+    }
+
+    private AsyncLifecycleStamp CaptureAsyncLifecycle()
+    {
+        uint networkIdRaw = Object != null && Object.IsValid ? Object.Id.Raw : 0;
+        return new AsyncLifecycleStamp(
+            _combatTargetLifecycleGeneration,
+            networkIdRaw,
+            owner,
+            unitData,
+            _addressableAssets);
+    }
+
+    private bool IsAsyncLifecycleCurrent(AsyncLifecycleStamp stamp)
+    {
+        if (this == null ||
+            stamp.Generation != _combatTargetLifecycleGeneration ||
+            !ReferenceEquals(stamp.CapturedOwner, owner) ||
+            !ReferenceEquals(stamp.CapturedData, unitData) ||
+            !ReferenceEquals(stamp.AssetOwner, _addressableAssets) ||
+            stamp.AssetOwner == null ||
+            stamp.AssetOwner.IsDisposed)
+        {
+            return false;
+        }
+
+        if (stamp.NetworkIdRaw == 0)
+        {
+            return Object == null || !Object.IsValid;
+        }
+
+        return _hasSpawned &&
+               Object != null &&
+               Object.IsValid &&
+               Object.Id.Raw == stamp.NetworkIdRaw;
+    }
     private bool CanReadNetworkedState => _hasSpawned
         && Runner != null
         && Runner.IsRunning
@@ -437,6 +503,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public override void Spawned()
     {
         base.Spawned();
+        if (_addressableAssets == null || _addressableAssets.IsDisposed)
+        {
+            _addressableAssets = new AddressableAssetOwner();
+        }
         _combatTargetLifecycleGeneration++;
         _hasSpawned = true;
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
@@ -454,6 +524,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         ClearCurrentTarget();
         StopAttackPlaybackState();
         InvalidateAttackPresentationState();
+        _addressableAssets?.Dispose();
         base.Despawned(runner, hasState);
     }
     
@@ -1559,15 +1630,20 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             manaController.OnManaFull -= HandleManaFull;
             manaController.OnManaFull += HandleManaFull;
         }
+        AsyncLifecycleStamp lifecycle = CaptureAsyncLifecycle();
         
         // InitializeStats가 비동기 함수가 되었으므로 await로 호출을 기다립니다.
         await InitializeStats();
-        if (this == null)
+        if (!IsAsyncLifecycleCurrent(lifecycle))
         {
             return;
         }
 
         await CacheProjectileSpeedAsync();
+        if (!IsAsyncLifecycleCurrent(lifecycle))
+        {
+            return;
+        }
     }
 
     void Update()
@@ -1660,6 +1736,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public async UniTask InitializeStats()
     {
         if (unitData == null) return;
+        AsyncLifecycleStamp lifecycle = CaptureAsyncLifecycle();
+        UnitData initializingData = unitData;
+        int initializingStarLevel = starLevel;
         float statMultiplier = Mathf.Pow(1.8f, starLevel - 1);
 
         maxHP = unitData.baseHealth * statMultiplier;
@@ -1680,12 +1759,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         if (DoesHaveSkill())
         {
             // 주소(string)를 사용해 AssetLoader로 실제 SkillData를 로드합니다.
-            string skillKey = unitData.skillsByStarLevel[starLevel - 1];
-            _loadedSkillData = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
-            if (this == null)
+            string skillKey = initializingData.skillsByStarLevel[initializingStarLevel - 1];
+            SkillData loadedSkillData = await LoadOwnedAddressableAsync<SkillData>(skillKey);
+            if (!IsAsyncLifecycleCurrent(lifecycle) ||
+                !ReferenceEquals(initializingData, unitData) ||
+                initializingStarLevel != starLevel)
             {
                 return;
             }
+
+            _loadedSkillData = loadedSkillData;
 
             if (_loadedSkillData != null)
             {
@@ -1705,7 +1788,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         // --- [수정 끝] ---
 
-        if (this == null)
+        if (!IsAsyncLifecycleCurrent(lifecycle))
         {
             return;
         }
@@ -1716,6 +1799,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             // InitializeSkillButton도 비동기가 되었으므로 await로 호출합니다.
             await statusBarUI.InitializeSkillButton(this);
+            if (!IsAsyncLifecycleCurrent(lifecycle))
+            {
+                return;
+            }
         }
         else
         {
@@ -1730,7 +1817,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        ProjectileVfxConfig projectileConfig = unitData.GetProjectileVfxConfig();
+        AsyncLifecycleStamp lifecycle = CaptureAsyncLifecycle();
+        UnitData projectileData = unitData;
+
+        ProjectileVfxConfig projectileConfig = projectileData.GetProjectileVfxConfig();
         if (projectileConfig != null && projectileConfig.projectileSpeed > 0f)
         {
             _cachedProjectileSpeed = projectileConfig.ResolveProjectileSpeed();
@@ -1738,20 +1828,28 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         // Legacy projectile prefabs still carry Projectile.Speed; pure VFX wrappers store speed in ProjectileVfxConfig.
-        string projectileKey = unitData.GetProjectilePrefabKey();
+        string projectileKey = projectileData.GetProjectilePrefabKey();
         if (string.IsNullOrEmpty(projectileKey))
         {
-            _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();
+            if (IsAsyncLifecycleCurrent(lifecycle))
+            {
+                _cachedProjectileSpeed = projectileData.ResolveProjectileSpeed();
+            }
             return;
         }
 
         VfxPoolManager vfxPool = VfxPoolManager.Instance;
         GameObject projectilePrefab = vfxPool != null
             ? await vfxPool.LoadAddressablePrefabAsync(projectileKey)
-            : await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
+            : await LoadOwnedAddressableAsync<GameObject>(projectileKey);
+        if (!IsAsyncLifecycleCurrent(lifecycle) || !ReferenceEquals(projectileData, unitData))
+        {
+            return;
+        }
+
         if (projectilePrefab == null)
         {
-            _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();
+            _cachedProjectileSpeed = projectileData.ResolveProjectileSpeed();
             return;
         }
 
@@ -1762,16 +1860,26 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
-        _cachedProjectileSpeed = unitData.ResolveProjectileSpeed();
+        _cachedProjectileSpeed = projectileData.ResolveProjectileSpeed();
     }
 
     public async Task Upgrade()
     {
         if (starLevel < 3)
         {
+            AsyncLifecycleStamp lifecycle = CaptureAsyncLifecycle();
             starLevel++;
             await InitializeStats();
-        await CacheProjectileSpeedAsync();
+            if (!IsAsyncLifecycleCurrent(lifecycle))
+            {
+                return;
+            }
+
+            await CacheProjectileSpeedAsync();
+            if (!IsAsyncLifecycleCurrent(lifecycle))
+            {
+                return;
+            }
             Debug.Log($"<color=cyan>{unitData.unitName}이(가) {starLevel}성으로 업그레이드되었습니다!</color>");
         }
     }
@@ -1797,9 +1905,20 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             gameObject.SetActive(true);
         }
         SetDeathPresentationActive(true);
-        
+
+        AsyncLifecycleStamp lifecycle = CaptureAsyncLifecycle();
         await InitializeStats();
+        if (!IsAsyncLifecycleCurrent(lifecycle))
+        {
+            return;
+        }
+
         await CacheProjectileSpeedAsync();
+        if (!IsAsyncLifecycleCurrent(lifecycle))
+        {
+            return;
+        }
+
         IsDead = false;
         if (Object != null && Object.HasStateAuthority)
         {
@@ -1899,13 +2018,26 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         
         // 상태 효과로 스킬 사용 불가 상태 체크 (침묵, 기절 등)
         if (_buffManager != null && !_buffManager.CanUseSkill) return;
+
+        AsyncLifecycleStamp lifecycle = CaptureAsyncLifecycle();
         
         // 스킬 데이터가 로드되었는지 다시 한번 확인합니다.
         if (_loadedSkillData == null)
         {
             // 만약 로드가 안됐다면, 이 시점에서 다시 로드를 시도할 수도 있습니다.
             string skillKey = unitData.skillsByStarLevel[starLevel - 1];
-            _loadedSkillData = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+            SkillData loadedSkillData = await LoadOwnedAddressableAsync<SkillData>(skillKey);
+            if (!IsAsyncLifecycleCurrent(lifecycle) ||
+                !isCombatPhase ||
+                IsDead ||
+                !HasStateAuthorityOrNoNetwork() ||
+                IsSkillCasting() ||
+                (_buffManager != null && !_buffManager.CanUseSkill))
+            {
+                return;
+            }
+
+            _loadedSkillData = loadedSkillData;
             if (_loadedSkillData == null) return; // 그래도 없으면 종료
         }
         
@@ -3026,6 +3158,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     private void OnDestroy()
     {
+        _addressableAssets?.Dispose();
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
         UnregisterCombatTarget();
         CancelPendingAttack();

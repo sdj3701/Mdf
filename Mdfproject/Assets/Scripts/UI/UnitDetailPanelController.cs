@@ -2,12 +2,22 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Cysharp.Threading.Tasks;
+using MDF.Runtime.Assets;
 /// <summary>
 /// 유닛 상세 정보 패널의 UI 요소들을 관리하고,
 /// 선택된 유닛의 데이터를 받아와 텍스트를 업데이트하는 클래스입니다.
 /// </summary>
 public class UnitDetailPanelController : MonoBehaviour
 {
+    private AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
+
+    private void OnEnable()
+    {
+        if (_addressableAssets == null || _addressableAssets.IsDisposed)
+        {
+            _addressableAssets = new AddressableAssetOwner();
+        }
+    }
     [Header("UI Text 컴포넌트")]
     [SerializeField] private TextMeshProUGUI unitNameText;
     [SerializeField] private TextMeshProUGUI healthText;
@@ -66,6 +76,7 @@ public class UnitDetailPanelController : MonoBehaviour
 
     private void OnDisable()
     {
+        _addressableAssets?.Dispose();
         // 패널이 비활성화될 때 범위 표시를 지웁니다.
         if (GameManagers.Instance != null && GameManagers.Instance.localPlayer != null && GameManagers.Instance.localPlayer.fieldManager != null)
         {
@@ -171,7 +182,7 @@ public class UnitDetailPanelController : MonoBehaviour
         {
             // --- [핵심 수정 부분] ---
             string skillKey = unit.Data.skillsByStarLevel[unit.starLevel - 1];
-            SkillData currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+            SkillData currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey, _addressableAssets);
             // --- [수정 끝] ---
 
             if (currentSkill != null)

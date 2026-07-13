@@ -1,0 +1,14 @@
+{
+    "name": "MDF.Runtime.Foundation",
+    "rootNamespace": "MDF.Runtime.Foundation",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

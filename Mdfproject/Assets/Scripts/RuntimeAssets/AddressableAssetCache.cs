@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
@@ -24,8 +25,7 @@ namespace MDF.Runtime.Assets
 
         public void Dispose()
         {
-            Action release = _release;
-            _release = null;
+            Action release = Interlocked.Exchange(ref _release, null);
             release?.Invoke();
         }
     }
@@ -81,8 +81,6 @@ namespace MDF.Runtime.Assets
             new Dictionary<CacheKey, CacheEntry>();
 
         private static int _loadOperationCount;
-        private static int _pinGeneration;
-
         public static int CachedEntryCount => Entries.Count;
         public static int LoadOperationCount => _loadOperationCount;
 
@@ -93,23 +91,9 @@ namespace MDF.Runtime.Assets
             _loadOperationCount = 0;
         }
 
-        public static async UniTask<T> LoadPinnedAsync<T>(string address) where T : class
-        {
-            int observedPinGeneration = _pinGeneration;
-            CacheEntry entry = GetOrCreateEntry<T>(address, pin: true, addLease: false);
-            T loaded = (T)await entry.Completion.Task;
-            if (observedPinGeneration != _pinGeneration)
-            {
-                throw new OperationCanceledException(
-                    $"Pinned Addressables load was invalidated while awaiting: {address}");
-            }
-
-            return loaded;
-        }
-
         public static async UniTask<AddressableAssetLease<T>> AcquireAsync<T>(string address) where T : class
         {
-            CacheEntry entry = GetOrCreateEntry<T>(address, pin: false, addLease: true);
+            CacheEntry entry = GetOrCreateEntry<T>(address);
 
             try
             {
@@ -144,23 +128,7 @@ namespace MDF.Runtime.Assets
             return entry.Asset as T;
         }
 
-        public static void ClearPinnedAssets()
-        {
-            unchecked
-            {
-                _pinGeneration++;
-            }
-
-            var snapshot = new List<CacheEntry>(Entries.Values);
-            for (int i = 0; i < snapshot.Count; i++)
-            {
-                CacheEntry entry = snapshot[i];
-                entry.Retention.Unpin();
-                TryReleaseUnused(entry);
-            }
-        }
-
-        private static CacheEntry GetOrCreateEntry<T>(string address, bool pin, bool addLease) where T : class
+        private static CacheEntry GetOrCreateEntry<T>(string address) where T : class
         {
             if (string.IsNullOrWhiteSpace(address))
             {
@@ -177,16 +145,7 @@ namespace MDF.Runtime.Assets
                 }
                 else
                 {
-                    if (pin)
-                    {
-                        existing.Retention.Pin();
-                    }
-
-                    if (addLease)
-                    {
-                        existing.Retention.AcquireLease();
-                    }
-
+                    existing.Retention.AcquireLease();
                     return existing;
                 }
             }
@@ -198,15 +157,7 @@ namespace MDF.Runtime.Assets
                 Completion = new UniTaskCompletionSource<object>()
             };
 
-            if (pin)
-            {
-                entry.Retention.Pin();
-            }
-
-            if (addLease)
-            {
-                entry.Retention.AcquireLease();
-            }
+            entry.Retention.AcquireLease();
 
             Entries.Add(key, entry);
             LoadEntryAsync<T>(entry).Forget();
@@ -287,11 +238,6 @@ namespace MDF.Runtime.Assets
 
         private static void ReleaseAllImmediately()
         {
-            unchecked
-            {
-                _pinGeneration++;
-            }
-
             var snapshot = new List<CacheEntry>(Entries.Values);
             Entries.Clear();
 

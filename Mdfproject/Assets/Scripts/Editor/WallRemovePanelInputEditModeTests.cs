@@ -6,7 +6,7 @@ public sealed class WallRemovePanelInputEditModeTests
     [Test]
     public void WallRemovePanelProvidesToolkitRaycastFallbackClickPath()
     {
-        string source = System.IO.File.ReadAllText("Assets/Scripts/UI/WallRemovePanelController.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/UI/WallRemovePanelController.cs");
 
         Assert.That(source, Does.Contain("ActiveControllers"));
         Assert.That(source, Does.Contain("IsPointerOverActiveRemoveButton"));
@@ -20,7 +20,7 @@ public sealed class WallRemovePanelInputEditModeTests
     [Test]
     public void FieldBlockingInputChecksWallRemoveButtonBeforeToolkitPassthrough()
     {
-        string source = System.IO.File.ReadAllText("Assets/Scripts/Managers/MdfInput.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/MdfInput.cs");
         int methodStart = source.IndexOf("public static bool IsPointerOverFieldBlockingUI()", System.StringComparison.Ordinal);
         Assert.That(methodStart, Is.GreaterThanOrEqualTo(0));
 

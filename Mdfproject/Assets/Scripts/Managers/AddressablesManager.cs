@@ -5,7 +5,7 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.Serialization;
-using UnityEngine.SceneManagement;
+using MDF.Runtime.Assets;
 
 public enum AddressablesBootLoadPolicy
 {
@@ -53,7 +53,6 @@ public class AddressablesManager : MonoBehaviour
         {
             Instance = this;
             DontDestroyOnLoad(gameObject);
-            SceneManager.activeSceneChanged += HandleActiveSceneChanged;
         }
         else
         {
@@ -366,13 +365,36 @@ public class AddressablesManager : MonoBehaviour
     /// </summary>
     public async UniTask<GameObject> LoadObject(string name, Transform parent = null)
     {
-        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(name);
-        if (prefab == null)
+        AddressableAssetLease<GameObject> lease = await AssetLoader.AcquireAssetAsync<GameObject>(name);
+        if (lease == null || lease.Asset == null)
         {
+            lease?.Dispose();
             return null;
         }
 
-        return Instantiate(prefab, parent);
+        GameObject instance = null;
+        try
+        {
+            instance = Instantiate(lease.Asset, parent);
+            AddressableInstanceLease instanceLease = instance.GetComponent<AddressableInstanceLease>();
+            if (instanceLease == null)
+            {
+                instanceLease = instance.AddComponent<AddressableInstanceLease>();
+            }
+
+            instanceLease.Initialize(lease);
+            return instance;
+        }
+        catch
+        {
+            lease.Dispose();
+            if (instance != null)
+            {
+                Destroy(instance);
+            }
+
+            throw;
+        }
     }
 
     private void OnDestroy()
@@ -386,23 +408,7 @@ public class AddressablesManager : MonoBehaviour
         ReleaseAssetReference(gridPrefabRef);
         ReleaseAssetReference(defaultMonsterPrefabRef);
         ReleaseAssetReference(waveDatabaseRef);
-        SceneManager.activeSceneChanged -= HandleActiveSceneChanged;
-        AssetLoader.ClearCache();
         Instance = null;
-    }
-
-    private static void HandleActiveSceneChanged(Scene previousScene, Scene nextScene)
-    {
-        if (IsGameScene(previousScene.name) && !IsGameScene(nextScene.name))
-        {
-            AssetLoader.ClearCache();
-        }
-    }
-
-    private static bool IsGameScene(string sceneName)
-    {
-        return string.Equals(sceneName, "03_Game", System.StringComparison.Ordinal) ||
-               string.Equals(sceneName, "Game", System.StringComparison.Ordinal);
     }
 
     private static void ReleaseAssetReference(AssetReference assetReference)

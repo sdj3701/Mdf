@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.Tilemaps;
+using MDF.Runtime.Assets;
 
 
 /// <summary>
@@ -18,6 +19,20 @@ public static class AssetRegistry
     private static Dictionary<string, AudioClip> sounds = new Dictionary<string, AudioClip>();
     private static bool addressablesInitialized;
     private static System.Threading.Tasks.Task addressablesInitializeTask;
+    private static AddressableAssetOwner assetOwner = new AddressableAssetOwner();
+
+    private static AddressableAssetOwner AssetOwner
+    {
+        get
+        {
+            if (assetOwner == null || assetOwner.IsDisposed)
+            {
+                assetOwner = new AddressableAssetOwner();
+            }
+
+            return assetOwner;
+        }
+    }
 
     #region Tile 관리
 
@@ -46,12 +61,12 @@ public static class AssetRegistry
     {
         try
         {
+            AddressableAssetOwner owner = AssetOwner;
             await EnsureAddressablesInitialized();
-            var handle = Addressables.LoadAssetAsync<TileBase>(addressableKey);
-            var tile = await handle.Task;
-            if (handle.Status != AsyncOperationStatus.Succeeded || tile == null)
+            TileBase tile = await AssetLoader.LoadAssetAsync<TileBase>(addressableKey, owner);
+            if (tile == null)
             {
-                Debug.LogError($"Tile load failed: {addressableKey} - {handle.OperationException?.Message}");
+                Debug.LogError($"Tile load failed: {addressableKey}");
                 return null;
             }
 
@@ -89,19 +104,19 @@ public static class AssetRegistry
     {
         try
         {
+            AddressableAssetOwner owner = AssetOwner;
             await EnsureAddressablesInitialized();
-            var handle = Addressables.LoadAssetAsync<Sprite>(addressableKey);
-            var tile = await handle.Task;
-            if (handle.Status != AsyncOperationStatus.Succeeded || tile == null)
+            Sprite sprite = await AssetLoader.LoadAssetAsync<Sprite>(addressableKey, owner);
+            if (sprite == null)
             {
-                Debug.LogError($"Sprite load failed: {addressableKey} - {handle.OperationException?.Message}");
+                Debug.LogError($"Sprite load failed: {addressableKey}");
                 return null;
             }
 
             string id = registryId ?? addressableKey;
-            RegisterSprite(id, tile);
+            RegisterSprite(id, sprite);
 
-            return tile;
+            return sprite;
         }
         catch (System.Exception e)
         {
@@ -149,6 +164,8 @@ public static class AssetRegistry
 
     public static void ClearAll()
     {
+        assetOwner?.Dispose();
+        assetOwner = new AddressableAssetOwner();
         tiles.Clear();
         sprites.Clear();
         prefabs.Clear();
@@ -198,14 +215,24 @@ public static class AssetRegistry
     private static async System.Threading.Tasks.Task InitializeAddressablesAsync()
     {
         var handle = Addressables.InitializeAsync();
-        await handle.Task;
-
-        if (handle.Status != AsyncOperationStatus.Succeeded)
+        try
         {
-            addressablesInitializeTask = null;
-            throw new System.InvalidOperationException($"Addressables initialize failed: {handle.OperationException?.Message}");
-        }
+            await handle.Task;
 
-        addressablesInitialized = true;
+            if (handle.Status != AsyncOperationStatus.Succeeded)
+            {
+                addressablesInitializeTask = null;
+                throw new System.InvalidOperationException($"Addressables initialize failed: {handle.OperationException?.Message}");
+            }
+
+            addressablesInitialized = true;
+        }
+        finally
+        {
+            if (handle.IsValid())
+            {
+                Addressables.Release(handle);
+            }
+        }
     }
 }

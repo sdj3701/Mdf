@@ -5,9 +5,11 @@ using UnityEngine;
 using Fusion;
 using Cysharp.Threading.Tasks;
 using System.Threading;
+using MDF.Runtime.Assets;
 
 public class MonsterSpawner : MonoBehaviour
 {
+    private AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
 
     #region 필드 및 참조
 
@@ -45,6 +47,10 @@ public class MonsterSpawner : MonoBehaviour
     /// <summary>Subscribes battle lifecycle cancellation.</summary>
     private void OnEnable()
     {
+        if (_addressableAssets == null || _addressableAssets.IsDisposed)
+        {
+            _addressableAssets = new AddressableAssetOwner();
+        }
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
     }
 
@@ -53,6 +59,7 @@ public class MonsterSpawner : MonoBehaviour
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
         RotateBattleGeneration(GameManagers.GameState.GameOver, createCancellation: false);
         _activeAutoSpawnKeys.Clear();
+        _addressableAssets?.Dispose();
     }
 
     private void HandleGameStateChanged(GameManagers.GameState newState)
@@ -426,7 +433,7 @@ public class MonsterSpawner : MonoBehaviour
                 continue;
             }
 
-            GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(request.MonsterData.monsterPrefab);
+            GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(request.MonsterData.monsterPrefab, _addressableAssets);
             if (prefab == null || !prefab.TryGetComponent<NetworkObject>(out var netPrefab))
             {
                 continue;
@@ -1391,7 +1398,7 @@ public class MonsterSpawner : MonoBehaviour
             return null;
         }
 
-        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(monsterData.monsterPrefab);
+        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(monsterData.monsterPrefab, _addressableAssets);
         if (expectedBattleGeneration >= 0 && !IsBattleGenerationCurrent(expectedBattleGeneration))
         {
             LogSpawnTrace("SpawnMonsterAtPositionAsync:ABORT_STALE_BATTLE_GENERATION", monsterData, spawnPosition, targetFieldManager);

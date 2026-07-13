@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.AddressableAssets;
@@ -15,6 +16,35 @@ using UnityEngine.SceneManagement;
 
 public class AddressablesLoadingPolicyEditModeTests
 {
+    private static readonly Dictionary<string, string> AllowedRawAddressablesEntryPoints =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            {
+                "Assets/Scripts/RuntimeAssets/AddressableAssetCache.cs|LoadAssetAsync",
+                "The lease cache is the sole direct single-asset loader."
+            },
+            {
+                "Assets/Scripts/Managers/LoadManager.cs|LoadAssetsAsync",
+                "Boot UnitData is a documented label-owned lifetime with an explicit released handle."
+            },
+            {
+                "Assets/Scripts/Managers/AugmentManager.cs|LoadAssetsAsync",
+                "AugmentData is a documented label-owned lifetime with an explicit released handle."
+            },
+            {
+                "Assets/Scripts/Managers/AddressablesManager.cs|InitializeAsync",
+                "The bootstrap catalog initialization handle is explicitly released."
+            },
+            {
+                "Assets/Scripts/Managers/AddressablesManager.cs|AssetReference.LoadAssetAsync",
+                "Required Fusion prefabs use serialized AssetReference ownership and ReleaseAsset."
+            },
+            {
+                "Assets/Scripts/ComponentRegistrySystem/StaticAssets/AssetRegistry.cs|InitializeAsync",
+                "The legacy registry owns and releases its one catalog initialization handle."
+            }
+        };
+
     private static readonly Dictionary<string, string> ExpectedGroups = new Dictionary<string, string>
     {
         { "MDF Gameplay Data", "mdf-gameplay-data" },
@@ -48,6 +78,43 @@ public class AddressablesLoadingPolicyEditModeTests
         Assert.That(
             typeof(AddressablesManager).GetMethod("InitializeAsync", BindingFlags.Instance | BindingFlags.Public),
             Is.Not.Null);
+    }
+
+    [Test]
+    public void RawAddressablesLoadsStayInsideDocumentedLifecycleOwners()
+    {
+        var discovered = new List<string>();
+        var directCallPattern = new Regex(
+            @"Addressables\s*\.\s*(?<static>InitializeAsync|LoadAssetAsync|LoadAssetsAsync|InstantiateAsync)\s*(?:<|\()|" +
+            @"\bassetReference\s*\.\s*(?<reference>LoadAssetAsync)\s*<",
+            RegexOptions.Compiled);
+
+        foreach (string guid in AssetDatabase.FindAssets("t:MonoScript", new[] { "Assets/Scripts" }))
+        {
+            string path = NormalizePath(AssetDatabase.GUIDToAssetPath(guid));
+            if (path.Contains("/Editor/") || path.Contains("/Testing/"))
+            {
+                continue;
+            }
+
+            MonoScript script = AssetDatabase.LoadAssetAtPath<MonoScript>(path);
+            if (script == null)
+            {
+                continue;
+            }
+
+            foreach (Match match in directCallPattern.Matches(script.text))
+            {
+                string operation = match.Groups["static"].Success
+                    ? match.Groups["static"].Value
+                    : "AssetReference." + match.Groups["reference"].Value;
+                discovered.Add(path + "|" + operation);
+            }
+        }
+
+        Assert.That(discovered, Is.EquivalentTo(AllowedRawAddressablesEntryPoints.Keys),
+            "New raw Addressables calls must use AddressableAssetCache/AssetLoader or be added as a reviewed, " +
+            "explicitly released label/AssetReference lifecycle exception.");
     }
 
     [Test]

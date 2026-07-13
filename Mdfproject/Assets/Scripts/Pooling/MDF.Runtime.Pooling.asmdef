@@ -1,0 +1,14 @@
+{
+    "name": "MDF.Runtime.Pooling",
+    "rootNamespace": "MDF.Runtime.Pooling",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

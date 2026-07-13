@@ -9,9 +9,12 @@ using System.Linq;
 using Fusion; // Fusion 네임스페이스 추가
 using Cysharp.Threading.Tasks;
 using System.Threading;
+using MDF.Runtime.Assets;
 
 public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour -> NetworkBehaviour
 {
+    private AddressableAssetOwner _assetOwner = new AddressableAssetOwner();
+
     // [수정] playerId를 모든 클라이언트가 동기화할 수 있도록 [Networked] 프로퍼티로 변경합니다.
     [Networked] public int playerId { get; set; }
     [Networked] public NetworkBool IsAiControlled { get; private set; }
@@ -125,6 +128,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private bool _runtimeInitialized;
     public bool IsReadyForPlayerActions => _runtimeInitialized && playerId >= 0 && fieldManager != null;
     private PlayerShopPurchaseCoordinator _shopPurchaseCoordinator;
+    private PlayerCommandRequestValidator _commandRequestValidator;
     internal int CurrentShopSnapshotRevision => ShopSnapshotRevision;
 
     public struct PurchaseUnitResult
@@ -202,32 +206,12 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     private static string NormalizeShopUnitKey(string key)
     {
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return string.Empty;
-        }
-
-        return key.Replace("(Clone)", string.Empty).Trim();
+        return StableDataKeyUtility.NormalizeKey(key);
     }
 
     private static int StableDataKeyHash(string value)
     {
-        if (string.IsNullOrEmpty(value))
-        {
-            return 0;
-        }
-
-        unchecked
-        {
-            uint hash = 2166136261u;
-            for (int i = 0; i < value.Length; i++)
-            {
-                hash ^= value[i];
-                hash *= 16777619u;
-            }
-
-            return (int)hash;
-        }
+        return StableDataKeyUtility.StableHash(value);
     }
 
     private static int StableAugmentSnapshotId(string augmentName)
@@ -242,32 +226,27 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     private static int PackShopSnapshotMeta(int starLevel, int sold)
     {
-        int packedStarLevel = Mathf.Clamp(starLevel, 0, 255);
-        int packedSold = sold != 0 ? 1 : 0;
-        return packedStarLevel | (packedSold << 8);
+        return PlayerSnapshotCodec.PackShopMeta(starLevel, sold != 0);
     }
 
     private static int PackAttackMonsterCounts(int remainingCount, int maxCount, int isBoss)
     {
-        int packedRemaining = Mathf.Clamp(remainingCount, 0, 0x7FFF);
-        int packedMax = Mathf.Clamp(maxCount, 0, 0x7FFF);
-        int packedBoss = isBoss != 0 ? 1 : 0;
-        return packedRemaining | (packedMax << 15) | (packedBoss << 30);
+        return PlayerSnapshotCodec.PackMonsterCounts(remainingCount, maxCount, isBoss != 0);
     }
 
     private static int PackSnapshotPlayerIds(int targetPlayerId, int originPlayerId)
     {
-        return PackSnapshotPlayerId(targetPlayerId) | (PackSnapshotPlayerId(originPlayerId) << 16);
+        return PlayerSnapshotCodec.PackPlayerIds(targetPlayerId, originPlayerId);
     }
 
     private static int PackSnapshotPlayerId(int playerIdValue)
     {
-        return Mathf.Clamp(playerIdValue + 1, 0, 0xFFFF);
+        return PlayerSnapshotCodec.PackPlayerId(playerIdValue);
     }
 
     private static int UnpackSnapshotPlayerId(int packedPlayerId)
     {
-        return Mathf.Clamp(packedPlayerId, 0, 0xFFFF) - 1;
+        return PlayerSnapshotCodec.UnpackPlayerId(packedPlayerId);
     }
 
     private static string ResolveLoadedUnitDataKeyByStableHash(int unitDataKeyHash)
@@ -640,6 +619,11 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     public override void Spawned()
     {
+        if (_assetOwner == null || _assetOwner.IsDisposed)
+        {
+            _assetOwner = new AddressableAssetOwner();
+        }
+
         bool isHostMigration = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
         _runtimeInitialized = isHostMigration;
 
@@ -2025,7 +2009,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                     if (data == null)
                     {
                         // Debug.Log($"<color=yellow>[RPC_Internal] LoadManager miss for key='{unitDataKey}'. Trying Addressables fallback...</color>");
-                        data = await AssetLoader.LoadAssetAsync<UnitData>(unitDataKey);
+                        data = await AssetLoader.LoadAssetAsync<UnitData>(unitDataKey, _assetOwner);
                     }
                 }
                 if (data != null)
@@ -2233,12 +2217,12 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     #region 마법 스크롤 관리
     // 보유 중인 마법 스크롤 리스트
-    private List<MagicScrollData> _ownedScrolls = new List<MagicScrollData>();
+    private readonly PlayerMagicScrollInventory _scrollInventory = new PlayerMagicScrollInventory();
     
     /// <summary>
     /// 보유 중인 마법 스크롤 목록 (읽기 전용)
     /// </summary>
-    public IReadOnlyList<MagicScrollData> OwnedScrolls => _ownedScrolls;
+    public IReadOnlyList<MagicScrollData> OwnedScrolls => _scrollInventory.Items;
 
     /// <summary>
     /// 마법 스크롤을 플레이어 인벤토리에 추가합니다.
@@ -2250,11 +2234,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return;
         }
 
-        if (scrollData != null)
+        if (_scrollInventory.TryAdd(scrollData))
         {
-            _ownedScrolls.Add(scrollData);
             BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
-            Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 획득 (총 {_ownedScrolls.Count}개)</color>");
+            Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 획득 (총 {_scrollInventory.Count}개)</color>");
 
             PublishOwnedMagicScrollsChanged();
             SyncOwnedMagicScrollsToClientsIfAuthoritative();
@@ -2272,15 +2255,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return false;
         }
 
-        if (scrollData == null) return false;
-        
-        // 같은 종류의 스크롤이 있는지 확인
-        int slotIndex = _ownedScrolls.FindIndex(s => s == scrollData || (s != null && s.name == scrollData.name));
-        if (slotIndex >= 0)
+        if (_scrollInventory.TryConsume(scrollData, out _))
         {
-            _ownedScrolls.RemoveAt(slotIndex);
             BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
-            Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 사용 (남은 {_ownedScrolls.Count}개)</color>");
+            Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{scrollData.scrollName}' 사용 (남은 {_scrollInventory.Count}개)</color>");
 
             PublishOwnedMagicScrollsChanged();
             SyncOwnedMagicScrollsToClientsIfAuthoritative();
@@ -2292,47 +2270,12 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     public int FindOwnedMagicScrollSlot(MagicScrollData scrollData)
     {
-        if (scrollData == null || _ownedScrolls == null)
-        {
-            return -1;
-        }
-
-        for (int i = 0; i < _ownedScrolls.Count; i++)
-        {
-            var owned = _ownedScrolls[i];
-            if (owned == scrollData || (owned != null && owned.name == scrollData.name))
-            {
-                return i;
-            }
-        }
-
-        return -1;
+        return _scrollInventory.FindSlot(scrollData);
     }
 
     public bool TryGetMagicScrollAtSlot(int scrollSlotIndex, out MagicScrollData scrollData, out string reason)
     {
-        scrollData = null;
-        reason = null;
-        if (_ownedScrolls == null)
-        {
-            reason = "owned_scrolls_missing";
-            return false;
-        }
-
-        if (scrollSlotIndex < 0 || scrollSlotIndex >= _ownedScrolls.Count)
-        {
-            reason = "scroll_slot_out_of_range";
-            return false;
-        }
-
-        scrollData = _ownedScrolls[scrollSlotIndex];
-        if (scrollData == null)
-        {
-            reason = "scroll_slot_empty";
-            return false;
-        }
-
-        return true;
+        return _scrollInventory.TryGetAt(scrollSlotIndex, out scrollData, out reason);
     }
 
     public bool TryConsumeMagicScrollSlot(int scrollSlotIndex, out MagicScrollData consumedScroll, out string reason)
@@ -2344,14 +2287,13 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return false;
         }
 
-        if (!TryGetMagicScrollAtSlot(scrollSlotIndex, out consumedScroll, out reason))
+        if (!_scrollInventory.TryConsumeAt(scrollSlotIndex, out consumedScroll, out reason))
         {
             return false;
         }
 
-        _ownedScrolls.RemoveAt(scrollSlotIndex);
         BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
-        Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{consumedScroll.scrollName}' 사용 (slot={scrollSlotIndex}, 남은 {_ownedScrolls.Count}개)</color>");
+        Debug.Log($"<color=magenta>[PlayerManager] Player {playerId}: 마법 스크롤 '{consumedScroll.scrollName}' 사용 (slot={scrollSlotIndex}, 남은 {_scrollInventory.Count}개)</color>");
 
         PublishOwnedMagicScrollsChanged();
         SyncOwnedMagicScrollsToClientsIfAuthoritative();
@@ -2365,18 +2307,11 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return false;
         }
 
-        if (scrollData == null)
+        if (!_scrollInventory.TryRefundAt(scrollSlotIndex, scrollData))
         {
             return false;
         }
 
-        if (_ownedScrolls == null)
-        {
-            _ownedScrolls = new List<MagicScrollData>();
-        }
-
-        int insertIndex = Mathf.Clamp(scrollSlotIndex, 0, _ownedScrolls.Count);
-        _ownedScrolls.Insert(insertIndex, scrollData);
         BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline();
         PublishOwnedMagicScrollsChanged();
         SyncOwnedMagicScrollsToClientsIfAuthoritative();
@@ -2411,7 +2346,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 return;
             }
 
-            MagicScrollData scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
+            MagicScrollData scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName, _assetOwner);
             if (revision != _latestReceivedOwnedMagicScrollRevision ||
                 revision < _lastAppliedOwnedMagicScrollRevision)
             {
@@ -2433,22 +2368,19 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return;
         }
 
-        _ownedScrolls = syncedScrolls;
+        _scrollInventory.Replace(syncedScrolls);
         _lastAppliedOwnedMagicScrollRevision = revision;
         PublishOwnedMagicScrollsChanged();
     }
 
     private string[] BuildOwnedMagicScrollNameArray()
     {
-        return _ownedScrolls
-            .Where(scroll => scroll != null && !string.IsNullOrWhiteSpace(scroll.name))
-            .Select(scroll => scroll.name)
-            .ToArray();
+        return _scrollInventory.BuildAssetNames();
     }
 
     private void PublishOwnedMagicScrollsChanged()
     {
-        GameEvents.TriggerMagicScrollPoolChanged(playerId, _ownedScrolls);
+        GameEvents.TriggerMagicScrollPoolChanged(playerId, _scrollInventory.Items);
     }
 
     private void SyncOwnedMagicScrollsToClientsIfAuthoritative()
@@ -2473,14 +2405,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         scrollDataRefs = System.Array.Empty<MagicScrollData>();
         scrollDataNames = System.Array.Empty<string>();
 
-        if (_ownedScrolls == null)
-        {
-            return true;
-        }
-
-        var validScrolls = _ownedScrolls
-            .Where(scroll => scroll != null && !string.IsNullOrWhiteSpace(scroll.name))
-            .ToArray();
+        var validScrolls = _scrollInventory.BuildValidSnapshot();
         scrollDataRefs = validScrolls;
         scrollDataNames = validScrolls.Select(scroll => scroll.name).ToArray();
         return true;
@@ -2550,7 +2475,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                     continue;
                 }
 
-                data = await AssetLoader.LoadAssetAsync<MagicScrollData>(name);
+                data = await AssetLoader.LoadAssetAsync<MagicScrollData>(name, _assetOwner);
                 if (data == null)
                 {
                     Debug.LogWarning($"[PlayerManager] HostMigration owned scroll restore skipped missing asset '{name}' ({context}).");
@@ -2576,13 +2501,13 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return;
         }
 
-        _ownedScrolls = restoredScrolls ?? new List<MagicScrollData>();
+        _scrollInventory.Replace(restoredScrolls);
         OwnedMagicScrollRevision = Mathf.Max(OwnedMagicScrollRevision, revision);
         _lastAppliedOwnedMagicScrollRevision = Mathf.Max(_lastAppliedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
         _latestReceivedOwnedMagicScrollRevision = Mathf.Max(_latestReceivedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
         PublishOwnedMagicScrollsChanged();
         SyncOwnedMagicScrollsToClientsIfAuthoritative();
-        Debug.Log($"[PlayerManager] HostMigration owned scroll restore complete ({context}) P{playerId} rev={OwnedMagicScrollRevision} count={_ownedScrolls.Count}");
+        Debug.Log($"[PlayerManager] HostMigration owned scroll restore complete ({context}) P{playerId} rev={OwnedMagicScrollRevision} count={_scrollInventory.Count}");
     }
 
     private void BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline()
@@ -3198,7 +3123,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             }
         }
 
-        return await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
+        return await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName, _assetOwner);
     }
 
     private string ResolveLoadedMonsterDataNameByStableHash(int monsterDataKeyHash)
@@ -3694,602 +3619,18 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         RpcInfo info,
         out string reason)
     {
-        reason = null;
-
-        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        if (_commandRequestValidator == null)
         {
-            reason = "player_missing_state_authority";
-            return false;
+            _commandRequestValidator = new PlayerCommandRequestValidator(this);
         }
 
-        if (info.Source == PlayerRef.None)
-        {
-            reason = "missing_rpc_source";
-            return false;
-        }
-
-        if (Object.InputAuthority != info.Source)
-        {
-            reason = "rpc_source_not_input_authority";
-            return false;
-        }
-
-        if (!IsReadyForPlayerActions)
-        {
-            reason = "player_not_ready";
-            return false;
-        }
-
-        if (intParams.Length == 0)
-        {
-            reason = "missing_player_id";
-            return false;
-        }
-
-        if (intParams[0] != playerId)
-        {
-            reason = $"player_id_mismatch:{intParams[0]}";
-            return false;
-        }
-
-        var gm = GameManagers.Instance;
-        if (gm == null)
-        {
-            gm = FindObjectOfType<GameManagers>();
-        }
-
-        if (gm == null || gm.Runner == null || !gm.Runner.IsServer || gm.Object == null || !gm.Object.HasStateAuthority)
-        {
-            reason = "game_managers_not_authoritative";
-            return false;
-        }
-
-        switch (type)
-        {
-            case CommandType.BuyUnit:
-                return ValidateBuyUnitRequest(gm, intParams, out reason);
-            case CommandType.MoveUnit:
-                return ValidateMoveUnitRequest(gm, vectorParams, out reason);
-            case CommandType.SwapUnit:
-                return ValidateSwapUnitRequest(gm, vectorParams, out reason);
-            case CommandType.SellUnit:
-                return ValidateSellUnitRequest(gm, vectorParams, out reason);
-            case CommandType.PlaceUnit:
-                reason = "place_unit_requires_authoritative_inventory";
-                return false;
-            case CommandType.PlaceWall:
-                return ValidatePlaceWallRequest(gm, vectorParams, out reason);
-            case CommandType.RemoveWall:
-                return ValidateRemoveWallRequest(gm, vectorParams, out reason);
-            case CommandType.RerollShop:
-                return ValidateRerollShopRequest(gm, out reason);
-            case CommandType.SelectAugment:
-                return ValidateSelectAugmentRequest(gm, intParams, out reason);
-            case CommandType.ActivateSkill:
-                return ValidateActivateSkillRequest(gm, intParams, out reason);
-            case CommandType.SetSkillActivationMode:
-                return ValidateSetSkillActivationModeRequest(gm, intParams, out reason);
-            case CommandType.RequestSyncData:
-                return true;
-            default:
-                reason = $"server_only_or_unknown_command:{type}";
-                return false;
-        }
-    }
-
-    private bool ValidatePreparePhase(GameManagers gm, out string reason)
-    {
-        if (gm == null || gm.currentState != GameManagers.GameState.Prepare)
-        {
-            reason = "command_requires_prepare_phase";
-            return false;
-        }
-
-        if (gm.IsSequenceTransitioning)
-        {
-            reason = "command_blocked_during_sequence_transition";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidateBattlePhase(GameManagers gm, out string reason)
-    {
-        if (gm == null || (gm.currentState != GameManagers.GameState.Battle1 && gm.currentState != GameManagers.GameState.Battle2))
-        {
-            reason = "command_requires_battle_phase";
-            return false;
-        }
-
-        if (gm.IsSequenceTransitioning)
-        {
-            reason = "command_blocked_during_sequence_transition";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidateBuyUnitRequest(GameManagers gm, int[] intParams, out string reason)
-    {
-        if (!ValidatePreparePhase(gm, out reason)) return false;
-        if (intParams.Length < 2)
-        {
-            reason = "missing_shop_slot";
-            return false;
-        }
-
-        if (shopManager == null || !shopManager.IsDatabaseLoaded)
-        {
-            reason = "shop_not_ready";
-            return false;
-        }
-
-        int slotIndex = intParams[1];
-        var items = shopManager.GetCurrentShopItems();
-        if (slotIndex < 0 || slotIndex >= items.Count)
-        {
-            reason = "shop_slot_out_of_range";
-            return false;
-        }
-
-        if (shopManager.IsSlotSold(slotIndex))
-        {
-            reason = "shop_slot_already_sold";
-            return false;
-        }
-
-        if (IsShopPurchaseTransactionPending(slotIndex))
-        {
-            reason = "shop_slot_purchase_pending";
-            return false;
-        }
-
-        var item = items[slotIndex];
-        if (item.UnitData == null)
-        {
-            reason = "shop_item_missing_unit_data";
-            return false;
-        }
-
-        if (GetGold() < item.CalculatedCost)
-        {
-            reason = "insufficient_gold";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidateSetSkillActivationModeRequest(GameManagers gm, int[] intParams, out string reason)
-    {
-        if (gm == null || gm.IsSequenceTransitioning ||
-            (gm.currentState != GameManagers.GameState.Prepare &&
-             gm.currentState != GameManagers.GameState.Battle1 &&
-             gm.currentState != GameManagers.GameState.Battle2))
-        {
-            reason = "skill_activation_mode_phase_invalid";
-            return false;
-        }
-        if (intParams == null || intParams.Length < 3)
-        {
-            reason = "skill_activation_mode_payload_missing";
-            return false;
-        }
-        if (intParams[0] != playerId)
-        {
-            reason = "skill_activation_mode_player_mismatch";
-            return false;
-        }
-        if (intParams[1] == 0)
-        {
-            reason = "skill_activation_mode_network_id_invalid";
-            return false;
-        }
-
-        var requestedMode = (SkillActivationType)intParams[2];
-        if (requestedMode != SkillActivationType.Manual && requestedMode != SkillActivationType.Automatic)
-        {
-            reason = "skill_activation_mode_value_invalid";
-            return false;
-        }
-        uint requestedNetworkId = unchecked((uint)intParams[1]);
-        if (!SetSkillActivationModeCommand.TryValidate(
-                gm,
-                playerId,
-                requestedNetworkId,
-                requestedMode,
-                out _,
-                out reason))
-        {
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidateMoveUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
-    {
-        if (!ValidatePreparePhase(gm, out reason)) return false;
-        if (fieldManager == null)
-        {
-            reason = "field_not_ready";
-            return false;
-        }
-
-        if (vectorParams.Length < 2)
-        {
-            reason = "missing_move_positions";
-            return false;
-        }
-
-        Vector3Int from = Vector3Int.RoundToInt(vectorParams[0]);
-        Vector3Int to = Vector3Int.RoundToInt(vectorParams[1]);
-        if (!fieldManager.IsValidGridPosition(from) || !fieldManager.IsValidGridPosition(to))
-        {
-            reason = "move_position_out_of_range";
-            return false;
-        }
-
-        var unit = fieldManager.GetUnitAt(from);
-        UnitData sourceUnitData = unit != null ? unit.Data : null;
-        if (unit == null && !fieldManager.HasPendingUnitAt(from))
-        {
-            reason = "move_source_empty";
-            return false;
-        }
-
-        if (unit != null && !OwnsUnitForCommand(unit))
-        {
-            reason = "move_source_not_owned_by_player";
-            return false;
-        }
-
-        if (unit == null && fieldManager.TryGetPendingUnitDataAt(from, out var pendingUnitData))
-        {
-            sourceUnitData = pendingUnitData;
-        }
-
-        if (fieldManager.IsUnitAt(to))
-        {
-            reason = "move_destination_occupied";
-            return false;
-        }
-
-        if (sourceUnitData == null && fieldManager.HasWallAt(to))
-        {
-            reason = "move_pending_unit_type_unknown_for_wall";
-            return false;
-        }
-
-        if (sourceUnitData != null && sourceUnitData.unitType == UnitType.Melee && fieldManager.HasWallAt(to))
-        {
-            reason = "melee_unit_cannot_move_to_wall";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool OwnsUnitForCommand(Unit unit)
-    {
-        return IsUnitOwnedByPlayerForCommand(this, unit);
+        return _commandRequestValidator.Validate(
+            type, intParams, stringParams, vectorParams, info, out reason);
     }
 
     public static bool IsUnitOwnedByPlayerForCommand(PlayerManager player, Unit unit)
     {
-        if (unit == null)
-        {
-            return false;
-        }
-
-        if (player == null)
-        {
-            return false;
-        }
-
-        if (unit.Owner != null)
-        {
-            return unit.Owner == player || unit.Owner.playerId == player.playerId;
-        }
-
-        int rosterOwnerId = unit.OwnerPlayerIdForRoster;
-        if (rosterOwnerId >= 0)
-        {
-            return rosterOwnerId == player.playerId;
-        }
-
-        return player.ownedUnits != null && player.ownedUnits.Contains(unit);
-    }
-
-    private bool ValidateSwapUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
-    {
-        if (!ValidatePreparePhase(gm, out reason)) return false;
-        if (fieldManager == null)
-        {
-            reason = "field_not_ready";
-            return false;
-        }
-
-        if (vectorParams.Length < 2)
-        {
-            reason = "missing_swap_positions";
-            return false;
-        }
-
-        Vector3Int posA = Vector3Int.RoundToInt(vectorParams[0]);
-        Vector3Int posB = Vector3Int.RoundToInt(vectorParams[1]);
-        if (!fieldManager.IsValidGridPosition(posA) || !fieldManager.IsValidGridPosition(posB))
-        {
-            reason = "swap_position_out_of_range";
-            return false;
-        }
-
-        var unitA = fieldManager.GetUnitAt(posA);
-        var unitB = fieldManager.GetUnitAt(posB);
-        if (unitA == null || unitB == null)
-        {
-            reason = "swap_requires_two_units";
-            return false;
-        }
-
-        if (!OwnsUnitForCommand(unitA) || !OwnsUnitForCommand(unitB))
-        {
-            reason = "swap_unit_not_owned_by_player";
-            return false;
-        }
-
-        if (unitA.Data == null || unitB.Data == null)
-        {
-            reason = "swap_unit_data_unresolved";
-            return false;
-        }
-
-        if (unitA.Data != null && unitA.Data.unitType == UnitType.Melee && fieldManager.HasWallAt(posB))
-        {
-            reason = "melee_unit_a_cannot_swap_to_wall";
-            return false;
-        }
-
-        if (unitB.Data != null && unitB.Data.unitType == UnitType.Melee && fieldManager.HasWallAt(posA))
-        {
-            reason = "melee_unit_b_cannot_swap_to_wall";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidateSellUnitRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
-    {
-        if (!ValidatePreparePhase(gm, out reason)) return false;
-        if (fieldManager == null)
-        {
-            reason = "field_not_ready";
-            return false;
-        }
-
-        if (vectorParams.Length < 1)
-        {
-            reason = "missing_sell_position";
-            return false;
-        }
-
-        Vector3Int position = Vector3Int.RoundToInt(vectorParams[0]);
-        if (!fieldManager.IsValidGridPosition(position))
-        {
-            reason = "sell_position_out_of_range";
-            return false;
-        }
-
-        if (fieldManager.GetUnitAt(position) == null)
-        {
-            reason = "sell_position_empty";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidatePlaceWallRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
-    {
-        if (!ValidatePreparePhase(gm, out reason)) return false;
-        if (fieldManager == null)
-        {
-            reason = "field_not_ready";
-            return false;
-        }
-
-        if (vectorParams.Length < 1)
-        {
-            reason = "missing_wall_position";
-            return false;
-        }
-
-        Vector3Int position = Vector3Int.RoundToInt(vectorParams[0]);
-        if (!fieldManager.IsValidGridPosition(position))
-        {
-            reason = "wall_position_out_of_range";
-            return false;
-        }
-
-        if (fieldManager.HasWallAt(position))
-        {
-            reason = "wall_position_occupied";
-            return false;
-        }
-
-        var occupant = fieldManager.GetUnitAt(position);
-        if (occupant != null && !OwnsUnitForCommand(occupant))
-        {
-            reason = "wall_position_foreign_unit";
-            return false;
-        }
-
-        if (occupant != null && occupant.Data == null)
-        {
-            reason = "wall_position_unresolved_unit";
-            return false;
-        }
-
-        if (GetWallCount() <= 0)
-        {
-            reason = "insufficient_wall_stock";
-            return false;
-        }
-
-        if (goalTransform != null && position == fieldManager.WorldToGridInt(goalTransform.position))
-        {
-            reason = "wall_goal_cell_blocked";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidateRemoveWallRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
-    {
-        if (!ValidatePreparePhase(gm, out reason)) return false;
-        if (fieldManager == null)
-        {
-            reason = "field_not_ready";
-            return false;
-        }
-
-        if (vectorParams.Length < 1)
-        {
-            reason = "missing_remove_wall_position";
-            return false;
-        }
-
-        Vector3Int position = Vector3Int.RoundToInt(vectorParams[0]);
-        if (!fieldManager.IsValidGridPosition(position))
-        {
-            reason = "remove_wall_position_out_of_range";
-            return false;
-        }
-
-        if (fieldManager.GetWallAt(position) == null)
-        {
-            reason = "remove_wall_missing";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidateRerollShopRequest(GameManagers gm, out string reason)
-    {
-        if (!ValidatePreparePhase(gm, out reason)) return false;
-        if (shopManager == null || !shopManager.IsDatabaseLoaded)
-        {
-            reason = "shop_not_ready";
-            return false;
-        }
-
-        int cost = shopManager.GetRerollCost();
-        if (GetGold() < cost)
-        {
-            reason = "insufficient_gold";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidateSelectAugmentRequest(GameManagers gm, int[] intParams, out string reason)
-    {
-        if (!ValidatePreparePhase(gm, out reason)) return false;
-        if (intParams.Length < 2)
-        {
-            reason = "missing_augment_index";
-            return false;
-        }
-
-        if (augmentManager == null)
-        {
-            reason = "augment_manager_not_ready";
-            return false;
-        }
-
-        var presentedAugments = augmentManager.GetPresentedAugments();
-        int index = intParams[1];
-        if (presentedAugments == null || index < 0 || index >= presentedAugments.Count)
-        {
-            reason = "augment_index_out_of_range";
-            return false;
-        }
-
-        if (presentedAugments[index] == null)
-        {
-            reason = "augment_choice_missing";
-            return false;
-        }
-
-        reason = null;
-        return true;
-    }
-
-    private bool ValidateActivateSkillRequest(GameManagers gm, int[] intParams, out string reason)
-    {
-        if (intParams.Length < 2)
-        {
-            reason = "missing_skill_unit_id";
-            return false;
-        }
-
-        uint unitNetworkId = (uint)intParams[1];
-        const CommandExecutionScope scope = CommandExecutionScope.ClientRequest;
-        const string source = "client_rpc";
-        SkillCommandMpTestLogger.Request(playerId, unitNetworkId, scope, source);
-
-        if (!ActivateSkillCommand.TryValidate(
-                gm,
-                playerId,
-                unitNetworkId,
-                scope,
-                source,
-                requireStateAuthority: true,
-                out _,
-                out SkillData skillData,
-                out BattleCommandResult result))
-        {
-            reason = result.ErrorCode;
-            if (ActivateSkillCommand.IsVolatileNoOp(result))
-            {
-                SkillCommandMpTestLogger.Skipped(result, unitNetworkId, skillData != null ? skillData.name : "unknown");
-                return false;
-            }
-
-            int sequence = BattleCommandTelemetry.RecordRejected(CommandType.ActivateSkill);
-            var rejected = BattleCommandResult.Rejected(
-                CommandType.ActivateSkill,
-                result.PlayerId,
-                result.ErrorCode,
-                result.Message,
-                result.OpponentPlayerId,
-                result.Scope,
-                result.Source,
-                sequence);
-            SkillCommandMpTestLogger.Rejected(rejected, unitNetworkId, skillData != null ? skillData.name : "unknown");
-            gm?.SyncBattleCommandTelemetryToClientsIfAuthoritative();
-            return false;
-        }
-
-        SkillCommandMpTestLogger.Accepted(result, unitNetworkId, skillData != null ? skillData.name : "unknown");
-        reason = null;
-        return true;
+        return PlayerCommandRequestValidator.IsUnitOwnedByPlayer(player, unit);
     }
 
     private static Vector2 NormalizeDelayRange(Vector2 range)
@@ -4408,4 +3749,15 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     }
 
     #endregion
+
+    public override void Despawned(NetworkRunner runner, bool hasState)
+    {
+        _assetOwner?.Dispose();
+        base.Despawned(runner, hasState);
+    }
+
+    private void OnDestroy()
+    {
+        _assetOwner?.Dispose();
+    }
 }

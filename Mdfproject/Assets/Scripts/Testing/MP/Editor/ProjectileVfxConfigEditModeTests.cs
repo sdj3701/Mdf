@@ -1,11 +1,14 @@
 #if UNITY_EDITOR
+using System.Reflection;
 using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.AddressableAssets;
 using UnityEditor.AddressableAssets.Settings;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public sealed class ProjectileVfxConfigEditModeTests
 {
@@ -98,21 +101,52 @@ public sealed class ProjectileVfxConfigEditModeTests
     [Test]
     public void TestSceneContainsProjectileVfxTuningRows()
     {
-        string scene = File.ReadAllText("Assets/Scenes/test.unity");
+        Scene scene = EditorSceneManager.OpenScene("Assets/Scenes/test.unity", OpenSceneMode.Additive);
+        try
+        {
+            var names = new HashSet<string>();
+            var previews = new List<ProjectileVfxTuningPreview>();
+            foreach (GameObject root in scene.GetRootGameObjects())
+            {
+                foreach (Transform transform in root.GetComponentsInChildren<Transform>(true))
+                {
+                    names.Add(transform.name);
+                }
 
-        Assert.That(scene, Does.Contain("ProjectileVfxTuning_Root"));
-        Assert.That(scene, Does.Contain("ProjectileVfxEffectRoot"));
-        Assert.That(scene, Does.Contain("ProjectileTuning_Archer"));
-        Assert.That(scene, Does.Contain("ProjectileTuning_Mage"));
-        Assert.That(scene, Does.Contain("ProjectileTuning_Cleric"));
-        Assert.That(scene, Does.Contain("ProjectileTuning_Pyromancer"));
-        Assert.That(scene, Does.Contain("ProjectileTarget_Archer_Slime"));
-        Assert.That(scene, Does.Contain("ProjectileTarget_Mage_Slime"));
-        Assert.That(scene, Does.Contain("ProjectileTarget_Cleric_Slime"));
-        Assert.That(scene, Does.Contain("ProjectileTarget_Pyromancer_Slime"));
-        Assert.That(scene, Does.Contain("projectileAddress: ArrowProjectile"));
-        Assert.That(scene, Does.Contain("projectileAddress: BaseProjectile"));
-        Assert.That(scene, Does.Contain("projectileSpeed: 10"));
+                previews.AddRange(root.GetComponentsInChildren<ProjectileVfxTuningPreview>(true));
+            }
+
+            string[] expectedNames =
+            {
+                "ProjectileVfxTuning_Root",
+                "ProjectileVfxEffectRoot",
+                "ProjectileTuning_Archer",
+                "ProjectileTuning_Mage",
+                "ProjectileTuning_Cleric",
+                "ProjectileTuning_Pyromancer",
+                "ProjectileTarget_Archer_Slime",
+                "ProjectileTarget_Mage_Slime",
+                "ProjectileTarget_Cleric_Slime",
+                "ProjectileTarget_Pyromancer_Slime"
+            };
+
+            Assert.That(names, Is.SupersetOf(expectedNames));
+            Assert.That(previews, Has.Count.EqualTo(4));
+            var addresses = new HashSet<string>();
+            foreach (ProjectileVfxTuningPreview preview in previews)
+            {
+                var serialized = new SerializedObject(preview);
+                addresses.Add(serialized.FindProperty("projectileAddress").stringValue);
+                Assert.That(serialized.FindProperty("projectileSpeed").floatValue, Is.EqualTo(10f).Within(0.001f));
+            }
+
+            Assert.That(addresses, Does.Contain("ArrowProjectile"));
+            Assert.That(addresses, Does.Contain("BaseProjectile"));
+        }
+        finally
+        {
+            EditorSceneManager.CloseScene(scene, true);
+        }
     }
 
     [Test]
@@ -255,14 +289,14 @@ public sealed class ProjectileVfxConfigEditModeTests
     [Test]
     public void ProjectileVfxManagerUsesThreeStageConfigInsteadOfLegacyArray()
     {
-        string source = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
-        string previewSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxTuningPreview.cs");
-        string previewEditorSource = File.ReadAllText("Assets/Scripts/Editor/ProjectileVfxTuningPreviewEditor.cs");
-        string runtimeUtilitySource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxRuntimeUtility.cs");
-        string componentCacheSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxComponentCache.cs");
-        string unitDataSource = File.ReadAllText("Assets/Scripts/Game/Units/UnitData.cs");
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
-        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/ProjectileVfxManager.cs");
+        string previewSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/ProjectileVfxTuningPreview.cs");
+        string previewEditorSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Editor/ProjectileVfxTuningPreviewEditor.cs");
+        string runtimeUtilitySource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/ProjectileVfxRuntimeUtility.cs");
+        string componentCacheSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/ProjectileVfxComponentCache.cs");
+        string unitDataSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Units/UnitData.cs");
+        string unitSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Units/Unit.cs");
+        string schedulerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CombatScheduler.cs");
 
         Assert.That(source, Does.Contain("TryResolveProjectileVfx"));
         Assert.That(source, Does.Contain("SpawnMuzzleFlashAsync"));
@@ -337,40 +371,74 @@ public sealed class ProjectileVfxConfigEditModeTests
     [Test]
     public void ProjectileVfxManagerFreezesDeadOrPooledTargets()
     {
-        string source = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
+        MethodInfo predicate = typeof(ProjectileVfxManager).GetMethod(
+            "IsTrackedTargetStillLive",
+            BindingFlags.Static | BindingFlags.NonPublic,
+            null,
+            new[] { typeof(Transform), typeof(Fusion.NetworkObject), typeof(uint), typeof(Unit), typeof(Monster) },
+            null);
+        Assert.That(predicate, Is.Not.Null);
 
-        Assert.That(source, Does.Contain("TargetNetworkIdRaw"));
-        Assert.That(source, Does.Contain("TryRefreshTrackedTargetPosition"));
-        Assert.That(source, Does.Contain("FreezeTrackedTarget(active)"));
-        Assert.That(source, Does.Contain("!targetGameObject.activeInHierarchy"));
-        Assert.That(source, Does.Contain("targetObject.Id.Raw != targetNetworkIdRaw"));
-        Assert.That(source, Does.Contain("targetUnit.IsDead"));
-        Assert.That(source, Does.Contain("targetUnit.NetworkedIsDead"));
-        Assert.That(source, Does.Contain("targetMonster.currentHP <= 0f"));
+        GameObject target = new GameObject("ProjectileTargetLifecycleTest");
+        try
+        {
+            object[] liveArgs = { target.transform, null, 0u, null, null };
+            Assert.That((bool)predicate.Invoke(null, liveArgs), Is.True);
+
+            target.SetActive(false);
+            Assert.That((bool)predicate.Invoke(null, liveArgs), Is.False, "pooled/inactive targets must freeze at their last position");
+            target.SetActive(true);
+
+            Monster monster = target.AddComponent<Monster>();
+            monster.currentHP = 0f;
+            object[] deadMonsterArgs = { target.transform, null, 0u, null, monster };
+            Assert.That((bool)predicate.Invoke(null, deadMonsterArgs), Is.False, "dead monsters must not remain tracked");
+        }
+        finally
+        {
+            Object.DestroyImmediate(target);
+        }
     }
 
     [Test]
     public void VfxPoolManagerUsesLazyLeaseBackedAndBoundedProfileWarmup()
     {
-        string source = File.ReadAllText("Assets/Scripts/VFX/VfxPoolManager.cs");
-        string scene = File.ReadAllText("Assets/Scenes/03_Game.unity");
+        GameObject root = new GameObject("VfxPoolPolicyTest");
+        try
+        {
+            VfxPoolManager pool = root.AddComponent<VfxPoolManager>();
+            var serialized = new SerializedObject(pool);
+            Assert.That(serialized.FindProperty("prewarmBasicAttackProfilesOnStart").boolValue, Is.False);
+            Assert.That(serialized.FindProperty("basicAttackProfilePrewarmCount").intValue, Is.EqualTo(1));
+            Assert.That(serialized.FindProperty("basicAttackProfilePrewarmKeyBudget").intValue, Is.EqualTo(8));
+            Assert.That(serialized.FindProperty("maxRetainedInstancesPerPrefab").intValue, Is.EqualTo(32));
 
-        Assert.That(source, Does.Not.Contain("prewarmBasicAttackProfilesOnStart = true"));
-        Assert.That(source, Does.Not.Contain("basicAttackProfilePrewarmCount = 20"));
-        Assert.That(source, Does.Contain("basicAttackProfilePrewarmKeyBudget"));
-        Assert.That(source, Does.Contain("maxRetainedInstancesPerPrefab"));
-        Assert.That(source, Does.Contain("LoadManager.Instance.GetAllUnitData()"));
-        Assert.That(source, Does.Contain("CollectBasicAttackVfxKeys"));
-        Assert.That(source, Does.Contain("unitData.GetBasicAttackVfxConfig(starLevel)"));
-        Assert.That(source, Does.Contain("slashConfig.prefabKey"));
-        Assert.That(source, Does.Contain("projectileConfig.muzzleFlashKey"));
-        Assert.That(source, Does.Contain("projectileConfig.projectileKey"));
-        Assert.That(source, Does.Contain("projectileConfig.impactFlashKey"));
-        Assert.That(source, Does.Contain("AssetLoader.AcquireAssetAsync<GameObject>(key)"));
-        Assert.That(source, Does.Contain("LoadAddressablePrefabAsync(key)"));
-        Assert.That(source, Does.Contain("Prewarm(prefab, basicAttackProfilePrewarmCount"));
-        Assert.That(scene, Does.Contain("prewarmBasicAttackProfilesOnStart: 0"));
-        Assert.That(scene, Does.Contain("basicAttackProfilePrewarmCount: 1"));
+            UnitData data = ScriptableObject.CreateInstance<UnitData>();
+            BasicAttackVfxProfile profile = ScriptableObject.CreateInstance<BasicAttackVfxProfile>();
+            try
+            {
+                profile.projectileVfxConfig = ProjectileVfxConfig.CreateDefault("ProjectileKey");
+                profile.projectileVfxConfig.muzzleFlashKey = "MuzzleKey";
+                profile.projectileVfxConfig.impactFlashKey = "ImpactKey";
+                data.basicAttackVfxProfile = profile;
+
+                MethodInfo collect = typeof(VfxPoolManager).GetMethod(
+                    "CollectBasicAttackVfxKeys",
+                    BindingFlags.Static | BindingFlags.NonPublic);
+                Assert.That(collect, Is.Not.Null);
+                var keys = (HashSet<string>)collect.Invoke(null, new object[] { new[] { data } });
+                Assert.That(keys, Is.EquivalentTo(new[] { "MuzzleKey", "ProjectileKey", "ImpactKey" }));
+            }
+            finally
+            {
+                Object.DestroyImmediate(profile);
+                Object.DestroyImmediate(data);
+            }
+        }
+        finally
+        {
+            Object.DestroyImmediate(root);
+        }
     }
 
     [Test]
@@ -417,7 +485,7 @@ public sealed class ProjectileVfxConfigEditModeTests
     [Test]
     public void ProjectileManagerKeepsFailuresButRemovesSuccessPathLogging()
     {
-        string source = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/ProjectileVfxManager.cs");
 
         Assert.That(source, Does.Not.Contain("Loading projectile:"));
         Assert.That(source, Does.Not.Contain("Spawning projectile at"));

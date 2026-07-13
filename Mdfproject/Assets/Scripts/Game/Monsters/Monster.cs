@@ -6,9 +6,17 @@ using UnityEngine;
 using Fusion;
 using Cysharp.Threading.Tasks;
 using System.Threading;
+using MDF.Runtime.Assets;
 
 public class Monster : NetworkBehaviour, IEnemy, IHealth
 {
+    private AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
+
+    private UniTask<T> LoadOwnedAddressableAsync<T>(string key) where T : class
+    {
+        return AssetLoader.LoadAssetAsync<T>(key, _addressableAssets);
+    }
+
     [Header("참조 데이터")]
     [SerializeField] private MonsterData _monsterData;
     public MonsterData Data => _monsterData;
@@ -318,6 +326,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public override void Spawned()
     {
+        if (_addressableAssets == null || _addressableAssets.IsDisposed)
+        {
+            _addressableAssets = new AddressableAssetOwner();
+        }
         base.Spawned();
         BeginSpawnLifecycle();
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
@@ -358,6 +370,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _hasSpawned = false;
         _changeDetector = null;
         ResetTransientRuntimeStateForReuse();
+        _addressableAssets?.Dispose();
         base.Despawned(runner, hasState);
     }
 
@@ -616,7 +629,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         int generation,
         uint networkIdRaw)
     {
-        MonsterData data = await AssetLoader.LoadAssetAsync<MonsterData>(key);
+        MonsterData data = await LoadOwnedAddressableAsync<MonsterData>(key);
         if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
         {
             return;
@@ -999,7 +1012,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (_monsterData == null && !string.IsNullOrEmpty(monsterDataName))
         {
             // AssetLoader를 통해 MonsterData 로드
-            MonsterData loadedMonsterData = await AssetLoader.LoadAssetAsync<MonsterData>(monsterDataName);
+            MonsterData loadedMonsterData = await LoadOwnedAddressableAsync<MonsterData>(monsterDataName);
             if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
             {
                 return;
@@ -1746,6 +1759,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     private void OnDestroy()
     {
+        _addressableAssets?.Dispose();
         UnregisterCombatTarget();
         if (manaController != null) manaController.OnManaFull -= ActivateSkill;
         

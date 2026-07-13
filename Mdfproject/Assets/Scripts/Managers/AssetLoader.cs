@@ -4,23 +4,26 @@ using MDF.Runtime.Assets;
 using UnityEngine;
 
 /// <summary>
-/// Compatibility facade for existing gameplay callers. Legacy loads are pinned until ClearCache
-/// is called; new bounded owners should prefer AcquireAssetAsync.
+/// Addressables facade. Every cached load must have either an explicit owner or an explicit lease.
 /// </summary>
 public static class AssetLoader
 {
-    public static async UniTask<T> LoadAssetAsync<T>(string key) where T : class
+    public static async UniTask<T> LoadAssetAsync<T>(string key, AddressableAssetOwner owner) where T : class
     {
-        if (string.IsNullOrWhiteSpace(key))
+        if (string.IsNullOrWhiteSpace(key) || owner == null)
         {
             return null;
         }
 
         try
         {
-            return await AddressableAssetCache.LoadPinnedAsync<T>(key);
+            return await owner.LoadAsync<T>(key);
         }
         catch (OperationCanceledException)
+        {
+            return null;
+        }
+        catch (ObjectDisposedException)
         {
             return null;
         }
@@ -49,13 +52,4 @@ public static class AssetLoader
         }
     }
 
-    public static T GetCachedAsset<T>(string key) where T : class
-    {
-        return AddressableAssetCache.GetCached<T>(key);
-    }
-
-    public static void ClearCache()
-    {
-        AddressableAssetCache.ClearPinnedAssets();
-    }
 }

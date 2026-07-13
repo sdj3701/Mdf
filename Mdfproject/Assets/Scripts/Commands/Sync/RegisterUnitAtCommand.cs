@@ -158,7 +158,7 @@ public class RegisterUnitAtCommand : ICommand, IAsyncCommand
                 UnitData data = LoadManager.Instance.GetUnitData(UnitDataKey);
                 if (data == null)
                 {
-                    data = await AssetLoader.LoadAssetAsync<UnitData>(UnitDataKey);
+                    data = await unit.LoadOwnedAddressableAsync<UnitData>(UnitDataKey);
                     cancellationToken.ThrowIfCancellationRequested();
                 }
                 

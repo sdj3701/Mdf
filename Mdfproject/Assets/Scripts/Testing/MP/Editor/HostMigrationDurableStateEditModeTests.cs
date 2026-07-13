@@ -241,7 +241,7 @@ public sealed class HostMigrationDurableStateEditModeTests
     private static string ReadAssetSource(string assetRelativePath)
     {
         string path = Path.Combine(Application.dataPath, assetRelativePath.Replace('/', Path.DirectorySeparatorChar));
-        return File.ReadAllText(path);
+        return MdfSourcePolicy.ReadStaticContract(path);
     }
 }
 #endif

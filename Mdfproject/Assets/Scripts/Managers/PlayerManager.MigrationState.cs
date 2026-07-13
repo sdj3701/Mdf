@@ -81,24 +81,7 @@ public partial class PlayerManager
 
     public static bool IsValidDurableConnectionTokenHash(string tokenHash)
     {
-        if (string.IsNullOrWhiteSpace(tokenHash) || tokenHash.Length != 64)
-        {
-            return false;
-        }
-
-        for (int i = 0; i < tokenHash.Length; i++)
-        {
-            char value = tokenHash[i];
-            bool isHex = (value >= '0' && value <= '9')
-                || (value >= 'a' && value <= 'f')
-                || (value >= 'A' && value <= 'F');
-            if (!isHex)
-            {
-                return false;
-            }
-        }
-
-        return true;
+        return PlayerSnapshotCodec.IsSha256Hex(tokenHash);
     }
 
     public string[] GetChosenAugmentMigrationNames()
@@ -176,12 +159,17 @@ public partial class PlayerManager
             {
                 int x = flatPositions[i * 2];
                 int y = flatPositions[i * 2 + 1];
-                float denominator = maxHealth[i];
-                float normalized = denominator > 0f ? Mathf.Clamp01(currentHealth[i] / denominator) : 0f;
-                int quantizedHealth = Mathf.Clamp(Mathf.RoundToInt(normalized * ushort.MaxValue), 0, ushort.MaxValue);
-                int revision = Mathf.Clamp(revisions[i], 0, ushort.MaxValue);
-                row.PackedCell = (x & 0xFFFF) | (y << 16);
-                row.PackedHealthAndRevision = quantizedHealth | (revision << 16);
+                if (!PlayerSnapshotCodec.TryPackCell(x, y, out row.PackedCell)
+                    || !PlayerSnapshotCodec.TryPackHealthAndRevision(
+                        currentHealth[i],
+                        maxHealth[i],
+                        revisions[i],
+                        out row.PackedHealthAndRevision))
+                {
+                    WallHealthMigrationOverflow = true;
+                    Debug.LogError($"[PlayerManager] Durable wall HP row out of range ({context}) P{playerId}: cell=({x},{y}), revision={revisions[i]}");
+                    return false;
+                }
             }
             WallHealthMigrationRows.Set(i, row);
         }
@@ -215,7 +203,18 @@ public partial class PlayerManager
             return PublishDestructibleWallHealthMigrationStateFromAuthority($"delta_fallback:{context}");
         }
 
-        int packedCell = (position.x & 0xFFFF) | (position.y << 16);
+        if (!PlayerSnapshotCodec.TryPackCell(position.x, position.y, out int packedCell)
+            || !PlayerSnapshotCodec.TryPackHealthAndRevision(
+                currentHealth,
+                maxHealth,
+                revision,
+                out int packedHealthAndRevision))
+        {
+            WallHealthMigrationOverflow = true;
+            Debug.LogError($"[PlayerManager] Durable wall HP delta out of range ({context}) P{playerId}: cell={position}, revision={revision}");
+            return false;
+        }
+
         int count = Mathf.Clamp(WallHealthMigrationCount, 0, WALL_HEALTH_MIGRATION_CAPACITY);
         for (int i = 0; i < count; i++)
         {
@@ -225,10 +224,7 @@ public partial class PlayerManager
                 continue;
             }
 
-            float normalized = Mathf.Clamp01(currentHealth / maxHealth);
-            int quantizedHealth = Mathf.Clamp(Mathf.RoundToInt(normalized * ushort.MaxValue), 0, ushort.MaxValue);
-            int packedRevision = Mathf.Clamp(revision, 0, ushort.MaxValue);
-            row.PackedHealthAndRevision = quantizedHealth | (packedRevision << 16);
+            row.PackedHealthAndRevision = packedHealthAndRevision;
             WallHealthMigrationRows.Set(i, row);
             WallHealthMigrationRevision = Math.Max(1, WallHealthMigrationRevision + 1);
             return true;
@@ -260,16 +256,18 @@ public partial class PlayerManager
         for (int i = 0; i < count; i++)
         {
             WallHealthMigrationRow row = WallHealthMigrationRows.Get(i);
-            int x = (short)(row.PackedCell & 0xFFFF);
-            int y = (short)((row.PackedCell >> 16) & 0xFFFF);
-            int quantizedHealth = row.PackedHealthAndRevision & 0xFFFF;
-            int revision = (row.PackedHealthAndRevision >> 16) & 0xFFFF;
+            PlayerSnapshotCodec.UnpackCell(row.PackedCell, out int x, out int y);
             DestructibleWall wall = fieldManager != null ? fieldManager.GetWallAt(new Vector3Int(x, y, 0)) : null;
             float resolvedMaxHealth = wall != null ? wall.MaxHealth : 1f;
+            PlayerSnapshotCodec.UnpackHealthAndRevision(
+                row.PackedHealthAndRevision,
+                resolvedMaxHealth,
+                out float resolvedCurrentHealth,
+                out int revision);
             flatPositions[i * 2] = x;
             flatPositions[i * 2 + 1] = y;
             maxHealth[i] = resolvedMaxHealth;
-            currentHealth[i] = resolvedMaxHealth * (quantizedHealth / (float)ushort.MaxValue);
+            currentHealth[i] = resolvedCurrentHealth;
             revisions[i] = revision;
         }
 

@@ -46,7 +46,7 @@ public sealed class NetworkManagerReconnectAiTakeoverEditModeTests
     [Test]
     public void ReassociationCancelsTheMatchingRetryBeforeReleasingAi()
     {
-        string source = File.ReadAllText("Assets/Scripts/Network/NetworkManager.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Network/NetworkManager.cs");
         int reassociateMethod = source.IndexOf("private bool TryReassociateDisconnectedPlayer", StringComparison.Ordinal);
         int cancelRetry = source.IndexOf(
             "CancelPendingDisconnectedAiTakeover(cachedData.PlayerId, token);",
@@ -65,7 +65,7 @@ public sealed class NetworkManagerReconnectAiTakeoverEditModeTests
     [Test]
     public void RetryLifecycleUsesGenerationAndCancelsForRunnerShutdownAndManagerDestroy()
     {
-        string source = File.ReadAllText("Assets/Scripts/Network/NetworkManager.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Network/NetworkManager.cs");
         int retryMethod = source.IndexOf(
             "private IEnumerator RetryDisconnectedAiTakeover(PendingDisconnectedAiTakeover pending",
             StringComparison.Ordinal);

@@ -14,7 +14,8 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
     [SerializeField, Min(1)] private int maxPoolCount = DefaultMaxPoolCountPerPrefab;
 
     private readonly Dictionary<NetworkPrefabId, BoundedUnityObjectPool<NetworkObject>> _free = new Dictionary<NetworkPrefabId, BoundedUnityObjectPool<NetworkObject>>();
-    private readonly Dictionary<string, BoundedUnityObjectPool<NetworkObject>> _freeByPrefabName = new Dictionary<string, BoundedUnityObjectPool<NetworkObject>>();
+    private readonly Dictionary<NetworkObject, BoundedUnityObjectPool<NetworkObject>> _prewarmedByPrefab = new Dictionary<NetworkObject, BoundedUnityObjectPool<NetworkObject>>();
+    private readonly Dictionary<NetworkObject, NetworkPrefabId> _knownPrefabIds = new Dictionary<NetworkObject, NetworkPrefabId>();
     private readonly HashSet<NetworkPrefabId> _missingPrefabWarnings = new HashSet<NetworkPrefabId>();
     private Transform _poolRoot;
 
@@ -42,13 +43,12 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
         return freePool;
     }
 
-    private BoundedUnityObjectPool<NetworkObject> GetOrCreateNamedPool(string prefabName)
+    private BoundedUnityObjectPool<NetworkObject> GetOrCreatePrewarmedPool(NetworkObject prefab)
     {
-        prefabName = NormalizePrefabName(prefabName);
-        if (!_freeByPrefabName.TryGetValue(prefabName, out var freePool))
+        if (!_prewarmedByPrefab.TryGetValue(prefab, out var freePool))
         {
             freePool = new BoundedUnityObjectPool<NetworkObject>(ResolveMaxPoolCount());
-            _freeByPrefabName.Add(prefabName, freePool);
+            _prewarmedByPrefab.Add(prefab, freePool);
         }
 
         return freePool;
@@ -79,12 +79,45 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
     public int GetFreeCount(string prefabName)
     {
         prefabName = NormalizePrefabName(prefabName);
-        if (!_freeByPrefabName.TryGetValue(prefabName, out var freePool))
+        int count = 0;
+        var countedPrefabIds = new HashSet<NetworkPrefabId>();
+        foreach (var pair in _prewarmedByPrefab)
+        {
+            if (pair.Key != null && NormalizePrefabName(pair.Key.name) == prefabName)
+            {
+                count += pair.Value.Count;
+            }
+        }
+
+        foreach (var pair in _knownPrefabIds)
+        {
+            if (pair.Key != null &&
+                NormalizePrefabName(pair.Key.name) == prefabName &&
+                countedPrefabIds.Add(pair.Value) &&
+                _free.TryGetValue(pair.Value, out var freePool))
+            {
+                count += freePool.Count;
+            }
+        }
+
+        return count;
+    }
+
+    public int GetFreeCount(NetworkObject prefab)
+    {
+        if (prefab == null)
         {
             return 0;
         }
 
-        return freePool.Count;
+        if (_knownPrefabIds.TryGetValue(prefab, out NetworkPrefabId prefabId))
+        {
+            return GetFreeCount(prefabId);
+        }
+
+        return _prewarmedByPrefab.TryGetValue(prefab, out var prewarmedPool)
+            ? prewarmedPool.Count
+            : 0;
     }
 
     public int PrewarmPrefab(NetworkRunner runner, NetworkObject prefab, int targetFreeCount)
@@ -94,7 +127,12 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             return 0;
         }
 
-        return PrewarmNamedPrefab(prefab, targetFreeCount);
+        if (_knownPrefabIds.TryGetValue(prefab, out NetworkPrefabId prefabId))
+        {
+            return PrewarmPrefab(runner, prefab, prefabId, targetFreeCount);
+        }
+
+        return PrewarmUnresolvedPrefab(prefab, targetFreeCount);
     }
 
     public int PrewarmPrefab(NetworkRunner runner, NetworkObject prefab, NetworkPrefabId prefabId, int targetFreeCount)
@@ -104,51 +142,26 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             return 0;
         }
 
-        targetFreeCount = Mathf.Min(targetFreeCount, ResolveMaxPoolCount());
-
-        var freePool = GetOrCreatePool(prefabId);
-        int currentFreeCount = freePool.Count;
-        int createCount = Mathf.Max(0, targetFreeCount - currentFreeCount);
-        if (createCount <= 0)
-        {
-            return 0;
-        }
-
-        Transform poolRoot = GetPoolRoot();
-        int created = 0;
-        for (int i = 0; i < createCount; i++)
-        {
-            NetworkObject instance = Instantiate(prefab, poolRoot);
-            if (instance == null || instance.gameObject == null)
-            {
-                continue;
-            }
-
-            instance.gameObject.SetActive(false);
-            if (freePool.TryReturn(instance))
-            {
-                created++;
-            }
-            else
-            {
-                Destroy(instance.gameObject);
-            }
-        }
-
-        return created;
+        PromotePrewarmedPool(prefabId, prefab);
+        return PrewarmPool(prefab, GetOrCreatePool(prefabId), targetFreeCount);
     }
 
-    private int PrewarmNamedPrefab(NetworkObject prefab, int targetFreeCount)
+    private int PrewarmUnresolvedPrefab(NetworkObject prefab, int targetFreeCount)
     {
         if (prefab == null || targetFreeCount <= 0)
         {
             return 0;
         }
 
-        targetFreeCount = Mathf.Min(targetFreeCount, ResolveMaxPoolCount());
+        return PrewarmPool(prefab, GetOrCreatePrewarmedPool(prefab), targetFreeCount);
+    }
 
-        string prefabName = NormalizePrefabName(prefab.name);
-        var freePool = GetOrCreateNamedPool(prefabName);
+    private int PrewarmPool(
+        NetworkObject prefab,
+        BoundedUnityObjectPool<NetworkObject> freePool,
+        int targetFreeCount)
+    {
+        targetFreeCount = Mathf.Min(targetFreeCount, freePool.Capacity);
         int currentFreeCount = freePool.Count;
         int createCount = Mathf.Max(0, targetFreeCount - currentFreeCount);
         if (createCount <= 0)
@@ -180,16 +193,21 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
         return created;
     }
 
-    private void PromoteNamedPool(NetworkPrefabId prefabId, string prefabName)
+    private void PromotePrewarmedPool(NetworkPrefabId prefabId, NetworkObject prefab)
     {
-        prefabName = NormalizePrefabName(prefabName);
-        if (string.IsNullOrEmpty(prefabName) || !_freeByPrefabName.TryGetValue(prefabName, out var namedPool))
+        if (prefab == null)
+        {
+            return;
+        }
+
+        _knownPrefabIds[prefab] = prefabId;
+        if (!_prewarmedByPrefab.TryGetValue(prefab, out var prewarmedPool))
         {
             return;
         }
 
         var prefabPool = GetOrCreatePool(prefabId);
-        while (namedPool.TryRent(out var instance))
+        while (prewarmedPool.TryRent(out var instance))
         {
             if (!prefabPool.TryReturn(instance))
             {
@@ -197,7 +215,7 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             }
         }
 
-        _freeByPrefabName.Remove(prefabName);
+        _prewarmedByPrefab.Remove(prefab);
     }
 
     protected virtual NetworkObject InstantiatePrefab(NetworkRunner runner, NetworkObject prefab, NetworkPrefabId prefabId)
@@ -276,7 +294,7 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             return NetworkObjectAcquireResult.Retry;
         }
 
-        PromoteNamedPool(context.PrefabId, prefab.name);
+        PromotePrewarmedPool(context.PrefabId, prefab);
         instance = InstantiatePrefab(runner, prefab, context.PrefabId);
         Assert.Check(instance);
 
@@ -335,13 +353,14 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             pair.Value?.Drain(DestroyNetworkObject);
         }
 
-        foreach (var pair in _freeByPrefabName)
+        foreach (var pair in _prewarmedByPrefab)
         {
             pair.Value?.Drain(DestroyNetworkObject);
         }
 
         _free.Clear();
-        _freeByPrefabName.Clear();
+        _prewarmedByPrefab.Clear();
+        _knownPrefabIds.Clear();
         _missingPrefabWarnings.Clear();
         if (_poolRoot != null)
         {
@@ -358,7 +377,7 @@ public class PooledNetworkObjectProvider : Fusion.Behaviour, INetworkObjectProvi
             pool.SetCapacity(maxPoolCount, DestroyNetworkObject);
         }
 
-        foreach (var pool in _freeByPrefabName.Values)
+        foreach (var pool in _prewarmedByPrefab.Values)
         {
             pool.SetCapacity(maxPoolCount, DestroyNetworkObject);
         }

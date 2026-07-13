@@ -1,0 +1,14 @@
+{
+    "name": "MDF.Runtime.Grid",
+    "rootNamespace": "MDF.Runtime.Grid",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -48,6 +48,17 @@ public class AddressableAssetLoader : MonoBehaviour
             await LoadAllAssets();
         }
     }
+
+    private void OnDestroy()
+    {
+        if (Instance != this)
+        {
+            return;
+        }
+
+        AssetRegistry.ClearAll();
+        Instance = null;
+    }
     /// <summary>
     /// 모든 에셋 리스트를 로드합니다.
     /// </summary>

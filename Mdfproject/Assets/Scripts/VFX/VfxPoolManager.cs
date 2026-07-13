@@ -30,8 +30,8 @@ public class VfxPoolManager : MonoBehaviour
         new Dictionary<GameObject, BoundedUnityObjectPool<GameObject>>();
     private readonly Dictionary<string, AddressableAssetLease<GameObject>> _addressablePrefabLeases =
         new Dictionary<string, AddressableAssetLease<GameObject>>(StringComparer.Ordinal);
-    private readonly Dictionary<string, UniTask<GameObject>> _addressablePrefabLoads =
-        new Dictionary<string, UniTask<GameObject>>(StringComparer.Ordinal);
+    private readonly Dictionary<string, UniTaskCompletionSource<GameObject>> _addressablePrefabLoads =
+        new Dictionary<string, UniTaskCompletionSource<GameObject>>(StringComparer.Ordinal);
     private bool _basicAttackProfilePrewarmStarted;
 
     public static VfxPoolManager Instance { get; private set; }
@@ -116,19 +116,38 @@ public class VfxPoolManager : MonoBehaviour
             _addressablePrefabLoads.Remove(normalizedKey);
         }
 
-        if (!_addressablePrefabLoads.TryGetValue(normalizedKey, out UniTask<GameObject> pendingLoad))
+        if (!_addressablePrefabLoads.TryGetValue(normalizedKey, out UniTaskCompletionSource<GameObject> pendingLoad))
         {
-            pendingLoad = LoadAndRetainAddressablePrefabAsync(normalizedKey).Preserve();
+            pendingLoad = new UniTaskCompletionSource<GameObject>();
             _addressablePrefabLoads.Add(normalizedKey, pendingLoad);
+            PublishAddressablePrefabLoadAsync(normalizedKey, pendingLoad).Forget();
         }
 
-        GameObject prefab = await pendingLoad;
-        if (prefab == null && this != null)
+        return await pendingLoad.Task;
+    }
+
+    private async UniTaskVoid PublishAddressablePrefabLoadAsync(
+        string key,
+        UniTaskCompletionSource<GameObject> completion)
+    {
+        try
         {
-            _addressablePrefabLoads.Remove(normalizedKey);
+            GameObject prefab = await LoadAndRetainAddressablePrefabAsync(key);
+            completion.TrySetResult(prefab);
         }
-
-        return prefab;
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
+        finally
+        {
+            if (this != null &&
+                _addressablePrefabLoads.TryGetValue(key, out UniTaskCompletionSource<GameObject> current) &&
+                ReferenceEquals(current, completion))
+            {
+                _addressablePrefabLoads.Remove(key);
+            }
+        }
     }
 
     public void Despawn(GameObject instance)

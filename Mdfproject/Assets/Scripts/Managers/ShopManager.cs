@@ -3,9 +3,11 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 using Cysharp.Threading.Tasks;
+using MDF.Runtime.Assets;
 
 public class ShopManager : MonoBehaviour
 {
+    private readonly AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
     public PlayerManager playerManager;
     private List<UnitData> allUnitDatabase = new List<UnitData>();
     [SerializeField] private int rerollCost = 2;
@@ -259,7 +261,7 @@ public class ShopManager : MonoBehaviour
             UnitData unitData = LoadManager.Instance?.GetUnitData(unitKey);
             if (unitData == null)
             {
-                unitData = await AssetLoader.LoadAssetAsync<UnitData>(unitKey);
+                unitData = await AssetLoader.LoadAssetAsync<UnitData>(unitKey, _addressableAssets);
             }
 
             if (unitData == null)
@@ -290,6 +292,11 @@ public class ShopManager : MonoBehaviour
     /// 상점 리롤에 필요한 골드 비용을 반환합니다.
     /// </summary>
     public int GetRerollCost() => rerollCost;
+
+    private void OnDestroy()
+    {
+        _addressableAssets.Dispose();
+    }
 
     // [핵심 로직] Reroll 메서드가 성급 확률을 계산하도록 완전히 변경됩니다.
     /// <summary>

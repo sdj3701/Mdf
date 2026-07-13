@@ -2,9 +2,12 @@ using UnityEngine;
 using UnityEngine.UI;
 using Cysharp.Threading.Tasks;
 using System.Collections.Generic;
+using MDF.Runtime.Assets;
 
 public class StatusBarUI : MonoBehaviour
 {
+    private AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
+
     private static readonly List<StatusBarUI> ActiveStatusBars = new List<StatusBarUI>(64);
     private static readonly Vector3[] ButtonWorldCorners = new Vector3[4];
 
@@ -60,17 +63,8 @@ public class StatusBarUI : MonoBehaviour
     
     public void ResetForReuse(bool initializeImmediately = true)
     {
-        if (healthComponent != null)
-        {
-            healthComponent.OnHealthChanged -= UpdateHealth;
-            healthComponent = null;
-        }
-        if (manaComponent != null)
-        {
-            manaComponent.OnManaChanged -= UpdateMana;
-            manaComponent = null;
-        }
-        
+        skillInitializationVersion++;
+        UnbindVitalComponents();
         isInitialized = false;
         isCombatPhase = false;
         
@@ -92,6 +86,7 @@ public class StatusBarUI : MonoBehaviour
     private Canvas cachedCanvas;
     private Camera cachedCamera;
     private int lastSkillRequestFrame = -1;
+    private int skillInitializationVersion;
 
     private void Awake()
     {
@@ -111,6 +106,11 @@ public class StatusBarUI : MonoBehaviour
 
     private void OnEnable()
     {
+        if (_addressableAssets == null || _addressableAssets.IsDisposed)
+        {
+            _addressableAssets = new AddressableAssetOwner();
+        }
+
         if (!ActiveStatusBars.Contains(this))
         {
             ActiveStatusBars.Add(this);
@@ -118,15 +118,23 @@ public class StatusBarUI : MonoBehaviour
 
         GameEvents.OnGameManagersReady += Initialize;
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
+        Initialize();
+
+        if (unitComponent != null && unitComponent.Data != null)
+        {
+            InitializeSkillButton(unitComponent).Forget();
+        }
     }
 
     private void OnDisable()
     {
+        skillInitializationVersion++;
+        _addressableAssets?.Dispose();
         GameEvents.OnGameManagersReady -= Initialize;
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
 
-        if (healthComponent != null) healthComponent.OnHealthChanged -= UpdateHealth;
-        if (manaComponent != null) manaComponent.OnManaChanged -= UpdateMana;
+        UnbindVitalComponents();
+        isInitialized = false;
         ActiveStatusBars.Remove(this);
     }
 
@@ -140,12 +148,11 @@ public class StatusBarUI : MonoBehaviour
 
     private void Initialize()
     {
-        if (isInitialized) return;
-        
         isCombatPhase = (GameManagers.Instance != null) 
             ? (GameManagers.Instance.GetGameState() == GameManagers.GameState.Battle1 || GameManagers.Instance.GetGameState() == GameManagers.GameState.Battle2)
             : false;
 
+        UnbindVitalComponents();
         healthComponent = GetComponentInParent<IHealth>();
         if (healthComponent != null)
         {
@@ -206,6 +213,21 @@ public class StatusBarUI : MonoBehaviour
 
         isInitialized = true;
         UpdateAllUIVisibility();
+    }
+
+    private void UnbindVitalComponents()
+    {
+        if (healthComponent != null)
+        {
+            healthComponent.OnHealthChanged -= UpdateHealth;
+            healthComponent = null;
+        }
+
+        if (manaComponent != null)
+        {
+            manaComponent.OnManaChanged -= UpdateMana;
+            manaComponent = null;
+        }
     }
     
     // --- [삭제] ---
@@ -312,6 +334,7 @@ public class StatusBarUI : MonoBehaviour
 
     public async UniTask InitializeSkillButton(Unit owner)
     {
+        int initializationVersion = ++skillInitializationVersion;
         if (owner == null || skillButton == null)
         {
             if (skillButton != null) skillButton.gameObject.SetActive(false);
@@ -326,7 +349,15 @@ public class StatusBarUI : MonoBehaviour
             !string.IsNullOrEmpty(owner.Data.skillsByStarLevel[owner.starLevel - 1]))
         {
             string skillKey = owner.Data.skillsByStarLevel[owner.starLevel - 1];
-            currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey);
+            currentSkill = await AssetLoader.LoadAssetAsync<SkillData>(skillKey, _addressableAssets);
+        }
+
+        if (this == null ||
+            !isActiveAndEnabled ||
+            initializationVersion != skillInitializationVersion ||
+            unitComponent != owner)
+        {
+            return;
         }
 
         if (currentSkill != null && currentSkill.activationType == SkillActivationType.Manual)

@@ -7,10 +7,12 @@ using Cysharp.Threading.Tasks;
 using Fusion;
 using System.Threading;
 using System.Threading.Tasks;
+using MDF.Runtime.Assets;
 
 // MonoBehaviour 대신 NetworkBehaviour를 상속받아 네트워크 객체로 만듭니다.
 public partial class GameManagers : NetworkBehaviour
 {
+    private readonly AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
     // 싱글톤 패턴은 유지하되, 초기화는 Spawned()에서 수행합니다.
     // ★ Host Migration 지원을 위해 internal set 사용
     public static GameManagers Instance { get; internal set; }
@@ -303,6 +305,7 @@ public partial class GameManagers : NetworkBehaviour
 
     private void OnDestroy()
     {
+        _addressableAssets.Dispose();
         bool wasStaticInstance = Instance == this;
         bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
         // Debug.LogWarning($"<color=orange>[GameManagers.OnDestroy] 파괴됨: {BuildDebugSummary(this)} | wasStaticInstance={wasStaticInstance} | isMigrating={isMigrating}</color>");
@@ -1488,7 +1491,7 @@ public partial class GameManagers : NetworkBehaviour
 
     private async UniTask CreateScrollPresentationLocal(int attackerPlayerId, string scrollDataName, Vector3 position)
     {
-        var scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
+        var scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName, _addressableAssets);
         if (scrollData == null || scrollData.skillData == null)
         {
             return;

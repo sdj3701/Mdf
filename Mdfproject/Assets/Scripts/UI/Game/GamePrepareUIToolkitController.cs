@@ -2,9 +2,8 @@ using System;
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.UIElements;
+using MDF.Runtime.Assets;
 
 /// <summary>
 /// UI Toolkit bridge for the 03_Game prepare phase shop and augment choices.
@@ -2090,6 +2089,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         {
             shopCard.ReleaseIconHandle();
         }
+
+        foreach (var monsterCard in monsterCards)
+        {
+            monsterCard.ReleaseIconHandle();
+        }
     }
 
     private sealed class ShopCardView
@@ -2104,7 +2108,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         private readonly Label cost;
         private readonly VisualElement costIcon;
         private readonly Label soldOverlay;
-        private AsyncOperationHandle<Sprite> iconHandle;
+        private AddressableAssetLease<Sprite> iconLease;
+        private int bindVersion;
 
         public ShopCardView(int index, VisualElement root, Image icon, Label star, Label name, Label cost, VisualElement costIcon, Label soldOverlay)
         {
@@ -2133,6 +2138,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         public void Bind(ShopItem item, bool hasItem, bool sold)
         {
             ReleaseIconHandle();
+            int version = bindVersion;
 
             Root?.SetEnabled(hasItem && !sold);
             Root?.EnableInClassList("is-disabled", !hasItem || sold);
@@ -2157,7 +2163,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             SetText(name, item.UnitData.unitName);
             SetText(cost, FormatCostText(item.CalculatedCost));
             SetVisible(costIcon, item.CalculatedCost > 0);
-            LoadIconAsync(item.UnitData.unitIcon).Forget();
+            LoadIconAsync(item.UnitData.unitIcon, version).Forget();
         }
 
         public void ApplySize(float width, float height, float scale)
@@ -2237,15 +2243,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         public void ReleaseIconHandle()
         {
-            if (iconHandle.IsValid())
-            {
-                Addressables.Release(iconHandle);
-            }
-
-            iconHandle = default;
+            bindVersion++;
+            iconLease?.Dispose();
+            iconLease = null;
         }
 
-        private async UniTask LoadIconAsync(string key)
+        private async UniTask LoadIconAsync(string key, int version)
         {
             if (string.IsNullOrEmpty(key))
             {
@@ -2257,22 +2260,17 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 return;
             }
 
-            var handle = Addressables.LoadAssetAsync<Sprite>(key);
-            iconHandle = handle;
-            try
+            AddressableAssetLease<Sprite> loadedLease = await AssetLoader.AcquireAssetAsync<Sprite>(key);
+            if (version != bindVersion || icon == null)
             {
-                await handle.Task;
-                if (icon != null &&
-                    iconHandle.Equals(handle) &&
-                    handle.IsValid() &&
-                    handle.Status == AsyncOperationStatus.Succeeded)
-                {
-                    icon.sprite = handle.Result;
-                }
+                loadedLease?.Dispose();
+                return;
             }
-            catch (Exception ex)
+
+            iconLease = loadedLease;
+            if (iconLease?.Asset != null)
             {
-                Debug.LogWarning($"[GamePrepareUIToolkitController] Failed to load unit icon: {ex.Message}");
+                icon.sprite = iconLease.Asset;
             }
         }
     }
@@ -2333,6 +2331,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         private readonly Label name;
         private readonly Label count;
         private int bindVersion;
+        private AddressableAssetLease<Sprite> iconLease;
 
         public MonsterCardView(int index, VisualElement root, Image icon, Label name, Label count)
         {
@@ -2353,7 +2352,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         public void Bind(MonsterPoolEntry entry)
         {
-            bindVersion++;
+            ReleaseIconHandle();
             bool hasEntry = entry != null && entry.MonsterData != null && !entry.IsEmpty;
             Root?.SetEnabled(hasEntry);
             Root?.EnableInClassList("is-disabled", !hasEntry);
@@ -2406,11 +2405,26 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 return;
             }
 
-            Sprite loaded = await AssetLoader.LoadAssetAsync<Sprite>(monsterData.monsterIcon);
-            if (version == bindVersion && icon != null)
+            AddressableAssetLease<Sprite> loadedLease =
+                await AssetLoader.AcquireAssetAsync<Sprite>(monsterData.monsterIcon);
+            if (version != bindVersion || icon == null)
             {
-                icon.sprite = loaded;
+                loadedLease?.Dispose();
+                return;
             }
+
+            iconLease = loadedLease;
+            if (iconLease?.Asset != null)
+            {
+                icon.sprite = iconLease.Asset;
+            }
+        }
+
+        public void ReleaseIconHandle()
+        {
+            bindVersion++;
+            iconLease?.Dispose();
+            iconLease = null;
         }
     }
 

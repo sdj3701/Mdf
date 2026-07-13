@@ -112,7 +112,7 @@ public sealed class UnitAttackAnimationEditModeTests
     [Test]
     public void UnitAttackSimulationAndSpeedResetUseSingleAuthorityPresentationPath()
     {
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        string unitSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Units/Unit.cs");
         int startAttackLoopIndex = unitSource.IndexOf("public void StartAttackLoop()", System.StringComparison.Ordinal);
         int attackLoopIndex = unitSource.IndexOf("private IEnumerator AttackLoop()", startAttackLoopIndex, System.StringComparison.Ordinal);
         int findTargetIndex = unitSource.IndexOf("private void FindNearestEnemy()", attackLoopIndex, System.StringComparison.Ordinal);
@@ -291,8 +291,8 @@ public sealed class AttackSlashTuningEditModeTests
         Assert.That(data.GetBasicAttackVfxConfig(2), Is.Null);
         Assert.That(data.GetBasicAttackVfxConfig(3), Is.Null);
 
-        string unitDataSource = File.ReadAllText("Assets/Scripts/Game/Units/UnitData.cs");
-        string importerSource = File.ReadAllText("Assets/Scripts/Editor/GoogleSheetDataImporter.cs");
+        string unitDataSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Units/UnitData.cs");
+        string importerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Editor/GoogleSheetDataImporter.cs");
         Assert.That(unitDataSource, Does.Not.Contain("basicAttackVfxPrefabsByStarLevel"));
         Assert.That(unitDataSource, Does.Not.Contain("basicAttackVfxConfigsByStarLevel"));
         Assert.That(unitDataSource, Does.Not.Contain("projectileVfxConfig"));
@@ -306,11 +306,11 @@ public sealed class AttackSlashTuningEditModeTests
     [Test]
     public void UnitAttackVfxPresenterUsesSharedRuntimeUtilityAndConfigFlip()
     {
-        string presenterSource = File.ReadAllText("Assets/Scripts/VFX/UnitAttackVfxPresenter.cs");
-        string utilitySource = File.ReadAllText("Assets/Scripts/VFX/BasicAttackVfxRuntimeUtility.cs");
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
-        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
-        string previewSource = File.ReadAllText("Assets/Scripts/VFX/AttackSlashTuningPreview.cs");
+        string presenterSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/UnitAttackVfxPresenter.cs");
+        string utilitySource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/BasicAttackVfxRuntimeUtility.cs");
+        string unitSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Units/Unit.cs");
+        string schedulerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CombatScheduler.cs");
+        string previewSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/AttackSlashTuningPreview.cs");
 
         Assert.That(presenterSource, Does.Contain("config.primaryRendererFlip"));
         Assert.That(presenterSource, Does.Contain("config.playbackSpeed"));
@@ -425,9 +425,9 @@ public sealed class AttackSlashTuningEditModeTests
     [Test]
     public void AttackSlashTuningPreviewSupportsLoopedAttackAndReusableVfx()
     {
-        string previewSource = File.ReadAllText("Assets/Scripts/VFX/AttackSlashTuningPreview.cs");
-        string editorSource = File.ReadAllText("Assets/Scripts/Editor/AttackSlashTuningPreviewEditor.cs");
-        string testScene = File.ReadAllText("Assets/Scenes/test.unity");
+        string previewSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/AttackSlashTuningPreview.cs");
+        string editorSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Editor/AttackSlashTuningPreviewEditor.cs");
+        string testScene = MdfSourcePolicy.ReadStaticContract("Assets/Scenes/test.unity");
 
         Assert.That(previewSource, Does.Contain("loopAttackAndVfx = true"));
         Assert.That(previewSource, Does.Contain("AttackSlashEffectRoot"));

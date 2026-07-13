@@ -6,19 +6,8 @@ namespace MDF.Runtime.Assets
     /// </summary>
     public sealed class AssetRetentionState
     {
-        public bool IsPinned { get; private set; }
         public int LeaseCount { get; private set; }
-        public bool IsRetained => IsPinned || LeaseCount > 0;
-
-        public void Pin()
-        {
-            IsPinned = true;
-        }
-
-        public void Unpin()
-        {
-            IsPinned = false;
-        }
+        public bool IsRetained => LeaseCount > 0;
 
         public void AcquireLease()
         {
@@ -38,7 +27,6 @@ namespace MDF.Runtime.Assets
 
         public void Reset()
         {
-            IsPinned = false;
             LeaseCount = 0;
         }
     }

@@ -95,9 +95,9 @@ public sealed class MonsterPrewarmEditModeTests
     [Test]
     public void MonsterSpawnPathsRequestPrewarmBeforeRuntimeSpawn()
     {
-        string spawner = File.ReadAllText("Assets/Scripts/Game/Monsters/MonsterSpawner.cs");
-        string player = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
-        string command = File.ReadAllText("Assets/Scripts/Commands/Battle/BattleSpawnMonsterCommand.cs");
+        string spawner = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Monsters/MonsterSpawner.cs");
+        string player = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlayerManager.cs");
+        string command = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Commands/Battle/BattleSpawnMonsterCommand.cs");
 
         Assert.That(spawner, Does.Contain("await PrewarmWaveAsync(waveData"));
         Assert.That(spawner, Does.Contain("await PrewarmAttackMonsterPoolAsync(pool"));
@@ -113,8 +113,8 @@ public sealed class MonsterPrewarmEditModeTests
     [Test]
     public void MonsterSpawnSnapsPooledNetworkTransformBeforePathing()
     {
-        string spawner = File.ReadAllText("Assets/Scripts/Game/Monsters/MonsterSpawner.cs");
-        string monster = File.ReadAllText("Assets/Scripts/Game/Monsters/Monster.cs");
+        string spawner = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Monsters/MonsterSpawner.cs");
+        string monster = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Monsters/Monster.cs");
 
         Assert.That(spawner, Does.Contain("SnapSpawnTransform(monsterGO, adjustedSpawnPos"));
         Assert.That(spawner, Does.Contain("networkTransform.Teleport(position, rotation)"));

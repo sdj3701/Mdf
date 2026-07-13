@@ -25,8 +25,8 @@ public class ProjectileVfxManager : MonoBehaviour
     private readonly List<SkippedProjectileEvent> _skippedProjectileEvents = new List<SkippedProjectileEvent>();
     private readonly Dictionary<string, AddressableAssetLease<GameObject>> _unpooledPrefabLeases =
         new Dictionary<string, AddressableAssetLease<GameObject>>(System.StringComparer.Ordinal);
-    private readonly Dictionary<string, UniTask<GameObject>> _unpooledPrefabLoads =
-        new Dictionary<string, UniTask<GameObject>>(System.StringComparer.Ordinal);
+    private readonly Dictionary<string, UniTaskCompletionSource<GameObject>> _unpooledPrefabLoads =
+        new Dictionary<string, UniTaskCompletionSource<GameObject>>(System.StringComparer.Ordinal);
 
     private class ActiveProjectile
     {
@@ -506,30 +506,7 @@ public class ProjectileVfxManager : MonoBehaviour
         }
 
         string monsterName = evt.Attacker.name.Replace("(Clone)", "").Trim();
-        LogDiagnostic($"[ProjectileVfxManager] Monster '{monsterName}' Data is null, trying prefab cache fallback...");
-
-        var prefab = AssetLoader.GetCachedAsset<GameObject>(monsterName);
-        if (prefab == null)
-        {
-            Debug.LogWarning($"[ProjectileVfxManager] Monster '{monsterName}' prefab not found in AssetLoader cache");
-            return false;
-        }
-
-        var prefabMonster = prefab.GetComponent<Monster>();
-        if (prefabMonster == null || prefabMonster.Data == null)
-        {
-            Debug.LogWarning($"[ProjectileVfxManager] Prefab '{monsterName}' found but Monster component or Data is null");
-            return false;
-        }
-
-        projectileKey = prefabMonster.Data.projectilePrefab;
-        if (!string.IsNullOrEmpty(projectileKey))
-        {
-            LogDiagnostic($"[ProjectileVfxManager] Monster Data fallback from prefab: {monsterName} -> {projectileKey}");
-            return true;
-        }
-
-        Debug.LogWarning($"[ProjectileVfxManager] Prefab monster '{monsterName}' has Data but projectilePrefab is empty!");
+        Debug.LogWarning($"[ProjectileVfxManager] Monster '{monsterName}' Data is unavailable; skipping projectile VFX resolution.");
         return false;
     }
 
@@ -953,19 +930,38 @@ public class ProjectileVfxManager : MonoBehaviour
             _unpooledPrefabLoads.Remove(normalizedKey);
         }
 
-        if (!_unpooledPrefabLoads.TryGetValue(normalizedKey, out UniTask<GameObject> pendingLoad))
+        if (!_unpooledPrefabLoads.TryGetValue(normalizedKey, out UniTaskCompletionSource<GameObject> pendingLoad))
         {
-            pendingLoad = LoadAndRetainUnpooledPrefabAsync(normalizedKey).Preserve();
+            pendingLoad = new UniTaskCompletionSource<GameObject>();
             _unpooledPrefabLoads.Add(normalizedKey, pendingLoad);
+            PublishUnpooledPrefabLoadAsync(normalizedKey, pendingLoad).Forget();
         }
 
-        GameObject prefab = await pendingLoad;
-        if (prefab == null && this != null)
+        return await pendingLoad.Task;
+    }
+
+    private async UniTaskVoid PublishUnpooledPrefabLoadAsync(
+        string key,
+        UniTaskCompletionSource<GameObject> completion)
+    {
+        try
         {
-            _unpooledPrefabLoads.Remove(normalizedKey);
+            GameObject prefab = await LoadAndRetainUnpooledPrefabAsync(key);
+            completion.TrySetResult(prefab);
         }
-
-        return prefab;
+        catch (System.Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
+        finally
+        {
+            if (this != null &&
+                _unpooledPrefabLoads.TryGetValue(key, out UniTaskCompletionSource<GameObject> current) &&
+                ReferenceEquals(current, completion))
+            {
+                _unpooledPrefabLoads.Remove(key);
+            }
+        }
     }
 
     private async UniTask<GameObject> LoadAndRetainUnpooledPrefabAsync(string key)

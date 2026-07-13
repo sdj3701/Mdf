@@ -22,7 +22,7 @@ public sealed class LocalVfxVisibilityEditModeTests
     [Test]
     public void CombatSchedulerFiltersLocalVfxRpcPlayback()
     {
-        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string schedulerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CombatScheduler.cs");
 
         Assert.That(schedulerSource, Does.Contain("LocalVfxVisibility.ShouldPlay(attacker, target, LocalVfxVisibilityEventKind.Projectile)"));
         Assert.That(schedulerSource, Does.Contain("ProjectileVfxManager.RecordSkippedCombatEvent(Runner, attacker, target, fireTick, hitTick);"));
@@ -34,7 +34,7 @@ public sealed class LocalVfxVisibilityEditModeTests
     [Test]
     public void LocalVfxVisibilityUsesCameraFieldAndGameplayOwnerIds()
     {
-        string visibilitySource = File.ReadAllText("Assets/Scripts/VFX/LocalVfxVisibility.cs");
+        string visibilitySource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/LocalVfxVisibility.cs");
 
         Assert.That(visibilitySource, Does.Contain("CameraManager.Instance"));
         Assert.That(visibilitySource, Does.Contain("CurrentViewingField"));
@@ -47,9 +47,9 @@ public sealed class LocalVfxVisibilityEditModeTests
     [Test]
     public void ProjectileVfxCatchUpUsesLocalSkippedEventBuffer()
     {
-        string managerSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
-        string cameraSource = File.ReadAllText("Assets/Scripts/Managers/CameraManager.cs");
-        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string managerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/ProjectileVfxManager.cs");
+        string cameraSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CameraManager.cs");
+        string schedulerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CombatScheduler.cs");
 
         Assert.That(cameraSource, Does.Contain("public static event System.Action<PlayerManager> OnCurrentViewingFieldChanged"));
         Assert.That(cameraSource, Does.Contain("OnCurrentViewingFieldChanged?.Invoke(targetPlayer);"));

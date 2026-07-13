@@ -3,12 +3,15 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Cysharp.Threading.Tasks;
+using MDF.Runtime.Assets;
 
 /// <summary>
 /// 공격 시퀀스에서 개별 몬스터 슬롯을 표시하는 UI 컴포넌트.
 /// </summary>
 public class MonsterSlotUI : MonoBehaviour
 {
+    private AddressableAssetLease<Sprite> _iconLease;
+    private int _iconLoadVersion;
     #region UI 요소
     [Header("UI 참조")]
     [SerializeField] private Image monsterIconImage;
@@ -50,6 +53,9 @@ public class MonsterSlotUI : MonoBehaviour
     /// </summary>
     public async UniTask UpdateSlot(MonsterPoolEntry entry)
     {
+        int iconLoadVersion = ++_iconLoadVersion;
+        _iconLease?.Dispose();
+        _iconLease = null;
         _poolEntry = entry;
 
         if (entry == null || entry.MonsterData == null)
@@ -62,7 +68,7 @@ public class MonsterSlotUI : MonoBehaviour
         UpdateCount();
 
         // 아이콘 로드
-        await LoadMonsterIcon(entry.MonsterData);
+        await LoadMonsterIcon(entry.MonsterData, iconLoadVersion);
 
         // 비어있으면 어둡게 처리
         UpdateVisualState();
@@ -159,7 +165,7 @@ public class MonsterSlotUI : MonoBehaviour
         }
     }
 
-    private async UniTask LoadMonsterIcon(MonsterData monsterData)
+    private async UniTask LoadMonsterIcon(MonsterData monsterData, int iconLoadVersion)
     {
         if (monsterIconImage == null) return;
         
@@ -169,10 +175,18 @@ public class MonsterSlotUI : MonoBehaviour
             return;
         }
 
-        Sprite icon = await AssetLoader.LoadAssetAsync<Sprite>(monsterData.monsterIcon);
-        if (icon != null && monsterIconImage != null)
+        AddressableAssetLease<Sprite> loadedLease =
+            await AssetLoader.AcquireAssetAsync<Sprite>(monsterData.monsterIcon);
+        if (iconLoadVersion != _iconLoadVersion || monsterIconImage == null)
         {
-            monsterIconImage.sprite = icon;
+            loadedLease?.Dispose();
+            return;
+        }
+
+        _iconLease = loadedLease;
+        if (_iconLease?.Asset != null)
+        {
+            monsterIconImage.sprite = _iconLease.Asset;
             monsterIconImage.color = Color.white;
         }
     }
@@ -183,6 +197,13 @@ public class MonsterSlotUI : MonoBehaviour
     {
         if (_poolEntry == null || _poolEntry.IsEmpty) return;
         _controller?.OnMonsterSlotSelected(_slotIndex, _poolEntry);
+    }
+
+    private void OnDestroy()
+    {
+        _iconLoadVersion++;
+        _iconLease?.Dispose();
+        _iconLease = null;
     }
     #endregion
 

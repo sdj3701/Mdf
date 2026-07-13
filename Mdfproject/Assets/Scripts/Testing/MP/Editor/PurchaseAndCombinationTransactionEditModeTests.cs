@@ -86,7 +86,7 @@ public sealed class PurchaseAndCombinationTransactionEditModeTests
     [Test]
     public void CombinationPromotesBeforeConsumingIngredients()
     {
-        string source = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.cs");
         int transactionStart = source.IndexOf("TryCombineUnitsTransactionAsync", System.StringComparison.Ordinal);
         int promotionIndex = source.IndexOf("await baseUnit.Initialize(unitData, newStarLevel", transactionStart, System.StringComparison.Ordinal);
         int consumeIndex = source.IndexOf("RemoveCombinedUnit(unitsToCombine[0]", transactionStart, System.StringComparison.Ordinal);
