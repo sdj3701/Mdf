@@ -10,9 +10,16 @@ public sealed class WallRemovePanelInputEditModeTests
 
         Assert.That(source, Does.Contain("ActiveControllers"));
         Assert.That(source, Does.Contain("IsPointerOverActiveActionButton"));
-        Assert.That(source, Does.Contain("MdfInput.PrimaryPointerWasReleasedThisFrame()"));
-        Assert.That(source, Does.Contain("IsPointerOverButton(upgradeButton, pointerPosition)"));
-        Assert.That(source, Does.Contain("IsPointerOverButton(removeButton, pointerPosition)"));
+        Assert.That(source, Does.Contain("MdfInput.TryGetPrimaryPointerPressThisFrame"));
+        Assert.That(source, Does.Contain("MdfInput.TryGetPrimaryPointerReleaseThisFrame"));
+        Assert.That(source, Does.Contain("_capturedPointerId == releasedPointerId"));
+        Assert.That(source, Does.Contain("Time.frameCount > _fallbackCaptureBlockedThroughFrame"),
+            "the wall-selection press must not arm a button that appeared later in the same frame");
+        Assert.That(source, Does.Contain("ResolveFallbackButton(pressedPosition)"));
+        Assert.That(source, Does.Contain("SetActionRaycastBlocking(false)"));
+        Assert.That(source, Does.Contain("_actionsAwaitingPointerRelease"));
+        Assert.That(source, Does.Contain("Time.frameCount > actionGateFrame"));
+        Assert.That(source, Does.Contain("MdfInput.IsTopmostVisibleUiTarget"));
         Assert.That(source, Does.Contain("OnRemoveButtonClicked();"));
         Assert.That(source, Does.Contain("OnUpgradeButtonClicked();"));
         Assert.That(source, Does.Contain("RectTransformUtility.RectangleContainsScreenPoint"));

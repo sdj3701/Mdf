@@ -61,16 +61,8 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (_validSpawnPositions == null || _validSpawnPositions.Values.All(v => v.Count == 0))
             {
-                // 폴백: 기본 스폰 포인트에 전부 소환
-                Debug.LogWarning("[AIAttackStrategy] 유효한 스폰 지점을 찾지 못했습니다. 기본 위치에 소환합니다.");
-                Vector3 fallbackPos = GetFallbackSpawnPos();
-                var fallbackPhase = new AISpawnPhase();
-                foreach (var entry in pool)
-                {
-                    if (entry == null || entry.IsEmpty) continue;
-                    fallbackPhase.Orders.Add(new AISpawnOrder(entry, fallbackPos, entry.RemainingCount));
-                }
-                plan.Phases.Add(fallbackPhase);
+                // Exact-cell spawning must not silently fall back to an occupied or blocked cell.
+                // The policy observes and retries after a legal outer cell becomes available.
                 return plan;
             }
 
@@ -124,7 +116,19 @@ namespace AI.BehaviorTree.Nodes.Actions
             var fieldPositions = _targetField.GetOuterSpawnWorldPositionsByDirection(_spawnAreaLayerMask);
             foreach (var pair in fieldPositions)
             {
-                _validSpawnPositions[ConvertDirection(pair.Key)].AddRange(pair.Value);
+                List<Vector3> candidates = _validSpawnPositions[ConvertDirection(pair.Key)];
+                foreach (Vector3 position in pair.Value)
+                {
+                    if (BattleCommandValidator.TryResolveExactBattleSpawnPosition(
+                            _targetField,
+                            position,
+                            out _,
+                            out Vector3 exactPosition,
+                            out _))
+                    {
+                        candidates.Add(exactPosition);
+                    }
+                }
             }
         }
 

@@ -12,8 +12,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 527aae111f667914f95eea592ddd0c9c, type: 3}
   m_Name: KingSkill_Pyromancer
   m_EditorClassIdentifier: 
-  skillName: "\uC655\uC758 \uB300\uD654\uC7AC"
-  description: "전장 전체를 불태워 모든 적에게 폭발적인 마법 피해를 줍니다."
+  skillName: "\uB300\uD654\uC7AC"
+  description: "\uC804\uC7A5 \uC804\uCCB4\uB97C \uBD88\uD0DC\uC6CC \uBAA8\uB4E0 \uC801\uC5D0\uAC8C
+    \uD3ED\uBC1C\uC801\uC778 \uB9C8\uBC95 \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4."
   iconKey: Spr_Port_Mage
   effectKind: 0
   radius: 0

@@ -109,6 +109,7 @@ public partial class CombatScheduler : NetworkBehaviour
         public bool AllowFullCatchUp;
         public Vector3 FirePositionOverride;
         public Vector3 TargetPositionOverride;
+        public ProjectileVfxConfig VfxConfigOverride;
     }
 
     public override void Spawned()
@@ -250,6 +251,49 @@ public partial class CombatScheduler : NetworkBehaviour
 
         ScheduleResolvedHit(attacker, target, firePos, damage, damageType, isRanged, emitVfx,
             projectileSpeedOverride, splashRadius, enemyLayerMask, fireTick);
+    }
+
+    /// <summary>
+    /// Enqueues one authority-owned direct hit at an already-resolved simulation tick. This is used
+    /// by presentation-only attackers such as the King, whose visual fire point is not a component
+    /// on the PlayerManager NetworkObject and therefore cannot be reconstructed by ScheduleHit.
+    /// </summary>
+    public bool TryScheduleDirectHitAtTick(
+        NetworkObject target,
+        Vector3 capturedImpactPosition,
+        float damage,
+        DamageType damageType,
+        int hitTick)
+    {
+        if (Object == null
+            || !Object.HasStateAuthority
+            || Runner == null
+            || target == null
+            || !target.IsValid
+            || target.Runner != Runner
+            || damage <= 0f
+            || _hitBuckets == null)
+        {
+            return false;
+        }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return false;
+        }
+#endif
+
+        var pendingHit = new PendingHit
+        {
+            TargetId = target.Id,
+            ImpactPosition = capturedImpactPosition,
+            Damage = damage,
+            DamageType = damageType,
+            HitTick = Mathf.Max(Runner.Tick + 1, hitTick),
+            SplashRadius = 0f,
+            EnemyLayerMask = default
+        };
+        return EnqueuePendingHit(pendingHit);
     }
 
     public void ScheduleBasicAttackVfx(NetworkObject attacker, NetworkObject target, float delaySeconds = 0f)

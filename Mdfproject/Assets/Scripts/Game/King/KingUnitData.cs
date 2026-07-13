@@ -16,6 +16,8 @@ public class KingUnitData : ScriptableObject
     [Header("King combat")]
     [Min(0f)] public float baseAttackDamageMultiplier = 1f;
     [Min(0f)] public float baseAttackSpeedMultiplier = 1f;
+    [Tooltip("Final responsive floor for King attacks. Faster base units keep their authored attack speed.")]
+    [Min(0f)] public float minimumAttackSpeed = 1f;
     [Tooltip("Additive growth applied for every round after round 1. 0.1 = +10% per round.")]
     [Min(0f)] public float attackDamageGrowthPerRound = 0.1f;
     [Tooltip("Additive growth applied for every round after round 1. 0.05 = +5% per round.")]
@@ -44,8 +46,9 @@ public class KingUnitData : ScriptableObject
 
         int completedGrowthSteps = Mathf.Max(0, round - 1);
         float growth = completedGrowthSteps * Mathf.Max(0f, attackSpeedGrowthPerRound);
-        return Mathf.Max(0f, baseUnitData.attackSpeed)
-               * Mathf.Max(0f, baseAttackSpeedMultiplier)
-               * Mathf.Max(0f, 1f + growth + augmentPercentBonus);
+        float resolvedAttackSpeed = Mathf.Max(0f, baseUnitData.attackSpeed)
+                                    * Mathf.Max(0f, baseAttackSpeedMultiplier)
+                                    * Mathf.Max(0f, 1f + growth + augmentPercentBonus);
+        return Mathf.Max(Mathf.Max(0f, minimumAttackSpeed), resolvedAttackSpeed);
     }
 }

@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+using AI.BehaviorTree.Nodes.Actions;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -2061,6 +2062,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(MdfCompiledCodePolicy.ReferencesAnyMethod(typeof(BattleDecisionPolicy), typeof(PlayerManager), "TryConsumeMagicScrollSlot"), Is.False);
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(SkillEffect), "CastGameplay"), Is.False);
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(Unit), "ActivateSkill"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(AIAttackStrategy),
+            typeof(BattleCommandValidator),
+            nameof(BattleCommandValidator.TryResolveExactBattleSpawnPosition)), Is.True,
+            "AI spawn planning must discard occupied or blocked exact cells before emitting a command.");
 
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MdfCommandEmitter), typeof(CommandProcessor), "RequestCommandExecution"), Is.True);
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(HumanClientCommandEmitter), typeof(GameManagers), "ExecuteBattleSpawnMonsterCommandAsync"), Is.True);

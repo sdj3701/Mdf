@@ -20,5 +20,6 @@ MonoBehaviour:
   presentationEulerAngles: {x: 0, y: 0, z: 0}
   baseAttackDamageMultiplier: 1.5
   baseAttackSpeedMultiplier: 1
+  minimumAttackSpeed: 1
   attackDamageGrowthPerRound: 0.12
   attackSpeedGrowthPerRound: 0.04

@@ -55,38 +55,92 @@ public class UnitAttackVfxPresenter : MonoBehaviour
             return;
         }
 
+        PlayBasicAttackInternal(
+            unit,
+            unit.Data,
+            unit.starLevel,
+            unit.transform,
+            target != null ? target.position : unit.transform.position + unit.transform.forward,
+            unit.GetCappedAttackAnimationPlaybackSpeed());
+    }
+
+    public void PlayBasicAttack(
+        UnitData unitData,
+        int starLevel,
+        Transform origin,
+        Vector3 targetPosition,
+        float animationPlaybackSpeed = 1f)
+    {
+        if (unitData == null || unitData.unitType != UnitType.Melee || origin == null)
+        {
+            return;
+        }
+
+        PlayBasicAttackInternal(
+            null,
+            unitData,
+            starLevel,
+            origin,
+            targetPosition,
+            animationPlaybackSpeed);
+    }
+
+    private void PlayBasicAttackInternal(
+        Unit unit,
+        UnitData unitData,
+        int starLevel,
+        Transform origin,
+        Vector3 targetPosition,
+        float animationPlaybackSpeed)
+    {
         if (Time.time - _lastPlayTime < minimumIntervalSeconds)
         {
             return;
         }
 
-        BasicAttackVfxConfig config = unit.Data.GetBasicAttackVfxConfig(unit.starLevel);
+        BasicAttackVfxConfig config = unitData.GetBasicAttackVfxConfig(starLevel);
         if (config == null || !config.HasPrefabKey)
         {
             return;
         }
 
-        Vector3 direction = ResolveDirection(target);
+        Vector3 direction = ResolveDirection(origin, targetPosition);
         if (direction.sqrMagnitude <= 1e-6f)
         {
             return;
         }
 
         _lastPlayTime = Time.time;
-        PlayBasicAttackAsync(unit, config, direction, _playGeneration).Forget();
+        PlayBasicAttackAsync(
+            unit,
+            unitData,
+            origin,
+            config,
+            direction,
+            Mathf.Max(0.01f, animationPlaybackSpeed),
+            _playGeneration).Forget();
     }
 
-    private async UniTaskVoid PlayBasicAttackAsync(Unit unit, BasicAttackVfxConfig config, Vector3 direction, int playGeneration)
+    private async UniTaskVoid PlayBasicAttackAsync(
+        Unit unit,
+        UnitData unitData,
+        Transform origin,
+        BasicAttackVfxConfig config,
+        Vector3 direction,
+        float animationPlaybackSpeed,
+        int playGeneration)
     {
         string vfxKey = config.prefabKey;
         GameObject prefab = await LoadPrefabAsync(vfxKey);
         if (prefab == null || this == null || playGeneration != _playGeneration ||
-            unit == null || unit.IsDead || !unit.gameObject.activeInHierarchy || !gameObject.activeInHierarchy)
+            unitData == null || origin == null || !origin.gameObject.activeInHierarchy ||
+            (unit != null && (unit.IsDead || !unit.gameObject.activeInHierarchy)) ||
+            !gameObject.activeInHierarchy)
         {
             return;
         }
 
-        Spawn(unit, prefab, direction.normalized, config);
+        Spawn(origin, prefab, direction.normalized, config, animationPlaybackSpeed);
     }
 
     private async UniTask<GameObject> LoadPrefabAsync(string vfxKey)
@@ -159,19 +213,22 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         return lease.Asset;
     }
 
-    private void Spawn(Unit unit, GameObject prefab, Vector3 direction, BasicAttackVfxConfig config)
+    private void Spawn(
+        Transform origin,
+        GameObject prefab,
+        Vector3 direction,
+        BasicAttackVfxConfig config,
+        float animationPlaybackSpeed)
     {
         RemoveInactiveTrackedInstances();
 
-        Transform origin = transform;
-        Quaternion attackRotation = ResolveAttackRotation(unit, direction, config);
+        Quaternion attackRotation = ResolveAttackRotation(origin, direction, config);
         Vector3 localOffset = config != null ? config.localPositionOffset : new Vector3(0f, heightOffset, forwardOffset);
         Vector3 eulerOffset = config != null ? config.rotationOffsetEuler : rotationOffsetEuler;
         float resolvedScale = config != null && config.scaleMultiplier > 0f ? config.scaleMultiplier : scaleMultiplier;
         float configuredPlaybackSpeed = config != null && config.playbackSpeed > 0f ? config.playbackSpeed : 1f;
         float playbackSpeedCap = config != null ? config.ResolvePlaybackSpeedCap() : BasicAttackVfxConfig.DefaultPlaybackSpeedCap;
         float minimumVisibleSeconds = config != null ? config.ResolveMinimumVisibleSeconds() : BasicAttackVfxConfig.DefaultMinimumVisibleSeconds;
-        float animationPlaybackSpeed = unit != null ? unit.GetCappedAttackAnimationPlaybackSpeed() : 1f;
         float playbackSpeed = BasicAttackVfxRuntimeUtility.ResolvePlaybackSpeed(configuredPlaybackSpeed, animationPlaybackSpeed, playbackSpeedCap);
         Vector3 primaryRendererFlip = config != null ? config.primaryRendererFlip : Vector3.zero;
         Vector3 position = origin.position + attackRotation * localOffset;
@@ -267,21 +324,20 @@ public class UnitAttackVfxPresenter : MonoBehaviour
         }
     }
 
-    private Quaternion ResolveAttackRotation(Unit unit, Vector3 direction, BasicAttackVfxConfig config)
+    private static Quaternion ResolveAttackRotation(Transform basis, Vector3 direction, BasicAttackVfxConfig config)
     {
-        Transform basis = unit != null ? unit.transform : transform;
         BasicAttackVfxRotationMode rotationMode = config != null ? config.rotationMode : BasicAttackVfxRotationMode.TargetFacing;
         return BasicAttackVfxRuntimeUtility.ResolveAttackRotation(basis, direction, rotationMode);
     }
 
-    private Vector3 ResolveDirection(Transform target)
+    private static Vector3 ResolveDirection(Transform origin, Vector3 targetPosition)
     {
-        Vector3 direction = target != null ? target.position - transform.position : transform.forward;
+        Vector3 direction = origin != null ? targetPosition - origin.position : Vector3.zero;
         direction.y = 0f;
 
         if (direction.sqrMagnitude <= 1e-6f)
         {
-            direction = transform.forward;
+            direction = origin != null ? origin.forward : Vector3.forward;
             direction.y = 0f;
         }
 

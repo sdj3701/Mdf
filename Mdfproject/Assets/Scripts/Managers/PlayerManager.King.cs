@@ -30,6 +30,7 @@ public partial class PlayerManager
     private const float KING_LOAD_RETRY_MIN_SECONDS = 0.25f;
     private const float KING_LOAD_RETRY_MAX_SECONDS = 5f;
     private static readonly int KingAttackTrigger = Animator.StringToHash("AttackTrigger");
+    private const string KingAttackStateTag = "Attack";
     private static readonly int KingBaseColor = Shader.PropertyToID("_BaseColor");
     private static readonly int KingColor = Shader.PropertyToID("_Color");
 
@@ -39,6 +40,9 @@ public partial class PlayerManager
     [Networked] private int KingDamageReactionSequence { get; set; }
     [Networked] private int KingAttackPresentationSequence { get; set; }
     [Networked] private Vector3 KingAttackPresentationTargetPosition { get; set; }
+    [Networked] private NetworkId KingAttackPresentationTargetId { get; set; }
+    [Networked] private int KingAttackPresentationFireTick { get; set; }
+    [Networked] private int KingAttackPresentationHitTick { get; set; }
     [Networked] private int KingSkillPresentationSequence { get; set; }
     [Networked] private int KingAttackDamageBonusPermille { get; set; }
     [Networked] private int KingAttackSpeedBonusPermille { get; set; }
@@ -60,6 +64,10 @@ public partial class PlayerManager
     private Transform _kingPresentationAnchor;
     private GameObject _kingPresentation;
     private Animator _kingAnimator;
+    private Transform _kingAttackFirePoint;
+    private UnitAttackVfxPresenter _kingAttackVfxPresenter;
+    private Coroutine _kingAttackAnimationResetRoutine;
+    private float _kingAttackClipDuration = 1f;
     private HeadLookController _kingHeadLookController;
     private bool _kingUsesBaseIdleHeadPose;
     private UnitOrientationFixer _kingOrientationFixer;
@@ -161,8 +169,11 @@ public partial class PlayerManager
         get
         {
             int round = GameManagers.Instance != null ? Mathf.Max(1, GameManagers.Instance.currentRound) : 1;
+            float persistentBonus = Object != null && Object.IsValid
+                ? DecodeKingBonus(KingAttackDamageBonusPermille)
+                : 0f;
             return _selectedKingData != null
-                ? _selectedKingData.ResolveAttackDamage(round, DecodeKingBonus(KingAttackDamageBonusPermille))
+                ? _selectedKingData.ResolveAttackDamage(round, persistentBonus)
                 : 0f;
         }
     }
@@ -172,13 +183,17 @@ public partial class PlayerManager
         get
         {
             int round = GameManagers.Instance != null ? Mathf.Max(1, GameManagers.Instance.currentRound) : 1;
+            float persistentBonus = Object != null && Object.IsValid
+                ? DecodeKingBonus(KingAttackSpeedBonusPermille)
+                : 0f;
             return _selectedKingData != null
-                ? _selectedKingData.ResolveAttackSpeed(round, DecodeKingBonus(KingAttackSpeedBonusPermille))
+                ? _selectedKingData.ResolveAttackSpeed(round, persistentBonus)
                 : 0f;
         }
     }
 
-    private float CurrentKingSkillPowerMultiplier => 1f + DecodeKingBonus(KingSkillPowerBonusPermille);
+    private float CurrentKingSkillPowerMultiplier => 1f +
+        (Object != null && Object.IsValid ? DecodeKingBonus(KingSkillPowerBonusPermille) : 0f);
 
     private void InitializeKingRuntimeOnSpawn()
     {
@@ -230,7 +245,11 @@ public partial class PlayerManager
 
         if (_lastObservedKingAttackPresentationSequence != KingAttackPresentationSequence)
         {
-            if (PlayKingAttackPresentation(KingAttackPresentationTargetPosition))
+            if (PlayKingAttackPresentation(
+                    KingAttackPresentationTargetPosition,
+                    KingAttackPresentationTargetId,
+                    KingAttackPresentationFireTick,
+                    KingAttackPresentationHitTick))
             {
                 _lastObservedKingAttackPresentationSequence = KingAttackPresentationSequence;
             }
@@ -367,17 +386,112 @@ public partial class PlayerManager
             return;
         }
 
+        // Capture presentation identity before applying or scheduling damage. A lethal immediate hit
+        // can synchronously despawn and reparent a pooled Monster, which would otherwise replace the
+        // intended impact position with the pool-root position.
+        Vector3 targetPosition = target.transform.position;
+        NetworkObject targetObject = target.Object;
+        NetworkId targetId = targetObject != null && targetObject.IsValid
+            ? targetObject.Id
+            : default;
+        UnitData baseUnitData = _selectedKingData.baseUnitData;
         float damage = CurrentKingAttackDamage;
-        if (damage > 0f)
+        int presentationFireTick = Runner.Tick;
+        int presentationHitTick = presentationFireTick + 1;
+        Vector3 presentationFirePosition = ResolveKingAttackFirePosition();
+        ProjectileVfxConfig projectileConfig = baseUnitData.unitType == UnitType.Ranged
+            ? baseUnitData.GetProjectileVfxConfig()
+            : null;
+        float fireDelaySeconds = 0f;
+        float projectileSpeed = 0f;
+        if (projectileConfig != null && projectileConfig.HasProjectileKey)
         {
-            target.TakeDamage(damage, _selectedKingData.baseUnitData.damageType);
+            fireDelaySeconds = ResolveKingProjectileFireDelaySeconds(projectileConfig);
+            projectileSpeed = Mathf.Max(0.01f, projectileConfig.ResolveProjectileSpeed());
+            presentationFireTick = Runner.Tick + SecondsToKingTicksCeil(fireDelaySeconds);
+            presentationHitTick = presentationFireTick + Mathf.Max(
+                1,
+                SecondsToKingTicksCeil(
+                    Vector3.Distance(presentationFirePosition, targetPosition) / projectileSpeed));
         }
 
-        KingAttackPresentationTargetPosition = target.transform.position;
+        bool damageScheduled = false;
+        if (damage > 0f
+            && baseUnitData.unitType == UnitType.Ranged
+            && targetObject != null
+            && targetObject.IsValid)
+        {
+            CombatScheduler scheduler = CombatScheduler.Instance;
+            if (projectileConfig != null
+                && projectileConfig.HasProjectileKey
+                && scheduler != null
+                && scheduler.Runner == Runner
+                && scheduler.Object != null
+                && scheduler.Object.HasStateAuthority)
+            {
+                damageScheduled = scheduler.TryScheduleDirectHitAtTick(
+                    targetObject,
+                    targetPosition,
+                    damage,
+                    baseUnitData.damageType,
+                    presentationHitTick);
+            }
+        }
+
+        if (damage > 0f && !damageScheduled)
+        {
+            target.TakeDamage(damage, baseUnitData.damageType);
+            // The normal ranged path is queued through CombatScheduler. If that queue is
+            // unavailable/full, keep the fallback presentation close to the immediate hit
+            // instead of showing a projectile that lands well after damage was applied.
+            presentationFireTick = Runner.Tick;
+            presentationHitTick = Runner.Tick + 1;
+        }
+
+        KingAttackPresentationTargetPosition = targetPosition;
+        KingAttackPresentationTargetId = targetId;
+        KingAttackPresentationFireTick = presentationFireTick;
+        KingAttackPresentationHitTick = presentationHitTick;
         KingAttackPresentationSequence = NextKingPresentationSequence(KingAttackPresentationSequence);
         float attackSpeed = Mathf.Max(0.01f, CurrentKingAttackSpeed);
         float attackInterval = Mathf.Max(KING_MIN_ATTACK_INTERVAL_SECONDS, 1f / attackSpeed);
         KingNextAttackTimer = TickTimer.CreateFromSeconds(Runner, attackInterval);
+    }
+
+    private float ResolveKingProjectileFireDelaySeconds(ProjectileVfxConfig config)
+    {
+        if (config == null)
+        {
+            return 0f;
+        }
+
+        float normalizedFireTime = config.ResolveProjectileSpawnNormalizedTime();
+        if (normalizedFireTime <= 0f)
+        {
+            return 0f;
+        }
+
+        return normalizedFireTime / ResolveKingAttackAnimationRate();
+    }
+
+    private int SecondsToKingTicksCeil(float seconds)
+    {
+        if (seconds <= 0f)
+        {
+            return 0;
+        }
+
+        float deltaTime = Runner != null && Runner.DeltaTime > 0f
+            ? Runner.DeltaTime
+            : Time.fixedDeltaTime;
+        return Mathf.Max(1, Mathf.CeilToInt(seconds / Mathf.Max(0.0001f, deltaTime)));
+    }
+
+    private float ResolveKingAttackAnimationRate()
+    {
+        // Attack speed is attacks per second. Animator playback is derived from this same value,
+        // so animation cadence cannot drift behind the authority-owned attack timer.
+        return Mathf.Max(0.01f, CurrentKingAttackSpeed);
     }
 
     private void EnsureKingDefenseSequence(GameManagers gm)
@@ -734,11 +848,12 @@ public partial class PlayerManager
                 return;
             }
 
+            Unit sourceUnit = prefab.GetComponentInChildren<Unit>(true);
             instance = KingVisualCloneUtility.CreateVisualOnly(
                 prefab,
                 presentationAnchor,
                 out Animator animator,
-                out _);
+                out Dictionary<Transform, Transform> transformMap);
             if (instance == null)
             {
                 RegisterKingPresentationLoadFailure($"visual-only clone failed: {prefabKey}");
@@ -758,6 +873,14 @@ public partial class PlayerManager
 
             _kingPresentation = instance;
             _kingAnimator = animator;
+            _kingAttackClipDuration = ResolveKingAttackClipDuration(animator);
+            _kingAttackFirePoint = null;
+            if (sourceUnit != null
+                && sourceUnit.firePoint != null
+                && transformMap.TryGetValue(sourceUnit.firePoint, out Transform clonedFirePoint))
+            {
+                _kingAttackFirePoint = clonedFirePoint;
+            }
             _kingHeadLookController = instance.GetComponentInChildren<HeadLookController>(true);
             _kingUsesBaseIdleHeadPose = ShouldUseBaseIdleHeadPose(prefabKey);
             if (_kingHeadLookController != null && _kingUsesBaseIdleHeadPose)
@@ -1238,7 +1361,11 @@ public partial class PlayerManager
         }
     }
 
-    private bool PlayKingAttackPresentation(Vector3 targetPosition)
+    private bool PlayKingAttackPresentation(
+        Vector3 targetPosition,
+        NetworkId targetId,
+        int fireTick,
+        int hitTick)
     {
         if (_kingPresentation == null)
         {
@@ -1249,11 +1376,188 @@ public partial class PlayerManager
         // the same presentation rule instead of permanently adopting the last target's yaw.
         _ = targetPosition;
 
-        if (_kingAnimator != null && _kingAnimator.isActiveAndEnabled)
+        TriggerKingAttackAnimation();
+
+        NetworkObject targetObject = null;
+        if (Runner != null && targetId.Raw != 0)
         {
-            _kingAnimator.SetTrigger(KingAttackTrigger);
+            Runner.TryFindObject(targetId, out targetObject);
         }
+
+        PlayKingBaseAttackVfx(targetPosition, targetObject, fireTick, hitTick);
         return true;
+    }
+
+    private void PlayKingBaseAttackVfx(
+        Vector3 targetPosition,
+        NetworkObject targetObject,
+        int fireTick,
+        int hitTick)
+    {
+        UnitData baseUnitData = SelectedKingBaseUnitData;
+        if (_kingPresentation == null || baseUnitData == null)
+        {
+            return;
+        }
+
+        if (baseUnitData.unitType == UnitType.Ranged)
+        {
+            ProjectileVfxManager.PlayFromKingAttack(
+                Runner,
+                this,
+                baseUnitData,
+                ResolveKingAttackFirePosition(),
+                targetPosition,
+                targetObject,
+                fireTick,
+                hitTick);
+            return;
+        }
+
+        if (Object != null
+            && Object.IsValid
+            && !LocalVfxVisibility.ShouldPlay(Object, null, LocalVfxVisibilityEventKind.BasicAttack))
+        {
+            return;
+        }
+
+        if (_kingAttackVfxPresenter == null)
+        {
+            _kingAttackVfxPresenter = GetComponent<UnitAttackVfxPresenter>();
+            if (_kingAttackVfxPresenter == null)
+            {
+                _kingAttackVfxPresenter = gameObject.AddComponent<UnitAttackVfxPresenter>();
+            }
+        }
+
+        _kingAttackVfxPresenter.PlayBasicAttack(
+            baseUnitData,
+            1,
+            _kingPresentation.transform,
+            targetPosition,
+            ResolveKingAttackAnimationPlaybackSpeed());
+    }
+
+    private void TriggerKingAttackAnimation()
+    {
+        if (_kingAnimator == null || !_kingAnimator.isActiveAndEnabled)
+        {
+            return;
+        }
+
+        float animationRate = ResolveKingAttackAnimationRate();
+        _kingAnimator.speed = ResolveKingAttackAnimationPlaybackSpeed();
+        _kingAnimator.ResetTrigger(KingAttackTrigger);
+        _kingAnimator.SetTrigger(KingAttackTrigger);
+        if (_kingAttackAnimationResetRoutine != null)
+        {
+            StopCoroutine(_kingAttackAnimationResetRoutine);
+        }
+        _kingAttackAnimationResetRoutine = StartCoroutine(
+            ResetKingAnimatorSpeedWhenAttackAnimationFinishes(1f / animationRate));
+    }
+
+    private float ResolveKingAttackAnimationPlaybackSpeed()
+    {
+        return Mathf.Max(0.01f, _kingAttackClipDuration * ResolveKingAttackAnimationRate());
+    }
+
+    private static float ResolveKingAttackClipDuration(Animator animator)
+    {
+        RuntimeAnimatorController controller = animator != null
+            ? animator.runtimeAnimatorController
+            : null;
+        AnimationClip[] clips = controller != null ? controller.animationClips : null;
+        if (clips == null || clips.Length == 0)
+        {
+            return 1f;
+        }
+
+        AnimationClip fallback = null;
+        for (int i = 0; i < clips.Length; i++)
+        {
+            AnimationClip clip = clips[i];
+            if (clip == null)
+            {
+                continue;
+            }
+
+            if (fallback == null)
+            {
+                fallback = clip;
+            }
+            if (!string.IsNullOrWhiteSpace(clip.name)
+                && (clip.name.IndexOf("attack", StringComparison.OrdinalIgnoreCase) >= 0
+                    || clip.name.IndexOf("atk", StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return Mathf.Max(0.01f, clip.length);
+            }
+        }
+
+        return fallback != null ? Mathf.Max(0.01f, fallback.length) : 1f;
+    }
+
+    private IEnumerator ResetKingAnimatorSpeedWhenAttackAnimationFinishes(float fallbackSeconds)
+    {
+        float fallbackRemaining = Mathf.Max(0.01f, fallbackSeconds);
+        bool observedAttackPlayback = false;
+        int inactiveFrames = 0;
+        yield return null;
+
+        while (_kingAnimator != null)
+        {
+            bool isInTransition = _kingAnimator.IsInTransition(0);
+            AnimatorStateInfo currentState = _kingAnimator.GetCurrentAnimatorStateInfo(0);
+            AnimatorStateInfo nextState = isInTransition
+                ? _kingAnimator.GetNextAnimatorStateInfo(0)
+                : default;
+            bool attackPlaybackActive = currentState.IsTag(KingAttackStateTag)
+                || isInTransition && nextState.IsTag(KingAttackStateTag);
+            if (attackPlaybackActive)
+            {
+                observedAttackPlayback = true;
+                inactiveFrames = 0;
+            }
+            else if (observedAttackPlayback)
+            {
+                inactiveFrames++;
+                if (inactiveFrames >= 2)
+                {
+                    break;
+                }
+            }
+            else
+            {
+                fallbackRemaining -= Time.deltaTime;
+                if (fallbackRemaining <= 0f)
+                {
+                    break;
+                }
+            }
+
+            yield return null;
+        }
+
+        if (_kingAnimator != null)
+        {
+            _kingAnimator.speed = 1f;
+        }
+        _kingAttackAnimationResetRoutine = null;
+    }
+
+    private Vector3 ResolveKingAttackFirePosition()
+    {
+        if (_kingAttackFirePoint != null)
+        {
+            return _kingAttackFirePoint.position;
+        }
+
+        if (_kingPresentation != null)
+        {
+            return _kingPresentation.transform.position + Vector3.up * 0.5f;
+        }
+
+        return goalTransform != null ? goalTransform.position : transform.position;
     }
 
     private bool PlayKingSkillPresentation()
@@ -1263,10 +1567,7 @@ public partial class PlayerManager
             return false;
         }
 
-        if (_kingAnimator != null && _kingAnimator.isActiveAndEnabled)
-        {
-            _kingAnimator.SetTrigger(KingAttackTrigger);
-        }
+        TriggerKingAttackAnimation();
         return true;
     }
 
@@ -1431,6 +1732,12 @@ public partial class PlayerManager
         KingDamageReactionSequence = Mathf.Max(0, state.DamageReactionSequence);
         KingAttackPresentationSequence = Mathf.Max(0, state.AttackPresentationSequence);
         KingAttackPresentationTargetPosition = state.AttackPresentationTargetPosition;
+        KingAttackPresentationTargetId = default;
+        KingAttackPresentationFireTick = 0;
+        KingAttackPresentationHitTick = 0;
+        // Presentation events are transient. The restored sequence is a dedupe watermark, not an
+        // instruction to replay the final pre-migration projectile against a new runner timeline.
+        _lastObservedKingAttackPresentationSequence = KingAttackPresentationSequence;
         KingSkillPresentationSequence = Mathf.Max(0, state.SkillPresentationSequence);
         KingAttackDamageBonusPermille = Mathf.Max(0, state.AttackDamageBonusPermille);
         KingAttackSpeedBonusPermille = Mathf.Max(0, state.AttackSpeedBonusPermille);
@@ -1456,6 +1763,15 @@ public partial class PlayerManager
 
     private void DestroyKingPresentation()
     {
+        if (_kingAttackAnimationResetRoutine != null)
+        {
+            StopCoroutine(_kingAttackAnimationResetRoutine);
+            _kingAttackAnimationResetRoutine = null;
+        }
+        if (_kingAnimator != null)
+        {
+            _kingAnimator.speed = 1f;
+        }
         if (_kingDamageReactionRoutine != null)
         {
             StopCoroutine(_kingDamageReactionRoutine);
@@ -1474,6 +1790,12 @@ public partial class PlayerManager
         _kingPresentationAnchor = null;
         _kingPresentation = null;
         _kingAnimator = null;
+        _kingAttackFirePoint = null;
+        _kingAttackClipDuration = 1f;
+        if (_kingAttackVfxPresenter != null)
+        {
+            _kingAttackVfxPresenter.InvalidatePendingPlays();
+        }
         _kingHeadLookController = null;
         _kingUsesBaseIdleHeadPose = false;
         _kingOrientationFixer = null;

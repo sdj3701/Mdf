@@ -13,8 +13,8 @@ MonoBehaviour:
   m_Name: Aug_King_DivineCrown_Prismatic
   m_EditorClassIdentifier: 
   augmentName: "\uC2E0\uC131\uD55C \uC655\uAD00"
-  description: "\uAD6D\uC655\uC758 \uACF5\uACA9\uB825 +40%, \uACF5\uACA9\uC18D\uB3C4
-    +15%, \uAD6D\uC655 \uC2A4\uD0AC \uC704\uB825 +35%. \uC5EC\uB7EC \uBC88 \uC120\uD0DD\uD560
+  description: "\uAD6D\uC655 \uACF5\uACA9\uB825 +40%, \uACF5\uACA9\uC18D\uB3C4 +15%,
+    \uAD6D\uC655 \uC2A4\uD0AC \uC704\uB825 +35%. \uC5EC\uB7EC \uBC88 \uC120\uD0DD\uD560
     \uC218 \uC788\uC2B5\uB2C8\uB2E4."
   icon: {fileID: 21300000, guid: 41e4466a7c898104fa280759935460be, type: 3}
   tier: 2

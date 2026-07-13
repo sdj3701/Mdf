@@ -20,6 +20,7 @@ public class ProjectileVfxManager : MonoBehaviour
     [SerializeField] private int catchUpBufferCapacity = 128;
 
     private int _nextPresentationSequence;
+    private int _lifecycleGeneration;
     private readonly Dictionary<int, ActiveProjectile> _activeBySeq = new Dictionary<int, ActiveProjectile>();
     private readonly List<ActiveProjectile> _activeProjectiles = new List<ActiveProjectile>();
     private readonly List<SkippedProjectileEvent> _skippedProjectileEvents = new List<SkippedProjectileEvent>();
@@ -72,6 +73,7 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        AdvanceLifecycleGeneration();
         foreach (AddressableAssetLease<GameObject> lease in _unpooledPrefabLeases.Values)
         {
             lease.Dispose();
@@ -88,14 +90,28 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private void OnEnable()
     {
+        AdvanceLifecycleGeneration();
         CameraManager.OnCurrentViewingFieldChanged += HandleViewingFieldChanged;
     }
 
     private void OnDisable()
     {
+        AdvanceLifecycleGeneration();
         CameraManager.OnCurrentViewingFieldChanged -= HandleViewingFieldChanged;
         ClearActiveProjectiles();
         _skippedProjectileEvents.Clear();
+    }
+
+    private void AdvanceLifecycleGeneration()
+    {
+        unchecked
+        {
+            _lifecycleGeneration++;
+            if (_lifecycleGeneration == 0)
+            {
+                _lifecycleGeneration = 1;
+            }
+        }
     }
 
     private void ClearActiveProjectiles()
@@ -141,6 +157,73 @@ public class ProjectileVfxManager : MonoBehaviour
         });
     }
 
+    public static bool PlayFromKingAttack(
+        NetworkRunner runner,
+        PlayerManager kingOwner,
+        UnitData baseUnitData,
+        Vector3 firePosition,
+        Vector3 targetPosition,
+        NetworkObject target,
+        int fireTick,
+        int hitTick)
+    {
+        ProjectileVfxManager manager = Instance != null
+            ? Instance
+            : UnityEngine.Object.FindObjectOfType<ProjectileVfxManager>();
+        if (manager == null || !manager.isActiveAndEnabled || runner == null || !runner.IsRunning ||
+            kingOwner == null || baseUnitData == null)
+        {
+            return false;
+        }
+
+        ProjectileVfxConfig config = baseUnitData.GetProjectileVfxConfig();
+        if (config == null || !config.HasProjectileKey)
+        {
+            return false;
+        }
+
+        NetworkObject attacker = kingOwner.Object;
+        if (attacker == null || !attacker.IsValid ||
+            !LocalVfxVisibility.ShouldPlay(attacker, null, LocalVfxVisibilityEventKind.Projectile))
+        {
+            return false;
+        }
+
+        if (target != null && (!target.IsValid || target.Runner != runner))
+        {
+            target = null;
+        }
+
+        if (fireTick <= 0)
+        {
+            fireTick = runner.Tick;
+        }
+        if (hitTick <= fireTick)
+        {
+            float deltaTime = Mathf.Max(0.0001f, runner.DeltaTime);
+            float projectileSpeed = Mathf.Max(0.01f, config.ResolveProjectileSpeed());
+            float travelSeconds = Vector3.Distance(firePosition, targetPosition) / projectileSpeed;
+            int travelTicks = Mathf.Max(1, Mathf.CeilToInt(travelSeconds / deltaTime));
+            hitTick = fireTick + travelTicks;
+        }
+
+        manager.HandleProjectileEvent(new CombatScheduler.ProjectileEventData
+        {
+            Sequence = manager.AllocatePresentationSequence(),
+            FireTick = fireTick,
+            HitTick = hitTick,
+            Runner = runner,
+            Attacker = attacker,
+            Target = target,
+            HasFirePositionOverride = true,
+            HasTargetPositionOverride = true,
+            FirePositionOverride = firePosition,
+            TargetPositionOverride = targetPosition,
+            VfxConfigOverride = config
+        });
+        return true;
+    }
+
     public static void RecordSkippedCombatEvent(NetworkRunner runner, NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
     {
         ProjectileVfxManager manager = Instance != null
@@ -172,7 +255,7 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        SpawnProjectileAsync(evt).Forget();
+        SpawnProjectileAsync(evt, _lifecycleGeneration).Forget();
     }
 
     private void RecordSkippedProjectileEvent(NetworkRunner runner, NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
@@ -353,7 +436,9 @@ public class ProjectileVfxManager : MonoBehaviour
         }
     }
 
-    private async UniTaskVoid SpawnProjectileAsync(CombatScheduler.ProjectileEventData evt)
+    private async UniTaskVoid SpawnProjectileAsync(
+        CombatScheduler.ProjectileEventData evt,
+        int lifecycleGeneration)
     {
         var runner = evt.Runner;
         if (runner == null)
@@ -380,13 +465,30 @@ public class ProjectileVfxManager : MonoBehaviour
         if (hitTime <= nowTime)
         {
             LogDiagnosticWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
-            SpawnImpactFlashAsync(config, targetPos, travelDirection).Forget();
+            SpawnImpactFlashAsync(config, targetPos, travelDirection, lifecycleGeneration).Forget();
+            return;
+        }
+
+        if (!await WaitForFireTickAsync(runner, evt.FireTick, lifecycleGeneration))
+        {
+            return;
+        }
+
+        nowTime = GetRenderTime(runner);
+        firePos = ResolveFirePosition(evt);
+        targetPos = ResolveTargetPositionIfTrackable(evt.Target, targetPos);
+        projectileFirePos = ApplyProjectileVisualHeight(firePos, config);
+        projectileTargetPos = ApplyProjectileVisualHeight(targetPos, config);
+        travelDirection = ResolveTravelDirection(projectileFirePos, projectileTargetPos, evt.Attacker);
+        if (hitTime <= nowTime)
+        {
+            SpawnImpactFlashAsync(config, targetPos, travelDirection, lifecycleGeneration).Forget();
             return;
         }
 
         if (!evt.SuppressMuzzleFlash)
         {
-            SpawnMuzzleFlashAsync(config, firePos, travelDirection).Forget();
+            SpawnMuzzleFlashAsync(config, firePos, travelDirection, lifecycleGeneration).Forget();
         }
 
         string projectileKey = config.projectileKey;
@@ -398,7 +500,9 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        if (this == null || !isActiveAndEnabled || runner == null || !runner.IsRunning)
+        if (!IsLifecycleCurrent(lifecycleGeneration)
+            || runner == null
+            || !runner.IsRunning)
         {
             return;
         }
@@ -414,7 +518,7 @@ public class ProjectileVfxManager : MonoBehaviour
         if (hitTime <= nowTime)
         {
             LogDiagnosticWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED after load: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
-            SpawnImpactFlashAsync(config, targetPos, travelDirection).Forget();
+            SpawnImpactFlashAsync(config, targetPos, travelDirection, lifecycleGeneration).Forget();
             return;
         }
 
@@ -456,6 +560,37 @@ public class ProjectileVfxManager : MonoBehaviour
         _activeProjectiles.Add(active);
     }
 
+    private async UniTask<bool> WaitForFireTickAsync(
+        NetworkRunner runner,
+        int fireTick,
+        int lifecycleGeneration)
+    {
+        if (runner == null || fireTick <= 0)
+        {
+            return IsLifecycleCurrent(lifecycleGeneration);
+        }
+
+        float fireTime = fireTick * runner.DeltaTime;
+        while (IsLifecycleCurrent(lifecycleGeneration)
+               && runner != null
+               && runner.IsRunning
+               && GetRenderTime(runner) < fireTime)
+        {
+            await UniTask.Yield(PlayerLoopTiming.Update);
+        }
+
+        return IsLifecycleCurrent(lifecycleGeneration)
+               && runner != null
+               && runner.IsRunning;
+    }
+
+    private bool IsLifecycleCurrent(int lifecycleGeneration)
+    {
+        return this != null
+               && isActiveAndEnabled
+               && lifecycleGeneration == _lifecycleGeneration;
+    }
+
     private Vector3 CalculateSpawnPosition(Vector3 firePos, Vector3 targetPos, float fireTime, float hitTime, float nowTime, bool allowFullCatchUp)
     {
         float totalTime = Mathf.Max(0.0001f, hitTime - fireTime);
@@ -466,6 +601,12 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private bool TryResolveProjectileVfx(CombatScheduler.ProjectileEventData evt, out ProjectileVfxConfig config)
     {
+        config = evt.VfxConfigOverride;
+        if (config != null && config.HasProjectileKey)
+        {
+            return true;
+        }
+
         config = null;
         if (evt.Attacker == null)
         {
@@ -706,7 +847,11 @@ public class ProjectileVfxManager : MonoBehaviour
         return runner != null ? (float)runner.LocalRenderTime : Time.time;
     }
 
-    private async UniTaskVoid SpawnMuzzleFlashAsync(ProjectileVfxConfig config, Vector3 firePos, Vector3 direction)
+    private async UniTaskVoid SpawnMuzzleFlashAsync(
+        ProjectileVfxConfig config,
+        Vector3 firePos,
+        Vector3 direction,
+        int lifecycleGeneration)
     {
         if (config == null || !config.HasMuzzleFlashKey)
         {
@@ -721,10 +866,15 @@ public class ProjectileVfxManager : MonoBehaviour
             rotation,
             config.ResolveMuzzleScaleMultiplierVector(),
             config.ResolveMuzzlePlaybackSpeed(),
-            config.ResolveMuzzleLifetimeSeconds());
+            config.ResolveMuzzleLifetimeSeconds(),
+            lifecycleGeneration);
     }
 
-    private async UniTaskVoid SpawnImpactFlashAsync(ProjectileVfxConfig config, Vector3 targetPos, Vector3 direction)
+    private async UniTaskVoid SpawnImpactFlashAsync(
+        ProjectileVfxConfig config,
+        Vector3 targetPos,
+        Vector3 direction,
+        int lifecycleGeneration)
     {
         if (config == null || !config.HasImpactFlashKey)
         {
@@ -739,10 +889,18 @@ public class ProjectileVfxManager : MonoBehaviour
             rotation,
             config.ResolveImpactScaleMultiplierVector(),
             config.ResolveImpactPlaybackSpeed(),
-            config.ResolveImpactLifetimeSeconds());
+            config.ResolveImpactLifetimeSeconds(),
+            lifecycleGeneration);
     }
 
-    private async UniTask SpawnOneShotVfxAsync(string key, Vector3 position, Quaternion rotation, Vector3 scaleMultiplier, float playbackSpeed, float lifetimeSeconds)
+    private async UniTask SpawnOneShotVfxAsync(
+        string key,
+        Vector3 position,
+        Quaternion rotation,
+        Vector3 scaleMultiplier,
+        float playbackSpeed,
+        float lifetimeSeconds,
+        int lifecycleGeneration)
     {
         GameObject prefab = await LoadVfxPrefabAsync(key);
         if (prefab == null)
@@ -751,7 +909,7 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        if (this == null || !isActiveAndEnabled)
+        if (!IsLifecycleCurrent(lifecycleGeneration))
         {
             return;
         }
@@ -827,7 +985,11 @@ public class ProjectileVfxManager : MonoBehaviour
             float hitTime = active.HitTick * runner.DeltaTime;
             if (nowTime >= hitTime)
             {
-                SpawnImpactFlashAsync(active.Config, active.LastKnownTargetPos, active.LastKnownDirection).Forget();
+                SpawnImpactFlashAsync(
+                    active.Config,
+                    active.LastKnownTargetPos,
+                    active.LastKnownDirection,
+                    _lifecycleGeneration).Forget();
                 DespawnProjectile(active);
                 RemoveActive(active);
                 continue;

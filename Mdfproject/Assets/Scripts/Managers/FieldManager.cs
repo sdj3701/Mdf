@@ -4709,12 +4709,14 @@ public partial class FieldManager : MonoBehaviour
 
         if (unitDisplayedInPanel == unit && unitDetailPanelInstance != null)
         {
+            ++detailPanelRequestRevision;
             if (UIManagers.Instance != null)
             {
                 UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
             }
             unitDetailPanelInstance = null;
             unitDisplayedInPanel = null;
+            kingDisplayedInPanel = false;
             HideUnitSellPanel();
         }
         else if (unitDisplayedInSellPanel == unit)

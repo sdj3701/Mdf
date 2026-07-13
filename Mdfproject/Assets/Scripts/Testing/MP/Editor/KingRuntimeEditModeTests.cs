@@ -1,6 +1,8 @@
 using System.Reflection;
 using NUnit.Framework;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class KingRuntimeEditModeTests
 {
@@ -71,6 +73,149 @@ public class KingRuntimeEditModeTests
             Object.DestroyImmediate(king);
             Object.DestroyImmediate(unit);
         }
+    }
+
+    [Test]
+    public void KingSelectionBoundsComeFromRendererWithoutCollider()
+    {
+        var playerObject = new GameObject("KingSelectionBoundsPlayer");
+        var presentation = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        try
+        {
+            PlayerManager player = playerObject.AddComponent<PlayerManager>();
+            Collider collider = presentation.GetComponent<Collider>();
+            Object.DestroyImmediate(collider);
+            presentation.transform.position = new Vector3(3f, 2f, -1f);
+            presentation.transform.localScale = new Vector3(2f, 3f, 4f);
+            Renderer renderer = presentation.GetComponent<Renderer>();
+
+            SetPlayerField(player, "_kingPresentation", presentation);
+            SetPlayerField(player, "_kingRenderers", new[] { renderer });
+
+            Assert.That(presentation.GetComponentInChildren<Collider>(true), Is.Null);
+            Assert.That(player.TryGetKingPresentationBounds(out Bounds bounds), Is.True);
+            Assert.That(bounds.center, Is.EqualTo(renderer.bounds.center));
+            Assert.That(bounds.size, Is.EqualTo(renderer.bounds.size));
+
+            renderer.enabled = false;
+            Assert.That(player.TryGetKingPresentationBounds(out _), Is.False,
+                "disabled presentation renderers must not leave an invisible click target");
+        }
+        finally
+        {
+            Object.DestroyImmediate(presentation);
+            Object.DestroyImmediate(playerObject);
+        }
+    }
+
+    [Test]
+    public void KingDetailUsesRuntimeStatsWithBlankHealthAndReadOnlyControls()
+    {
+        var playerObject = new GameObject("KingDetailPlayer");
+        UnitData baseUnit = ScriptableObject.CreateInstance<UnitData>();
+        KingUnitData king = ScriptableObject.CreateInstance<KingUnitData>();
+        KingSkillData skill = ScriptableObject.CreateInstance<KingSkillData>();
+        using (var panel = new DetailPanelFixture())
+        {
+            try
+            {
+                PlayerManager player = playerObject.AddComponent<PlayerManager>();
+                baseUnit.unitName = "Archer";
+                baseUnit.baseAttackDamage = 80f;
+                baseUnit.attackSpeed = 2f;
+                baseUnit.defense = 7f;
+                baseUnit.magicResistance = 11f;
+                baseUnit.damageType = DamageType.Physical;
+                baseUnit.blockCount = 2;
+                baseUnit.manaRegenType = ManaRegenType.Passive;
+                king.baseUnitData = baseUnit;
+                king.baseAttackDamageMultiplier = 1.5f;
+                king.baseAttackSpeedMultiplier = 1.25f;
+                king.kingSkill = skill;
+                skill.description = "국왕의 전장 전체 공격";
+                SetPlayerField(player, "_selectedKingData", king);
+
+                panel.Controller.DisplayKingInfo(player);
+
+                Assert.That(panel.UnitName.text, Is.EqualTo("Archer 국왕"));
+                Assert.That(panel.Health.text, Is.Empty, "King HP must be blank rather than 0 or 0/0");
+                Assert.That(panel.AttackDamage.text, Is.EqualTo("120"));
+                Assert.That(panel.AttackSpeed.text, Is.EqualTo("2.50"));
+                Assert.That(panel.AttackRange.text, Is.EqualTo("ALL"));
+                Assert.That(panel.SkillDescription.text, Is.EqualTo(skill.description));
+                Assert.That(panel.SkillToggle.gameObject.activeSelf, Is.False);
+                Assert.That(ReadPrivateField<Unit>(panel.Controller, "currentUnit"), Is.Null);
+                Assert.That(ReadPrivateField<PlayerManager>(panel.Controller, "currentKingOwner"), Is.SameAs(player));
+            }
+            finally
+            {
+                Object.DestroyImmediate(playerObject);
+                Object.DestroyImmediate(skill);
+                Object.DestroyImmediate(king);
+                Object.DestroyImmediate(baseUnit);
+            }
+        }
+    }
+
+    [Test]
+    public void OrdinaryUnitDisplayRestoresHealthAndSkillToggleAfterKingMode()
+    {
+        var playerObject = new GameObject("KingToUnitDetailPlayer");
+        var unitObject = new GameObject("OrdinaryUnitDetailTarget");
+        UnitData baseUnit = ScriptableObject.CreateInstance<UnitData>();
+        KingUnitData king = ScriptableObject.CreateInstance<KingUnitData>();
+        using (var panel = new DetailPanelFixture())
+        {
+            try
+            {
+                PlayerManager player = playerObject.AddComponent<PlayerManager>();
+                baseUnit.unitName = "Fighter";
+                baseUnit.skillsByStarLevel = new[] { string.Empty };
+                king.baseUnitData = baseUnit;
+                SetPlayerField(player, "_selectedKingData", king);
+                panel.Controller.DisplayKingInfo(player);
+                Assert.That(panel.Health.text, Is.Empty);
+                Assert.That(panel.SkillToggle.gameObject.activeSelf, Is.False);
+
+                Unit unit = unitObject.AddComponent<Unit>();
+                SetPrivateField(unit, "unitData", baseUnit);
+                unit.currentHP = 73f;
+                unit.maxHP = 100f;
+                panel.Controller.DisplayUnitInfo(unit);
+
+                Assert.That(panel.Health.text, Is.EqualTo("73"));
+                Assert.That(panel.SkillToggle.gameObject.activeSelf, Is.True,
+                    "returning to a normal skilled Unit must restore its existing toggle behavior");
+                Assert.That(ReadPrivateField<Unit>(panel.Controller, "currentUnit"), Is.SameAs(unit));
+                Assert.That(ReadPrivateField<PlayerManager>(panel.Controller, "currentKingOwner"), Is.Null);
+            }
+            finally
+            {
+                Object.DestroyImmediate(unitObject);
+                Object.DestroyImmediate(playerObject);
+                Object.DestroyImmediate(king);
+                Object.DestroyImmediate(baseUnit);
+            }
+        }
+    }
+
+    [Test]
+    public void FieldKingSelectionIsReadOnlyAndRejectsLatePanelCompletion()
+    {
+        string source = MdfSourcePolicy.ReadStaticContract(
+            "Assets/Scripts/Managers/FieldManager.InputPresentation.cs");
+        int start = source.IndexOf("private async void ShowKingDetailPanel", System.StringComparison.Ordinal);
+        int end = source.IndexOf("private async void ShowUnitSellPanel", start, System.StringComparison.Ordinal);
+        Assert.That(start, Is.GreaterThanOrEqualTo(0));
+        Assert.That(end, Is.GreaterThan(start));
+        string kingSelectionPath = source.Substring(start, end - start);
+
+        Assert.That(source, Does.Contain("playerManager.TryGetKingPresentationBounds"));
+        Assert.That(source, Does.Contain("requestRevision != detailPanelRequestRevision"));
+        Assert.That(kingSelectionPath, Does.Contain("controller.DisplayKingInfo(playerManager)"));
+        Assert.That(kingSelectionPath, Does.Contain("HideUnitSellPanel();"));
+        Assert.That(kingSelectionPath, Does.Not.Contain("ShowUnitSellPanel("),
+            "King selection must never expose the ordinary unit sale action");
     }
 
     [Test]
@@ -428,7 +573,15 @@ public class KingRuntimeEditModeTests
                 instanceMembers);
             Assert.That(playAttack, Is.Not.Null);
             Assert.That(
-                (bool)playAttack.Invoke(player, new object[] { presentationObject.transform.position + Vector3.back * 20f }),
+                (bool)playAttack.Invoke(
+                    player,
+                    new object[]
+                    {
+                        presentationObject.transform.position + Vector3.back * 20f,
+                        default(Fusion.NetworkId),
+                        0,
+                        0
+                    }),
                 Is.True);
             Assert.That(
                 Quaternion.Angle(presentationObject.transform.rotation, cameraFacingRotation),
@@ -632,12 +785,88 @@ public class KingRuntimeEditModeTests
             "HostMigrationHandler terminal recovery gate must reject an unready King runtime.");
     }
 
-    private static void SetPlayerField<T>(PlayerManager player, string fieldName, T value)
+    private sealed class DetailPanelFixture : System.IDisposable
     {
-        FieldInfo field = typeof(PlayerManager).GetField(
+        public readonly GameObject Root;
+        public readonly UnitDetailPanelController Controller;
+        public readonly TextMeshProUGUI UnitName;
+        public readonly TextMeshProUGUI Health;
+        public readonly TextMeshProUGUI AttackDamage;
+        public readonly TextMeshProUGUI AttackSpeed;
+        public readonly TextMeshProUGUI AttackRange;
+        public readonly TextMeshProUGUI SkillDescription;
+        public readonly Toggle SkillToggle;
+
+        public DetailPanelFixture()
+        {
+            Root = new GameObject("KingDetailPanelFixture", typeof(RectTransform));
+            Controller = Root.AddComponent<UnitDetailPanelController>();
+            UnitName = CreateText("UnitName");
+            Health = CreateText("Health");
+            AttackDamage = CreateText("AttackDamage");
+            TextMeshProUGUI defense = CreateText("Defense");
+            TextMeshProUGUI magicResist = CreateText("MagicResist");
+            AttackSpeed = CreateText("AttackSpeed");
+            AttackRange = CreateText("AttackRange");
+            TextMeshProUGUI attackType = CreateText("AttackType");
+            TextMeshProUGUI blockCount = CreateText("BlockCount");
+            TextMeshProUGUI manaRegen = CreateText("ManaRegen");
+            SkillDescription = CreateText("SkillDescription");
+
+            var toggleObject = new GameObject("SkillToggle", typeof(RectTransform));
+            toggleObject.transform.SetParent(Root.transform, false);
+            SkillToggle = toggleObject.AddComponent<Toggle>();
+
+            SetPrivateField(Controller, "unitNameText", UnitName);
+            SetPrivateField(Controller, "healthText", Health);
+            SetPrivateField(Controller, "attackDamageText", AttackDamage);
+            SetPrivateField(Controller, "defenseText", defense);
+            SetPrivateField(Controller, "magicResistText", magicResist);
+            SetPrivateField(Controller, "attackSpeedText", AttackSpeed);
+            SetPrivateField(Controller, "attackRangeText", AttackRange);
+            SetPrivateField(Controller, "attackTypeText", attackType);
+            SetPrivateField(Controller, "blockCountText", blockCount);
+            SetPrivateField(Controller, "manaRegenText", manaRegen);
+            SetPrivateField(Controller, "skillDescriptionText", SkillDescription);
+            SetPrivateField(Controller, "skillActivationToggle", SkillToggle);
+        }
+
+        public void Dispose()
+        {
+            if (Root != null)
+            {
+                Object.DestroyImmediate(Root);
+            }
+        }
+
+        private TextMeshProUGUI CreateText(string name)
+        {
+            var textObject = new GameObject(name, typeof(RectTransform));
+            textObject.transform.SetParent(Root.transform, false);
+            return textObject.AddComponent<TextMeshProUGUI>();
+        }
+    }
+
+    private static void SetPrivateField<T>(object target, string fieldName, T value)
+    {
+        FieldInfo field = target.GetType().GetField(
             fieldName,
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
         Assert.That(field, Is.Not.Null, fieldName);
-        field.SetValue(player, value);
+        field.SetValue(target, value);
+    }
+
+    private static T ReadPrivateField<T>(object target, string fieldName)
+    {
+        FieldInfo field = target.GetType().GetField(
+            fieldName,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.That(field, Is.Not.Null, fieldName);
+        return (T)field.GetValue(target);
+    }
+
+    private static void SetPlayerField<T>(PlayerManager player, string fieldName, T value)
+    {
+        SetPrivateField(player, fieldName, value);
     }
 }

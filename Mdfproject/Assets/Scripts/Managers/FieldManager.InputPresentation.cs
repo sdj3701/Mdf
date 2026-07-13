@@ -12,6 +12,9 @@ public partial class FieldManager
     private static readonly Color WallSelectionTint = new Color(1f, 0.78f, 0.12f, 1f);
     private readonly Dictionary<MeshRenderer, MaterialPropertyBlock> wallSelectionOriginalBlocks =
         new Dictionary<MeshRenderer, MaterialPropertyBlock>();
+    private bool kingDisplayedInPanel;
+    private int detailPanelRequestRevision;
+    private int sellPanelRequestRevision;
 
     #region 유닛 상세 정보 패널 및 드래그 앤 드롭
 
@@ -127,6 +130,15 @@ public partial class FieldManager
         if (playerCamera == null) return false;
         if (!TryGetUnitBounds(unit, out Bounds bounds)) return false;
 
+        return TryGetWorldBoundsScreenRect(bounds, out rect, out depth);
+    }
+
+    private bool TryGetWorldBoundsScreenRect(Bounds bounds, out Rect rect, out float depth)
+    {
+        rect = default;
+        depth = float.MaxValue;
+        if (playerCamera == null) return false;
+
         Vector3 center = bounds.center;
         Vector3 extents = bounds.extents;
         float minX = float.PositiveInfinity;
@@ -148,6 +160,14 @@ public partial class FieldManager
 
         rect = Rect.MinMaxRect(minX, minY, maxX, maxY);
         return true;
+    }
+
+    private bool IsKingUnderMouse(Vector2 mouseScreen)
+    {
+        return playerManager != null
+               && playerManager.TryGetKingPresentationBounds(out Bounds bounds)
+               && TryGetWorldBoundsScreenRect(bounds, out Rect rect, out _)
+               && rect.Contains(mouseScreen);
     }
 
     private bool AccumulateScreenRect(
@@ -376,10 +396,15 @@ public partial class FieldManager
         // 마우스 버튼을 눌렀을 때
         if (MdfInput.PrimaryPointerWasPressedThisFrame())
         {
+            int requestRevision = ++detailPanelRequestRevision;
             // 셀 기반이 아니라 실제 유닛 콜라이더를 클릭해야 드래그 시작
             Unit clickedUnit = GetUnitUnderMouse();
+            Vector2 mouseScreen = MdfInput.PointerPosition;
+            bool clickedKing = clickedUnit == null && IsKingUnderMouse(mouseScreen);
             bool pointerOverUI = MdfInput.IsPointerOverFieldBlockingUI();
-            if (pointerOverUI && clickedUnit != null && ShouldAllowUnitDragThroughPrepareToolkit())
+            if (pointerOverUI
+                && (clickedUnit != null || clickedKing)
+                && ShouldAllowUnitDragThroughPrepareToolkit())
             {
                 pointerOverUI = false;
             }
@@ -388,11 +413,14 @@ public partial class FieldManager
             if (unitDetailPanelInstance != null && unitDetailPanelInstance.activeSelf)
             {
                 // 표시된 유닛을 다시 클릭한 경우 -> 패널 닫고 아무것도 안 함
-                if (!pointerOverUI && clickedUnit != null && clickedUnit == unitDisplayedInPanel)
+                if (!pointerOverUI
+                    && ((clickedUnit != null && clickedUnit == unitDisplayedInPanel)
+                        || (clickedKing && kingDisplayedInPanel)))
                 {
                     UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                     unitDetailPanelInstance = null;
                     unitDisplayedInPanel = null;
+                    kingDisplayedInPanel = false;
                     HideUnitSellPanel();
                     HideWallRemovePanel();
                     selectedUnit = null; // 모든 상태 초기화
@@ -405,6 +433,7 @@ public partial class FieldManager
                     UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                     unitDetailPanelInstance = null;
                     unitDisplayedInPanel = null;
+                    kingDisplayedInPanel = false;
                     HideUnitSellPanel();
                     HideWallRemovePanel();
                 }
@@ -416,8 +445,18 @@ public partial class FieldManager
             {
                 return;
             }
+            // Every new field selection invalidates an in-flight sell-panel acquisition. UI
+            // button presses returned above keep their active panel and dispatch normally.
+            HideUnitSellPanel();
+            if (clickedKing)
+            {
+                HideWallRemovePanel();
+                ShowKingDetailPanel(requestRevision);
+                return;
+            }
             if (clickedUnit != null)
             {
+                HideWallRemovePanel();
                 selectedUnit = clickedUnit;
                 mouseDownTimer = 0f;
                 isDragStarted = false;
@@ -478,6 +517,7 @@ public partial class FieldManager
                         UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
                         unitDetailPanelInstance = null;
                         unitDisplayedInPanel = null;
+                        kingDisplayedInPanel = false;
                         HideUnitSellPanel();
                     }
                 }
@@ -604,12 +644,10 @@ public partial class FieldManager
                 }
                 ShowUnitDetailPanel(selectedUnit);
                 ShowUnitSellPanel(selectedUnit);
-                // 유닛이 서 있는 그리드에 벽이 있으면 벽 제거 패널도 표시
-                GameObject wallAtUnitPos = GetRemovableWallObjectAt(originalUnitPosition);
-                if (wallAtUnitPos != null)
-                {
-                    ShowWallRemovePanel(wallAtUnitPos, originalUnitPosition);
-                }
+                // A unit and its supporting wall can share one grid cell. Showing both action
+                // panels makes the higher-sorted wall panel cover the destructive sell action.
+                // A direct unit click therefore owns the selection; move the unit before editing
+                // the wall underneath it.
             }
 
             // 상태 초기화
@@ -668,31 +706,103 @@ public partial class FieldManager
     private async void ShowUnitDetailPanel(Unit unit)
     {
         // 죽은 유닛인 경우 패널을 표시하지 않음
-        if (unit == null || unit.IsDead) return;
+        if (unit == null || unit.IsDead || UIManagers.Instance == null) return;
+
+        int requestRevision = ++detailPanelRequestRevision;
 
         // 패널 인스턴스가 없으면 UIManagers를 통해 가져옵니다.
         // 이는 씬에 미리 배치된 패널을 찾거나, 없을 경우 새로 생성하는 역할을 합니다.
-        if (unitDetailPanelInstance == null)
+        GameObject panel = unitDetailPanelInstance;
+        bool acquiredPanel = false;
+        if (panel == null)
         {
-            unitDetailPanelInstance = await UIManagers.Instance.GetUIElement("UI_Pnl_UnitDetail");
+            panel = await UIManagers.Instance.GetUIElement("UI_Pnl_UnitDetail");
+            acquiredPanel = true;
         }
 
-        if (unitDetailPanelInstance != null)
+        if (this == null
+            || requestRevision != detailPanelRequestRevision
+            || unit == null
+            || unit.IsDead
+            || panel == null)
         {
-            var controller = unitDetailPanelInstance.GetComponent<UnitDetailPanelController>();
-            if (controller != null)
-            {
-                controller.DisplayUnitInfo(unit);
-                // 패널의 위치는 프리팹/씬에 설정된 고정 위치를 사용하므로, 여기서 위치를 변경하지 않습니다.
-                unitDetailPanelInstance.SetActive(true);
-                unitDisplayedInPanel = unit;
-            }
+            ReturnStaleDetailPanel(panel, acquiredPanel);
+            return;
+        }
+
+        var controller = panel.GetComponent<UnitDetailPanelController>();
+        if (controller == null)
+        {
+            ReturnStaleDetailPanel(panel, acquiredPanel);
+            return;
+        }
+
+        unitDetailPanelInstance = panel;
+        controller.DisplayUnitInfo(unit);
+        // 패널의 위치는 프리팹/씬에 설정된 고정 위치를 사용하므로, 여기서 위치를 변경하지 않습니다.
+        panel.SetActive(true);
+        unitDisplayedInPanel = unit;
+        kingDisplayedInPanel = false;
+    }
+
+    private async void ShowKingDetailPanel(int requestRevision)
+    {
+        if (playerManager == null
+            || playerManager.SelectedKingBaseUnitData == null
+            || UIManagers.Instance == null)
+        {
+            return;
+        }
+
+        GameObject panel = unitDetailPanelInstance;
+        bool acquiredPanel = false;
+        if (panel == null)
+        {
+            panel = await UIManagers.Instance.GetUIElement("UI_Pnl_UnitDetail");
+            acquiredPanel = true;
+        }
+
+        if (this == null
+            || requestRevision != detailPanelRequestRevision
+            || panel == null
+            || playerManager == null
+            || playerManager.SelectedKingBaseUnitData == null)
+        {
+            ReturnStaleDetailPanel(panel, acquiredPanel);
+            return;
+        }
+
+        UnitDetailPanelController controller =
+            panel.GetComponent<UnitDetailPanelController>();
+        if (controller == null)
+        {
+            ReturnStaleDetailPanel(panel, acquiredPanel);
+            return;
+        }
+
+        unitDetailPanelInstance = panel;
+        controller.DisplayKingInfo(playerManager);
+        panel.SetActive(true);
+        unitDisplayedInPanel = null;
+        kingDisplayedInPanel = true;
+        HideUnitSellPanel();
+    }
+
+    private void ReturnStaleDetailPanel(GameObject panel, bool acquiredPanel)
+    {
+        if (acquiredPanel
+            && panel != null
+            && panel != unitDetailPanelInstance
+            && UIManagers.Instance != null)
+        {
+            UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
         }
     }
 
     private async void ShowUnitSellPanel(Unit unit)
     {
         if (unit == null || UIManagers.Instance == null) return;
+        int requestRevision = ++sellPanelRequestRevision;
 
         // 전투 시퀀스에서는 판매 패널을 표시하지 않음
         var gm = GameManagers.Instance;
@@ -701,40 +811,70 @@ public partial class FieldManager
             return;
         }
 
-        if (unitSellPanelInstance == null)
+        GameObject panel = unitSellPanelInstance;
+        bool acquiredPanel = false;
+        if (panel == null)
         {
-            unitSellPanelInstance = await UIManagers.Instance.GetUIElement("UI_Can_UnitSell");
+            panel = await UIManagers.Instance.GetUIElement("UI_Can_UnitSell");
+            acquiredPanel = true;
         }
 
-        if (unitSellPanelInstance != null)
+        gm = GameManagers.Instance;
+        if (this == null
+            || requestRevision != sellPanelRequestRevision
+            || panel == null
+            || unit == null
+            || unit.IsDead
+            || !GetUnitPosition(unit).HasValue
+            || (gm != null && (gm.GetGameState() != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)))
         {
-            unitSellPanelInstance.transform.SetParent(unit.transform, false);
+            ReturnStaleSellPanel(panel, acquiredPanel);
+            return;
+        }
 
-            var rootCanvas = unitSellPanelInstance.GetComponent<Canvas>();
-            if (rootCanvas != null)
-            {
-                rootCanvas.renderMode = RenderMode.WorldSpace;
-                rootCanvas.worldCamera = playerCamera;
-            }
+        unitSellPanelInstance = panel;
+        panel.transform.SetParent(unit.transform, false);
 
-            var controller = unitSellPanelInstance.GetComponentInChildren<UnitSellPanelController>(true);
-            if (controller != null)
-            {
-                var controllerCanvas = controller.GetComponent<Canvas>();
-                if (controllerCanvas != null && controllerCanvas != rootCanvas)
-                {
-                    controllerCanvas.renderMode = RenderMode.WorldSpace;
-                    controllerCanvas.worldCamera = playerCamera;
-                }
-                controller.Bind(unit, this);
-                unitSellPanelInstance.SetActive(true);
-                unitDisplayedInSellPanel = unit;
-            }
+        var rootCanvas = panel.GetComponent<Canvas>();
+        if (rootCanvas != null)
+        {
+            rootCanvas.renderMode = RenderMode.WorldSpace;
+            rootCanvas.worldCamera = playerCamera;
+        }
+
+        var controller = panel.GetComponentInChildren<UnitSellPanelController>(true);
+        if (controller == null)
+        {
+            unitSellPanelInstance = null;
+            ReturnStaleSellPanel(panel, acquiredPanel);
+            return;
+        }
+
+        var controllerCanvas = controller.GetComponent<Canvas>();
+        if (controllerCanvas != null && controllerCanvas != rootCanvas)
+        {
+            controllerCanvas.renderMode = RenderMode.WorldSpace;
+            controllerCanvas.worldCamera = playerCamera;
+        }
+        controller.Bind(unit, this);
+        panel.SetActive(true);
+        unitDisplayedInSellPanel = unit;
+    }
+
+    private void ReturnStaleSellPanel(GameObject panel, bool acquiredPanel)
+    {
+        if (acquiredPanel
+            && panel != null
+            && panel != unitSellPanelInstance
+            && UIManagers.Instance != null)
+        {
+            UIManagers.Instance.ReturnUIElement("UI_Can_UnitSell");
         }
     }
 
     private void HideUnitSellPanel()
     {
+        ++sellPanelRequestRevision;
         if (unitSellPanelInstance != null && UIManagers.Instance != null)
         {
             UIManagers.Instance.ReturnUIElement("UI_Can_UnitSell");
@@ -880,12 +1020,19 @@ public partial class FieldManager
     /// </summary>
     public void HideAllSelectionPanels()
     {
+        ++detailPanelRequestRevision;
         // 유닛 디테일 패널 숨기기
         if (unitDetailPanelInstance != null && UIManagers.Instance != null)
         {
             UIManagers.Instance.ReturnUIElement("UI_Pnl_UnitDetail");
             unitDetailPanelInstance = null;
             unitDisplayedInPanel = null;
+            kingDisplayedInPanel = false;
+        }
+        else
+        {
+            unitDisplayedInPanel = null;
+            kingDisplayedInPanel = false;
         }
 
         // 유닛 판매 패널 숨기기

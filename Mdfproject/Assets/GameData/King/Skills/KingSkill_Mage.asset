@@ -12,8 +12,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 527aae111f667914f95eea592ddd0c9c, type: 3}
   m_Name: KingSkill_Mage
   m_EditorClassIdentifier: 
-  skillName: "\uC655\uC758 \uC808\uB300\uC601\uB3C4"
-  description: "전장 전체에 절대영도를 펼쳐 모든 적에게 강한 마법 피해를 줍니다."
+  skillName: "\uC808\uB300\uC601\uB3C4"
+  description: "\uC804\uC7A5 \uC804\uCCB4\uC5D0 \uC808\uB300\uC601\uB3C4\uB97C \uD3BC\uCCD0
+    \uBAA8\uB4E0 \uC801\uC5D0\uAC8C \uAC15\uD55C \uB9C8\uBC95 \uD53C\uD574\uB97C
+    \uC90D\uB2C8\uB2E4."
   iconKey: Spr_Port_Mage
   effectKind: 0
   radius: 0

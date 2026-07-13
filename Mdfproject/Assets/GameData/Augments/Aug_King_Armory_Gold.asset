@@ -13,8 +13,8 @@ MonoBehaviour:
   m_Name: Aug_King_Armory_Gold
   m_EditorClassIdentifier: 
   augmentName: "\uC655\uC2E4 \uBB34\uAE30\uACE0"
-  description: "\uAD6D\uC655\uC758 \uACF5\uACA9\uB825 +25%, \uACF5\uACA9\uC18D\uB3C4
-    +10%, \uAD6D\uC655 \uC2A4\uD0AC \uC704\uB825 +20%. \uC5EC\uB7EC \uBC88 \uC120\uD0DD\uD560
+  description: "\uAD6D\uC655 \uACF5\uACA9\uB825 +25%, \uACF5\uACA9\uC18D\uB3C4 +10%,
+    \uAD6D\uC655 \uC2A4\uD0AC \uC704\uB825 +20%. \uC5EC\uB7EC \uBC88 \uC120\uD0DD\uD560
     \uC218 \uC788\uC2B5\uB2C8\uB2E4."
   icon: {fileID: 21300000, guid: 9d084439f28a6de4fbfaf8064ae4f06f, type: 3}
   tier: 1
