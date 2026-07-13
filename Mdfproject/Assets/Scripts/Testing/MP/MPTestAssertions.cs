@@ -78,6 +78,11 @@ public static class MPTestAssertions
                 result.AddError($"player.{player.PlayerId}.wallCount_negative {player.WallCount}");
             }
 
+            if (player.PermanentWallPlacementCount < 0)
+            {
+                result.AddError($"player.{player.PlayerId}.permanentWallPlacementCount_negative {player.PermanentWallPlacementCount}");
+            }
+
             if (player.BlackMagicCurrent < 0 || player.BlackMagicMaximum < 0 || player.BlackMagicMaxBonus < 0)
             {
                 result.AddError(
@@ -165,6 +170,9 @@ public static class MPTestAssertions
             CompareEqual(result, $"player.{left.PlayerId}.health", left.Health, right.Health);
             CompareEqual(result, $"player.{left.PlayerId}.gold", left.Gold, right.Gold);
             CompareEqual(result, $"player.{left.PlayerId}.wallCount", left.WallCount, right.WallCount);
+            CompareEqual(result, $"player.{left.PlayerId}.permanentWallPlacementCount", left.PermanentWallPlacementCount, right.PermanentWallPlacementCount);
+            CompareEqual(result, $"player.{left.PlayerId}.permanentWallStockRevision", left.PermanentWallStockRevision, right.PermanentWallStockRevision);
+            CompareEqual(result, $"player.{left.PlayerId}.permanentWallLayoutRevision", left.PermanentWallLayoutRevision, right.PermanentWallLayoutRevision);
             CompareEqual(result, $"player.{left.PlayerId}.blackMagicCurrent", left.BlackMagicCurrent, right.BlackMagicCurrent);
             CompareEqual(result, $"player.{left.PlayerId}.blackMagicMaximum", left.BlackMagicMaximum, right.BlackMagicMaximum);
             CompareEqual(result, $"player.{left.PlayerId}.blackMagicMaxBonus", left.BlackMagicMaxBonus, right.BlackMagicMaxBonus);
@@ -272,6 +280,8 @@ public static class MPTestAssertions
         CompareKnownHash(result, $"player.{playerId}.field.placedUnitsHash", expected.PlacedUnitsHash, actual.PlacedUnitsHash);
         CompareNullable(result, $"player.{playerId}.field.destructibleWallCount", expected.DestructibleWallCount, actual.DestructibleWallCount);
         CompareNullable(result, $"player.{playerId}.field.permanentWallCount", expected.PermanentWallCount, actual.PermanentWallCount);
+        CompareNullable(result, $"player.{playerId}.field.playerPlacedPermanentWallCount", expected.PlayerPlacedPermanentWallCount, actual.PlayerPlacedPermanentWallCount);
+        CompareKnownHash(result, $"player.{playerId}.field.playerPlacedPermanentWallHash", expected.PlayerPlacedPermanentWallHash, actual.PlayerPlacedPermanentWallHash);
         CompareKnownHash(result, $"player.{playerId}.field.wallHash", expected.WallHash, actual.WallHash);
         CompareKnownOrRequired(
             result,

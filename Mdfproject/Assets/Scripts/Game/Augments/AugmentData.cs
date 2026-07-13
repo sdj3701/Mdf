@@ -22,7 +22,8 @@ public enum EffectType
     GrantMagicScroll,
     // Append new values to preserve serialized enum values in existing assets.
     StrengthenMonsterType,
-    IncreaseBlackMagicMaximum
+    IncreaseBlackMagicMaximum,
+    GrantPermanentWallPlacementCount
 }
 
 // ✅ [추가] 증강의 등급을 정의하는 열거형

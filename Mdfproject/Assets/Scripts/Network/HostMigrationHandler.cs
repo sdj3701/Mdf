@@ -70,6 +70,9 @@ public class HostMigrationHandler : MonoBehaviour
         public int Health;
         public int Gold;
         public int WallCount;
+        public int PermanentWallPlacementCount;
+        public int PermanentWallStockRevision;
+        public int PermanentWallLayoutRevision;
         public bool IsAI;
         public bool IsConnected;
         public bool HasInputAuthority;
@@ -80,6 +83,7 @@ public class HostMigrationHandler : MonoBehaviour
         public int ShopRevision;
         public int ShopRound;
         public int[] PermanentWallFlatPositions;
+        public int[] PlayerPlacedPermanentWallFlatPositions;
         public string WallHash;
         public UnitData[] FieldUnitDataRefs;
         public string[] FieldUnitDataKeys;
@@ -2055,6 +2059,9 @@ public class HostMigrationHandler : MonoBehaviour
                 Health = player.GetHealth(),
                 Gold = player.GetGold(),
                 WallCount = player.GetWallCount(),
+                PermanentWallPlacementCount = player.GetPermanentWallPlacementCount(),
+                PermanentWallStockRevision = player.PermanentWallStockRevision,
+                PermanentWallLayoutRevision = player.PermanentWallLayoutRevision,
                 IsAI = player.GetComponent<AIPlayerController>() != null,
                 IsConnected = IsInputAuthorityActive(player),
                 HasInputAuthority = player.Object != null && player.Object.HasInputAuthority,
@@ -2065,6 +2072,7 @@ public class HostMigrationHandler : MonoBehaviour
                 ShopRevision = 0,
                 ShopRound = 0,
                 PermanentWallFlatPositions = Array.Empty<int>(),
+                PlayerPlacedPermanentWallFlatPositions = Array.Empty<int>(),
                 WallHash = string.Empty,
                 FieldUnitDataRefs = Array.Empty<UnitData>(),
                 FieldUnitDataKeys = Array.Empty<string>(),
@@ -2118,6 +2126,7 @@ public class HostMigrationHandler : MonoBehaviour
             {
                 player.fieldManager.RebuildWallMapsAfterMigration("HostMigrationHandler.CaptureDurablePlayerState", false, out _);
                 snapshot.PermanentWallFlatPositions = player.fieldManager.GetPermanentWallFlatPositions() ?? Array.Empty<int>();
+                snapshot.PlayerPlacedPermanentWallFlatPositions = player.fieldManager.GetPlayerPlacedPermanentWallFlatPositions() ?? Array.Empty<int>();
                 snapshot.WallHash = player.fieldManager.BuildWallCellHash();
                 player.fieldManager.TryGetDestructibleWallMigrationSnapshot(
                     out snapshot.DestructibleWallFlatPositions,
@@ -2333,6 +2342,15 @@ public class HostMigrationHandler : MonoBehaviour
                 snapshot.ShopRevision,
                 snapshot.ShopRound,
                 context);
+            if (!player.RestorePermanentWallStateAfterHostMigration(
+                    snapshot.PermanentWallPlacementCount,
+                    snapshot.PermanentWallStockRevision,
+                    snapshot.PermanentWallLayoutRevision,
+                    context))
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] permanent wall stock restore failed P{snapshot.PlayerId} ({context})");
+            }
             if (!player.RestoreBlackMagicAfterHostMigration(
                     snapshot.BlackMagicCurrent,
                     snapshot.BlackMagicMaximum,
@@ -2377,10 +2395,16 @@ public class HostMigrationHandler : MonoBehaviour
             restoredPlayers++;
             restoredPlayersBySnapshotId[snapshot.PlayerId] = player;
 
-            if (player.fieldManager != null && snapshot.PermanentWallFlatPositions != null && snapshot.PermanentWallFlatPositions.Length > 0)
+            if (player.fieldManager != null)
             {
-                player.fieldManager.RestorePermanentWallsAfterHostMigration(snapshot.PermanentWallFlatPositions, context);
-                restoredWalls++;
+                player.fieldManager.RestorePermanentWallsAfterHostMigration(
+                    snapshot.PermanentWallFlatPositions,
+                    snapshot.PlayerPlacedPermanentWallFlatPositions,
+                    context);
+                if ((snapshot.PermanentWallFlatPositions?.Length ?? 0) > 0)
+                {
+                    restoredWalls++;
+                }
             }
 
             if (shouldRestoreFieldUnits && player.fieldManager != null)

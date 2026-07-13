@@ -1113,13 +1113,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                 out _,
                 forceRebuild: true);
 
-            int[] permanentWalls = player.fieldManager.GetPermanentWallFlatPositions();
-            if (permanentWalls.Length <= 0)
-            {
-                continue;
-            }
-
-            player.RPC_ApplyPermanentWalls(permanentWalls);
+            int[] permanentWalls = player.fieldManager.BuildPermanentWallSyncPayload(
+                "NetworkManager.ReconnectLateJoinSync");
+            player.RPC_ApplyPermanentWalls(player.PermanentWallLayoutRevision, permanentWalls);
             wallSyncs++;
         }
 

@@ -209,6 +209,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e4b85e47275e95e46a0990c0d4ee689f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _BlackMagicCurrent: 0
+  _BlackMagicMaximum: 0
+  _BlackMagicMaxBonus: 0
+  _BlackMagicRevision: 0
+  _BlackMagicSequenceId: 0
   _playerId: 0
   _IsAiControlled:
     _value: 0
@@ -240,6 +245,9 @@ MonoBehaviour:
     _value: 0
   _AttackMonsterPoolRevision: 0
   _OwnedMagicScrollRevision: 0
+  _PermanentWallPlacementCount: 0
+  _PermanentWallStockRevision: 0
+  _PermanentWallLayoutRevision: 0
 --- !u!114 &-7495182607667504553
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -387,7 +395,7 @@ MonoBehaviour:
   permanentWallPrefab: {fileID: 7586660566649568007, guid: 3bf990b075171b04bb58bfb3aa3402cb,
     type: 3}
   permanentWallAddressKey: PermanentWallPrefab
-  initialPermanentWallCount: 4
+  initialPermanentWallCount: 0
   wallLayerName: Wall
   attackRangeIndicatorPrefab: {fileID: 6707416124263797107, guid: fe466910ad4bce1449daf555db79121d,
     type: 3}
@@ -418,6 +426,7 @@ MonoBehaviour:
   useWorldDistanceFallback: 0
   clickPickMaxWorldDistance: 0.4
   showGridDebug: 1
+  allowGridLinesInRelease: 0
   gridLineColor: {r: 0.3584906, g: 0.3567996, b: 0.3567996, a: 0.5}
   borderLineColor: {r: 1, g: 0.5, b: 0, a: 0.56078434}
   spawnGoalColor: {r: 0, g: 1, b: 0, a: 0.21176471}

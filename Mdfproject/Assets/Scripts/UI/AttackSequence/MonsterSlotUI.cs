@@ -85,7 +85,7 @@ public class MonsterSlotUI : MonoBehaviour
         {
             countText.text = _poolEntry.IsBoss
                 ? $"x{_poolEntry.RemainingCount}"
-                : $"흑마력 {Mathf.Max(0, _poolEntry.MonsterData.blackMagicCost)}";
+                : Mathf.Max(0, _poolEntry.MonsterData.blackMagicCost).ToString();
         }
 
         UpdateVisualState();

@@ -177,7 +177,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     {
         decision = null;
         var player = context.Actor;
-        if (player.GetWallCount() <= 0 || player.fieldManager == null || !player.IsReadyForPlayerActions)
+        if (GetTotalWallStock(player) <= 0 || player.fieldManager == null || !player.IsReadyForPlayerActions)
         {
             return false;
         }
@@ -200,7 +200,12 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         RememberWallCandidate(player, position, round);
         decision = MdfDecision.ForCommand(
             context,
-            new PlaceWallCommand(player.playerId, position),
+            new PlaceWallCommand(
+                player.playerId,
+                position,
+                player.GetPermanentWallPlacementCount() > 0
+                    ? WallPlacementKind.Permanent
+                    : WallPlacementKind.Destructible),
             CommandType.PlaceWall,
             isRepair ? "maze_policy_repair_missing_wall" : "maze_policy_next_wall",
             $"{position.x},{position.y},{position.z}",
@@ -214,7 +219,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
                 { "persistentWallBlueprint", true },
                 { "repairMissingMazeWall", isRepair },
                 { "prepareRoutineStage", PrepareRoutineStage.Maze.ToString() },
-                { "pendingWallSuppression", true }
+                { "pendingWallSuppression", true },
+                { "wallKind", player.GetPermanentWallPlacementCount() > 0 ? WallPlacementKind.Permanent.ToString() : WallPlacementKind.Destructible.ToString() }
             }));
         return true;
     }
@@ -933,8 +939,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
             bool wasBuilt = HasBuiltWallCandidate(player, candidate);
             bool canSpend = wasBuilt
-                ? player.GetWallCount() > 0
-                : player.GetWallCount() > GetWallBuildReserve(player);
+                ? GetTotalWallStock(player) > 0
+                : GetTotalWallStock(player) > GetWallBuildReserve(player);
             if (!canSpend)
             {
                 continue;
@@ -962,7 +968,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     {
         position = default(Vector3Int);
         var field = player != null ? player.fieldManager : null;
-        if (field == null || round < 2 || player.GetWallCount() <= 0 || !HasRecordedBuiltWallCandidate(player))
+        if (field == null || round < 2 || GetTotalWallStock(player) <= 0 || !HasRecordedBuiltWallCandidate(player))
         {
             return false;
         }
@@ -1082,8 +1088,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
             bool wasBuilt = HasBuiltWallCandidate(player, candidate);
             bool canSpend = wasBuilt
-                ? player.GetWallCount() > 0
-                : player.GetWallCount() > GetWallBuildReserve(player);
+                ? GetTotalWallStock(player) > 0
+                : GetTotalWallStock(player) > GetWallBuildReserve(player);
             if (!canSpend)
             {
                 continue;
@@ -1389,7 +1395,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     private bool HasRepairableMissingWallPlan(PlayerManager player, int round)
     {
         var field = player != null ? player.fieldManager : null;
-        if (field == null || round < 2 || player.GetWallCount() <= 0 || !HasRecordedBuiltWallCandidate(player))
+        if (field == null || round < 2 || GetTotalWallStock(player) <= 0 || !HasRecordedBuiltWallCandidate(player))
         {
             return false;
         }
@@ -1411,6 +1417,13 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
     private static int GetWallBuildReserve(PlayerManager player)
     {
         return Mathf.Max(MinimumRepairReserveWalls, player != null ? player.GetWallReserveK() : 0);
+    }
+
+    private static int GetTotalWallStock(PlayerManager player)
+    {
+        return player == null
+            ? 0
+            : Mathf.Max(0, player.GetWallCount()) + Mathf.Max(0, player.GetPermanentWallPlacementCount());
     }
 
     private bool IsValidMoveDestination(PlayerManager player, Unit unit, Vector3Int? destination, Vector3Int from, int round)
@@ -1790,7 +1803,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
     private bool ShouldAllowWallFocus(PlayerManager player, PrepareArmyComposition composition, int round)
     {
-        if (player == null || player.GetWallCount() <= 0 || player.fieldManager == null)
+        if (player == null || GetTotalWallStock(player) <= 0 || player.fieldManager == null)
         {
             return false;
         }
@@ -1801,7 +1814,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         if (GetPrepareRoutineStage(player, round) >= PrepareRoutineStage.Maze &&
-            player.GetWallCount() > GetWallBuildReserve(player))
+            GetTotalWallStock(player) > GetWallBuildReserve(player))
         {
             return true;
         }
@@ -1811,7 +1824,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        if (player.GetWallCount() > GetWallBuildReserve(player))
+        if (GetTotalWallStock(player) > GetWallBuildReserve(player))
         {
             return true;
         }
@@ -1826,7 +1839,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
     private bool ShouldPrioritizeWallControl(PlayerManager player, PrepareArmyComposition composition, int round)
     {
-        if (player == null || player.GetWallCount() <= 0 || player.fieldManager == null)
+        if (player == null || GetTotalWallStock(player) <= 0 || player.fieldManager == null)
         {
             return false;
         }
@@ -1836,7 +1849,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return true;
         }
 
-        if (player.GetWallCount() <= GetWallBuildReserve(player) || !ShouldAllowWallFocus(player, composition, round))
+        if (GetTotalWallStock(player) <= GetWallBuildReserve(player) || !ShouldAllowWallFocus(player, composition, round))
         {
             return false;
         }

@@ -628,6 +628,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private readonly HashSet<uint> _retiredUnitRegistrationIds = new HashSet<uint>();
     private readonly Dictionary<uint, PendingUnitReg> _latestUnitRegistrationById = new Dictionary<uint, PendingUnitReg>();
     private int[] _pendingPermanentWallFlatPositions;
+    private int _pendingPermanentWallLayoutRevision = -1;
     private int[] _pendingUnitRosterIdRaws;
     private int[] _pendingUnitRosterFlatPositions;
     private string[] _pendingUnitRosterDataKeys;
@@ -668,6 +669,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             wallCount = initialWallCount;
         }
 
+        InitializePermanentWallStateOnSpawn(isHostMigration);
+
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
         ApplyPermanentBonusesFromNetworkSnapshot();
         ApplyPendingDurableConnectionTokenHashOnSpawn();
@@ -702,6 +705,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             if (propertyName == nameof(wallCount))
             {
                 GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
+            }
+            if (propertyName == nameof(PermanentWallPlacementCount))
+            {
+                GameEvents.TriggerPlayerPermanentWallCountChanged(playerId, PermanentWallPlacementCount);
             }
             if (propertyName == nameof(PermanentAttackDamageBonusPermille) ||
                 propertyName == nameof(PermanentAttackSpeedBonusPermille))
@@ -1430,29 +1437,28 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void RPC_ApplyPermanentWalls(int[] flatPositions)
+    public void RPC_ApplyPermanentWalls(int layoutRevision, int[] packedPositions)
     {
-        if (flatPositions == null || flatPositions.Length == 0)
-        {
-            return;
-        }
+        packedPositions ??= System.Array.Empty<int>();
 
         if (fieldManager == null)
         {
-            _pendingPermanentWallFlatPositions = flatPositions.ToArray();
+            _pendingPermanentWallFlatPositions = packedPositions.ToArray();
+            _pendingPermanentWallLayoutRevision = layoutRevision;
             RebindRuntimeReferencesAfterMigration("RPC_ApplyPermanentWalls.Pending", false);
         }
 
         if (fieldManager != null)
         {
-            fieldManager.ApplyPermanentWallsFromServer(flatPositions);
+            fieldManager.ApplyPermanentWallsFromServer(layoutRevision, packedPositions);
             _pendingPermanentWallFlatPositions = null;
+            _pendingPermanentWallLayoutRevision = -1;
         }
     }
 
     private void DrainPendingPermanentWalls(string context)
     {
-        if (_pendingPermanentWallFlatPositions == null || _pendingPermanentWallFlatPositions.Length == 0)
+        if (_pendingPermanentWallFlatPositions == null || _pendingPermanentWallLayoutRevision < 0)
         {
             return;
         }
@@ -1468,8 +1474,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
 
         var pending = _pendingPermanentWallFlatPositions;
+        int pendingRevision = _pendingPermanentWallLayoutRevision;
         _pendingPermanentWallFlatPositions = null;
-        fieldManager.ApplyPermanentWallsFromServer(pending);
+        _pendingPermanentWallLayoutRevision = -1;
+        fieldManager.ApplyPermanentWallsFromServer(pendingRevision, pending);
     }
 
     private void QueuePermanentWallSyncBroadcast(string context)
@@ -1511,10 +1519,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
             int[] flat = fieldManager.BuildPermanentWallSyncPayload(
                 $"PlayerManager.{context}.BroadcastPermanentWallsForLatePeers.{attempt + 1}");
-            if (flat != null && flat.Length > 0)
-            {
-                RPC_ApplyPermanentWalls(flat);
-            }
+            RPC_ApplyPermanentWalls(PermanentWallLayoutRevision, flat ?? System.Array.Empty<int>());
 
             yield return new WaitForSeconds(intervalSeconds);
         }

@@ -10,16 +10,17 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
-  m_Name: Aug_Util_BlackMagicMax_Normal
+  m_Name: Aug_Util_PermanentWallCount_Normal
   m_EditorClassIdentifier: 
-  augmentName: "\uD751\uB9C8\uB825 \uD655\uC7A5"
-  description: "\uB2E4\uC74C \uACF5\uACA9 \uC2DC\uD000\uC2A4\uBD80\uD130 \uCD5C\uB300
-    \uD751\uB9C8\uB825\uC774 20 \uC99D\uAC00\uD569\uB2C8\uB2E4."
-  icon: {fileID: 21300000, guid: 937f5225918eaf54f822d66ee8ff864b, type: 3}
+  augmentName: "\uC601\uAD6C \uBC29\uBCBD"
+  description: "\uBD80\uC220 \uC218 \uC5C6\uB294 \uACE0\uC815\uBCBD\uC744 3\uAC1C
+    \uC124\uCE58\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uCCA0\uAC70\uD558\uBA74
+    \uC124\uCE58 \uD69F\uC218\uB97C \uB3CC\uB824\uBC1B\uC2B5\uB2C8\uB2E4."
+  icon: {fileID: 21300000, guid: 5fc3056e5a7fc37478e9bb4e3fcbd487, type: 3}
   tier: 0
   targetType: 0
-  effectType: 9
-  value: 20
+  effectType: 10
+  value: 3
   isBossSummon: 0
   bossMonsterData: {fileID: 0}
   monsterSpawnEntries: []

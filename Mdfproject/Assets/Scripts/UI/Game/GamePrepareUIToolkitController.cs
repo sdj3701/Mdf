@@ -50,6 +50,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const float ShopToggleButtonSize = RerollButtonSize;
     private const float ShopToggleButtonBottom = HudBottomInset;
     private const float WallButtonSize = RerollButtonSize;
+    private const float WallKindToggleSize = 54f;
     private const float RoundTimerWidth = 320f;
     private const float RoundTimerHeight = 40f;
     private const float AugmentPanelTopMin = 220f;
@@ -87,7 +88,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private Label hudShopLabel;
     private Label hudShopGoldLabel;
     private VisualElement hudWallButton;
+    private VisualElement hudWallIcon;
     private Label hudWallLabel;
+    private VisualElement hudWallKindToggleButton;
     private VisualElement hudOptionButton;
     private Label roundTimerLabel;
     private VisualElement resourceRoot;
@@ -114,6 +117,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private int lastGoldCount = int.MinValue;
     private int lastResourceWallCount = int.MinValue;
     private int lastWallCount = int.MinValue;
+    private int lastPermanentWallCount = int.MinValue;
+    private WallPlacementKind lastWallKind = (WallPlacementKind)(-1);
     private bool lastPrepareButtonsVisible;
     private bool lastHudOptionVisible;
     private bool lastHudShopVisible;
@@ -442,6 +447,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         if (ContainsPoint(hudShopButton, panelPosition) ||
             ContainsPoint(hudWallButton, panelPosition) ||
+            ContainsPoint(hudWallKindToggleButton, panelPosition) ||
             ContainsPoint(hudOptionButton, panelPosition))
         {
             return true;
@@ -511,6 +517,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         if (IsElementOrChildOf(element, hudShopButton) ||
             IsElementOrChildOf(element, hudWallButton) ||
+            IsElementOrChildOf(element, hudWallKindToggleButton) ||
             IsElementOrChildOf(element, hudOptionButton) ||
             IsElementOrChildOf(element, rerollButton))
         {
@@ -723,12 +730,14 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         hudShopLabel = root?.Q<Label>("game-shop-toggle-label");
         hudShopGoldLabel = root?.Q<Label>("game-shop-gold-count-label");
         hudWallButton = root?.Q<VisualElement>("game-wall-button");
+        hudWallIcon = root?.Q<VisualElement>("game-wall-icon");
         hudWallLabel = root?.Q<Label>("game-wall-count-label");
+        hudWallKindToggleButton = root?.Q<VisualElement>("game-wall-kind-toggle-button");
         hudOptionButton = root?.Q<VisualElement>("game-option-button");
         roundTimerLabel = root?.Q<Label>("game-round-timer-label");
         resourceRoot = root?.Q<VisualElement>("game-resource-root");
         resourceGoldValue = root?.Q<Label>("game-gold-count-value");
-        resourceWallValue = root?.Q<Label>("game-wall-count-label");
+        resourceWallValue = root?.Q<Label>("game-resource-wall-count-value");
         attackSequencePanel = root?.Q<VisualElement>("attack-sequence-panel");
         attackMonsterRow = root?.Q<VisualElement>("attack-monster-row");
         attackBlackMagicLabel = root?.Q<Label>("attack-black-magic-label");
@@ -787,6 +796,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         SetPickingMode(hudRoot, PickingMode.Ignore);
         SetPickingMode(hudShopButton, PickingMode.Position);
         SetPickingMode(hudWallButton, PickingMode.Position);
+        SetPickingMode(hudWallKindToggleButton, PickingMode.Position);
         SetPickingMode(hudOptionButton, PickingMode.Position);
         SetPickingMode(roundTimerLabel, PickingMode.Ignore);
         SetPickingMode(resourceRoot, PickingMode.Ignore);
@@ -926,6 +936,15 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
         });
 
+        hudWallKindToggleButton?.RegisterCallback<PointerUpEvent>(evt =>
+        {
+            if (evt.button == 0)
+            {
+                HandleHudWallKindToggleClicked();
+                evt.StopPropagation();
+            }
+        });
+
         hudOptionButton?.RegisterCallback<PointerUpEvent>(evt =>
         {
             if (evt.button == 0)
@@ -956,6 +975,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         GameEvents.OnAugmentApplied += HandleAugmentApplied;
         GameEvents.OnPlayerStatsChanged += HandlePlayerStatsChanged;
         GameEvents.OnPlayerWallCountChanged += HandlePlayerWallCountChanged;
+        GameEvents.OnPlayerPermanentWallCountChanged += HandlePlayerPermanentWallCountChanged;
         GameEvents.OnMonsterPoolChanged += HandleMonsterPoolChanged;
         GameEvents.OnBlackMagicChanged += HandleBlackMagicChanged;
         GameEvents.OnMagicScrollPoolChanged += HandleMagicScrollPoolChanged;
@@ -981,6 +1001,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         GameEvents.OnAugmentApplied -= HandleAugmentApplied;
         GameEvents.OnPlayerStatsChanged -= HandlePlayerStatsChanged;
         GameEvents.OnPlayerWallCountChanged -= HandlePlayerWallCountChanged;
+        GameEvents.OnPlayerPermanentWallCountChanged -= HandlePlayerPermanentWallCountChanged;
         GameEvents.OnMonsterPoolChanged -= HandleMonsterPoolChanged;
         GameEvents.OnBlackMagicChanged -= HandleBlackMagicChanged;
         GameEvents.OnMagicScrollPoolChanged -= HandleMagicScrollPoolChanged;
@@ -1104,6 +1125,16 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         RefreshResourceState(true);
+    }
+
+    private void HandlePlayerPermanentWallCountChanged(int playerId, int newWallCount)
+    {
+        if (!IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        UpdateHudState(true);
     }
 
     private void HandleMonsterPoolChanged(int playerId, List<MonsterPoolEntry> pool)
@@ -1450,6 +1481,18 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         UpdateHudState(true);
     }
 
+    private void HandleHudWallKindToggleClicked()
+    {
+        RefreshRuntimeReferences();
+        if (!CanUsePrepareHudActions() || localPlayer?.fieldManager == null)
+        {
+            return;
+        }
+
+        localPlayer.fieldManager.ToggleWallPlacementKind();
+        UpdateHudState(true);
+    }
+
     private async UniTask OpenOptionCanvasAsync()
     {
         if (UIManagers.Instance != null)
@@ -1773,6 +1816,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             SetPickingMode(shopControlRow, PickingMode.Ignore);
             SetVisible(hudShopButton, prepareButtonsVisible);
             SetVisible(hudWallButton, prepareButtonsVisible);
+            SetVisible(hudWallKindToggleButton, prepareButtonsVisible);
             lastPrepareButtonsVisible = prepareButtonsVisible;
         }
 
@@ -1801,11 +1845,25 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         UpdateRerollLabel(force);
 
         var wallModeActive = CanShowPrepareHudActions() && IsWallPlacementActive();
-        if (force || wallCount != lastWallCount || wallModeActive != lastWallModeActive)
+        WallPlacementKind wallKind = localPlayer?.fieldManager != null
+            ? localPlayer.fieldManager.GetWallPlacementKind()
+            : WallPlacementKind.Destructible;
+        int permanentWallCount = localPlayer != null
+            ? localPlayer.GetPermanentWallPlacementCount()
+            : 0;
+        int displayedWallCount = wallKind == WallPlacementKind.Permanent
+            ? permanentWallCount
+            : wallCount;
+        if (force || wallCount != lastWallCount || permanentWallCount != lastPermanentWallCount ||
+            wallKind != lastWallKind || wallModeActive != lastWallModeActive)
         {
-            SetText(hudWallLabel, Mathf.Max(0, wallCount).ToString());
+            SetText(hudWallLabel, Mathf.Max(0, displayedWallCount).ToString());
+            hudWallIcon?.EnableInClassList("resource-permanent-wall-icon", wallKind == WallPlacementKind.Permanent);
             hudWallButton?.EnableInClassList("hud-button-active", wallModeActive);
+            hudWallKindToggleButton?.EnableInClassList("hud-button-active", wallKind == WallPlacementKind.Permanent);
             lastWallCount = wallCount;
+            lastPermanentWallCount = permanentWallCount;
+            lastWallKind = wallKind;
             lastWallModeActive = wallModeActive;
         }
 
@@ -2062,6 +2120,15 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             hudWallButton.style.left = HudEdgeInset;
             hudWallButton.style.right = StyleKeyword.Auto;
             hudWallButton.style.bottom = HudBottomInset;
+        }
+
+        if (hudWallKindToggleButton != null)
+        {
+            hudWallKindToggleButton.style.width = WallKindToggleSize;
+            hudWallKindToggleButton.style.height = WallKindToggleSize;
+            hudWallKindToggleButton.style.left = HudEdgeInset + WallButtonSize - WallKindToggleSize * 0.65f;
+            hudWallKindToggleButton.style.right = StyleKeyword.Auto;
+            hudWallKindToggleButton.style.bottom = HudBottomInset + WallButtonSize - WallKindToggleSize * 0.65f;
         }
 
         if (roundTimerLabel != null)
@@ -2438,10 +2505,10 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 return;
             }
 
-            SetText(name, entry.MonsterData.monsterName);
+            SetText(name, string.Empty);
             SetText(count, entry.IsBoss
                 ? $"x{entry.RemainingCount}"
-                : $"\uD751\uB9C8\uB825 {Mathf.Max(0, entry.MonsterData.blackMagicCost)}");
+                : Mathf.Max(0, entry.MonsterData.blackMagicCost).ToString());
             LoadIconAsync(entry.MonsterData, bindVersion).Forget();
         }
 

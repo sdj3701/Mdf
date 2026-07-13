@@ -70,7 +70,7 @@ public class WaveDatabase : ScriptableObject
 
     [Tooltip("Black Magic maximum added for every round after round 1.")]
     [Min(0)]
-    public int blackMagicMaximumPerRound = 2;
+    public int blackMagicMaximumPerRound = 10;
 
     [Header("라운드별 웨이브 설정")]
     [Tooltip("각 라운드에 대한 웨이브 데이터")]

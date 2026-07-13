@@ -150,6 +150,12 @@ MonoBehaviour:
     m_SerializedLabels:
     - Augment
     - mdf-gameplay-data
+  - m_GUID: 636a7bfd78574839b5c41c78acb9fd92
+    m_Address: Aug_Util_PermanentWallCount_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
   - m_GUID: 48090dba299458547bf77e7afbc859aa
     m_Address: Aug_Spawn_Elemental_Normal
     m_ReadOnly: 0

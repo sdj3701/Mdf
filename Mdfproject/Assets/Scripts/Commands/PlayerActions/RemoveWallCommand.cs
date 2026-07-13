@@ -62,22 +62,42 @@ public class RemoveWallCommand : ICommand
             return;
         }
 
-        if (fm.GetWallAt(Position) == null)
+        bool hasDestructibleWall = fm.GetWallAt(Position) != null;
+        bool hasPlayerPermanentWall = fm.IsPlayerPlacedPermanentWallAt(Position);
+        if (!hasDestructibleWall && !hasPlayerPermanentWall)
         {
-            Debug.LogWarning($"[RemoveWallCommand] No destructible wall at {Position} for Player {PlayerId}");
+            Debug.LogWarning($"[RemoveWallCommand] No removable wall at {Position} for Player {PlayerId}");
             return;
         }
 
-        fm.RemoveWallAt(Position);
-        if (fm.GetWallAt(Position) == null)
+        bool removed;
+        if (hasPlayerPermanentWall)
         {
-            player.ReturnWall();
-            gm.NotifyWallRemovalSucceeded(player.playerId, Position.x, Position.y);
-            Debug.Log($"[RemoveWallCommand] SUCCESS player={player.playerId}, pos={Position}");
+            removed = fm.TryRemovePlayerPlacedPermanentWallAt(Position);
         }
         else
         {
-            Debug.LogError($"[RemoveWallCommand] RemoveWallAt failed at {Position} for Player {PlayerId}. Wall stock not refunded.");
+            fm.RemoveWallAt(Position);
+            removed = fm.GetWallAt(Position) == null;
+        }
+
+        if (removed)
+        {
+            if (hasPlayerPermanentWall)
+            {
+                player.ReturnPermanentWallPlacement();
+                player.NotifyPermanentWallLayoutChanged("remove_player_permanent_wall");
+            }
+            else
+            {
+                player.ReturnWall();
+            }
+            gm.NotifyWallRemovalSucceeded(player.playerId, Position.x, Position.y);
+            Debug.Log($"[RemoveWallCommand] SUCCESS player={player.playerId}, pos={Position}, kind={(hasPlayerPermanentWall ? WallPlacementKind.Permanent : WallPlacementKind.Destructible)}");
+        }
+        else
+        {
+            Debug.LogError($"[RemoveWallCommand] Remove wall failed at {Position} for Player {PlayerId}. Wall stock not refunded.");
         }
     }
 }

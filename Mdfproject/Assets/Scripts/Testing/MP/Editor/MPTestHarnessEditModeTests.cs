@@ -1118,7 +1118,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMagicScroll(scrolls[slotIndex])"));
         Assert.That(styleSource, Does.Match(@"(?s)\.monster-attack-card \.attack-card-icon\s*\{.*?position:\s*absolute;.*?width:\s*auto;.*?height:\s*auto;.*?scale-and-crop;"));
-        Assert.That(styleSource, Does.Match(@"(?s)\.monster-attack-card \.attack-card-name\s*\{.*?bottom:\s*18px;"));
+        Assert.That(styleSource, Does.Not.Contain(".monster-attack-card .attack-card-name"));
         Assert.That(styleSource, Does.Match(@"(?s)\.monster-attack-card \.attack-card-count\s*\{.*?bottom:\s*1px;"));
         Assert.That(controllerSource, Does.Contain("game-gold-count-value"));
         Assert.That(controllerSource, Does.Contain("game-wall-count-label"));
@@ -1140,7 +1140,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("GetUIElement(\"OptionCanvas\")"));
         Assert.That(controllerSource, Does.Contain("\"\\uB2EB\\uAE30\""));
         Assert.That(controllerSource, Does.Contain("\"\\uC5F4\\uAE30\""));
-        Assert.That(controllerSource, Does.Contain("Mathf.Max(0, wallCount).ToString()"));
+        Assert.That(controllerSource, Does.Contain("Mathf.Max(0, displayedWallCount).ToString()"));
+        Assert.That(controllerSource, Does.Contain("ToggleWallPlacementKind()"));
+        Assert.That(controllerSource, Does.Contain("GetPermanentWallPlacementCount()"));
+        Assert.That(styleSource, Does.Contain("PermanentBricks.png"));
         Assert.That(controllerSource, Does.Contain("Mathf.Clamp(area.xMin, 0f, screenWidth)"));
         Assert.That(controllerSource, Does.Contain("UpdateRoundTimerLabel"));
         Assert.That(controllerSource, Does.Contain("currentPhaseTimer"));
@@ -1184,8 +1187,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(placementSource, Does.Match(@"(?s)if \(secondaryPressed\)\s*\{\s*StopPlacementMode\(\);\s*return;\s*\}"));
         Assert.That(placementSource, Does.Not.Match(@"(?s)if \(secondaryPressed\)\s*\{[^}]*TryRemoveWall\("));
         Assert.That(placementSource, Does.Contain("currentMode == PlacementMode.Wall && TryRemoveWall()"));
-        Assert.That(placementSource, Does.Contain("fieldManager.GetWallAt(currentMouseGridPosition) == null"));
-        Assert.That(removeWallCommandSource, Does.Contain("if (fm.GetWallAt(Position) == null)"));
+        Assert.That(placementSource, Does.Contain("fieldManager.HasRemovableWallAt(currentMouseGridPosition)"));
+        Assert.That(removeWallCommandSource, Does.Contain("fm.IsPlayerPlacedPermanentWallAt(Position)"));
+        Assert.That(removeWallCommandSource, Does.Contain("fm.TryRemovePlayerPlacedPermanentWallAt(Position)"));
+        Assert.That(removeWallCommandSource, Does.Contain("player.ReturnPermanentWallPlacement();"));
         Assert.That(removeWallCommandSource, Does.Contain("player.ReturnWall();"));
         Assert.That(playerManagerSource, Does.Contain("public void ReturnWall()"));
         Assert.That(playerManagerSource, Does.Not.Contain("wallCount < MAX_WALL_COUNT"));
@@ -1701,7 +1706,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("MinimumRepairReserveWalls"));
         Assert.That(source, Does.Contain("cached.FieldInstanceId == fieldInstanceId"));
         Assert.That(source, Does.Contain("cached.Signature == signature"));
-        Assert.That(source, Does.Contain("player.GetWallCount() > GetWallBuildReserve(player)"));
+        Assert.That(source, Does.Contain("GetTotalWallStock(player) > GetWallBuildReserve(player)"));
+        Assert.That(source, Does.Contain("player.GetPermanentWallPlacementCount() > 0"));
         Assert.That(source, Does.Contain("OrderBy(unit => unit.Data.unitType == UnitType.Ranged ? 0 : 1)"));
         Assert.That(source, Does.Contain("OrderBy(entry => entry.UnitData != null && entry.UnitData.unitType == UnitType.Ranged ? 0 : 1)"));
         Assert.That(source, Does.Contain("sold_slots_below_3"));

@@ -71,7 +71,7 @@ public sealed class PlayerCommandRequestValidator
                 reason = "place_unit_requires_authoritative_inventory";
                 return false;
             case CommandType.PlaceWall:
-                return ValidatePlaceWallRequest(gm, vectorParams, out reason);
+                return ValidatePlaceWallRequest(gm, intParams, vectorParams, out reason);
             case CommandType.RemoveWall:
                 return ValidateRemoveWallRequest(gm, vectorParams, out reason);
             case CommandType.RerollShop:
@@ -441,7 +441,7 @@ public sealed class PlayerCommandRequestValidator
         return true;
     }
 
-    private bool ValidatePlaceWallRequest(GameManagers gm, Vector3[] vectorParams, out string reason)
+    private bool ValidatePlaceWallRequest(GameManagers gm, int[] intParams, Vector3[] vectorParams, out string reason)
     {
         if (!ValidatePreparePhase(gm, out reason)) return false;
         FieldManager field = _player.fieldManager;
@@ -483,9 +483,23 @@ public sealed class PlayerCommandRequestValidator
             return false;
         }
 
-        if (_player.GetWallCount() <= 0)
+        WallPlacementKind kind = intParams.Length > 1 && intParams[1] == (int)WallPlacementKind.Permanent
+            ? WallPlacementKind.Permanent
+            : WallPlacementKind.Destructible;
+        if (intParams.Length > 1 && intParams[1] != (int)WallPlacementKind.Destructible && intParams[1] != (int)WallPlacementKind.Permanent)
         {
-            reason = "insufficient_wall_stock";
+            reason = "invalid_wall_kind";
+            return false;
+        }
+
+        bool hasStock = kind == WallPlacementKind.Permanent
+            ? _player.GetPermanentWallPlacementCount() > 0
+            : _player.GetWallCount() > 0;
+        if (!hasStock)
+        {
+            reason = kind == WallPlacementKind.Permanent
+                ? "insufficient_permanent_wall_stock"
+                : "insufficient_wall_stock";
             return false;
         }
 
@@ -522,7 +536,7 @@ public sealed class PlayerCommandRequestValidator
             return false;
         }
 
-        if (field.GetWallAt(position) == null)
+        if (field.GetWallAt(position) == null && !field.IsPlayerPlacedPermanentWallAt(position))
         {
             reason = "remove_wall_missing";
             return false;

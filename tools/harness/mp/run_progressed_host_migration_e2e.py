@@ -48,6 +48,13 @@ CASE_NAME = "progressed-host-migration-e2e"
 UNKNOWN = "unknown"
 
 
+def as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def write_result(artifact_dir: pathlib.Path, failures: list[str], cleanup_report: dict[str, Any] | None = None) -> None:
     result = {
         "case": CASE_NAME,
@@ -73,6 +80,21 @@ def snapshot_body(snapshot: Any) -> dict[str, Any]:
 def migration_state(snapshot: Any) -> dict[str, Any]:
     migration = snapshot_body(snapshot).get("hostMigration")
     return migration if isinstance(migration, dict) else {}
+
+
+def permanent_wall_state(snapshot: Any, player_id: int) -> dict[str, Any]:
+    player = player_by_id(snapshot, player_id)
+    if not isinstance(player, dict):
+        return {}
+    return {
+        "normalStock": player.get("wallCount"),
+        "permanentStock": player.get("permanentWallPlacementCount"),
+        "stockRevision": player.get("permanentWallStockRevision"),
+        "layoutRevision": player.get("permanentWallLayoutRevision"),
+        "ownedCount": nested(player, "field", "playerPlacedPermanentWallCount"),
+        "ownedHash": nested(player, "field", "playerPlacedPermanentWallHash"),
+        "wallHash": nested(player, "field", "wallHash"),
+    }
 
 
 def migration_proof_report(snapshot: Any) -> dict[str, Any]:
@@ -151,6 +173,9 @@ def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
         "health": player.get("health"),
         "gold": player.get("gold"),
         "wallCount": player.get("wallCount"),
+        "permanentWallPlacementCount": player.get("permanentWallPlacementCount"),
+        "permanentWallStockRevision": player.get("permanentWallStockRevision"),
+        "permanentWallLayoutRevision": player.get("permanentWallLayoutRevision"),
         "isActivelyFighting": player.get("isActivelyFighting"),
         "isAttackerInCurrentBattle": player.get("isAttackerInCurrentBattle"),
         "blackMagicCurrent": player.get("blackMagicCurrent"),
@@ -179,6 +204,8 @@ def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
             "placedUnitsHash": nested(player, "field", "placedUnitsHash"),
             "destructibleWallCount": nested(player, "field", "destructibleWallCount"),
             "permanentWallCount": nested(player, "field", "permanentWallCount"),
+            "playerPlacedPermanentWallCount": nested(player, "field", "playerPlacedPermanentWallCount"),
+            "playerPlacedPermanentWallHash": nested(player, "field", "playerPlacedPermanentWallHash"),
             "wallHash": nested(player, "field", "wallHash"),
             "destructibleWallHealthHash": nested(player, "field", "destructibleWallHealthHash"),
             "pathReady": nested(player, "field", "pathReady"),
@@ -479,6 +506,9 @@ def run(args: argparse.Namespace) -> int:
     }
     bot_player_id = -1
     post_move_report: dict[str, Any] | None = None
+    permanent_wall_position: dict[str, int] | None = None
+    permanent_wall_checkpoint: dict[str, Any] | None = None
+    post_migration_permanent_wall_remove: dict[str, Any] | None = None
     orphan_gate = write_orphan_pressure_report(
         artifact_dir,
         args.orphan_threshold,
@@ -680,6 +710,67 @@ def run(args: argparse.Namespace) -> int:
         stop_result = client.bot_stop(reason="phase23_pre_migration_checkpoint_reached")
         write_json(artifact_dir / "survivor-client-bot-stop-before-migration.json", stop_result)
 
+        permanent_before = permanent_wall_state(host_progressed, bot_player_id)
+        grant_permanent = host.command(name="grant_permanent_walls", playerId=bot_player_id, amount=3)
+        write_json(artifact_dir / "pre-migration-grant-permanent-walls.json", grant_permanent)
+        place_permanent = host.command(name="place_wall", playerId=bot_player_id, wallKind="permanent")
+        write_json(artifact_dir / "pre-migration-place-permanent-wall.json", place_permanent)
+        place_data = place_permanent.get("data") if isinstance(place_permanent, dict) else None
+        place_position = place_data.get("position") if isinstance(place_data, dict) else None
+        if isinstance(place_position, dict):
+            permanent_wall_position = {
+                "x": as_int(place_position.get("x")),
+                "y": as_int(place_position.get("y")),
+                "z": as_int(place_position.get("z")),
+            }
+
+        if grant_permanent.get("success") is not True:
+            failures.append("pre_migration_permanent_wall_grant_failed")
+        if place_permanent.get("success") is not True or permanent_wall_position is None:
+            failures.append("pre_migration_permanent_wall_place_failed")
+
+        expected_permanent_stock = as_int(permanent_before.get("permanentStock")) + 2
+        expected_owned_count = as_int(permanent_before.get("ownedCount")) + 1
+        permanent_checkpoint_ready = False
+        permanent_checkpoint_comparison: dict[str, Any] = {"success": False, "errors": ["not_started"]}
+        deadline = time.time() + args.state_timeout
+        while time.time() < deadline and not failures:
+            latest_host = dump_state(host, artifact_dir, "build-host", "permanent-wall-checkpoint-latest")
+            latest_client = dump_state(client, artifact_dir, "survivor-client", "permanent-wall-checkpoint-latest")
+            host_wall_state = permanent_wall_state(latest_host, bot_player_id)
+            client_wall_state = permanent_wall_state(latest_client, bot_player_id)
+            permanent_checkpoint_comparison = compare_snapshots(latest_host, latest_client)
+            if (
+                permanent_checkpoint_comparison.get("success") is True
+                and host_wall_state == client_wall_state
+                and as_int(host_wall_state.get("normalStock")) == as_int(permanent_before.get("normalStock"))
+                and as_int(host_wall_state.get("permanentStock")) == expected_permanent_stock
+                and as_int(host_wall_state.get("ownedCount")) == expected_owned_count
+            ):
+                host_progressed = latest_host
+                client_progressed = latest_client
+                permanent_wall_checkpoint = host_wall_state
+                permanent_checkpoint_ready = True
+                break
+            time.sleep(0.25)
+
+        write_json(artifact_dir / "pre-migration-permanent-wall-comparison.json", permanent_checkpoint_comparison)
+        write_json(artifact_dir / "pre-migration-permanent-wall-checkpoint.json", {
+            "success": permanent_checkpoint_ready,
+            "playerId": bot_player_id,
+            "position": permanent_wall_position,
+            "before": permanent_before,
+            "after": permanent_wall_checkpoint,
+            "expectedPermanentStock": expected_permanent_stock,
+            "expectedOwnedCount": expected_owned_count,
+        })
+        write_json(artifact_dir / "snapshots" / "build-host-progressed-checkpoint.json", host_progressed)
+        write_json(artifact_dir / "snapshots" / "survivor-client-progressed-checkpoint.json", client_progressed)
+        checkpoint_comparison = permanent_checkpoint_comparison
+        write_json(artifact_dir / "progressed-checkpoint-comparison.json", checkpoint_comparison)
+        if not permanent_checkpoint_ready:
+            failures.append("pre_migration_permanent_wall_checkpoint_timeout")
+
         write_json(artifact_dir / "migration-target.json", {
             "botPlayerId": bot_player_id,
             "survivorConnectionTokenHash": survivor_local.get("connectionTokenHash") if isinstance(survivor_local, dict) else "unknown",
@@ -751,6 +842,44 @@ def run(args: argparse.Namespace) -> int:
         failures.extend(f"host_migration_proof:{err}" for err in proof.get("errors") or [])
         failures.extend(f"progressed_migration:{err}" for err in migration_assertions.get("errors") or [])
 
+        if not failures and permanent_wall_position is not None and permanent_wall_checkpoint is not None:
+            remove_response = client.command(
+                name="remove_wall",
+                playerId=bot_player_id,
+                position=permanent_wall_position,
+            )
+            write_json(artifact_dir / "post-migration-remove-permanent-wall-command.json", remove_response)
+            expected_post_remove_stock = as_int(permanent_wall_checkpoint.get("permanentStock")) + 1
+            expected_post_remove_owned = max(0, as_int(permanent_wall_checkpoint.get("ownedCount")) - 1)
+            latest_remove_state = post
+            remove_succeeded = False
+            deadline = time.time() + args.post_migration_move_timeout
+            while time.time() < deadline and remove_response.get("success") is True:
+                latest_remove_state = dump_state(client, artifact_dir, "survivor-client", "post-migration-permanent-wall-remove-latest")
+                latest_wall_state = permanent_wall_state(latest_remove_state, bot_player_id)
+                if (
+                    as_int(latest_wall_state.get("normalStock")) == as_int(permanent_wall_checkpoint.get("normalStock"))
+                    and as_int(latest_wall_state.get("permanentStock")) == expected_post_remove_stock
+                    and as_int(latest_wall_state.get("ownedCount")) == expected_post_remove_owned
+                ):
+                    remove_succeeded = True
+                    post = latest_remove_state
+                    break
+                time.sleep(0.25)
+
+            post_migration_permanent_wall_remove = {
+                "success": remove_response.get("success") is True and remove_succeeded,
+                "playerId": bot_player_id,
+                "position": permanent_wall_position,
+                "checkpoint": permanent_wall_checkpoint,
+                "after": permanent_wall_state(latest_remove_state, bot_player_id),
+                "command": remove_response,
+            }
+            write_json(artifact_dir / "post-migration-permanent-wall-remove-result.json", post_migration_permanent_wall_remove)
+            write_json(artifact_dir / "snapshots" / "survivor-client-post-migration-permanent-wall-remove.json", latest_remove_state)
+            if post_migration_permanent_wall_remove.get("success") is not True:
+                failures.append("post_migration_permanent_wall_remove_failed")
+
         if args.post_migration_move_unit and not failures:
             post, post_move_report = post_migration_move_unit_assertions(
                 client,
@@ -767,6 +896,8 @@ def run(args: argparse.Namespace) -> int:
             "migration": proof.get("migration"),
             "proof": proof,
             "assertions": migration_assertions,
+            "permanentWallCheckpoint": permanent_wall_checkpoint,
+            "postMigrationPermanentWallRemove": post_migration_permanent_wall_remove,
             "postMigrationMoveUnit": post_move_report,
             "failures": failures,
         })

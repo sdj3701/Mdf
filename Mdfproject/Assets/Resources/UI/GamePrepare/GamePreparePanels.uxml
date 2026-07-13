@@ -207,62 +207,50 @@
                     <ui:VisualElement name="attack-monster-row" class="attack-monster-row">
                         <ui:VisualElement name="attack-monster-card-0" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-0" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-0" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-0" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-1" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-1" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-1" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-1" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-2" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-2" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-2" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-2" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-3" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-3" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-3" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-3" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-4" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-4" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-4" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-4" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-5" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-5" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-5" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-5" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-6" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-6" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-6" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-6" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-7" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-7" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-7" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-7" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-8" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-8" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-8" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-8" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-9" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-9" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-9" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-9" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-10" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-10" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-10" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-10" class="attack-card-count" />
                         </ui:VisualElement>
                         <ui:VisualElement name="attack-monster-card-11" class="attack-card monster-attack-card">
                             <ui:Image name="attack-monster-icon-11" class="attack-card-icon" />
-                            <ui:Label name="attack-monster-name-11" class="attack-card-name" />
                             <ui:Label name="attack-monster-count-11" class="attack-card-count" />
                         </ui:VisualElement>
                     </ui:VisualElement>
@@ -302,6 +290,9 @@
                 <ui:VisualElement name="game-wall-button" class="toolkit-button wall-action-button">
                     <ui:VisualElement name="game-wall-icon" class="wall-action-icon resource-wall-icon" />
                     <ui:Label name="game-wall-count-label" text="0" class="wall-action-count" />
+                </ui:VisualElement>
+                <ui:VisualElement name="game-wall-kind-toggle-button" class="toolkit-button wall-kind-toggle-button">
+                    <ui:Label text="&#x21C4;" class="wall-kind-toggle-icon" />
                 </ui:VisualElement>
                 <ui:VisualElement name="game-option-button" class="hud-button hud-icon-button">
                     <ui:Label name="game-option-label" text="&#xC635;&#xC158;" class="hud-button-label" />

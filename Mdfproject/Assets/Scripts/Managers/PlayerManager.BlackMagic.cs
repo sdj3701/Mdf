@@ -4,7 +4,7 @@ using UnityEngine;
 public partial class PlayerManager
 {
     private const int FallbackBaseBlackMagicMaximum = 10;
-    private const int FallbackBlackMagicMaximumPerRound = 2;
+    private const int FallbackBlackMagicMaximumPerRound = 10;
 
     [Networked] public int BlackMagicCurrent { get; private set; }
     [Networked] public int BlackMagicMaximum { get; private set; }

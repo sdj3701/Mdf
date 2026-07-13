@@ -34,6 +34,9 @@ public static class GameEvents
     public static event Action<int, int> OnPlayerWallCountChanged;
     public static void TriggerPlayerWallCountChanged(int playerID, int newWallCount) => OnPlayerWallCountChanged?.Invoke(playerID, newWallCount);
 
+    public static event Action<int, int> OnPlayerPermanentWallCountChanged;
+    public static void TriggerPlayerPermanentWallCountChanged(int playerID, int newWallCount) => OnPlayerPermanentWallCountChanged?.Invoke(playerID, newWallCount);
+
     // --- 증강(Augment) 관련 이벤트 ---
     public static event Action<PlayerManager, List<AugmentData>> OnAugmentPhaseStart;
     public static void TriggerAugmentPhaseStart(PlayerManager localPlayer, List<AugmentData> augments) => OnAugmentPhaseStart?.Invoke(localPlayer, augments);

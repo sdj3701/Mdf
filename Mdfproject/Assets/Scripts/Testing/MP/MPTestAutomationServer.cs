@@ -465,6 +465,11 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecuteRemoveWallCommand(body, commandName);
         }
 
+        if (string.Equals(commandName, "grant_permanent_walls", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteGrantPermanentWallsCommand(body, commandName);
+        }
+
         if (string.Equals(commandName, "view_player_field", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(commandName, "ViewPlayerField", StringComparison.OrdinalIgnoreCase))
         {
@@ -834,11 +839,15 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return failure;
         }
 
+        string kindText = GetString(body, "wallKind", GetString(body, "wall_kind", "destructible"));
+        WallPlacementKind wallKind = string.Equals(kindText, "permanent", StringComparison.OrdinalIgnoreCase)
+            ? WallPlacementKind.Permanent
+            : WallPlacementKind.Destructible;
         bool hasExplicitPosition = TryGetVector3Int(body, "position", out Vector3Int position)
             || TryGetVector3Int(body, "target", out position)
             || TryGetVector3IntByPrefix(body, "position", out position);
         if (!hasExplicitPosition &&
-            !TryFindPlaceWallPosition(player, field, out position, out string findReason))
+            !TryFindPlaceWallPosition(player, field, wallKind, out position, out string findReason))
         {
             return AutomationResponse.Fail("place_wall_target_not_found", "No legal place_wall target was found.", new
             {
@@ -848,7 +857,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             });
         }
 
-        if (!ValidatePlaceWallTarget(player, field, position, out string validationReason))
+        if (!ValidatePlaceWallTarget(player, field, position, wallKind, out string validationReason))
         {
             return AutomationResponse.Fail(validationReason, "place_wall target failed validation.", new
             {
@@ -859,12 +868,15 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         }
 
         int wallCountBefore = player.GetWallCount();
-        gameManagers.CommandProcessor.RequestCommandExecution(new PlaceWallCommand(playerId, position));
+        int permanentWallCountBefore = player.GetPermanentWallPlacementCount();
+        gameManagers.CommandProcessor.RequestCommandExecution(new PlaceWallCommand(playerId, position, wallKind));
         MPTestLogger.Log("automation_command", "begin", "place_wall", null, new Dictionary<string, object>
         {
             { "playerId", playerId },
             { "position", position.ToString() },
-            { "wallCountBefore", wallCountBefore }
+            { "wallKind", wallKind.ToString() },
+            { "wallCountBefore", wallCountBefore },
+            { "permanentWallCountBefore", permanentWallCountBefore }
         });
 
         return AutomationResponse.Ok("command queued", new
@@ -872,7 +884,30 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             command = "place_wall",
             playerId,
             position = new { position.x, position.y, position.z },
-            wallCountBefore
+            wallKind = wallKind.ToString(),
+            wallCountBefore,
+            permanentWallCountBefore
+        });
+    }
+
+    private AutomationResponse ExecuteGrantPermanentWallsCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        if (!TryGetPrepareCommandContext(commandName, playerId, out _, out var player, out _, out var failure))
+        {
+            return failure;
+        }
+
+        int amount = Mathf.Clamp(GetInt(body, "amount", 3), 1, 99);
+        int before = player.GetPermanentWallPlacementCount();
+        player.AddPermanentWallPlacementCount(amount);
+        return AutomationResponse.Ok("permanent wall stock granted", new
+        {
+            command = commandName,
+            playerId,
+            amount,
+            before,
+            after = player.GetPermanentWallPlacementCount()
         });
     }
 
@@ -993,7 +1028,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         return true;
     }
 
-    private static bool TryFindPlaceWallPosition(PlayerManager player, FieldManager field, out Vector3Int position, out string reason)
+    private static bool TryFindPlaceWallPosition(PlayerManager player, FieldManager field, WallPlacementKind kind, out Vector3Int position, out string reason)
     {
         position = default;
         reason = null;
@@ -1013,7 +1048,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
                     continue;
                 }
 
-                if (ValidatePlaceWallTarget(player, field, candidate, out _))
+                if (ValidatePlaceWallTarget(player, field, candidate, kind, out _))
                 {
                     position = candidate;
                     return true;
@@ -1040,7 +1075,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             for (int x = 0; x < field.gridSize.x; x++)
             {
                 var candidate = new Vector3Int(x, y, 0);
-                if (field.GetWallAt(candidate) != null)
+                if (field.HasRemovableWallAt(candidate))
                 {
                     position = candidate;
                     return true;
@@ -1048,11 +1083,11 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             }
         }
 
-        reason = "no_destructible_wall";
+        reason = "no_removable_wall";
         return false;
     }
 
-    private static bool ValidatePlaceWallTarget(PlayerManager player, FieldManager field, Vector3Int position, out string reason)
+    private static bool ValidatePlaceWallTarget(PlayerManager player, FieldManager field, Vector3Int position, WallPlacementKind kind, out string reason)
     {
         if (field == null || player == null)
         {
@@ -1072,9 +1107,14 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return false;
         }
 
-        if (player.GetWallCount() <= 0)
+        bool hasStock = kind == WallPlacementKind.Permanent
+            ? player.GetPermanentWallPlacementCount() > 0
+            : player.GetWallCount() > 0;
+        if (!hasStock)
         {
-            reason = "insufficient_wall_stock";
+            reason = kind == WallPlacementKind.Permanent
+                ? "insufficient_permanent_wall_stock"
+                : "insufficient_wall_stock";
             return false;
         }
 
@@ -1102,7 +1142,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return false;
         }
 
-        if (field.GetWallAt(position) == null)
+        if (!field.HasRemovableWallAt(position))
         {
             reason = "remove_wall_missing";
             return false;

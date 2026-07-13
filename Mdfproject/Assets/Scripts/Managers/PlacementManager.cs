@@ -16,6 +16,7 @@ public class PlacementManager : MonoBehaviour
     [SerializeField] private Color invalidPreviewColor = new Color(1f, 0f, 0f, 0.5f);
 
     private PlacementMode currentMode = PlacementMode.None;
+    private WallPlacementKind currentWallKind = WallPlacementKind.Destructible;
     private GameObject unitPrefabToPlace;
     private GameObject previewObject;
     private Material previewMaterial;
@@ -154,6 +155,22 @@ public class PlacementManager : MonoBehaviour
     #region Public Methods
     
     public PlacementMode GetCurrentMode() => currentMode;
+    public WallPlacementKind GetCurrentWallKind() => currentWallKind;
+
+    public void SetCurrentWallKind(WallPlacementKind kind)
+    {
+        currentWallKind = kind == WallPlacementKind.Permanent
+            ? WallPlacementKind.Permanent
+            : WallPlacementKind.Destructible;
+    }
+
+    public WallPlacementKind ToggleCurrentWallKind()
+    {
+        currentWallKind = currentWallKind == WallPlacementKind.Destructible
+            ? WallPlacementKind.Permanent
+            : WallPlacementKind.Destructible;
+        return currentWallKind;
+    }
 
     public void StartPlacementMode(PlacementMode mode, GameObject unitPrefab = null)
     {
@@ -318,8 +335,8 @@ public class PlacementManager : MonoBehaviour
                 }
                 break;
             case PlacementMode.Wall:
-                var wallCommand = new PlaceWallCommand(playerManager.playerId, currentMouseGridPosition);
-                LogManualWall("command", $"queue player={playerManager.playerId} pos={currentMouseGridPosition} {DescribeCameraState()}");
+                var wallCommand = new PlaceWallCommand(playerManager.playerId, currentMouseGridPosition, currentWallKind);
+                LogManualWall("command", $"queue player={playerManager.playerId} pos={currentMouseGridPosition} kind={currentWallKind} {DescribeCameraState()}");
                 GameManagers.Instance.CommandProcessor.RequestCommandExecution(wallCommand);
                 break;
         }
@@ -332,7 +349,7 @@ public class PlacementManager : MonoBehaviour
 
         if (currentMode == PlacementMode.Wall)
         {
-            if (fieldManager == null || fieldManager.GetWallAt(currentMouseGridPosition) == null)
+            if (fieldManager == null || !fieldManager.HasRemovableWallAt(currentMouseGridPosition))
             {
                 return false;
             }

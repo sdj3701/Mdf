@@ -534,6 +534,14 @@ public class AugmentManager : MonoBehaviour
                     Debug.Log($"<color=cyan>[AugmentManager] Player {target.playerId} gained +{addWalls} walls from '{augment.augmentName}' (stock={target.GetWallCount()})</color>");
                 }
                 break;
+            case EffectType.GrantPermanentWallPlacementCount:
+                int permanentWalls = Mathf.Max(0, Mathf.RoundToInt(augment.value));
+                if (permanentWalls > 0)
+                {
+                    target.AddPermanentWallPlacementCount(permanentWalls);
+                    Debug.Log($"[AugmentManager] Player {target.playerId} gained +{permanentWalls} permanent wall placements from '{augment.augmentName}' (stock={target.GetPermanentWallPlacementCount()}).");
+                }
+                break;
             case EffectType.IncreaseMyUnitAttack:
                 target.AddPermanentAttackDamagePercent(augment.value);
                 Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격력 버프 적용 (+{augment.value:P0})");

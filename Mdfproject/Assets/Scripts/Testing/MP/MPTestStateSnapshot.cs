@@ -307,6 +307,9 @@ public static class MPTestStateSnapshot
             Health = SafeInt(player.GetHealth, 0),
             Gold = SafeInt(player.GetGold, 0),
             WallCount = SafeInt(player.GetWallCount, 0),
+            PermanentWallPlacementCount = SafeInt(player.GetPermanentWallPlacementCount, 0),
+            PermanentWallStockRevision = SafeInt(() => player.PermanentWallStockRevision, 0),
+            PermanentWallLayoutRevision = SafeInt(() => player.PermanentWallLayoutRevision, 0),
             IsActivelyFighting = SafeBool(() => player.IsActivelyFighting, false),
             IsAttackerInCurrentBattle = SafeBool(() => player.IsAttackerInCurrentBattle, false),
             BlackMagicCurrent = SafeInt(() => player.BlackMagicCurrent, 0),
@@ -806,6 +809,8 @@ public static class MPTestStateSnapshot
                 PlacedUnitParts = Array.Empty<string>(),
                 DestructibleWallCount = null,
                 PermanentWallCount = null,
+                PlayerPlacedPermanentWallCount = null,
+                PlayerPlacedPermanentWallHash = Unknown,
                 WallHash = Unknown,
                 DestructibleWallHealthHash = Unknown,
                 PathReady = false,
@@ -818,6 +823,14 @@ public static class MPTestStateSnapshot
             ? Array.Empty<string>()
             : wallCells.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
         string destructibleWallHealth = SafeString(field.BuildDestructibleWallHealthSnapshot, string.Empty);
+        int[] playerPlacedPermanentWalls = SafeRef(
+            field.GetPlayerPlacedPermanentWallFlatPositions,
+            Array.Empty<int>());
+        var playerPlacedPermanentWallParts = new List<string>(playerPlacedPermanentWalls.Length / 2);
+        for (int i = 0; i + 1 < playerPlacedPermanentWalls.Length; i += 2)
+        {
+            playerPlacedPermanentWallParts.Add($"{playerPlacedPermanentWalls[i]},{playerPlacedPermanentWalls[i + 1]}");
+        }
 
         List<Unit> units = new List<Unit>();
         try
@@ -856,6 +869,8 @@ public static class MPTestStateSnapshot
             PlacedUnitParts = unitParts,
             DestructibleWallCount = wallParts.Count(part => part.StartsWith("D", StringComparison.Ordinal)),
             PermanentWallCount = wallParts.Count(part => part.StartsWith("P", StringComparison.Ordinal)),
+            PlayerPlacedPermanentWallCount = playerPlacedPermanentWallParts.Count,
+            PlayerPlacedPermanentWallHash = HashStableParts(playerPlacedPermanentWallParts),
             WallHash = HashStableString(wallCells),
             DestructibleWallHealthHash = HashStableString(destructibleWallHealth),
             PathReady = SafeBool(() => player.astarGrid != null, false),
@@ -1672,6 +1687,9 @@ public static class MPTestStateSnapshot
         [JsonProperty("health")] public int Health;
         [JsonProperty("gold")] public int Gold;
         [JsonProperty("wallCount")] public int WallCount;
+        [JsonProperty("permanentWallPlacementCount")] public int PermanentWallPlacementCount;
+        [JsonProperty("permanentWallStockRevision")] public int PermanentWallStockRevision;
+        [JsonProperty("permanentWallLayoutRevision")] public int PermanentWallLayoutRevision;
         [JsonProperty("isActivelyFighting")] public bool IsActivelyFighting;
         [JsonProperty("isAttackerInCurrentBattle")] public bool IsAttackerInCurrentBattle;
         [JsonProperty("blackMagicCurrent")] public int BlackMagicCurrent;
@@ -1730,6 +1748,8 @@ public static class MPTestStateSnapshot
         [JsonProperty("placedUnitParts")] public string[] PlacedUnitParts;
         [JsonProperty("destructibleWallCount")] public int? DestructibleWallCount;
         [JsonProperty("permanentWallCount")] public int? PermanentWallCount;
+        [JsonProperty("playerPlacedPermanentWallCount")] public int? PlayerPlacedPermanentWallCount;
+        [JsonProperty("playerPlacedPermanentWallHash")] public string PlayerPlacedPermanentWallHash;
         [JsonProperty("wallHash")] public string WallHash;
         [JsonProperty("destructibleWallHealthHash")] public string DestructibleWallHealthHash;
         [JsonProperty("pathReady")] public bool PathReady;

@@ -139,7 +139,7 @@ public class CommandProcessor
             case PlaceUnitCommand cmd:
                 return (CommandType.PlaceUnit, new int[] { cmd.PlayerId }, new string[] { cmd.UnitData.name }, new Vector3[] { cmd.Position });
             case PlaceWallCommand cmd:
-                return (CommandType.PlaceWall, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.Position });
+                return (CommandType.PlaceWall, new int[] { cmd.PlayerId, (int)cmd.Kind }, Array.Empty<string>(), new Vector3[] { cmd.Position });
             case RemoveWallCommand cmd:
                 return (CommandType.RemoveWall, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.Position });
             case RerollShopCommand cmd:
@@ -178,10 +178,11 @@ public class CommandProcessor
                 return (CommandType.RegisterUnitAt, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkIdRaw, cmd.X, cmd.Y, cmd.StarLevel }, new string[] { cmd.UnitDataKey }, Array.Empty<Vector3>());
             
             case ApplyPermanentWallsCommand cmd:
-                // intParams: [playerId, ...flatPositions]
-                var wallInts = new int[cmd.FlatPositions.Length + 1];
+                // intParams: [playerId, layoutRevision, ...packedPositions]
+                var wallInts = new int[cmd.FlatPositions.Length + 2];
                 wallInts[0] = cmd.PlayerId;
-                Array.Copy(cmd.FlatPositions, 0, wallInts, 1, cmd.FlatPositions.Length);
+                wallInts[1] = cmd.LayoutRevision;
+                Array.Copy(cmd.FlatPositions, 0, wallInts, 2, cmd.FlatPositions.Length);
                 return (CommandType.ApplyPermanentWalls, wallInts, Array.Empty<string>(), Array.Empty<Vector3>());
 
             // ===== Notification Commands =====
@@ -250,7 +251,10 @@ public class CommandProcessor
                 return new PlaceUnitCommand(ints[0], unitData, Vector3Int.RoundToInt(vectors[0]));
             
             case CommandType.PlaceWall:
-                return new PlaceWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]));
+                WallPlacementKind wallKind = ints.Length > 1 && ints[1] == (int)WallPlacementKind.Permanent
+                    ? WallPlacementKind.Permanent
+                    : WallPlacementKind.Destructible;
+                return new PlaceWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]), wallKind);
             
             case CommandType.RemoveWall:
                 return new RemoveWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]));
@@ -299,10 +303,10 @@ public class CommandProcessor
                 return new RegisterUnitAtCommand(ints[0], networkIdRaw, ints[2], ints[3], texts.Length > 0 ? texts[0] : "", ints[4]);
             
             case CommandType.ApplyPermanentWalls:
-                // ints: [playerId, ...flatPositions]
-                int[] flatPositions = new int[ints.Length - 1];
-                Array.Copy(ints, 1, flatPositions, 0, flatPositions.Length);
-                return new ApplyPermanentWallsCommand(ints[0], flatPositions);
+                // ints: [playerId, layoutRevision, ...packedPositions]
+                int[] flatPositions = new int[Mathf.Max(0, ints.Length - 2)];
+                Array.Copy(ints, 2, flatPositions, 0, flatPositions.Length);
+                return new ApplyPermanentWallsCommand(ints[0], ints.Length > 1 ? ints[1] : 0, flatPositions);
 
             // ===== Notification Commands =====
             case CommandType.NotifyPurchaseSucceeded:
