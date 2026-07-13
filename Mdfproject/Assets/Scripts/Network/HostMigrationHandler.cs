@@ -89,6 +89,7 @@ public class HostMigrationHandler : MonoBehaviour
         public string[] FieldUnitDataKeys;
         public int[] FieldUnitStarLevels;
         public int[] FieldUnitFlatPositions;
+        public bool FieldUnitSnapshotValid;
         public string[] PresentedAugmentNames;
         public string[] SelectedAugmentNames;
         public string[] ChosenAugmentNames;
@@ -106,6 +107,7 @@ public class HostMigrationHandler : MonoBehaviour
         public int BlackMagicMaxBonus;
         public int BlackMagicRevision;
         public int BlackMagicSequenceId;
+        public KingRuntimeMigrationState KingState;
         public MonsterData[] AttackPoolMonsterDataRefs;
         public string[] AttackPoolMonsterDataNames;
         public int[] AttackPoolRemainingCounts;
@@ -2078,6 +2080,7 @@ public class HostMigrationHandler : MonoBehaviour
                 FieldUnitDataKeys = Array.Empty<string>(),
                 FieldUnitStarLevels = Array.Empty<int>(),
                 FieldUnitFlatPositions = Array.Empty<int>(),
+                FieldUnitSnapshotValid = true,
                 PresentedAugmentNames = Array.Empty<string>(),
                 SelectedAugmentNames = Array.Empty<string>(),
                 ChosenAugmentNames = Array.Empty<string>(),
@@ -2095,6 +2098,7 @@ public class HostMigrationHandler : MonoBehaviour
                 BlackMagicMaxBonus = player.BlackMagicMaxBonus,
                 BlackMagicRevision = player.BlackMagicRevision,
                 BlackMagicSequenceId = player.BlackMagicSequenceId,
+                KingState = player.CaptureKingRuntimeMigrationState(),
                 AttackPoolMonsterDataRefs = Array.Empty<MonsterData>(),
                 AttackPoolMonsterDataNames = Array.Empty<string>(),
                 AttackPoolRemainingCounts = Array.Empty<int>(),
@@ -2107,6 +2111,7 @@ public class HostMigrationHandler : MonoBehaviour
                 OwnedScrollDataRefs = Array.Empty<MagicScrollData>(),
                 OwnedScrollDataNames = Array.Empty<string>()
             };
+            var migrationPayloadFailures = new List<string>();
 
             if (player.TryGetShopSnapshot(
                     out string[] unitKeys,
@@ -2125,6 +2130,15 @@ public class HostMigrationHandler : MonoBehaviour
             if (player.fieldManager != null)
             {
                 player.fieldManager.RebuildWallMapsAfterMigration("HostMigrationHandler.CaptureDurablePlayerState", false, out _);
+                bool unitMapReady = player.fieldManager.RebuildUnitMapAfterMigration(
+                    "HostMigrationHandler.CaptureDurablePlayerState",
+                    false,
+                    out string unitMapSummary);
+                if (!unitMapReady)
+                {
+                    snapshot.FieldUnitSnapshotValid = false;
+                    migrationPayloadFailures.Add($"field_unit_map_invalid:{unitMapSummary}");
+                }
                 snapshot.PermanentWallFlatPositions = player.fieldManager.GetPermanentWallFlatPositions() ?? Array.Empty<int>();
                 snapshot.PlayerPlacedPermanentWallFlatPositions = player.fieldManager.GetPlayerPlacedPermanentWallFlatPositions() ?? Array.Empty<int>();
                 snapshot.WallHash = player.fieldManager.BuildWallCellHash();
@@ -2134,7 +2148,7 @@ public class HostMigrationHandler : MonoBehaviour
                     out snapshot.DestructibleWallMaxHealth,
                     out snapshot.DestructibleWallRevisions);
 
-                if (player.fieldManager.TryGetFieldUnitSnapshot(
+                if (unitMapReady && player.fieldManager.TryGetFieldUnitSnapshot(
                         out UnitData[] fieldUnitDataRefs,
                         out string[] fieldUnitDataKeys,
                         out int[] fieldUnitStarLevels,
@@ -2145,6 +2159,16 @@ public class HostMigrationHandler : MonoBehaviour
                     snapshot.FieldUnitStarLevels = fieldUnitStarLevels ?? Array.Empty<int>();
                     snapshot.FieldUnitFlatPositions = fieldUnitFlatPositions ?? Array.Empty<int>();
                 }
+                else if (unitMapReady)
+                {
+                    snapshot.FieldUnitSnapshotValid = false;
+                    migrationPayloadFailures.Add("field_unit_snapshot_invalid");
+                }
+            }
+            else
+            {
+                snapshot.FieldUnitSnapshotValid = false;
+                migrationPayloadFailures.Add("field_manager_missing");
             }
 
             snapshot.PresentedAugmentNames = player.GetPresentedAugmentSnapshotNames() ?? Array.Empty<string>();
@@ -2152,7 +2176,14 @@ public class HostMigrationHandler : MonoBehaviour
             snapshot.ChosenAugmentNames = player.GetChosenAugmentMigrationNames() ?? Array.Empty<string>();
             snapshot.ActiveMonsterSummonAugmentNames = player.GetActiveMonsterSummonAugmentMigrationNames() ?? Array.Empty<string>();
             snapshot.OwnedBossAugmentNames = player.GetOwnedBossAugmentMigrationNames() ?? Array.Empty<string>();
-            snapshot.MigrationPayloadOverflow = player.HasDurableMigrationPayloadOverflow(out snapshot.MigrationPayloadOverflowReason);
+            if (player.HasDurableMigrationPayloadOverflow(out string playerPayloadOverflowReason))
+            {
+                migrationPayloadFailures.Add(string.IsNullOrWhiteSpace(playerPayloadOverflowReason)
+                    ? "player_durable_payload_overflow"
+                    : playerPayloadOverflowReason);
+            }
+            snapshot.MigrationPayloadOverflow = migrationPayloadFailures.Count > 0;
+            snapshot.MigrationPayloadOverflowReason = string.Join("|", migrationPayloadFailures);
 
             if (player.TryGetAttackMonsterPoolSnapshot(
                     out int attackPoolRevision,
@@ -2362,6 +2393,11 @@ public class HostMigrationHandler : MonoBehaviour
                 criticalStateFailures++;
                 Debug.LogError($"[HostMigrationHandler] black magic restore failed P{snapshot.PlayerId} ({context})");
             }
+            if (!player.RestoreKingRuntimeAfterHostMigration(snapshot.KingState, context))
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] king runtime restore failed P{snapshot.PlayerId} ({context})");
+            }
             player.RestoreAttackMonsterPoolFromMigrationSnapshot(
                 snapshot.AttackPoolRevision,
                 snapshot.AttackPoolMonsterDataRefs,
@@ -2439,6 +2475,13 @@ public class HostMigrationHandler : MonoBehaviour
                 if (!restoredPlayersBySnapshotId.TryGetValue(snapshot.PlayerId, out var player) || player == null || player.fieldManager == null)
                 {
                     failedUnitFields++;
+                    continue;
+                }
+
+                if (!snapshot.FieldUnitSnapshotValid)
+                {
+                    failedUnitFields++;
+                    Debug.LogError($"[HostMigrationHandler] field-unit restore skipped to preserve live objects because the captured roster was invalid P{snapshot.PlayerId} ({context}): {snapshot.MigrationPayloadOverflowReason}");
                     continue;
                 }
 

@@ -67,6 +67,34 @@ public partial class GameManagers
         return Mathf.Max(0f, sequenceTransitionDelaySeconds);
     }
 
+    internal static float ResolveDisplayedPhaseTime(float phaseRemaining, bool sequenceTransitioning)
+    {
+        return sequenceTransitioning ? 0f : Mathf.Max(0f, phaseRemaining);
+    }
+
+    internal static GameState? ResolveExpiredPhaseTransitionTarget(
+        GameState state,
+        bool sequenceTransitioning,
+        bool roundTransitioning)
+    {
+        if (sequenceTransitioning)
+        {
+            return null;
+        }
+
+        switch (state)
+        {
+            case GameState.Prepare:
+                return GameState.Battle1;
+            case GameState.Battle1:
+                return GameState.Battle2;
+            case GameState.Battle2:
+                return roundTransitioning ? (GameState?)null : GameState.Prepare;
+            default:
+                return null;
+        }
+    }
+
     private void BeginSequenceTransition(GameState nextState, string reason)
     {
         if (Runner == null || Object == null || !Object.HasStateAuthority)
@@ -124,15 +152,16 @@ public partial class GameManagers
             return;
         }
 
+        bool transitionCompleted = true;
         try
         {
             switch (targetState)
             {
                 case GameState.Battle1:
-                    StartBattle1Phase();
+                    transitionCompleted = StartBattle1Phase();
                     break;
                 case GameState.Battle2:
-                    StartBattle2Phase();
+                    transitionCompleted = StartBattle2Phase();
                     break;
                 case GameState.GameOver:
                     TransitionToGameOverState("SequenceTransition");
@@ -144,7 +173,10 @@ public partial class GameManagers
         }
         finally
         {
-            EndSequenceTransition(fromState, targetState);
+            if (transitionCompleted)
+            {
+                EndSequenceTransition(fromState, targetState);
+            }
         }
     }
 

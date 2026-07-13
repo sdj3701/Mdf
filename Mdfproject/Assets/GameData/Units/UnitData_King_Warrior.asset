@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a1cb254f8e70f2243bb5b805efcb2338, type: 3}
+  m_Name: UnitData_King_Warrior
+  m_EditorClassIdentifier: 
+  baseUnitData: {fileID: 11400000, guid: bbcf86331f675644ab2af799f5503f6e, type: 2}
+  kingBuff: {fileID: 11400000, guid: 44569da2d4d7cf045b5bdbc91471ae8c, type: 2}
+  kingSkill: {fileID: 11400000, guid: 97fcbb959f936ba4691742d2fc54a061, type: 2}
+  presentationScale: 1.3
+  presentationOffset: {x: 0, y: 0, z: 0}
+  presentationEulerAngles: {x: 0, y: 0, z: 0}
+  baseAttackDamageMultiplier: 1.5
+  baseAttackSpeedMultiplier: 1
+  attackDamageGrowthPerRound: 0.12
+  attackSpeedGrowthPerRound: 0.04

@@ -500,6 +500,18 @@ public class AugmentManager : MonoBehaviour
                     Debug.LogWarning($"[AugmentManager] Monster strengthening augment '{augment.augmentName}' has no strengthenedMonsterData.");
                 }
                 return;
+            case EffectType.StrengthenKing:
+                if (target == null)
+                {
+                    Debug.LogError($"[AugmentManager] King strengthening augment '{augment.augmentName}' has no target player.");
+                    return;
+                }
+
+                target.ApplyKingAugment(
+                    augment.kingDamageBonusPercent,
+                    augment.kingAttackSpeedBonusPercent,
+                    augment.kingSkillPowerBonusPercent);
+                return;
             case EffectType.GrantMagicScroll:
                 if (augment.magicScrollData != null)
                 {

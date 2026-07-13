@@ -89,6 +89,13 @@ def compare_snapshots(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
         compare_equal(errors, f"player.{player_id}.field.deadUnitCount", nested(lp, "field", "deadUnitCount"), nested(rp, "field", "deadUnitCount"))
         compare_known(errors, f"player.{player_id}.field.deadUnitsHash", nested(lp, "field", "deadUnitsHash"), nested(rp, "field", "deadUnitsHash"))
         compare_known(errors, f"player.{player_id}.field.placedUnitsHash", nested(lp, "field", "placedUnitsHash"), nested(rp, "field", "placedUnitsHash"))
+        compare_equal(errors, f"player.{player_id}.field.goalCell", nested(lp, "field", "goalCell"), nested(rp, "field", "goalCell"))
+        compare_equal(
+            errors,
+            f"player.{player_id}.field.regularUnitGoalViolationCount",
+            nested(lp, "field", "regularUnitGoalViolationCount"),
+            nested(rp, "field", "regularUnitGoalViolationCount"),
+        )
         compare_known(errors, f"player.{player_id}.field.wallHash", nested(lp, "field", "wallHash"), nested(rp, "field", "wallHash"))
         compare_known_or_required(
             errors,

@@ -41,7 +41,7 @@ public sealed class PurchaseAndCombinationTransactionEditModeTests
             var field = root.AddComponent<FieldManager>();
             field.gridSize = new Vector2Int(2, 2);
             data.prefabsByStarLevel = new[] { "Unit_Test" };
-            var position = new Vector3Int(1, 1, 0);
+            var position = new Vector3Int(0, 1, 0);
 
             FieldManager.UnitPlacementResult result = field
                 .TryCreateUnitAtAsync(data, position, 2)

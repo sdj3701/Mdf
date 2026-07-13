@@ -1146,8 +1146,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("PermanentBricks.png"));
         Assert.That(controllerSource, Does.Contain("Mathf.Clamp(area.xMin, 0f, screenWidth)"));
         Assert.That(controllerSource, Does.Contain("UpdateRoundTimerLabel"));
-        Assert.That(controllerSource, Does.Contain("currentPhaseTimer"));
-        Assert.That(controllerSource, Does.Contain("currentSequenceTransitionTimer"));
+        Assert.That(controllerSource, Does.Contain("currentDisplayedPhaseTimer"));
+        Assert.That(controllerSource, Does.Not.Contain("currentSequenceTransitionTimer"));
         Assert.That(controllerSource, Does.Contain("IsPointerOverBlockingElement"));
         Assert.That(controllerSource, Does.Contain("IsToolkitRaycastObject"));
         Assert.That(controllerSource, Does.Contain("IsRuntimePanelRaycasterObject"));
@@ -1840,8 +1840,10 @@ public sealed class MPTestHarnessEditModeTests
         {
             var field = fieldObject.AddComponent<FieldManager>();
             field.gridSize = new Vector2Int(3, 2);
-            Assert.That(field.GetValidPlacementTiles(UnitType.Melee), Has.Count.EqualTo(6),
-                "Every empty melee cell should remain a valid candidate when no walls exist.");
+            var meleeCandidates = field.GetValidPlacementTiles(UnitType.Melee);
+            Assert.That(meleeCandidates, Has.Count.EqualTo(5),
+                "Every empty melee cell except the King Goal reservation should remain a valid candidate when no walls exist.");
+            Assert.That(meleeCandidates.Contains(new Vector3Int(1, 1, 0)), Is.False);
         }
         finally
         {

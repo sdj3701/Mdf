@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-06-01
-Last verified: 2026-06-01
-Use count: 11
+Last used: 2026-07-13
+Last verified: 2026-07-13
+Use count: 14
 Review after: 2026-08-03
 Triggers: Editor/Build E2E, build/build E2E, Game scene, FieldManager wall snapshots
 Applies to: Phase 10/11 E2E matrix, `compare_state_snapshots.py`, `FieldManager`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-093437-2human-aifill-visible-3round-stable; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260601-033513-two-hbot-two-ai-monster-spawn/result.json; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260509-093437-2human-aifill-visible-3round-stable; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260601-033513-two-hbot-two-ai-monster-spawn/result.json; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json; artifacts/mp/20260713-055637-editor-host-build-client/result.json; artifacts/mp/20260713-063902-editor-host-build-client/result.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -56,3 +56,5 @@ Lifecycle notes:
 - 2026-05-19: verified artifact `artifacts/mp/20260519-040220-matrix/matrix-summary.json`
 - 2026-05-19: Smoke matrix after ranking overlay input passthrough passed all selected cases; cleanupStatus=PASS orphanedPids=[].
 - 2026-05-19: verified artifact `artifacts/mp/20260519-055718-matrix/matrix-summary.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-055637-editor-host-build-client/result.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-063902-editor-host-build-client/result.json`

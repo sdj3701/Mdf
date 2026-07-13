@@ -154,7 +154,7 @@ public static class MazePlanner
         Vector2Int fixedGoal = Vector2Int.zero;
         if (useFixedEndpoints)
         {
-            var goalCell = fm.WorldToGridInt(pm.goalTransform.position);
+            var goalCell = fm.GetGoalGridPosition();
             fixedGoal = new Vector2Int(goalCell.x, goalCell.y);
 
             // 구멍이 감지되었으면 선택된 진입 구멍을 스폰 위치로 사용
@@ -716,7 +716,7 @@ public static class MazePlanner
         var start = fm.TryGetSingleOpenEntryCell(out var entryCell)
             ? entryCell
             : new Vector3Int(-1, -1, 0);
-        var goal = fm.WorldToGridInt(pm.goalTransform != null ? pm.goalTransform.position : Vector3.zero);
+        var goal = fm.GetGoalGridPosition();
         var start2D = new Vector2Int(start.x, start.y);
         var goal2D = new Vector2Int(goal.x, goal.y);
 

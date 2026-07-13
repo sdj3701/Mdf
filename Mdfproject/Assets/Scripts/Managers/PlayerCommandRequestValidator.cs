@@ -80,6 +80,8 @@ public sealed class PlayerCommandRequestValidator
                 return ValidateSelectAugmentRequest(gm, intParams, out reason);
             case CommandType.ActivateSkill:
                 return ValidateActivateSkillRequest(gm, intParams, out reason);
+            case CommandType.ActivateKingSkill:
+                return ValidateActivateKingSkillRequest(gm, out reason);
             case CommandType.SetSkillActivationMode:
                 return ValidateSetSkillActivationModeRequest(gm, intParams, out reason);
             case CommandType.RequestSyncData:
@@ -307,6 +309,12 @@ public sealed class PlayerCommandRequestValidator
             return false;
         }
 
+        if (field.IsGoalCell(to))
+        {
+            reason = "unit_goal_cell_blocked";
+            return false;
+        }
+
         Unit unit = field.GetUnitAt(from);
         UnitData sourceUnitData = unit != null ? unit.Data : null;
         if (unit == null && !field.HasPendingUnitAt(from))
@@ -369,6 +377,12 @@ public sealed class PlayerCommandRequestValidator
         if (!field.IsValidGridPosition(posA) || !field.IsValidGridPosition(posB))
         {
             reason = "swap_position_out_of_range";
+            return false;
+        }
+
+        if (field.IsGoalCell(posA) || field.IsGoalCell(posB))
+        {
+            reason = "swap_goal_cell_blocked";
             return false;
         }
 
@@ -503,7 +517,7 @@ public sealed class PlayerCommandRequestValidator
             return false;
         }
 
-        if (_player.goalTransform != null && position == field.WorldToGridInt(_player.goalTransform.position))
+        if (field.IsGoalCell(position))
         {
             reason = "wall_goal_cell_blocked";
             return false;
@@ -646,6 +660,48 @@ public sealed class PlayerCommandRequestValidator
         }
 
         SkillCommandMpTestLogger.Accepted(result, unitNetworkId, skillData != null ? skillData.name : "unknown");
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateActivateKingSkillRequest(GameManagers gm, out string reason)
+    {
+        if (!BattleCommandValidator.IsBattlePhase(gm))
+        {
+            reason = "king_skill_requires_battle_phase";
+            return false;
+        }
+
+        if (!_player.IsActivelyFighting)
+        {
+            reason = "king_skill_player_not_fighting";
+            return false;
+        }
+
+        if (_player.IsAttackerInCurrentBattle)
+        {
+            reason = "king_skill_requires_defender";
+            return false;
+        }
+
+        if (_player.SelectedKingSkill == null)
+        {
+            reason = "king_skill_data_not_ready";
+            return false;
+        }
+
+        if (_player.KingSkillUsedThisDefense)
+        {
+            reason = "king_skill_already_used_this_defense";
+            return false;
+        }
+
+        if (!_player.CanUseKingSkill)
+        {
+            reason = "king_skill_not_ready";
+            return false;
+        }
+
         reason = null;
         return true;
     }

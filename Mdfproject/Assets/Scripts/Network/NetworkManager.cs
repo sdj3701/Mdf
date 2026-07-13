@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Reflection;
 using Fusion;
@@ -36,6 +37,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 서버에서 플레이어들을 관리하기 위한 딕셔너리입니다.
     private readonly Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
     private readonly Dictionary<PlayerRef, string> _connectionTokensByPlayer = new Dictionary<PlayerRef, string>();
+    private readonly LobbyKingSelectionSessionCache _lobbyKingSelections = new LobbyKingSelectionSessionCache();
     private readonly Dictionary<int, PendingDisconnectedAiTakeover> _pendingDisconnectedAiTakeovers = new Dictionary<int, PendingDisconnectedAiTakeover>();
     private int _disconnectedAiTakeoverGeneration;
 
@@ -181,6 +183,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public async void JoinLobby()
     {
         if (_runner != null) return;
+        _lobbyKingSelections.Clear();
         State = ConnectionState.Connecting; // 새 중간 상태
         SetNetworkUiBlock(NetworkUiBlockReason.LobbyBootstrap);
 
@@ -439,6 +442,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (runner.IsServer)
         {
             CachePlayerConnectionToken(runner, player);
+            PrepareLobbyKingSelectionForJoinedPlayer(runner, player);
 
             if (TryReassociateDisconnectedPlayer(runner, player))
             {
@@ -492,6 +496,37 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         // Debug.Log($"Player {player} Left.");
         bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
         _spawnedCharacters.TryGetValue(player, out NetworkObject networkObject);
+
+        _lobbyKingSelections.ForgetPlayerRef(player.PlayerId);
+        string disconnectedObjectScene = networkObject != null && networkObject.IsValid
+            ? networkObject.gameObject.scene.name
+            : SceneManager.GetActiveScene().name;
+        if (ShouldCleanupDisconnectedLobbyObject(disconnectedObjectScene, isMigrating))
+        {
+            if (runner != null && runner.IsRunning && runner.IsServer)
+            {
+                NetworkObject lobbyObject = networkObject;
+                if (lobbyObject == null || !lobbyObject.IsValid)
+                {
+                    NetworkPlayer lobbyPlayer = FindObjectsOfType<NetworkPlayer>(true)
+                        .FirstOrDefault(candidate => candidate != null
+                            && candidate.Runner == runner
+                            && candidate.Object != null
+                            && candidate.Object.IsValid
+                            && candidate.Object.InputAuthority == player);
+                    lobbyObject = lobbyPlayer != null ? lobbyPlayer.Object : null;
+                }
+
+                if (lobbyObject != null && lobbyObject.IsValid)
+                {
+                    runner.Despawn(lobbyObject);
+                }
+            }
+
+            _spawnedCharacters.Remove(player);
+            OnPlayerLeftEvent?.Invoke(player);
+            return;
+        }
 
         PlayerManager runtimePlayer = FindPlayerManagerForInputAuthority(runner, player);
         NetworkObject preservedObject = runtimePlayer != null ? runtimePlayer.Object : null;
@@ -591,6 +626,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         HostMigrationHandler.Instance?.ClearReconnectCacheForMatchEnd();
         _connectionTokensByPlayer.Clear();
+        _lobbyKingSelections.Clear();
 
         State = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
         _startGameInProgress = false;
@@ -1207,6 +1243,133 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         return _connectionTokensByPlayer.TryGetValue(player, out string cachedToken) ? cachedToken : null;
     }
 
+    private string ResolveLobbyKingConnectionTokenHash(
+        NetworkRunner runner,
+        PlayerRef player,
+        NetworkObject playerObject = null)
+    {
+        if (runner != null && runner.IsServer)
+        {
+            string rawTokenHash = DurableConnectionTokenIdentity.BuildHash(
+                GetCachedOrCurrentConnectionToken(runner, player));
+            if (PlayerManager.IsValidDurableConnectionTokenHash(rawTokenHash))
+            {
+                return rawTokenHash;
+            }
+        }
+
+        PlayerManager playerManager = null;
+        if (playerObject != null && playerObject.IsValid)
+        {
+            playerObject.TryGetComponent(out playerManager);
+        }
+
+        playerManager ??= FindPlayerManagerForInputAuthority(runner, player);
+        string replicatedTokenHash = playerManager != null
+            ? playerManager.GetDurableConnectionTokenHash()
+            : string.Empty;
+        return PlayerManager.IsValidDurableConnectionTokenHash(replicatedTokenHash)
+            ? replicatedTokenHash
+            : string.Empty;
+    }
+
+    private void PrepareLobbyKingSelectionForJoinedPlayer(NetworkRunner runner, PlayerRef player)
+    {
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        _lobbyKingSelections.PrepareJoinedPlayer(player.PlayerId, tokenHash);
+    }
+
+    /// <summary>
+    /// Mirrors an allow-listed replicated lobby choice into the scene-independent session cache.
+    /// The durable token hash is used when available so every peer can retain the mapping if it
+    /// later becomes host; PlayerRef remains only the fast path for the current runner.
+    /// </summary>
+    public bool RememberLobbyKingSelection(NetworkPlayer networkPlayer)
+    {
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner)
+        {
+            return false;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        int selectionHash = networkPlayer.SelectedKingUnitKeyHash;
+        if (player == PlayerRef.None
+            || !IsActivePlayer(networkPlayer.Runner, player)
+            || !KingSelectionCatalog.IsAllowedHash(selectionHash))
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        _lobbyKingSelections.Remember(player.PlayerId, tokenHash, selectionHash);
+        return PlayerManager.IsValidDurableConnectionTokenHash(tokenHash);
+    }
+
+    public int ResolveInitialLobbyKingSelection(NetworkPlayer networkPlayer, int requestedSelectionHash)
+    {
+        int normalizedSelectionHash = KingSelectionCatalog.NormalizeOrDefaultHash(requestedSelectionHash);
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner
+            || !networkPlayer.Runner.IsServer)
+        {
+            return normalizedSelectionHash;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        if (player == PlayerRef.None || !IsActivePlayer(networkPlayer.Runner, player))
+        {
+            return normalizedSelectionHash;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        return _lobbyKingSelections.ResolveInitialSelection(
+            player.PlayerId,
+            tokenHash,
+            normalizedSelectionHash);
+    }
+
+    public bool TryGetLobbyKingSelectionForGameplay(
+        NetworkRunner runner,
+        PlayerRef player,
+        out int selectionHash)
+    {
+        selectionHash = 0;
+        if (runner == null
+            || runner != _runner
+            || !runner.IsServer
+            || player == PlayerRef.None)
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        return _lobbyKingSelections.TryResolve(player.PlayerId, tokenHash, out selectionHash);
+    }
+
+    public static bool ShouldCleanupDisconnectedLobbyObject(string sceneName, bool isMigrating)
+    {
+        return !isMigrating
+            && ResolveSceneName(sceneName, sceneName) == SceneDefine.JoinLobby;
+    }
+
+    public static bool ShouldUseGameplayReconnectCache(string sceneName)
+    {
+        return ResolveSceneName(sceneName, sceneName) == SceneDefine.Game;
+    }
+
     private void CachePlayerConnectionToken(NetworkRunner runner, PlayerRef player)
     {
         string token = TryGetConnectionTokenString(runner, player);
@@ -1293,6 +1456,15 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (runner == null || !runner.IsServer || HostMigrationHandler.Instance == null)
         {
+            return false;
+        }
+
+        string activeSceneName = SceneManager.GetActiveScene().name;
+        if (!ShouldUseGameplayReconnectCache(activeSceneName))
+        {
+            // Lobby PlayerManager instances do not yet have durable gameplay playerIds.
+            // Reconnect there is handled by a clean NetworkPlayer spawn plus token-backed
+            // king selection restoration, never by the gameplay reassociation cache.
             return false;
         }
 
@@ -1595,7 +1767,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         string sceneName = SceneManager.GetActiveScene().name;
-        return sceneName != SceneDefine.MatchingLobby && sceneName != SceneDefine.Title;
+        string resolvedSceneName = ResolveSceneName(sceneName, sceneName);
+        return resolvedSceneName != SceneDefine.MatchingLobby
+            && resolvedSceneName != SceneDefine.JoinLobby
+            && resolvedSceneName != SceneDefine.Title;
     }
 
     private void CancelPendingConnectionLossFallback()

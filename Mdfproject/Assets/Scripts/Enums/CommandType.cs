@@ -20,6 +20,7 @@ public enum CommandType
     // Routed through GameManagers.BattleCommands as a State Authority battle action, not CommandProcessor broadcast.
     UseMagicScroll = 13,
     SetSkillActivationMode = 14,
+    ActivateKingSkill = 15,
 
 
     // ===== Sync Commands (100-199) =====

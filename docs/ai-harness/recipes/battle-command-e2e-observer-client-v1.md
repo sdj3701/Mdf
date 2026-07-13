@@ -6,11 +6,11 @@ Category: battle
 Created: 2026-05-06
 Last used: 2026-07-13
 Last verified: 2026-07-13
-Use count: 10
+Use count: 12
 Review after: 2026-08-04
 Triggers: battle E2E reaches command execution on the host, but the client returns to `MatchingLobby` or the final snapshot is back in `Prepare`
 Applies to: `tools/harness/mp/run_battle_spawn_monster_command.py`, `tools/harness/mp/run_magic_scroll_command.py`, `tools/harness/mp/run_human_bot_battle_progression.py`, battle command snapshot checks
-Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051807-battle-spawn-monster-command; artifacts/mp/20260520-054126-battle-spawn-monster-command; artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/battle-command-evidence.json; artifacts/mp/20260712-214305-human-bot-battle-progression/battle-command-evidence.json
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051807-battle-spawn-monster-command; artifacts/mp/20260520-054126-battle-spawn-monster-command; artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/battle-command-evidence.json; artifacts/mp/20260712-214305-human-bot-battle-progression/battle-command-evidence.json; artifacts/mp/20260713-055128-human-bot-battle-progression/battle-command-evidence.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -50,3 +50,4 @@ Lifecycle notes:
 - 2026-07-12: verified artifact `artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/battle-command-evidence.json`
 - 2026-07-13: Observer-client battle command checkpoint passed with matching command counters.
 - 2026-07-13: verified artifact `artifacts/mp/20260712-214305-human-bot-battle-progression/battle-command-evidence.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-055128-human-bot-battle-progression/battle-command-evidence.json`

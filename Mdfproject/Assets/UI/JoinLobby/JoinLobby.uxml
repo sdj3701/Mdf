@@ -13,6 +13,45 @@
                 <ui:Label text="860" class="jl-currency jl-currency--purple" />
                 <ui:Label text="1" class="jl-alert-badge jl-alert-badge--bell" />
             </ui:VisualElement>
+            <ui:VisualElement name="kingSelectionPanel" class="jl-king-panel">
+                <ui:Label text="국왕 선택" class="jl-king-panel-title" />
+                <ui:Label text="전장을 지킬 국왕을 선택하세요" class="jl-king-panel-subtitle" />
+                <ui:VisualElement name="kingCard0" class="jl-clickable jl-king-card jl-king-card--0">
+                    <ui:VisualElement name="kingPortrait0" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName0" text="궁수" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection0" text="선택됨" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard1" class="jl-clickable jl-king-card jl-king-card--1">
+                    <ui:VisualElement name="kingPortrait1" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName1" text="성직자" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection1" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard2" class="jl-clickable jl-king-card jl-king-card--2">
+                    <ui:VisualElement name="kingPortrait2" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName2" text="전사" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection2" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard3" class="jl-clickable jl-king-card jl-king-card--3">
+                    <ui:VisualElement name="kingPortrait3" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName3" text="수호자" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection3" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard4" class="jl-clickable jl-king-card jl-king-card--4">
+                    <ui:VisualElement name="kingPortrait4" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName4" text="마법사" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection4" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard5" class="jl-clickable jl-king-card jl-king-card--5">
+                    <ui:VisualElement name="kingPortrait5" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName5" text="화염술사" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection5" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard6" class="jl-clickable jl-king-card jl-king-card--6">
+                    <ui:VisualElement name="kingPortrait6" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName6" text="검사" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection6" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+            </ui:VisualElement>
             <ui:VisualElement name="roomPanel" class="jl-room-panel">
                 <ui:Label name="roomNameLabel" text="빛의 성채 원정대" class="jl-room-title" />
                 <ui:Label name="playerCountLabel" text="방 인원 3 / 4" class="jl-room-count" />
@@ -20,25 +59,29 @@
                     <ui:VisualElement name="portrait0" class="jl-player-portrait" />
                     <ui:Label name="slotName0" class="jl-slot-name" />
                     <ui:Label name="slotLevel0" text="Lv. 42" class="jl-slot-level" />
-                    <ui:Label name="slotReady0" text="READY" class="jl-slot-ready" style="left: 25px; top: 290px; height: 27px;" />
+                    <ui:Label name="slotKing0" text="국왕 궁수" class="jl-slot-king" />
+                    <ui:Label name="slotReady0" text="READY" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot1" class="jl-player-slot jl-player-slot--1">
                     <ui:VisualElement name="portrait1" class="jl-player-portrait" />
                     <ui:Label name="slotName1" class="jl-slot-name" />
                     <ui:Label name="slotLevel1" text="Lv. 45" class="jl-slot-level" />
-                    <ui:Label name="slotReady1" text="READY" class="jl-slot-ready" style="left: 25px; top: 290px; height: 27px;" />
+                    <ui:Label name="slotKing1" text="국왕 수호자" class="jl-slot-king" />
+                    <ui:Label name="slotReady1" text="READY" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot2" class="jl-player-slot jl-player-slot--2">
                     <ui:VisualElement name="portrait2" class="jl-player-portrait" />
                     <ui:Label name="slotName2" class="jl-slot-name" />
                     <ui:Label name="slotLevel2" text="Lv. 40" class="jl-slot-level" />
-                    <ui:Label name="slotReady2" text="READY" class="jl-slot-ready" style="left: 25px; top: 290px; height: 27px;" />
+                    <ui:Label name="slotKing2" text="국왕 마법사" class="jl-slot-king" />
+                    <ui:Label name="slotReady2" text="READY" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot3" class="jl-player-slot jl-player-slot--3">
                     <ui:VisualElement name="portrait3" class="jl-player-portrait" />
                     <ui:Label name="slotName3" class="jl-slot-name" />
                     <ui:Label name="slotLevel3" class="jl-slot-level" />
-                    <ui:Label name="slotReady3" text="대기" class="jl-slot-ready" style="height: 27px; left: 32px; top: 290px;" />
+                    <ui:Label name="slotKing3" class="jl-slot-king" />
+                    <ui:Label name="slotReady3" text="대기" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="gameStartButton" class="jl-clickable jl-game-start-button">
                     <ui:Label name="gameStartLabel" text="게임 시작" class="jl-game-start-label" />

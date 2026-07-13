@@ -59,7 +59,7 @@ MonoBehaviour:
   firstPreparePhaseTime: 30
   preparePhaseTime: 20
   combatTime: 20
-  sequenceTransitionDelaySeconds: 1.5
+  sequenceTransitionDelaySeconds: 0
   berserkTriggerTime: 7
   baseGoldPerRound: 5
   maxInterest: 5

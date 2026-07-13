@@ -191,6 +191,133 @@
     background-color: rgba(255, 255, 255, 0.10);
 }
 
+.jl-king-panel {
+    position: absolute;
+    left: 177px;
+    top: 126px;
+    width: 570px;
+    height: 746px;
+    background-color: rgba(5, 18, 31, 0.88);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(71, 119, 154, 0.55);
+    border-right-color: rgba(71, 119, 154, 0.55);
+    border-top-color: rgba(121, 166, 198, 0.72);
+    border-bottom-color: rgba(30, 61, 83, 0.82);
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+}
+
+.jl-king-panel-title {
+    position: absolute;
+    left: 24px;
+    top: 19px;
+    width: 522px;
+    height: 42px;
+    color: #f3d39b;
+    font-size: 29px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.jl-king-panel-subtitle {
+    position: absolute;
+    left: 24px;
+    top: 59px;
+    width: 522px;
+    height: 28px;
+    color: #a9bac8;
+    font-size: 16px;
+    -unity-text-align: middle-center;
+}
+
+.jl-king-card {
+    position: absolute;
+    width: 252px;
+    height: 142px;
+    background-color: rgba(14, 38, 57, 0.9);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(87, 120, 143, 0.65);
+    border-right-color: rgba(87, 120, 143, 0.65);
+    border-top-color: rgba(114, 148, 171, 0.72);
+    border-bottom-color: rgba(39, 70, 92, 0.85);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.jl-king-card--selected {
+    background-color: rgba(24, 75, 116, 0.97);
+    border-left-color: #ffc864;
+    border-right-color: #ffc864;
+    border-top-color: #ffe2a4;
+    border-bottom-color: #b86d25;
+}
+
+.jl-king-card--0 { left: 22px; top: 98px; }
+.jl-king-card--1 { left: 296px; top: 98px; }
+.jl-king-card--2 { left: 22px; top: 253px; }
+.jl-king-card--3 { left: 296px; top: 253px; }
+.jl-king-card--4 { left: 22px; top: 408px; }
+.jl-king-card--5 { left: 296px; top: 408px; }
+.jl-king-card--6 { left: 159px; top: 563px; }
+
+.jl-king-card-portrait {
+    position: absolute;
+    left: 10px;
+    top: 10px;
+    width: 118px;
+    height: 118px;
+    background-color: rgba(3, 12, 20, 0.64);
+    -unity-background-scale-mode: scale-to-fit;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+}
+
+.jl-king-card-name {
+    position: absolute;
+    left: 136px;
+    top: 30px;
+    width: 106px;
+    height: 35px;
+    color: #ffffff;
+    font-size: 21px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.jl-king-card-selection {
+    position: absolute;
+    left: 143px;
+    top: 80px;
+    width: 92px;
+    height: 32px;
+    color: #b9c9d6;
+    background-color: rgba(8, 21, 33, 0.8);
+    font-size: 16px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+}
+
+.jl-king-card--selected .jl-king-card-selection {
+    color: #2a1908;
+    background-color: #ffd889;
+}
+
 .jl-room-panel {
     left: 776px;
     top: 126px;
@@ -256,7 +383,7 @@
     width: 152px;
     height: 205px;
     background-color: rgba(8, 21, 35, 0.35);
-    -unity-background-scale-mode: stretch-to-fill;
+    -unity-background-scale-mode: scale-to-fit;
 }
 
 .jl-player-portrait--0 {
@@ -301,12 +428,25 @@
     /* -unity-text-outline-color: #15110b; */
 }
 
+.jl-slot-king {
+    position: absolute;
+    left: 0;
+    top: 282px;
+    width: 176px;
+    height: 24px;
+    color: #f0c878;
+    font-size: 15px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    overflow: hidden;
+}
+
 .jl-slot-ready {
     position: absolute;
     left: 33px;
-    top: 284px;
+    top: 308px;
     width: 112px;
-    height: 34px;
+    height: 28px;
     color: #b9e8ff;
     font-size: 20px;
     -unity-font-style: bold;
@@ -335,7 +475,8 @@
 }
 
 .jl-slot--empty .jl-player-portrait,
-.jl-slot--empty .jl-slot-level {
+.jl-slot--empty .jl-slot-level,
+.jl-slot--empty .jl-slot-king {
     display: none;
 }
 

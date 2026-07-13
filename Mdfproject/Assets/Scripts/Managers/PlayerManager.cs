@@ -153,7 +153,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     private ChangeDetector _changeDetector;
     private bool _runtimeInitialized;
-    public bool IsReadyForPlayerActions => _runtimeInitialized && playerId >= 0 && fieldManager != null;
+    public bool IsReadyForPlayerActions => _runtimeInitialized
+                                           && playerId >= 0
+                                           && fieldManager != null
+                                           && IsKingRuntimeDataReady(out _);
     private PlayerShopPurchaseCoordinator _shopPurchaseCoordinator;
     private PlayerCommandRequestValidator _commandRequestValidator;
     internal int CurrentShopSnapshotRevision => ShopSnapshotRevision;
@@ -669,6 +672,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             wallCount = initialWallCount;
         }
 
+        InitializeKingRuntimeOnSpawn();
+
         InitializePermanentWallStateOnSpawn(isHostMigration);
 
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
@@ -718,6 +723,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
 
         PublishBlackMagicChangedFromRenderIfNeeded();
+        RenderKingRuntime();
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -1062,6 +1068,13 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         if (goalTransform == null)
         {
             reason = "goalTransform=null";
+            return false;
+        }
+
+        if (!IsKingRuntimeDataReady(out string kingReason))
+        {
+            QueueKingDataLoad(SelectedKingUnitKeyHash);
+            reason = $"kingRuntimeNotReady({kingReason})";
             return false;
         }
 
@@ -3717,6 +3730,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             this.goalTransform = goalGO.transform;
         }
 
+        OnKingGoalTransformReady();
+
         // Debug.Log($"[Player {playerId}]: 골 위치 설정 -> 그리드({centerX}, {centerY}), 월드{goalWorldPos}");
     }
 
@@ -3735,12 +3750,14 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     public override void Despawned(NetworkRunner runner, bool hasState)
     {
+        DisposeKingRuntime();
         _assetOwner?.Dispose();
         base.Despawned(runner, hasState);
     }
 
     private void OnDestroy()
     {
+        DisposeKingRuntime();
         _assetOwner?.Dispose();
     }
 }

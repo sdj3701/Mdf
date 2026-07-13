@@ -23,7 +23,8 @@ public enum EffectType
     // Append new values to preserve serialized enum values in existing assets.
     StrengthenMonsterType,
     IncreaseBlackMagicMaximum,
-    GrantPermanentWallPlacementCount
+    GrantPermanentWallPlacementCount,
+    StrengthenKing
 }
 
 // ✅ [추가] 증강의 등급을 정의하는 열거형
@@ -81,6 +82,13 @@ public class AugmentData : ScriptableObject
     [Min(0f)] public float monsterHealthBonusPercent;
     [Min(0f)] public float monsterDamageBonusPercent;
     [Min(0f)] public float monsterMoveSpeedBonusPercent;
+    #endregion
+
+    #region King strengthening
+    [Header("King Strengthening")]
+    [Min(0f)] public float kingDamageBonusPercent;
+    [Min(0f)] public float kingAttackSpeedBonusPercent;
+    [Min(0f)] public float kingSkillPowerBonusPercent;
     #endregion
 
     #region 마법 스크롤 설정

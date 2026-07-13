@@ -94,6 +94,21 @@ public static class MPTestAssertions
                 result.AddError(
                     $"player.{player.PlayerId}.blackMagic_exceeds_maximum current={player.BlackMagicCurrent} maximum={player.BlackMagicMaximum}");
             }
+
+            if (snapshot.Version >= 2 && !KingSelectionCatalog.IsValidHash(player.SelectedKingUnitKeyHash))
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.king_selection_invalid hash={player.SelectedKingUnitKeyHash}");
+            }
+
+            string gameState = snapshot.Game != null ? snapshot.Game.CurrentState : null;
+            bool kingDataRequired = string.Equals(gameState, GameManagers.GameState.Prepare.ToString(), StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(gameState, GameManagers.GameState.Battle1.ToString(), StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(gameState, GameManagers.GameState.Battle2.ToString(), StringComparison.OrdinalIgnoreCase);
+            if (snapshot.Version >= 2 && kingDataRequired && !player.KingDataReady)
+            {
+                result.AddError($"player.{player.PlayerId}.king_data_not_ready");
+            }
         }
 
         if (snapshot.Errors != null && snapshot.Errors.Count > 0)
@@ -178,6 +193,12 @@ public static class MPTestAssertions
             CompareEqual(result, $"player.{left.PlayerId}.blackMagicMaxBonus", left.BlackMagicMaxBonus, right.BlackMagicMaxBonus);
             CompareEqual(result, $"player.{left.PlayerId}.blackMagicRevision", left.BlackMagicRevision, right.BlackMagicRevision);
             CompareEqual(result, $"player.{left.PlayerId}.blackMagicSequenceId", left.BlackMagicSequenceId, right.BlackMagicSequenceId);
+            CompareEqual(result, $"player.{left.PlayerId}.selectedKingUnitKeyHash", left.SelectedKingUnitKeyHash, right.SelectedKingUnitKeyHash);
+            CompareEqual(result, $"player.{left.PlayerId}.kingSkillUsedThisDefense", left.KingSkillUsedThisDefense, right.KingSkillUsedThisDefense);
+            CompareEqual(result, $"player.{left.PlayerId}.kingDefenseSequenceId", left.KingDefenseSequenceId, right.KingDefenseSequenceId);
+            CompareEqual(result, $"player.{left.PlayerId}.kingAttackDamageBonusPermille", left.KingAttackDamageBonusPermille, right.KingAttackDamageBonusPermille);
+            CompareEqual(result, $"player.{left.PlayerId}.kingAttackSpeedBonusPermille", left.KingAttackSpeedBonusPermille, right.KingAttackSpeedBonusPermille);
+            CompareEqual(result, $"player.{left.PlayerId}.kingSkillPowerBonusPermille", left.KingSkillPowerBonusPermille, right.KingSkillPowerBonusPermille);
             CompareKnownOrMissing(result, $"player.{left.PlayerId}.attackMonsterPoolHash", left.AttackMonsterPoolHash, right.AttackMonsterPoolHash);
             CompareKnownOrMissing(result, $"player.{left.PlayerId}.ownedScrollsHash", left.OwnedScrollsHash, right.OwnedScrollsHash);
             CompareEqual(result, $"player.{left.PlayerId}.ownedScrollRevision", left.OwnedScrollRevision, right.OwnedScrollRevision);
@@ -291,6 +312,12 @@ public static class MPTestAssertions
             CountPositive(expected.DestructibleWallCount) || CountPositive(actual.DestructibleWallCount));
         CompareEqual(result, $"player.{playerId}.field.pathReady", expected.PathReady, actual.PathReady);
         CompareEqual(result, $"player.{playerId}.field.goalReady", expected.GoalReady, actual.GoalReady);
+        CompareEqual(result, $"player.{playerId}.field.goalCell", expected.GoalCell, actual.GoalCell);
+        CompareNullable(
+            result,
+            $"player.{playerId}.field.regularUnitGoalViolationCount",
+            expected.RegularUnitGoalViolationCount,
+            actual.RegularUnitGoalViolationCount);
     }
 
     private static void CompareMonsters(

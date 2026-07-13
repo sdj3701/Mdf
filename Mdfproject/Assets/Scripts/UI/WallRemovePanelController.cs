@@ -18,7 +18,7 @@ public class WallRemovePanelController : MonoBehaviour
     [SerializeField] private bool overrideSorting = true;
     [SerializeField] private int sortingOrder = 300;
 
-    private DestructibleWall _currentWall;
+    private GameObject _currentWall;
     private Vector3Int _wallGridPosition;
     private FieldManager _fieldManager;
     private Canvas _targetCanvas;
@@ -75,7 +75,7 @@ public class WallRemovePanelController : MonoBehaviour
     /// <summary>
     /// 벽과 필드 매니저를 바인딩하고 UI를 초기화합니다.
     /// </summary>
-    public void Bind(DestructibleWall wall, Vector3Int gridPosition, FieldManager manager)
+    public void Bind(GameObject wall, Vector3Int gridPosition, FieldManager manager)
     {
         _currentWall = wall;
         _wallGridPosition = gridPosition;
@@ -136,7 +136,7 @@ public class WallRemovePanelController : MonoBehaviour
         }
 
         // 벽이 아직 존재하는지 확인
-        return _fieldManager.GetWallAt(_wallGridPosition) != null;
+        return _fieldManager.GetRemovableWallObjectAt(_wallGridPosition) == _currentWall;
     }
 
     private void OnRemoveButtonClicked()
@@ -149,16 +149,19 @@ public class WallRemovePanelController : MonoBehaviour
         if (!CanRemoveCurrentWall()) return;
         _removeRequested = true;
 
-        var command = new RemoveWallCommand(_fieldManager.playerManager.playerId, _wallGridPosition);
-        if (GameManagers.Instance != null && GameManagers.Instance.CommandProcessor != null)
+        var commandProcessor = GameManagers.Instance != null
+            ? GameManagers.Instance.CommandProcessor
+            : null;
+        if (commandProcessor != null)
         {
-            GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+            var command = new RemoveWallCommand(_fieldManager.playerManager.playerId, _wallGridPosition);
+            commandProcessor.RequestCommandExecution(command);
         }
         else
         {
-            // CommandProcessor가 없는 경우 직접 실행 (싱글플레이어 폴백)
-            _fieldManager.RemoveWallAt(_wallGridPosition);
-            _fieldManager.playerManager.ReturnWall();
+            // Durable wall state is authority-owned; never mutate or refund directly from UI.
+            _removeRequested = false;
+            return;
         }
 
         // 벽 제거 후 모든 선택 UI 패널 숨기기 (유닛 디테일, 유닛 판매, 벽 제거)

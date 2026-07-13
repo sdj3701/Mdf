@@ -74,13 +74,7 @@ public class PhaseTimerUI : MonoBehaviour
                 return;
             }
 
-            if (gameManager.IsSequenceTransitioning)
-            {
-                timerText.text = $"{Mathf.CeilToInt(gameManager.currentSequenceTransitionTimer)}";
-                return;
-            }
-            
-            float remainingTime = gameManager.currentPhaseTimer;
+            float remainingTime = gameManager.currentDisplayedPhaseTimer;
 
             // 텍스트 UI의 내용을 업데이트합니다.
             // 정수로 올림하여 표시합니다.

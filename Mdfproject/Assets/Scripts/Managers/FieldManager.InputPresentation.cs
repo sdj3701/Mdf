@@ -7,6 +7,12 @@ using Fusion;
 
 public partial class FieldManager
 {
+    private static readonly int WallSelectionBaseColorId = Shader.PropertyToID("_BaseColor");
+    private static readonly int WallSelectionColorId = Shader.PropertyToID("_Color");
+    private static readonly Color WallSelectionTint = new Color(1f, 0.78f, 0.12f, 1f);
+    private readonly Dictionary<MeshRenderer, MaterialPropertyBlock> wallSelectionOriginalBlocks =
+        new Dictionary<MeshRenderer, MaterialPropertyBlock>();
+
     #region 유닛 상세 정보 패널 및 드래그 앤 드롭
 
     /// <summary>
@@ -431,7 +437,7 @@ public partial class FieldManager
             {
                 // 유닛이 없는 곳을 클릭함 -> 벽만 있는지 확인
                 Vector3Int clickedGridPos = WorldToGridInt(mouseWorldPos);
-                var clickedWall = GetWallAt(clickedGridPos);
+                GameObject clickedWall = GetRemovableWallObjectAt(clickedGridPos);
                 if (clickedWall != null)
                 {
                     // 벽만 있는 경우: 벽 제거 패널만 표시
@@ -599,7 +605,7 @@ public partial class FieldManager
                 ShowUnitDetailPanel(selectedUnit);
                 ShowUnitSellPanel(selectedUnit);
                 // 유닛이 서 있는 그리드에 벽이 있으면 벽 제거 패널도 표시
-                var wallAtUnitPos = GetWallAt(originalUnitPosition);
+                GameObject wallAtUnitPos = GetRemovableWallObjectAt(originalUnitPosition);
                 if (wallAtUnitPos != null)
                 {
                     ShowWallRemovePanel(wallAtUnitPos, originalUnitPosition);
@@ -621,7 +627,7 @@ public partial class FieldManager
             return false;
         }
 
-        if (playerManager == null || playerManager.playerId < 0 || GetWallAt(gridPosition) == null)
+        if (playerManager == null || playerManager.playerId < 0 || !HasRemovableWallAt(gridPosition))
         {
             return false;
         }
@@ -740,9 +746,13 @@ public partial class FieldManager
     /// <summary>
     /// 벽 제거 패널을 표시합니다.
     /// </summary>
-    private async void ShowWallRemovePanel(DestructibleWall wall, Vector3Int gridPosition)
+    private async void ShowWallRemovePanel(GameObject wallObject, Vector3Int gridPosition)
     {
-        if (wall == null || UIManagers.Instance == null) return;
+        if (wallObject == null || UIManagers.Instance == null ||
+            GetRemovableWallObjectAt(gridPosition) != wallObject)
+        {
+            return;
+        }
 
         // 전투 시퀀스에서는 벽 제거 패널을 표시하지 않음
         var gm = GameManagers.Instance;
@@ -751,11 +761,26 @@ public partial class FieldManager
             return;
         }
 
-        if (wallRemovePanelInstance == null)
+        wallDisplayedInRemovePanel = wallObject;
+        ApplyWallSelectionHighlight(wallObject);
+
+        GameObject panelInstance = wallRemovePanelInstance;
+        if (panelInstance == null)
         {
-            wallRemovePanelInstance = await UIManagers.Instance.GetUIElement("UI_Can_WallRemove");
+            panelInstance = await UIManagers.Instance.GetUIElement("UI_Can_WallRemove");
         }
 
+        if (wallDisplayedInRemovePanel != wallObject ||
+            GetRemovableWallObjectAt(gridPosition) != wallObject)
+        {
+            if (panelInstance != null && panelInstance != wallRemovePanelInstance && UIManagers.Instance != null)
+            {
+                UIManagers.Instance.ReturnUIElement("UI_Can_WallRemove");
+            }
+            return;
+        }
+
+        wallRemovePanelInstance = panelInstance;
         if (wallRemovePanelInstance != null)
         {
             // 벽의 자식이 아닌 FieldManager의 자식으로 설정하여 렌더링 순서 문제 해결
@@ -781,11 +806,73 @@ public partial class FieldManager
                     controllerCanvas.overrideSorting = true;
                     controllerCanvas.sortingOrder = 300;
                 }
-                controller.Bind(wall, gridPosition, this);
+                controller.Bind(wallObject, gridPosition, this);
                 wallRemovePanelInstance.SetActive(true);
-                wallDisplayedInRemovePanel = wall;
             }
         }
+    }
+
+    private void ApplyWallSelectionHighlight(GameObject wallObject)
+    {
+        ClearWallSelectionHighlight();
+        if (wallObject == null)
+        {
+            return;
+        }
+
+        foreach (MeshRenderer renderer in wallObject.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (renderer == null || renderer.sharedMaterial == null)
+            {
+                continue;
+            }
+
+            var originalBlock = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(originalBlock);
+            wallSelectionOriginalBlocks[renderer] = originalBlock;
+
+            var highlightedBlock = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(highlightedBlock);
+            Material material = renderer.sharedMaterial;
+            bool changed = false;
+            if (material.HasProperty(WallSelectionBaseColorId))
+            {
+                Color originalColor = material.GetColor(WallSelectionBaseColorId);
+                Color highlightedColor = Color.Lerp(originalColor, WallSelectionTint, 0.6f);
+                highlightedColor.a = originalColor.a;
+                highlightedBlock.SetColor(WallSelectionBaseColorId, highlightedColor);
+                changed = true;
+            }
+            if (material.HasProperty(WallSelectionColorId))
+            {
+                Color originalColor = material.GetColor(WallSelectionColorId);
+                Color highlightedColor = Color.Lerp(originalColor, WallSelectionTint, 0.6f);
+                highlightedColor.a = originalColor.a;
+                highlightedBlock.SetColor(WallSelectionColorId, highlightedColor);
+                changed = true;
+            }
+
+            if (changed)
+            {
+                renderer.SetPropertyBlock(highlightedBlock);
+            }
+            else
+            {
+                wallSelectionOriginalBlocks.Remove(renderer);
+            }
+        }
+    }
+
+    private void ClearWallSelectionHighlight()
+    {
+        foreach (var pair in wallSelectionOriginalBlocks)
+        {
+            if (pair.Key != null)
+            {
+                pair.Key.SetPropertyBlock(pair.Value);
+            }
+        }
+        wallSelectionOriginalBlocks.Clear();
     }
 
     /// <summary>
@@ -813,6 +900,7 @@ public partial class FieldManager
     /// </summary>
     private void HideWallRemovePanel()
     {
+        ClearWallSelectionHighlight();
         if (wallRemovePanelInstance != null && UIManagers.Instance != null)
         {
             UIManagers.Instance.ReturnUIElement("UI_Can_WallRemove");

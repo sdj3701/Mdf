@@ -208,6 +208,229 @@ def local_player(snapshot: Any) -> dict[str, Any] | None:
     return None
 
 
+def new_king_skill_verification() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "success": False,
+        "status": "waiting_for_local_defender",
+        "commandAttempted": False,
+        "commandAccepted": False,
+        "commandPeer": None,
+        "playerId": None,
+        "baseline": None,
+        "observed": None,
+        "commandResponse": None,
+        "errors": [],
+    }
+
+
+def local_king_skill_defender(snapshot: Any) -> dict[str, Any] | None:
+    player = local_player(snapshot)
+    if (
+        in_battle(snapshot)
+        and isinstance(player, dict)
+        and player.get("isActivelyFighting") is True
+        and player.get("isAttackerInCurrentBattle") is False
+        and player.get("kingCanUseSkill") is True
+    ):
+        return player
+    return None
+
+
+def king_skill_observation(player: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(player, dict):
+        return {
+            "present": False,
+            "playerId": None,
+            "kingSkillUsedThisDefense": None,
+            "kingSkillPresentationSequence": None,
+        }
+    return {
+        "present": True,
+        "playerId": player.get("playerId"),
+        "kingSkillUsedThisDefense": player.get("kingSkillUsedThisDefense"),
+        "kingSkillPresentationSequence": player.get("kingSkillPresentationSequence"),
+    }
+
+
+def update_king_skill_verification(
+    verification: dict[str, Any],
+    host: AutomationClient,
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    host_snapshot: Any,
+    client_snapshot: Any,
+) -> None:
+    if verification.get("success") is True:
+        return
+    if (
+        verification.get("commandAttempted") is True
+        and verification.get("commandAccepted") is not True
+    ):
+        write_json(artifact_dir / "king-skill-verification.json", verification)
+        return
+
+    write_json(artifact_dir / "snapshots" / "build-host-king-skill-observed-latest.json", host_snapshot)
+    write_json(artifact_dir / "snapshots" / "build-client-king-skill-observed-latest.json", client_snapshot)
+
+    if verification.get("commandAttempted") is not True:
+        candidate: tuple[str, AutomationClient, dict[str, Any]] | None = None
+        for peer, automation_client, snapshot in (
+            ("build-host", host, host_snapshot),
+            ("build-client", client, client_snapshot),
+        ):
+            local_defender = local_king_skill_defender(snapshot)
+            if isinstance(local_defender, dict):
+                candidate = (peer, automation_client, local_defender)
+                break
+
+        if candidate is None:
+            verification["status"] = "waiting_for_local_defender"
+            verification["errors"] = []
+            write_json(artifact_dir / "king-skill-verification.json", verification)
+            return
+
+        command_peer, command_client, candidate_player = candidate
+        player_id = candidate_player.get("playerId")
+        host_player = player_by_id(host_snapshot, player_id) if isinstance(player_id, int) else None
+        client_player = player_by_id(client_snapshot, player_id) if isinstance(player_id, int) else None
+        host_sequence = host_player.get("kingSkillPresentationSequence") if isinstance(host_player, dict) else None
+        client_sequence = client_player.get("kingSkillPresentationSequence") if isinstance(client_player, dict) else None
+        both_unconsumed = (
+            isinstance(host_player, dict)
+            and isinstance(client_player, dict)
+            and host_player.get("kingSkillUsedThisDefense") is False
+            and client_player.get("kingSkillUsedThisDefense") is False
+        )
+        if (
+            not isinstance(player_id, int)
+            or player_id < 0
+            or not isinstance(host_sequence, int)
+            or not isinstance(client_sequence, int)
+            or not both_unconsumed
+        ):
+            verification["status"] = "waiting_for_shared_baseline"
+            verification["errors"] = []
+            write_json(artifact_dir / "king-skill-verification.json", verification)
+            return
+
+        verification.update({
+            "status": "command_queued",
+            "commandAttempted": True,
+            "commandPeer": command_peer,
+            "playerId": player_id,
+            "baseline": {
+                "host": king_skill_observation(host_player),
+                "client": king_skill_observation(client_player),
+                "localDefender": {
+                    "peer": command_peer,
+                    "playerId": player_id,
+                    "hasInputAuthority": candidate_player.get("hasInputAuthority"),
+                    "hasStateAuthority": candidate_player.get("hasStateAuthority"),
+                    "isActivelyFighting": candidate_player.get("isActivelyFighting"),
+                    "isAttackerInCurrentBattle": candidate_player.get("isAttackerInCurrentBattle"),
+                    "kingCanUseSkill": candidate_player.get("kingCanUseSkill"),
+                },
+            },
+            "errors": [],
+        })
+        write_json(artifact_dir / "snapshots" / "build-host-king-skill-before.json", host_snapshot)
+        write_json(artifact_dir / "snapshots" / "build-client-king-skill-before.json", client_snapshot)
+        try:
+            command_response = command_client.command(name="activate_king_skill", playerId=player_id)
+        except Exception as exc:
+            command_response = {
+                "success": False,
+                "message": "activate_king_skill request failed",
+                "error": {
+                    "code": type(exc).__name__,
+                    "details": str(exc),
+                },
+            }
+        response_data = command_response.get("data") if isinstance(command_response, dict) else None
+        response_player_id = response_data.get("playerId") if isinstance(response_data, dict) else None
+        command_accepted = command_response.get("success") is True and response_player_id == player_id
+        verification["commandResponse"] = command_response
+        verification["commandAccepted"] = command_accepted
+        if not command_accepted:
+            error = command_response.get("error") if isinstance(command_response, dict) else None
+            error_code = error.get("code") if isinstance(error, dict) else None
+            verification["status"] = "command_rejected"
+            verification["errors"] = [
+                f"activate_king_skill_command_rejected:{error_code or command_response.get('message') or 'invalid_response'}"
+            ]
+            write_json(artifact_dir / "king-skill-verification.json", verification)
+            return
+
+    player_id = verification.get("playerId")
+    baseline = verification.get("baseline")
+    baseline_host = nested(baseline, "host", "kingSkillPresentationSequence") if isinstance(baseline, dict) else None
+    baseline_client = nested(baseline, "client", "kingSkillPresentationSequence") if isinstance(baseline, dict) else None
+    host_player = player_by_id(host_snapshot, player_id) if isinstance(player_id, int) else None
+    client_player = player_by_id(client_snapshot, player_id) if isinstance(player_id, int) else None
+    host_observation = king_skill_observation(host_player)
+    client_observation = king_skill_observation(client_player)
+    same_player_on_both = (
+        isinstance(player_id, int)
+        and host_observation.get("playerId") == player_id
+        and client_observation.get("playerId") == player_id
+    )
+    host_used = host_observation.get("kingSkillUsedThisDefense") is True
+    client_used = client_observation.get("kingSkillUsedThisDefense") is True
+    host_sequence = host_observation.get("kingSkillPresentationSequence")
+    client_sequence = client_observation.get("kingSkillPresentationSequence")
+    host_sequence_increased = (
+        isinstance(host_sequence, int)
+        and isinstance(baseline_host, int)
+        and host_sequence > baseline_host
+    )
+    client_sequence_increased = (
+        isinstance(client_sequence, int)
+        and isinstance(baseline_client, int)
+        and client_sequence > baseline_client
+    )
+    errors: list[str] = []
+    if not same_player_on_both:
+        errors.append("same_player_id_not_present_on_both_peers")
+    if not host_used:
+        errors.append("host_king_skill_used_flag_not_observed")
+    if not client_used:
+        errors.append("client_king_skill_used_flag_not_observed")
+    if not host_sequence_increased:
+        errors.append("host_king_skill_presentation_sequence_not_increased")
+    if not client_sequence_increased:
+        errors.append("client_king_skill_presentation_sequence_not_increased")
+
+    success = verification.get("commandAccepted") is True and not errors
+    verification.update({
+        "success": success,
+        "status": "verified" if success else "waiting_for_replication",
+        "observed": {
+            "host": host_observation,
+            "client": client_observation,
+            "samePlayerIdOnBothPeers": same_player_on_both,
+            "hostSequenceIncreased": host_sequence_increased,
+            "clientSequenceIncreased": client_sequence_increased,
+        },
+        "errors": errors,
+    })
+    if success:
+        write_json(artifact_dir / "snapshots" / "build-host-king-skill-after.json", host_snapshot)
+        write_json(artifact_dir / "snapshots" / "build-client-king-skill-after.json", client_snapshot)
+        write_json(
+            artifact_dir / "king-skill-after-comparison.json",
+            compare_snapshots(host_snapshot, client_snapshot),
+        )
+        verification["artifacts"] = {
+            "hostBefore": "snapshots/build-host-king-skill-before.json",
+            "clientBefore": "snapshots/build-client-king-skill-before.json",
+            "hostAfter": "snapshots/build-host-king-skill-after.json",
+            "clientAfter": "snapshots/build-client-king-skill-after.json",
+            "comparison": "king-skill-after-comparison.json",
+        }
+    write_json(artifact_dir / "king-skill-verification.json", verification)
+
+
 def unique_player_ids(snapshot: Any) -> bool:
     ids = [player.get("playerId") for player in players(snapshot)]
     return len(ids) == len(set(ids)) and all(isinstance(player_id, int) and player_id >= 0 for player_id in ids)
@@ -523,6 +746,7 @@ def wait_battle_progression(
     require_scroll: bool,
     require_any_battle_command: bool,
     client_human_bot: bool,
+    verify_king_skill: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
     deadline = time.time() + timeout
     host_state: dict[str, Any] = {}
@@ -532,6 +756,7 @@ def wait_battle_progression(
     wrote_battle_start = False
     battle_observed = False
     spawn_semantics_observed = False
+    king_skill_verification = new_king_skill_verification() if verify_king_skill else None
 
     while time.time() < deadline:
         host_state = dump_state(host, artifact_dir, "build-host", "battle-latest")
@@ -608,6 +833,19 @@ def wait_battle_progression(
             client_human_bot,
             spawn_semantics_observed,
         )
+        if king_skill_verification is not None:
+            update_king_skill_verification(
+                king_skill_verification,
+                host,
+                client,
+                artifact_dir,
+                host_state,
+                client_state,
+            )
+            latest_assertions["kingSkillVerification"] = king_skill_verification
+            if king_skill_verification.get("success") is not True:
+                latest_assertions["success"] = False
+                latest_assertions.setdefault("errors", []).append("king_skill_verification_pending")
 
         write_json(artifact_dir / "battle-comparison-latest.json", comparison)
         write_json(artifact_dir / "battle-command-evidence-latest.json", latest_assertions)
@@ -630,6 +868,24 @@ def wait_battle_progression(
             stable_successes = 0
         time.sleep(0.5)
 
+    if king_skill_verification is not None and king_skill_verification.get("success") is not True:
+        waiting_status = king_skill_verification.get("status")
+        if waiting_status != "command_rejected":
+            king_skill_verification["status"] = "timed_out"
+        if not king_skill_verification.get("errors"):
+            if waiting_status == "waiting_for_shared_baseline":
+                king_skill_verification["errors"] = ["shared_king_skill_baseline_not_observed"]
+            else:
+                king_skill_verification["errors"] = ["eligible_local_defender_not_observed"]
+        write_json(artifact_dir / "king-skill-verification.json", king_skill_verification)
+        latest_assertions["kingSkillVerification"] = king_skill_verification
+        latest_assertions["success"] = False
+        latest_errors = latest_assertions.setdefault("errors", [])
+        latest_errors[:] = [error for error in latest_errors if error != "king_skill_verification_pending"]
+        latest_errors.extend(
+            f"king_skill_verification:{error}"
+            for error in king_skill_verification.get("errors") or []
+        )
     return host_state, client_state, latest_assertions, False
 
 
@@ -1845,6 +2101,7 @@ def run_battle_case(
     host_bot_seed = args.host_bot_seed if args.host_bot_seed is not None else args.seed
     client_bot_seed = args.client_bot_seed if args.client_bot_seed is not None else args.seed + 1
     client_human_bot = bool(getattr(args, "client_human_bot", False))
+    verify_king_skill = bool(getattr(args, "verify_king_skill", False))
     host_journal_path = artifact_dir / "build-host-bot.jsonl"
     client_journal_path = artifact_dir / "build-client-bot.jsonl"
     host_proc: PlayerProcess | None = None
@@ -1865,7 +2122,7 @@ def run_battle_case(
         [host_token, client_token, host_connection, client_connection],
     )
 
-    write_json(artifact_dir / "run.json", {
+    run_config = {
         "case": case_name,
         "session": session,
         "playerPath": str(player_path),
@@ -1898,7 +2155,10 @@ def run_battle_case(
             "strictCleanup": args.strict_cleanup,
         },
         "orphanPressure": orphan_gate,
-    })
+    }
+    if verify_king_skill:
+        run_config["verifyKingSkill"] = True
+    write_json(artifact_dir / "run.json", run_config)
     if orphan_gate.get("blocked") and not args.dry_run:
         failures.append("orphan_pressure_gate_blocked")
         cleanup_report = {
@@ -2097,11 +2357,12 @@ def run_battle_case(
             require_scroll,
             require_any_battle_command,
             client_human_bot,
+            verify_king_skill=verify_king_skill,
         )
         write_json(artifact_dir / "snapshots" / "build-host-battle-progressed.json", host_battle)
         write_json(artifact_dir / "snapshots" / "build-client-battle-progressed.json", client_battle)
         write_json(artifact_dir / "battle-command-evidence.json", assertions)
-        write_json(artifact_dir / "checkpoint-summary.json", {
+        checkpoint_summary = {
             "beforeBattleBot": {
                 "host": "snapshots/build-host-before-battle-bot.json",
                 "client": "snapshots/build-client-before-battle-bot.json",
@@ -2117,7 +2378,12 @@ def run_battle_case(
                 "client": "snapshots/build-client-battle-progressed.json",
                 "evidence": "battle-command-evidence.json",
             },
-        })
+        }
+        if verify_king_skill:
+            checkpoint_summary["kingSkillVerification"] = {
+                "evidence": "king-skill-verification.json",
+            }
+        write_json(artifact_dir / "checkpoint-summary.json", checkpoint_summary)
         if not progressed:
             failures.append("battle_progression_timeout")
             failures.extend(assertions.get("errors") or [])
@@ -2241,14 +2507,17 @@ def run_battle_case(
         write_json(artifact_dir / "build-client-logs-recent.json", client_logs)
         failures.extend(f"mptest_failure_log:{line}" for line in mptest_failures(host_logs, client_logs))
 
-        write_json(artifact_dir / "result.json", {
+        result = {
             "success": not failures,
             "failures": failures,
             "artifactDir": str(artifact_dir),
             "battleCommandEvidence": assertions,
             "postMigrationPortraitView": portrait_view_result,
             "headlessPlayer": args.headless_player,
-        })
+        }
+        if verify_king_skill:
+            result["kingSkillVerification"] = assertions.get("kingSkillVerification")
+        write_json(artifact_dir / "result.json", result)
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{case_name} failed", failures)
     finally:

@@ -9,6 +9,11 @@ from battle_progression_common import add_common_args, run_battle_case
 def main() -> int:
     parser = argparse.ArgumentParser()
     add_common_args(parser)
+    parser.add_argument(
+        "--verify-king-skill",
+        action="store_true",
+        help="Require one defender King skill command to replicate its consumed flag and presentation sequence to both peers.",
+    )
     parser.set_defaults(bot_prepare_mode="full")
     args = parser.parse_args()
     return run_battle_case(

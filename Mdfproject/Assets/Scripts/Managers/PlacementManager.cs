@@ -226,6 +226,7 @@ public class PlacementManager : MonoBehaviour
     {
         // 3D 모드
         if (!fieldManager.IsValidGridPosition(gridPosition)) return false;
+        if (fieldManager.IsGoalCell(gridPosition)) return false;
         bool hasObstacle = fieldManager.HasWallAt(gridPosition);
         bool hasUnit = fieldManager.IsUnitAt(gridPosition);
 
@@ -242,11 +243,6 @@ public class PlacementManager : MonoBehaviour
         {
             if (hasObstacle) return false;
             // 스폰/골 그리드에는 벽 금지
-            if (playerManager != null)
-            {
-                var goalCell = fieldManager.WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero);
-                if (gridPosition == goalCell) return false;
-            }
             Unit occupant = fieldManager.GetUnitAt(gridPosition);
             if (occupant == null) return true;
             if (occupant.Data.unitType == UnitType.Ranged) return true;
@@ -436,10 +432,7 @@ public class PlacementManager : MonoBehaviour
         bool hasWall = validGrid && fieldManager.HasWallAt(gridPosition);
         Unit occupant = validGrid ? fieldManager.GetUnitAt(gridPosition) : null;
         string occupantType = occupant != null && occupant.Data != null ? occupant.Data.unitType.ToString() : "none";
-        Vector3Int goalCell = playerManager != null
-            ? fieldManager.WorldToGridInt(playerManager.goalTransform != null ? playerManager.goalTransform.position : Vector3.zero)
-            : new Vector3Int(int.MinValue, int.MinValue, 0);
-        bool isGoal = validGrid && gridPosition == goalCell;
+        bool isGoal = validGrid && fieldManager.IsGoalCell(gridPosition);
         bool meleeBlocked = occupant != null &&
                             occupant.Data != null &&
                             occupant.Data.unitType == UnitType.Melee &&

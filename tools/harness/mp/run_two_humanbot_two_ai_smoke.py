@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import shutil
 import time
 from typing import Any, Callable
 
@@ -544,6 +545,376 @@ def wall_stock_restored(before: Any, after_remove: Any, remove_results: list[dic
     return checked
 
 
+def king_goal_snapshot_errors(snapshot: Any, peer_name: str) -> list[str]:
+    errors: list[str] = []
+    snapshot_players = players(snapshot)
+    if len(snapshot_players) != EXPECTED_PLAYERS:
+        return [f"{peer_name}.kingGoal.playerCount expected={EXPECTED_PLAYERS} actual={len(snapshot_players)}"]
+
+    for player in snapshot_players:
+        player_id = player.get("playerId")
+        prefix = f"{peer_name}.player.{player_id}"
+        field = player.get("field") if isinstance(player.get("field"), dict) else {}
+
+        if player.get("kingPresentationReady") is not True:
+            errors.append(f"{prefix}.kingPresentationReady")
+        numeric_limits = (
+            ("kingPresentationGoalDistance", 0.01),
+            ("kingPresentationWorldScaleDrift", 0.002),
+            ("kingPresentationTransformDrift", 0.002),
+            ("kingRigTransformDrift", 0.002),
+            ("kingCameraFacingAngle", 1.0),
+        )
+        for key, maximum in numeric_limits:
+            try:
+                actual = float(player.get(key))
+            except (TypeError, ValueError):
+                errors.append(f"{prefix}.{key}=missing")
+                continue
+            if actual < 0.0 or actual > maximum:
+                errors.append(f"{prefix}.{key} expected=0..{maximum} actual={actual}")
+
+        try:
+            scale_multiplier = float(player.get("kingPresentationScaleMultiplier"))
+        except (TypeError, ValueError):
+            errors.append(f"{prefix}.kingPresentationScaleMultiplier=missing")
+        else:
+            if abs(scale_multiplier - 1.3) > 0.001:
+                errors.append(f"{prefix}.kingPresentationScaleMultiplier expected=1.3 actual={scale_multiplier}")
+
+        if player.get("kingUsesNeutralGoalAnchor") is not True:
+            errors.append(f"{prefix}.kingUsesNeutralGoalAnchor")
+        rig_pin_required = player.get("kingRigPinRequired")
+        rig_pin_active = player.get("kingRigPinActive")
+        if not isinstance(rig_pin_required, bool):
+            errors.append(f"{prefix}.kingRigPinRequired=missing")
+        if not isinstance(rig_pin_active, bool):
+            errors.append(f"{prefix}.kingRigPinActive=missing")
+        elif rig_pin_required is True and rig_pin_active is not True:
+            errors.append(f"{prefix}.kingRigPinActive expected=true when required")
+        if player.get("kingHeadLookActive") is not True:
+            errors.append(f"{prefix}.kingHeadLookActive")
+        if player.get("kingHeadLookApplied") is not True:
+            errors.append(f"{prefix}.kingHeadLookApplied")
+        if field.get("regularUnitGoalViolationCount") != 0:
+            errors.append(
+                f"{prefix}.field.regularUnitGoalViolationCount expected=0 "
+                f"actual={field.get('regularUnitGoalViolationCount')}"
+            )
+    return errors
+
+
+def verify_king_goal_stability(
+    clients: dict[str, AutomationClient],
+    artifact_dir: pathlib.Path,
+    timeout_seconds: float = 30.0,
+    required_stable_samples: int = 3,
+) -> dict[str, Any]:
+    deadline = time.time() + timeout_seconds
+    stable_samples = 0
+    sample_index = 0
+    sample_summaries: list[dict[str, Any]] = []
+    latest_errors: list[str] = ["not_started"]
+
+    while time.time() < deadline:
+        sample_index += 1
+        snapshots = {
+            name: safe_request(client.dump_state)
+            for name, client in clients.items()
+        }
+        latest_errors = []
+        for name, snapshot in snapshots.items():
+            latest_errors.extend(king_goal_snapshot_errors(snapshot, name))
+            write_json(
+                artifact_dir / "snapshots" / f"{name}-king-goal-sample-{sample_index}.json",
+                snapshot,
+            )
+
+        if latest_errors:
+            stable_samples = 0
+        else:
+            stable_samples += 1
+        sample_summaries.append({
+            "sample": sample_index,
+            "success": not latest_errors,
+            "errors": latest_errors,
+            "stableSamples": stable_samples,
+        })
+        if stable_samples >= required_stable_samples:
+            break
+        time.sleep(0.75)
+
+    result = {
+        "success": stable_samples >= required_stable_samples,
+        "requiredStableSamples": required_stable_samples,
+        "stableSamples": stable_samples,
+        "samples": sample_summaries,
+        "errors": [] if stable_samples >= required_stable_samples else latest_errors,
+    }
+    write_json(artifact_dir / "king-goal-placement-verification.json", result)
+    return result
+
+
+def capture_ai_field_screenshots(
+    client: AutomationClient,
+    snapshot: Any,
+    artifact_dir: pathlib.Path,
+    timeout_seconds: float = 8.0,
+) -> dict[str, Any]:
+    snapshot_players = players(snapshot)
+    ai_player_ids = sorted(
+        int(player["playerId"])
+        for player in snapshot_players
+        if player.get("isAI") is True and isinstance(player.get("playerId"), int)
+    )
+    local_player_id = next(
+        (
+            int(player["playerId"])
+            for player in snapshot_players
+            if player.get("isLocal") is True and isinstance(player.get("playerId"), int)
+        ),
+        None,
+    )
+    errors: list[str] = []
+    captures: list[dict[str, Any]] = []
+    visual_preparation = safe_request(
+        lambda: client.command(name="prepare_visual_capture")
+    )
+    write_json(artifact_dir / "host-prepare-visual-capture.json", visual_preparation)
+    if visual_preparation.get("success") is not True:
+        errors.append("prepare_visual_capture_failed")
+    time.sleep(0.25)
+
+    if len(ai_player_ids) != EXPECTED_AI:
+        errors.append(f"ai_player_count expected={EXPECTED_AI} actual={len(ai_player_ids)}")
+
+    for player_id in ai_player_ids:
+        request = safe_request(
+            lambda player_id=player_id: client.command(
+                name="view_player_field",
+                playerId=player_id,
+                requestNavigation=True,
+            )
+        )
+        write_json(artifact_dir / f"host-ai-{player_id}-field-view-command.json", request)
+        inspection = request
+        deadline = time.time() + timeout_seconds
+        while request.get("success") is True and time.time() < deadline:
+            inspection = safe_request(
+                lambda player_id=player_id: client.command(
+                    name="view_player_field",
+                    playerId=player_id,
+                    requestNavigation=False,
+                )
+            )
+            payload = inspection.get("data") if isinstance(inspection, dict) else None
+            if (
+                inspection.get("success") is True
+                and isinstance(payload, dict)
+                and payload.get("viewingPlayerId") == player_id
+                and payload.get("currentViewingMatchesRegistry") is True
+                and payload.get("transitioning") is False
+                and payload.get("switched") is True
+            ):
+                break
+            time.sleep(0.25)
+
+        payload = inspection.get("data") if isinstance(inspection, dict) else None
+        settled = (
+            inspection.get("success") is True
+            and isinstance(payload, dict)
+            and payload.get("viewingPlayerId") == player_id
+            and payload.get("currentViewingMatchesRegistry") is True
+            and payload.get("transitioning") is False
+            and payload.get("switched") is True
+        )
+        if settled:
+            time.sleep(0.5)
+        field_snapshot = safe_request(client.dump_state) if settled else {}
+        write_json(
+            artifact_dir / "snapshots" / f"host-ai-{player_id}-field-state.json",
+            field_snapshot,
+        )
+        viewed_player = next(
+            (
+                player
+                for player in players(field_snapshot)
+                if player.get("playerId") == player_id
+            ),
+            None,
+        )
+        orientation_ready = (
+            isinstance(viewed_player, dict)
+            and viewed_player.get("kingHeadLookApplied") is True
+        )
+        if not orientation_ready:
+            errors.append(f"ai_field_king_head_look_not_applied:{player_id}")
+        screenshot = safe_request(client.screenshot) if settled else {
+            "success": False,
+            "error": {"code": "ai_field_view_not_settled", "details": str(inspection)},
+        }
+        screenshot_data = screenshot.get("data") if isinstance(screenshot, dict) else None
+        screenshot_path = pathlib.Path(str(screenshot_data.get("path"))) if isinstance(screenshot_data, dict) and screenshot_data.get("path") else None
+        if screenshot.get("success") is True and screenshot_path is not None:
+            screenshot_deadline = time.time() + 3.0
+            previous_size = -1
+            stable_size_samples = 0
+            while time.time() < screenshot_deadline:
+                current_size = screenshot_path.stat().st_size if screenshot_path.exists() else -1
+                if current_size > 0 and current_size == previous_size:
+                    stable_size_samples += 1
+                else:
+                    stable_size_samples = 0
+                previous_size = current_size
+                if stable_size_samples >= 2:
+                    break
+                time.sleep(0.1)
+            if screenshot_path.exists() and screenshot_path.stat().st_size > 0 and stable_size_samples >= 2:
+                archived_path = artifact_dir / "screenshots" / f"host-ai-{player_id}-field.png"
+                archived_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(screenshot_path, archived_path)
+                screenshot_data["archivedPath"] = str(archived_path.resolve())
+            else:
+                screenshot = {
+                    "success": False,
+                    "error": {
+                        "code": "ai_field_screenshot_file_missing",
+                        "details": str(screenshot_path),
+                    },
+                }
+        write_json(artifact_dir / f"host-ai-{player_id}-field-screenshot.json", screenshot)
+        capture = {
+            "playerId": player_id,
+            "settled": settled,
+            "inspection": inspection,
+            "orientationReady": orientation_ready,
+            "kingCameraFacingAngle": (
+                viewed_player.get("kingCameraFacingAngle")
+                if isinstance(viewed_player, dict)
+                else None
+            ),
+            "kingHeadLookApplied": (
+                viewed_player.get("kingHeadLookApplied")
+                if isinstance(viewed_player, dict)
+                else None
+            ),
+            "screenshot": screenshot,
+        }
+        captures.append(capture)
+        if not settled or screenshot.get("success") is not True:
+            errors.append(f"ai_field_screenshot_failed:{player_id}")
+        time.sleep(1.1)
+
+    if local_player_id is not None:
+        safe_request(
+            lambda: client.command(
+                name="view_player_field",
+                playerId=local_player_id,
+                requestNavigation=True,
+            )
+        )
+
+    result = {
+        "success": not errors,
+        "errors": errors,
+        "aiPlayerIds": ai_player_ids,
+        "localPlayerId": local_player_id,
+        "captures": captures,
+    }
+    write_json(artifact_dir / "king-goal-ai-field-screenshots.json", result)
+    return result
+
+
+def parse_grid_cell(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, str):
+        return None
+    parts = value.split(",")
+    if len(parts) != 3:
+        return None
+    try:
+        return {"x": int(parts[0]), "y": int(parts[1]), "z": int(parts[2])}
+    except (TypeError, ValueError):
+        return None
+
+
+def first_placed_unit_cell(player: dict[str, Any]) -> dict[str, int] | None:
+    field = player.get("field") if isinstance(player.get("field"), dict) else {}
+    for part in field.get("placedUnitParts") or []:
+        if not isinstance(part, str):
+            continue
+        cell = parse_grid_cell(part.split(":", 1)[0])
+        if cell is not None:
+            return cell
+    return None
+
+
+def verify_goal_cell_move_rejection(
+    host: AutomationClient,
+    client: AutomationClient,
+    before_snapshot: Any,
+    artifact_dir: pathlib.Path,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    target_player: dict[str, Any] | None = None
+    source: dict[str, int] | None = None
+    goal: dict[str, int] | None = None
+    for player in players(before_snapshot):
+        if player.get("isAI") is not False or not isinstance(player.get("playerId"), int):
+            continue
+        source = first_placed_unit_cell(player)
+        field = player.get("field") if isinstance(player.get("field"), dict) else {}
+        goal = parse_grid_cell(field.get("goalCell"))
+        if source is not None and goal is not None and source != goal:
+            target_player = player
+            break
+
+    response: dict[str, Any] = {}
+    after_host: dict[str, Any] = {}
+    after_client: dict[str, Any] = {}
+    if target_player is None or source is None or goal is None:
+        errors.append("goal_rejection.no_human_unit_or_goal_cell")
+    else:
+        player_id = int(target_player["playerId"])
+        before_hash = nested(target_player, "field", "placedUnitsHash")
+        response = safe_request(lambda: host.command(
+            name="move_unit",
+            playerId=player_id,
+            **{"from": source, "to": goal},
+        ))
+        if response.get("success") is not False:
+            errors.append("goal_rejection.command_was_not_rejected")
+        if nested(response, "error", "code") != "unit_goal_cell_blocked":
+            errors.append(
+                "goal_rejection.error_code "
+                f"expected=unit_goal_cell_blocked actual={nested(response, 'error', 'code')}"
+            )
+
+        time.sleep(0.75)
+        after_host = safe_request(host.dump_state)
+        after_client = safe_request(client.dump_state)
+        host_player = player_by_id(after_host, player_id)
+        client_player = player_by_id(after_client, player_id)
+        if host_player is None or nested(host_player, "field", "placedUnitsHash") != before_hash:
+            errors.append("goal_rejection.host_placedUnitsHash_changed")
+        if client_player is None or nested(client_player, "field", "placedUnitsHash") != before_hash:
+            errors.append("goal_rejection.client_placedUnitsHash_changed")
+        errors.extend(king_goal_snapshot_errors(after_host, "host-after-goal-rejection"))
+        errors.extend(king_goal_snapshot_errors(after_client, "client-after-goal-rejection"))
+
+    result = {
+        "success": not errors,
+        "errors": errors,
+        "playerId": target_player.get("playerId") if target_player is not None else None,
+        "from": source,
+        "to": goal,
+        "response": response,
+        "afterHost": after_host,
+        "afterClient": after_client,
+    }
+    write_json(artifact_dir / "goal-cell-rejection.json", result)
+    return result
+
+
 def build_assertions(
     before_move: Any,
     after_move_host: Any,
@@ -551,6 +922,8 @@ def build_assertions(
     comparison: dict[str, Any],
     bot_statuses: dict[str, dict[str, Any]],
     move_results: list[dict[str, Any]],
+    king_goal_verification: dict[str, Any] | None = None,
+    goal_rejection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -584,6 +957,16 @@ def build_assertions(
         errors.append("move_unit.no_successful_command")
     if successful_moves and not movement_hash_changed(before_move, after_move_host, move_results):
         errors.append("move_unit.placedUnitsHash_not_changed")
+    if king_goal_verification is not None and king_goal_verification.get("success") is not True:
+        errors.extend(
+            f"king_goal.{error}"
+            for error in king_goal_verification.get("errors") or ["verification_failed"]
+        )
+    if goal_rejection is not None and goal_rejection.get("success") is not True:
+        errors.extend(
+            f"goal_rejection.{error}"
+            for error in goal_rejection.get("errors") or ["verification_failed"]
+        )
 
     return {
         "success": not errors,
@@ -597,6 +980,8 @@ def build_assertions(
             for name, status in bot_statuses.items()
         },
         "successfulMoveCommands": len(successful_moves),
+        "kingGoalPlacementVerified": king_goal_verification.get("success") if king_goal_verification else None,
+        "goalCellMoveRejected": goal_rejection.get("success") if goal_rejection else None,
     }
 
 
@@ -1055,6 +1440,7 @@ def run(args: argparse.Namespace) -> int:
         "maxRounds": args.max_rounds,
         "allowMaxRoundResult": args.allow_max_round_result,
         "botPrepareMode": args.bot_prepare_mode,
+        "verifyKingGoalPlacement": args.verify_king_goal_placement,
         "headlessPlayer": args.headless_player,
         "dryRun": args.dry_run,
     })
@@ -1083,6 +1469,9 @@ def run(args: argparse.Namespace) -> int:
     after_move_client: dict[str, Any] = {}
     final_comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
     game_end_move_result: dict[str, Any] = {}
+    king_goal_verification: dict[str, Any] | None = None
+    king_goal_ai_screenshots: dict[str, Any] | None = None
+    goal_rejection: dict[str, Any] | None = None
 
     try:
         for peer in peers:
@@ -1237,6 +1626,20 @@ def run(args: argparse.Namespace) -> int:
             if not before_move_ready:
                 failures.append("before_manual_move_ready_timeout")
 
+            if args.verify_king_goal_placement and before_move_ready:
+                goal_rejection = verify_goal_cell_move_rejection(
+                    clients["host"],
+                    clients["client"],
+                    before_move_host,
+                    artifact_dir,
+                )
+            else:
+                write_json(artifact_dir / "goal-cell-rejection.json", {
+                    "success": True,
+                    "skipped": True,
+                    "reason": "verification_disabled_or_prepare_not_ready",
+                })
+
             move_results = issue_move_commands(clients["host"], before_move_host, artifact_dir)
             if args.move_round <= 1:
                 after_move_host, after_move_client, final_comparison, after_move_ready = wait_game_ready(
@@ -1259,7 +1662,49 @@ def run(args: argparse.Namespace) -> int:
             write_json(artifact_dir / "snapshots" / "host-after-move.json", after_move_host)
             write_json(artifact_dir / "snapshots" / "client-after-move.json", after_move_client)
             write_json(artifact_dir / "comparison-after-move.json", final_comparison)
-            assertions = build_assertions(before_move_host, after_move_host, after_move_client, final_comparison, bot_statuses, move_results)
+            if args.verify_king_goal_placement and after_move_ready:
+                king_goal_verification = verify_king_goal_stability(clients, artifact_dir)
+                if args.headless_player:
+                    king_goal_ai_screenshots = {
+                        "success": True,
+                        "skipped": True,
+                        "reason": "headless_player",
+                    }
+                    write_json(artifact_dir / "king-goal-ai-field-screenshots.json", king_goal_ai_screenshots)
+                else:
+                    king_goal_ai_screenshots = capture_ai_field_screenshots(
+                        clients["host"],
+                        after_move_host,
+                        artifact_dir,
+                    )
+                    if king_goal_ai_screenshots.get("success") is not True:
+                        failures.extend(
+                            king_goal_ai_screenshots.get("errors")
+                            or ["king_goal_ai_field_screenshot_failed"]
+                        )
+            else:
+                king_goal_verification = None
+                write_json(artifact_dir / "king-goal-placement-verification.json", {
+                    "success": True,
+                    "skipped": True,
+                    "reason": "verification_disabled_or_prepare_not_ready",
+                })
+                king_goal_ai_screenshots = {
+                    "success": True,
+                    "skipped": True,
+                    "reason": "verification_disabled_or_prepare_not_ready",
+                }
+                write_json(artifact_dir / "king-goal-ai-field-screenshots.json", king_goal_ai_screenshots)
+            assertions = build_assertions(
+                before_move_host,
+                after_move_host,
+                after_move_client,
+                final_comparison,
+                bot_statuses,
+                move_results,
+                king_goal_verification,
+                goal_rejection,
+            )
             write_json(artifact_dir / "two-humanbot-two-ai-assertions.json", assertions)
             if assertions.get("success") is not True:
                 failures.extend(assertions.get("errors") or ["assertions_failed"])
@@ -1287,6 +1732,11 @@ def run(args: argparse.Namespace) -> int:
                     },
                 })
             else:
+                write_json(
+                    artifact_dir / f"{name}-prepare-visual-capture.json",
+                    safe_request(lambda peer_client=peer_client: peer_client.command(name="prepare_visual_capture")),
+                )
+                time.sleep(0.25)
                 write_json(artifact_dir / f"{name}-screenshot.json", safe_request(peer_client.screenshot))
             for line in ((logs.get("data") or {}).get("lines") or []):
                 if isinstance(line, str) and "[MPTEST]" in line and ("result=fail" in line or " phase=error" in line):
@@ -1327,6 +1777,12 @@ def run(args: argparse.Namespace) -> int:
             "successfulPlaceWallCommands": game_end_move_result.get("successfulPlaceWallCommands") if game_end_move_result else None,
             "successfulRemoveWallCommands": game_end_move_result.get("successfulRemoveWallCommands") if game_end_move_result else None,
             "gameEndMoveResultPath": "game-to-end-move-result.json" if game_end_move_result else None,
+            "kingGoalPlacementVerification": king_goal_verification.get("success") if king_goal_verification else None,
+            "kingGoalPlacementVerificationPath": "king-goal-placement-verification.json" if args.verify_king_goal_placement else None,
+            "kingGoalAiFieldScreenshots": king_goal_ai_screenshots.get("success") if king_goal_ai_screenshots else None,
+            "kingGoalAiFieldScreenshotsPath": "king-goal-ai-field-screenshots.json" if args.verify_king_goal_placement else None,
+            "goalCellMoveRejection": goal_rejection.get("success") if goal_rejection else None,
+            "goalCellMoveRejectionPath": "goal-cell-rejection.json" if args.verify_king_goal_placement else None,
         },
     )
     print(json.dumps(result, indent=2))
@@ -1356,6 +1812,7 @@ def main() -> int:
     parser.add_argument("--continue-game-end-on-move-error", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--headless-player", action="store_true")
+    parser.add_argument("--verify-king-goal-placement", action="store_true")
     parser.add_argument("--ping-timeout", type=int, default=45)
     parser.add_argument("--start-timeout", type=int, default=45)
     parser.add_argument("--lobby-timeout", type=int, default=90)

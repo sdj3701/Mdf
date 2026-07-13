@@ -194,6 +194,7 @@ public partial class FieldManager : MonoBehaviour
     public bool IsWallMapReady => _lastWallMapRebuildFrame >= 0;
     private int _lastUnitMapRebuildFrame = -1;
     private string _lastUnitMapRebuildSummary = "unitMap:notBuilt";
+    private bool _lastUnitMapRebuildSucceeded = true;
     public bool IsUnitMapReady => _lastUnitMapRebuildFrame >= 0;
     private float _lastClientUnitMapReconcileTime = -999f;
     private const float ClientUnitMapReconcileIntervalSeconds = 0.25f;
@@ -334,7 +335,7 @@ public partial class FieldManager : MonoBehaviour
     private GameObject unitSellPanelInstance;
     private Unit unitDisplayedInSellPanel;
     private GameObject wallRemovePanelInstance;
-    private DestructibleWall wallDisplayedInRemovePanel;
+    private GameObject wallDisplayedInRemovePanel;
 
     private Camera _cachedPlayerCamera;
     private Camera playerCamera
@@ -815,6 +816,43 @@ public partial class FieldManager : MonoBehaviour
     public bool IsValidGridPosition(Vector3Int gridPos)
     {
         return IsValidGridPosition(new Vector2Int(gridPos.x, gridPos.y));
+    }
+
+    public Vector3Int GetGoalGridPosition()
+    {
+        if (playerManager != null &&
+            playerManager.goalTransform != null &&
+            GridGeometry.TryWorldToInnerCell(playerManager.goalTransform.position, out Vector2Int resolved))
+        {
+            return new Vector3Int(resolved.x, resolved.y, 0);
+        }
+
+        return new Vector3Int(gridSize.x / 2, gridSize.y / 2, 0);
+    }
+
+    public bool IsGoalCell(Vector3Int gridPosition)
+    {
+        if (!IsValidGridPosition(gridPosition))
+        {
+            return false;
+        }
+
+        Vector3Int goalCell = GetGoalGridPosition();
+        return gridPosition.x == goalCell.x && gridPosition.y == goalCell.y;
+    }
+
+    public bool IsRegularUnitPlacementCell(Vector3Int gridPosition)
+    {
+        return IsValidGridPosition(gridPosition) && !IsGoalCell(gridPosition);
+    }
+
+    internal int GetRegularUnitGoalViolationCount()
+    {
+        Vector3Int goalCell = GetGoalGridPosition();
+        return placedUnits.Count(kvp =>
+            kvp.Value != null &&
+            kvp.Key.x == goalCell.x &&
+            kvp.Key.y == goalCell.y);
     }
 
     #endregion
@@ -1499,7 +1537,7 @@ public partial class FieldManager : MonoBehaviour
             }
 
             summary = _lastUnitMapRebuildSummary;
-            return true;
+            return _lastUnitMapRebuildSucceeded;
         }
 
         var oldCells = new HashSet<Vector3Int>(placedUnits.Keys);
@@ -1507,12 +1545,15 @@ public partial class FieldManager : MonoBehaviour
         var preservedPendingUnitDataByPosition = new Dictionary<Vector3Int, UnitData>(pendingUnitDataByPosition);
         var preservedPendingNetworkMoves = pendingNetworkMoves.ToList();
         var rebuiltUnits = new Dictionary<Vector3Int, Unit>();
+        var plannedGoalRelocations = new List<(Unit Unit, Vector3Int Cell)>();
 
         int candidates = 0;
         int registered = 0;
         int duplicates = 0;
         int outOfBounds = 0;
         int missingData = 0;
+        int goalRelocations = 0;
+        int unresolvedGoalConflicts = 0;
 
         var unitCandidates = new List<Unit>();
 
@@ -1556,6 +1597,8 @@ public partial class FieldManager : MonoBehaviour
             .Where(kvp => kvp.Value != null)
             .GroupBy(kvp => kvp.Value)
             .ToDictionary(group => group.Key, group => group.First().Key);
+        var eligibleRebuildCandidates = new List<(Unit Unit, bool WasRegistered, Vector3Int RegisteredCell)>();
+
         foreach (var unit in unitCandidates.Where(u => u != null).Distinct())
         {
             bool networkRunning = playerManager != null
@@ -1600,11 +1643,48 @@ public partial class FieldManager : MonoBehaviour
                 missingData++;
             }
 
-            Vector3Int cell = wasAlreadyRegistered ? registeredCell : WorldToGridInt(unit.transform.position);
+            eligibleRebuildCandidates.Add((unit, wasAlreadyRegistered, registeredCell));
+        }
+
+        var reservedRebuildCells = new HashSet<Vector3Int>();
+        foreach (var candidate in eligibleRebuildCandidates)
+        {
+            Vector3Int candidateCell = candidate.WasRegistered
+                ? candidate.RegisteredCell
+                : WorldToGridInt(candidate.Unit.transform.position);
+            if (IsRegularUnitPlacementCell(candidateCell))
+            {
+                reservedRebuildCells.Add(candidateCell);
+            }
+        }
+
+        foreach (var candidate in eligibleRebuildCandidates)
+        {
+            Unit unit = candidate.Unit;
+            Vector3Int cell = candidate.WasRegistered
+                ? candidate.RegisteredCell
+                : WorldToGridInt(unit.transform.position);
             if (!IsValidGridPosition(cell))
             {
                 outOfBounds++;
                 continue;
+            }
+
+            if (IsGoalCell(cell))
+            {
+                Vector3Int? relocatedCell = FindFirstRegularUnitRebuildCell(unit.Data, reservedRebuildCells);
+                if (relocatedCell.HasValue)
+                {
+                    cell = relocatedCell.Value;
+                    reservedRebuildCells.Add(cell);
+                    plannedGoalRelocations.Add((unit, cell));
+                    goalRelocations++;
+                }
+                else
+                {
+                    unresolvedGoalConflicts++;
+                    continue;
+                }
             }
 
             if (rebuiltUnits.TryGetValue(cell, out Unit existing))
@@ -1620,25 +1700,42 @@ public partial class FieldManager : MonoBehaviour
             }
 
             rebuiltUnits[cell] = unit;
-            SyncUnitPlacementIdentity(unit, cell);
             registered++;
         }
 
-        placedUnits = rebuiltUnits;
-        RefreshCombatTargetRegistryAfterRosterRebuild();
-        RestorePendingStateAfterUnitMapRebuild(
-            preservedPendingUnitPositions,
-            preservedPendingUnitDataByPosition,
-            preservedPendingNetworkMoves);
-        if (repairPresentation)
+        _lastUnitMapRebuildSucceeded = unresolvedGoalConflicts == 0;
+        if (_lastUnitMapRebuildSucceeded)
         {
-            RepairPlacedUnitPresentation($"RebuildUnitMapAfterMigration.{context}", allowMissingGameManagers: true);
+            placedUnits = rebuiltUnits;
+            foreach (var relocation in plannedGoalRelocations)
+            {
+                MoveUnitImmediate(relocation.Unit, GridToWorld(relocation.Cell, checkForWall: true));
+                Debug.LogWarning($"[UnitFlow-Migration] Relocated legacy regular unit away from Goal. context={context}, unit={relocation.Unit.name}, to={relocation.Cell}");
+            }
+
+            foreach (var kvp in placedUnits)
+            {
+                if (kvp.Value != null)
+                {
+                    SyncUnitPlacementIdentity(kvp.Value, kvp.Key);
+                }
+            }
+
+            RefreshCombatTargetRegistryAfterRosterRebuild();
+            RestorePendingStateAfterUnitMapRebuild(
+                preservedPendingUnitPositions,
+                preservedPendingUnitDataByPosition,
+                preservedPendingNetworkMoves);
+            if (repairPresentation)
+            {
+                RepairPlacedUnitPresentation($"RebuildUnitMapAfterMigration.{context}", allowMissingGameManagers: true);
+            }
         }
 
         bool unitMapChanged = !oldCells.SetEquals(placedUnits.Keys);
         _lastUnitMapRebuildFrame = Time.frameCount;
         _lastUnitMapRebuildSummary =
-            $"ctx={context},units={placedUnits.Count}/{candidates},registered={registered},missingData={missingData},outOfBounds={outOfBounds},duplicates={duplicates},changed={unitMapChanged}";
+            $"ctx={context},units={placedUnits.Count}/{candidates},registered={registered},missingData={missingData},outOfBounds={outOfBounds},duplicates={duplicates},goalRelocations={goalRelocations},unresolvedGoalConflicts={unresolvedGoalConflicts},changed={unitMapChanged}";
         summary = _lastUnitMapRebuildSummary;
 
         if (verboseLog)
@@ -1646,7 +1743,7 @@ public partial class FieldManager : MonoBehaviour
             Debug.Log($"[UnitFlow-Migration] RebuildUnitMapAfterMigration {_lastUnitMapRebuildSummary}");
         }
 
-        return true;
+        return _lastUnitMapRebuildSucceeded;
     }
 
     private void RestorePendingStateAfterUnitMapRebuild(
@@ -1659,7 +1756,7 @@ public partial class FieldManager : MonoBehaviour
 
         foreach (var position in preservedPendingUnitPositions)
         {
-            if (!IsValidGridPosition(position) || placedUnits.ContainsKey(position))
+            if (!IsRegularUnitPlacementCell(position) || placedUnits.ContainsKey(position))
             {
                 continue;
             }
@@ -1680,7 +1777,7 @@ public partial class FieldManager : MonoBehaviour
                 continue;
             }
 
-            if (!IsValidGridPosition(move.From) || !IsValidGridPosition(move.To))
+            if (!IsValidGridPosition(move.From) || !IsRegularUnitPlacementCell(move.To))
             {
                 continue;
             }
@@ -1753,12 +1850,30 @@ public partial class FieldManager : MonoBehaviour
     public bool IsPlayerPlacedPermanentWallAt(Vector3Int gridPosition)
     {
         return playerPlacedPermanentWallCells.Contains(gridPosition) &&
-               placedPermanentWalls.ContainsKey(gridPosition);
+               placedPermanentWalls.TryGetValue(gridPosition, out GameObject wallObject) &&
+               wallObject != null;
+    }
+
+    public GameObject GetRemovableWallObjectAt(Vector3Int gridPosition)
+    {
+        if (placedWalls.TryGetValue(gridPosition, out DestructibleWall destructibleWall) &&
+            destructibleWall != null)
+        {
+            return destructibleWall.gameObject;
+        }
+
+        if (IsPlayerPlacedPermanentWallAt(gridPosition) &&
+            placedPermanentWalls.TryGetValue(gridPosition, out GameObject permanentWall))
+        {
+            return permanentWall;
+        }
+
+        return null;
     }
 
     public bool HasRemovableWallAt(Vector3Int gridPosition)
     {
-        return placedWalls.ContainsKey(gridPosition) || IsPlayerPlacedPermanentWallAt(gridPosition);
+        return GetRemovableWallObjectAt(gridPosition) != null;
     }
 
     private struct FieldUnitMigrationEntry
@@ -1775,6 +1890,16 @@ public partial class FieldManager : MonoBehaviour
         out int[] starLevels,
         out int[] flatPositions)
     {
+        if (placedUnits.Any(kvp => kvp.Value != null && IsGoalCell(kvp.Key)))
+        {
+            unitDataRefs = Array.Empty<UnitData>();
+            unitDataKeys = Array.Empty<string>();
+            starLevels = Array.Empty<int>();
+            flatPositions = Array.Empty<int>();
+            Debug.LogError("[UnitFlow-Migration] Refusing to capture a field snapshot containing a regular unit on the Goal cell.");
+            return false;
+        }
+
         var entries = placedUnits
             .Where(kvp => kvp.Value != null)
             .Where(kvp => IsValidGridPosition(kvp.Key))
@@ -1814,6 +1939,15 @@ public partial class FieldManager : MonoBehaviour
         string context)
     {
         var desiredEntries = BuildFieldUnitMigrationEntries(unitDataRefs, unitDataKeys, starLevels, flatPositions);
+        if (desiredEntries.Any(entry => IsGoalCell(entry.Position)))
+        {
+            _hostMigrationUnitRestoreRunning = false;
+            _hostMigrationUnitRestoreSucceeded = false;
+            _hostMigrationUnitRestoreFailureReason = "unit_goal_cell_blocked_in_snapshot";
+            Debug.LogError($"[UnitFlow-Migration] RestoreFieldUnitsAfterHostMigration rejected before mutation. context={context}, reason={_hostMigrationUnitRestoreFailureReason}");
+            return false;
+        }
+
         string desiredSignature = BuildFieldUnitMigrationSignature(desiredEntries);
         if (BuildCurrentFieldUnitMigrationSignature() == desiredSignature)
         {
@@ -1852,6 +1986,32 @@ public partial class FieldManager : MonoBehaviour
         _hostMigrationUnitRestoreFailureReason = string.Empty;
         RestoreFieldUnitsAfterHostMigrationAsync(resolvedEntries, desiredSignature, context, generation).Forget();
         return true;
+    }
+
+    private Vector3Int? FindFirstRegularUnitRebuildCell(UnitData unitData, HashSet<Vector3Int> reservedCells)
+    {
+        for (int y = 0; y < gridSize.y; y++)
+        {
+            for (int x = 0; x < gridSize.x; x++)
+            {
+                var candidate = new Vector3Int(x, y, 0);
+                if (!IsRegularUnitPlacementCell(candidate) ||
+                    (reservedCells != null && reservedCells.Contains(candidate)) ||
+                    pendingUnitPositions.Contains(candidate))
+                {
+                    continue;
+                }
+
+                if (HasWallAt(candidate) && (unitData == null || unitData.unitType == UnitType.Melee))
+                {
+                    continue;
+                }
+
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     public WallPlacementKind GetWallPlacementKind()
@@ -1952,10 +2112,10 @@ public partial class FieldManager : MonoBehaviour
             return false;
         }
 
-        return UnitBelongsToFieldOwnerDurable(unit) ||
-               playerManager != null &&
+        return playerManager != null &&
                playerManager.ownedUnits != null &&
-               playerManager.ownedUnits.Contains(unit);
+               playerManager.ownedUnits.Contains(unit) ||
+               UnitBelongsToFieldOwnerDurable(unit);
     }
 
     private List<FieldUnitMigrationEntry> BuildFieldUnitMigrationEntries(
@@ -3187,6 +3347,11 @@ public partial class FieldManager : MonoBehaviour
 
     private bool TryReserveUnitPosition(Vector3Int gridPosition, UnitData unitData)
     {
+        if (!IsRegularUnitPlacementCell(gridPosition))
+        {
+            return false;
+        }
+
         if (!pendingUnitPositions.Add(gridPosition))
         {
             return false;
@@ -3258,6 +3423,10 @@ public partial class FieldManager : MonoBehaviour
         {
             return UnitPlacementResult.Failure(gridPosition, "grid_position_invalid");
         }
+        if (IsGoalCell(gridPosition))
+        {
+            return UnitPlacementResult.Failure(gridPosition, "unit_goal_cell_blocked");
+        }
         if (data == null)
         {
             return UnitPlacementResult.Failure(gridPosition, "unit_data_missing");
@@ -3312,6 +3481,11 @@ public partial class FieldManager : MonoBehaviour
             if (prefabToCreate == null)
             {
                 return UnitPlacementResult.Failure(gridPosition, "unit_prefab_load_failed");
+            }
+
+            if (IsGoalCell(gridPosition))
+            {
+                return UnitPlacementResult.Failure(gridPosition, "unit_goal_cell_blocked_after_load");
             }
 
             runner = playerManager != null ? playerManager.Runner : null;
@@ -3403,6 +3577,14 @@ public partial class FieldManager : MonoBehaviour
                 newUnitGO = null;
                 spawnedNetworkObject = null;
                 return UnitPlacementResult.Failure(gridPosition, "unit_initialization_incomplete");
+            }
+
+            if (IsGoalCell(gridPosition))
+            {
+                CleanupUncommittedUnit(newUnitGO, spawnedNetworkObject, runner);
+                newUnitGO = null;
+                spawnedNetworkObject = null;
+                return UnitPlacementResult.Failure(gridPosition, "unit_goal_cell_blocked_before_commit");
             }
 
             if (placedUnits.ContainsKey(gridPosition))
@@ -3671,6 +3853,11 @@ public partial class FieldManager : MonoBehaviour
             return;
         }
 
+        if (IsGoalCell(to))
+        {
+            return;
+        }
+
         if (placedUnits.TryGetValue(from, out Unit unit))
         {
             if (unit == null || !UnitBelongsToFieldOwnerDurable(unit))
@@ -3785,6 +3972,12 @@ public partial class FieldManager : MonoBehaviour
             return false;
         }
 
+        if (IsGoalCell(to))
+        {
+            reason = "unit_goal_cell_blocked";
+            return false;
+        }
+
         if (unitData == null)
         {
             if (HasWallAt(to))
@@ -3824,7 +4017,7 @@ public partial class FieldManager : MonoBehaviour
 
     private void QueuePendingNetworkMove(Vector3Int from, Vector3Int to)
     {
-        if (!ShouldQueuePendingNetworkMove(from))
+        if (!IsValidGridPosition(from) || !IsRegularUnitPlacementCell(to) || !ShouldQueuePendingNetworkMove(from))
         {
             return;
         }
@@ -3906,6 +4099,10 @@ public partial class FieldManager : MonoBehaviour
         if (!IsValidGridPosition(a) || !IsValidGridPosition(b))
         {
             // Debug.LogWarning($"[FieldManager] SwapUnits 무시: 범위를 벗어남 {a} <-> {b} (GridSize={gridSize})");
+            return;
+        }
+        if (IsGoalCell(a) || IsGoalCell(b))
+        {
             return;
         }
         if (!placedUnits.TryGetValue(a, out Unit unitA) || !placedUnits.TryGetValue(b, out Unit unitB))
@@ -4436,7 +4633,7 @@ public partial class FieldManager : MonoBehaviour
                 for (int x = 0; x < gridSize.x; x++)
                 {
                     var pos = new Vector3Int(x, y, 0);
-                    if (!HasWallAt(pos))
+                    if (!IsGoalCell(pos) && !HasWallAt(pos))
                     {
                         validTiles.Add(pos);
                     }
@@ -4448,11 +4645,17 @@ public partial class FieldManager : MonoBehaviour
             // 원거리 유닛은 파괴 가능/불가 벽 위에 배치 가능
             foreach (var wallPos in placedWalls.Keys)
             {
-                validTiles.Add(wallPos);
+                if (!IsGoalCell(wallPos))
+                {
+                    validTiles.Add(wallPos);
+                }
             }
             foreach (var permPos in placedPermanentWalls.Keys)
             {
-                validTiles.Add(permPos);
+                if (!IsGoalCell(permPos))
+                {
+                    validTiles.Add(permPos);
+                }
             }
         }
         return validTiles;
@@ -4497,6 +4700,10 @@ public partial class FieldManager : MonoBehaviour
         if (!IsValidGridPosition(gridPosition))
         {
             // Debug.LogWarning($"[FieldManager] RegisterUnitAt 무시: 유효 범위 밖 위치 {gridPosition} (GridSize={gridSize})");
+            return;
+        }
+        if (IsGoalCell(gridPosition))
+        {
             return;
         }
         RemovePlacedUnitEntriesFromOtherFields(unit);

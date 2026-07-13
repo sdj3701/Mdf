@@ -5,6 +5,7 @@ using Cysharp.Threading.Tasks;
 using Fusion;
 using MDF.Runtime.Assets;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.TestTools;
 using UnityEngine.UI;
@@ -12,6 +13,109 @@ using NUnitAssert = NUnit.Framework.Assert;
 
 public sealed class RuntimeLifecycleRegressionEditModeTests
 {
+    [Test]
+    public void SequenceTransitionDelayNeverReplacesExpiredPhaseCountdown()
+    {
+        MethodInfo resolver = typeof(GameManagers).GetMethod(
+            "ResolveDisplayedPhaseTime",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        NUnitAssert.That(resolver, Is.Not.Null);
+
+        NUnitAssert.That((float)resolver.Invoke(null, new object[] { 18.25f, false }), Is.EqualTo(18.25f));
+        NUnitAssert.That((float)resolver.Invoke(null, new object[] { -0.1f, false }), Is.Zero);
+        NUnitAssert.That((float)resolver.Invoke(null, new object[] { 2.75f, true }), Is.Zero,
+            "A pending sequence transition must hold the visible phase timer at zero, not show its 2-3 second delay.");
+
+        MethodInfo legacyUpdate = typeof(PhaseTimerUI).GetMethod(
+            "Update",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo toolkitUpdate = typeof(GamePrepareUIToolkitController).GetMethod(
+            "UpdateRoundTimerLabel",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        NUnitAssert.That(legacyUpdate, Is.Not.Null);
+        NUnitAssert.That(toolkitUpdate, Is.Not.Null);
+        NUnitAssert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            legacyUpdate,
+            typeof(GameManagers),
+            "get_currentDisplayedPhaseTimer"), Is.True);
+        NUnitAssert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            toolkitUpdate,
+            typeof(GameManagers),
+            "get_currentDisplayedPhaseTimer"), Is.True);
+        NUnitAssert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            legacyUpdate,
+            typeof(GameManagers),
+            "get_currentSequenceTransitionTimer"), Is.False);
+        NUnitAssert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            toolkitUpdate,
+            typeof(GameManagers),
+            "get_currentSequenceTransitionTimer"), Is.False);
+    }
+
+    [Test]
+    public void PhaseBoundariesAreImmediateAndBattleReadinessRetriesStayInsideTransition()
+    {
+        const BindingFlags instanceMembers = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo retry = typeof(GameManagers).GetMethod(
+            "RearmBattleTransitionRetryTimer",
+            instanceMembers);
+        MethodInfo startBattleOne = typeof(GameManagers).GetMethod("StartBattle1Phase", instanceMembers);
+        MethodInfo startBattleTwo = typeof(GameManagers).GetMethod("StartBattle2Phase", instanceMembers);
+        MethodInfo complete = typeof(GameManagers).GetMethod("CompleteSequenceTransition", instanceMembers);
+
+        NUnitAssert.That(retry, Is.Not.Null);
+        NUnitAssert.That(startBattleOne?.ReturnType, Is.EqualTo(typeof(bool)));
+        NUnitAssert.That(startBattleTwo?.ReturnType, Is.EqualTo(typeof(bool)));
+        NUnitAssert.That(complete, Is.Not.Null);
+        NUnitAssert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(retry, typeof(GameManagers), "set_sequenceTransitionTimer"),
+            Is.True);
+        NUnitAssert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(retry, typeof(GameManagers), "set_phaseTimer"),
+            Is.True,
+            "Retry must explicitly keep the expired phase timer at None.");
+        NUnitAssert.That(
+            MdfCompiledCodePolicy.ReferencesField(retry, typeof(GameManagers), "_sequenceTransitionCompletionStarted"),
+            Is.True,
+            "Retry must re-arm sequence completion instead of ending the transition.");
+
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/GameManagers.prefab");
+        NUnitAssert.That(prefab, Is.Not.Null);
+        GameManagers configured = prefab.GetComponent<GameManagers>();
+        NUnitAssert.That(configured, Is.Not.Null);
+        NUnitAssert.That(configured.sequenceTransitionDelaySeconds, Is.Zero,
+            "A normal 0-second phase boundary must switch immediately; retry delays remain internal only.");
+    }
+
+    [TestCase(GameManagers.GameState.Prepare, GameManagers.GameState.Battle1)]
+    [TestCase(GameManagers.GameState.Battle1, GameManagers.GameState.Battle2)]
+    [TestCase(GameManagers.GameState.Battle2, GameManagers.GameState.Prepare)]
+    public void ExpiredPhaseSelectsExactlyOneBoundaryTarget(
+        GameManagers.GameState current,
+        GameManagers.GameState expected)
+    {
+        NUnitAssert.That(ResolveExpiredPhaseTarget(current, false, false), Is.EqualTo(expected));
+        NUnitAssert.That(ResolveExpiredPhaseTarget(current, true, false), Is.Null,
+            "Once a sequence transition is pending, the same expired phase cannot schedule it again.");
+    }
+
+    [Test]
+    public void BattleTwoRoundTransitionCannotBeScheduledTwice()
+    {
+        NUnitAssert.That(
+            ResolveExpiredPhaseTarget(GameManagers.GameState.Battle2, false, true),
+            Is.Null);
+        NUnitAssert.That(
+            ResolveExpiredPhaseTarget(GameManagers.GameState.Setup, false, false),
+            Is.Null);
+        NUnitAssert.That(
+            ResolveExpiredPhaseTarget(GameManagers.GameState.DataLoading, false, false),
+            Is.Null);
+        NUnitAssert.That(
+            ResolveExpiredPhaseTarget(GameManagers.GameState.GameOver, false, false),
+            Is.Null);
+    }
+
     [UnityTest]
     public IEnumerator VfxPoolAddressableLoadSupportsConcurrentSubscribers()
     {
@@ -152,6 +256,18 @@ public sealed class RuntimeLifecycleRegressionEditModeTests
         {
             UnityEngine.Object.DestroyImmediate(owner);
         }
+    }
+
+    private static object ResolveExpiredPhaseTarget(
+        GameManagers.GameState current,
+        bool sequenceTransitioning,
+        bool roundTransitioning)
+    {
+        MethodInfo resolver = typeof(GameManagers).GetMethod(
+            "ResolveExpiredPhaseTransitionTarget",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        NUnitAssert.That(resolver, Is.Not.Null);
+        return resolver.Invoke(null, new object[] { current, sequenceTransitioning, roundTransitioning });
     }
 }
 #endif

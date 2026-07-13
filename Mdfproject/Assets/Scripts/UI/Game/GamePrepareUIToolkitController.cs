@@ -55,6 +55,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const float RoundTimerHeight = 40f;
     private const float AugmentPanelTopMin = 220f;
     private const float AugmentPanelTopMax = 380f;
+    private const float KingSkillRequestPendingSeconds = 2f;
 
     private static GamePrepareUIToolkitController instance;
 
@@ -87,6 +88,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private VisualElement hudShopButton;
     private Label hudShopLabel;
     private Label hudShopGoldLabel;
+    private VisualElement hudKingSkillButton;
+    private KingSkillView kingSkillView;
     private VisualElement hudWallButton;
     private VisualElement hudWallIcon;
     private Label hudWallLabel;
@@ -131,6 +134,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private int lastRound = int.MinValue;
     private int lastRoundSeconds = int.MinValue;
     private bool legacyHudHidden;
+    private bool kingSkillRequestPending;
+    private float kingSkillRequestPendingUntil;
 
     public static GamePrepareUIToolkitController Instance => instance;
     public static bool IsToolkitActive => instance != null && instance.isActiveAndEnabled;
@@ -215,6 +220,19 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             resolvedVisible = false;
         }
 
+        return true;
+    }
+
+    public static bool TryHideAugmentForVisualCapture(out bool resolvedVisible)
+    {
+        resolvedVisible = false;
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        instance.SetAugmentVisible(false);
+        instance.HideLegacyAugmentContent();
         return true;
     }
 
@@ -446,6 +464,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         if (ContainsPoint(hudShopButton, panelPosition) ||
+            ContainsPoint(hudKingSkillButton, panelPosition) ||
             ContainsPoint(hudWallButton, panelPosition) ||
             ContainsPoint(hudWallKindToggleButton, panelPosition) ||
             ContainsPoint(hudOptionButton, panelPosition))
@@ -516,6 +535,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         if (IsElementOrChildOf(element, hudShopButton) ||
+            IsElementOrChildOf(element, hudKingSkillButton) ||
             IsElementOrChildOf(element, hudWallButton) ||
             IsElementOrChildOf(element, hudWallKindToggleButton) ||
             IsElementOrChildOf(element, hudOptionButton) ||
@@ -729,6 +749,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         hudShopButton = root?.Q<VisualElement>("game-shop-toggle-button");
         hudShopLabel = root?.Q<Label>("game-shop-toggle-label");
         hudShopGoldLabel = root?.Q<Label>("game-shop-gold-count-label");
+        hudKingSkillButton = root?.Q<VisualElement>("game-king-skill-button");
+        kingSkillView = new KingSkillView(
+            hudKingSkillButton,
+            root?.Q<Image>("game-king-skill-icon"),
+            root?.Q<Label>("game-king-skill-name"),
+            root?.Q<Label>("game-king-skill-description"),
+            root?.Q<Label>("game-king-skill-state"));
         hudWallButton = root?.Q<VisualElement>("game-wall-button");
         hudWallIcon = root?.Q<VisualElement>("game-wall-icon");
         hudWallLabel = root?.Q<Label>("game-wall-count-label");
@@ -795,6 +822,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         SetPickingMode(leftWireframeRail, PickingMode.Ignore);
         SetPickingMode(hudRoot, PickingMode.Ignore);
         SetPickingMode(hudShopButton, PickingMode.Position);
+        SetPickingMode(hudKingSkillButton, PickingMode.Position);
         SetPickingMode(hudWallButton, PickingMode.Position);
         SetPickingMode(hudWallKindToggleButton, PickingMode.Position);
         SetPickingMode(hudOptionButton, PickingMode.Position);
@@ -927,6 +955,24 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
         });
 
+        hudKingSkillButton?.RegisterCallback<PointerDownEvent>(evt =>
+        {
+            if (evt.button == 0)
+            {
+                SuppressBattleMapInputForCurrentPointer();
+                evt.StopPropagation();
+            }
+        });
+        hudKingSkillButton?.RegisterCallback<PointerUpEvent>(evt =>
+        {
+            if (evt.button == 0)
+            {
+                SuppressBattleMapInputForCurrentPointer();
+                HandleKingSkillClicked();
+                evt.StopPropagation();
+            }
+        });
+
         hudWallButton?.RegisterCallback<PointerUpEvent>(evt =>
         {
             if (evt.button == 0)
@@ -1043,6 +1089,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         RefreshRuntimeReferences();
         RefreshShopCards();
+        UpdateHudState(true);
     }
 
     private void HandleShopRefreshed(PlayerManager player)
@@ -1173,6 +1220,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         RefreshRuntimeReferences();
         var manager = localPlayer != null ? localPlayer.GetComponent<AttackSequenceManager>() : null;
         ShowAttackSequence(localPlayer, manager, isAttacking);
+        UpdateKingSkillState(true);
     }
 
     private bool ToggleShopPanelFromLegacy()
@@ -1456,6 +1504,42 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     {
         ToggleShopPanelFromLegacy();
         UpdateHudState(true);
+    }
+
+    private void HandleKingSkillClicked()
+    {
+        RefreshRuntimeReferences();
+        if (kingSkillRequestPending || !IsLocalPlayerDefending() || localPlayer == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (localPlayer.SelectedKingSkill == null || !localPlayer.CanUseKingSkill)
+            {
+                return;
+            }
+
+            CommandProcessor processor = gameManagers?.CommandProcessor;
+            if (processor == null)
+            {
+                return;
+            }
+
+            kingSkillRequestPending = true;
+            kingSkillRequestPendingUntil = Time.unscaledTime + KingSkillRequestPendingSeconds;
+            processor.RequestCommandExecution(new ActivateKingSkillCommand(localPlayer.playerId));
+            UpdateKingSkillState(true);
+        }
+        catch (InvalidOperationException)
+        {
+            kingSkillRequestPending = false;
+        }
+        catch (MissingReferenceException)
+        {
+            kingSkillRequestPending = false;
+        }
     }
 
     private void HandleHudWallClicked()
@@ -1765,9 +1849,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             try
             {
                 round = Mathf.Max(1, manager.currentRound);
-                remainingTime = manager.IsSequenceTransitioning
-                    ? manager.currentSequenceTransitionTimer
-                    : manager.currentPhaseTimer;
+                remainingTime = manager.currentDisplayedPhaseTimer;
             }
             catch (InvalidOperationException)
             {
@@ -1868,6 +1950,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         UpdateRoundTimerLabel(force);
+        UpdateKingSkillState(force);
         UpdateResourceState(force, hasResourceValues, goldCount, wallCount);
         if (force || !legacyHudHidden)
         {
@@ -1985,6 +2068,69 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
     }
 
+    private bool IsLocalPlayerDefending()
+    {
+        if (gameManagers == null || localPlayer == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            GameManagers.GameState state = gameManagers.GetGameState();
+            bool isBattle = state == GameManagers.GameState.Battle1 || state == GameManagers.GameState.Battle2;
+            return isBattle && localPlayer.IsActivelyFighting && !localPlayer.IsAttackerInCurrentBattle;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (MissingReferenceException)
+        {
+            return false;
+        }
+    }
+
+    private void UpdateKingSkillState(bool force)
+    {
+        bool defending = IsLocalPlayerDefending();
+        KingSkillData skill = null;
+        bool used = false;
+        bool canUse = false;
+
+        if (defending && localPlayer != null)
+        {
+            try
+            {
+                skill = localPlayer.SelectedKingSkill;
+                used = localPlayer.KingSkillUsedThisDefense;
+                canUse = skill != null && localPlayer.CanUseKingSkill;
+            }
+            catch (InvalidOperationException)
+            {
+                skill = null;
+            }
+            catch (MissingReferenceException)
+            {
+                skill = null;
+            }
+        }
+
+        if (!defending || used || Time.unscaledTime >= kingSkillRequestPendingUntil)
+        {
+            kingSkillRequestPending = false;
+        }
+
+        bool visible = defending && skill != null;
+        kingSkillView?.Bind(
+            skill,
+            visible,
+            canUse && !kingSkillRequestPending,
+            used,
+            kingSkillRequestPending,
+            force);
+    }
+
     private bool IsWallPlacementActive()
     {
         return localPlayer != null &&
@@ -2098,6 +2244,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         {
             hudShopButton.style.width = ShopToggleButtonSize;
             hudShopButton.style.height = ShopToggleButtonSize;
+        }
+
+        if (hudKingSkillButton != null)
+        {
+            hudKingSkillButton.style.width = ShopToggleButtonSize;
+            hudKingSkillButton.style.height = ShopToggleButtonSize;
         }
 
         if (shopControlRow != null)
@@ -2226,6 +2378,132 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         foreach (var monsterCard in monsterCards)
         {
             monsterCard.ReleaseIconHandle();
+        }
+
+        kingSkillView?.ReleaseIconHandle();
+    }
+
+    private sealed class KingSkillView
+    {
+        private readonly Image icon;
+        private readonly Label name;
+        private readonly Label description;
+        private readonly Label state;
+        private AddressableAssetLease<Sprite> iconLease;
+        private KingSkillData boundSkill;
+        private int bindVersion;
+        private bool stateInitialized;
+        private bool lastVisible;
+        private bool lastEnabled;
+        private bool lastUsed;
+        private bool lastPending;
+
+        public KingSkillView(
+            VisualElement root,
+            Image icon,
+            Label name,
+            Label description,
+            Label state)
+        {
+            Root = root;
+            this.icon = icon;
+            this.name = name;
+            this.description = description;
+            this.state = state;
+
+            if (this.icon != null)
+            {
+                this.icon.scaleMode = ScaleMode.ScaleToFit;
+            }
+        }
+
+        public VisualElement Root { get; }
+
+        public void Bind(
+            KingSkillData skill,
+            bool visible,
+            bool enabled,
+            bool used,
+            bool pending,
+            bool force)
+        {
+            bool skillChanged = !ReferenceEquals(boundSkill, skill);
+            bool enabledChanged = enabled != lastEnabled;
+            if (skillChanged)
+            {
+                ReleaseIconHandle();
+                boundSkill = skill;
+                SetText(name, skill != null ? skill.skillName : string.Empty);
+                SetText(description, skill != null ? skill.description : string.Empty);
+                if (Root != null)
+                {
+                    Root.tooltip = skill != null ? skill.description ?? string.Empty : string.Empty;
+                }
+
+                if (skill != null)
+                {
+                    LoadIconAsync(skill.iconKey, bindVersion).Forget();
+                }
+            }
+
+            if (force || !stateInitialized || visible != lastVisible)
+            {
+                SetVisible(Root, visible);
+                lastVisible = visible;
+            }
+
+            if (force || !stateInitialized || enabled != lastEnabled)
+            {
+                Root?.SetEnabled(enabled);
+                Root?.EnableInClassList("is-disabled", !enabled);
+                lastEnabled = enabled;
+            }
+
+            if (force || !stateInitialized || enabledChanged || used != lastUsed || pending != lastPending)
+            {
+                string stateText = used
+                    ? "\uC0AC\uC6A9 \uC644\uB8CC"
+                    : pending
+                        ? "\uC0AC\uC6A9 \uC694\uCCAD \uC911"
+                        : enabled
+                            ? "\uC0AC\uC6A9 \uAC00\uB2A5"
+                            : "\uC0AC\uC6A9 \uBD88\uAC00";
+                SetText(state, stateText);
+                lastUsed = used;
+                lastPending = pending;
+            }
+
+            stateInitialized = true;
+        }
+
+        public void ReleaseIconHandle()
+        {
+            bindVersion++;
+            iconLease?.Dispose();
+            iconLease = null;
+            boundSkill = null;
+            if (icon != null)
+            {
+                icon.sprite = null;
+            }
+        }
+
+        private async UniTask LoadIconAsync(string key, int version)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                return;
+            }
+
+            AddressableAssetLease<Sprite> loadedLease = await AssetLoader.AcquireAssetAsync<Sprite>(key);
+            if (version != bindVersion || icon == null)
+            {
+                loadedLease?.Dispose();
+                return;
+            }
+
+            iconLease = loadedLease;
+            icon.sprite = iconLease?.Asset;
         }
     }
 

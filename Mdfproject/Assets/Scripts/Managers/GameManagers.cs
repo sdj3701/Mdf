@@ -53,6 +53,11 @@ public partial class GameManagers : NetworkBehaviour
             ? sequenceTransitionTimer.RemainingTime(Runner) ?? 0f
             : 0f;
 
+    // The sequence-transition timer is an internal pacing delay for cleanup/transition UI.
+    // It must never replace the phase countdown after the phase itself has reached zero.
+    public float currentDisplayedPhaseTimer =>
+        ResolveDisplayedPhaseTime(currentPhaseTimer, IsSequenceTransitioning);
+
     // 세션은 최대 4명까지 지원
     private const int MAX_PLAYERS = 4;
 
@@ -104,8 +109,8 @@ public partial class GameManagers : NetworkBehaviour
     public float firstPreparePhaseTime = 60f;
     public float preparePhaseTime = 45f;
     public float combatTime = 60f;
-    [Tooltip("Delay before applying Prepare/Battle sequence transitions.")]
-    public float sequenceTransitionDelaySeconds = 1.5f;
+    [Tooltip("Optional presentation delay before applying Prepare/Battle sequence transitions. Keep at zero for immediate phase changes.")]
+    public float sequenceTransitionDelaySeconds = 0f;
 
     [Header("폭주 모드 설정")]
     [Tooltip("전투 종료 N초 전에 폭주 모드 발동")]
@@ -798,23 +803,24 @@ public partial class GameManagers : NetworkBehaviour
                 LogMigrationTrace("FixedUpdateNetwork:PrepareExpiredBeforeUI");
             }
 
+            GameState expiredState = currentState;
+            GameState? targetState = ResolveExpiredPhaseTransitionTarget(
+                expiredState,
+                IsSequenceTransitioning,
+                isTransitioningRound);
+
             phaseTimer = TickTimer.None;
             // Debug.Log($"<color=yellow>[GameManagers] 타이머 만료! 상태: {currentState}</color>");
-            switch (currentState)
+            if (targetState.HasValue)
             {
-                case GameState.Prepare:
-                    BeginSequenceTransition(GameState.Battle1, "FixedUpdateNetwork/PrepareExpired");
-                    break;
-                case GameState.Battle1:
-                    BeginSequenceTransition(GameState.Battle2, "FixedUpdateNetwork/Battle1Expired");
-                    break;
-                case GameState.Battle2:
-                    if (!isTransitioningRound)
-                    {
-                        isTransitioningRound = true;
-                        BeginSequenceTransition(GameState.Prepare, "FixedUpdateNetwork/Battle2Expired");
-                    }
-                    break;
+                if (expiredState == GameState.Battle2)
+                {
+                    isTransitioningRound = true;
+                }
+
+                BeginSequenceTransition(
+                    targetState.Value,
+                    $"FixedUpdateNetwork/{expiredState}Expired");
             }
         }
         // 전투 단축: 모든 플레이어의 전투가 끝났을 때 남은 시간을 3초로
@@ -1069,7 +1075,10 @@ public partial class GameManagers : NetworkBehaviour
         if (BuildDebugGUI.Instance != null) 
             BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
 
-        var playerRefs = Runner.ActivePlayers.ToList();
+        var playerRefs = Runner.ActivePlayers
+            .OrderBy(playerRef => playerRef.PlayerId)
+            .ToList();
+
         int playersToCreate = DeterminePlayerCount();
         bool isSinglePlayer = Runner.GameMode == GameMode.Single;
 
@@ -1101,6 +1110,18 @@ public partial class GameManagers : NetworkBehaviour
             PlayerManager newPlayer = playerNO.GetComponent<PlayerManager>();
             if (newPlayer != null)
             {
+                int selectedKingHash = KingSelectionCatalog.DefaultKeyHash;
+                if (inputAuthority != PlayerRef.None
+                    && NetworkManager.Instance != null
+                    && NetworkManager.Instance.TryGetLobbyKingSelectionForGameplay(
+                        Runner,
+                        inputAuthority,
+                        out int lobbySelectedKingHash)
+                    && KingSelectionCatalog.IsAllowedHash(lobbySelectedKingHash))
+                {
+                    selectedKingHash = lobbySelectedKingHash;
+                }
+                newPlayer.SetSelectedKingKeyHashAuthoritative(selectedKingHash);
                 newPlayer.SetAiControlled(isAI);
                 newPlayer.Rpc_InitializePlayer(i, gridNO);
             }
@@ -1821,7 +1842,13 @@ public partial class GameManagers : NetworkBehaviour
         }
 
         const float retrySeconds = 0.75f;
-        phaseTimer = TickTimer.CreateFromSeconds(Runner, retrySeconds);
+        // A failed battle-start precheck is still part of the same sequence boundary.
+        // Keep the public phase countdown expired and retry through the private
+        // transition timer so the UI cannot count 0 -> 1 -> 0 and gameplay
+        // commands cannot reopen for the expired phase.
+        phaseTimer = TickTimer.None;
+        sequenceTransitionTimer = TickTimer.CreateFromSeconds(Runner, retrySeconds);
+        _sequenceTransitionCompletionStarted = false;
         Debug.LogWarning($"[{context}] BattleStartPrecheck failed. retryIn={retrySeconds:F2}s, detail={reason}");
         LogMigrationTrace($"{context}:BattleStartPrecheckRetry", reason);
     }
@@ -1831,12 +1858,22 @@ public partial class GameManagers : NetworkBehaviour
     /// <summary>
     /// Battle1 시퀀스를 시작합니다. 선공 플레이어가 공격, 상대가 수비.
     /// </summary>
-    private void StartBattle1Phase()
+    private bool StartBattle1Phase()
     {
-        if (!Object.HasStateAuthority) return;
-        if (currentState == GameState.GameOver) return;
+        if (!Object.HasStateAuthority) return true;
+        if (currentState == GameState.GameOver) return true;
 
         LogMigrationTrace("StartBattle1Phase:ENTER");
+
+        // Establish the matchup first because readiness validation resolves each
+        // defender through this mapping. No augment mutation is allowed until
+        // every battle dependency is ready.
+        AssignBattleOpponents();
+        if (!TryRunBattleStartPrecheck("StartBattle1Phase", out string precheckReason))
+        {
+            RearmBattleTransitionRetryTimer("StartBattle1Phase", precheckReason);
+            return false;
+        }
 
         // 증강을 선택하지 않은 플레이어에게 첫 번째 증강 자동 선택
         foreach (var player in AllPlayers)
@@ -1855,14 +1892,6 @@ public partial class GameManagers : NetworkBehaviour
         }
 
         // 상대 매칭 및 선공 플레이어 결정
-        AssignBattleOpponents();
-
-        if (!TryRunBattleStartPrecheck("StartBattle1Phase", out string precheckReason))
-        {
-            RearmBattleTransitionRetryTimer("StartBattle1Phase", precheckReason);
-            return;
-        }
-
         TryPushMigrationSnapshotForCriticalTransition($"StartBattle1Phase:BeforeBattle1Transition:R{currentRound}");
         TransitionToBattle1State("StartBattle1Phase");
         hasCombatBeenShortened = false;
@@ -1880,16 +1909,17 @@ public partial class GameManagers : NetworkBehaviour
         StartBattleForPlayers(isFirstBattle: true);
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
+        return true;
         // Debug.Log($"<color=cyan>[GameManagers] Battle1 시작! 각 매칭마다 선공자 랜덤 결정됨</color>");
     }
 
     /// <summary>
     /// Battle2 시퀀스를 시작합니다. 공수 역할 교체.
     /// </summary>
-    private void StartBattle2Phase()
+    private bool StartBattle2Phase()
     {
-        if (!Object.HasStateAuthority) return;
-        if (currentState == GameState.GameOver) return;
+        if (!Object.HasStateAuthority) return true;
+        if (currentState == GameState.GameOver) return true;
 
         LogMigrationTrace("StartBattle2Phase:ENTER");
         EnsureBattleMappingAfterMigration();
@@ -1897,7 +1927,7 @@ public partial class GameManagers : NetworkBehaviour
         if (!TryRunBattleStartPrecheck("StartBattle2Phase", out string precheckReason))
         {
             RearmBattleTransitionRetryTimer("StartBattle2Phase", precheckReason);
-            return;
+            return false;
         }
 
         // Battle1에서 남은 몬스터 정리
@@ -1920,6 +1950,7 @@ public partial class GameManagers : NetworkBehaviour
         StartBattleForPlayers(isFirstBattle: false);
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
+        return true;
         // Debug.Log("<color=cyan>[GameManagers] Battle2 시작! 공수 역할 교체</color>");
     }
 
@@ -2257,6 +2288,7 @@ public partial class GameManagers : NetworkBehaviour
         if (Runner.IsServer)
         {
              if (currentState == GameState.GameOver) return;
+             failedPlayer.TriggerKingDamageReactionAuthoritative();
              failedPlayer.TakeDamage(1);
         }
     }

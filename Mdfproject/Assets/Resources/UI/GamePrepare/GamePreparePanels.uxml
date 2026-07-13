@@ -306,6 +306,12 @@
                             <ui:Label name="game-shop-gold-count-label" text="0" class="shop-toggle-gold-count" />
                         </ui:VisualElement>
                     </ui:VisualElement>
+                    <ui:VisualElement name="game-king-skill-button" class="hud-button king-skill-button hidden">
+                        <ui:Image name="game-king-skill-icon" class="king-skill-icon" />
+                        <ui:Label name="game-king-skill-name" class="king-skill-name" />
+                        <ui:Label name="game-king-skill-description" class="king-skill-description" />
+                        <ui:Label name="game-king-skill-state" class="king-skill-state" />
+                    </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
         </ui:VisualElement>

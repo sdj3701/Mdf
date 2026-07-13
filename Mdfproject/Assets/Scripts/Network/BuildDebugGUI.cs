@@ -74,6 +74,11 @@ public class BuildDebugGUI : MonoBehaviour
         SetStatus("Logs cleared.");
     }
 
+    public void SetVisible(bool value)
+    {
+        visible = value;
+    }
+
     private void CopyLogsToClipboard()
     {
         var builder = new StringBuilder();

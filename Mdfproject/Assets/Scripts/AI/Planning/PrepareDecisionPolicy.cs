@@ -1127,8 +1127,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
-        Vector3Int goalCell = field.WorldToGridInt(player.goalTransform != null ? player.goalTransform.position : Vector3.zero);
-        return candidate != goalCell;
+        return !field.IsGoalCell(candidate);
     }
 
     private bool WouldCloseLastOpenBorderGap(PlayerManager player, FieldManager field, Vector3Int candidate, int round)
@@ -1435,7 +1434,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         }
 
         var to = destination.Value;
-        if (to == from || !field.IsValidGridPosition(to) || field.IsUnitAt(to))
+        if (to == from || !field.IsRegularUnitPlacementCell(to) || field.IsUnitAt(to))
         {
             return false;
         }

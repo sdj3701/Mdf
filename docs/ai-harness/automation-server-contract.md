@@ -128,6 +128,13 @@ The server must validate that the command is safe for the current scenario and t
 Currently supported:
 
 - `reroll_shop`: must be issued to the server/host peer; validates `playerId`, runner/server state, `CommandProcessor`, shop DB readiness, and reroll cost before queuing `RerollShopCommand`.
+- `select_king`: lobby-only; accepts `playerId` plus an allow-listed canonical `kingKey` such as `UnitData_King_Mage`. It must be sent to that slot's owning input-authority peer and calls `NetworkPlayer.RequestKingSelection`, preserving the production RPC validation path.
+- `activate_king_skill`: may be issued by the owning input-authority peer or State Authority; validates the requested player, defense phase/role, loaded King data, and the once-per-defense allowance before queuing `ActivateKingSkillCommand` through the shared command path.
+- `move_unit`: server-only Prepare command. Explicit `{from,to}` probes use the production Goal reservation; a regular unit targeting `field.goalCell` must return `unit_goal_cell_blocked` and leave `placedUnitsHash` unchanged.
+
+`run_two_humanbot_two_ai_smoke.py --verify-king-goal-placement` adds three consecutive per-peer King anchor/scale/drift, camera-facing yaw, and recently-applied Animator IK head-look samples plus an explicit Goal-cell move rejection. Its graphical AI-field capture hides shop/augment overlays, re-dumps the viewed field state, and requires `kingHeadLookApplied=true` before preserving the screenshot. It writes `king-goal-placement-verification.json`, `king-goal-ai-field-screenshots.json`, and `goal-cell-rejection.json`.
+
+Editor peer parity for lobby selection uses `unity-cli --project Mdfproject mp_command --command select_king --player_id <id> --king_key <UnitData_King_*>`; issue it to the Editor peer that owns the requested slot.
 
 ## `/screenshot`
 

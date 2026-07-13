@@ -129,13 +129,38 @@ public class UnitOrientationFixer : MonoBehaviour
     {
         // Camera.main 사용 (각 클라이언트에서 자신의 메인 카메라 반환)
         Camera cam = targetCamera != null ? targetCamera : Camera.main;
-        if (cam == null) return;
+        if (TryResolveCameraFacingYaw(transform.position, cam, yawOffsetDeg, out Quaternion rotation))
+        {
+            transform.rotation = rotation;
+        }
+    }
 
-        Vector3 toCam = cam.transform.position - transform.position;
-        toCam.y = 0f; // yaw-only
-        if (toCam.sqrMagnitude < 0.0001f) return;
-        var baseRot = Quaternion.LookRotation(toCam.normalized, Vector3.up);
-        var yawOffset = Quaternion.AngleAxis(yawOffsetDeg, Vector3.up);
-        transform.rotation = yawOffset * baseRot;
+    /// <summary>
+    /// Resolves the yaw-only world rotation used by placed units. Presentation-only actors such as
+    /// Kings call the same helper so both paths keep identical camera-facing semantics.
+    /// </summary>
+    internal static bool TryResolveCameraFacingYaw(
+        Vector3 worldPosition,
+        Camera camera,
+        float yawOffsetDegrees,
+        out Quaternion rotation)
+    {
+        rotation = Quaternion.identity;
+        if (camera == null)
+        {
+            return false;
+        }
+
+        Vector3 toCamera = camera.transform.position - worldPosition;
+        toCamera.y = 0f;
+        if (toCamera.sqrMagnitude < 0.0001f)
+        {
+            return false;
+        }
+
+        Quaternion baseRotation = Quaternion.LookRotation(toCamera.normalized, Vector3.up);
+        Quaternion yawOffset = Quaternion.AngleAxis(yawOffsetDegrees, Vector3.up);
+        rotation = yawOffset * baseRotation;
+        return true;
     }
 }

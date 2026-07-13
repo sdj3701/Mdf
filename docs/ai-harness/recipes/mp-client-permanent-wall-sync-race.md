@@ -6,11 +6,11 @@ Category: harness
 Created: 2026-05-05
 Last used: 2026-07-13
 Last verified: 2026-07-13
-Use count: 3
+Use count: 5
 Review after: 2026-08-03
 Triggers: matrix-only `build-host-editor-client` wallHash mismatch, `state_ready_timeout`, client permanentWallCount 0/1
 Applies to: `PlayerManager.RPC_ApplyPermanentWalls`, `FieldManager.ApplyPermanentWallsFromServer`, `run_matrix.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260713-041007-permanent-wall-placement/result.json
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260713-041007-permanent-wall-placement/result.json; artifacts/mp/20260713-055045-permanent-wall-placement/result.json; artifacts/mp/20260713-063604-permanent-wall-placement/result.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -32,3 +32,5 @@ Verification:
 
 Lifecycle notes:
 - 2026-07-13: verified artifact `artifacts/mp/20260713-041007-permanent-wall-placement/result.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-055045-permanent-wall-placement/result.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-063604-permanent-wall-placement/result.json`

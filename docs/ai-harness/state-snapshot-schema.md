@@ -13,7 +13,7 @@ compared across peers and across host migration.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "role": "host|client|editor-host|editor-client",
   "caseName": "game_smoke",
   "session": "mp-...",
@@ -65,6 +65,29 @@ compared across peers and across host migration.
       "blackMagicMaxBonus": 0,
       "blackMagicRevision": 1,
       "blackMagicSequenceId": 5,
+      "selectedKingUnitKeyHash": 123456789,
+      "kingDataReady": true,
+      "kingSkillUsedThisDefense": false,
+      "kingCanUseSkill": true,
+      "kingDefenseSequenceId": 1,
+      "kingDamageReactionSequence": 0,
+      "kingAttackPresentationSequence": 0,
+      "kingSkillPresentationSequence": 0,
+      "kingAttackDamageBonusPermille": 0,
+      "kingAttackSpeedBonusPermille": 0,
+      "kingSkillPowerBonusPermille": 0,
+      "kingPresentationReady": true,
+      "kingPresentationGoalDistance": 0.0,
+      "kingPresentationScaleMultiplier": 1.3,
+      "kingPresentationWorldScaleDrift": 0.0,
+      "kingPresentationTransformDrift": 0.0,
+      "kingRigTransformDrift": 0.0,
+      "kingUsesNeutralGoalAnchor": true,
+      "kingRigPinRequired": true,
+      "kingRigPinActive": true,
+      "kingCameraFacingAngle": 0.0,
+      "kingHeadLookActive": true,
+      "kingHeadLookApplied": true,
       "attackMonsterPoolHash": "sha256:...",
       "ownedScrollsHash": "sha256:...",
       "ownedScrollRevision": 0,
@@ -96,7 +119,9 @@ compared across peers and across host migration.
         "permanentWallCount": 5,
         "wallHash": "sha256:...",
         "pathReady": true,
-        "goalReady": true
+        "goalReady": true,
+        "goalCell": "5,4,0",
+        "regularUnitGoalViolationCount": 0
       },
       "monsters": {
         "aliveCount": 0,
@@ -192,6 +217,7 @@ Exact or hash-equal after stable wait:
 - player ids and player count
 - player HP/gold/wall counts
 - player Black Magic current/maximum/personal maximum bonus/revision/attack-sequence identity
+- player King selection, data readiness, once-per-defense skill consumption/sequence, presentation sequences, and cumulative augment bonuses; schema v2 requires a valid selection hash and loaded King data during Prepare/Battle
 - shop snapshot hashes
 - augment presented/selected counts, active effect/target counts, and active effect/target hashes when available
 - field unit/wall aggregate hashes
@@ -200,6 +226,9 @@ Exact or hash-equal after stable wait:
 - command sequence/last durable command, including accepted battle command sequence, monster spawn sequence, magic scroll use sequence, and rejected battle command count
 - attack monster pool hash after authoritative spawn acceptance; each slot part includes its `blackMagicCost` and spend `mode` (`black-magic` or `boss-entitlement`)
 - manual/strategic skill readiness hashes after defender skill state stabilizes
+- King skill readiness is phase- and role-dependent presentation state; durable comparisons use selection, consumed flag, defense sequence, and cumulative bonuses rather than requiring `kingCanUseSkill` to match during transient phase changes
+- King presentation diagnostics are local visual assertions: a stable Prepare sample requires a neutral sibling anchor, planar Goal distance near zero, configured scale multiplier `1.3`, near-zero world-scale/root/rig drift, a camera-facing yaw error near zero, an active copied head-look controller, and `kingHeadLookApplied=true` from a recent valid Humanoid Head Animator IK callback. Compare these per peer rather than treating their transient readiness as durable network state.
+- `field.goalCell` and `field.regularUnitGoalViolationCount` are durable placement invariants. The violation count must be zero on every peer; Goal-targeted regular-unit requests must be rejected without changing `placedUnitsHash`.
 - For conditional Phase 10 required values such as battle hashes during `Battle1`/`Battle2`, survivor hashes with non-zero counts, and `commands.lastCommand` with advanced battle command counters, any `unknown`/missing value is a failure, including both peers missing the value. For optional absent state, such as no living boss monsters, both sides may remain `unknown`.
 
 Allowed differences:

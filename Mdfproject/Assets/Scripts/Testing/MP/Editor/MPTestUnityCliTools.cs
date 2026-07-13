@@ -147,6 +147,9 @@ public static class MPCommandTool
 
         [ToolParameter("Target durable playerId.")]
         public int PlayerId { get; set; }
+
+        [ToolParameter("Allow-listed canonical king key, for example UnitData_King_Mage.")]
+        public string KingKey { get; set; }
     }
 
     public static object HandleCommand(JObject parameters)
@@ -315,9 +318,131 @@ internal static class MPTestUnityCliTools
             return ExecuteRerollShopCommand(parameters, commandName);
         }
 
-        return CommandFail("unsupported_command", "Only reroll_shop is currently supported by the Editor command harness.", new
+        if (string.Equals(commandName, "select_king", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "SelectKing", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteSelectKingCommand(parameters, commandName);
+        }
+
+        return CommandFail("unsupported_command", "Only reroll_shop and select_king are currently supported by the Editor command harness.", new
         {
             command = commandName
+        });
+    }
+
+    private static object ExecuteSelectKingCommand(JObject parameters, string commandName)
+    {
+        int playerId = GetInt(parameters, "player_id", GetInt(parameters, "playerId", -1));
+        string requestedKey = GetString(
+            parameters,
+            "king_key",
+            GetString(parameters, "kingKey", GetString(parameters, "unit_key", GetString(parameters, "unitKey", null))));
+        if (playerId < 0)
+        {
+            return CommandFail(
+                "invalid_player_id",
+                "playerId must be >= 0.",
+                new { command = commandName, playerId, kingKey = requestedKey });
+        }
+
+        KingSelectionCatalog.Entry selectedEntry = KingSelectionCatalog.Entries
+            .FirstOrDefault(entry => string.Equals(
+                entry.KingUnitKey,
+                requestedKey,
+                StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(selectedEntry.KingUnitKey))
+        {
+            return CommandFail(
+                "invalid_king_key",
+                "kingKey must be an allow-listed canonical UnitData_King_* key.",
+                new { command = commandName, playerId, kingKey = requestedKey });
+        }
+
+        if (!EditorApplication.isPlaying)
+        {
+            return CommandFail(
+                "editor_not_in_play_mode",
+                "mp_command requires the Editor to be in Play Mode.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning)
+        {
+            return CommandFail(
+                "lobby_runner_unavailable",
+                "The lobby NetworkRunner is unavailable.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        if (SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return CommandFail(
+                "select_king_requires_join_lobby",
+                "select_king is only available in the ready lobby.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        List<PlayerRef> activePlayers = runner.ActivePlayers
+            .OrderBy(playerRef => playerRef.PlayerId)
+            .ToList();
+        if (playerId >= activePlayers.Count)
+        {
+            return CommandFail(
+                "lobby_player_unavailable",
+                "The requested gameplay player slot is not active in the lobby.",
+                new { command = commandName, playerId, activePlayers = activePlayers.Count });
+        }
+
+        PlayerRef targetAuthority = activePlayers[playerId];
+        List<NetworkPlayer> ownedPlayers = UnityEngine.Object.FindObjectsOfType<NetworkPlayer>()
+            .Where(candidate => candidate != null
+                && candidate.Runner == runner
+                && candidate.Object != null
+                && candidate.Object.IsValid
+                && candidate.Object.InputAuthority == targetAuthority
+                && candidate.HasInputAuthority)
+            .ToList();
+        if (ownedPlayers.Count != 1)
+        {
+            return CommandFail(
+                "select_king_requires_owning_peer",
+                "Issue select_king to the peer that owns input authority for the requested player.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    playerRef = targetAuthority.ToString(),
+                    kingKey = selectedEntry.KingUnitKey,
+                    ownedPlayerObjects = ownedPlayers.Count
+                });
+        }
+
+        NetworkPlayer networkPlayer = ownedPlayers[0];
+
+        if (!networkPlayer.RequestKingSelection(selectedEntry.KeyHash))
+        {
+            return CommandFail(
+                "select_king_request_rejected",
+                "The owned NetworkPlayer rejected the king selection request.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        MPTestLogger.Log("automation_command", "complete", "select_king", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "playerRef", targetAuthority.ToString() },
+            { "kingKey", selectedEntry.KingUnitKey },
+            { "kingKeyHash", selectedEntry.KeyHash },
+            { "source", "unity_cli" }
+        });
+        return CommandOk("king selection requested through owning input authority", new
+        {
+            command = "select_king",
+            playerId,
+            playerRef = targetAuthority.ToString(),
+            kingKey = selectedEntry.KingUnitKey,
+            kingKeyHash = selectedEntry.KeyHash
         });
     }
 

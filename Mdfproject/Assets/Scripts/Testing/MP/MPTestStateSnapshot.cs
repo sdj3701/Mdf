@@ -22,7 +22,7 @@ public static class MPTestStateSnapshot
 
         var snapshot = new Snapshot
         {
-            Version = 1,
+            Version = 2,
             Role = string.IsNullOrWhiteSpace(role) ? options.SafeRole : role,
             CaseName = string.IsNullOrWhiteSpace(caseName) ? options.CaseName : caseName,
             Session = ResolveSession(session, options, networkManager, runner),
@@ -288,6 +288,42 @@ public static class MPTestStateSnapshot
         bool isLocal = networkObjectValid && SafeBool(() => networkObject.HasInputAuthority, false);
         bool isAi = SafeBool(() => player.IsAiControlled, false) || ComponentRegistry.Has<AIPlayerController>(playerId.ToString());
         RefreshPlayerRuntimeForSnapshot(player, errors);
+        KingRuntimeMigrationState kingState = SafeRef(
+            player.CaptureKingRuntimeMigrationState,
+            default(KingRuntimeMigrationState));
+        bool kingPresentationReady = false;
+        float kingGoalDistance = -1f;
+        float kingConfiguredScaleMultiplier = -1f;
+        float kingWorldScaleDrift = -1f;
+        float kingPresentationTransformDrift = -1f;
+        float kingRigTransformDrift = -1f;
+        bool kingUsesNeutralGoalAnchor = false;
+        bool kingRigPinRequired = false;
+        bool kingRigPinActive = false;
+        bool kingOrientationReady = false;
+        float kingCameraFacingAngle = -1f;
+        bool kingHeadLookActive = false;
+        bool kingHeadLookApplied = false;
+        try
+        {
+            kingPresentationReady = player.TryCaptureKingPresentationDiagnostics(
+                out kingGoalDistance,
+                out kingConfiguredScaleMultiplier,
+                out kingWorldScaleDrift,
+                out kingPresentationTransformDrift,
+                out kingRigTransformDrift,
+                out kingUsesNeutralGoalAnchor,
+                out kingRigPinRequired,
+                out kingRigPinActive);
+            kingOrientationReady = player.TryCaptureKingOrientationDiagnostics(
+                out kingCameraFacingAngle,
+                out kingHeadLookActive,
+                out kingHeadLookApplied);
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"player.{playerId}.king.presentation:{ex.GetType().Name}");
+        }
 
         return new PlayerSnapshot
         {
@@ -317,6 +353,29 @@ public static class MPTestStateSnapshot
             BlackMagicMaxBonus = SafeInt(() => player.BlackMagicMaxBonus, 0),
             BlackMagicRevision = SafeInt(() => player.BlackMagicRevision, 0),
             BlackMagicSequenceId = SafeInt(() => player.BlackMagicSequenceId, 0),
+            SelectedKingUnitKeyHash = SafeInt(() => player.SelectedKingUnitKeyHash, 0),
+            KingDataReady = SafeBool(() => player.KingRuntimeDataReady, false),
+            KingSkillUsedThisDefense = SafeBool(() => player.KingSkillUsedThisDefense, false),
+            KingCanUseSkill = SafeBool(() => player.CanUseKingSkill, false),
+            KingDefenseSequenceId = kingState.DefenseSequenceId,
+            KingDamageReactionSequence = kingState.DamageReactionSequence,
+            KingAttackPresentationSequence = kingState.AttackPresentationSequence,
+            KingSkillPresentationSequence = kingState.SkillPresentationSequence,
+            KingAttackDamageBonusPermille = kingState.AttackDamageBonusPermille,
+            KingAttackSpeedBonusPermille = kingState.AttackSpeedBonusPermille,
+            KingSkillPowerBonusPermille = kingState.SkillPowerBonusPermille,
+            KingPresentationReady = kingPresentationReady,
+            KingPresentationGoalDistance = kingPresentationReady ? kingGoalDistance : (float?)null,
+            KingPresentationScaleMultiplier = kingConfiguredScaleMultiplier >= 0f ? kingConfiguredScaleMultiplier : (float?)null,
+            KingPresentationWorldScaleDrift = kingPresentationReady ? kingWorldScaleDrift : (float?)null,
+            KingPresentationTransformDrift = kingPresentationReady ? kingPresentationTransformDrift : (float?)null,
+            KingRigTransformDrift = kingPresentationReady ? kingRigTransformDrift : (float?)null,
+            KingUsesNeutralGoalAnchor = kingPresentationReady ? kingUsesNeutralGoalAnchor : (bool?)null,
+            KingRigPinRequired = kingPresentationReady ? kingRigPinRequired : (bool?)null,
+            KingRigPinActive = kingPresentationReady ? kingRigPinActive : (bool?)null,
+            KingCameraFacingAngle = kingOrientationReady ? kingCameraFacingAngle : (float?)null,
+            KingHeadLookActive = kingOrientationReady ? kingHeadLookActive : (bool?)null,
+            KingHeadLookApplied = kingOrientationReady ? kingHeadLookApplied : (bool?)null,
             AttackMonsterPoolHash = CaptureAttackMonsterPoolHash(player),
             AttackMonsterPoolParts = CaptureAttackMonsterPoolParts(player),
             OwnedScrollsHash = CaptureOwnedScrollsHash(player),
@@ -814,7 +873,9 @@ public static class MPTestStateSnapshot
                 WallHash = Unknown,
                 DestructibleWallHealthHash = Unknown,
                 PathReady = false,
-                GoalReady = SafeBool(() => player.goalTransform != null, false)
+                GoalReady = SafeBool(() => player.goalTransform != null, false),
+                GoalCell = Unknown,
+                RegularUnitGoalViolationCount = null
             };
         }
 
@@ -874,7 +935,13 @@ public static class MPTestStateSnapshot
             WallHash = HashStableString(wallCells),
             DestructibleWallHealthHash = HashStableString(destructibleWallHealth),
             PathReady = SafeBool(() => player.astarGrid != null, false),
-            GoalReady = SafeBool(() => player.goalTransform != null, false)
+            GoalReady = SafeBool(() => player.goalTransform != null, false),
+            GoalCell = SafeString(() =>
+            {
+                Vector3Int goalCell = field.GetGoalGridPosition();
+                return $"{goalCell.x},{goalCell.y},{goalCell.z}";
+            }, Unknown),
+            RegularUnitGoalViolationCount = SafeInt(field.GetRegularUnitGoalViolationCount, 0)
         };
     }
 
@@ -1697,6 +1764,29 @@ public static class MPTestStateSnapshot
         [JsonProperty("blackMagicMaxBonus")] public int BlackMagicMaxBonus;
         [JsonProperty("blackMagicRevision")] public int BlackMagicRevision;
         [JsonProperty("blackMagicSequenceId")] public int BlackMagicSequenceId;
+        [JsonProperty("selectedKingUnitKeyHash")] public int SelectedKingUnitKeyHash;
+        [JsonProperty("kingDataReady")] public bool KingDataReady;
+        [JsonProperty("kingSkillUsedThisDefense")] public bool KingSkillUsedThisDefense;
+        [JsonProperty("kingCanUseSkill")] public bool KingCanUseSkill;
+        [JsonProperty("kingDefenseSequenceId")] public int KingDefenseSequenceId;
+        [JsonProperty("kingDamageReactionSequence")] public int KingDamageReactionSequence;
+        [JsonProperty("kingAttackPresentationSequence")] public int KingAttackPresentationSequence;
+        [JsonProperty("kingSkillPresentationSequence")] public int KingSkillPresentationSequence;
+        [JsonProperty("kingAttackDamageBonusPermille")] public int KingAttackDamageBonusPermille;
+        [JsonProperty("kingAttackSpeedBonusPermille")] public int KingAttackSpeedBonusPermille;
+        [JsonProperty("kingSkillPowerBonusPermille")] public int KingSkillPowerBonusPermille;
+        [JsonProperty("kingPresentationReady")] public bool KingPresentationReady;
+        [JsonProperty("kingPresentationGoalDistance")] public float? KingPresentationGoalDistance;
+        [JsonProperty("kingPresentationScaleMultiplier")] public float? KingPresentationScaleMultiplier;
+        [JsonProperty("kingPresentationWorldScaleDrift")] public float? KingPresentationWorldScaleDrift;
+        [JsonProperty("kingPresentationTransformDrift")] public float? KingPresentationTransformDrift;
+        [JsonProperty("kingRigTransformDrift")] public float? KingRigTransformDrift;
+        [JsonProperty("kingUsesNeutralGoalAnchor")] public bool? KingUsesNeutralGoalAnchor;
+        [JsonProperty("kingRigPinRequired")] public bool? KingRigPinRequired;
+        [JsonProperty("kingRigPinActive")] public bool? KingRigPinActive;
+        [JsonProperty("kingCameraFacingAngle")] public float? KingCameraFacingAngle;
+        [JsonProperty("kingHeadLookActive")] public bool? KingHeadLookActive;
+        [JsonProperty("kingHeadLookApplied")] public bool? KingHeadLookApplied;
         [JsonProperty("attackMonsterPoolHash")] public string AttackMonsterPoolHash;
         [JsonProperty("attackMonsterPoolParts")] public string[] AttackMonsterPoolParts;
         [JsonProperty("ownedScrollsHash")] public string OwnedScrollsHash;
@@ -1754,6 +1844,8 @@ public static class MPTestStateSnapshot
         [JsonProperty("destructibleWallHealthHash")] public string DestructibleWallHealthHash;
         [JsonProperty("pathReady")] public bool PathReady;
         [JsonProperty("goalReady")] public bool GoalReady;
+        [JsonProperty("goalCell")] public string GoalCell;
+        [JsonProperty("regularUnitGoalViolationCount")] public int? RegularUnitGoalViolationCount;
     }
 
     [Serializable]

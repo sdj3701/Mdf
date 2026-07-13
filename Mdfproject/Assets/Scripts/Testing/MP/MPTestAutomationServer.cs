@@ -470,15 +470,214 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecuteGrantPermanentWallsCommand(body, commandName);
         }
 
+        if (string.Equals(commandName, "select_king", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "SelectKing", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteSelectKingCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "activate_king_skill", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "ActivateKingSkill", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteActivateKingSkillCommand(body, commandName);
+        }
+
         if (string.Equals(commandName, "view_player_field", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(commandName, "ViewPlayerField", StringComparison.OrdinalIgnoreCase))
         {
             return ExecuteViewPlayerFieldCommand(body, commandName);
         }
 
-        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, remove_wall, and view_player_field are currently supported by the runtime command harness.", new
+        if (string.Equals(commandName, "prepare_visual_capture", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecutePrepareVisualCaptureCommand(commandName);
+        }
+
+        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, remove_wall, grant_permanent_walls, select_king, activate_king_skill, view_player_field, and prepare_visual_capture are currently supported by the runtime command harness.", new
         {
             command = commandName
+        });
+    }
+
+    private AutomationResponse ExecuteSelectKingCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        string requestedKey = GetString(
+            body,
+            "kingKey",
+            GetString(body, "king_key", GetString(body, "unitKey", GetString(body, "unit_key", null))));
+        if (playerId < 0)
+        {
+            return AutomationResponse.Fail(
+                "invalid_player_id",
+                "playerId must be >= 0.",
+                new { command = commandName, playerId, kingKey = requestedKey });
+        }
+
+        KingSelectionCatalog.Entry selectedEntry = KingSelectionCatalog.Entries
+            .FirstOrDefault(entry => string.Equals(
+                entry.KingUnitKey,
+                requestedKey,
+                StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(selectedEntry.KingUnitKey))
+        {
+            return AutomationResponse.Fail(
+                "invalid_king_key",
+                "kingKey must be an allow-listed canonical UnitData_King_* key.",
+                new { command = commandName, playerId, kingKey = requestedKey });
+        }
+
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning)
+        {
+            return AutomationResponse.Fail(
+                "lobby_runner_unavailable",
+                "The lobby NetworkRunner is unavailable.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        if (SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return AutomationResponse.Fail(
+                "select_king_requires_join_lobby",
+                "select_king is only available in the ready lobby.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        List<PlayerRef> activePlayers = runner.ActivePlayers
+            .OrderBy(playerRef => playerRef.PlayerId)
+            .ToList();
+        if (playerId >= activePlayers.Count)
+        {
+            return AutomationResponse.Fail(
+                "lobby_player_unavailable",
+                "The requested gameplay player slot is not active in the lobby.",
+                new { command = commandName, playerId, activePlayers = activePlayers.Count });
+        }
+
+        PlayerRef targetAuthority = activePlayers[playerId];
+        List<NetworkPlayer> ownedPlayers = FindObjectsOfType<NetworkPlayer>()
+            .Where(candidate => candidate != null
+                && candidate.Runner == runner
+                && candidate.Object != null
+                && candidate.Object.IsValid
+                && candidate.Object.InputAuthority == targetAuthority
+                && candidate.HasInputAuthority)
+            .ToList();
+        if (ownedPlayers.Count != 1)
+        {
+            return AutomationResponse.Fail(
+                "select_king_requires_owning_peer",
+                "Issue select_king to the peer that owns input authority for the requested player.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    playerRef = targetAuthority.ToString(),
+                    kingKey = selectedEntry.KingUnitKey,
+                    ownedPlayerObjects = ownedPlayers.Count
+                });
+        }
+
+        NetworkPlayer networkPlayer = ownedPlayers[0];
+
+        if (!networkPlayer.RequestKingSelection(selectedEntry.KeyHash))
+        {
+            return AutomationResponse.Fail(
+                "select_king_request_rejected",
+                "The owned NetworkPlayer rejected the king selection request.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        MPTestLogger.Log("automation_command", "complete", "select_king", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "playerRef", targetAuthority.ToString() },
+            { "kingKey", selectedEntry.KingUnitKey },
+            { "kingKeyHash", selectedEntry.KeyHash }
+        });
+        return AutomationResponse.Ok("king selection requested through owning input authority", new
+        {
+            command = "select_king",
+            playerId,
+            playerRef = targetAuthority.ToString(),
+            kingKey = selectedEntry.KingUnitKey,
+            kingKeyHash = selectedEntry.KeyHash
+        });
+    }
+
+    private AutomationResponse ExecuteActivateKingSkillCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.", new { command = commandName, playerId });
+        }
+
+        if (playerId < 0 && gameManagers.localPlayer != null)
+        {
+            playerId = gameManagers.localPlayer.playerId;
+        }
+
+        PlayerManager player = gameManagers.GetPlayer(playerId);
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return AutomationResponse.Fail("king_player_unavailable", "The requested gameplay player is unavailable.", new { command = commandName, playerId });
+        }
+
+        if (gameManagers.CommandProcessor == null)
+        {
+            return AutomationResponse.Fail("command_processor_missing", "GameManagers.CommandProcessor is not available.", new { command = commandName, playerId });
+        }
+
+        bool localInputAuthority = player.Object.HasInputAuthority;
+        bool stateAuthority = player.Object.HasStateAuthority;
+        if (!localInputAuthority && !stateAuthority)
+        {
+            return AutomationResponse.Fail(
+                "king_command_authority_missing",
+                "The peer must own input authority or state authority for the requested player.",
+                new { command = commandName, playerId, localInputAuthority, stateAuthority });
+        }
+
+        if (!player.CanUseKingSkill)
+        {
+            return AutomationResponse.Fail(
+                "king_skill_not_ready",
+                "The king skill is not available for this player in the current defense sequence.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    state = gameManagers.GetGameState().ToString(),
+                    player.IsActivelyFighting,
+                    player.IsAttackerInCurrentBattle,
+                    player.KingSkillUsedThisDefense,
+                    selectedKingHash = player.SelectedKingUnitKeyHash,
+                    kingDataReady = player.KingRuntimeDataReady
+                });
+        }
+
+        KingRuntimeMigrationState before = player.CaptureKingRuntimeMigrationState();
+        gameManagers.CommandProcessor.RequestCommandExecution(new ActivateKingSkillCommand(playerId));
+        MPTestLogger.Log("automation_command", "begin", "activate_king_skill", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "localInputAuthority", localInputAuthority },
+            { "stateAuthority", stateAuthority },
+            { "defenseSequenceId", before.DefenseSequenceId },
+            { "skillPresentationSequence", before.SkillPresentationSequence }
+        });
+
+        return AutomationResponse.Ok("king skill command queued", new
+        {
+            command = "activate_king_skill",
+            playerId,
+            localInputAuthority,
+            stateAuthority,
+            defenseSequenceId = before.DefenseSequenceId,
+            skillPresentationSequenceBefore = before.SkillPresentationSequence
         });
     }
 
@@ -564,6 +763,43 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         return switched
             ? AutomationResponse.Ok("field view resolved from durable playerId", result)
             : AutomationResponse.Fail("view_player_field_not_switched", "CameraManager did not switch to the current registry target.", result);
+    }
+
+    private AutomationResponse ExecutePrepareVisualCaptureCommand(string commandName)
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("prepare_visual_capture_requires_mptest", "Visual capture preparation requires --mpTest.");
+        }
+
+        bool shopControllerResolved = GamePrepareUIToolkitController.TrySetShopVisibilityFromLegacy(
+            false,
+            out bool shopVisible);
+        bool augmentControllerResolved = GamePrepareUIToolkitController.TryHideAugmentForVisualCapture(
+            out bool augmentVisible);
+        bool debugOverlayResolved = BuildDebugGUI.Instance != null;
+        if (debugOverlayResolved)
+        {
+            BuildDebugGUI.Instance.SetVisible(false);
+        }
+
+        MPTestLogger.Log("automation_command", "complete", commandName, null, new Dictionary<string, object>
+        {
+            { "shopControllerResolved", shopControllerResolved },
+            { "shopVisible", shopVisible },
+            { "augmentControllerResolved", augmentControllerResolved },
+            { "augmentVisible", augmentVisible },
+            { "debugOverlayResolved", debugOverlayResolved }
+        });
+        return AutomationResponse.Ok("visual capture UI prepared", new
+        {
+            command = commandName,
+            shopControllerResolved,
+            shopVisible,
+            augmentControllerResolved,
+            augmentVisible,
+            debugOverlayResolved
+        });
     }
 
     private AutomationResponse StartBot(JObject body)
@@ -1118,7 +1354,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return false;
         }
 
-        if (player.goalTransform != null && position == field.WorldToGridInt(player.goalTransform.position))
+        if (field.IsGoalCell(position))
         {
             reason = "wall_goal_cell_blocked";
             return false;
@@ -1220,6 +1456,12 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         if (!field.IsValidGridPosition(from) || !field.IsValidGridPosition(to) || from == to)
         {
             reason = "move_position_invalid";
+            return false;
+        }
+
+        if (field.IsGoalCell(to))
+        {
+            reason = "unit_goal_cell_blocked";
             return false;
         }
 

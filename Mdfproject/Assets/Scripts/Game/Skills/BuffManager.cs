@@ -127,7 +127,7 @@ public class BuffManager : MonoBehaviour
 
     #region Status Effect System
 
-    public void ApplyStatusEffect(
+    public bool ApplyStatusEffect(
         StatusEffectType type,
         float duration,
         GameObject caster,
@@ -138,12 +138,12 @@ public class BuffManager : MonoBehaviour
     {
         if (!HasStateAuthorityOrNoNetwork())
         {
-            return;
+            return false;
         }
 
         if (IsNetworkStatusSchedulerActive())
         {
-            CombatScheduler.Instance.ApplyStatusEffect(
+            return CombatScheduler.Instance.ApplyStatusEffect(
                 this,
                 type,
                 duration,
@@ -152,10 +152,10 @@ public class BuffManager : MonoBehaviour
                 damagePerTick,
                 slowMultiplier,
                 damageType);
-            return;
         }
 
         Debug.LogWarning($"[BuffManager] Ignored status effect without active CombatScheduler. target={name}, type={type}");
+        return false;
     }
 
     public void RemoveStatusEffect(StatusEffectType type)

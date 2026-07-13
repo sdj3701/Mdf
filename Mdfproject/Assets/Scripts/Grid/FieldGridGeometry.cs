@@ -41,6 +41,14 @@ public readonly struct FieldGridGeometry
         return WorldToCellClamped(worldPosition, _origin, _innerSize);
     }
 
+    public bool TryWorldToInnerCell(Vector3 worldPosition, out Vector2Int cell)
+    {
+        cell = new Vector2Int(
+            Mathf.FloorToInt((worldPosition.x - _origin.x) / _cellSize),
+            Mathf.FloorToInt((worldPosition.z - _origin.z) / _cellSize));
+        return IsValidInner(cell);
+    }
+
     public Vector2Int InnerToNavigation(Vector2Int innerCell)
     {
         return new Vector2Int(innerCell.x + _outerMargin, innerCell.y + _outerMargin);

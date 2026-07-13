@@ -38,6 +38,7 @@ public class SwapUnitCommand : ICommand
         }
 
         if (!fm.IsValidGridPosition(PosA) || !fm.IsValidGridPosition(PosB) || PosA == PosB) return;
+        if (fm.IsGoalCell(PosA) || fm.IsGoalCell(PosB)) return;
 
         var unitA = fm.GetUnitAt(PosA);
         var unitB = fm.GetUnitAt(PosB);

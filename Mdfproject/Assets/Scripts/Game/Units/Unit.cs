@@ -184,16 +184,34 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     public float BaseAttackRange => unitData?.attackRange ?? 0f;
     public float BaseDefense => unitData?.defense ?? 0f;
     public float BaseMagicResistance => unitData?.magicResistance ?? 0f;
+    public float BaseMaxHealth => unitData != null ? unitData.baseHealth * Mathf.Pow(1.8f, starLevel - 1) : 0f;
 
     // 2단계: 영구 효과 적용 스탯 (증강체 등)
     private float PermanentDamageBonus => owner?.permanentAttackDamagePercent ?? 0f;
     private float PermanentSpeedBonus => owner?.permanentAttackSpeedPercent ?? 0f;
-    public float PermanentAttackDamage => BaseAttackDamage * (1f + PermanentDamageBonus);
-    public float PermanentAttackSpeed => BaseAttackSpeed * (1f + PermanentSpeedBonus);
+    private float KingBuffFlat(KingBuffStat stat) =>
+        owner != null ? owner.GetKingBuffModifier(unitData, stat, KingBuffModifierMode.Flat) : 0f;
+    private float KingBuffPercent(KingBuffStat stat) =>
+        owner != null ? owner.GetKingBuffModifier(unitData, stat, KingBuffModifierMode.Percent) : 0f;
+    public float PermanentAttackDamage =>
+        BaseAttackDamage * (1f + PermanentDamageBonus + KingBuffPercent(KingBuffStat.AttackDamage))
+        + KingBuffFlat(KingBuffStat.AttackDamage);
+    public float PermanentAttackSpeed =>
+        BaseAttackSpeed * (1f + PermanentSpeedBonus + KingBuffPercent(KingBuffStat.AttackSpeed))
+        + KingBuffFlat(KingBuffStat.AttackSpeed);
     // 공격범위, 방어력, 마저는 현재 영구 버프 없음
-    public float PermanentAttackRange => BaseAttackRange;
-    public float PermanentDefense => BaseDefense;
-    public float PermanentMagicResistance => BaseMagicResistance;
+    public float PermanentAttackRange =>
+        BaseAttackRange * (1f + KingBuffPercent(KingBuffStat.Range))
+        + KingBuffFlat(KingBuffStat.Range);
+    public float PermanentDefense =>
+        BaseDefense * (1f + KingBuffPercent(KingBuffStat.Defense))
+        + KingBuffFlat(KingBuffStat.Defense);
+    public float PermanentMagicResistance =>
+        BaseMagicResistance * (1f + KingBuffPercent(KingBuffStat.MagicResistance))
+        + KingBuffFlat(KingBuffStat.MagicResistance);
+    public float PermanentMaxHealth =>
+        BaseMaxHealth * (1f + KingBuffPercent(KingBuffStat.MaxHealth))
+        + KingBuffFlat(KingBuffStat.MaxHealth);
     #endregion
     
     public SkillActivationType currentSkillActivationType
@@ -1513,23 +1531,27 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     public float GetPermanentAdjustedBaseAttackDamage()
     {
-        if (unitData == null) return 0f;
-        float statMultiplier = Mathf.Pow(1.8f, starLevel - 1);
-        float baseDamage = unitData.baseAttackDamage * statMultiplier;
-        float bonusPercent = owner != null ? owner.permanentAttackDamagePercent : 0f;
-        return baseDamage * (1f + bonusPercent);
+        return PermanentAttackDamage;
     }
 
     public float GetPermanentAdjustedBaseAttackSpeed()
     {
-        if (unitData == null) return 0f;
-        float baseSpeed = unitData.attackSpeed;
-        float bonusPercent = owner != null ? owner.permanentAttackSpeedPercent : 0f;
-        return baseSpeed * (1f + bonusPercent);
+        return PermanentAttackSpeed;
     }
 
     public void RefreshPermanentBonuses()
     {
+        if (!HasStateAuthorityOrNoNetwork() || unitData == null)
+        {
+            return;
+        }
+
+        float healthRatio = maxHP > 0f ? Mathf.Clamp01(currentHP / maxHP) : 1f;
+        maxHP = Mathf.Max(1f, PermanentMaxHealth);
+        currentHP = Mathf.Clamp(maxHP * healthRatio, 0f, maxHP);
+        SetPersistentNonDamageStats(PermanentAttackRange, PermanentDefense, PermanentMagicResistance);
+        OnHealthChanged?.Invoke(currentHP, maxHP);
+
         var buffManager = GetComponent<BuffManager>();
         if (buffManager != null)
         {
@@ -1739,9 +1761,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         AsyncLifecycleStamp lifecycle = CaptureAsyncLifecycle();
         UnitData initializingData = unitData;
         int initializingStarLevel = starLevel;
-        float statMultiplier = Mathf.Pow(1.8f, starLevel - 1);
-
-        maxHP = unitData.baseHealth * statMultiplier;
+        maxHP = Mathf.Max(1f, PermanentMaxHealth);
         currentHP = maxHP;
         OnHealthChanged?.Invoke(currentHP, maxHP);
         // 스탯 초기화 (Networked 값 설정)
@@ -2108,7 +2128,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         var arr = unitData.skillsByStarLevel;
         if (arr.Length < starLevel) return false;
         // 예전 의미와 동일: null만 배제하고 빈 문자열은 허용
-        return arr[starLevel - 1] != null;
+        return !string.IsNullOrWhiteSpace(arr[starLevel - 1]);
     }
 
     private bool IsEnemyInSkillRange()
@@ -3253,6 +3273,20 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         {
             _networkedAttackDamage = attackDamage;
             _networkedAttackSpeed = attackSpeed;
+        }
+    }
+
+    private void SetPersistentNonDamageStats(float range, float defense, float magicRes)
+    {
+        _localAttackRange = range;
+        _localDefense = defense;
+        _localMagicResistance = magicRes;
+
+        if (CanWriteNetworkedStats())
+        {
+            _networkedAttackRange = range;
+            _networkedDefense = defense;
+            _networkedMagicResistance = magicRes;
         }
     }
 
