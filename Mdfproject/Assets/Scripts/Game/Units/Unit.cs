@@ -534,6 +534,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     public override void Despawned(NetworkRunner runner, bool hasState)
     {
+        NotifyCombatSchedulerTargetInvalidated("Unit.Despawned");
         _combatTargetLifecycleGeneration++;
         _hasSpawned = false;
         _changeDetector = null;
@@ -3221,6 +3222,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         if (IsDead) return;
         IsDead = true;
+        NotifyCombatSchedulerTargetInvalidated("Unit.Die");
         UnregisterCombatTarget();
         CancelPendingAttack();
         ClearCurrentTarget();
@@ -3246,6 +3248,19 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         SetDeathPresentationActive(false);
         string deadUnitName = unitData != null ? unitData.unitName : name;
         Debug.Log($"<color=red>{deadUnitName}이(가) 전투에서 쓰러졌습니다.</color>");
+    }
+
+    private void NotifyCombatSchedulerTargetInvalidated(string reason)
+    {
+        NetworkObject networkObject = Object;
+        CombatScheduler scheduler = CombatScheduler.Instance;
+        if (scheduler == null || networkObject == null || !networkObject.IsValid ||
+            !networkObject.HasStateAuthority)
+        {
+            return;
+        }
+
+        scheduler.NotifyTargetInvalidated(networkObject.Id, reason);
     }
 
     public void Heal(float amount)

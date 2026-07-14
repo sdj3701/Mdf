@@ -128,7 +128,6 @@ namespace AI.BehaviorTree.Nodes.Actions
                             _playerManager.goalTransform);
                     }
 
-                    Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} entry gap fixed at {planResult.Start}, gapWalls={planResult.GapWalls?.Count ?? 0}</color>");
                 }
 
                 // Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned {_playerManager.mazePlannedOrder.Count} walls</color>");

@@ -8,6 +8,7 @@ public class PhaseTimerUI : MonoBehaviour
     public TextMeshProUGUI timerText;
 
     private GameManagers gameManager;
+    private int _lastDisplayedSecond = int.MinValue;
 
     private void RefreshGameManagerReference(bool verboseLog)
     {
@@ -18,6 +19,7 @@ public class PhaseTimerUI : MonoBehaviour
         }
 
         gameManager = latest;
+        _lastDisplayedSecond = int.MinValue;
         if (verboseLog && gameManager != null)
         {
             Debug.Log("[PhaseTimerUI] GameManagers 참조 재바인딩 완료");
@@ -78,7 +80,12 @@ public class PhaseTimerUI : MonoBehaviour
 
             // 텍스트 UI의 내용을 업데이트합니다.
             // 정수로 올림하여 표시합니다.
-            timerText.text = $"{Mathf.CeilToInt(remainingTime)}";
+            int displayedSecond = Mathf.CeilToInt(remainingTime);
+            if (displayedSecond != _lastDisplayedSecond)
+            {
+                _lastDisplayedSecond = displayedSecond;
+                timerText.text = displayedSecond.ToString();
+            }
         }
         catch (System.InvalidOperationException)
         {

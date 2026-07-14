@@ -19,6 +19,9 @@ public class PlayerHUDController : MonoBehaviour
 
     private PlayerManager localPlayer;
     private GameManagers gameManager;
+    private int _lastGold = int.MinValue;
+    private int _lastRound = int.MinValue;
+    private int _lastWallCount = int.MinValue;
 
     private void RefreshRuntimeReferences(bool verboseLog = false)
     {
@@ -27,6 +30,7 @@ public class PlayerHUDController : MonoBehaviour
         {
             gameManager = latestGameManager;
             localPlayer = null;
+            InvalidateCachedHudValues();
 
             if (verboseLog && gameManager != null)
             {
@@ -37,6 +41,7 @@ public class PlayerHUDController : MonoBehaviour
         if (gameManager != null && gameManager.localPlayer != localPlayer)
         {
             localPlayer = gameManager.localPlayer;
+            InvalidateCachedHudValues();
             if (verboseLog && localPlayer != null)
             {
                 Debug.Log($"[PlayerHUDController] localPlayer 재바인딩 완료: Player {localPlayer.playerId}");
@@ -105,6 +110,11 @@ public class PlayerHUDController : MonoBehaviour
 
     void Update()
     {
+        if (!HasVisibleLegacyValueTarget())
+        {
+            return;
+        }
+
         // Host Migration 후 Instance 교체를 반영하기 위해 매 프레임 최신 참조를 확인합니다.
         RefreshRuntimeReferences();
         if (gameManager == null)
@@ -130,19 +140,34 @@ public class PlayerHUDController : MonoBehaviour
         }
 
         // HUD UI 업데이트
-        if (goldText != null)
+        if (goldText != null && goldText.gameObject.activeInHierarchy)
         {
-            goldText.text = localPlayer.GetGold().ToString();
+            int gold = localPlayer.GetGold();
+            if (gold != _lastGold)
+            {
+                _lastGold = gold;
+                goldText.text = gold.ToString();
+            }
         }
 
-        if (roundText != null)
+        if (roundText != null && roundText.gameObject.activeInHierarchy)
         {
-            roundText.text = $"ROUND\n{Mathf.Max(1, gameManager.currentRound)}";
+            int round = Mathf.Max(1, gameManager.currentRound);
+            if (round != _lastRound)
+            {
+                _lastRound = round;
+                roundText.text = $"ROUND\n{round}";
+            }
         }
 
-        if (wallCountText != null)
+        if (wallCountText != null && wallCountText.gameObject.activeInHierarchy)
         {
-            wallCountText.text = localPlayer.GetWallCount().ToString();
+            int wallCount = localPlayer.GetWallCount();
+            if (wallCount != _lastWallCount)
+            {
+                _lastWallCount = wallCount;
+                wallCountText.text = wallCount.ToString();
+            }
         }
     }
 
@@ -199,6 +224,25 @@ public class PlayerHUDController : MonoBehaviour
         {
             wallCountText.gameObject.SetActive(visible);
         }
+
+        if (visible)
+        {
+            InvalidateCachedHudValues();
+        }
+    }
+
+    private bool HasVisibleLegacyValueTarget()
+    {
+        return (goldText != null && goldText.gameObject.activeInHierarchy) ||
+               (roundText != null && roundText.gameObject.activeInHierarchy) ||
+               (wallCountText != null && wallCountText.gameObject.activeInHierarchy);
+    }
+
+    private void InvalidateCachedHudValues()
+    {
+        _lastGold = int.MinValue;
+        _lastRound = int.MinValue;
+        _lastWallCount = int.MinValue;
     }
 
     private void HandleBattleSequenceStarted(bool isAttacking)

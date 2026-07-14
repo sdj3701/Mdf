@@ -211,14 +211,20 @@ public class AttackSequenceManager : MonoBehaviour
     private void HandleInput()
     {
         // UI 위에서 클릭하면 스폰 처리 스킵 (UI 관통 방지)
-        bool isPointerOverUI = IsPointerOverBattleActionBlocker();
-        if (ShouldSuppressBattleMapInput())
+        bool pointerPressed = MdfInput.PrimaryPointerWasPressedThisFrame();
+        bool pointerHeld = MdfInput.PrimaryPointerIsPressed();
+        bool pointerReleased = MdfInput.PrimaryPointerWasReleasedThisFrame();
+        bool pointerActive = pointerPressed || pointerHeld || pointerReleased;
+        if (ShouldSuppressBattleMapInput(pointerActive))
         {
             return;
         }
 
+        bool needsPointerBlocker = pointerPressed || (pointerHeld && _isHolding);
+        bool isPointerOverUI = needsPointerBlocker && IsPointerOverBattleActionBlocker();
+
         // 마우스 왼쪽 버튼 클릭/홀드
-        if (MdfInput.PrimaryPointerWasPressedThisFrame())
+        if (pointerPressed)
         {
             if (!isPointerOverUI)
             {
@@ -234,7 +240,7 @@ public class AttackSequenceManager : MonoBehaviour
             _isHolding = !isPointerOverUI && !IsScrollMode;
             _lastSpawnTime = Time.time;
         }
-        else if (MdfInput.PrimaryPointerIsPressed() && _isHolding)
+        else if (pointerHeld && _isHolding)
         {
             // UI 위로 마우스가 이동했으면 홀드 중단
             if (isPointerOverUI)
@@ -248,7 +254,7 @@ public class AttackSequenceManager : MonoBehaviour
                 _lastSpawnTime = Time.time;
             }
         }
-        else if (MdfInput.PrimaryPointerWasReleasedThisFrame())
+        else if (pointerReleased)
         {
             _isHolding = false;
         }
@@ -266,12 +272,8 @@ public class AttackSequenceManager : MonoBehaviour
         }
     }
 
-    private bool ShouldSuppressBattleMapInput()
+    private bool ShouldSuppressBattleMapInput(bool pointerActive)
     {
-        bool pointerActive = MdfInput.PrimaryPointerIsPressed() ||
-                             MdfInput.PrimaryPointerWasPressedThisFrame() ||
-                             MdfInput.PrimaryPointerWasReleasedThisFrame();
-
         if (!_suppressMapInputUntilPointerRelease && Time.frameCount > _suppressMapInputThroughFrame)
         {
             return false;
@@ -443,22 +445,29 @@ public class AttackSequenceManager : MonoBehaviour
 
     private bool IsPointerOverBattleActionBlocker()
     {
-        if (GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition))
+        Vector2 pointerPosition = MdfInput.PointerPosition;
+        bool toolkitBlocks = GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition);
+        if (toolkitBlocks)
         {
             return true;
         }
 
-        if (!MdfInput.IsPointerOverUI())
+        if (!MdfInput.IsPointerOverUI(pointerPosition, toolkitBlocks))
         {
             return false;
         }
 
         // UIToolkit panels and some legacy canvases can raycast across the screen.
         // If the pointer still resolves to a valid battle spawn ground point, keep the map click alive.
-        return !TryGetSpawnPositionUnderPointer(out _);
+        return !TryGetSpawnPositionUnderPointer(pointerPosition, out _);
     }
 
     private bool TryGetSpawnPositionUnderPointer(out Vector3 spawnPosition)
+    {
+        return TryGetSpawnPositionUnderPointer(MdfInput.PointerPosition, out spawnPosition);
+    }
+
+    private bool TryGetSpawnPositionUnderPointer(Vector2 pointerPosition, out Vector3 spawnPosition)
     {
         spawnPosition = default;
         if (_playerCamera == null)
@@ -466,7 +475,7 @@ public class AttackSequenceManager : MonoBehaviour
             return false;
         }
 
-        Ray ray = _playerCamera.ScreenPointToRay(MdfInput.PointerPosition);
+        Ray ray = _playerCamera.ScreenPointToRay(pointerPosition);
         if (!Physics.Raycast(ray, out RaycastHit hit, 100f, spawnAreaLayerMask))
         {
             return false;

@@ -57,6 +57,7 @@ public sealed class MPTestBootstrap : MonoBehaviour
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestMainThreadDispatcher.Ensure();
+        MPTestPerformanceRecorder.Ensure(gameObject, _options);
         MPTestAutomationServer automationServer = null;
         if (MPTestAutomationServer.CanStart(_options, out _))
         {

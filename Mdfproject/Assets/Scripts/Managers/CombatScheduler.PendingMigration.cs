@@ -98,7 +98,8 @@ public partial class CombatScheduler
         IReadOnlyList<PendingHitMigrationSnapshot> hitSnapshots,
         string context)
     {
-        if (!IsSchedulerNetworkReady() || Object == null || !Object.HasStateAuthority)
+        if (!IsSchedulerNetworkReady() || Object == null || !Object.HasStateAuthority ||
+            !EnsureLocalSchedulerState())
         {
             return 0;
         }
@@ -176,12 +177,20 @@ public partial class CombatScheduler
     {
         for (int i = 0; i < PendingFireCapacity; i++)
         {
-            PendingFireSnapshots.Set(i, default);
+            int sequence = PendingFireSnapshots[i].Sequence;
+            if (sequence > 0)
+            {
+                ClearPendingFireSnapshot(sequence);
+            }
         }
 
         for (int i = 0; i < PendingHitCapacity; i++)
         {
-            PendingHitSnapshots.Set(i, default);
+            int sequence = PendingHitSnapshots[i].Sequence;
+            if (sequence > 0)
+            {
+                ClearPendingHitSnapshot(sequence);
+            }
         }
 
         _localPendingFireSequences.Clear();

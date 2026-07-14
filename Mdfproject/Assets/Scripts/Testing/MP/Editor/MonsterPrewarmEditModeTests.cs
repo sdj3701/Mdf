@@ -1,10 +1,14 @@
 #if UNITY_EDITOR
 using System;
+using System.Collections;
 using System.IO;
 using System.Reflection;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using Fusion;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using Assert = NUnit.Framework.Assert;
 
 public sealed class MonsterPrewarmEditModeTests
@@ -31,6 +35,173 @@ public sealed class MonsterPrewarmEditModeTests
         finally
         {
             UnityEngine.Object.DestroyImmediate(prefabObject);
+            UnityEngine.Object.DestroyImmediate(runnerObject);
+        }
+    }
+
+    [UnityTest]
+    public IEnumerator PooledNetworkObjectProviderCoalescesAsyncTargetsAndYieldsWithinFrameBudget()
+    {
+        GameObject runnerObject = new GameObject("AsyncPoolTestRunner");
+        GameObject prefabObject = new GameObject("AsyncPoolTestMonsterPrefab");
+        PooledNetworkObjectProvider provider = null;
+        NetworkRunner runner = null;
+        try
+        {
+            runner = runnerObject.AddComponent<NetworkRunner>();
+            provider = runnerObject.AddComponent<PooledNetworkObjectProvider>();
+            NetworkObject prefab = prefabObject.AddComponent<NetworkObject>();
+            provider.SetMaxPoolCount(8);
+
+            UniTask<int> first = provider.PrewarmPrefabAsync(
+                runner,
+                prefab,
+                5,
+                registerForMonsterTrimming: true,
+                cancellationToken: CancellationToken.None);
+            int firstFrameCount = provider.GetFreeCount(prefab);
+            Assert.That(firstFrameCount, Is.InRange(1, 2),
+                "the default producer must yield after at most two synchronous Instantiate calls");
+
+            UniTask<int> joined = provider.PrewarmPrefabAsync(
+                runner,
+                prefab,
+                7,
+                registerForMonsterTrimming: true,
+                cancellationToken: CancellationToken.None);
+            int[] createdByCallers = null;
+            yield return UniTask.WhenAll(new[] { first, joined })
+                .ToCoroutine(result => createdByCallers = result);
+
+            Assert.That(provider.GetFreeCount(prefab), Is.EqualTo(7));
+            Assert.That(createdByCallers, Is.Not.Null);
+            Assert.That(createdByCallers[0] + createdByCallers[1], Is.EqualTo(7),
+                "joined callers must not multiply shared producer telemetry");
+        }
+        finally
+        {
+            if (provider != null)
+            {
+                provider.Shutdown(runner);
+            }
+            UnityEngine.Object.DestroyImmediate(prefabObject);
+            UnityEngine.Object.DestroyImmediate(runnerObject);
+        }
+    }
+
+    [Test]
+    public void AsyncPrewarmSingleStepUsesCurrentFreeCountAfterBudgetWait()
+    {
+        GameObject runnerObject = new GameObject("AsyncPoolCountRaceRunner");
+        GameObject prefabObject = new GameObject("AsyncPoolCountRacePrefab");
+        PooledNetworkObjectProvider provider = null;
+        NetworkRunner runner = null;
+        var rentedInstances = new System.Collections.Generic.List<NetworkObject>();
+        try
+        {
+            runner = runnerObject.AddComponent<NetworkRunner>();
+            provider = runnerObject.AddComponent<PooledNetworkObjectProvider>();
+            NetworkObject prefab = prefabObject.AddComponent<NetworkObject>();
+            provider.SetMaxPoolCount(8);
+            Assert.That(provider.PrewarmPrefab(runner, prefab, default(NetworkPrefabId), 2), Is.EqualTo(2));
+            Assert.That(provider.GetFreeCount(prefab), Is.EqualTo(2));
+
+            MethodInfo rent = typeof(PooledNetworkObjectProvider).GetMethod(
+                "InstantiatePrefab",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(rent, Is.Not.Null);
+            for (int i = 0; i < 2; i++)
+            {
+                NetworkObject rented = rent.Invoke(
+                    provider,
+                    new object[] { runner, prefab, default(NetworkPrefabId) }) as NetworkObject;
+                Assert.That(rented, Is.Not.Null);
+                rentedInstances.Add(rented);
+            }
+            Assert.That(provider.GetFreeCount(prefab), Is.Zero);
+
+            MethodInfo singleStep = typeof(PooledNetworkObjectProvider).GetMethod(
+                "PrewarmOneInstanceTowardTarget",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(singleStep, Is.Not.Null);
+            int created = (int)singleStep.Invoke(provider, new object[] { runner, prefab, 4 });
+
+            Assert.That(created, Is.EqualTo(1));
+            Assert.That(provider.GetFreeCount(prefab), Is.EqualTo(1),
+                "a post-yield producer step must derive its target from the current count and create at most one object");
+        }
+        finally
+        {
+            if (provider != null)
+            {
+                provider.Shutdown(runner);
+            }
+            foreach (NetworkObject rented in rentedInstances)
+            {
+                if (rented != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(rented.gameObject);
+                }
+            }
+            UnityEngine.Object.DestroyImmediate(prefabObject);
+            UnityEngine.Object.DestroyImmediate(runnerObject);
+        }
+    }
+
+    [UnityTest]
+    public IEnumerator MonsterOnlyTrimUsesRecentActiveHighWaterAndLeavesOtherPoolsUntouched()
+    {
+        GameObject runnerObject = new GameObject("TrimPoolTestRunner");
+        GameObject monsterPrefabObject = new GameObject("TrimPoolMonsterPrefab");
+        GameObject unitPrefabObject = new GameObject("TrimPoolUnitPrefab");
+        PooledNetworkObjectProvider provider = null;
+        NetworkRunner runner = null;
+        try
+        {
+            runner = runnerObject.AddComponent<NetworkRunner>();
+            provider = runnerObject.AddComponent<PooledNetworkObjectProvider>();
+            NetworkObject monsterPrefab = monsterPrefabObject.AddComponent<NetworkObject>();
+            NetworkObject unitPrefab = unitPrefabObject.AddComponent<NetworkObject>();
+            NetworkPrefabId monsterPrefabId = default;
+            provider.SetMaxPoolCount(8);
+            SetPrivateField(provider, "monsterTrimHeadroom", 0);
+
+            Assert.That(provider.PrewarmPrefab(runner, monsterPrefab, monsterPrefabId, 6), Is.EqualTo(6));
+            Assert.That(provider.PrewarmPrefab(runner, unitPrefab, 6), Is.EqualTo(6));
+            yield return provider.PrewarmPrefabAsync(
+                    runner,
+                    monsterPrefab,
+                    1,
+                    registerForMonsterTrimming: true,
+                    cancellationToken: CancellationToken.None)
+                .ToCoroutine();
+
+            MethodInfo acquire = typeof(PooledNetworkObjectProvider).GetMethod(
+                "RecordPrefabAcquire",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo release = typeof(PooledNetworkObjectProvider).GetMethod(
+                "RecordPrefabRelease",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(acquire, Is.Not.Null);
+            Assert.That(release, Is.Not.Null);
+            for (int i = 0; i < 3; i++) acquire.Invoke(provider, new object[] { monsterPrefabId });
+            for (int i = 0; i < 3; i++) release.Invoke(provider, new object[] { monsterPrefabId });
+
+            yield return provider.TrimMonsterPoolsForGenerationAsync(2, CancellationToken.None).ToCoroutine();
+
+            Assert.That(provider.GetFreeCount(monsterPrefabId), Is.EqualTo(3),
+                "monster retention must follow the measured recent high-water mark");
+            Assert.That(provider.GetFreeCount(unitPrefab), Is.EqualTo(6),
+                "generic/unit pools must not be affected by monster-only trimming");
+        }
+        finally
+        {
+            if (provider != null)
+            {
+                provider.Shutdown(runner);
+            }
+            UnityEngine.Object.DestroyImmediate(monsterPrefabObject);
+            UnityEngine.Object.DestroyImmediate(unitPrefabObject);
             UnityEngine.Object.DestroyImmediate(runnerObject);
         }
     }
@@ -146,7 +317,7 @@ public sealed class MonsterPrewarmEditModeTests
             MonsterSpawner.EstimateNormalPrewarmTarget(
                 activePlayerCount: 4,
                 maximumBlackMagic: 10,
-                minimumBlackMagicCost: 3,
+                blackMagicCost: 3,
                 perPrefabCap: 32),
             Is.EqualTo(8),
             "two concurrent attackers can each spend ten black magic on four cheapest summons");
@@ -154,6 +325,14 @@ public sealed class MonsterPrewarmEditModeTests
         Assert.That(
             MonsterSpawner.EstimateNormalPrewarmTarget(2, 20, 5, 32),
             Is.EqualTo(4));
+        Assert.That(
+            MonsterSpawner.EstimateNormalPrewarmTarget(4, 10, 2, 32),
+            Is.EqualTo(10),
+            "cheap monsters retain their larger valid simultaneous demand");
+        Assert.That(
+            MonsterSpawner.EstimateNormalPrewarmTarget(4, 10, 5, 32),
+            Is.EqualTo(4),
+            "expensive monsters must not inherit the cheapest catalog entry's target");
         Assert.That(
             MonsterSpawner.EstimateNormalPrewarmTarget(4, 70, 3, 32),
             Is.EqualTo(32),
@@ -177,13 +356,16 @@ public sealed class MonsterPrewarmEditModeTests
 
         Assert.That(spawner, Does.Contain("EstimateNormalPrewarmTarget("));
         Assert.That(spawner, Does.Contain("maximumBlackMagic"));
-        Assert.That(spawner, Does.Contain("minimumNormalCost"));
+        Assert.That(spawner, Does.Contain("entry.MonsterData.blackMagicCost"));
+        Assert.That(spawner, Does.Not.Contain("minimumNormalCost"));
         Assert.That(spawner, Does.Contain("waveCountPerBattleForPrefab"));
         Assert.That(spawner, Does.Contain("ResolveWaveCountForPrefab"));
         Assert.That(spawner, Does.Contain("maxNormalPrewarmCountPerMonsterPrefab = 32"));
         Assert.That(spawner, Does.Not.Contain("prewarmCountPerMonsterPrefab = 12"));
         Assert.That(spawner, Does.Contain("MonsterPrewarmReport"));
         Assert.That(spawner, Does.Contain("Monster prewarm completed with failures"));
+        Assert.That(spawner, Does.Contain("[System.Diagnostics.Conditional(\"MDF_SPAWN_TRACE\")]"),
+            "disabled spawn tracing must compile out its interpolated argument construction");
 
         int explicitWaveIndex = gameManagers.IndexOf(
             "GetWaveForRound(currentRound)",
@@ -260,7 +442,17 @@ public sealed class MonsterPrewarmEditModeTests
         Assert.That(presentationAwait, Is.GreaterThan(postAddressableCancellation));
         Assert.That(postPresentationCancellation, Is.GreaterThan(presentationAwait));
         Assert.That(providerPrewarm, Is.GreaterThan(postPresentationCancellation));
+        Assert.That(spawner, Does.Contain("await provider.PrewarmPrefabAsync"),
+            "network-object Instantiate work must stay behind the awaited Prepare gate");
+        Assert.That(spawner, Does.Contain("TrimMonsterPoolsForGenerationAsync"));
         Assert.That(spawner, Does.Contain("cancellationToken: GetBattleCancellationToken(battleGeneration)"));
+    }
+
+    private static void SetPrivateField(object target, string fieldName, object value)
+    {
+        FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(field, Is.Not.Null, fieldName);
+        field.SetValue(target, value);
     }
 
     [Test]

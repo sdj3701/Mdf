@@ -102,6 +102,15 @@ class AutomationClient:
     def inject_pending_combat_load(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/test/injectPendingCombatLoad", kwargs)
 
+    def performance_stress(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/performanceStress", kwargs)
+
+    def projectile_expiry_stress(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/projectileExpiryStress", kwargs)
+
+    def destroy_wall_under_load(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/destroyWallUnderLoad", kwargs)
+
     def screenshot(self, path: str | None = None) -> dict[str, Any]:
         suffix = "" if not path else "?path=" + urllib.request.pathname2url(path)
         return self.request("GET", "/screenshot" + suffix)

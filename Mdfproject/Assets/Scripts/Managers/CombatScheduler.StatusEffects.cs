@@ -59,24 +59,7 @@ public partial class CombatScheduler
 
     public int ActiveStatusEffectCount
     {
-        get
-        {
-            if (!IsStatusEffectSchedulerActive)
-            {
-                return 0;
-            }
-
-            int count = 0;
-            for (int i = 0; i < MaxActiveStatusEffects; i++)
-            {
-                if (StatusEffects[i].Sequence > 0)
-                {
-                    count++;
-                }
-            }
-
-            return count;
-        }
+        get => GetCurrentStatusEffectCount();
     }
 
     public int GetActiveStatusEffectCountFor(BuffManager target)
@@ -87,6 +70,12 @@ public partial class CombatScheduler
         }
 
         uint targetRaw = targetObject.Id.Raw;
+        if (CanUseAuthorityLocalState &&
+            _statusSlotsByTarget.TryGetValue(targetRaw, out CombatSchedulerSlotMask indexedMask))
+        {
+            return indexedMask.Count(MaxActiveStatusEffects);
+        }
+
         int count = 0;
         for (int i = 0; i < MaxActiveStatusEffects; i++)
         {
@@ -110,7 +99,8 @@ public partial class CombatScheduler
         float slowMultiplier = 1f,
         DamageType damageType = DamageType.Physical)
     {
-        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || target == null || duration <= 0f)
+        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || target == null || duration <= 0f ||
+            !EnsureLocalSchedulerState())
         {
             return false;
         }
@@ -134,8 +124,10 @@ public partial class CombatScheduler
         if (existingSlot >= 0)
         {
             StatusEffectEntry existing = StatusEffects[existingSlot];
+            StatusEffectEntry previous = existing;
             existing.ExpireTick = Mathf.Max(existing.ExpireTick, expireTick);
             StatusEffects.Set(existingSlot, existing);
+            NoteStatusSlotUpdated(previous, existing);
             RefreshStatusCacheForTarget(targetObject.Id);
             return true;
         }
@@ -155,7 +147,7 @@ public partial class CombatScheduler
             sourceKey = nextSeq;
         }
 
-        StatusEffects.Set(emptySlot, new StatusEffectEntry
+        var entry = new StatusEffectEntry
         {
             Sequence = nextSeq,
             TargetId = targetObject.Id,
@@ -168,7 +160,9 @@ public partial class CombatScheduler
             DamagePerTick = PackFloat(damagePerTick),
             SlowMultiplier = PackFloat(Mathf.Max(0f, slowMultiplier)),
             PackedMeta = PackStatusMeta(sourceKind, (int)type, (int)damageType, 0)
-        });
+        };
+        StatusEffects.Set(emptySlot, entry);
+        CommitStatusSlot(emptySlot, entry);
 
         RefreshStatusCacheForTarget(targetObject.Id);
         RefreshNetworkBudgetPeaks();
@@ -177,7 +171,8 @@ public partial class CombatScheduler
 
     public bool ClearStatusEffectsForTarget(BuffManager target, string reason = null)
     {
-        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || target == null)
+        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || target == null ||
+            !EnsureLocalSchedulerState())
         {
             return false;
         }
@@ -203,7 +198,8 @@ public partial class CombatScheduler
 
     public bool ClearStatusEffectType(BuffManager target, StatusEffectType type, string reason = null)
     {
-        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || target == null)
+        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || target == null ||
+            !EnsureLocalSchedulerState())
         {
             return false;
         }
@@ -215,12 +211,23 @@ public partial class CombatScheduler
 
         uint targetRaw = targetObject.Id.Raw;
         bool changed = false;
-        for (int i = 0; i < MaxActiveStatusEffects; i++)
+        if (!TryGetTargetMask(_statusSlotsByTarget, targetObject.Id, out CombatSchedulerSlotMask mask))
         {
-            StatusEffectEntry entry = StatusEffects[i];
+            RefreshStatusCacheForTarget(targetObject.Id);
+            return false;
+        }
+
+        for (int slot = 0; slot < MaxActiveStatusEffects; slot++)
+        {
+            if (!mask.Contains(slot))
+            {
+                continue;
+            }
+
+            StatusEffectEntry entry = StatusEffects[slot];
             if (entry.Sequence > 0 && entry.TargetId.Raw == targetRaw && entry.Type == (int)type)
             {
-                StatusEffects.Set(i, default);
+                ClearStatusEffectSlot(slot, entry);
                 changed = true;
             }
         }
@@ -231,16 +238,19 @@ public partial class CombatScheduler
 
     public void ClearAllStatusEffects(string reason = null)
     {
-        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority)
+        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || !EnsureLocalSchedulerState())
         {
             return;
         }
 
-        for (int i = 0; i < MaxActiveStatusEffects; i++)
+        int tokenCount = CaptureStatusSlotTokens();
+        for (int i = 0; i < tokenCount; i++)
         {
-            if (StatusEffects[i].Sequence > 0)
+            LocalSlotToken token = _statusSlotScratch[i];
+            StatusEffectEntry entry = StatusEffects[token.Slot];
+            if (entry.Sequence == token.Sequence)
             {
-                StatusEffects.Set(i, default);
+                ClearStatusEffectSlot(token.Slot, entry);
             }
         }
 
@@ -312,22 +322,26 @@ public partial class CombatScheduler
 
     public int RestoreStatusEffectsFromMigration(IReadOnlyList<StatusEffectMigrationSnapshot> snapshots, string reason = null)
     {
-        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || snapshots == null || snapshots.Count == 0)
+        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || snapshots == null || snapshots.Count == 0 ||
+            !EnsureLocalSchedulerState())
         {
             return 0;
         }
 
-        for (int i = 0; i < MaxActiveStatusEffects; i++)
+        int existingTokenCount = CaptureStatusSlotTokens();
+        for (int i = 0; i < existingTokenCount; i++)
         {
-            if (StatusEffects[i].Sequence > 0)
+            LocalSlotToken token = _statusSlotScratch[i];
+            StatusEffectEntry entry = StatusEffects[token.Slot];
+            if (entry.Sequence == token.Sequence)
             {
-                StatusEffects.Set(i, default);
+                ClearStatusEffectSlot(token.Slot, entry);
             }
         }
 
         int restored = 0;
         int maxSequence = StatusEffectSequence;
-        var changedTargets = new List<NetworkId>();
+        int changedTargetCount = 0;
         int now = Runner.Tick;
 
         for (int i = 0; i < snapshots.Count; i++)
@@ -356,7 +370,7 @@ public partial class CombatScheduler
                 break;
             }
 
-            StatusEffects.Set(slot, new StatusEffectEntry
+            var entry = new StatusEffectEntry
             {
                 Sequence = snapshot.Sequence,
                 TargetId = snapshot.TargetId,
@@ -369,18 +383,20 @@ public partial class CombatScheduler
                 DamagePerTick = snapshot.DamagePerTick,
                 SlowMultiplier = snapshot.SlowMultiplier,
                 PackedMeta = PackStatusMeta(snapshot.SourceKind, snapshot.Type, snapshot.DamageType, snapshot.Flags)
-            });
+            };
+            StatusEffects.Set(slot, entry);
+            CommitStatusSlot(slot, entry);
 
             maxSequence = Mathf.Max(maxSequence, snapshot.Sequence);
-            AddChangedStatusTarget(changedTargets, snapshot.TargetId);
+            changedTargetCount = AddChangedTarget(_statusChangedTargetScratch, changedTargetCount, snapshot.TargetId);
             restored++;
         }
 
         StatusEffectSequence = maxSequence;
         RefreshAllStatusCaches();
-        foreach (NetworkId targetId in changedTargets)
+        for (int i = 0; i < changedTargetCount; i++)
         {
-            RefreshStatusCacheForTarget(targetId);
+            RefreshStatusCacheForTarget(_statusChangedTargetScratch[i]);
         }
 
         Debug.Log($"[CombatScheduler.StatusEffects] Migration restore complete. restored={restored}, cached={snapshots.Count}, reason={reason}");
@@ -395,11 +411,23 @@ public partial class CombatScheduler
         }
 
         int now = Runner.Tick;
-        var changedTargets = new List<NetworkId>();
-        for (int i = 0; i < MaxActiveStatusEffects; i++)
+        if (_statusNextTickDirty)
         {
-            StatusEffectEntry entry = StatusEffects[i];
-            if (entry.Sequence <= 0)
+            RecalculateNextStatusWorkTick();
+        }
+        if (now < _nextStatusWorkTick)
+        {
+            return;
+        }
+
+        int changedTargetCount = 0;
+        int tokenCount = CaptureStatusSlotTokens();
+        for (int i = 0; i < tokenCount; i++)
+        {
+            LocalSlotToken token = _statusSlotScratch[i];
+            int slot = token.Slot;
+            StatusEffectEntry entry = StatusEffects[slot];
+            if (entry.Sequence <= 0 || entry.Sequence != token.Sequence)
             {
                 continue;
             }
@@ -407,15 +435,15 @@ public partial class CombatScheduler
             NetworkObject targetObject = ResolveNetworkObject(entry.TargetId);
             if (targetObject == null || IsStatusTargetDead(targetObject))
             {
-                ClearStatusEffectSlot(i, entry);
-                AddChangedStatusTarget(changedTargets, entry.TargetId);
+                ClearStatusEffectSlot(slot, entry);
+                changedTargetCount = AddChangedTarget(_statusChangedTargetScratch, changedTargetCount, entry.TargetId);
                 continue;
             }
 
             if (entry.ExpireTick <= now)
             {
-                ClearStatusEffectSlot(i, entry);
-                AddChangedStatusTarget(changedTargets, entry.TargetId);
+                ClearStatusEffectSlot(slot, entry);
+                changedTargetCount = AddChangedTarget(_statusChangedTargetScratch, changedTargetCount, entry.TargetId);
                 continue;
             }
 
@@ -425,28 +453,31 @@ public partial class CombatScheduler
                 entry.NextTick <= now)
             {
                 ApplyStatusDotDamage(entry, targetObject);
-                if (StatusEffects[i].Sequence != entry.Sequence)
+                if (StatusEffects[slot].Sequence != entry.Sequence)
                 {
-                    AddChangedStatusTarget(changedTargets, entry.TargetId);
+                    changedTargetCount = AddChangedTarget(_statusChangedTargetScratch, changedTargetCount, entry.TargetId);
                     continue;
                 }
 
                 if (IsStatusTargetDead(targetObject))
                 {
-                    ClearStatusEffectSlot(i, entry);
-                    AddChangedStatusTarget(changedTargets, entry.TargetId);
+                    ClearStatusEffectSlot(slot, entry);
+                    changedTargetCount = AddChangedTarget(_statusChangedTargetScratch, changedTargetCount, entry.TargetId);
                     continue;
                 }
 
+                StatusEffectEntry previous = entry;
                 entry.NextTick = now + Mathf.Max(1, entry.TickIntervalTicks);
-                StatusEffects.Set(i, entry);
+                StatusEffects.Set(slot, entry);
+                NoteStatusSlotUpdated(previous, entry);
             }
         }
 
-        foreach (NetworkId targetId in changedTargets)
+        for (int i = 0; i < changedTargetCount; i++)
         {
-            RefreshStatusCacheForTarget(targetId);
+            RefreshStatusCacheForTarget(_statusChangedTargetScratch[i]);
         }
+        RecalculateNextStatusWorkTick();
     }
 
     private void RebuildStatusCachesFromNetworkEntries()
@@ -458,31 +489,44 @@ public partial class CombatScheduler
 
         RefreshAllStatusCaches();
 
-        var targetIds = new List<NetworkId>();
-        for (int i = 0; i < MaxActiveStatusEffects; i++)
+        int targetCount = 0;
+        for (int i = 0; i < _statusSlotIndex.ActiveCount; i++)
         {
-            StatusEffectEntry entry = StatusEffects[i];
+            int slot = _statusSlotIndex.GetActiveSlot(i);
+            StatusEffectEntry entry = StatusEffects[slot];
             if (entry.Sequence > 0)
             {
-                AddChangedStatusTarget(targetIds, entry.TargetId);
+                targetCount = AddChangedTarget(_statusChangedTargetScratch, targetCount, entry.TargetId);
             }
         }
 
-        foreach (NetworkId targetId in targetIds)
+        for (int i = 0; i < targetCount; i++)
         {
-            RefreshStatusCacheForTarget(targetId);
+            RefreshStatusCacheForTarget(_statusChangedTargetScratch[i]);
         }
     }
 
     private void ClearStatusEffectsForTarget(NetworkId targetId, string reason)
     {
-        uint targetRaw = targetId.Raw;
-        for (int i = 0; i < MaxActiveStatusEffects; i++)
+        if (!EnsureLocalSchedulerState() ||
+            !TryGetTargetMask(_statusSlotsByTarget, targetId, out CombatSchedulerSlotMask mask))
         {
-            StatusEffectEntry entry = StatusEffects[i];
+            RefreshStatusCacheForTarget(targetId);
+            return;
+        }
+
+        uint targetRaw = targetId.Raw;
+        for (int slot = 0; slot < MaxActiveStatusEffects; slot++)
+        {
+            if (!mask.Contains(slot))
+            {
+                continue;
+            }
+
+            StatusEffectEntry entry = StatusEffects[slot];
             if (entry.Sequence > 0 && entry.TargetId.Raw == targetRaw)
             {
-                StatusEffects.Set(i, default);
+                ClearStatusEffectSlot(slot, entry);
             }
         }
 
@@ -499,6 +543,7 @@ public partial class CombatScheduler
         if (StatusEffects[slot].Sequence == entry.Sequence)
         {
             StatusEffects.Set(slot, default);
+            ReleaseStatusSlot(slot, entry);
         }
     }
 
@@ -506,9 +551,15 @@ public partial class CombatScheduler
     {
         uint targetRaw = targetId.Raw;
         uint casterRaw = casterId.Raw;
-        for (int i = 0; i < MaxActiveStatusEffects; i++)
+        if (!EnsureLocalSchedulerState())
         {
-            StatusEffectEntry entry = StatusEffects[i];
+            return -1;
+        }
+
+        for (int i = 0; i < _statusSlotIndex.ActiveCount; i++)
+        {
+            int slot = _statusSlotIndex.GetActiveSlot(i);
+            StatusEffectEntry entry = StatusEffects[slot];
             if (entry.Sequence <= 0)
             {
                 continue;
@@ -520,7 +571,7 @@ public partial class CombatScheduler
                 entry.SourceKey == sourceKey &&
                 entry.Type == (int)type)
             {
-                return i;
+                return slot;
             }
         }
 
@@ -529,15 +580,12 @@ public partial class CombatScheduler
 
     private int FindEmptyStatusSlot()
     {
-        for (int i = 0; i < MaxActiveStatusEffects; i++)
+        if (!EnsureLocalSchedulerState())
         {
-            if (StatusEffects[i].Sequence <= 0)
-            {
-                return i;
-            }
+            return -1;
         }
 
-        return -1;
+        return _statusSlotIndex.TryRentLowest(out int slot) ? slot : -1;
     }
 
     private static int PackStatusMeta(int sourceKind, int type, int damageType, int flags)
@@ -546,25 +594,6 @@ public partial class CombatScheduler
                ((type & 0xFF) << 4) |
                ((damageType & 0xFF) << 12) |
                (flags << 20);
-    }
-
-    private static void AddChangedStatusTarget(List<NetworkId> targetIds, NetworkId targetId)
-    {
-        if (targetIds == null || targetId.Raw == 0)
-        {
-            return;
-        }
-
-        uint targetRaw = targetId.Raw;
-        for (int i = 0; i < targetIds.Count; i++)
-        {
-            if (targetIds[i].Raw == targetRaw)
-            {
-                return;
-            }
-        }
-
-        targetIds.Add(targetId);
     }
 
     private void RefreshStatusCacheForTarget(NetworkId targetId)
@@ -584,19 +613,46 @@ public partial class CombatScheduler
         StatusEffectType flags = StatusEffectType.None;
         float slowMultiplier = 1f;
         uint targetRaw = targetId.Raw;
-        for (int i = 0; i < MaxActiveStatusEffects; i++)
+        if (CanUseAuthorityLocalState &&
+            TryGetTargetMask(_statusSlotsByTarget, targetId, out CombatSchedulerSlotMask mask))
         {
-            StatusEffectEntry entry = StatusEffects[i];
-            if (entry.Sequence <= 0 || entry.TargetId.Raw != targetRaw)
+            for (int slot = 0; slot < MaxActiveStatusEffects; slot++)
             {
-                continue;
-            }
+                if (!mask.Contains(slot))
+                {
+                    continue;
+                }
 
-            flags |= (StatusEffectType)entry.Type;
-            float entrySlow = UnpackFloat(entry.SlowMultiplier);
-            if (entrySlow > 0f && entrySlow < 1f)
+                StatusEffectEntry entry = StatusEffects[slot];
+                if (entry.Sequence <= 0 || entry.TargetId.Raw != targetRaw)
+                {
+                    continue;
+                }
+
+                flags |= (StatusEffectType)entry.Type;
+                float entrySlow = UnpackFloat(entry.SlowMultiplier);
+                if (entrySlow > 0f && entrySlow < 1f)
+                {
+                    slowMultiplier *= entrySlow;
+                }
+            }
+        }
+        else if (!CanUseAuthorityLocalState)
+        {
+            for (int i = 0; i < MaxActiveStatusEffects; i++)
             {
-                slowMultiplier *= entrySlow;
+                StatusEffectEntry entry = StatusEffects[i];
+                if (entry.Sequence <= 0 || entry.TargetId.Raw != targetRaw)
+                {
+                    continue;
+                }
+
+                flags |= (StatusEffectType)entry.Type;
+                float entrySlow = UnpackFloat(entry.SlowMultiplier);
+                if (entrySlow > 0f && entrySlow < 1f)
+                {
+                    slowMultiplier *= entrySlow;
+                }
             }
         }
 

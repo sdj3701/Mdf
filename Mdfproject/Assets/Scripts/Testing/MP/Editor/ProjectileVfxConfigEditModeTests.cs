@@ -552,6 +552,20 @@ public sealed class ProjectileVfxConfigEditModeTests
         Assert.That(File.Exists("Assets/Scripts/Editor/TempProjectileVfxPurifyMigration.cs"), Is.False);
     }
 
+    [Test]
+    public void ProjectileExpiryUsesConstantTimeSwapBackRemoval()
+    {
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/ProjectileVfxManager.cs");
+
+        Assert.That(source, Does.Contain("RemoveActiveAt(i, active)"));
+        Assert.That(source, Does.Contain("_activeProjectiles[index] = _activeProjectiles[lastIndex]"));
+        Assert.That(source, Does.Contain("_activeProjectiles.RemoveAt(lastIndex)"));
+        Assert.That(source, Does.Not.Contain("_activeProjectiles.RemoveAt(index)"),
+            "middle removal shifts the tail and is not O(1)");
+        Assert.That(source, Does.Not.Contain("_activeProjectiles.Remove(active)"),
+            "the reverse update loop already owns the exact index and must not rescan the list");
+    }
+
     private static void AssertProjectileWrapperHasNoEmbeddedOneShots(GameObject prefab, string path)
     {
         Transform[] transforms = prefab.GetComponentsInChildren<Transform>(true);

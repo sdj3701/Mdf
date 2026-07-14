@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: security
 Created: 2026-05-05
-Last used: 2026-05-05
+Last used: 2026-07-14
 Last verified: 2026-05-05
-Use count: 1
+Use count: 3
 Review after: 2026-08-03
 Triggers: automation server, HttpListener, --mpTest, --mpAutomationToken
 Applies to: `MPTestAutomationServer`, Development Build harness control

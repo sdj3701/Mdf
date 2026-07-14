@@ -37,6 +37,8 @@ EXPECTED_HUMANS = 2
 EXPECTED_AI = 2
 WALL_UPGRADE_COST_BY_LEVEL = {1: 2, 2: 4}
 WALL_UPGRADE_TOTAL_COST = sum(WALL_UPGRADE_COST_BY_LEVEL.values())
+COMMAND_DRAIN_STABLE_SAMPLES = 2
+COMMAND_DRAIN_POLL_SECONDS = 0.5
 
 
 def safe_request(call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -499,6 +501,94 @@ def stop_bots_before_move(
         time.sleep(0.5)
 
     return results, stopped
+
+
+def command_queue_depth(snapshot: Any) -> int | None:
+    commands = state(snapshot).get("commands")
+    if not isinstance(commands, dict):
+        return None
+
+    value = commands.get("queueDepth")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def wait_command_queues_drained(
+    clients: dict[str, AutomationClient],
+    artifact_dir: pathlib.Path,
+    timeout_seconds: float,
+    scene: str,
+    *,
+    label: str,
+    poll_seconds: float = COMMAND_DRAIN_POLL_SECONDS,
+    stable_samples_required: int = COMMAND_DRAIN_STABLE_SAMPLES,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    deadline = time.time() + max(0.0, timeout_seconds)
+    stable_samples_required = max(1, stable_samples_required)
+    zero_depth_samples = 0
+    comparable_samples = 0
+    latest_host: dict[str, Any] = {}
+    latest_client: dict[str, Any] = {}
+    comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+
+    while time.time() < deadline:
+        latest_host = safe_request(clients["host"].dump_state)
+        latest_client = safe_request(clients["client"].dump_state)
+        write_json(artifact_dir / "snapshots" / f"host-{label}-drain-latest.json", latest_host)
+        write_json(artifact_dir / "snapshots" / f"client-{label}-drain-latest.json", latest_client)
+
+        depths = {
+            "host": command_queue_depth(latest_host),
+            "client": command_queue_depth(latest_client),
+        }
+        ready = {
+            "host": snapshot_ready(latest_host, EXPECTED_PLAYERS, scene),
+            "client": snapshot_ready(latest_client, EXPECTED_PLAYERS, scene),
+        }
+        queues_zero = all(depth == 0 for depth in depths.values())
+        if all(ready.values()) and queues_zero:
+            zero_depth_samples += 1
+            comparison = compare_snapshots(latest_host, latest_client)
+            write_json(artifact_dir / f"comparison-{label}-drain-latest.json", comparison)
+            if comparison.get("success") is True:
+                comparable_samples += 1
+            else:
+                comparable_samples = 0
+        else:
+            zero_depth_samples = 0
+            comparable_samples = 0
+
+        drained = (
+            zero_depth_samples >= stable_samples_required
+            and comparable_samples >= stable_samples_required
+        )
+        write_json(artifact_dir / f"{label}-command-queue-drain-latest.json", {
+            "drained": drained,
+            "queuesDrained": zero_depth_samples >= stable_samples_required,
+            "snapshotsStable": comparable_samples >= stable_samples_required,
+            "stableSamplesRequired": stable_samples_required,
+            "zeroDepthSamples": zero_depth_samples,
+            "comparableSamples": comparable_samples,
+            "queueDepth": depths,
+            "ready": ready,
+            "reasons": {
+                "host": snapshot_not_ready_reasons(latest_host, EXPECTED_PLAYERS, scene),
+                "client": snapshot_not_ready_reasons(latest_client, EXPECTED_PLAYERS, scene),
+            },
+            "comparison": comparison,
+            "deadlineSecondsRemaining": max(0.0, deadline - time.time()),
+        })
+        if drained:
+            return latest_host, latest_client, comparison, True
+
+        time.sleep(max(0.0, poll_seconds))
+
+    return latest_host, latest_client, comparison, False
 
 
 def issue_move_commands(
@@ -1349,6 +1439,11 @@ def run_game_to_end_prepare_move_loop(
     final_comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
     battle_hud_capture: dict[str, Any] = {}
     battle_hud_captured = False
+    performance_stress_result: dict[str, Any] = {}
+    performance_stress_attempted = False
+    wall_destruction_under_load_result: dict[str, Any] = {}
+    projectile_expiry_results: dict[str, dict[str, Any]] = {}
+    projectile_expiry_attempted = False
     limit_reason = "none"
 
     while time.time() < deadline:
@@ -1407,6 +1502,119 @@ def run_game_to_end_prepare_move_loop(
             write_json(artifact_dir / "battle-hud-capture.json", battle_hud_capture)
             battle_hud_captured = captured
 
+        if same_battle_state and args.projectile_expiry_stress_count > 0 and not projectile_expiry_attempted:
+            projectile_expiry_attempted = True
+            pending_peers: set[str] = set()
+            for name, peer_client in clients.items():
+                started = safe_request(lambda peer_client=peer_client: peer_client.projectile_expiry_stress(
+                    action="start",
+                    projectileCount=args.projectile_expiry_stress_count,
+                    lifetimeSeconds=args.projectile_expiry_stress_lifetime_seconds,
+                ))
+                projectile_expiry_results[name] = started
+                write_json(artifact_dir / f"projectile-expiry-stress-{name}-start.json", started)
+                if started.get("success") is True:
+                    pending_peers.add(name)
+
+            projectile_deadline = time.time() + args.projectile_expiry_stress_timeout_seconds
+            while pending_peers and time.time() < projectile_deadline:
+                for name in list(pending_peers):
+                    status = safe_request(lambda name=name: clients[name].projectile_expiry_stress(action="status"))
+                    projectile_expiry_results[name] = status
+                    write_json(artifact_dir / f"projectile-expiry-stress-{name}-status-latest.json", status)
+                    if nested(status, "data", "phase") in ("completed", "failed", "cancelled"):
+                        pending_peers.remove(name)
+                if pending_peers:
+                    time.sleep(0.1)
+
+            for name in list(pending_peers):
+                projectile_expiry_results[name] = safe_request(
+                    lambda name=name: clients[name].projectile_expiry_stress(
+                        action="stop",
+                        reason="two_humanbot_projectile_expiry_timeout",
+                    )
+                )
+
+            write_json(artifact_dir / "projectile-expiry-stress-result.json", projectile_expiry_results)
+            for name in clients:
+                response = projectile_expiry_results.get(name) or {}
+                payload = response.get("data") or {}
+                if (
+                    response.get("success") is not True
+                    or payload.get("success") is not True
+                    or payload.get("phase") != "completed"
+                    or to_int(payload.get("peakAdded")) < args.projectile_expiry_stress_count
+                    or to_int(payload.get("currentActive")) > to_int(payload.get("baselineActive"))
+                ):
+                    errors.append(
+                        f"projectile_expiry_stress_failed.{name}:"
+                        + str(payload.get("reason") or response.get("error") or "invalid_result")
+                    )
+
+        if same_battle_state and args.performance_stress_monsters > 0 and not performance_stress_attempted:
+            performance_stress_attempted = True
+            started = safe_request(lambda: clients["host"].performance_stress(
+                action="start",
+                monsterCount=args.performance_stress_monsters,
+                holdSeconds=args.performance_stress_hold_seconds,
+                attackerPlayerId=args.performance_stress_attacker_player_id,
+                targetPlayerId=args.performance_stress_target_player_id,
+            ))
+            write_json(artifact_dir / "performance-stress-start.json", started)
+            performance_stress_result = started
+            stress_deadline = time.time() + args.performance_stress_timeout_seconds
+            while started.get("success") is True and time.time() < stress_deadline:
+                performance_stress_result = safe_request(
+                    lambda: clients["host"].performance_stress(action="status")
+                )
+                write_json(artifact_dir / "performance-stress-status-latest.json", performance_stress_result)
+                phase = nested(performance_stress_result, "data", "phase")
+                if (
+                    phase == "holding"
+                    and args.performance_stress_destroy_wall
+                    and not wall_destruction_under_load_result
+                ):
+                    wall_destruction_under_load_result = safe_request(
+                        lambda: clients["host"].destroy_wall_under_load(
+                            playerId=to_int(nested(performance_stress_result, "data", "targetPlayerId"), -1)
+                        )
+                    )
+                    write_json(
+                        artifact_dir / "performance-stress-wall-destruction.json",
+                        wall_destruction_under_load_result,
+                    )
+                if phase in ("completed", "failed", "cancelled"):
+                    break
+                time.sleep(0.25)
+            else:
+                if started.get("success") is True:
+                    performance_stress_result = safe_request(lambda: clients["host"].performance_stress(
+                        action="stop",
+                        reason="two_humanbot_stress_timeout",
+                    ))
+            write_json(artifact_dir / "performance-stress-result.json", performance_stress_result)
+            stress_payload = performance_stress_result.get("data") or {}
+            if performance_stress_result.get("success") is not True or stress_payload.get("success") is not True:
+                errors.append(
+                    "performance_stress_failed:"
+                    + str(stress_payload.get("reason") or performance_stress_result.get("error") or "unknown")
+                )
+            if args.performance_stress_destroy_wall:
+                wall_payload = wall_destruction_under_load_result.get("data") or {}
+                if (
+                    wall_destruction_under_load_result.get("success") is not True
+                    or wall_payload.get("destroyed") is not True
+                    or to_int(wall_payload.get("revisionAfter")) <= to_int(wall_payload.get("revisionBefore"))
+                ):
+                    errors.append(
+                        "performance_stress_wall_destruction_failed:"
+                        + str(
+                            wall_destruction_under_load_result.get("error")
+                            or wall_payload.get("reason")
+                            or "not_executed"
+                        )
+                    )
+
         if host_state == "GameOver" and client_state == "GameOver":
             limit_reason = "game_over_reached"
             final_host, final_client, final_comparison, game_over_ready = wait_game_over_ready(
@@ -1433,6 +1641,15 @@ def run_game_to_end_prepare_move_loop(
                 artifact_dir / f"freeze-game-flow-{label}.json",
                 safe_request(lambda label=label: clients["host"].freeze_game_flow(True, f"two_humanbot_two_ai_{label}")),
             )
+            bot_stop_results, bots_stopped = stop_bots_before_move(
+                clients,
+                artifact_dir,
+                reason=f"game_end_{label}",
+                label=label,
+            )
+            if not all((result.get("success") is True) for result in bot_stop_results.values()) or not bots_stopped:
+                errors.append(f"{label}.bot_stop_failed")
+
             before_move_host, _, before_comparison, before_ready = wait_target_prepare_ready(
                 clients["host"],
                 clients["client"],
@@ -1447,16 +1664,19 @@ def run_game_to_end_prepare_move_loop(
             if not before_ready:
                 errors.append(f"{label}.before_move_ready_timeout")
 
-            bot_stop_results, bots_stopped = stop_bots_before_move(
+            command_base_host, _, _, command_base_queues_drained = wait_command_queues_drained(
                 clients,
                 artifact_dir,
-                reason=f"game_end_{label}",
-                label=label,
+                min(30.0, max(1.0, float(args.state_timeout))),
+                args.scene,
+                label=f"{label}-post-bot-stop",
             )
-            if not all((result.get("success") is True) for result in bot_stop_results.values()) or not bots_stopped:
-                errors.append(f"{label}.bot_stop_failed")
+            if not command_base_queues_drained:
+                errors.append(f"{label}.post_bot_stop_queues_or_snapshots_not_stable")
+                limit_reason = "command_base_not_stable"
+                break
 
-            command_base_snapshot = before_move_host if before_ready else host_snapshot
+            command_base_snapshot = command_base_host
             if args.wall_command_every_prepare:
                 place_label = f"{label}-place-wall"
                 wall_player_ids = wall_command_player_ids(
@@ -1587,6 +1807,7 @@ def run_game_to_end_prepare_move_loop(
                     )
                 wall_record = {
                     "round": current_round,
+                    "commandBaseQueuesDrained": command_base_queues_drained,
                     "wallPlayerIds": wall_player_ids,
                     "successfulPlaceWallCommands": len(successful_places),
                     "successfulLevelTwoUpgradeCommands": len(successful_level_two),
@@ -1739,6 +1960,7 @@ def run_game_to_end_prepare_move_loop(
             hash_changed = movement_hash_changed(command_base_snapshot, after_move_host, move_results)
             record = {
                 "round": current_round,
+                "commandBaseQueuesDrained": command_base_queues_drained,
                 "activeHumanPlayerIds": active_humans,
                 "successfulMoveCommands": len(successful_moves),
                 "movementHashChanged": hash_changed,
@@ -1786,11 +2008,47 @@ def run_game_to_end_prepare_move_loop(
     if limit_reason == "none":
         limit_reason = "max_duration_reached" if time.time() >= deadline else "stopped"
 
-    if not final_host:
-        final_host = safe_request(clients["host"].dump_state)
-    if not final_client:
-        final_client = safe_request(clients["client"].dump_state)
-    final_comparison = compare_snapshots(final_host, final_client) if final_host and final_client else final_comparison
+    final_bot_stop_results, final_bots_stopped = stop_bots_before_move(
+        clients,
+        artifact_dir,
+        reason="final_checkpoint",
+        label="final-checkpoint",
+    )
+    if (
+        not all(result.get("success") is True for result in final_bot_stop_results.values())
+        or not final_bots_stopped
+    ):
+        errors.append("final_checkpoint.bot_stop_failed")
+
+    final_freeze_results = {
+        name: safe_request(
+            lambda client=client: client.freeze_game_flow(
+                True,
+                "two_humanbot_two_ai_final_checkpoint",
+            )
+        )
+        for name, client in clients.items()
+    }
+    write_json(artifact_dir / "freeze-game-flow-final-checkpoint.json", final_freeze_results)
+    if not all(result.get("success") is True for result in final_freeze_results.values()):
+        errors.append("final_checkpoint.freeze_failed")
+
+    drained_host, drained_client, drained_comparison, final_queues_drained = wait_command_queues_drained(
+        clients,
+        artifact_dir,
+        min(30.0, max(1.0, float(args.state_timeout))),
+        args.scene,
+        label="final",
+    )
+    if drained_host:
+        final_host = drained_host
+    if drained_client:
+        final_client = drained_client
+    if drained_host and drained_client:
+        final_comparison = drained_comparison
+    if not final_queues_drained:
+        errors.append("final_checkpoint.queues_or_snapshots_not_stable")
+
     write_json(artifact_dir / "snapshots" / "host-game-end-final.json", final_host)
     write_json(artifact_dir / "snapshots" / "client-game-end-final.json", final_client)
     write_json(artifact_dir / "comparison-game-end-final.json", final_comparison)
@@ -1842,6 +2100,15 @@ def run_game_to_end_prepare_move_loop(
         "wallRecordsPath": "game-to-end-wall-records.json" if wall_records else None,
         "progressTimelinePath": "game-to-end-progress-timeline.json",
         "battleHudCapture": battle_hud_capture,
+        "performanceStress": performance_stress_result if performance_stress_attempted else None,
+        "wallDestructionUnderLoad": wall_destruction_under_load_result or None,
+        "projectileExpiryStress": projectile_expiry_results if projectile_expiry_attempted else None,
+        "finalCheckpoint": {
+            "botsStopped": final_bots_stopped,
+            "botStopResults": final_bot_stop_results,
+            "freezeResults": final_freeze_results,
+            "commandQueuesDrained": final_queues_drained,
+        },
         "finalHost": final_host,
         "finalClient": final_client,
         "finalComparison": final_comparison,
@@ -2276,6 +2543,15 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--headless-player", action="store_true")
     parser.add_argument("--verify-king-goal-placement", action="store_true")
+    parser.add_argument("--performance-stress-monsters", type=int, default=0)
+    parser.add_argument("--performance-stress-attacker-player-id", type=int, default=-1)
+    parser.add_argument("--performance-stress-target-player-id", type=int, default=-1)
+    parser.add_argument("--performance-stress-hold-seconds", type=float, default=10.0)
+    parser.add_argument("--performance-stress-timeout-seconds", type=float, default=180.0)
+    parser.add_argument("--performance-stress-destroy-wall", action="store_true")
+    parser.add_argument("--projectile-expiry-stress-count", type=int, default=0)
+    parser.add_argument("--projectile-expiry-stress-lifetime-seconds", type=float, default=5.0)
+    parser.add_argument("--projectile-expiry-stress-timeout-seconds", type=float, default=30.0)
     parser.add_argument("--ping-timeout", type=int, default=45)
     parser.add_argument("--start-timeout", type=int, default=45)
     parser.add_argument("--lobby-timeout", type=int, default=90)
@@ -2297,6 +2573,16 @@ def main() -> int:
         raise SystemExit("--max-rounds must be >= 0")
     if args.game_over_timeout <= 0:
         raise SystemExit("--game-over-timeout must be > 0")
+    if args.performance_stress_monsters < 0:
+        raise SystemExit("--performance-stress-monsters must be >= 0")
+    if args.performance_stress_attacker_player_id < -1 or args.performance_stress_target_player_id < -1:
+        raise SystemExit("--performance-stress attacker/target player ids must be >= -1")
+    if args.performance_stress_hold_seconds <= 0 or args.performance_stress_timeout_seconds <= 0:
+        raise SystemExit("performance stress timeouts must be > 0")
+    if args.projectile_expiry_stress_count < 0 or args.projectile_expiry_stress_count > 256:
+        raise SystemExit("--projectile-expiry-stress-count must be between 0 and 256")
+    if args.projectile_expiry_stress_lifetime_seconds < 2 or args.projectile_expiry_stress_timeout_seconds <= 0:
+        raise SystemExit("projectile expiry stress lifetime must be >= 2 and timeout must be > 0")
     return run(args)
 
 

@@ -6,7 +6,7 @@ Category: battle, feature-workflow
 Created: 2026-05-08
 Last used: 2026-07-14
 Last verified: 2026-07-12
-Use count: 11
+Use count: 12
 Review after: 2026-08-06
 Triggers: matrix cost control, random-aware runs, battle-heavy runs, nightly automation
 Applies to: `tools/harness/mp/run_matrix.py`, matrix docs, HumanBot/battle seed sweeps

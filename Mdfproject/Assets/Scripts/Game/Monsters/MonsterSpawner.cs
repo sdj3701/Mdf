@@ -412,6 +412,7 @@ public class MonsterSpawner : MonoBehaviour
         return $"allFields={fields.Length} {string.Join(" || ", chunks)}";
     }
 
+    [System.Diagnostics.Conditional("MDF_SPAWN_TRACE")]
     private void LogSpawnTrace(string step, MonsterData monsterData, Vector3 spawnPosition, FieldManager targetFieldManager, string extra = null)
     {
         PlayerManager targetPlayer = targetFieldManager != null ? targetFieldManager.playerManager : null;
@@ -453,12 +454,6 @@ public class MonsterSpawner : MonoBehaviour
 
         var entries = pool.Where(entry => entry?.MonsterData != null && !entry.IsEmpty).ToList();
         ResolveAttackDemandInputs(ref activePlayerCount, ref maximumBlackMagic);
-        int minimumNormalCost = entries
-            .Where(entry => !entry.IsBoss)
-            .Select(entry => Mathf.Max(0, entry.MonsterData.blackMagicCost))
-            .Where(cost => cost > 0)
-            .DefaultIfEmpty(1)
-            .Min();
         var requests = new Dictionary<string, MonsterPrewarmRequest>();
         foreach (var entry in entries)
         {
@@ -471,7 +466,7 @@ public class MonsterSpawner : MonoBehaviour
                 : EstimateNormalPrewarmTarget(
                     activePlayerCount,
                     maximumBlackMagic,
-                    minimumNormalCost,
+                    Mathf.Max(1, entry.MonsterData.blackMagicCost),
                     maxNormalPrewarmCountPerMonsterPrefab,
                     concurrentWaveCount);
             AddPrewarmRequest(requests, entry.MonsterData, targetCount);
@@ -567,7 +562,7 @@ public class MonsterSpawner : MonoBehaviour
     public static int EstimateNormalPrewarmTarget(
         int activePlayerCount,
         int maximumBlackMagic,
-        int minimumBlackMagicCost,
+        int blackMagicCost,
         int perPrefabCap,
         int waveCountPerBattleForPrefab = 0)
     {
@@ -575,7 +570,7 @@ public class MonsterSpawner : MonoBehaviour
         int concurrentAttackers = ResolveConcurrentBattleSlots(activePlayerCount);
         int summonsPerAttacker = Mathf.Max(
             1,
-            Mathf.CeilToInt(Mathf.Max(0, maximumBlackMagic) / (float)Mathf.Max(1, minimumBlackMagicCost)));
+            Mathf.CeilToInt(Mathf.Max(0, maximumBlackMagic) / (float)Mathf.Max(1, blackMagicCost)));
         long estimatedDemand = (long)concurrentAttackers *
                                (summonsPerAttacker + Mathf.Max(0, waveCountPerBattleForPrefab));
         return estimatedDemand >= boundedCap ? boundedCap : Mathf.Max(1, (int)estimatedDemand);
@@ -768,7 +763,13 @@ public class MonsterSpawner : MonoBehaviour
             try
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                createdTotal += provider.PrewarmPrefab(runner, netPrefab, request.TargetFreeCount);
+                createdTotal += await provider.PrewarmPrefabAsync(
+                    runner,
+                    netPrefab,
+                    request.TargetFreeCount,
+                    registerForMonsterTrimming: true,
+                    cancellationToken: cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
                 completedPrefabs++;
             }
             catch (System.OperationCanceledException)
@@ -780,8 +781,33 @@ public class MonsterSpawner : MonoBehaviour
                 failedPrefabs++;
                 failures.Add($"{request.MonsterData.monsterPrefab}: pool ({exception.Message})");
             }
-            await UniTask.Yield();
+            await UniTask.Yield(PlayerLoopTiming.Update, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+        }
+
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers != null && gameManagers.currentState == GameManagers.GameState.Prepare)
+        {
+            try
+            {
+                // Register and satisfy this Prepare's reserve floors before trimming. Otherwise
+                // an unused catalog entry would be destroyed to its high-water target and then
+                // immediately recreated to the same projected battle target every round.
+                await provider.TrimMonsterPoolsForGenerationAsync(
+                    Mathf.Max(1, gameManagers.currentRound),
+                    cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            catch (System.OperationCanceledException)
+            {
+                throw;
+            }
+            catch (System.Exception exception)
+            {
+                // Retention trimming is local memory hygiene. A trim failure must not prevent
+                // presentation/network pool readiness or delay the authoritative Prepare flow.
+                Debug.LogWarning($"[MonsterSpawner] Monster pool trim skipped: {exception.Message}");
+            }
         }
 
         var report = new MonsterPrewarmReport(

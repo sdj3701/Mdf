@@ -64,6 +64,7 @@ public class ShopManager : MonoBehaviour
         }
     }
 
+    [System.Diagnostics.Conditional("MDF_SHOP_TRACE")]
     private void LogShopTrace(string step, string extra = null)
     {
         GameManagers gm = GameManagers.Instance;

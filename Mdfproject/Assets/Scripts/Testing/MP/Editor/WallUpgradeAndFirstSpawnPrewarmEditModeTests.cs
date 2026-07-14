@@ -539,7 +539,7 @@ public sealed class WallUpgradeAndFirstSpawnPrewarmEditModeTests
             monsterLoadIndex,
             StringComparison.Ordinal);
         int monsterPoolIndex = monsterSpawner.IndexOf(
-            "provider.PrewarmPrefab",
+            "await provider.PrewarmPrefabAsync",
             monsterPresentationIndex,
             StringComparison.Ordinal);
         Assert.That(monsterLoadIndex, Is.GreaterThanOrEqualTo(0));
@@ -548,6 +548,10 @@ public sealed class WallUpgradeAndFirstSpawnPrewarmEditModeTests
         Assert.That(monsterSpawner, Does.Contain("PrewarmMonsterDataSetAsync"));
         Assert.That(monsterSpawner, Does.Contain("EstimateNormalPrewarmTarget"),
             "repeatable black-magic monsters must use projected player demand, not their sentinel count of one");
+        Assert.That(monsterSpawner, Does.Contain("entry.MonsterData.blackMagicCost"),
+            "each monster must size its reserve from its own black-magic cost");
+        Assert.That(monsterSpawner, Does.Contain("TrimMonsterPoolsForGenerationAsync"),
+            "Prepare must trim only measured inactive monster excess before refilling targets");
         Assert.That(monsterSpawner, Does.Contain("waveCountPerBattleForPrefab"),
             "the absolute target must reserve simultaneous base-wave occupancy too");
         Assert.That(monsterSpawner, Does.Contain("_addressableAssets?.Dispose()"));

@@ -328,6 +328,24 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => InjectPendingCombatLoadForTest(body)));
         }
 
+        if (path == "/test/performanceStress")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => ExecutePerformanceStress(body)));
+        }
+
+        if (path == "/test/projectileExpiryStress")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => ExecuteProjectileExpiryStress(body)));
+        }
+
+        if (path == "/test/destroyWallUnderLoad")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => DestroyWallUnderLoad(body)));
+        }
+
         if (path == "/screenshot")
         {
             return await RequireMethod(request, "GET", () => MainThread(() => CaptureScreenshot(request)));
@@ -2031,6 +2049,162 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             before,
             after
         });
+    }
+
+    private AutomationResponse ExecutePerformanceStress(JObject body)
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail("performance_stress_requires_mptest", "Performance stress requires --mpTest.");
+        }
+
+        var driver = GetComponent<MPTestPerformanceStressDriver>() ?? gameObject.AddComponent<MPTestPerformanceStressDriver>();
+        driver.Configure(_options);
+        string action = GetString(body, "action", "status");
+        if (string.Equals(action, "status", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutomationResponse.Ok("performance stress status", driver.GetStatus());
+        }
+
+        if (string.Equals(action, "stop", StringComparison.OrdinalIgnoreCase))
+        {
+            driver.StopAndCleanup(GetString(body, "reason", "automation_stop"));
+            return AutomationResponse.Ok("performance stress stopped", driver.GetStatus());
+        }
+
+        if (!string.Equals(action, "start", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutomationResponse.Fail("performance_stress_action_invalid", "action must be start, status, or stop.");
+        }
+
+        bool started = driver.TryStart(
+            GetInt(body, "monsterCount", GetInt(body, "monster_count", 60)),
+            GetFloat(body, "holdSeconds", GetFloat(body, "hold_seconds", 15f)),
+            GetInt(body, "attackerPlayerId", GetInt(body, "attacker_player_id", -1)),
+            GetInt(body, "targetPlayerId", GetInt(body, "target_player_id", -1)),
+            GetString(body, "monsterDataKey", GetString(body, "monster_data_key", null)),
+            out string reason);
+        return started
+            ? AutomationResponse.Ok("performance stress started", driver.GetStatus())
+            : AutomationResponse.Fail(reason, "Performance stress could not start.", driver.GetStatus());
+    }
+
+    private AutomationResponse ExecuteProjectileExpiryStress(JObject body)
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail(
+                "projectile_expiry_stress_requires_mptest",
+                "Projectile expiry stress requires --mpTest.");
+        }
+
+        var driver = GetComponent<MPTestProjectileExpiryStressDriver>() ??
+                     gameObject.AddComponent<MPTestProjectileExpiryStressDriver>();
+        driver.Configure(_options);
+        string action = GetString(body, "action", "status");
+        if (string.Equals(action, "status", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutomationResponse.Ok("projectile expiry stress status", driver.GetStatus());
+        }
+
+        if (string.Equals(action, "stop", StringComparison.OrdinalIgnoreCase))
+        {
+            driver.Stop(GetString(body, "reason", "automation_stop"));
+            return AutomationResponse.Ok("projectile expiry stress stopped", driver.GetStatus());
+        }
+
+        if (!string.Equals(action, "start", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutomationResponse.Fail(
+                "projectile_expiry_stress_action_invalid",
+                "action must be start, status, or stop.");
+        }
+
+        bool started = driver.TryStart(
+            GetInt(body, "projectileCount", GetInt(body, "projectile_count", 64)),
+            GetFloat(body, "lifetimeSeconds", GetFloat(body, "lifetime_seconds", 5f)),
+            out string reason);
+        return started
+            ? AutomationResponse.Ok("projectile expiry stress started", driver.GetStatus())
+            : AutomationResponse.Fail(reason, "Projectile expiry stress could not start.", driver.GetStatus());
+    }
+
+    private AutomationResponse DestroyWallUnderLoad(JObject body)
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail("wall_load_stress_requires_mptest", "Wall load stress requires --mpTest.");
+        }
+
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return AutomationResponse.Fail("wall_load_stress_flow_frozen", "Wall damage is disabled while flow is frozen.");
+        }
+
+        int requestedPlayerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        DestructibleWall wall = UnityEngine.Object.FindObjectsOfType<DestructibleWall>()
+            .Where(candidate => candidate != null &&
+                                candidate.isActiveAndEnabled &&
+                                candidate.CurrentHealth > 0f &&
+                                candidate.OwnerFieldManager != null &&
+                                (requestedPlayerId < 0 ||
+                                 candidate.OwnerFieldManager.playerManager != null &&
+                                 candidate.OwnerFieldManager.playerManager.playerId == requestedPlayerId) &&
+                                candidate.Object != null &&
+                                candidate.Object.IsValid &&
+                                candidate.Object.HasStateAuthority)
+            .OrderBy(candidate => candidate.OwnerFieldManager.playerManager != null
+                ? candidate.OwnerFieldManager.playerManager.playerId
+                : int.MaxValue)
+            .ThenBy(candidate => candidate.GridPosition.x)
+            .ThenBy(candidate => candidate.GridPosition.y)
+            .FirstOrDefault();
+        if (wall == null)
+        {
+            return AutomationResponse.Fail("wall_load_stress_target_unavailable", "No authoritative destructible wall is available.");
+        }
+
+        FieldManager field = wall.OwnerFieldManager;
+        Vector3Int cell = wall.GridPosition;
+        int revisionBefore = field.WallTopologyRevision;
+        float healthBefore = wall.CurrentHealth;
+        uint originalNetworkIdRaw = wall.Object.Id.Raw;
+        long performanceStart = MPTestPerformanceRecorder.StartTimestamp();
+        wall.TakeDamage(Mathf.Max(1000000f, wall.MaxHealth * 1000f), DamageType.Physical);
+        MPTestPerformanceRecorder.RecordDuration("wall_destruction_authority", performanceStart, 1);
+
+        // Network pooling can synchronously reuse the same MonoBehaviour for a newly placed wall.
+        // Validate removal by the captured network identity instead of reading the recycled instance.
+        DestructibleWall wallAtCellAfter = field.GetWallAt(cell);
+        uint replacementNetworkIdRaw = wallAtCellAfter != null && wallAtCellAfter.Object != null && wallAtCellAfter.Object.IsValid
+            ? wallAtCellAfter.Object.Id.Raw
+            : 0u;
+        bool destroyed = replacementNetworkIdRaw != originalNetworkIdRaw;
+        int revisionAfter = field.WallTopologyRevision;
+        MPTestPerformanceRecorder.FlushNow("wall_destroyed_under_monster_load");
+        return destroyed && revisionAfter > revisionBefore
+            ? AutomationResponse.Ok("wall destroyed under load", new
+            {
+                destroyed,
+                ownerPlayerId = field.playerManager != null ? field.playerManager.playerId : -1,
+                gridX = cell.x,
+                gridY = cell.y,
+                healthBefore,
+                originalNetworkIdRaw,
+                replacementNetworkIdRaw,
+                revisionBefore,
+                revisionAfter
+            })
+            : AutomationResponse.Fail("wall_load_stress_destroy_failed", "Wall destruction did not advance topology.", new
+            {
+                destroyed,
+                healthBefore,
+                originalNetworkIdRaw,
+                replacementNetworkIdRaw,
+                replacementHealth = wallAtCellAfter != null ? wallAtCellAfter.CurrentHealth : 0f,
+                revisionBefore,
+                revisionAfter
+            });
     }
 
     private static bool TryCreateZoneForTest(

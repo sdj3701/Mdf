@@ -133,6 +133,11 @@ public abstract class MdfCommandEmitter : IMdfCommandEmitter
 
     protected void LogSubmitted(MdfDecision decision, BattleCommandResult result)
     {
+        if (!MPTestLogger.IsEnabled)
+        {
+            return;
+        }
+
         MPTestLogger.Log(
             "mdf_decision_emit",
             result.Success ? "pass" : "fail",

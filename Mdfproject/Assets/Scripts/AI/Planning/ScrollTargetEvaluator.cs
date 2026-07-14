@@ -261,6 +261,11 @@ public sealed class ScrollTargetEvaluator
 
     private static void LogEvaluated(ScrollTargetResult result, BattleHeatmap heatmap)
     {
+        if (!MPTestLogger.IsEnabled)
+        {
+            return;
+        }
+
         var fields = result.JournalFields != null
             ? new Dictionary<string, object>(result.JournalFields)
             : new Dictionary<string, object>();
@@ -279,6 +284,11 @@ public sealed class ScrollTargetEvaluator
 
     private static void LogSelected(ScrollTargetResult result)
     {
+        if (!MPTestLogger.IsEnabled)
+        {
+            return;
+        }
+
         var fields = result.JournalFields != null
             ? new Dictionary<string, object>(result.JournalFields)
             : new Dictionary<string, object>();

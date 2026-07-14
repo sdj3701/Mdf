@@ -287,9 +287,13 @@ public class DestructibleWall : NetworkBehaviour, IEnemy, IHealth
         {
             if (fieldManager != null)
             {
+                FieldManager owningField = fieldManager;
+                Vector3Int destroyedCell = wallGridPosition;
                 gameObject.SetActive(false);
-                GameEvents.TriggerWallDestroyed(wallGridPosition, fieldManager);
-                fieldManager.RemoveWallAt(wallGridPosition);
+                // Remove from the authoritative wall map (and advance wallRevision) before
+                // monsters query replacement paths from the destruction event.
+                owningField.RemoveWallAt(destroyedCell);
+                GameEvents.TriggerWallDestroyed(destroyedCell, owningField);
             }
             else
             {

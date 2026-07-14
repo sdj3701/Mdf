@@ -7,10 +7,13 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
 {
     private const float DefaultBattleActionCooldown = 0.75f;
     private const float MinimumBattleCommandLeadTime = 1.25f;
+    private const float SpawnCellReservationSeconds = 3f;
 
     private readonly ScrollTargetEvaluator _scrollTargetEvaluator = new ScrollTargetEvaluator();
     private readonly DefenderSkillPolicy _defenderSkillPolicy = new DefenderSkillPolicy();
     private readonly Dictionary<int, float> _nextBattleDecisionAt = new Dictionary<int, float>();
+    private readonly Dictionary<int, List<SpawnCellReservation>> _recentSpawnCells =
+        new Dictionary<int, List<SpawnCellReservation>>();
 
     public bool TryChoose(MdfDecisionContext context, out MdfDecision decision)
     {
@@ -161,10 +164,14 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
+        HashSet<Vector2Int> reservedSpawnCells = GetActiveSpawnCellReservations(
+            attacker.playerId,
+            defender.playerId);
         var strategy = new AIAttackStrategy(
             defender.fieldManager,
             attacker,
-            ResolveSpawnAreaLayer(attacker));
+            ResolveSpawnAreaLayer(attacker),
+            reservedSpawnCells);
         var plan = strategy.BuildSpawnPlan(affordablePool);
         var order = plan.Phases
             .SelectMany(phase => phase.Orders)
@@ -182,6 +189,11 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         {
             return false;
         }
+
+        ReserveSpawnCells(
+            attacker.playerId,
+            defender.playerId,
+            order.ReservedNavigationCells);
 
         var command = new BattleSpawnMonsterCommand(
             attacker.playerId,
@@ -252,8 +264,90 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         }
     }
 
+    private HashSet<Vector2Int> GetActiveSpawnCellReservations(int attackerPlayerId, int defenderPlayerId)
+    {
+        if (!_recentSpawnCells.TryGetValue(attackerPlayerId, out List<SpawnCellReservation> reservations))
+        {
+            return null;
+        }
+
+        float now = Time.time;
+        HashSet<Vector2Int> active = null;
+        for (int i = reservations.Count - 1; i >= 0; i--)
+        {
+            SpawnCellReservation reservation = reservations[i];
+            if (reservation.ExpiresAt <= now)
+            {
+                reservations.RemoveAt(i);
+                continue;
+            }
+
+            if (reservation.DefenderPlayerId == defenderPlayerId)
+            {
+                if (active == null)
+                {
+                    active = new HashSet<Vector2Int>();
+                }
+                active.Add(reservation.NavigationCell);
+            }
+        }
+
+        if (reservations.Count == 0)
+        {
+            _recentSpawnCells.Remove(attackerPlayerId);
+        }
+        return active;
+    }
+
+    private void ReserveSpawnCells(
+        int attackerPlayerId,
+        int defenderPlayerId,
+        IReadOnlyList<Vector2Int> navigationCells)
+    {
+        if (navigationCells == null || navigationCells.Count == 0)
+        {
+            return;
+        }
+
+        if (!_recentSpawnCells.TryGetValue(attackerPlayerId, out List<SpawnCellReservation> reservations))
+        {
+            reservations = new List<SpawnCellReservation>(navigationCells.Count);
+            _recentSpawnCells.Add(attackerPlayerId, reservations);
+        }
+
+        float expiresAt = Time.time + SpawnCellReservationSeconds;
+        for (int cellIndex = 0; cellIndex < navigationCells.Count; cellIndex++)
+        {
+            Vector2Int navigationCell = navigationCells[cellIndex];
+            bool refreshed = false;
+            for (int reservationIndex = 0; reservationIndex < reservations.Count; reservationIndex++)
+            {
+                if (reservations[reservationIndex].DefenderPlayerId == defenderPlayerId &&
+                    reservations[reservationIndex].NavigationCell == navigationCell)
+                {
+                    reservations[reservationIndex] = new SpawnCellReservation(
+                        defenderPlayerId,
+                        navigationCell,
+                        expiresAt);
+                    refreshed = true;
+                    break;
+                }
+            }
+
+            if (!refreshed)
+            {
+                reservations.Add(new SpawnCellReservation(defenderPlayerId, navigationCell, expiresAt));
+            }
+        }
+    }
+
     private static void LogDecision(MdfDecision decision, string result)
     {
+        if (!MPTestLogger.IsEnabled)
+        {
+            return;
+        }
+
         MPTestLogger.Log(
             "battle_decision_policy",
             result,
@@ -272,5 +366,19 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         public float Score;
         public string Reason;
         public IReadOnlyDictionary<string, object> Fields;
+    }
+
+    private readonly struct SpawnCellReservation
+    {
+        public readonly int DefenderPlayerId;
+        public readonly Vector2Int NavigationCell;
+        public readonly float ExpiresAt;
+
+        public SpawnCellReservation(int defenderPlayerId, Vector2Int navigationCell, float expiresAt)
+        {
+            DefenderPlayerId = defenderPlayerId;
+            NavigationCell = navigationCell;
+            ExpiresAt = expiresAt;
+        }
     }
 }

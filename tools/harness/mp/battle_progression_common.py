@@ -105,6 +105,14 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--request-timeout", type=float, default=20.0)
     parser.add_argument("--stable-samples", type=int, default=2)
     parser.add_argument("--host-migration-timeout", type=int, default=120)
+    parser.add_argument(
+        "--post-migration-performance-stress",
+        action="store_true",
+        help="After a successful Host Migration, resume the promoted host and require a completed 60+ moving-ground-monster stress run.",
+    )
+    parser.add_argument("--post-migration-performance-stress-monsters", type=int, default=60)
+    parser.add_argument("--post-migration-performance-stress-hold-seconds", type=float, default=15.0)
+    parser.add_argument("--post-migration-performance-stress-timeout", type=float, default=180.0)
     parser.add_argument("--takeover-timeout", type=int, default=90)
     parser.add_argument("--reconnect-timeout", type=int, default=120)
     parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
@@ -1332,6 +1340,149 @@ def poll_host_migration_after_battle(
     return snapshot, result, False
 
 
+def validate_post_migration_performance_stress(
+    response: dict[str, Any],
+    expected_minimum: int,
+) -> dict[str, Any]:
+    payload = response.get("data") if isinstance(response, dict) else None
+    payload = payload if isinstance(payload, dict) else {}
+    errors: list[str] = []
+    if response.get("success") is not True:
+        error = response.get("error") if isinstance(response, dict) else None
+        code = error.get("code") if isinstance(error, dict) else None
+        errors.append(f"request_failed:{code or response.get('message') or 'invalid_response'}")
+    if payload.get("phase") != "completed":
+        errors.append(f"phase_not_completed:{payload.get('phase')}")
+    if payload.get("success") is not True:
+        errors.append(f"stress_success_not_true:{payload.get('reason')}")
+
+    counts = {
+        "requested": payload.get("requestedCount"),
+        "spawned": payload.get("spawnedCount"),
+        "maxAlive": payload.get("maxAliveCount"),
+        "maxMoved": payload.get("maxMovedCount"),
+        "cleaned": payload.get("cleanedCount"),
+    }
+    for label, value in counts.items():
+        if not isinstance(value, int) or isinstance(value, bool) or value < expected_minimum:
+            errors.append(f"{label}_below_minimum expected>={expected_minimum} actual={value}")
+
+    return {
+        "success": not errors,
+        "errors": errors,
+        "expectedMinimum": expected_minimum,
+        "counts": counts,
+        "phase": payload.get("phase"),
+        "reason": payload.get("reason"),
+        "evidencePath": payload.get("evidencePath"),
+    }
+
+
+def run_post_migration_performance_stress(
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    *,
+    monster_count: int,
+    hold_seconds: float,
+    timeout: float,
+    attacker_player_id: int,
+    target_player_id: int,
+) -> dict[str, Any]:
+    def request(call: Any, label: str) -> dict[str, Any]:
+        try:
+            response = call()
+            return response if isinstance(response, dict) else {
+                "success": False,
+                "error": {"code": "invalid_response", "details": type(response).__name__},
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": f"{label} request failed",
+                "error": {"code": type(exc).__name__, "details": str(exc)},
+            }
+
+    unfreeze = request(
+        lambda: client.freeze_game_flow(False, reason="post_migration_performance_stress"),
+        "unfreeze_game_flow",
+    )
+    write_json(artifact_dir / "post-migration-performance-stress-unfreeze.json", unfreeze)
+    unfreeze_payload = unfreeze.get("data") if isinstance(unfreeze, dict) else None
+    unfreeze_ok = (
+        unfreeze.get("success") is True and
+        isinstance(unfreeze_payload, dict) and
+        unfreeze_payload.get("enabled") is False
+    )
+
+    start: dict[str, Any] = {}
+    final_status: dict[str, Any] = {}
+    polls: list[dict[str, Any]] = []
+    timed_out = False
+    if unfreeze_ok:
+        start = request(
+            lambda: client.performance_stress(
+                action="start",
+                monsterCount=monster_count,
+                holdSeconds=hold_seconds,
+                attackerPlayerId=attacker_player_id,
+                targetPlayerId=target_player_id,
+            ),
+            "performance_stress_start",
+        )
+        final_status = start
+        write_json(artifact_dir / "post-migration-performance-stress-start.json", start)
+        deadline = time.time() + timeout
+        while start.get("success") is True and time.time() < deadline:
+            final_status = request(
+                lambda: client.performance_stress(action="status"),
+                "performance_stress_status",
+            )
+            polls.append(final_status)
+            write_json(artifact_dir / "post-migration-performance-stress-status-latest.json", final_status)
+            if final_status.get("success") is not True:
+                break
+            phase = nested(final_status, "data", "phase")
+            if phase in ("completed", "failed", "cancelled"):
+                break
+            time.sleep(0.25)
+        else:
+            if start.get("success") is True:
+                timed_out = True
+                final_status = request(
+                    lambda: client.performance_stress(action="stop", reason="post_migration_stress_timeout"),
+                    "performance_stress_stop",
+                )
+                polls.append(final_status)
+
+    write_json(artifact_dir / "post-migration-performance-stress-polls.json", polls)
+    validation = validate_post_migration_performance_stress(final_status, monster_count)
+    errors = list(validation.get("errors") or [])
+    if not unfreeze_ok:
+        error = unfreeze.get("error") if isinstance(unfreeze, dict) else None
+        code = error.get("code") if isinstance(error, dict) else None
+        errors.insert(0, f"unfreeze_failed:{code or unfreeze.get('message') or 'invalid_response'}")
+    if timed_out:
+        errors.insert(0, f"stress_timeout:{timeout}")
+
+    report = {
+        "success": not errors,
+        "errors": errors,
+        "expectedMinimum": monster_count,
+        "attackerPlayerId": attacker_player_id,
+        "targetPlayerId": target_player_id,
+        "holdSeconds": hold_seconds,
+        "timeoutSeconds": timeout,
+        "unfreeze": unfreeze,
+        "start": start,
+        "finalStatus": final_status,
+        "validation": validation,
+        "pollCount": len(polls),
+        "timedOut": timed_out,
+    }
+    write_json(artifact_dir / "post-migration-performance-stress-result.json", report)
+    return report
+
+
 def probe_post_migration_portrait_navigation(
     client: AutomationClient,
     artifact_dir: pathlib.Path,
@@ -2102,12 +2253,25 @@ def run_battle_case(
     client_bot_seed = args.client_bot_seed if args.client_bot_seed is not None else args.seed + 1
     client_human_bot = bool(getattr(args, "client_human_bot", False))
     verify_king_skill = bool(getattr(args, "verify_king_skill", False))
+    post_migration_performance_stress = bool(getattr(args, "post_migration_performance_stress", False))
+    post_migration_stress_monsters = int(getattr(args, "post_migration_performance_stress_monsters", 60))
+    post_migration_stress_hold_seconds = float(getattr(args, "post_migration_performance_stress_hold_seconds", 15.0))
+    post_migration_stress_timeout = float(getattr(args, "post_migration_performance_stress_timeout", 180.0))
+    if post_migration_performance_stress and not migrate_after_battle:
+        raise SystemExit("--post-migration-performance-stress requires a Host Migration battle case.")
+    if post_migration_performance_stress and not 60 <= post_migration_stress_monsters <= 160:
+        raise SystemExit("--post-migration-performance-stress-monsters must be between 60 and 160.")
+    if post_migration_performance_stress and (
+        post_migration_stress_hold_seconds <= 0 or post_migration_stress_timeout <= 0
+    ):
+        raise SystemExit("post-migration performance stress hold/timeout values must be > 0.")
     host_journal_path = artifact_dir / "build-host-bot.jsonl"
     client_journal_path = artifact_dir / "build-client-bot.jsonl"
     host_proc: PlayerProcess | None = None
     client_proc: PlayerProcess | None = None
     host_was_killed = False
     portrait_view_result: dict[str, Any] | None = None
+    post_migration_stress_result: dict[str, Any] | None = None
     failures: list[str] = []
     cleanup_baseline_pids = mdf_player_pids()
     cleanup_report: dict[str, Any] = {
@@ -2143,6 +2307,10 @@ def run_battle_case(
         "applyZoneBeforeMigration": apply_zone_before_migration,
         "injectPendingLoadBeforeMigration": inject_pending_load_before_migration,
         "probePortraitAfterMigration": probe_portrait_after_migration,
+        "postMigrationPerformanceStress": post_migration_performance_stress,
+        "postMigrationPerformanceStressMonsters": post_migration_stress_monsters,
+        "postMigrationPerformanceStressHoldSeconds": post_migration_stress_hold_seconds,
+        "postMigrationPerformanceStressTimeout": post_migration_stress_timeout,
         "pendingFireCount": int(getattr(args, "pending_fire_count", 0)),
         "pendingHitCount": int(getattr(args, "pending_hit_count", 0)),
         "pendingDelayTicks": int(getattr(args, "pending_delay_ticks", 0)),
@@ -2472,16 +2640,35 @@ def run_battle_case(
             if not migration_ok:
                 failures.append("post_battle_host_migration_failed")
                 failures.extend(migration_result.get("errors") or [])
-            elif probe_portrait_after_migration and isinstance(killed_host_player_id, int):
-                portrait_view_result = probe_post_migration_portrait_navigation(
-                    client,
-                    artifact_dir,
-                    killed_host_player_id,
-                )
-                failures.extend(
-                    f"post_migration_portrait_view:{error}"
-                    for error in portrait_view_result.get("errors") or []
-                )
+            else:
+                if probe_portrait_after_migration and isinstance(killed_host_player_id, int):
+                    portrait_view_result = probe_post_migration_portrait_navigation(
+                        client,
+                        artifact_dir,
+                        killed_host_player_id,
+                    )
+                    failures.extend(
+                        f"post_migration_portrait_view:{error}"
+                        for error in portrait_view_result.get("errors") or []
+                    )
+                if (
+                    post_migration_performance_stress and
+                    isinstance(survivor_player_id, int) and
+                    isinstance(killed_host_player_id, int)
+                ):
+                    post_migration_stress_result = run_post_migration_performance_stress(
+                        client,
+                        artifact_dir,
+                        monster_count=post_migration_stress_monsters,
+                        hold_seconds=post_migration_stress_hold_seconds,
+                        timeout=post_migration_stress_timeout,
+                        attacker_player_id=survivor_player_id,
+                        target_player_id=killed_host_player_id,
+                    )
+                    failures.extend(
+                        f"post_migration_performance_stress:{error}"
+                        for error in post_migration_stress_result.get("errors") or []
+                    )
 
         if args.headless_player:
             skipped_screenshot = {
@@ -2513,6 +2700,7 @@ def run_battle_case(
             "artifactDir": str(artifact_dir),
             "battleCommandEvidence": assertions,
             "postMigrationPortraitView": portrait_view_result,
+            "postMigrationPerformanceStress": post_migration_stress_result,
             "headlessPlayer": args.headless_player,
         }
         if verify_king_skill:

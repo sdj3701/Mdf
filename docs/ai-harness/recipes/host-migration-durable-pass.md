@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: host-migration, security
 Created: 2026-05-05
-Last used: 2026-07-13
+Last used: 2026-07-14
 Last verified: 2026-07-12
-Use count: 25
+Use count: 26
 Review after: 2026-08-03
 Triggers: Phase 16, Host Migration durable E2E, wallHash/gold/shop/player identity drift
 Applies to: `HostMigrationHandler`, `PlayerManager`, `FieldManager`, `run_host_migration_e2e.py`

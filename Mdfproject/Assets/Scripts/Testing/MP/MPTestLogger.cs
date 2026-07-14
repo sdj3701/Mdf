@@ -15,6 +15,23 @@ public static class MPTestLogger
     public static bool EditorTestLoggingEnabled { get; set; }
 #endif
 
+    public static bool IsEnabled
+    {
+        get
+        {
+#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+            return false;
+#else
+            bool commandLineEnabled = MPTestCommandLine.GetOptions().Enabled;
+#if UNITY_EDITOR
+            return commandLineEnabled || EditorTestLoggingEnabled;
+#else
+            return commandLineEnabled;
+#endif
+#endif
+        }
+    }
+
     public static void Log(string phase, string result = "info", string code = null, string message = null, IDictionary<string, object> fields = null)
     {
 #if !(UNITY_EDITOR || DEVELOPMENT_BUILD)

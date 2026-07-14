@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: battle
 Created: 2026-05-06
-Last used: 2026-07-13
+Last used: 2026-07-14
 Last verified: 2026-07-13
-Use count: 16
+Use count: 17
 Review after: 2026-08-04
 Triggers: strategic attack monster spawn command, duplicate spawn requests, async `Runner.Spawn`, attack pool hash drift
 Applies to: `BattleSpawnMonsterCommand`, `GameManagers.RPC_RequestBattleSpawnMonster`, `PlayerManager.AttackMonsterPool`, `MonsterSpawner.ExecuteSpawnPlanAsync`

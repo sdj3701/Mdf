@@ -83,11 +83,16 @@ public partial class CombatScheduler
 
     private void RefreshNetworkBudgetPeaks()
     {
-        _maxPendingFireActive = Mathf.Max(_maxPendingFireActive, CountPendingFireSnapshots());
-        _maxPendingHitActive = Mathf.Max(_maxPendingHitActive, CountPendingHitSnapshots());
-        _maxActiveStatusEffects = Mathf.Max(_maxActiveStatusEffects, ActiveStatusEffectCount);
-        _maxActiveStatBuffs = Mathf.Max(_maxActiveStatBuffs, ActiveStatBuffCount);
-        _maxActiveZones = Mathf.Max(_maxActiveZones, ActiveZoneCount);
+        int pendingFireCount = CountPendingFireSnapshots();
+        int pendingHitCount = CountPendingHitSnapshots();
+        int statusCount = GetCurrentStatusEffectCount();
+        int statBuffCount = GetCurrentStatBuffCount();
+        int zoneCount = GetCurrentZoneCount();
+        _maxPendingFireActive = Mathf.Max(_maxPendingFireActive, pendingFireCount);
+        _maxPendingHitActive = Mathf.Max(_maxPendingHitActive, pendingHitCount);
+        _maxActiveStatusEffects = Mathf.Max(_maxActiveStatusEffects, statusCount);
+        _maxActiveStatBuffs = Mathf.Max(_maxActiveStatBuffs, statBuffCount);
+        _maxActiveZones = Mathf.Max(_maxActiveZones, zoneCount);
     }
 
     private void RecordNetworkBudgetDrop(NetworkBudgetDropKind kind)
@@ -144,6 +149,11 @@ public partial class CombatScheduler
 
     private int CountPendingFireSnapshots()
     {
+        if (CanUseAuthorityLocalState)
+        {
+            return _currentPendingFireActive;
+        }
+
         if (!IsSchedulerNetworkReady())
         {
             return 0;
@@ -163,6 +173,11 @@ public partial class CombatScheduler
 
     private int CountPendingHitSnapshots()
     {
+        if (CanUseAuthorityLocalState)
+        {
+            return _currentPendingHitActive;
+        }
+
         if (!IsSchedulerNetworkReady())
         {
             return 0;

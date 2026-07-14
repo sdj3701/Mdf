@@ -1282,7 +1282,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("retiredNetworkUnitIds.Remove"));
         Assert.That(fieldSource, Does.Contain("QueuePendingNetworkMove(from, to);"));
         Assert.That(fieldSource, Does.Contain("ProcessPendingNetworkMoves();"));
-        Assert.That(fieldSource, Does.Contain("BroadcastUnitUnregistered"));
+        Assert.That(fieldSource, Does.Contain("RetireUnitRegistrationLocally"));
         Assert.That(fieldSource, Does.Contain("BroadcastAuthoritativeUnitRoster"));
         Assert.That(fieldSource, Does.Contain("ReconcileUnitsToAuthoritativeRoster"));
         Assert.That(fieldSource, Does.Contain("UnregisterUnitAt"));
@@ -1303,7 +1303,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("wall.gameObject.activeSelf"));
         Assert.That(playerSource, Does.Contain("RPC_UnregisterUnitAt"));
         Assert.That(playerSource, Does.Contain("RPC_ReconcileUnitRoster"));
-        Assert.That(playerSource, Does.Contain("ApplyUnitRosterFromAuthority"));
+        Assert.That(playerSource, Does.Contain("ApplyAcceptedUnitRosterFromAuthority"));
         Assert.That(playerSource, Does.Contain("_retiredUnitRegistrationIds"));
         Assert.That(playerSource, Does.Contain("_retiredUnitRegistrationIds.Remove"));
         Assert.That(playerSource, Does.Contain("RemoveAll(reg => reg.unitIdRaw == unitIdRaw)"));
@@ -1452,6 +1452,24 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MPTestAutomationServer), typeof(MoveUnitCommand), ".ctor"), Is.True);
         Assert.That(snapshotSource, Does.Contain("if (MPTestCommandLine.IsEnabled)"));
         Assert.That(snapshotSource, Does.Contain("return true;"));
+    }
+
+    [Test]
+    public void PerformanceStressHarnessIsDevelopmentOnlyAuthorityOwnedAndCleansTrackedSpawns()
+    {
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestPerformanceStressDriver.cs");
+        string serverSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        Assert.That(source, Does.Contain("#if UNITY_EDITOR || DEVELOPMENT_BUILD"));
+        Assert.That(source, Does.Contain("MPTestCommandLine.IsEnabled"));
+        Assert.That(source, Does.Contain("_runner.IsServer"));
+        Assert.That(source, Does.Contain("game.Object.HasStateAuthority"));
+        Assert.That(source, Does.Contain("SpawnMonsterAtPositionAsync"));
+        Assert.That(source, Does.Contain("MinimumMonsterCount = 60"));
+        Assert.That(source, Does.Contain("CleanupTrackedMonsters"));
+        Assert.That(serverSource, Does.Contain("uint originalNetworkIdRaw = wall.Object.Id.Raw;"));
+        Assert.That(serverSource, Does.Contain("replacementNetworkIdRaw != originalNetworkIdRaw"),
+            "Wall-load verification must survive synchronous network-pool reuse of the wall component.");
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(MPTestAutomationServer), "/test/performanceStress"), Is.True);
     }
 
     [Test]
@@ -2052,6 +2070,14 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(BattleSpawnMonsterCommand), ".ctor"), Is.True);
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(UseMagicScrollCommand), ".ctor"), Is.True);
         Assert.That(typeof(BattleDecisionPolicy).GetField("MinimumBattleCommandLeadTime", BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(BattleDecisionPolicy).GetField("SpawnCellReservationSeconds", BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(BattleDecisionPolicy).GetField("_recentSpawnCells", BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(AIAttackStrategy).GetField("_reservedSpawnCells", BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(AISpawnOrder).GetField(nameof(AISpawnOrder.ReservedNavigationCells)), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(
+            typeof(BattleDecisionPolicy),
+            typeof(AISpawnOrder),
+            nameof(AISpawnOrder.ReservedNavigationCells)), Is.True);
         Assert.That(typeof(BattleDecisionPolicy).GetField("_defenderSkillPolicy", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType,
             Is.EqualTo(typeof(DefenderSkillPolicy)));
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(MonsterSpawner), "SpawnMonsterAtPositionAsync"), Is.False);
@@ -2102,8 +2128,78 @@ public sealed class MPTestHarnessEditModeTests
 
         Assert.That(source, Does.Contain("var candidates = kvp.Value;"));
         Assert.That(source, Does.Not.Contain("GetClosestCandidates(kvp.Value"));
-        Assert.That(source, Does.Contain("phase0.Orders.Add(new AISpawnOrder(firstTank, groundSpawnPos"));
-        Assert.That(source, Does.Contain("phase1.Orders.Add(new AISpawnOrder(entry, destroyerSpawnPos"));
+        Assert.That(source, Does.Contain("TryGetPath(candidate, false, out List<AstarNode> path)"));
+        Assert.That(source, Does.Contain("TryGetPath(candidate, true, out List<AstarNode> path)"));
+        Assert.That(source, Does.Contain("groundSpawn.Position"));
+        Assert.That(source, Does.Contain("destroyerSpawn.Position"));
+    }
+
+    [Test]
+    public void AttackStrategyPreservesOnlySelectedRoutePrefixForSpawnReservation()
+    {
+        const BindingFlags staticPrivate = BindingFlags.Static | BindingFlags.NonPublic;
+        FieldInfo prefixCount = typeof(AIAttackStrategy).GetField("ReservedPathPrefixCellCount", staticPrivate);
+        MethodInfo capturePrefix = typeof(AIAttackStrategy).GetMethod("CapturePathReservationCells", staticPrivate);
+        Assert.That(prefixCount, Is.Not.Null);
+        Assert.That(prefixCount.GetRawConstantValue(), Is.EqualTo(3));
+        Assert.That(capturePrefix, Is.Not.Null);
+
+        var path = new List<AstarNode>
+        {
+            new AstarNode(false, 4, 8),
+            new AstarNode(false, 3, 8),
+            new AstarNode(false, 2, 8),
+            new AstarNode(false, 1, 8)
+        };
+        var prefix = (Vector2Int[])capturePrefix.Invoke(
+            null,
+            new object[] { new Vector2Int(4, 8), path });
+
+        Assert.That(prefix, Is.EqualTo(new[]
+        {
+            new Vector2Int(4, 8),
+            new Vector2Int(3, 8),
+            new Vector2Int(2, 8)
+        }));
+
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/AI/BehaviorTree/Nodes/Actions/AIAttackStrategy.cs");
+        Assert.That(source, Does.Contain("CreatePathSpawnSelection(candidate, path)"));
+        Assert.That(source, Does.Contain("groundSpawn.ReservedNavigationCells"));
+        Assert.That(source, Does.Contain("destroyerSpawn.ReservedNavigationCells"));
+        Assert.That(source, Does.Contain("flyingSpawn.ReservedNavigationCells"));
+        Assert.That(source, Does.Contain("CreateExactSpawnSelection(candidates[candidates.Count / 2])"),
+            "Flying plans must reserve only their exact origin cell.");
+        Assert.That(source, Does.Contain("_validSpawnPositions.Values.All(v => v.Count == 0)"),
+            "When every exact origin is reserved, planning must return no order instead of using a fallback.");
+    }
+
+    [Test]
+    public void BattleDecisionPolicyReservesExactlyTheSelectedCellsForThreeSeconds()
+    {
+        const BindingFlags privateMembers = BindingFlags.Instance | BindingFlags.NonPublic;
+        FieldInfo ttl = typeof(BattleDecisionPolicy).GetField(
+            "SpawnCellReservationSeconds",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        MethodInfo reserve = typeof(BattleDecisionPolicy).GetMethod("ReserveSpawnCells", privateMembers);
+        MethodInfo getActive = typeof(BattleDecisionPolicy).GetMethod("GetActiveSpawnCellReservations", privateMembers);
+        Assert.That(ttl, Is.Not.Null);
+        Assert.That(ttl.GetRawConstantValue(), Is.EqualTo(3f));
+        Assert.That(reserve, Is.Not.Null);
+        Assert.That(getActive, Is.Not.Null);
+
+        var selectedCells = new List<Vector2Int>
+        {
+            new Vector2Int(4, 8),
+            new Vector2Int(3, 8),
+            new Vector2Int(2, 8)
+        };
+        var policy = new BattleDecisionPolicy();
+        reserve.Invoke(policy, new object[] { 1, 2, selectedCells });
+
+        var active = (HashSet<Vector2Int>)getActive.Invoke(policy, new object[] { 1, 2 });
+        Assert.That(active, Is.EquivalentTo(selectedCells));
+        Assert.That(active.Count, Is.EqualTo(selectedCells.Count),
+            "Reservation must not expand to neighboring cells outside the selected path prefix.");
     }
 
     [Test]
@@ -2142,7 +2238,10 @@ public sealed class MPTestHarnessEditModeTests
         {
             Assert.That(typeof(PlayerManager).GetMethods(members).Any(method => method.Name == methodName), Is.True, methodName);
         }
-        Assert.That(fieldSource, Does.Contain("compactRoster[0] = -2"));
+        Assert.That(fieldSource, Does.Contain("compactRoster[0] = -4"));
+        Assert.That(fieldSource, Does.Contain("compactRoster[1] = rosterRevision"));
+        Assert.That(fieldSource, Does.Contain("compactRoster[2] = PlayerManager.ComputeUnitRosterFingerprint"));
+        Assert.That(fieldSource, Does.Contain("compactRoster[3] = entries.Count"));
         Assert.That(fieldSource, Does.Contain("UnitDataKeyHash"));
         Assert.That(fieldSource, Does.Contain("StableUnitDataKeyHash(GetUnitDataRegistrationKey(entry.Value))"));
         Assert.That(fieldSource, Does.Contain("ReconcileClientUnitMapFromWorldIfNeeded"));
@@ -2153,13 +2252,321 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("RPC_ReconcileUnitRosterCompact(compactRoster)"));
         Assert.That(fieldSource, Does.Contain("RPC_ReconcilePlayerUnitRosterCompact(playerManager.playerId, compactRoster)"));
         Assert.That(fieldSource, Does.Not.Contain("Full unit roster broadcast failed"));
+        Assert.That(Regex.Matches(fieldSource, @"playerManager\.RPC_RegisterUnitAt\s*\(").Count, Is.EqualTo(1),
+            "only the full roster broadcast may send same-revision per-entry enrichment");
+        Assert.That(fieldSource, Does.Not.Contain("playerManager.RPC_UnregisterUnitAt("));
+        Assert.That(Regex.Matches(fieldSource, @"AdvanceUnitRosterRevisionForAuthority\s*\(").Count, Is.EqualTo(1),
+            "the full roster broadcast must uniquely own revision advancement");
         Assert.That(typeof(Unit).GetProperty("NetworkedOwnerPlayerId", members), Is.Not.Null);
         Assert.That(typeof(Unit).GetProperty("NetworkedHasOwnerPlayerId", members), Is.Not.Null);
         Assert.That(typeof(Unit).GetProperty("OwnerPlayerIdForRoster", members), Is.Not.Null);
         Assert.That(typeof(Unit).GetMethod("SyncFieldPlacementIdentity", members), Is.Not.Null);
         Assert.That(typeof(GameManagers).GetMethod("RPC_ReconcilePlayerUnitRosterCompact", members), Is.Not.Null);
         Assert.That(typeof(PlayerManager).GetMethod("ApplyCompactUnitRosterFromAuthority", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetProperty("UnitRosterRevision", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetMethod("AdvanceUnitRosterRevisionForAuthority", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetMethod("IsUnitRegistrationCurrent", members), Is.Not.Null);
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(GameManagers), typeof(PlayerManager), "ApplyCompactUnitRosterFromAuthority"), Is.True);
+    }
+
+    [Test]
+    public void UnitRosterRevisionGateUsesFingerprintAndAtomicallyReplacesDesiredMembership()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        GameObject owner = new GameObject("UnitRosterRevisionGateTest");
+        try
+        {
+            PlayerManager player = owner.AddComponent<PlayerManager>();
+            MethodInfo accept = typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members);
+            MethodInfo isCurrent = typeof(PlayerManager).GetMethod("IsUnitRegistrationCurrent", members);
+            MethodInfo stableKeyHash = typeof(PlayerManager).GetMethod("StableUnitDataKeyHash", members);
+            Assert.That(accept, Is.Not.Null);
+            Assert.That(isCurrent, Is.Not.Null);
+            Assert.That(stableKeyHash, Is.Not.Null);
+
+            int keyHash = (int)stableKeyHash.Invoke(null, new object[] { "UnitData_Warrior" });
+            int[] ids = { 42 };
+            int[] positions = { 5, 0, 0 };
+            int[] hashes = { keyHash };
+            int[] stars = { 1 };
+            int fingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, hashes, stars);
+
+            object[] firstAcceptArgs = { 10, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, firstAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            int firstApplyGeneration = (int)firstAcceptArgs[6];
+
+            FieldInfo registrationGenerationField = typeof(PlayerManager).GetField("_unitRegistrationGeneration", members);
+            FieldInfo latestRegistrationsField = typeof(PlayerManager).GetField("_latestUnitRegistrationById", members);
+            FieldInfo desiredRosterField = typeof(PlayerManager).GetField("_desiredUnitRosterById", members);
+            Assert.That(registrationGenerationField, Is.Not.Null);
+            Assert.That(latestRegistrationsField, Is.Not.Null);
+            Assert.That(desiredRosterField, Is.Not.Null);
+
+            var latestRegistrations = (System.Collections.IDictionary)latestRegistrationsField.GetValue(player);
+            var desiredRoster = (System.Collections.IDictionary)desiredRosterField.GetValue(player);
+            object staleRegistration = latestRegistrations[42u];
+            int firstRegistrationGeneration = (int)registrationGenerationField.GetValue(player);
+            Assert.That(staleRegistration, Is.Not.Null);
+            Assert.That((bool)isCurrent.Invoke(player, new[] { staleRegistration }), Is.True);
+
+            object[] duplicateArgs = { 10, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, duplicateArgs).ToString(), Is.EqualTo("Duplicate"));
+            Assert.That((int)duplicateArgs[6], Is.EqualTo(firstApplyGeneration));
+            Assert.That((int)registrationGenerationField.GetValue(player), Is.EqualTo(firstRegistrationGeneration),
+                "an exact same-revision full snapshot must not replace registration generations");
+
+            int[] conflictingPositions = { 6, 0, 0 };
+            int conflictingFingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, conflictingPositions, hashes, stars);
+            object[] conflictingArgs = { 10, conflictingFingerprint, ids, conflictingPositions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, conflictingArgs).ToString(), Is.EqualTo("Rejected"));
+            Assert.That(desiredRoster.Count, Is.EqualTo(1));
+            Assert.That(latestRegistrations.Count, Is.EqualTo(1));
+            Assert.That((bool)isCurrent.Invoke(player, new[] { staleRegistration }), Is.True);
+
+            int[] empty = System.Array.Empty<int>();
+            int emptyFingerprint = PlayerManager.ComputeUnitRosterFingerprint(empty, empty, empty, empty);
+            object[] emptyAcceptArgs = { 11, emptyFingerprint, empty, empty, empty, empty, 0 };
+            Assert.That(accept.Invoke(player, emptyAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            Assert.That((int)emptyAcceptArgs[6], Is.GreaterThan(firstApplyGeneration));
+            Assert.That(desiredRoster.Count, Is.Zero);
+            Assert.That(latestRegistrations.Count, Is.Zero);
+            Assert.That((bool)isCurrent.Invoke(player, new[] { staleRegistration }), Is.False,
+                "an empty newer full roster must invalidate in-flight registration continuations");
+
+            object[] staleAcceptArgs = { 10, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, staleAcceptArgs).ToString(), Is.EqualTo("Rejected"));
+        }
+        finally
+        {
+            Object.DestroyImmediate(owner);
+        }
+    }
+
+    [Test]
+    public void UnitRosterPendingFullSnapshotIsMonotonicAndNewEmptyRosterCancelsIt()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.NonPublic;
+        GameObject owner = new GameObject("UnitRosterPendingMonotonicTest");
+        try
+        {
+            PlayerManager player = owner.AddComponent<PlayerManager>();
+            MethodInfo accept = typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members);
+            MethodInfo storePending = typeof(PlayerManager).GetMethod("StorePendingUnitRoster", members);
+            FieldInfo pendingIds = typeof(PlayerManager).GetField("_pendingUnitRosterIdRaws", members);
+            FieldInfo pendingRevision = typeof(PlayerManager).GetField("_pendingUnitRosterRevision", members);
+            FieldInfo pendingFingerprint = typeof(PlayerManager).GetField("_pendingUnitRosterFingerprint", members);
+            Assert.That(accept, Is.Not.Null);
+            Assert.That(storePending, Is.Not.Null);
+
+            int[] ids = { 7 };
+            int[] positions = { 1, 2, 0 };
+            int[] hashes = { 31415 };
+            int[] stars = { 2 };
+            int fingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, hashes, stars);
+            object[] acceptArgs = { 20, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, acceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            int applyGeneration = (int)acceptArgs[6];
+
+            object[] storeArgs = { ids, positions, null, hashes, stars, 20, fingerprint, applyGeneration };
+            Assert.That((bool)storePending.Invoke(player, storeArgs), Is.True);
+            Assert.That((int)pendingRevision.GetValue(player), Is.EqualTo(20));
+            Assert.That((int)pendingFingerprint.GetValue(player), Is.EqualTo(fingerprint));
+
+            object[] conflictingArgs = { ids, positions, null, hashes, stars, 20, fingerprint + 1, applyGeneration };
+            Assert.That((bool)storePending.Invoke(player, conflictingArgs), Is.False);
+            object[] olderArgs = { ids, positions, null, hashes, stars, 19, fingerprint, applyGeneration };
+            Assert.That((bool)storePending.Invoke(player, olderArgs), Is.False);
+            Assert.That((int)pendingRevision.GetValue(player), Is.EqualTo(20));
+            Assert.That((int)pendingFingerprint.GetValue(player), Is.EqualTo(fingerprint));
+
+            int[] empty = System.Array.Empty<int>();
+            int emptyFingerprint = PlayerManager.ComputeUnitRosterFingerprint(empty, empty, empty, empty);
+            object[] emptyAcceptArgs = { 21, emptyFingerprint, empty, empty, empty, empty, 0 };
+            Assert.That(accept.Invoke(player, emptyAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            Assert.That(pendingIds.GetValue(player), Is.Null,
+                "accepting a newer empty full roster must cancel the previous pending full snapshot");
+            Assert.That((int)pendingRevision.GetValue(player), Is.EqualTo(-1));
+        }
+        finally
+        {
+            Object.DestroyImmediate(owner);
+        }
+    }
+
+    [Test]
+    public void UnitRosterEntryEnrichmentRequiresDesiredTupleAndDoesNotReuseOldKeys()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        GameObject owner = new GameObject("UnitRosterDesiredEntryGateTest");
+        try
+        {
+            PlayerManager player = owner.AddComponent<PlayerManager>();
+            MethodInfo accept = typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members);
+            MethodInfo remember = typeof(PlayerManager).GetMethod("RememberLatestUnitRegistration", members);
+            MethodInfo canUnregister = typeof(PlayerManager).GetMethod("CanApplyUnitUnregister", members);
+            MethodInfo stableKeyHash = typeof(PlayerManager).GetMethod("StableUnitDataKeyHash", members);
+            FieldInfo latestField = typeof(PlayerManager).GetField("_latestUnitRegistrationById", members);
+            FieldInfo retiredField = typeof(PlayerManager).GetField("_retiredUnitRegistrationIds", members);
+            Assert.That(accept, Is.Not.Null);
+            Assert.That(remember, Is.Not.Null);
+            Assert.That(canUnregister, Is.Not.Null);
+
+            int warriorHash = (int)stableKeyHash.Invoke(null, new object[] { "UnitData_Warrior" });
+            int mageHash = (int)stableKeyHash.Invoke(null, new object[] { "UnitData_Mage" });
+            int[] ids = { 42 };
+            int[] positions = { 5, 0, 0 };
+            int[] stars = { 1 };
+            int[] warriorHashes = { warriorHash };
+            int fingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, warriorHashes, stars);
+            object[] acceptArgs = { 30, fingerprint, ids, positions, warriorHashes, stars, 0 };
+            Assert.That(accept.Invoke(player, acceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+
+            var latest = (System.Collections.IDictionary)latestField.GetValue(player);
+            object bootstrap = latest[42u];
+            FieldInfo registrationGeneration = bootstrap.GetType().GetField("registrationGeneration", members);
+            FieldInfo unitDataKey = bootstrap.GetType().GetField("unitDataKey", members);
+            FieldInfo unitDataKeyHash = bootstrap.GetType().GetField("unitDataKeyHash", members);
+            int bootstrapGeneration = (int)registrationGeneration.GetValue(bootstrap);
+
+            object[] exactArgs = { 42u, null, 5, 0, "UnitData_Warrior", 1, 30, null };
+            Assert.That((bool)remember.Invoke(player, exactArgs), Is.True);
+            Assert.That((int)registrationGeneration.GetValue(exactArgs[7]), Is.EqualTo(bootstrapGeneration));
+            object[] duplicateArgs = { 42u, null, 5, 0, "UnitData_Warrior", 1, 30, null };
+            Assert.That((bool)remember.Invoke(player, duplicateArgs), Is.True);
+            Assert.That((int)registrationGeneration.GetValue(duplicateArgs[7]), Is.EqualTo(bootstrapGeneration),
+                "same-revision exact enrichment must not replace the registration generation");
+
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 6, 0, "UnitData_Warrior", 1, 30, null }), Is.False);
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 5, 0, "UnitData_Warrior", 2, 30, null }), Is.False);
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 5, 0, "UnitData_Mage", 1, 30, null }), Is.False);
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 5, 0, "UnitData_Warrior", 1, 29, null }), Is.False);
+            Assert.That((bool)canUnregister.Invoke(player, new object[] { 42u, 30 }), Is.False,
+                "same-revision unregister cannot remove desired membership");
+
+            var retired = (HashSet<uint>)retiredField.GetValue(player);
+            retired.Add(42u);
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 6, 0, "UnitData_Warrior", 1, 30, null }), Is.False);
+            Assert.That(retired.Contains(42u), Is.True, "stale validation must not mutate the tombstone first");
+            object[] restoreArgs = { 42u, null, 5, 0, "UnitData_Warrior", 1, 30, null };
+            Assert.That((bool)remember.Invoke(player, restoreArgs), Is.True);
+            Assert.That(retired.Contains(42u), Is.False);
+
+            int[] mageHashes = { mageHash };
+            int mageFingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, mageHashes, stars);
+            object[] mageAcceptArgs = { 31, mageFingerprint, ids, positions, mageHashes, stars, 0 };
+            Assert.That(accept.Invoke(player, mageAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            object replacement = latest[42u];
+            Assert.That((string)unitDataKey.GetValue(replacement), Is.EqualTo(string.Empty),
+                "a new full roster must not reuse an old registration key for the same raw id");
+            Assert.That((int)unitDataKeyHash.GetValue(replacement), Is.EqualTo(mageHash));
+
+            int[] empty = System.Array.Empty<int>();
+            int emptyFingerprint = PlayerManager.ComputeUnitRosterFingerprint(empty, empty, empty, empty);
+            object[] emptyAcceptArgs = { 32, emptyFingerprint, empty, empty, empty, empty, 0 };
+            Assert.That(accept.Invoke(player, emptyAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            Assert.That((bool)canUnregister.Invoke(player, new object[] { 42u, 32 }), Is.True);
+            Assert.That((bool)canUnregister.Invoke(player, new object[] { 42u, 31 }), Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(owner);
+        }
+    }
+
+    [Test]
+    public void UnitRosterLifecycleResetInvalidatesStateButRetainsPerUnitApplyGate()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.NonPublic;
+        GameObject owner = new GameObject("UnitRosterLifecycleGateTest");
+        System.Threading.SemaphoreSlim heldGate = null;
+        bool gateEntered = false;
+        try
+        {
+            PlayerManager player = owner.AddComponent<PlayerManager>();
+            MethodInfo accept = typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members);
+            MethodInfo isCurrent = typeof(PlayerManager).GetMethod("IsUnitRegistrationCurrent", members);
+            MethodInfo storePending = typeof(PlayerManager).GetMethod("StorePendingUnitRoster", members);
+            MethodInfo reset = typeof(PlayerManager).GetMethod("ResetLocalUnitRosterSyncState", members);
+            MethodInfo getGate = typeof(PlayerManager).GetMethod("GetUnitRegistrationApplyGate", members);
+            FieldInfo latestField = typeof(PlayerManager).GetField("_latestUnitRegistrationById", members);
+            FieldInfo desiredField = typeof(PlayerManager).GetField("_desiredUnitRosterById", members);
+            FieldInfo pendingIds = typeof(PlayerManager).GetField("_pendingUnitRosterIdRaws", members);
+            FieldInfo latestRevision = typeof(PlayerManager).GetField("_latestAcceptedUnitRosterRevision", members);
+            FieldInfo lifecycleGeneration = typeof(PlayerManager).GetField("_unitRosterLifecycleGeneration", members);
+
+            int[] ids = { 99 };
+            int[] positions = { 2, 3, 0 };
+            int[] hashes = { 2718 };
+            int[] stars = { 1 };
+            int fingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, hashes, stars);
+            object[] acceptArgs = { 40, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, acceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            int applyGeneration = (int)acceptArgs[6];
+            Assert.That((bool)storePending.Invoke(player,
+                new object[] { ids, positions, null, hashes, stars, 40, fingerprint, applyGeneration }), Is.True);
+
+            var latest = (System.Collections.IDictionary)latestField.GetValue(player);
+            object staleRegistration = latest[99u];
+            heldGate = (System.Threading.SemaphoreSlim)getGate.Invoke(player, new object[] { 99u });
+            Assert.That(getGate.Invoke(player, new object[] { 99u }), Is.SameAs(heldGate));
+            Assert.That(getGate.Invoke(player, new object[] { 100u }), Is.Not.SameAs(heldGate));
+            gateEntered = heldGate.Wait(0);
+            Assert.That(gateEntered, Is.True);
+            int generationBeforeReset = (int)lifecycleGeneration.GetValue(player);
+
+            reset.Invoke(player, null);
+
+            Assert.That((int)lifecycleGeneration.GetValue(player), Is.GreaterThan(generationBeforeReset));
+            Assert.That((bool)isCurrent.Invoke(player, new[] { staleRegistration }), Is.False);
+            Assert.That(((System.Collections.IDictionary)latestField.GetValue(player)).Count, Is.Zero);
+            Assert.That(((System.Collections.IDictionary)desiredField.GetValue(player)).Count, Is.Zero);
+            Assert.That(pendingIds.GetValue(player), Is.Null);
+            Assert.That((int)latestRevision.GetValue(player), Is.EqualTo(-1));
+            Assert.That(getGate.Invoke(player, new object[] { 99u }), Is.SameAs(heldGate),
+                "the old lifecycle gate must serialize a reused raw id until its Initialize unwinds");
+            Assert.That(heldGate.CurrentCount, Is.Zero, "reset must not replace or release an in-flight gate");
+        }
+        finally
+        {
+            if (gateEntered)
+            {
+                heldGate.Release();
+            }
+            Object.DestroyImmediate(owner);
+        }
+    }
+
+    [Test]
+    public void UnitRosterAsyncApplySerializesInitializeAndDrainsFullRosterFirst()
+    {
+        string playerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlayerManager.cs");
+        int initializePlayer = playerSource.IndexOf("public async void Rpc_InitializePlayer", System.StringComparison.Ordinal);
+        Assert.That(initializePlayer, Is.GreaterThanOrEqualTo(0));
+        int drainPendingFull = playerSource.IndexOf("await DrainPendingUnitRoster(\"Rpc_InitializePlayer\")", initializePlayer, System.StringComparison.Ordinal);
+        Assert.That(drainPendingFull, Is.GreaterThan(initializePlayer));
+        int drainPendingEntries = playerSource.IndexOf("// Process any unit registrations that arrived early.", drainPendingFull, System.StringComparison.Ordinal);
+        Assert.That(drainPendingEntries, Is.GreaterThan(drainPendingFull));
+
+        int internalApply = playerSource.IndexOf("RPC_RegisterUnitAt_Internal(", System.StringComparison.Ordinal);
+        Assert.That(internalApply, Is.GreaterThanOrEqualTo(0));
+        int internalDefinition = playerSource.IndexOf("private async Cysharp.Threading.Tasks.UniTask RPC_RegisterUnitAt_Internal", internalApply, System.StringComparison.Ordinal);
+        Assert.That(internalDefinition, Is.GreaterThan(internalApply));
+        int gateWait = playerSource.IndexOf("await applyGate.WaitAsync();", internalDefinition, System.StringComparison.Ordinal);
+        int tokenRecheck = playerSource.IndexOf("_latestUnitRegistrationById.TryGetValue(unitIdRaw, out registration)", gateWait, System.StringComparison.Ordinal);
+        int latestObjectRebind = playerSource.IndexOf("unitNO = registration.unitNO != null ? registration.unitNO : unitNO;", tokenRecheck, System.StringComparison.Ordinal);
+        int attachStatusBar = playerSource.IndexOf("fieldManager.AttachStatusBar(unit.gameObject, unit.SetStatusBar);", latestObjectRebind, System.StringComparison.Ordinal);
+        int unitInitialize = playerSource.IndexOf("await unit.Initialize(data, starLevel, this);", attachStatusBar, System.StringComparison.Ordinal);
+        int registerAt = playerSource.IndexOf("fieldManager.RegisterUnitAt(unit, pos);", unitInitialize, System.StringComparison.Ordinal);
+        int gateRelease = playerSource.IndexOf("applyGate.Release();", unitInitialize, System.StringComparison.Ordinal);
+        Assert.That(gateWait, Is.GreaterThan(internalDefinition));
+        Assert.That(tokenRecheck, Is.GreaterThan(gateWait), "latest registration token must be rechecked after gate acquisition");
+        Assert.That(latestObjectRebind, Is.GreaterThan(tokenRecheck), "waiters must apply the latest same-token enrichment metadata");
+        Assert.That(attachStatusBar, Is.GreaterThan(latestObjectRebind));
+        Assert.That(unitInitialize, Is.GreaterThan(attachStatusBar));
+        Assert.That(registerAt, Is.GreaterThan(unitInitialize));
+        Assert.That(gateRelease, Is.GreaterThan(registerAt));
+        Assert.That(playerSource, Does.Not.Contain("_unitRegistrationApplyGates.Clear()"));
     }
 
     [Test]

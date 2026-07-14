@@ -4,9 +4,9 @@ Status: stale
 Pinned: true
 Category: host-migration, reconnect, security, battle
 Created: 2026-05-06
-Last used: 2026-07-13
+Last used: 2026-07-14
 Last verified: 2026-07-13
-Use count: 17
+Use count: 19
 Review after: 2026-08-04
 Triggers: A post-battle lifecycle E2E must compare a progressed battle checkpoint across client disconnect, same-token reconnect, or Host Migration without hiding normal game-flow advancement as expected randomness
 Applies to: `MPTestCommandLine`, `MPTestAutomationServer`, `battle_progression_common.py`, post-battle reconnect/disconnect/Host Migration runners
@@ -48,3 +48,4 @@ Lifecycle notes:
 - 2026-05-31: verified artifact `artifacts/mp/20260531-061544-matrix/20260531-061549-progressed-host-migration-after-battle/battle-checkpoint-freeze-wait-latest.json`
 - 2026-07-13: Frozen pre-migration battle checkpoint compared successfully.
 - 2026-07-13: verified artifact `artifacts/mp/20260712-215951-progressed-host-migration-after-battle/battle-checkpoint-frozen-comparison.json`
+- 2026-07-14: Applied the same stop-then-freeze checkpoint discipline to two-HumanBot bounded-progression finalization before stable queue drain and peer comparison.

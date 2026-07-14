@@ -342,6 +342,14 @@ public static class BattleCommandValidator
 
     private static bool IsLivingMonsterInNavigationCell(FieldManager defenderField, Vector2Int navigationCell)
     {
+        if (defenderField != null &&
+            defenderField.TryGetBattleOccupancyRegistry(out FieldBattleOccupancyRegistry occupancy))
+        {
+            return occupancy.HasLivingMonsterAtCell(navigationCell);
+        }
+
+        // Isolated tests or partially initialized scenes have no field owner yet. Preserve the
+        // authoritative hierarchy scan as a correctness fallback rather than trusting no data.
         Transform monsterParent = defenderField?.playerManager?.monsterSpawner?.monsterParent;
         if (monsterParent == null)
         {

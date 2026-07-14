@@ -11,6 +11,20 @@ namespace AI.BehaviorTree.Nodes.Actions
     /// </summary>
     public class RearrangeAllUnitsAction : ActionNode
     {
+        private static class Debug
+        {
+            [System.Diagnostics.Conditional("MDF_VERBOSE_AI_LOGS")]
+            public static void Log(object message)
+            {
+                UnityEngine.Debug.Log(message);
+            }
+
+            public static void LogWarning(object message)
+            {
+                UnityEngine.Debug.LogWarning(message);
+            }
+        }
+
         private readonly PlayerManager _playerManager;
         private readonly CommandProcessor _commandProcessor;
 

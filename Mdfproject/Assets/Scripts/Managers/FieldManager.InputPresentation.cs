@@ -741,6 +741,7 @@ public partial class FieldManager
         controller.DisplayUnitInfo(unit);
         // 패널의 위치는 프리팹/씬에 설정된 고정 위치를 사용하므로, 여기서 위치를 변경하지 않습니다.
         panel.SetActive(true);
+        MdfInput.InvalidateUiRaycastCache();
         unitDisplayedInPanel = unit;
         kingDisplayedInPanel = false;
     }
@@ -783,6 +784,7 @@ public partial class FieldManager
         unitDetailPanelInstance = panel;
         controller.DisplayKingInfo(playerManager);
         panel.SetActive(true);
+        MdfInput.InvalidateUiRaycastCache();
         unitDisplayedInPanel = null;
         kingDisplayedInPanel = true;
         HideUnitSellPanel();
@@ -858,6 +860,7 @@ public partial class FieldManager
         }
         controller.Bind(unit, this);
         panel.SetActive(true);
+        MdfInput.InvalidateUiRaycastCache();
         unitDisplayedInSellPanel = unit;
     }
 
@@ -881,6 +884,7 @@ public partial class FieldManager
         }
         unitSellPanelInstance = null;
         unitDisplayedInSellPanel = null;
+        MdfInput.InvalidateUiRaycastCache();
     }
 
     /// <summary>
@@ -948,6 +952,7 @@ public partial class FieldManager
                 }
                 controller.Bind(wallObject, gridPosition, this);
                 wallRemovePanelInstance.SetActive(true);
+                MdfInput.InvalidateUiRaycastCache();
             }
         }
     }
@@ -1054,6 +1059,7 @@ public partial class FieldManager
         }
         wallRemovePanelInstance = null;
         wallDisplayedInRemovePanel = null;
+        MdfInput.InvalidateUiRaycastCache();
     }
     #endregion
 

@@ -3064,6 +3064,9 @@ public class HostMigrationHandler : MonoBehaviour
             return false;
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        long snapshotPushStart = MPTestPerformanceRecorder.StartTimestamp();
+#endif
         try
         {
             var parameters = _pushHostMigrationSnapshotMethod.GetParameters();
@@ -3097,6 +3100,12 @@ public class HostMigrationHandler : MonoBehaviour
             });
 #endif
             return false;
+        }
+        finally
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestPerformanceRecorder.RecordDuration("host_migration_snapshot_push", snapshotPushStart);
+#endif
         }
     }
 

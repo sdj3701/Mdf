@@ -53,7 +53,10 @@ public sealed class MdfDecisionContext
             IsServerAi = isServerAi,
             IsTestAutomation = isTestAutomation
         };
-        context.Observed = BuildObserved(context);
+        // Stable hashes are journal/test evidence, not inputs to the production server-AI policy.
+        // Avoid allocating lists, strings, SHA instances and anonymous payloads on every AI tick.
+        bool captureObserved = isHumanBot || isTestAutomation || MPTestCommandLine.IsEnabled;
+        context.Observed = captureObserved ? BuildObserved(context) : null;
         return context;
     }
 

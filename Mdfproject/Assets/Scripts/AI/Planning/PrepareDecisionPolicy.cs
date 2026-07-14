@@ -1955,6 +1955,11 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
 
     private static void LogDecision(MdfDecision decision, string result)
     {
+        if (!MPTestLogger.IsEnabled)
+        {
+            return;
+        }
+
         MPTestLogger.Log(
             "prepare_decision_policy",
             result,

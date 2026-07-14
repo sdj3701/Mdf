@@ -65,8 +65,15 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private const int InitialFallbackTargetBufferSize = 256;
     private const int MaxFallbackTargetBufferSize = 2048;
     private static Collider[] s_fallbackTargetBuffer = new Collider[InitialFallbackTargetBufferSize];
+    private const int InitialBlockerBufferSize = 32;
+    private const int MaxBlockerBufferSize = 256;
+    private static Collider[] s_blockerBuffer = new Collider[InitialBlockerBufferSize];
+    private readonly MonsterBlockerCandidateCache _blockerCandidateCache =
+        new MonsterBlockerCandidateCache();
     private bool _hasFallbackTargetSearchSchedule;
     private float _nextFallbackTargetSearchTime;
+    private bool _hasBlockerQueryNavigationCell;
+    private Vector2Int _lastBlockerQueryNavigationCell;
     #endregion
 
     // === 현재 상태 (Networked) ===
@@ -366,6 +373,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     public override void Despawned(NetworkRunner runner, bool hasState)
     {
+        NotifyCombatSchedulerTargetInvalidated("Monster.Despawned");
         CancelSpawnLifecycle();
         _hasSpawned = false;
         _changeDetector = null;
@@ -426,6 +434,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _nextRangedAttackTime = 0f;
         _hasFallbackTargetSearchSchedule = false;
         _nextFallbackTargetSearchTime = 0f;
+        _hasBlockerQueryNavigationCell = false;
+        _lastBlockerQueryNavigationCell = default;
+        _blockerCandidateCache.Clear();
         _despawnRequested = false;
         _hasRegisteredAsSurvivor = false;
 
@@ -1781,6 +1792,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (_despawnRequested) return;
         _despawnRequested = true;
 
+        NotifyCombatSchedulerTargetInvalidated(reason);
+
         CancelRangedAttackState(clearTarget: true);
         StopAllCoroutines();
 
@@ -1805,6 +1818,19 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         // 네트워크가 없는 순수 로컬 환경에서만 Destroy
         Destroy(gameObject);
+    }
+
+    private void NotifyCombatSchedulerTargetInvalidated(string reason)
+    {
+        NetworkObject networkObject = Object;
+        CombatScheduler scheduler = CombatScheduler.Instance;
+        if (scheduler == null || networkObject == null || !networkObject.IsValid ||
+            !networkObject.HasStateAuthority)
+        {
+            return;
+        }
+
+        scheduler.NotifyTargetInvalidated(networkObject.Id, reason);
     }
 
 
@@ -2109,6 +2135,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         StopAllCoroutines();
 
         isMoving = true;
+        _hasBlockerQueryNavigationCell = false;
+        _blockerCandidateCache.Clear();
         
         // 이동 시작: Walk 애니메이션으로 전환
         SetWalkingAnimation(true);
@@ -2169,6 +2197,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             RotateTowardsMovementDirection(targetPosition, dt);
             
             transform.position = nextPos;
+            _registeredCombatTargetField?.UpdateCombatMonsterOccupancy(this);
             yield return null;
         }
         OnPathCompleted();
@@ -2228,31 +2257,22 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 RotateTowardsMovementDirection(currentTarget, dt);
                 
                 transform.position = nextPos;
+                _registeredCombatTargetField?.UpdateCombatMonsterOccupancy(this);
 
-                if (!isBlocked && _monsterData.monsterType != MonsterType.Flying && !HasTrait(MonsterTraits.Unblockable))
+                if (!isBlocked &&
+                    _monsterData.monsterType != MonsterType.Flying &&
+                    !HasTrait(MonsterTraits.Unblockable))
                 {
                     float moveDistance = currentMoveSpeed * dt;
                     float detectionRadius = Mathf.Max(0.6f, moveDistance + 0.3f);
                     float blockDistance = 0.6f;
-                    
-                    Collider[] nearbyUnits = Physics.OverlapSphere(nextPos, detectionRadius);
-                    foreach (var col in nearbyUnits)
-                    {
-                        if (col.TryGetComponent<Unit>(out var unit) &&
-                            unit.Data.blockCount > 0 &&
-                            unit.Data.unitType == UnitType.Melee &&
-                            !unit.IsBlockingFull())
-                        {
-                            float distToUnit = Vector3.Distance(nextPos, unit.transform.position);
-                            if (distToUnit <= blockDistance)
-                            {
-                                if (unit.TryBlockMonster(this))
-                                {
-                                    break;
-                                }
-                            }
-                        }
-                    }
+                    // The cell registry lookup is allocation-free and must keep the legacy
+                    // every-frame distance semantics. A single probe at cell entry can occur
+                    // before a diagonal mover reaches blockDistance, and a unit whose block
+                    // capacity becomes available later in the same cell must be retried.
+                    // Only the Physics fallback remains limited to cell crossings.
+                    bool allowPhysicsFallback = ShouldQueryBlockerAtPosition(nextPos);
+                    TryBlockNearbyUnit(nextPos, detectionRadius, blockDistance, allowPhysicsFallback);
                 }
 
                 yield return null;
@@ -2261,6 +2281,150 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         OnPathCompleted();
     }
+
+    private bool ShouldQueryBlockerAtPosition(Vector3 worldPosition)
+    {
+        Vector2Int navigationCell;
+        if (_registeredCombatTargetField != null)
+        {
+            navigationCell = _registeredCombatTargetField.WorldToNavigationCell(worldPosition);
+        }
+        else if (pathfinder != null)
+        {
+            navigationCell = pathfinder.WorldToCell(pathfinder.ClampToGrid(worldPosition));
+        }
+        else
+        {
+            navigationCell = new Vector2Int(
+                Mathf.FloorToInt(worldPosition.x),
+                Mathf.FloorToInt(worldPosition.z));
+        }
+
+        if (_hasBlockerQueryNavigationCell && navigationCell == _lastBlockerQueryNavigationCell)
+        {
+            return false;
+        }
+
+        _hasBlockerQueryNavigationCell = true;
+        _lastBlockerQueryNavigationCell = navigationCell;
+        return true;
+    }
+
+    private bool TryBlockNearbyUnit(
+        Vector3 position,
+        float detectionRadius,
+        float blockDistance,
+        bool allowPhysicsFallback = true)
+    {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        long blockerQueryStart = MPTestPerformanceRecorder.StartTimestamp();
+        int visitedCandidates = 0;
+#endif
+        try
+        {
+            // A battle Monster receives this field only through a non-null PlayerManager owner;
+            // initialized combat fields therefore always provide the local occupancy registry.
+            // The Physics path below is only an initialization/offline safety net and remains
+            // cell-boundary-only to avoid restoring a per-frame broad-phase query.
+            if (_registeredCombatTargetField != null &&
+                _registeredCombatTargetField.TryGetBattleOccupancyRegistry(
+                    out FieldBattleOccupancyRegistry occupancy))
+            {
+                Vector2Int navigationCell = _hasBlockerQueryNavigationCell
+                    ? _lastBlockerQueryNavigationCell
+                    : _registeredCombatTargetField.WorldToNavigationCell(position);
+                _blockerCandidateCache.RefreshIfNeeded(occupancy, navigationCell, blockDistance);
+                bool foundIndexedUnit = _blockerCandidateCache.TrySelectBest(
+                    position,
+                    blockDistance,
+                    out Unit indexedUnit,
+                    out int indexedCandidates);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                visitedCandidates = indexedCandidates;
+#endif
+                return foundIndexedUnit && indexedUnit.TryBlockMonster(this);
+            }
+
+            if (!allowPhysicsFallback)
+            {
+                return false;
+            }
+
+            int layerMask = ResolveBlockerLayerMask();
+            int count;
+            while (true)
+            {
+                count = Physics.OverlapSphereNonAlloc(position, detectionRadius, s_blockerBuffer, layerMask);
+                if (count < s_blockerBuffer.Length || s_blockerBuffer.Length >= MaxBlockerBufferSize)
+                {
+                    break;
+                }
+
+                int nextSize = Mathf.Min(MaxBlockerBufferSize, s_blockerBuffer.Length * 2);
+                Array.Resize(ref s_blockerBuffer, nextSize);
+            }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            visitedCandidates = count;
+#endif
+            Unit bestUnit = null;
+            float blockDistanceSqr = blockDistance * blockDistance;
+            float bestDistanceSqr = float.MaxValue;
+            ulong bestStableOrder = ulong.MaxValue;
+            for (int i = 0; i < count; i++)
+            {
+                Collider collider = s_blockerBuffer[i];
+                s_blockerBuffer[i] = null;
+                if (collider == null ||
+                    !collider.TryGetComponent(out Unit unit) ||
+                    !FieldBattleOccupancyRegistry.IsCacheableBlockCandidate(unit) ||
+                    unit.IsBlockingFull())
+                {
+                    continue;
+                }
+
+                float distanceSqr = (position - unit.transform.position).sqrMagnitude;
+                if (distanceSqr > blockDistanceSqr)
+                {
+                    continue;
+                }
+
+                ulong stableOrder = FieldBattleOccupancyRegistry.GetStableOrder(unit);
+                if (bestUnit == null ||
+                    distanceSqr < bestDistanceSqr - 0.0001f ||
+                    Mathf.Abs(distanceSqr - bestDistanceSqr) <= 0.0001f &&
+                    stableOrder < bestStableOrder)
+                {
+                    bestUnit = unit;
+                    bestDistanceSqr = distanceSqr;
+                    bestStableOrder = stableOrder;
+                }
+            }
+
+            return bestUnit != null && bestUnit.TryBlockMonster(this);
+        }
+        finally
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestPerformanceRecorder.RecordDuration(
+                "monster_blocker_overlap",
+                blockerQueryStart,
+                Mathf.Max(1, visitedCandidates));
+#endif
+        }
+    }
+
+    private int ResolveBlockerLayerMask()
+    {
+        if (unitLayerMask.value != 0)
+        {
+            return unitLayerMask.value;
+        }
+
+        int unitLayer = LayerMask.NameToLayer("Unit");
+        return unitLayer >= 0 ? 1 << unitLayer : ~0;
+    }
+
     private void OnPathCompleted()
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD

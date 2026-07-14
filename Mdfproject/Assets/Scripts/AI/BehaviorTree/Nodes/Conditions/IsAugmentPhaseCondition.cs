@@ -5,6 +5,15 @@ namespace AI.BehaviorTree.Nodes.Conditions
 {
     public class IsAugmentPhaseCondition : DecoratorNode
     {
+        private static class Debug
+        {
+            [System.Diagnostics.Conditional("MDF_VERBOSE_AI_LOGS")]
+            public static void Log(object message)
+            {
+                UnityEngine.Debug.Log(message);
+            }
+        }
+
         private PlayerManager _playerManager;
 
         public IsAugmentPhaseCondition(PlayerManager playerManager, Node child) : base(child)

@@ -106,7 +106,9 @@ public static class MPTestCommandLine
             BotSkipPrepare = enabled && (flags.Contains("--mpBotSkipPrepare") || values.ContainsKey("--mpBotSkipPrepare")),
             BotPrepareAugmentOnly = enabled && (flags.Contains("--mpBotPrepareAugmentOnly") || values.ContainsKey("--mpBotPrepareAugmentOnly")),
             BotPreferScrollAugment = enabled && (flags.Contains("--mpBotPreferScrollAugment") || values.ContainsKey("--mpBotPreferScrollAugment")),
-            BotRecordJournal = Get(values, "--mpBotRecordJournal", string.Empty)
+            BotRecordJournal = Get(values, "--mpBotRecordJournal", string.Empty),
+            PerformanceCapture = enabled && !flags.Contains("--mpDisablePerformanceCapture") && !values.ContainsKey("--mpDisablePerformanceCapture"),
+            PerformanceWarmupSeconds = Mathf.Max(0, GetInt(values, "--mpPerformanceWarmupSeconds", 3))
         };
     }
 
@@ -154,6 +156,8 @@ public static class MPTestCommandLine
         public bool BotPrepareAugmentOnly;
         public bool BotPreferScrollAugment;
         public string BotRecordJournal;
+        public bool PerformanceCapture;
+        public int PerformanceWarmupSeconds;
 
         public string SafeRole => string.IsNullOrEmpty(Role) ? "unknown" : Role.ToLowerInvariant();
         public string AutomationTokenHash => MPTestLogger.HashForLog(AutomationToken);

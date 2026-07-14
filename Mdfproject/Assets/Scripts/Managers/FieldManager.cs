@@ -412,8 +412,10 @@ public partial class FieldManager : MonoBehaviour
     {
         this.playerManager = owner;
         this.ground3D = ground3DObject;
+        MarkWallTopologyChanged();
         PrewarmStatusBarReserve();
         InvalidateCombatTargetRegistry();
+        _battleOccupancy?.Clear();
         pendingUnitPositions.Clear();
         pendingUnitDataByPosition.Clear();
         pendingNetworkMoves.Clear();
@@ -1174,6 +1176,11 @@ public partial class FieldManager : MonoBehaviour
         // [수정] 게임 상태가 전투로 변경될 때의 처리
         else if (newState == GameManagers.GameState.Battle1 || newState == GameManagers.GameState.Battle2)
         {
+            // Unit placement is frozen for battle. Rebuild the local cell index once from
+            // authoritative scene objects; moving monsters update only when their cell changes.
+            InvalidateCombatTargetRegistry();
+            EnsureCombatTargetRegistryReady();
+
             // 활성화된 배치 모드(유닛, 벽 등)가 있다면 강제로 종료합니다.
             if (placementManager.GetCurrentMode() != PlacementMode.None)
             {
@@ -1289,6 +1296,7 @@ public partial class FieldManager : MonoBehaviour
             AttachStatusBar(wallGO, wallComponent.SetStatusBar);
             wallComponent.Initialize(this, gridPosition);
             placedWalls.Add(gridPosition, wallComponent);
+            MarkWallTopologyChanged();
             PublishDestructibleWallHealthMigrationState("create_wall");
             SchedulePathRefresh();
 
@@ -1339,6 +1347,7 @@ public partial class FieldManager : MonoBehaviour
                 Destroy(wall.gameObject);
             }
             placedWalls.Remove(gridPosition);
+            MarkWallTopologyChanged();
             PublishDestructibleWallHealthMigrationState("remove_wall");
             SchedulePathRefresh();
         }
@@ -1511,6 +1520,7 @@ public partial class FieldManager : MonoBehaviour
         bool wallMapChanged = destructibleChanged || permanentChanged;
         if (wallMapChanged)
         {
+            MarkWallTopologyChanged();
             SchedulePathRefresh();
         }
 
@@ -2858,6 +2868,7 @@ public partial class FieldManager : MonoBehaviour
         var requested = requestedCells != null
             ? new HashSet<Vector3Int>(requestedCells)
             : new HashSet<Vector3Int>();
+        bool topologyChanged = false;
         foreach (var pair in placedPermanentWalls.ToArray())
         {
             if (requested.Contains(pair.Key))
@@ -2867,6 +2878,10 @@ public partial class FieldManager : MonoBehaviour
 
             GameObject wallObject = pair.Value;
             bool isNetworkObject = wallObject != null && wallObject.GetComponent<NetworkObject>() != null;
+            if (wallObject != null)
+            {
+                wallObject.SetActive(false);
+            }
             if (!isNetworkObject && wallObject != null)
             {
                 Destroy(wallObject);
@@ -2874,9 +2889,14 @@ public partial class FieldManager : MonoBehaviour
 
             placedPermanentWalls.Remove(pair.Key);
             playerPlacedPermanentWallCells.Remove(pair.Key);
+            topologyChanged = true;
         }
 
         _lastWallMapRebuildFrame = -1;
+        if (topologyChanged)
+        {
+            MarkWallTopologyChanged();
+        }
         SchedulePathRefresh();
     }
 
@@ -3041,6 +3061,12 @@ public partial class FieldManager : MonoBehaviour
         }
 
         var runner = playerManager != null ? playerManager.Runner : null;
+        if (wallObject != null)
+        {
+            // Destroy is deferred until end-of-frame; disable the collider before advancing
+            // wallRevision so an immediate path refresh cannot cache the removed wall.
+            wallObject.SetActive(false);
+        }
         if (wallObject != null && runner != null && runner.IsRunning &&
             wallObject.TryGetComponent<NetworkObject>(out var networkObject) &&
             playerManager.Object != null && playerManager.Object.HasStateAuthority)
@@ -3055,6 +3081,7 @@ public partial class FieldManager : MonoBehaviour
         placedPermanentWalls.Remove(gridPosition);
         authoritativePermanentWallCells.Remove(gridPosition);
         playerPlacedPermanentWallCells.Remove(gridPosition);
+        MarkWallTopologyChanged();
         _lastWallMapRebuildFrame = -1;
         SchedulePathRefresh();
         return true;
@@ -3107,6 +3134,7 @@ public partial class FieldManager : MonoBehaviour
 
         placedPermanentWalls[gridPosition] = wallGO;
         authoritativePermanentWallCells.Add(gridPosition);
+        MarkWallTopologyChanged();
         if (isPlayerPlaced)
         {
             playerPlacedPermanentWallCells.Add(gridPosition);
@@ -3144,6 +3172,7 @@ public partial class FieldManager : MonoBehaviour
 
         if (wallLayer >= 0) SetLayerRecursively(wallGO, wallLayer);
         placedPermanentWalls[gridPosition] = wallGO;
+        MarkWallTopologyChanged();
         if (isPlayerPlaced)
         {
             playerPlacedPermanentWallCells.Add(gridPosition);
@@ -3355,6 +3384,8 @@ public partial class FieldManager : MonoBehaviour
         {
             unit.transform.position = targetWorldPos;
         }
+
+        UpdateCombatUnitOccupancy(unit);
     }
 
     #endregion
@@ -3734,15 +3765,6 @@ public partial class FieldManager : MonoBehaviour
             placedUnits.Add(gridPosition, newUnitComponent);
             SyncUnitPlacementIdentity(newUnitComponent, gridPosition);
             ProcessPendingNetworkMoves();
-            if (spawnedNetworkObject != null && playerManager != null)
-            {
-                playerManager.RPC_RegisterUnitAt(
-                    spawnedNetworkObject.Id,
-                    gridPosition.x,
-                    gridPosition.y,
-                    data.name,
-                    starLevel);
-            }
             BroadcastAuthoritativeUnitRoster("TryCreateUnitAtAsync");
             if (!suppressCombination)
             {
@@ -3811,7 +3833,7 @@ public partial class FieldManager : MonoBehaviour
             return false;
         }
 
-        BroadcastUnitUnregistered(unit, position.Value, GetUnitDataRegistrationKey(unit), unit.starLevel);
+        RetireUnitRegistrationLocally(unit);
         UnitDied(unit);
         if (runner != null && runner.IsRunning && unit.TryGetComponent<NetworkObject>(out var networkObject))
         {
@@ -3899,11 +3921,6 @@ public partial class FieldManager : MonoBehaviour
                 if (unitParent != null)
                 {
                     newUnitGO.transform.SetParent(unitParent, true);
-                }
-                // 클라이언트들의 placedUnits 등록을 위해 브로드캐스트
-                if (playerManager != null)
-                {
-                    playerManager.RPC_RegisterUnitAt(spawned.Id, gridPosition.x, gridPosition.y, data.name, starLevel);
                 }
             }
             else
@@ -4510,18 +4527,26 @@ public partial class FieldManager : MonoBehaviour
         }
 
         var entries = BuildAuthoritativeUnitRosterEntries();
-        if (entries.Count == 0)
-        {
-            return;
-        }
-
-        int[] compactRoster = new int[2 + (entries.Count * 6)];
-        compactRoster[0] = -2;
-        compactRoster[1] = entries.Count;
+        int rosterRevision = playerManager.AdvanceUnitRosterRevisionForAuthority();
+        int[] unitIdRaws = new int[entries.Count];
+        int[] flatPositions = new int[entries.Count * 3];
+        int[] unitDataKeyHashes = new int[entries.Count];
+        int[] starLevels = new int[entries.Count];
+        int[] compactRoster = new int[4 + (entries.Count * 6)];
+        compactRoster[0] = -4;
+        compactRoster[1] = rosterRevision;
+        compactRoster[3] = entries.Count;
         for (int i = 0; i < entries.Count; i++)
         {
             UnitRosterBroadcastEntry entry = entries[i];
-            int offset = 2 + (i * 6);
+            unitIdRaws[i] = entry.UnitIdRaw;
+            flatPositions[(i * 3) + 0] = entry.Position.x;
+            flatPositions[(i * 3) + 1] = entry.Position.y;
+            flatPositions[(i * 3) + 2] = entry.Position.z;
+            unitDataKeyHashes[i] = entry.UnitDataKeyHash;
+            starLevels[i] = entry.StarLevel;
+
+            int offset = 4 + (i * 6);
             compactRoster[offset + 0] = entry.UnitIdRaw;
             compactRoster[offset + 1] = entry.Position.x;
             compactRoster[offset + 2] = entry.Position.y;
@@ -4529,6 +4554,11 @@ public partial class FieldManager : MonoBehaviour
             compactRoster[offset + 4] = entry.StarLevel;
             compactRoster[offset + 5] = entry.UnitDataKeyHash;
         }
+        compactRoster[2] = PlayerManager.ComputeUnitRosterFingerprint(
+            unitIdRaws,
+            flatPositions,
+            unitDataKeyHashes,
+            starLevels);
 
         try
         {
@@ -4545,7 +4575,13 @@ public partial class FieldManager : MonoBehaviour
         {
             try
             {
-                playerManager.RPC_RegisterUnitAt(entry.UnitId, entry.Position.x, entry.Position.y, entry.UnitDataKey, entry.StarLevel);
+                playerManager.RPC_RegisterUnitAt(
+                    entry.UnitId,
+                    entry.Position.x,
+                    entry.Position.y,
+                    entry.UnitDataKey,
+                    entry.StarLevel,
+                    rosterRevision);
             }
             catch (Exception ex)
             {
@@ -4624,7 +4660,7 @@ public partial class FieldManager : MonoBehaviour
         return true;
     }
 
-    private void BroadcastUnitUnregistered(Unit unit, Vector3Int position, string unitDataKey, int starLevel)
+    private void RetireUnitRegistrationLocally(Unit unit)
     {
         var runner = playerManager != null ? playerManager.Runner : null;
         if (runner == null
@@ -4640,7 +4676,6 @@ public partial class FieldManager : MonoBehaviour
 
         retiredNetworkUnitIds.Add(networkObject.Id.Raw);
         RemoveOwnedUnitReference(unit);
-        playerManager.RPC_UnregisterUnitAt(networkObject.Id, position.x, position.y, unitDataKey, starLevel);
     }
 
     private static string GetUnitDataRegistrationKey(Unit unit)
@@ -5179,7 +5214,6 @@ public partial class FieldManager : MonoBehaviour
 
             RemoveCombinedUnit(unitsToCombine[0], positions[0]);
             RemoveCombinedUnit(unitsToCombine[1], positions[1]);
-            BroadcastPromotedUnitRegistration(baseUnit, positions[2], unitData, newStarLevel);
             BroadcastAuthoritativeUnitRoster("CheckForCombination.InPlacePromotion");
             return true;
         }
@@ -5208,7 +5242,6 @@ public partial class FieldManager : MonoBehaviour
         placedUnits[positions[2]] = stagedReplacement;
         SyncUnitPlacementIdentity(stagedReplacement, positions[2]);
         AttachStatusBar(stagedReplacement.gameObject, stagedReplacement.SetStatusBar);
-        BroadcastPromotedUnitRegistration(stagedReplacement, positions[2], unitData, newStarLevel);
         BroadcastAuthoritativeUnitRoster("CheckForCombination.StagedReplacement");
         return true;
     }
@@ -5364,7 +5397,7 @@ public partial class FieldManager : MonoBehaviour
             return;
         }
 
-        BroadcastUnitUnregistered(unit, position, GetUnitDataRegistrationKey(unit), unit.starLevel);
+        RetireUnitRegistrationLocally(unit);
         UnitDied(unit);
         var runner = playerManager != null ? playerManager.Runner : null;
         if (runner != null && runner.IsRunning && unit.TryGetComponent<NetworkObject>(out var networkObject))
@@ -5374,14 +5407,6 @@ public partial class FieldManager : MonoBehaviour
         else
         {
             Destroy(unit.gameObject);
-        }
-    }
-
-    private void BroadcastPromotedUnitRegistration(Unit unit, Vector3Int position, UnitData data, int starLevel)
-    {
-        if (playerManager != null && unit != null && unit.TryGetComponent<NetworkObject>(out var networkObject))
-        {
-            playerManager.RPC_RegisterUnitAt(networkObject.Id, position.x, position.y, data.name, starLevel);
         }
     }
 
@@ -5430,7 +5455,7 @@ public partial class FieldManager : MonoBehaviour
                 var unitPosition = GetUnitPosition(unit);
                 if (unitPosition.HasValue)
                 {
-                    BroadcastUnitUnregistered(unit, unitPosition.Value, GetUnitDataRegistrationKey(unit), unit != null ? unit.starLevel : 0);
+                    RetireUnitRegistrationLocally(unit);
                 }
 
                 UnitDied(unit);
@@ -5464,7 +5489,6 @@ public partial class FieldManager : MonoBehaviour
         Vector3Int currentPos = placedUnits.First(kvp => kvp.Value == unitToReplace).Key;
         UnitData unitData = unitToReplace.Data;
         int newStarLevel = unitToReplace.starLevel;
-        int retiredStarLevel = Mathf.Max(1, newStarLevel - 1);
         var runner = playerManager != null ? playerManager.Runner : null;
         if (runner != null
             && runner.IsRunning
@@ -5475,7 +5499,7 @@ public partial class FieldManager : MonoBehaviour
         }
 
         // 기존 유닛 제거
-        BroadcastUnitUnregistered(unitToReplace, currentPos, GetUnitDataRegistrationKey(unitToReplace), retiredStarLevel);
+        RetireUnitRegistrationLocally(unitToReplace);
         UnitDied(unitToReplace);
         if (runner != null
             && runner.IsRunning
@@ -5542,7 +5566,6 @@ public partial class FieldManager : MonoBehaviour
                 unitGO.transform.SetParent(unitParent, true);
             }
 
-            playerManager.RPC_RegisterUnitAt(spawnedNO.Id, currentPos.x, currentPos.y, unitData.name, newStarLevel);
         }
         else
         {

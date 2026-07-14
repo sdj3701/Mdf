@@ -68,24 +68,7 @@ public partial class CombatScheduler
 
     public int ActiveZoneCount
     {
-        get
-        {
-            if (!IsZoneSchedulerActive)
-            {
-                return 0;
-            }
-
-            int count = 0;
-            for (int i = 0; i < MaxActiveZones; i++)
-            {
-                if (Zones[i].Sequence > 0)
-                {
-                    count++;
-                }
-            }
-
-            return count;
-        }
+        get => GetCurrentZoneCount();
     }
 
     public bool TryScheduleZone(
@@ -97,7 +80,8 @@ public partial class CombatScheduler
         out int sequence)
     {
         sequence = 0;
-        if (!IsZoneSchedulerActive || !Object.HasStateAuthority || effect == null || caster == null)
+        if (!IsZoneSchedulerActive || !Object.HasStateAuthority || effect == null || caster == null ||
+            !EnsureLocalSchedulerState())
         {
             return false;
         }
@@ -138,6 +122,7 @@ public partial class CombatScheduler
         };
 
         Zones.Set(slot, entry);
+        CommitZoneSlot(slot, entry);
         _zonePayloads[nextSeq] = new ZonePayload
         {
             Effect = effect,
@@ -153,26 +138,40 @@ public partial class CombatScheduler
 
     public void ClearAllScheduledZones(string reason = null)
     {
-        if (!IsZoneSchedulerActive || !Object.HasStateAuthority)
+        if (!IsZoneSchedulerActive || !Object.HasStateAuthority || !EnsureLocalSchedulerState())
         {
             return;
         }
 
-        for (int i = 0; i < MaxActiveZones; i++)
+        int tokenCount = CaptureZoneSlotTokens();
+        for (int i = 0; i < tokenCount; i++)
         {
-            ZoneEntry entry = Zones[i];
-            if (entry.Sequence > 0)
+            LocalSlotToken token = _zoneSlotScratch[i];
+            ZoneEntry entry = Zones[token.Slot];
+            if (entry.Sequence == token.Sequence)
             {
-                ClearZoneSlot(i, entry, reason);
+                ClearZoneSlot(token.Slot, entry, reason);
             }
         }
     }
 
     public void ClearScheduledZone(int sequence, string reason = null)
     {
-        if (!IsZoneSchedulerActive || !Object.HasStateAuthority || sequence <= 0)
+        if (!IsZoneSchedulerActive || !Object.HasStateAuthority || sequence <= 0 ||
+            !EnsureLocalSchedulerState())
         {
             return;
+        }
+
+        if (_zoneSlotBySequence.TryGetValue(sequence, out int indexedSlot) &&
+            indexedSlot >= 0 && indexedSlot < MaxActiveZones)
+        {
+            ZoneEntry entry = Zones[indexedSlot];
+            if (entry.Sequence == sequence)
+            {
+                ClearZoneSlot(indexedSlot, entry, reason);
+                return;
+            }
         }
 
         for (int i = 0; i < MaxActiveZones; i++)
@@ -180,6 +179,7 @@ public partial class CombatScheduler
             ZoneEntry entry = Zones[i];
             if (entry.Sequence == sequence)
             {
+                _zoneSlotBySequence[sequence] = i;
                 ClearZoneSlot(i, entry, reason);
                 return;
             }
@@ -248,7 +248,8 @@ public partial class CombatScheduler
 
     public int RestoreZonesFromMigration(IReadOnlyList<ZoneMigrationSnapshot> snapshots, string reason = null)
     {
-        if (!IsZoneSchedulerActive || !Object.HasStateAuthority || snapshots == null || snapshots.Count == 0)
+        if (!IsZoneSchedulerActive || !Object.HasStateAuthority || snapshots == null || snapshots.Count == 0 ||
+            !EnsureLocalSchedulerState())
         {
             return 0;
         }
@@ -273,7 +274,7 @@ public partial class CombatScheduler
                 break;
             }
 
-            Zones.Set(slot, new ZoneEntry
+            var entry = new ZoneEntry
             {
                 Sequence = snapshot.Sequence,
                 CasterId = snapshot.CasterId,
@@ -289,7 +290,9 @@ public partial class CombatScheduler
                 NextTick = snapshot.NextTick,
                 TickIntervalTicks = Mathf.Max(1, snapshot.TickIntervalTicks),
                 PackedMeta = PackZoneMeta(snapshot.SourceKind, snapshot.Flags)
-            });
+            };
+            Zones.Set(slot, entry);
+            CommitZoneSlot(slot, entry);
             maxSequence = Mathf.Max(maxSequence, snapshot.Sequence);
             restored++;
         }
@@ -308,17 +311,29 @@ public partial class CombatScheduler
         }
 
         int now = Runner.Tick;
-        for (int i = 0; i < MaxActiveZones; i++)
+        if (_zoneNextTickDirty)
         {
-            ZoneEntry entry = Zones[i];
-            if (entry.Sequence <= 0)
+            RecalculateNextZoneWorkTick();
+        }
+        if (now < _nextZoneWorkTick)
+        {
+            return;
+        }
+
+        int tokenCount = CaptureZoneSlotTokens();
+        for (int i = 0; i < tokenCount; i++)
+        {
+            LocalSlotToken token = _zoneSlotScratch[i];
+            int slot = token.Slot;
+            ZoneEntry entry = Zones[slot];
+            if (entry.Sequence <= 0 || entry.Sequence != token.Sequence)
             {
                 continue;
             }
 
             if (entry.ExpireTick <= now)
             {
-                ClearZoneSlot(i, entry, "expired");
+                ClearZoneSlot(slot, entry, "expired");
                 continue;
             }
 
@@ -328,9 +343,19 @@ public partial class CombatScheduler
             }
 
             ApplyZoneTick(entry);
+            ZoneEntry current = Zones[slot];
+            if (current.Sequence != entry.Sequence)
+            {
+                continue;
+            }
+
+            ZoneEntry previous = entry;
             entry.NextTick = now + Mathf.Max(1, entry.TickIntervalTicks);
-            Zones.Set(i, entry);
+            Zones.Set(slot, entry);
+            NoteZoneSlotUpdated(previous, entry);
         }
+
+        RecalculateNextZoneWorkTick();
     }
 
     private void RebuildZonePayloadsFromNetworkEntries()
@@ -475,7 +500,13 @@ public partial class CombatScheduler
 
     private void ClearZoneSlot(int slot, ZoneEntry entry, string reason)
     {
+        if (slot < 0 || slot >= MaxActiveZones || Zones[slot].Sequence != entry.Sequence)
+        {
+            return;
+        }
+
         Zones.Set(slot, default);
+        ReleaseZoneSlot(slot, entry);
         DestroyZoneController(entry.Sequence);
         _zonePayloads.Remove(entry.Sequence);
     }
@@ -492,15 +523,12 @@ public partial class CombatScheduler
 
     private int FindEmptyZoneSlot()
     {
-        for (int i = 0; i < MaxActiveZones; i++)
+        if (!EnsureLocalSchedulerState())
         {
-            if (Zones[i].Sequence <= 0)
-            {
-                return i;
-            }
+            return -1;
         }
 
-        return -1;
+        return _zoneSlotIndex.TryRentLowest(out int slot) ? slot : -1;
     }
 
     private static int PackZoneMeta(int sourceKind, int flags)

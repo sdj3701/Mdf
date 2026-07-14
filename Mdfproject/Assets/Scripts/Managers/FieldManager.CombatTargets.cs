@@ -25,21 +25,25 @@ public partial class FieldManager
     public void RegisterCombatUnit(Unit unit)
     {
         CombatTargets.RegisterUnit(unit);
+        BattleOccupancy.RegisterUnit(unit);
     }
 
     public void UnregisterCombatUnit(Unit unit)
     {
         _combatTargets?.UnregisterUnit(unit);
+        _battleOccupancy?.UnregisterUnit(unit);
     }
 
     public void RegisterCombatMonster(Monster monster)
     {
         CombatTargets.RegisterMonster(monster);
+        BattleOccupancy.RegisterMonster(monster);
     }
 
     public void UnregisterCombatMonster(Monster monster)
     {
         _combatTargets?.UnregisterMonster(monster);
+        _battleOccupancy?.UnregisterMonster(monster);
     }
 
     public bool IsCombatMonsterRegistered(Monster monster)
@@ -98,6 +102,8 @@ public partial class FieldManager
             CombatTargets.RebuildMonsters(monsters);
         }
 
+        RebuildBattleOccupancyRegistry(monsterParent);
+
         _combatTargetsReady = true;
         _combatTargetsReadyRound = round;
         _combatTargetsReadyState = state;
@@ -120,6 +126,7 @@ public partial class FieldManager
     {
         _combatTargets?.Clear();
         _combatTargets = null;
+        DisposeBattleOccupancyRegistry();
         _combatTargetsReady = false;
         _combatTargetsReadyRunner = null;
         _combatTargetsReadyMonsterParent = null;

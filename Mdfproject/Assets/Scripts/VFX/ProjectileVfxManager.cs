@@ -6,6 +6,7 @@ using UnityEngine;
 
 public class ProjectileVfxManager : MonoBehaviour
 {
+    public static int ActiveProjectileCountForDiagnostics => Instance != null ? Instance._activeProjectiles.Count : 0;
     public static ProjectileVfxManager Instance { get; private set; }
 
     [SerializeField] private VfxPoolManager pool;
@@ -223,6 +224,70 @@ public class ProjectileVfxManager : MonoBehaviour
         });
         return true;
     }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    public static bool MPTestScheduleExpiryBurst(
+        NetworkRunner runner,
+        NetworkObject attacker,
+        ProjectileVfxConfig config,
+        Vector3 firePosition,
+        Vector3 targetPosition,
+        int projectileCount,
+        float lifetimeSeconds,
+        out int hitTick,
+        out string reason)
+    {
+        hitTick = 0;
+        reason = null;
+        ProjectileVfxManager manager = Instance != null
+            ? Instance
+            : UnityEngine.Object.FindObjectOfType<ProjectileVfxManager>();
+        if (!MPTestCommandLine.IsEnabled)
+        {
+            reason = "missing --mpTest";
+            return false;
+        }
+
+        if (manager == null || !manager.isActiveAndEnabled || runner == null || !runner.IsRunning)
+        {
+            reason = "projectile manager or runner is unavailable";
+            return false;
+        }
+
+        if (attacker == null || !attacker.IsValid || config == null || !config.HasProjectileKey)
+        {
+            reason = "projectile attacker or config is unavailable";
+            return false;
+        }
+
+        projectileCount = Mathf.Clamp(projectileCount, 1, 256);
+        lifetimeSeconds = Mathf.Clamp(lifetimeSeconds, 2f, 30f);
+        int fireTick = runner.Tick + 2;
+        int lifetimeTicks = Mathf.Max(2, Mathf.CeilToInt(lifetimeSeconds / Mathf.Max(0.0001f, runner.DeltaTime)));
+        hitTick = fireTick + lifetimeTicks;
+
+        for (int i = 0; i < projectileCount; i++)
+        {
+            manager.HandleProjectileEvent(new CombatScheduler.ProjectileEventData
+            {
+                Sequence = manager.AllocatePresentationSequence(),
+                FireTick = fireTick,
+                HitTick = hitTick,
+                Runner = runner,
+                Attacker = attacker,
+                HasFirePositionOverride = true,
+                HasTargetPositionOverride = true,
+                FirePositionOverride = firePosition,
+                TargetPositionOverride = targetPosition,
+                VfxConfigOverride = config,
+                SuppressMuzzleFlash = true
+            });
+        }
+
+        reason = $"scheduled {projectileCount} projectiles for hit tick {hitTick}";
+        return true;
+    }
+#endif
 
     public static void RecordSkippedCombatEvent(NetworkRunner runner, NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
     {
@@ -964,6 +1029,10 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        int activeCountAtStart = _activeProjectiles.Count;
+        long performanceStart = MPTestPerformanceRecorder.StartTimestamp();
+#endif
         for (int i = _activeProjectiles.Count - 1; i >= 0; i--)
         {
             var active = _activeProjectiles[i];
@@ -971,14 +1040,14 @@ public class ProjectileVfxManager : MonoBehaviour
             if (runner == null || !runner.IsRunning)
             {
                 DespawnProjectile(active);
-                RemoveActive(active);
+                RemoveActiveAt(i, active);
                 continue;
             }
 
             float nowTime = GetRenderTime(runner);
             if (active.Instance == null)
             {
-                RemoveActive(active);
+                RemoveActiveAt(i, active);
                 continue;
             }
 
@@ -991,7 +1060,7 @@ public class ProjectileVfxManager : MonoBehaviour
                     active.LastKnownDirection,
                     _lifecycleGeneration).Forget();
                 DespawnProjectile(active);
-                RemoveActive(active);
+                RemoveActiveAt(i, active);
                 continue;
             }
 
@@ -1037,6 +1106,9 @@ public class ProjectileVfxManager : MonoBehaviour
                 active.Instance.transform.rotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(direction.normalized, true, config.projectileRotationOffsetEuler);
             }
         }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestPerformanceRecorder.RecordDuration("projectile_vfx_update", performanceStart, activeCountAtStart);
+#endif
     }
 
     private void DespawnProjectile(ActiveProjectile active)
@@ -1056,10 +1128,23 @@ public class ProjectileVfxManager : MonoBehaviour
         }
     }
 
-    private void RemoveActive(ActiveProjectile active)
+    private void RemoveActiveAt(int index, ActiveProjectile active)
     {
+        int lastIndex = _activeProjectiles.Count - 1;
+        if (active == null || index < 0 || index > lastIndex)
+        {
+            return;
+        }
+
         _activeBySeq.Remove(active.Sequence);
-        _activeProjectiles.Remove(active);
+        if (index != lastIndex)
+        {
+            // Presentation order is irrelevant. Swap the already-processed tail entry into the
+            // removed slot so expiry stays O(1), including sparse simultaneous expirations.
+            _activeProjectiles[index] = _activeProjectiles[lastIndex];
+        }
+
+        _activeProjectiles.RemoveAt(lastIndex);
     }
 
     private async UniTask<GameObject> LoadVfxPrefabAsync(string key)

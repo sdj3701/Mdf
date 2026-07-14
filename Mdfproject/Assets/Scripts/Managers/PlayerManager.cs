@@ -32,6 +32,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     [Networked] private int health { get; set; }
     [Networked] private int gold { get; set; }
     [Networked] private int wallCount { get; set; }
+    [Networked] public int UnitRosterRevision { get; private set; }
     private const int SHOP_SNAPSHOT_CAPACITY = 5;
     [Networked, Capacity(SHOP_SNAPSHOT_CAPACITY)] private NetworkArray<ShopSnapshotSlot> ShopSnapshotSlots { get; }
     [Networked] private int ShopSnapshotRevision { get; set; }
@@ -626,12 +627,58 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         public uint unitIdRaw;
         public int x;
         public int y;
+        public int z;
         public string unitDataKey;
+        public int unitDataKeyHash;
         public int starLevel;
+        public int rosterRevision;
+        public int registrationGeneration;
+        public int lifecycleGeneration;
     }
+
+    private readonly struct DesiredUnitRosterEntry
+    {
+        public DesiredUnitRosterEntry(
+            uint unitIdRaw,
+            int x,
+            int y,
+            int z,
+            int unitDataKeyHash,
+            int starLevel)
+        {
+            UnitIdRaw = unitIdRaw;
+            X = x;
+            Y = y;
+            Z = z;
+            UnitDataKeyHash = unitDataKeyHash;
+            StarLevel = starLevel;
+        }
+
+        public uint UnitIdRaw { get; }
+        public int X { get; }
+        public int Y { get; }
+        public int Z { get; }
+        public int UnitDataKeyHash { get; }
+        public int StarLevel { get; }
+    }
+
+    private enum UnitRosterRevisionAcceptance
+    {
+        Rejected,
+        Duplicate,
+        AcceptedNew
+    }
+
     private List<PendingUnitReg> _pendingUnitRegs = new List<PendingUnitReg>();
     private readonly HashSet<uint> _retiredUnitRegistrationIds = new HashSet<uint>();
     private readonly Dictionary<uint, PendingUnitReg> _latestUnitRegistrationById = new Dictionary<uint, PendingUnitReg>();
+    private readonly Dictionary<uint, DesiredUnitRosterEntry> _desiredUnitRosterById = new Dictionary<uint, DesiredUnitRosterEntry>();
+    private readonly Dictionary<uint, SemaphoreSlim> _unitRegistrationApplyGates = new Dictionary<uint, SemaphoreSlim>();
+    private int _latestAcceptedUnitRosterRevision = -1;
+    private int _latestAcceptedUnitRosterFingerprint;
+    private int _unitRosterApplyGeneration;
+    private int _unitRegistrationGeneration;
+    private int _unitRosterLifecycleGeneration;
     private int[] _pendingPermanentWallFlatPositions;
     private int _pendingPermanentWallLayoutRevision = -1;
     private int[] _pendingUnitRosterIdRaws;
@@ -639,6 +686,9 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private string[] _pendingUnitRosterDataKeys;
     private int[] _pendingUnitRosterDataKeyHashes;
     private int[] _pendingUnitRosterStarLevels;
+    private int _pendingUnitRosterRevision = -1;
+    private int _pendingUnitRosterFingerprint;
+    private int _pendingUnitRosterApplyGeneration;
     private Coroutine _permanentWallSyncBroadcastCoroutine;
 
      void Awake()
@@ -652,6 +702,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     public override void Spawned()
     {
+        ResetLocalUnitRosterSyncState();
         if (_assetOwner == null || _assetOwner.IsDisposed)
         {
             _assetOwner = new AddressableAssetOwner();
@@ -866,7 +917,11 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         IsActivelyFighting = false;
         // Debug.Log($"--- Player {playerId} RPC 초기화 완료 ---");
 
-        // Process any unit registrations that arrived early
+        // A complete authoritative roster owns membership. Apply it before any
+        // per-entry key/object enrichment that arrived while the field was unavailable.
+        await DrainPendingUnitRoster("Rpc_InitializePlayer");
+
+        // Process any unit registrations that arrived early.
         if (_pendingUnitRegs.Count > 0)
         {
             // Make a copy to avoid modification during iteration
@@ -879,11 +934,16 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                     continue;
                 }
 
-                await RPC_RegisterUnitAt_Internal(p.unitNO, p.x, p.y, p.unitDataKey, p.starLevel);
+                await RPC_RegisterUnitAt_Internal(
+                    p.unitNO,
+                    p.x,
+                    p.y,
+                    p.unitDataKey,
+                    p.starLevel,
+                    p.rosterRevision,
+                    p.registrationGeneration);
             }
         }
-
-        await DrainPendingUnitRoster("Rpc_InitializePlayer");
 
         _runtimeInitialized = playerId >= 0 && fieldManager != null;
     }
@@ -1567,23 +1627,31 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 return;
             }
 
-            if (!IsValidUnitRosterPayload(unitIdRaws, flatPositions, unitDataKeys, starLevels))
+            if (!IsValidUnitRosterPayload(unitIdRaws, flatPositions, unitDataKeys, null, starLevels))
             {
                 return;
             }
 
-            if (fieldManager == null || fieldManager.ground3D == null)
+            int[] unitDataKeyHashes = new int[unitIdRaws.Length];
+            for (int i = 0; i < unitDataKeyHashes.Length; i++)
             {
-                StorePendingUnitRoster(unitIdRaws, flatPositions, unitDataKeys, null, starLevels);
-                RebindRuntimeReferencesAfterMigration("RPC_ReconcileUnitRoster.Pending", false);
+                unitDataKeyHashes[i] = StableUnitDataKeyHash(unitDataKeys[i]);
             }
 
-            if (fieldManager == null || fieldManager.ground3D == null)
-            {
-                return;
-            }
-
-            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, null, starLevels);
+            int fingerprint = ComputeUnitRosterFingerprint(
+                unitIdRaws,
+                flatPositions,
+                unitDataKeyHashes,
+                starLevels);
+            await ReceiveUnitRosterSnapshotAsync(
+                unitIdRaws,
+                flatPositions,
+                unitDataKeys,
+                unitDataKeyHashes,
+                starLevels,
+                0,
+                fingerprint,
+                "RPC_ReconcileUnitRoster");
         }
         catch (System.Exception)
         {
@@ -1616,14 +1684,44 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 return;
             }
 
+            bool fingerprintedRoster = flatRoster.Length >= 4 && flatRoster[0] == -4;
+            bool revisionedRoster = flatRoster.Length >= 3 && flatRoster[0] == -3;
             bool versionedRoster = flatRoster.Length >= 2 && flatRoster[0] == -2;
             int count;
             int stride;
             int startOffset;
             bool hasUnitDataHashes;
+            int rosterRevision;
+            int advertisedFingerprint = 0;
 
-            if (versionedRoster)
+            if (fingerprintedRoster)
             {
+                rosterRevision = flatRoster[1];
+                advertisedFingerprint = flatRoster[2];
+                count = flatRoster[3];
+                stride = 6;
+                startOffset = 4;
+                hasUnitDataHashes = true;
+                if (rosterRevision < 0 || count < 0 || flatRoster.Length != startOffset + (count * stride))
+                {
+                    return;
+                }
+            }
+            else if (revisionedRoster)
+            {
+                rosterRevision = flatRoster[1];
+                count = flatRoster[2];
+                stride = 6;
+                startOffset = 3;
+                hasUnitDataHashes = true;
+                if (rosterRevision < 0 || count < 0 || flatRoster.Length != startOffset + (count * stride))
+                {
+                    return;
+                }
+            }
+            else if (versionedRoster)
+            {
+                rosterRevision = 0;
                 count = flatRoster[1];
                 stride = 6;
                 startOffset = 2;
@@ -1635,6 +1733,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             }
             else
             {
+                rosterRevision = 0;
                 if (flatRoster.Length % 5 != 0)
                 {
                     return;
@@ -1649,7 +1748,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             int[] unitIdRaws = new int[count];
             int[] flatPositions = new int[count * 3];
             int[] starLevels = new int[count];
-            int[] unitDataKeyHashes = hasUnitDataHashes ? new int[count] : null;
+            int[] unitDataKeyHashes = new int[count];
 
             for (int i = 0; i < count; i++)
             {
@@ -1659,29 +1758,101 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 flatPositions[(i * 3) + 1] = flatRoster[offset + 2];
                 flatPositions[(i * 3) + 2] = flatRoster[offset + 3];
                 starLevels[i] = flatRoster[offset + 4];
-                if (hasUnitDataHashes)
-                {
-                    unitDataKeyHashes[i] = flatRoster[offset + 5];
-                }
+                unitDataKeyHashes[i] = hasUnitDataHashes ? flatRoster[offset + 5] : 0;
             }
 
-            if (fieldManager == null || fieldManager.ground3D == null)
-            {
-                StorePendingUnitRoster(unitIdRaws, flatPositions, null, unitDataKeyHashes, starLevels);
-                RebindRuntimeReferencesAfterMigration("RPC_ReconcileUnitRosterCompact.Pending", false);
-            }
-
-            if (fieldManager == null || fieldManager.ground3D == null)
+            int fingerprint = ComputeUnitRosterFingerprint(
+                unitIdRaws,
+                flatPositions,
+                unitDataKeyHashes,
+                starLevels);
+            if (fingerprintedRoster && advertisedFingerprint != fingerprint)
             {
                 return;
             }
 
-            await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, null, unitDataKeyHashes, starLevels);
+            await ReceiveUnitRosterSnapshotAsync(
+                unitIdRaws,
+                flatPositions,
+                null,
+                unitDataKeyHashes,
+                starLevels,
+                rosterRevision,
+                fingerprint,
+                "RPC_ReconcileUnitRosterCompact");
         }
         catch (System.Exception)
         {
             // Compact roster correction is best-effort; per-unit register RPCs carry identity metadata.
         }
+    }
+
+    private async UniTask ReceiveUnitRosterSnapshotAsync(
+        int[] unitIdRaws,
+        int[] flatPositions,
+        string[] unitDataKeys,
+        int[] unitDataKeyHashes,
+        int[] starLevels,
+        int rosterRevision,
+        int rosterFingerprint,
+        string context)
+    {
+        if (!IsValidUnitRosterPayload(
+                unitIdRaws,
+                flatPositions,
+                unitDataKeys,
+                unitDataKeyHashes,
+                starLevels))
+        {
+            return;
+        }
+
+        UnitRosterRevisionAcceptance acceptance = TryAcceptUnitRosterRevision(
+            rosterRevision,
+            rosterFingerprint,
+            unitIdRaws,
+            flatPositions,
+            unitDataKeyHashes,
+            starLevels,
+            out int rosterApplyGeneration);
+        if (acceptance != UnitRosterRevisionAcceptance.AcceptedNew)
+        {
+            return;
+        }
+
+        if (fieldManager == null || fieldManager.ground3D == null)
+        {
+            StorePendingUnitRoster(
+                unitIdRaws,
+                flatPositions,
+                unitDataKeys,
+                unitDataKeyHashes,
+                starLevels,
+                rosterRevision,
+                rosterFingerprint,
+                rosterApplyGeneration);
+            RebindRuntimeReferencesAfterMigration($"{context}.Pending", false);
+        }
+
+        if (fieldManager == null || fieldManager.ground3D == null)
+        {
+            return;
+        }
+
+        if (_pendingUnitRosterIdRaws != null)
+        {
+            await DrainPendingUnitRoster(context);
+            return;
+        }
+
+        await ApplyAcceptedUnitRosterFromAuthority(
+            unitIdRaws,
+            flatPositions,
+            unitDataKeyHashes,
+            starLevels,
+            rosterRevision,
+            rosterFingerprint,
+            rosterApplyGeneration);
     }
 
     private async UniTask DrainPendingUnitRoster(string context)
@@ -1703,28 +1874,82 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
         var unitIdRaws = _pendingUnitRosterIdRaws;
         var flatPositions = _pendingUnitRosterFlatPositions;
-        var unitDataKeys = _pendingUnitRosterDataKeys;
         var unitDataKeyHashes = _pendingUnitRosterDataKeyHashes;
         var starLevels = _pendingUnitRosterStarLevels;
-        _pendingUnitRosterIdRaws = null;
-        _pendingUnitRosterFlatPositions = null;
-        _pendingUnitRosterDataKeys = null;
-        _pendingUnitRosterDataKeyHashes = null;
-        _pendingUnitRosterStarLevels = null;
+        int rosterRevision = _pendingUnitRosterRevision;
+        int rosterFingerprint = _pendingUnitRosterFingerprint;
+        int rosterApplyGeneration = _pendingUnitRosterApplyGeneration;
+        ClearPendingUnitRoster();
 
-        await ApplyUnitRosterFromAuthority(unitIdRaws, flatPositions, unitDataKeys, unitDataKeyHashes, starLevels);
+        await ApplyAcceptedUnitRosterFromAuthority(
+            unitIdRaws,
+            flatPositions,
+            unitDataKeyHashes,
+            starLevels,
+            rosterRevision,
+            rosterFingerprint,
+            rosterApplyGeneration);
     }
 
-    private void StorePendingUnitRoster(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] unitDataKeyHashes, int[] starLevels)
+    private bool StorePendingUnitRoster(
+        int[] unitIdRaws,
+        int[] flatPositions,
+        string[] unitDataKeys,
+        int[] unitDataKeyHashes,
+        int[] starLevels,
+        int rosterRevision,
+        int rosterFingerprint,
+        int rosterApplyGeneration)
     {
+        if (!IsUnitRosterApplyCurrent(rosterRevision, rosterFingerprint, rosterApplyGeneration))
+        {
+            return false;
+        }
+
+        if (_pendingUnitRosterIdRaws != null)
+        {
+            if (rosterRevision < _pendingUnitRosterRevision ||
+                (rosterRevision == _pendingUnitRosterRevision &&
+                 rosterFingerprint != _pendingUnitRosterFingerprint))
+            {
+                return false;
+            }
+
+            if (rosterRevision == _pendingUnitRosterRevision)
+            {
+                return true;
+            }
+        }
+
         _pendingUnitRosterIdRaws = unitIdRaws != null ? unitIdRaws.ToArray() : null;
         _pendingUnitRosterFlatPositions = flatPositions != null ? flatPositions.ToArray() : null;
         _pendingUnitRosterDataKeys = unitDataKeys != null ? unitDataKeys.ToArray() : null;
         _pendingUnitRosterDataKeyHashes = unitDataKeyHashes != null ? unitDataKeyHashes.ToArray() : null;
         _pendingUnitRosterStarLevels = starLevels != null ? starLevels.ToArray() : null;
+        _pendingUnitRosterRevision = rosterRevision;
+        _pendingUnitRosterFingerprint = rosterFingerprint;
+        _pendingUnitRosterApplyGeneration = rosterApplyGeneration;
+        return true;
     }
 
-    private bool IsValidUnitRosterPayload(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] starLevels)
+    private void ClearPendingUnitRoster()
+    {
+        _pendingUnitRosterIdRaws = null;
+        _pendingUnitRosterFlatPositions = null;
+        _pendingUnitRosterDataKeys = null;
+        _pendingUnitRosterDataKeyHashes = null;
+        _pendingUnitRosterStarLevels = null;
+        _pendingUnitRosterRevision = -1;
+        _pendingUnitRosterFingerprint = 0;
+        _pendingUnitRosterApplyGeneration = 0;
+    }
+
+    private bool IsValidUnitRosterPayload(
+        int[] unitIdRaws,
+        int[] flatPositions,
+        string[] unitDataKeys,
+        int[] unitDataKeyHashes,
+        int[] starLevels)
     {
         if (unitIdRaws == null || flatPositions == null || starLevels == null)
         {
@@ -1734,68 +1959,90 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         int count = unitIdRaws.Length;
         return flatPositions.Length == count * 3
             && starLevels.Length == count
-            && (unitDataKeys == null || unitDataKeys.Length == count);
+            && (unitDataKeys == null || unitDataKeys.Length == count)
+            && (unitDataKeyHashes == null || unitDataKeyHashes.Length == count);
     }
 
-    private async UniTask ApplyUnitRosterFromAuthority(int[] unitIdRaws, int[] flatPositions, string[] unitDataKeys, int[] unitDataKeyHashes, int[] starLevels)
+    private async UniTask ApplyAcceptedUnitRosterFromAuthority(
+        int[] unitIdRaws,
+        int[] flatPositions,
+        int[] unitDataKeyHashes,
+        int[] starLevels,
+        int rosterRevision,
+        int rosterFingerprint,
+        int rosterApplyGeneration)
     {
-        if (!IsValidUnitRosterPayload(unitIdRaws, flatPositions, unitDataKeys, starLevels) || fieldManager == null)
+        if (!IsValidUnitRosterPayload(unitIdRaws, flatPositions, null, unitDataKeyHashes, starLevels) ||
+            fieldManager == null ||
+            !IsUnitRosterApplyCurrent(rosterRevision, rosterFingerprint, rosterApplyGeneration))
         {
             return;
         }
 
         var authoritativePositions = BuildUnitRosterPositionMap(unitIdRaws, flatPositions);
-        foreach (var unitIdRaw in authoritativePositions.Keys)
-        {
-            _retiredUnitRegistrationIds.Remove(unitIdRaw);
-        }
-
         fieldManager.ReconcileUnitsToAuthoritativeRoster(authoritativePositions);
 
         for (int i = 0; i < unitIdRaws.Length; i++)
         {
+            if (!IsUnitRosterApplyCurrent(rosterRevision, rosterFingerprint, rosterApplyGeneration))
+            {
+                return;
+            }
+
             uint unitIdRaw = unchecked((uint)unitIdRaws[i]);
-            if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
+            if (!_latestUnitRegistrationById.TryGetValue(unitIdRaw, out PendingUnitReg registration) ||
+                !IsUnitRegistrationCurrent(registration))
             {
                 continue;
             }
 
-            var position = new Vector3Int(flatPositions[(i * 3) + 0], flatPositions[(i * 3) + 1], flatPositions[(i * 3) + 2]);
-            string unitDataKey = unitDataKeys != null ? unitDataKeys[i] : string.Empty;
-            int starLevel = starLevels[i];
-
-            if (string.IsNullOrEmpty(unitDataKey) &&
-                _latestUnitRegistrationById.TryGetValue(unitIdRaw, out var metadataForKey) &&
-                metadataForKey.starLevel == starLevel)
+            string unitDataKey = registration.unitDataKey;
+            if (string.IsNullOrEmpty(unitDataKey) && registration.unitDataKeyHash != 0)
             {
-                unitDataKey = metadataForKey.unitDataKey ?? string.Empty;
-            }
-
-            if (string.IsNullOrEmpty(unitDataKey) &&
-                unitDataKeyHashes != null &&
-                i < unitDataKeyHashes.Length)
-            {
-                unitDataKey = await ResolveUnitDataKeyByStableHashAsync(unitDataKeyHashes[i]);
-            }
-
-            NetworkObject unitNO = await ResolveNetworkObjectByRawIdAsync(unitIdRaw);
-            if (unitNO == null)
-            {
-                if (_latestUnitRegistrationById.TryGetValue(unitIdRaw, out var metadataForObject) &&
-                    metadataForObject.unitNO != null &&
-                    metadataForObject.unitNO.IsValid &&
-                    metadataForObject.unitNO.Id.Raw == unitIdRaw)
+                unitDataKey = await ResolveUnitDataKeyByStableHashAsync(registration.unitDataKeyHash);
+                if (!IsUnitRosterApplyCurrent(rosterRevision, rosterFingerprint, rosterApplyGeneration) ||
+                    !IsUnitRegistrationCurrent(registration))
                 {
-                    unitNO = metadataForObject.unitNO;
+                    continue;
+                }
+
+                if (!TryUpdateLatestUnitRegistration(registration, null, unitDataKey, out registration))
+                {
+                    continue;
                 }
             }
 
-            if (unitNO == null)
+            NetworkObject unitNO = await ResolveNetworkObjectByRawIdAsync(unitIdRaw, registration);
+            if (!IsUnitRosterApplyCurrent(rosterRevision, rosterFingerprint, rosterApplyGeneration) ||
+                !IsUnitRegistrationCurrent(registration))
             {
                 continue;
             }
 
-            await RPC_RegisterUnitAt_Internal(unitNO, position.x, position.y, unitDataKey, starLevel);
+            if (unitNO == null &&
+                _latestUnitRegistrationById.TryGetValue(unitIdRaw, out PendingUnitReg metadataForObject) &&
+                metadataForObject.registrationGeneration == registration.registrationGeneration &&
+                metadataForObject.unitNO != null &&
+                metadataForObject.unitNO.IsValid &&
+                metadataForObject.unitNO.Id.Raw == unitIdRaw)
+            {
+                unitNO = metadataForObject.unitNO;
+            }
+
+            if (unitNO == null ||
+                !TryUpdateLatestUnitRegistration(registration, unitNO, unitDataKey, out registration))
+            {
+                continue;
+            }
+
+            await RPC_RegisterUnitAt_Internal(
+                unitNO,
+                registration.x,
+                registration.y,
+                registration.unitDataKey,
+                registration.starLevel,
+                registration.rosterRevision,
+                registration.registrationGeneration);
         }
     }
 
@@ -1857,23 +2104,318 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         return StableDataKeyHash(NormalizeShopUnitKey(value));
     }
 
-    private void RememberLatestUnitRegistration(uint unitIdRaw, NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
+    public static int ComputeUnitRosterFingerprint(
+        int[] unitIdRaws,
+        int[] flatPositions,
+        int[] unitDataKeyHashes,
+        int[] starLevels)
     {
-        _latestUnitRegistrationById[unitIdRaw] = new PendingUnitReg
+        if (unitIdRaws == null || flatPositions == null || unitDataKeyHashes == null || starLevels == null ||
+            flatPositions.Length != unitIdRaws.Length * 3 ||
+            unitDataKeyHashes.Length != unitIdRaws.Length ||
+            starLevels.Length != unitIdRaws.Length)
         {
-            unitNO = unitNO,
-            unitIdRaw = unitIdRaw,
-            x = x,
-            y = y,
-            unitDataKey = unitDataKey ?? string.Empty,
-            starLevel = starLevel
-        };
+            return 0;
+        }
+
+        unchecked
+        {
+            uint hash = 2166136261u;
+            AppendUnitRosterFingerprintValue(ref hash, unitIdRaws.Length);
+            for (int i = 0; i < unitIdRaws.Length; i++)
+            {
+                AppendUnitRosterFingerprintValue(ref hash, unitIdRaws[i]);
+                AppendUnitRosterFingerprintValue(ref hash, flatPositions[(i * 3) + 0]);
+                AppendUnitRosterFingerprintValue(ref hash, flatPositions[(i * 3) + 1]);
+                AppendUnitRosterFingerprintValue(ref hash, flatPositions[(i * 3) + 2]);
+                AppendUnitRosterFingerprintValue(ref hash, starLevels[i]);
+                AppendUnitRosterFingerprintValue(ref hash, unitDataKeyHashes[i]);
+            }
+            return unchecked((int)hash);
+        }
     }
 
-    private async UniTask<NetworkObject> ResolveNetworkObjectByRawIdAsync(uint unitIdRaw)
+    private static void AppendUnitRosterFingerprintValue(ref uint hash, int value)
+    {
+        unchecked
+        {
+            uint bits = unchecked((uint)value);
+            for (int shift = 0; shift < 32; shift += 8)
+            {
+                hash ^= (byte)(bits >> shift);
+                hash *= 16777619u;
+            }
+        }
+    }
+
+    private UnitRosterRevisionAcceptance TryAcceptUnitRosterRevision(
+        int rosterRevision,
+        int rosterFingerprint,
+        int[] unitIdRaws,
+        int[] flatPositions,
+        int[] unitDataKeyHashes,
+        int[] starLevels,
+        out int applyGeneration)
+    {
+        rosterRevision = Mathf.Max(0, rosterRevision);
+        applyGeneration = _unitRosterApplyGeneration;
+        if (rosterRevision < _latestAcceptedUnitRosterRevision)
+        {
+            return UnitRosterRevisionAcceptance.Rejected;
+        }
+
+        if (rosterRevision == _latestAcceptedUnitRosterRevision)
+        {
+            return rosterFingerprint == _latestAcceptedUnitRosterFingerprint
+                ? UnitRosterRevisionAcceptance.Duplicate
+                : UnitRosterRevisionAcceptance.Rejected;
+        }
+
+        var desired = new Dictionary<uint, DesiredUnitRosterEntry>(unitIdRaws.Length);
+        for (int i = 0; i < unitIdRaws.Length; i++)
+        {
+            uint unitIdRaw = unchecked((uint)unitIdRaws[i]);
+            var entry = new DesiredUnitRosterEntry(
+                unitIdRaw,
+                flatPositions[(i * 3) + 0],
+                flatPositions[(i * 3) + 1],
+                flatPositions[(i * 3) + 2],
+                unitDataKeyHashes[i],
+                starLevels[i]);
+            if (desired.ContainsKey(unitIdRaw))
+            {
+                return UnitRosterRevisionAcceptance.Rejected;
+            }
+            desired.Add(unitIdRaw, entry);
+        }
+
+        uint[] previouslyKnownIds = _latestUnitRegistrationById.Keys.ToArray();
+
+        // Invalidate every continuation before publishing the replacement desired map.
+        _unitRosterApplyGeneration = NextPositiveGeneration(_unitRosterApplyGeneration);
+        _unitRegistrationGeneration = NextPositiveGeneration(_unitRegistrationGeneration);
+        _latestAcceptedUnitRosterRevision = rosterRevision;
+        _latestAcceptedUnitRosterFingerprint = rosterFingerprint;
+        _desiredUnitRosterById.Clear();
+        _latestUnitRegistrationById.Clear();
+        _pendingUnitRegs.Clear();
+        ClearPendingUnitRoster();
+
+        foreach (var pair in desired)
+        {
+            DesiredUnitRosterEntry entry = pair.Value;
+            _desiredUnitRosterById.Add(pair.Key, entry);
+            _retiredUnitRegistrationIds.Remove(pair.Key);
+            _unitRegistrationGeneration = NextPositiveGeneration(_unitRegistrationGeneration);
+            _latestUnitRegistrationById.Add(pair.Key, new PendingUnitReg
+            {
+                unitNO = null,
+                unitIdRaw = pair.Key,
+                x = entry.X,
+                y = entry.Y,
+                z = entry.Z,
+                unitDataKey = string.Empty,
+                unitDataKeyHash = entry.UnitDataKeyHash,
+                starLevel = entry.StarLevel,
+                rosterRevision = rosterRevision,
+                registrationGeneration = _unitRegistrationGeneration,
+                lifecycleGeneration = _unitRosterLifecycleGeneration
+            });
+        }
+
+        foreach (uint previouslyKnownId in previouslyKnownIds)
+        {
+            if (!desired.ContainsKey(previouslyKnownId))
+            {
+                _retiredUnitRegistrationIds.Add(previouslyKnownId);
+            }
+        }
+
+        applyGeneration = _unitRosterApplyGeneration;
+        return UnitRosterRevisionAcceptance.AcceptedNew;
+    }
+
+    private bool IsUnitRosterApplyCurrent(int rosterRevision, int rosterFingerprint, int applyGeneration)
+    {
+        return Mathf.Max(0, rosterRevision) == _latestAcceptedUnitRosterRevision &&
+               rosterFingerprint == _latestAcceptedUnitRosterFingerprint &&
+               applyGeneration == _unitRosterApplyGeneration;
+    }
+
+    private bool RememberLatestUnitRegistration(
+        uint unitIdRaw,
+        NetworkObject unitNO,
+        int x,
+        int y,
+        string unitDataKey,
+        int starLevel,
+        int rosterRevision,
+        out PendingUnitReg registration)
+    {
+        registration = default;
+        rosterRevision = Mathf.Max(0, rosterRevision);
+        string normalizedUnitDataKey = unitDataKey ?? string.Empty;
+        int unitDataKeyHash = StableUnitDataKeyHash(normalizedUnitDataKey);
+        if (rosterRevision != _latestAcceptedUnitRosterRevision ||
+            !_desiredUnitRosterById.TryGetValue(unitIdRaw, out DesiredUnitRosterEntry desired) ||
+            desired.X != x ||
+            desired.Y != y ||
+            desired.Z != 0 ||
+            desired.StarLevel != starLevel ||
+            desired.UnitDataKeyHash != unitDataKeyHash ||
+            (unitNO != null && (!unitNO.IsValid || unitNO.Id.Raw != unitIdRaw)))
+        {
+            return false;
+        }
+
+        if (!_latestUnitRegistrationById.TryGetValue(unitIdRaw, out registration) ||
+            registration.rosterRevision != rosterRevision ||
+            registration.lifecycleGeneration != _unitRosterLifecycleGeneration)
+        {
+            _unitRegistrationGeneration = NextPositiveGeneration(_unitRegistrationGeneration);
+            registration = new PendingUnitReg
+            {
+                unitNO = unitNO,
+                unitIdRaw = unitIdRaw,
+                x = desired.X,
+                y = desired.Y,
+                z = desired.Z,
+                unitDataKey = normalizedUnitDataKey,
+                unitDataKeyHash = desired.UnitDataKeyHash,
+                starLevel = desired.StarLevel,
+                rosterRevision = rosterRevision,
+                registrationGeneration = _unitRegistrationGeneration,
+                lifecycleGeneration = _unitRosterLifecycleGeneration
+            };
+        }
+        else
+        {
+            if (unitNO != null)
+            {
+                registration.unitNO = unitNO;
+            }
+            registration.unitDataKey = normalizedUnitDataKey;
+        }
+
+        _retiredUnitRegistrationIds.Remove(unitIdRaw);
+        _latestUnitRegistrationById[unitIdRaw] = registration;
+        return true;
+    }
+
+    private bool IsUnitRegistrationCurrent(PendingUnitReg registration)
+    {
+        return !_retiredUnitRegistrationIds.Contains(registration.unitIdRaw) &&
+               registration.lifecycleGeneration == _unitRosterLifecycleGeneration &&
+               Mathf.Max(0, registration.rosterRevision) == _latestAcceptedUnitRosterRevision &&
+               _desiredUnitRosterById.TryGetValue(registration.unitIdRaw, out DesiredUnitRosterEntry desired) &&
+               desired.X == registration.x &&
+               desired.Y == registration.y &&
+               desired.Z == registration.z &&
+               desired.StarLevel == registration.starLevel &&
+               desired.UnitDataKeyHash == registration.unitDataKeyHash &&
+               _latestUnitRegistrationById.TryGetValue(registration.unitIdRaw, out PendingUnitReg latest) &&
+               latest.rosterRevision == registration.rosterRevision &&
+               latest.registrationGeneration == registration.registrationGeneration &&
+               latest.lifecycleGeneration == registration.lifecycleGeneration;
+    }
+
+    private bool TryUpdateLatestUnitRegistration(
+        PendingUnitReg expected,
+        NetworkObject unitNO,
+        string unitDataKey,
+        out PendingUnitReg updated)
+    {
+        updated = expected;
+        if (!IsUnitRegistrationCurrent(expected) ||
+            !_latestUnitRegistrationById.TryGetValue(expected.unitIdRaw, out PendingUnitReg latest))
+        {
+            return false;
+        }
+
+        updated = latest;
+
+        if (unitNO != null)
+        {
+            if (!unitNO.IsValid || unitNO.Id.Raw != expected.unitIdRaw)
+            {
+                return false;
+            }
+            updated.unitNO = unitNO;
+        }
+        if (!string.IsNullOrEmpty(unitDataKey))
+        {
+            if (StableUnitDataKeyHash(unitDataKey) != expected.unitDataKeyHash)
+            {
+                return false;
+            }
+            updated.unitDataKey = unitDataKey;
+        }
+
+        _latestUnitRegistrationById[expected.unitIdRaw] = updated;
+        return true;
+    }
+
+    private bool CanApplyUnitUnregister(uint unitIdRaw, int rosterRevision)
+    {
+        return Mathf.Max(0, rosterRevision) == _latestAcceptedUnitRosterRevision &&
+               !_desiredUnitRosterById.ContainsKey(unitIdRaw);
+    }
+
+    private void ResetLocalUnitRosterSyncState()
+    {
+        _unitRosterLifecycleGeneration = NextPositiveGeneration(_unitRosterLifecycleGeneration);
+        _unitRosterApplyGeneration = NextPositiveGeneration(_unitRosterApplyGeneration);
+        _unitRegistrationGeneration = NextPositiveGeneration(_unitRegistrationGeneration);
+        _latestAcceptedUnitRosterRevision = -1;
+        _latestAcceptedUnitRosterFingerprint = 0;
+        _desiredUnitRosterById.Clear();
+        _latestUnitRegistrationById.Clear();
+        // Per-unit gates intentionally survive lifecycle resets. An Initialize from the
+        // previous lifecycle may still be unwinding, and a reused raw id must serialize
+        // behind it before the new lifecycle applies its state.
+        _retiredUnitRegistrationIds.Clear();
+        _pendingUnitRegs.Clear();
+        ClearPendingUnitRoster();
+    }
+
+    private static int NextPositiveGeneration(int current)
+    {
+        return current == int.MaxValue ? 1 : current + 1;
+    }
+
+    private SemaphoreSlim GetUnitRegistrationApplyGate(uint unitIdRaw)
+    {
+        if (!_unitRegistrationApplyGates.TryGetValue(unitIdRaw, out SemaphoreSlim gate))
+        {
+            gate = new SemaphoreSlim(1, 1);
+            _unitRegistrationApplyGates.Add(unitIdRaw, gate);
+        }
+
+        return gate;
+    }
+
+    public int AdvanceUnitRosterRevisionForAuthority()
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return Mathf.Max(0, UnitRosterRevision);
+        }
+
+        UnitRosterRevision = NextPositiveGeneration(UnitRosterRevision);
+        return UnitRosterRevision;
+    }
+
+    private async UniTask<NetworkObject> ResolveNetworkObjectByRawIdAsync(
+        uint unitIdRaw,
+        PendingUnitReg registration)
     {
         for (int attempt = 0; attempt < 300; attempt++)
         {
+            if (!IsUnitRegistrationCurrent(registration))
+            {
+                return null;
+            }
+
             if (TryFindNetworkObjectByRawId(unitIdRaw, out var unitNO))
             {
                 return unitNO;
@@ -1913,9 +2455,20 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void RPC_UnregisterUnitAt(NetworkId unitId, int x, int y, string unitDataKey, int starLevel)
+    public void RPC_UnregisterUnitAt(
+        NetworkId unitId,
+        int x,
+        int y,
+        string unitDataKey,
+        int starLevel,
+        int rosterRevision)
     {
         uint unitIdRaw = unitId.Raw;
+        if (!CanApplyUnitUnregister(unitIdRaw, rosterRevision))
+        {
+            return;
+        }
+
         _retiredUnitRegistrationIds.Add(unitIdRaw);
         _pendingUnitRegs.RemoveAll(reg => reg.unitIdRaw == unitIdRaw);
         _latestUnitRegistrationById.Remove(unitIdRaw);
@@ -1941,15 +2494,28 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public async void RPC_RegisterUnitAt(NetworkId unitId, int x, int y, string unitDataKey, int starLevel)
+    public async void RPC_RegisterUnitAt(
+        NetworkId unitId,
+        int x,
+        int y,
+        string unitDataKey,
+        int starLevel,
+        int rosterRevision)
     {
         try
         {
             // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] recv pos=({x},{y}) key='{unitDataKey}' star={starLevel} stateAuth={(Object != null && Object.HasStateAuthority)} id={unitId}</color>");
             if (Object != null && Object.HasStateAuthority) return;
             uint unitIdRaw = unitId.Raw;
-            RememberLatestUnitRegistration(unitIdRaw, null, x, y, unitDataKey, starLevel);
-            if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
+            if (!RememberLatestUnitRegistration(
+                    unitIdRaw,
+                    null,
+                    x,
+                    y,
+                    unitDataKey,
+                    starLevel,
+                    rosterRevision,
+                    out PendingUnitReg registration))
             {
                 return;
             }
@@ -1959,7 +2525,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             int attempts = 0;
             do
             {
-                if (_retiredUnitRegistrationIds.Contains(unitIdRaw))
+                if (!IsUnitRegistrationCurrent(registration))
                 {
                     return;
                 }
@@ -1974,29 +2540,32 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                     attempts++;
                 }
             } while (!resolved && attempts < 300);
-            if (!resolved || unitNO == null)
+            if (!resolved || unitNO == null || !IsUnitRegistrationCurrent(registration))
             {
                 // Debug.LogWarning($"<color=yellow>[RPC_RegisterUnitAt] failed to resolve NetworkObject by NetworkId='{unitId}' key='{unitDataKey}'</color>");
                 return;
             }
-            RememberLatestUnitRegistration(unitIdRaw, unitNO, x, y, unitDataKey, starLevel);
+            if (!TryUpdateLatestUnitRegistration(registration, unitNO, unitDataKey, out registration))
+            {
+                return;
+            }
 
             if (fieldManager == null || fieldManager.ground3D == null)
             {
                 // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] queued. fieldManagerReady={(fieldManager != null)} groundReady={(fieldManager != null && fieldManager.ground3D != null)}</color>");
-                _pendingUnitRegs.Add(new PendingUnitReg
-                {
-                    unitNO = unitNO,
-                    unitIdRaw = unitIdRaw,
-                    x = x,
-                    y = y,
-                    unitDataKey = unitDataKey,
-                    starLevel = starLevel
-                });
+                _pendingUnitRegs.RemoveAll(reg => reg.unitIdRaw == unitIdRaw);
+                _pendingUnitRegs.Add(registration);
                 return;
             }
 
-            await RPC_RegisterUnitAt_Internal(unitNO, x, y, unitDataKey, starLevel);
+            await RPC_RegisterUnitAt_Internal(
+                unitNO,
+                registration.x,
+                registration.y,
+                registration.unitDataKey,
+                registration.starLevel,
+                registration.rosterRevision,
+                registration.registrationGeneration);
             // Debug.Log($"<color=yellow>[RPC_RegisterUnitAt] dispatched to Internal for pos=({x},{y})</color>");
         }
         catch (System.Exception)
@@ -2005,14 +2574,54 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
     }
 
-    private async Cysharp.Threading.Tasks.UniTask RPC_RegisterUnitAt_Internal(NetworkObject unitNO, int x, int y, string unitDataKey, int starLevel)
+    private async Cysharp.Threading.Tasks.UniTask RPC_RegisterUnitAt_Internal(
+        NetworkObject unitNO,
+        int x,
+        int y,
+        string unitDataKey,
+        int starLevel,
+        int rosterRevision,
+        int registrationGeneration)
     {
+        SemaphoreSlim applyGate = null;
+        bool gateEntered = false;
         try
         {
-            if (unitNO != null && _retiredUnitRegistrationIds.Contains(unitNO.Id.Raw))
+            uint unitIdRaw = unitNO != null ? unitNO.Id.Raw : 0;
+            if (unitNO == null ||
+                !_latestUnitRegistrationById.TryGetValue(unitIdRaw, out PendingUnitReg registration) ||
+                registration.rosterRevision != Mathf.Max(0, rosterRevision) ||
+                registration.registrationGeneration != registrationGeneration ||
+                !IsUnitRegistrationCurrent(registration))
             {
                 return;
             }
+
+            applyGate = GetUnitRegistrationApplyGate(unitIdRaw);
+            await applyGate.WaitAsync();
+            gateEntered = true;
+
+            // A newer full roster can arrive while this call waits behind an older
+            // Initialize. Re-read the token after acquiring the per-unit gate so the
+            // newest accepted registration is always the final writer.
+            if (!_latestUnitRegistrationById.TryGetValue(unitIdRaw, out registration) ||
+                registration.rosterRevision != Mathf.Max(0, rosterRevision) ||
+                registration.registrationGeneration != registrationGeneration ||
+                !IsUnitRegistrationCurrent(registration))
+            {
+                return;
+            }
+
+            unitNO = registration.unitNO != null ? registration.unitNO : unitNO;
+            if (unitNO == null || !unitNO.IsValid || unitNO.Id.Raw != unitIdRaw)
+            {
+                return;
+            }
+
+            x = registration.x;
+            y = registration.y;
+            unitDataKey = registration.unitDataKey;
+            starLevel = registration.starLevel;
 
             if (fieldManager == null)
             {
@@ -2049,24 +2658,43 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 {
                     if (LoadManager.Instance == null)
                     {
-                        await Cysharp.Threading.Tasks.UniTask.WaitUntil(() => LoadManager.Instance != null);
+                        await Cysharp.Threading.Tasks.UniTask.WaitUntil(() =>
+                            LoadManager.Instance != null || !IsUnitRegistrationCurrent(registration));
+                        if (!IsUnitRegistrationCurrent(registration))
+                        {
+                            return;
+                        }
                     }
                     var lmReady = LoadManager.Instance.IsReady;
                     if (!lmReady)
                     {
                         // Debug.Log($"<color=yellow>[RPC_Internal] waiting LoadManager ready...</color>");
-                        await LoadManager.Instance.WaitUntilReady();
+                        await Cysharp.Threading.Tasks.UniTask.WaitUntil(() =>
+                            !IsUnitRegistrationCurrent(registration) ||
+                            (LoadManager.Instance != null && LoadManager.Instance.IsReady));
+                        if (!IsUnitRegistrationCurrent(registration))
+                        {
+                            return;
+                        }
                     }
                     data = LoadManager.Instance.GetUnitData(unitDataKey);
                     if (data == null)
                     {
                         // Debug.Log($"<color=yellow>[RPC_Internal] LoadManager miss for key='{unitDataKey}'. Trying Addressables fallback...</color>");
                         data = await AssetLoader.LoadAssetAsync<UnitData>(unitDataKey, _assetOwner);
+                        if (!IsUnitRegistrationCurrent(registration))
+                        {
+                            return;
+                        }
                     }
                 }
-                if (data != null)
+                if (data != null && IsUnitRegistrationCurrent(registration))
                 {
                     await unit.Initialize(data, starLevel, this);
+                    if (!IsUnitRegistrationCurrent(registration))
+                    {
+                        return;
+                    }
                     // Debug.Log($"<color=yellow>[RPC_Internal] unit.Initialize OK data='{unit.Data?.name}' star={starLevel}</color>");
                 }
                 else
@@ -2080,12 +2708,23 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 // Debug.LogWarning($"<color=yellow>[RPC_Internal] unit.Data still null after resolve. Skip Register. key='{unitDataKey}', pos={pos}</color>");
                 return;
             }
+            if (!IsUnitRegistrationCurrent(registration))
+            {
+                return;
+            }
             fieldManager.RegisterUnitAt(unit, pos);
             // Debug.Log($"<color=#3399FF>[ClientFlow] RegisterUnitAt via RPC -> {pos} (Player {playerId}) data='{unit.Data?.name}'</color>");
         }
         catch (System.Exception)
         {
             // Debug.LogError($"[RPC_Internal] exception: {ex.Message}");
+        }
+        finally
+        {
+            if (gateEntered)
+            {
+                applyGate.Release();
+            }
         }
     }
 
@@ -3976,6 +4615,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     public override void Despawned(NetworkRunner runner, bool hasState)
     {
+        ResetLocalUnitRosterSyncState();
         CancelAttackMonsterPrewarm();
         DisposeKingRuntime();
         _assetOwner?.Dispose();
@@ -3984,6 +4624,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     private void OnDestroy()
     {
+        ResetLocalUnitRosterSyncState();
         CancelAttackMonsterPrewarm();
         DisposeKingRuntime();
         _assetOwner?.Dispose();

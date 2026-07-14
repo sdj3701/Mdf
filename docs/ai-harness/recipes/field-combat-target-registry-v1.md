@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: performance, battle, host-migration
 Created: 2026-07-13
-Last used: 2026-07-13
-Last verified: 2026-07-13
-Use count: 1
+Last used: 2026-07-14
+Last verified: 2026-07-14
+Use count: 4
 Review after: 2026-08-10
 Triggers: per-frame OverlapSphere allocation, basic attack target churn, cross-field target, pooled target reuse, target search spike
 Applies to: `FieldCombatTargetRegistry`, `FieldManager`, `Unit`, `Monster`
-Verified by: `artifacts/mp/20260712-215401-two-humanbot-two-ai-smoke/result.json`; `artifacts/mp/20260712-215951-progressed-host-migration-after-battle/post-battle-host-migration-result.json`
+Verified by: `artifacts/mp/20260712-215401-two-humanbot-two-ai-smoke/result.json`; `artifacts/mp/20260712-215951-progressed-host-migration-after-battle/post-battle-host-migration-result.json`; artifacts/performance/final-latest-stress-pass/20260714-025614-two-humanbot-two-ai-smoke; artifacts/performance/final-swapback-stress-pass/20260714-032207-two-humanbot-two-ai-smoke
 Replacement: none
 Archive policy: keep while basic attack targeting uses pooled Fusion actors
 
@@ -38,3 +38,7 @@ Pitfalls:
 - Do not treat a non-running old Runner as local/offline authority.
 - Do not centralize skill, zone, splash, path-wall, or contact-block queries without preserving their separate selection rules.
 - Start with a field-local linear list. Add a spatial hash only after Profiler evidence shows candidate scans, rather than index maintenance, are the remaining bottleneck.
+
+Lifecycle notes:
+- 2026-07-14: verified artifact `artifacts/performance/final-latest-stress-pass/20260714-025614-two-humanbot-two-ai-smoke`
+- 2026-07-14: verified artifact `artifacts/performance/final-swapback-stress-pass/20260714-032207-two-humanbot-two-ai-smoke`
