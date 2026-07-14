@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -11,8 +12,10 @@ public sealed class MPTestBootstrap : MonoBehaviour
     private MPTestCommandLine.Options _options;
     private bool _started;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void Initialize()
+    // Called explicitly by NetworkManager.Awake in Editor/Development builds. Do not use
+    // RuntimeInitializeOnLoadMethod here: Unity serializes that registry while the Editor define
+    // is active, which leaks this QA-only type name into non-development globalgamemanagers.
+    public static void TryInitialize()
     {
         var options = MPTestCommandLine.GetOptions();
         if (!options.Enabled)
@@ -203,3 +206,4 @@ public sealed class MPTestBootstrap : MonoBehaviour
         }
     }
 }
+#endif

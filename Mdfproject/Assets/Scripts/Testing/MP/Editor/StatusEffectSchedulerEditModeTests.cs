@@ -8,10 +8,15 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 using Newtonsoft.Json;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using NetworkObject = Fusion.NetworkObject;
+using NetworkRunner = Fusion.NetworkRunner;
 
 public sealed class StatusEffectSchedulerEditModeTests
 {
@@ -127,10 +132,10 @@ public sealed class StatusEffectSchedulerEditModeTests
             {
                 "ApplyStatBuff", "BuildActiveStatBuffSnapshotParts", "CaptureStatBuffsForMigration",
                 "RestoreStatBuffsFromMigration", "ClearStatBuffsForTarget", "PackStatBuffMeta",
-                "ApplyStatBuffInternal", "IsBerserkBundle"
+                "ApplyStatBuffInternal"
             });
-        Assert.That(typeof(CombatScheduler).GetField("StatBuffFlagBerserkBundle", StaticMembers), Is.Not.Null);
-        Assert.That(typeof(CombatScheduler).GetField("StatBuffFlagBerserkMoveSpeed", StaticMembers), Is.Not.Null);
+        Assert.That(typeof(CombatScheduler).GetField("StatBuffFlagBerserkBundle", StaticMembers), Is.Null);
+        Assert.That(typeof(CombatScheduler).GetMethod("ApplyBerserkStatBuffs", InstanceMembers), Is.Null);
         Assert.That(typeof(BuffManager).GetMethod(nameof(BuffManager.ApplyStatBuffSchedulerCache)), Is.Not.Null);
         Assert.That(typeof(BuffManager).GetField("_statBuffCacheFromScheduler", InstanceMembers), Is.Not.Null);
         Assert.That(typeof(BuffManager).GetField("_activeBuffs", InstanceMembers), Is.Null);
@@ -140,15 +145,24 @@ public sealed class StatusEffectSchedulerEditModeTests
         MethodInfo applyBuff = GetRequiredMethod(typeof(BuffManager), nameof(BuffManager.ApplyBuff), InstanceMembers);
         MethodInfo fixedUpdate = GetRequiredMethod(typeof(CombatScheduler), nameof(CombatScheduler.FixedUpdateNetwork), InstanceMembers);
         MethodInfo captureEffects = GetRequiredMethod(typeof(MPTestStateSnapshot), "CaptureEffects", StaticMembers);
-        MethodInfo applyBerserk = GetRequiredMethod(typeof(CombatScheduler), "ApplyBerserkStatBuffs", InstanceMembers);
-        MethodInfo refreshTargetCache = GetRequiredMethod(typeof(CombatScheduler), "RefreshStatBuffCacheForTarget", InstanceMembers);
         AssertMethodReferences(applyBuff, typeof(CombatScheduler), nameof(CombatScheduler.ApplyStatBuff));
-        AssertMethodReferences(applyBerserk, typeof(CombatScheduler), "ApplyStatBuffInternal");
-        AssertMethodReferences(refreshTargetCache, typeof(CombatScheduler), "IsBerserkBundle");
         AssertMethodReferences(fixedUpdate, typeof(CombatScheduler), "ProcessDueStatBuffs");
         AssertMethodReferences(captureEffects, typeof(CombatScheduler), "get_IsStatBuffSchedulerActive");
         AssertMethodReferences(captureEffects, typeof(CombatScheduler), "get_ActiveStatBuffCount");
         AssertMethodReferences(captureEffects, typeof(CombatScheduler), "BuildActiveStatBuffSnapshotParts");
+
+        MethodInfo recalculate = GetRequiredMethod(typeof(BuffManager), nameof(BuffManager.RecalculateStats), InstanceMembers);
+        MethodInfo unitBerserk = GetRequiredMethod(typeof(Unit), nameof(Unit.ApplyBerserkMode), InstanceMembers);
+        MethodInfo monsterBerserk = GetRequiredMethod(typeof(Monster), nameof(Monster.ApplyBerserkMode), InstanceMembers);
+        Assert.That(typeof(Unit).GetProperty(nameof(Unit.IsBerserkModeActive), InstanceMembers), Is.Not.Null);
+        Assert.That(typeof(Monster).GetProperty(nameof(Monster.IsBerserkModeActive), InstanceMembers), Is.Not.Null);
+        Assert.That(typeof(Unit).GetProperty("NetworkedBerserkModeActive", InstanceMembers), Is.Not.Null);
+        Assert.That(typeof(Monster).GetProperty("NetworkedBerserkModeActive", InstanceMembers), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField(nameof(FieldUnitMigrationSnapshot.BerserkModeActive)), Is.Not.Null);
+        AssertMethodReferences(recalculate, typeof(Unit), "get_IsBerserkModeActive");
+        AssertMethodReferences(recalculate, typeof(Monster), "get_IsBerserkModeActive");
+        AssertMethodReferences(unitBerserk, typeof(Unit), "SetBerserkModeActive");
+        AssertMethodReferences(monsterBerserk, typeof(Monster), "SetBerserkModeActive");
     }
 
     [Test]
@@ -174,13 +188,24 @@ public sealed class StatusEffectSchedulerEditModeTests
         MethodInfo fixedUpdate = GetRequiredMethod(typeof(CombatScheduler), nameof(CombatScheduler.FixedUpdateNetwork), InstanceMembers);
         MethodInfo spawned = GetRequiredMethod(typeof(CombatScheduler), nameof(CombatScheduler.Spawned), InstanceMembers);
         MethodInfo applyEffect = GetRequiredMethod(typeof(ZoneEffect), nameof(ZoneEffect.ApplyEffect), InstanceMembers);
+        MethodInfo tryApplyEffect = GetRequiredMethod(typeof(ZoneEffect), nameof(ZoneEffect.TryApplyEffect), InstanceMembers);
         MethodInfo captureEffects = GetRequiredMethod(typeof(MPTestStateSnapshot), "CaptureEffects", StaticMembers);
         AssertMethodReferences(fixedUpdate, typeof(CombatScheduler), "ProcessDueZones");
         AssertMethodReferences(spawned, typeof(CombatScheduler), "RebuildZonePayloadsFromNetworkEntries");
-        AssertMethodReferences(applyEffect, typeof(CombatScheduler), nameof(CombatScheduler.TryScheduleZone));
+        Assert.That(
+            GetReachableInstructions(applyEffect).Any(instruction =>
+                instruction.Member is MethodBase referenced &&
+                referenced.Name == nameof(ZoneEffect.TryApplyEffect) &&
+                typeof(SkillEffect).IsAssignableFrom(referenced.DeclaringType)),
+            Is.True,
+            "ZoneEffect.ApplyEffect must route through the virtual TryApplyEffect contract");
+        AssertMethodReferences(tryApplyEffect, typeof(CombatScheduler), nameof(CombatScheduler.TryScheduleZone));
         AssertNoMethodReference(applyEffect, typeof(UnityEngine.Object), nameof(UnityEngine.Object.Instantiate));
         AssertTypeMethodsDoNotReference(typeof(ZoneController), typeof(Time), "get_deltaTime");
-        AssertTypeMethodsReference(typeof(ZoneController), typeof(CombatScheduler), nameof(CombatScheduler.ClearScheduledZone));
+        AssertTypeMethodsReference(
+            typeof(ZoneController),
+            typeof(CombatScheduler),
+            nameof(CombatScheduler.CloseScheduledZoneForPhaseTransition));
         AssertMethodReferences(captureEffects, typeof(CombatScheduler), "get_IsZoneSchedulerActive");
         AssertMethodReferences(captureEffects, typeof(CombatScheduler), "BuildActiveZoneSnapshotParts");
         AssertNoGenericMethodReference(captureEffects, typeof(UnityEngine.Object), "FindObjectsOfType", typeof(ZoneController));
@@ -253,14 +278,17 @@ public sealed class StatusEffectSchedulerEditModeTests
     }
 
     [Test]
-    public void NetworkBudgetDropsAreExposedAndCapacityFailuresReturnFalse()
+    public void NetworkBudgetSeparatesRecoveredCapacityPressureFromTrueDrops()
     {
         Type budgetReport = typeof(CombatScheduler).GetNestedType("NetworkBudgetReport", BindingFlags.Public);
         Assert.That(budgetReport, Is.Not.Null);
         foreach (string fieldName in new[]
                  {
                      "StatusCapacityDrops", "StatBuffCapacityDrops", "ZoneCapacityDrops",
-                     "PendingFireCapacityDrops", "PendingHitCapacityDrops", "PresentationEventDrops"
+                     "PendingFireCapacityDrops", "PendingHitCapacityDrops", "PresentationEventDrops",
+                     "StatusCapacityCoalesces", "StatBuffCapacityCoalesces", "ZoneCapacityCoalesces",
+                     "PendingFireCapacityFallbacks", "PendingHitCapacityFallbacks",
+                     "StatusCapacityBackpressures", "StatBuffCapacityBackpressures", "ZoneCapacityBackpressures"
                  })
         {
             Assert.That(budgetReport.GetField(fieldName, InstanceMembers), Is.Not.Null, fieldName);
@@ -297,6 +325,32 @@ public sealed class StatusEffectSchedulerEditModeTests
             Assert.That(report.PendingFireCapacityDrops, Is.EqualTo(1));
             Assert.That(report.PendingHitCapacityDrops, Is.EqualTo(1));
             Assert.That(report.PresentationEventDrops, Is.EqualTo(1));
+
+            Type recoveryKind = typeof(CombatScheduler).GetNestedType("CapacityRecoveryKind", BindingFlags.NonPublic);
+            MethodInfo recordRecovery = typeof(CombatScheduler).GetMethod("RecordCapacityRecovery", InstanceMembers);
+            Assert.That(recoveryKind, Is.Not.Null);
+            Assert.That(recordRecovery, Is.Not.Null);
+            foreach (string recoveryName in new[]
+                     {
+                         "StatusCoalesce", "StatBuffCoalesce", "ZoneCoalesce",
+                         "PendingFireBackpressure", "PendingHitBackpressure",
+                         "StatusBackpressure", "StatBuffBackpressure", "ZoneBackpressure"
+                     })
+            {
+                recordRecovery.Invoke(scheduler, new[] { Enum.Parse(recoveryKind, recoveryName) });
+            }
+
+            report = scheduler.GetNetworkBudgetReport();
+            Assert.That(report.StatusCapacityCoalesces, Is.EqualTo(1));
+            Assert.That(report.StatBuffCapacityCoalesces, Is.EqualTo(1));
+            Assert.That(report.ZoneCapacityCoalesces, Is.EqualTo(1));
+            Assert.That(report.PendingFireCapacityFallbacks, Is.EqualTo(1));
+            Assert.That(report.PendingHitCapacityFallbacks, Is.EqualTo(1));
+            Assert.That(report.StatusCapacityBackpressures, Is.EqualTo(1));
+            Assert.That(report.StatBuffCapacityBackpressures, Is.EqualTo(1));
+            Assert.That(report.ZoneCapacityBackpressures, Is.EqualTo(1));
+            Assert.That(report.PendingFireCapacityDrops, Is.EqualTo(1), "recovery telemetry must not increment true drops");
+            Assert.That(report.PendingHitCapacityDrops, Is.EqualTo(1), "recovery telemetry must not increment true drops");
         }
         finally
         {
@@ -312,16 +366,18 @@ public sealed class StatusEffectSchedulerEditModeTests
         MethodInfo clearPendingHit = GetRequiredMethod(typeof(CombatScheduler), "ClearPendingHitSnapshot", InstanceMembers);
         MethodInfo publishProjectile = GetRequiredMethod(typeof(CombatScheduler), "PublishProjectileVfxEvent", InstanceMembers);
 
-        AssertCapacityFailureReturnsFalse(applyStatus, "FindEmptyStatusSlot");
-        AssertCapacityFailureReturnsFalse(applyStatBuffInternal, "FindEmptyStatBuffSlot");
-        AssertCapacityFailureReturnsFalse(applyZone, "FindEmptyZoneSlot");
-        AssertCapacityFailureReturnsFalse(writePendingFire, "FindEmptyPendingFireSnapshotSlot");
-        AssertCapacityFailureReturnsFalse(writePendingHit, "FindEmptyPendingHitSnapshotSlot");
+        AssertCapacityPressureBackpressuresWithoutDrop(applyStatus, "FindEmptyStatusSlot");
+        AssertCapacityPressureBackpressuresWithoutDrop(applyStatBuffInternal, "FindEmptyStatBuffSlot");
+        AssertCapacityPressureBackpressuresWithoutDrop(applyZone, "FindEmptyZoneSlot");
+        AssertCapacityPressureBackpressuresWithoutDrop(writePendingFire, "FindEmptyPendingFireSnapshotSlot");
+        AssertCapacityPressureBackpressuresWithoutDrop(writePendingHit, "FindEmptyPendingHitSnapshotSlot");
+        AssertMethodReferences(writePendingFire, typeof(CombatScheduler), "RecordCapacityRecovery");
+        AssertMethodReferences(writePendingHit, typeof(CombatScheduler), "RecordCapacityRecovery");
         AssertMethodReferences(clearPendingFire, typeof(CombatScheduler), "FindPendingFireSnapshotSlot");
         AssertMethodReferences(clearPendingHit, typeof(CombatScheduler), "FindPendingHitSnapshotSlot");
         AssertMethodReferences(publishProjectile, typeof(CombatScheduler), "RecordNetworkBudgetDrop");
-        AssertMethodHasStringLiteral(writePendingFire, "Pending fire capacity exceeded");
-        AssertMethodHasStringLiteral(writePendingHit, "Pending hit capacity exceeded");
+        Assert.That(typeof(CombatScheduler).GetMethod("TryFlushEarliestPendingFireForCapacity", InstanceMembers), Is.Null);
+        Assert.That(typeof(CombatScheduler).GetMethod("TryFlushEarliestPendingHitForCapacity", InstanceMembers), Is.Null);
         AssertMethodDoesNotUseRemainder(writePendingFire);
         AssertMethodDoesNotUseRemainder(writePendingHit);
         AssertMethodDoesNotUseRemainder(clearPendingFire);
@@ -373,6 +429,153 @@ public sealed class StatusEffectSchedulerEditModeTests
             GetRequiredMethod(typeof(MPTestAutomationServer), "ApplyStatusEffectForTest", InstanceMembers),
             typeof(MPTestAutomationServer),
             "TryFindStatusEffectTarget");
+
+        MethodInfo targetFinder = GetRequiredMethod(
+            typeof(MPTestAutomationServer),
+            "TryFindStatusEffectTarget",
+            StaticMembers);
+        MethodInfo targetOrderKey = GetRequiredMethod(
+            typeof(MPTestAutomationServer),
+            "GetNetworkObjectOrderKey",
+            StaticMembers);
+        AssertMethodReferences(targetFinder, typeof(MPTestAutomationServer), "GetNetworkObjectOrderKey");
+        Assert.That(targetOrderKey.ReturnType, Is.EqualTo(typeof(uint)));
+
+        MethodInfo spawnExecuted = GetRequiredMethod(
+            typeof(BattleSpawnMonsterCommand),
+            "Executed",
+            InstanceMembers);
+        MethodInfo spawnRejected = GetRequiredMethod(
+            typeof(BattleSpawnMonsterCommand),
+            "Reject",
+            InstanceMembers);
+        AssertMethodReferences(spawnExecuted, typeof(NetworkRunner), "get_IsRunning");
+        AssertMethodReferences(spawnExecuted, typeof(NetworkObject), "get_HasStateAuthority");
+        AssertMethodReferences(
+            spawnExecuted,
+            typeof(HostMigrationHandler),
+            nameof(HostMigrationHandler.TryPushHostMigrationSnapshot));
+        AssertNoMethodReference(
+            spawnRejected,
+            typeof(HostMigrationHandler),
+            nameof(HostMigrationHandler.TryPushHostMigrationSnapshot));
+        AssertMethodHasStringLiteral(spawnExecuted, "BattleSpawnMonster:Committed");
+
+        AssertMethodHasStringLiteral(route, "/test/pushHostMigrationSnapshot");
+        AssertMethodReferences(
+            route,
+            typeof(MPTestAutomationServer),
+            "PushHostMigrationSnapshotForTestAsync");
+        MethodInfo pushEndpoint = GetRequiredMethod(
+            typeof(MPTestAutomationServer),
+            "PushHostMigrationSnapshotForTestAsync",
+            InstanceMembers);
+        AssertMethodReferences(
+            pushEndpoint,
+            typeof(HostMigrationHandler),
+            nameof(HostMigrationHandler.PushHostMigrationSnapshotAsync));
+
+        MethodInfo pushSnapshotAsync = GetRequiredMethod(
+            typeof(HostMigrationHandler),
+            nameof(HostMigrationHandler.PushHostMigrationSnapshotAsync),
+            InstanceMembers);
+        Assert.That(pushSnapshotAsync.ReturnType, Is.EqualTo(typeof(UniTask<bool>)));
+        Assert.That(
+            pushSnapshotAsync.GetParameters().Last().ParameterType,
+            Is.EqualTo(typeof(CancellationToken)));
+        MethodInfo fusionPushSnapshot = typeof(NetworkRunner)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Single(method =>
+                method.Name == "PushHostMigrationSnapshot" &&
+                method.GetParameters().Length == 0);
+        Assert.That(
+            fusionPushSnapshot.ReturnType,
+            Is.EqualTo(typeof(Task<bool>)),
+            "Fusion snapshot publication must be observed through its real Task<bool> result.");
+        MethodInfo invokeSnapshotPush = GetRequiredMethod(
+            typeof(HostMigrationHandler),
+            "InvokeHostMigrationSnapshotPushAsync",
+            InstanceMembers);
+        AssertMethodReferences(invokeSnapshotPush, typeof(Task<bool>), "GetAwaiter");
+        AssertMethodHasStringLiteral(invokeSnapshotPush, "push_task_returned_false");
+
+        FieldInfo pushMinInterval = typeof(HostMigrationHandler).GetField(
+            "HostMigrationSnapshotPushMinIntervalSeconds",
+            StaticMembers);
+        FieldInfo pushMaxAttempts = typeof(HostMigrationHandler).GetField(
+            "HostMigrationSnapshotPushMaxAttempts",
+            StaticMembers);
+        Assert.That(pushMinInterval, Is.Not.Null);
+        Assert.That((float)pushMinInterval.GetRawConstantValue(), Is.GreaterThanOrEqualTo(1.2f));
+        Assert.That(pushMaxAttempts, Is.Not.Null);
+        Assert.That(pushMaxAttempts.GetRawConstantValue(), Is.EqualTo(5));
+
+        MethodInfo processSnapshotPush = GetRequiredMethod(
+            typeof(HostMigrationHandler),
+            "ProcessHostMigrationSnapshotPushQueueAsync",
+            InstanceMembers);
+        AssertMethodReferences(
+            processSnapshotPush,
+            typeof(HostMigrationHandler),
+            "InvokeHostMigrationSnapshotPushAsync");
+        AssertMethodHasStringLiteral(invokeSnapshotPush, "handler_snapshot_push_retry");
+        MethodInfo waitForSnapshotWindow = GetRequiredMethod(
+            typeof(HostMigrationHandler),
+            "WaitForHostMigrationSnapshotPushWindowAsync",
+            InstanceMembers);
+        AssertMethodReferences(
+            waitForSnapshotWindow,
+            typeof(HostMigrationHandler),
+            "IsPreviousHostMigrationSnapshotConfirmationPending");
+        MethodInfo snapshotTickReader = GetRequiredMethod(
+            typeof(HostMigrationHandler),
+            "TryReadHostMigrationSnapshotTicks",
+            InstanceMembers);
+        AssertMethodHasStringLiteral(snapshotTickReader, "LastSnapshotTick");
+        AssertMethodHasStringLiteral(snapshotTickReader, "LastConfirmedSnapshotTick");
+        MethodInfo waitForSnapshotConfirmation = GetRequiredMethod(
+            typeof(HostMigrationHandler),
+            "WaitForHostMigrationSnapshotConfirmationAsync",
+            InstanceMembers);
+        AssertMethodReferences(
+            waitForSnapshotConfirmation,
+            typeof(HostMigrationHandler),
+            "TryReadHostMigrationSnapshotTicks");
+
+        MethodInfo deferredCombatRestore = GetRequiredMethod(
+            typeof(HostMigrationHandler),
+            "TrackCombatSchedulerRestoreAfterFieldUnitsAsync",
+            InstanceMembers);
+        AssertMethodReferences(
+            deferredCombatRestore,
+            typeof(HostMigrationHandler),
+            "AreDurableFieldUnitRestoresTerminal");
+        AssertMethodReferences(
+            deferredCombatRestore,
+            typeof(HostMigrationHandler),
+            "RestoreCachedZonesForMigration");
+        AssertMethodReferences(
+            deferredCombatRestore,
+            typeof(HostMigrationHandler),
+            "RestoreCachedStatBuffsForMigration");
+        AssertMethodReferences(
+            deferredCombatRestore,
+            typeof(HostMigrationHandler),
+            "RestoreCachedStatusEffectsForMigration");
+        AssertMethodReferences(
+            deferredCombatRestore,
+            typeof(HostMigrationHandler),
+            "RestoreCachedPendingCombatForMigration");
+        AssertMethodReferences(
+            deferredCombatRestore,
+            typeof(CancellationToken),
+            nameof(CancellationToken.ThrowIfCancellationRequested));
+        AssertMethodReferences(deferredCombatRestore, typeof(NetworkObject), "get_HasStateAuthority");
+        AssertMethodHasStringLiteral(deferredCombatRestore, "field_unit_restore_timeout");
+
+        Assert.That(_automationClientSource, Does.Contain("def push_host_migration_snapshot"));
+        Assert.That(_battleCommonSource, Does.Contain("require_host_migration_snapshot_push=True"));
+        Assert.That(_battleCommonSource, Does.Contain("hostMigrationSnapshotPushReady"));
         Assert.That(_automationClientSource, Does.Contain("def apply_status_effect"));
         Assert.That(_battleCommonSource, Does.Contain("apply_status_before_migration"));
         Assert.That(_battleCommonSource, Does.Contain("require_active_status"));
@@ -522,7 +725,7 @@ public sealed class StatusEffectSchedulerEditModeTests
             $"{method.DeclaringType?.Name}.{method.Name} must not use modulo slot selection");
     }
 
-    private static void AssertCapacityFailureReturnsFalse(MethodBase method, string emptySlotMethodName)
+    private static void AssertCapacityPressureBackpressuresWithoutDrop(MethodBase method, string emptySlotMethodName)
     {
         List<IlInstruction> instructions = ReadInstructions(method);
         Assert.That(
@@ -532,21 +735,40 @@ public sealed class StatusEffectSchedulerEditModeTests
             Is.True,
             $"{method.Name} must search for a free slot using {emptySlotMethodName}");
 
-        int recordDropIndex = instructions.FindIndex(instruction =>
-            instruction.Member is MethodBase referenced &&
-            referenced.DeclaringType == typeof(CombatScheduler) &&
-            referenced.Name == "RecordNetworkBudgetDrop");
-        Assert.That(recordDropIndex, Is.GreaterThanOrEqualTo(0), $"{method.Name} must record capacity drops");
+        List<int> recoveryIndices = instructions
+            .Select((instruction, index) => (instruction, index))
+            .Where(pair =>
+                pair.instruction.Member is MethodBase referenced &&
+                referenced.DeclaringType == typeof(CombatScheduler) &&
+                referenced.Name == "RecordCapacityRecovery")
+            .Select(pair => pair.index)
+            .ToList();
+        Assert.That(recoveryIndices, Is.Not.Empty, $"{method.Name} must record recoverable capacity pressure");
+        Assert.That(
+            instructions.Any(instruction =>
+                instruction.Member is MethodBase referenced &&
+                referenced.DeclaringType == typeof(CombatScheduler) &&
+                referenced.Name == "RecordNetworkBudgetDrop"),
+            Is.False,
+            $"{method.Name} must not classify recoverable capacity pressure as a true drop");
 
-        int returnIndex = instructions.FindIndex(recordDropIndex + 1, instruction => instruction.OpCode == OpCodes.Ret);
-        Assert.That(returnIndex, Is.GreaterThan(recordDropIndex), $"{method.Name} capacity branch must return");
-        int valueIndex = returnIndex - 1;
-        while (valueIndex > recordDropIndex && instructions[valueIndex].OpCode == OpCodes.Nop)
+        bool hasBackpressureReturn = recoveryIndices.Any(recoveryIndex =>
         {
-            valueIndex--;
-        }
+            int returnIndex = instructions.FindIndex(recoveryIndex + 1, instruction => instruction.OpCode == OpCodes.Ret);
+            if (returnIndex <= recoveryIndex)
+            {
+                return false;
+            }
 
-        Assert.That(instructions[valueIndex].OpCode, Is.EqualTo(OpCodes.Ldc_I4_0), $"{method.Name} capacity branch must return false/zero");
+            int valueIndex = returnIndex - 1;
+            while (valueIndex > recoveryIndex && instructions[valueIndex].OpCode == OpCodes.Nop)
+            {
+                valueIndex--;
+            }
+
+            return instructions[valueIndex].OpCode == OpCodes.Ldc_I4_0;
+        });
+        Assert.That(hasBackpressureReturn, Is.True, $"{method.Name} must have a recoverable capacity branch that returns false/zero");
     }
 
     private static void AssertPythonComparatorRejectsNetworkBudgetDrops()

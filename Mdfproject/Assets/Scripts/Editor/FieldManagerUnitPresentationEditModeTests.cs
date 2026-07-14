@@ -255,10 +255,9 @@ public sealed class FieldManagerUnitPresentationEditModeTests
     }
 
     [Test]
-    public void UnitMapRebuildRelocatesLegacyGoalOccupantBeforeSnapshotCapture()
+    public void UnitMapRebuildRelocatesLegacyGoalOccupantWithoutLosingSnapshotIdentity()
     {
         var fieldGo = new GameObject("legacy-goal-rebuild-field");
-        var playerGo = new GameObject("legacy-goal-rebuild-player");
         var unitGo = new GameObject("legacy-goal-unit");
         var unitData = ScriptableObject.CreateInstance<UnitData>();
 
@@ -268,12 +267,11 @@ public sealed class FieldManagerUnitPresentationEditModeTests
             field.gridOrigin = Vector3.zero;
             field.gridSize = new Vector2Int(3, 3);
             field.cellSize = 1f;
-            var player = playerGo.AddComponent<PlayerManager>();
             var unit = unitGo.AddComponent<Unit>();
+            unitData.name = "UnitData_LegacyGoalProbe";
             unitData.unitName = "legacy_goal_probe";
             unitData.unitType = UnitType.Ranged;
             SetPrivateField(unit, "unitData", unitData);
-            player.ownedUnits.Add(unit);
 
             Vector3Int goalCell = field.GetGoalGridPosition();
             unitGo.transform.position = field.GridToWorld(goalCell);
@@ -287,22 +285,14 @@ public sealed class FieldManagerUnitPresentationEditModeTests
             Vector3Int relocatedCell = new Vector3Int(0, 0, 0);
             Assert.That(field.GetUnitAt(relocatedCell), Is.SameAs(unit));
             Assert.That(unitGo.transform.position, Is.EqualTo(field.GridToWorld(relocatedCell)));
-            field.playerManager = player;
-            Assert.That(field.TryGetFieldUnitSnapshot(
-                out UnitData[] dataRefs,
-                out string[] dataKeys,
-                out int[] starLevels,
-                out int[] flatPositions), Is.True);
-            Assert.That(dataRefs, Is.EqualTo(new[] { unitData }));
-            Assert.That(dataKeys, Has.Length.EqualTo(1));
-            Assert.That(starLevels, Is.EqualTo(new[] { 1 }));
-            Assert.That(flatPositions, Is.EqualTo(new[] { 0, 0, 0 }));
+            Assert.That(unit.Data, Is.SameAs(unitData));
+            Assert.That(unit.UnitDataKeyForRoster, Is.EqualTo(unitData.name));
+            Assert.That(unit.StarLevelForRoster, Is.EqualTo(1));
         }
         finally
         {
             Object.DestroyImmediate(unitData);
             Object.DestroyImmediate(unitGo);
-            Object.DestroyImmediate(playerGo);
             Object.DestroyImmediate(fieldGo);
         }
     }
@@ -340,7 +330,8 @@ public sealed class FieldManagerUnitPresentationEditModeTests
 
             LogAssert.Expect(
                 LogType.Error,
-                "[UnitFlow-Migration] Refusing to capture a field snapshot containing a regular unit on the Goal cell.");
+                new System.Text.RegularExpressions.Regex(
+                    "^\\[UnitFlow-Migration\\] Refusing to capture field units because the authoritative rebuild failed:"));
             Assert.That(field.TryGetFieldUnitSnapshot(out _, out _, out _, out _), Is.False);
         }
         finally

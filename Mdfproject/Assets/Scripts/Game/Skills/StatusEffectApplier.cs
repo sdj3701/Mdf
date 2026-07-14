@@ -30,6 +30,57 @@ public class StatusEffectApplier : SkillEffect, IDurationEffect
     
     public float Duration => duration;
 
+    public override bool CanApplyEffect(
+        MonoBehaviour runner,
+        GameObject caster,
+        List<GameObject> targets,
+        float skillRange,
+        TargetingStrategy targetingStrategy)
+    {
+        CombatScheduler scheduler = CombatScheduler.Instance;
+        if (scheduler == null || !scheduler.IsStatusEffectSchedulerActive)
+        {
+            return false;
+        }
+
+        List<BuffManager> targetBuffs = CollectTargetBuffs(targets);
+        ResolveParameters(out float scheduledTickInterval, out float scheduledDamage, out float scheduledSlow);
+        return scheduler.CanApplyStatusEffectBatch(
+            targetBuffs,
+            effectType,
+            duration,
+            caster,
+            scheduledTickInterval,
+            scheduledDamage,
+            scheduledSlow,
+            dotDamageType);
+    }
+
+    public override bool TryApplyEffect(
+        MonoBehaviour runner,
+        GameObject caster,
+        List<GameObject> targets,
+        float skillRange,
+        TargetingStrategy targetingStrategy)
+    {
+        ResolveParameters(out float scheduledTickInterval, out float scheduledDamage, out float scheduledSlow);
+        bool applied = true;
+        List<BuffManager> targetBuffs = CollectTargetBuffs(targets);
+        for (int i = 0; i < targetBuffs.Count; i++)
+        {
+            applied &= targetBuffs[i].ApplyStatusEffect(
+                effectType,
+                duration,
+                caster,
+                scheduledTickInterval,
+                scheduledDamage,
+                scheduledSlow,
+                dotDamageType);
+        }
+
+        return applied;
+    }
+
     public override void ApplyEffect(
         MonoBehaviour runner, 
         GameObject caster, 
@@ -37,30 +88,38 @@ public class StatusEffectApplier : SkillEffect, IDurationEffect
         float skillRange, 
         TargetingStrategy targetingStrategy)
     {
-        foreach (var target in targets)
+        TryApplyEffect(runner, caster, targets, skillRange, targetingStrategy);
+    }
+
+    private List<BuffManager> CollectTargetBuffs(List<GameObject> targets)
+    {
+        var result = new List<BuffManager>();
+        if (targets == null)
         {
-            if (target == null) continue;
-            
-            if (target.TryGetComponent<BuffManager>(out var buffManager))
+            return result;
+        }
+
+        for (int i = 0; i < targets.Count; i++)
+        {
+            GameObject target = targets[i];
+            if (target != null && target.TryGetComponent(out BuffManager buffManager) && !result.Contains(buffManager))
             {
-                bool needsSlow = effectType == StatusEffectType.Slowed || 
-                                 effectType == StatusEffectType.Frostbitten;
-                
-                bool needsDot = effectType == StatusEffectType.Burning || 
-                                effectType == StatusEffectType.Frostbitten ||
-                                effectType == StatusEffectType.Bleeding ||
-                                effectType == StatusEffectType.Poisoned;
-                
-                buffManager.ApplyStatusEffect(
-                    effectType,
-                    duration,
-                    caster,
-                    tickInterval: needsDot && damagePerTick > 0 ? tickInterval : 0f,
-                    damagePerTick: needsDot ? damagePerTick : 0f,
-                    slowMultiplier: needsSlow ? slowMultiplier : 1f,
-                    damageType: dotDamageType
-                );
+                result.Add(buffManager);
             }
         }
+
+        return result;
+    }
+
+    private void ResolveParameters(out float scheduledTickInterval, out float scheduledDamage, out float scheduledSlow)
+    {
+        bool needsSlow = effectType == StatusEffectType.Slowed || effectType == StatusEffectType.Frostbitten;
+        bool needsDot = effectType == StatusEffectType.Burning ||
+                        effectType == StatusEffectType.Frostbitten ||
+                        effectType == StatusEffectType.Bleeding ||
+                        effectType == StatusEffectType.Poisoned;
+        scheduledTickInterval = needsDot && damagePerTick > 0f ? tickInterval : 0f;
+        scheduledDamage = needsDot ? damagePerTick : 0f;
+        scheduledSlow = needsSlow ? slowMultiplier : 1f;
     }
 }

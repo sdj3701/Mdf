@@ -5,13 +5,7 @@ using UnityEngine;
 
 public partial class CombatScheduler
 {
-    private const int MaxActiveStatBuffs = 96;
-    private const int StatBuffSourceBerserk = 1001;
-    private const int StatBuffFlagBerserkBundle = 1 << 0;
-    private const int StatBuffFlagBerserkMoveSpeed = 1 << 1;
-    private const float BerserkAttackDamagePercent = 0.5f;
-    private const float BerserkAttackSpeedPercent = 0.5f;
-    private const float BerserkMoveSpeedPercent = 1f;
+    private const int MaxActiveStatBuffs = CombatSchedulerCapacityConfig.StatBuffCapacity;
 
     [Networked] public int StatBuffSequence { get; private set; }
     [Networked, Capacity(MaxActiveStatBuffs)] private NetworkArray<StatBuffEntry> StatBuffs { get; }
@@ -59,6 +53,61 @@ public partial class CombatScheduler
         get => GetCurrentStatBuffCount();
     }
 
+    public bool CanApplyStatBuffBatch(
+        IReadOnlyList<BuffManager> targets,
+        BuffStatEffect buffEffect,
+        GameObject caster)
+    {
+        if (!IsStatBuffSchedulerActive || !Object.HasStateAuthority || targets == null || buffEffect == null ||
+            buffEffect.duration <= 0f || !EnsureLocalSchedulerState())
+        {
+            return false;
+        }
+
+        int sourceKey = Animator.StringToHash(buffEffect.name);
+        ResolveStatusSource(
+            caster,
+            StatBuffSequence + 1,
+            out NetworkId casterId,
+            out int sourceKind,
+            out _);
+
+        int availableSlots = MaxActiveStatBuffs - _statBuffSlotIndex.ActiveCount - GetPreflightStatBuffReservations();
+        int requiredSlots = 0;
+        var visitedTargets = new HashSet<uint>();
+        for (int i = 0; i < targets.Count; i++)
+        {
+            if (!TryResolveNetworkObject(targets[i], out NetworkObject targetObject) ||
+                !visitedTargets.Add(targetObject.Id.Raw))
+            {
+                continue;
+            }
+
+            if (FindMatchingStatBuffSlot(
+                    targetObject.Id,
+                    casterId,
+                    sourceKind,
+                    sourceKey,
+                    buffEffect.statToBuff,
+                    buffEffect.isPercentage) >= 0)
+            {
+                continue;
+            }
+
+            if (requiredSlots < availableSlots)
+            {
+                requiredSlots++;
+                continue;
+            }
+
+            RecordCapacityRecovery(CapacityRecoveryKind.StatBuffBackpressure);
+            return false;
+        }
+
+        ReservePreflightStatBuffSlots(requiredSlots);
+        return true;
+    }
+
     public int GetActiveStatBuffCountFor(BuffManager target)
     {
         if (!IsStatBuffSchedulerActive || !TryResolveNetworkObject(target, out var targetObject))
@@ -101,30 +150,6 @@ public partial class CombatScheduler
             buffEffect.duration,
             caster,
             Animator.StringToHash(buffEffect.name));
-    }
-
-    public bool ApplyBerserkStatBuffs(BuffManager target, GameObject caster, bool includeMoveSpeed, float duration)
-    {
-        if (target == null)
-        {
-            return false;
-        }
-
-        int flags = StatBuffFlagBerserkBundle;
-        if (includeMoveSpeed)
-        {
-            flags |= StatBuffFlagBerserkMoveSpeed;
-        }
-
-        return ApplyStatBuffInternal(
-            target,
-            StatType.AttackDamage,
-            BerserkAttackDamagePercent,
-            true,
-            duration,
-            caster,
-            StatBuffSourceBerserk,
-            flags);
     }
 
     public bool ApplyStatBuff(
@@ -190,8 +215,7 @@ public partial class CombatScheduler
         int emptySlot = FindEmptyStatBuffSlot();
         if (emptySlot < 0)
         {
-            RecordNetworkBudgetDrop(NetworkBudgetDropKind.StatBuff);
-            Debug.LogWarning($"[CombatScheduler.StatBuffs] Active stat buff capacity exceeded. capacity={MaxActiveStatBuffs}, target={targetObject.Id}, stat={statType}");
+            RecordCapacityRecovery(CapacityRecoveryKind.StatBuffBackpressure);
             return false;
         }
 
@@ -315,10 +339,29 @@ public partial class CombatScheduler
 
     public int RestoreStatBuffsFromMigration(IReadOnlyList<StatBuffMigrationSnapshot> snapshots, string reason = null)
     {
-        if (!IsStatBuffSchedulerActive || !Object.HasStateAuthority || snapshots == null || snapshots.Count == 0 ||
-            !EnsureLocalSchedulerState())
+        return RestoreStatBuffsFromMigrationWithReport(snapshots, reason).Restored;
+    }
+
+    public MigrationRestoreReport RestoreStatBuffsFromMigrationWithReport(
+        IReadOnlyList<StatBuffMigrationSnapshot> snapshots,
+        string reason = null,
+        MigrationNetworkIdResolver remapResolver = null)
+    {
+        const string scope = "combat_stat_buffs";
+        if (snapshots == null)
         {
-            return 0;
+            return MigrationRestoreReport.FailedScope(scope, 1, "stat_buff_snapshot_missing");
+        }
+
+        int captured = snapshots.Count;
+        if (captured == 0)
+        {
+            return MigrationRestoreReport.Empty(scope);
+        }
+
+        if (!IsStatBuffSchedulerActive || !Object.HasStateAuthority || !EnsureLocalSchedulerState())
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "stat_buff_scheduler_not_ready");
         }
 
         int existingTokenCount = CaptureStatBuffSlotTokens();
@@ -333,6 +376,8 @@ public partial class CombatScheduler
         }
 
         int restored = 0;
+        int skipped = 0;
+        int failed = 0;
         int maxSequence = StatBuffSequence;
         int now = Runner.Tick;
         int changedTargetCount = 0;
@@ -340,14 +385,26 @@ public partial class CombatScheduler
         for (int i = 0; i < snapshots.Count; i++)
         {
             StatBuffMigrationSnapshot snapshot = snapshots[i];
-            if (snapshot.Sequence <= 0 || snapshot.TargetId.Raw == 0 || snapshot.ExpireTick <= now)
+            if (snapshot.Sequence <= 0 || snapshot.TargetId.Raw == 0)
             {
+                failed++;
                 continue;
             }
 
-            NetworkObject targetObject = ResolveNetworkObject(snapshot.TargetId);
+            maxSequence = Mathf.Max(maxSequence, snapshot.Sequence);
+
+            if (snapshot.ExpireTick <= now)
+            {
+                skipped++;
+                continue;
+            }
+
+            NetworkId targetId = ResolveMigrationNetworkId(snapshot.TargetId, remapResolver);
+            NetworkId casterId = ResolveMigrationNetworkId(snapshot.CasterId, remapResolver);
+            NetworkObject targetObject = ResolveNetworkObject(targetId);
             if (targetObject == null || IsStatusTargetDead(targetObject))
             {
+                skipped++;
                 continue;
             }
 
@@ -355,14 +412,15 @@ public partial class CombatScheduler
             if (slot < 0)
             {
                 Debug.LogWarning($"[CombatScheduler.StatBuffs] Migration restore capacity exceeded. capacity={MaxActiveStatBuffs}, requested={snapshots.Count}, reason={reason}");
-                break;
+                failed++;
+                continue;
             }
 
             var entry = new StatBuffEntry
             {
                 Sequence = snapshot.Sequence,
-                TargetId = snapshot.TargetId,
-                CasterId = snapshot.CasterId,
+                TargetId = targetId,
+                CasterId = casterId,
                 SourceKey = snapshot.SourceKey,
                 Value = snapshot.Value,
                 AppliedTick = snapshot.AppliedTick,
@@ -373,7 +431,7 @@ public partial class CombatScheduler
             CommitStatBuffSlot(slot, entry);
 
             maxSequence = Mathf.Max(maxSequence, snapshot.Sequence);
-            changedTargetCount = AddChangedTarget(_statBuffChangedTargetScratch, changedTargetCount, snapshot.TargetId);
+            changedTargetCount = AddChangedTarget(_statBuffChangedTargetScratch, changedTargetCount, targetId);
             restored++;
         }
 
@@ -384,8 +442,16 @@ public partial class CombatScheduler
             RefreshStatBuffCacheForTarget(_statBuffChangedTargetScratch[i]);
         }
 
-        Debug.Log($"[CombatScheduler.StatBuffs] Migration restore complete. restored={restored}, cached={snapshots.Count}, reason={reason}");
-        return restored;
+        string failureReason = failed == 0 ? string.Empty : "combat_stat_buff_restore_incomplete";
+        var report = new MigrationRestoreReport(
+            scope,
+            captured,
+            restored,
+            skipped,
+            failed,
+            failureReason);
+        Debug.Log($"[CombatScheduler.StatBuffs] Migration restore complete. {report}, context={reason}");
+        return report;
     }
 
     private void ProcessDueStatBuffs()
@@ -624,18 +690,6 @@ public partial class CombatScheduler
         }
 
         float value = UnpackFloat(entry.Value);
-        if (IsBerserkBundle(entry))
-        {
-            attackDamagePercentBonus += value;
-            attackSpeedPercentBonus += BerserkAttackSpeedPercent;
-            if ((entry.Flags & StatBuffFlagBerserkMoveSpeed) != 0)
-            {
-                moveSpeedPercentBonus += BerserkMoveSpeedPercent;
-            }
-
-            return;
-        }
-
         bool percent = entry.IsPercentage != 0;
         var statType = (StatType)entry.StatType;
         if (statType == StatType.AttackDamage)
@@ -657,11 +711,6 @@ public partial class CombatScheduler
         {
             moveSpeedPercentBonus += value;
         }
-    }
-
-    private static bool IsBerserkBundle(StatBuffEntry entry)
-    {
-        return (entry.Flags & StatBuffFlagBerserkBundle) != 0;
     }
 
     private void RefreshAllStatBuffCaches()

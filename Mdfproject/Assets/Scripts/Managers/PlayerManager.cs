@@ -38,14 +38,23 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     [Networked] private int ShopSnapshotRevision { get; set; }
     [Networked] private int ShopSnapshotCount { get; set; }
     [Networked] private int ShopSnapshotRound { get; set; }
+    [Networked] private NetworkBool ShopSnapshotOverflow { get; set; }
     private const int PRESENTED_AUGMENT_SNAPSHOT_CAPACITY = 3;
     [Networked, Capacity(PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> PresentedAugmentSnapshotIds { get; }
     [Networked] private int PresentedAugmentSnapshotCount { get; set; }
+    [Networked] private int PresentedAugmentSnapshotRevision { get; set; }
+    [Networked] private NetworkBool PresentedAugmentSnapshotOverflow { get; set; }
     private const int SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 64;
+    private const int MAX_SELECTED_AUGMENT_MIGRATION_ENTRY_COUNT = 4096;
     [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> SelectedAugmentSnapshotIds { get; }
     [Networked, Capacity(SELECTED_AUGMENT_SNAPSHOT_CAPACITY)] private NetworkArray<int> SelectedAugmentSnapshotCounts { get; }
     [Networked] private int SelectedAugmentSnapshotCount { get; set; }
+    [Networked] private int SelectedAugmentSnapshotRevision { get; set; }
     [Networked] private NetworkBool SelectedAugmentSnapshotOverflow { get; set; }
+    // Before immutable content ids shipped, four different scroll augments shared this display
+    // name. A legacy hash/name with this value is intrinsically ambiguous and must fail closed.
+    private const string KNOWN_AMBIGUOUS_LEGACY_SCROLL_NAME =
+        "\uB9C8\uBC95\uC2A4\uD06C\uB864(\uD68C\uBCF5)";
     private const float PERMANENT_BONUS_NETWORK_SCALE = 10000f;
     [Networked] private int PermanentAttackDamageBonusPermille { get; set; }
     [Networked] private int PermanentAttackSpeedBonusPermille { get; set; }
@@ -110,6 +119,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private int _pendingBlackMagicCommandRevision = -1;
     private float _pendingAttackMonsterPoolCommandStartedAt;
     private CancellationTokenSource _attackMonsterPrewarmCancellation;
+    private CancellationTokenSource _shopSnapshotSyncLifetimeCancellation;
     private int _attackMonsterPrewarmGeneration;
     private const float ATTACK_MONSTER_COMMAND_PENDING_TIMEOUT_SECONDS = 2f;
     public int AppliedAttackMonsterPoolRevision =>
@@ -247,9 +257,27 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         return StableDataKeyUtility.StableHash(value);
     }
 
-    private static int StableAugmentSnapshotId(string augmentName)
+    private static int StableAugmentSnapshotId(string augmentContentId)
     {
-        return StableDataKeyHash(string.IsNullOrWhiteSpace(augmentName) ? string.Empty : augmentName.Trim());
+        return StableDataKeyUtility.StableContentIdHash(augmentContentId);
+    }
+
+    private static int StableLegacyAugmentSnapshotId(string legacyName)
+    {
+        return StableDataKeyHash(string.IsNullOrWhiteSpace(legacyName) ? string.Empty : legacyName.Trim());
+    }
+
+    private static bool IsKnownAmbiguousLegacyAugmentReference(string legacyReference)
+    {
+        return string.Equals(
+            legacyReference?.Trim(),
+            KNOWN_AMBIGUOUS_LEGACY_SCROLL_NAME,
+            StringComparison.Ordinal);
+    }
+
+    private static int NextSnapshotRevision(int revision)
+    {
+        return revision >= int.MaxValue - 1 ? 1 : Mathf.Max(1, revision + 1);
     }
 
     private static int StableMonsterDataKeyHash(string value)
@@ -284,70 +312,190 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     private static string ResolveLoadedUnitDataKeyByStableHash(int unitDataKeyHash)
     {
-        if (unitDataKeyHash == 0)
-        {
-            return string.Empty;
-        }
-
-        var allUnits = LoadManager.Instance != null ? LoadManager.Instance.GetAllUnitData() : null;
-        if (TryResolveUnitDataKeyByStableHash(allUnits, unitDataKeyHash, out string loadedKey))
-        {
-            return loadedKey;
-        }
-
-        return TryResolveUnitDataKeyByStableHash(Resources.FindObjectsOfTypeAll<UnitData>(), unitDataKeyHash, out string resourceKey)
-            ? resourceKey
+        return TryResolveLoadedUnitDataKeyByStableHash(
+                unitDataKeyHash,
+                out string unitDataKey,
+                out _)
+            ? unitDataKey
             : string.Empty;
     }
 
-    private static bool TryResolveUnitDataKeyByStableHash(IEnumerable<UnitData> units, int unitDataKeyHash, out string key)
+    private static bool TryResolveLoadedUnitDataKeyByStableHash(
+        int unitDataKeyHash,
+        out string key,
+        out string failureReason)
     {
         key = string.Empty;
-        if (units == null)
+        failureReason = string.Empty;
+        if (unitDataKeyHash == 0)
         {
+            failureReason = "shop_unit_key_hash_zero";
             return false;
         }
 
-        foreach (var data in units)
+        var matches = new HashSet<string>(StringComparer.Ordinal);
+        void AppendMatches(IEnumerable<UnitData> units)
         {
-            if (data == null)
+            if (units == null)
             {
-                continue;
+                return;
             }
 
-            if (StableUnitDataKeyHash(data.name) == unitDataKeyHash ||
-                StableUnitDataKeyHash(data.unitName) == unitDataKeyHash)
+            foreach (UnitData data in units)
             {
-                key = data.name;
-                return !string.IsNullOrEmpty(key);
+                if (data == null || string.IsNullOrWhiteSpace(data.name))
+                {
+                    continue;
+                }
+
+                if (StableUnitDataKeyHash(data.name) == unitDataKeyHash ||
+                    StableUnitDataKeyHash(data.unitName) == unitDataKeyHash)
+                {
+                    matches.Add(NormalizeShopUnitKey(data.name));
+                }
             }
         }
 
+        AppendMatches(LoadManager.Instance != null ? LoadManager.Instance.GetAllUnitData() : null);
+        AppendMatches(Resources.FindObjectsOfTypeAll<UnitData>());
+        if (matches.Count == 1)
+        {
+            key = matches.First();
+            return !string.IsNullOrEmpty(key);
+        }
+
+        failureReason = matches.Count > 1
+            ? $"shop_unit_key_hash_ambiguous:{unitDataKeyHash}"
+            : $"shop_unit_key_hash_unresolved:{unitDataKeyHash}";
         return false;
     }
 
-    private static string ResolveLoadedAugmentNameByStableId(int augmentId)
+    private static string ResolveLoadedAugmentContentIdByStableId(int augmentId)
     {
+        return TryResolveLoadedAugmentContentIdByStableId(augmentId, out string contentId, out _)
+            ? contentId
+            : string.Empty;
+    }
+
+    private static bool TryResolveLoadedAugmentContentIdByStableId(
+        int augmentId,
+        out string contentId,
+        out string failureReason)
+    {
+        contentId = string.Empty;
+        failureReason = string.Empty;
         if (augmentId == 0)
         {
-            return string.Empty;
+            failureReason = "augment_id_zero";
+            return false;
         }
 
-        foreach (var data in Resources.FindObjectsOfTypeAll<AugmentData>())
+        AugmentData[] loadedAugments = Resources.FindObjectsOfTypeAll<AugmentData>();
+        string[] contentIdMatches = loadedAugments
+            .Where(data => data != null && data.ContentIdHash == augmentId)
+            .Select(data => data.ContentId)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (contentIdMatches.Length == 1)
         {
-            if (data == null)
-            {
-                continue;
-            }
-
-            if (StableAugmentSnapshotId(data.augmentName) == augmentId ||
-                StableAugmentSnapshotId(data.name) == augmentId)
-            {
-                return !string.IsNullOrWhiteSpace(data.augmentName) ? data.augmentName.Trim() : data.name;
-            }
+            contentId = contentIdMatches[0];
+            return true;
         }
 
-        return string.Empty;
+        if (contentIdMatches.Length > 1)
+        {
+            failureReason = $"augment_content_id_hash_ambiguous:{augmentId}";
+            return false;
+        }
+
+        if (augmentId == StableLegacyAugmentSnapshotId(KNOWN_AMBIGUOUS_LEGACY_SCROLL_NAME))
+        {
+            failureReason = $"known_ambiguous_legacy_augment_id:{augmentId}";
+            return false;
+        }
+
+        // Compatibility for snapshots captured before immutable content ids shipped. A legacy
+        // display/asset-name hash is accepted only when it identifies exactly one immutable id.
+        string[] legacyMatches = loadedAugments
+            .Where(data => data != null &&
+                           (StableLegacyAugmentSnapshotId(data.augmentName) == augmentId ||
+                            StableLegacyAugmentSnapshotId(data.name) == augmentId))
+            .Select(data => data.ContentId)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (legacyMatches.Length == 1)
+        {
+            contentId = legacyMatches[0];
+            return true;
+        }
+
+        failureReason = legacyMatches.Length > 1
+            ? $"legacy_augment_id_ambiguous:{augmentId}"
+            : $"augment_id_unresolved:{augmentId}";
+        return false;
+    }
+
+    private static bool TryResolveAugmentContentIdReference(
+        string augmentReference,
+        out string contentId,
+        out string failureReason)
+    {
+        contentId = string.Empty;
+        failureReason = string.Empty;
+        if (string.IsNullOrWhiteSpace(augmentReference))
+        {
+            failureReason = "augment_reference_empty";
+            return false;
+        }
+
+        string normalized = StableDataKeyUtility.NormalizeContentId(augmentReference);
+        AugmentData[] loadedAugments = Resources.FindObjectsOfTypeAll<AugmentData>();
+        string[] contentIdMatches = loadedAugments
+            .Where(data => data != null && string.Equals(data.ContentId, normalized, StringComparison.Ordinal))
+            .Select(data => data.ContentId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (contentIdMatches.Length == 1)
+        {
+            contentId = contentIdMatches[0];
+            return true;
+        }
+
+        if (contentIdMatches.Length > 1)
+        {
+            failureReason = $"augment_content_id_ambiguous:{normalized}";
+            return false;
+        }
+
+        // Compatibility for host-migration payloads captured by older builds. Duplicate legacy
+        // names are deliberately rejected because choosing the first match corrupts gameplay.
+        string legacyReference = augmentReference.Trim();
+        if (IsKnownAmbiguousLegacyAugmentReference(legacyReference))
+        {
+            failureReason = $"known_ambiguous_legacy_augment_reference:{legacyReference}";
+            return false;
+        }
+
+        string[] legacyMatches = loadedAugments
+            .Where(data => data != null &&
+                           (string.Equals(data.augmentName, legacyReference, StringComparison.Ordinal) ||
+                            string.Equals(data.name, legacyReference, StringComparison.Ordinal)))
+            .Select(data => data.ContentId)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (legacyMatches.Length == 1)
+        {
+            contentId = legacyMatches[0];
+            return true;
+        }
+
+        failureReason = legacyMatches.Length > 1
+            ? $"legacy_augment_reference_ambiguous:{legacyReference}"
+            : $"augment_reference_unresolved:{legacyReference}";
+        return false;
     }
 
     public void PublishShopSnapshot(IReadOnlyList<ShopItem> items, bool[] soldFlags, string context)
@@ -357,17 +505,42 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return;
         }
 
-        int count = Mathf.Clamp(items?.Count ?? 0, 0, SHOP_SNAPSHOT_CAPACITY);
+        int requestedCount = items?.Count ?? 0;
         for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
         {
             ShopSnapshotSlots.Set(i, default);
         }
 
-        for (int i = 0; i < count; i++)
+        string failureReason = string.Empty;
+        if (items == null)
+        {
+            failureReason = "items_null";
+        }
+        else if (requestedCount > SHOP_SNAPSHOT_CAPACITY)
+        {
+            failureReason = $"capacity_exceeded:{requestedCount}/{SHOP_SNAPSHOT_CAPACITY}";
+        }
+        else if (soldFlags == null || soldFlags.Length < requestedCount)
+        {
+            failureReason = $"sold_flags_shape_invalid:{soldFlags?.Length ?? -1}/{requestedCount}";
+        }
+
+        for (int i = 0; string.IsNullOrEmpty(failureReason) && i < requestedCount; i++)
         {
             var item = items[i];
-            string unitKey = NormalizeShopUnitKey(item.UnitData != null ? item.UnitData.name : string.Empty);
-            int starLevel = item.StarLevel > 0 ? item.StarLevel : 1;
+            if (item.UnitData == null)
+            {
+                failureReason = $"slot_{i}:unit_data_missing";
+                break;
+            }
+
+            string unitKey = NormalizeShopUnitKey(item.UnitData.name);
+            int starLevel = item.StarLevel;
+            if (string.IsNullOrWhiteSpace(unitKey) || starLevel <= 0 || starLevel > byte.MaxValue)
+            {
+                failureReason = $"slot_{i}:identity_or_star_invalid";
+                break;
+            }
             int sold = soldFlags != null && i < soldFlags.Length && soldFlags[i] ? 1 : 0;
 
             ShopSnapshotSlots.Set(i, new ShopSnapshotSlot
@@ -377,7 +550,16 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             });
         }
 
-        ShopSnapshotCount = count;
+        if (!string.IsNullOrEmpty(failureReason))
+        {
+            for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
+            {
+                ShopSnapshotSlots.Set(i, default);
+            }
+        }
+
+        ShopSnapshotCount = string.IsNullOrEmpty(failureReason) ? requestedCount : 0;
+        ShopSnapshotOverflow = !string.IsNullOrEmpty(failureReason);
         ShopSnapshotRound = (GameManagers.Instance != null && GameManagers.Instance.IsReadyForNetworkAccess)
             ? GameManagers.Instance.currentRound
             : 0;
@@ -390,26 +572,65 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         {
             ShopSnapshotRevision++;
         }
+        if (!string.IsNullOrEmpty(failureReason))
+        {
+            Debug.LogError($"[PlayerManager] Shop durable snapshot rejected ({context}) P{playerId}: {failureReason}");
+        }
     }
 
     public bool TryGetShopSnapshot(out string[] unitKeys, out int[] starLevels, out bool[] soldFlags, out int revision, out int round)
+    {
+        return TryGetShopSnapshot(
+            out unitKeys,
+            out starLevels,
+            out soldFlags,
+            out revision,
+            out round,
+            out _);
+    }
+
+    public bool TryGetShopSnapshot(
+        out string[] unitKeys,
+        out int[] starLevels,
+        out bool[] soldFlags,
+        out int revision,
+        out int round,
+        out string failureReason)
     {
         unitKeys = System.Array.Empty<string>();
         starLevels = System.Array.Empty<int>();
         soldFlags = System.Array.Empty<bool>();
         revision = 0;
         round = 0;
+        failureReason = string.Empty;
 
         if (Object == null || !Object.IsValid)
         {
+            failureReason = "shop_snapshot_network_object_invalid";
+            return false;
+        }
+        if (ShopSnapshotOverflow)
+        {
+            failureReason = "shop_snapshot_overflow";
             return false;
         }
 
         revision = ShopSnapshotRevision;
         round = ShopSnapshotRound;
-        int count = Mathf.Clamp(ShopSnapshotCount, 0, SHOP_SNAPSHOT_CAPACITY);
-        if (revision <= 0 || count <= 0)
+        int count = ShopSnapshotCount;
+        if (revision <= 0)
         {
+            failureReason = $"shop_snapshot_revision_invalid:{revision}";
+            return false;
+        }
+        if (round < 0)
+        {
+            failureReason = $"shop_snapshot_round_invalid:{round}";
+            return false;
+        }
+        if (count < 0 || count > SHOP_SNAPSHOT_CAPACITY)
+        {
+            failureReason = $"shop_snapshot_count_out_of_range:{count}";
             return false;
         }
 
@@ -421,13 +642,28 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         {
             var slot = ShopSnapshotSlots[i];
             int keyHash = slot.UnitKeyHash;
-            unitKeys[i] = ResolveLoadedUnitDataKeyByStableHash(keyHash);
-            if (keyHash != 0 && string.IsNullOrEmpty(unitKeys[i]))
+            if (!TryResolveLoadedUnitDataKeyByStableHash(
+                    keyHash,
+                    out unitKeys[i],
+                    out string unitFailureReason))
             {
+                failureReason = $"shop_snapshot_slot_{i}:{unitFailureReason}";
+                unitKeys = System.Array.Empty<string>();
+                starLevels = System.Array.Empty<int>();
+                soldFlags = System.Array.Empty<bool>();
                 return false;
             }
 
-            starLevels[i] = Mathf.Max(1, slot.StarLevel);
+            if ((slot.PackedMeta & ~0x1FF) != 0 || slot.StarLevel <= 0)
+            {
+                failureReason = $"shop_snapshot_slot_{i}:packed_meta_invalid:{slot.PackedMeta}";
+                unitKeys = System.Array.Empty<string>();
+                starLevels = System.Array.Empty<int>();
+                soldFlags = System.Array.Empty<bool>();
+                return false;
+            }
+
+            starLevels[i] = slot.StarLevel;
             soldFlags[i] = slot.Sold != 0;
         }
 
@@ -436,28 +672,72 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     public void PublishSelectedAugmentSnapshot(AugmentData augment)
     {
-        PublishSelectedAugmentSnapshot(augment != null ? augment.augmentName : string.Empty);
+        PublishSelectedAugmentSnapshot(augment != null ? augment.ContentId : string.Empty);
     }
 
-    public void PublishSelectedAugmentSnapshot(string augmentName)
+    public void PublishSelectedAugmentSnapshot(string augmentContentId)
     {
         if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
         {
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(augmentName))
+        if (!TryResolveAugmentContentIdReference(
+                augmentContentId,
+                out string resolvedContentId,
+                out string resolveFailureReason))
         {
+            SelectedAugmentSnapshotOverflow = true;
+            SelectedAugmentSnapshotRevision = NextSnapshotRevision(SelectedAugmentSnapshotRevision);
+            Debug.LogError($"[PlayerManager] Selected augment snapshot rejected. playerId={playerId}, reference={augmentContentId}, reason={resolveFailureReason}");
             return;
         }
 
-        int augmentId = StableAugmentSnapshotId(augmentName);
-        int uniqueCount = Mathf.Clamp(SelectedAugmentSnapshotCount, 0, SELECTED_AUGMENT_SNAPSHOT_CAPACITY);
+        int augmentId = StableAugmentSnapshotId(resolvedContentId);
+        int uniqueCount = SelectedAugmentSnapshotCount;
+        if (uniqueCount < 0 || uniqueCount > SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
+        {
+            SelectedAugmentSnapshotOverflow = true;
+            SelectedAugmentSnapshotRevision = NextSnapshotRevision(SelectedAugmentSnapshotRevision);
+            Debug.LogError($"[PlayerManager] Selected augment durable snapshot count invalid. playerId={playerId}, count={uniqueCount}");
+            return;
+        }
+        long currentExpandedCount = 0;
+        for (int i = 0; i < uniqueCount; i++)
+        {
+            int existingRepetitions = SelectedAugmentSnapshotCounts.Get(i);
+            if (existingRepetitions <= 0)
+            {
+                SelectedAugmentSnapshotOverflow = true;
+                SelectedAugmentSnapshotRevision = NextSnapshotRevision(SelectedAugmentSnapshotRevision);
+                Debug.LogError($"[PlayerManager] Selected augment durable snapshot row count invalid. playerId={playerId}, slot={i}, count={existingRepetitions}");
+                return;
+            }
+            currentExpandedCount += existingRepetitions;
+        }
+        if (currentExpandedCount >= MAX_SELECTED_AUGMENT_MIGRATION_ENTRY_COUNT)
+        {
+            SelectedAugmentSnapshotOverflow = true;
+            SelectedAugmentSnapshotRevision = NextSnapshotRevision(SelectedAugmentSnapshotRevision);
+            Debug.LogError($"[PlayerManager] Selected augment durable snapshot expanded capacity exceeded. playerId={playerId}, count={currentExpandedCount}");
+            return;
+        }
+
         for (int i = 0; i < uniqueCount; i++)
         {
             if (SelectedAugmentSnapshotIds.Get(i) == augmentId)
             {
-                SelectedAugmentSnapshotCounts.Set(i, Mathf.Max(1, SelectedAugmentSnapshotCounts.Get(i)) + 1);
+                int repetitions = SelectedAugmentSnapshotCounts.Get(i);
+                if (repetitions <= 0 || repetitions >= MAX_SELECTED_AUGMENT_MIGRATION_ENTRY_COUNT)
+                {
+                    SelectedAugmentSnapshotOverflow = true;
+                    SelectedAugmentSnapshotRevision = NextSnapshotRevision(SelectedAugmentSnapshotRevision);
+                    Debug.LogError($"[PlayerManager] Selected augment durable snapshot repetitions invalid. playerId={playerId}, augmentId={resolvedContentId}, count={repetitions}");
+                    return;
+                }
+
+                SelectedAugmentSnapshotCounts.Set(i, repetitions + 1);
+                SelectedAugmentSnapshotRevision = NextSnapshotRevision(SelectedAugmentSnapshotRevision);
                 return;
             }
         }
@@ -465,46 +745,71 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         if (uniqueCount >= SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
         {
             SelectedAugmentSnapshotOverflow = true;
-            Debug.LogError($"[PlayerManager] Selected augment durable snapshot capacity exceeded. playerId={playerId}, augment={augmentName}");
+            SelectedAugmentSnapshotRevision = NextSnapshotRevision(SelectedAugmentSnapshotRevision);
+            Debug.LogError($"[PlayerManager] Selected augment durable snapshot capacity exceeded. playerId={playerId}, augmentId={resolvedContentId}");
             return;
         }
 
         SelectedAugmentSnapshotIds.Set(uniqueCount, augmentId);
         SelectedAugmentSnapshotCounts.Set(uniqueCount, 1);
         SelectedAugmentSnapshotCount = uniqueCount + 1;
+        SelectedAugmentSnapshotRevision = NextSnapshotRevision(SelectedAugmentSnapshotRevision);
     }
 
-    public void PublishPresentedAugmentSnapshot(IEnumerable<string> augmentNames)
+    public void PublishPresentedAugmentSnapshot(IEnumerable<string> augmentContentIds)
     {
         if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
         {
             return;
         }
 
-        for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        var resolvedIds = new List<int>(PRESENTED_AUGMENT_SNAPSHOT_CAPACITY);
+        var resolvedContentIds = new HashSet<string>(StringComparer.Ordinal);
+        string failureReason = string.Empty;
+        foreach (var rawContentId in augmentContentIds ?? System.Array.Empty<string>())
         {
-            PresentedAugmentSnapshotIds.Set(i, 0);
-        }
-
-        int count = 0;
-        foreach (var rawName in augmentNames ?? System.Array.Empty<string>())
-        {
-            if (count >= PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)
+            if (resolvedIds.Count >= PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)
             {
+                failureReason = $"presented_augment_snapshot_capacity_exceeded:{resolvedIds.Count + 1}/{PRESENTED_AUGMENT_SNAPSHOT_CAPACITY}";
                 break;
             }
 
-            string name = rawName != null ? rawName.Trim() : string.Empty;
-            if (string.IsNullOrWhiteSpace(name))
+            if (!TryResolveAugmentContentIdReference(
+                    rawContentId,
+                    out string contentId,
+                    out string resolveFailureReason))
             {
-                continue;
+                failureReason = resolveFailureReason;
+                break;
+            }
+            if (!resolvedContentIds.Add(contentId))
+            {
+                failureReason = $"presented_augment_duplicate:{contentId}";
+                break;
             }
 
-            PresentedAugmentSnapshotIds.Set(count, StableAugmentSnapshotId(name));
-            count++;
+            int stableId = StableAugmentSnapshotId(contentId);
+            if (stableId == 0 || resolvedIds.Contains(stableId))
+            {
+                failureReason = $"presented_augment_hash_invalid_or_colliding:{contentId}";
+                break;
+            }
+
+            resolvedIds.Add(stableId);
         }
 
-        PresentedAugmentSnapshotCount = count;
+        for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        {
+            PresentedAugmentSnapshotIds.Set(i, string.IsNullOrEmpty(failureReason) && i < resolvedIds.Count ? resolvedIds[i] : 0);
+        }
+
+        PresentedAugmentSnapshotCount = string.IsNullOrEmpty(failureReason) ? resolvedIds.Count : 0;
+        PresentedAugmentSnapshotOverflow = !string.IsNullOrEmpty(failureReason);
+        PresentedAugmentSnapshotRevision = NextSnapshotRevision(PresentedAugmentSnapshotRevision);
+        if (!string.IsNullOrEmpty(failureReason))
+        {
+            Debug.LogError($"[PlayerManager] Presented augment durable snapshot rejected. playerId={playerId}, reason={failureReason}");
+        }
     }
 
     public void ClearPresentedAugmentSnapshot()
@@ -512,112 +817,494 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         PublishPresentedAugmentSnapshot(System.Array.Empty<string>());
     }
 
-    public string[] GetPresentedAugmentSnapshotNames()
+    private void InitializeEmptyAugmentSnapshotsOnFreshSpawn()
     {
-        int count = Mathf.Clamp(PresentedAugmentSnapshotCount, 0, PRESENTED_AUGMENT_SNAPSHOT_CAPACITY);
-        var names = new List<string>(count);
-        for (int i = 0; i < count; i++)
-        {
-            string name = ResolveLoadedAugmentNameByStableId(PresentedAugmentSnapshotIds.Get(i));
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                names.Add(name);
-            }
-        }
-
-        return names.ToArray();
-    }
-
-    public string[] GetSelectedAugmentSnapshotNames()
-    {
-        int count = Mathf.Clamp(SelectedAugmentSnapshotCount, 0, SELECTED_AUGMENT_SNAPSHOT_CAPACITY);
-        var names = new List<string>(count);
-        for (int i = 0; i < count; i++)
-        {
-            string name = ResolveLoadedAugmentNameByStableId(SelectedAugmentSnapshotIds.Get(i));
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                int repetitions = Mathf.Max(1, SelectedAugmentSnapshotCounts.Get(i));
-                for (int repetition = 0; repetition < repetitions; repetition++)
-                {
-                    names.Add(name);
-                }
-            }
-        }
-
-        return names.ToArray();
-    }
-
-    public void RestoreAugmentSnapshotsAfterHostMigration(
-        string[] presentedAugmentNames,
-        string[] selectedAugmentNames,
-        string context)
-    {
-        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
-        {
-            return;
-        }
-
         for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
         {
             PresentedAugmentSnapshotIds.Set(i, 0);
         }
-
-        int presentedCount = 0;
-        foreach (var rawName in presentedAugmentNames ?? System.Array.Empty<string>())
-        {
-            if (presentedCount >= PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)
-            {
-                break;
-            }
-
-            string name = rawName != null ? rawName.Trim() : string.Empty;
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                continue;
-            }
-
-            PresentedAugmentSnapshotIds.Set(presentedCount, StableAugmentSnapshotId(name));
-            presentedCount++;
-        }
-
         for (int i = 0; i < SELECTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
         {
             SelectedAugmentSnapshotIds.Set(i, 0);
             SelectedAugmentSnapshotCounts.Set(i, 0);
         }
 
-        var selectedCountsById = new Dictionary<int, int>();
-        var selectedOrder = new List<int>();
-        foreach (var rawName in selectedAugmentNames ?? System.Array.Empty<string>())
-        {
-            string name = rawName != null ? rawName.Trim() : string.Empty;
-            if (string.IsNullOrWhiteSpace(name))
-            {
-                continue;
-            }
+        PresentedAugmentSnapshotCount = 0;
+        PresentedAugmentSnapshotOverflow = false;
+        PresentedAugmentSnapshotRevision = 1;
+        SelectedAugmentSnapshotCount = 0;
+        SelectedAugmentSnapshotOverflow = false;
+        SelectedAugmentSnapshotRevision = 1;
+    }
 
-            int augmentId = StableAugmentSnapshotId(name);
-            if (!selectedCountsById.ContainsKey(augmentId))
-            {
-                selectedCountsById[augmentId] = 0;
-                selectedOrder.Add(augmentId);
-            }
-            selectedCountsById[augmentId]++;
+    public string[] GetPresentedAugmentSnapshotNames()
+    {
+        if (TryGetPresentedAugmentSnapshot(out string[] contentIds, out string failureReason))
+        {
+            return contentIds;
         }
 
-        SelectedAugmentSnapshotOverflow = selectedOrder.Count > SELECTED_AUGMENT_SNAPSHOT_CAPACITY;
-        int selectedCount = Mathf.Min(selectedOrder.Count, SELECTED_AUGMENT_SNAPSHOT_CAPACITY);
-        for (int i = 0; i < selectedCount; i++)
+        Debug.LogError($"[PlayerManager] Presented augment snapshot is invalid. P{playerId}: {failureReason}");
+        return System.Array.Empty<string>();
+    }
+
+    public bool TryGetPresentedAugmentSnapshot(out string[] contentIds, out string failureReason)
+    {
+        contentIds = System.Array.Empty<string>();
+        failureReason = string.Empty;
+        if (Object == null || !Object.IsValid)
         {
-            int augmentId = selectedOrder[i];
-            SelectedAugmentSnapshotIds.Set(i, augmentId);
-            SelectedAugmentSnapshotCounts.Set(i, selectedCountsById[augmentId]);
+            failureReason = "presented_augment_network_object_invalid";
+            return false;
+        }
+        if (PresentedAugmentSnapshotRevision <= 0)
+        {
+            failureReason = $"presented_augment_snapshot_revision_invalid:{PresentedAugmentSnapshotRevision}";
+            return false;
+        }
+        if (PresentedAugmentSnapshotOverflow)
+        {
+            failureReason = "presented_augment_snapshot_overflow";
+            return false;
         }
 
-        PresentedAugmentSnapshotCount = presentedCount;
-        SelectedAugmentSnapshotCount = selectedCount;
-        Debug.Log($"[PlayerManager] HostMigration augment snapshot restore complete ({context}) P{playerId} presented={presentedCount} selected={selectedCount}");
+        int count = PresentedAugmentSnapshotCount;
+        if (count < 0 || count > PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)
+        {
+            failureReason = $"presented_augment_count_out_of_range:{count}";
+            return false;
+        }
+
+        var names = new string[count];
+        var uniqueContentIds = new HashSet<string>(StringComparer.Ordinal);
+        for (int i = 0; i < count; i++)
+        {
+            int augmentId = PresentedAugmentSnapshotIds.Get(i);
+            if (!TryResolveLoadedAugmentContentIdByStableId(
+                    augmentId,
+                    out string contentId,
+                    out string resolveFailureReason))
+            {
+                failureReason = $"presented_augment_slot_{i}:{resolveFailureReason}";
+                return false;
+            }
+            if (!uniqueContentIds.Add(contentId))
+            {
+                failureReason = $"presented_augment_duplicate:{contentId}";
+                return false;
+            }
+
+            names[i] = contentId;
+        }
+
+        contentIds = names;
+        return true;
+    }
+
+    public string[] GetSelectedAugmentSnapshotNames()
+    {
+        if (TryGetSelectedAugmentSnapshot(out string[] contentIds, out string failureReason))
+        {
+            return contentIds;
+        }
+
+        Debug.LogError($"[PlayerManager] Selected augment snapshot is invalid. P{playerId}: {failureReason}");
+        return System.Array.Empty<string>();
+    }
+
+    public bool TryGetSelectedAugmentSnapshot(out string[] contentIds, out string failureReason)
+    {
+        contentIds = System.Array.Empty<string>();
+        failureReason = string.Empty;
+        if (Object == null || !Object.IsValid)
+        {
+            failureReason = "selected_augment_network_object_invalid";
+            return false;
+        }
+        if (SelectedAugmentSnapshotRevision <= 0)
+        {
+            failureReason = $"selected_augment_snapshot_revision_invalid:{SelectedAugmentSnapshotRevision}";
+            return false;
+        }
+        if (SelectedAugmentSnapshotOverflow)
+        {
+            failureReason = "selected_augment_snapshot_overflow";
+            return false;
+        }
+
+        int count = SelectedAugmentSnapshotCount;
+        if (count < 0 || count > SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
+        {
+            failureReason = $"selected_augment_unique_count_out_of_range:{count}";
+            return false;
+        }
+
+        var rows = new List<KeyValuePair<string, int>>(count);
+        var uniqueContentIds = new HashSet<string>(StringComparer.Ordinal);
+        long expandedCount = 0;
+        for (int i = 0; i < count; i++)
+        {
+            int augmentId = SelectedAugmentSnapshotIds.Get(i);
+            if (!TryResolveLoadedAugmentContentIdByStableId(
+                    augmentId,
+                    out string contentId,
+                    out string resolveFailureReason))
+            {
+                failureReason = $"selected_augment_slot_{i}:{resolveFailureReason}";
+                return false;
+            }
+            if (!uniqueContentIds.Add(contentId))
+            {
+                failureReason = $"selected_augment_duplicate_row:{contentId}";
+                return false;
+            }
+
+            int repetitions = SelectedAugmentSnapshotCounts.Get(i);
+            if (repetitions <= 0)
+            {
+                failureReason = $"selected_augment_slot_{i}:count_invalid:{repetitions}";
+                return false;
+            }
+
+            expandedCount += repetitions;
+            if (expandedCount > MAX_SELECTED_AUGMENT_MIGRATION_ENTRY_COUNT)
+            {
+                failureReason = $"selected_augment_expanded_count_out_of_range:{expandedCount}";
+                return false;
+            }
+
+            rows.Add(new KeyValuePair<string, int>(contentId, repetitions));
+        }
+
+        var names = new List<string>((int)expandedCount);
+        foreach (KeyValuePair<string, int> row in rows)
+        {
+            for (int repetition = 0; repetition < row.Value; repetition++)
+            {
+                names.Add(row.Key);
+            }
+        }
+
+        contentIds = names.ToArray();
+        return true;
+    }
+
+    public MigrationRestoreReport RestoreAugmentSnapshotsAfterHostMigration(
+        bool hasPresentedAugmentSnapshot,
+        string[] presentedAugmentNames,
+        bool hasSelectedAugmentSnapshot,
+        string[] selectedAugmentNames,
+        string context)
+    {
+        string scope = $"augment_snapshots:P{playerId}";
+        int captured = 2 + (presentedAugmentNames?.Length ?? 0) + (selectedAugmentNames?.Length ?? 0);
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "state_authority_required");
+        }
+
+        if (!TryNormalizePresentedAugmentMigrationSnapshot(
+                hasPresentedAugmentSnapshot,
+                presentedAugmentNames,
+                out string[] resolvedPresentedContentIds,
+                out string presentedFailureReason))
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, presentedFailureReason);
+        }
+        if (!TryNormalizeSelectedAugmentMigrationSnapshot(
+                hasSelectedAugmentSnapshot,
+                selectedAugmentNames,
+                out int[] selectedOrder,
+                out int[] selectedCounts,
+                out string[] canonicalSelectedContentIds,
+                out string selectedFailureReason))
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, selectedFailureReason);
+        }
+
+        for (int i = 0; i < PRESENTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        {
+            PresentedAugmentSnapshotIds.Set(
+                i,
+                i < resolvedPresentedContentIds.Length
+                    ? StableAugmentSnapshotId(resolvedPresentedContentIds[i])
+                    : 0);
+        }
+
+        for (int i = 0; i < SELECTED_AUGMENT_SNAPSHOT_CAPACITY; i++)
+        {
+            SelectedAugmentSnapshotIds.Set(i, i < selectedOrder.Length ? selectedOrder[i] : 0);
+            SelectedAugmentSnapshotCounts.Set(i, i < selectedCounts.Length ? selectedCounts[i] : 0);
+        }
+
+        PresentedAugmentSnapshotCount = resolvedPresentedContentIds.Length;
+        PresentedAugmentSnapshotOverflow = false;
+        PresentedAugmentSnapshotRevision = NextSnapshotRevision(PresentedAugmentSnapshotRevision);
+        SelectedAugmentSnapshotCount = selectedOrder.Length;
+        SelectedAugmentSnapshotOverflow = false;
+        SelectedAugmentSnapshotRevision = NextSnapshotRevision(SelectedAugmentSnapshotRevision);
+
+        if (!TryGetPresentedAugmentSnapshot(out string[] verifiedPresented, out string verifyPresentedFailure)
+            || !verifiedPresented.SequenceEqual(resolvedPresentedContentIds, StringComparer.Ordinal))
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                captured,
+                string.IsNullOrWhiteSpace(verifyPresentedFailure)
+                    ? "presented_augment_post_restore_mismatch"
+                    : $"presented_augment_post_restore_invalid:{verifyPresentedFailure}");
+        }
+        if (!TryGetSelectedAugmentSnapshot(out string[] verifiedSelected, out string verifySelectedFailure)
+            || !verifiedSelected.SequenceEqual(canonicalSelectedContentIds, StringComparer.Ordinal))
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                captured,
+                string.IsNullOrWhiteSpace(verifySelectedFailure)
+                    ? "selected_augment_post_restore_mismatch"
+                    : $"selected_augment_post_restore_invalid:{verifySelectedFailure}");
+        }
+
+        Debug.Log($"[PlayerManager] HostMigration augment snapshot restore complete ({context}) P{playerId} presented={resolvedPresentedContentIds.Length} selectedUnique={selectedOrder.Length} selectedTotal={canonicalSelectedContentIds.Length}");
+        return new MigrationRestoreReport(scope, captured, captured, 0, 0);
+    }
+
+    public async UniTask<MigrationRestoreReport> RestorePresentedAugmentRuntimeAfterHostMigrationAsync(
+        bool hasPresentedAugmentSnapshot,
+        string[] presentedAugmentReferences,
+        string context,
+        NetworkRunner expectedRunner,
+        CancellationToken cancellationToken)
+    {
+        string scope = $"presented_augment_runtime:P{playerId}";
+        int captured = 1 + (presentedAugmentReferences?.Length ?? 0);
+        if (!IsMigrationRuntimeRestoreContextValid(expectedRunner))
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "runner_or_state_authority_invalid");
+        }
+
+        if (!TryNormalizePresentedAugmentMigrationSnapshot(
+                hasPresentedAugmentSnapshot,
+                presentedAugmentReferences,
+                out string[] expectedContentIds,
+                out string normalizeFailureReason))
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, normalizeFailureReason);
+        }
+
+        if (!TryGetPresentedAugmentSnapshot(
+                out string[] networkContentIds,
+                out string networkSnapshotFailure)
+            || !networkContentIds.SequenceEqual(expectedContentIds, StringComparer.Ordinal))
+        {
+            string reason = string.IsNullOrWhiteSpace(networkSnapshotFailure)
+                ? "presented_augment_network_snapshot_mismatch"
+                : $"presented_augment_network_snapshot_invalid:{networkSnapshotFailure}";
+            return MigrationRestoreReport.FailedScope(scope, captured, reason);
+        }
+
+        if (augmentManager == null)
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "augment_manager_missing");
+        }
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool runtimeApplied = await augmentManager.TrySetPresentedAugmentsByContentIdsExactAsync(
+                expectedContentIds,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!runtimeApplied)
+            {
+                return MigrationRestoreReport.FailedScope(
+                    scope,
+                    captured,
+                    "presented_augment_runtime_apply_failed");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "presented_augment_runtime_restore_canceled");
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                captured,
+                $"presented_augment_runtime_restore_exception:{exception.GetType().Name}");
+        }
+
+        if (!IsMigrationRuntimeRestoreContextValid(expectedRunner))
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "runner_lifecycle_changed_after_await");
+        }
+
+        List<AugmentData> runtimeAugments = augmentManager.GetPresentedAugments();
+        string[] runtimeContentIds = runtimeAugments == null
+            ? System.Array.Empty<string>()
+            : runtimeAugments
+                .Select(augment => augment != null ? augment.ContentId : string.Empty)
+                .ToArray();
+        if (!runtimeContentIds.SequenceEqual(expectedContentIds, StringComparer.Ordinal))
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                captured,
+                $"presented_augment_runtime_post_restore_mismatch:expected={string.Join(",", expectedContentIds)},actual={string.Join(",", runtimeContentIds)}");
+        }
+
+        Debug.Log($"[PlayerManager] HostMigration presented augment runtime restore complete ({context}) P{playerId} count={runtimeContentIds.Length}");
+        return new MigrationRestoreReport(scope, captured, captured, 0, 0);
+    }
+
+    private static bool TryNormalizePresentedAugmentMigrationSnapshot(
+        bool hasSnapshot,
+        string[] references,
+        out string[] contentIds,
+        out string failureReason)
+    {
+        contentIds = System.Array.Empty<string>();
+        failureReason = string.Empty;
+        if (!hasSnapshot)
+        {
+            failureReason = "presented_augment_snapshot_not_captured";
+            return false;
+        }
+        if (references == null)
+        {
+            failureReason = "presented_augment_snapshot_null";
+            return false;
+        }
+        if (references.Length > PRESENTED_AUGMENT_SNAPSHOT_CAPACITY)
+        {
+            failureReason = $"presented_augment_snapshot_truncated:{references.Length}/{PRESENTED_AUGMENT_SNAPSHOT_CAPACITY}";
+            return false;
+        }
+
+        var resolved = new string[references.Length];
+        var uniqueContentIds = new HashSet<string>(StringComparer.Ordinal);
+        var stableIds = new Dictionary<int, string>();
+        for (int i = 0; i < references.Length; i++)
+        {
+            if (!TryResolveAugmentContentIdReference(
+                    references[i],
+                    out string contentId,
+                    out string resolveFailureReason))
+            {
+                failureReason = $"presented_augment_entry_{i}:{resolveFailureReason}";
+                return false;
+            }
+            if (!uniqueContentIds.Add(contentId))
+            {
+                failureReason = $"presented_augment_duplicate:{contentId}";
+                return false;
+            }
+
+            int stableId = StableAugmentSnapshotId(contentId);
+            if (stableId == 0)
+            {
+                failureReason = $"presented_augment_id_zero:{contentId}";
+                return false;
+            }
+            if (stableIds.TryGetValue(stableId, out string existingContentId)
+                && !string.Equals(existingContentId, contentId, StringComparison.Ordinal))
+            {
+                failureReason = $"presented_augment_hash_collision:{existingContentId}:{contentId}";
+                return false;
+            }
+
+            stableIds[stableId] = contentId;
+            resolved[i] = contentId;
+        }
+
+        contentIds = resolved;
+        return true;
+    }
+
+    private static bool TryNormalizeSelectedAugmentMigrationSnapshot(
+        bool hasSnapshot,
+        string[] references,
+        out int[] selectedOrder,
+        out int[] selectedCounts,
+        out string[] canonicalContentIds,
+        out string failureReason)
+    {
+        selectedOrder = System.Array.Empty<int>();
+        selectedCounts = System.Array.Empty<int>();
+        canonicalContentIds = System.Array.Empty<string>();
+        failureReason = string.Empty;
+        if (!hasSnapshot)
+        {
+            failureReason = "selected_augment_snapshot_not_captured";
+            return false;
+        }
+        if (references == null)
+        {
+            failureReason = "selected_augment_snapshot_null";
+            return false;
+        }
+        if (references.Length > MAX_SELECTED_AUGMENT_MIGRATION_ENTRY_COUNT)
+        {
+            failureReason = $"selected_augment_snapshot_expanded_count_out_of_range:{references.Length}";
+            return false;
+        }
+
+        var countsByStableId = new Dictionary<int, int>();
+        var contentIdByStableId = new Dictionary<int, string>();
+        var order = new List<int>();
+        for (int i = 0; i < references.Length; i++)
+        {
+            if (!TryResolveAugmentContentIdReference(
+                    references[i],
+                    out string contentId,
+                    out string resolveFailureReason))
+            {
+                failureReason = $"selected_augment_entry_{i}:{resolveFailureReason}";
+                return false;
+            }
+
+            int stableId = StableAugmentSnapshotId(contentId);
+            if (stableId == 0)
+            {
+                failureReason = $"selected_augment_id_zero:{contentId}";
+                return false;
+            }
+            if (contentIdByStableId.TryGetValue(stableId, out string existingContentId)
+                && !string.Equals(existingContentId, contentId, StringComparison.Ordinal))
+            {
+                failureReason = $"selected_augment_hash_collision:{existingContentId}:{contentId}";
+                return false;
+            }
+            if (!countsByStableId.ContainsKey(stableId))
+            {
+                if (order.Count >= SELECTED_AUGMENT_SNAPSHOT_CAPACITY)
+                {
+                    failureReason = $"selected_augment_snapshot_unique_overflow:{order.Count + 1}/{SELECTED_AUGMENT_SNAPSHOT_CAPACITY}";
+                    return false;
+                }
+
+                countsByStableId[stableId] = 0;
+                contentIdByStableId[stableId] = contentId;
+                order.Add(stableId);
+            }
+            countsByStableId[stableId]++;
+        }
+
+        selectedOrder = order.ToArray();
+        selectedCounts = order.Select(id => countsByStableId[id]).ToArray();
+        var canonical = new List<string>(references.Length);
+        foreach (int stableId in order)
+        {
+            for (int repetition = 0; repetition < countsByStableId[stableId]; repetition++)
+            {
+                canonical.Add(contentIdByStableId[stableId]);
+            }
+        }
+
+        canonicalContentIds = canonical.ToArray();
+        return true;
     }
 
     // Pending unit registrations received before FieldManager is ready
@@ -703,6 +1390,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     public override void Spawned()
     {
         ResetLocalUnitRosterSyncState();
+        ResetShopSnapshotSyncLifetime();
         if (_assetOwner == null || _assetOwner.IsDisposed)
         {
             _assetOwner = new AddressableAssetOwner();
@@ -723,6 +1411,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             health = initialHealth;
             gold = initialGold;
             wallCount = initialWallCount;
+            InitializeEmptyAugmentSnapshotsOnFreshSpawn();
         }
 
         InitializeKingRuntimeOnSpawn();
@@ -1444,15 +2133,37 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     /// </summary>
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public async void RPC_SyncShopItems(string[] unitDataNames, int[] starLevels)
+    public async void RPC_SyncShopItems(
+        string[] unitDataNames,
+        int[] starLevels,
+        int snapshotRevision,
+        int snapshotRound)
     {
         // 서버는 이미 상점 아이템을 가지고 있으므로 무시
         if (Object != null && Object.HasStateAuthority) return;
 
         if (shopManager != null)
         {
-            await shopManager.SetShopItemsFromServerAsync(unitDataNames, starLevels);
-            // Debug.Log($"<color=cyan>[RPC_SyncShopItems] Player {playerId}: {unitDataNames.Length}개 상점 아이템 동기화 완료</color>");
+            try
+            {
+                CancellationToken cancellationToken =
+                    _shopSnapshotSyncLifetimeCancellation?.Token ?? CancellationToken.None;
+                bool applied = await shopManager.ApplySnapshotFromNetworkAtOrAfterRevisionAsync(
+                    snapshotRevision,
+                    snapshotRound,
+                    $"RPC_SyncShopItems.P{playerId}.R{snapshotRevision}",
+                    triggerRefreshedEvent: true,
+                    cancellationToken: cancellationToken);
+                if (!applied)
+                {
+                    Debug.LogError(
+                        $"[PlayerManager] Shop RPC snapshot sync failed P{playerId}, revision={snapshotRevision}, round={snapshotRound}.");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when this PlayerManager is despawned or replaced during migration.
+            }
         }
     }
 
@@ -1461,15 +2172,20 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     /// </summary>
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public async void RPC_SyncPresentedAugments(string[] augmentNames)
+    public async void RPC_SyncPresentedAugments(string[] augmentContentIds)
     {
         // 서버는 이미 증강체 목록을 가지고 있으므로 무시
         if (Object != null && Object.HasStateAuthority) return;
 
         if (augmentManager != null)
         {
-            await augmentManager.SetPresentedAugmentsByNamesAsync(augmentNames);
-            // Debug.Log($"<color=magenta>[RPC_SyncPresentedAugments] Player {playerId}: {augmentNames.Length}개 증강체 동기화 완료</color>");
+            bool applied = await augmentManager.SetPresentedAugmentsByContentIdsAsync(augmentContentIds);
+            if (!applied)
+            {
+                Debug.LogError($"[PlayerManager] Presented augment RPC sync rejected for P{playerId}.");
+                return;
+            }
+            // Debug.Log($"<color=magenta>[RPC_SyncPresentedAugments] Player {playerId}: {augmentContentIds.Length} augments synchronized</color>");
         }
     }
 
@@ -1487,15 +2203,19 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         // Debug.Log($"<color=yellow>[RPC_RequestSyncData] Player {playerId}에게 데이터 동기화 요청 수신</color>");
         
         // 상점 동기화
-        if (shopManager != null)
+        if (TryGetShopSnapshot(
+                out string[] shopNames,
+                out int[] shopStars,
+                out _,
+                out int shopRevision,
+                out int shopRound))
         {
-            var items = shopManager.GetCurrentShopItems();
-            if (items.Count > 0)
-            {
-                string[] shopNames = items.Select(i => i.UnitData?.name ?? "").ToArray();
-                int[] shopStars = items.Select(i => i.StarLevel).ToArray();
-                RPC_SyncShopItems(shopNames, shopStars);
-            }
+            RPC_SyncShopItems(shopNames, shopStars, shopRevision, shopRound);
+        }
+        else
+        {
+            Debug.LogError(
+                $"[PlayerManager] RPC_RequestSyncData rejected shop sync for P{playerId}: authoritative snapshot unavailable.");
         }
         
         // 증강체 동기화
@@ -1504,8 +2224,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             var augments = augmentManager.GetPresentedAugments();
             if (augments.Count > 0)
             {
-                string[] augNames = augments.Select(a => a?.augmentName ?? "").ToArray();
-                RPC_SyncPresentedAugments(augNames);
+                string[] augmentContentIds = augments.Select(a => a?.ContentId ?? "").ToArray();
+                RPC_SyncPresentedAugments(augmentContentIds);
             }
         }
 
@@ -2753,11 +3473,12 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     public Vector2 GetUnitPurchaseDelayRange() => NormalizeDelayRange(unitPurchaseDelayRange);
     public Vector2 GetUnitMoveDelayRange() => NormalizeDelayRange(unitMoveDelayRange);
 
-    public void RestoreDurableStateAfterHostMigration(
+    public MigrationRestoreReport RestoreDurableStateAfterHostMigration(
         int restoredPlayerId,
         int restoredHealth,
         int restoredGold,
         int restoredWallCount,
+        bool hasShopSnapshot,
         string[] shopUnitKeys,
         int[] shopStarLevels,
         bool[] shopSoldFlags,
@@ -2765,52 +3486,309 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         int shopRound,
         string context)
     {
+        string scope = $"durable_state:P{restoredPlayerId}";
+        int captured = 5 + (shopUnitKeys?.Length ?? 0);
         if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
         {
-            return;
+            return MigrationRestoreReport.FailedScope(scope, captured, "state_authority_required");
         }
 
-        if (restoredPlayerId >= 0 && playerId != restoredPlayerId)
+        if (!TryValidateDurablePlayerMigrationPayload(
+                restoredPlayerId,
+                restoredHealth,
+                restoredGold,
+                restoredWallCount,
+                hasShopSnapshot,
+                shopUnitKeys,
+                shopStarLevels,
+                shopSoldFlags,
+                shopRevision,
+                shopRound,
+                out string[] resolvedShopUnitKeys,
+                out string failureReason))
         {
-            playerId = restoredPlayerId;
+            return MigrationRestoreReport.FailedScope(scope, captured, failureReason);
         }
 
-        health = Mathf.Max(0, restoredHealth);
-        gold = Mathf.Max(0, restoredGold);
-        wallCount = Mathf.Max(0, restoredWallCount);
+        playerId = restoredPlayerId;
+        health = restoredHealth;
+        gold = restoredGold;
+        wallCount = restoredWallCount;
+
+        for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
+        {
+            ShopSnapshotSlots.Set(i, default);
+        }
+
+        for (int i = 0; i < resolvedShopUnitKeys.Length; i++)
+        {
+            ShopSnapshotSlots.Set(i, new ShopSnapshotSlot
+            {
+                UnitKeyHash = StableUnitDataKeyHash(resolvedShopUnitKeys[i]),
+                PackedMeta = PackShopSnapshotMeta(shopStarLevels[i], shopSoldFlags[i] ? 1 : 0)
+            });
+        }
+
+        ShopSnapshotCount = resolvedShopUnitKeys.Length;
+        ShopSnapshotRound = shopRound;
+        ShopSnapshotRevision = shopRevision;
+        ShopSnapshotOverflow = false;
+
+        bool shopVerified = TryGetShopSnapshot(
+            out string[] verifiedShopUnitKeys,
+            out int[] verifiedShopStarLevels,
+            out bool[] verifiedShopSoldFlags,
+            out int verifiedShopRevision,
+            out int verifiedShopRound,
+            out string shopVerifyFailure);
+        if (playerId != restoredPlayerId
+            || health != restoredHealth
+            || gold != restoredGold
+            || wallCount != restoredWallCount
+            || !shopVerified
+            || verifiedShopRevision != shopRevision
+            || verifiedShopRound != shopRound
+            || !verifiedShopUnitKeys.SequenceEqual(resolvedShopUnitKeys, StringComparer.Ordinal)
+            || !verifiedShopStarLevels.SequenceEqual(shopStarLevels)
+            || !verifiedShopSoldFlags.SequenceEqual(shopSoldFlags))
+        {
+            string verifyReason = string.IsNullOrWhiteSpace(shopVerifyFailure)
+                ? "durable_state_post_restore_mismatch"
+                : $"shop_post_restore_invalid:{shopVerifyFailure}";
+            return MigrationRestoreReport.FailedScope(scope, captured, verifyReason);
+        }
+
         _runtimeInitialized = true;
-
-        if (shopUnitKeys != null && shopUnitKeys.Length > 0)
-        {
-            int count = Mathf.Clamp(shopUnitKeys.Length, 0, SHOP_SNAPSHOT_CAPACITY);
-            for (int i = 0; i < SHOP_SNAPSHOT_CAPACITY; i++)
-            {
-                ShopSnapshotSlots.Set(i, default);
-            }
-
-            for (int i = 0; i < count; i++)
-            {
-                string unitKey = i < shopUnitKeys.Length ? NormalizeShopUnitKey(shopUnitKeys[i]) : string.Empty;
-                int starLevel = shopStarLevels != null && i < shopStarLevels.Length
-                    ? Mathf.Max(1, shopStarLevels[i])
-                    : 1;
-                int sold = shopSoldFlags != null && i < shopSoldFlags.Length && shopSoldFlags[i] ? 1 : 0;
-
-                ShopSnapshotSlots.Set(i, new ShopSnapshotSlot
-                {
-                    UnitKeyHash = StableUnitDataKeyHash(unitKey),
-                    PackedMeta = PackShopSnapshotMeta(starLevel, sold)
-                });
-            }
-
-            ShopSnapshotCount = count;
-            ShopSnapshotRound = Mathf.Max(0, shopRound);
-            ShopSnapshotRevision = Mathf.Max(1, shopRevision);
-        }
-
         GameEvents.TriggerPlayerStatsChanged(playerId, health, gold);
         GameEvents.TriggerPlayerWallCountChanged(playerId, wallCount);
         Debug.Log($"[PlayerManager] HostMigration durable restore complete ({context}) P{playerId} hp={health} gold={gold} walls={wallCount} shopRev={ShopSnapshotRevision} shopCount={ShopSnapshotCount}");
+        return new MigrationRestoreReport(scope, captured, captured, 0, 0);
+    }
+
+    public async UniTask<MigrationRestoreReport> RestoreShopRuntimeAfterHostMigrationAsync(
+        bool hasShopSnapshot,
+        string[] expectedShopUnitKeys,
+        int[] expectedShopStarLevels,
+        bool[] expectedShopSoldFlags,
+        int expectedShopRevision,
+        int expectedShopRound,
+        string context,
+        NetworkRunner expectedRunner,
+        CancellationToken cancellationToken)
+    {
+        string scope = $"shop_runtime:P{playerId}";
+        int captured = 1 + (expectedShopUnitKeys?.Length ?? 0);
+        if (!IsMigrationRuntimeRestoreContextValid(expectedRunner))
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "runner_or_state_authority_invalid");
+        }
+        if (!hasShopSnapshot)
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "shop_snapshot_not_captured");
+        }
+        if (expectedShopUnitKeys == null || expectedShopStarLevels == null || expectedShopSoldFlags == null
+            || expectedShopUnitKeys.Length != expectedShopStarLevels.Length
+            || expectedShopUnitKeys.Length != expectedShopSoldFlags.Length)
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "shop_runtime_expected_shape_invalid");
+        }
+        if (shopManager == null)
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "shop_manager_missing");
+        }
+
+        bool networkSnapshotValid = TryGetShopSnapshot(
+            out string[] networkUnitKeys,
+            out int[] networkStarLevels,
+            out bool[] networkSoldFlags,
+            out int networkRevision,
+            out int networkRound,
+            out string networkFailureReason);
+        if (!networkSnapshotValid
+            || networkRevision != expectedShopRevision
+            || networkRound != expectedShopRound
+            || !networkUnitKeys.SequenceEqual(expectedShopUnitKeys, StringComparer.Ordinal)
+            || !networkStarLevels.SequenceEqual(expectedShopStarLevels)
+            || !networkSoldFlags.SequenceEqual(expectedShopSoldFlags))
+        {
+            string reason = string.IsNullOrWhiteSpace(networkFailureReason)
+                ? "shop_network_snapshot_mismatch"
+                : $"shop_network_snapshot_invalid:{networkFailureReason}";
+            return MigrationRestoreReport.FailedScope(scope, captured, reason);
+        }
+
+        bool applied;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            applied = await shopManager.ApplySnapshotFromNetworkAsync(
+                $"HostMigration.{context}",
+                triggerRefreshedEvent: false,
+                cancellationToken: cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        catch (OperationCanceledException)
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "shop_runtime_restore_canceled");
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                captured,
+                $"shop_runtime_restore_exception:{exception.GetType().Name}");
+        }
+
+        if (!IsMigrationRuntimeRestoreContextValid(expectedRunner))
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "runner_lifecycle_changed_after_await");
+        }
+        if (!applied && expectedShopUnitKeys.Length > 0)
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "shop_runtime_apply_failed");
+        }
+
+        List<ShopItem> runtimeItems = shopManager.GetCurrentShopItems();
+        if (runtimeItems == null || runtimeItems.Count != expectedShopUnitKeys.Length)
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                captured,
+                $"shop_runtime_count_mismatch:{runtimeItems?.Count ?? -1}/{expectedShopUnitKeys.Length}");
+        }
+
+        for (int i = 0; i < expectedShopUnitKeys.Length; i++)
+        {
+            ShopItem runtimeItem = runtimeItems[i];
+            string runtimeKey = NormalizeShopUnitKey(runtimeItem.UnitData != null ? runtimeItem.UnitData.name : string.Empty);
+            if (!string.Equals(runtimeKey, expectedShopUnitKeys[i], StringComparison.Ordinal)
+                || runtimeItem.StarLevel != expectedShopStarLevels[i]
+                || shopManager.IsSlotSold(i) != expectedShopSoldFlags[i])
+            {
+                return MigrationRestoreReport.FailedScope(scope, captured, $"shop_runtime_slot_{i}_mismatch");
+            }
+        }
+
+        bool[] fullRuntimeSoldFlags = shopManager.GetSoldSlotSnapshot();
+        for (int i = expectedShopSoldFlags.Length; i < fullRuntimeSoldFlags.Length; i++)
+        {
+            if (fullRuntimeSoldFlags[i])
+            {
+                return MigrationRestoreReport.FailedScope(scope, captured, $"shop_runtime_trailing_sold_flag_set:{i}");
+            }
+        }
+
+        Debug.Log($"[PlayerManager] HostMigration shop runtime restore complete ({context}) P{playerId} revision={expectedShopRevision} count={runtimeItems.Count}");
+        return new MigrationRestoreReport(scope, captured, captured, 0, 0);
+    }
+
+    private bool IsMigrationRuntimeRestoreContextValid(NetworkRunner expectedRunner)
+    {
+        return expectedRunner != null
+            && expectedRunner.IsRunning
+            && Runner == expectedRunner
+            && Object != null
+            && Object.IsValid
+            && Object.HasStateAuthority;
+    }
+
+    private static bool TryValidateDurablePlayerMigrationPayload(
+        int restoredPlayerId,
+        int restoredHealth,
+        int restoredGold,
+        int restoredWallCount,
+        bool hasShopSnapshot,
+        string[] shopUnitKeys,
+        int[] shopStarLevels,
+        bool[] shopSoldFlags,
+        int shopRevision,
+        int shopRound,
+        out string[] resolvedShopUnitKeys,
+        out string failureReason)
+    {
+        resolvedShopUnitKeys = System.Array.Empty<string>();
+        failureReason = string.Empty;
+        if (restoredPlayerId < 0 || restoredPlayerId > PlayerSnapshotCodec.MaxPlayerId)
+        {
+            failureReason = $"player_id_out_of_range:{restoredPlayerId}";
+            return false;
+        }
+        if (restoredHealth < 0)
+        {
+            failureReason = $"health_out_of_range:{restoredHealth}";
+            return false;
+        }
+        if (restoredGold < 0)
+        {
+            failureReason = $"gold_out_of_range:{restoredGold}";
+            return false;
+        }
+        if (restoredWallCount < 0)
+        {
+            failureReason = $"wall_count_out_of_range:{restoredWallCount}";
+            return false;
+        }
+        if (!hasShopSnapshot)
+        {
+            failureReason = "shop_snapshot_not_captured";
+            return false;
+        }
+        if (shopUnitKeys == null || shopStarLevels == null || shopSoldFlags == null)
+        {
+            failureReason = "shop_snapshot_array_null";
+            return false;
+        }
+        if (shopUnitKeys.Length != shopStarLevels.Length || shopUnitKeys.Length != shopSoldFlags.Length)
+        {
+            failureReason = $"shop_snapshot_shape_mismatch:keys={shopUnitKeys.Length},stars={shopStarLevels.Length},sold={shopSoldFlags.Length}";
+            return false;
+        }
+        if (shopUnitKeys.Length > SHOP_SNAPSHOT_CAPACITY)
+        {
+            failureReason = $"shop_snapshot_truncated:{shopUnitKeys.Length}/{SHOP_SNAPSHOT_CAPACITY}";
+            return false;
+        }
+        if (shopRevision <= 0)
+        {
+            failureReason = $"shop_revision_invalid:{shopRevision}";
+            return false;
+        }
+        if (shopRound < 0)
+        {
+            failureReason = $"shop_round_invalid:{shopRound}";
+            return false;
+        }
+
+        var resolvedKeys = new string[shopUnitKeys.Length];
+        for (int i = 0; i < shopUnitKeys.Length; i++)
+        {
+            string normalizedUnitKey = NormalizeShopUnitKey(shopUnitKeys[i]);
+            if (string.IsNullOrWhiteSpace(normalizedUnitKey))
+            {
+                failureReason = $"shop_slot_{i}:unit_key_empty";
+                return false;
+            }
+            int unitKeyHash = StableUnitDataKeyHash(normalizedUnitKey);
+            if (!TryResolveLoadedUnitDataKeyByStableHash(
+                    unitKeyHash,
+                    out string resolvedUnitKey,
+                    out string resolveFailureReason))
+            {
+                failureReason = $"shop_slot_{i}:{resolveFailureReason}";
+                return false;
+            }
+            if (shopStarLevels[i] <= 0 || shopStarLevels[i] > byte.MaxValue)
+            {
+                failureReason = $"shop_slot_{i}:star_level_out_of_range:{shopStarLevels[i]}";
+                return false;
+            }
+
+            resolvedKeys[i] = resolvedUnitKey;
+        }
+
+        resolvedShopUnitKeys = resolvedKeys;
+        return true;
     }
 
     #region 몬스터 소환 증강 관리
@@ -3101,103 +4079,223 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         return true;
     }
 
-    public void RestoreOwnedMagicScrollsFromMigrationSnapshot(
+    public async UniTask<MigrationRestoreReport> RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(
         int revision,
         MagicScrollData[] scrollDataRefs,
         string[] scrollDataNames,
-        string context)
+        string context,
+        NetworkRunner expectedMigrationRunner,
+        CancellationToken migrationCancellationToken)
     {
-        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        string scope = $"owned_magic_scrolls:P{playerId}";
+        if (!TryValidateOwnedMagicScrollMigrationSnapshot(
+                revision,
+                scrollDataRefs,
+                scrollDataNames,
+                out int count,
+                out string validationError))
         {
-            return;
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, count),
+                $"owned_scroll_snapshot_invalid:{validationError}");
         }
 
-        int count = Mathf.Max(scrollDataRefs?.Length ?? 0, scrollDataNames?.Length ?? 0);
-        var restored = new List<MagicScrollData>(count);
-        bool requiresAsyncLoad = false;
-
-        for (int i = 0; i < count; i++)
+        if (!CanApplyOwnedMagicScrollMigration(expectedMigrationRunner, migrationCancellationToken))
         {
-            MagicScrollData data = scrollDataRefs != null && i < scrollDataRefs.Length
-                ? scrollDataRefs[i]
-                : null;
-            if (data != null)
-            {
-                restored.Add(data);
-                continue;
-            }
-
-            string name = scrollDataNames != null && i < scrollDataNames.Length ? scrollDataNames[i] : null;
-            if (!string.IsNullOrWhiteSpace(name))
-            {
-                requiresAsyncLoad = true;
-                break;
-            }
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, count),
+                "owned_scroll_restore_canceled_or_lifecycle_changed");
         }
 
-        if (!requiresAsyncLoad)
+        if (OwnedMagicScrollRevision > revision ||
+            _lastAppliedOwnedMagicScrollRevision > revision ||
+            _latestReceivedOwnedMagicScrollRevision > revision)
         {
-            ApplyOwnedMagicScrollSnapshot(revision, restored, context);
-            return;
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, count),
+                $"owned_scroll_snapshot_stale:current={OwnedMagicScrollRevision},applied={_lastAppliedOwnedMagicScrollRevision},received={_latestReceivedOwnedMagicScrollRevision},snapshot={revision}");
         }
 
-        RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(revision, scrollDataRefs, scrollDataNames, context).Forget();
-    }
-
-    private async UniTask RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(
-        int revision,
-        MagicScrollData[] scrollDataRefs,
-        string[] scrollDataNames,
-        string context)
-    {
-        int count = Mathf.Max(scrollDataRefs?.Length ?? 0, scrollDataNames?.Length ?? 0);
         var restored = new List<MagicScrollData>(count);
         for (int i = 0; i < count; i++)
         {
-            MagicScrollData data = scrollDataRefs != null && i < scrollDataRefs.Length
-                ? scrollDataRefs[i]
-                : null;
+            MagicScrollData data = scrollDataRefs[i];
+            string expectedName = scrollDataNames[i];
             if (data == null)
             {
-                string name = scrollDataNames != null && i < scrollDataNames.Length ? scrollDataNames[i] : null;
-                if (string.IsNullOrWhiteSpace(name))
+                data = await AssetLoader.LoadAssetAsync<MagicScrollData>(expectedName, _assetOwner);
+                if (!CanApplyOwnedMagicScrollMigration(expectedMigrationRunner, migrationCancellationToken))
                 {
-                    continue;
+                    return MigrationRestoreReport.FailedScope(
+                        scope,
+                        Mathf.Max(1, count),
+                        "owned_scroll_restore_canceled_or_lifecycle_changed");
                 }
 
-                data = await AssetLoader.LoadAssetAsync<MagicScrollData>(name, _assetOwner);
                 if (data == null)
                 {
-                    Debug.LogWarning($"[PlayerManager] HostMigration owned scroll restore skipped missing asset '{name}' ({context}).");
-                    return;
+                    return MigrationRestoreReport.FailedScope(
+                        scope,
+                        Mathf.Max(1, count),
+                        $"owned_scroll_asset_missing:index={i},name={expectedName}");
                 }
+            }
+
+            if (!string.IsNullOrWhiteSpace(expectedName) &&
+                !string.Equals(data.name, expectedName, StringComparison.Ordinal))
+            {
+                return MigrationRestoreReport.FailedScope(
+                    scope,
+                    Mathf.Max(1, count),
+                    $"owned_scroll_identity_mismatch:index={i},actual={data.name},expected={expectedName}");
             }
 
             restored.Add(data);
         }
 
-        ApplyOwnedMagicScrollSnapshot(revision, restored, context);
-    }
-
-    private void ApplyOwnedMagicScrollSnapshot(int revision, List<MagicScrollData> restoredScrolls, string context)
-    {
-        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        if (!CanApplyOwnedMagicScrollMigration(expectedMigrationRunner, migrationCancellationToken))
         {
-            return;
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, count),
+                "owned_scroll_restore_canceled_or_lifecycle_changed");
         }
 
-        if (revision < OwnedMagicScrollRevision)
+        if (OwnedMagicScrollRevision > revision ||
+            _lastAppliedOwnedMagicScrollRevision > revision ||
+            _latestReceivedOwnedMagicScrollRevision > revision)
         {
-            return;
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, count),
+                $"owned_scroll_snapshot_became_stale:current={OwnedMagicScrollRevision},applied={_lastAppliedOwnedMagicScrollRevision},received={_latestReceivedOwnedMagicScrollRevision},snapshot={revision}");
         }
 
-        _scrollInventory.Replace(restoredScrolls);
-        OwnedMagicScrollRevision = Mathf.Max(OwnedMagicScrollRevision, revision);
-        _lastAppliedOwnedMagicScrollRevision = Mathf.Max(_lastAppliedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
-        _latestReceivedOwnedMagicScrollRevision = Mathf.Max(_latestReceivedOwnedMagicScrollRevision, OwnedMagicScrollRevision);
+        _scrollInventory.Replace(restored);
+        OwnedMagicScrollRevision = revision;
+        _lastAppliedOwnedMagicScrollRevision = revision;
+        _latestReceivedOwnedMagicScrollRevision = revision;
         PublishOwnedMagicScrollsChanged();
         SyncOwnedMagicScrollsToClientsIfAuthoritative();
+
+        string mismatch = VerifyOwnedMagicScrollMigrationSnapshot(
+            revision,
+            scrollDataRefs,
+            scrollDataNames);
+        if (!string.IsNullOrEmpty(mismatch))
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, count),
+                $"owned_scroll_verify_failed:{mismatch}");
+        }
+
         Debug.Log($"[PlayerManager] HostMigration owned scroll restore complete ({context}) P{playerId} rev={OwnedMagicScrollRevision} count={_scrollInventory.Count}");
+        return new MigrationRestoreReport(scope, count, count, 0, 0);
+    }
+
+    private static bool TryValidateOwnedMagicScrollMigrationSnapshot(
+        int revision,
+        MagicScrollData[] scrollDataRefs,
+        string[] scrollDataNames,
+        out int count,
+        out string error)
+    {
+        count = scrollDataRefs?.Length ?? scrollDataNames?.Length ?? 0;
+        error = string.Empty;
+        if (revision < 0)
+        {
+            error = $"revision_invalid:{revision}";
+            return false;
+        }
+
+        if (scrollDataRefs == null || scrollDataNames == null)
+        {
+            error = "null_array";
+            return false;
+        }
+
+        if (scrollDataNames.Length != count)
+        {
+            error = $"shape_mismatch:refs={count},names={scrollDataNames.Length}";
+            return false;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            MagicScrollData data = scrollDataRefs[i];
+            string expectedName = scrollDataNames[i];
+            if (string.IsNullOrWhiteSpace(expectedName))
+            {
+                error = $"identity_missing:index={i}";
+                return false;
+            }
+
+            if (data != null &&
+                !string.Equals(data.name, expectedName, StringComparison.Ordinal))
+            {
+                error = $"identity_mismatch:index={i},ref={data.name},name={expectedName}";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private string VerifyOwnedMagicScrollMigrationSnapshot(
+        int revision,
+        MagicScrollData[] scrollDataRefs,
+        string[] scrollDataNames)
+    {
+        if (OwnedMagicScrollRevision != revision ||
+            _lastAppliedOwnedMagicScrollRevision != revision ||
+            _latestReceivedOwnedMagicScrollRevision != revision)
+        {
+            return $"revision={OwnedMagicScrollRevision}/{_lastAppliedOwnedMagicScrollRevision}/{_latestReceivedOwnedMagicScrollRevision}/{revision}";
+        }
+
+        int count = scrollDataRefs.Length;
+        if (_scrollInventory.Count != count)
+        {
+            return $"count={_scrollInventory.Count}/{count}";
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            MagicScrollData restored = _scrollInventory.Items[i];
+            MagicScrollData expectedRef = scrollDataRefs[i];
+            string expectedName = scrollDataNames[i];
+            bool identityMatches = restored != null &&
+                ((expectedRef != null &&
+                  (ReferenceEquals(restored, expectedRef) ||
+                   string.Equals(restored.name, expectedRef.name, StringComparison.Ordinal))) ||
+                 (expectedRef == null &&
+                  string.Equals(restored.name, expectedName, StringComparison.Ordinal)));
+            if (!identityMatches ||
+                (!string.IsNullOrWhiteSpace(expectedName) &&
+                 !string.Equals(restored.name, expectedName, StringComparison.Ordinal)))
+            {
+                return $"entry={i},identity={identityMatches},actual={restored?.name},expected={expectedName}";
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private bool CanApplyOwnedMagicScrollMigration(
+        NetworkRunner expectedMigrationRunner,
+        CancellationToken migrationCancellationToken)
+    {
+        return expectedMigrationRunner != null &&
+               !migrationCancellationToken.IsCancellationRequested &&
+               expectedMigrationRunner.IsRunning &&
+               Object != null &&
+               Object.IsValid &&
+               Object.HasStateAuthority &&
+               Runner == expectedMigrationRunner;
     }
 
     private void BumpOwnedMagicScrollRevisionIfAuthoritativeOrOffline()
@@ -3456,7 +4554,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         return AttackMonsterPool != null;
     }
 
-    public void RestoreAttackMonsterPoolFromMigrationSnapshot(
+    public async UniTask<MigrationRestoreReport> RestoreAttackMonsterPoolFromMigrationSnapshotAsync(
         int revision,
         MonsterData[] monsterDataRefs,
         string[] monsterDataNames,
@@ -3466,11 +4564,51 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         int[] bossUniqueIds,
         int[] targetPlayerIds,
         int[] originPlayerIds,
-        string context)
+        string context,
+        NetworkRunner expectedMigrationRunner,
+        CancellationToken migrationCancellationToken)
     {
+        string scope = $"attack_pool:P{playerId}";
+        if (!TryValidateAttackMonsterPoolMigrationSnapshot(
+                monsterDataRefs,
+                monsterDataNames,
+                remainingCounts,
+                maxCounts,
+                isBossValues,
+                bossUniqueIds,
+                targetPlayerIds,
+                originPlayerIds,
+                out int captured,
+                out string validationError))
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, captured),
+                $"attack_pool_snapshot_invalid:{validationError}");
+        }
+
         if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
         {
-            return;
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, captured),
+                "state_authority_missing");
+        }
+
+        if (!CanApplyAttackMonsterPoolMigration(expectedMigrationRunner, migrationCancellationToken))
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, captured),
+                "attack_pool_restore_canceled_or_lifecycle_changed");
+        }
+
+        if (AttackMonsterPoolRevision > revision || _lastAppliedAttackMonsterPoolRevision > revision)
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, captured),
+                $"attack_pool_snapshot_stale:current={AttackMonsterPoolRevision},applied={_lastAppliedAttackMonsterPoolRevision},snapshot={revision}");
         }
 
         if (TryBuildAttackMonsterPoolFromRefs(
@@ -3485,11 +4623,21 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         {
             ApplyAttackMonsterPoolEntries(revision, restoredPool);
             ResendAttackMonsterPoolToClientsIfAuthoritative();
-            Debug.Log($"[PlayerManager] AttackMonsterPool migration restore complete ({context}) P{playerId} rev={AttackMonsterPoolRevision} entries={AttackMonsterPool.Count}");
-            return;
+            return BuildAttackMonsterPoolMigrationVerificationReport(
+                scope,
+                revision,
+                monsterDataRefs,
+                monsterDataNames,
+                remainingCounts,
+                maxCounts,
+                isBossValues,
+                bossUniqueIds,
+                targetPlayerIds,
+                originPlayerIds,
+                context);
         }
 
-        ApplyAttackMonsterPoolSnapshotAsync(
+        await ApplyAttackMonsterPoolSnapshotAsync(
             GameManagers.Instance != null ? Mathf.Max(1, GameManagers.Instance.currentRound) : 1,
             revision,
             monsterDataNames,
@@ -3500,7 +4648,158 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             targetPlayerIds,
             originPlayerIds,
             true,
-            context).Forget();
+            context,
+            expectedMigrationRunner,
+            migrationCancellationToken);
+
+        if (!CanApplyAttackMonsterPoolMigration(expectedMigrationRunner, migrationCancellationToken))
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, captured),
+                "attack_pool_restore_canceled_or_lifecycle_changed");
+        }
+
+        return BuildAttackMonsterPoolMigrationVerificationReport(
+            scope,
+            revision,
+            monsterDataRefs,
+            monsterDataNames,
+            remainingCounts,
+            maxCounts,
+            isBossValues,
+            bossUniqueIds,
+            targetPlayerIds,
+            originPlayerIds,
+            context);
+    }
+
+    private static bool TryValidateAttackMonsterPoolMigrationSnapshot(
+        MonsterData[] monsterDataRefs,
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds,
+        out int count,
+        out string error)
+    {
+        count = monsterDataRefs?.Length ?? monsterDataNames?.Length ?? 0;
+        error = string.Empty;
+
+        if (monsterDataRefs == null || monsterDataNames == null || remainingCounts == null ||
+            maxCounts == null || isBossValues == null || bossUniqueIds == null ||
+            targetPlayerIds == null || originPlayerIds == null)
+        {
+            error = "null_array";
+            return false;
+        }
+
+        if (monsterDataNames.Length != count || remainingCounts.Length != count ||
+            maxCounts.Length != count || isBossValues.Length != count ||
+            bossUniqueIds.Length != count || targetPlayerIds.Length != count ||
+            originPlayerIds.Length != count)
+        {
+            error = $"shape_mismatch:refs={count},names={monsterDataNames.Length},remaining={remainingCounts.Length},max={maxCounts.Length},boss={isBossValues.Length},unique={bossUniqueIds.Length},target={targetPlayerIds.Length},origin={originPlayerIds.Length}";
+            return false;
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            MonsterData data = monsterDataRefs[i];
+            string dataName = monsterDataNames[i];
+            if (data == null && string.IsNullOrWhiteSpace(dataName))
+            {
+                error = $"identity_missing:index={i}";
+                return false;
+            }
+
+            if (data != null && !string.IsNullOrWhiteSpace(dataName) && !MatchesMonsterData(data, dataName))
+            {
+                error = $"identity_mismatch:index={i},ref={data.name},name={dataName}";
+                return false;
+            }
+
+            if (remainingCounts[i] < 0 || maxCounts[i] < remainingCounts[i])
+            {
+                error = $"count_invalid:index={i},remaining={remainingCounts[i]},max={maxCounts[i]}";
+                return false;
+            }
+
+            if (isBossValues[i] != 0 && isBossValues[i] != 1)
+            {
+                error = $"boss_flag_invalid:index={i},value={isBossValues[i]}";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private MigrationRestoreReport BuildAttackMonsterPoolMigrationVerificationReport(
+        string scope,
+        int revision,
+        MonsterData[] monsterDataRefs,
+        string[] monsterDataNames,
+        int[] remainingCounts,
+        int[] maxCounts,
+        int[] isBossValues,
+        int[] bossUniqueIds,
+        int[] targetPlayerIds,
+        int[] originPlayerIds,
+        string context)
+    {
+        int captured = monsterDataRefs.Length;
+        int restoredCount = AttackMonsterPool != null ? AttackMonsterPool.Count : 0;
+        string mismatch = string.Empty;
+
+        if (AttackMonsterPoolRevision != revision)
+        {
+            mismatch = $"revision={AttackMonsterPoolRevision}/{revision}";
+        }
+        else if (restoredCount != captured)
+        {
+            mismatch = $"count={restoredCount}/{captured}";
+        }
+        else
+        {
+            for (int i = 0; i < captured; i++)
+            {
+                MonsterPoolEntry restored = AttackMonsterPool[i];
+                MonsterData expectedRef = monsterDataRefs[i];
+                string expectedName = monsterDataNames[i];
+                bool identityMatches = restored?.MonsterData != null &&
+                    ((expectedRef != null &&
+                      (ReferenceEquals(restored.MonsterData, expectedRef) || MatchesMonsterData(restored.MonsterData, expectedRef.name))) ||
+                     (expectedRef == null && MatchesMonsterData(restored.MonsterData, expectedName)));
+
+                if (!identityMatches ||
+                    (!string.IsNullOrWhiteSpace(expectedName) && !MatchesMonsterData(restored.MonsterData, expectedName)) ||
+                    restored.RemainingCount != remainingCounts[i] ||
+                    restored.MaxCount != maxCounts[i] ||
+                    restored.IsBoss != (isBossValues[i] == 1) ||
+                    restored.BossUniqueId != bossUniqueIds[i] ||
+                    restored.TargetPlayerId != targetPlayerIds[i] ||
+                    restored.OriginPlayerId != originPlayerIds[i])
+                {
+                    mismatch = $"entry={i},identity={identityMatches},remaining={restored?.RemainingCount}/{remainingCounts[i]},max={restored?.MaxCount}/{maxCounts[i]},boss={restored?.IsBoss}/{(isBossValues[i] == 1)},unique={restored?.BossUniqueId}/{bossUniqueIds[i]},target={restored?.TargetPlayerId}/{targetPlayerIds[i]},origin={restored?.OriginPlayerId}/{originPlayerIds[i]}";
+                    break;
+                }
+            }
+        }
+
+        if (!string.IsNullOrEmpty(mismatch))
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, captured),
+                $"attack_pool_verify_failed:{mismatch}");
+        }
+
+        Debug.Log($"[PlayerManager] AttackMonsterPool migration restore complete ({context}) P{playerId} rev={AttackMonsterPoolRevision} entries={restoredCount}");
+        return new MigrationRestoreReport(scope, captured, restoredCount, 0, 0);
     }
 
     public void ResendAttackMonsterPoolToClientsIfAuthoritative()
@@ -3694,8 +4993,15 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         int[] targetPlayerIds,
         int[] originPlayerIds,
         bool allowStateAuthorityApply,
-        string context)
+        string context,
+        NetworkRunner expectedMigrationRunner = null,
+        CancellationToken migrationCancellationToken = default)
     {
+        if (!CanApplyAttackMonsterPoolMigration(expectedMigrationRunner, migrationCancellationToken))
+        {
+            return;
+        }
+
         if (!allowStateAuthorityApply && Object != null && Object.HasStateAuthority)
         {
             return;
@@ -3717,6 +5023,11 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             }
 
             MonsterData monsterData = await ResolveAttackMonsterDataAsync(monsterDataName);
+            if (!CanApplyAttackMonsterPoolMigration(expectedMigrationRunner, migrationCancellationToken))
+            {
+                return;
+            }
+
             if (monsterData == null)
             {
                 Debug.LogWarning($"[PlayerManager] AttackMonsterPool snapshot apply aborted: unresolved MonsterData '{monsterDataName}' P{playerId} rev={revision} context={context}");
@@ -3739,6 +5050,11 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
 
         if (revision < _lastAppliedAttackMonsterPoolRevision)
+        {
+            return;
+        }
+
+        if (!CanApplyAttackMonsterPoolMigration(expectedMigrationRunner, migrationCancellationToken))
         {
             return;
         }
@@ -3779,6 +5095,23 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             ResendAttackMonsterPoolToClientsIfAuthoritative();
             Debug.Log($"[PlayerManager] AttackMonsterPool async restore complete ({context}) P{playerId} rev={AttackMonsterPoolRevision} entries={AttackMonsterPool.Count}");
         }
+    }
+
+    private bool CanApplyAttackMonsterPoolMigration(
+        NetworkRunner expectedMigrationRunner,
+        CancellationToken migrationCancellationToken)
+    {
+        if (expectedMigrationRunner == null)
+        {
+            return true;
+        }
+
+        return !migrationCancellationToken.IsCancellationRequested &&
+               expectedMigrationRunner.IsRunning &&
+               Object != null &&
+               Object.IsValid &&
+               Object.HasStateAuthority &&
+               Runner == expectedMigrationRunner;
     }
 
     private async UniTask<MonsterPrewarmReport> PrewarmAppliedAttackMonsterPoolAsync(
@@ -4628,6 +5961,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     public override void Despawned(NetworkRunner runner, bool hasState)
     {
         ResetLocalUnitRosterSyncState();
+        CancelShopSnapshotSyncLifetime();
         CancelAttackMonsterPrewarm();
         DisposeKingRuntime();
         _assetOwner?.Dispose();
@@ -4637,8 +5971,22 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private void OnDestroy()
     {
         ResetLocalUnitRosterSyncState();
+        CancelShopSnapshotSyncLifetime();
         CancelAttackMonsterPrewarm();
         DisposeKingRuntime();
         _assetOwner?.Dispose();
+    }
+
+    private void ResetShopSnapshotSyncLifetime()
+    {
+        CancelShopSnapshotSyncLifetime();
+        _shopSnapshotSyncLifetimeCancellation = new CancellationTokenSource();
+    }
+
+    private void CancelShopSnapshotSyncLifetime()
+    {
+        _shopSnapshotSyncLifetimeCancellation?.Cancel();
+        _shopSnapshotSyncLifetimeCancellation?.Dispose();
+        _shopSnapshotSyncLifetimeCancellation = null;
     }
 }

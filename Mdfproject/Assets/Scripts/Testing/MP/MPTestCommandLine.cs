@@ -13,8 +13,12 @@ public static class MPTestCommandLine
     {
         get
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             var options = GetOptions();
             return options.Enabled;
+#else
+            return false;
+#endif
         }
     }
 
@@ -22,13 +26,20 @@ public static class MPTestCommandLine
     {
         get
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             var options = GetOptions();
             return options.Enabled && options.FreezeGameFlow;
+#else
+            return false;
+#endif
         }
     }
 
     public static Options GetOptions()
     {
+#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+        return default;
+#else
         if (_parsed)
         {
             return _cachedOptions;
@@ -37,10 +48,14 @@ public static class MPTestCommandLine
         _cachedOptions = Parse(Environment.GetCommandLineArgs());
         _parsed = true;
         return _cachedOptions;
+#endif
     }
 
     public static Options SetFreezeGameFlowForRuntime(bool freeze)
     {
+#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+        return default;
+#else
         var options = GetOptions();
         if (!options.Enabled)
         {
@@ -51,10 +66,14 @@ public static class MPTestCommandLine
         _cachedOptions = options;
         _parsed = true;
         return _cachedOptions;
+#endif
     }
 
     public static Options Parse(string[] args)
     {
+#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+        return default;
+#else
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var flags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -110,6 +129,7 @@ public static class MPTestCommandLine
             PerformanceCapture = enabled && !flags.Contains("--mpDisablePerformanceCapture") && !values.ContainsKey("--mpDisablePerformanceCapture"),
             PerformanceWarmupSeconds = Mathf.Max(0, GetInt(values, "--mpPerformanceWarmupSeconds", 3))
         };
+#endif
     }
 
     private static string Get(Dictionary<string, string> values, string key, string fallback)

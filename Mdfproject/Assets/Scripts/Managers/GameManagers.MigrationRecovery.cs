@@ -192,27 +192,14 @@ public partial class GameManagers
             Debug.Log("[복원] 싱글턴 인스턴스 재설정 완료");
         }
         
-        // 6. 상점/증강 데이터 동기화 (서버 Host인 경우)
+        // 6. 상점/증강 데이터 동기화
         Debug.Log("[복원] 6. 상점/증강 데이터 동기화 체크...");
         if (Object != null && Object.HasStateAuthority)
         {
-            Debug.Log("<color=green>[복원] 서버 Host - 상점 데이터 동기화 시작</color>");
-            foreach (var player in AllPlayers)
-            {
-                if (player?.shopManager != null)
-                {
-                    var items = player.shopManager.GetCurrentShopItems();
-                    Debug.Log($"[MigrationRestore] Player {player.playerId} shop items synced count={items?.Count ?? 0}");
-                    
-                    if (items != null && items.Count > 0)
-                    {
-                        string[] names = items.Select(i => i.UnitData?.name ?? "").ToArray();
-                        int[] stars = items.Select(i => i.StarLevel).ToArray();
-                        var cmd = new SyncShopItemsCommand(player.playerId, names, stars);
-                        CommandProcessor.RequestCommandExecution(cmd);
-                    }
-                }
-            }
+            // HostMigrationHandler의 post-pass가 먼저 모든 authority runtime shop을 정확히
+            // 복원·검증한 뒤 revisioned snapshot sync를 발행한다. 여기서 names/stars-only
+            // command를 미리 발행하면 sold 상태가 지워지고 오래된 cache가 전파된다.
+            Debug.Log("[MigrationRestore] Host shop sync deferred until exact post-pass restore completes.");
         }
         else if (Object != null && !Object.HasStateAuthority && localPlayer != null)
         {
@@ -295,8 +282,20 @@ public partial class GameManagers
             bool timerReady = IsMigrationTimerReady(out string timerReason);
             bool wallMapReady = AreWallMapsReadyForMigration(out string wallReason);
             bool aiTakeoverReady = IsMigrationAiTakeoverReady(out string aiReason);
+            bool restoreReportsReady = IsMigrationRestoreReportGateReady(
+                out bool restoreReportsFailed,
+                out string restoreReportReason);
 
-            if (hasAuthority && runnerMatched && uiReady && playersReady && mappingReady && timerReady && wallMapReady && aiTakeoverReady)
+            if (restoreReportsFailed)
+            {
+                phaseTimer = TickTimer.None;
+                Debug.LogError($"[STEP 6] Host migration restore report gate failed; game flow remains stopped. reason={restoreReportReason}");
+                LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:RESTORE_REPORT_FAILED", restoreReportReason);
+                SetMigrationRestoreStage(MigrationRestoreStage.Failed, "WaitForRestoreDependenciesAndResumeFlow.RestoreReportFailed");
+                yield break;
+            }
+
+            if (hasAuthority && runnerMatched && uiReady && playersReady && mappingReady && timerReady && wallMapReady && aiTakeoverReady && restoreReportsReady)
             {
                 Debug.Log($"<color=green>[STEP 6] 재개 조건 충족 ({waitTime:F1}s): authority={hasAuthority}, runnerMatched={runnerMatched}, uiReady={uiReady}, playersReady={playersReady}, mappingReady={mappingReady}, timerReady={timerReady}, wallMapReady={wallMapReady}, aiTakeoverReady={aiTakeoverReady}</color>");
                 LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:READY", $"waited={waitTime:F1}s");
@@ -349,8 +348,11 @@ public partial class GameManagers
         bool timeoutTimerReady = IsMigrationTimerReady(out string timeoutTimerReason);
         bool timeoutWallMapReady = AreWallMapsReadyForMigration(out string timeoutWallReason);
         bool timeoutAiTakeoverReady = IsMigrationAiTakeoverReady(out string timeoutAiReason);
+        bool timeoutRestoreReportsReady = IsMigrationRestoreReportGateReady(
+            out bool timeoutRestoreReportsFailed,
+            out string timeoutRestoreReportReason);
 
-        if (timeoutHasAuthority && timeoutRunnerMatched && timeoutUiReady && timeoutPlayersReady && timeoutMappingReady && timeoutTimerReady && timeoutWallMapReady && timeoutAiTakeoverReady)
+        if (!timeoutRestoreReportsFailed && timeoutHasAuthority && timeoutRunnerMatched && timeoutUiReady && timeoutPlayersReady && timeoutMappingReady && timeoutTimerReady && timeoutWallMapReady && timeoutAiTakeoverReady && timeoutRestoreReportsReady)
         {
             SetMigrationRestoreStage(MigrationRestoreStage.WaitingForFlowResume, "WaitForRestoreDependenciesAndResumeFlow.TimeoutFallback");
             ResumeGameFlowFromCurrentState();
@@ -358,9 +360,24 @@ public partial class GameManagers
         else
         {
             Debug.LogError($"[STEP 6] timeout fallback 차단: hasAuthority={timeoutHasAuthority}, runnerMatched={timeoutRunnerMatched}, uiReady={timeoutUiReady}, playersReady={timeoutPlayersReady}, mappingReady={timeoutMappingReady}, timerReady={timeoutTimerReady}, wallMapReady={timeoutWallMapReady}, aiTakeoverReady={timeoutAiTakeoverReady}, playersReason={timeoutPlayersReason}, mappingReason={timeoutMappingReason}, timerReason={timeoutTimerReason}, wallReason={timeoutWallReason}, aiReason={timeoutAiReason}");
+            phaseTimer = TickTimer.None;
+            if (timeoutRestoreReportsFailed)
+            {
+                LogMigrationTrace("WaitForRestoreDependenciesAndResumeFlow:RESTORE_REPORT_FAILED", timeoutRestoreReportReason);
+            }
             SetMigrationRestoreStage(MigrationRestoreStage.Failed, "WaitForRestoreDependenciesAndResumeFlow.TimeoutNoGate");
         }
     }
+
+    public void FailHostMigrationRecoveryFromHandler(string reason)
+    {
+        phaseTimer = TickTimer.None;
+        _migrationTimerPaused = true;
+        _migrationPausedTimerRemainingSeconds = 0f;
+        LogMigrationTrace("HostMigrationHandler:RESTORE_SCHEDULING_FAILED", reason ?? "unknown");
+        SetMigrationRestoreStage(MigrationRestoreStage.Failed, reason ?? "HostMigrationHandler.RestoreSchedulingFailed");
+    }
+
     private bool IsBoundToActiveRunner()
     {
         if (Runner == null)
@@ -501,6 +518,31 @@ public partial class GameManagers
         }
 
         return true;
+    }
+
+    private bool IsMigrationRestoreReportGateReady(out bool terminalFailure, out string reason)
+    {
+        terminalFailure = false;
+        reason = string.Empty;
+        if (Runner == null || !Runner.IsRunning || !Runner.IsServer)
+        {
+            return true;
+        }
+
+        HostMigrationHandler handler = HostMigrationHandler.Instance;
+        if (handler == null)
+        {
+            if (NetworkManager.Instance == null && Runner.GameMode == GameMode.Single)
+            {
+                return true;
+            }
+
+            terminalFailure = true;
+            reason = "hostMigrationHandler=null";
+            return false;
+        }
+
+        return handler.IsMigrationRestoreReadyForFlow(Runner, this, out terminalFailure, out reason);
     }
 
     private bool IsMigrationAiTakeoverReady(out string reason)
@@ -674,6 +716,15 @@ public partial class GameManagers
     private void ResumeGameFlowFromCurrentState()
     {
         LogMigrationTrace("ResumeGameFlowFromCurrentState:ENTER");
+
+        if ((IsCombatExitDebtGateActive || IsCombatExitDebtTerminalFailureSafeStopped) &&
+            IsSequenceTransitioning)
+        {
+            SetMigrationRestoreStage(
+                MigrationRestoreStage.FlowResumed,
+                "ResumeGameFlowFromCurrentState.CombatExitDebtGate");
+            return;
+        }
 
         if (_migrationTimerPaused && Runner != null && Object != null && Object.HasStateAuthority)
         {

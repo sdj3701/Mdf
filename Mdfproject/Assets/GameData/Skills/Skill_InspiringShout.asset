@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1ce8c3f4810fbf84eb609f7a2c04e854, type: 3}
   m_Name: Skill_InspiringShout
   m_EditorClassIdentifier: 
+  contentId: skill.inspiring_shout
   skillName: InspiringShout_Skill
   description: "\uC8FC\uBCC0 \uC544\uAD70\uC720\uB2DB\uC758 \uACF5\uACA9\uC18D\uB3C4\uB97C
     5\uCD08\uAC04 15% \uC99D\uAC00"

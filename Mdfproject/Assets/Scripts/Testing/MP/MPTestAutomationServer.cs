@@ -320,6 +320,15 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => SetFreezeGameFlow(body)));
         }
 
+        if (path == "/test/pushHostMigrationSnapshot")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(
+                request,
+                "POST",
+                () => MainThread(() => PushHostMigrationSnapshotForTestAsync(body)));
+        }
+
         if (path == "/test/applyStatusEffect")
         {
             JObject body = await ReadBody(request);
@@ -342,6 +351,14 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         {
             JObject body = await ReadBody(request);
             return await RequireMethod(request, "POST", () => MainThread(() => InjectPendingCombatLoadForTest(body)));
+        }
+
+        if (path == "/test/combatCapacityRecovery")
+        {
+            return await RequireMethod(
+                request,
+                "POST",
+                () => MainThread(RunCombatCapacityRecoveryProbeForTest));
         }
 
         if (path == "/test/performanceStress")
@@ -373,6 +390,11 @@ public sealed class MPTestAutomationServer : MonoBehaviour
     private Task<AutomationResponse> MainThread(Func<AutomationResponse> action)
     {
         return MPTestMainThreadDispatcher.Run(action);
+    }
+
+    private Task<AutomationResponse> MainThread(Func<Task<AutomationResponse>> action)
+    {
+        return MPTestMainThreadDispatcher.RunAsync(action);
     }
 
     private async Task<AutomationResponse> RequireMethod(HttpListenerRequest request, string method, Func<Task<AutomationResponse>> action)
@@ -1805,6 +1827,84 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         });
     }
 
+    private async Task<AutomationResponse> PushHostMigrationSnapshotForTestAsync(JObject body)
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail(
+                "host_migration_snapshot_push_requires_mptest",
+                "Host Migration snapshot push requires --mpTest.");
+        }
+
+        GameManagers gameManagers = GameManagers.Instance;
+        NetworkRunner runner = gameManagers != null ? gameManagers.Runner : null;
+        if (runner == null || !runner.IsRunning || !runner.IsServer ||
+            gameManagers.Object == null || !gameManagers.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail(
+                "host_migration_snapshot_push_requires_authority",
+                "Host Migration snapshot push requires a running State Authority host.");
+        }
+
+        HostMigrationHandler handler = HostMigrationHandler.Instance;
+        if (handler == null || handler.IsMigrating)
+        {
+            return AutomationResponse.Fail(
+                "host_migration_snapshot_handler_unavailable",
+                "HostMigrationHandler is unavailable or already migrating.");
+        }
+
+        string reason = GetString(body, "reason", "MPTest.FrozenBattleCheckpoint");
+        int previousCommittedGeneration = handler.HostMigrationSnapshotPushCommittedGeneration;
+        using (CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                   _cancellation?.Token ?? CancellationToken.None))
+        {
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            try
+            {
+                bool committed = await handler.PushHostMigrationSnapshotAsync(
+                    runner,
+                    reason,
+                    timeout.Token);
+                if (!committed)
+                {
+                    return AutomationResponse.Fail(
+                        "host_migration_snapshot_push_not_committed",
+                        "Fusion rejected the Host Migration snapshot push.",
+                        new
+                        {
+                            reason,
+                            previousCommittedGeneration,
+                            committedGeneration = handler.HostMigrationSnapshotPushCommittedGeneration,
+                            committedTick = handler.HostMigrationSnapshotPushCommittedTick
+                        });
+                }
+
+                return AutomationResponse.Ok("host migration snapshot committed", new
+                {
+                    reason,
+                    committed = true,
+                    previousCommittedGeneration,
+                    committedGeneration = handler.HostMigrationSnapshotPushCommittedGeneration,
+                    committedTick = handler.HostMigrationSnapshotPushCommittedTick
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                return AutomationResponse.Fail(
+                    "host_migration_snapshot_push_timeout",
+                    "Timed out waiting for Fusion to commit the Host Migration snapshot.",
+                    new
+                    {
+                        reason,
+                        previousCommittedGeneration,
+                        committedGeneration = handler.HostMigrationSnapshotPushCommittedGeneration,
+                        committedTick = handler.HostMigrationSnapshotPushCommittedTick
+                    });
+            }
+        }
+    }
+
     private AutomationResponse ApplyStatusEffectForTest(JObject body)
     {
         if (!_options.Enabled)
@@ -1865,10 +1965,17 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
         int beforeTargetCount = scheduler.GetActiveStatusEffectCountFor(targetBuffManager);
         int beforeTotalCount = scheduler.ActiveStatusEffectCount;
-        targetBuffManager.ApplyStatusEffect(effectType, durationSeconds, gameObject, tickIntervalSeconds, damagePerTick, slowMultiplier, damageType);
+        bool accepted = targetBuffManager.ApplyStatusEffect(
+            effectType,
+            durationSeconds,
+            gameObject,
+            tickIntervalSeconds,
+            damagePerTick,
+            slowMultiplier,
+            damageType);
         int afterTargetCount = scheduler.GetActiveStatusEffectCountFor(targetBuffManager);
         int afterTotalCount = scheduler.ActiveStatusEffectCount;
-        if (afterTargetCount <= 0 || afterTotalCount <= 0)
+        if (!accepted || afterTargetCount <= 0 || afterTotalCount <= 0)
         {
             return AutomationResponse.Fail("status_effect_apply_failed", "Status effect did not appear in scheduler state.", new
             {
@@ -1970,7 +2077,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
         int beforeTargetCount = scheduler.GetActiveStatBuffCountFor(targetBuffManager);
         int beforeTotalCount = scheduler.ActiveStatBuffCount;
-        scheduler.ApplyStatBuff(
+        bool accepted = scheduler.ApplyStatBuff(
             targetBuffManager,
             statType,
             value,
@@ -1980,7 +2087,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             Animator.StringToHash("MPTestStatBuff"));
         int afterTargetCount = scheduler.GetActiveStatBuffCountFor(targetBuffManager);
         int afterTotalCount = scheduler.ActiveStatBuffCount;
-        if (afterTargetCount <= 0 || afterTotalCount <= 0)
+        if (!accepted || afterTargetCount <= 0 || afterTotalCount <= 0)
         {
             return AutomationResponse.Fail("stat_buff_apply_failed", "Stat buff did not appear in scheduler state.", new
             {
@@ -2077,9 +2184,9 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         }
 
         int beforeCount = scheduler.ActiveZoneCount;
-        scheduler.TryScheduleZone(zoneEffect, targetObject.gameObject, null, range, targetingStrategy, out _);
+        bool accepted = scheduler.TryScheduleZone(zoneEffect, targetObject.gameObject, null, range, targetingStrategy, out _);
         int afterCount = scheduler.ActiveZoneCount;
-        if (afterCount <= beforeCount)
+        if (!accepted || afterCount <= beforeCount)
         {
             return AutomationResponse.Fail("zone_apply_failed", "Zone did not appear in scheduler state.", new
             {
@@ -2182,7 +2289,16 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             { "currentPendingFireActive", after.CurrentPendingFireActive },
             { "currentPendingHitActive", after.CurrentPendingHitActive },
             { "maxPendingFireActive", after.MaxPendingFireActive },
-            { "maxPendingHitActive", after.MaxPendingHitActive }
+            { "maxPendingHitActive", after.MaxPendingHitActive },
+            { "pendingFireCapacityFallbacks", after.PendingFireCapacityFallbacks - before.PendingFireCapacityFallbacks },
+            { "pendingHitCapacityFallbacks", after.PendingHitCapacityFallbacks - before.PendingHitCapacityFallbacks },
+            { "statusCapacityBackpressures", after.StatusCapacityBackpressures - before.StatusCapacityBackpressures },
+            { "statBuffCapacityBackpressures", after.StatBuffCapacityBackpressures - before.StatBuffCapacityBackpressures },
+            { "zoneCapacityBackpressures", after.ZoneCapacityBackpressures - before.ZoneCapacityBackpressures },
+            { "zoneDueDebtPhaseCancellations", after.ZoneDueDebtPhaseCancellations - before.ZoneDueDebtPhaseCancellations },
+            { "zoneDebtTerminalFailures", after.ZoneDebtTerminalFailures - before.ZoneDebtTerminalFailures },
+            { "pendingFireCapacityDrops", after.PendingFireCapacityDrops - before.PendingFireCapacityDrops },
+            { "pendingHitCapacityDrops", after.PendingHitCapacityDrops - before.PendingHitCapacityDrops }
         });
 
         return AutomationResponse.Ok("pending combat load injected", new
@@ -2195,6 +2311,79 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             before,
             after
         });
+    }
+
+    private AutomationResponse RunCombatCapacityRecoveryProbeForTest()
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail(
+                "combat_capacity_recovery_requires_mptest",
+                "Combat capacity recovery probe requires --mpTest.");
+        }
+
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null ||
+            !gameManagers.Runner.IsRunning || !gameManagers.Runner.IsServer)
+        {
+            return AutomationResponse.Fail(
+                "combat_capacity_recovery_requires_server",
+                "Combat capacity recovery probe requires a running server/host peer.");
+        }
+
+        CombatScheduler scheduler = CombatScheduler.Instance;
+        if (scheduler == null || scheduler.Object == null || !scheduler.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail(
+                "combat_capacity_recovery_scheduler_unavailable",
+                "CombatScheduler State Authority is not ready.");
+        }
+
+        CombatScheduler.NetworkBudgetReport before = scheduler.GetNetworkBudgetReport();
+        bool passed = scheduler.MPTestRunCapacityRecoveryProbe(out string reason);
+        CombatScheduler.NetworkBudgetReport after = scheduler.GetNetworkBudgetReport();
+        CombatScheduler.MPTestCapacityRecoveryProbeReport probe =
+            scheduler.LastMPTestCapacityRecoveryProbeReport;
+        if (!passed)
+        {
+            return AutomationResponse.Fail(
+                "combat_capacity_recovery_failed",
+                reason,
+                new { probe, before, after });
+        }
+
+        MPTestLogger.Log(
+            "automation_combat_capacity_recovery",
+            "passed",
+            null,
+            reason,
+            new Dictionary<string, object>
+            {
+                { "pendingHitFallbackDelta", after.PendingHitCapacityFallbacks - before.PendingHitCapacityFallbacks },
+                { "pendingHitDropDelta", after.PendingHitCapacityDrops - before.PendingHitCapacityDrops },
+                { "zoneTerminalFailureDelta", after.ZoneDebtTerminalFailures - before.ZoneDebtTerminalFailures },
+                { "pendingHitBaseline", before.CurrentPendingHitActive },
+                { "pendingHitAfter", after.CurrentPendingHitActive }
+            });
+        return AutomationResponse.Ok(
+            "combat capacity recovery passed",
+            new
+            {
+                reason,
+                unitExactlyOnce = probe.UnitCommitCount == 1,
+                unitCommitCount = probe.UnitCommitCount,
+                unitCooldownCommitCount = probe.UnitCooldownCommitCount,
+                unitManaCommitCount = probe.UnitManaCommitCount,
+                unitExpectedManaCommitCount = probe.UnitExpectedManaCommitCount,
+                monsterExactlyOnce = probe.MonsterCommitCount == 1,
+                monsterCommitCount = probe.MonsterCommitCount,
+                pendingHitBackpressureCount = probe.PendingHitBackpressureCount,
+                pendingHitDropCount = probe.PendingHitDropCount,
+                initialPendingHitCount = probe.InitialPendingHitCount,
+                finalPendingHitCount = probe.FinalPendingHitCount,
+                before,
+                after
+            });
     }
 
     private AutomationResponse ExecutePerformanceStress(JObject body)
@@ -2425,7 +2614,8 @@ public sealed class MPTestAutomationServer : MonoBehaviour
                          .Where(candidate => candidate != null && !candidate.IsDead && candidate.CurrentHealth > 0f)
                          .OrderBy(candidate => candidate.OwnerPlayerIdForRoster)
                          .ThenBy(candidate => candidate.Data != null ? candidate.Data.name : candidate.name)
-                         .ThenBy(candidate => candidate.starLevel))
+                         .ThenBy(candidate => candidate.starLevel)
+                         .ThenBy(GetNetworkObjectOrderKey))
             {
                 if (ownerPlayerId >= 0 && unit.OwnerPlayerIdForRoster != ownerPlayerId)
                 {
@@ -2448,7 +2638,8 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         foreach (var monster in UnityEngine.Object.FindObjectsOfType<Monster>()
                      .Where(candidate => candidate != null && candidate.CurrentHealth > 0f)
                      .OrderBy(candidate => candidate.SnapshotOwnerPlayerId)
-                     .ThenBy(candidate => candidate.Data != null ? candidate.Data.name : candidate.name))
+                     .ThenBy(candidate => candidate.Data != null ? candidate.Data.name : candidate.name)
+                     .ThenBy(GetNetworkObjectOrderKey))
         {
             if (ownerPlayerId >= 0 && monster.SnapshotOwnerPlayerId != ownerPlayerId)
             {
@@ -2466,6 +2657,13 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
         reason = ownerPlayerId >= 0 ? "no_alive_monster_for_owner" : "no_alive_monster";
         return false;
+    }
+
+    private static uint GetNetworkObjectOrderKey(NetworkBehaviour candidate)
+    {
+        return candidate != null && candidate.Object != null && candidate.Object.IsValid
+            ? candidate.Object.Id.Raw
+            : uint.MaxValue;
     }
 
     private static bool TryResolveStatusTarget(GameObject target, out BuffManager buffManager, out NetworkObject networkObject)

@@ -51,11 +51,28 @@ public class ScrollCaster : MonoBehaviour
             skillData.range);
         targetCount = targets.Count;
 
+        if (!SkillEffect.CanApplyAllEffects(
+                skillData.effects,
+                null,
+                gameObject,
+                targets,
+                skillData.range,
+                skillData.targetingStrategy))
+        {
+            Destroy(gameObject);
+            return false;
+        }
+
         foreach (var effect in skillData.effects)
         {
             if (effect != null)
             {
-                effect.ApplyEffect(null, gameObject, targets, skillData.range, skillData.targetingStrategy);
+                if (!effect.TryApplyEffect(null, gameObject, targets, skillData.range, skillData.targetingStrategy))
+                {
+                    Debug.LogError($"[ScrollCaster] Capacity preflight drifted before apply. skill={skillData.name}, effect={effect.name}");
+                    Destroy(gameObject);
+                    return false;
+                }
             }
         }
 

@@ -166,12 +166,23 @@ public class CommandProcessor
             case InitializePlayerCommand cmd:
                 return (CommandType.InitializePlayer, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
             case SyncShopItemsCommand cmd:
-                // intParams: [playerId], stringParams: [unitDataNames..., starLevels as strings...]
+                // The names/stars payload is retained for wire compatibility and diagnostics.
+                // Clients apply the authoritative Networked snapshot at this revision, including sold flags.
                 var shopStrings = cmd.UnitDataNames.Concat(cmd.StarLevels.Select(s => s.ToString())).ToArray();
-                return (CommandType.SyncShopItems, new int[] { cmd.PlayerId, cmd.UnitDataNames.Length }, shopStrings, Array.Empty<Vector3>());
+                return (
+                    CommandType.SyncShopItems,
+                    new int[]
+                    {
+                        cmd.PlayerId,
+                        cmd.UnitDataNames.Length,
+                        cmd.SnapshotRevision,
+                        cmd.SnapshotRound
+                    },
+                    shopStrings,
+                    Array.Empty<Vector3>());
             
             case SyncAugmentsCommand cmd:
-                return (CommandType.SyncPresentedAugments, new int[] { cmd.PlayerId }, cmd.AugmentNames, Array.Empty<Vector3>());
+                return (CommandType.SyncPresentedAugments, new int[] { cmd.PlayerId }, cmd.AugmentContentIds, Array.Empty<Vector3>());
             
             case SyncPermanentBonusesCommand cmd:
                 // float를 int로 변환 (100배하여 정수로 전송)
@@ -194,7 +205,7 @@ public class CommandProcessor
                 return (CommandType.NotifyPurchaseSucceeded, new int[] { cmd.PlayerId, cmd.SlotIndex }, Array.Empty<string>(), Array.Empty<Vector3>());
             
             case NotifyAugmentSelectedCommand cmd:
-                return (CommandType.NotifyAugmentSelected, new int[] { cmd.PlayerId }, new string[] { cmd.AugmentName }, Array.Empty<Vector3>());
+                return (CommandType.NotifyAugmentSelected, new int[] { cmd.PlayerId }, new string[] { cmd.AugmentContentId }, Array.Empty<Vector3>());
             
             case NotifyWallPlacementCommand cmd:
                 return (CommandType.NotifyWallPlacementSucceeded, new int[] { cmd.PlayerId, cmd.X, cmd.Y }, Array.Empty<string>(), Array.Empty<Vector3>());
@@ -291,11 +302,18 @@ public class CommandProcessor
             case CommandType.InitializePlayer:
                 return new InitializePlayerCommand(ints[0], default);
             case CommandType.SyncShopItems:
-                // ints: [playerId, unitDataNamesCount], texts: [unitDataNames..., starLevels as strings...]
+                // ints: [playerId, unitDataNamesCount, snapshotRevision, snapshotRound]
                 int namesCount = ints[1];
                 string[] unitNames = texts.Take(namesCount).ToArray();
                 int[] stars = texts.Skip(namesCount).Select(s => int.TryParse(s, out int v) ? v : 1).ToArray();
-                return new SyncShopItemsCommand(ints[0], unitNames, stars);
+                int snapshotRevision = ints.Length > 2 ? ints[2] : 0;
+                int snapshotRound = ints.Length > 3 ? ints[3] : 0;
+                return new SyncShopItemsCommand(
+                    ints[0],
+                    unitNames,
+                    stars,
+                    snapshotRevision,
+                    snapshotRound);
             
             case CommandType.SyncPresentedAugments:
                 return new SyncAugmentsCommand(ints[0], texts);

@@ -29,6 +29,10 @@ public static class MPTestAssertions
         {
             result.AddError("gameManagers_missing");
         }
+        else if (snapshot.Game.CombatExitDebtSafeStopped)
+        {
+            result.AddError("game.combatExitDebtSafeStopped expected=false actual=true");
+        }
 
         if (!string.IsNullOrEmpty(expectedGameState))
         {
@@ -111,6 +115,8 @@ public static class MPTestAssertions
             }
         }
 
+        AssertNoCombatCapacityDrops(result, snapshot.NetworkBudget);
+
         if (snapshot.Errors != null && snapshot.Errors.Count > 0)
         {
             foreach (string error in snapshot.Errors)
@@ -120,6 +126,45 @@ public static class MPTestAssertions
         }
 
         return result;
+    }
+
+    private static void AssertNoCombatCapacityDrops(
+        AssertionResult result,
+        MPTestStateSnapshot.NetworkBudgetSnapshot budget)
+    {
+        if (result == null || budget == null)
+        {
+            return;
+        }
+
+        AddCapacityDropError(result, "status", budget.StatusCapacityDrops);
+        AddCapacityDropError(result, "statBuff", budget.StatBuffCapacityDrops);
+        AddCapacityDropError(result, "zone", budget.ZoneCapacityDrops);
+        AddCapacityDropError(result, "pendingFire", budget.PendingFireCapacityDrops);
+        AddCapacityDropError(result, "pendingHit", budget.PendingHitCapacityDrops);
+        if (budget.ZoneDueDebtPhaseCancellations > 0)
+        {
+            result.AddWarning(
+                $"networkBudget.zoneDueDebtPhaseCancellations actual={budget.ZoneDueDebtPhaseCancellations}");
+        }
+        if (budget.ZoneDebtTerminalTargetInvalidations > 0)
+        {
+            result.AddWarning(
+                $"networkBudget.zoneDebtTerminalTargetInvalidations actual={budget.ZoneDebtTerminalTargetInvalidations}");
+        }
+        if (budget.ZoneDebtTerminalFailures > 0)
+        {
+            result.Errors.Add(
+                $"networkBudget.zoneDebtTerminalFailures expected=0 actual={budget.ZoneDebtTerminalFailures}");
+        }
+    }
+
+    private static void AddCapacityDropError(AssertionResult result, string kind, int count)
+    {
+        if (count > 0)
+        {
+            result.AddError($"networkBudget.{kind}CapacityDrops expected=0 actual={count}");
+        }
     }
 
     public static AssertionResult CompareDurable(

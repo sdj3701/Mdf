@@ -14,6 +14,8 @@ public class SyncShopItemsCommand : ICommand, IAsyncCommand
     public int PlayerId { get; set; }
     public string[] UnitDataNames { get; private set; }
     public int[] StarLevels { get; private set; }
+    public int SnapshotRevision { get; private set; }
+    public int SnapshotRound { get; private set; }
     private static readonly Dictionary<string, float> RecentSyncPayloads = new Dictionary<string, float>();
     private const float SyncPayloadDedupWindowSeconds = 1.5f;
 
@@ -22,11 +24,18 @@ public class SyncShopItemsCommand : ICommand, IAsyncCommand
         BuildDebugGUI.LogClient($"[SyncShop] {message}");
     }
 
-    public SyncShopItemsCommand(int playerId, string[] unitDataNames, int[] starLevels)
+    public SyncShopItemsCommand(
+        int playerId,
+        string[] unitDataNames,
+        int[] starLevels,
+        int snapshotRevision,
+        int snapshotRound)
     {
         PlayerId = playerId;
         UnitDataNames = unitDataNames ?? System.Array.Empty<string>();
         StarLevels = starLevels ?? System.Array.Empty<int>();
+        SnapshotRevision = snapshotRevision;
+        SnapshotRound = snapshotRound;
     }
 
     private async UniTask<PlayerManager> WaitForPlayerAsync(GameManagers gm, CancellationToken cancellationToken)
@@ -130,9 +139,19 @@ public class SyncShopItemsCommand : ICommand, IAsyncCommand
             return;
         }
 
-        await player.shopManager.SetShopItemsFromServerAsync(UnitDataNames, StarLevels);
+        bool applied = await player.shopManager.ApplySnapshotFromNetworkAtOrAfterRevisionAsync(
+            SnapshotRevision,
+            SnapshotRound,
+            $"SyncShopItemsCommand.P{PlayerId}.R{SnapshotRevision}",
+            triggerRefreshedEvent: true,
+            cancellationToken: cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        TraceClient($"SetShopItems applied target={PlayerId}, items={UnitDataNames.Length}");
+        if (!applied)
+        {
+            throw new System.InvalidOperationException(
+                $"Authoritative shop snapshot apply failed for P{PlayerId}, revision={SnapshotRevision}.");
+        }
+        TraceClient($"Network shop snapshot applied target={PlayerId}, expectedRevision={SnapshotRevision}");
         // Debug.Log($"<color=cyan>[SyncShopItemsCommand] Player {PlayerId}: {UnitDataNames.Length}개 상점 아이템 동기화 완료</color>");
     }
 
@@ -152,7 +171,7 @@ public class SyncShopItemsCommand : ICommand, IAsyncCommand
         }
         string names = UnitDataNames != null ? string.Join(",", UnitDataNames) : "none";
         string stars = StarLevels != null ? string.Join(",", StarLevels.Select(star => star.ToString())) : "none";
-        return $"round={round}|player={PlayerId}|items={names}|stars={stars}";
+        return $"round={round}|player={PlayerId}|revision={SnapshotRevision}|snapshotRound={SnapshotRound}|items={names}|stars={stars}";
     }
 
     private static bool IsDuplicatePayload(string key)

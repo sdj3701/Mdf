@@ -1102,6 +1102,7 @@ def freeze_battle_checkpoint(
     require_active_zone: bool = False,
     pending_load_payload: dict[str, Any] | None = None,
     require_pending_load: bool = False,
+    require_host_migration_snapshot_push: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
     write_json(artifact_dir / "build-host-bot-stop-after-battle.json", host.bot_stop(reason=reason))
     if client_human_bot:
@@ -1134,6 +1135,16 @@ def freeze_battle_checkpoint(
         expected_pending_hit = int(pending_load_payload.get("pendingHitCount") or pending_load_payload.get("pending_hit_count") or 0)
         pending_load_response = host.inject_pending_combat_load(**pending_load_payload)
         write_json(artifact_dir / "build-host-inject-pending-combat-load.json", pending_load_response)
+
+    host_migration_snapshot_push_response: dict[str, Any] | None = None
+    if require_host_migration_snapshot_push:
+        host_migration_snapshot_push_response = host.push_host_migration_snapshot(
+            reason=reason,
+        )
+        write_json(
+            artifact_dir / "build-host-push-host-migration-snapshot.json",
+            host_migration_snapshot_push_response,
+        )
 
     deadline = time.time() + 20
     host_state: dict[str, Any] = {}
@@ -1182,6 +1193,20 @@ def freeze_battle_checkpoint(
                 client_pending_hit >= expected_pending_hit
             )
         )
+        snapshot_push_data = (
+            host_migration_snapshot_push_response.get("data")
+            if isinstance(host_migration_snapshot_push_response, dict)
+            else None
+        )
+        host_migration_snapshot_push_ready = (
+            not require_host_migration_snapshot_push or
+            (
+                host_migration_snapshot_push_response is not None and
+                host_migration_snapshot_push_response.get("success") is True and
+                isinstance(snapshot_push_data, dict) and
+                snapshot_push_data.get("committed") is True
+            )
+        )
         write_json(artifact_dir / "battle-checkpoint-freeze-wait-latest.json", {
             "ready": ready,
             "comparison": comparison,
@@ -1210,8 +1235,19 @@ def freeze_battle_checkpoint(
             "hostPendingHit": host_pending_hit,
             "clientPendingHit": client_pending_hit,
             "pendingLoadResponse": pending_load_response,
+            "requireHostMigrationSnapshotPush": require_host_migration_snapshot_push,
+            "hostMigrationSnapshotPushReady": host_migration_snapshot_push_ready,
+            "hostMigrationSnapshotPushResponse": host_migration_snapshot_push_response,
         })
-        if ready and comparison.get("success") is True and active_status_ready and active_buff_ready and active_zone_ready and pending_load_ready:
+        if (
+            ready and
+            comparison.get("success") is True and
+            active_status_ready and
+            active_buff_ready and
+            active_zone_ready and
+            pending_load_ready and
+            host_migration_snapshot_push_ready
+        ):
             stable += 1
             if stable >= stable_samples:
                 return host_state, client_state, comparison, True
@@ -1363,6 +1399,7 @@ def validate_post_migration_performance_stress(
         "maxMoved": payload.get("maxMovedCount"),
         "cleaned": payload.get("cleanedCount"),
     }
+
     for label, value in counts.items():
         if not isinstance(value, int) or isinstance(value, bool) or value < expected_minimum:
             errors.append(f"{label}_below_minimum expected>={expected_minimum} actual={value}")
@@ -1375,6 +1412,56 @@ def validate_post_migration_performance_stress(
         "phase": payload.get("phase"),
         "reason": payload.get("reason"),
         "evidencePath": payload.get("evidencePath"),
+    }
+
+
+def combat_capacity_recovery_assertions(response: Any) -> dict[str, Any]:
+    errors: list[str] = []
+    payload = response.get("data") if isinstance(response, dict) else None
+    if not isinstance(response, dict) or response.get("success") is not True:
+        errors.append("combat_capacity_recovery.response_failed")
+    if not isinstance(payload, dict):
+        errors.append("combat_capacity_recovery.data_missing")
+        payload = {}
+
+    expected = {
+        "unitExactlyOnce": True,
+        "unitCommitCount": 1,
+        "unitCooldownCommitCount": 1,
+        "monsterExactlyOnce": True,
+        "monsterCommitCount": 1,
+        "pendingHitDropCount": 0,
+    }
+    for key, expected_value in expected.items():
+        actual = payload.get(key)
+        if actual != expected_value:
+            errors.append(
+                f"combat_capacity_recovery.{key} expected={expected_value} actual={actual}"
+            )
+
+    mana_actual = payload.get("unitManaCommitCount")
+    mana_expected = payload.get("unitExpectedManaCommitCount")
+    if mana_actual != mana_expected:
+        errors.append(
+            "combat_capacity_recovery.unitManaCommitCount "
+            f"expected={mana_expected} actual={mana_actual}"
+        )
+    backpressures = payload.get("pendingHitBackpressureCount")
+    if not isinstance(backpressures, int) or backpressures < 2:
+        errors.append(
+            f"combat_capacity_recovery.pendingHitBackpressureCount expected>=2 actual={backpressures}"
+        )
+    if payload.get("initialPendingHitCount") != payload.get("finalPendingHitCount"):
+        errors.append(
+            "combat_capacity_recovery.pendingHitBaselineChanged "
+            f"before={payload.get('initialPendingHitCount')} after={payload.get('finalPendingHitCount')}"
+        )
+
+    return {
+        "success": not errors,
+        "errors": errors,
+        "warnings": [],
+        "evidence": payload,
     }
 
 
@@ -2234,6 +2321,7 @@ def run_battle_case(
     apply_stat_buff_before_migration: bool = False,
     apply_zone_before_migration: bool = False,
     inject_pending_load_before_migration: bool = False,
+    verify_capacity_recovery_before_migration: bool = False,
     probe_portrait_after_migration: bool = False,
 ) -> int:
     normalize_common_args(args)
@@ -2306,6 +2394,7 @@ def run_battle_case(
         "applyStatBuffBeforeMigration": apply_stat_buff_before_migration,
         "applyZoneBeforeMigration": apply_zone_before_migration,
         "injectPendingLoadBeforeMigration": inject_pending_load_before_migration,
+        "verifyCapacityRecoveryBeforeMigration": verify_capacity_recovery_before_migration,
         "probePortraitAfterMigration": probe_portrait_after_migration,
         "postMigrationPerformanceStress": post_migration_performance_stress,
         "postMigrationPerformanceStressMonsters": post_migration_stress_monsters,
@@ -2556,6 +2645,27 @@ def run_battle_case(
             failures.append("battle_progression_timeout")
             failures.extend(assertions.get("errors") or [])
 
+        if verify_capacity_recovery_before_migration and progressed:
+            capacity_recovery_response = host.combat_capacity_recovery()
+            capacity_recovery_assertion = combat_capacity_recovery_assertions(
+                capacity_recovery_response
+            )
+            write_json(
+                artifact_dir / "build-host-combat-capacity-recovery.json",
+                capacity_recovery_response,
+            )
+            write_json(
+                artifact_dir / "combat-capacity-recovery-assertion.json",
+                capacity_recovery_assertion,
+            )
+            checkpoint_summary["combatCapacityRecovery"] = {
+                "response": "build-host-combat-capacity-recovery.json",
+                "assertion": "combat-capacity-recovery-assertion.json",
+            }
+            write_json(artifact_dir / "checkpoint-summary.json", checkpoint_summary)
+            if not capacity_recovery_assertion.get("success"):
+                failures.extend(capacity_recovery_assertion.get("errors") or [])
+
         if migrate_after_battle and progressed:
             status_effect_payload = {
                 "targetKind": "monster",
@@ -2598,6 +2708,7 @@ def run_battle_case(
                 require_active_zone=apply_zone_before_migration,
                 pending_load_payload=pending_load_payload,
                 require_pending_load=inject_pending_load_before_migration,
+                require_host_migration_snapshot_push=True,
             )
             write_json(artifact_dir / "snapshots" / "build-host-battle-checkpoint-frozen.json", host_battle)
             write_json(artifact_dir / "snapshots" / "build-client-battle-checkpoint-frozen.json", client_battle)

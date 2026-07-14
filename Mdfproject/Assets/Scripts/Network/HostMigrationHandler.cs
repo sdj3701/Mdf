@@ -11,6 +11,9 @@ using Fusion;
 using System.Linq;
 using System.Text;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 
 /// <summary>
 /// Host Migration 중 저장되는 게임 상태 데이터
@@ -31,6 +34,9 @@ public struct GameMigrationData
     public int ActivateSkillSeq;
     public int RejectedBattleCommandCount;
     public string LastBattleCommand;
+    public bool SurvivorBossCaptureAttempted;
+    public bool SurvivorBossCaptureSourceAvailable;
+    public bool SurvivorBossCaptureValid;
     public bool HasSurvivorBossPayload;
     public SurvivorBossReplicatedRow[] SurvivorBossRows;
     public int SurvivorBossNextUniqueId;
@@ -77,6 +83,7 @@ public class HostMigrationHandler : MonoBehaviour
         public bool IsConnected;
         public bool HasInputAuthority;
         public string DurableConnectionTokenHash;
+        public bool HasShopSnapshot;
         public string[] ShopUnitKeys;
         public int[] ShopStarLevels;
         public bool[] ShopSoldFlags;
@@ -89,8 +96,11 @@ public class HostMigrationHandler : MonoBehaviour
         public string[] FieldUnitDataKeys;
         public int[] FieldUnitStarLevels;
         public int[] FieldUnitFlatPositions;
+        public FieldUnitMigrationSnapshot[] FieldUnitSnapshots;
         public bool FieldUnitSnapshotValid;
+        public bool HasPresentedAugmentSnapshot;
         public string[] PresentedAugmentNames;
+        public bool HasSelectedAugmentSnapshot;
         public string[] SelectedAugmentNames;
         public string[] ChosenAugmentNames;
         public string[] ActiveMonsterSummonAugmentNames;
@@ -112,6 +122,7 @@ public class HostMigrationHandler : MonoBehaviour
         public float BattleSpawnCadenceRemainingSeconds;
         public int BattleSpawnCadenceSequenceId;
         public KingRuntimeMigrationState KingState;
+        public bool HasAttackPoolSnapshot;
         public MonsterData[] AttackPoolMonsterDataRefs;
         public string[] AttackPoolMonsterDataNames;
         public int[] AttackPoolRemainingCounts;
@@ -120,6 +131,7 @@ public class HostMigrationHandler : MonoBehaviour
         public int[] AttackPoolBossUniqueIds;
         public int[] AttackPoolTargetPlayerIds;
         public int[] AttackPoolOriginPlayerIds;
+        public bool HasOwnedScrollSnapshot;
         public int OwnedScrollRevision;
         public MagicScrollData[] OwnedScrollDataRefs;
         public string[] OwnedScrollDataNames;
@@ -133,6 +145,10 @@ public class HostMigrationHandler : MonoBehaviour
     private float _cachedGameDataCapturedRealtime = -1f;
     private Dictionary<string, PlayerMigrationData> _cachedPlayerData = new Dictionary<string, PlayerMigrationData>();
     private Dictionary<int, DurablePlayerMigrationSnapshot> _cachedDurablePlayersById = new Dictionary<int, DurablePlayerMigrationSnapshot>();
+    private bool _durablePlayerCaptureValid;
+    private int _durablePlayerCaptureDiscoveredCount;
+    private int _durablePlayerCaptureUniqueCount;
+    private string _durablePlayerCaptureFailureReason = string.Empty;
     private readonly List<CombatScheduler.ZoneMigrationSnapshot> _cachedZonesForMigration = new List<CombatScheduler.ZoneMigrationSnapshot>();
     private readonly List<CombatScheduler.StatBuffMigrationSnapshot> _cachedStatBuffsForMigration = new List<CombatScheduler.StatBuffMigrationSnapshot>();
     private readonly List<CombatScheduler.StatusEffectMigrationSnapshot> _cachedStatusEffectsForMigration = new List<CombatScheduler.StatusEffectMigrationSnapshot>();
@@ -142,6 +158,24 @@ public class HostMigrationHandler : MonoBehaviour
     private int _cachedStatBuffSourceTick;
     private int _cachedStatusEffectSourceTick;
     private int _cachedPendingCombatSourceTick;
+    private bool _cachedZoneCaptureValid;
+    private bool _cachedStatBuffCaptureValid;
+    private bool _cachedStatusEffectCaptureValid;
+    private bool _cachedPendingCombatCaptureValid;
+    private string _cachedZoneCaptureFailureReason = string.Empty;
+    private string _cachedStatBuffCaptureFailureReason = string.Empty;
+    private string _cachedStatusEffectCaptureFailureReason = string.Empty;
+    private string _cachedPendingCombatCaptureFailureReason = string.Empty;
+    private readonly Dictionary<string, MigrationRestoreReport> _migrationRestoreReportsByScope =
+        new Dictionary<string, MigrationRestoreReport>(StringComparer.Ordinal);
+    private int _pendingAsyncMigrationRestoreCount;
+    private int _migrationRestoreReportGeneration;
+    private CancellationTokenSource _migrationRestoreCancellation;
+    private bool _migrationRestoreSchedulingCompleted;
+    private NetworkRunner _migrationRestoreExpectedRunner;
+    public int PendingMigrationRestoreCount => _pendingAsyncMigrationRestoreCount;
+    public MigrationRestoreReport LastMigrationRestoreReport { get; private set; } =
+        MigrationRestoreReport.Empty("host_migration");
     
     // 마이그레이션 상태
     private bool _isMigrating = false;
@@ -155,6 +189,27 @@ public class HostMigrationHandler : MonoBehaviour
     private MethodInfo _pushHostMigrationSnapshotMethod;
     private bool _pushHostMigrationSnapshotMethodResolved;
     private bool _pushHostMigrationSnapshotUnsupportedLogged;
+    private FieldInfo _lastHostMigrationSnapshotTickField;
+    private FieldInfo _lastConfirmedHostMigrationSnapshotTickField;
+    private bool _hostMigrationSnapshotTickFieldsResolved;
+    // Fusion can reject a push issued exactly on its cloud-side rate-limit boundary. Keep a
+    // small margin and retry transient false results before declaring the requested generation
+    // terminally failed.
+    private const float HostMigrationSnapshotPushMinIntervalSeconds = 1.25f;
+    private const float HostMigrationSnapshotPushConfirmationTimeoutSeconds = 20f;
+    private const int HostMigrationSnapshotPushMaxAttempts = 5;
+    private int _hostMigrationSnapshotPushRequestedGeneration;
+    private int _hostMigrationSnapshotPushCommittedGeneration;
+    private int _hostMigrationSnapshotPushFailedGeneration;
+    private int _hostMigrationSnapshotPushRequestedTick;
+    private int _hostMigrationSnapshotPushCommittedTick;
+    private float _hostMigrationSnapshotPushLastAttemptRealtime = -1000f;
+    private NetworkRunner _hostMigrationSnapshotPushPendingRunner;
+    private string _hostMigrationSnapshotPushPendingReason = string.Empty;
+    private bool _hostMigrationSnapshotPushLoopRunning;
+    private bool _combatSchedulerRestoreStageScheduled;
+    public int HostMigrationSnapshotPushCommittedGeneration => _hostMigrationSnapshotPushCommittedGeneration;
+    public int HostMigrationSnapshotPushCommittedTick => _hostMigrationSnapshotPushCommittedTick;
     private Coroutine _aiReconciliationCoroutine;
     private bool _aiTakeoverReady = true;
     public bool IsAiTakeoverReady => _aiTakeoverReady;
@@ -230,6 +285,7 @@ public class HostMigrationHandler : MonoBehaviour
 #endif
         _isMigrating = true;
         int attemptGeneration = ++_migrationAttemptGeneration;
+        ResetMigrationRestoreTracking(attemptGeneration);
         _migrationRecoverySucceeded = false;
         _aiTakeoverReady = false;
         if (_aiReconciliationCoroutine != null)
@@ -313,41 +369,72 @@ public class HostMigrationHandler : MonoBehaviour
 
     private void CaptureDurableSurvivorBossState(GameManagers gm)
     {
-        if (gm != null && gm.IsReadyForNetworkAccess)
+        _cachedGameData.SurvivorBossCaptureAttempted = true;
+        _cachedGameData.SurvivorBossCaptureSourceAvailable = false;
+        _cachedGameData.SurvivorBossCaptureValid = false;
+        _cachedGameData.HasSurvivorBossPayload = false;
+        _cachedGameData.SurvivorBossRows = Array.Empty<SurvivorBossReplicatedRow>();
+        _cachedGameData.SurvivorBossNextUniqueId = 1;
+        _cachedGameData.SurvivorBossPayloadOverflow = false;
+
+        SurvivorBossManager manager = SurvivorBossManager.Instance;
+        if (manager == null)
         {
-            bool captureSucceeded = gm.CaptureSurvivorBossPayloadForMigration(
-                out SurvivorBossReplicatedRow[] replicatedRows,
-                out int replicatedNextId,
-                out bool overflow);
-            _cachedGameData.HasSurvivorBossPayload = true;
-            _cachedGameData.SurvivorBossRows = replicatedRows ?? Array.Empty<SurvivorBossReplicatedRow>();
-            _cachedGameData.SurvivorBossNextUniqueId = Mathf.Max(1, replicatedNextId);
-            _cachedGameData.SurvivorBossPayloadOverflow = overflow || !captureSucceeded;
+            Debug.LogError("[HostMigrationHandler] survivor boss capture source is unavailable; migration restore will fail closed.");
         }
         else
         {
-            var manager = SurvivorBossManager.Instance;
-            if (manager == null)
+            _cachedGameData.SurvivorBossCaptureSourceAvailable = true;
+            try
             {
+                if (gm != null && gm.IsReadyForNetworkAccess)
+                {
+                    bool captureSucceeded = gm.CaptureSurvivorBossPayloadForMigration(
+                        out SurvivorBossReplicatedRow[] replicatedRows,
+                        out int replicatedNextId,
+                        out bool overflow);
+                    _cachedGameData.HasSurvivorBossPayload = replicatedRows != null;
+                    _cachedGameData.SurvivorBossRows = replicatedRows ?? Array.Empty<SurvivorBossReplicatedRow>();
+                    _cachedGameData.SurvivorBossNextUniqueId = Mathf.Max(1, replicatedNextId);
+                    _cachedGameData.SurvivorBossPayloadOverflow = overflow;
+                    _cachedGameData.SurvivorBossCaptureValid =
+                        captureSucceeded && !overflow && replicatedRows != null;
+                }
+                else
+                {
+                    SurvivorBossReplicatedRow[] capturedRows = manager.CaptureDurableReplicatedRows(
+                        out int nextUniqueId);
+                    _cachedGameData.HasSurvivorBossPayload = capturedRows != null;
+                    _cachedGameData.SurvivorBossRows = capturedRows ?? Array.Empty<SurvivorBossReplicatedRow>();
+                    _cachedGameData.SurvivorBossNextUniqueId = Mathf.Max(1, nextUniqueId);
+                    _cachedGameData.SurvivorBossCaptureValid = capturedRows != null;
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, this);
+                _cachedGameData.SurvivorBossCaptureValid = false;
                 _cachedGameData.HasSurvivorBossPayload = false;
                 _cachedGameData.SurvivorBossRows = Array.Empty<SurvivorBossReplicatedRow>();
                 _cachedGameData.SurvivorBossNextUniqueId = 1;
-                _cachedGameData.SurvivorBossPayloadOverflow = false;
-                return;
             }
-
-            _cachedGameData.SurvivorBossRows = manager.CaptureDurableReplicatedRows(
-                out _cachedGameData.SurvivorBossNextUniqueId);
-            _cachedGameData.HasSurvivorBossPayload = true;
-            _cachedGameData.SurvivorBossPayloadOverflow = false;
         }
 
         int pendingCount = (_cachedGameData.SurvivorBossRows ?? Array.Empty<SurvivorBossReplicatedRow>()).Count(row => row.State == 1);
         int assignmentCount = (_cachedGameData.SurvivorBossRows ?? Array.Empty<SurvivorBossReplicatedRow>()).Count(row => row.State == 2);
-        Debug.Log($"[HostMigrationHandler] survivor boss payload captured. pending={pendingCount}, assigned={assignmentCount}, total={_cachedGameData.SurvivorBossRows?.Length ?? 0}, nextId={_cachedGameData.SurvivorBossNextUniqueId}, overflow={_cachedGameData.SurvivorBossPayloadOverflow}");
+        Debug.Log($"[HostMigrationHandler] survivor boss payload capture completed. attempted={_cachedGameData.SurvivorBossCaptureAttempted}, sourceAvailable={_cachedGameData.SurvivorBossCaptureSourceAvailable}, valid={_cachedGameData.SurvivorBossCaptureValid}, pending={pendingCount}, assigned={assignmentCount}, total={_cachedGameData.SurvivorBossRows?.Length ?? 0}, nextId={_cachedGameData.SurvivorBossNextUniqueId}, overflow={_cachedGameData.SurvivorBossPayloadOverflow}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-        MPTestHostMigrationEvents.Record("handler_survivor_boss_payload_captured", gm != null ? gm.Runner : null, null, new Dictionary<string, object>
+        MPTestHostMigrationEvents.Record(
+            _cachedGameData.SurvivorBossCaptureValid
+                ? "handler_survivor_boss_payload_captured"
+                : "handler_survivor_boss_payload_capture_failed",
+            gm != null ? gm.Runner : null,
+            null,
+            new Dictionary<string, object>
         {
+            { "attempted", _cachedGameData.SurvivorBossCaptureAttempted },
+            { "sourceAvailable", _cachedGameData.SurvivorBossCaptureSourceAvailable },
+            { "captureValid", _cachedGameData.SurvivorBossCaptureValid },
             { "pendingCount", pendingCount },
             { "assignmentCount", assignmentCount },
             { "payloadCount", _cachedGameData.SurvivorBossRows?.Length ?? 0 },
@@ -359,14 +446,9 @@ public class HostMigrationHandler : MonoBehaviour
 
     private bool RestoreDurableSurvivorBossState(GameManagers gm, string context)
     {
-        if (!_cachedGameData.HasSurvivorBossPayload)
+        if (!IsSurvivorBossCaptureRestorable(_cachedGameData, out string captureFailureReason))
         {
-            return true;
-        }
-
-        if (_cachedGameData.SurvivorBossPayloadOverflow)
-        {
-            Debug.LogError($"[HostMigrationHandler] survivor boss payload overflow prevents safe restore ({context}).");
+            Debug.LogError($"[HostMigrationHandler] survivor boss payload is not safe to restore ({context}). reason={captureFailureReason}");
             return false;
         }
 
@@ -407,6 +489,44 @@ public class HostMigrationHandler : MonoBehaviour
             });
 #endif
         return success;
+    }
+
+    private static bool IsSurvivorBossCaptureRestorable(
+        GameMigrationData capture,
+        out string failureReason)
+    {
+        if (!capture.SurvivorBossCaptureAttempted)
+        {
+            failureReason = "survivor_boss_capture_not_attempted";
+            return false;
+        }
+
+        if (!capture.SurvivorBossCaptureSourceAvailable)
+        {
+            failureReason = "survivor_boss_capture_source_unavailable";
+            return false;
+        }
+
+        if (capture.SurvivorBossPayloadOverflow)
+        {
+            failureReason = "survivor_boss_payload_overflow";
+            return false;
+        }
+
+        if (!capture.SurvivorBossCaptureValid)
+        {
+            failureReason = "survivor_boss_capture_invalid";
+            return false;
+        }
+
+        if (!capture.HasSurvivorBossPayload || capture.SurvivorBossRows == null)
+        {
+            failureReason = "survivor_boss_payload_not_captured";
+            return false;
+        }
+
+        failureReason = string.Empty;
+        return true;
     }
 
     private static bool SurvivorBossRowsEqual(
@@ -685,7 +805,12 @@ public class HostMigrationHandler : MonoBehaviour
         try
         {
             Debug.Log("[HostMigrationHandler] StartGame with HostMigrationToken...");
-            
+            if (!MdfNetworkProtocol.ApplyToGlobalSettings(out string protocolReason))
+            {
+                Debug.LogError($"[HostMigrationHandler] Migration restart blocked because the network protocol version could not be applied. reason={protocolReason}");
+                return null;
+            }
+
             // ★ 새로운 방식: 별도의 GameObject에 새 Runner 생성
             // 기존 Runner가 있는 GameObject를 건드리지 않음 (파괴 문제 방지)
             
@@ -1268,28 +1393,61 @@ public class HostMigrationHandler : MonoBehaviour
                 // Debug.Log($"  - Timer: {gm.currentPhaseTimer:F1}s");
                 // Debug.Log($"  - HasStateAuthority: {gm.Object?.HasStateAuthority}");
                 
-                TryApplyCachedStateBeforeRestore(gm, "WaitAndRestoreGameManagers.Ready");
-                DurablePlayerRestoreResult preRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready");
-                bool survivorBossRestored = RestoreDurableSurvivorBossState(gm, "WaitAndRestoreGameManagers.Ready");
-                Debug.Log("[STEP 5.3] RestoreAfterHostMigration 호출...");
-                gm.RestoreAfterHostMigration();
-                DurablePlayerRestoreResult postRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
-                RestoreCachedZonesForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
-                RestoreCachedStatBuffsForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
-                RestoreCachedStatusEffectsForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
-                RestoreCachedPendingCombatForMigration(gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
-
-                if (_aiReconciliationCoroutine != null)
+                bool survivorBossRestored = false;
+                bool durablePlayersRestored = false;
+                bool restoreSchedulingSucceeded = false;
+                try
                 {
-                    StopCoroutine(_aiReconciliationCoroutine);
+                    TryApplyCachedStateBeforeRestore(gm, "WaitAndRestoreGameManagers.Ready");
+                    DurablePlayerRestoreResult preRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready");
+                    survivorBossRestored = RestoreDurableSurvivorBossState(gm, "WaitAndRestoreGameManagers.Ready");
+                    Debug.Log("[STEP 5.3] RestoreAfterHostMigration 호출...");
+                    gm.RestoreAfterHostMigration();
+                    DurablePlayerRestoreResult postRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, gm, "WaitAndRestoreGameManagers.Ready.PostRestore");
+                    TrackCombatSchedulerRestoreAfterFieldUnits(
+                        gm,
+                        "WaitAndRestoreGameManagers.Ready.PostRestore",
+                        expectedRunner);
+                    durablePlayersRestored = preRestoreResult.PlayerStateSucceeded && postRestoreResult.FullRestoreSucceeded;
+                    RecordMigrationRestoreReport(
+                        BuildTerminalGateReport("survivor_boss", survivorBossRestored),
+                        _migrationRestoreReportGeneration);
+                    RecordMigrationRestoreReport(
+                        BuildTerminalGateReport("durable_players", durablePlayersRestored),
+                        _migrationRestoreReportGeneration);
+                    restoreSchedulingSucceeded = true;
                 }
-                _aiReconciliationCoroutine = StartCoroutine(ReconcileAIControllersAfterMigrationCoroutine(expectedRunner));
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception, this);
+                    RecordMigrationRestoreReport(
+                        MigrationRestoreReport.FailedScope(
+                            "restore_scheduling",
+                            1,
+                            $"ready_restore_exception:{exception.GetType().Name}"),
+                        _migrationRestoreReportGeneration);
+                    gm.FailHostMigrationRecoveryFromHandler($"WaitAndRestoreGameManagers.Ready:{exception.GetType().Name}");
+                    _migrationRecoverySucceeded = false;
+                }
+                finally
+                {
+                    MarkMigrationRestoreSchedulingCompleted(expectedRunner);
+                }
+
+                if (restoreSchedulingSucceeded)
+                {
+                    if (_aiReconciliationCoroutine != null)
+                    {
+                        StopCoroutine(_aiReconciliationCoroutine);
+                    }
+                    _aiReconciliationCoroutine = StartCoroutine(ReconcileAIControllersAfterMigrationCoroutine(expectedRunner));
+                }
 
                 yield return WaitForGameManagersRecoveryTerminal(
                     gm,
                     expectedRunner,
                     survivorBossRestored,
-                    preRestoreResult.PlayerStateSucceeded && postRestoreResult.FullRestoreSucceeded);
+                    durablePlayersRestored);
                 
                 Debug.Log(_migrationRecoverySucceeded
                     ? "<color=green>[STEP 5.4] GameManagers flow-resume 복원 완료!</color>"
@@ -1329,13 +1487,19 @@ public class HostMigrationHandler : MonoBehaviour
                 DurablePlayerRestoreResult preRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout");
                 timeoutGM.RestoreAfterHostMigration();
                 DurablePlayerRestoreResult postRestoreResult = ApplyCachedDurablePlayerState(expectedRunner, timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
-                RestoreCachedZonesForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
-                RestoreCachedStatBuffsForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
-                RestoreCachedStatusEffectsForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
-                RestoreCachedPendingCombatForMigration(timeoutGM, "WaitAndRestoreGameManagers.Timeout.PostRestore");
+                TrackCombatSchedulerRestoreAfterFieldUnits(
+                    timeoutGM,
+                    "WaitAndRestoreGameManagers.Timeout.PostRestore",
+                    expectedRunner);
                 Debug.Log("<color=yellow>[STEP 5] 대기 타임아웃 후 복원 완료 (안전 게이트 통과)</color>");
                 timeoutSurvivorBossRestored = RestoreDurableSurvivorBossState(timeoutGM, "WaitAndRestoreGameManagers.Timeout");
                 timeoutDurableStateRestored = preRestoreResult.PlayerStateSucceeded && postRestoreResult.FullRestoreSucceeded;
+                RecordMigrationRestoreReport(
+                    BuildTerminalGateReport("survivor_boss", timeoutSurvivorBossRestored),
+                    _migrationRestoreReportGeneration);
+                RecordMigrationRestoreReport(
+                    BuildTerminalGateReport("durable_players", timeoutDurableStateRestored),
+                    _migrationRestoreReportGeneration);
                 if (_aiReconciliationCoroutine != null)
                 {
                     StopCoroutine(_aiReconciliationCoroutine);
@@ -1345,8 +1509,20 @@ public class HostMigrationHandler : MonoBehaviour
             }
             catch (Exception e)
             {
-                Debug.LogError($"[STEP 5] 대기 타임아웃 복원 중 예외: {e.Message}");
+                Debug.LogException(e, this);
+                RecordMigrationRestoreReport(
+                    MigrationRestoreReport.FailedScope(
+                        "restore_scheduling",
+                        1,
+                        $"timeout_restore_exception:{e.GetType().Name}"),
+                    _migrationRestoreReportGeneration);
+                timeoutGM.FailHostMigrationRecoveryFromHandler($"WaitAndRestoreGameManagers.Timeout:{e.GetType().Name}");
                 _migrationRecoverySucceeded = false;
+                shouldWaitForTerminal = true;
+            }
+            finally
+            {
+                MarkMigrationRestoreSchedulingCompleted(expectedRunner);
             }
 
             if (shouldWaitForTerminal)
@@ -1399,6 +1575,20 @@ public class HostMigrationHandler : MonoBehaviour
 
             if (gm.IsHostMigrationFlowResumed)
             {
+                if (gm.IsCombatExitDebtGateActive)
+                {
+                    yield return new WaitForSeconds(0.1f);
+                    waited += 0.1f;
+                    continue;
+                }
+
+                if (_pendingAsyncMigrationRestoreCount > 0)
+                {
+                    yield return new WaitForSeconds(0.1f);
+                    waited += 0.1f;
+                    continue;
+                }
+
                 if (!AreDurableFieldUnitRestoresTerminal(expectedRunner, gm, out bool fieldsSucceeded, out string fieldReason))
                 {
                     yield return new WaitForSeconds(0.1f);
@@ -1406,12 +1596,56 @@ public class HostMigrationHandler : MonoBehaviour
                     continue;
                 }
 
-                _migrationRecoverySucceeded = survivorBossRestored && durablePlayersRestored && _aiTakeoverReady;
-                _migrationRecoverySucceeded &= fieldsSucceeded;
+                MigrationRestoreReport terminalReport = BuildCombinedMigrationRestoreReport();
+                terminalReport = terminalReport.Combine(
+                    BuildTerminalGateReport("ai_reconciliation", _aiTakeoverReady),
+                    "host_migration");
+                CombatScheduler combatScheduler = CombatScheduler.Instance;
+                string zoneDebtReason = null;
+                bool zoneDebtReady = combatScheduler != null &&
+                                     combatScheduler.Runner == expectedRunner &&
+                                     combatScheduler.ValidateMaterializedZonePulseDebt(out zoneDebtReason);
+                MigrationRestoreReport zoneDebtReport = zoneDebtReady
+                    ? new MigrationRestoreReport("combat_scheduler_zone_debt", 1, 1, 0, 0)
+                    : MigrationRestoreReport.FailedScope(
+                        "combat_scheduler_zone_debt",
+                        1,
+                        combatScheduler == null
+                            ? "combat_scheduler_missing"
+                            : zoneDebtReason ?? "materialized_zone_debt_invalid");
+                terminalReport = terminalReport.Combine(zoneDebtReport, "host_migration");
+                foreach (PlayerManager player in ResolvePlayerManagersForRunner(expectedRunner, gm))
+                {
+                    if (player?.fieldManager != null)
+                    {
+                        terminalReport = terminalReport.Combine(
+                            player.fieldManager.HostMigrationUnitRestoreReport,
+                            "host_migration");
+                    }
+                }
+                LastMigrationRestoreReport = terminalReport;
+
+                _migrationRecoverySucceeded = fieldsSucceeded && terminalReport.Succeeded;
                 if (!_migrationRecoverySucceeded)
                 {
-                    Debug.LogError($"[HostMigrationHandler] terminal migration gate failed. survivorBossRestored={survivorBossRestored}, durablePlayersRestored={durablePlayersRestored}, fieldsSucceeded={fieldsSucceeded}, fieldReason={fieldReason}, aiTakeoverReady={_aiTakeoverReady}");
+                    Debug.LogError($"[HostMigrationHandler] terminal migration gate failed. survivorBossRestored={survivorBossRestored}, durablePlayersRestored={durablePlayersRestored}, fieldsSucceeded={fieldsSucceeded}, fieldReason={fieldReason}, aiTakeoverReady={_aiTakeoverReady}, restoreReport={terminalReport}");
                 }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                MPTestHostMigrationEvents.Record(
+                    _migrationRecoverySucceeded ? "handler_restore_report_terminal" : "handler_restore_report_failed",
+                    expectedRunner,
+                    null,
+                    new Dictionary<string, object>
+                    {
+                        { "captured", terminalReport.Captured },
+                        { "restored", terminalReport.Restored },
+                        { "skipped", terminalReport.Skipped },
+                        { "failed", terminalReport.Failed },
+                        { "missing", terminalReport.Missing },
+                        { "pendingAsync", _pendingAsyncMigrationRestoreCount },
+                        { "reason", terminalReport.FailureReason }
+                    });
+#endif
                 yield break;
             }
 
@@ -1420,6 +1654,618 @@ public class HostMigrationHandler : MonoBehaviour
         }
 
         Debug.LogError($"[HostMigrationHandler] GameManagers recovery terminal timeout. stage={gm?.HostMigrationRecoveryStageName ?? "null"}");
+    }
+
+    private void ResetMigrationRestoreTracking(int generation)
+    {
+        _migrationRestoreCancellation?.Cancel();
+        _migrationRestoreCancellation?.Dispose();
+        _migrationRestoreCancellation = new CancellationTokenSource();
+        _migrationRestoreReportGeneration = generation;
+        _pendingAsyncMigrationRestoreCount = 0;
+        _migrationRestoreSchedulingCompleted = false;
+        _migrationRestoreExpectedRunner = null;
+        _combatSchedulerRestoreStageScheduled = false;
+        _durablePlayerCaptureValid = false;
+        _durablePlayerCaptureDiscoveredCount = 0;
+        _durablePlayerCaptureUniqueCount = 0;
+        _durablePlayerCaptureFailureReason = "capture_not_completed";
+        _migrationRestoreReportsByScope.Clear();
+        LastMigrationRestoreReport = MigrationRestoreReport.Empty("host_migration");
+    }
+
+    private void MarkMigrationRestoreSchedulingCompleted(NetworkRunner expectedRunner)
+    {
+        if (expectedRunner == null || !expectedRunner.IsRunning ||
+            _migrationRestoreReportGeneration != _migrationAttemptGeneration)
+        {
+            return;
+        }
+
+        _migrationRestoreExpectedRunner = expectedRunner;
+        _migrationRestoreSchedulingCompleted = true;
+    }
+
+    public bool IsMigrationRestoreReadyForFlow(
+        NetworkRunner expectedRunner,
+        GameManagers gameManagers,
+        out bool terminalFailure,
+        out string reason)
+    {
+        terminalFailure = false;
+        reason = string.Empty;
+
+        if (!_isMigrating)
+        {
+            return true;
+        }
+
+        if (!_migrationRestoreSchedulingCompleted)
+        {
+            reason = "restoreSchedulingPending";
+            return false;
+        }
+
+        if (expectedRunner == null || !expectedRunner.IsRunning ||
+            _migrationRestoreExpectedRunner != expectedRunner ||
+            gameManagers == null || gameManagers.Runner != expectedRunner)
+        {
+            terminalFailure = true;
+            reason = "restoreRunnerLifecycleMismatch";
+            return false;
+        }
+
+        if (_pendingAsyncMigrationRestoreCount > 0)
+        {
+            reason = $"asyncRestorePending={_pendingAsyncMigrationRestoreCount}";
+            return false;
+        }
+
+        if (!AreDurableFieldUnitRestoresTerminal(expectedRunner, gameManagers, out bool fieldsSucceeded, out string fieldReason))
+        {
+            reason = $"fieldRestorePending:{fieldReason}";
+            return false;
+        }
+
+        if (!fieldsSucceeded)
+        {
+            terminalFailure = true;
+            reason = $"fieldRestoreFailed:{fieldReason}";
+            return false;
+        }
+
+        CombatScheduler combatScheduler = CombatScheduler.Instance;
+        string zoneDebtReason = null;
+        if (combatScheduler == null || combatScheduler.Runner != expectedRunner ||
+            !combatScheduler.ValidateMaterializedZonePulseDebt(out zoneDebtReason))
+        {
+            terminalFailure = true;
+            reason = combatScheduler == null
+                ? "materializedZoneDebt:combatSchedulerMissing"
+                : $"materializedZoneDebt:{zoneDebtReason ?? "validationFailed"}";
+            LastMigrationRestoreReport = BuildCombinedMigrationRestoreReport().Combine(
+                MigrationRestoreReport.FailedScope("combat_scheduler_zone_debt", 1, reason),
+                "host_migration");
+            return false;
+        }
+
+        MigrationRestoreReport report = BuildCombinedMigrationRestoreReport().Combine(
+            new MigrationRestoreReport("combat_scheduler_zone_debt", 1, 1, 0, 0),
+            "host_migration");
+        LastMigrationRestoreReport = report;
+        if (!report.Succeeded)
+        {
+            terminalFailure = true;
+            reason = $"restoreReportFailed:{report}";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static MigrationRestoreReport BuildTerminalGateReport(string scope, bool succeeded)
+    {
+        return new MigrationRestoreReport(
+            scope,
+            1,
+            succeeded ? 1 : 0,
+            0,
+            succeeded ? 0 : 1,
+            succeeded ? string.Empty : $"{scope}_failed");
+    }
+
+    private void RecordMigrationRestoreReport(MigrationRestoreReport report, int generation)
+    {
+        if (generation != _migrationRestoreReportGeneration)
+        {
+            return;
+        }
+
+        string scope = string.IsNullOrWhiteSpace(report.Scope) ? "unknown" : report.Scope;
+        _migrationRestoreReportsByScope[scope] = report;
+        LastMigrationRestoreReport = BuildCombinedMigrationRestoreReport();
+    }
+
+    private MigrationRestoreReport BuildCombinedMigrationRestoreReport()
+    {
+        MigrationRestoreReport combined = MigrationRestoreReport.Empty("host_migration");
+        foreach (MigrationRestoreReport report in _migrationRestoreReportsByScope.Values)
+        {
+            combined = combined.Combine(report, "host_migration");
+        }
+        return combined;
+    }
+
+    private void TrackAttackMonsterPoolRestore(
+        PlayerManager player,
+        DurablePlayerMigrationSnapshot snapshot,
+        string context,
+        NetworkRunner expectedRunner)
+    {
+        int generation = _migrationRestoreReportGeneration;
+        if (!snapshot.HasAttackPoolSnapshot)
+        {
+            RecordMigrationRestoreReport(
+                MigrationRestoreReport.FailedScope(
+                    $"attack_pool:P{snapshot.PlayerId}",
+                    1,
+                    "attack_pool_snapshot_not_captured"),
+                generation);
+            return;
+        }
+
+        CancellationToken cancellationToken = _migrationRestoreCancellation?.Token ?? CancellationToken.None;
+        _pendingAsyncMigrationRestoreCount++;
+        TrackAttackMonsterPoolRestoreAsync(player, snapshot, context, expectedRunner, generation, cancellationToken).Forget();
+    }
+
+    private async UniTask TrackAttackMonsterPoolRestoreAsync(
+        PlayerManager player,
+        DurablePlayerMigrationSnapshot snapshot,
+        string context,
+        NetworkRunner expectedRunner,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        MigrationRestoreReport report;
+        try
+        {
+            report = await player.RestoreAttackMonsterPoolFromMigrationSnapshotAsync(
+                snapshot.AttackPoolRevision,
+                snapshot.AttackPoolMonsterDataRefs,
+                snapshot.AttackPoolMonsterDataNames,
+                snapshot.AttackPoolRemainingCounts,
+                snapshot.AttackPoolMaxCounts,
+                snapshot.AttackPoolIsBossValues,
+                snapshot.AttackPoolBossUniqueIds,
+                snapshot.AttackPoolTargetPlayerIds,
+                snapshot.AttackPoolOriginPlayerIds,
+                context,
+                expectedRunner,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            int captured = Mathf.Max(
+                snapshot.AttackPoolMonsterDataRefs?.Length ?? 0,
+                snapshot.AttackPoolMonsterDataNames?.Length ?? 0);
+            report = MigrationRestoreReport.FailedScope(
+                $"attack_pool:P{snapshot.PlayerId}",
+                captured,
+                "attack_pool_restore_exception");
+        }
+        finally
+        {
+            if (generation == _migrationRestoreReportGeneration)
+            {
+                _pendingAsyncMigrationRestoreCount = Mathf.Max(0, _pendingAsyncMigrationRestoreCount - 1);
+            }
+        }
+
+        RecordMigrationRestoreReport(report, generation);
+    }
+
+    private void TrackOwnedMagicScrollRestore(
+        PlayerManager player,
+        DurablePlayerMigrationSnapshot snapshot,
+        string context,
+        NetworkRunner expectedRunner)
+    {
+        int generation = _migrationRestoreReportGeneration;
+        if (!snapshot.HasOwnedScrollSnapshot)
+        {
+            RecordMigrationRestoreReport(
+                MigrationRestoreReport.FailedScope(
+                    $"owned_magic_scrolls:P{snapshot.PlayerId}",
+                    1,
+                    "owned_scroll_snapshot_not_captured"),
+                generation);
+            return;
+        }
+
+        CancellationToken cancellationToken = _migrationRestoreCancellation?.Token ?? CancellationToken.None;
+        _pendingAsyncMigrationRestoreCount++;
+        TrackOwnedMagicScrollRestoreAsync(
+            player,
+            snapshot,
+            context,
+            expectedRunner,
+            generation,
+            cancellationToken).Forget();
+    }
+
+    private async UniTask TrackOwnedMagicScrollRestoreAsync(
+        PlayerManager player,
+        DurablePlayerMigrationSnapshot snapshot,
+        string context,
+        NetworkRunner expectedRunner,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        MigrationRestoreReport report;
+        try
+        {
+            report = await player.RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(
+                snapshot.OwnedScrollRevision,
+                snapshot.OwnedScrollDataRefs,
+                snapshot.OwnedScrollDataNames,
+                context,
+                expectedRunner,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            int captured = Mathf.Max(
+                snapshot.OwnedScrollDataRefs?.Length ?? 0,
+                snapshot.OwnedScrollDataNames?.Length ?? 0);
+            report = MigrationRestoreReport.FailedScope(
+                $"owned_magic_scrolls:P{snapshot.PlayerId}",
+                captured,
+                "owned_scroll_restore_exception");
+        }
+        finally
+        {
+            if (generation == _migrationRestoreReportGeneration)
+            {
+                _pendingAsyncMigrationRestoreCount = Mathf.Max(0, _pendingAsyncMigrationRestoreCount - 1);
+            }
+        }
+
+        RecordMigrationRestoreReport(report, generation);
+    }
+
+    private void TrackShopRuntimeRestore(
+        PlayerManager player,
+        DurablePlayerMigrationSnapshot snapshot,
+        MigrationRestoreReport networkRestoreReport,
+        string context,
+        NetworkRunner expectedRunner)
+    {
+        int generation = _migrationRestoreReportGeneration;
+        if (!networkRestoreReport.Succeeded)
+        {
+            RecordMigrationRestoreReport(networkRestoreReport, generation);
+            return;
+        }
+
+        CancellationToken cancellationToken = _migrationRestoreCancellation?.Token ?? CancellationToken.None;
+        _pendingAsyncMigrationRestoreCount++;
+        TrackShopRuntimeRestoreAsync(
+            player,
+            snapshot,
+            networkRestoreReport,
+            context,
+            expectedRunner,
+            generation,
+            cancellationToken).Forget();
+    }
+
+    private async UniTask TrackShopRuntimeRestoreAsync(
+        PlayerManager player,
+        DurablePlayerMigrationSnapshot snapshot,
+        MigrationRestoreReport networkRestoreReport,
+        string context,
+        NetworkRunner expectedRunner,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        MigrationRestoreReport report;
+        try
+        {
+            MigrationRestoreReport runtimeReport = await player.RestoreShopRuntimeAfterHostMigrationAsync(
+                snapshot.HasShopSnapshot,
+                snapshot.ShopUnitKeys,
+                snapshot.ShopStarLevels,
+                snapshot.ShopSoldFlags,
+                snapshot.ShopRevision,
+                snapshot.ShopRound,
+                context,
+                expectedRunner,
+                cancellationToken);
+            if (generation != _migrationRestoreReportGeneration
+                || cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (expectedRunner == null || !expectedRunner.IsRunning || player == null || player.Runner != expectedRunner)
+            {
+                runtimeReport = MigrationRestoreReport.FailedScope(
+                    $"shop_runtime:P{snapshot.PlayerId}",
+                    1 + (snapshot.ShopUnitKeys?.Length ?? 0),
+                    "shop_runtime_runner_lifecycle_mismatch");
+            }
+            if (runtimeReport.Succeeded)
+            {
+                GameManagers gameManagers = ResolveGameManagersForRunner(expectedRunner);
+                if (gameManagers == null || gameManagers.CommandProcessor == null
+                    || gameManagers.Object == null || !gameManagers.Object.HasStateAuthority)
+                {
+                    runtimeReport = MigrationRestoreReport.FailedScope(
+                        $"shop_runtime:P{snapshot.PlayerId}",
+                        1 + (snapshot.ShopUnitKeys?.Length ?? 0),
+                        "shop_snapshot_sync_dispatch_unavailable");
+                }
+                else
+                {
+                    gameManagers.CommandProcessor.RequestCommandExecution(
+                        new SyncShopItemsCommand(
+                            snapshot.PlayerId,
+                            snapshot.ShopUnitKeys,
+                            snapshot.ShopStarLevels,
+                            snapshot.ShopRevision,
+                            snapshot.ShopRound));
+                }
+            }
+            report = networkRestoreReport.Combine(runtimeReport, $"durable_state:P{snapshot.PlayerId}");
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            report = MigrationRestoreReport.FailedScope(
+                $"durable_state:P{snapshot.PlayerId}",
+                Mathf.Max(1, networkRestoreReport.Captured + 1 + (snapshot.ShopUnitKeys?.Length ?? 0)),
+                $"shop_runtime_restore_exception:{exception.GetType().Name}");
+        }
+        finally
+        {
+            if (generation == _migrationRestoreReportGeneration)
+            {
+                _pendingAsyncMigrationRestoreCount = Mathf.Max(0, _pendingAsyncMigrationRestoreCount - 1);
+            }
+        }
+
+        RecordMigrationRestoreReport(report, generation);
+    }
+
+    private void TrackPresentedAugmentRuntimeRestore(
+        PlayerManager player,
+        DurablePlayerMigrationSnapshot snapshot,
+        MigrationRestoreReport networkRestoreReport,
+        string context,
+        NetworkRunner expectedRunner)
+    {
+        int generation = _migrationRestoreReportGeneration;
+        if (!networkRestoreReport.Succeeded)
+        {
+            RecordMigrationRestoreReport(networkRestoreReport, generation);
+            return;
+        }
+
+        CancellationToken cancellationToken = _migrationRestoreCancellation?.Token ?? CancellationToken.None;
+        _pendingAsyncMigrationRestoreCount++;
+        TrackPresentedAugmentRuntimeRestoreAsync(
+            player,
+            snapshot,
+            networkRestoreReport,
+            context,
+            expectedRunner,
+            generation,
+            cancellationToken).Forget();
+    }
+
+    private async UniTask TrackPresentedAugmentRuntimeRestoreAsync(
+        PlayerManager player,
+        DurablePlayerMigrationSnapshot snapshot,
+        MigrationRestoreReport networkRestoreReport,
+        string context,
+        NetworkRunner expectedRunner,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        MigrationRestoreReport report;
+        try
+        {
+            MigrationRestoreReport runtimeReport = await player.RestorePresentedAugmentRuntimeAfterHostMigrationAsync(
+                snapshot.HasPresentedAugmentSnapshot,
+                snapshot.PresentedAugmentNames,
+                context,
+                expectedRunner,
+                cancellationToken);
+            if (generation != _migrationRestoreReportGeneration
+                || cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            if (expectedRunner == null || !expectedRunner.IsRunning || player == null || player.Runner != expectedRunner)
+            {
+                runtimeReport = MigrationRestoreReport.FailedScope(
+                    $"presented_augment_runtime:P{snapshot.PlayerId}",
+                    1 + (snapshot.PresentedAugmentNames?.Length ?? 0),
+                    "presented_augment_runtime_runner_lifecycle_mismatch");
+            }
+            report = networkRestoreReport.Combine(runtimeReport, $"augment_snapshots:P{snapshot.PlayerId}");
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            report = MigrationRestoreReport.FailedScope(
+                $"augment_snapshots:P{snapshot.PlayerId}",
+                Mathf.Max(1, networkRestoreReport.Captured + 1 + (snapshot.PresentedAugmentNames?.Length ?? 0)),
+                $"presented_augment_runtime_restore_exception:{exception.GetType().Name}");
+        }
+        finally
+        {
+            if (generation == _migrationRestoreReportGeneration)
+            {
+                _pendingAsyncMigrationRestoreCount = Mathf.Max(0, _pendingAsyncMigrationRestoreCount - 1);
+            }
+        }
+
+        RecordMigrationRestoreReport(report, generation);
+    }
+
+    private void TrackCombatSchedulerRestoreAfterFieldUnits(
+        GameManagers gameManagers,
+        string context,
+        NetworkRunner expectedRunner)
+    {
+        int generation = _migrationRestoreReportGeneration;
+        if (_combatSchedulerRestoreStageScheduled)
+        {
+            RecordMigrationRestoreReport(
+                MigrationRestoreReport.FailedScope(
+                    "combat_scheduler_restore_stage",
+                    1,
+                    "combat_scheduler_restore_stage_scheduled_twice"),
+                generation);
+            return;
+        }
+
+        _combatSchedulerRestoreStageScheduled = true;
+        CancellationToken cancellationToken = _migrationRestoreCancellation?.Token ?? CancellationToken.None;
+        _pendingAsyncMigrationRestoreCount++;
+        TrackCombatSchedulerRestoreAfterFieldUnitsAsync(
+            gameManagers,
+            context,
+            expectedRunner,
+            generation,
+            cancellationToken).Forget();
+    }
+
+    private async UniTask TrackCombatSchedulerRestoreAfterFieldUnitsAsync(
+        GameManagers gameManagers,
+        string context,
+        NetworkRunner expectedRunner,
+        int generation,
+        CancellationToken cancellationToken)
+    {
+        const float fieldRestoreWaitTimeoutSeconds = 8f;
+        MigrationRestoreReport stageReport;
+        string lastFieldReason = "field_restore_not_polled";
+        try
+        {
+            float deadline = Time.realtimeSinceStartup + fieldRestoreWaitTimeoutSeconds;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (generation != _migrationRestoreReportGeneration)
+                {
+                    return;
+                }
+
+                if (!_isMigrating ||
+                    expectedRunner == null ||
+                    !expectedRunner.IsRunning ||
+                    !expectedRunner.IsServer ||
+                    gameManagers == null ||
+                    gameManagers.Runner != expectedRunner ||
+                    gameManagers.Object == null ||
+                    !gameManagers.Object.IsValid ||
+                    !gameManagers.Object.HasStateAuthority)
+                {
+                    stageReport = MigrationRestoreReport.FailedScope(
+                        "combat_scheduler_restore_stage",
+                        1,
+                        "combat_scheduler_restore_runner_lifecycle_mismatch");
+                    break;
+                }
+
+                bool fieldsTerminal = AreDurableFieldUnitRestoresTerminal(
+                    expectedRunner,
+                    gameManagers,
+                    out bool fieldsSucceeded,
+                    out lastFieldReason);
+                if (fieldsTerminal)
+                {
+                    if (!fieldsSucceeded)
+                    {
+                        stageReport = MigrationRestoreReport.FailedScope(
+                            "combat_scheduler_restore_stage",
+                            1,
+                            $"field_unit_restore_failed:{lastFieldReason}");
+                        break;
+                    }
+
+                    RestoreCachedZonesForMigration(gameManagers, context);
+                    RestoreCachedStatBuffsForMigration(gameManagers, context);
+                    RestoreCachedStatusEffectsForMigration(gameManagers, context);
+                    RestoreCachedPendingCombatForMigration(gameManagers, context);
+                    stageReport = new MigrationRestoreReport(
+                        "combat_scheduler_restore_stage",
+                        1,
+                        1,
+                        0,
+                        0);
+                    break;
+                }
+
+                if (Time.realtimeSinceStartup >= deadline)
+                {
+                    stageReport = MigrationRestoreReport.FailedScope(
+                        "combat_scheduler_restore_stage",
+                        1,
+                        $"field_unit_restore_timeout:{lastFieldReason}");
+                    break;
+                }
+
+                await UniTask.Delay(
+                    50,
+                    DelayType.Realtime,
+                    PlayerLoopTiming.Update,
+                    cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            stageReport = MigrationRestoreReport.FailedScope(
+                "combat_scheduler_restore_stage",
+                1,
+                $"combat_scheduler_restore_exception:{exception.GetType().Name}");
+        }
+        finally
+        {
+            if (generation == _migrationRestoreReportGeneration)
+            {
+                _pendingAsyncMigrationRestoreCount = Mathf.Max(0, _pendingAsyncMigrationRestoreCount - 1);
+            }
+        }
+
+        RecordMigrationRestoreReport(stageReport, generation);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestHostMigrationEvents.Record(
+            stageReport.Succeeded
+                ? "handler_combat_scheduler_restore_stage_complete"
+                : "handler_combat_scheduler_restore_stage_fail",
+            expectedRunner,
+            null,
+            new Dictionary<string, object>
+            {
+                { "context", context },
+                { "failed", stageReport.Failed },
+                { "missing", stageReport.Missing },
+                { "reason", stageReport.FailureReason },
+                { "fieldReason", lastFieldReason }
+            });
+#endif
     }
 
     private static bool AreDurableFieldUnitRestoresTerminal(
@@ -1818,10 +2664,46 @@ public class HostMigrationHandler : MonoBehaviour
         return sb.ToString();
     }
 
+    private static bool TryValidateCombatSchedulerCaptureSource(
+        CombatScheduler scheduler,
+        NetworkRunner expectedRunner,
+        GameManagers gameManagers,
+        out string reason)
+    {
+        if (expectedRunner == null || !expectedRunner.IsRunning)
+        {
+            reason = "capture_runner_unavailable";
+            return false;
+        }
+
+        if (gameManagers == null || gameManagers.Runner != expectedRunner)
+        {
+            reason = "capture_game_managers_runner_mismatch";
+            return false;
+        }
+
+        if (scheduler == null)
+        {
+            reason = "capture_combat_scheduler_missing";
+            return false;
+        }
+
+        if (scheduler.Runner != expectedRunner || scheduler.Object == null || !scheduler.Object.IsValid)
+        {
+            reason = "capture_combat_scheduler_runner_mismatch";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
+    }
+
     private void CaptureDurableZones(NetworkRunner runner, GameManagers gm)
     {
         _cachedZonesForMigration.Clear();
         _cachedZoneSourceTick = runner != null ? runner.Tick : 0;
+        _cachedZoneCaptureValid = false;
+        _cachedZoneCaptureFailureReason = string.Empty;
 
         CombatScheduler scheduler = gm != null
             ? gm.GetComponent<CombatScheduler>()
@@ -1831,9 +2713,21 @@ public class HostMigrationHandler : MonoBehaviour
             scheduler = CombatScheduler.Instance;
         }
 
-        int captured = scheduler != null
-            ? scheduler.CaptureZonesForMigration(_cachedZonesForMigration)
-            : 0;
+        int captured = 0;
+        if (!TryValidateCombatSchedulerCaptureSource(scheduler, runner, gm, out _cachedZoneCaptureFailureReason))
+        {
+            Debug.LogError($"[HostMigrationHandler] durable zone snapshot capture failed. reason={_cachedZoneCaptureFailureReason}");
+        }
+        else
+        {
+            captured = scheduler.CaptureZonesForMigration(_cachedZonesForMigration);
+            _cachedZoneCaptureValid = captured == _cachedZonesForMigration.Count;
+            if (!_cachedZoneCaptureValid)
+            {
+                _cachedZoneCaptureFailureReason = $"zone_capture_count_mismatch:return={captured},list={_cachedZonesForMigration.Count}";
+                Debug.LogError($"[HostMigrationHandler] durable zone snapshot capture failed. reason={_cachedZoneCaptureFailureReason}");
+            }
+        }
 
         Debug.Log($"[HostMigrationHandler] durable zone snapshot captured. count={captured}, sourceTick={_cachedZoneSourceTick}, scheduler={(scheduler != null ? scheduler.name : "null")}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -1847,8 +2741,28 @@ public class HostMigrationHandler : MonoBehaviour
 
     private void RestoreCachedZonesForMigration(GameManagers gm, string context)
     {
-        if (_cachedZonesForMigration.Count == 0 || gm == null)
+        int generation = _migrationRestoreReportGeneration;
+        int captured = _cachedZonesForMigration.Count;
+        if (!_cachedZoneCaptureValid)
         {
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope(
+                "combat_zones",
+                captured,
+                string.IsNullOrWhiteSpace(_cachedZoneCaptureFailureReason)
+                    ? "combat_zone_capture_invalid"
+                    : _cachedZoneCaptureFailureReason), generation);
+            return;
+        }
+
+        if (captured == 0)
+        {
+            RecordMigrationRestoreReport(MigrationRestoreReport.Empty("combat_zones"), generation);
+            return;
+        }
+
+        if (gm == null)
+        {
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope("combat_zones", captured, "game_managers_missing"), generation);
             return;
         }
 
@@ -1856,16 +2770,23 @@ public class HostMigrationHandler : MonoBehaviour
         if (scheduler == null)
         {
             Debug.LogWarning($"[HostMigrationHandler] zone restore skipped: CombatScheduler missing. context={context}");
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope("combat_zones", captured, "combat_scheduler_missing"), generation);
             return;
         }
 
         CombatScheduler.RebindInstanceForMigration(scheduler, $"{context}.Zones");
-        int restored = scheduler.RestoreZonesFromMigration(_cachedZonesForMigration, context);
-        Debug.Log($"[HostMigrationHandler] durable zone snapshot restored. restored={restored}/{_cachedZonesForMigration.Count}, sourceTick={_cachedZoneSourceTick}, context={context}");
+        MigrationRestoreReport report = scheduler.RestoreZonesFromMigrationWithReport(
+            _cachedZonesForMigration,
+            context,
+            TryResolveReconciledFieldUnitNetworkId);
+        RecordMigrationRestoreReport(report, generation);
+        Debug.Log($"[HostMigrationHandler] durable zone snapshot restored. {report}, sourceTick={_cachedZoneSourceTick}, context={context}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestHostMigrationEvents.Record("handler_zone_snapshot_restored", gm.Runner, null, new Dictionary<string, object>
         {
-            { "restoredZoneCount", restored },
+            { "restoredZoneCount", report.Restored },
+            { "skippedZoneCount", report.Skipped },
+            { "failedZoneCount", report.Failed },
             { "cachedZoneCount", _cachedZonesForMigration.Count },
             { "sourceTick", _cachedZoneSourceTick },
             { "context", context }
@@ -1877,6 +2798,8 @@ public class HostMigrationHandler : MonoBehaviour
     {
         _cachedStatBuffsForMigration.Clear();
         _cachedStatBuffSourceTick = runner != null ? runner.Tick : 0;
+        _cachedStatBuffCaptureValid = false;
+        _cachedStatBuffCaptureFailureReason = string.Empty;
 
         CombatScheduler scheduler = gm != null
             ? gm.GetComponent<CombatScheduler>()
@@ -1886,9 +2809,21 @@ public class HostMigrationHandler : MonoBehaviour
             scheduler = CombatScheduler.Instance;
         }
 
-        int captured = scheduler != null
-            ? scheduler.CaptureStatBuffsForMigration(_cachedStatBuffsForMigration)
-            : 0;
+        int captured = 0;
+        if (!TryValidateCombatSchedulerCaptureSource(scheduler, runner, gm, out _cachedStatBuffCaptureFailureReason))
+        {
+            Debug.LogError($"[HostMigrationHandler] durable stat buff snapshot capture failed. reason={_cachedStatBuffCaptureFailureReason}");
+        }
+        else
+        {
+            captured = scheduler.CaptureStatBuffsForMigration(_cachedStatBuffsForMigration);
+            _cachedStatBuffCaptureValid = captured == _cachedStatBuffsForMigration.Count;
+            if (!_cachedStatBuffCaptureValid)
+            {
+                _cachedStatBuffCaptureFailureReason = $"stat_buff_capture_count_mismatch:return={captured},list={_cachedStatBuffsForMigration.Count}";
+                Debug.LogError($"[HostMigrationHandler] durable stat buff snapshot capture failed. reason={_cachedStatBuffCaptureFailureReason}");
+            }
+        }
 
         Debug.Log($"[HostMigrationHandler] durable stat buff snapshot captured. count={captured}, sourceTick={_cachedStatBuffSourceTick}, scheduler={(scheduler != null ? scheduler.name : "null")}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -1902,8 +2837,28 @@ public class HostMigrationHandler : MonoBehaviour
 
     private void RestoreCachedStatBuffsForMigration(GameManagers gm, string context)
     {
-        if (_cachedStatBuffsForMigration.Count == 0 || gm == null)
+        int generation = _migrationRestoreReportGeneration;
+        int captured = _cachedStatBuffsForMigration.Count;
+        if (!_cachedStatBuffCaptureValid)
         {
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope(
+                "combat_stat_buffs",
+                captured,
+                string.IsNullOrWhiteSpace(_cachedStatBuffCaptureFailureReason)
+                    ? "combat_stat_buff_capture_invalid"
+                    : _cachedStatBuffCaptureFailureReason), generation);
+            return;
+        }
+
+        if (captured == 0)
+        {
+            RecordMigrationRestoreReport(MigrationRestoreReport.Empty("combat_stat_buffs"), generation);
+            return;
+        }
+
+        if (gm == null)
+        {
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope("combat_stat_buffs", captured, "game_managers_missing"), generation);
             return;
         }
 
@@ -1911,16 +2866,23 @@ public class HostMigrationHandler : MonoBehaviour
         if (scheduler == null)
         {
             Debug.LogWarning($"[HostMigrationHandler] stat buff restore skipped: CombatScheduler missing. context={context}");
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope("combat_stat_buffs", captured, "combat_scheduler_missing"), generation);
             return;
         }
 
         CombatScheduler.RebindInstanceForMigration(scheduler, $"{context}.StatBuffs");
-        int restored = scheduler.RestoreStatBuffsFromMigration(_cachedStatBuffsForMigration, context);
-        Debug.Log($"[HostMigrationHandler] durable stat buff snapshot restored. restored={restored}/{_cachedStatBuffsForMigration.Count}, sourceTick={_cachedStatBuffSourceTick}, context={context}");
+        MigrationRestoreReport report = scheduler.RestoreStatBuffsFromMigrationWithReport(
+            _cachedStatBuffsForMigration,
+            context,
+            TryResolveReconciledFieldUnitNetworkId);
+        RecordMigrationRestoreReport(report, generation);
+        Debug.Log($"[HostMigrationHandler] durable stat buff snapshot restored. {report}, sourceTick={_cachedStatBuffSourceTick}, context={context}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestHostMigrationEvents.Record("handler_stat_buff_snapshot_restored", gm.Runner, null, new Dictionary<string, object>
         {
-            { "restoredStatBuffCount", restored },
+            { "restoredStatBuffCount", report.Restored },
+            { "skippedStatBuffCount", report.Skipped },
+            { "failedStatBuffCount", report.Failed },
             { "cachedStatBuffCount", _cachedStatBuffsForMigration.Count },
             { "sourceTick", _cachedStatBuffSourceTick },
             { "context", context }
@@ -1932,6 +2894,8 @@ public class HostMigrationHandler : MonoBehaviour
     {
         _cachedStatusEffectsForMigration.Clear();
         _cachedStatusEffectSourceTick = runner != null ? runner.Tick : 0;
+        _cachedStatusEffectCaptureValid = false;
+        _cachedStatusEffectCaptureFailureReason = string.Empty;
 
         CombatScheduler scheduler = gm != null
             ? gm.GetComponent<CombatScheduler>()
@@ -1941,9 +2905,21 @@ public class HostMigrationHandler : MonoBehaviour
             scheduler = CombatScheduler.Instance;
         }
 
-        int captured = scheduler != null
-            ? scheduler.CaptureStatusEffectsForMigration(_cachedStatusEffectsForMigration)
-            : 0;
+        int captured = 0;
+        if (!TryValidateCombatSchedulerCaptureSource(scheduler, runner, gm, out _cachedStatusEffectCaptureFailureReason))
+        {
+            Debug.LogError($"[HostMigrationHandler] durable status snapshot capture failed. reason={_cachedStatusEffectCaptureFailureReason}");
+        }
+        else
+        {
+            captured = scheduler.CaptureStatusEffectsForMigration(_cachedStatusEffectsForMigration);
+            _cachedStatusEffectCaptureValid = captured == _cachedStatusEffectsForMigration.Count;
+            if (!_cachedStatusEffectCaptureValid)
+            {
+                _cachedStatusEffectCaptureFailureReason = $"status_capture_count_mismatch:return={captured},list={_cachedStatusEffectsForMigration.Count}";
+                Debug.LogError($"[HostMigrationHandler] durable status snapshot capture failed. reason={_cachedStatusEffectCaptureFailureReason}");
+            }
+        }
 
         Debug.Log($"[HostMigrationHandler] durable status snapshot captured. count={captured}, sourceTick={_cachedStatusEffectSourceTick}, scheduler={(scheduler != null ? scheduler.name : "null")}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -1957,8 +2933,28 @@ public class HostMigrationHandler : MonoBehaviour
 
     private void RestoreCachedStatusEffectsForMigration(GameManagers gm, string context)
     {
-        if (_cachedStatusEffectsForMigration.Count == 0 || gm == null)
+        int generation = _migrationRestoreReportGeneration;
+        int captured = _cachedStatusEffectsForMigration.Count;
+        if (!_cachedStatusEffectCaptureValid)
         {
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope(
+                "combat_status_effects",
+                captured,
+                string.IsNullOrWhiteSpace(_cachedStatusEffectCaptureFailureReason)
+                    ? "combat_status_capture_invalid"
+                    : _cachedStatusEffectCaptureFailureReason), generation);
+            return;
+        }
+
+        if (captured == 0)
+        {
+            RecordMigrationRestoreReport(MigrationRestoreReport.Empty("combat_status_effects"), generation);
+            return;
+        }
+
+        if (gm == null)
+        {
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope("combat_status_effects", captured, "game_managers_missing"), generation);
             return;
         }
 
@@ -1966,16 +2962,23 @@ public class HostMigrationHandler : MonoBehaviour
         if (scheduler == null)
         {
             Debug.LogWarning($"[HostMigrationHandler] status restore skipped: CombatScheduler missing. context={context}");
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope("combat_status_effects", captured, "combat_scheduler_missing"), generation);
             return;
         }
 
         CombatScheduler.RebindInstanceForMigration(scheduler, $"{context}.StatusEffects");
-        int restored = scheduler.RestoreStatusEffectsFromMigration(_cachedStatusEffectsForMigration, context);
-        Debug.Log($"[HostMigrationHandler] durable status snapshot restored. restored={restored}/{_cachedStatusEffectsForMigration.Count}, sourceTick={_cachedStatusEffectSourceTick}, context={context}");
+        MigrationRestoreReport report = scheduler.RestoreStatusEffectsFromMigrationWithReport(
+            _cachedStatusEffectsForMigration,
+            context,
+            TryResolveReconciledFieldUnitNetworkId);
+        RecordMigrationRestoreReport(report, generation);
+        Debug.Log($"[HostMigrationHandler] durable status snapshot restored. {report}, sourceTick={_cachedStatusEffectSourceTick}, context={context}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestHostMigrationEvents.Record("handler_status_snapshot_restored", gm.Runner, null, new Dictionary<string, object>
         {
-            { "restoredStatusCount", restored },
+            { "restoredStatusCount", report.Restored },
+            { "skippedStatusCount", report.Skipped },
+            { "failedStatusCount", report.Failed },
             { "cachedStatusCount", _cachedStatusEffectsForMigration.Count },
             { "sourceTick", _cachedStatusEffectSourceTick },
             { "context", context }
@@ -1988,6 +2991,8 @@ public class HostMigrationHandler : MonoBehaviour
         _cachedPendingFiresForMigration.Clear();
         _cachedPendingHitsForMigration.Clear();
         _cachedPendingCombatSourceTick = runner != null ? runner.Tick : 0;
+        _cachedPendingCombatCaptureValid = false;
+        _cachedPendingCombatCaptureFailureReason = string.Empty;
 
         CombatScheduler scheduler = gm != null
             ? gm.GetComponent<CombatScheduler>()
@@ -1997,9 +3002,22 @@ public class HostMigrationHandler : MonoBehaviour
             scheduler = CombatScheduler.Instance;
         }
 
-        int captured = scheduler != null
-            ? scheduler.CapturePendingCombatForMigration(_cachedPendingFiresForMigration, _cachedPendingHitsForMigration)
-            : 0;
+        int captured = 0;
+        if (!TryValidateCombatSchedulerCaptureSource(scheduler, runner, gm, out _cachedPendingCombatCaptureFailureReason))
+        {
+            Debug.LogError($"[HostMigrationHandler] durable pending combat snapshot capture failed. reason={_cachedPendingCombatCaptureFailureReason}");
+        }
+        else
+        {
+            captured = scheduler.CapturePendingCombatForMigration(_cachedPendingFiresForMigration, _cachedPendingHitsForMigration);
+            int listCount = _cachedPendingFiresForMigration.Count + _cachedPendingHitsForMigration.Count;
+            _cachedPendingCombatCaptureValid = captured == listCount;
+            if (!_cachedPendingCombatCaptureValid)
+            {
+                _cachedPendingCombatCaptureFailureReason = $"pending_combat_capture_count_mismatch:return={captured},list={listCount}";
+                Debug.LogError($"[HostMigrationHandler] durable pending combat snapshot capture failed. reason={_cachedPendingCombatCaptureFailureReason}");
+            }
+        }
 
         Debug.Log($"[HostMigrationHandler] durable pending combat snapshot captured. fire={_cachedPendingFiresForMigration.Count}, hit={_cachedPendingHitsForMigration.Count}, total={captured}, sourceTick={_cachedPendingCombatSourceTick}, scheduler={(scheduler != null ? scheduler.name : "null")}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -2015,8 +3033,28 @@ public class HostMigrationHandler : MonoBehaviour
 
     private void RestoreCachedPendingCombatForMigration(GameManagers gm, string context)
     {
-        if ((_cachedPendingFiresForMigration.Count == 0 && _cachedPendingHitsForMigration.Count == 0) || gm == null)
+        int generation = _migrationRestoreReportGeneration;
+        int captured = _cachedPendingFiresForMigration.Count + _cachedPendingHitsForMigration.Count;
+        if (!_cachedPendingCombatCaptureValid)
         {
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope(
+                "pending_combat",
+                captured,
+                string.IsNullOrWhiteSpace(_cachedPendingCombatCaptureFailureReason)
+                    ? "pending_combat_capture_invalid"
+                    : _cachedPendingCombatCaptureFailureReason), generation);
+            return;
+        }
+
+        if (captured == 0)
+        {
+            RecordMigrationRestoreReport(MigrationRestoreReport.Empty("pending_combat"), generation);
+            return;
+        }
+
+        if (gm == null)
+        {
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope("pending_combat", captured, "game_managers_missing"), generation);
             return;
         }
 
@@ -2024,38 +3062,111 @@ public class HostMigrationHandler : MonoBehaviour
         if (scheduler == null)
         {
             Debug.LogWarning($"[HostMigrationHandler] pending combat restore skipped: CombatScheduler missing. context={context}");
+            RecordMigrationRestoreReport(MigrationRestoreReport.FailedScope("pending_combat", captured, "combat_scheduler_missing"), generation);
             return;
         }
 
         CombatScheduler.RebindInstanceForMigration(scheduler, $"{context}.PendingCombat");
-        int restored = scheduler.RestorePendingCombatFromMigration(
+        MigrationRestoreReport report = scheduler.RestorePendingCombatFromMigrationWithReport(
             _cachedPendingFiresForMigration,
             _cachedPendingHitsForMigration,
-            context);
-        int cached = _cachedPendingFiresForMigration.Count + _cachedPendingHitsForMigration.Count;
-        Debug.Log($"[HostMigrationHandler] durable pending combat snapshot restored. restored={restored}/{cached}, fire={_cachedPendingFiresForMigration.Count}, hit={_cachedPendingHitsForMigration.Count}, sourceTick={_cachedPendingCombatSourceTick}, context={context}");
+            context,
+            TryResolveReconciledFieldUnitNetworkId);
+        RecordMigrationRestoreReport(report, generation);
+        Debug.Log($"[HostMigrationHandler] durable pending combat snapshot restored. {report}, fire={_cachedPendingFiresForMigration.Count}, hit={_cachedPendingHitsForMigration.Count}, sourceTick={_cachedPendingCombatSourceTick}, context={context}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestHostMigrationEvents.Record("handler_pending_combat_snapshot_restored", gm.Runner, null, new Dictionary<string, object>
         {
-            { "restoredPendingCombatCount", restored },
+            { "restoredPendingCombatCount", report.Restored },
+            { "skippedPendingCombatCount", report.Skipped },
+            { "failedPendingCombatCount", report.Failed },
             { "cachedPendingFireCount", _cachedPendingFiresForMigration.Count },
             { "cachedPendingHitCount", _cachedPendingHitsForMigration.Count },
-            { "cachedPendingCombatCount", cached },
+            { "cachedPendingCombatCount", captured },
             { "sourceTick", _cachedPendingCombatSourceTick },
             { "context", context }
         });
 #endif
     }
 
+    /// <summary>
+    /// Resolves identities for units that had to be recreated by the durable field reconcile.
+    /// NetworkIds are globally unique inside a runner, so more than one different mapping is
+    /// treated as corruption and deliberately falls back to the captured id; the scheduler will
+    /// then classify that row instead of binding it to an arbitrary unit.
+    /// </summary>
+    private bool TryResolveReconciledFieldUnitNetworkId(
+        NetworkId capturedNetworkId,
+        out NetworkId actualNetworkId)
+    {
+        actualNetworkId = default;
+        if (capturedNetworkId.Raw == 0)
+        {
+            return false;
+        }
+
+        NetworkRunner expectedRunner = _migrationRestoreExpectedRunner;
+        GameManagers gameManagers = ResolveGameManagersForRunner(expectedRunner);
+        if (expectedRunner == null || !expectedRunner.IsRunning || gameManagers == null)
+        {
+            return false;
+        }
+
+        bool found = false;
+        foreach (PlayerManager player in ResolvePlayerManagersForRunner(expectedRunner, gameManagers))
+        {
+            FieldManager field = player?.fieldManager;
+            if (field == null ||
+                !field.TryResolveHostMigrationUnitNetworkId(capturedNetworkId, out NetworkId candidate))
+            {
+                continue;
+            }
+
+            if (!found)
+            {
+                actualNetworkId = candidate;
+                found = true;
+                continue;
+            }
+
+            if (actualNetworkId.Raw != candidate.Raw)
+            {
+                Debug.LogError(
+                    $"[HostMigrationHandler] Conflicting field-unit NetworkId remap. " +
+                    $"captured={capturedNetworkId.Raw}, first={actualNetworkId.Raw}, second={candidate.Raw}");
+                actualNetworkId = default;
+                return false;
+            }
+        }
+
+        return found;
+    }
+
     private void CaptureDurablePlayerState(NetworkRunner runner, GameManagers gm)
     {
         var capturedDurablePlayers = new Dictionary<int, DurablePlayerMigrationSnapshot>();
-
         var players = ResolvePlayerManagersForRunner(runner, gm);
+        var identityFailures = new List<string>();
+        _durablePlayerCaptureDiscoveredCount = players.Count;
+        _durablePlayerCaptureValid = players.Count > 0;
+        if (players.Count == 0)
+        {
+            identityFailures.Add("no_gameplay_players_discovered");
+        }
+
         foreach (var player in players)
         {
             if (!TryReadPlayerIdForMigration(player, out int playerId))
             {
+                _durablePlayerCaptureValid = false;
+                identityFailures.Add($"invalid_player_id:instance={player?.GetInstanceID() ?? 0}");
+                continue;
+            }
+
+            if (capturedDurablePlayers.ContainsKey(playerId))
+            {
+                _durablePlayerCaptureValid = false;
+                identityFailures.Add($"duplicate_player_id:P{playerId}");
                 continue;
             }
 
@@ -2072,6 +3183,7 @@ public class HostMigrationHandler : MonoBehaviour
                 IsConnected = IsInputAuthorityActive(player),
                 HasInputAuthority = player.Object != null && player.Object.HasInputAuthority,
                 DurableConnectionTokenHash = player.GetDurableConnectionTokenHash(),
+                HasShopSnapshot = false,
                 ShopUnitKeys = Array.Empty<string>(),
                 ShopStarLevels = Array.Empty<int>(),
                 ShopSoldFlags = Array.Empty<bool>(),
@@ -2084,8 +3196,11 @@ public class HostMigrationHandler : MonoBehaviour
                 FieldUnitDataKeys = Array.Empty<string>(),
                 FieldUnitStarLevels = Array.Empty<int>(),
                 FieldUnitFlatPositions = Array.Empty<int>(),
+                FieldUnitSnapshots = Array.Empty<FieldUnitMigrationSnapshot>(),
                 FieldUnitSnapshotValid = true,
+                HasPresentedAugmentSnapshot = false,
                 PresentedAugmentNames = Array.Empty<string>(),
+                HasSelectedAugmentSnapshot = false,
                 SelectedAugmentNames = Array.Empty<string>(),
                 ChosenAugmentNames = Array.Empty<string>(),
                 ActiveMonsterSummonAugmentNames = Array.Empty<string>(),
@@ -2107,6 +3222,7 @@ public class HostMigrationHandler : MonoBehaviour
                 BattleSpawnCadenceRemainingSeconds = player.CaptureBattleSpawnCadenceRemainingForMigration(),
                 BattleSpawnCadenceSequenceId = player.BattleSpawnCadenceSequenceId,
                 KingState = player.CaptureKingRuntimeMigrationState(),
+                HasAttackPoolSnapshot = false,
                 AttackPoolMonsterDataRefs = Array.Empty<MonsterData>(),
                 AttackPoolMonsterDataNames = Array.Empty<string>(),
                 AttackPoolRemainingCounts = Array.Empty<int>(),
@@ -2115,6 +3231,7 @@ public class HostMigrationHandler : MonoBehaviour
                 AttackPoolBossUniqueIds = Array.Empty<int>(),
                 AttackPoolTargetPlayerIds = Array.Empty<int>(),
                 AttackPoolOriginPlayerIds = Array.Empty<int>(),
+                HasOwnedScrollSnapshot = false,
                 OwnedScrollRevision = 0,
                 OwnedScrollDataRefs = Array.Empty<MagicScrollData>(),
                 OwnedScrollDataNames = Array.Empty<string>()
@@ -2126,13 +3243,21 @@ public class HostMigrationHandler : MonoBehaviour
                     out int[] starLevels,
                     out bool[] soldFlags,
                     out int revision,
-                    out int round))
+                    out int round,
+                    out string shopSnapshotFailureReason))
             {
+                snapshot.HasShopSnapshot = true;
                 snapshot.ShopUnitKeys = unitKeys ?? Array.Empty<string>();
                 snapshot.ShopStarLevels = starLevels ?? Array.Empty<int>();
                 snapshot.ShopSoldFlags = soldFlags ?? Array.Empty<bool>();
                 snapshot.ShopRevision = revision;
                 snapshot.ShopRound = round;
+            }
+            else
+            {
+                migrationPayloadFailures.Add(string.IsNullOrWhiteSpace(shopSnapshotFailureReason)
+                    ? "shop_snapshot_unavailable"
+                    : $"shop_snapshot_unavailable:{shopSnapshotFailureReason}");
             }
 
             if (player.fieldManager != null)
@@ -2158,16 +3283,20 @@ public class HostMigrationHandler : MonoBehaviour
                     out snapshot.DestructibleWallLevels,
                     out snapshot.DestructibleWallUpgradeInvestments);
 
-                if (unitMapReady && player.fieldManager.TryGetFieldUnitSnapshot(
-                        out UnitData[] fieldUnitDataRefs,
-                        out string[] fieldUnitDataKeys,
-                        out int[] fieldUnitStarLevels,
-                        out int[] fieldUnitFlatPositions))
+                if (unitMapReady && player.fieldManager.TryGetFieldUnitMigrationSnapshot(
+                        out FieldUnitMigrationSnapshot[] fieldUnitSnapshots))
                 {
-                    snapshot.FieldUnitDataRefs = fieldUnitDataRefs ?? Array.Empty<UnitData>();
-                    snapshot.FieldUnitDataKeys = fieldUnitDataKeys ?? Array.Empty<string>();
-                    snapshot.FieldUnitStarLevels = fieldUnitStarLevels ?? Array.Empty<int>();
-                    snapshot.FieldUnitFlatPositions = fieldUnitFlatPositions ?? Array.Empty<int>();
+                    snapshot.FieldUnitSnapshots = fieldUnitSnapshots ?? Array.Empty<FieldUnitMigrationSnapshot>();
+                    snapshot.FieldUnitDataRefs = snapshot.FieldUnitSnapshots.Select(entry => entry.UnitDataRef).ToArray();
+                    snapshot.FieldUnitDataKeys = snapshot.FieldUnitSnapshots.Select(entry => entry.UnitDataKey).ToArray();
+                    snapshot.FieldUnitStarLevels = snapshot.FieldUnitSnapshots.Select(entry => entry.StarLevel).ToArray();
+                    snapshot.FieldUnitFlatPositions = new int[snapshot.FieldUnitSnapshots.Length * 3];
+                    for (int i = 0; i < snapshot.FieldUnitSnapshots.Length; i++)
+                    {
+                        snapshot.FieldUnitFlatPositions[(i * 3) + 0] = snapshot.FieldUnitSnapshots[i].Position.x;
+                        snapshot.FieldUnitFlatPositions[(i * 3) + 1] = snapshot.FieldUnitSnapshots[i].Position.y;
+                        snapshot.FieldUnitFlatPositions[(i * 3) + 2] = snapshot.FieldUnitSnapshots[i].Position.z;
+                    }
                 }
                 else if (unitMapReady)
                 {
@@ -2181,8 +3310,33 @@ public class HostMigrationHandler : MonoBehaviour
                 migrationPayloadFailures.Add("field_manager_missing");
             }
 
-            snapshot.PresentedAugmentNames = player.GetPresentedAugmentSnapshotNames() ?? Array.Empty<string>();
-            snapshot.SelectedAugmentNames = player.GetSelectedAugmentSnapshotNames() ?? Array.Empty<string>();
+            if (player.TryGetPresentedAugmentSnapshot(
+                    out string[] presentedAugmentNames,
+                    out string presentedAugmentFailureReason))
+            {
+                snapshot.HasPresentedAugmentSnapshot = true;
+                snapshot.PresentedAugmentNames = presentedAugmentNames ?? Array.Empty<string>();
+            }
+            else
+            {
+                migrationPayloadFailures.Add(string.IsNullOrWhiteSpace(presentedAugmentFailureReason)
+                    ? "presented_augment_snapshot_unavailable"
+                    : $"presented_augment_snapshot_unavailable:{presentedAugmentFailureReason}");
+            }
+
+            if (player.TryGetSelectedAugmentSnapshot(
+                    out string[] selectedAugmentNames,
+                    out string selectedAugmentFailureReason))
+            {
+                snapshot.HasSelectedAugmentSnapshot = true;
+                snapshot.SelectedAugmentNames = selectedAugmentNames ?? Array.Empty<string>();
+            }
+            else
+            {
+                migrationPayloadFailures.Add(string.IsNullOrWhiteSpace(selectedAugmentFailureReason)
+                    ? "selected_augment_snapshot_unavailable"
+                    : $"selected_augment_snapshot_unavailable:{selectedAugmentFailureReason}");
+            }
             snapshot.ChosenAugmentNames = player.GetChosenAugmentMigrationNames() ?? Array.Empty<string>();
             snapshot.ActiveMonsterSummonAugmentNames = player.GetActiveMonsterSummonAugmentMigrationNames() ?? Array.Empty<string>();
             snapshot.OwnedBossAugmentNames = player.GetOwnedBossAugmentMigrationNames() ?? Array.Empty<string>();
@@ -2206,6 +3360,7 @@ public class HostMigrationHandler : MonoBehaviour
                     out int[] attackPoolTargetPlayerIds,
                     out int[] attackPoolOriginPlayerIds))
             {
+                snapshot.HasAttackPoolSnapshot = true;
                 snapshot.AttackPoolRevision = attackPoolRevision;
                 snapshot.AttackPoolMonsterDataRefs = attackPoolMonsterDataRefs ?? Array.Empty<MonsterData>();
                 snapshot.AttackPoolMonsterDataNames = attackPoolMonsterDataNames ?? Array.Empty<string>();
@@ -2216,34 +3371,53 @@ public class HostMigrationHandler : MonoBehaviour
                 snapshot.AttackPoolTargetPlayerIds = attackPoolTargetPlayerIds ?? Array.Empty<int>();
                 snapshot.AttackPoolOriginPlayerIds = attackPoolOriginPlayerIds ?? Array.Empty<int>();
             }
+            else
+            {
+                migrationPayloadFailures.Add("attack_pool_snapshot_unavailable");
+            }
 
             if (player.TryGetOwnedMagicScrollSnapshot(
                     out int ownedScrollRevision,
                     out MagicScrollData[] ownedScrollDataRefs,
                     out string[] ownedScrollDataNames))
             {
+                snapshot.HasOwnedScrollSnapshot = true;
                 snapshot.OwnedScrollRevision = ownedScrollRevision;
                 snapshot.OwnedScrollDataRefs = ownedScrollDataRefs ?? Array.Empty<MagicScrollData>();
                 snapshot.OwnedScrollDataNames = ownedScrollDataNames ?? Array.Empty<string>();
             }
+            else
+            {
+                migrationPayloadFailures.Add("owned_scroll_snapshot_unavailable");
+            }
 
-            capturedDurablePlayers[playerId] = snapshot;
-        }
+            snapshot.MigrationPayloadOverflow = migrationPayloadFailures.Count > 0;
+            snapshot.MigrationPayloadOverflowReason = string.Join("|", migrationPayloadFailures);
 
-        if (capturedDurablePlayers.Count > 0)
-        {
-            _cachedDurablePlayersById = capturedDurablePlayers;
-        }
-        else if (_cachedDurablePlayersById.Count > 0)
-        {
-            Debug.LogWarning($"[HostMigrationHandler] durable player snapshot capture returned empty; preserving previous snapshot players={_cachedDurablePlayersById.Count}");
-        }
-        else
-        {
-            _cachedDurablePlayersById.Clear();
+            capturedDurablePlayers.Add(playerId, snapshot);
         }
 
-        Debug.Log($"[HostMigrationHandler] durable player snapshot captured. runner={DescribeRunner(runner)}, players={_cachedDurablePlayersById.Count}");
+        _durablePlayerCaptureUniqueCount = capturedDurablePlayers.Count;
+        _durablePlayerCaptureValid &= _durablePlayerCaptureUniqueCount == _durablePlayerCaptureDiscoveredCount;
+        _durablePlayerCaptureFailureReason = string.Join("|", identityFailures);
+        _cachedDurablePlayersById = capturedDurablePlayers;
+
+        MigrationRestoreReport identityReport = _durablePlayerCaptureValid
+            ? new MigrationRestoreReport(
+                "durable_player_identity",
+                _durablePlayerCaptureDiscoveredCount,
+                _durablePlayerCaptureUniqueCount,
+                0,
+                0)
+            : MigrationRestoreReport.FailedScope(
+                "durable_player_identity",
+                Mathf.Max(1, _durablePlayerCaptureDiscoveredCount),
+                string.IsNullOrWhiteSpace(_durablePlayerCaptureFailureReason)
+                    ? $"capture_identity_mismatch:discovered={_durablePlayerCaptureDiscoveredCount},unique={_durablePlayerCaptureUniqueCount}"
+                    : _durablePlayerCaptureFailureReason);
+        RecordMigrationRestoreReport(identityReport, _migrationRestoreReportGeneration);
+
+        Debug.Log($"[HostMigrationHandler] durable player snapshot captured. runner={DescribeRunner(runner)}, discovered={_durablePlayerCaptureDiscoveredCount}, unique={_durablePlayerCaptureUniqueCount}, valid={_durablePlayerCaptureValid}, reason={_durablePlayerCaptureFailureReason}");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestHostMigrationEvents.Record("handler_durable_snapshot_captured", runner, null, new Dictionary<string, object>
         {
@@ -2319,13 +3493,85 @@ public class HostMigrationHandler : MonoBehaviour
 
     private DurablePlayerRestoreResult ApplyCachedDurablePlayerState(NetworkRunner expectedRunner, GameManagers gm, string context)
     {
-        if (_cachedDurablePlayersById.Count == 0)
+        bool shouldRestoreFieldUnits = ShouldRestoreFieldUnitsForContext(context);
+        int capturedPlayerCount = _cachedDurablePlayersById.Count;
+        int expectedUnitFieldCount = shouldRestoreFieldUnits ? capturedPlayerCount : 0;
+        if (!_durablePlayerCaptureValid)
         {
-            return new DurablePlayerRestoreResult(0, 0, 0, 0, 0, 0, 0, ShouldRestoreFieldUnitsForContext(context));
+            RecordMigrationRestoreReport(
+                MigrationRestoreReport.FailedScope(
+                    "durable_player_identity",
+                    Mathf.Max(1, _durablePlayerCaptureDiscoveredCount),
+                    string.IsNullOrWhiteSpace(_durablePlayerCaptureFailureReason)
+                        ? "durable_player_capture_invalid"
+                        : _durablePlayerCaptureFailureReason),
+                _migrationRestoreReportGeneration);
+            return new DurablePlayerRestoreResult(
+                capturedPlayerCount,
+                0,
+                Mathf.Max(1, capturedPlayerCount),
+                expectedUnitFieldCount,
+                0,
+                expectedUnitFieldCount,
+                1,
+                shouldRestoreFieldUnits);
         }
 
-        var allPlayers = ResolvePlayerManagersForRunner(expectedRunner, gm);
-        var usedPlayerInstanceIds = new HashSet<int>();
+        if (!TryBuildUniqueGameplayPlayerMap(
+                expectedRunner,
+                gm,
+                out Dictionary<int, PlayerManager> gameplayPlayersById,
+                out int discoveredGameplayPlayers,
+                out string gameplayIdentityFailure))
+        {
+            RecordMigrationRestoreReport(
+                MigrationRestoreReport.FailedScope(
+                    "durable_player_identity",
+                    Mathf.Max(1, discoveredGameplayPlayers),
+                    gameplayIdentityFailure),
+                _migrationRestoreReportGeneration);
+            return new DurablePlayerRestoreResult(
+                capturedPlayerCount,
+                0,
+                Mathf.Max(1, capturedPlayerCount),
+                expectedUnitFieldCount,
+                0,
+                expectedUnitFieldCount,
+                1,
+                shouldRestoreFieldUnits);
+        }
+
+        var snapshotPlayerIds = new HashSet<int>(_cachedDurablePlayersById.Keys);
+        var gameplayPlayerIds = new HashSet<int>(gameplayPlayersById.Keys);
+        bool snapshotRowsMatchKeys = _cachedDurablePlayersById.All(pair => pair.Key == pair.Value.PlayerId);
+        if (!snapshotRowsMatchKeys || !snapshotPlayerIds.SetEquals(gameplayPlayerIds))
+        {
+            string reason = $"player_id_set_mismatch:snapshot={string.Join(",", snapshotPlayerIds.OrderBy(id => id))},gameplay={string.Join(",", gameplayPlayerIds.OrderBy(id => id))},rowsMatchKeys={snapshotRowsMatchKeys}";
+            RecordMigrationRestoreReport(
+                MigrationRestoreReport.FailedScope(
+                    "durable_player_identity",
+                    Mathf.Max(1, Mathf.Max(snapshotPlayerIds.Count, discoveredGameplayPlayers)),
+                    reason),
+                _migrationRestoreReportGeneration);
+            return new DurablePlayerRestoreResult(
+                capturedPlayerCount,
+                0,
+                Mathf.Max(1, capturedPlayerCount),
+                expectedUnitFieldCount,
+                0,
+                expectedUnitFieldCount,
+                1,
+                shouldRestoreFieldUnits);
+        }
+
+        RecordMigrationRestoreReport(
+            new MigrationRestoreReport(
+                "durable_player_identity",
+                snapshotPlayerIds.Count,
+                gameplayPlayerIds.Count,
+                0,
+                0),
+            _migrationRestoreReportGeneration);
 
         int restoredPlayers = 0;
         int restoredWalls = 0;
@@ -2334,7 +3580,6 @@ public class HostMigrationHandler : MonoBehaviour
         int criticalStateFailures = 0;
         var missingPlayers = new List<int>();
         var restoredPlayersBySnapshotId = new Dictionary<int, PlayerManager>();
-        bool shouldRestoreFieldUnits = ShouldRestoreFieldUnitsForContext(context);
         int expectedUnitFields = shouldRestoreFieldUnits
             ? _cachedDurablePlayersById.Count
             : 0;
@@ -2345,14 +3590,26 @@ public class HostMigrationHandler : MonoBehaviour
         {
             int playerId = kv.Key;
             var snapshot = kv.Value;
-            var player = FindBestPlayerForDurableSnapshot(snapshot, allPlayers, usedPlayerInstanceIds, expectedRunner);
-            if (player == null)
+            if (!gameplayPlayersById.TryGetValue(playerId, out PlayerManager player) || player == null)
             {
                 missingPlayers.Add(playerId);
+                if (shouldRestoreFieldUnits)
+                {
+                    RecordMigrationRestoreReport(
+                        MigrationRestoreReport.FailedScope(
+                            $"durable_state:P{snapshot.PlayerId}",
+                            5 + (snapshot.ShopUnitKeys?.Length ?? 0),
+                            "gameplay_player_missing"),
+                        _migrationRestoreReportGeneration);
+                    RecordMigrationRestoreReport(
+                        MigrationRestoreReport.FailedScope(
+                            $"augment_snapshots:P{snapshot.PlayerId}",
+                            2 + (snapshot.PresentedAugmentNames?.Length ?? 0) + (snapshot.SelectedAugmentNames?.Length ?? 0),
+                            "gameplay_player_missing"),
+                        _migrationRestoreReportGeneration);
+                }
                 continue;
             }
-
-            usedPlayerInstanceIds.Add(player.GetInstanceID());
             if (snapshot.MigrationPayloadOverflow)
             {
                 criticalStateFailures++;
@@ -2372,17 +3629,32 @@ public class HostMigrationHandler : MonoBehaviour
                 criticalStateFailures++;
                 Debug.LogError($"[HostMigrationHandler] missing durable connection token hash for connected human P{snapshot.PlayerId} ({context})");
             }
-            player.RestoreDurableStateAfterHostMigration(
+            MigrationRestoreReport durableStateReport = player.RestoreDurableStateAfterHostMigration(
                 snapshot.PlayerId,
                 snapshot.Health,
                 snapshot.Gold,
                 snapshot.WallCount,
+                snapshot.HasShopSnapshot,
                 snapshot.ShopUnitKeys,
                 snapshot.ShopStarLevels,
                 snapshot.ShopSoldFlags,
                 snapshot.ShopRevision,
                 snapshot.ShopRound,
                 context);
+            if (!durableStateReport.Succeeded)
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] durable player core/shop restore failed P{snapshot.PlayerId} ({context}): {durableStateReport}");
+            }
+            if (shouldRestoreFieldUnits)
+            {
+                TrackShopRuntimeRestore(
+                    player,
+                    snapshot,
+                    durableStateReport,
+                    context,
+                    expectedRunner);
+            }
             if (!player.RestorePermanentWallStateAfterHostMigration(
                     snapshot.PermanentWallPlacementCount,
                     snapshot.PermanentWallStockRevision,
@@ -2416,49 +3688,73 @@ public class HostMigrationHandler : MonoBehaviour
                 criticalStateFailures++;
                 Debug.LogError($"[HostMigrationHandler] king runtime restore failed P{snapshot.PlayerId} ({context})");
             }
-            player.RestoreAttackMonsterPoolFromMigrationSnapshot(
-                snapshot.AttackPoolRevision,
-                snapshot.AttackPoolMonsterDataRefs,
-                snapshot.AttackPoolMonsterDataNames,
-                snapshot.AttackPoolRemainingCounts,
-                snapshot.AttackPoolMaxCounts,
-                snapshot.AttackPoolIsBossValues,
-                snapshot.AttackPoolBossUniqueIds,
-                snapshot.AttackPoolTargetPlayerIds,
-                snapshot.AttackPoolOriginPlayerIds,
-                context);
-            player.RestoreOwnedMagicScrollsFromMigrationSnapshot(
-                snapshot.OwnedScrollRevision,
-                snapshot.OwnedScrollDataRefs,
-                snapshot.OwnedScrollDataNames,
-                context);
-            player.RestoreAugmentSnapshotsAfterHostMigration(
+            if (ShouldRestoreFieldUnitsForContext(context))
+            {
+                TrackAttackMonsterPoolRestore(player, snapshot, context, expectedRunner);
+                TrackOwnedMagicScrollRestore(player, snapshot, context, expectedRunner);
+            }
+            MigrationRestoreReport augmentSnapshotReport = player.RestoreAugmentSnapshotsAfterHostMigration(
+                snapshot.HasPresentedAugmentSnapshot,
                 snapshot.PresentedAugmentNames,
+                snapshot.HasSelectedAugmentSnapshot,
                 snapshot.SelectedAugmentNames,
                 context);
-            if (!player.RestoreAugmentGameplayStateAfterHostMigration(
-                    snapshot.ChosenAugmentNames,
-                    snapshot.ActiveMonsterSummonAugmentNames,
-                    snapshot.OwnedBossAugmentNames,
-                    context,
-                    out string augmentFailureReason))
+            if (!augmentSnapshotReport.Succeeded)
             {
                 criticalStateFailures++;
-                Debug.LogError($"[HostMigrationHandler] augment gameplay restore failed P{snapshot.PlayerId} ({context}): {augmentFailureReason}");
+                Debug.LogError($"[HostMigrationHandler] augment snapshot restore failed P{snapshot.PlayerId} ({context}): {augmentSnapshotReport}");
+            }
+            MigrationRestoreReport augmentGameplayReport = player.RestoreAugmentGameplayStateAfterHostMigration(
+                snapshot.ChosenAugmentNames,
+                snapshot.ActiveMonsterSummonAugmentNames,
+                snapshot.OwnedBossAugmentNames,
+                context);
+            if (!augmentGameplayReport.Succeeded)
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] augment gameplay restore failed P{snapshot.PlayerId} ({context}): {augmentGameplayReport}");
+            }
+            if (shouldRestoreFieldUnits)
+            {
+                MigrationRestoreReport combinedAugmentReport = augmentSnapshotReport.Combine(
+                    augmentGameplayReport,
+                    $"augment_snapshots:P{snapshot.PlayerId}");
+                TrackPresentedAugmentRuntimeRestore(
+                    player,
+                    snapshot,
+                    combinedAugmentReport,
+                    context,
+                    expectedRunner);
             }
             restoredPlayers++;
             restoredPlayersBySnapshotId[snapshot.PlayerId] = player;
 
-            if (player.fieldManager != null)
+            if (shouldRestoreFieldUnits && player.fieldManager != null)
             {
-                player.fieldManager.RestorePermanentWallsAfterHostMigration(
+                MigrationRestoreReport permanentWallReport = player.fieldManager.RestorePermanentWallsAfterHostMigration(
                     snapshot.PermanentWallFlatPositions,
                     snapshot.PlayerPlacedPermanentWallFlatPositions,
                     context);
-                if ((snapshot.PermanentWallFlatPositions?.Length ?? 0) > 0)
+                RecordMigrationRestoreReport(permanentWallReport, _migrationRestoreReportGeneration);
+                if (permanentWallReport.Succeeded)
                 {
                     restoredWalls++;
                 }
+                else
+                {
+                    criticalStateFailures++;
+                    Debug.LogError($"[HostMigrationHandler] permanent wall layout restore failed P{snapshot.PlayerId} ({context}): {permanentWallReport}");
+                }
+            }
+            else if (shouldRestoreFieldUnits)
+            {
+                criticalStateFailures++;
+                RecordMigrationRestoreReport(
+                    MigrationRestoreReport.FailedScope(
+                        $"permanent_walls:P{snapshot.PlayerId}",
+                        Mathf.Max(1, (snapshot.PermanentWallFlatPositions?.Length ?? 0) / 2),
+                        "field_manager_missing"),
+                    _migrationRestoreReportGeneration);
             }
 
             if (shouldRestoreFieldUnits && player.fieldManager != null)
@@ -2505,12 +3801,16 @@ public class HostMigrationHandler : MonoBehaviour
                     continue;
                 }
 
-                bool restoredUnits = player.fieldManager.RestoreFieldUnitsAfterHostMigration(
-                    snapshot.FieldUnitDataRefs,
-                    snapshot.FieldUnitDataKeys,
-                    snapshot.FieldUnitStarLevels,
-                    snapshot.FieldUnitFlatPositions,
-                    context);
+                bool restoredUnits = snapshot.FieldUnitSnapshots != null
+                    ? player.fieldManager.RestoreFieldUnitsAfterHostMigration(
+                        snapshot.FieldUnitSnapshots,
+                        context)
+                    : player.fieldManager.RestoreFieldUnitsAfterHostMigration(
+                        snapshot.FieldUnitDataRefs,
+                        snapshot.FieldUnitDataKeys,
+                        snapshot.FieldUnitStarLevels,
+                        snapshot.FieldUnitFlatPositions,
+                        context);
                 if (restoredUnits)
                 {
                     restoredUnitFields++;
@@ -2696,6 +3996,48 @@ public class HostMigrationHandler : MonoBehaviour
         return score;
     }
 
+    private static bool TryBuildUniqueGameplayPlayerMap(
+        NetworkRunner runner,
+        GameManagers gm,
+        out Dictionary<int, PlayerManager> playersById,
+        out int discoveredCount,
+        out string reason)
+    {
+        playersById = new Dictionary<int, PlayerManager>();
+        var players = ResolvePlayerManagersForRunner(runner, gm);
+        discoveredCount = players.Count;
+        var failures = new List<string>();
+        if (discoveredCount == 0)
+        {
+            failures.Add("no_gameplay_players_discovered");
+        }
+
+        foreach (PlayerManager player in players)
+        {
+            if (!TryReadPlayerIdForMigration(player, out int playerId))
+            {
+                failures.Add($"invalid_player_id:instance={player?.GetInstanceID() ?? 0}");
+                continue;
+            }
+
+            if (playersById.ContainsKey(playerId))
+            {
+                failures.Add($"duplicate_player_id:P{playerId}");
+                continue;
+            }
+
+            playersById.Add(playerId, player);
+        }
+
+        if (playersById.Count != discoveredCount)
+        {
+            failures.Add($"discovered_unique_mismatch:{discoveredCount}/{playersById.Count}");
+        }
+
+        reason = string.Join("|", failures);
+        return failures.Count == 0;
+    }
+
     private static List<PlayerManager> ResolvePlayerManagersForRunner(NetworkRunner runner, GameManagers gm)
     {
         var players = new Dictionary<int, PlayerManager>();
@@ -2815,6 +4157,13 @@ public class HostMigrationHandler : MonoBehaviour
     /// </summary>
     private void OnMigrationComplete()
     {
+        _migrationRestoreCancellation?.Cancel();
+        _migrationRestoreCancellation?.Dispose();
+        _migrationRestoreCancellation = null;
+        _pendingAsyncMigrationRestoreCount = 0;
+        _migrationRestoreSchedulingCompleted = false;
+        _migrationRestoreExpectedRunner = null;
+        _migrationRestoreReportGeneration++;
         _isMigrating = false;
         ShowMigrationUI(false);
 
@@ -2830,7 +4179,17 @@ public class HostMigrationHandler : MonoBehaviour
 
         // [Observer Pattern] Migration 완료 이벤트 발행
         bool isNewHost = NetworkManager.Instance?._runner?.IsServer ?? false;
-        GameEvents.TriggerHostMigrationCompleted(isNewHost);
+        if (_migrationRecoverySucceeded)
+        {
+            GameEvents.TriggerHostMigrationCompleted(isNewHost);
+        }
+        else
+        {
+            string failureReason = !string.IsNullOrWhiteSpace(LastMigrationRestoreReport.FailureReason)
+                ? LastMigrationRestoreReport.FailureReason
+                : "host_migration_recovery_failed";
+            GameEvents.TriggerHostMigrationFailed(failureReason);
+        }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestHostMigrationEvents.Record(
             _migrationRecoverySucceeded ? "handler_migration_complete_success" : "handler_migration_complete_fail",
@@ -3033,16 +4392,84 @@ public class HostMigrationHandler : MonoBehaviour
     }
 
     /// <summary>
-    /// Host Migration snapshot gap을 줄이기 위해 중요 전환 직전에 수동 snapshot push를 시도합니다.
-    /// Fusion 버전별 API 차이를 고려해 reflection으로 안전 호출합니다.
+    /// Host Migration snapshot gap을 줄이기 위해 중요 상태 변경의 push를 예약합니다.
+    /// 여러 요청은 한 개의 in-flight 작업과 최신 trailing 작업으로 합쳐집니다. true는
+    /// 요청이 수락됐다는 뜻이며, 실제 커밋 결과가 필요한 호출자는
+    /// PushHostMigrationSnapshotAsync를 await해야 합니다.
     /// </summary>
     public bool TryPushHostMigrationSnapshot(NetworkRunner runner, string reason)
     {
-        if (runner == null || !runner.IsRunning || !runner.IsServer)
+        return TryQueueHostMigrationSnapshotPush(runner, reason, out _);
+    }
+
+    public async UniTask<bool> PushHostMigrationSnapshotAsync(
+        NetworkRunner runner,
+        string reason,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryQueueHostMigrationSnapshotPush(runner, reason, out int requestedGeneration))
         {
             return false;
         }
 
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_hostMigrationSnapshotPushCommittedGeneration >= requestedGeneration)
+            {
+                return true;
+            }
+
+            if (_hostMigrationSnapshotPushFailedGeneration >= requestedGeneration)
+            {
+                return false;
+            }
+
+            await UniTask.Delay(
+                16,
+                DelayType.Realtime,
+                PlayerLoopTiming.Update,
+                cancellationToken);
+        }
+    }
+
+    private bool TryQueueHostMigrationSnapshotPush(
+        NetworkRunner runner,
+        string reason,
+        out int requestedGeneration)
+    {
+        requestedGeneration = 0;
+        if (_isMigrating || runner == null || !runner.IsRunning || !runner.IsServer ||
+            !TryResolveHostMigrationSnapshotPushMethod())
+        {
+            return false;
+        }
+
+        if (_hostMigrationSnapshotPushPendingRunner != null &&
+            _hostMigrationSnapshotPushPendingRunner != runner)
+        {
+            _hostMigrationSnapshotPushFailedGeneration = Mathf.Max(
+                _hostMigrationSnapshotPushFailedGeneration,
+                _hostMigrationSnapshotPushRequestedGeneration);
+        }
+
+        requestedGeneration = ++_hostMigrationSnapshotPushRequestedGeneration;
+        _hostMigrationSnapshotPushPendingRunner = runner;
+        _hostMigrationSnapshotPushPendingReason = string.IsNullOrWhiteSpace(reason)
+            ? "unspecified"
+            : reason;
+        _hostMigrationSnapshotPushRequestedTick = runner.Tick;
+        if (!_hostMigrationSnapshotPushLoopRunning)
+        {
+            _hostMigrationSnapshotPushLoopRunning = true;
+            ProcessHostMigrationSnapshotPushQueueAsync().Forget();
+        }
+
+        return true;
+    }
+
+    private bool TryResolveHostMigrationSnapshotPushMethod()
+    {
         if (!_pushHostMigrationSnapshotMethodResolved)
         {
             _pushHostMigrationSnapshotMethodResolved = true;
@@ -3067,47 +4494,422 @@ public class HostMigrationHandler : MonoBehaviour
                 _pushHostMigrationSnapshotUnsupportedLogged = true;
                 Debug.LogWarning("[HostMigrationHandler] PushHostMigrationSnapshot API를 찾지 못했습니다. AutoUpdate snapshot에만 의존합니다.");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-                MPTestHostMigrationEvents.Record("handler_snapshot_push_unsupported", runner, null, new Dictionary<string, object>
-                {
-                    { "reason", reason }
-                });
+                MPTestHostMigrationEvents.Record("handler_snapshot_push_unsupported", null);
 #endif
             }
             return false;
         }
 
+        return true;
+    }
+
+    private async UniTask ProcessHostMigrationSnapshotPushQueueAsync()
+    {
+        try
+        {
+            while (_hostMigrationSnapshotPushRequestedGeneration >
+                   Mathf.Max(
+                       _hostMigrationSnapshotPushCommittedGeneration,
+                       _hostMigrationSnapshotPushFailedGeneration))
+            {
+                NetworkRunner runner = _hostMigrationSnapshotPushPendingRunner;
+                int requestedGeneration = _hostMigrationSnapshotPushRequestedGeneration;
+                int requestedTick = _hostMigrationSnapshotPushRequestedTick;
+                string reason = _hostMigrationSnapshotPushPendingReason;
+
+                if (runner == null || !runner.IsRunning || !runner.IsServer || _isMigrating ||
+                    _hostMigrationSnapshotPushPendingRunner != runner)
+                {
+                    _hostMigrationSnapshotPushFailedGeneration = Mathf.Max(
+                        _hostMigrationSnapshotPushFailedGeneration,
+                        requestedGeneration);
+                    Debug.LogWarning(
+                        $"[HostMigrationHandler] HostMigration snapshot push 취소: runner lifecycle mismatch " +
+                        $"(generation={requestedGeneration}, reason={reason})");
+                    continue;
+                }
+
+                bool committed = false;
+                int committedSnapshotTick = -1;
+                int attemptsUsed = 0;
+                string commitSource = string.Empty;
+                float pushDeadline = Time.realtimeSinceStartup +
+                                     HostMigrationSnapshotPushConfirmationTimeoutSeconds;
+                for (int attempt = 1; attempt <= HostMigrationSnapshotPushMaxAttempts; attempt++)
+                {
+                    if (runner == null || !runner.IsRunning || !runner.IsServer || _isMigrating ||
+                        _hostMigrationSnapshotPushPendingRunner != runner)
+                    {
+                        break;
+                    }
+
+                    // Fusion rejects PushHostMigrationSnapshot while its previous cloud snapshot
+                    // is still unconfirmed. Wait for that exact condition instead of guessing a
+                    // delay; the interval-only fallback remains for future Fusion versions that
+                    // no longer expose these internal diagnostic ticks.
+                    requestedGeneration = _hostMigrationSnapshotPushRequestedGeneration;
+                    requestedTick = _hostMigrationSnapshotPushRequestedTick;
+                    reason = _hostMigrationSnapshotPushPendingReason;
+                    bool pushWindowReady = await WaitForHostMigrationSnapshotPushWindowAsync(
+                        runner,
+                        requestedTick,
+                        pushDeadline);
+                    if (!pushWindowReady)
+                    {
+                        break;
+                    }
+
+                    // A newer request arriving while confirmation was pending is represented by
+                    // this same eventual cloud snapshot, so publish and account for the newest cut.
+                    requestedGeneration = _hostMigrationSnapshotPushRequestedGeneration;
+                    requestedTick = _hostMigrationSnapshotPushRequestedTick;
+                    reason = _hostMigrationSnapshotPushPendingReason;
+
+                    // The automatic Fusion snapshot service may have won the send race. Its
+                    // confirmed snapshot is equally valid when it covers this request's tick.
+                    if (TryReadHostMigrationSnapshotTicks(
+                            runner,
+                            out _,
+                            out int alreadyConfirmedTick) &&
+                        alreadyConfirmedTick >= requestedTick)
+                    {
+                        committed = true;
+                        committedSnapshotTick = alreadyConfirmedTick;
+                        attemptsUsed = attempt - 1;
+                        commitSource = "confirmed_automatic_or_coalesced_snapshot";
+                        break;
+                    }
+
+                    _hostMigrationSnapshotPushLastAttemptRealtime = Time.realtimeSinceStartup;
+                    attemptsUsed = attempt;
+                    bool dispatched = await InvokeHostMigrationSnapshotPushAsync(
+                        runner,
+                        reason,
+                        requestedGeneration,
+                        requestedTick,
+                        attempt);
+                    if (!dispatched)
+                    {
+                        continue;
+                    }
+
+                    int confirmedTick = await WaitForHostMigrationSnapshotConfirmationAsync(
+                        runner,
+                        requestedTick,
+                        pushDeadline);
+                    if (confirmedTick == int.MinValue)
+                    {
+                        // Future Fusion versions may remove the diagnostic tick fields. Preserve
+                        // compatibility by falling back to the observed Task<bool> send result.
+                        committed = true;
+                        committedSnapshotTick = runner != null && runner.IsRunning
+                            ? (int)runner.Tick
+                            : requestedTick;
+                        commitSource = "push_task_tick_introspection_unavailable";
+                        break;
+                    }
+
+                    if (confirmedTick >= requestedTick)
+                    {
+                        committed = true;
+                        committedSnapshotTick = confirmedTick;
+                        commitSource = "confirmed_dispatched_snapshot";
+                        break;
+                    }
+
+                    // A successful send that was not confirmed before the shared deadline is a
+                    // terminal failure. Sending another snapshot cannot make the older one safe.
+                    break;
+                }
+
+                if (committed)
+                {
+                    _hostMigrationSnapshotPushCommittedGeneration = Mathf.Max(
+                        _hostMigrationSnapshotPushCommittedGeneration,
+                        requestedGeneration);
+                    _hostMigrationSnapshotPushCommittedTick = committedSnapshotTick >= 0
+                        ? committedSnapshotTick
+                        : requestedTick;
+                    Debug.Log(
+                        $"[HostMigrationHandler] HostMigration snapshot push 커밋 성공 " +
+                        $"(generation={requestedGeneration}, requestedTick={requestedTick}, " +
+                        $"committedTick={_hostMigrationSnapshotPushCommittedTick}, reason={reason}, " +
+                        $"source={commitSource})");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                    MPTestHostMigrationEvents.Record("handler_snapshot_push_success", runner, null, new Dictionary<string, object>
+                    {
+                        { "reason", reason },
+                        { "generation", requestedGeneration },
+                        { "requestedTick", requestedTick },
+                        { "committedTick", _hostMigrationSnapshotPushCommittedTick },
+                        { "attempt", attemptsUsed },
+                        { "source", commitSource }
+                    });
+#endif
+                }
+                else
+                {
+                    string error = runner == null || !runner.IsRunning || !runner.IsServer || _isMigrating
+                        ? "runner_lifecycle_changed"
+                        : "snapshot_not_confirmed_before_deadline";
+                    Debug.LogWarning(
+                        $"[HostMigrationHandler] HostMigration snapshot push 최종 실패 " +
+                        $"(generation={requestedGeneration}, requestedTick={requestedTick}, " +
+                        $"reason={reason}, error={error})");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                    MPTestHostMigrationEvents.Record("handler_snapshot_push_fail", runner, null, new Dictionary<string, object>
+                    {
+                        { "reason", reason },
+                        { "generation", requestedGeneration },
+                        { "requestedTick", requestedTick },
+                        { "attempt", attemptsUsed },
+                        { "error", error }
+                    });
+#endif
+
+                    _hostMigrationSnapshotPushFailedGeneration = Mathf.Max(
+                        _hostMigrationSnapshotPushFailedGeneration,
+                        requestedGeneration);
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            _hostMigrationSnapshotPushFailedGeneration = Mathf.Max(
+                _hostMigrationSnapshotPushFailedGeneration,
+                _hostMigrationSnapshotPushRequestedGeneration);
+            Debug.LogException(exception, this);
+        }
+        finally
+        {
+            _hostMigrationSnapshotPushLoopRunning = false;
+            if (_hostMigrationSnapshotPushRequestedGeneration >
+                Mathf.Max(
+                    _hostMigrationSnapshotPushCommittedGeneration,
+                    _hostMigrationSnapshotPushFailedGeneration))
+            {
+                _hostMigrationSnapshotPushLoopRunning = true;
+                ProcessHostMigrationSnapshotPushQueueAsync().Forget();
+            }
+        }
+    }
+
+    private async UniTask<bool> WaitForHostMigrationSnapshotPushWindowAsync(
+        NetworkRunner runner,
+        int requestedTick,
+        float deadlineRealtime)
+    {
+        while (runner != null && runner.IsRunning && runner.IsServer && !_isMigrating &&
+               _hostMigrationSnapshotPushPendingRunner == runner &&
+               Time.realtimeSinceStartup < deadlineRealtime)
+        {
+            float elapsed = Time.realtimeSinceStartup - _hostMigrationSnapshotPushLastAttemptRealtime;
+            int currentTick = runner.Tick;
+            bool previousSnapshotPending = IsPreviousHostMigrationSnapshotConfirmationPending(
+                runner,
+                out _,
+                out _);
+            if (elapsed >= HostMigrationSnapshotPushMinIntervalSeconds &&
+                currentTick > requestedTick &&
+                !previousSnapshotPending)
+            {
+                return true;
+            }
+
+            await UniTask.Delay(16, DelayType.Realtime, PlayerLoopTiming.Update);
+        }
+
+        return false;
+    }
+
+    private bool IsPreviousHostMigrationSnapshotConfirmationPending(
+        NetworkRunner runner,
+        out int lastSnapshotTick,
+        out int lastConfirmedSnapshotTick)
+    {
+        if (!TryReadHostMigrationSnapshotTicks(
+                runner,
+                out lastSnapshotTick,
+                out lastConfirmedSnapshotTick))
+        {
+            return false;
+        }
+
+        return lastConfirmedSnapshotTick < lastSnapshotTick;
+    }
+
+    private async UniTask<int> WaitForHostMigrationSnapshotConfirmationAsync(
+        NetworkRunner runner,
+        int requestedTick,
+        float deadlineRealtime)
+    {
+        while (runner != null && runner.IsRunning && runner.IsServer && !_isMigrating &&
+               _hostMigrationSnapshotPushPendingRunner == runner &&
+               Time.realtimeSinceStartup < deadlineRealtime)
+        {
+            if (!TryReadHostMigrationSnapshotTicks(
+                    runner,
+                    out _,
+                    out int lastConfirmedSnapshotTick))
+            {
+                return int.MinValue;
+            }
+
+            if (lastConfirmedSnapshotTick >= requestedTick)
+            {
+                return lastConfirmedSnapshotTick;
+            }
+
+            await UniTask.Delay(16, DelayType.Realtime, PlayerLoopTiming.Update);
+        }
+
+        return -1;
+    }
+
+    private bool TryReadHostMigrationSnapshotTicks(
+        NetworkRunner runner,
+        out int lastSnapshotTick,
+        out int lastConfirmedSnapshotTick)
+    {
+        lastSnapshotTick = 0;
+        lastConfirmedSnapshotTick = 0;
+        if (runner == null)
+        {
+            return false;
+        }
+
+        if (!_hostMigrationSnapshotTickFieldsResolved)
+        {
+            _hostMigrationSnapshotTickFieldsResolved = true;
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            _lastHostMigrationSnapshotTickField = typeof(NetworkRunner).GetField("LastSnapshotTick", flags);
+            _lastConfirmedHostMigrationSnapshotTickField =
+                typeof(NetworkRunner).GetField("LastConfirmedSnapshotTick", flags);
+        }
+
+        if (_lastHostMigrationSnapshotTickField == null ||
+            _lastConfirmedHostMigrationSnapshotTickField == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            lastSnapshotTick = Convert.ToInt32(_lastHostMigrationSnapshotTickField.GetValue(runner));
+            lastConfirmedSnapshotTick = Convert.ToInt32(
+                _lastConfirmedHostMigrationSnapshotTickField.GetValue(runner));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning(
+                $"[HostMigrationHandler] HostMigration snapshot confirmation tick read failed; " +
+                $"falling back to interval gating: {exception.Message}");
+            _lastHostMigrationSnapshotTickField = null;
+            _lastConfirmedHostMigrationSnapshotTickField = null;
+            return false;
+        }
+    }
+
+    private async UniTask<bool> InvokeHostMigrationSnapshotPushAsync(
+        NetworkRunner runner,
+        string reason,
+        int requestedGeneration,
+        int requestedTick,
+        int attempt)
+    {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         long snapshotPushStart = MPTestPerformanceRecorder.StartTimestamp();
 #endif
         try
         {
             var parameters = _pushHostMigrationSnapshotMethod.GetParameters();
+            object invocation;
             if (parameters.Length == 0)
             {
-                _pushHostMigrationSnapshotMethod.Invoke(runner, null);
+                invocation = _pushHostMigrationSnapshotMethod.Invoke(runner, null);
             }
             else
             {
                 object arg = parameters[0].HasDefaultValue ? parameters[0].DefaultValue : false;
-                _pushHostMigrationSnapshotMethod.Invoke(runner, new object[] { arg });
+                invocation = _pushHostMigrationSnapshotMethod.Invoke(runner, new object[] { arg });
             }
 
-            Debug.Log($"[HostMigrationHandler] HostMigration snapshot push 성공 ({reason})");
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            MPTestHostMigrationEvents.Record("handler_snapshot_push_success", runner, null, new Dictionary<string, object>
+            bool committed;
+            if (invocation is Task<bool> boolTask)
             {
-                { "reason", reason }
+                committed = await boolTask;
+            }
+            else if (invocation is Task task)
+            {
+                await task;
+                committed = true;
+            }
+            else if (invocation is bool boolResult)
+            {
+                committed = boolResult;
+            }
+            else
+            {
+                committed = invocation == null && _pushHostMigrationSnapshotMethod.ReturnType == typeof(void);
+            }
+
+            if (!committed)
+            {
+                string message =
+                    $"[HostMigrationHandler] HostMigration snapshot dispatch가 수락되지 않았습니다 " +
+                    $"(generation={requestedGeneration}, requestedTick={requestedTick}, " +
+                    $"reason={reason}, attempt={attempt}/{HostMigrationSnapshotPushMaxAttempts})";
+                Debug.Log($"{message}; confirmation-or-retry scheduled");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                MPTestHostMigrationEvents.Record(
+                    "handler_snapshot_push_retry",
+                    runner,
+                    null,
+                    new Dictionary<string, object>
+                {
+                    { "reason", reason },
+                    { "generation", requestedGeneration },
+                    { "requestedTick", requestedTick },
+                    { "attempt", attempt },
+                    { "error", "push_task_returned_false" }
+                });
+#endif
+                return false;
+            }
+
+            Debug.Log(
+                $"[HostMigrationHandler] HostMigration snapshot dispatch 수락 " +
+                $"(generation={requestedGeneration}, requestedTick={requestedTick}, " +
+                $"reason={reason}, attempt={attempt}/{HostMigrationSnapshotPushMaxAttempts})");
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestHostMigrationEvents.Record("handler_snapshot_push_sent", runner, null, new Dictionary<string, object>
+            {
+                { "reason", reason },
+                { "generation", requestedGeneration },
+                { "requestedTick", requestedTick },
+                { "attempt", attempt }
             });
 #endif
             return true;
         }
         catch (Exception e)
         {
-            Debug.LogWarning($"[HostMigrationHandler] HostMigration snapshot push 실패 ({reason}): {e.Message}");
+            string message =
+                $"[HostMigrationHandler] HostMigration snapshot dispatch 예외 " +
+                $"({reason}, attempt={attempt}/{HostMigrationSnapshotPushMaxAttempts}): {e.Message}";
+            Debug.Log($"{message}; confirmation-or-retry scheduled");
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
-            MPTestHostMigrationEvents.Record("handler_snapshot_push_fail", runner, null, new Dictionary<string, object>
+            MPTestHostMigrationEvents.Record(
+                "handler_snapshot_push_retry",
+                runner,
+                null,
+                new Dictionary<string, object>
             {
                 { "reason", reason },
+                { "generation", requestedGeneration },
+                { "requestedTick", requestedTick },
+                { "attempt", attempt },
                 { "error", e.Message }
             });
 #endif

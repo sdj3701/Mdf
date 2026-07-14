@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
   m_Name: Aug_Util_PermanentWallCount_Normal
   m_EditorClassIdentifier: 
+  contentId: augment.utility.permanent_wall.normal
   augmentName: "\uC601\uAD6C \uBC29\uBCBD"
   description: "\uBD80\uC220 \uC218 \uC5C6\uB294 \uACE0\uC815\uBCBD\uC744 3\uAC1C
     \uC124\uCE58\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uCCA0\uAC70\uD558\uBA74
@@ -28,4 +29,7 @@ MonoBehaviour:
   monsterHealthBonusPercent: 0
   monsterDamageBonusPercent: 0
   monsterMoveSpeedBonusPercent: 0
+  kingDamageBonusPercent: 0
+  kingAttackSpeedBonusPercent: 0
+  kingSkillPowerBonusPercent: 0
   magicScrollData: {fileID: 0}

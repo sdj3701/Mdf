@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -1453,9 +1454,9 @@ public partial class GameManagers : NetworkBehaviour
     /// <summary>
     /// 증강 선택을 모든 클라이언트에 알립니다.
     /// </summary>
-    public void NotifyAugmentSelected(int playerID, string augmentName)
+    public void NotifyAugmentSelected(int playerID, string augmentContentId)
     {
-        var cmd = new NotifyAugmentSelectedCommand(playerID, augmentName);
+        var cmd = new NotifyAugmentSelectedCommand(playerID, augmentContentId);
         CommandProcessor.RequestCommandExecution(cmd);
     }
 
@@ -1488,18 +1489,26 @@ public partial class GameManagers : NetworkBehaviour
 
     [System.Obsolete("Use NotifyAugmentSelected() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void RPC_NotifyAugmentSelected(int playerID, string augmentName)
+    public void RPC_NotifyAugmentSelected(int playerID, string augmentReference)
     {
         var player = GetPlayer(playerID);
         if (player != null)
         {
             var augments = player.augmentManager?.GetPresentedAugments();
-            AugmentData chosenAugment = augments?.FirstOrDefault(a => a?.augmentName == augmentName);
+            string contentId = StableDataKeyUtility.NormalizeContentId(augmentReference);
+            AugmentData chosenAugment = augments?.FirstOrDefault(
+                augment => augment != null
+                    && string.Equals(augment.ContentId, contentId, StringComparison.Ordinal));
             
             if (chosenAugment != null)
             {
                 GameEvents.TriggerAugmentApplied(player, chosenAugment);
-                // Debug.Log($"<color=green>[RPC_NotifyAugmentSelected] Player {playerID}: '{augmentName}' 선택 알림</color>");
+                // Debug.Log($"<color=green>[RPC_NotifyAugmentSelected] Player {playerID}: '{augmentReference}' selected</color>");
+            }
+            else
+            {
+                Debug.LogWarning(
+                    $"[RPC_NotifyAugmentSelected] Rejected unknown/non-presented ContentId for P{playerID}: '{augmentReference}'.");
             }
         }
     }
@@ -1903,11 +1912,25 @@ public partial class GameManagers : NetworkBehaviour
             }
 
             // 상점 아이템 동기화 (Command Pattern 사용)
-            var shopItems = player.shopManager != null ? player.shopManager.GetCurrentShopItems() : new List<ShopItem>();
-            string[] shopNames = shopItems.Select(i => i.UnitData?.name ?? "").ToArray();
-            int[] shopStars = shopItems.Select(i => i.StarLevel).ToArray();
-            var syncShopCmd = new SyncShopItemsCommand(player.playerId, shopNames, shopStars);
-            CommandProcessor.RequestCommandExecution(syncShopCmd);
+            if (player.TryGetShopSnapshot(
+                    out string[] shopNames,
+                    out int[] shopStars,
+                    out _,
+                    out int shopRevision,
+                    out int shopRound))
+            {
+                var syncShopCmd = new SyncShopItemsCommand(
+                    player.playerId,
+                    shopNames,
+                    shopStars,
+                    shopRevision,
+                    shopRound);
+                CommandProcessor.RequestCommandExecution(syncShopCmd);
+            }
+            else
+            {
+                Debug.LogError($"[StartNextRound] Authoritative shop snapshot unavailable for P{player.playerId}.");
+            }
 
             // AI 준비 단계 플래그 리셋
             player.mazeConstructionComplete = false;
@@ -1939,12 +1962,12 @@ public partial class GameManagers : NetworkBehaviour
                 // Debug.LogWarning($"[StartNextRound] Player {player.playerId}: augmentManager가 null입니다. 빈 증강 목록으로 동기화합니다.");
             }
             
-            var augmentNames = presentedAugments
-                .Select(a => a != null ? a.augmentName : string.Empty)
+            var augmentContentIds = presentedAugments
+                .Select(a => a != null ? a.ContentId : string.Empty)
                 .ToArray();
-            player.PublishPresentedAugmentSnapshot(augmentNames);
+            player.PublishPresentedAugmentSnapshot(augmentContentIds);
             
-            var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentNames);
+            var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentContentIds);
             CommandProcessor.RequestCommandExecution(syncAugmentCmd);
 
             if (player.monsterSpawner != null)
@@ -2190,7 +2213,7 @@ public partial class GameManagers : NetworkBehaviour
                 // Debug.Log($"<color=orange>[StartBattle1Phase] Player {player.playerId}: 시간 초과로 인해 '{firstAugment.augmentName}' 증강 자동 선택</color>");
                 
                 player.augmentManager.SelectAndApplyAugment(firstAugment);
-                NotifyAugmentSelected(player.playerId, firstAugment.augmentName);
+                NotifyAugmentSelected(player.playerId, firstAugment.ContentId);
             }
         }
 

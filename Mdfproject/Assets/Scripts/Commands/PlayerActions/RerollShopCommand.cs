@@ -29,10 +29,19 @@ public class RerollShopCommand : ICommand
         player.shopManager.Reroll();
         
         // RPC로 모든 클라이언트에 상점 아이템 동기화
-        var items = player.shopManager.GetCurrentShopItems();
-        string[] names = items.Select(i => i.UnitData?.name ?? "").ToArray();
-        int[] stars = items.Select(i => i.StarLevel).ToArray();
-        player.RPC_SyncShopItems(names, stars);
+        if (player.TryGetShopSnapshot(
+                out string[] names,
+                out int[] stars,
+                out _,
+                out int revision,
+                out int round))
+        {
+            player.RPC_SyncShopItems(names, stars, revision, round);
+        }
+        else
+        {
+            Debug.LogError($"[RerollShopCommand] Authoritative shop snapshot unavailable for P{PlayerId}.");
+        }
         
         // Debug.Log($"[RerollShopCommand] Player {PlayerId}: 리롤 완료, {items.Count}개 아이템 동기화");
     }

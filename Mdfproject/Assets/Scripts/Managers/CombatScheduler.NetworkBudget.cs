@@ -9,6 +9,17 @@ public partial class CombatScheduler
     private int _pendingFireCapacityDrops;
     private int _pendingHitCapacityDrops;
     private int _presentationEventDrops;
+    private int _statusCapacityCoalesces;
+    private int _statBuffCapacityCoalesces;
+    private int _zoneCapacityCoalesces;
+    private int _pendingFireCapacityFallbacks;
+    private int _pendingHitCapacityFallbacks;
+    private int _statusCapacityBackpressures;
+    private int _statBuffCapacityBackpressures;
+    private int _zoneCapacityBackpressures;
+    private int _zoneDueDebtPhaseCancellations;
+    private int _zoneDebtTerminalTargetInvalidations;
+    private int _zoneDebtTerminalFailures;
 
     private int _maxPendingFireActive;
     private int _maxPendingHitActive;
@@ -20,6 +31,65 @@ public partial class CombatScheduler
     private int _budgetTick = int.MinValue;
     private int _projectileVfxEventsThisTick;
     private int _basicAttackVfxEventsThisTick;
+    private bool _effectCapacityPreflightActive;
+    private int _preflightStatusReservations;
+    private int _preflightStatBuffReservations;
+    private int _preflightZoneReservations;
+
+    public bool TryBeginEffectCapacityPreflight()
+    {
+        if (_effectCapacityPreflightActive)
+        {
+            return false;
+        }
+
+        _effectCapacityPreflightActive = true;
+        _preflightStatusReservations = 0;
+        _preflightStatBuffReservations = 0;
+        _preflightZoneReservations = 0;
+        return true;
+    }
+
+    public void EndEffectCapacityPreflight()
+    {
+        _effectCapacityPreflightActive = false;
+        _preflightStatusReservations = 0;
+        _preflightStatBuffReservations = 0;
+        _preflightZoneReservations = 0;
+    }
+
+    private int GetPreflightStatusReservations() =>
+        _effectCapacityPreflightActive ? _preflightStatusReservations : 0;
+
+    private int GetPreflightStatBuffReservations() =>
+        _effectCapacityPreflightActive ? _preflightStatBuffReservations : 0;
+
+    private int GetPreflightZoneReservations() =>
+        _effectCapacityPreflightActive ? _preflightZoneReservations : 0;
+
+    private void ReservePreflightStatusSlots(int count)
+    {
+        if (_effectCapacityPreflightActive)
+        {
+            _preflightStatusReservations += Mathf.Max(0, count);
+        }
+    }
+
+    private void ReservePreflightStatBuffSlots(int count)
+    {
+        if (_effectCapacityPreflightActive)
+        {
+            _preflightStatBuffReservations += Mathf.Max(0, count);
+        }
+    }
+
+    private void ReservePreflightZoneSlots(int count)
+    {
+        if (_effectCapacityPreflightActive)
+        {
+            _preflightZoneReservations += Mathf.Max(0, count);
+        }
+    }
 
     public struct NetworkBudgetReport
     {
@@ -29,6 +99,17 @@ public partial class CombatScheduler
         public int PendingFireCapacityDrops;
         public int PendingHitCapacityDrops;
         public int PresentationEventDrops;
+        public int StatusCapacityCoalesces;
+        public int StatBuffCapacityCoalesces;
+        public int ZoneCapacityCoalesces;
+        public int PendingFireCapacityFallbacks;
+        public int PendingHitCapacityFallbacks;
+        public int StatusCapacityBackpressures;
+        public int StatBuffCapacityBackpressures;
+        public int ZoneCapacityBackpressures;
+        public int ZoneDueDebtPhaseCancellations;
+        public int ZoneDebtTerminalTargetInvalidations;
+        public int ZoneDebtTerminalFailures;
         public int CurrentPendingFireActive;
         public int CurrentPendingHitActive;
         public int CurrentActiveStatusEffects;
@@ -60,6 +141,17 @@ public partial class CombatScheduler
             PendingFireCapacityDrops = _pendingFireCapacityDrops,
             PendingHitCapacityDrops = _pendingHitCapacityDrops,
             PresentationEventDrops = _presentationEventDrops,
+            StatusCapacityCoalesces = _statusCapacityCoalesces,
+            StatBuffCapacityCoalesces = _statBuffCapacityCoalesces,
+            ZoneCapacityCoalesces = _zoneCapacityCoalesces,
+            PendingFireCapacityFallbacks = _pendingFireCapacityFallbacks,
+            PendingHitCapacityFallbacks = _pendingHitCapacityFallbacks,
+            StatusCapacityBackpressures = _statusCapacityBackpressures,
+            StatBuffCapacityBackpressures = _statBuffCapacityBackpressures,
+            ZoneCapacityBackpressures = _zoneCapacityBackpressures,
+            ZoneDueDebtPhaseCancellations = _zoneDueDebtPhaseCancellations,
+            ZoneDebtTerminalTargetInvalidations = _zoneDebtTerminalTargetInvalidations,
+            ZoneDebtTerminalFailures = _zoneDebtTerminalFailures,
             CurrentPendingFireActive = CountPendingFireSnapshots(),
             CurrentPendingHitActive = CountPendingHitSnapshots(),
             CurrentActiveStatusEffects = ActiveStatusEffectCount,
@@ -116,6 +208,37 @@ public partial class CombatScheduler
                 break;
             case NetworkBudgetDropKind.PresentationEvent:
                 _presentationEventDrops++;
+                break;
+        }
+    }
+
+    private void RecordCapacityRecovery(CapacityRecoveryKind kind)
+    {
+        switch (kind)
+        {
+            case CapacityRecoveryKind.StatusCoalesce:
+                _statusCapacityCoalesces++;
+                break;
+            case CapacityRecoveryKind.StatBuffCoalesce:
+                _statBuffCapacityCoalesces++;
+                break;
+            case CapacityRecoveryKind.ZoneCoalesce:
+                _zoneCapacityCoalesces++;
+                break;
+            case CapacityRecoveryKind.PendingFireBackpressure:
+                _pendingFireCapacityFallbacks++;
+                break;
+            case CapacityRecoveryKind.PendingHitBackpressure:
+                _pendingHitCapacityFallbacks++;
+                break;
+            case CapacityRecoveryKind.StatusBackpressure:
+                _statusCapacityBackpressures++;
+                break;
+            case CapacityRecoveryKind.StatBuffBackpressure:
+                _statBuffCapacityBackpressures++;
+                break;
+            case CapacityRecoveryKind.ZoneBackpressure:
+                _zoneCapacityBackpressures++;
                 break;
         }
     }
@@ -211,5 +334,32 @@ public partial class CombatScheduler
         PendingFire,
         PendingHit,
         PresentationEvent
+    }
+
+    private void RecordZoneDueDebtPhaseCancellation(int cancelledTickCount)
+    {
+        _zoneDueDebtPhaseCancellations += Mathf.Max(0, cancelledTickCount);
+    }
+
+    private void RecordZoneDebtTerminalTargetInvalidations(int invalidatedTargetCount)
+    {
+        _zoneDebtTerminalTargetInvalidations += Mathf.Max(0, invalidatedTargetCount);
+    }
+
+    private void RecordZoneDebtTerminalFailure()
+    {
+        _zoneDebtTerminalFailures++;
+    }
+
+    private enum CapacityRecoveryKind
+    {
+        StatusCoalesce,
+        StatBuffCoalesce,
+        ZoneCoalesce,
+        PendingFireBackpressure,
+        PendingHitBackpressure,
+        StatusBackpressure,
+        StatBuffBackpressure,
+        ZoneBackpressure
     }
 }

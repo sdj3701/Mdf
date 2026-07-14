@@ -202,6 +202,7 @@ def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
             "gridHash": nested(player, "field", "gridHash"),
             "placedUnitCount": nested(player, "field", "placedUnitCount"),
             "placedUnitsHash": nested(player, "field", "placedUnitsHash"),
+            "unitRuntimeStateHash": nested(player, "field", "unitRuntimeStateHash"),
             "destructibleWallCount": nested(player, "field", "destructibleWallCount"),
             "permanentWallCount": nested(player, "field", "permanentWallCount"),
             "playerPlacedPermanentWallCount": nested(player, "field", "playerPlacedPermanentWallCount"),
@@ -217,6 +218,44 @@ def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
             "livingHash": nested(player, "monsters", "livingHash"),
         },
     }
+
+
+def unit_attack_cooldowns(player: dict[str, Any] | None) -> dict[str, int]:
+    parts = nested(player or {}, "field", "unitAttackCooldownParts") or []
+    result: dict[str, int] = {}
+    for part in parts:
+        text = str(part)
+        marker = ":attackCooldownDs="
+        if marker not in text:
+            continue
+        identity, value = text.rsplit(marker, 1)
+        try:
+            result[identity] = int(value)
+        except ValueError:
+            continue
+    return result
+
+
+def compare_unit_attack_cooldowns(
+    errors: list[str],
+    checkpoint_snapshot: Any,
+    post_snapshot: Any,
+    tolerance_deciseconds: int = 2,
+) -> None:
+    for before_player in players(checkpoint_snapshot):
+        player_id = before_player.get("playerId")
+        after_player = player_by_id(post_snapshot, player_id)
+        before = unit_attack_cooldowns(before_player)
+        after = unit_attack_cooldowns(after_player)
+        if set(before) != set(after):
+            errors.append(f"unit_attack_cooldown_identity_mismatch:P{player_id}")
+            continue
+        for identity, before_value in before.items():
+            after_value = after[identity]
+            if abs(before_value - after_value) > tolerance_deciseconds:
+                errors.append(
+                    f"unit_attack_cooldown_drift:P{player_id}:{identity}:before={before_value}:after={after_value}"
+                )
 
 
 def durable_fingerprint(snapshot: Any) -> dict[str, Any]:
@@ -287,6 +326,16 @@ def progressed_migration_assertions(
         errors.append("survivor_not_promoted_to_host")
     if game.get("hasGameManagers") is not True:
         errors.append("game_managers_missing_after_migration")
+    host_migration = post_body.get("hostMigration") if isinstance(post_body, dict) else {}
+    if isinstance(host_migration, dict):
+        if host_migration.get("restorePendingAsync") not in (0, None):
+            errors.append(f"migration_restore_async_pending:{host_migration.get('restorePendingAsync')}")
+        if host_migration.get("restoreFailed") not in (0, None):
+            errors.append(f"migration_restore_failed:{host_migration.get('restoreFailed')}")
+        if host_migration.get("restoreMissing") not in (0, None):
+            errors.append(f"migration_restore_missing:{host_migration.get('restoreMissing')}")
+        if host_migration.get("restoreTerminal") is not True:
+            errors.append("migration_restore_report_not_terminal")
     if len(players(post_snapshot)) != expected_players:
         errors.append(f"player_count expected={expected_players} actual={len(players(post_snapshot))}")
     if not unique_player_ids(post_snapshot):
@@ -320,6 +369,7 @@ def progressed_migration_assertions(
     pre_fp = durable_fingerprint(checkpoint_snapshot)
     post_fp = durable_fingerprint(post_snapshot)
     compare_nested(errors, mismatches, "", pre_fp, post_fp)
+    compare_unit_attack_cooldowns(errors, checkpoint_snapshot, post_snapshot)
 
     test = post_body.get("test") if isinstance(post_body, dict) else {}
     bot_status = test.get("bot") if isinstance(test, dict) else None

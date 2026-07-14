@@ -190,6 +190,8 @@ public partial class PlayerManager
     public bool HasDurableMigrationPayloadOverflow(out string reason)
     {
         var reasons = new List<string>();
+        if (ShopSnapshotOverflow) reasons.Add("shop");
+        if (PresentedAugmentSnapshotOverflow) reasons.Add("presented_augments");
         if (SelectedAugmentSnapshotOverflow) reasons.Add("selected_augments");
         if (AugmentRuntimeMigrationOverflow) reasons.Add("runtime_augments");
         if (WallHealthMigrationOverflow) reasons.Add("wall_health");
@@ -318,26 +320,40 @@ public partial class PlayerManager
         return true;
     }
 
-    public bool RestoreAugmentGameplayStateAfterHostMigration(
+    public MigrationRestoreReport RestoreAugmentGameplayStateAfterHostMigration(
         string[] chosenNames,
         string[] activeMonsterSummonNames,
         string[] ownedBossNames,
-        string context,
-        out string failureReason)
+        string context)
     {
-        failureReason = string.Empty;
+        string scope = $"augment_gameplay:P{playerId}";
+        int captured = 3
+            + (chosenNames?.Length ?? 0)
+            + (activeMonsterSummonNames?.Length ?? 0)
+            + (ownedBossNames?.Length ?? 0);
         if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
         {
-            failureReason = "state_authority_required";
-            return false;
+            return MigrationRestoreReport.FailedScope(scope, captured, "state_authority_required");
         }
 
-        if (!TryResolveAugmentMigrationList(chosenNames, out List<AugmentData> restoredChosen, out failureReason)
+        if (!TryResolveAugmentMigrationList(chosenNames, out List<AugmentData> restoredChosen, out string failureReason)
             || !TryResolveAugmentMigrationList(activeMonsterSummonNames, out List<AugmentData> restoredActive, out failureReason)
             || !TryResolveAugmentMigrationList(ownedBossNames, out List<AugmentData> restoredBosses, out failureReason))
         {
             Debug.LogError($"[PlayerManager] HostMigration augment gameplay restore failed ({context}) P{playerId}: {failureReason}");
-            return false;
+            return MigrationRestoreReport.FailedScope(scope, captured, failureReason);
+        }
+
+        List<AugmentData> previousChosen = chosenAugments;
+        List<AugmentData> previousActive = _activeMonsterSummonAugments;
+        List<AugmentData> previousBosses = _ownedBossAugments;
+        int previousCount = AugmentRuntimeMigrationCount;
+        int previousRevision = AugmentRuntimeMigrationRevision;
+        bool previousOverflow = AugmentRuntimeMigrationOverflow;
+        var previousRows = new AugmentRuntimeMigrationRow[AUGMENT_RUNTIME_MIGRATION_CAPACITY];
+        for (int i = 0; i < AUGMENT_RUNTIME_MIGRATION_CAPACITY; i++)
+        {
+            previousRows[i] = AugmentRuntimeMigrationRows.Get(i);
         }
 
         // Do not replay one-shot effects (gold, walls, scroll grants). Exact durable gameplay
@@ -347,11 +363,68 @@ public partial class PlayerManager
         _ownedBossAugments = restoredBosses;
         if (!PublishAugmentRuntimeMigrationStateFromAuthority($"restore:{context}"))
         {
-            failureReason = "runtime_snapshot_publish_failed";
-            return false;
+            RollBackAugmentGameplayMigrationState(
+                previousChosen,
+                previousActive,
+                previousBosses,
+                previousRows,
+                previousCount,
+                previousRevision,
+                previousOverflow);
+            return MigrationRestoreReport.FailedScope(scope, captured, "runtime_snapshot_publish_failed");
         }
+
+        string[] expectedChosen = BuildAugmentMigrationNames(restoredChosen);
+        string[] expectedActive = BuildAugmentMigrationNames(restoredActive);
+        string[] expectedBosses = BuildAugmentMigrationNames(restoredBosses);
+        bool exact = TryGetSelectedAugmentSnapshot(
+                         out string[] selectedSnapshot,
+                         out string selectedSnapshotFailure)
+                     && selectedSnapshot.SequenceEqual(expectedChosen, StringComparer.Ordinal)
+                     && BuildAugmentMigrationNames(chosenAugments).SequenceEqual(expectedChosen, StringComparer.Ordinal)
+                     && GetRuntimeAugmentMigrationNames(AUGMENT_RUNTIME_ACTIVE_SUMMON, Array.Empty<AugmentData>())
+                         .SequenceEqual(expectedActive, StringComparer.Ordinal)
+                     && GetRuntimeAugmentMigrationNames(AUGMENT_RUNTIME_OWNED_BOSS, Array.Empty<AugmentData>())
+                         .SequenceEqual(expectedBosses, StringComparer.Ordinal);
+        if (!exact)
+        {
+            RollBackAugmentGameplayMigrationState(
+                previousChosen,
+                previousActive,
+                previousBosses,
+                previousRows,
+                previousCount,
+                previousRevision,
+                previousOverflow);
+            string reason = string.IsNullOrWhiteSpace(selectedSnapshotFailure)
+                ? "augment_gameplay_post_restore_mismatch"
+                : $"selected_snapshot_invalid:{selectedSnapshotFailure}";
+            return MigrationRestoreReport.FailedScope(scope, captured, reason);
+        }
+
         Debug.Log($"[PlayerManager] HostMigration augment gameplay restore complete ({context}) P{playerId} chosen={chosenAugments.Count} activeSummon={_activeMonsterSummonAugments.Count} ownedBoss={_ownedBossAugments.Count}");
-        return true;
+        return new MigrationRestoreReport(scope, captured, captured, 0, 0);
+    }
+
+    private void RollBackAugmentGameplayMigrationState(
+        List<AugmentData> previousChosen,
+        List<AugmentData> previousActive,
+        List<AugmentData> previousBosses,
+        AugmentRuntimeMigrationRow[] previousRows,
+        int previousCount,
+        int previousRevision,
+        bool previousOverflow)
+    {
+        chosenAugments = previousChosen;
+        _activeMonsterSummonAugments = previousActive;
+        _ownedBossAugments = previousBosses;
+        for (int i = 0; i < AUGMENT_RUNTIME_MIGRATION_CAPACITY; i++)
+        {
+            AugmentRuntimeMigrationRows.Set(i, previousRows[i]);
+        }
+        AugmentRuntimeMigrationCount = previousCount;
+        AugmentRuntimeMigrationRevision = previousRevision;
+        AugmentRuntimeMigrationOverflow = previousOverflow;
     }
 
     private string[] GetRuntimeAugmentMigrationNames(int state, IEnumerable<AugmentData> fallback)
@@ -376,8 +449,8 @@ public partial class PlayerManager
                 continue;
             }
 
-            string name = ResolveLoadedAugmentNameByStableId(row.AugmentId);
-            if (string.IsNullOrWhiteSpace(name))
+            string contentId = ResolveLoadedAugmentContentIdByStableId(row.AugmentId);
+            if (string.IsNullOrWhiteSpace(contentId))
             {
                 Debug.LogError($"[PlayerManager] Durable augment snapshot id could not be resolved. P{playerId}, state={state}, id={row.AugmentId}");
                 names.Add($"__unresolved_augment_id_{row.AugmentId}");
@@ -386,7 +459,7 @@ public partial class PlayerManager
             int repetitions = Mathf.Max(1, row.Count);
             for (int repetition = 0; repetition < repetitions; repetition++)
             {
-                names.Add(name);
+                names.Add(contentId);
             }
         }
 
@@ -405,8 +478,7 @@ public partial class PlayerManager
                 continue;
             }
 
-            string name = !string.IsNullOrWhiteSpace(augment.augmentName) ? augment.augmentName.Trim() : augment.name;
-            int augmentId = StableAugmentSnapshotId(name);
+            int augmentId = StableAugmentSnapshotId(augment.ContentId);
             if (augmentId != 0)
             {
                 int existingIndex = rows.FindIndex(row => row.AugmentId == augmentId && row.State == state);
@@ -431,30 +503,49 @@ public partial class PlayerManager
     {
         resolved = new List<AugmentData>();
         failureReason = string.Empty;
-        foreach (string rawName in names ?? Array.Empty<string>())
+        if (names == null)
+        {
+            failureReason = "augment_reference_array_null";
+            return false;
+        }
+
+        int entryIndex = 0;
+        foreach (string rawName in names)
         {
             string name = rawName?.Trim();
             if (string.IsNullOrWhiteSpace(name))
             {
-                continue;
+                failureReason = $"augment_reference_empty:{entryIndex}";
+                return false;
             }
 
-            AugmentData augment = augmentManager != null ? augmentManager.FindAugmentByName(name) : null;
+            if (!TryResolveAugmentContentIdReference(
+                    name,
+                    out string contentId,
+                    out string resolveFailureReason))
+            {
+                failureReason = $"augment_reference_invalid:{name}:{resolveFailureReason}";
+                return false;
+            }
+
+            AugmentData augment = augmentManager != null
+                ? augmentManager.FindAugmentByContentId(contentId)
+                : null;
             if (augment == null)
             {
                 augment = Resources.FindObjectsOfTypeAll<AugmentData>()
                     .FirstOrDefault(candidate => candidate != null
-                        && (string.Equals(candidate.augmentName, name, StringComparison.Ordinal)
-                            || string.Equals(candidate.name, name, StringComparison.Ordinal)));
+                        && string.Equals(candidate.ContentId, contentId, StringComparison.Ordinal));
             }
 
             if (augment == null)
             {
-                failureReason = $"augment_not_loaded:{name}";
+                failureReason = $"augment_not_loaded:{contentId}";
                 return false;
             }
 
             resolved.Add(augment);
+            entryIndex++;
         }
 
         return true;
@@ -464,9 +555,7 @@ public partial class PlayerManager
     {
         return (augments ?? Enumerable.Empty<AugmentData>())
             .Where(augment => augment != null)
-            .Select(augment => !string.IsNullOrWhiteSpace(augment.augmentName)
-                ? augment.augmentName.Trim()
-                : augment.name)
+            .Select(augment => augment.ContentId)
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToArray();
     }

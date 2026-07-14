@@ -171,6 +171,10 @@ public static class GameEvents
     /// <param name="isNewHost">true면 새 Host가 됨, false면 일반 클라이언트</param>
     public static event Action<bool> OnHostMigrationCompleted;
     public static void TriggerHostMigrationCompleted(bool isNewHost) => OnHostMigrationCompleted?.Invoke(isNewHost);
+
+    public static event Action<string> OnHostMigrationFailed;
+    public static void TriggerHostMigrationFailed(string reason) =>
+        OnHostMigrationFailed?.Invoke(string.IsNullOrWhiteSpace(reason) ? "host_migration_failed" : reason);
     
     /// <summary>
     /// Host Migration 후 게임 상태 복원 완료 시 발생

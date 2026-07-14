@@ -5,10 +5,41 @@ using UnityEngine.UI;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using System.Threading.Tasks;
 using Fusion;
 using MDF.Runtime.Assets;
+
+public readonly struct SkillActivationResult
+{
+    private SkillActivationResult(bool executed, bool capacityBackpressured, string errorCode)
+    {
+        Executed = executed;
+        CapacityBackpressured = capacityBackpressured;
+        ErrorCode = errorCode ?? string.Empty;
+    }
+
+    public bool Executed { get; }
+    public bool CapacityBackpressured { get; }
+    public string ErrorCode { get; }
+
+    public static SkillActivationResult Completed()
+    {
+        return new SkillActivationResult(true, false, string.Empty);
+    }
+
+    public static SkillActivationResult Rejected(string errorCode)
+    {
+        return new SkillActivationResult(false, false, errorCode);
+    }
+
+    public static SkillActivationResult CapacityBackpressure()
+    {
+        return new SkillActivationResult(false, true, "skill_capacity_backpressure");
+    }
+}
+
 public class Unit : NetworkBehaviour, IEnemy, IHealth
 {
     private AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
@@ -46,8 +77,18 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     [Networked] private NetworkBool NetworkedHasOwnerPlayerId { get; set; }
     [Networked] private SkillActivationType NetworkedSkillActivationType { get; set; }
     [Networked] private NetworkBool NetworkedHasSkillActivationType { get; set; }
+    [Networked] private TickTimer NetworkedAttackCooldownTimer { get; set; }
+    [Networked] private TickTimer NetworkedSkillCastLockTimer { get; set; }
+    [Networked] private NetworkBool NetworkedSkillCapacityBackpressurePending { get; set; }
+    [Networked] private NetworkBool NetworkedBasicAttackCapacityBackpressurePending { get; set; }
+    [Networked] private BasicAttackCapacityDebt NetworkedBasicAttackCapacityDebt { get; set; }
+    [Networked] private int NetworkedPendingZonePulseDebtToken { get; set; }
+    [Networked] private int NetworkedPendingZonePulseNextEffectIndex { get; set; }
+    [Networked] private NetworkBool NetworkedBerserkModeActive { get; set; }
 
     private bool _hasSpawned;
+    private int _pendingZonePulseDebtToken;
+    private int _pendingZonePulseNextEffectIndex;
     private int _combatTargetLifecycleGeneration;
     private string _localUnitDataKey = string.Empty;
     private int _localOwnerPlayerId = -1;
@@ -56,6 +97,15 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private SkillActivationType _localSkillActivationType;
     private float _localHP;
     private float _localMaxHP;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    private bool _mpTestCapacityRecoveryProbeActive;
+    private int _mpTestCapacityRecoveryCommitCount;
+    private int _mpTestCapacityRecoveryCooldownCount;
+    private int _mpTestCapacityRecoveryManaCount;
+    private float _mpTestCapacityRecoveryOriginalCooldown;
+    private float _mpTestCapacityRecoveryOriginalMana;
+    private float _mpTestCapacityRecoveryOriginalMaxMana;
+#endif
     
     public bool HasValidNetworkObject => Object != null && Object.IsValid;
     public int CombatTargetLifecycleGeneration => _combatTargetLifecycleGeneration;
@@ -261,6 +311,327 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         currentSkillActivationType = mode;
         return true;
     }
+
+    public void CaptureMigrationRuntimeState(ref FieldUnitMigrationSnapshot snapshot)
+    {
+        snapshot.CurrentHealth = CurrentHealth;
+        snapshot.MaxHealth = MaxHealth;
+        snapshot.CurrentMana = SkillCurrentMana;
+        snapshot.MaxMana = SkillMaxMana;
+        snapshot.ActivationMode = currentSkillActivationType;
+        snapshot.HasActivationMode = CanReadNetworkedState
+            ? NetworkedHasSkillActivationType
+            : DoesHaveSkill();
+        snapshot.AttackCooldownRemaining = CaptureAttackCooldownRemaining();
+        snapshot.IsDead = IsDead || (CanReadNetworkedState && NetworkedIsDead);
+        snapshot.WasSkillCasting = IsSkillCasting() ||
+            (CanReadNetworkedState && NetworkedSkillCastLockTimer.IsRunning);
+        snapshot.SkillCastLockRemaining = CaptureSkillCastLockRemaining();
+        snapshot.SkillCapacityBackpressurePending = IsSkillCapacityBackpressurePending();
+        snapshot.BasicAttackCapacityBackpressurePending = IsBasicAttackCapacityBackpressurePending();
+        CaptureBasicAttackDebtForMigration(ref snapshot);
+        snapshot.PendingZonePulseDebtToken = PendingZonePulseDebtToken;
+        snapshot.PendingZonePulseNextEffectIndex = PendingZonePulseNextEffectIndex;
+        snapshot.BerserkModeActive = IsBerserkModeActive;
+    }
+
+    public bool TryRestoreMigrationRuntimeState(FieldUnitMigrationSnapshot snapshot)
+    {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return false;
+        }
+
+        EnsureRuntimeReferences("TryRestoreMigrationRuntimeState", false);
+        if (unitData == null || manaController == null ||
+            (snapshot.HasActivationMode && (_loadedSkillData == null || !DoesHaveSkill())))
+        {
+            return false;
+        }
+
+        float restoredMaxHealth = Mathf.Max(1f, snapshot.MaxHealth);
+        float restoredCurrentHealth = Mathf.Clamp(snapshot.CurrentHealth, 0f, restoredMaxHealth);
+        maxHP = restoredMaxHealth;
+        currentHP = restoredCurrentHealth;
+        IsDead = snapshot.IsDead || restoredCurrentHealth <= 0f;
+        if (CanWriteNetworkedHealth())
+        {
+            NetworkedIsDead = IsDead;
+        }
+
+        if (manaController != null &&
+            !manaController.TryRestoreMigrationState(snapshot.CurrentMana, snapshot.MaxMana))
+        {
+            return false;
+        }
+
+        if (snapshot.HasActivationMode && DoesHaveSkill() &&
+            !TrySetSkillActivationModeAuthoritative(snapshot.ActivationMode))
+        {
+            return false;
+        }
+
+        SetAttackCooldownRemaining(snapshot.AttackCooldownRemaining);
+        _preserveNextAttackTimeOnNextTarget = snapshot.AttackCooldownRemaining > 0f;
+        CancelPendingAttack();
+        ClearCurrentTarget();
+        if (_skillCastingRoutine != null)
+        {
+            StopCoroutine(_skillCastingRoutine);
+            _skillCastingRoutine = null;
+        }
+
+        _isSkillCasting = false;
+        SetSkillCapacityBackpressurePending(snapshot.SkillCapacityBackpressurePending);
+        RestoreBasicAttackDebtFromMigration(snapshot);
+        if (snapshot.PendingZonePulseDebtToken > 0)
+        {
+            TryMarkPendingZonePulseDebt(snapshot.PendingZonePulseDebtToken);
+            TryAdvancePendingZonePulseEffect(
+                snapshot.PendingZonePulseDebtToken,
+                Mathf.Max(0, snapshot.PendingZonePulseNextEffectIndex));
+        }
+        else
+        {
+            int pendingPulseToken = PendingZonePulseDebtToken;
+            if (pendingPulseToken > 0)
+            {
+                ClearPendingZonePulseDebt(pendingPulseToken);
+            }
+        }
+        SetBerserkModeActive(snapshot.BerserkModeActive);
+        _buffManager?.RecalculateStats();
+        if (snapshot.WasSkillCasting && snapshot.SkillCastLockRemaining > 0f && isActiveAndEnabled)
+        {
+            SetSkillCastLockRemaining(snapshot.SkillCastLockRemaining);
+            _skillCastingRoutine = StartCoroutine(RestoreSkillCastLock(snapshot.SkillCastLockRemaining));
+        }
+        else
+        {
+            SetSkillCastLockRemaining(0f);
+        }
+
+        if (IsDead)
+        {
+            UnregisterCombatTarget();
+            SetDeathPresentationActive(false);
+        }
+        else
+        {
+            EnsureAlivePresentationActive();
+            RegisterCombatTarget();
+        }
+
+        OnHealthChanged?.Invoke(currentHP, maxHP);
+        return true;
+    }
+
+    public async UniTask<bool> RestoreMigrationRuntimeStateAsync(FieldUnitMigrationSnapshot snapshot)
+    {
+        AsyncLifecycleStamp lifecycle = CaptureAsyncLifecycle();
+        float deadline = Time.realtimeSinceStartup + 8f;
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            if (!IsAsyncLifecycleCurrent(lifecycle) || !HasStateAuthorityOrNoNetwork())
+            {
+                return false;
+            }
+
+            EnsureRuntimeReferences("RestoreMigrationRuntimeStateAsync", false);
+            bool skillReady = !snapshot.HasActivationMode || (_loadedSkillData != null && DoesHaveSkill());
+            if (unitData != null && manaController != null && skillReady)
+            {
+                return TryRestoreMigrationRuntimeState(snapshot);
+            }
+
+            await UniTask.Yield(PlayerLoopTiming.Update);
+        }
+
+        return false;
+    }
+
+    public float CaptureAttackCooldownRemaining()
+    {
+        if (CanReadNetworkedState && NetworkedAttackCooldownTimer.IsRunning)
+        {
+            return Mathf.Max(0f, NetworkedAttackCooldownTimer.RemainingTime(Runner) ?? 0f);
+        }
+
+        return Mathf.Max(0f, _nextAttackTime - Time.time);
+    }
+
+    private void SetAttackCooldownRemaining(float remainingSeconds)
+    {
+        float normalized = Mathf.Max(0f, remainingSeconds);
+        _nextAttackTime = Time.time + normalized;
+        if (CanWriteNetworkedIdentity())
+        {
+            NetworkedAttackCooldownTimer = normalized > 0f
+                ? TickTimer.CreateFromSeconds(Runner, normalized)
+                : TickTimer.None;
+        }
+    }
+
+    private void RestoreLocalAttackCooldownFromNetworked()
+    {
+        if (!CanReadNetworkedState || !NetworkedAttackCooldownTimer.IsRunning)
+        {
+            return;
+        }
+
+        float remaining = Mathf.Max(0f, NetworkedAttackCooldownTimer.RemainingTime(Runner) ?? 0f);
+        _nextAttackTime = Time.time + remaining;
+        _preserveNextAttackTimeOnNextTarget = remaining > 0f;
+    }
+
+    private void SetSkillCastLockRemaining(float remainingSeconds)
+    {
+        if (!CanWriteNetworkedIdentity())
+        {
+            return;
+        }
+
+        float normalized = Mathf.Max(0f, remainingSeconds);
+        NetworkedSkillCastLockTimer = normalized > 0f
+            ? TickTimer.CreateFromSeconds(Runner, normalized)
+            : TickTimer.None;
+    }
+
+    private bool IsSkillCapacityBackpressurePending()
+    {
+        return _skillAwaitingSchedulerCapacity ||
+               CanReadNetworkedState && NetworkedSkillCapacityBackpressurePending;
+    }
+
+    private void SetSkillCapacityBackpressurePending(bool pending)
+    {
+        _skillAwaitingSchedulerCapacity = pending;
+        if (CanWriteNetworkedIdentity())
+        {
+            NetworkedSkillCapacityBackpressurePending = pending;
+        }
+    }
+
+    private bool IsBasicAttackCapacityBackpressurePending()
+    {
+        return _basicAttackCapacityBackpressurePending ||
+               CanReadNetworkedState && NetworkedBasicAttackCapacityBackpressurePending;
+    }
+
+    private void SetBasicAttackCapacityBackpressurePending(bool pending)
+    {
+        _basicAttackCapacityBackpressurePending = pending;
+        if (CanWriteNetworkedIdentity())
+        {
+            NetworkedBasicAttackCapacityBackpressurePending = pending;
+            if (!pending)
+            {
+                NetworkedBasicAttackCapacityDebt = default;
+            }
+        }
+    }
+
+    internal int PendingZonePulseDebtToken =>
+        CanReadNetworkedState ? NetworkedPendingZonePulseDebtToken : _pendingZonePulseDebtToken;
+
+    internal int PendingZonePulseNextEffectIndex =>
+        CanReadNetworkedState ? NetworkedPendingZonePulseNextEffectIndex : _pendingZonePulseNextEffectIndex;
+
+    internal bool TryMarkPendingZonePulseDebt(int pulseToken)
+    {
+        if (pulseToken <= 0)
+        {
+            return false;
+        }
+
+        int current = PendingZonePulseDebtToken;
+        if (current != 0 && current != pulseToken)
+        {
+            return false;
+        }
+
+        _pendingZonePulseDebtToken = pulseToken;
+        if (current == 0)
+        {
+            _pendingZonePulseNextEffectIndex = 0;
+        }
+        if (CanWriteNetworkedIdentity())
+        {
+            NetworkedPendingZonePulseDebtToken = pulseToken;
+            if (current == 0)
+            {
+                NetworkedPendingZonePulseNextEffectIndex = 0;
+            }
+        }
+
+        return true;
+    }
+
+    internal bool TryAdvancePendingZonePulseEffect(int pulseToken, int nextEffectIndex)
+    {
+        if (pulseToken <= 0 || PendingZonePulseDebtToken != pulseToken || nextEffectIndex < 0 ||
+            nextEffectIndex < PendingZonePulseNextEffectIndex)
+        {
+            return false;
+        }
+
+        _pendingZonePulseNextEffectIndex = nextEffectIndex;
+        if (CanWriteNetworkedIdentity())
+        {
+            NetworkedPendingZonePulseNextEffectIndex = nextEffectIndex;
+        }
+
+        return true;
+    }
+
+    internal void ClearPendingZonePulseDebt(int pulseToken)
+    {
+        if (pulseToken <= 0 || PendingZonePulseDebtToken != pulseToken)
+        {
+            return;
+        }
+
+        _pendingZonePulseDebtToken = 0;
+        _pendingZonePulseNextEffectIndex = 0;
+        if (CanWriteNetworkedIdentity())
+        {
+            NetworkedPendingZonePulseDebtToken = 0;
+            NetworkedPendingZonePulseNextEffectIndex = 0;
+        }
+    }
+
+    public bool IsBerserkModeActive =>
+        _isBerserk || CanReadNetworkedState && NetworkedBerserkModeActive;
+
+    private void SetBerserkModeActive(bool active)
+    {
+        _isBerserk = active;
+        if (CanWriteNetworkedStats())
+        {
+            NetworkedBerserkModeActive = active;
+        }
+    }
+
+    private void RestoreLocalSkillCastLockFromNetworked()
+    {
+        if (!CanReadNetworkedState || !NetworkedSkillCastLockTimer.IsRunning || !isActiveAndEnabled)
+        {
+            return;
+        }
+
+        float remaining = Mathf.Max(0f, NetworkedSkillCastLockTimer.RemainingTime(Runner) ?? 0f);
+        if (remaining <= 0f)
+        {
+            return;
+        }
+
+        if (_skillCastingRoutine != null)
+        {
+            StopCoroutine(_skillCastingRoutine);
+        }
+        _skillCastingRoutine = StartCoroutine(RestoreSkillCastLock(remaining));
+    }
+
     private SkillData _loadedSkillData;
     private ManaController manaController;
     private StatusBarUI statusBarUI;
@@ -299,10 +670,16 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private float _cachedProjectileSpeed = -1f;
     private UnitAttackVfxPresenter _attackVfxPresenter;
     private bool _hasPendingAttack;
+    private bool _pendingAttackAwaitingSchedulerCapacity;
+    private bool _basicAttackCapacityBackpressurePending;
     private int _pendingAttackVersion;
     private PendingAttack _pendingAttack;
     private bool _isSkillCasting;
     private Coroutine _skillCastingRoutine;
+    private bool _skillAwaitingSchedulerCapacity;
+    private float _nextSkillCapacityRetryTime;
+    private float _nextAttackTime;
+    private bool _preserveNextAttackTimeOnNextTarget;
     private ChangeDetector _changeDetector;
     private BuffManager _buffManager;
     private float _lastRecoverFailureLogTime;
@@ -510,7 +887,28 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         public bool IsRanged;
         public bool EmitVfx;
         public float SplashRadius;
+        public Vector3 FirePosition;
+        public int EnemyLayerMask;
+        public float FireDelaySeconds;
+        public bool CooldownCommitted;
         public int Version;
+    }
+
+    private struct BasicAttackCapacityDebt : INetworkStruct
+    {
+        public NetworkId TargetId;
+        public Vector3 FirePosition;
+        public float Damage;
+        public int DamageType;
+        public float ProjectileSpeed;
+        public float SplashRadius;
+        public int EnemyLayerMask;
+        public float FireDelaySeconds;
+        public int PackedFlags;
+
+        public bool IsRanged => (PackedFlags & 1) != 0;
+        public bool EmitVfx => (PackedFlags & 2) != 0;
+        public bool CooldownCommitted => (PackedFlags & 4) != 0;
     }
 
     private bool isCombatPhase = false;
@@ -527,9 +925,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         _combatTargetLifecycleGeneration++;
         _hasSpawned = true;
+        _pendingZonePulseDebtToken = NetworkedPendingZonePulseDebtToken;
+        _pendingZonePulseNextEffectIndex = NetworkedPendingZonePulseNextEffectIndex;
         _changeDetector = GetChangeDetector(ChangeDetector.Source.SimulationState);
         TryApplyPendingHealthToNetworked();
         RebindAfterMigration(owner, "Unit.Spawned", false);
+        RestoreLocalAttackCooldownFromNetworked();
     }
 
     public override void Despawned(NetworkRunner runner, bool hasState)
@@ -537,6 +938,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         NotifyCombatSchedulerTargetInvalidated("Unit.Despawned");
         _combatTargetLifecycleGeneration++;
         _hasSpawned = false;
+        _pendingZonePulseDebtToken = 0;
+        _pendingZonePulseNextEffectIndex = 0;
+        SetBerserkModeActive(false);
         _changeDetector = null;
         statusBarUI?.ResetForReuse(initializeImmediately: false);
         UnregisterCombatTarget();
@@ -679,6 +1083,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     private bool CanRunCombatSimulation()
     {
+        if (GameManagers.Instance != null && GameManagers.Instance.IsSequenceTransitioning)
+        {
+            return false;
+        }
+
         if (Runner == null)
         {
             return Object == null || !Object.IsValid;
@@ -1183,6 +1592,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         _isSkillCasting = true;
+        SetSkillCastLockRemaining(Mathf.Max(0.05f, baseAttackAnimationDuration));
 
         if (_skillCastingRoutine != null)
         {
@@ -1226,6 +1636,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             if (animator == null)
             {
                 _isSkillCasting = false;
+                SetSkillCastLockRemaining(0f);
                 _skillCastingRoutine = null;
                 yield break;
             }
@@ -1252,11 +1663,54 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         _isSkillCasting = false;
+        SetSkillCastLockRemaining(0f);
+        _skillCastingRoutine = null;
+    }
+
+    private float CaptureSkillCastLockRemaining()
+    {
+        if (CanReadNetworkedState && NetworkedSkillCastLockTimer.IsRunning)
+        {
+            return Mathf.Max(0f, NetworkedSkillCastLockTimer.RemainingTime(Runner) ?? 0f);
+        }
+
+        if (!IsSkillCasting())
+        {
+            return 0f;
+        }
+
+        if (animator != null)
+        {
+            AnimatorStateInfo state = animator.GetCurrentAnimatorStateInfo(0);
+            if (state.IsTag(skillStateTag) && state.length > 0f)
+            {
+                float normalizedProgress = Mathf.Clamp01(state.normalizedTime);
+                return Mathf.Max(0.05f, state.length * (1f - normalizedProgress));
+            }
+        }
+
+        return Mathf.Max(0.05f, baseAttackAnimationDuration);
+    }
+
+    private IEnumerator RestoreSkillCastLock(float remainingSeconds)
+    {
+        _isSkillCasting = true;
+        float remaining = Mathf.Max(0f, remainingSeconds);
+        while (remaining > 0f && isCombatPhase && !IsDead)
+        {
+            remaining -= Time.deltaTime;
+            yield return null;
+        }
+
+        _isSkillCasting = false;
+        SetSkillCastLockRemaining(0f);
         _skillCastingRoutine = null;
     }
 
     private void CancelPendingAttack()
     {
+        bool preserveDurableCapacityDebt =
+            IsCombatSuspendedForHostMigration() && IsBasicAttackCapacityBackpressurePending();
         unchecked
         {
             _pendingAttackVersion++;
@@ -1267,8 +1721,262 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         _hasPendingAttack = false;
+        _pendingAttackAwaitingSchedulerCapacity = false;
         _pendingAttack = new PendingAttack();
+        if (!preserveDurableCapacityDebt)
+        {
+            SetBasicAttackCapacityBackpressurePending(false);
+        }
     }
+
+    private void CaptureBasicAttackCapacityDebt(PendingAttack pending)
+    {
+        _pendingAttack = pending;
+        _hasPendingAttack = true;
+        _pendingAttackAwaitingSchedulerCapacity = true;
+        if (CanWriteNetworkedIdentity() && pending.Target != null && pending.Target.IsValid)
+        {
+            NetworkedBasicAttackCapacityDebt = new BasicAttackCapacityDebt
+            {
+                TargetId = pending.Target.Id,
+                FirePosition = pending.FirePosition,
+                Damage = pending.Damage,
+                DamageType = (int)pending.DamageType,
+                ProjectileSpeed = pending.ProjectileSpeed,
+                SplashRadius = pending.SplashRadius,
+                EnemyLayerMask = pending.EnemyLayerMask,
+                FireDelaySeconds = pending.FireDelaySeconds,
+                PackedFlags = (pending.IsRanged ? 1 : 0) | (pending.EmitVfx ? 2 : 0)
+                              | (pending.CooldownCommitted ? 4 : 0)
+            };
+        }
+
+        SetBasicAttackCapacityBackpressurePending(true);
+    }
+
+    private bool TryHydrateBasicAttackCapacityDebt()
+    {
+        if (_hasPendingAttack)
+        {
+            return true;
+        }
+
+        if (!IsBasicAttackCapacityBackpressurePending() || !CanReadNetworkedState)
+        {
+            return false;
+        }
+
+        BasicAttackCapacityDebt debt = NetworkedBasicAttackCapacityDebt;
+        if (debt.TargetId.Raw == 0 || Runner == null ||
+            !Runner.TryFindObject(debt.TargetId, out NetworkObject targetObject) ||
+            targetObject == null || !targetObject.IsValid)
+        {
+            if (!IsCombatSuspendedForHostMigration())
+            {
+                SetBasicAttackCapacityBackpressurePending(false);
+            }
+            return false;
+        }
+
+        IEnemy target = targetObject.GetComponent<IEnemy>();
+        MonoBehaviour targetBehaviour = target as MonoBehaviour;
+        if (target == null || targetBehaviour == null ||
+            target is IHealth health && health.CurrentHealth <= 0f)
+        {
+            SetBasicAttackCapacityBackpressurePending(false);
+            return false;
+        }
+
+        int version = AllocatePendingAttackVersion();
+        _pendingAttack = new PendingAttack
+        {
+            Target = targetObject,
+            TargetEnemy = target,
+            TargetHandle = CombatTargetHandle.Capture(targetBehaviour),
+            Damage = debt.Damage,
+            DamageType = (DamageType)debt.DamageType,
+            ProjectileSpeed = debt.ProjectileSpeed,
+            IsRanged = debt.IsRanged,
+            EmitVfx = debt.EmitVfx,
+            SplashRadius = debt.SplashRadius,
+            FirePosition = debt.FirePosition,
+            EnemyLayerMask = debt.EnemyLayerMask,
+            FireDelaySeconds = debt.FireDelaySeconds,
+            CooldownCommitted = debt.CooldownCommitted,
+            Version = version
+        };
+        _hasPendingAttack = true;
+        _pendingAttackAwaitingSchedulerCapacity = true;
+        return true;
+    }
+
+    private void CaptureBasicAttackDebtForMigration(ref FieldUnitMigrationSnapshot snapshot)
+    {
+        BasicAttackCapacityDebt debt = CanReadNetworkedState
+            ? NetworkedBasicAttackCapacityDebt
+            : BuildBasicAttackCapacityDebt(_pendingAttack);
+        snapshot.BasicAttackDebtHasPayload = snapshot.BasicAttackCapacityBackpressurePending &&
+                                             debt.TargetId.Raw != 0;
+        snapshot.BasicAttackDebtTargetId = debt.TargetId;
+        snapshot.BasicAttackDebtTargetIdRaw = debt.TargetId.Raw;
+        snapshot.BasicAttackDebtFirePosition = debt.FirePosition;
+        snapshot.BasicAttackDebtDamage = debt.Damage;
+        snapshot.BasicAttackDebtDamageType = (DamageType)debt.DamageType;
+        snapshot.BasicAttackDebtProjectileSpeed = debt.ProjectileSpeed;
+        snapshot.BasicAttackDebtSplashRadius = debt.SplashRadius;
+        snapshot.BasicAttackDebtEnemyLayerMask = debt.EnemyLayerMask;
+        snapshot.BasicAttackDebtFireDelaySeconds = debt.FireDelaySeconds;
+        snapshot.BasicAttackDebtIsRanged = debt.IsRanged;
+        snapshot.BasicAttackDebtEmitVfx = debt.EmitVfx;
+        snapshot.BasicAttackDebtCooldownCommitted = debt.CooldownCommitted;
+    }
+
+    private void RestoreBasicAttackDebtFromMigration(FieldUnitMigrationSnapshot snapshot)
+    {
+        if (!snapshot.BasicAttackCapacityBackpressurePending || !snapshot.BasicAttackDebtHasPayload ||
+            snapshot.BasicAttackDebtTargetIdRaw == 0)
+        {
+            SetBasicAttackCapacityBackpressurePending(false);
+            return;
+        }
+
+        if (CanWriteNetworkedIdentity())
+        {
+            NetworkedBasicAttackCapacityDebt = new BasicAttackCapacityDebt
+            {
+                TargetId = snapshot.BasicAttackDebtTargetId,
+                FirePosition = snapshot.BasicAttackDebtFirePosition,
+                Damage = snapshot.BasicAttackDebtDamage,
+                DamageType = (int)snapshot.BasicAttackDebtDamageType,
+                ProjectileSpeed = snapshot.BasicAttackDebtProjectileSpeed,
+                SplashRadius = snapshot.BasicAttackDebtSplashRadius,
+                EnemyLayerMask = snapshot.BasicAttackDebtEnemyLayerMask,
+                FireDelaySeconds = snapshot.BasicAttackDebtFireDelaySeconds,
+                PackedFlags = (snapshot.BasicAttackDebtIsRanged ? 1 : 0) |
+                              (snapshot.BasicAttackDebtEmitVfx ? 2 : 0) |
+                              (snapshot.BasicAttackDebtCooldownCommitted ? 4 : 0)
+            };
+        }
+        SetBasicAttackCapacityBackpressurePending(true);
+    }
+
+    private static BasicAttackCapacityDebt BuildBasicAttackCapacityDebt(PendingAttack pending)
+    {
+        return new BasicAttackCapacityDebt
+        {
+            TargetId = pending.Target != null && pending.Target.IsValid ? pending.Target.Id : default,
+            FirePosition = pending.FirePosition,
+            Damage = pending.Damage,
+            DamageType = (int)pending.DamageType,
+            ProjectileSpeed = pending.ProjectileSpeed,
+            SplashRadius = pending.SplashRadius,
+            EnemyLayerMask = pending.EnemyLayerMask,
+            FireDelaySeconds = pending.FireDelaySeconds,
+            PackedFlags = (pending.IsRanged ? 1 : 0) | (pending.EmitVfx ? 2 : 0) |
+                          (pending.CooldownCommitted ? 4 : 0)
+        };
+    }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    internal bool MPTestBeginBasicAttackCapacityRecoveryProbe(
+        CombatScheduler scheduler,
+        NetworkObject targetObject,
+        out string reason)
+    {
+        reason = null;
+        if (scheduler == null || targetObject == null || !targetObject.IsValid ||
+            Object == null || !Object.IsValid || !Object.HasStateAuthority ||
+            targetObject.Runner != Runner || !isCombatPhase)
+        {
+            reason = "unit_or_target_not_ready_for_capacity_probe";
+            return false;
+        }
+
+        IEnemy exactTarget = targetObject.GetComponent<IEnemy>();
+        MonoBehaviour targetBehaviour = exactTarget as MonoBehaviour;
+        if (exactTarget == null || targetBehaviour == null)
+        {
+            reason = "unit_capacity_probe_target_is_not_enemy";
+            return false;
+        }
+
+        _mpTestCapacityRecoveryProbeActive = true;
+        _mpTestCapacityRecoveryCommitCount = 0;
+        _mpTestCapacityRecoveryCooldownCount = 0;
+        _mpTestCapacityRecoveryManaCount = 0;
+        _mpTestCapacityRecoveryOriginalCooldown = CaptureAttackCooldownRemaining();
+        _mpTestCapacityRecoveryOriginalMana = SkillCurrentMana;
+        _mpTestCapacityRecoveryOriginalMaxMana = SkillMaxMana;
+        bool accepted = TryScheduleBasicAttackOrCaptureDebt(
+            scheduler,
+            targetObject,
+            firePoint != null ? firePoint.position : transform.position,
+            0f,
+            DamageType.Physical,
+            true,
+            false,
+            0f,
+            0f,
+            enemyLayerMask,
+            0f,
+            exactTarget,
+            CombatTargetHandle.Capture(targetBehaviour));
+        if (accepted)
+        {
+            reason = "unit_capacity_probe_was_not_backpressured";
+            MPTestEndBasicAttackCapacityRecoveryProbe();
+            return false;
+        }
+
+        bool debtPreserved = IsBasicAttackCapacityBackpressurePending() && _hasPendingAttack;
+        if (!debtPreserved)
+        {
+            reason = "unit_capacity_probe_rejection_did_not_create_exact_debt";
+            MPTestEndBasicAttackCapacityRecoveryProbe();
+        }
+        return debtPreserved;
+    }
+
+    internal bool MPTestResumeBasicAttackCapacityRecoveryProbe(out string reason)
+    {
+        reason = null;
+        if (!_mpTestCapacityRecoveryProbeActive || !IsBasicAttackCapacityBackpressurePending())
+        {
+            reason = "unit_capacity_probe_has_no_durable_debt";
+            return false;
+        }
+
+        TryExecutePendingAttack(_pendingAttack.Version);
+        if (IsBasicAttackCapacityBackpressurePending() || _hasPendingAttack)
+        {
+            reason = "unit_capacity_probe_debt_did_not_commit";
+            return false;
+        }
+
+        return true;
+    }
+
+    internal bool MPTestHasBasicAttackCapacityDebt =>
+        IsBasicAttackCapacityBackpressurePending() && _hasPendingAttack;
+    internal int MPTestCapacityRecoveryCommitCount => _mpTestCapacityRecoveryCommitCount;
+    internal int MPTestCapacityRecoveryCooldownCount => _mpTestCapacityRecoveryCooldownCount;
+    internal int MPTestCapacityRecoveryManaCount => _mpTestCapacityRecoveryManaCount;
+    internal bool MPTestCapacityRecoveryManaApplicable =>
+        DoesHaveSkill() && unitData != null && unitData.manaRegenType == ManaRegenType.OnAttack;
+
+    internal void MPTestEndBasicAttackCapacityRecoveryProbe()
+    {
+        CancelPendingAttack();
+        SetAttackCooldownRemaining(_mpTestCapacityRecoveryOriginalCooldown);
+        if (manaController != null && _mpTestCapacityRecoveryOriginalMaxMana > 0f)
+        {
+            manaController.TryRestoreMigrationState(
+                _mpTestCapacityRecoveryOriginalMana,
+                _mpTestCapacityRecoveryOriginalMaxMana);
+        }
+        _mpTestCapacityRecoveryProbeActive = false;
+    }
+#endif
 
     private int AllocatePendingAttackVersion()
     {
@@ -1562,6 +2270,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         float baseDmg = PermanentAttackDamage;
         float baseSpd = PermanentAttackSpeed;
+        if (IsBerserkModeActive)
+        {
+            baseDmg *= 1.5f;
+            baseSpd *= 1.5f;
+        }
         ApplyStatModifiers(baseDmg, baseSpd);
     }
 
@@ -1697,11 +2410,23 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
         isCombatPhase = (newState == GameManagers.GameState.Battle1 || newState == GameManagers.GameState.Battle2);
+        if (!isCombatPhase || !IsCombatSuspendedForHostMigration())
+        {
+            SetSkillCapacityBackpressurePending(false);
+        }
+        _nextSkillCapacityRetryTime = 0f;
 
         if (isCombatPhase)
         {
+            if (!IsCombatSuspendedForHostMigration())
+            {
+                SetBasicAttackCapacityBackpressurePending(false);
+            }
+
             // Reset attack cooldown; first target acquisition is staggered within one search interval.
             lastAttackAnimTime = -999f;
+            SetAttackCooldownRemaining(0f);
+            _preserveNextAttackTimeOnNextTarget = false;
             RegisterCombatTarget();
             ResetTargetSearchSchedule();
             ClearCurrentTarget();
@@ -1721,6 +2446,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
         else
         {
+            SetBasicAttackCapacityBackpressurePending(false);
             ResetTargetSearchSchedule();
             StopAttackPlaybackState();
             CancelPendingAttack();
@@ -1748,6 +2474,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 _skillCastingRoutine = null;
             }
             _isSkillCasting = false;
+            SetSkillCastLockRemaining(0f);
             
             // 폭주 모드 해제
             ClearBerserkMode();
@@ -2031,15 +2758,25 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         // --- [수정 끝] ---
     }
 
-    public async void ActivateSkill()
+    public void ActivateSkill()
     {
-        if (!isCombatPhase || !DoesHaveSkill()) return;
-        if (IsDead) return;
-        if (!HasStateAuthorityOrNoNetwork()) return;
-        if (IsSkillCasting()) return;
+        ActivateSkillAsync(CancellationToken.None).Forget();
+    }
+
+    public async UniTask<SkillActivationResult> ActivateSkillAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!isCombatPhase) return SkillActivationResult.Rejected("skill_unit_not_in_combat");
+        if (!DoesHaveSkill()) return SkillActivationResult.Rejected("skill_not_configured");
+        if (IsDead) return SkillActivationResult.Rejected("skill_unit_dead");
+        if (!HasStateAuthorityOrNoNetwork()) return SkillActivationResult.Rejected("skill_unit_state_authority_required");
+        if (IsSkillCasting()) return SkillActivationResult.Rejected("skill_unit_already_casting");
         
         // 상태 효과로 스킬 사용 불가 상태 체크 (침묵, 기절 등)
-        if (_buffManager != null && !_buffManager.CanUseSkill) return;
+        if (_buffManager != null && !_buffManager.CanUseSkill)
+        {
+            return SkillActivationResult.Rejected("skill_unit_disabled_or_silenced");
+        }
 
         AsyncLifecycleStamp lifecycle = CaptureAsyncLifecycle();
         
@@ -2049,6 +2786,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             // 만약 로드가 안됐다면, 이 시점에서 다시 로드를 시도할 수도 있습니다.
             string skillKey = unitData.skillsByStarLevel[starLevel - 1];
             SkillData loadedSkillData = await LoadOwnedAddressableAsync<SkillData>(skillKey);
+            cancellationToken.ThrowIfCancellationRequested();
             if (!IsAsyncLifecycleCurrent(lifecycle) ||
                 !isCombatPhase ||
                 IsDead ||
@@ -2056,40 +2794,68 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 IsSkillCasting() ||
                 (_buffManager != null && !_buffManager.CanUseSkill))
             {
-                return;
+                return SkillActivationResult.Rejected("skill_state_changed_during_load");
             }
 
             _loadedSkillData = loadedSkillData;
-            if (_loadedSkillData == null) return; // 그래도 없으면 종료
+            if (_loadedSkillData == null)
+            {
+                return SkillActivationResult.Rejected("skill_data_load_failed");
+            }
         }
         
         SkillData currentSkillData = _loadedSkillData; // 로드된 데이터를 사용합니다.
 
-        if (currentSkillData.targetingStrategy == null || currentSkillData.effects.Count == 0)
+        if (currentSkillData.targetingStrategy == null ||
+            currentSkillData.effects == null ||
+            currentSkillData.effects.Count == 0)
         {
             Debug.LogError($"{unitData.unitName} ({starLevel}성)의 SkillData 또는 그 내용이 올바르게 설정되지 않았습니다.");
-            return;
+            return SkillActivationResult.Rejected("skill_data_incomplete");
         }
         
         if (!HasSkillTargetsAvailable(currentSkillData))
         {
-            return;
+            return SkillActivationResult.Rejected("skill_target_unavailable");
         }
 
-        if (!manaController.IsManaFull) return;
+        if (manaController == null || !manaController.IsManaFull)
+        {
+            return SkillActivationResult.Rejected("skill_mana_not_ready");
+        }
+
+        List<GameObject> targets = currentSkillData.targetingStrategy.FindTargets(
+            gameObject,
+            transform.position,
+            currentSkillData.range);
+        if (!SkillEffect.CanApplyAllEffects(
+                currentSkillData.effects,
+                null,
+                gameObject,
+                targets,
+                currentSkillData.range,
+                currentSkillData.targetingStrategy))
+        {
+            SetSkillCapacityBackpressurePending(
+                currentSkillActivationType == SkillActivationType.Automatic);
+            _nextSkillCapacityRetryTime = Time.time + 0.1f;
+            return SkillActivationResult.CapacityBackpressure();
+        }
 
         if (manaController.UseMana(currentSkillData.manaCost))
         {
+            SetSkillCapacityBackpressurePending(false);
             BeginSkillCasting();
             Debug.Log($"<color=yellow>{unitData.unitName} 스킬 발동: {currentSkillData.skillName}</color>");
-
-            List<GameObject> targets = currentSkillData.targetingStrategy.FindTargets(this.gameObject, transform.position, currentSkillData.range);
 
             foreach (var effect in currentSkillData.effects)
             {
                 if (effect != null)
                 {
-                    effect.ApplyEffect(null, this.gameObject, targets, currentSkillData.range, currentSkillData.targetingStrategy);
+                    if (!effect.TryApplyEffect(null, gameObject, targets, currentSkillData.range, currentSkillData.targetingStrategy))
+                    {
+                        Debug.LogError($"[Unit] Skill capacity preflight drifted before apply. unit={name}, skill={currentSkillData.name}, effect={effect.name}");
+                    }
                 }
             }
             
@@ -2120,7 +2886,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                     Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
                 }
             }
+
+            return SkillActivationResult.Completed();
         }
+
+        return SkillActivationResult.Rejected("skill_mana_spend_failed");
     }
 
     private bool DoesHaveSkill() {
@@ -2220,16 +2990,25 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         EnsureRuntimeReferences("StartAttackLoop", false);
+        RestoreLocalAttackCooldownFromNetworked();
+        RestoreLocalSkillCastLockFromNetworked();
         attackCoroutine = StartCoroutine(AttackLoop());
     }
 
     private IEnumerator AttackLoop()
     {
-        float nextAttackTime = 0f;
         bool hadTargetLastFrame = false;
         
         while (isCombatPhase)
         {
+            if (CombatScheduler.Instance != null && CombatScheduler.Instance.IsZonePulseBackpressured)
+            {
+                // Preserve the coroutine/cooldown state while the scheduler drains an earlier
+                // materialized zone pulse. This prevents new status producers from starving it.
+                yield return null;
+                continue;
+            }
+
             if (!HasStateAuthorityOrNoNetwork())
             {
                 CancelPendingAttack();
@@ -2280,6 +3059,17 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 continue;
             }
 
+            if (IsSkillCapacityBackpressurePending() &&
+                currentSkillActivationType == SkillActivationType.Automatic &&
+                manaController != null && manaController.IsManaFull &&
+                Time.time >= _nextSkillCapacityRetryTime)
+            {
+                _nextSkillCapacityRetryTime = Time.time + 0.1f;
+                ActivateSkill();
+                yield return null;
+                continue;
+            }
+
             if (IsSkillCasting())
             {
                 yield return null;
@@ -2289,6 +3079,26 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             // 상태 효과로 공격 불가 상태 체크 (기절 등)
             if (_buffManager != null && !_buffManager.CanAttack)
             {
+                yield return null;
+                continue;
+            }
+
+            if (_pendingAttackAwaitingSchedulerCapacity && _hasPendingAttack)
+            {
+                TryExecutePendingAttack(_pendingAttack.Version);
+                yield return null;
+                continue;
+            }
+
+            // Capacity rejection is a committed source debt: hydrate the exact replicated target,
+            // damage, splash, presentation and delay payload after host migration. Do not reacquire
+            // a different target or recompute buff-sensitive damage.
+            if (IsBasicAttackCapacityBackpressurePending() && !_hasPendingAttack)
+            {
+                if (TryHydrateBasicAttackCapacityDebt())
+                {
+                    TryExecutePendingAttack(_pendingAttack.Version);
+                }
                 yield return null;
                 continue;
             }
@@ -2328,13 +3138,19 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 // [Fix] 타겟이 없다가 새로 발견되었을 때 즉시 공격 가능하도록 쿨타임 리셋
                 if (!hadTargetLastFrame)
                 {
-                    nextAttackTime = Time.time;
+                    if (!_preserveNextAttackTimeOnNextTarget)
+                    {
+                        SetAttackCooldownRemaining(0f);
+                    }
+                    _preserveNextAttackTimeOnNextTarget = false;
                 }
                 
-                if (Time.time >= nextAttackTime)
+                if (Time.time >= _nextAttackTime)
                 {
-                    Attack();
-                    nextAttackTime = Time.time + 1f / currentAttackSpeed;
+                    if (Attack())
+                    {
+                        SetAttackCooldownRemaining(1f / currentAttackSpeed);
+                    }
                 }
             }
             
@@ -2751,41 +3567,41 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return delta.sqrMagnitude <= allowedRange * allowedRange;
     }
 
-    private void Attack()
+    private bool Attack()
     {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         if (MPTestCommandLine.IsGameFlowFrozen)
         {
-            return;
+            return false;
         }
 #endif
         if (!CanRunCombatSimulation())
         {
-            return;
+            return false;
         }
 
         if (IsCombatSuspendedForHostMigration())
         {
             CancelPendingAttack();
-            return;
+            return false;
         }
 
         if (IsDead || !isCombatPhase || unitData == null)
         {
             CancelPendingAttack();
-            return;
+            return false;
         }
 
         if (IsSkillCasting())
         {
-            return;
+            return false;
         }
         
         bool isRanged = unitData.unitType == UnitType.Ranged;
         if (!IsCurrentTargetValidForAttack(isRanged))
         {
             ClearCurrentTarget();
-            return;
+            return false;
         }
         
         // Spawn-time trigger jitter must not let melee units keep attacking targets outside their reach.
@@ -2795,7 +3611,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 !IsTargetWithinAttackRange(targetTransform, AttackRangePadding))
             {
                 ClearCurrentTarget();
-                return;
+                return false;
             }
         }
         else
@@ -2804,13 +3620,15 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             if (!IsMeleeMonsterAttackable(targetEnemy as Monster))
             {
                 ClearCurrentTarget();
-                return;
+                return false;
             }
         }
         bool playedAnim = TryPlayAttackAnimation();
         bool canSyncToAnimation = playedAnim && !_hasPendingAttack;
         bool canSyncMelee = canSyncToAnimation && currentAttackSpeed <= maxAttackAnimationsPerSecond + 1e-4f;
         bool canSyncRanged = canSyncToAnimation && ShouldEmitProjectileVfx();
+        bool attackCommitted = false;
+        bool schedulerCapacityRejected = false;
 
         // NetworkBehaviour이므로 Object 프로퍼티 직접 사용
         bool hasAuthority = Object == null || Object.HasStateAuthority;
@@ -2840,21 +3658,28 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                         Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
                         float splashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f;
                         float fireDelaySeconds = ResolveProjectileFireDelaySeconds();
-                        scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
-                            true, true, _cachedProjectileSpeed, splashRadius, enemyLayerMask, fireDelaySeconds);
+                        attackCommitted = TryScheduleBasicAttackOrCaptureDebt(
+                            scheduler, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                            true, true, _cachedProjectileSpeed, splashRadius, enemyLayerMask,
+                            fireDelaySeconds, targetEnemy, _currentTargetHandle);
+                        schedulerCapacityRejected = !attackCommitted;
                     }
                     else
                     {
                         Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
                         // 원거리 스플래시 공격: splashRadius와 enemyLayerMask 전달
                         float splashRadius = unitData.attackTargetType == AttackTargetType.Splash ? unitData.splashRadius : 0f;
-                        scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
-                            true, false, _cachedProjectileSpeed, splashRadius, enemyLayerMask);
+                        attackCommitted = TryScheduleBasicAttackOrCaptureDebt(
+                            scheduler, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                            true, false, _cachedProjectileSpeed, splashRadius, enemyLayerMask,
+                            0f, targetEnemy, _currentTargetHandle);
+                        schedulerCapacityRejected = !attackCommitted;
                     }
                 }
                 else if (targetEnemy != null)
                 {
                     targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+                    attackCommitted = true;
                 }
             }
             else
@@ -2862,28 +3687,65 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                 // 근접 유닛 스플래시 공격: 저지 중인 모든 몬스터에게 데미지
                 if (unitData.attackTargetType == AttackTargetType.Splash && blockedMonsters.Count > 0)
                 {
+                    List<Monster> splashTargets = blockedMonsters
+                        .Where(monster => IsMeleeMonsterAttackable(monster))
+                        .Distinct()
+                        .ToList();
+                    var networkSplashTargets = new List<NetworkObject>(splashTargets.Count);
+                    if (schedulerReady)
+                    {
+                        for (int i = 0; i < splashTargets.Count; i++)
+                        {
+                            NetworkObject monsterObject = splashTargets[i].GetComponent<NetworkObject>();
+                            if (monsterObject != null && monsterObject.IsValid &&
+                                monsterObject.Runner == scheduler.Runner)
+                            {
+                                networkSplashTargets.Add(monsterObject);
+                            }
+                        }
+
+                        // Capture and validate the exact target batch before the first enqueue.
+                        // Fusion simulation is single-threaded, so no scheduler writer can consume
+                        // these slots between this check and the loop below.
+                        if (!scheduler.CanScheduleImmediateHitBatch(networkSplashTargets))
+                        {
+                            // Nothing has committed yet (no hit, cooldown or mana). Retry this as
+                            // a fresh batch decision next frame; a single-target debt payload must
+                            // never pretend to represent a multi-target splash transaction.
+                            return false;
+                        }
+                    }
+
                     // 스플래시 공격: 저지 중인 모든 몬스터에게 동시에 데미지
-                    foreach (var monster in blockedMonsters.ToList())
+                    foreach (Monster monster in splashTargets)
                     {
                         if (IsMeleeMonsterAttackable(monster))
                         {
                             if (schedulerReady)
                             {
                                 var monsterNo = monster.GetComponent<NetworkObject>();
-                                if (monsterNo != null)
+                                if (monsterNo != null && monsterNo.IsValid && monsterNo.Runner == scheduler.Runner)
                                 {
                                     Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
-                                    scheduler.ScheduleHit(Object, monsterNo, firePos, currentAttackDamage, unitData.damageType,
+                                    bool scheduled = scheduler.ScheduleHit(Object, monsterNo, firePos, currentAttackDamage, unitData.damageType,
                                         false, false, 0f);
+                                    if (!scheduled)
+                                    {
+                                        Debug.LogError($"[Unit] Splash hit batch admission drifted after preflight. unit={name}, target={monster.name}");
+                                        monster.TakeDamage(currentAttackDamage, unitData.damageType);
+                                    }
+                                    attackCommitted = true;
                                 }
                                 else
                                 {
                                     monster.TakeDamage(currentAttackDamage, unitData.damageType);
+                                    attackCommitted = true;
                                 }
                             }
                             else
                             {
                                 monster.TakeDamage(currentAttackDamage, unitData.damageType);
+                                attackCommitted = true;
                             }
                         }
                     }
@@ -2904,9 +3766,15 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                             ProjectileSpeed = 0f,
                             IsRanged = false,
                             EmitVfx = false,
+                            SplashRadius = 0f,
+                            FirePosition = firePoint != null ? firePoint.position : transform.position,
+                            EnemyLayerMask = enemyLayerMask.value,
+                            FireDelaySeconds = 0f,
+                            CooldownCommitted = true,
                             Version = attackVersion
                         };
                         _hasPendingAttack = true;
+                        attackCommitted = true;
                     }
                     else
                     {
@@ -2914,23 +3782,95 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
                         {
 
                             Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
-                            scheduler.ScheduleHit(Object, targetNo, firePos, currentAttackDamage, unitData.damageType,
-                                false, false, 0f);
+                            attackCommitted = TryScheduleBasicAttackOrCaptureDebt(
+                                scheduler, targetNo, firePos, currentAttackDamage, unitData.damageType,
+                                false, false, 0f, 0f, enemyLayerMask, 0f,
+                                targetEnemy, _currentTargetHandle);
+                            schedulerCapacityRejected = !attackCommitted;
                         }
                         else if (targetEnemy != null)
                         {
 
                             targetEnemy.TakeDamage(currentAttackDamage, unitData.damageType);
+                            attackCommitted = true;
                         }
                     }
                 }
             }
         }
 
-        if (DoesHaveSkill() && unitData.manaRegenType == ManaRegenType.OnAttack && HasStateAuthorityOrNoNetwork())
+
+        if (schedulerCapacityRejected)
+        {
+            SetBasicAttackCapacityBackpressurePending(true);
+        }
+        else if (attackCommitted && !_hasPendingAttack)
+        {
+            SetBasicAttackCapacityBackpressurePending(false);
+        }
+
+        // Animation-synchronised melee attacks are only committed to gameplay when their impact
+        // reaches the scheduler. Grant their on-attack mana there so a capacity retry (including
+        // one resumed after host migration) cannot grant mana twice.
+        if (attackCommitted && !_hasPendingAttack && DoesHaveSkill() &&
+            unitData.manaRegenType == ManaRegenType.OnAttack && HasStateAuthorityOrNoNetwork())
         {
             manaController.GainMana(unitData.manaOnAttack);
         }
+
+        return attackCommitted;
+    }
+
+    private bool TryScheduleBasicAttackOrCaptureDebt(
+        CombatScheduler scheduler,
+        NetworkObject targetObject,
+        Vector3 firePosition,
+        float damage,
+        DamageType damageType,
+        bool isRanged,
+        bool emitVfx,
+        float projectileSpeed,
+        float splashRadius,
+        LayerMask layerMask,
+        float fireDelaySeconds,
+        IEnemy exactTarget,
+        CombatTargetHandle exactTargetHandle)
+    {
+        if (scheduler.ScheduleHit(
+                Object,
+                targetObject,
+                firePosition,
+                damage,
+                damageType,
+                isRanged,
+                emitVfx,
+                projectileSpeed,
+                splashRadius,
+                layerMask,
+                fireDelaySeconds))
+        {
+            return true;
+        }
+
+        int attackVersion = AllocatePendingAttackVersion();
+        CaptureBasicAttackCapacityDebt(new PendingAttack
+        {
+            Target = targetObject,
+            TargetEnemy = exactTarget,
+            TargetHandle = exactTargetHandle,
+            Damage = damage,
+            DamageType = damageType,
+            ProjectileSpeed = projectileSpeed,
+            IsRanged = isRanged,
+            EmitVfx = emitVfx,
+            SplashRadius = splashRadius,
+            FirePosition = firePosition,
+            EnemyLayerMask = layerMask.value,
+            FireDelaySeconds = fireDelaySeconds,
+            CooldownCommitted = false,
+            Version = attackVersion
+        });
+        return false;
     }
 
     private bool ShouldEmitProjectileVfx()
@@ -3038,6 +3978,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
 
     private void TryExecutePendingAttack(int attackVersion)
     {
+        if (!_hasPendingAttack && IsBasicAttackCapacityBackpressurePending())
+        {
+            TryHydrateBasicAttackCapacityDebt();
+            attackVersion = _pendingAttack.Version;
+        }
+
         if (!_hasPendingAttack || _pendingAttack.Version != attackVersion)
         {
             return;
@@ -3078,18 +4024,53 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         var scheduler = CombatScheduler.Instance;
+        bool resumedAfterCapacityBackpressure = _pendingAttackAwaitingSchedulerCapacity;
         if (scheduler != null && scheduler.Runner != null && scheduler.Runner.IsRunning && _pendingAttack.Target != null)
         {
-            Vector3 firePos = firePoint != null ? firePoint.position : transform.position;
-            scheduler.ScheduleHit(Object, _pendingAttack.Target, firePos, _pendingAttack.Damage,
+            if (!scheduler.ScheduleHit(Object, _pendingAttack.Target, _pendingAttack.FirePosition, _pendingAttack.Damage,
                 _pendingAttack.DamageType, _pendingAttack.IsRanged, _pendingAttack.EmitVfx, _pendingAttack.ProjectileSpeed,
-                _pendingAttack.SplashRadius, enemyLayerMask);
+                _pendingAttack.SplashRadius, _pendingAttack.EnemyLayerMask, _pendingAttack.FireDelaySeconds))
+            {
+                CaptureBasicAttackCapacityDebt(_pendingAttack);
+                return;
+            }
         }
         else if (_pendingAttack.TargetEnemy != null)
         {
             _pendingAttack.TargetEnemy.TakeDamage(_pendingAttack.Damage, _pendingAttack.DamageType);
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (_mpTestCapacityRecoveryProbeActive)
+        {
+            _mpTestCapacityRecoveryCommitCount++;
+        }
+#endif
+
+        if (resumedAfterCapacityBackpressure && !_pendingAttack.CooldownCommitted && currentAttackSpeed > 0f)
+        {
+            SetAttackCooldownRemaining(1f / currentAttackSpeed);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (_mpTestCapacityRecoveryProbeActive)
+            {
+                _mpTestCapacityRecoveryCooldownCount++;
+            }
+#endif
+        }
+
+        if (DoesHaveSkill() && unitData.manaRegenType == ManaRegenType.OnAttack &&
+            HasStateAuthorityOrNoNetwork())
+        {
+            manaController.GainMana(unitData.manaOnAttack);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (_mpTestCapacityRecoveryProbeActive)
+            {
+                _mpTestCapacityRecoveryManaCount++;
+            }
+#endif
+        }
+
+        SetBasicAttackCapacityBackpressurePending(false);
         CancelPendingAttack();
     }
 
@@ -3123,6 +4104,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         _isSkillCasting = false;
+        SetSkillCastLockRemaining(0f);
         if (_skillCastingRoutine != null)
         {
             StopCoroutine(_skillCastingRoutine);
@@ -3260,6 +4242,13 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return;
         }
 
+        int pulseToken = PendingZonePulseDebtToken;
+        if (pulseToken > 0)
+        {
+            scheduler.NotifyZonePulseTargetInvalidated(pulseToken, networkObject.Id, reason);
+            ClearPendingZonePulseDebt(pulseToken);
+        }
+
         scheduler.NotifyTargetInvalidated(networkObject.Id, reason);
     }
 
@@ -3362,29 +4351,11 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public void ApplyBerserkMode()
     {
-        if (_isBerserk) return;
+        if (IsBerserkModeActive) return;
         if (!HasStateAuthorityOrNoNetwork()) return;  // 서버에서만 적용
-        
-        _isBerserk = true;
 
-        if (CombatScheduler.Instance != null &&
-            CombatScheduler.Instance.IsStatBuffSchedulerActive &&
-            _buffManager != null &&
-            CombatScheduler.Instance.ApplyBerserkStatBuffs(_buffManager, gameObject, false, 9999f))
-        {
-            Debug.Log($"<color=red>[Unit] '{name}' ??＜ 紐⑤뱶 諛쒕룞! (scheduler)</color>");
-            return;
-        }
-
-        float berserkDamage = currentAttackDamage * 1.5f;
-        float berserkSpeed = currentAttackSpeed * 1.5f;
-        _localAttackDamage = berserkDamage;
-        _localAttackSpeed = berserkSpeed;
-        if (CanWriteNetworkedStats())
-        {
-            _networkedAttackDamage = berserkDamage;
-            _networkedAttackSpeed = berserkSpeed;
-        }
+        SetBerserkModeActive(true);
+        RefreshPermanentBonuses();
         Debug.Log($"<color=red>[Unit] '{name}' 폭주 모드 발동! (공속 1.5배, 공격력 1.5배)</color>");
     }
 
@@ -3393,9 +4364,10 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     /// </summary>
     public void ClearBerserkMode()
     {
-        if (!_isBerserk) return;  // 폭주 모드가 아니면 무시
-        
-        _isBerserk = false;
+        if (!IsBerserkModeActive) return;  // 폭주 모드가 아니면 무시
+        if (!HasStateAuthorityOrNoNetwork()) return;
+
+        SetBerserkModeActive(false);
         
         // 스탯을 원래대로 복구 (증강체 + 버프 적용된 정상 스탯)
         if (HasStateAuthorityOrNoNetwork())

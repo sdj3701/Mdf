@@ -1,5 +1,16 @@
 public static class StableDataKeyUtility
 {
+    /// <summary>
+    /// Canonicalizes an authored content id. Content ids are deliberately independent from
+    /// ScriptableObject names and user-facing display text so those values can be renamed safely.
+    /// </summary>
+    public static string NormalizeContentId(string contentId)
+    {
+        return string.IsNullOrWhiteSpace(contentId)
+            ? string.Empty
+            : contentId.Trim().ToLowerInvariant();
+    }
+
     public static string NormalizeKey(string key)
     {
         if (string.IsNullOrWhiteSpace(key))
@@ -33,5 +44,10 @@ public static class StableDataKeyUtility
     public static int StableKeyHash(string key)
     {
         return StableHash(NormalizeKey(key));
+    }
+
+    public static int StableContentIdHash(string contentId)
+    {
+        return StableHash(NormalizeContentId(contentId));
     }
 }

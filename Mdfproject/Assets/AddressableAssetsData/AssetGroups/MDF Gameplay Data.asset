@@ -294,18 +294,21 @@ MonoBehaviour:
     m_SerializedLabels:
     - Scroll
     - mdf-gameplay-data
+    - Augment
   - m_GUID: 477ccf48d3c6b9942a226534e221cc6b
     m_Address: Aug_Scroll_Stun
     m_ReadOnly: 0
     m_SerializedLabels:
     - Scroll
     - mdf-gameplay-data
+    - Augment
   - m_GUID: 670e9a593343a4149bc03fdce975499e
     m_Address: Aug_Scroll_Berserk
     m_ReadOnly: 0
     m_SerializedLabels:
     - Scroll
     - mdf-gameplay-data
+    - Augment
   - m_GUID: aa8a54f103477b740a66a45bea14b2fa
     m_Address: Scroll_Stun
     m_ReadOnly: 0

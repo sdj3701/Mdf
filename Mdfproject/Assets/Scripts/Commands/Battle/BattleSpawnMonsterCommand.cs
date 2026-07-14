@@ -523,6 +523,23 @@ public sealed class BattleSpawnMonsterCommand
     private BattleCommandResult Executed(int spawnedCount, string message)
     {
         int sequence = BattleCommandTelemetry.RecordSpawnMonsterExecuted();
+
+        // A battle spawn can happen immediately before the current host disappears. Fusion's
+        // periodic host-migration snapshot may still predate that NetworkObject even though a
+        // client has already observed it. After the spawn commit, request a coalesced snapshot
+        // push so the resume token and MDF's durable combat snapshots converge on the same set.
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers != null &&
+            gameManagers.Runner != null &&
+            gameManagers.Runner.IsRunning &&
+            gameManagers.Object != null &&
+            gameManagers.Object.HasStateAuthority)
+        {
+            HostMigrationHandler.Instance?.TryPushHostMigrationSnapshot(
+                gameManagers.Runner,
+                $"BattleSpawnMonster:Committed:P{AttackerPlayerId}:seq={sequence}");
+        }
+
         var result = BattleCommandResult.Executed(
             Type,
             AttackerPlayerId,

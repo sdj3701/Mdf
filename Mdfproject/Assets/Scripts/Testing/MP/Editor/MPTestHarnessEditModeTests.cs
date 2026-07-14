@@ -1487,23 +1487,52 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void HostMigrationDurableSnapshotRestoresFieldUnitRoster()
     {
-        string handlerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Network/HostMigrationHandler.cs");
-        string fieldSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.cs");
-        string networkSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Network/NetworkManager.cs");
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static |
+                                     BindingFlags.Public | BindingFlags.NonPublic;
 
-        Assert.That(handlerSource, Does.Contain("FieldUnitDataKeys"));
-        Assert.That(handlerSource, Does.Contain("TryGetFieldUnitSnapshot"));
-        Assert.That(handlerSource, Does.Contain("RestoreFieldUnitsAfterHostMigration"));
-        Assert.That(handlerSource, Does.Contain("ShouldRestoreFieldUnitsForContext"));
-        Assert.That(handlerSource, Does.Contain("preserving previous snapshot"));
-        Assert.That(handlerSource, Does.Contain("OrderBy(kv => (kv.Value.FieldUnitFlatPositions?.Length ?? 0) > 0 ? 1 : 0)"));
-        Assert.That(fieldSource, Does.Contain("TryGetFieldUnitSnapshot"));
-        Assert.That(fieldSource, Does.Contain("RestoreFieldUnitsAfterHostMigration"));
-        Assert.That(fieldSource, Does.Contain("suppressCombination: true"));
-        Assert.That(fieldSource, Does.Contain("if (!belongsToPlayer && playerManager != null && networkRunning)"));
-        Assert.That(networkSource, Does.Contain("ShouldDelayFallbackForHostMigration"));
-        Assert.That(networkSource, Does.Contain("ScheduleHostMigrationFallbackGrace"));
-        Assert.That(networkSource, Does.Contain("CancelPendingConnectionLossFallback();"));
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("UnitDataKey", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("Position", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("CurrentHealth", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("CurrentMana", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("AttackCooldownRemaining", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("ActivationMode", members), Is.Not.Null);
+
+        Assert.That(typeof(FieldManager).GetMethod(
+            "TryGetFieldUnitMigrationSnapshot",
+            members), Is.Not.Null);
+        Assert.That(typeof(FieldManager).GetMethods(members).Any(method =>
+            method.Name == "RestoreFieldUnitsAfterHostMigration" &&
+            method.GetParameters().Any(parameter =>
+                parameter.ParameterType == typeof(FieldUnitMigrationSnapshot[]))), Is.True);
+        Assert.That(typeof(HostMigrationHandler).GetMethod(
+            "ShouldRestoreFieldUnitsForContext",
+            members), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(HostMigrationHandler),
+            typeof(FieldManager),
+            "TryGetFieldUnitMigrationSnapshot"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(HostMigrationHandler),
+            typeof(FieldManager),
+            "RestoreFieldUnitsAfterHostMigration"), Is.True);
+
+        foreach (string methodName in new[]
+                 {
+                     "ShouldDelayFallbackForHostMigration",
+                     "ScheduleHostMigrationFallbackGrace",
+                     "CancelPendingConnectionLossFallback"
+                 })
+        {
+            Assert.That(typeof(NetworkManager).GetMethod(methodName, members), Is.Not.Null, methodName);
+        }
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(NetworkManager),
+            typeof(NetworkManager),
+            "ScheduleHostMigrationFallbackGrace"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(NetworkManager),
+            typeof(NetworkManager),
+            "CancelPendingConnectionLossFallback"), Is.True);
     }
 
     [Test]
@@ -1565,17 +1594,23 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(deathHandler, typeof(GameObject), "SetActive"), Is.False);
 
         var berserkObject = new GameObject("berserk-local-stat-test");
+        var berserkData = ScriptableObject.CreateInstance<UnitData>();
         try
         {
             var unit = berserkObject.AddComponent<Unit>();
+            berserkData.baseAttackDamage = 20f;
+            berserkData.attackSpeed = 2f;
+            typeof(Unit).GetField("unitData", unitMembers)?.SetValue(unit, berserkData);
             typeof(Unit).GetField("_localAttackDamage", unitMembers)?.SetValue(unit, 20f);
             typeof(Unit).GetField("_localAttackSpeed", unitMembers)?.SetValue(unit, 2f);
             unit.ApplyBerserkMode();
+            Assert.That(unit.IsBerserkModeActive, Is.True);
             Assert.That(unit.currentAttackDamage, Is.EqualTo(30f).Within(0.001f));
             Assert.That(unit.currentAttackSpeed, Is.EqualTo(3f).Within(0.001f));
         }
         finally
         {
+            Object.DestroyImmediate(berserkData);
             Object.DestroyImmediate(berserkObject);
         }
         var manaObject = new GameObject("mana-fallback-test");
@@ -2687,7 +2722,7 @@ public sealed class MPTestHarnessEditModeTests
         foreach (string methodName in new[]
                  {
                      "PackShopSnapshotMeta", "PackAttackMonsterCounts", "ResolveLoadedUnitDataKeyByStableHash",
-                     "ResolveLoadedAugmentNameByStableId", "ResolveLoadedMonsterDataNameByStableHash"
+                     "ResolveLoadedAugmentContentIdByStableId", "ResolveLoadedMonsterDataNameByStableHash"
                  })
         {
             Assert.That(typeof(PlayerManager).GetMethods(members).Any(method => method.Name == methodName), Is.True, methodName);

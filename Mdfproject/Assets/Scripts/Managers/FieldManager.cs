@@ -207,6 +207,11 @@ public partial class FieldManager : MonoBehaviour
     private bool _hostMigrationUnitRestoreRunning;
     private bool _hostMigrationUnitRestoreSucceeded = true;
     private string _hostMigrationUnitRestoreFailureReason = string.Empty;
+    private MigrationRestoreReport _hostMigrationUnitRestoreReport = MigrationRestoreReport.Empty("field_units");
+    private readonly Dictionary<uint, NetworkId> _hostMigrationUnitNetworkIdRemap =
+        new Dictionary<uint, NetworkId>();
+    private int _hostMigrationUnitNetworkIdRemapGeneration = -1;
+    private bool _hostMigrationUnitNetworkIdRemapCommitted;
     private Coroutine _awaitNetworkPermanentWallsCoroutine;
 
     private string BuildWallOwnerTag()
@@ -1910,42 +1915,111 @@ public partial class FieldManager : MonoBehaviour
         out int[] starLevels,
         out int[] flatPositions)
     {
-        if (placedUnits.Any(kvp => kvp.Value != null && IsGoalCell(kvp.Key)))
+        bool captured = TryGetFieldUnitMigrationSnapshot(out FieldUnitMigrationSnapshot[] snapshots);
+        unitDataRefs = snapshots.Select(entry => entry.UnitDataRef).ToArray();
+        unitDataKeys = snapshots.Select(entry => entry.UnitDataKey).ToArray();
+        starLevels = snapshots.Select(entry => entry.StarLevel).ToArray();
+        flatPositions = new int[snapshots.Length * 3];
+        for (int i = 0; i < snapshots.Length; i++)
         {
-            unitDataRefs = Array.Empty<UnitData>();
-            unitDataKeys = Array.Empty<string>();
-            starLevels = Array.Empty<int>();
-            flatPositions = Array.Empty<int>();
-            Debug.LogError("[UnitFlow-Migration] Refusing to capture a field snapshot containing a regular unit on the Goal cell.");
+            flatPositions[(i * 3) + 0] = snapshots[i].Position.x;
+            flatPositions[(i * 3) + 1] = snapshots[i].Position.y;
+            flatPositions[(i * 3) + 2] = snapshots[i].Position.z;
+        }
+
+        return captured;
+    }
+
+    public bool TryGetFieldUnitMigrationSnapshot(out FieldUnitMigrationSnapshot[] snapshots)
+    {
+        _lastUnitMapRebuildFrame = -1;
+        if (!RebuildUnitMapAfterMigration(
+                "TryGetFieldUnitMigrationSnapshot.AuthoritativeRebuild",
+                false,
+                out string rebuildSummary))
+        {
+            snapshots = Array.Empty<FieldUnitMigrationSnapshot>();
+            Debug.LogError($"[UnitFlow-Migration] Refusing to capture field units because the authoritative rebuild failed: {rebuildSummary}");
             return false;
         }
 
-        var entries = placedUnits
-            .Where(kvp => kvp.Value != null)
-            .Where(kvp => IsValidGridPosition(kvp.Key))
-            .Where(kvp => IsFieldUnitSnapshotCandidate(kvp.Value))
-            .OrderBy(kvp => kvp.Key.x)
-            .ThenBy(kvp => kvp.Key.y)
-            .ThenBy(kvp => kvp.Key.z)
-            .Select(kvp => new FieldUnitMigrationEntry
-            {
-                UnitDataRef = kvp.Value.Data,
-                UnitDataKey = kvp.Value.UnitDataKeyForRoster,
-                StarLevel = Mathf.Max(1, kvp.Value.StarLevelForRoster),
-                Position = kvp.Key
-            })
-            .Where(entry => entry.UnitDataRef != null || !string.IsNullOrWhiteSpace(entry.UnitDataKey))
-            .ToList();
-
-        unitDataRefs = entries.Select(entry => entry.UnitDataRef).ToArray();
-        unitDataKeys = entries.Select(entry => NormalizeMigrationUnitDataKey(entry.UnitDataKey)).ToArray();
-        starLevels = entries.Select(entry => entry.StarLevel).ToArray();
-        flatPositions = new int[entries.Count * 3];
-        for (int i = 0; i < entries.Count; i++)
+        List<Unit> rosterCandidates = CollectFieldUnitMigrationCandidates();
+        var registeredCellsByUnit = placedUnits
+            .Where(pair => pair.Value != null && IsFieldUnitSnapshotCandidate(pair.Value))
+            .GroupBy(pair => pair.Value)
+            .ToDictionary(group => group.Key, group => group.Select(pair => pair.Key).ToList());
+        var resolvedCandidates = new List<(Unit Unit, Vector3Int Position)>(rosterCandidates.Count);
+        var seenCells = new HashSet<Vector3Int>();
+        foreach (Unit unit in rosterCandidates)
         {
-            flatPositions[(i * 3) + 0] = entries[i].Position.x;
-            flatPositions[(i * 3) + 1] = entries[i].Position.y;
-            flatPositions[(i * 3) + 2] = entries[i].Position.z;
+            if (registeredCellsByUnit.TryGetValue(unit, out List<Vector3Int> registeredCells) &&
+                registeredCells.Count > 1)
+            {
+                snapshots = Array.Empty<FieldUnitMigrationSnapshot>();
+                Debug.LogError($"[UnitFlow-Migration] Refusing to capture a field unit registered in multiple cells. unit={unit.name}, cells={string.Join("|", registeredCells)}");
+                return false;
+            }
+
+            Vector3Int position = registeredCells != null && registeredCells.Count == 1
+                ? registeredCells[0]
+                : WorldToGridInt(unit.transform.position);
+            if (!IsValidGridPosition(position))
+            {
+                snapshots = Array.Empty<FieldUnitMigrationSnapshot>();
+                Debug.LogError($"[UnitFlow-Migration] Refusing to capture an out-of-grid field unit. cell={position}, unit={unit.name}");
+                return false;
+            }
+
+            if (IsGoalCell(position))
+            {
+                snapshots = Array.Empty<FieldUnitMigrationSnapshot>();
+                Debug.LogError($"[UnitFlow-Migration] Refusing to capture a regular unit on the Goal cell. cell={position}, unit={unit.name}");
+                return false;
+            }
+
+            if (!seenCells.Add(position))
+            {
+                snapshots = Array.Empty<FieldUnitMigrationSnapshot>();
+                Debug.LogError($"[UnitFlow-Migration] Refusing to capture duplicate field-unit cells. cell={position}, unit={unit.name}");
+                return false;
+            }
+
+            resolvedCandidates.Add((unit, position));
+        }
+
+        var captured = new List<FieldUnitMigrationSnapshot>(resolvedCandidates.Count);
+        foreach (var candidate in resolvedCandidates
+                     .OrderBy(candidate => candidate.Position.x)
+                     .ThenBy(candidate => candidate.Position.y)
+                     .ThenBy(candidate => candidate.Position.z))
+        {
+            Unit unit = candidate.Unit;
+            var snapshot = new FieldUnitMigrationSnapshot
+            {
+                HasRuntimeState = true,
+                NetworkIdRaw = TryGetUnitNetworkIdRaw(unit, out uint networkIdRaw) ? networkIdRaw : 0,
+                UnitDataRef = unit.Data,
+                UnitDataKey = NormalizeMigrationUnitDataKey(unit.UnitDataKeyForRoster),
+                StarLevel = Mathf.Max(1, unit.StarLevelForRoster),
+                Position = candidate.Position
+            };
+            unit.CaptureMigrationRuntimeState(ref snapshot);
+            if (snapshot.UnitDataRef == null && string.IsNullOrWhiteSpace(snapshot.UnitDataKey))
+            {
+                snapshots = Array.Empty<FieldUnitMigrationSnapshot>();
+                Debug.LogError($"[UnitFlow-Migration] Refusing to capture a field unit without stable data identity. cell={candidate.Position}, unit={unit.name}");
+                return false;
+            }
+
+            captured.Add(snapshot);
+        }
+
+        snapshots = captured.ToArray();
+        if (snapshots.Length != rosterCandidates.Count)
+        {
+            Debug.LogError($"[UnitFlow-Migration] Field roster capture count mismatch. candidates={rosterCandidates.Count},captured={snapshots.Length}");
+            snapshots = Array.Empty<FieldUnitMigrationSnapshot>();
+            return false;
         }
 
         return true;
@@ -1958,23 +2032,141 @@ public partial class FieldManager : MonoBehaviour
         int[] flatPositions,
         string context)
     {
-        var desiredEntries = BuildFieldUnitMigrationEntries(unitDataRefs, unitDataKeys, starLevels, flatPositions);
-        if (desiredEntries.Any(entry => IsGoalCell(entry.Position)))
+        List<FieldUnitMigrationEntry> legacyEntries = BuildFieldUnitMigrationEntries(
+            unitDataRefs,
+            unitDataKeys,
+            starLevels,
+            flatPositions);
+        FieldUnitMigrationSnapshot[] snapshots = legacyEntries.Select(entry => new FieldUnitMigrationSnapshot
         {
-            _hostMigrationUnitRestoreRunning = false;
-            _hostMigrationUnitRestoreSucceeded = false;
-            _hostMigrationUnitRestoreFailureReason = "unit_goal_cell_blocked_in_snapshot";
-            Debug.LogError($"[UnitFlow-Migration] RestoreFieldUnitsAfterHostMigration rejected before mutation. context={context}, reason={_hostMigrationUnitRestoreFailureReason}");
-            return false;
+            HasRuntimeState = false,
+            UnitDataRef = entry.UnitDataRef,
+            UnitDataKey = entry.UnitDataKey,
+            StarLevel = entry.StarLevel,
+            Position = entry.Position
+        }).ToArray();
+        return RestoreFieldUnitsAfterHostMigration(snapshots, context);
+    }
+
+    public bool RestoreFieldUnitsAfterHostMigration(
+        FieldUnitMigrationSnapshot[] snapshots,
+        string context)
+    {
+        snapshots ??= Array.Empty<FieldUnitMigrationSnapshot>();
+        int capturedCount = snapshots.Length;
+        FieldUnitMigrationSnapshot? invalidPosition = snapshots
+            .Cast<FieldUnitMigrationSnapshot?>()
+            .FirstOrDefault(entry => entry.HasValue && !IsValidGridPosition(entry.Value.Position));
+        if (invalidPosition.HasValue)
+        {
+            return RejectFieldUnitMigrationSnapshot(
+                capturedCount,
+                $"unit_position_out_of_grid:{invalidPosition.Value.Position}",
+                context);
         }
 
-        string desiredSignature = BuildFieldUnitMigrationSignature(desiredEntries);
-        if (BuildCurrentFieldUnitMigrationSignature() == desiredSignature)
+        Vector3Int? duplicatePosition = snapshots
+            .GroupBy(entry => entry.Position)
+            .Where(group => group.Count() > 1)
+            .Select(group => (Vector3Int?)group.Key)
+            .FirstOrDefault();
+        if (duplicatePosition.HasValue)
         {
+            return RejectFieldUnitMigrationSnapshot(
+                capturedCount,
+                $"unit_position_duplicate:{duplicatePosition.Value}",
+                context);
+        }
+
+        uint duplicateNetworkId = snapshots
+            .Where(entry => entry.NetworkIdRaw != 0)
+            .GroupBy(entry => entry.NetworkIdRaw)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .FirstOrDefault();
+        if (duplicateNetworkId != 0)
+        {
+            return RejectFieldUnitMigrationSnapshot(
+                capturedCount,
+                $"unit_network_id_duplicate:{duplicateNetworkId}",
+                context);
+        }
+
+        var desiredEntries = snapshots
+            .OrderBy(entry => entry.Position.x)
+            .ThenBy(entry => entry.Position.y)
+            .ThenBy(entry => entry.Position.z)
+            .ToList();
+        if (desiredEntries.Any(entry => IsGoalCell(entry.Position)))
+        {
+            return RejectFieldUnitMigrationSnapshot(
+                capturedCount,
+                "unit_goal_cell_blocked_in_snapshot",
+                context);
+        }
+
+        var signatureEntries = desiredEntries.Select(entry => new FieldUnitMigrationEntry
+        {
+            UnitDataRef = entry.UnitDataRef,
+            UnitDataKey = entry.UnitDataKey,
+            StarLevel = entry.StarLevel,
+            Position = entry.Position
+        }).ToList();
+        string desiredSignature = BuildFieldUnitMigrationSignature(signatureEntries);
+        if (BuildCurrentFieldUnitMigrationSignature() == desiredSignature &&
+            CurrentRosterMatchesSnapshotNetworkIdentities(desiredEntries))
+        {
+            int exactGeneration = ++_hostMigrationUnitRestoreGeneration;
+            BeginHostMigrationUnitNetworkIdRemapGeneration(exactGeneration);
+            var exactRemap = new Dictionary<uint, NetworkId>();
+            string remapFailure = string.Empty;
+            foreach (FieldUnitMigrationSnapshot snapshot in desiredEntries)
+            {
+                Unit actualUnit = GetUnitAt(snapshot.Position);
+                if (!TryStageHostMigrationUnitNetworkIdRemap(
+                        snapshot,
+                        actualUnit,
+                        exactRemap,
+                        out remapFailure))
+                {
+                    break;
+                }
+            }
+
+            if (string.IsNullOrEmpty(remapFailure) &&
+                !CommitHostMigrationUnitNetworkIdRemap(
+                    exactGeneration,
+                    exactRemap,
+                    desiredEntries,
+                    out remapFailure))
+            {
+                // The failure is handled atomically below.
+            }
+
+            if (!string.IsNullOrEmpty(remapFailure))
+            {
+                InvalidateHostMigrationUnitNetworkIdRemap(exactGeneration);
+                _hostMigrationUnitRestoreInProgressSignature = string.Empty;
+                _hostMigrationUnitRestoreRunning = false;
+                _hostMigrationUnitRestoreSucceeded = false;
+                _hostMigrationUnitRestoreFailureReason = remapFailure;
+                _hostMigrationUnitRestoreReport = MigrationRestoreReport.FailedScope(
+                    "field_units",
+                    Mathf.Max(1, desiredEntries.Count),
+                    remapFailure);
+                return false;
+            }
+
             _hostMigrationUnitRestoreInProgressSignature = string.Empty;
             _hostMigrationUnitRestoreRunning = false;
             _hostMigrationUnitRestoreSucceeded = true;
             _hostMigrationUnitRestoreFailureReason = string.Empty;
+            _hostMigrationUnitRestoreReport = new MigrationRestoreReport(
+                "field_units",
+                desiredEntries.Count,
+                0,
+                desiredEntries.Count,
+                0);
             return true;
         }
 
@@ -1983,29 +2175,62 @@ public partial class FieldManager : MonoBehaviour
             return true;
         }
 
-        var resolvedEntries = new List<(UnitData Data, int StarLevel, Vector3Int Position)>();
+        var resolvedEntries = new List<(UnitData Data, FieldUnitMigrationSnapshot Snapshot)>();
         foreach (var entry in desiredEntries)
         {
             UnitData data = ResolveMigrationUnitData(entry.UnitDataRef, entry.UnitDataKey);
             if (data == null)
             {
+                int failedGeneration = ++_hostMigrationUnitRestoreGeneration;
+                InvalidateHostMigrationUnitNetworkIdRemap(failedGeneration);
                 _hostMigrationUnitRestoreRunning = false;
                 _hostMigrationUnitRestoreSucceeded = false;
                 _hostMigrationUnitRestoreFailureReason = $"unit_data_missing:{entry.UnitDataKey}";
+                _hostMigrationUnitRestoreReport = MigrationRestoreReport.FailedScope(
+                    "field_units",
+                    desiredEntries.Count,
+                    _hostMigrationUnitRestoreFailureReason);
                 Debug.LogError($"[UnitFlow-Migration] RestoreFieldUnitsAfterHostMigration rejected before mutation. context={context}, reason={_hostMigrationUnitRestoreFailureReason}");
                 return false;
             }
 
-            resolvedEntries.Add((data, Mathf.Max(1, entry.StarLevel), entry.Position));
+            FieldUnitMigrationSnapshot normalized = entry;
+            normalized.UnitDataRef = data;
+            normalized.UnitDataKey = NormalizeMigrationUnitDataKey(entry.UnitDataKey);
+            normalized.StarLevel = Mathf.Max(1, entry.StarLevel);
+            resolvedEntries.Add((data, normalized));
         }
 
         int generation = ++_hostMigrationUnitRestoreGeneration;
+        BeginHostMigrationUnitNetworkIdRemapGeneration(generation);
         _hostMigrationUnitRestoreInProgressSignature = desiredSignature;
         _hostMigrationUnitRestoreRunning = true;
         _hostMigrationUnitRestoreSucceeded = false;
         _hostMigrationUnitRestoreFailureReason = string.Empty;
+        _hostMigrationUnitRestoreReport = new MigrationRestoreReport(
+            "field_units",
+            desiredEntries.Count,
+            0,
+            0,
+            0);
         RestoreFieldUnitsAfterHostMigrationAsync(resolvedEntries, desiredSignature, context, generation).Forget();
         return true;
+    }
+
+    private bool RejectFieldUnitMigrationSnapshot(int capturedCount, string reason, string context)
+    {
+        int generation = ++_hostMigrationUnitRestoreGeneration;
+        InvalidateHostMigrationUnitNetworkIdRemap(generation);
+        _hostMigrationUnitRestoreInProgressSignature = string.Empty;
+        _hostMigrationUnitRestoreRunning = false;
+        _hostMigrationUnitRestoreSucceeded = false;
+        _hostMigrationUnitRestoreFailureReason = reason;
+        _hostMigrationUnitRestoreReport = MigrationRestoreReport.FailedScope(
+            "field_units",
+            Mathf.Max(1, capturedCount),
+            reason);
+        Debug.LogError($"[UnitFlow-Migration] RestoreFieldUnitsAfterHostMigration rejected before mutation. context={context}, captured={capturedCount}, reason={reason}");
+        return false;
     }
 
     private Vector3Int? FindFirstRegularUnitRebuildCell(UnitData unitData, HashSet<Vector3Int> reservedCells)
@@ -2057,35 +2282,299 @@ public partial class FieldManager : MonoBehaviour
         return !_hostMigrationUnitRestoreRunning;
     }
 
+    public MigrationRestoreReport HostMigrationUnitRestoreReport => _hostMigrationUnitRestoreReport;
+
+    public int HostMigrationUnitNetworkIdRemapGeneration =>
+        _hostMigrationUnitNetworkIdRemapCommitted
+            ? _hostMigrationUnitNetworkIdRemapGeneration
+            : -1;
+
+    /// <summary>
+    /// Resolves an identity captured before host migration to the NetworkId owned by the
+    /// successfully reconciled unit. The table is published atomically only after the matching
+    /// restore generation reaches a successful terminal state; callers therefore cannot observe
+    /// a partial remap while Addressables/unit creation is still in flight.
+    /// </summary>
+    public bool TryResolveHostMigrationUnitNetworkId(
+        NetworkId capturedNetworkId,
+        out NetworkId actualNetworkId)
+    {
+        actualNetworkId = default;
+        return capturedNetworkId.Raw != 0 &&
+               TryResolveHostMigrationUnitNetworkId(capturedNetworkId.Raw, out actualNetworkId);
+    }
+
+    public bool TryResolveHostMigrationUnitNetworkId(
+        uint capturedNetworkIdRaw,
+        out NetworkId actualNetworkId)
+    {
+        actualNetworkId = default;
+        if (capturedNetworkIdRaw == 0 ||
+            !_hostMigrationUnitNetworkIdRemapCommitted ||
+            _hostMigrationUnitRestoreRunning ||
+            !_hostMigrationUnitRestoreSucceeded ||
+            _hostMigrationUnitNetworkIdRemapGeneration != _hostMigrationUnitRestoreGeneration)
+        {
+            return false;
+        }
+
+        return _hostMigrationUnitNetworkIdRemap.TryGetValue(
+                   capturedNetworkIdRaw,
+                   out actualNetworkId) &&
+               actualNetworkId.Raw != 0;
+    }
+
+    private void BeginHostMigrationUnitNetworkIdRemapGeneration(int generation)
+    {
+        _hostMigrationUnitNetworkIdRemap.Clear();
+        _hostMigrationUnitNetworkIdRemapGeneration = generation;
+        _hostMigrationUnitNetworkIdRemapCommitted = false;
+    }
+
+    private void InvalidateHostMigrationUnitNetworkIdRemap(int generation)
+    {
+        _hostMigrationUnitNetworkIdRemap.Clear();
+        _hostMigrationUnitNetworkIdRemapGeneration = generation;
+        _hostMigrationUnitNetworkIdRemapCommitted = false;
+    }
+
+    private bool CommitHostMigrationUnitNetworkIdRemap(
+        int generation,
+        IReadOnlyDictionary<uint, NetworkId> stagedRemap,
+        IReadOnlyList<FieldUnitMigrationSnapshot> snapshots,
+        out string failureReason)
+    {
+        failureReason = string.Empty;
+        if (generation != _hostMigrationUnitRestoreGeneration ||
+            stagedRemap == null ||
+            snapshots == null)
+        {
+            failureReason = "unit_network_id_remap_generation_mismatch";
+            return false;
+        }
+
+        int expectedMappings = snapshots.Count(snapshot => snapshot.NetworkIdRaw != 0);
+        if (stagedRemap.Count != expectedMappings)
+        {
+            failureReason =
+                $"unit_network_id_remap_count_mismatch:expected={expectedMappings},actual={stagedRemap.Count}";
+            return false;
+        }
+
+        foreach (FieldUnitMigrationSnapshot snapshot in snapshots)
+        {
+            if (snapshot.NetworkIdRaw == 0)
+            {
+                continue;
+            }
+
+            if (!stagedRemap.TryGetValue(snapshot.NetworkIdRaw, out NetworkId actualNetworkId) ||
+                actualNetworkId.Raw == 0)
+            {
+                failureReason = $"unit_network_id_remap_missing:{snapshot.NetworkIdRaw}";
+                return false;
+            }
+        }
+
+        _hostMigrationUnitNetworkIdRemap.Clear();
+        foreach (KeyValuePair<uint, NetworkId> pair in stagedRemap)
+        {
+            _hostMigrationUnitNetworkIdRemap.Add(pair.Key, pair.Value);
+        }
+
+        _hostMigrationUnitNetworkIdRemapGeneration = generation;
+        _hostMigrationUnitNetworkIdRemapCommitted = true;
+        return true;
+    }
+
+    private static bool TryStageHostMigrationUnitNetworkIdRemap(
+        FieldUnitMigrationSnapshot snapshot,
+        Unit actualUnit,
+        IDictionary<uint, NetworkId> stagedRemap,
+        out string failureReason)
+    {
+        failureReason = string.Empty;
+        if (snapshot.NetworkIdRaw == 0)
+        {
+            return true;
+        }
+
+        if (actualUnit == null ||
+            !actualUnit.TryGetComponent<NetworkObject>(out NetworkObject networkObject) ||
+            networkObject == null ||
+            !networkObject.IsValid ||
+            networkObject.Id.Raw == 0)
+        {
+            failureReason =
+                $"unit_network_id_remap_actual_invalid:captured={snapshot.NetworkIdRaw},cell={snapshot.Position}";
+            return false;
+        }
+
+        if (stagedRemap.TryGetValue(snapshot.NetworkIdRaw, out NetworkId existing))
+        {
+            if (existing.Raw == networkObject.Id.Raw)
+            {
+                return true;
+            }
+
+            failureReason =
+                $"unit_network_id_remap_conflict:captured={snapshot.NetworkIdRaw},first={existing.Raw},second={networkObject.Id.Raw}";
+            return false;
+        }
+
+        stagedRemap.Add(snapshot.NetworkIdRaw, networkObject.Id);
+        return true;
+    }
+
     private async UniTaskVoid RestoreFieldUnitsAfterHostMigrationAsync(
-        List<(UnitData Data, int StarLevel, Vector3Int Position)> entries,
+        List<(UnitData Data, FieldUnitMigrationSnapshot Snapshot)> entries,
         string desiredSignature,
         string context,
         int generation)
     {
         int restored = 0;
+        int preserved = 0;
+        int failed = 0;
+        var stagedNetworkIdRemap = new Dictionary<uint, NetworkId>();
         try
         {
-            ClearCurrentUnitsForHostMigrationRestore(context);
-            foreach (var entry in entries)
+            RebuildUnitMapAfterMigration($"{context}.IncrementalReconcile", false, out _);
+            List<Unit> candidates = CollectFieldUnitMigrationCandidates();
+            var usedUnits = new HashSet<Unit>();
+            var matchedUnits = new Dictionary<int, (Unit Unit, bool ExactNetworkMatch)>();
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                Unit matched = FindPreservedMigrationUnit(
+                    entries[i].Snapshot,
+                    candidates,
+                    usedUnits,
+                    out bool exactNetworkMatch);
+                if (matched == null)
+                {
+                    continue;
+                }
+
+                usedUnits.Add(matched);
+                matchedUnits[i] = (matched, exactNetworkMatch);
+            }
+
+            foreach (var pair in matchedUnits.OrderBy(pair => pair.Key))
             {
                 if (generation != _hostMigrationUnitRestoreGeneration)
                 {
                     return;
                 }
 
+                FieldUnitMigrationSnapshot snapshot = entries[pair.Key].Snapshot;
+                RegisterUnitAt(pair.Value.Unit, snapshot.Position);
+                if (snapshot.HasRuntimeState && !pair.Value.ExactNetworkMatch)
+                {
+                    if (!await pair.Value.Unit.RestoreMigrationRuntimeStateAsync(snapshot))
+                    {
+                        failed++;
+                        _hostMigrationUnitRestoreFailureReason =
+                            $"matched_unit_runtime_state_restore_failed:{snapshot.Position}";
+                        continue;
+                    }
+
+                }
+
+                if (!TryStageHostMigrationUnitNetworkIdRemap(
+                        snapshot,
+                        pair.Value.Unit,
+                        stagedNetworkIdRemap,
+                        out string remapFailure))
+                {
+                    failed++;
+                    _hostMigrationUnitRestoreFailureReason = remapFailure;
+                    continue;
+                }
+
+                if (snapshot.HasRuntimeState && !pair.Value.ExactNetworkMatch)
+                {
+                    restored++;
+                }
+                else
+                {
+                    preserved++;
+                }
+            }
+
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (matchedUnits.ContainsKey(i))
+                {
+                    continue;
+                }
+
+                var entry = entries[i];
+                FieldUnitMigrationSnapshot snapshot = entry.Snapshot;
+                if (generation != _hostMigrationUnitRestoreGeneration)
+                {
+                    return;
+                }
+
+                Unit blockingUnit = GetUnitAt(snapshot.Position);
+                if (blockingUnit != null && !usedUnits.Contains(blockingUnit))
+                {
+                    RemovePlacedUnitEntries(blockingUnit);
+                }
+
                 UnitPlacementResult result = await TryCreateUnitAtAsync(
                     entry.Data,
-                    entry.Position,
-                    entry.StarLevel,
+                    snapshot.Position,
+                    snapshot.StarLevel,
                     false,
                     suppressCombination: true);
                 if (!result.Succeeded)
                 {
+                    failed++;
                     _hostMigrationUnitRestoreFailureReason =
-                        $"unit_restore_failed:{entry.Position}:{result.FailureReason}";
-                    return;
+                        $"unit_restore_failed:{snapshot.Position}:{result.FailureReason}";
+                    if (blockingUnit != null)
+                    {
+                        RegisterUnitAt(blockingUnit, snapshot.Position);
+                    }
+                    continue;
                 }
+
+                usedUnits.Add(result.Unit);
+                if (snapshot.HasRuntimeState && !await result.Unit.RestoreMigrationRuntimeStateAsync(snapshot))
+                {
+                    failed++;
+                    _hostMigrationUnitRestoreFailureReason =
+                        $"unit_runtime_state_restore_failed:{snapshot.Position}";
+                    usedUnits.Remove(result.Unit);
+                    RemovePlacedUnitEntries(result.Unit);
+                    RemoveOwnedUnitReference(result.Unit);
+                    DespawnOrDestroyUnitForMigrationRestore(result.Unit, $"{context}.RuntimeStateRollback");
+                    if (blockingUnit != null)
+                    {
+                        RegisterUnitAt(blockingUnit, snapshot.Position);
+                    }
+                    continue;
+                }
+
+                if (!TryStageHostMigrationUnitNetworkIdRemap(
+                        snapshot,
+                        result.Unit,
+                        stagedNetworkIdRemap,
+                        out string remapFailure))
+                {
+                    failed++;
+                    _hostMigrationUnitRestoreFailureReason = remapFailure;
+                    usedUnits.Remove(result.Unit);
+                    RemovePlacedUnitEntries(result.Unit);
+                    RemoveOwnedUnitReference(result.Unit);
+                    DespawnOrDestroyUnitForMigrationRestore(result.Unit, $"{context}.NetworkIdRemapRollback");
+                    if (blockingUnit != null)
+                    {
+                        RegisterUnitAt(blockingUnit, snapshot.Position);
+                    }
+                    continue;
+                }
+
                 restored++;
             }
 
@@ -2094,17 +2583,50 @@ public partial class FieldManager : MonoBehaviour
                 return;
             }
 
-            _hostMigrationUnitRestoreSucceeded =
-                string.Equals(BuildCurrentFieldUnitMigrationSignature(), desiredSignature, StringComparison.Ordinal);
+            if (failed == 0)
+            {
+                foreach (Unit extra in candidates.Where(unit => unit != null && !usedUnits.Contains(unit)))
+                {
+                    RemovePlacedUnitEntries(extra);
+                    RemoveOwnedUnitReference(extra);
+                    DespawnOrDestroyUnitForMigrationRestore(extra, $"{context}.IncrementalExtra");
+                }
+            }
+
+            bool signatureMatches = string.Equals(
+                BuildCurrentFieldUnitMigrationSignature(),
+                desiredSignature,
+                StringComparison.Ordinal);
+            bool remapCommitted = false;
+            if (failed == 0 && signatureMatches)
+            {
+                remapCommitted = CommitHostMigrationUnitNetworkIdRemap(
+                    generation,
+                    stagedNetworkIdRemap,
+                    entries.Select(entry => entry.Snapshot).ToList(),
+                    out string remapCommitFailure);
+                if (!remapCommitted)
+                {
+                    failed++;
+                    _hostMigrationUnitRestoreFailureReason = remapCommitFailure;
+                }
+            }
+
+            _hostMigrationUnitRestoreSucceeded = failed == 0 && signatureMatches && remapCommitted;
             if (!_hostMigrationUnitRestoreSucceeded)
             {
-                _hostMigrationUnitRestoreFailureReason = "field_unit_signature_mismatch";
+                if (string.IsNullOrEmpty(_hostMigrationUnitRestoreFailureReason))
+                {
+                    _hostMigrationUnitRestoreFailureReason = "field_unit_signature_mismatch";
+                }
+                failed = Mathf.Max(1, failed);
             }
         }
         catch (Exception exception)
         {
             Debug.LogException(exception, this);
             _hostMigrationUnitRestoreFailureReason = "field_unit_restore_exception";
+            failed = Mathf.Max(1, failed);
         }
         finally
         {
@@ -2116,13 +2638,156 @@ public partial class FieldManager : MonoBehaviour
                     _hostMigrationUnitRestoreInProgressSignature = string.Empty;
                     _hostMigrationUnitRestoreFailureReason = string.Empty;
                 }
+                else
+                {
+                    InvalidateHostMigrationUnitNetworkIdRemap(generation);
+                }
+
+                if (!_hostMigrationUnitRestoreSucceeded && failed > 0 && restored + preserved + failed > entries.Count)
+                {
+                    int overflow = restored + preserved + failed - entries.Count;
+                    int reducePreserved = Mathf.Min(preserved, overflow);
+                    preserved -= reducePreserved;
+                    overflow -= reducePreserved;
+                    restored = Mathf.Max(0, restored - overflow);
+                }
+
+                int unaccounted = Mathf.Max(0, entries.Count - restored - preserved - failed);
+                failed += unaccounted;
+                int reportCaptured = entries.Count == 0 && !_hostMigrationUnitRestoreSucceeded ? 1 : entries.Count;
+                _hostMigrationUnitRestoreReport = new MigrationRestoreReport(
+                    "field_units",
+                    reportCaptured,
+                    restored,
+                    preserved,
+                    failed,
+                    _hostMigrationUnitRestoreFailureReason);
 
                 _lastUnitMapRebuildFrame = Time.frameCount;
                 _lastUnitMapRebuildSummary =
-                    $"ctx={context},restoreCompleted={restored}/{entries.Count},success={_hostMigrationUnitRestoreSucceeded},reason={_hostMigrationUnitRestoreFailureReason}";
+                    $"ctx={context},restored={restored},preserved={preserved},failed={failed},captured={entries.Count},success={_hostMigrationUnitRestoreSucceeded},reason={_hostMigrationUnitRestoreFailureReason}";
                 Debug.Log($"[UnitFlow-Migration] RestoreFieldUnitsAfterHostMigration {_lastUnitMapRebuildSummary}");
             }
         }
+    }
+
+    private List<Unit> CollectFieldUnitMigrationCandidates()
+    {
+        var candidates = new HashSet<Unit>();
+        foreach (Unit unit in placedUnits.Values)
+        {
+            if (unit != null && IsFieldUnitSnapshotCandidate(unit))
+            {
+                candidates.Add(unit);
+            }
+        }
+
+        if (playerManager != null && playerManager.ownedUnits != null)
+        {
+            foreach (Unit unit in playerManager.ownedUnits)
+            {
+                if (unit != null && IsFieldUnitSnapshotCandidate(unit))
+                {
+                    candidates.Add(unit);
+                }
+            }
+        }
+
+        if (unitParent != null)
+        {
+            foreach (Unit unit in unitParent.GetComponentsInChildren<Unit>(true))
+            {
+                if (unit != null && IsFieldUnitSnapshotCandidate(unit))
+                {
+                    candidates.Add(unit);
+                }
+            }
+        }
+
+        return candidates.ToList();
+    }
+
+    private bool CurrentRosterMatchesSnapshotNetworkIdentities(
+        IReadOnlyList<FieldUnitMigrationSnapshot> snapshots)
+    {
+        if (snapshots == null)
+        {
+            return false;
+        }
+
+        foreach (FieldUnitMigrationSnapshot snapshot in snapshots)
+        {
+            if (snapshot.NetworkIdRaw == 0)
+            {
+                return false;
+            }
+
+            Unit unit = GetUnitAt(snapshot.Position);
+            if (unit == null ||
+                !TryGetUnitNetworkIdRaw(unit, out uint currentNetworkIdRaw) ||
+                currentNetworkIdRaw != snapshot.NetworkIdRaw ||
+                !IsMigrationUnitCompatible(unit, snapshot))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private Unit FindPreservedMigrationUnit(
+        FieldUnitMigrationSnapshot snapshot,
+        IReadOnlyList<Unit> candidates,
+        HashSet<Unit> usedUnits,
+        out bool exactNetworkMatch)
+    {
+        exactNetworkMatch = false;
+        if (snapshot.NetworkIdRaw != 0)
+        {
+            Unit networkMatch = candidates.FirstOrDefault(unit =>
+                unit != null &&
+                !usedUnits.Contains(unit) &&
+                TryGetUnitNetworkIdRaw(unit, out uint idRaw) &&
+                idRaw == snapshot.NetworkIdRaw &&
+                IsMigrationUnitCompatible(unit, snapshot));
+            if (networkMatch != null)
+            {
+                exactNetworkMatch = true;
+                return networkMatch;
+            }
+        }
+
+        Unit cellMatch = GetUnitAt(snapshot.Position);
+        if (cellMatch != null &&
+            !usedUnits.Contains(cellMatch) &&
+            IsMigrationUnitCompatible(cellMatch, snapshot))
+        {
+            return cellMatch;
+        }
+
+        return candidates.FirstOrDefault(unit =>
+            unit != null &&
+            !usedUnits.Contains(unit) &&
+            WorldToGridInt(unit.transform.position) == snapshot.Position &&
+            IsMigrationUnitCompatible(unit, snapshot));
+    }
+
+    private static bool IsMigrationUnitCompatible(Unit unit, FieldUnitMigrationSnapshot snapshot)
+    {
+        if (unit == null || Mathf.Max(1, unit.StarLevelForRoster) != Mathf.Max(1, snapshot.StarLevel))
+        {
+            return false;
+        }
+
+        string expectedKey = NormalizeMigrationUnitDataKey(snapshot.UnitDataKey);
+        if (string.IsNullOrEmpty(expectedKey) && snapshot.UnitDataRef != null)
+        {
+            expectedKey = NormalizeMigrationUnitDataKey(snapshot.UnitDataRef.name);
+        }
+
+        string actualKey = NormalizeMigrationUnitDataKey(unit.UnitDataKeyForRoster);
+        return !string.IsNullOrEmpty(expectedKey) &&
+               string.Equals(actualKey, expectedKey, StringComparison.OrdinalIgnoreCase);
     }
 
     private bool IsFieldUnitSnapshotCandidate(Unit unit)
@@ -2216,51 +2881,6 @@ public partial class FieldManager : MonoBehaviour
 
         return string.Join("|", entries.Select(entry =>
             $"{entry.Position.x},{entry.Position.y},{entry.Position.z}:{NormalizeMigrationUnitDataKey(entry.UnitDataKey)}:star={Mathf.Max(1, entry.StarLevel)}"));
-    }
-
-    private void ClearCurrentUnitsForHostMigrationRestore(string context)
-    {
-        var unitsToRemove = new HashSet<Unit>();
-        foreach (var unit in placedUnits.Values)
-        {
-            if (unit != null)
-            {
-                unitsToRemove.Add(unit);
-            }
-        }
-
-        if (playerManager != null && playerManager.ownedUnits != null)
-        {
-            foreach (var unit in playerManager.ownedUnits)
-            {
-                if (unit != null && IsFieldUnitSnapshotCandidate(unit))
-                {
-                    unitsToRemove.Add(unit);
-                }
-            }
-        }
-
-        if (unitParent != null)
-        {
-            foreach (var unit in unitParent.GetComponentsInChildren<Unit>(true))
-            {
-                if (unit != null)
-                {
-                    unitsToRemove.Add(unit);
-                }
-            }
-        }
-
-        placedUnits.Clear();
-        pendingUnitPositions.Clear();
-        pendingUnitDataByPosition.Clear();
-        pendingNetworkMoves.Clear();
-
-        foreach (var unit in unitsToRemove)
-        {
-            RemoveOwnedUnitReference(unit);
-            DespawnOrDestroyUnitForMigrationRestore(unit, context);
-        }
     }
 
     private void DespawnOrDestroyUnitForMigrationRestore(Unit unit, string context)
@@ -2783,79 +3403,181 @@ public partial class FieldManager : MonoBehaviour
         permanentWallsGenerated = true;
     }
 
-    public void RestorePermanentWallsAfterHostMigration(
+    public MigrationRestoreReport RestorePermanentWallsAfterHostMigration(
         int[] flatPositions,
         int[] playerPlacedFlatPositions,
         string context)
     {
-        flatPositions ??= Array.Empty<int>();
-        playerPlacedFlatPositions ??= Array.Empty<int>();
-
-        var requestedCells = new List<Vector3Int>(flatPositions.Length / 2);
-        int count = flatPositions.Length / 2;
-        for (int i = 0; i < count; i++)
+        string scope = $"permanent_walls:P{(playerManager != null ? playerManager.playerId : -1)}";
+        int captured = flatPositions?.Length / 2 ?? 0;
+        if (!TryParsePermanentWallMigrationSnapshot(
+                flatPositions,
+                playerPlacedFlatPositions,
+                out HashSet<Vector3Int> requestedCells,
+                out HashSet<Vector3Int> requestedPlayerPlacedCells,
+                out string validationError))
         {
-            var pos = new Vector3Int(flatPositions[i * 2], flatPositions[i * 2 + 1], 0);
-            if (IsValidGridPosition(pos) && !requestedCells.Contains(pos))
-            {
-                requestedCells.Add(pos);
-            }
-        }
-
-        var requestedPlayerPlacedCells = new HashSet<Vector3Int>();
-        int playerPlacedCount = playerPlacedFlatPositions.Length / 2;
-        for (int i = 0; i < playerPlacedCount; i++)
-        {
-            var pos = new Vector3Int(
-                playerPlacedFlatPositions[i * 2],
-                playerPlacedFlatPositions[i * 2 + 1],
-                0);
-            if (requestedCells.Contains(pos))
-            {
-                requestedPlayerPlacedCells.Add(pos);
-            }
-        }
-
-        SetAuthoritativePermanentWallCells(requestedCells, requestedPlayerPlacedCells);
-        if (requestedCells.Count == 0)
-        {
-            permanentWallsGenerated = true;
-            return;
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, captured),
+                $"permanent_wall_snapshot_invalid:{validationError}");
         }
 
         RebuildWallMapsAfterMigration($"FieldManager.RestorePermanentWallsAfterHostMigration.Pre.{context}", false, out _);
 
         GameObject prefab = permanentWallPrefab;
-        if (prefab == null)
+        if (requestedCells.Count > 0 && prefab == null)
         {
-            Debug.LogWarning($"[WallFlow-Migration] permanent wall restore skipped: prefab unavailable. owner={BuildWallOwnerTag()}, context={context}, requested={requestedCells.Count}");
-            return;
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, captured),
+                "permanent_wall_prefab_unavailable");
         }
 
-        int created = 0;
-        foreach (var pos in requestedCells)
+        foreach (Vector3Int pos in requestedCells)
         {
-            if (placedPermanentWalls.ContainsKey(pos))
+            bool hasExistingPermanentWall = placedPermanentWalls.TryGetValue(pos, out GameObject existingPermanentWall) &&
+                                            existingPermanentWall != null;
+            if (!hasExistingPermanentWall && HasWallAt(pos))
+            {
+                return MigrationRestoreReport.FailedScope(
+                    scope,
+                    Mathf.Max(1, captured),
+                    $"permanent_wall_collision:{pos.x},{pos.y}");
+            }
+
+            Unit occupant = GetUnitAt(pos);
+            if (!hasExistingPermanentWall &&
+                occupant != null &&
+                (occupant.Data == null || occupant.Data.unitType != UnitType.Ranged))
+            {
+                return MigrationRestoreReport.FailedScope(
+                    scope,
+                    Mathf.Max(1, captured),
+                    $"permanent_wall_unit_collision:{pos.x},{pos.y}");
+            }
+        }
+
+        SetAuthoritativePermanentWallCells(requestedCells, requestedPlayerPlacedCells);
+        int created = 0;
+        foreach (Vector3Int pos in requestedCells)
+        {
+            if (placedPermanentWalls.TryGetValue(pos, out GameObject existingPermanentWall) &&
+                existingPermanentWall != null)
             {
                 continue;
             }
 
-            if (HasWallAt(pos))
+            bool createdSuccessfully;
+            try
             {
-                continue;
+                createdSuccessfully = CreatePermanentWallAt(
+                    pos,
+                    prefab,
+                    requestedPlayerPlacedCells.Contains(pos));
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, this);
+                return MigrationRestoreReport.FailedScope(
+                    scope,
+                    Mathf.Max(1, captured),
+                    $"permanent_wall_create_exception:{pos.x},{pos.y}:{exception.GetType().Name}");
             }
 
-            int beforeCount = placedPermanentWalls.Count;
-            CreatePermanentWallAt(pos, prefab, requestedPlayerPlacedCells.Contains(pos));
-            if (placedPermanentWalls.Count > beforeCount)
+            if (!createdSuccessfully)
             {
-                created++;
+                return MigrationRestoreReport.FailedScope(
+                    scope,
+                    Mathf.Max(1, captured),
+                    $"permanent_wall_create_failed:{pos.x},{pos.y}");
             }
+
+            created++;
+        }
+
+        RebuildWallMapsAfterMigration($"FieldManager.RestorePermanentWallsAfterHostMigration.Post.{context}", false, out string summary, true);
+        var actualCells = new HashSet<Vector3Int>(placedPermanentWalls
+            .Where(pair => pair.Value != null)
+            .Select(pair => pair.Key));
+        var actualPlayerPlacedCells = new HashSet<Vector3Int>(playerPlacedPermanentWallCells
+            .Where(cell => actualCells.Contains(cell)));
+        if (!actualCells.SetEquals(requestedCells) ||
+            !actualPlayerPlacedCells.SetEquals(requestedPlayerPlacedCells) ||
+            !authoritativePermanentWallCells.SetEquals(requestedCells))
+        {
+            return MigrationRestoreReport.FailedScope(
+                scope,
+                Mathf.Max(1, captured),
+                $"permanent_wall_layout_mismatch:requested={requestedCells.Count},actual={actualCells.Count},requestedPlayer={requestedPlayerPlacedCells.Count},actualPlayer={actualPlayerPlacedCells.Count}");
         }
 
         permanentWallsGenerated = true;
-        RebuildWallMapsAfterMigration($"FieldManager.RestorePermanentWallsAfterHostMigration.Post.{context}", false, out string summary, true);
         Debug.Log($"[WallFlow-Migration] durable permanent wall restore complete. owner={BuildWallOwnerTag()}, context={context}, requested={requestedCells.Count}, created={created}, summary={summary}");
+        return new MigrationRestoreReport(scope, captured, captured, 0, 0);
+    }
+
+    private bool TryParsePermanentWallMigrationSnapshot(
+        int[] flatPositions,
+        int[] playerPlacedFlatPositions,
+        out HashSet<Vector3Int> requestedCells,
+        out HashSet<Vector3Int> requestedPlayerPlacedCells,
+        out string error)
+    {
+        requestedCells = new HashSet<Vector3Int>();
+        requestedPlayerPlacedCells = new HashSet<Vector3Int>();
+        error = string.Empty;
+        if (flatPositions == null || playerPlacedFlatPositions == null)
+        {
+            error = "null_array";
+            return false;
+        }
+
+        if ((flatPositions.Length & 1) != 0 || (playerPlacedFlatPositions.Length & 1) != 0)
+        {
+            error = $"shape_mismatch:permanent={flatPositions.Length},playerPlaced={playerPlacedFlatPositions.Length}";
+            return false;
+        }
+
+        for (int i = 0; i < flatPositions.Length; i += 2)
+        {
+            var pos = new Vector3Int(flatPositions[i], flatPositions[i + 1], 0);
+            if (!IsValidGridPosition(pos))
+            {
+                error = $"cell_out_of_grid:index={i / 2},cell={pos.x},{pos.y}";
+                return false;
+            }
+
+            if (!requestedCells.Add(pos))
+            {
+                error = $"duplicate_cell:index={i / 2},cell={pos.x},{pos.y}";
+                return false;
+            }
+        }
+
+        for (int i = 0; i < playerPlacedFlatPositions.Length; i += 2)
+        {
+            var pos = new Vector3Int(playerPlacedFlatPositions[i], playerPlacedFlatPositions[i + 1], 0);
+            if (!IsValidGridPosition(pos))
+            {
+                error = $"player_cell_out_of_grid:index={i / 2},cell={pos.x},{pos.y}";
+                return false;
+            }
+
+            if (!requestedPlayerPlacedCells.Add(pos))
+            {
+                error = $"duplicate_player_cell:index={i / 2},cell={pos.x},{pos.y}";
+                return false;
+            }
+
+            if (!requestedCells.Contains(pos))
+            {
+                error = $"player_cell_not_permanent:index={i / 2},cell={pos.x},{pos.y}";
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void RemoveObsoleteClientPermanentWallFallbacks(IEnumerable<Vector3Int> requestedCells)

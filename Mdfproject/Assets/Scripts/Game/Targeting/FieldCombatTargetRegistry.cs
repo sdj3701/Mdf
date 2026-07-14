@@ -195,6 +195,49 @@ public sealed class FieldCombatTargetRegistry
         MaxCandidatesVisitedPerQuery = 0;
     }
 
+    /// <summary>
+    /// Appends the distributed, migration-durable members of one materialized zone pulse without
+    /// allocating or walking the entire scene. Callers share <paramref name="visitedIds"/> across
+    /// fields so a temporarily duplicated registry entry cannot apply an effect twice.
+    /// </summary>
+    public void CollectPendingZonePulseTargets(
+        int pulseToken,
+        NetworkRunner expectedRunner,
+        List<NetworkObject> results,
+        HashSet<uint> visitedIds)
+    {
+        if (pulseToken <= 0 || results == null || visitedIds == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < _units.Count; i++)
+        {
+            Unit unit = _units[i].Actor;
+            NetworkObject targetObject = unit != null ? unit.Object : null;
+            if (targetObject == null || !targetObject.IsValid || targetObject.Runner != expectedRunner ||
+                unit.PendingZonePulseDebtToken != pulseToken || !visitedIds.Add(targetObject.Id.Raw))
+            {
+                continue;
+            }
+
+            results.Add(targetObject);
+        }
+
+        for (int i = 0; i < _monsters.Count; i++)
+        {
+            Monster monster = _monsters[i].Actor;
+            NetworkObject targetObject = monster != null ? monster.Object : null;
+            if (targetObject == null || !targetObject.IsValid || targetObject.Runner != expectedRunner ||
+                monster.PendingZonePulseDebtToken != pulseToken || !visitedIds.Add(targetObject.Id.Raw))
+            {
+                continue;
+            }
+
+            results.Add(targetObject);
+        }
+    }
+
     public void ResetSearchSchedule(UnityEngine.Object requester)
     {
         if (requester != null)

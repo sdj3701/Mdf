@@ -6,11 +6,11 @@ Category: unity-cli
 Created: 2026-05-05
 Last used: 2026-07-14
 Last verified: 2026-07-14
-Use count: 25
+Use count: 27
 Review after: 2026-08-03
 Triggers: mp_dump_state, mp_assert_state, mp_build_player, custom tool smoke
 Applies to: unity-cli connector 0.3.15 custom tools
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/20260713-performance-memory-final-v2-win64/build-metadata.json; artifacts/builds/20260713-king-wall-timer-final-win64/build-metadata.json; artifacts/builds/20260714-king-ui-attack-final2-win64/build-metadata.json
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/builds/20260713-performance-memory-final-v2-win64/build-metadata.json; artifacts/builds/20260713-king-wall-timer-final-win64/build-metadata.json; artifacts/builds/20260714-king-ui-attack-final2-win64/build-metadata.json; artifacts/builds/20260714-195200-content-migration-capacity-win64/build-metadata.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -38,3 +38,4 @@ Lifecycle notes:
 - 2026-07-13: verified artifact `artifacts/builds/20260713-king-wall-timer-final-win64/build-metadata.json`
 - 2026-07-14: Extended unity-cli timeout and explicit build target completed the player build and restored Android target.
 - 2026-07-14: verified artifact `artifacts/builds/20260714-king-ui-attack-final2-win64/build-metadata.json`
+- 2026-07-14: verified artifact `artifacts/builds/20260714-195200-content-migration-capacity-win64/build-metadata.json`

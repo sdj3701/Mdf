@@ -62,18 +62,34 @@
     <Analyzer Include="C:\Users\k05n1\.vscode\extensions\visualstudiotoolsforunity.vstuc-1.2.2\Analyzers\Microsoft.Unity.Analyzers.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\WallUpgradeAndFirstSpawnPrewarmEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingSkillCommandEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\LobbyMatchPrewarmGateEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\WallRemovePanelInputEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MdfAsyncAuthorityRegressionEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\HostMigrationDurableStateEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\MonsterPrewarmEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\UnitMeleeRangeEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\RuntimePerformanceGuardsEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\AssetReserializeTool.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\PurchaseAndCombinationTransactionEditModeTests.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Editor\ReadmeEditor.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingLobbySelectionEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\RuntimeLifecycleRegressionEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\FieldManagerUnitPresentationEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestUnityCliTools.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\NetworkManagerReconnectAiTakeoverEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\MissingScriptFinder.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingRuntimeEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MdfSourcePolicy.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\BuildAutomation.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestGracefulQuitEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MdfCompiledCodePolicy.cs" />
     <Compile Include="Assets\Scripts\Editor\StatusBarSkillButtonInputEditModeTests.cs" />
     <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeView.cs" />
     <Compile Include="Assets\Scripts\Editor\ProjectileVfxTuningPreviewEditor.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\ProjectPerformanceSettingsEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\UnitFirstPurchasePrewarmEditModeTests.cs" />
     <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\NodeView.cs" />
     <Compile Include="Assets\Scripts\Editor\AttackSlashTuningPreviewEditor.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\AttackSlashTuningEditModeTests.cs" />
@@ -81,37 +97,33 @@
     <Compile Include="Assets\Scripts\Editor\UITKTextSettingsSetup.cs" />
     <Compile Include="Assets\Scripts\Editor\DataExporter.cs" />
     <Compile Include="Assets\Scripts\Editor\AddressablesRegistryEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingHarnessContractEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\CombatSchedulerLocalStateEditModeTests.cs" />
     <Compile Include="Assets\Scripts\UI\ReLogin\Editor\ReLoginUIToolkitSceneInstaller.cs" />
     <Compile Include="Assets\Scripts\UI\TestMatching\Editor\TestMatchingUIToolkitSceneInstaller.cs" />
+    <Compile Include="Assets\Scripts\Editor\SelectionActionPanelInputEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\WallUpgradeButtonPresentationEditModeTests.cs" />
     <Compile Include="Assets\Editor\AI\BehaviorTreeViewer\BehaviorTreeViewer.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\LocalVfxVisibilityEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingAttackPresentationEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\ManagerResponsibilityExtractionEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingContentAssetsEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\PlacementPreviewMaterialEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\BlackMagicAttackEconomyEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\ProjectileVfxConfigEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\AddressablesLoadingPolicyEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestHarnessEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\StatusEffectSchedulerEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\NavigationPerformanceEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Editor\AddressableKeyDrawer.cs" />
     <Compile Include="Assets\Resource\VFX\Hovl Studio\HSFiles\Scripts\Editor\ShaderChanger.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\MdfAsyncAuthorityRegressionEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\HostMigrationDurableStateEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\PurchaseAndCombinationTransactionEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\NetworkManagerReconnectAiTakeoverEditModeTests.cs" />
     <Compile Include="Assets\Scripts\Testing\MP\Editor\FieldCombatTargetRegistryEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\ProjectPerformanceSettingsEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\RuntimePerformanceGuardsEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\AddressablesLoadingPolicyEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\ManagerResponsibilityExtractionEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\MdfSourcePolicy.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\MdfCompiledCodePolicy.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\RuntimeLifecycleRegressionEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestGracefulQuitEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\BlackMagicAttackEconomyEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingSkillCommandEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingLobbySelectionEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingRuntimeEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingContentAssetsEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\KingHarnessContractEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\WallUpgradeAndFirstSpawnPrewarmEditModeTests.cs" />
-    <Compile Include="Assets\Scripts\Testing\MP\Editor\UnitFirstPurchasePrewarmEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\ContentIdentityEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\CombatSchedulerCapacityEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\MPTestReleaseIsolationEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Editor\ContentIdentityValidator.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\HostMigrationRestoreReportEditModeTests.cs" />
+    <Compile Include="Assets\Scripts\Testing\MP\Editor\CombatSchedulerMigrationRemapEditModeTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Firebase\Editor\FirebaseCrashlytics_version-13.2.0_manifest.txt" />
@@ -1174,16 +1186,16 @@
       <HintPath>Library\ScriptAssemblies\UnityEditor.UI.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Unity.InputSystem">
-      <HintPath>Library\ScriptAssemblies\Unity.InputSystem.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
     <Reference Include="Unity.Rider.Editor">
       <HintPath>Library\ScriptAssemblies\Unity.Rider.Editor.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.RenderPipelines.Core.ShaderLibrary">
       <HintPath>Library\ScriptAssemblies\Unity.RenderPipelines.Core.ShaderLibrary.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>Library\ScriptAssemblies\Unity.InputSystem.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.UI">
@@ -1314,8 +1326,8 @@
       <HintPath>Library\ScriptAssemblies\Unity.Postprocessing.Editor.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Unity.PlasticSCM.Editor">
-      <HintPath>Library\ScriptAssemblies\Unity.PlasticSCM.Editor.dll</HintPath>
+    <Reference Include="Unity.VisualScripting.Flow">
+      <HintPath>Library\ScriptAssemblies\Unity.VisualScripting.Flow.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.2D.Tilemap.Extras.Editor">
@@ -1326,8 +1338,12 @@
       <HintPath>Library\ScriptAssemblies\Unity.FilmInternalUtilities.dll</HintPath>
       <Private>False</Private>
     </Reference>
-    <Reference Include="Unity.VisualScripting.Flow">
-      <HintPath>Library\ScriptAssemblies\Unity.VisualScripting.Flow.dll</HintPath>
+    <Reference Include="UniTask.Linq">
+      <HintPath>Library\ScriptAssemblies\UniTask.Linq.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.PlasticSCM.Editor">
+      <HintPath>Library\ScriptAssemblies\Unity.PlasticSCM.Editor.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.VisualScripting.Core">
@@ -1336,10 +1352,6 @@
     </Reference>
     <Reference Include="Unity.Mathematics">
       <HintPath>Library\ScriptAssemblies\Unity.Mathematics.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="UniTask.Linq">
-      <HintPath>Library\ScriptAssemblies\UniTask.Linq.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Unity.Burst">
@@ -1398,16 +1410,16 @@
   <ItemGroup>
     <ProjectReference Include="Assembly-CSharp.csproj" />
     <ProjectReference Include="ToonyColorsPro.Demo.Editor.csproj" />
+    <ProjectReference Include="MDF.Runtime.Pooling.csproj" />
     <ProjectReference Include="Fusion.Unity.csproj" />
     <ProjectReference Include="Fusion.Unity.Editor.csproj" />
     <ProjectReference Include="ToonyColorsPro.Runtime.csproj" />
+    <ProjectReference Include="MDF.Runtime.Grid.csproj" />
+    <ProjectReference Include="MDF.Runtime.Assets.csproj" />
     <ProjectReference Include="ToonyColorsPro.Editor.csproj" />
     <ProjectReference Include="ToonyColorsPro2.Demo.csproj" />
-    <ProjectReference Include="KinoBloom.Runtime.csproj" />
-    <ProjectReference Include="MDF.Runtime.Assets.csproj" />
     <ProjectReference Include="MDF.Runtime.Foundation.csproj" />
-    <ProjectReference Include="MDF.Runtime.Grid.csproj" />
-    <ProjectReference Include="MDF.Runtime.Pooling.csproj" />
+    <ProjectReference Include="KinoBloom.Runtime.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <ItemGroup>

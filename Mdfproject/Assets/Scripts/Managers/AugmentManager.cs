@@ -5,6 +5,7 @@ using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using System;
+using System.Threading;
 using Cysharp.Threading.Tasks; // [추가] UniTask 사용을 위해 네임스페이스 추가
 
 public class AugmentManager : MonoBehaviour
@@ -14,11 +15,14 @@ public class AugmentManager : MonoBehaviour
     private List<AugmentData> silverAugments = new List<AugmentData>();
     private List<AugmentData> goldAugments = new List<AugmentData>();
     private List<AugmentData> prismaticAugments = new List<AugmentData>();
+    private readonly Dictionary<string, AugmentData> augmentsByContentId =
+        new Dictionary<string, AugmentData>(StringComparer.Ordinal);
     private bool isDataLoaded = false;
     private bool isDataLoading = false;
     private AsyncOperationHandle<IList<AugmentData>> _augmentDataHandle;
     private bool _hasAugmentDataHandle;
     private List<AugmentData> presentedAugments = new List<AugmentData>();
+    private const int PresentedAugmentCapacity = 3;
     private const float AugmentDataWaitTimeoutSeconds = 12f;
     private const int AugmentDataPollMilliseconds = 100;
 
@@ -54,8 +58,11 @@ public class AugmentManager : MonoBehaviour
         return runner != null && runner.IsRunning && !runner.IsServer;
     }
 
-    private async UniTask<bool> WaitUntilAugmentDataLoadedInternal(float timeoutSeconds = AugmentDataWaitTimeoutSeconds)
+    private async UniTask<bool> WaitUntilAugmentDataLoadedInternal(
+        float timeoutSeconds = AugmentDataWaitTimeoutSeconds,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (isDataLoaded)
         {
             return true;
@@ -67,6 +74,7 @@ public class AugmentManager : MonoBehaviour
 
         while (!isDataLoaded && waited < timeoutSeconds)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!isDataLoading && startAttempts < 3 && waited >= nextRetryAt)
             {
                 startAttempts++;
@@ -74,7 +82,7 @@ public class AugmentManager : MonoBehaviour
                 LoadAllAugmentsAsync().Forget();
             }
 
-            await UniTask.Delay(AugmentDataPollMilliseconds);
+            await UniTask.Delay(AugmentDataPollMilliseconds, cancellationToken: cancellationToken);
             waited += AugmentDataPollMilliseconds / 1000f;
         }
 
@@ -103,7 +111,7 @@ public class AugmentManager : MonoBehaviour
     /// 증강 데이터 로딩을 보장하고, 증강 목록이 있는지 확인합니다.
     /// 서버에서는 생성, 클라이언트에서는 서버 데이터 도착을 대기합니다.
     /// </summary>
-    public async UniTask EnsureAugmentsPresentedAsync(IEnumerable<string> augmentNamesFromServer = null)
+    public async UniTask EnsureAugmentsPresentedAsync(IEnumerable<string> augmentContentIdsFromServer = null)
     {
         // 1. 증강 데이터(Addressables) 로드가 완료될 때까지 기다림
         bool loaded = await WaitUntilAugmentDataLoadedInternal();
@@ -113,9 +121,13 @@ public class AugmentManager : MonoBehaviour
         }
 
         // 2. 서버에서 이름 목록을 받았으면 적용
-        if (augmentNamesFromServer != null && augmentNamesFromServer.Any())
+        if (augmentContentIdsFromServer != null && augmentContentIdsFromServer.Any())
         {
-            await SetPresentedAugmentsByNamesAsync(augmentNamesFromServer);
+            bool applied = await SetPresentedAugmentsByContentIdsAsync(augmentContentIdsFromServer);
+            if (!applied)
+            {
+                Debug.LogError($"[AugmentManager] Exact presented augment sync failed. owner={OwnerLabel()}");
+            }
             return;
         }
         
@@ -137,11 +149,93 @@ public class AugmentManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 서버(호스트)에서 브로드캐스트된 증강 이름 목록을 기반으로 현재 제시 증강을 동기화합니다.
-    /// 데이터 로딩이 완료될 때까지 대기합니다.
+    /// Synchronizes presented augments by immutable content id.
     /// </summary>
-    public async UniTask SetPresentedAugmentsByNamesAsync(IEnumerable<string> augmentNames)
+    public UniTask<bool> SetPresentedAugmentsByContentIdsAsync(IEnumerable<string> augmentContentIds)
     {
+        return TrySetPresentedAugmentsByContentIdsExactAsync(
+            augmentContentIds,
+            CancellationToken.None);
+    }
+
+    public UniTask<bool> SetPresentedAugmentsByContentIdsAsync(
+        IEnumerable<string> augmentContentIds,
+        CancellationToken cancellationToken)
+    {
+        return TrySetPresentedAugmentsByContentIdsExactAsync(
+            augmentContentIds,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Host-migration restore path. Resolves the complete immutable-id set before replacing the
+    /// non-networked runtime list, so cancellation or one bad id cannot leave a partial cache.
+    /// </summary>
+    public async UniTask<bool> TrySetPresentedAugmentsByContentIdsExactAsync(
+        IEnumerable<string> augmentContentIds,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (playerManager == null)
+        {
+            playerManager = GetComponentInParent<PlayerManager>();
+        }
+
+        bool loaded = await WaitUntilAugmentDataLoadedInternal(
+            AugmentDataWaitTimeoutSeconds,
+            cancellationToken);
+        if (!loaded)
+        {
+            return false;
+        }
+
+        var resolved = new List<AugmentData>();
+        var uniqueContentIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string rawContentId in augmentContentIds ?? Enumerable.Empty<string>())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (resolved.Count >= PresentedAugmentCapacity)
+            {
+                return false;
+            }
+            string contentId = StableDataKeyUtility.NormalizeContentId(rawContentId);
+            if (string.IsNullOrWhiteSpace(contentId) || !uniqueContentIds.Add(contentId))
+            {
+                return false;
+            }
+
+            AugmentData data = FindAugmentByContentId(contentId);
+            if (data == null || !string.Equals(data.ContentId, contentId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            resolved.Add(data);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        presentedAugments.Clear();
+        presentedAugments.AddRange(resolved);
+        return true;
+    }
+
+    /// <summary>
+    /// Compatibility path for legacy snapshots. New network synchronization must send content ids.
+    /// </summary>
+    public UniTask SetPresentedAugmentsByNamesAsync(IEnumerable<string> augmentNames)
+    {
+        return SetPresentedAugmentsByReferencesAsync(
+            augmentNames,
+            allowLegacyNames: true,
+            CancellationToken.None);
+    }
+
+    private async UniTask SetPresentedAugmentsByReferencesAsync(
+        IEnumerable<string> augmentReferences,
+        bool allowLegacyNames,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (playerManager == null)
         {
             playerManager = GetComponentInParent<PlayerManager>();
@@ -150,45 +244,44 @@ public class AugmentManager : MonoBehaviour
         int ownerId = playerManager != null ? playerManager.playerId : -1;
 
         // 데이터 로딩 완료 대기
-        bool loaded = await WaitUntilAugmentDataLoadedInternal();
+        bool loaded = await WaitUntilAugmentDataLoadedInternal(
+            AugmentDataWaitTimeoutSeconds,
+            cancellationToken);
         if (!loaded)
         {
             presentedAugments.Clear();
             return;
         }
 
-        Debug.Log($"SetPresentedAugmentsByNamesAsync: 데이터 로딩 완료, 동기화 시작 (Player {ownerId})");
+        Debug.Log($"SetPresentedAugments: data loaded, sync start (Player {ownerId}, legacy={allowLegacyNames})");
 
-        // 가능한 모든 풀을 하나로 묶어 빠르게 조회할 수 있도록 딕셔너리 구성
-        // 중복 이름이 없다는 전제(augmentName 유니크)를 가정합니다.
-        var all = new List<AugmentData>(silverAugments.Count + goldAugments.Count + prismaticAugments.Count);
-        all.AddRange(silverAugments);
-        all.AddRange(goldAugments);
-        all.AddRange(prismaticAugments);
-
-        var nameToAugment = new Dictionary<string, AugmentData>(StringComparer.Ordinal);
-        foreach (var a in all)
+        var restoredAugments = new List<AugmentData>();
+        foreach (var rawReference in augmentReferences ?? Enumerable.Empty<string>())
         {
-            if (a != null && !string.IsNullOrEmpty(a.augmentName) && !nameToAugment.ContainsKey(a.augmentName))
+            cancellationToken.ThrowIfCancellationRequested();
+            string reference = rawReference?.Trim();
+            if (string.IsNullOrEmpty(reference)) continue;
+
+            AugmentData data = FindAugmentByContentId(reference);
+            if (data == null && allowLegacyNames)
             {
-                nameToAugment[a.augmentName] = a;
+                data = FindAugmentByName(reference);
             }
-        }
 
-        presentedAugments.Clear();
-        foreach (var name in augmentNames)
-        {
-            if (string.IsNullOrEmpty(name)) continue;
-            if (nameToAugment.TryGetValue(name, out var data) && data != null)
+            if (data != null)
             {
-                presentedAugments.Add(data);
+                restoredAugments.Add(data);
             }
             else
             {
-                Debug.LogWarning($"서버가 보낸 증강 '{name}'을(를) 찾지 못했습니다. (라벨/이름 불일치)");
+                Debug.LogWarning($"[AugmentManager] Unknown augment reference '{reference}'. legacy={allowLegacyNames}");
+                return;
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        presentedAugments.Clear();
+        presentedAugments.AddRange(restoredAugments);
         if (presentedAugments.Count > 0)
         {
             string presentedNames = string.Join(", ", presentedAugments.Select(aug => aug.augmentName));
@@ -237,9 +330,15 @@ public class AugmentManager : MonoBehaviour
                 silverAugments.Clear();
                 goldAugments.Clear();
                 prismaticAugments.Clear();
+                augmentsByContentId.Clear();
 
                 foreach (var augment in handle.Result)
                 {
+                    if (!TryRegisterContentId(augment))
+                    {
+                        continue;
+                    }
+
                     switch (augment.tier)
                     {
                         case AugmentTier.Silver:
@@ -287,17 +386,89 @@ public class AugmentManager : MonoBehaviour
         _hasAugmentDataHandle = false;
     }
 
+    private bool TryRegisterContentId(AugmentData augment)
+    {
+        if (augment == null || string.IsNullOrWhiteSpace(augment.ContentId))
+        {
+            Debug.LogError($"[AugmentManager] Augment asset is missing immutable contentId. asset={augment?.name ?? "null"}");
+            return false;
+        }
+
+        if (augmentsByContentId.TryGetValue(augment.ContentId, out AugmentData existing) && existing != augment)
+        {
+            Debug.LogError(
+                $"[AugmentManager] Duplicate augment contentId '{augment.ContentId}'. " +
+                $"assets={existing.name},{augment.name}");
+            return false;
+        }
+
+        augmentsByContentId[augment.ContentId] = augment;
+        return true;
+    }
+
+    public AugmentData FindAugmentByContentId(string contentId)
+    {
+        string normalized = StableDataKeyUtility.NormalizeContentId(contentId);
+        if (string.IsNullOrEmpty(normalized))
+        {
+            return null;
+        }
+
+        if (augmentsByContentId.TryGetValue(normalized, out AugmentData indexed))
+        {
+            return indexed;
+        }
+
+        return EnumerateLoadedAugments().FirstOrDefault(
+            augment => augment != null && string.Equals(augment.ContentId, normalized, StringComparison.Ordinal));
+    }
+
     /// <summary>
     /// 증강 이름으로 AugmentData를 검색합니다.
     /// 모든 티어(Silver, Gold, Prismatic)에서 검색합니다.
     /// </summary>
     public AugmentData FindAugmentByName(string augmentName)
     {
-        if (string.IsNullOrEmpty(augmentName)) return null;
-        
-        return silverAugments.FirstOrDefault(a => a.augmentName == augmentName)
-            ?? goldAugments.FirstOrDefault(a => a.augmentName == augmentName)
-            ?? prismaticAugments.FirstOrDefault(a => a.augmentName == augmentName);
+        if (string.IsNullOrWhiteSpace(augmentName))
+        {
+            return null;
+        }
+
+        string expectedName = augmentName.Trim();
+        AugmentData resolved = null;
+        string resolvedContentId = string.Empty;
+        foreach (AugmentData candidate in EnumerateLoadedAugments())
+        {
+            if (candidate == null
+                || !string.Equals(candidate.augmentName?.Trim(), expectedName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string candidateContentId = StableDataKeyUtility.NormalizeContentId(candidate.ContentId);
+            if (string.IsNullOrEmpty(candidateContentId))
+            {
+                Debug.LogWarning(
+                    $"[AugmentManager] Legacy name '{expectedName}' matched an augment without ContentId; rejected.");
+                return null;
+            }
+
+            if (resolved == null)
+            {
+                resolved = candidate;
+                resolvedContentId = candidateContentId;
+                continue;
+            }
+
+            if (!string.Equals(resolvedContentId, candidateContentId, StringComparison.Ordinal))
+            {
+                Debug.LogWarning(
+                    $"[AugmentManager] Legacy name '{expectedName}' is ambiguous across ContentIds; rejected.");
+                return null;
+            }
+        }
+
+        return resolved;
     }
 
     public MonsterData FindMonsterDataByName(string monsterDataName)

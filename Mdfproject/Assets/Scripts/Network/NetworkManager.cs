@@ -114,6 +114,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                 gameObject.AddComponent<HostMigrationHandler>();
             }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestBootstrap.TryInitialize();
+#endif
+
             RegisterCloudConnectionLostHandlerIfAvailable();
         }
         else
@@ -183,6 +187,14 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public async void JoinLobby()
     {
         if (_runner != null) return;
+        if (!MdfNetworkProtocol.ApplyToGlobalSettings(out string protocolReason))
+        {
+            Debug.LogError($"[NetworkManager] Lobby connection blocked because the network protocol version could not be applied. reason={protocolReason}");
+            State = ConnectionState.Disconnected;
+            SetNetworkUiBlock(NetworkUiBlockReason.None);
+            return;
+        }
+
         _lobbyKingSelections.Clear();
         State = ConnectionState.Connecting; // 새 중간 상태
         SetNetworkUiBlock(NetworkUiBlockReason.LobbyBootstrap);

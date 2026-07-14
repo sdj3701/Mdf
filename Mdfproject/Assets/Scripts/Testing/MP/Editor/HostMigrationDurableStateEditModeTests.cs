@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -125,29 +126,55 @@ public sealed class HostMigrationDurableStateEditModeTests
     [Test]
     public void HostMigrationSuccessWaitsForFlowResumedAndRejectsFailedRecovery()
     {
-        string handler = ReadAssetSource("Scripts/Network/HostMigrationHandler.cs");
-        int terminalGate = handler.IndexOf(
-            "private IEnumerator WaitForGameManagersRecoveryTerminal(",
-            StringComparison.Ordinal);
-        int failedCheck = handler.IndexOf("gm.HasHostMigrationRecoveryFailed", terminalGate, StringComparison.Ordinal);
-        int resumedCheck = handler.IndexOf("gm.IsHostMigrationFlowResumed", terminalGate, StringComparison.Ordinal);
-        int successCommit = handler.IndexOf(
-            "_migrationRecoverySucceeded = survivorBossRestored && durablePlayersRestored && _aiTakeoverReady;",
-            terminalGate,
-            StringComparison.Ordinal);
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static |
+                                     BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo terminalGate = typeof(HostMigrationHandler).GetMethod(
+            "WaitForGameManagersRecoveryTerminal",
+            members);
+        Assert.That(terminalGate, Is.Not.Null);
 
-        Assert.That(terminalGate, Is.GreaterThanOrEqualTo(0));
-        Assert.That(failedCheck, Is.GreaterThan(terminalGate));
-        Assert.That(resumedCheck, Is.GreaterThan(failedCheck));
-        Assert.That(successCommit, Is.GreaterThan(resumedCheck));
-        Assert.That(handler, Does.Contain("yield return WaitForGameManagersRecoveryTerminal("));
-        Assert.That(handler, Does.Contain("AreDurableFieldUnitRestoresTerminal"));
-        Assert.That(handler, Does.Contain("? _cachedDurablePlayersById.Count"));
+        IteratorStateMachineAttribute iterator =
+            terminalGate.GetCustomAttribute<IteratorStateMachineAttribute>();
+        MethodInfo moveNext = iterator?.StateMachineType.GetMethod("MoveNext", members);
+        Assert.That(moveNext, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(GameManagers),
+            "get_HasHostMigrationRecoveryFailed"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(GameManagers),
+            "get_IsHostMigrationFlowResumed"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(HostMigrationHandler),
+            "AreDurableFieldUnitRestoresTerminal"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(HostMigrationHandler),
+            "BuildCombinedMigrationRestoreReport"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(MigrationRestoreReport),
+            "get_Succeeded"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(
+            moveNext,
+            typeof(HostMigrationHandler),
+            "_pendingAsyncMigrationRestoreCount"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(
+            moveNext,
+            typeof(HostMigrationHandler),
+            "_migrationRecoverySucceeded"), Is.True);
 
-        string gameManagers = ReadAssetSource("Scripts/Managers/GameManagers.cs");
-        Assert.That(gameManagers, Does.Contain("MigrationRestoreStage.FlowResumed"));
-        Assert.That(gameManagers, Does.Contain("MigrationRestoreStage.Failed"));
-        Assert.That(gameManagers, Does.Contain("public bool IsHostMigrationRecoveryTerminal"));
+        Assert.That(typeof(GameManagers).GetProperty(
+            "IsHostMigrationRecoveryTerminal",
+            members), Is.Not.Null);
+        Assert.That(typeof(GameManagers).GetProperty(
+            "IsHostMigrationFlowResumed",
+            members), Is.Not.Null);
+        Assert.That(typeof(GameManagers).GetProperty(
+            "HasHostMigrationRecoveryFailed",
+            members), Is.Not.Null);
     }
 
     [Test]

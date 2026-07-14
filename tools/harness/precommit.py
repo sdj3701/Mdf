@@ -575,7 +575,10 @@ def custom_errors(txt: str, r: str) -> list[tuple[str, str, str]]:
             'IsManualOrAiStrategicSkill',
             'UnitBelongsToPlayer',
             'unit.Object.HasStateAuthority',
-            'unit.ActivateSkill()',
+            'IAsyncCommand',
+            'await unit.ActivateSkillAsync(',
+            'activationResult.Executed',
+            'skill_capacity_backpressure',
         ]
         missing = [token for token in required if token not in txt]
         if missing:

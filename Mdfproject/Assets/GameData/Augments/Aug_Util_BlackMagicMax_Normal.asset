@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
   m_Name: Aug_Util_BlackMagicMax_Normal
   m_EditorClassIdentifier: 
+  contentId: augment.utility.black_magic_max.normal
   augmentName: "\uD751\uB9C8\uB825 \uD655\uC7A5"
   description: "\uB2E4\uC74C \uACF5\uACA9 \uC2DC\uD000\uC2A4\uBD80\uD130 \uCD5C\uB300
     \uD751\uB9C8\uB825\uC774 20 \uC99D\uAC00\uD569\uB2C8\uB2E4."
@@ -27,4 +28,7 @@ MonoBehaviour:
   monsterHealthBonusPercent: 0
   monsterDamageBonusPercent: 0
   monsterMoveSpeedBonusPercent: 0
+  kingDamageBonusPercent: 0
+  kingAttackSpeedBonusPercent: 0
+  kingSkillPowerBonusPercent: 0
   magicScrollData: {fileID: 0}

@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1ce8c3f4810fbf84eb609f7a2c04e854, type: 3}
   m_Name: Skill_Heal
   m_EditorClassIdentifier: 
+  contentId: skill.heal
   skillName: Skill_Heal
   description: "\uC8FC\uBCC0 5\uBC94\uC704\uC758 \uC544\uAD70\uB4E4\uC758 \uCCB4\uB825\uC744
     60 \uD68C\uBCF5\uD569\uB2C8\uB2E4."

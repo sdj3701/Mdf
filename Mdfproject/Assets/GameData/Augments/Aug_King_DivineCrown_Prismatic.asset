@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
   m_Name: Aug_King_DivineCrown_Prismatic
   m_EditorClassIdentifier: 
+  contentId: augment.king.divine_crown.prismatic
   augmentName: "\uC2E0\uC131\uD55C \uC655\uAD00"
   description: "\uAD6D\uC655 \uACF5\uACA9\uB825 +40%, \uACF5\uACA9\uC18D\uB3C4 +15%,
     \uAD6D\uC655 \uC2A4\uD0AC \uC704\uB825 +35%. \uC5EC\uB7EC \uBC88 \uC120\uD0DD\uD560

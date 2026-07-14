@@ -5,7 +5,7 @@ using UnityEngine;
 
 public partial class CombatScheduler
 {
-    private const int MaxActiveStatusEffects = 40;
+    private const int MaxActiveStatusEffects = CombatSchedulerCapacityConfig.StatusEffectCapacity;
     private const int StatusSourceNetworkObject = 1;
     private const int StatusSourceMagicScroll = 2;
     private const int StatusSourceTransient = 3;
@@ -51,6 +51,10 @@ public partial class CombatScheduler
         public int Flags;
     }
 
+    public delegate bool MigrationNetworkIdResolver(
+        NetworkId capturedNetworkId,
+        out NetworkId actualNetworkId);
+
     public bool IsStatusEffectSchedulerActive =>
         Runner != null &&
         Runner.IsRunning &&
@@ -60,6 +64,76 @@ public partial class CombatScheduler
     public int ActiveStatusEffectCount
     {
         get => GetCurrentStatusEffectCount();
+    }
+
+    public bool CanApplyStatusEffectBatch(
+        IReadOnlyList<BuffManager> targets,
+        StatusEffectType type,
+        float duration,
+        GameObject caster,
+        float tickInterval = 0f,
+        float damagePerTick = 0f,
+        float slowMultiplier = 1f,
+        DamageType damageType = DamageType.Physical)
+    {
+        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || targets == null || duration <= 0f ||
+            !EnsureLocalSchedulerState())
+        {
+            return false;
+        }
+
+        int now = Runner.Tick;
+        int durationTicks = SecondsToTicksCeil(duration);
+        int expireTick = now + Mathf.Max(1, durationTicks);
+        int packedDamage = PackFloat(damagePerTick);
+        int packedSlow = PackFloat(Mathf.Max(0f, slowMultiplier));
+        ResolveStatusSource(
+            caster,
+            StatusEffectSequence + 1,
+            out NetworkId casterId,
+            out int sourceKind,
+            out int sourceKey);
+
+        int availableSlots = MaxActiveStatusEffects - _statusSlotIndex.ActiveCount - GetPreflightStatusReservations();
+        int requiredSlots = 0;
+        var visitedTargets = new HashSet<uint>();
+        for (int i = 0; i < targets.Count; i++)
+        {
+            if (!TryResolveNetworkObject(targets[i], out NetworkObject targetObject) ||
+                !visitedTargets.Add(targetObject.Id.Raw))
+            {
+                continue;
+            }
+
+            if (sourceKind == StatusSourceNetworkObject &&
+                FindMatchingStatusSlot(targetObject.Id, casterId, sourceKind, sourceKey, type) >= 0)
+            {
+                continue;
+            }
+
+            if (requiredSlots < availableSlots)
+            {
+                requiredSlots++;
+                continue;
+            }
+
+            if (TryCoalesceBooleanStatusAtCapacity(
+                    targetObject.Id,
+                    type,
+                    expireTick,
+                    packedDamage,
+                    packedSlow,
+                    out _))
+            {
+                continue;
+            }
+
+            RecordCapacityRecovery(CapacityRecoveryKind.StatusBackpressure);
+            return false;
+        }
+
+        ReservePreflightStatusSlots(requiredSlots);
+        return true;
     }
 
     public int GetActiveStatusEffectCountFor(BuffManager target)
@@ -135,8 +209,27 @@ public partial class CombatScheduler
         int emptySlot = FindEmptyStatusSlot();
         if (emptySlot < 0)
         {
-            RecordNetworkBudgetDrop(NetworkBudgetDropKind.Status);
-            Debug.LogWarning($"[CombatScheduler.StatusEffects] Active status capacity exceeded. capacity={MaxActiveStatusEffects}, target={targetObject.Id}, type={type}");
+            int packedDamagePerTick = PackFloat(damagePerTick);
+            int packedSlowMultiplier = PackFloat(Mathf.Max(0f, slowMultiplier));
+            if (TryCoalesceBooleanStatusAtCapacity(
+                    targetObject.Id,
+                    type,
+                    expireTick,
+                    packedDamagePerTick,
+                    packedSlowMultiplier,
+                    out int coalescedSlot))
+            {
+                StatusEffectEntry existing = StatusEffects[coalescedSlot];
+                StatusEffectEntry previous = existing;
+                existing.ExpireTick = Mathf.Max(existing.ExpireTick, expireTick);
+                StatusEffects.Set(coalescedSlot, existing);
+                NoteStatusSlotUpdated(previous, existing);
+                RefreshStatusCacheForTarget(targetObject.Id);
+                RecordCapacityRecovery(CapacityRecoveryKind.StatusCoalesce);
+                return true;
+            }
+
+            RecordCapacityRecovery(CapacityRecoveryKind.StatusBackpressure);
             return false;
         }
 
@@ -322,10 +415,29 @@ public partial class CombatScheduler
 
     public int RestoreStatusEffectsFromMigration(IReadOnlyList<StatusEffectMigrationSnapshot> snapshots, string reason = null)
     {
-        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || snapshots == null || snapshots.Count == 0 ||
-            !EnsureLocalSchedulerState())
+        return RestoreStatusEffectsFromMigrationWithReport(snapshots, reason).Restored;
+    }
+
+    public MigrationRestoreReport RestoreStatusEffectsFromMigrationWithReport(
+        IReadOnlyList<StatusEffectMigrationSnapshot> snapshots,
+        string reason = null,
+        MigrationNetworkIdResolver remapResolver = null)
+    {
+        const string scope = "combat_status_effects";
+        if (snapshots == null)
         {
-            return 0;
+            return MigrationRestoreReport.FailedScope(scope, 1, "status_snapshot_missing");
+        }
+
+        int captured = snapshots.Count;
+        if (captured == 0)
+        {
+            return MigrationRestoreReport.Empty(scope);
+        }
+
+        if (!IsStatusEffectSchedulerActive || !Object.HasStateAuthority || !EnsureLocalSchedulerState())
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "status_scheduler_not_ready");
         }
 
         int existingTokenCount = CaptureStatusSlotTokens();
@@ -340,6 +452,8 @@ public partial class CombatScheduler
         }
 
         int restored = 0;
+        int skipped = 0;
+        int failed = 0;
         int maxSequence = StatusEffectSequence;
         int changedTargetCount = 0;
         int now = Runner.Tick;
@@ -349,17 +463,24 @@ public partial class CombatScheduler
             StatusEffectMigrationSnapshot snapshot = snapshots[i];
             if (snapshot.Sequence <= 0 || snapshot.TargetId.Raw == 0)
             {
+                failed++;
                 continue;
             }
+
+            maxSequence = Mathf.Max(maxSequence, snapshot.Sequence);
 
             if (snapshot.ExpireTick <= now)
             {
+                skipped++;
                 continue;
             }
 
-            NetworkObject targetObject = ResolveNetworkObject(snapshot.TargetId);
+            NetworkId targetId = ResolveMigrationNetworkId(snapshot.TargetId, remapResolver);
+            NetworkId casterId = ResolveMigrationNetworkId(snapshot.CasterId, remapResolver);
+            NetworkObject targetObject = ResolveNetworkObject(targetId);
             if (targetObject == null || IsStatusTargetDead(targetObject))
             {
+                skipped++;
                 continue;
             }
 
@@ -367,14 +488,15 @@ public partial class CombatScheduler
             if (slot < 0)
             {
                 Debug.LogWarning($"[CombatScheduler.StatusEffects] Migration restore capacity exceeded. capacity={MaxActiveStatusEffects}, requested={snapshots.Count}, reason={reason}");
-                break;
+                failed++;
+                continue;
             }
 
             var entry = new StatusEffectEntry
             {
                 Sequence = snapshot.Sequence,
-                TargetId = snapshot.TargetId,
-                CasterId = snapshot.CasterId,
+                TargetId = targetId,
+                CasterId = casterId,
                 SourceKey = snapshot.SourceKey,
                 AppliedTick = snapshot.AppliedTick,
                 ExpireTick = snapshot.ExpireTick,
@@ -388,7 +510,7 @@ public partial class CombatScheduler
             CommitStatusSlot(slot, entry);
 
             maxSequence = Mathf.Max(maxSequence, snapshot.Sequence);
-            changedTargetCount = AddChangedTarget(_statusChangedTargetScratch, changedTargetCount, snapshot.TargetId);
+            changedTargetCount = AddChangedTarget(_statusChangedTargetScratch, changedTargetCount, targetId);
             restored++;
         }
 
@@ -399,8 +521,31 @@ public partial class CombatScheduler
             RefreshStatusCacheForTarget(_statusChangedTargetScratch[i]);
         }
 
-        Debug.Log($"[CombatScheduler.StatusEffects] Migration restore complete. restored={restored}, cached={snapshots.Count}, reason={reason}");
-        return restored;
+        string failureReason = failed == 0 ? string.Empty : "combat_status_restore_incomplete";
+        var report = new MigrationRestoreReport(
+            scope,
+            captured,
+            restored,
+            skipped,
+            failed,
+            failureReason);
+        Debug.Log($"[CombatScheduler.StatusEffects] Migration restore complete. {report}, context={reason}");
+        return report;
+    }
+
+    internal static NetworkId ResolveMigrationNetworkId(
+        NetworkId capturedNetworkId,
+        MigrationNetworkIdResolver remapResolver)
+    {
+        if (capturedNetworkId.Raw != 0 &&
+            remapResolver != null &&
+            remapResolver(capturedNetworkId, out NetworkId remappedNetworkId) &&
+            remappedNetworkId.Raw != 0)
+        {
+            return remappedNetworkId;
+        }
+
+        return capturedNetworkId;
     }
 
     private void ProcessDueStatusEffects()
@@ -588,6 +733,52 @@ public partial class CombatScheduler
         return _statusSlotIndex.TryRentLowest(out int slot) ? slot : -1;
     }
 
+    /// <summary>
+    /// Boolean control states (stun/root/silence and non-damaging markers) combine by logical OR.
+    /// Extending an existing equal target/type interval therefore preserves their gameplay
+    /// semantics. Damage-over-time and slow magnitudes deliberately remain independent because
+    /// coalescing those without per-stack expiry data would change damage or movement speed.
+    /// </summary>
+    private bool TryCoalesceBooleanStatusAtCapacity(
+        NetworkId targetId,
+        StatusEffectType type,
+        int expireTick,
+        int damagePerTick,
+        int slowMultiplier,
+        out int slot)
+    {
+        slot = -1;
+        bool hasDamageMagnitude = damagePerTick > 0;
+        bool hasSlowMagnitude = slowMultiplier > 0 && slowMultiplier < FixedPointScale;
+        if (hasDamageMagnitude || hasSlowMagnitude || !EnsureLocalSchedulerState())
+        {
+            return false;
+        }
+
+        uint targetRaw = targetId.Raw;
+        for (int i = 0; i < _statusSlotIndex.ActiveCount; i++)
+        {
+            int candidateSlot = _statusSlotIndex.GetActiveSlot(i);
+            StatusEffectEntry candidate = StatusEffects[candidateSlot];
+            if (candidate.Sequence <= 0 ||
+                candidate.TargetId.Raw != targetRaw ||
+                candidate.Type != (int)type ||
+                candidate.DamagePerTick > 0 ||
+                (candidate.SlowMultiplier > 0 && candidate.SlowMultiplier < FixedPointScale))
+            {
+                continue;
+            }
+
+            // Lowest sequence is stable even when the active-slot free-list was rebuilt.
+            if (slot < 0 || candidate.Sequence < StatusEffects[slot].Sequence)
+            {
+                slot = candidateSlot;
+            }
+        }
+
+        return slot >= 0 && expireTick > 0;
+    }
+
     private static int PackStatusMeta(int sourceKind, int type, int damageType, int flags)
     {
         return (sourceKind & 0xF) |
@@ -680,7 +871,12 @@ public partial class CombatScheduler
         IEnemy enemy = targetObject.GetComponent<IEnemy>();
         if (enemy != null)
         {
-            enemy.TakeDamage(UnpackFloat(entry.DamagePerTick), (DamageType)entry.DamageType);
+            float damage = UnpackFloat(entry.DamagePerTick);
+            DamageType damageType = (DamageType)entry.DamageType;
+            if (!IsStatusTargetDead(targetObject))
+            {
+                enemy.TakeDamage(damage, damageType);
+            }
         }
     }
 

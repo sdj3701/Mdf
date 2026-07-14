@@ -100,6 +100,9 @@ class AutomationClient:
     def freeze_game_flow(self, enabled: bool = True, reason: str = "automation") -> dict[str, Any]:
         return self.request("POST", "/test/freezeGameFlow", {"enabled": enabled, "reason": reason})
 
+    def push_host_migration_snapshot(self, reason: str = "automation") -> dict[str, Any]:
+        return self.request("POST", "/test/pushHostMigrationSnapshot", {"reason": reason})
+
     def apply_status_effect(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/test/applyStatusEffect", kwargs)
 
@@ -111,6 +114,9 @@ class AutomationClient:
 
     def inject_pending_combat_load(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/test/injectPendingCombatLoad", kwargs)
+
+    def combat_capacity_recovery(self) -> dict[str, Any]:
+        return self.request("POST", "/test/combatCapacityRecovery", {})
 
     def performance_stress(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/test/performanceStress", kwargs)

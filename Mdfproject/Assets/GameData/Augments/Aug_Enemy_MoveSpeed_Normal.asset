@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
   m_Name: Aug_Enemy_MoveSpeed_Normal
   m_EditorClassIdentifier: 
+  contentId: augment.enemy.move_speed.normal
   augmentName: "\uBAAC\uC2A4\uD130 \uC774\uB3D9\uC18D\uB3C4 \uC99D\uAC00 \uB178\uB9D0"
   description: "\uC0C1\uB300\uC5D0\uAC8C \uBCF4\uB0B4\uB294 \uBAAC\uC2A4\uD130\uC758
     \uC774\uB3D9 \uC18D\uB3C4\uB97C 20% \uC99D\uAC00\uC2DC\uD0B5\uB2C8\uB2E4."
@@ -23,4 +24,11 @@ MonoBehaviour:
   isBossSummon: 0
   bossMonsterData: {fileID: 0}
   monsterSpawnEntries: []
+  strengthenedMonsterData: {fileID: 0}
+  monsterHealthBonusPercent: 0
+  monsterDamageBonusPercent: 0
+  monsterMoveSpeedBonusPercent: 0
+  kingDamageBonusPercent: 0
+  kingAttackSpeedBonusPercent: 0
+  kingSkillPowerBonusPercent: 0
   magicScrollData: {fileID: 0}

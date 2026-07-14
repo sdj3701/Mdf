@@ -47,6 +47,8 @@ public class MonsterSpawnEntry
 public class AugmentData : ScriptableObject
 {
     [Header("기본 정보")]
+    [SerializeField, Tooltip("Immutable gameplay identity. Never change this after the content ships.")]
+    private string contentId;
     public string augmentName;
     [TextArea] public string description;
     public Sprite icon;
@@ -96,4 +98,7 @@ public class AugmentData : ScriptableObject
     [Tooltip("마법 스크롤 모드: 획득할 스크롤 데이터")]
     public MagicScrollData magicScrollData;
     #endregion
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
 }

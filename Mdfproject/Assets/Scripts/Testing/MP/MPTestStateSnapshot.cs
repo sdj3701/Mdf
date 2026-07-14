@@ -211,6 +211,11 @@ public static class MPTestStateSnapshot
             TransitionToState = gameManagers != null ? SafeString(() => gameManagers.TransitionToStateTarget.ToString(), Unknown) : null,
             SequenceTransitionRemaining = gameManagers != null ? SafeFloat(() => gameManagers.currentSequenceTransitionTimer, 0f) : 0f,
             SequenceTransitionDuration = gameManagers != null ? SafeFloat(() => gameManagers.sequenceTransitionDelaySeconds, 0f) : 0f,
+            CombatExitDebtGateActive = gameManagers != null && SafeBool(() => gameManagers.IsCombatExitDebtGateActive, false),
+            // Retained as an always-false JSON compatibility field for older harness readers.
+            CombatExitDebtSafeStopped = gameManagers != null &&
+                                        SafeBool(() => gameManagers.IsCombatExitDebtTerminalFailureSafeStopped, false),
+            UnresolvedCombatExitDebtCount = gameManagers != null ? SafeInt(() => gameManagers.UnresolvedCombatExitDebtCount, 0) : 0,
             FirstAttackerPlayerId = gameManagers != null ? firstAttackerPlayerId : -1,
             BattleOpponentsHash = HashStableString(battleOpponentsSnapshot),
             MatchFirstAttackerHash = HashStableString(matchFirstAttackerSnapshot),
@@ -729,7 +734,7 @@ public static class MPTestStateSnapshot
             }
 
             string scrollKey = BuildScriptableObjectKey(scroll, SafeString(() => scroll.scrollName, string.Empty));
-            string skillKey = BuildScriptableObjectKey(scroll.skillData, SafeString(() => scroll.skillData.skillName, string.Empty));
+            string skillKey = BuildScriptableObjectKey(scroll.skillData, SafeString(() => scroll.skillData.ContentId, string.Empty));
             return $"{index}:scroll={scrollKey};asset={scroll.name};skill={skillKey};revision={revision}";
         });
 
@@ -741,11 +746,11 @@ public static class MPTestStateSnapshot
         var presented = SafeRef(() => player.augmentManager != null ? player.augmentManager.GetPresentedAugments() : null, null);
         var chosen = SafeRef(() => player.chosenAugments, null);
         var localPresentedParts = presented != null && presented.Count > 0
-            ? presented.Select(augment => augment != null ? augment.augmentName ?? string.Empty : "null")
+            ? presented.Select(augment => augment != null ? augment.ContentId : "null")
             : Array.Empty<string>() as IEnumerable<string>;
         var networkPresentedParts = SafeRef(() => player.GetPresentedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
         var localSelectedParts = chosen != null && chosen.Count > 0
-            ? chosen.Select(augment => augment != null ? augment.augmentName ?? string.Empty : "null")
+            ? chosen.Select(augment => augment != null ? augment.ContentId : "null")
             : Array.Empty<string>() as IEnumerable<string>;
         var networkSelectedParts = SafeRef(() => player.GetSelectedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
         var selectedParts = networkSelectedParts.Any() ? networkSelectedParts : localSelectedParts;
@@ -803,7 +808,7 @@ public static class MPTestStateSnapshot
         int playerId = SafeInt(() => player.playerId, -1);
         foreach (var augment in EnumerateSelectedAugmentsForSnapshot(player))
         {
-            yield return $"selected;owner={playerId};augment={SafeString(() => augment.augmentName, string.Empty)};target={ResolveAugmentTargetPart(player, augment)}";
+            yield return $"selected;owner={playerId};augment={SafeString(() => augment.ContentId, string.Empty)};target={ResolveAugmentTargetPart(player, augment)}";
         }
 
     }
@@ -827,9 +832,9 @@ public static class MPTestStateSnapshot
             yield break;
         }
 
-        foreach (string augmentName in names.Where(name => !string.IsNullOrWhiteSpace(name)))
+        foreach (string augmentContentId in names.Where(name => !string.IsNullOrWhiteSpace(name)))
         {
-            AugmentData augment = SafeRef(() => player.augmentManager.FindAugmentByName(augmentName), null);
+            AugmentData augment = SafeRef(() => player.augmentManager.FindAugmentByContentId(augmentContentId), null);
             if (augment != null)
             {
                 yield return augment;
@@ -839,9 +844,9 @@ public static class MPTestStateSnapshot
 
     private static string BuildAugmentEffectPart(AugmentData augment)
     {
-        string name = SafeString(() => augment.augmentName, string.Empty);
+        string contentId = SafeString(() => augment.ContentId, string.Empty);
         int valuePermille = Mathf.RoundToInt(SafeFloat(() => augment.value, 0f) * 1000f);
-        return $"name={name};tier={SafeString(() => augment.tier.ToString(), Unknown)};effect={SafeString(() => augment.effectType.ToString(), Unknown)};targetType={SafeString(() => augment.targetType.ToString(), Unknown)};valuePermille={valuePermille};payload={BuildAugmentPayloadPart(augment)}";
+        return $"contentId={contentId};tier={SafeString(() => augment.tier.ToString(), Unknown)};effect={SafeString(() => augment.effectType.ToString(), Unknown)};targetType={SafeString(() => augment.targetType.ToString(), Unknown)};valuePermille={valuePermille};payload={BuildAugmentPayloadPart(augment)}";
     }
 
     private static string BuildAugmentPayloadPart(AugmentData augment)
@@ -924,6 +929,10 @@ public static class MPTestStateSnapshot
                 DeadUnitsHash = Unknown,
                 PlacedUnitsHash = Unknown,
                 PlacedUnitParts = Array.Empty<string>(),
+                UnitRuntimeStateHash = Unknown,
+                UnitRuntimeStateParts = Array.Empty<string>(),
+                UnitAttackCooldownHash = Unknown,
+                UnitAttackCooldownParts = Array.Empty<string>(),
                 DestructibleWallCount = null,
                 PermanentWallCount = null,
                 PlayerPlacedPermanentWallCount = null,
@@ -975,6 +984,14 @@ public static class MPTestStateSnapshot
             .Select(unit => BuildUnitLifecyclePart(field, unit))
             .OrderBy(part => part, StringComparer.Ordinal)
             .ToArray();
+        var runtimeStateParts = units
+            .Select(unit => BuildUnitRuntimeStatePart(field, unit))
+            .OrderBy(part => part, StringComparer.Ordinal)
+            .ToArray();
+        var attackCooldownParts = units
+            .Select(unit => BuildUnitAttackCooldownPart(field, unit))
+            .OrderBy(part => part, StringComparer.Ordinal)
+            .ToArray();
 
         return new FieldSnapshot
         {
@@ -991,6 +1008,10 @@ public static class MPTestStateSnapshot
             DeadUnitsHash = deadUnitParts.Length > 0 ? HashStableParts(deadUnitParts) : Unknown,
             PlacedUnitsHash = HashStableParts(unitParts),
             PlacedUnitParts = unitParts,
+            UnitRuntimeStateHash = HashStableParts(runtimeStateParts),
+            UnitRuntimeStateParts = runtimeStateParts,
+            UnitAttackCooldownHash = HashStableParts(attackCooldownParts),
+            UnitAttackCooldownParts = attackCooldownParts,
             DestructibleWallCount = wallParts.Count(part => part.StartsWith("D", StringComparison.Ordinal)),
             PermanentWallCount = wallParts.Count(part => part.StartsWith("P", StringComparison.Ordinal)),
             PlayerPlacedPermanentWallCount = playerPlacedPermanentWallParts.Count,
@@ -1034,6 +1055,47 @@ public static class MPTestStateSnapshot
     {
         int hpBucket = BuildHpBucket(SafeFloat(() => unit.CurrentHealth, 0f), SafeFloat(() => unit.MaxHealth, 0f));
         return $"{BuildUnitPart(field, unit)};dead={SafeBool(() => unit.IsDead, false)};active={SafeBool(() => unit.gameObject.activeInHierarchy, false)};hpBucket={hpBucket}";
+    }
+
+    private static string BuildUnitRuntimeStatePart(FieldManager field, Unit unit)
+    {
+        var position = SafeRef(() => field.GetUnitPosition(unit), (Vector3Int?)null);
+        string positionPart = position.HasValue
+            ? $"{position.Value.x},{position.Value.y},{position.Value.z}"
+            : "unknown-pos";
+        string dataKey = SafeString(() => unit.UnitDataKeyForRoster, "unknown-data");
+        var runtime = new FieldUnitMigrationSnapshot
+        {
+            UnitDataKey = dataKey,
+            StarLevel = SafeInt(() => unit.StarLevelForRoster, 1),
+            Position = position ?? default
+        };
+        try
+        {
+            unit.CaptureMigrationRuntimeState(ref runtime);
+        }
+        catch
+        {
+            return $"{positionPart}:{dataKey}:runtime=unknown";
+        }
+
+        int hpMilli = Mathf.RoundToInt(runtime.CurrentHealth * 1000f);
+        int maxHpMilli = Mathf.RoundToInt(runtime.MaxHealth * 1000f);
+        int manaMilli = Mathf.RoundToInt(runtime.CurrentMana * 1000f);
+        int maxManaMilli = Mathf.RoundToInt(runtime.MaxMana * 1000f);
+        return $"{positionPart}:{dataKey}:star={runtime.StarLevel};hpMilli={hpMilli};maxHpMilli={maxHpMilli};manaMilli={manaMilli};maxManaMilli={maxManaMilli};activation={runtime.ActivationMode};hasActivation={runtime.HasActivationMode};dead={runtime.IsDead}";
+    }
+
+    private static string BuildUnitAttackCooldownPart(FieldManager field, Unit unit)
+    {
+        var position = SafeRef(() => field.GetUnitPosition(unit), (Vector3Int?)null);
+        string positionPart = position.HasValue
+            ? $"{position.Value.x},{position.Value.y},{position.Value.z}"
+            : "unknown-pos";
+        string dataKey = SafeString(() => unit.UnitDataKeyForRoster, "unknown-data");
+        int cooldownDeciseconds = Mathf.RoundToInt(
+            SafeFloat(unit.CaptureAttackCooldownRemaining, 0f) * 10f);
+        return $"{positionPart}:{dataKey}:attackCooldownDs={cooldownDeciseconds}";
     }
 
     private static bool ShouldIncludeUnitPositionInSnapshot()
@@ -1445,6 +1507,17 @@ public static class MPTestStateSnapshot
             PendingFireCapacityDrops = report.PendingFireCapacityDrops,
             PendingHitCapacityDrops = report.PendingHitCapacityDrops,
             PresentationEventDrops = report.PresentationEventDrops,
+            StatusCapacityCoalesces = report.StatusCapacityCoalesces,
+            StatBuffCapacityCoalesces = report.StatBuffCapacityCoalesces,
+            ZoneCapacityCoalesces = report.ZoneCapacityCoalesces,
+            PendingFireCapacityFallbacks = report.PendingFireCapacityFallbacks,
+            PendingHitCapacityFallbacks = report.PendingHitCapacityFallbacks,
+            StatusCapacityBackpressures = report.StatusCapacityBackpressures,
+            StatBuffCapacityBackpressures = report.StatBuffCapacityBackpressures,
+            ZoneCapacityBackpressures = report.ZoneCapacityBackpressures,
+            ZoneDueDebtPhaseCancellations = report.ZoneDueDebtPhaseCancellations,
+            ZoneDebtTerminalTargetInvalidations = report.ZoneDebtTerminalTargetInvalidations,
+            ZoneDebtTerminalFailures = report.ZoneDebtTerminalFailures,
             CurrentPendingFireActive = report.CurrentPendingFireActive,
             CurrentPendingHitActive = report.CurrentPendingHitActive,
             CurrentActiveStatusEffects = report.CurrentActiveStatusEffects,
@@ -1621,12 +1694,22 @@ public static class MPTestStateSnapshot
     private static HostMigrationSnapshot CaptureHostMigration()
     {
         var handler = HostMigrationHandler.Instance;
+        MigrationRestoreReport restoreReport = handler != null
+            ? handler.LastMigrationRestoreReport
+            : MigrationRestoreReport.Empty("host_migration");
         return new HostMigrationSnapshot
         {
             HandlerExists = handler != null,
             IsMigrating = handler != null && handler.IsMigrating,
             RecoverySucceeded = handler != null ? handler.MigrationRecoverySucceeded : (bool?)null,
             AiTakeoverReady = handler != null ? handler.IsAiTakeoverReady : (bool?)null,
+            RestoreCaptured = handler != null ? restoreReport.Captured : (int?)null,
+            RestoreRestored = handler != null ? restoreReport.Restored : (int?)null,
+            RestoreSkipped = handler != null ? restoreReport.Skipped : (int?)null,
+            RestoreFailed = handler != null ? restoreReport.Failed : (int?)null,
+            RestoreMissing = handler != null ? restoreReport.Missing : (int?)null,
+            RestoreTerminal = handler != null ? restoreReport.IsTerminal : (bool?)null,
+            RestorePendingAsync = handler != null ? handler.PendingMigrationRestoreCount : (int?)null,
             LastEvent = string.IsNullOrWhiteSpace(MPTestHostMigrationEvents.LastEvent) ? Unknown : MPTestHostMigrationEvents.LastEvent,
             EventCount = MPTestHostMigrationEvents.EventCount,
             OnHostMigrationCount = MPTestHostMigrationEvents.OnHostMigrationCount,
@@ -1794,6 +1877,9 @@ public static class MPTestStateSnapshot
         [JsonProperty("transitionToState")] public string TransitionToState;
         [JsonProperty("sequenceTransitionRemaining")] public float SequenceTransitionRemaining;
         [JsonProperty("sequenceTransitionDuration")] public float SequenceTransitionDuration;
+        [JsonProperty("combatExitDebtGateActive")] public bool CombatExitDebtGateActive;
+        [JsonProperty("combatExitDebtSafeStopped")] public bool CombatExitDebtSafeStopped;
+        [JsonProperty("unresolvedCombatExitDebtCount")] public int UnresolvedCombatExitDebtCount;
         [JsonProperty("firstAttackerPlayerId")] public int FirstAttackerPlayerId;
         [JsonProperty("battleOpponentsHash")] public string BattleOpponentsHash;
         [JsonProperty("matchFirstAttackerHash")] public string MatchFirstAttackerHash;
@@ -1927,6 +2013,10 @@ public static class MPTestStateSnapshot
         [JsonProperty("deadUnitsHash")] public string DeadUnitsHash;
         [JsonProperty("placedUnitsHash")] public string PlacedUnitsHash;
         [JsonProperty("placedUnitParts")] public string[] PlacedUnitParts;
+        [JsonProperty("unitRuntimeStateHash")] public string UnitRuntimeStateHash;
+        [JsonProperty("unitRuntimeStateParts")] public string[] UnitRuntimeStateParts;
+        [JsonProperty("unitAttackCooldownHash")] public string UnitAttackCooldownHash;
+        [JsonProperty("unitAttackCooldownParts")] public string[] UnitAttackCooldownParts;
         [JsonProperty("destructibleWallCount")] public int? DestructibleWallCount;
         [JsonProperty("permanentWallCount")] public int? PermanentWallCount;
         [JsonProperty("playerPlacedPermanentWallCount")] public int? PlayerPlacedPermanentWallCount;
@@ -2003,6 +2093,17 @@ public static class MPTestStateSnapshot
         [JsonProperty("pendingFireCapacityDrops")] public int PendingFireCapacityDrops;
         [JsonProperty("pendingHitCapacityDrops")] public int PendingHitCapacityDrops;
         [JsonProperty("presentationEventDrops")] public int PresentationEventDrops;
+        [JsonProperty("statusCapacityCoalesces")] public int StatusCapacityCoalesces;
+        [JsonProperty("statBuffCapacityCoalesces")] public int StatBuffCapacityCoalesces;
+        [JsonProperty("zoneCapacityCoalesces")] public int ZoneCapacityCoalesces;
+        [JsonProperty("pendingFireCapacityFallbacks")] public int PendingFireCapacityFallbacks;
+        [JsonProperty("pendingHitCapacityFallbacks")] public int PendingHitCapacityFallbacks;
+        [JsonProperty("statusCapacityBackpressures")] public int StatusCapacityBackpressures;
+        [JsonProperty("statBuffCapacityBackpressures")] public int StatBuffCapacityBackpressures;
+        [JsonProperty("zoneCapacityBackpressures")] public int ZoneCapacityBackpressures;
+        [JsonProperty("zoneDueDebtPhaseCancellations")] public int ZoneDueDebtPhaseCancellations;
+        [JsonProperty("zoneDebtTerminalTargetInvalidations")] public int ZoneDebtTerminalTargetInvalidations;
+        [JsonProperty("zoneDebtTerminalFailures")] public int ZoneDebtTerminalFailures;
         [JsonProperty("currentPendingFireActive")] public int CurrentPendingFireActive;
         [JsonProperty("currentPendingHitActive")] public int CurrentPendingHitActive;
         [JsonProperty("currentActiveStatusEffects")] public int CurrentActiveStatusEffects;
@@ -2043,6 +2144,13 @@ public static class MPTestStateSnapshot
         [JsonProperty("isMigrating")] public bool IsMigrating;
         [JsonProperty("recoverySucceeded")] public bool? RecoverySucceeded;
         [JsonProperty("aiTakeoverReady")] public bool? AiTakeoverReady;
+        [JsonProperty("restoreCaptured")] public int? RestoreCaptured;
+        [JsonProperty("restoreRestored")] public int? RestoreRestored;
+        [JsonProperty("restoreSkipped")] public int? RestoreSkipped;
+        [JsonProperty("restoreFailed")] public int? RestoreFailed;
+        [JsonProperty("restoreMissing")] public int? RestoreMissing;
+        [JsonProperty("restoreTerminal")] public bool? RestoreTerminal;
+        [JsonProperty("restorePendingAsync")] public int? RestorePendingAsync;
         [JsonProperty("lastEvent")] public string LastEvent;
         [JsonProperty("eventCount")] public int EventCount;
         [JsonProperty("onHostMigrationCount")] public int OnHostMigrationCount;

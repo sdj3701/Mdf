@@ -348,9 +348,13 @@ public partial class PlayerManager
             return false;
         }
 
+        if (!ApplyKingSkillAuthoritative(SelectedKingSkill))
+        {
+            return false;
+        }
+
         KingSkillUsedForDefense = true;
         KingSkillPresentationSequence = NextKingPresentationSequence(KingSkillPresentationSequence);
-        ApplyKingSkillAuthoritative(SelectedKingSkill);
         return true;
     }
 
@@ -416,6 +420,7 @@ public partial class PlayerManager
         }
 
         bool damageScheduled = false;
+        bool schedulerBackpressured = false;
         if (damage > 0f
             && baseUnitData.unitType == UnitType.Ranged
             && targetObject != null
@@ -435,7 +440,15 @@ public partial class PlayerManager
                     damage,
                     baseUnitData.damageType,
                     presentationHitTick);
+                schedulerBackpressured = !damageScheduled;
             }
+        }
+
+        if (schedulerBackpressured)
+        {
+            // Do not convert a future projectile hit into immediate damage. Keeping the attack
+            // timer expired makes the authority retry this same attack on the next simulation tick.
+            return;
         }
 
         if (damage > 0f && !damageScheduled)
@@ -558,11 +571,75 @@ public partial class PlayerManager
         return best;
     }
 
-    private void ApplyKingSkillAuthoritative(KingSkillData skill)
+    private bool ApplyKingSkillAuthoritative(KingSkillData skill)
     {
         if (skill == null)
         {
-            return;
+            return false;
+        }
+
+        Transform parent = monsterSpawner != null ? monsterSpawner.monsterParent : null;
+        Vector3 center = goalTransform != null ? goalTransform.position : transform.position;
+        float radiusSquared = Mathf.Max(0f, skill.radius) * Mathf.Max(0f, skill.radius);
+        float damage = skill.ResolveDamage(CurrentKingAttackDamage, CurrentKingSkillPowerMultiplier);
+        _kingSkillTargetSnapshot.Clear();
+        if (parent != null)
+        {
+            int childCount = parent.childCount;
+            for (int i = 0; i < childCount; i++)
+            {
+                Transform child = parent.GetChild(i);
+                if (child == null || !child.gameObject.activeInHierarchy
+                    || !child.TryGetComponent(out Monster monster)
+                    || !IsLivingKingTarget(monster))
+                {
+                    continue;
+                }
+
+                if (!skill.TargetsWholeField)
+                {
+                    Vector3 offset = child.position - center;
+                    offset.y = 0f;
+                    if (offset.sqrMagnitude > radiusSquared)
+                    {
+                        continue;
+                    }
+                }
+
+                _kingSkillTargetSnapshot.Add(monster);
+                if (skill.maxTargets > 0 && _kingSkillTargetSnapshot.Count >= skill.maxTargets)
+                {
+                    break;
+                }
+            }
+        }
+
+        if (skill.HasBoundedStatusEffect && _kingSkillTargetSnapshot.Count > 0)
+        {
+            var statusTargets = new List<BuffManager>(_kingSkillTargetSnapshot.Count);
+            for (int i = 0; i < _kingSkillTargetSnapshot.Count; i++)
+            {
+                Monster monster = _kingSkillTargetSnapshot[i];
+                if (IsLivingKingTarget(monster) && monster.TryGetComponent(out BuffManager buffManager))
+                {
+                    statusTargets.Add(buffManager);
+                }
+            }
+
+            CombatScheduler scheduler = CombatScheduler.Instance;
+            if (scheduler == null || !scheduler.CanApplyStatusEffectBatch(
+                    statusTargets,
+                    skill.statusEffect,
+                    skill.statusDuration,
+                    gameObject,
+                    skill.dotTickInterval,
+                    skill.dotDamagePerTick * CurrentKingSkillPowerMultiplier,
+                    skill.slowMultiplier,
+                    skill.damageType))
+            {
+                _kingSkillTargetSnapshot.Clear();
+                return false;
+            }
         }
 
         if (skill.HealsOwner)
@@ -575,44 +652,6 @@ public partial class PlayerManager
             if (Runner == null || !Runner.IsRunning)
             {
                 GameEvents.TriggerPlayerStatsChanged(playerId, health, gold);
-            }
-        }
-
-        Transform parent = monsterSpawner != null ? monsterSpawner.monsterParent : null;
-        if (parent == null)
-        {
-            return;
-        }
-
-        Vector3 center = goalTransform != null ? goalTransform.position : transform.position;
-        float radiusSquared = Mathf.Max(0f, skill.radius) * Mathf.Max(0f, skill.radius);
-        float damage = skill.ResolveDamage(CurrentKingAttackDamage, CurrentKingSkillPowerMultiplier);
-        _kingSkillTargetSnapshot.Clear();
-        int childCount = parent.childCount;
-        for (int i = 0; i < childCount; i++)
-        {
-            Transform child = parent.GetChild(i);
-            if (child == null || !child.gameObject.activeInHierarchy
-                || !child.TryGetComponent(out Monster monster)
-                || !IsLivingKingTarget(monster))
-            {
-                continue;
-            }
-
-            if (!skill.TargetsWholeField)
-            {
-                Vector3 offset = child.position - center;
-                offset.y = 0f;
-                if (offset.sqrMagnitude > radiusSquared)
-                {
-                    continue;
-                }
-            }
-
-            _kingSkillTargetSnapshot.Add(monster);
-            if (skill.maxTargets > 0 && _kingSkillTargetSnapshot.Count >= skill.maxTargets)
-            {
-                break;
             }
         }
 
@@ -657,9 +696,11 @@ public partial class PlayerManager
 
         if (rejectedStatusEffects > 0)
         {
-            Debug.LogWarning(
+            Debug.LogError(
                 $"[PlayerManager.King] Bounded status effects were rejected. playerId={playerId}, skill={skill.name}, rejected={rejectedStatusEffects}, affected={affected}");
         }
+
+        return rejectedStatusEffects == 0;
     }
 
     private static bool IsLivingKingTarget(Monster monster)

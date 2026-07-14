@@ -14,7 +14,7 @@ using System.Threading;
 public class SyncAugmentsCommand : ICommand, IAsyncCommand
 {
     public int PlayerId { get; set; }
-    public string[] AugmentNames { get; private set; }
+    public string[] AugmentContentIds { get; private set; }
     private static readonly Dictionary<string, float> RecentUiTriggerKeys = new Dictionary<string, float>();
     private const float UiTriggerDedupWindowSeconds = 1.5f;
 
@@ -23,10 +23,10 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
         BuildDebugGUI.LogClient($"[SyncAugments] {message}");
     }
 
-    public SyncAugmentsCommand(int playerId, string[] augmentNames)
+    public SyncAugmentsCommand(int playerId, string[] augmentContentIds)
     {
         PlayerId = playerId;
-        AugmentNames = augmentNames ?? System.Array.Empty<string>();
+        AugmentContentIds = augmentContentIds ?? System.Array.Empty<string>();
     }
 
     private async UniTask<PlayerManager> WaitForPlayerAsync(GameManagers gm, CancellationToken cancellationToken)
@@ -266,7 +266,7 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
             return;
         }
 
-        TraceClient($"Execute enter target={PlayerId}, incomingChoices={AugmentNames.Length}");
+        TraceClient($"Execute enter target={PlayerId}, incomingChoices={AugmentContentIds.Length}");
 
         var player = await WaitForPlayerAsync(gm, cancellationToken);
         if (player == null)
@@ -298,8 +298,14 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
         {
             try
             {
-                await player.augmentManager.SetPresentedAugmentsByNamesAsync(AugmentNames);
+                bool applied = await player.augmentManager.SetPresentedAugmentsByContentIdsAsync(AugmentContentIds);
                 cancellationToken.ThrowIfCancellationRequested();
+                if (!applied)
+                {
+                    Debug.LogError($"[SyncAugmentsCommand] Exact presented augment sync rejected. target={PlayerId}");
+                    TraceClient($"Exact presented augment sync rejected. target={PlayerId}");
+                    return;
+                }
             }
             catch (System.Exception ex)
             {
@@ -344,7 +350,7 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
                 }
             }
 
-            TraceClient($"SetPresentedAugments applied. target={PlayerId}, count={AugmentNames.Length}");
+            TraceClient($"SetPresentedAugments applied. target={PlayerId}, count={AugmentContentIds.Length}");
             bool uiReady = await gm.EnsureGameUIReadyForSyncCommands();
             cancellationToken.ThrowIfCancellationRequested();
             if (!uiReady)
@@ -356,7 +362,7 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
             {
                 TraceClient("UI readiness confirmed.");
             }
-            // Debug.Log($"<color=magenta>[SyncAugmentsCommand] Player {PlayerId}: {AugmentNames.Length}개 증강체 동기화 완료</color>");
+            // Debug.Log($"<color=magenta>[SyncAugmentsCommand] Player {PlayerId}: {AugmentContentIds.Length} augments synchronized</color>");
         }
 
         bool isLocalPlayer = await WaitForLocalMatchAsync(gm, player, cancellationToken);
@@ -423,8 +429,8 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
             }
         }
         string state = gm != null ? gm.currentState.ToString() : "Unknown";
-        string names = AugmentNames != null ? string.Join(",", AugmentNames) : "none";
-        return $"round={round}|state={state}|player={PlayerId}|augments={names}";
+        string ids = AugmentContentIds != null ? string.Join(",", AugmentContentIds) : "none";
+        return $"round={round}|state={state}|player={PlayerId}|augments={ids}";
     }
 
     private static bool IsDuplicateUiTrigger(string key)
