@@ -88,6 +88,7 @@ def human_player_ids(snapshot: Any) -> list[int]:
 
 def bot_args(args: argparse.Namespace, peer: dict[str, Any], artifact_dir: pathlib.Path) -> list[str]:
     result = [
+        "--mpHideBuildDebugGUI",
         "--mpHumanBot",
         "--mpBotPersona",
         str(peer["persona"]),
@@ -106,6 +107,87 @@ def bot_args(args: argparse.Namespace, peer: dict[str, Any], artifact_dir: pathl
         result.append("--mpBotPrepareAugmentOnly")
     elif args.bot_prepare_mode == "skip":
         result.append("--mpBotSkipPrepare")
+    return result
+
+
+def capture_prepare_visual_baseline(
+    clients: dict[str, AutomationClient],
+    artifact_dir: pathlib.Path,
+    label: str = "clean-prepare",
+) -> dict[str, Any]:
+    preparation_results: dict[str, Any] = {}
+    cleanup_results: dict[str, Any] = {}
+    for name, peer_client in clients.items():
+        preparation_results[name] = safe_request(
+            lambda peer_client=peer_client: peer_client.command(name="prepare_visual_capture")
+        )
+        write_json(
+            artifact_dir / f"{name}-{label}-prepare-visual-capture.json",
+            preparation_results[name],
+        )
+        cleanup_results[name] = safe_request(peer_client.hide_transient_ui)
+        write_json(artifact_dir / f"{name}-{label}-hide-ui.json", cleanup_results[name])
+
+    screenshots: dict[str, Any] = {}
+    for name, peer_client in clients.items():
+        screenshot = safe_request(peer_client.screenshot)
+        screenshot_data = screenshot.get("data") if isinstance(screenshot, dict) else None
+        screenshot_path = (
+            pathlib.Path(str(screenshot_data.get("path")))
+            if isinstance(screenshot_data, dict) and screenshot_data.get("path")
+            else None
+        )
+        stable_size_samples = 0
+        if screenshot.get("success") is True and screenshot_path is not None:
+            deadline = time.time() + 3.0
+            previous_size = -1
+            while time.time() < deadline:
+                current_size = screenshot_path.stat().st_size if screenshot_path.exists() else -1
+                if current_size > 0 and current_size == previous_size:
+                    stable_size_samples += 1
+                else:
+                    stable_size_samples = 0
+                previous_size = current_size
+                if stable_size_samples >= 2:
+                    break
+                time.sleep(0.1)
+
+        if (
+            screenshot.get("success") is True
+            and screenshot_path is not None
+            and screenshot_path.exists()
+            and screenshot_path.stat().st_size > 0
+            and stable_size_samples >= 2
+        ):
+            archived_path = artifact_dir / "screenshots" / f"{name}-{label}.png"
+            archived_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(screenshot_path, archived_path)
+            screenshot_data["archivedPath"] = str(archived_path.resolve())
+        else:
+            screenshot = {
+                "success": False,
+                "error": {
+                    "code": "prepare_visual_screenshot_file_not_stable",
+                    "details": str(screenshot_path),
+                },
+            }
+
+        screenshots[name] = screenshot
+        write_json(artifact_dir / f"{name}-{label}-screenshot.json", screenshots[name])
+    prepared = all(item.get("success") is True for item in preparation_results.values())
+    ui_hidden = all(item.get("success") is True for item in cleanup_results.values())
+    screenshots_captured = all(item.get("success") is True for item in screenshots.values())
+    result = {
+        "captured": prepared and ui_hidden and screenshots_captured,
+        "prepared": prepared,
+        "uiHidden": ui_hidden,
+        "screenshotsCaptured": screenshots_captured,
+        "label": label,
+        "prepareVisualCapture": preparation_results,
+        "hideUi": cleanup_results,
+        "screenshots": screenshots,
+    }
+    write_json(artifact_dir / f"{label}-visual-capture.json", result)
     return result
 
 
@@ -2161,6 +2243,7 @@ def run(args: argparse.Namespace) -> int:
         "allowMaxRoundResult": args.allow_max_round_result,
         "botPrepareMode": args.bot_prepare_mode,
         "verifyKingGoalPlacement": args.verify_king_goal_placement,
+        "hideBuildDebugGUI": True,
         "headlessPlayer": args.headless_player,
         "dryRun": args.dry_run,
     })
@@ -2243,6 +2326,10 @@ def run(args: argparse.Namespace) -> int:
         write_json(artifact_dir / "comparison-before-bot.json", before_comparison)
         if not before_ready:
             failures.append("before_bot_ready_timeout")
+        elif not args.headless_player:
+            visual_baseline = capture_prepare_visual_baseline(clients, artifact_dir)
+            if visual_baseline.get("captured") is not True:
+                failures.append("clean_prepare_screenshot_not_captured")
 
         if args.move_every_prepare_until_game_over:
             write_json(artifact_dir / "freeze-game-flow.json", {

@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-07-14
+Last used: 2026-07-15
 Last verified: 2026-07-14
-Use count: 27
+Use count: 28
 Review after: 2026-08-03
 Triggers: mp_dump_state, mp_assert_state, mp_build_player, custom tool smoke
 Applies to: unity-cli connector 0.3.15 custom tools

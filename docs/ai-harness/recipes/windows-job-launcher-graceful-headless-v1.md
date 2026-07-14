@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-08
-Last used: 2026-07-14
-Last verified: 2026-07-14
-Use count: 30
+Last used: 2026-07-15
+Last verified: 2026-07-15
+Use count: 43
 Review after: 2026-08-06
 Triggers: Windows cleanup blocker, `/quit` timeout, D3D/GPU pressure, headless smoke/prepare E2E
 Applies to: `tools/harness/mp/launch_player.py`, `build_player.py`, `run_matrix.py`, `MPTestGracefulQuit.cs`
-Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/cleanup-report.json; artifacts/mp/20260601-033513-two-hbot-two-ai-monster-spawn/cleanup-report.json; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke, artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke; artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke; artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke; artifacts/mp/20260514-072736-two-humanbot-two-ai-smoke; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json; artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke; artifacts/mp/20260601-032131-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/builds/20260712-085324-win64/launch-smoke-artifacts/cleanup-report.json; artifacts/mp/20260713-021757-window-close-graceful/result.json; artifacts/mp/20260713-085009-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/builds/20260713-094926/launch-smoke-artifacts/cleanup-report.json; artifacts/builds/20260713-mage-king-base-parity-win64/launch-smoke-artifacts/cleanup-report.json; artifacts/mp/20260713-200241-magic-scroll-command/cleanup-report.json
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-101534-matrix; artifacts/mp/20260510-103350-two-humanbot-two-ai-upgrade-check; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260510-170014-monster-healthbar-battle2-2hbot-2ai-headless; artifacts/mp/20260515-202032-matrix/20260515-202037-progressed-reconnect-after-battle/cleanup-report.json; artifacts/mp/20260601-033513-two-hbot-two-ai-monster-spawn/cleanup-report.json; artifacts/mp/20260514-035507-two-humanbot-two-ai-smoke, artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044306-two-humanbot-two-ai-smoke; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051726-two-humanbot-two-ai-smoke; artifacts/mp/20260514-061112-two-humanbot-two-ai-smoke; artifacts/mp/20260514-064919-two-humanbot-two-ai-smoke; artifacts/mp/20260514-072736-two-humanbot-two-ai-smoke; artifacts/mp/20260519-040220-matrix/matrix-summary.json; artifacts/mp/20260519-055718-matrix/matrix-summary.json; artifacts/mp/20260520-053820-two-humanbot-two-ai-smoke; artifacts/mp/20260601-032131-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/builds/20260712-085324-win64/launch-smoke-artifacts/cleanup-report.json; artifacts/mp/20260713-021757-window-close-graceful/result.json; artifacts/mp/20260713-085009-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/builds/20260713-094926/launch-smoke-artifacts/cleanup-report.json; artifacts/builds/20260713-mage-king-base-parity-win64/launch-smoke-artifacts/cleanup-report.json; artifacts/mp/20260713-200241-magic-scroll-command/cleanup-report.json; artifacts/mp/20260603-042245-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/mp/20260605-042337-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/mp/20260609-024708-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/mp/20260609-032334-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/ui-optimization-baseline/20260611-041726-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/ui-optimization-post/20260611-052749-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/ui-optimization-post/20260611-053449-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/program-stability/20260612-052803-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/load-time-measurements/20260616-120618-headless-10/20260616-031216-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/load-time-measurements/20260616-123548-post-headless-10-final/20260616-034000-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/load-time-measurements/20260616-125232-post-headless-10-final/20260616-035656-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/mp/20260714-145732-matrix/matrix-summary.json; artifacts/mp/20260714-152802-two-humanbot-two-ai-smoke/cleanup-report.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -78,3 +78,23 @@ Lifecycle notes:
 - 2026-07-13: verified artifact `artifacts/builds/20260713-mage-king-base-parity-win64/launch-smoke-artifacts/cleanup-report.json`
 - 2026-07-14: Headless two-peer magic-scroll regression exited cleanupStatus=PASS with orphanedPids=[].
 - 2026-07-14: verified artifact `artifacts/mp/20260713-200241-magic-scroll-command/cleanup-report.json`
+- 2026-06-03: Verified non-headless 2h2ai run cleanupStatus=PASS and orphanedPids=[] with Windows Job Object cleanup.
+- 2026-06-03: verified artifact `artifacts/mp/20260603-042245-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-05: Verified non-headless visual 2h2ai run cleanupStatus=PASS and orphanedPids=[].
+- 2026-06-05: verified artifact `artifacts/mp/20260605-042337-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-05: Verified non-headless visual 2h2ai attack-camera run cleanupStatus=PASS and orphanedPids=[].
+- 2026-06-05: verified artifact `artifacts/mp/20260605-050259-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-09: Strict headless 2 HumanBot + 2 AI runs cleaned up with cleanupStatus=PASS and orphanedPids=[].
+- 2026-06-09: verified artifact `artifacts/mp/20260609-024708-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-09: Verified strict headless 2 HumanBot + 2 AI bounded 3-round cleanup stayed PASS with orphanedPids=[].
+- 2026-06-09: verified artifact `artifacts/mp/20260609-032334-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-11: Used for non-headless UI baseline run cleanup verification.
+- 2026-06-11: verified artifact `artifacts/ui-optimization-baseline/20260611-041726-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-11: verified artifact `artifacts/ui-optimization-post/20260611-052749-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-11: verified artifact `artifacts/ui-optimization-post/20260611-053449-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-12: verified artifact `artifacts/program-stability/20260612-052803-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-16: verified artifact `artifacts/load-time-measurements/20260616-120618-headless-10/20260616-031216-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-16: verified artifact `artifacts/load-time-measurements/20260616-123548-post-headless-10-final/20260616-034000-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-06-16: verified artifact `artifacts/load-time-measurements/20260616-125232-post-headless-10-final/20260616-035656-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260714-145732-matrix/matrix-summary.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260714-152802-two-humanbot-two-ai-smoke/cleanup-report.json`

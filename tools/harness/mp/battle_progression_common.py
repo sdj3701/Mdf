@@ -1917,6 +1917,7 @@ def run_battle_client_lifecycle_case(
     client_b_proc: PlayerProcess | None = None
     failures: list[str] = []
     target_player_id = -1
+    durable_client_connection_hash = "unknown"
     cleanup_baseline_pids = mdf_player_pids()
     cleanup_report: dict[str, Any] = {
         "cleanupStatus": "PASS",
@@ -2140,12 +2141,15 @@ def run_battle_client_lifecycle_case(
         client_local = local_player(client_checkpoint)
         if isinstance(client_local, dict) and isinstance(client_local.get("playerId"), int):
             target_player_id = int(client_local["playerId"])
+            durable_client_connection_hash = str(client_local.get("connectionTokenHash") or "unknown")
+            if durable_client_connection_hash == "unknown":
+                failures.append("client_connection_token_hash_missing")
         else:
             failures.append("target_player_id_invalid")
         write_json(artifact_dir / "client-lifecycle-target.json", {
             "playerId": target_player_id,
-            "connectionTokenHash": client_local.get("connectionTokenHash") if isinstance(client_local, dict) else "unknown",
-            "expectedConnectionTokenHash": client_connection_hash,
+            "connectionTokenHash": durable_client_connection_hash,
+            "redactedConnectionTokenHash": client_connection_hash,
         })
         write_json(artifact_dir / "checkpoint-summary.json", {
             "battleProgressed": {
@@ -2217,7 +2221,7 @@ def run_battle_client_lifecycle_case(
                 artifact_dir,
                 host_checkpoint,
                 target_player_id,
-                client_connection_hash,
+                durable_client_connection_hash,
                 args.reconnect_timeout,
                 args.scene,
                 2,

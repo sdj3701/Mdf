@@ -148,14 +148,23 @@ public class AugmentUIController : MonoBehaviour
     /// </summary>
     public void SetAugmentChoices(List<AugmentData> choices)
     {
+        choices ??= new List<AugmentData>();
         for (int i = 0; i < augmentSlots.Length; i++)
         {
             if (i < choices.Count)
             {
-                augmentSlots[i].Display(choices[i]);
+                AugmentData data = choices[i];
+                string displayName = data != null
+                    ? GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName)
+                    : string.Empty;
+                augmentSlots[i].Display(data, displayName);
 
                 // 리스너 중복 추가를 방지하기 위해 항상 먼저 제거합니다.
                 augmentSlots[i].selectButton.onClick.RemoveAllListeners();
+                if (data == null)
+                {
+                    continue;
+                }
                 
                 // 루프 변수 'i'를 새로운 지역 변수에 복사해야 클로저 문제를 피할 수 있습니다.
                 int choiceIndex = i; 

@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity, performance
 Created: 2026-07-13
-Last used: 2026-07-14
-Last verified: 2026-07-14
-Use count: 12
+Last used: 2026-07-15
+Last verified: 2026-07-15
+Use count: 14
 Review after: 2026-08-03
 Triggers: Addressables, AssetLoader, single-flight, bundle size, PackSeparately, Fusion prefab
 Applies to: MDF Addressables startup, runtime leases, category groups, Development player builds
-Verified by: `artifacts/builds/20260713-performance-memory-final-v2-win64/build-metadata.json`; `artifacts/mp/20260712-234101-matrix`; `artifacts/mp/20260712-234205-matrix`; `artifacts/mp/20260712-234340-matrix`; `artifacts/mp/20260712-234448-matrix`; artifacts/mp/20260713-011921-magic-scroll-command/result.json; artifacts/builds/20260713-wall-upgrade-prewarm-final-win64/build-metadata.json; artifacts/mp/20260713-144518-two-humanbot-two-ai-smoke/host.Player.log; E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression
+Verified by: `artifacts/builds/20260713-performance-memory-final-v2-win64/build-metadata.json`; `artifacts/mp/20260712-234101-matrix`; `artifacts/mp/20260712-234205-matrix`; `artifacts/mp/20260712-234340-matrix`; `artifacts/mp/20260712-234448-matrix`; artifacts/mp/20260713-011921-magic-scroll-command/result.json; artifacts/builds/20260713-wall-upgrade-prewarm-final-win64/build-metadata.json; artifacts/mp/20260713-144518-two-humanbot-two-ai-smoke/host.Player.log; E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression; artifacts/builds/20260714-231700-merge-ui-final-win64/build-metadata.json; artifacts/builds/20260715-002530-merge-ui-visual-final-v2-win64/build-metadata.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -51,3 +51,5 @@ Lifecycle notes:
 - 2026-07-13: verified artifact `artifacts/builds/20260713-wall-upgrade-prewarm-final-win64/build-metadata.json`
 - 2026-07-13: verified artifact `artifacts/mp/20260713-144518-two-humanbot-two-ai-smoke/host.Player.log`
 - 2026-07-14: verified artifact `E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression`
+- 2026-07-15: verified artifact `artifacts/builds/20260714-231700-merge-ui-final-win64/build-metadata.json`
+- 2026-07-15: verified artifact `artifacts/builds/20260715-002530-merge-ui-visual-final-v2-win64/build-metadata.json`

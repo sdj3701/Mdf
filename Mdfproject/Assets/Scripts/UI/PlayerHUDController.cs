@@ -5,6 +5,9 @@ using TMPro;
 
 public class PlayerHUDController : MonoBehaviour
 {
+    private const float RuntimeReferenceFallbackInterval = 0.5f;
+    private const float HudFallbackRefreshInterval = 0.25f;
+
     [Header("HUD UI 요소")]
     public TextMeshProUGUI goldText;
     public TextMeshProUGUI roundText;
@@ -22,15 +25,20 @@ public class PlayerHUDController : MonoBehaviour
     private int _lastGold = int.MinValue;
     private int _lastRound = int.MinValue;
     private int _lastWallCount = int.MinValue;
+    private bool hudDirty = true;
+    private float nextRuntimeReferenceFallbackTime;
+    private float nextHudFallbackRefreshTime;
 
-    private void RefreshRuntimeReferences(bool verboseLog = false)
+    private bool RefreshRuntimeReferences(bool verboseLog = false)
     {
+        bool changed = false;
         var latestGameManager = GameManagers.Instance;
         if (latestGameManager != gameManager)
         {
             gameManager = latestGameManager;
             localPlayer = null;
             InvalidateCachedHudValues();
+            changed = true;
 
             if (verboseLog && gameManager != null)
             {
@@ -42,11 +50,19 @@ public class PlayerHUDController : MonoBehaviour
         {
             localPlayer = gameManager.localPlayer;
             InvalidateCachedHudValues();
+            changed = true;
             if (verboseLog && localPlayer != null)
             {
                 Debug.Log($"[PlayerHUDController] localPlayer 재바인딩 완료: Player {localPlayer.playerId}");
             }
         }
+
+        if (changed)
+        {
+            MarkHudDirty();
+        }
+
+        return changed;
     }
 
     void OnEnable()
@@ -54,6 +70,10 @@ public class PlayerHUDController : MonoBehaviour
         GameEvents.OnGameManagersReady += OnGameManagersReady;
         GameEvents.OnGameStateChanged += HandleGameStateChange;
         GameEvents.OnBattleSequenceStarted += HandleBattleSequenceStarted;
+        GameEvents.OnGameStateRestored += HandleGameStateChange;
+        GameEvents.OnHostMigrationCompleted += HandleHostMigrationCompleted;
+        GameEvents.OnPlayerStatsChanged += HandlePlayerStatsChanged;
+        GameEvents.OnPlayerWallCountChanged += HandlePlayerWallCountChanged;
 
         if (shopToggleButton != null)
         {
@@ -68,6 +88,10 @@ public class PlayerHUDController : MonoBehaviour
         GameEvents.OnGameManagersReady -= OnGameManagersReady;
         GameEvents.OnGameStateChanged -= HandleGameStateChange;
         GameEvents.OnBattleSequenceStarted -= HandleBattleSequenceStarted;
+        GameEvents.OnGameStateRestored -= HandleGameStateChange;
+        GameEvents.OnHostMigrationCompleted -= HandleHostMigrationCompleted;
+        GameEvents.OnPlayerStatsChanged -= HandlePlayerStatsChanged;
+        GameEvents.OnPlayerWallCountChanged -= HandlePlayerWallCountChanged;
 
         if (shopToggleButton != null)
         {
@@ -116,7 +140,37 @@ public class PlayerHUDController : MonoBehaviour
         }
 
         // Host Migration 후 Instance 교체를 반영하기 위해 매 프레임 최신 참조를 확인합니다.
-        RefreshRuntimeReferences();
+        if (ShouldRefreshRuntimeReferences())
+        {
+            RefreshRuntimeReferences();
+        }
+
+        RefreshHud(false);
+    }
+
+    private bool ShouldRefreshRuntimeReferences()
+    {
+        if (Time.unscaledTime < nextRuntimeReferenceFallbackTime)
+        {
+            return false;
+        }
+
+        nextRuntimeReferenceFallbackTime = Time.unscaledTime + RuntimeReferenceFallbackInterval;
+        if (gameManager != GameManagers.Instance)
+        {
+            return true;
+        }
+
+        if (gameManager != null && gameManager.localPlayer != localPlayer)
+        {
+            return true;
+        }
+
+        return gameManager == null || localPlayer == null;
+    }
+
+    private void RefreshHud(bool force)
+    {
         if (gameManager == null)
         {
             return;
@@ -138,6 +192,14 @@ public class PlayerHUDController : MonoBehaviour
         {
             return;
         }
+
+        if (!force && !hudDirty && Time.unscaledTime < nextHudFallbackRefreshTime)
+        {
+            return;
+        }
+
+        nextHudFallbackRefreshTime = Time.unscaledTime + HudFallbackRefreshInterval;
+        hudDirty = false;
 
         // HUD UI 업데이트
         if (goldText != null && goldText.gameObject.activeInHierarchy)
@@ -173,6 +235,7 @@ public class PlayerHUDController : MonoBehaviour
 
     private void HandleGameStateChange(GameManagers.GameState newState)
     {
+        MarkHudDirty();
         bool isPreparePhase = (newState == GameManagers.GameState.Prepare);
         bool useToolkitHud = GamePrepareUIToolkitController.IsToolkitActive;
 
@@ -198,6 +261,36 @@ public class PlayerHUDController : MonoBehaviour
         }
 
         RefreshShopToggleText();
+        RefreshHud(true);
+    }
+
+    private void HandleHostMigrationCompleted(bool isNewHost)
+    {
+        RefreshRuntimeReferences(true);
+        MarkHudDirty();
+        RefreshHud(true);
+    }
+
+    private void HandlePlayerStatsChanged(int playerId, int newHealth, int newGold)
+    {
+        if (!IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        MarkHudDirty();
+        RefreshHud(true);
+    }
+
+    private void HandlePlayerWallCountChanged(int playerId, int newWallCount)
+    {
+        if (!IsLocalPlayerId(playerId))
+        {
+            return;
+        }
+
+        MarkHudDirty();
+        RefreshHud(true);
     }
 
     public void SetLegacyHudButtonsVisible(bool visible)
@@ -228,6 +321,7 @@ public class PlayerHUDController : MonoBehaviour
         if (visible)
         {
             InvalidateCachedHudValues();
+            MarkHudDirty();
         }
     }
 
@@ -247,6 +341,7 @@ public class PlayerHUDController : MonoBehaviour
 
     private void HandleBattleSequenceStarted(bool isAttacking)
     {
+        RefreshRuntimeReferences();
         if (opponentNameText == null) return;
         if (localPlayer == null) return;
 
@@ -287,6 +382,30 @@ public class PlayerHUDController : MonoBehaviour
 
         bool isVisible = shopUIController != null && shopUIController.IsContentVisible();
         shopToggleButtonText.text = isVisible ? "Close" : "Open";
+    }
+
+    private bool IsLocalPlayerId(int playerId)
+    {
+        RefreshRuntimeReferences();
+        if (localPlayer == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            return localPlayer.playerId == playerId;
+        }
+        catch (System.InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private void MarkHudDirty()
+    {
+        hudDirty = true;
+        nextHudFallbackRefreshTime = 0f;
     }
 
     private void SubscribeToShopVisibility()

@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-21
-Last verified: 2026-05-21
-Use count: 2
+Last used: 2026-06-03
+Last verified: 2026-06-03
+Use count: 3
 Review after: 2026-08-03
 Triggers: 4-player smoke, build host + 3 build clients, field wall snapshots
 Applies to: `tools/harness/mp/run_four_player_smoke.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260521-045119-matrix/20260521-045122-four-player-smoke
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260521-045119-matrix/20260521-045122-four-player-smoke; artifacts/mp/20260603-042245-two-humanbot-two-ai-smoke/result.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -34,3 +34,5 @@ Verification:
 Lifecycle notes:
 - 2026-05-21: Verified four-player smoke visual run after ranking UI HP max display fix; cleanupStatus=PASS orphanedPids=[].
 - 2026-05-21: verified artifact `artifacts/mp/20260521-045119-matrix/20260521-045122-four-player-smoke`
+- 2026-06-03: Verified four-player room flow with two connected human bot peers and two AI fills.
+- 2026-06-03: verified artifact `artifacts/mp/20260603-042245-two-humanbot-two-ai-smoke/result.json`

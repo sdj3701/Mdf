@@ -40,6 +40,7 @@ public sealed class MPTestHarnessEditModeTests
             "--mpScenario", "prepare_smoke",
             "--mpDisableAiFill",
             "--mpFreezeGameFlow",
+            "--mpHideBuildDebugGUI",
             "--mpHumanBot",
             "--mpBotPersona", "maze",
             "--mpBotSeed", "222",
@@ -67,6 +68,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(options.Scenario, Is.EqualTo("prepare_smoke"));
         Assert.That(options.DisableAiFill, Is.True);
         Assert.That(options.FreezeGameFlow, Is.True);
+        Assert.That(options.HideBuildDebugGUI, Is.True);
         Assert.That(options.HumanBot, Is.True);
         Assert.That(options.BotPersona, Is.EqualTo("maze"));
         Assert.That(options.BotSeed, Is.EqualTo(222));
@@ -77,6 +79,19 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(options.BotPreferScrollAugment, Is.True);
         Assert.That(options.BotSkipPrepare, Is.False);
         Assert.That(options.BotRecordJournal, Is.EqualTo("artifacts/mp/phase8/bot.jsonl"));
+    }
+
+    [Test]
+    public void HideBuildDebugGuiFlagRequiresMpTest()
+    {
+        var options = MPTestCommandLine.Parse(new[]
+        {
+            "MDF.exe",
+            "--mpHideBuildDebugGUI"
+        });
+
+        Assert.That(options.Enabled, Is.False);
+        Assert.That(options.HideBuildDebugGUI, Is.False);
     }
 
     [Test]
@@ -704,6 +719,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("/bot/start"));
         Assert.That(source, Does.Contain("/bot/status"));
         Assert.That(source, Does.Contain("/test/freezeGameFlow"));
+        Assert.That(source, Does.Contain("/test/hideTransientUi"));
+        Assert.That(source, Does.Contain("MPTestCommandLine.IsEnabled"));
         Assert.That(source, Does.Contain("MPTestGracefulQuit.RequestQuit"));
     }
 
@@ -1233,6 +1250,12 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(attackManagerSource, Does.Contain("BattleCommandValidator.IsInsideBattleSpawnZone"));
         Assert.That(inputSource, Does.Contain("HasNonGamePrepareToolkitUiHit"));
         Assert.That(inputSource, Does.Contain("eventSystem.RaycastAll"));
+        Assert.That(inputSource, Does.Contain("EnsureUiRaycastResults"));
+        Assert.That(inputSource, Does.Contain("int frame = Time.frameCount"));
+        Assert.That(inputSource, Does.Contain("cachedRaycastFrame == frame"));
+        Assert.That(inputSource, Does.Contain("cachedRaycastEventSystem == eventSystem"));
+        Assert.That(inputSource, Does.Contain("cachedRaycastPosition == pointerPosition"));
+        Assert.That(inputSource, Does.Contain("cachedBlockingHitKnown"));
         Assert.That(inputSource, Does.Contain("IsPointerOverFieldBlockingUI"));
         Assert.That(inputSource, Does.Contain("IsFieldPassthroughUi"));
         Assert.That(inputSource, Does.Contain("GetComponentInParent<StatusBarUI>()"));

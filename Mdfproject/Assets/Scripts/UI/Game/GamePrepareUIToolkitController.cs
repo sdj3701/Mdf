@@ -56,6 +56,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const float AugmentPanelTopMin = 220f;
     private const float AugmentPanelTopMax = 380f;
     private const float KingSkillRequestPendingSeconds = 2f;
+    private const float RuntimeReferenceFallbackInterval = 0.5f;
+    private const float HudFallbackRefreshInterval = 0.25f;
 
     private static GamePrepareUIToolkitController instance;
 
@@ -136,6 +138,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private bool legacyHudHidden;
     private bool kingSkillRequestPending;
     private float kingSkillRequestPendingUntil;
+    private bool hudStateDirty = true;
+    private float nextRuntimeReferenceFallbackTime;
+    private float nextHudFallbackRefreshTime;
 
     public static GamePrepareUIToolkitController Instance => instance;
     public static bool IsToolkitActive => instance != null && instance.isActiveAndEnabled;
@@ -285,6 +290,19 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         instance.SetAttackSequenceVisible(false);
         return true;
     }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    public static bool TryHideTransientPanelsForMpTest()
+    {
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        instance.HideTransientPanelsForMpTest();
+        return true;
+    }
+#endif
 
     public static bool TryRefreshAttackSequenceFromLegacy(
         PlayerManager player,
@@ -691,14 +709,19 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private void Update()
     {
-        RefreshRuntimeReferences();
+        if (ShouldRefreshRuntimeReferences())
+        {
+            RefreshRuntimeReferences();
+        }
+
+        UpdateRoundTimerLabel(false);
         UpdateHudState(false);
     }
 
     private void OnDisable()
     {
         UnsubscribeEvents();
-        ReleaseIconHandles();
+        InvalidateIconLoads();
     }
 
     private void OnDestroy()
@@ -1058,6 +1081,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void HandleGameManagersReady()
     {
         RefreshRuntimeReferences();
+        MarkHudDirty();
         HideLegacyContent();
         RefreshShopCards();
         UpdateHudState(true);
@@ -1066,6 +1090,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void HandleGameStateChanged(GameManagers.GameState newState)
     {
         RefreshRuntimeReferences();
+        MarkHudDirty();
         if (newState != GameManagers.GameState.Prepare)
         {
             SetShopVisible(false);
@@ -1088,6 +1113,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void HandleHostMigrationCompleted(bool isNewHost)
     {
         RefreshRuntimeReferences();
+        MarkHudDirty();
         RefreshShopCards();
         UpdateHudState(true);
     }
@@ -1103,6 +1129,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         pendingShopPurchaseSlots.Clear();
         BindShopCards(localShopManager?.GetCurrentShopItems());
         UpdateRerollLabel(true);
+        MarkHudDirty();
     }
 
     private void HandleUnitPurchaseSucceeded(int playerID, ShopItem item, int slotIndex)
@@ -1161,7 +1188,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
-        RefreshResourceState(true);
+        MarkHudDirty();
+        UpdateHudState(true);
     }
 
     private void HandlePlayerWallCountChanged(int playerId, int newWallCount)
@@ -1171,7 +1199,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
-        RefreshResourceState(true);
+        MarkHudDirty();
+        UpdateHudState(true);
     }
 
     private void HandlePlayerPermanentWallCountChanged(int playerId, int newWallCount)
@@ -1181,6 +1210,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
+        MarkHudDirty();
         UpdateHudState(true);
     }
 
@@ -1281,6 +1311,15 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         return true;
     }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    private void HideTransientPanelsForMpTest()
+    {
+        SetShopVisible(false);
+        SetAugmentVisible(false);
+        SetAttackSequenceVisible(false);
+    }
+#endif
+
     private void ShowAttackSequence(PlayerManager player, AttackSequenceManager manager, bool isAttacking)
     {
         RefreshRuntimeReferences();
@@ -1336,11 +1375,57 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
     }
 
-    private void RefreshRuntimeReferences()
+    private bool RefreshRuntimeReferences()
     {
-        gameManagers = GameManagers.Instance;
-        localPlayer = gameManagers != null ? gameManagers.localPlayer : null;
-        localShopManager = localPlayer != null ? localPlayer.shopManager : null;
+        var latestGameManagers = GameManagers.Instance;
+        var latestLocalPlayer = latestGameManagers != null ? latestGameManagers.localPlayer : null;
+        var latestShopManager = latestLocalPlayer != null ? latestLocalPlayer.shopManager : null;
+        bool changed = latestGameManagers != gameManagers ||
+                       latestLocalPlayer != localPlayer ||
+                       latestShopManager != localShopManager;
+
+        gameManagers = latestGameManagers;
+        localPlayer = latestLocalPlayer;
+        localShopManager = latestShopManager;
+
+        if (changed)
+        {
+            MarkHudDirty();
+        }
+
+        return changed;
+    }
+
+    private bool ShouldRefreshRuntimeReferences()
+    {
+        if (Time.unscaledTime < nextRuntimeReferenceFallbackTime)
+        {
+            return false;
+        }
+
+        nextRuntimeReferenceFallbackTime = Time.unscaledTime + RuntimeReferenceFallbackInterval;
+        if (gameManagers != GameManagers.Instance)
+        {
+            return true;
+        }
+
+        if (gameManagers != null && gameManagers.localPlayer != localPlayer)
+        {
+            return true;
+        }
+
+        if (localPlayer != null && localPlayer.shopManager != localShopManager)
+        {
+            return true;
+        }
+
+        return gameManagers == null || localPlayer == null;
+    }
+
+    private void MarkHudDirty()
+    {
+        hudStateDirty = true;
+        nextHudFallbackRefreshTime = 0f;
     }
 
     private void RefreshShopCards()
@@ -1754,6 +1839,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void SetShopVisible(bool visible)
     {
         shopVisible = visible;
+        MarkHudDirty();
         SetVisible(shopPanel, visible);
         UpdateHudState(true);
         if (visible)
@@ -1765,6 +1851,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void SetAugmentVisible(bool visible)
     {
         augmentVisible = visible;
+        MarkHudDirty();
         SetVisible(augmentPanel, visible);
         UpdateHudState(true);
         if (visible)
@@ -1864,7 +1951,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         var seconds = Mathf.Max(0, Mathf.CeilToInt(remainingTime));
         if (ShouldRefreshRoundTimer(force, round, seconds, lastRound, lastRoundSeconds))
         {
-            roundTimerLabel.text = $"ROUND {round}  {seconds:00}";
+            SetText(roundTimerLabel, $"ROUND {round}  {seconds:00}");
             lastRound = round;
             lastRoundSeconds = seconds;
         }
@@ -1891,6 +1978,14 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void UpdateHudState(bool force)
     {
         force |= !hudStateInitialized;
+        if (!force && !hudStateDirty && Time.unscaledTime < nextHudFallbackRefreshTime)
+        {
+            return;
+        }
+
+        nextHudFallbackRefreshTime = Time.unscaledTime + HudFallbackRefreshInterval;
+        hudStateDirty = false;
+
         var prepareButtonsVisible = CanShowPrepareHudActions() && !augmentVisible;
         if (force || prepareButtonsVisible != lastPrepareButtonsVisible)
         {
@@ -2368,11 +2463,11 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         attackUi?.SetLegacyContentVisibilityOnly(false);
     }
 
-    private void ReleaseIconHandles()
+    private void InvalidateIconLoads()
     {
         foreach (var shopCard in shopCards)
         {
-            shopCard.ReleaseIconHandle();
+            shopCard?.InvalidateIconLoad();
         }
 
         foreach (var monsterCard in monsterCards)
@@ -2548,7 +2643,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         public void Bind(ShopItem item, bool hasItem, bool sold)
         {
-            ReleaseIconHandle();
+            InvalidateIconLoad();
             int version = bindVersion;
 
             Root?.SetEnabled(hasItem && !sold);
@@ -2652,7 +2747,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
         }
 
-        public void ReleaseIconHandle()
+        public void InvalidateIconLoad()
         {
             bindVersion++;
             iconLease?.Dispose();
