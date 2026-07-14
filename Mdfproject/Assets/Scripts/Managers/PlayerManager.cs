@@ -2878,10 +2878,22 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return;
         }
 
-        _ownedBossAugments.RemoveAll(augment =>
+        RemoveOneOwnedBossByMonsterDataName(bossMonsterDataName);
+    }
+
+    private bool RemoveOneOwnedBossByMonsterDataName(string bossMonsterDataName)
+    {
+        int matchingIndex = _ownedBossAugments.FindIndex(augment =>
             augment != null &&
             augment.bossMonsterData != null &&
             augment.bossMonsterData.name == bossMonsterDataName);
+        if (matchingIndex < 0)
+        {
+            return false;
+        }
+
+        _ownedBossAugments.RemoveAt(matchingIndex);
+        return true;
     }
 
     private void SyncOwnedBossRemovalToClientsIfAuthoritative(MonsterData bossData)

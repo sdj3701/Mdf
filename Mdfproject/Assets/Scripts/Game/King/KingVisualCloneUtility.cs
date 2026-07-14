@@ -43,6 +43,7 @@ public static class KingVisualCloneUtility
 
             MapTransformHierarchy(source.transform, clone.transform, transformMap);
             StripNonPresentationComponents(clone);
+            AddAnimationEventSinks(clone);
 
             clone.transform.SetParent(parent, false);
             primaryAnimator = clone.GetComponentInChildren<Animator>(true);
@@ -136,7 +137,21 @@ public static class KingVisualCloneUtility
                || component is MeshFilter
                || component is HeadLookController
                || component is UnitOrientationFixer
-               || component is BodyScaler;
+               || component is BodyScaler
+               || component is KingAnimationEventSink;
+    }
+
+    private static void AddAnimationEventSinks(GameObject root)
+    {
+        Animator[] animators = root.GetComponentsInChildren<Animator>(true);
+        for (int i = 0; i < animators.Length; i++)
+        {
+            Animator animator = animators[i];
+            if (animator != null && animator.GetComponent<KingAnimationEventSink>() == null)
+            {
+                animator.gameObject.AddComponent<KingAnimationEventSink>();
+            }
+        }
     }
 
     private static void MapTransformHierarchy(

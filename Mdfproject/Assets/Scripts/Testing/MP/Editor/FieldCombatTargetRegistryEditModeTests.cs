@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
@@ -13,6 +14,12 @@ public sealed class FieldCombatTargetRegistryEditModeTests
         BindingFlags.Instance | BindingFlags.NonPublic);
     private static readonly FieldInfo MonsterSpawnGenerationField = typeof(Monster).GetField(
         "_spawnGeneration",
+        BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly FieldInfo MonsterAttackSpeedField = typeof(Monster).GetField(
+        "_currentAttackSpeed",
+        BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly FieldInfo MonsterCurrentBlockerIdField = typeof(Monster).GetField(
+        "currentBlockerId",
         BindingFlags.Instance | BindingFlags.NonPublic);
 
     private readonly List<Object> _createdObjects = new List<Object>();
@@ -141,6 +148,50 @@ public sealed class FieldCombatTargetRegistryEditModeTests
         Assert.That(FieldCombatTargetRegistry.FieldOwnerIdsMatch(3, 3), Is.True);
         Assert.That(FieldCombatTargetRegistry.FieldOwnerIdsMatch(3, 4), Is.False);
         Assert.That(FieldCombatTargetRegistry.FieldOwnerIdsMatch(-1, 3), Is.False);
+    }
+
+    [Test]
+    public void BlockingAttackTargetValidationRejectsPooledTargetAfterHealthReset()
+    {
+        Monster target = CreateMonster(MonsterType.Ground, Vector3.zero);
+        CombatTargetHandle handle = CombatTargetHandle.Capture(target, target.GetComponent<Collider>());
+        MethodInfo validator = typeof(Monster).GetMethod(
+            "IsBlockingAttackTargetCurrent",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.That(validator, Is.Not.Null);
+        Assert.That((bool)validator.Invoke(null, new object[] { target, handle }), Is.True);
+
+        target.gameObject.SetActive(false);
+        target.currentHP = 100f;
+        Assert.That(
+            (bool)validator.Invoke(null, new object[] { target, handle }),
+            Is.False,
+            "an inactive pooled blocker must stay invalid even when pool reset restores its HP");
+    }
+
+    [Test]
+    public void BlockingAttackLoopExitsAndReleasesPooledWallAfterHealthReset()
+    {
+        Monster attacker = CreateMonster(MonsterType.Ground, Vector3.zero);
+        Monster pooledBlocker = CreateMonster(MonsterType.Ground, Vector3.forward);
+        MonsterAttackSpeedField.SetValue(attacker, 1f);
+        MonsterCurrentBlockerIdField.SetValue(attacker, pooledBlocker.GetInstanceID());
+        MethodInfo attackLoopMethod = typeof(Monster).GetMethod(
+            "AttackLoop",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.That(attackLoopMethod, Is.Not.Null);
+        IEnumerator attackLoop = (IEnumerator)attackLoopMethod.Invoke(attacker, new object[] { pooledBlocker });
+        Assert.That(attackLoop.MoveNext(), Is.True, "the first attack delay should begin");
+
+        pooledBlocker.gameObject.SetActive(false);
+        pooledBlocker.currentHP = 100f;
+
+        Assert.That(attackLoop.MoveNext(), Is.False,
+            "a pooled blocker must end the attack loop even when its reset HP is positive");
+        Assert.That((int)MonsterCurrentBlockerIdField.GetValue(attacker), Is.Zero,
+            "ending the stale attack loop must release the blocker before pathing resumes");
     }
 
     [Test]

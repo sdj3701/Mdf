@@ -144,6 +144,182 @@ def checkpoint_summary(snapshot: Any) -> dict[str, Any]:
     }
 
 
+def battle2_camera_expectation(snapshot: Any) -> tuple[dict[str, Any], list[str]]:
+    current_game = game(snapshot)
+    current_state = current_game.get("currentState")
+    snapshot_players = players(snapshot)
+    errors: list[str] = []
+
+    if current_state != "Battle2":
+        errors.append(f"camera_snapshot_not_battle2:{current_state}")
+
+    local_players = [player for player in snapshot_players if player.get("isLocal") is True]
+    if len(local_players) != 1:
+        errors.append(f"camera_local_player_count:{len(local_players)}")
+        return {
+            "currentState": current_state,
+            "localPlayerId": None,
+            "expectedViewingPlayerId": None,
+            "expectedAttackMode": None,
+            "role": "unknown",
+        }, errors
+
+    local_player = local_players[0]
+    local_player_id = local_player.get("playerId")
+    if not isinstance(local_player_id, int) or local_player_id < 0:
+        errors.append(f"camera_local_player_id_invalid:{local_player_id}")
+
+    is_attacker = local_player.get("isAttackerInCurrentBattle")
+    if not isinstance(is_attacker, bool):
+        errors.append(f"camera_local_attacker_flag_invalid:{is_attacker}")
+        is_attacker = False
+
+    expected_viewing_player_id = local_player_id
+    if is_attacker:
+        opponent_ids = [
+            player.get("playerId")
+            for player in snapshot_players
+            if isinstance(player.get("playerId"), int) and player.get("playerId") != local_player_id
+        ]
+        if len(opponent_ids) != 1:
+            errors.append(f"camera_two_player_opponent_count:{len(opponent_ids)}")
+            expected_viewing_player_id = None
+        else:
+            expected_viewing_player_id = opponent_ids[0]
+
+    return {
+        "currentState": current_state,
+        "localPlayerId": local_player_id,
+        "expectedViewingPlayerId": expected_viewing_player_id,
+        "expectedAttackMode": is_attacker,
+        "role": "attacker" if is_attacker else "defender",
+    }, errors
+
+
+def evaluate_battle2_camera_response(
+    expectation: dict[str, Any],
+    response: dict[str, Any],
+) -> list[str]:
+    errors: list[str] = []
+    if response.get("success") is not True:
+        error = response.get("error") if isinstance(response.get("error"), dict) else {}
+        errors.append(f"camera_probe_failed:{error.get('code') or response.get('message') or 'unknown'}")
+
+    payload = response.get("data")
+    if not isinstance(payload, dict):
+        errors.append("camera_probe_payload_missing")
+        return errors
+
+    expected_viewing = expectation.get("expectedViewingPlayerId")
+    expected_own = expectation.get("localPlayerId")
+    expected_attack_mode = expectation.get("expectedAttackMode")
+    expected_fields = {
+        "requestedPlayerId": expected_viewing,
+        "requestNavigation": False,
+        "ownPlayerId": expected_own,
+        "viewingPlayerId": expected_viewing,
+        "currentViewingMatchesRegistry": True,
+        "targetOnCurrentRunner": True,
+        "transitioning": False,
+        "attackMode": expected_attack_mode,
+        "switched": True,
+    }
+    for field, expected in expected_fields.items():
+        actual = payload.get(field)
+        if actual != expected:
+            errors.append(f"camera_{field}_mismatch:expected={expected}:actual={actual}")
+    return errors
+
+
+def probe_battle2_camera_checkpoint(
+    client: AutomationClient,
+    snapshot: Any,
+    artifact_dir: pathlib.Path,
+    checkpoint_label: str,
+    peer_label: str,
+    timeout: float,
+) -> dict[str, Any]:
+    expectation, expectation_errors = battle2_camera_expectation(snapshot)
+    expected_viewing = expectation.get("expectedViewingPlayerId")
+    started = time.monotonic()
+    deadline = started + max(0.1, timeout)
+    attempts = 0
+    response: dict[str, Any] = {}
+    response_errors: list[str] = []
+
+    if not expectation_errors and isinstance(expected_viewing, int):
+        while True:
+            attempts += 1
+            response = safe_request(lambda: client.command(
+                name="view_player_field",
+                playerId=expected_viewing,
+                requestNavigation=False,
+            ))
+            response_errors = evaluate_battle2_camera_response(expectation, response)
+            if not response_errors or time.monotonic() >= deadline:
+                break
+            time.sleep(0.25)
+
+    errors = list(expectation_errors)
+    errors.extend(response_errors)
+    report = {
+        "success": not errors,
+        "checkpointId": checkpoint_label,
+        "peer": peer_label,
+        "requestNavigation": False,
+        "expectation": expectation,
+        "attempts": attempts,
+        "elapsedSeconds": max(0.0, time.monotonic() - started),
+        "response": response,
+        "errors": errors,
+    }
+    report_path = artifact_dir / "camera-checkpoints" / f"{checkpoint_label}-{peer_label}.json"
+    write_json(report_path, report)
+    return report
+
+
+def verify_battle2_camera_checkpoints(
+    host: AutomationClient,
+    client: AutomationClient,
+    host_snapshot: Any,
+    client_snapshot: Any,
+    artifact_dir: pathlib.Path,
+    checkpoint_label: str,
+    client_peer: str,
+    timeout: float,
+) -> dict[str, Any]:
+    host_report = probe_battle2_camera_checkpoint(
+        host,
+        host_snapshot,
+        artifact_dir,
+        checkpoint_label,
+        "build-host",
+        timeout,
+    )
+    client_report = probe_battle2_camera_checkpoint(
+        client,
+        client_snapshot,
+        artifact_dir,
+        checkpoint_label,
+        client_peer,
+        timeout,
+    )
+    errors = [f"build-host:{error}" for error in host_report.get("errors") or []]
+    errors.extend(f"{client_peer}:{error}" for error in client_report.get("errors") or [])
+    report = {
+        "success": not errors,
+        "checkpointId": checkpoint_label,
+        "requestNavigation": False,
+        "host": f"camera-checkpoints/{checkpoint_label}-build-host.json",
+        "client": f"camera-checkpoints/{checkpoint_label}-{client_peer}.json",
+        "hostRole": nested(host_report, "expectation", "role"),
+        "clientRole": nested(client_report, "expectation", "role"),
+        "errors": errors,
+    }
+    write_json(artifact_dir / "camera-checkpoints" / f"{checkpoint_label}.json", report)
+    return report
+
+
 def wait_checkpoint_comparison(
     host: AutomationClient,
     client: AutomationClient,
@@ -156,6 +332,8 @@ def wait_checkpoint_comparison(
     scene: str,
     timeout: int,
     client_peer: str = "build-client",
+    verify_battle2_camera: bool = False,
+    camera_timeout: float = 5.0,
 ) -> dict[str, Any]:
     label = checkpoint_id(index, round_number, current_state)
     deadline = time.time() + timeout
@@ -227,6 +405,28 @@ def wait_checkpoint_comparison(
     checkpoint_warnings = list(selected_comparison.get("warnings") or [])
     if state_slipped_success:
         checkpoint_warnings.append("checkpoint_state_slipped_before_capture")
+    camera_verification: dict[str, Any] | None = None
+    camera_errors: list[str] = []
+    if verify_battle2_camera and current_state == "Battle2":
+        camera_verification = verify_battle2_camera_checkpoints(
+            host,
+            client,
+            selected_host,
+            selected_client,
+            artifact_dir,
+            label,
+            client_peer,
+            camera_timeout,
+        )
+        camera_errors = [f"camera:{error}" for error in camera_verification.get("errors") or []]
+        checkpoint_success = checkpoint_success and camera_verification.get("success") is True
+
+    checkpoint_errors = (
+        []
+        if stable_match or state_slipped_success
+        else list(selected_comparison.get("errors") or ["checkpoint_comparison_failed"])
+    )
+    checkpoint_errors.extend(camera_errors)
     checkpoint = {
         "checkpointId": label,
         "index": index,
@@ -240,10 +440,10 @@ def wait_checkpoint_comparison(
         "skipped": state_slipped_success,
         "hostSummary": checkpoint_summary(selected_host),
         "clientSummary": checkpoint_summary(selected_client),
-        "errors": [] if checkpoint_success else list(selected_comparison.get("errors") or ["checkpoint_comparison_failed"]),
+        "errors": checkpoint_errors,
         "warnings": checkpoint_warnings,
     }
-    write_json(comparison_path, {
+    comparison_report = {
         "checkpointId": label,
         "success": checkpoint_success,
         "skipped": state_slipped_success,
@@ -251,7 +451,11 @@ def wait_checkpoint_comparison(
         "comparison": selected_comparison,
         "hostSummary": checkpoint["hostSummary"],
         "clientSummary": checkpoint["clientSummary"],
-    })
+    }
+    if camera_verification is not None:
+        checkpoint["cameraVerification"] = camera_verification
+        comparison_report["cameraVerification"] = camera_verification
+    write_json(comparison_path, comparison_report)
     return checkpoint
 
 

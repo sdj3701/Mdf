@@ -5,7 +5,9 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using Cysharp.Threading.Tasks;
+using Fusion;
 using NUnit.Framework;
+using Assert = NUnit.Framework.Assert;
 using UnityEditor;
 using UnityEditor.AddressableAssets;
 using UnityEditor.AddressableAssets.Settings;
@@ -196,7 +198,7 @@ public sealed class BlackMagicAttackEconomyEditModeTests
         Assert.That(tree.Q<Label>("attack-black-magic-label"), Is.Not.Null);
         Assert.That(tree.Q<VisualElement>("game-wall-kind-toggle-button"), Is.Not.Null);
         Assert.That(MdfCompiledCodePolicy.ReferencesField(
-            typeof(GamePrepareUIToolkitController), typeof(MonsterData), "blackMagicCost"), Is.True);
+            typeof(AttackMonsterCardPresentation), typeof(MonsterData), "blackMagicCost"), Is.True);
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
             typeof(GamePrepareUIToolkitController), typeof(PlayerManager), "get_AppliedBlackMagicCurrent"), Is.True);
 
@@ -206,10 +208,12 @@ public sealed class BlackMagicAttackEconomyEditModeTests
         Assert.That(monsterCardView, Is.Not.Null);
         Assert.That(MdfCompiledCodePolicy.ContainsStringLiteralFragment(monsterCardView, "\uD751\uB9C8\uB825"), Is.False,
             "individual monster cards must show only the numeric cost");
-        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(monsterCardView, typeof(int), "ToString"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            monsterCardView, typeof(AttackMonsterCardPresentation), "Resolve"), Is.True);
         Assert.That(MdfCompiledCodePolicy.ContainsStringLiteralFragment(typeof(MonsterSlotUI), "\uD751\uB9C8\uB825"), Is.False,
             "legacy monster cards must also show only the numeric cost");
-        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MonsterSlotUI), typeof(int), "ToString"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(MonsterSlotUI), typeof(AttackMonsterCardPresentation), "Resolve"), Is.True);
     }
 
     [Test]
@@ -382,6 +386,184 @@ public sealed class BlackMagicAttackEconomyEditModeTests
         Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
             typeof(BattleDecisionPolicy), typeof(PlayerManager), "CanAffordAttackMonster"), Is.True,
             "AI and HumanBot decisions must use the same authority-owned affordability rule");
+    }
+
+    [Test]
+    public void MonsterSpawnCadenceIsExactlyTwoThirdsAndSharedByEveryCaller()
+    {
+        Assert.That(BattleSpawnCadence.DelayScale, Is.EqualTo(2f / 3f).Within(0.000001f));
+        Assert.That(BattleSpawnCadence.SpawnIntervalSeconds, Is.EqualTo(0.2f).Within(0.000001f));
+        Assert.That(
+            BattleSpawnCadence.ResolveDecisionInterval(GameManagers.GameState.Battle1, 0.7f),
+            Is.EqualTo(BattleSpawnCadence.BattleDecisionPollIntervalSeconds).Within(0.000001f));
+        Assert.That(
+            BattleSpawnCadence.BattleDecisionPollIntervalSeconds,
+            Is.LessThan(BattleSpawnCadence.SpawnIntervalSeconds));
+        Assert.That(
+            BattleSpawnCadence.ResolveDecisionInterval(GameManagers.GameState.Prepare, 0.7f),
+            Is.EqualTo(0.7f).Within(0.000001f));
+        Assert.That(
+            BattleSpawnCadence.ResolvePolicyCooldown(CommandType.BattleSpawnMonster),
+            Is.EqualTo(0.2f).Within(0.000001f));
+
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(AttackSequenceManager), typeof(BattleSpawnCadence), "get_SpawnIntervalSeconds"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(AIPlayerController), typeof(BattleSpawnCadence), "ResolveDecisionInterval"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(MPTestHumanBotDriver), typeof(BattleSpawnCadence), "ResolveDecisionInterval"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(BattleDecisionPolicy), typeof(BattleSpawnCadence), "ResolvePolicyCooldown"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(BattleDecisionPolicy), typeof(PlayerManager), "IsBattleSpawnCadenceReady"), Is.True,
+            "automatic players must poll the committed authority cadence instead of emitting an early request");
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(AttackSequenceManager), typeof(PlayerManager), "IsBattleSpawnCadenceReady"), Is.True,
+            "host held-click input must share the committed authority cadence");
+    }
+
+    [Test]
+    public void AuthorityCadenceArmsOnlyOnSuccessfulCommitAndSurvivesMigrationState()
+    {
+        const BindingFlags Members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(BattleSpawnMonsterCommand), typeof(PlayerManager), "IsBattleSpawnCadenceReady"), Is.True);
+
+        MethodInfo cadenceQuery = typeof(PlayerManager).GetMethod(
+            "IsBattleSpawnCadenceReady",
+            Members);
+        Assert.That(cadenceQuery, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            cadenceQuery, typeof(PlayerManager), "HasStateAuthorityOrNoNetwork"), Is.False,
+            "clients must be able to read the replicated cadence for request throttling; authority still revalidates");
+
+        MethodInfo commit = typeof(PlayerManager).GetMethod("CommitBattleSpawnReservation", Members);
+        MethodInfo refund = typeof(PlayerManager).GetMethod("TryRefundBattleSpawnReservation", Members);
+        Assert.That(commit, Is.Not.Null);
+        Assert.That(refund, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            commit, typeof(PlayerManager), "ArmBattleSpawnCadence"), Is.True,
+            "the authority timer must arm only after the spawn/resource transaction commits");
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            commit, typeof(PlayerManager), "ConsumeOwnedBoss"), Is.True,
+            "boss pool count and owned entitlement must commit in the same authority transaction");
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            commit, typeof(GameEvents), "TriggerMonsterPoolChanged"), Is.True,
+            "the host must refresh its own boss count because it ignores the client snapshot RPC");
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            refund, typeof(PlayerManager), "ArmBattleSpawnCadence"), Is.False,
+            "failed spawns must not consume the shared cadence window");
+
+        PropertyInfo timer = typeof(PlayerManager).GetProperty("BattleSpawnCadenceTimer", Members);
+        PropertyInfo sequence = typeof(PlayerManager).GetProperty("BattleSpawnCadenceSequenceId", Members);
+        Assert.That(timer?.PropertyType, Is.EqualTo(typeof(TickTimer)));
+        Assert.That(sequence?.PropertyType, Is.EqualTo(typeof(int)));
+        Assert.That(timer.GetCustomAttributes(false).Any(attribute =>
+            attribute.GetType().Name == "NetworkedAttribute" ||
+            attribute.GetType().Name == "NetworkedWeavedAttribute"), Is.True);
+        Assert.That(sequence.GetCustomAttributes(false).Any(attribute =>
+            attribute.GetType().Name == "NetworkedAttribute" ||
+            attribute.GetType().Name == "NetworkedWeavedAttribute"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(HostMigrationHandler), typeof(PlayerManager),
+            "CaptureBattleSpawnCadenceRemainingForMigration"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(HostMigrationHandler), typeof(PlayerManager),
+            "RestoreBattleSpawnCadenceAfterHostMigration"), Is.True);
+    }
+
+    [Test]
+    public void BossCardKeepsPortraitAtZeroAndDuplicateEntitlementsConsumeOneAtATime()
+    {
+        MonsterData boss = ScriptableObject.CreateInstance<MonsterData>();
+        boss.name = "MonsterData_TestBoss";
+        var entry = new MonsterPoolEntry(boss, 2, -1, -1, 7);
+
+        try
+        {
+            AttackMonsterCardState two = AttackMonsterCardPresentation.Resolve(entry, 0);
+            Assert.That(two.HasPortrait, Is.True);
+            Assert.That(two.CanInteract, Is.True);
+            Assert.That(two.CountText, Is.EqualTo("x2"));
+
+            Assert.That(entry.TryConsume(), Is.True);
+            AttackMonsterCardState one = AttackMonsterCardPresentation.Resolve(entry, 0);
+            Assert.That(one.HasPortrait, Is.True);
+            Assert.That(one.CanInteract, Is.True);
+            Assert.That(one.CountText, Is.EqualTo("x1"));
+
+            Assert.That(entry.TryConsume(), Is.True);
+            AttackMonsterCardState zero = AttackMonsterCardPresentation.Resolve(entry, 0);
+            Assert.That(zero.HasPortrait, Is.True, "the exhausted boss card must remain visible");
+            Assert.That(zero.CanInteract, Is.False, "x0 must be non-interactable");
+            Assert.That(zero.IsExhausted, Is.True);
+            Assert.That(zero.CountText, Is.EqualTo("x0"));
+
+            Type toolkitCard = typeof(GamePrepareUIToolkitController).GetNestedType(
+                "MonsterCardView",
+                BindingFlags.NonPublic);
+            Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+                toolkitCard, typeof(AttackMonsterCardPresentation), "Resolve"), Is.True);
+            Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(MonsterSlotUI), typeof(AttackMonsterCardPresentation), "Resolve"), Is.True);
+            Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(AttackSequenceManager), typeof(MonsterPoolEntry), "TryConsume"), Is.False,
+                "clients must wait for the authority pool snapshot instead of optimistically decrementing the card");
+            Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(HumanClientCommandEmitter), typeof(MonsterPoolEntry), "TryConsume"), Is.False);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(boss);
+        }
+    }
+
+    [Test]
+    public void DuplicateOwnedBossesAndClientRemovalKeepTheRemainingCopy()
+    {
+        GameObject playerObject = new GameObject("BossEntitlementPlayer");
+        PlayerManager player = playerObject.AddComponent<PlayerManager>();
+        MonsterData boss = ScriptableObject.CreateInstance<MonsterData>();
+        boss.name = "MonsterData_DuplicateBoss";
+        AugmentData first = ScriptableObject.CreateInstance<AugmentData>();
+        AugmentData second = ScriptableObject.CreateInstance<AugmentData>();
+        first.bossMonsterData = boss;
+        second.bossMonsterData = boss;
+
+        try
+        {
+            player.AddOwnedBoss(first);
+            player.AddOwnedBoss(second);
+            Assert.That(player.GetOwnedBosses(), Has.Count.EqualTo(2));
+            Assert.That(player.ConsumeOwnedBoss(boss), Is.True);
+            Assert.That(player.GetOwnedBosses(), Has.Count.EqualTo(1));
+            Assert.That(player.ConsumeOwnedBoss(boss), Is.True);
+            Assert.That(player.GetOwnedBosses(), Is.Empty);
+
+            MethodInfo clientRemoval = typeof(PlayerManager).GetMethod(
+                "RPC_RemoveOwnedBossByMonsterDataName",
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            MethodInfo removeOne = typeof(PlayerManager).GetMethod(
+                "RemoveOneOwnedBossByMonsterDataName",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(clientRemoval, Is.Not.Null);
+            Assert.That(removeOne, Is.Not.Null);
+            Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+                clientRemoval, typeof(PlayerManager), "RemoveOneOwnedBossByMonsterDataName"), Is.True);
+            Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+                removeOne, typeof(List<AugmentData>), "RemoveAt"), Is.True,
+                "each authority success must remove one matching client entitlement");
+            Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+                removeOne, typeof(List<AugmentData>), "RemoveAll"), Is.False,
+                "one successful boss spawn must not erase duplicate entitlements");
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(first);
+            UnityEngine.Object.DestroyImmediate(second);
+            UnityEngine.Object.DestroyImmediate(boss);
+            UnityEngine.Object.DestroyImmediate(playerObject);
+        }
     }
 
     private static void AssertStrengthenAugment(string path, string expectedMonsterName)

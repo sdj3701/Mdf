@@ -437,6 +437,10 @@ public class KingRuntimeEditModeTests
             Assert.That(clone.GetComponentInChildren<Rigidbody>(true), Is.Null);
             Assert.That(clone.GetComponentInChildren<MeshFilter>(true)?.sharedMesh, Is.SameAs(mesh));
             Assert.That(animator, Is.Not.Null);
+            KingAnimationEventSink animationEventSink = animator.GetComponent<KingAnimationEventSink>();
+            Assert.That(animationEventSink, Is.Not.Null);
+            Assert.That(typeof(KingAnimationEventSink).GetMethod("AnimEvent_AttackImpact"), Is.Not.Null);
+            Assert.That(typeof(KingAnimationEventSink).GetMethod("AnimEvent_SkillEnd"), Is.Not.Null);
             Assert.That(transformMap.Count, Is.EqualTo(4));
 
             HeadLookController clonedHeadLook = clone.GetComponentInChildren<HeadLookController>(true);
@@ -475,16 +479,17 @@ public class KingRuntimeEditModeTests
             Assert.That(clonedBodyScaler.headDepth, Is.EqualTo(sourceBodyScaler.headDepth));
 
             MonoBehaviour[] clonedBehaviours = clone.GetComponentsInChildren<MonoBehaviour>(true);
-            Assert.That(clonedBehaviours, Has.Length.EqualTo(3));
+            Assert.That(clonedBehaviours, Has.Length.EqualTo(4));
             Assert.That(clone.GetComponentsInChildren<HeadLookController>(true), Has.Length.EqualTo(1));
             Assert.That(clone.GetComponentsInChildren<UnitOrientationFixer>(true), Has.Length.EqualTo(1));
             Assert.That(clone.GetComponentsInChildren<BodyScaler>(true), Has.Length.EqualTo(1));
+            Assert.That(clone.GetComponentsInChildren<KingAnimationEventSink>(true), Has.Length.EqualTo(1));
 
             clone.AddComponent<PooledObject>();
             Assert.That(
                 KingVisualCloneUtility.IsPresentationOnly(clone),
                 Is.False,
-                "HeadLookController, UnitOrientationFixer, and BodyScaler must remain the complete MonoBehaviour allow-list.");
+                "Only explicit King presentation behaviours may survive the visual-only clone strip.");
         }
         finally
         {

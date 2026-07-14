@@ -265,6 +265,8 @@ def run(args: argparse.Namespace) -> int:
             "targetRound": args.target_round,
             "completionMode": args.completion_mode,
             "headlessPlayer": args.headless_player,
+            "verifyBattle2Camera": args.verify_battle2_camera,
+            "useLobbyStartGate": args.use_lobby_start_gate,
         })
         print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
         return 0
@@ -284,6 +286,7 @@ def run(args: argparse.Namespace) -> int:
     client_seed = args.seed + 1
     host_bot_seed = args.seed + 100
     client_bot_seed = args.seed + 101
+    effective_lobby_scene = "JoinLobby" if args.use_lobby_start_gate else args.lobby_scene
     host_journal_path = artifact_dir / "build-host-bot.jsonl"
     client_journal_path = artifact_dir / "build-client-bot.jsonl"
     host_proc: PlayerProcess | None = None
@@ -309,7 +312,8 @@ def run(args: argparse.Namespace) -> int:
         "session": session,
         "playerPath": str(player_path),
         "scene": args.scene,
-        "lobbyScene": args.lobby_scene,
+        "lobbyScene": effective_lobby_scene,
+        "useLobbyStartGate": args.use_lobby_start_gate,
         "seed": args.seed,
         "hostBotSeed": host_bot_seed,
         "clientBotSeed": client_bot_seed,
@@ -323,6 +327,8 @@ def run(args: argparse.Namespace) -> int:
         "allowEarlyGameOver": args.allow_early_game_over,
         "checkpointEveryState": args.checkpoint_every_state,
         "checkpointEveryRound": args.checkpoint_every_round,
+        "verifyBattle2Camera": args.verify_battle2_camera,
+        "cameraCheckpointTimeout": args.camera_checkpoint_timeout,
         "headlessPlayer": args.headless_player,
         "dryRun": args.dry_run,
         "cleanup": {
@@ -387,7 +393,7 @@ def run(args: argparse.Namespace) -> int:
             artifact_dir,
             "build-host",
             max_players=EXPECTED_PLAYERS,
-            scene=args.lobby_scene,
+            scene=effective_lobby_scene,
             case_name=CASE_NAME,
             auto_start=False,
             load_game=False,
@@ -419,7 +425,7 @@ def run(args: argparse.Namespace) -> int:
             artifact_dir,
             "build-client",
             max_players=EXPECTED_PLAYERS,
-            scene=args.lobby_scene,
+            scene=effective_lobby_scene,
             case_name=CASE_NAME,
             auto_start=False,
             load_game=False,
@@ -435,21 +441,58 @@ def run(args: argparse.Namespace) -> int:
             failures.append("client_automation_ping_timeout")
         write_json(artifact_dir / "build-client-bot-paused.json", safe_request(lambda: client.bot_stop(reason="long_progression_pre_checkpoint_pause")))
 
-        if not wait_build_peer_started(host.start_host, artifact_dir, "build-host", session, args.lobby_scene, EXPECTED_PLAYERS, args.start_timeout):
+        if not wait_build_peer_started(host.start_host, artifact_dir, "build-host", session, effective_lobby_scene, EXPECTED_PLAYERS, args.start_timeout):
             failures.append("host_start_timeout")
-        if not wait_build_peer_started(client.join, artifact_dir, "build-client", session, args.lobby_scene, EXPECTED_PLAYERS, args.start_timeout):
+        if not wait_build_peer_started(client.join, artifact_dir, "build-client", session, effective_lobby_scene, EXPECTED_PLAYERS, args.start_timeout):
             failures.append("client_join_timeout")
 
-        host_lobby, client_lobby, lobby_ready = wait_session_states(host, client, artifact_dir, args.lobby_timeout, args.lobby_scene)
+        host_lobby, client_lobby, lobby_ready = wait_session_states(host, client, artifact_dir, args.lobby_timeout, effective_lobby_scene)
         write_json(artifact_dir / "snapshots" / "build-host-lobby.json", host_lobby)
         write_json(artifact_dir / "snapshots" / "build-client-lobby.json", client_lobby)
         if not lobby_ready:
             failures.append("session_join_timeout")
 
-        load_result = host.load_game(args.scene)
-        write_json(artifact_dir / "build-host-load-game.json", load_result)
+        lobby_gate_ready = True
+        if args.use_lobby_start_gate:
+            ready_requests = {
+                "host": safe_request(lambda: host.lobby_ready(True)),
+                "client": safe_request(lambda: client.lobby_ready(True)),
+            }
+            write_json(artifact_dir / "lobby-ready-requests.json", ready_requests)
+            if any(response.get("success") is not True for response in ready_requests.values()):
+                lobby_gate_ready = False
+            else:
+                ready_deadline = time.time() + args.lobby_timeout
+                while time.time() < ready_deadline:
+                    ready_status = {
+                        "host": safe_request(host.lobby_status),
+                        "client": safe_request(client.lobby_status),
+                    }
+                    write_json(artifact_dir / "lobby-ready-status-latest.json", ready_status)
+                    if all(
+                        response.get("success") is True
+                        and (response.get("data") or {}).get("allReady") is True
+                        for response in ready_status.values()
+                    ):
+                        break
+                    time.sleep(0.25)
+                else:
+                    lobby_gate_ready = False
+
+            if not lobby_gate_ready:
+                failures.append("lobby_ready_sync_failed")
+
+        if args.use_lobby_start_gate:
+            load_result = host.lobby_start_game() if lobby_gate_ready else {
+                "success": False,
+                "message": "lobby ready synchronization failed",
+            }
+        else:
+            load_result = host.load_game(args.scene)
+        load_artifact_name = "build-host-lobby-start-game.json" if args.use_lobby_start_gate else "build-host-load-game.json"
+        write_json(artifact_dir / load_artifact_name, load_result)
         if not load_result.get("success"):
-            failures.append("host_load_game_failed")
+            failures.append("host_lobby_start_gate_failed" if args.use_lobby_start_gate else "host_load_game_failed")
 
         host_before, client_before, before_ready = wait_stable_states(
             host,
@@ -464,6 +507,21 @@ def run(args: argparse.Namespace) -> int:
         if not before_ready:
             failures.append("before_long_bot_state_ready_timeout")
 
+        if args.use_lobby_start_gate:
+            match_prewarm_logs = {
+                "host": safe_request(host.logs_recent),
+                "client": safe_request(client.logs_recent),
+            }
+            write_json(artifact_dir / "match-prewarm-logs.json", match_prewarm_logs)
+            host_log_lines = ((match_prewarm_logs["host"].get("data") or {}).get("lines") or [])
+            client_log_lines = ((match_prewarm_logs["client"].get("data") or {}).get("lines") or [])
+            if not any("phase=match_prewarm_gate" in line and "result=pass" in line for line in host_log_lines):
+                failures.append("match_prewarm_gate_pass_log_missing")
+            if not any("phase=match_prewarm_ack" in line and "result=pass" in line for line in host_log_lines):
+                failures.append("match_prewarm_authority_ack_log_missing")
+            if not any("phase=match_prewarm_peer" in line and "result=pass" in line for line in client_log_lines):
+                failures.append("match_prewarm_client_ready_log_missing")
+
         before_key = checkpoint_key(host_before)
         if before_key is not None:
             checkpoint_keys_seen.add(before_key)
@@ -477,6 +535,8 @@ def run(args: argparse.Namespace) -> int:
                 expected_players=EXPECTED_PLAYERS,
                 scene=args.scene,
                 timeout=args.checkpoint_timeout,
+                verify_battle2_camera=args.verify_battle2_camera,
+                camera_timeout=args.camera_checkpoint_timeout,
             )
             checkpoints.append(checkpoint)
 
@@ -520,6 +580,8 @@ def run(args: argparse.Namespace) -> int:
                     expected_players=EXPECTED_PLAYERS,
                     scene=args.scene,
                     timeout=args.checkpoint_timeout,
+                    verify_battle2_camera=args.verify_battle2_camera,
+                    camera_timeout=args.camera_checkpoint_timeout,
                 )
                 checkpoints.append(checkpoint)
 
@@ -561,6 +623,8 @@ def run(args: argparse.Namespace) -> int:
                 expected_players=EXPECTED_PLAYERS,
                 scene=args.scene,
                 timeout=args.checkpoint_timeout,
+                verify_battle2_camera=args.verify_battle2_camera,
+                camera_timeout=args.camera_checkpoint_timeout,
             ))
 
         write_json(artifact_dir / "snapshots" / "build-host-final.json", final_host)
@@ -633,6 +697,8 @@ def run(args: argparse.Namespace) -> int:
             "case": CASE_NAME,
             "targetRound": args.target_round,
             "completionMode": args.completion_mode,
+            "verifyBattle2Camera": args.verify_battle2_camera,
+            "useLobbyStartGate": args.use_lobby_start_gate,
             "checkpoints": checkpoints,
             "maxRoundReached": metrics.get("summary", {}).get("maxRoundReached"),
             "statesReached": metrics.get("summary", {}).get("statesReached"),
@@ -672,6 +738,7 @@ def run(args: argparse.Namespace) -> int:
             "checkpointSummaryPath": "checkpoint-summary.json",
             "botMetricsSummaryPath": "bot-metrics-summary.json",
             "headlessPlayer": args.headless_player,
+            "verifyBattle2Camera": args.verify_battle2_camera,
             "failures": failures,
             "assertions": assertions,
         }
@@ -698,6 +765,11 @@ def main() -> int:
     parser.add_argument("--session")
     parser.add_argument("--scene", default="Game")
     parser.add_argument("--lobby-scene", default="MatchingLobby")
+    parser.add_argument(
+        "--use-lobby-start-gate",
+        action="store_true",
+        help="Start from JoinLobby and invoke the production match prewarm/peer-ACK gate instead of the direct /loadGame shortcut.",
+    )
     parser.add_argument("--target-round", type=int, default=3)
     parser.add_argument("--completion-mode", choices=["round-complete", "battle2-reached"], default="round-complete")
     parser.add_argument("--max-duration-seconds", type=int, default=900)
@@ -722,6 +794,13 @@ def main() -> int:
     parser.add_argument("--lobby-timeout", type=int, default=90)
     parser.add_argument("--state-timeout", type=int, default=120)
     parser.add_argument("--checkpoint-timeout", type=int, default=25)
+    parser.add_argument(
+        "--verify-battle2-camera",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="At stable Battle2 checkpoints, inspect each peer's automatic camera state without requesting navigation.",
+    )
+    parser.add_argument("--camera-checkpoint-timeout", type=float, default=5.0)
     parser.add_argument("--request-timeout", type=float, default=20.0)
     parser.add_argument("--poll-interval-seconds", type=float, default=1.0)
     parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
@@ -733,6 +812,8 @@ def main() -> int:
         raise SystemExit("--target-round must be >= 1")
     if args.max_duration_seconds <= 0:
         raise SystemExit("--max-duration-seconds must be > 0")
+    if args.camera_checkpoint_timeout <= 0:
+        raise SystemExit("--camera-checkpoint-timeout must be > 0")
     return run(args)
 
 

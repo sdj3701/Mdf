@@ -171,6 +171,13 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             ? _profile.DecisionIntervalSeconds
             : MdfBotProfile.DefaultDecisionIntervalSeconds;
         decisionInterval = Mathf.Max(decisionInterval, MinimumCommandIntervalSeconds);
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers != null)
+        {
+            decisionInterval = BattleSpawnCadence.ResolveDecisionInterval(
+                gameManagers.GetGameState(),
+                decisionInterval);
+        }
         _nextDecisionAt = Time.realtimeSinceStartup + decisionInterval;
         TickDecision();
     }

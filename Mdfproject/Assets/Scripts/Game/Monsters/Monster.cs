@@ -1863,9 +1863,22 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         attackCoroutine = StartCoroutine(AttackLoop(target));
     }
 
+    private static bool IsBlockingAttackTargetCurrent(IEnemy target, CombatTargetHandle targetHandle)
+    {
+        MonoBehaviour targetBehaviour = target as MonoBehaviour;
+        if (targetBehaviour == null || !targetHandle.IsCurrentLifecycle(targetBehaviour))
+        {
+            return false;
+        }
+
+        return !(target is IHealth healthTarget) || healthTarget.CurrentHealth > 0f;
+    }
+
     private IEnumerator AttackLoop(IEnemy target)
     {
-        while (target != null && (target as MonoBehaviour) != null)
+        MonoBehaviour targetBehaviour = target as MonoBehaviour;
+        CombatTargetHandle targetHandle = CombatTargetHandle.Capture(targetBehaviour);
+        while (IsBlockingAttackTargetCurrent(target, targetHandle))
         {
             if (!CanRunCombatSimulation())
             {
@@ -1907,7 +1920,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             }
 #endif
 
-            if ((target as MonoBehaviour) == null) break;
+            if (!IsBlockingAttackTargetCurrent(target, targetHandle)) break;
             
             // 다시 한번 체력 확인
             if (target is IHealth healthCheck && healthCheck.CurrentHealth <= 0)
@@ -1915,7 +1928,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 break;
             }
 
-            SetPendingAttackTarget(target);
+            SetPendingAttackTarget(target, targetHandle);
             TriggerAttackAnimation();
             
             yield return new WaitForSeconds(0.5f);
@@ -1925,6 +1938,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 yield return null;
             }
 #endif
+            if (!IsBlockingAttackTargetCurrent(target, targetHandle))
+            {
+                ClearPendingAttackTarget();
+                break;
+            }
             if (_hasPendingAttack && _pendingAttackTarget != null)
             {
                 ExecutePendingAttack();

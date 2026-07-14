@@ -264,6 +264,22 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => LoadGame(body)));
         }
 
+        if (path == "/lobby/startGame")
+        {
+            return await RequireMethod(request, "POST", () => MainThread(StartLobbyGame));
+        }
+
+        if (path == "/lobby/ready")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => SetLocalLobbyReady(body)));
+        }
+
+        if (path == "/lobby/status")
+        {
+            return await RequireMethod(request, "GET", () => MainThread(LobbyStatus));
+        }
+
         if (path == "/assertState")
         {
             JObject body = await ReadBody(request);
@@ -439,6 +455,134 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             { "sceneTarget", scene }
         });
         return AutomationResponse.Ok("scene load requested", new { scene });
+    }
+
+    private AutomationResponse StartLobbyGame()
+    {
+        JoinLobbyUI lobby = JoinLobbyUI.Instance != null
+            ? JoinLobbyUI.Instance
+            : UnityEngine.Object.FindObjectOfType<JoinLobbyUI>();
+        if (lobby == null)
+        {
+            return AutomationResponse.Fail(
+                "join_lobby_ui_missing",
+                "JoinLobbyUI is not available; the peer must be in the join lobby scene.");
+        }
+
+        bool accepted = lobby.RequestMatchStart();
+        MPTestLogger.Log(
+            "automation_lobby_start_game",
+            accepted ? "accepted" : "rejected",
+            null,
+            accepted ? "production match loading gate requested" : "match loading gate is already active");
+        if (!accepted)
+        {
+            return AutomationResponse.Fail(
+                "lobby_start_not_accepted",
+                "The production lobby start gate did not accept this request.",
+                new
+                {
+                    inProgress = lobby.IsMatchStartInProgress,
+                    revision = lobby.ActiveMatchLoadRevision
+                });
+        }
+
+        return AutomationResponse.Ok(
+            "lobby match loading gate requested",
+            new
+            {
+                inProgress = lobby.IsMatchStartInProgress,
+                revision = lobby.ActiveMatchLoadRevision,
+                scene = SceneManager.GetActiveScene().name
+            });
+    }
+
+    private AutomationResponse SetLocalLobbyReady(JObject body)
+    {
+        bool desiredReady = GetBool(body, "ready", true);
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning || SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return AutomationResponse.Fail(
+                "join_lobby_runner_unavailable",
+                "Lobby ready can only be requested by a running peer in JoinLobby.");
+        }
+
+        List<NetworkPlayer> localPlayers = FindObjectsOfType<NetworkPlayer>()
+            .Where(player => player != null
+                             && player.Runner == runner
+                             && player.Object != null
+                             && player.Object.IsValid
+                             && player.HasInputAuthority)
+            .ToList();
+        if (localPlayers.Count != 1)
+        {
+            return AutomationResponse.Fail(
+                "local_lobby_player_unavailable",
+                "Exactly one input-authority NetworkPlayer is required.",
+                new { count = localPlayers.Count });
+        }
+
+        NetworkPlayer localPlayer = localPlayers[0];
+        if ((bool)localPlayer.IsReady != desiredReady)
+        {
+            localPlayer.RPC_ToggleReady();
+        }
+
+        MPTestLogger.Log(
+            "automation_lobby_ready",
+            "requested",
+            null,
+            "ready change requested through the production input-authority RPC",
+            new Dictionary<string, object>
+            {
+                { "desiredReady", desiredReady },
+                { "playerRef", localPlayer.Object.InputAuthority }
+            });
+        return AutomationResponse.Ok(
+            "lobby ready requested",
+            new
+            {
+                desiredReady,
+                currentReady = (bool)localPlayer.IsReady,
+                playerRef = localPlayer.Object.InputAuthority.ToString()
+            });
+    }
+
+    private AutomationResponse LobbyStatus()
+    {
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning)
+        {
+            return AutomationResponse.Fail("lobby_runner_unavailable", "The lobby runner is unavailable.");
+        }
+
+        var activeAuthorities = new HashSet<PlayerRef>(runner.ActivePlayers);
+        List<NetworkPlayer> players = FindObjectsOfType<NetworkPlayer>()
+            .Where(player => player != null
+                             && player.Runner == runner
+                             && player.Object != null
+                             && player.Object.IsValid
+                             && activeAuthorities.Contains(player.Object.InputAuthority))
+            .GroupBy(player => player.Object.InputAuthority)
+            .Select(group => group.First())
+            .OrderBy(player => player.Object.InputAuthority.PlayerId)
+            .ToList();
+        int readyPlayers = players.Count(player => player.IsReady);
+        return AutomationResponse.Ok(
+            "lobby status",
+            new
+            {
+                scene = SceneManager.GetActiveScene().name,
+                activePlayers = activeAuthorities.Count,
+                rosterPlayers = players.Count,
+                readyPlayers,
+                allReady = activeAuthorities.Count > 0
+                           && players.Count == activeAuthorities.Count
+                           && readyPlayers == players.Count,
+                matchLoadRevision = players.Select(player => player.MatchContentLoadRevision).DefaultIfEmpty(0).Max(),
+                matchLoadStates = players.Select(player => player.MatchContentLoadState.ToString()).ToArray()
+            });
     }
 
     private AutomationResponse AssertState(JObject body)
@@ -764,6 +908,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             currentViewingMatchesRegistry,
             targetOnCurrentRunner,
             transitioning = cameraManager.IsTransitioning,
+            attackMode = cameraManager.IsAttackMode,
             switched
         };
 
@@ -776,7 +921,8 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             { "requestNavigation", requestNavigation },
             { "currentViewingMatchesRegistry", currentViewingMatchesRegistry },
             { "targetOnCurrentRunner", targetOnCurrentRunner },
-            { "transitioning", cameraManager.IsTransitioning }
+            { "transitioning", cameraManager.IsTransitioning },
+            { "attackMode", cameraManager.IsAttackMode }
         });
 
         if (!requestNavigation)

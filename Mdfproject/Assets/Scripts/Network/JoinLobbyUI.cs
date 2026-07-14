@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Cysharp.Threading.Tasks;
 using Fusion;
 using GameCore.Enums;
@@ -15,6 +17,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private const float DesignHeight = 941f;
     private const int SlotCount = 4;
     private const int KingCount = 7;
+    private const float MatchContentLoadTimeoutSeconds = 90f;
 
     public static JoinLobbyUI Instance { get; private set; }
 
@@ -40,6 +43,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private VisualElement readyButton;
     private VisualElement leaveRoomButton;
     private VisualElement networkBlockOverlay;
+    private Label networkBlockLabel;
 
     private Label roomNameLabel;
     private Label playerCountLabel;
@@ -50,6 +54,13 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private NetworkPlayer localPlayer;
     private bool callbacksRegistered;
     private int kingIconLoadVersion;
+    private bool matchStartInProgress;
+    private int activeMatchLoadRevision;
+    private CancellationTokenSource matchStartCancellation;
+    private float nextOrphanedMatchLoadCheckRealtime;
+
+    public bool IsMatchStartInProgress => matchStartInProgress;
+    public int ActiveMatchLoadRevision => activeMatchLoadRevision;
 
     private struct PlayerViewData
     {
@@ -145,6 +156,27 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
     private void OnDisable()
     {
+        if (matchStartInProgress && activeMatchLoadRevision > 0)
+        {
+            ResolveNetworkManager();
+            if (networkManager != null
+                && networkManager._runner != null
+                && networkManager._runner.IsRunning
+                && networkManager._runner.IsServer)
+            {
+                List<NetworkPlayer> players = CollectActiveLobbyPlayers(out _, out _);
+                foreach (NetworkPlayer player in players)
+                {
+                    player?.ResetMatchContentLoadingAuthority(activeMatchLoadRevision);
+                }
+            }
+        }
+
+        matchStartInProgress = false;
+        activeMatchLoadRevision = 0;
+        matchStartCancellation?.Cancel();
+        matchStartCancellation?.Dispose();
+        matchStartCancellation = null;
         UnregisterCallbacks();
         UnsubscribeNetworkEvents();
         ReleaseKingIcons();
@@ -165,6 +197,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         readyButton = Query<VisualElement>("readyButton");
         leaveRoomButton = Query<VisualElement>("leaveRoomButton");
         networkBlockOverlay = Query<VisualElement>("networkBlockOverlay");
+        networkBlockLabel = networkBlockOverlay?.Q<Label>(className: "jl-network-block-label");
 
         roomNameLabel = Query<Label>("roomNameLabel");
         playerCountLabel = Query<Label>("playerCountLabel");
@@ -320,8 +353,88 @@ public sealed class JoinLobbyUI : MonoBehaviour
             return;
         }
 
-        TryStartGame();
+        RequestMatchStart();
         evt.StopPropagation();
+    }
+
+    private void Update()
+    {
+        if (matchStartInProgress || Time.realtimeSinceStartup < nextOrphanedMatchLoadCheckRealtime)
+        {
+            return;
+        }
+
+        nextOrphanedMatchLoadCheckRealtime = Time.realtimeSinceStartup + 0.25f;
+        ResetOrphanedAuthorityMatchLoad();
+    }
+
+    private void ResetOrphanedAuthorityMatchLoad()
+    {
+        ResolveNetworkManager();
+        NetworkRunner runner = networkManager != null ? networkManager._runner : null;
+        if (runner == null || !runner.IsRunning || !runner.IsServer)
+        {
+            return;
+        }
+
+        List<NetworkPlayer> players = CollectActiveLobbyPlayers(out _, out _);
+        int orphanedRevision = ResolveActiveMatchLoadingRevision(players);
+        if (orphanedRevision <= 0)
+        {
+            return;
+        }
+
+        foreach (NetworkPlayer player in players)
+        {
+            player?.ResetMatchContentLoadingAuthority(orphanedRevision);
+        }
+
+        Debug.LogWarning(
+            $"[MatchPrewarm] Reset orphaned lobby loading state after authority/lifecycle change. " +
+            $"revision={orphanedRevision}");
+        MPTestLogger.Log(
+            "match_prewarm_gate",
+            "reset",
+            "orphaned_authority_gate",
+            "stale lobby loading state reset after authority/lifecycle change",
+            new Dictionary<string, object> { { "revision", orphanedRevision } });
+        UpdatePlayerList();
+    }
+
+    /// <summary>
+    /// Production and DEVELOPMENT_BUILD automation entry point for the exact same lobby gate.
+    /// The host-side validation and peer ACK collection remain inside TryStartGameAsync.
+    /// </summary>
+    public bool RequestMatchStart()
+    {
+        return TryStartGame();
+    }
+
+    private bool TryStartGame()
+    {
+        ResolveNetworkManager();
+        List<NetworkPlayer> players = CollectActiveLobbyPlayers(
+            out int activePlayerCount,
+            out bool hasDuplicateAuthorities);
+        bool valid = !matchStartInProgress
+                     && isActiveAndEnabled
+                     && networkManager != null
+                     && networkManager._runner != null
+                     && networkManager._runner.IsRunning
+                     && networkManager._runner.IsServer
+                     && IsLobbyRosterComplete(activePlayerCount, players.Count, hasDuplicateAuthorities)
+                     && players.Count > 0
+                     && players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash))
+                     && players.All(player => player.IsReady)
+                     && SceneUtility.GetBuildIndexByScenePath(gameScenePath) >= 0;
+        if (!valid)
+        {
+            UpdatePlayerList();
+            return false;
+        }
+
+        TryStartGameAsync().Forget();
+        return true;
     }
 
     private void OnReadyPointerUp(PointerUpEvent evt)
@@ -394,6 +507,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         RenderKingSelection();
         UpdateRoomInfo(activePlayerCount, usingMockPlayers);
         UpdateButtons(players, activePlayerCount, hasDuplicateAuthorities, usingMockPlayers);
+        RefreshNetworkBlockOverlay();
     }
 
     private List<NetworkPlayer> CollectActiveLobbyPlayers(
@@ -606,7 +720,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         bool allKingsSelected = hasRealPlayers
             && players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash));
         bool allReady = allKingsSelected && players.All(player => player.IsReady);
-        bool canStart = isHost && allReady;
+        bool canStart = isHost && allReady && !matchStartInProgress && !IsMatchLoadingActive(players);
         bool localKingSelected = localPlayer != null
             && KingSelectionCatalog.IsAllowedHash(localPlayer.SelectedKingUnitKeyHash);
 
@@ -651,8 +765,13 @@ public sealed class JoinLobbyUI : MonoBehaviour
         }
     }
 
-    private void TryStartGame()
+    private async UniTaskVoid TryStartGameAsync()
     {
+        if (matchStartInProgress)
+        {
+            return;
+        }
+
         ResolveNetworkManager();
         List<NetworkPlayer> players = CollectActiveLobbyPlayers(
             out int activePlayerCount,
@@ -696,7 +815,179 @@ public sealed class JoinLobbyUI : MonoBehaviour
             return;
         }
 
-        networkManager._runner.LoadScene(SceneRef.FromIndex(sceneIndex), LoadSceneMode.Single);
+        NetworkRunner runner = networkManager._runner;
+        PlayerRef[] expectedAuthorities = players
+            .Select(player => player.Object.InputAuthority)
+            .OrderBy(player => player.PlayerId)
+            .ToArray();
+        int revision = players.Count > 0
+            ? players.Max(player => player.MatchContentLoadRevision) + 1
+            : 1;
+        if (revision <= 0)
+        {
+            revision = 1;
+        }
+
+        matchStartInProgress = true;
+        activeMatchLoadRevision = revision;
+        matchStartCancellation?.Cancel();
+        matchStartCancellation?.Dispose();
+        var attemptCancellation = new CancellationTokenSource();
+        matchStartCancellation = attemptCancellation;
+
+        try
+        {
+            Debug.Log(
+                $"[MatchPrewarm] Authority gate started. revision={revision}, peers={expectedAuthorities.Length}");
+            MPTestLogger.Log(
+                "match_prewarm_gate",
+                "begin",
+                null,
+                "authority waiting for active peer readiness",
+                new Dictionary<string, object>
+                {
+                    { "revision", revision },
+                    { "expectedPeers", expectedAuthorities.Length }
+                });
+
+            bool beganAll = players.All(player => player.BeginMatchContentLoadingAuthority(revision));
+            if (!beganAll)
+            {
+                FailMatchStart(players, revision, "전투 데이터 준비를 시작하지 못했습니다. 다시 시도해 주세요.");
+                return;
+            }
+
+            UpdatePlayerList();
+            float startedAt = Time.realtimeSinceStartup;
+            while (!attemptCancellation.IsCancellationRequested
+                   && Time.realtimeSinceStartup - startedAt < MatchContentLoadTimeoutSeconds)
+            {
+                if (runner == null || !runner.IsRunning || !runner.IsServer)
+                {
+                    FailMatchStart(players, revision, "방 연결이 변경되어 게임 시작을 중단했습니다.");
+                    return;
+                }
+
+                List<NetworkPlayer> currentPlayers = CollectActiveLobbyPlayers(
+                    out int currentActiveCount,
+                    out bool currentDuplicates);
+                PlayerRef[] currentAuthorities = currentPlayers
+                    .Select(player => player.Object.InputAuthority)
+                    .OrderBy(player => player.PlayerId)
+                    .ToArray();
+                if (!IsLobbyRosterComplete(currentActiveCount, currentPlayers.Count, currentDuplicates)
+                    || !expectedAuthorities.SequenceEqual(currentAuthorities))
+                {
+                    FailMatchStart(currentPlayers, revision, "인원 구성이 변경되어 게임 시작을 중단했습니다.");
+                    return;
+                }
+
+                if (currentPlayers.Any(player => player.MatchContentLoadRevision != revision))
+                {
+                    FailMatchStart(currentPlayers, revision, "전투 데이터 준비 상태가 변경되었습니다. 다시 시도해 주세요.");
+                    return;
+                }
+
+                if (currentPlayers.Any(player =>
+                        player.MatchContentLoadRevision == revision
+                        && player.MatchContentLoadState == LobbyMatchLoadingState.Failed))
+                {
+                    FailMatchStart(currentPlayers, revision, "전투 데이터 준비에 실패한 인원이 있습니다. 다시 시도해 주세요.");
+                    return;
+                }
+
+                if (currentPlayers.All(player => player.IsMatchContentReadyFor(revision)))
+                {
+                    Debug.Log(
+                        $"[MatchPrewarm] All active peer ACKs ready. revision={revision}, " +
+                        $"peers={currentPlayers.Count}. Loading {SceneDefine.Game}.");
+                    MPTestLogger.Pass(
+                        "match_prewarm_gate",
+                        "all active peers acknowledged; loading game scene",
+                        new Dictionary<string, object>
+                        {
+                            { "revision", revision },
+                            { "readyPeers", currentPlayers.Count }
+                        });
+                    runner.LoadScene(SceneRef.FromIndex(sceneIndex), LoadSceneMode.Single);
+                    return;
+                }
+
+                UpdatePlayerList();
+                await UniTask.Delay(
+                    100,
+                    DelayType.Realtime,
+                    PlayerLoopTiming.Update,
+                    attemptCancellation.Token);
+            }
+
+            if (!attemptCancellation.IsCancellationRequested)
+            {
+                List<NetworkPlayer> currentPlayers = CollectActiveLobbyPlayers(out _, out _);
+                FailMatchStart(
+                    currentPlayers,
+                    revision,
+                    "전투 데이터 준비 시간이 초과되었습니다. 연결을 확인한 뒤 다시 시도해 주세요.");
+                Debug.LogError(
+                    $"[MatchPrewarm] Authority gate timed out after {MatchContentLoadTimeoutSeconds:F0}s. " +
+                    $"revision={revision}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the lobby UI is disabled or the room is left.
+        }
+        catch (Exception exception)
+        {
+            if (matchStartInProgress && activeMatchLoadRevision == revision)
+            {
+                List<NetworkPlayer> currentPlayers = CollectActiveLobbyPlayers(out _, out _);
+                FailMatchStart(
+                    currentPlayers,
+                    revision,
+                    "전투 데이터 준비 중 오류가 발생했습니다. 다시 시도해 주세요.");
+            }
+
+            Debug.LogException(exception);
+        }
+        finally
+        {
+            DisposeMatchStartAttempt(attemptCancellation);
+        }
+    }
+
+    private void FailMatchStart(
+        IEnumerable<NetworkPlayer> players,
+        int revision,
+        string userMessage)
+    {
+        if (players != null)
+        {
+            foreach (NetworkPlayer player in players)
+            {
+                player?.ResetMatchContentLoadingAuthority(revision);
+            }
+        }
+
+        matchStartInProgress = false;
+        activeMatchLoadRevision = 0;
+        MPTestLogger.Fail(
+            "match_prewarm_gate",
+            "match_content_not_ready",
+            userMessage,
+            new Dictionary<string, object> { { "revision", revision } });
+        UpdatePlayerList();
+        ShowStatus(userMessage);
+    }
+
+    private void DisposeMatchStartAttempt(CancellationTokenSource attemptCancellation)
+    {
+        if (ReferenceEquals(matchStartCancellation, attemptCancellation))
+        {
+            matchStartCancellation = null;
+        }
+
+        attemptCancellation?.Dispose();
     }
 
     private void ToggleReady()
@@ -844,9 +1135,47 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private void RefreshNetworkBlockOverlay()
     {
         ResolveNetworkManager();
-        bool shouldBlock = networkManager != null && networkManager.IsNetworkUiBlocked;
+        List<NetworkPlayer> players = CollectActiveLobbyPlayers(out _, out _);
+        int matchLoadRevision = ResolveActiveMatchLoadingRevision(players);
+        bool matchLoading = matchStartInProgress || matchLoadRevision > 0;
+        bool shouldBlock = (networkManager != null && networkManager.IsNetworkUiBlocked) || matchLoading;
+        if (networkBlockLabel != null)
+        {
+            if (matchLoading)
+            {
+                int revision = activeMatchLoadRevision > 0 ? activeMatchLoadRevision : matchLoadRevision;
+                int readyCount = players.Count(player => player.IsMatchContentReadyFor(revision));
+                networkBlockLabel.text = $"전투 데이터를 준비하고 있습니다... ({readyCount}/{players.Count})";
+            }
+            else
+            {
+                networkBlockLabel.text = "네트워크 처리 중입니다...";
+            }
+        }
+
         SetDisplay(networkBlockOverlay, shouldBlock);
         SetControlsEnabled(!shouldBlock);
+    }
+
+    private static bool IsMatchLoadingActive(IEnumerable<NetworkPlayer> players)
+    {
+        return ResolveActiveMatchLoadingRevision(players) > 0;
+    }
+
+    private static int ResolveActiveMatchLoadingRevision(IEnumerable<NetworkPlayer> players)
+    {
+        if (players == null)
+        {
+            return 0;
+        }
+
+        return players
+            .Where(player => player != null
+                             && player.MatchContentLoadRevision > 0
+                             && player.MatchContentLoadState != LobbyMatchLoadingState.Idle)
+            .Select(player => player.MatchContentLoadRevision)
+            .DefaultIfEmpty(0)
+            .Max();
     }
 
     private void SetControlsEnabled(bool enabled)

@@ -110,11 +110,14 @@ public sealed class AppBootstrapper : MonoBehaviour
                 return;
             }
 
+            // Boot is intentionally catalog-only. Match content (UnitData, unit/monster
+            // presentations and the runner pools) is prepared behind the JoinLobby start gate.
+            // Keeping it out of Title/login prevents gameplay warmup from competing with input
+            // and room creation.
             await AddressablesManager.Instance.InitializeAsync();
-            await LoadManager.Instance.InitializeAsync();
 
             IsBootReady = true;
-            Debug.Log("[AppBootstrapper] Boot completed.");
+            Debug.Log("[AppBootstrapper] Catalog-only boot completed. Match content remains deferred.");
         }
         catch (Exception e)
         {

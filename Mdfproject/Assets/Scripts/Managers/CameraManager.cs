@@ -56,6 +56,7 @@ public class CameraManager : MonoBehaviour
     private int _currentViewingPlayerId = -1;
     private bool _isTransitioning;
     private bool _isAttackMode;
+    private int _transitionRequestVersion;
     private Vector3 _originalPosition;  // 자신의 필드를 보는 수비 모드 카메라 위치
     private Quaternion _originalRotation;  // 자신의 필드를 보는 수비 모드 카메라 회전
     private Vector3 _ownFieldCenter;  // 본인 필드 중심 위치
@@ -166,6 +167,36 @@ public class CameraManager : MonoBehaviour
         return mainCamera != null;
     }
 
+    private int BeginTransitionRequest()
+    {
+        _transitionRequestVersion = _transitionRequestVersion >= int.MaxValue - 1
+            ? 1
+            : _transitionRequestVersion + 1;
+        _isTransitioning = true;
+        return _transitionRequestVersion;
+    }
+
+    private bool IsCurrentTransitionRequest(int requestVersion)
+    {
+        return requestVersion > 0 && requestVersion == _transitionRequestVersion;
+    }
+
+    private void CompleteTransitionRequest(int requestVersion)
+    {
+        if (IsCurrentTransitionRequest(requestVersion))
+        {
+            _isTransitioning = false;
+        }
+    }
+
+    private void SupersedeActiveTransition()
+    {
+        _transitionRequestVersion = _transitionRequestVersion >= int.MaxValue - 1
+            ? 1
+            : _transitionRequestVersion + 1;
+        _isTransitioning = false;
+    }
+
     private void CaptureSceneCameraPoseIfNeeded()
     {
         if (_hasSceneCameraPose || !TryResolveMainCamera())
@@ -203,6 +234,7 @@ public class CameraManager : MonoBehaviour
     /// </summary>
     public void Initialize(PlayerManager ownField)
     {
+        SupersedeActiveTransition();
         _ownField = ownField;
         _ownPlayerId = TryGetPlayerId(ownField, out int initializedPlayerId) ? initializedPlayerId : -1;
         SetCurrentViewingField(ownField);
@@ -266,13 +298,13 @@ public class CameraManager : MonoBehaviour
             targetPlayer = ResolveActivePlayer(durableTargetPlayerId) ?? targetPlayer;
         }
 
-        if (!IsPlayerReadable(targetPlayer) || _isTransitioning) return;
+        if (!IsPlayerReadable(targetPlayer)) return;
         if (!TryResolveMainCamera()) return;
         if (!TryRebindOwnField("MoveToPlayerField")) return;
 
         if (!TryGetPlayerId(targetPlayer, out durableTargetPlayerId)) return;
 
-        _isTransitioning = true;
+        int transitionRequestVersion = BeginTransitionRequest();
         SetCurrentViewingField(targetPlayer);
         _isAttackMode = isAttackMode;
 
@@ -323,6 +355,11 @@ public class CameraManager : MonoBehaviour
             float elapsed = 0f;
             while (elapsed < transitionDuration)
             {
+                if (!IsCurrentTransitionRequest(transitionRequestVersion))
+                {
+                    return;
+                }
+
                 elapsed += Time.deltaTime;
                 float t = Mathf.SmoothStep(0f, 1f, elapsed / transitionDuration);
                 mainCamera.transform.position = Vector3.Lerp(startPosition, targetPosition, t);
@@ -330,12 +367,17 @@ public class CameraManager : MonoBehaviour
                 await UniTask.Yield();
             }
 
+            if (!IsCurrentTransitionRequest(transitionRequestVersion))
+            {
+                return;
+            }
+
             mainCamera.transform.position = targetPosition;
             mainCamera.transform.rotation = targetRotation;
         }
         finally
         {
-            _isTransitioning = false;
+            CompleteTransitionRequest(transitionRequestVersion);
         }
 
         string targetIdText = durableTargetPlayerId.ToString();
@@ -403,6 +445,7 @@ public class CameraManager : MonoBehaviour
     {
         if (targetPlayer == null || mainCamera == null) return;
 
+        SupersedeActiveTransition();
         _isAttackMode = isAttackMode;
         Vector3 currentOffset = isAttackMode ? attackOffset : defenseOffset;
         Vector3 currentRotation = isAttackMode ? attackRotation : defenseRotation;
@@ -432,6 +475,7 @@ public class CameraManager : MonoBehaviour
     public PlayerManager OwnField => _ownField;
     public int OwnPlayerId => _ownPlayerId;
     public bool IsTransitioning => _isTransitioning;
+    public bool IsAttackMode => _isAttackMode;
     #endregion
 
     private void SetCurrentViewingField(PlayerManager targetPlayer)

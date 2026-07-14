@@ -5,7 +5,6 @@ using UnityEngine;
 
 public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
 {
-    private const float DefaultBattleActionCooldown = 0.75f;
     private const float MinimumBattleCommandLeadTime = 1.25f;
     private const float SpawnCellReservationSeconds = 3f;
 
@@ -33,7 +32,7 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         if (context.PhaseTimerRemaining <= MinimumBattleCommandLeadTime)
         {
             decision = MdfDecision.Observe(context, "battle_phase_ending");
-            Arm(context.PlayerId);
+            Arm(context.PlayerId, CommandType.RequestSyncData);
             LogDecision(decision, "info");
             return false;
         }
@@ -48,7 +47,7 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         {
             if (TryChooseScroll(context, out decision) || TryChooseSpawn(context, out decision))
             {
-                Arm(context.PlayerId);
+                Arm(context.PlayerId, decision.CommandType);
                 LogDecision(decision, "pass");
                 return true;
             }
@@ -56,7 +55,7 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
 
         if (context.IsCurrentBattleDefender && TryChooseDefenderSkill(context, out decision))
         {
-            Arm(context.PlayerId);
+            Arm(context.PlayerId, decision.CommandType);
             LogDecision(decision, "pass");
             return true;
         }
@@ -153,6 +152,14 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         if (!attacker.HasAppliedCurrentAttackMonsterPoolSnapshot)
         {
             attacker.RPC_RequestSyncData();
+            return false;
+        }
+
+        // The policy cooldown starts when a request is emitted, while the authoritative
+        // cadence starts only after the asynchronous spawn transaction commits. Polling
+        // this gate avoids an early duplicate request without delaying the next legal spawn.
+        if (!attacker.IsBattleSpawnCadenceReady(out _))
+        {
             return false;
         }
 
@@ -256,11 +263,12 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
                Time.time >= next;
     }
 
-    private void Arm(int playerId)
+    private void Arm(int playerId, CommandType commandType)
     {
         if (playerId >= 0)
         {
-            _nextBattleDecisionAt[playerId] = Time.time + DefaultBattleActionCooldown;
+            _nextBattleDecisionAt[playerId] = Time.time +
+                BattleSpawnCadence.ResolvePolicyCooldown(commandType);
         }
     }
 

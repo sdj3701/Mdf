@@ -50,7 +50,8 @@ public class AIPlayerController : MonoBehaviour
 
     private void Update()
     {
-        if (_playerManager == null || GameManagers.Instance == null)
+        var gm = GameManagers.Instance;
+        if (_playerManager == null || gm == null)
         {
             return;
         }
@@ -74,9 +75,10 @@ public class AIPlayerController : MonoBehaviour
             return;
         }
 
-        _nextDecisionAt = Time.realtimeSinceStartup + _profile.DecisionIntervalSeconds;
+        _nextDecisionAt = Time.realtimeSinceStartup + BattleSpawnCadence.ResolveDecisionInterval(
+            gm.GetGameState(),
+            _profile.DecisionIntervalSeconds);
 
-        var gm = GameManagers.Instance;
         if (gm.Object == null || !gm.Object.HasStateAuthority)
         {
             return;

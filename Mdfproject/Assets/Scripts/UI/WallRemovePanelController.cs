@@ -16,6 +16,7 @@ public class WallRemovePanelController : MonoBehaviour
     [SerializeField] private Button removeButton;
     [SerializeField] private Button upgradeButton;
     [SerializeField] private TMP_Text upgradeLabel;
+    [SerializeField] private Image upgradeGoldIcon;
     [SerializeField] private Vector3 worldOffset = new Vector3(0.5f, 2f, 0f);
     [SerializeField] private Vector2 screenOffset = Vector2.zero;
     [SerializeField] private bool overrideSorting = true;
@@ -266,6 +267,7 @@ public class WallRemovePanelController : MonoBehaviour
         }
         if (!isUpgradeableWall)
         {
+            SetUpgradeCostPresentation(false, 0);
             SetActionButtonsInteractable(canRemove, false);
             return;
         }
@@ -273,19 +275,33 @@ public class WallRemovePanelController : MonoBehaviour
         int currentLevel = _currentDestructibleWall.CurrentLevel;
         bool hasQuote = _currentDestructibleWall.TryGetUpgradeQuote(
             currentLevel,
-            out int nextLevel,
+            out _,
             out int cost,
             out _);
         PlayerManager owner = _fieldManager != null ? _fieldManager.playerManager : null;
         bool canUpgrade = interactionArmed && hasQuote && !_upgradeRequested && canRemove &&
                           owner != null && owner.GetGold() >= cost;
         SetActionButtonsInteractable(canRemove, canUpgrade);
+        SetUpgradeCostPresentation(hasQuote, cost);
+    }
+
+    private void SetUpgradeCostPresentation(bool hasQuote, int cost)
+    {
         if (upgradeLabel != null)
         {
-            upgradeLabel.text = hasQuote
-                ? $"UP {currentLevel}>{nextLevel}\n{cost}"
-                : $"Lv.{currentLevel} MAX";
+            upgradeLabel.text = BuildUpgradeButtonLabel(hasQuote, cost);
         }
+        if (upgradeGoldIcon != null)
+        {
+            upgradeGoldIcon.gameObject.SetActive(hasQuote);
+        }
+    }
+
+    private static string BuildUpgradeButtonLabel(bool hasQuote, int cost)
+    {
+        return hasQuote
+            ? $"UP {cost}"
+            : "MAX";
     }
 
     private bool CanRemoveCurrentWall()

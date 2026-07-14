@@ -430,8 +430,16 @@ public sealed class WallUpgradeAndFirstSpawnPrewarmEditModeTests
         Assert.That(upgradeLabel, Is.Not.Null);
         Assert.That(upgradeButton.name, Is.EqualTo("UI_Btn_Upgrade"));
         Assert.That(upgradeLabel.transform.IsChildOf(upgradeButton.transform), Is.True);
-        Assert.That(upgradeLabel.text, Does.Contain("UP 1>2"));
-        Assert.That(upgradeLabel.text, Does.Contain("2"));
+        Assert.That(upgradeLabel.text, Is.EqualTo("UP 2"));
+        Assert.That(upgradeLabel.text, Does.Not.Contain("\n").And.Not.Contain("\r"));
+
+        MethodInfo labelFormatter = typeof(WallRemovePanelController).GetMethod(
+            "BuildUpgradeButtonLabel",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(labelFormatter, Is.Not.Null);
+        string formatted = (string)labelFormatter.Invoke(null, new object[] { true, 6 });
+        Assert.That(formatted, Is.EqualTo("UP 6"));
+        Assert.That(formatted, Does.Not.Contain("\n").And.Not.Contain("\r"));
 
         RectTransform removeRect = removeButton.transform as RectTransform;
         RectTransform upgradeRect = upgradeButton.transform as RectTransform;
@@ -505,20 +513,42 @@ public sealed class WallUpgradeAndFirstSpawnPrewarmEditModeTests
         string prewarmer = MdfSourcePolicy.ReadStaticContract(
             "Assets/Scripts/RuntimeAssets/FirstSpawnPresentationPrewarmer.cs");
 
-        int initialUnitWarmupIndex = loadManager.IndexOf(
-            "await PrewarmUnitPresentationsAsync(_lifetimeCancellation.Token)",
+        int initializeStart = loadManager.IndexOf(
+            "public async UniTask InitializeAsync()",
             StringComparison.Ordinal);
-        int unitPublicReadyIndex = loadManager.IndexOf(
-            "_isReady = true;",
-            initialUnitWarmupIndex,
+        int initializeEnd = loadManager.IndexOf(
+            "public UniTask WaitUntilReady()",
+            initializeStart,
             StringComparison.Ordinal);
-        int unitReadyIndex = loadManager.IndexOf("_unitLoadTcs.TrySetResult(true)", StringComparison.Ordinal);
-        Assert.That(initialUnitWarmupIndex, Is.GreaterThanOrEqualTo(0));
-        Assert.That(unitPublicReadyIndex, Is.GreaterThan(initialUnitWarmupIndex),
-            "concurrent callers must remain behind the first-purchase gate until warmup finishes");
-        Assert.That(unitReadyIndex, Is.GreaterThan(initialUnitWarmupIndex),
-            "the first shop purchase must not be enabled until unit assets and materials are warm");
-        Assert.That(unitReadyIndex, Is.GreaterThan(unitPublicReadyIndex));
+        string initializeSection = loadManager.Substring(initializeStart, initializeEnd - initializeStart);
+        Assert.That(initializeSection, Does.Not.Contain("PrewarmUnitPresentationsAsync"),
+            "Title/login initialization must remain semantic-data-only");
+
+        int matchWarmupStart = loadManager.IndexOf(
+            "public async UniTask PrewarmMatchContentAsync",
+            StringComparison.Ordinal);
+        int unitPresentationWarmupIndex = loadManager.IndexOf(
+            "await PrewarmUnitPresentationsAsync(cancellationToken)",
+            matchWarmupStart,
+            StringComparison.Ordinal);
+        int monsterPresentationWarmupIndex = loadManager.IndexOf(
+            "PrewarmMonsterPresentationsAsync",
+            unitPresentationWarmupIndex,
+            StringComparison.Ordinal);
+        int unitPoolWarmupIndex = loadManager.IndexOf(
+            "PrewarmUnitNetworkPoolAsync",
+            monsterPresentationWarmupIndex,
+            StringComparison.Ordinal);
+        int matchReadyIndex = loadManager.IndexOf(
+            "_matchContentPrewarmComplete = true",
+            unitPoolWarmupIndex,
+            StringComparison.Ordinal);
+        Assert.That(matchWarmupStart, Is.GreaterThanOrEqualTo(0));
+        Assert.That(unitPresentationWarmupIndex, Is.GreaterThan(matchWarmupStart));
+        Assert.That(monsterPresentationWarmupIndex, Is.GreaterThan(unitPresentationWarmupIndex));
+        Assert.That(unitPoolWarmupIndex, Is.GreaterThan(monsterPresentationWarmupIndex));
+        Assert.That(matchReadyIndex, Is.GreaterThan(unitPoolWarmupIndex),
+            "the lobby ACK must not publish ready before presentations and Runner pools are warm");
         Assert.That(loadManager, Does.Contain("if (!_isUnitDataReady)"),
             "the initializer needs a private data-ready state so its own warmup cannot recurse");
         Assert.That(loadManager, Does.Contain("AssetLoader.LoadAssetAsync<GameObject>(key, _unitPrefabAssets)"));

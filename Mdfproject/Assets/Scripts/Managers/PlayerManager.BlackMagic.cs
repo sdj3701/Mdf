@@ -11,6 +11,8 @@ public partial class PlayerManager
     [Networked] public int BlackMagicMaxBonus { get; private set; }
     [Networked] public int BlackMagicRevision { get; private set; }
     [Networked] public int BlackMagicSequenceId { get; private set; }
+    [Networked] public TickTimer BattleSpawnCadenceTimer { get; private set; }
+    [Networked] public int BattleSpawnCadenceSequenceId { get; private set; }
 
     private int _lastPublishedBlackMagicRevision = -1;
     private int _lastAppliedBlackMagicCurrent;
@@ -23,6 +25,7 @@ public partial class PlayerManager
     private int _activeBattleSpawnSequenceId = -1;
     private int _activeBattleSpawnPoolSlot = -1;
     private MonsterData _activeBattleSpawnMonsterData;
+    private float _offlineBattleSpawnCadenceReadyAt;
 
     public int AppliedBlackMagicCurrent => HasBlackMagicStateAuthority
         ? BlackMagicCurrent
@@ -127,8 +130,33 @@ public partial class PlayerManager
         BlackMagicCurrent = maximum;
         BlackMagicRevision++;
         ClearActiveBattleSpawnReservation();
+        ResetBattleSpawnCadence(sequenceId);
         PublishBlackMagicChanged();
         return true;
+    }
+
+    public bool IsBattleSpawnCadenceReady(out float remainingSeconds)
+    {
+        remainingSeconds = 0f;
+        // TickTimer is replicated state, so clients may use it as a conservative UI/input
+        // gate. The command still performs the authoritative check before any mutation.
+        if (Object != null && Object.IsValid && Runner != null)
+        {
+            if (BattleSpawnCadenceSequenceId != BlackMagicSequenceId ||
+                !BattleSpawnCadenceTimer.IsRunning ||
+                BattleSpawnCadenceTimer.Expired(Runner))
+            {
+                return true;
+            }
+
+            remainingSeconds = Mathf.Max(
+                0f,
+                BattleSpawnCadenceTimer.RemainingTime(Runner) ?? 0f);
+            return remainingSeconds <= 0f;
+        }
+
+        remainingSeconds = Mathf.Max(0f, _offlineBattleSpawnCadenceReadyAt - Time.unscaledTime);
+        return remainingSeconds <= 0f;
     }
 
     public void AddBlackMagicMaximumBonus(int amount)
@@ -274,6 +302,15 @@ public partial class PlayerManager
                 return false;
             }
 
+            if (!ConsumeOwnedBoss(entry.MonsterData))
+            {
+                entry.RemainingCount = Mathf.Min(entry.MaxCount, entry.RemainingCount + 1);
+                return false;
+            }
+
+            // State Authority ignores its own client snapshot RPC, so notify the local host UI
+            // from the same committed mutation that will be replicated to remote peers.
+            GameEvents.TriggerMonsterPoolChanged(playerId, AttackMonsterPool);
             SyncAttackMonsterPoolToClientsIfAuthoritative();
         }
         else
@@ -288,6 +325,7 @@ public partial class PlayerManager
             PublishBlackMagicChanged();
         }
 
+        ArmBattleSpawnCadence();
         ClearActiveBattleSpawnReservation();
         return true;
     }
@@ -331,6 +369,53 @@ public partial class PlayerManager
             && BlackMagicMaxBonus == Mathf.Max(0, maxBonus)
             && BlackMagicRevision == Mathf.Max(0, revision)
             && BlackMagicSequenceId == sequenceId;
+    }
+
+    public float CaptureBattleSpawnCadenceRemainingForMigration()
+    {
+        if (Object != null && Object.IsValid && Runner != null)
+        {
+            if (BattleSpawnCadenceSequenceId != BlackMagicSequenceId ||
+                !BattleSpawnCadenceTimer.IsRunning ||
+                BattleSpawnCadenceTimer.Expired(Runner))
+            {
+                return 0f;
+            }
+
+            return Mathf.Max(0f, BattleSpawnCadenceTimer.RemainingTime(Runner) ?? 0f);
+        }
+
+        return Mathf.Max(0f, _offlineBattleSpawnCadenceReadyAt - Time.unscaledTime);
+    }
+
+    public bool RestoreBattleSpawnCadenceAfterHostMigration(
+        float remainingSeconds,
+        int sequenceId,
+        string context)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return false;
+        }
+
+        float clampedRemaining = Mathf.Clamp(
+            remainingSeconds,
+            0f,
+            BattleSpawnCadence.SpawnIntervalSeconds);
+        BattleSpawnCadenceSequenceId = sequenceId;
+        BattleSpawnCadenceTimer = clampedRemaining > 0f && Runner != null
+            ? TickTimer.CreateFromSeconds(Runner, clampedRemaining)
+            : TickTimer.None;
+        _offlineBattleSpawnCadenceReadyAt = 0f;
+
+        bool restored = BattleSpawnCadenceSequenceId == sequenceId;
+        if (!restored)
+        {
+            Debug.LogError(
+                $"[PlayerManager] Battle spawn cadence restore failed ({context}) " +
+                $"P{playerId} sequence={sequenceId} remaining={clampedRemaining:F3}");
+        }
+        return restored;
     }
 
     public void ApplyBlackMagicPresentationSnapshot(
@@ -397,5 +482,30 @@ public partial class PlayerManager
         _activeBattleSpawnSequenceId = -1;
         _activeBattleSpawnPoolSlot = -1;
         _activeBattleSpawnMonsterData = null;
+    }
+
+    private void ResetBattleSpawnCadence(int sequenceId)
+    {
+        _offlineBattleSpawnCadenceReadyAt = 0f;
+        if (Object != null && Object.IsValid && Runner != null)
+        {
+            BattleSpawnCadenceSequenceId = sequenceId;
+            BattleSpawnCadenceTimer = TickTimer.None;
+        }
+    }
+
+    private void ArmBattleSpawnCadence()
+    {
+        if (Object != null && Object.IsValid && Runner != null)
+        {
+            BattleSpawnCadenceSequenceId = BlackMagicSequenceId;
+            BattleSpawnCadenceTimer = TickTimer.CreateFromSeconds(
+                Runner,
+                BattleSpawnCadence.SpawnIntervalSeconds);
+            return;
+        }
+
+        _offlineBattleSpawnCadenceReadyAt =
+            Time.unscaledTime + BattleSpawnCadence.SpawnIntervalSeconds;
     }
 }

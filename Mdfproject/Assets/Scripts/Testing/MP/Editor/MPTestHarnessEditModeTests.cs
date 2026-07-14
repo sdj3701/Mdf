@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Newtonsoft.Json;
@@ -207,6 +208,72 @@ public sealed class MPTestHarnessEditModeTests
             migrationRestore,
             typeof(GameManagers),
             "RebindLocalPresentationAfterPlayerRegistryChanged"), Is.True);
+    }
+
+    [Test]
+    public void CameraTransitionUsesLatestRequestAndIgnoresStaleCompletion()
+    {
+        const BindingFlags instanceMembers = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        const BindingFlags staticMembers = BindingFlags.Static | BindingFlags.NonPublic;
+        MethodInfo moveToPlayerField = typeof(CameraManager).GetMethod(
+            "MoveToPlayerField",
+            instanceMembers,
+            null,
+            new[] { typeof(PlayerManager), typeof(bool) },
+            null);
+        Assert.That(moveToPlayerField, Is.Not.Null);
+        AsyncStateMachineAttribute asyncStateMachine =
+            moveToPlayerField.GetCustomAttribute<AsyncStateMachineAttribute>();
+        MethodInfo moveNext = asyncStateMachine?.StateMachineType.GetMethod("MoveNext", instanceMembers);
+        Assert.That(moveNext, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(CameraManager),
+            "BeginTransitionRequest"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(CameraManager),
+            "IsCurrentTransitionRequest"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(CameraManager),
+            "CompleteTransitionRequest"), Is.True);
+
+        string cameraSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CameraManager.cs");
+        Assert.That(cameraSource, Does.Not.Contain("IsPlayerReadable(targetPlayer) || _isTransitioning"),
+            "a running return-home transition must not discard the following attack-field request");
+
+        FieldInfo singletonField = typeof(CameraManager).GetField("_instance", staticMembers);
+        CameraManager previousInstance = singletonField?.GetValue(null) as CameraManager;
+        var cameraManagerObject = new GameObject("CameraTransitionRequestGateTest");
+
+        try
+        {
+            singletonField?.SetValue(null, null);
+            CameraManager manager = cameraManagerObject.AddComponent<CameraManager>();
+            MethodInfo begin = typeof(CameraManager).GetMethod("BeginTransitionRequest", instanceMembers);
+            MethodInfo current = typeof(CameraManager).GetMethod("IsCurrentTransitionRequest", instanceMembers);
+            MethodInfo complete = typeof(CameraManager).GetMethod("CompleteTransitionRequest", instanceMembers);
+            Assert.That(begin, Is.Not.Null);
+            Assert.That(current, Is.Not.Null);
+            Assert.That(complete, Is.Not.Null);
+
+            int returnHomeRequest = (int)begin.Invoke(manager, null);
+            int attackFieldRequest = (int)begin.Invoke(manager, null);
+            Assert.That((bool)current.Invoke(manager, new object[] { returnHomeRequest }), Is.False);
+            Assert.That((bool)current.Invoke(manager, new object[] { attackFieldRequest }), Is.True);
+
+            complete.Invoke(manager, new object[] { returnHomeRequest });
+            Assert.That(manager.IsTransitioning, Is.True,
+                "the stale return-home completion must not clear the active attack-field transition");
+            complete.Invoke(manager, new object[] { attackFieldRequest });
+            Assert.That(manager.IsTransitioning, Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(cameraManagerObject);
+            singletonField?.SetValue(null, previousInstance);
+        }
     }
 
     [Test]

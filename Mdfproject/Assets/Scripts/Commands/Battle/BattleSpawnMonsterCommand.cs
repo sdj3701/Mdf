@@ -159,6 +159,15 @@ public sealed class BattleSpawnMonsterCommand
             return Reject("server_ai_or_test_authority_required", null, DefenderPlayerId, scope);
         }
 
+        if (!_validatedAttacker.IsBattleSpawnCadenceReady(out float cadenceRemainingSeconds))
+        {
+            return Reject(
+                "battle_spawn_cooldown",
+                $"remaining={cadenceRemainingSeconds:F3}",
+                DefenderPlayerId,
+                scope);
+        }
+
         _validatedDefenderField = _validatedDefender.fieldManager;
         if (_validatedDefenderField == null)
         {
@@ -353,11 +362,6 @@ public sealed class BattleSpawnMonsterCommand
             }
 
             spawnCommitted = true;
-
-            if (isBoss)
-            {
-                _validatedAttacker.ConsumeOwnedBoss(monsterData);
-            }
 
             spawnedCount++;
             }

@@ -25,7 +25,7 @@ public class AddressablesLoadingPolicyEditModeTests
             },
             {
                 "Assets/Scripts/Managers/LoadManager.cs|LoadAssetsAsync",
-                "Boot UnitData is a documented label-owned lifetime with an explicit released handle."
+                "Boot and match data labels share one LoadManager-owned loader and explicit released handles."
             },
             {
                 "Assets/Scripts/Managers/AugmentManager.cs|LoadAssetsAsync",

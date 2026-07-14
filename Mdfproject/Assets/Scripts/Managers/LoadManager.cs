@@ -12,6 +12,11 @@ using MDF.Runtime.Assets;
 public class LoadManager : MonoBehaviour
 {
     private const string BootUnitDataLabel = "mdf-boot-data";
+    private const string MatchMonsterDataLabel = "MonsterData";
+    private const string MatchAugmentDataLabel = "Augment";
+    private const string MatchKingDataLabel = "KingUnitData";
+    private const string MatchScrollDataLabel = "Scroll";
+    private const int MatchMonsterNetworkPoolTargetPerPrefab = 1;
     private const int DefaultUnitNetworkPoolTargetPerPrefab = 4;
     private const int DefaultUnitNetworkPoolTargetUpperBound = 8;
     public static LoadManager Instance { get; private set; }
@@ -43,6 +48,25 @@ public class LoadManager : MonoBehaviour
     private UniTaskCompletionSource<bool> _unitPresentationPrewarmCompletion;
     private bool _isUnitPresentationPrewarming;
     private bool _unitPresentationPrewarmComplete;
+    private CancellationTokenSource _unitPresentationPrewarmCancellation;
+    private bool _isMatchContentPrewarming;
+    private bool _matchContentPrewarmComplete;
+    private UniTaskCompletionSource<bool> _matchContentPrewarmCompletion;
+    private NetworkRunner _matchContentPrewarmRunner;
+    private CancellationTokenSource _matchContentPrewarmCancellation;
+    private AsyncOperationHandle<IList<MonsterData>> _matchMonsterDataHandle;
+    private AsyncOperationHandle<IList<AugmentData>> _matchAugmentDataHandle;
+    private AsyncOperationHandle<IList<KingUnitData>> _matchKingDataHandle;
+    private AsyncOperationHandle<IList<MagicScrollData>> _matchScrollDataHandle;
+    private bool _hasMatchMonsterDataHandle;
+    private bool _hasMatchAugmentDataHandle;
+    private bool _hasMatchKingDataHandle;
+    private bool _hasMatchScrollDataHandle;
+    private readonly AddressableAssetOwner _matchPresentationAssets = new AddressableAssetOwner();
+    private readonly Dictionary<string, GameObject> _prewarmedMonsterPrefabs =
+        new Dictionary<string, GameObject>(StringComparer.Ordinal);
+    private readonly Dictionary<string, GameObject> _prewarmedMonsterProjectilePrefabs =
+        new Dictionary<string, GameObject>(StringComparer.Ordinal);
     private CancellationTokenSource _lifetimeCancellation = new CancellationTokenSource();
     private readonly Dictionary<NetworkRunner, UnitNetworkPoolPrewarmState> _unitNetworkPoolPrewarms =
         new Dictionary<NetworkRunner, UnitNetworkPoolPrewarmState>();
@@ -81,6 +105,7 @@ public class LoadManager : MonoBehaviour
 
     public bool IsReady => _isReady;
     public bool UnitPresentationPrewarmComplete => _unitPresentationPrewarmComplete;
+    public bool MatchContentPrewarmComplete => _matchContentPrewarmComplete;
     public int RetainedUnitPrefabCount => _prewarmedUnitPrefabs.Count;
     public int RetainedUnitSkillCount => _prewarmedUnitSkills.Count;
     public int RetainedUnitVfxPrefabCount => _prewarmedUnitVfxPrefabs.Count;
@@ -122,7 +147,7 @@ public class LoadManager : MonoBehaviour
         try
         {
             // 데이터 소스 결정: 인스펙터 우선, 없으면 Addressables
-            _unitDataHandle = Addressables.LoadAssetsAsync<UnitData>(BootUnitDataLabel, null);
+            _unitDataHandle = StartOwnedLabelLoad<UnitData>(BootUnitDataLabel);
             _hasUnitDataHandle = true;
             var result = await _unitDataHandle.Task;
 
@@ -140,18 +165,9 @@ public class LoadManager : MonoBehaviour
                 .ToDictionary(g => g.Key, g => g.First());
 
             _isUnitDataReady = true;
-            try
-            {
-                // Complete the first-purchase Addressables and GPU warmup while the game is still
-                // in its loading gate on every peer. A warmup failure must not make UnitData unusable.
-                await PrewarmUnitPresentationsAsync(_lifetimeCancellation.Token);
-            }
-            catch (System.Exception warmupException)
-            {
-                Debug.LogWarning($"[LoadManager] Initial unit presentation warmup was skipped: {warmupException.Message}");
-            }
-            // IsReady is the public first-purchase gate. Publish it only after the single-flight
-            // presentation warmup has either completed or produced a handled failure.
+            // UnitData is cheap semantic data needed by gameplay. Prefab, skill, VFX, GPU and
+            // network-pool warmup is deliberately deferred to PrewarmMatchContentAsync, which is
+            // invoked only after the lobby host presses Start Game.
             _isReady = true;
             _unitLoadTcs.TrySetResult(true);
 
@@ -223,7 +239,8 @@ public class LoadManager : MonoBehaviour
             return;
         }
 
-        UniTaskCompletionSource<bool> completion = GetOrStartUnitPresentationPrewarm();
+        UniTaskCompletionSource<bool> completion =
+            GetOrStartUnitPresentationPrewarm(cancellationToken);
         UniTask<bool> waitTask = completion.Task;
         if (cancellationToken.CanBeCanceled)
         {
@@ -233,6 +250,451 @@ public class LoadManager : MonoBehaviour
         {
             await waitTask;
         }
+    }
+
+    /// <summary>
+    /// Loads and warms the local content required to enter a match. This is a peer-local operation;
+    /// JoinLobbyUI/NetworkPlayer own the authority ACK gate that prevents the host from loading
+    /// 03_Game before every active peer reports success.
+    /// </summary>
+    public async UniTask PrewarmMatchContentAsync(
+        NetworkRunner runner,
+        CancellationToken cancellationToken = default)
+    {
+        if (_isMatchContentPrewarming
+            && _matchContentPrewarmRunner != null
+            && _matchContentPrewarmRunner != runner)
+        {
+            await UniTask.WaitUntil(
+                () => !_isMatchContentPrewarming,
+                PlayerLoopTiming.Update,
+                cancellationToken);
+            await PrewarmMatchContentAsync(runner, cancellationToken);
+            return;
+        }
+
+        if (!_isMatchContentPrewarming || _matchContentPrewarmCompletion == null)
+        {
+            EnsurePrewarmLifetime();
+            _isMatchContentPrewarming = true;
+            _matchContentPrewarmRunner = runner;
+            _matchContentPrewarmCancellation?.Dispose();
+            _matchContentPrewarmCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                _lifetimeCancellation.Token,
+                cancellationToken);
+            _matchContentPrewarmCompletion = new UniTaskCompletionSource<bool>();
+            PrewarmMatchContentCoreAsync(
+                    runner,
+                    _matchContentPrewarmCompletion,
+                    _matchContentPrewarmCancellation.Token)
+                .Forget();
+        }
+
+        UniTask<bool> waitTask = _matchContentPrewarmCompletion.Task;
+        if (cancellationToken.CanBeCanceled)
+        {
+            await waitTask.AttachExternalCancellation(cancellationToken);
+        }
+        else
+        {
+            await waitTask;
+        }
+    }
+
+    private async UniTaskVoid PrewarmMatchContentCoreAsync(
+        NetworkRunner runner,
+        UniTaskCompletionSource<bool> completion,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (runner == null || !runner.IsRunning)
+            {
+                throw new InvalidOperationException("The lobby NetworkRunner is not running.");
+            }
+
+            if (AddressablesManager.Instance == null)
+            {
+                throw new InvalidOperationException("AddressablesManager is unavailable.");
+            }
+
+            Debug.Log("[MatchPrewarm] Local match content preparation started.");
+            await AddressablesManager.Instance.InitializeAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+            await InitializeAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+
+            bool requiredPrefabsReady = await AddressablesManager.Instance.LoadGamePrefabsAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!requiredPrefabsReady || !AddressablesManager.Instance.GamePrefabsLoaded)
+            {
+                throw new InvalidOperationException("Required game prefabs did not finish loading.");
+            }
+
+            await PrewarmUnitPresentationsAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            await EnsureMatchDataHandlesAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            await PrewarmAdditionalCombatPresentationsAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            int monsterPoolCreations = await PrewarmMonsterPresentationsAsync(runner, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            int unitPoolTarget = ResolveUnitNetworkPoolTarget(runner);
+            int unitPoolCreations = await PrewarmUnitNetworkPoolAsync(
+                runner,
+                unitPoolTarget,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            _matchContentPrewarmComplete = true;
+            completion.TrySetResult(true);
+            Debug.Log(
+                $"[MatchPrewarm] Local match content ready. units={_allUnits.Count}, " +
+                $"monsters={_matchMonsterDataHandle.Result?.Count ?? 0}, " +
+                $"monsterPrefabs={_prewarmedMonsterPrefabs.Count}, " +
+                $"monsterProjectiles={_prewarmedMonsterProjectilePrefabs.Count}, " +
+                $"unitPoolCreated={unitPoolCreations}, monsterPoolCreated={monsterPoolCreations}");
+        }
+        catch (OperationCanceledException)
+        {
+            completion.TrySetCanceled(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            ReleaseFailedMatchDataHandles();
+            completion.TrySetException(exception);
+            Debug.LogError($"[MatchPrewarm] Local match content preparation failed: {exception.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_matchContentPrewarmCompletion, completion))
+            {
+                _isMatchContentPrewarming = false;
+                _matchContentPrewarmRunner = null;
+                _matchContentPrewarmCancellation?.Dispose();
+                _matchContentPrewarmCancellation = null;
+            }
+        }
+    }
+
+    private async UniTask EnsureMatchDataHandlesAsync(CancellationToken cancellationToken)
+    {
+        if (!_hasMatchMonsterDataHandle || !_matchMonsterDataHandle.IsValid())
+        {
+            _matchMonsterDataHandle = StartOwnedLabelLoad<MonsterData>(MatchMonsterDataLabel);
+            _hasMatchMonsterDataHandle = true;
+        }
+
+        await _matchMonsterDataHandle.Task;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_matchMonsterDataHandle.Status != AsyncOperationStatus.Succeeded
+            || _matchMonsterDataHandle.Result == null
+            || _matchMonsterDataHandle.Result.Count == 0)
+        {
+            throw _matchMonsterDataHandle.OperationException
+                  ?? new InvalidOperationException("The MonsterData match label returned no content.");
+        }
+
+        if (!_hasMatchAugmentDataHandle || !_matchAugmentDataHandle.IsValid())
+        {
+            _matchAugmentDataHandle = StartOwnedLabelLoad<AugmentData>(MatchAugmentDataLabel);
+            _hasMatchAugmentDataHandle = true;
+        }
+
+        await _matchAugmentDataHandle.Task;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_matchAugmentDataHandle.Status != AsyncOperationStatus.Succeeded
+            || _matchAugmentDataHandle.Result == null
+            || _matchAugmentDataHandle.Result.Count == 0)
+        {
+            throw _matchAugmentDataHandle.OperationException
+                  ?? new InvalidOperationException("The Augment match label returned no content.");
+        }
+
+        if (!_hasMatchKingDataHandle || !_matchKingDataHandle.IsValid())
+        {
+            _matchKingDataHandle = StartOwnedLabelLoad<KingUnitData>(MatchKingDataLabel);
+            _hasMatchKingDataHandle = true;
+        }
+
+        await _matchKingDataHandle.Task;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_matchKingDataHandle.Status != AsyncOperationStatus.Succeeded
+            || _matchKingDataHandle.Result == null
+            || _matchKingDataHandle.Result.Count == 0)
+        {
+            throw _matchKingDataHandle.OperationException
+                  ?? new InvalidOperationException("The KingUnitData match label returned no content.");
+        }
+
+        if (!_hasMatchScrollDataHandle || !_matchScrollDataHandle.IsValid())
+        {
+            _matchScrollDataHandle = StartOwnedLabelLoad<MagicScrollData>(MatchScrollDataLabel);
+            _hasMatchScrollDataHandle = true;
+        }
+
+        await _matchScrollDataHandle.Task;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_matchScrollDataHandle.Status != AsyncOperationStatus.Succeeded
+            || _matchScrollDataHandle.Result == null
+            || _matchScrollDataHandle.Result.Count == 0)
+        {
+            throw _matchScrollDataHandle.OperationException
+                  ?? new InvalidOperationException("The Scroll match label returned no content.");
+        }
+    }
+
+    private async UniTask PrewarmAdditionalCombatPresentationsAsync(CancellationToken cancellationToken)
+    {
+        var failures = new List<string>();
+        foreach (MagicScrollData scrollData in _matchScrollDataHandle.Result)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (scrollData == null || scrollData.skillData == null)
+            {
+                continue;
+            }
+
+            List<GameObject> presentationPrefabs = CollectSkillPresentationPrefabs(scrollData.skillData);
+            foreach (GameObject prefab in presentationPrefabs)
+            {
+                if (prefab == null)
+                {
+                    continue;
+                }
+
+                int prefabId = prefab.GetInstanceID();
+                if (!_prewarmedDirectSkillPresentationIds.Add(prefabId))
+                {
+                    continue;
+                }
+
+                int failureCountBeforeWarmup = failures.Count;
+                try
+                {
+                    await TryWarmPresentationAsync(
+                        prefab,
+                        $"match-scroll:{scrollData.name}:{prefabId}",
+                        $"scroll:{scrollData.name}:{prefab.name}",
+                        failures,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    _prewarmedDirectSkillPresentationIds.Remove(prefabId);
+                    throw;
+                }
+
+                if (failures.Count > failureCountBeforeWarmup)
+                {
+                    _prewarmedDirectSkillPresentationIds.Remove(prefabId);
+                }
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Required scroll presentation warmup failed: {string.Join(", ", failures.Distinct())}");
+        }
+    }
+
+    private void ReleaseFailedMatchDataHandles()
+    {
+        if (_hasMatchMonsterDataHandle
+            && _matchMonsterDataHandle.IsValid()
+            && _matchMonsterDataHandle.Status == AsyncOperationStatus.Failed)
+        {
+            Addressables.Release(_matchMonsterDataHandle);
+            _hasMatchMonsterDataHandle = false;
+        }
+
+        if (_hasMatchAugmentDataHandle
+            && _matchAugmentDataHandle.IsValid()
+            && _matchAugmentDataHandle.Status == AsyncOperationStatus.Failed)
+        {
+            Addressables.Release(_matchAugmentDataHandle);
+            _hasMatchAugmentDataHandle = false;
+        }
+
+        if (_hasMatchKingDataHandle
+            && _matchKingDataHandle.IsValid()
+            && _matchKingDataHandle.Status == AsyncOperationStatus.Failed)
+        {
+            Addressables.Release(_matchKingDataHandle);
+            _hasMatchKingDataHandle = false;
+        }
+
+        if (_hasMatchScrollDataHandle
+            && _matchScrollDataHandle.IsValid()
+            && _matchScrollDataHandle.Status == AsyncOperationStatus.Failed)
+        {
+            Addressables.Release(_matchScrollDataHandle);
+            _hasMatchScrollDataHandle = false;
+        }
+    }
+
+    private static AsyncOperationHandle<IList<T>> StartOwnedLabelLoad<T>(string label)
+    {
+        return Addressables.LoadAssetsAsync<T>(label, null);
+    }
+
+    private void ReleaseMatchDataHandles()
+    {
+        if (_hasMatchMonsterDataHandle && _matchMonsterDataHandle.IsValid())
+        {
+            Addressables.Release(_matchMonsterDataHandle);
+        }
+
+        if (_hasMatchAugmentDataHandle && _matchAugmentDataHandle.IsValid())
+        {
+            Addressables.Release(_matchAugmentDataHandle);
+        }
+
+        if (_hasMatchKingDataHandle && _matchKingDataHandle.IsValid())
+        {
+            Addressables.Release(_matchKingDataHandle);
+        }
+
+        if (_hasMatchScrollDataHandle && _matchScrollDataHandle.IsValid())
+        {
+            Addressables.Release(_matchScrollDataHandle);
+        }
+
+        _hasMatchMonsterDataHandle = false;
+        _hasMatchAugmentDataHandle = false;
+        _hasMatchKingDataHandle = false;
+        _hasMatchScrollDataHandle = false;
+    }
+
+    private async UniTask<int> PrewarmMonsterPresentationsAsync(
+        NetworkRunner runner,
+        CancellationToken cancellationToken)
+    {
+        PooledNetworkObjectProvider provider = runner.GetComponent<PooledNetworkObjectProvider>();
+        if (provider == null)
+        {
+            throw new InvalidOperationException("The lobby runner has no pooled object provider.");
+        }
+
+        IEnumerable<string> prefabKeys = _matchMonsterDataHandle.Result
+            .Where(data => data != null && !string.IsNullOrWhiteSpace(data.monsterPrefab))
+            .Select(data => data.monsterPrefab.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(key => key, StringComparer.Ordinal);
+
+        int createdTotal = 0;
+        foreach (string prefabKey in prefabKeys)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(
+                prefabKey,
+                _matchPresentationAssets);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (prefab == null)
+            {
+                throw new InvalidOperationException($"Monster prefab '{prefabKey}' could not be loaded.");
+            }
+
+            if (!prefab.TryGetComponent(out NetworkObject networkPrefab))
+            {
+                throw new InvalidOperationException($"Monster prefab '{prefabKey}' has no NetworkObject.");
+            }
+
+            _prewarmedMonsterPrefabs[prefabKey] = prefab;
+            await FirstSpawnPresentationPrewarmer.WarmPrefabAsync(
+                prefab,
+                $"match-monster:{prefabKey}",
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            createdTotal += await provider.PrewarmPrefabAsync(
+                runner,
+                networkPrefab,
+                MatchMonsterNetworkPoolTargetPerPrefab,
+                registerForMonsterTrimming: true,
+                cancellationToken: cancellationToken);
+            await UniTask.Yield(PlayerLoopTiming.Update, cancellationToken);
+        }
+
+        IEnumerable<string> projectileKeys = _matchMonsterDataHandle.Result
+            .Where(data => data != null && !string.IsNullOrWhiteSpace(data.projectilePrefab))
+            .Select(data => data.projectilePrefab.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(key => key, StringComparer.Ordinal);
+        foreach (string projectileKey in projectileKeys)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            GameObject projectilePrefab = await AssetLoader.LoadAssetAsync<GameObject>(
+                projectileKey,
+                _matchPresentationAssets);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (projectilePrefab == null)
+            {
+                throw new InvalidOperationException(
+                    $"Monster projectile prefab '{projectileKey}' could not be loaded.");
+            }
+
+            _prewarmedMonsterProjectilePrefabs[projectileKey] = projectilePrefab;
+            await FirstSpawnPresentationPrewarmer.WarmPrefabAsync(
+                projectilePrefab,
+                $"match-monster-projectile:{projectileKey}",
+                cancellationToken);
+            await UniTask.Yield(PlayerLoopTiming.Update, cancellationToken);
+        }
+
+        var skillPresentationFailures = new List<string>();
+        foreach (MonsterData monsterData in _matchMonsterDataHandle.Result
+                     .Where(data => data != null && data.skillData != null)
+                     .OrderBy(data => data.name, StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            List<GameObject> skillPrefabs = CollectSkillPresentationPrefabs(monsterData.skillData);
+            foreach (GameObject skillPrefab in skillPrefabs)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (skillPrefab == null)
+                {
+                    continue;
+                }
+
+                int prefabId = skillPrefab.GetInstanceID();
+                if (!_prewarmedDirectSkillPresentationIds.Add(prefabId))
+                {
+                    continue;
+                }
+
+                int failureCountBeforeWarmup = skillPresentationFailures.Count;
+                try
+                {
+                    await TryWarmPresentationAsync(
+                        skillPrefab,
+                        $"match-monster-skill:{monsterData.name}:{prefabId}",
+                        $"monster-skill:{monsterData.name}:{skillPrefab.name}",
+                        skillPresentationFailures,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    _prewarmedDirectSkillPresentationIds.Remove(prefabId);
+                    throw;
+                }
+
+                if (skillPresentationFailures.Count > failureCountBeforeWarmup)
+                {
+                    _prewarmedDirectSkillPresentationIds.Remove(prefabId);
+                }
+            }
+        }
+
+        if (skillPresentationFailures.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Required monster skill presentation warmup failed: " +
+                string.Join(", ", skillPresentationFailures.Distinct()));
+        }
+
+        return createdTotal;
     }
 
     /// <summary>
@@ -283,12 +745,16 @@ public class LoadManager : MonoBehaviour
             {
                 completion = new UniTaskCompletionSource<int>();
                 state.Completion = completion;
+                CancellationTokenSource operationCancellation =
+                    CancellationTokenSource.CreateLinkedTokenSource(
+                        _lifetimeCancellation.Token,
+                        cancellationToken);
                 PrewarmUnitNetworkPoolCoreAsync(
                         runner,
                         state,
                         completion,
                         targetFreeCountPerPrefab,
-                        _lifetimeCancellation.Token)
+                        operationCancellation)
                     .Forget();
             }
 
@@ -337,8 +803,9 @@ public class LoadManager : MonoBehaviour
         UnitNetworkPoolPrewarmState state,
         UniTaskCompletionSource<int> completion,
         int targetFreeCountPerPrefab,
-        CancellationToken cancellationToken)
+        CancellationTokenSource operationCancellation)
     {
+        CancellationToken cancellationToken = operationCancellation.Token;
         try
         {
             if (runner == null || !runner.IsRunning)
@@ -401,6 +868,8 @@ public class LoadManager : MonoBehaviour
             {
                 _unitNetworkPoolPrewarms.Remove(runner);
             }
+
+            operationCancellation.Dispose();
         }
     }
 
@@ -545,7 +1014,8 @@ public class LoadManager : MonoBehaviour
         }
     }
 
-    private UniTaskCompletionSource<bool> GetOrStartUnitPresentationPrewarm()
+    private UniTaskCompletionSource<bool> GetOrStartUnitPresentationPrewarm(
+        CancellationToken attemptCancellation)
     {
         if (_isUnitPresentationPrewarming && _unitPresentationPrewarmCompletion != null)
         {
@@ -555,17 +1025,22 @@ public class LoadManager : MonoBehaviour
         EnsurePrewarmLifetime();
         _isUnitPresentationPrewarming = true;
         _unitPresentationPrewarmCompletion = new UniTaskCompletionSource<bool>();
+        _unitPresentationPrewarmCancellation?.Dispose();
+        _unitPresentationPrewarmCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            _lifetimeCancellation.Token,
+            attemptCancellation);
         PrewarmUnitPresentationsCoreAsync(
                 _unitPresentationPrewarmCompletion,
-                _lifetimeCancellation.Token)
+                _unitPresentationPrewarmCancellation)
             .Forget();
         return _unitPresentationPrewarmCompletion;
     }
 
     private async UniTaskVoid PrewarmUnitPresentationsCoreAsync(
         UniTaskCompletionSource<bool> completion,
-        CancellationToken cancellationToken)
+        CancellationTokenSource operationCancellation)
     {
+        CancellationToken cancellationToken = operationCancellation.Token;
         try
         {
             UnitPresentationDependencyKeys dependencies =
@@ -650,6 +1125,10 @@ public class LoadManager : MonoBehaviour
         }
         catch (OperationCanceledException)
         {
+            // Direct-presentation IDs are recorded before their asynchronous warmup. Clear the
+            // partial index so a later lobby attempt retries every dependency safely; completed
+            // GPU work remains deduplicated inside FirstSpawnPresentationPrewarmer.
+            _prewarmedDirectSkillPresentationIds.Clear();
             completion.TrySetCanceled(cancellationToken);
         }
         catch (Exception exception)
@@ -663,6 +1142,13 @@ public class LoadManager : MonoBehaviour
             {
                 _isUnitPresentationPrewarming = false;
             }
+
+            if (ReferenceEquals(_unitPresentationPrewarmCancellation, operationCancellation))
+            {
+                _unitPresentationPrewarmCancellation = null;
+            }
+
+            operationCancellation.Dispose();
         }
     }
 
@@ -744,12 +1230,24 @@ public class LoadManager : MonoBehaviour
             _lifetimeCancellation = null;
         }
 
+        _matchContentPrewarmCancellation?.Cancel();
+        _matchContentPrewarmCancellation?.Dispose();
+        _matchContentPrewarmCancellation = null;
+
+        _unitPresentationPrewarmCancellation?.Cancel();
+        _unitPresentationPrewarmCancellation?.Dispose();
+        _unitPresentationPrewarmCancellation = null;
+
         _unitPrefabAssets?.Dispose();
+        _matchPresentationAssets.Dispose();
         _prewarmedUnitPrefabs.Clear();
         _prewarmedUnitSkills.Clear();
         _prewarmedUnitVfxPrefabs.Clear();
         _prewarmedDirectSkillPresentationIds.Clear();
+        _prewarmedMonsterPrefabs.Clear();
+        _prewarmedMonsterProjectilePrefabs.Clear();
         _unitNetworkPoolPrewarms.Clear();
+        ReleaseMatchDataHandles();
 
         if (Instance != this)
         {

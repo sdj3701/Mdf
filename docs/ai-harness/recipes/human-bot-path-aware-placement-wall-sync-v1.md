@@ -6,7 +6,7 @@ Category: AI/HumanBot, multiplayer snapshot
 Created: 2026-05-08
 Last used: 2026-07-14
 Last verified: 2026-07-14
-Use count: 39
+Use count: 40
 Review after: 2026-08-06
 Triggers: host HumanBot moves only near buy slots, repeated same-round `MoveUnit` oscillation, no host `PlaceWall` before R3, `pathAwarePlacement=false`, `monsterPathCount=0`, or `player.*.field.wallHash` snapshot mismatch after `PlaceWall`
 Applies to: `PrepareDecisionPolicy`, `AttackRangeCoverageConsideration`, `FieldManager` wall hashes, `run_human_bot_3round_progression.py`

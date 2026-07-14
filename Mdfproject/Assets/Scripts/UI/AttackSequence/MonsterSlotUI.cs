@@ -83,9 +83,7 @@ public class MonsterSlotUI : MonoBehaviour
         
         if (countText != null)
         {
-            countText.text = _poolEntry.IsBoss
-                ? $"x{_poolEntry.RemainingCount}"
-                : Mathf.Max(0, _poolEntry.MonsterData.blackMagicCost).ToString();
+            countText.text = ResolveCardState().CountText;
         }
 
         UpdateVisualState();
@@ -125,8 +123,9 @@ public class MonsterSlotUI : MonoBehaviour
     {
         if (_poolEntry == null) return;
 
-        bool isEmpty = _poolEntry.IsEmpty;
-        bool canAfford = CanAffordCurrentEntry();
+        AttackMonsterCardState cardState = ResolveCardState();
+        bool isEmpty = cardState.IsExhausted;
+        bool canInteract = cardState.CanInteract;
 
         // 배경 색상
         if (slotBackgroundImage != null)
@@ -149,51 +148,47 @@ public class MonsterSlotUI : MonoBehaviour
         if (monsterIconImage != null)
         {
             Color iconColor = monsterIconImage.color;
-            iconColor.a = isEmpty || !canAfford ? 0.3f : 1f;
+            iconColor.a = canInteract ? 1f : 0.3f;
             monsterIconImage.color = iconColor;
         }
 
         // 버튼 활성화
         if (slotButton != null)
         {
-            slotButton.interactable = !isEmpty && canAfford;
+            slotButton.interactable = canInteract;
         }
 
         // 텍스트 투명도
         if (countText != null)
         {
             Color countColor = countText.color;
-            countColor.a = isEmpty || !canAfford ? 0.3f : 1f;
+            countColor.a = canInteract ? 1f : 0.3f;
             countText.color = countColor;
         }
     }
 
     private bool CanAffordCurrentEntry()
     {
-        if (_poolEntry == null || _poolEntry.MonsterData == null || _poolEntry.IsEmpty)
-        {
-            return false;
-        }
+        return ResolveCardState().CanInteract;
+    }
 
-        if (_poolEntry.IsBoss)
-        {
-            return true;
-        }
-
+    private AttackMonsterCardState ResolveCardState()
+    {
+        int availableBlackMagic = 0;
         PlayerManager localPlayer = GameManagers.Instance?.localPlayer;
-        if (localPlayer == null)
+        if (localPlayer != null)
         {
-            return false;
+            try
+            {
+                availableBlackMagic = localPlayer.AppliedBlackMagicCurrent;
+            }
+            catch (System.InvalidOperationException)
+            {
+                availableBlackMagic = 0;
+            }
         }
 
-        try
-        {
-            return localPlayer.AppliedBlackMagicCurrent >= Mathf.Max(0, _poolEntry.MonsterData.blackMagicCost);
-        }
-        catch (System.InvalidOperationException)
-        {
-            return false;
-        }
+        return AttackMonsterCardPresentation.Resolve(_poolEntry, availableBlackMagic);
     }
 
     private async UniTask LoadMonsterIcon(MonsterData monsterData, int iconLoadVersion)

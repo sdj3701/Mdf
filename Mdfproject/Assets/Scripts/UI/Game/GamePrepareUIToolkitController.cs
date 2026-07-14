@@ -1377,8 +1377,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         for (var i = 0; i < monsterCards.Length; i++)
         {
             var entry = pool != null && i < pool.Count ? pool[i] : null;
-            bool hasSlot = entry != null && entry.MonsterData != null;
-            SetVisible(monsterCards[i].Root, hasSlot);
+            AttackMonsterCardState cardState =
+                AttackMonsterCardPresentation.Resolve(entry, availableBlackMagic);
+            SetVisible(monsterCards[i].Root, cardState.HasPortrait);
             monsterCards[i].Bind(entry, availableBlackMagic);
         }
 
@@ -1390,6 +1391,10 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
              !CanAffordMonster(pool[selectedMonsterSlotIndex])))
         {
             selectedMonsterSlotIndex = -1;
+            for (int i = 0; i < monsterCards.Length; i++)
+            {
+                monsterCards[i].SetSelected(false);
+            }
         }
     }
 
@@ -1433,12 +1438,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private bool CanAffordMonster(MonsterPoolEntry entry)
     {
-        if (entry == null || entry.MonsterData == null || entry.IsEmpty)
-        {
-            return false;
-        }
-
-        return entry.IsBoss || GetCurrentBlackMagic() >= Mathf.Max(0, entry.MonsterData.blackMagicCost);
+        return AttackMonsterCardPresentation.Resolve(entry, GetCurrentBlackMagic()).CanInteract;
     }
 
     private void BindScrollCards(IReadOnlyList<MagicScrollData> scrolls)
@@ -2764,14 +2764,14 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         public void Bind(MonsterPoolEntry entry, int availableBlackMagic)
         {
             ReleaseIconHandle();
-            bool hasEntry = entry != null && entry.MonsterData != null && !entry.IsEmpty;
-            bool isAffordable = hasEntry && (entry.IsBoss
-                || availableBlackMagic >= Mathf.Max(0, entry.MonsterData.blackMagicCost));
-            Root?.SetEnabled(isAffordable);
-            Root?.EnableInClassList("is-disabled", !isAffordable);
-            Root?.EnableInClassList("is-unaffordable", hasEntry && !isAffordable);
+            AttackMonsterCardState cardState =
+                AttackMonsterCardPresentation.Resolve(entry, availableBlackMagic);
+            Root?.SetEnabled(cardState.CanInteract);
+            Root?.EnableInClassList("is-disabled", cardState.HasPortrait && !cardState.CanInteract);
+            Root?.EnableInClassList("is-unaffordable", cardState.IsUnaffordable);
+            Root?.EnableInClassList("is-exhausted", cardState.IsExhausted);
 
-            if (!hasEntry)
+            if (!cardState.HasPortrait)
             {
                 if (icon != null)
                 {
@@ -2784,9 +2784,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             }
 
             SetText(name, string.Empty);
-            SetText(count, entry.IsBoss
-                ? $"x{entry.RemainingCount}"
-                : Mathf.Max(0, entry.MonsterData.blackMagicCost).ToString());
+            SetText(count, cardState.CountText);
             LoadIconAsync(entry.MonsterData, bindVersion).Forget();
         }
 

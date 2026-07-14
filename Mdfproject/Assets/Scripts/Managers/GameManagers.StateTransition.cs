@@ -216,6 +216,7 @@ public partial class GameManagers
         {
             CleanupCombatForSequenceTransition(reason);
             RespawnUnitsForSequenceTransition(reason);
+            CameraManager.Instance?.ReturnToOwnField();
         }
     }
 
@@ -236,11 +237,6 @@ public partial class GameManagers
             {
                 attackSeqMgr.EndAttackSequence();
             }
-        }
-
-        if (CameraManager.Instance != null)
-        {
-            CameraManager.Instance.ReturnToOwnField();
         }
     }
 

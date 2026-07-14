@@ -69,6 +69,16 @@ class AutomationClient:
     def load_game(self, scene: str = "Game") -> dict[str, Any]:
         return self.request("POST", "/loadGame", {"scene": scene})
 
+    def lobby_start_game(self) -> dict[str, Any]:
+        """Invoke the production JoinLobby prewarm and peer-ACK gate."""
+        return self.request("POST", "/lobby/startGame", {})
+
+    def lobby_ready(self, ready: bool = True) -> dict[str, Any]:
+        return self.request("POST", "/lobby/ready", {"ready": ready})
+
+    def lobby_status(self) -> dict[str, Any]:
+        return self.request("GET", "/lobby/status")
+
     def command(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/command", kwargs)
 

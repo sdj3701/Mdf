@@ -109,6 +109,8 @@ public class HostMigrationHandler : MonoBehaviour
         public int BlackMagicMaxBonus;
         public int BlackMagicRevision;
         public int BlackMagicSequenceId;
+        public float BattleSpawnCadenceRemainingSeconds;
+        public int BattleSpawnCadenceSequenceId;
         public KingRuntimeMigrationState KingState;
         public MonsterData[] AttackPoolMonsterDataRefs;
         public string[] AttackPoolMonsterDataNames;
@@ -2102,6 +2104,8 @@ public class HostMigrationHandler : MonoBehaviour
                 BlackMagicMaxBonus = player.BlackMagicMaxBonus,
                 BlackMagicRevision = player.BlackMagicRevision,
                 BlackMagicSequenceId = player.BlackMagicSequenceId,
+                BattleSpawnCadenceRemainingSeconds = player.CaptureBattleSpawnCadenceRemainingForMigration(),
+                BattleSpawnCadenceSequenceId = player.BattleSpawnCadenceSequenceId,
                 KingState = player.CaptureKingRuntimeMigrationState(),
                 AttackPoolMonsterDataRefs = Array.Empty<MonsterData>(),
                 AttackPoolMonsterDataNames = Array.Empty<string>(),
@@ -2398,6 +2402,14 @@ public class HostMigrationHandler : MonoBehaviour
             {
                 criticalStateFailures++;
                 Debug.LogError($"[HostMigrationHandler] black magic restore failed P{snapshot.PlayerId} ({context})");
+            }
+            if (!player.RestoreBattleSpawnCadenceAfterHostMigration(
+                    snapshot.BattleSpawnCadenceRemainingSeconds,
+                    snapshot.BattleSpawnCadenceSequenceId,
+                    context))
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] battle spawn cadence restore failed P{snapshot.PlayerId} ({context})");
             }
             if (!player.RestoreKingRuntimeAfterHostMigration(snapshot.KingState, context))
             {

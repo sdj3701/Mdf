@@ -5,12 +5,12 @@ Pinned: false
 Category: battle
 Created: 2026-05-06
 Last used: 2026-07-14
-Last verified: 2026-07-13
-Use count: 17
+Last verified: 2026-07-14
+Use count: 20
 Review after: 2026-08-04
 Triggers: strategic attack monster spawn command, duplicate spawn requests, async `Runner.Spawn`, attack pool hash drift
 Applies to: `BattleSpawnMonsterCommand`, `GameManagers.RPC_RequestBattleSpawnMonster`, `PlayerManager.AttackMonsterPool`, `MonsterSpawner.ExecuteSpawnPlanAsync`
-Verified by: see Verification section below; migrated from old Status: compile-and-smoke-verified; battle E2E still needs a dedicated runner; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260601-033513-two-hbot-two-ai-monster-spawn/result.json; artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051807-battle-spawn-monster-command; artifacts/mp/20260520-054126-battle-spawn-monster-command; artifacts/mp/20260712-115038-battle-spawn-monster-command; artifacts/mp/20260713-021215-battle-spawn-monster-command/result.json; artifacts/mp/20260713-031629-battle-spawn-monster-command/result.json
+Verified by: see Verification section below; migrated from old Status: compile-and-smoke-verified; battle E2E still needs a dedicated runner; artifacts/mp/20260510-113305-wave-common-2hbot-2ai-headless; artifacts/mp/20260601-033513-two-hbot-two-ai-monster-spawn/result.json; artifacts/mp/20260514-035543-battle-spawn-monster-command; artifacts/mp/20260514-044344-battle-spawn-monster-command; artifacts/mp/20260514-051807-battle-spawn-monster-command; artifacts/mp/20260520-054126-battle-spawn-monster-command; artifacts/mp/20260712-115038-battle-spawn-monster-command; artifacts/mp/20260713-021215-battle-spawn-monster-command/result.json; artifacts/mp/20260713-031629-battle-spawn-monster-command/result.json; E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -59,3 +59,4 @@ Lifecycle notes:
 - 2026-07-13: verified artifact `artifacts/mp/20260713-021215-battle-spawn-monster-command/result.json`
 - 2026-07-13: Black Magic provisional reservation committed only after spawn; Golem cost 5 produced 10->5->0 with reusable pool counts and no rejected commands.
 - 2026-07-13: verified artifact `artifacts/mp/20260713-031629-battle-spawn-monster-command/result.json`
+- 2026-07-14: verified artifact `E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression`

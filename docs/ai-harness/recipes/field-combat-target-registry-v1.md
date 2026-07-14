@@ -6,7 +6,7 @@ Category: performance, battle, host-migration
 Created: 2026-07-13
 Last used: 2026-07-14
 Last verified: 2026-07-14
-Use count: 4
+Use count: 5
 Review after: 2026-08-10
 Triggers: per-frame OverlapSphere allocation, basic attack target churn, cross-field target, pooled target reuse, target search spike
 Applies to: `FieldCombatTargetRegistry`, `FieldManager`, `Unit`, `Monster`
