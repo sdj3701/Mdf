@@ -89,9 +89,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     [Networked] public int NetworkedBossOriginPlayerId { get; set; }
     [Networked] public int NetworkedBossUniqueId { get; set; }
     [Networked] private int NetworkedOwnerPlayerIdEncoded { get; set; }
+    [Networked] private int NetworkedSpawnAttackerPlayerIdEncoded { get; set; }
     [Networked] private int NetworkedMonsterDataKeyHash { get; set; }
     [Networked] private int NetworkedMonsterTypeValue { get; set; }
     [Networked] private int NetworkedMonsterTraitsValue { get; set; }
+    [Networked] private float NetworkedPermanentMaxHealth { get; set; }
+    [Networked] private float NetworkedPermanentMoveSpeed { get; set; }
+    [Networked] private float NetworkedPermanentAttackDamage { get; set; }
+    [Networked] private float NetworkedPermanentAttackSpeed { get; set; }
     
     // [Networked] 공격 애니메이션 동기화 (RPC 대체로 네트워크 부하 감소)
     // 서버에서 값을 변경하면 ChangeDetector가 감지하여 클라이언트에서 애니메이션 재생
@@ -244,6 +249,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             return ownerPlayer != null ? ownerPlayer.playerId : -1;
         }
     }
+
+    public int SnapshotSpawnAttackerPlayerId => CanReadNetworkedHealth()
+        ? DecodeSnapshotOwnerId(NetworkedSpawnAttackerPlayerIdEncoded)
+        : _spawnAttackerPlayerId;
+
+    private int _spawnAttackerPlayerId = -1;
 
     private void SetOwnerPlayerReference(PlayerManager newOwner)
     {
@@ -402,6 +413,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 NetworkedBossOriginPlayerId = -1;
                 NetworkedBossUniqueId = -1;
                 NetworkedBerserkModeActive = false;
+                NetworkedPermanentMaxHealth = 0f;
+                NetworkedPermanentMoveSpeed = 0f;
+                NetworkedPermanentAttackDamage = 0f;
+                NetworkedPermanentAttackSpeed = 0f;
                 ResetNetworkSnapshotIdentity();
             }
             
@@ -412,6 +427,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _hasEverSpawned = true;
         TryRebindOwnerFromNetworkSnapshot();
         TryRecoverMonsterDataFromNetworkSnapshot();
+        RestorePermanentStatsFromNetworkSnapshot();
     }
 
     public override void Despawned(NetworkRunner runner, bool hasState)
@@ -877,12 +893,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
     private void ResetNetworkSnapshotIdentity()
     {
+        _spawnAttackerPlayerId = -1;
         if (Object == null || !Object.HasStateAuthority)
         {
             return;
         }
 
         NetworkedOwnerPlayerIdEncoded = 0;
+        NetworkedSpawnAttackerPlayerIdEncoded = 0;
         NetworkedMonsterDataKeyHash = 0;
         NetworkedMonsterTypeValue = 0;
         NetworkedMonsterTraitsValue = 0;
@@ -903,6 +921,20 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             : StableMonsterDataKeyHash(_localMonsterDataKey);
         NetworkedMonsterTypeValue = _monsterData != null ? (int)_monsterData.monsterType + 1 : 0;
         NetworkedMonsterTraitsValue = _monsterData != null ? (int)_monsterData.traits + 1 : 0;
+    }
+
+    public void SetSpawnAttackerPlayerIdAuthoritative(int attackerPlayerId)
+    {
+        if (!HasStateAuthorityOrNoNetwork())
+        {
+            return;
+        }
+
+        _spawnAttackerPlayerId = attackerPlayerId;
+        if (Object != null && Object.IsValid && Object.HasStateAuthority)
+        {
+            NetworkedSpawnAttackerPlayerIdEncoded = EncodeSnapshotOwnerId(attackerPlayerId);
+        }
     }
 
     private void TryRebindOwnerFromNetworkSnapshot()
@@ -992,6 +1024,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _currentMoveSpeed = _permanentMoveSpeed;
         _currentAttackDamage = _permanentAttackDamage;
         _currentAttackSpeed = _permanentAttackSpeed;
+        RestorePermanentStatsFromNetworkSnapshot();
         if (isActiveAndEnabled && !HasTrait(MonsterTraits.Destroyer))
         {
             GameEvents.OnWallDestroyed -= OnWallDestroyed;
@@ -1160,6 +1193,37 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         NetworkedHP = _localHP;
     }
 
+    private void SyncPermanentStatsToNetworkSnapshot()
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        NetworkedPermanentMaxHealth = _permanentMaxHealth;
+        NetworkedPermanentMoveSpeed = _permanentMoveSpeed;
+        NetworkedPermanentAttackDamage = _permanentAttackDamage;
+        NetworkedPermanentAttackSpeed = _permanentAttackSpeed;
+    }
+
+    private void RestorePermanentStatsFromNetworkSnapshot()
+    {
+        if (Object == null
+            || !Object.IsValid
+            || NetworkedPermanentMaxHealth <= 0f
+            || NetworkedPermanentMoveSpeed <= 0f
+            || NetworkedPermanentAttackSpeed <= 0f)
+        {
+            return;
+        }
+
+        _permanentMaxHealth = NetworkedPermanentMaxHealth;
+        _permanentMoveSpeed = NetworkedPermanentMoveSpeed;
+        _permanentAttackDamage = Mathf.Max(0f, NetworkedPermanentAttackDamage);
+        _permanentAttackSpeed = NetworkedPermanentAttackSpeed;
+        RefreshFinalStats();
+    }
+
     void OnApplicationQuit() { isQuitting = true; }
     
     private void OnEnable()
@@ -1253,6 +1317,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             NetworkedBossOriginPlayerId = -1;
             NetworkedBossUniqueId = -1;
             SyncNetworkSnapshotIdentityFromLocalData();
+            SyncPermanentStatsToNetworkSnapshot();
         }
         // 로컬 값도 설정 (아직 Spawned 되지 않았을 경우를 위해)
         _hasLocalHealthValues = true;
@@ -2080,9 +2145,44 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         float healthPercentage = currentHP / currentMaxHP;
         currentMaxHP = _permanentMaxHealth;
         currentHP = currentMaxHP * healthPercentage;
-        
+        SyncPermanentStatsToNetworkSnapshot();
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
         // Debug.Log($"<color=cyan>[Monster] '{name}' 증강체 적용: HP {currentMaxHP:F0}, 속도 {_permanentMoveSpeed:F1}, 공격력 {_permanentAttackDamage:F1}</color>");
+    }
+
+    /// <summary>
+    /// Applies a once-per-attack-sequence demon empowerment to this monster instance.
+    /// Updating Permanent and Final layers keeps later BuffManager recalculations composable.
+    /// </summary>
+    public void ApplyDemonSkillBuff(
+        float healthMultiplier,
+        float speedMultiplier,
+        float damageMultiplier,
+        float healFraction)
+    {
+        if (!HasStateAuthorityOrNoNetwork() || currentHP <= 0f)
+        {
+            return;
+        }
+
+        healthMultiplier = Mathf.Max(1f, healthMultiplier);
+        speedMultiplier = Mathf.Max(1f, speedMultiplier);
+        damageMultiplier = Mathf.Max(1f, damageMultiplier);
+        healFraction = Mathf.Max(0f, healFraction);
+
+        float oldMaxHealth = Mathf.Max(1f, currentMaxHP);
+        _permanentMaxHealth *= healthMultiplier;
+        _permanentMoveSpeed *= speedMultiplier;
+        _permanentAttackDamage *= damageMultiplier;
+        currentMaxHP = oldMaxHealth * healthMultiplier;
+        currentHP = Mathf.Min(
+            currentMaxHP,
+            currentHP * healthMultiplier + currentMaxHP * healFraction);
+        _currentMoveSpeed *= speedMultiplier;
+        _currentAttackDamage *= damageMultiplier;
+        UpdateMoveAnimationSpeed();
+        SyncPermanentStatsToNetworkSnapshot();
+        OnHealthChanged?.Invoke(currentHP, currentMaxHP);
     }
     
     /// <summary>

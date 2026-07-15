@@ -57,6 +57,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private const float AugmentPanelTopMin = 220f;
     private const float AugmentPanelTopMax = 380f;
     private const float KingSkillRequestPendingSeconds = 2f;
+    private const float DemonSkillRequestPendingSeconds = 2f;
     private const float RuntimeReferenceFallbackInterval = 0.5f;
     private const float HudFallbackRefreshInterval = 0.25f;
 
@@ -95,6 +96,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private Label hudShopGoldLabel;
     private VisualElement hudKingSkillButton;
     private KingSkillView kingSkillView;
+    private VisualElement hudDemonSkillButton;
+    private DemonSkillView demonSkillView;
     private VisualElement hudWallButton;
     private VisualElement hudWallIcon;
     private Label hudWallLabel;
@@ -142,6 +145,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private bool legacyHudHidden;
     private bool kingSkillRequestPending;
     private float kingSkillRequestPendingUntil;
+    private bool demonSkillRequestPending;
+    private float demonSkillRequestPendingUntil;
     private bool hudStateDirty = true;
     private float nextRuntimeReferenceFallbackTime;
     private float nextHudFallbackRefreshTime;
@@ -597,6 +602,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         if (ContainsPoint(hudShopButton, panelPosition) ||
             ContainsPoint(hudKingSkillButton, panelPosition) ||
+            ContainsPoint(hudDemonSkillButton, panelPosition) ||
             ContainsPoint(hudWallButton, panelPosition) ||
             ContainsPoint(hudWallKindToggleButton, panelPosition) ||
             ContainsPoint(hudOptionButton, panelPosition))
@@ -668,6 +674,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         if (IsElementOrChildOf(element, hudShopButton) ||
             IsElementOrChildOf(element, hudKingSkillButton) ||
+            IsElementOrChildOf(element, hudDemonSkillButton) ||
             IsElementOrChildOf(element, hudWallButton) ||
             IsElementOrChildOf(element, hudWallKindToggleButton) ||
             IsElementOrChildOf(element, hudOptionButton) ||
@@ -899,6 +906,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             root?.Q<Label>("game-king-skill-name"),
             root?.Q<Label>("game-king-skill-description"),
             root?.Q<Label>("game-king-skill-state"));
+        hudDemonSkillButton = root?.Q<VisualElement>("game-demon-skill-button");
+        demonSkillView = new DemonSkillView(
+            hudDemonSkillButton,
+            root?.Q<Image>("game-demon-skill-icon"),
+            root?.Q<Label>("game-demon-skill-name"),
+            root?.Q<Label>("game-demon-skill-description"),
+            root?.Q<Label>("game-demon-skill-state"));
         hudWallButton = root?.Q<VisualElement>("game-wall-button");
         hudWallIcon = root?.Q<VisualElement>("game-wall-icon");
         hudWallLabel = root?.Q<Label>("game-wall-count-label");
@@ -966,6 +980,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         SetPickingMode(hudRoot, PickingMode.Ignore);
         SetPickingMode(hudShopButton, PickingMode.Position);
         SetPickingMode(hudKingSkillButton, PickingMode.Position);
+        SetPickingMode(hudDemonSkillButton, PickingMode.Position);
         SetPickingMode(hudWallButton, PickingMode.Position);
         SetPickingMode(hudWallKindToggleButton, PickingMode.Position);
         SetPickingMode(hudOptionButton, PickingMode.Position);
@@ -1114,6 +1129,24 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             {
                 SuppressBattleMapInputForCurrentPointer();
                 HandleKingSkillClicked();
+                evt.StopPropagation();
+            }
+        });
+
+        hudDemonSkillButton?.RegisterCallback<PointerDownEvent>(evt =>
+        {
+            if (evt.button == 0)
+            {
+                SuppressBattleMapInputForCurrentPointer();
+                evt.StopPropagation();
+            }
+        });
+        hudDemonSkillButton?.RegisterCallback<PointerUpEvent>(evt =>
+        {
+            if (evt.button == 0)
+            {
+                SuppressBattleMapInputForCurrentPointer();
+                HandleDemonSkillClicked();
                 evt.StopPropagation();
             }
         });
@@ -1380,6 +1413,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         var manager = localPlayer != null ? localPlayer.GetComponent<AttackSequenceManager>() : null;
         ShowAttackSequence(localPlayer, manager, isAttacking);
         UpdateKingSkillState(true);
+        UpdateDemonSkillState(true);
     }
 
     private bool ToggleShopPanelFromLegacy()
@@ -1818,6 +1852,42 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
     }
 
+    private void HandleDemonSkillClicked()
+    {
+        RefreshRuntimeReferences();
+        if (demonSkillRequestPending || !IsLocalPlayerAttacking() || localPlayer == null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!localPlayer.CanUseDemonSkill)
+            {
+                return;
+            }
+
+            CommandProcessor processor = gameManagers?.CommandProcessor;
+            if (processor == null)
+            {
+                return;
+            }
+
+            demonSkillRequestPending = true;
+            demonSkillRequestPendingUntil = Time.unscaledTime + DemonSkillRequestPendingSeconds;
+            processor.RequestCommandExecution(new ActivateDemonSkillCommand(localPlayer.playerId));
+            UpdateDemonSkillState(true);
+        }
+        catch (InvalidOperationException)
+        {
+            demonSkillRequestPending = false;
+        }
+        catch (MissingReferenceException)
+        {
+            demonSkillRequestPending = false;
+        }
+    }
+
     private void HandleHudWallClicked()
     {
         RefreshRuntimeReferences();
@@ -2247,6 +2317,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         UpdateRoundTimerLabel(force);
         UpdateKingSkillState(force);
+        UpdateDemonSkillState(force);
         UpdateResourceState(force, hasResourceValues, goldCount, wallCount);
         if (force || !legacyHudHidden)
         {
@@ -2387,6 +2458,25 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
     }
 
+    private bool IsLocalPlayerAttacking()
+    {
+        if (gameManagers == null || localPlayer == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            GameManagers.GameState state = gameManagers.GetGameState();
+            bool isBattle = state == GameManagers.GameState.Battle1 || state == GameManagers.GameState.Battle2;
+            return isBattle && localPlayer.IsActivelyFighting && localPlayer.IsAttackerInCurrentBattle;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     private void UpdateKingSkillState(bool force)
     {
         bool defending = IsLocalPlayerDefending();
@@ -2424,6 +2514,46 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             canUse && !kingSkillRequestPending,
             used,
             kingSkillRequestPending,
+            force);
+    }
+
+    private void UpdateDemonSkillState(bool force)
+    {
+        bool attacking = IsLocalPlayerAttacking();
+        bool hasDemon = false;
+        bool used = false;
+        bool canUse = false;
+        DemonSelectionCatalog.Entry demon = default;
+
+        if (attacking && localPlayer != null)
+        {
+            try
+            {
+                hasDemon = DemonSelectionCatalog.TryGetByHash(localPlayer.SelectedDemonKeyHash, out demon);
+                used = localPlayer.DemonSkillUsedThisAttack;
+                canUse = hasDemon && localPlayer.CanUseDemonSkill;
+            }
+            catch (InvalidOperationException)
+            {
+                hasDemon = false;
+            }
+            catch (MissingReferenceException)
+            {
+                hasDemon = false;
+            }
+        }
+
+        if (!attacking || used || Time.unscaledTime >= demonSkillRequestPendingUntil)
+        {
+            demonSkillRequestPending = false;
+        }
+
+        demonSkillView?.Bind(
+            demon,
+            hasDemon && attacking,
+            canUse && !demonSkillRequestPending,
+            used,
+            demonSkillRequestPending,
             force);
     }
 
@@ -2546,6 +2676,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         {
             hudKingSkillButton.style.width = ShopToggleButtonSize;
             hudKingSkillButton.style.height = ShopToggleButtonSize;
+        }
+
+        if (hudDemonSkillButton != null)
+        {
+            hudDemonSkillButton.style.width = ShopToggleButtonSize;
+            hudDemonSkillButton.style.height = ShopToggleButtonSize;
         }
 
         if (shopControlRow != null)
@@ -2677,6 +2813,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         kingSkillView?.ReleaseIconHandle();
+        demonSkillView?.ReleaseIconHandle();
     }
 
     private sealed class KingSkillView
@@ -2791,6 +2928,121 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                 return;
             }
 
+            AddressableAssetLease<Sprite> loadedLease = await AssetLoader.AcquireAssetAsync<Sprite>(key);
+            if (version != bindVersion || icon == null)
+            {
+                loadedLease?.Dispose();
+                return;
+            }
+
+            iconLease = loadedLease;
+            icon.sprite = iconLease?.Asset;
+        }
+    }
+
+    private sealed class DemonSkillView
+    {
+        private readonly Image icon;
+        private readonly Label name;
+        private readonly Label description;
+        private readonly Label state;
+        private AddressableAssetLease<Sprite> iconLease;
+        private int boundDemonHash;
+        private int bindVersion;
+        private bool stateInitialized;
+        private bool lastVisible;
+        private bool lastEnabled;
+        private bool lastUsed;
+        private bool lastPending;
+
+        public DemonSkillView(
+            VisualElement root,
+            Image icon,
+            Label name,
+            Label description,
+            Label state)
+        {
+            Root = root;
+            this.icon = icon;
+            this.name = name;
+            this.description = description;
+            this.state = state;
+            if (this.icon != null)
+            {
+                this.icon.scaleMode = ScaleMode.ScaleToFit;
+            }
+        }
+
+        public VisualElement Root { get; }
+
+        public void Bind(
+            DemonSelectionCatalog.Entry demon,
+            bool visible,
+            bool enabled,
+            bool used,
+            bool pending,
+            bool force)
+        {
+            bool demonChanged = demon.KeyHash != boundDemonHash;
+            bool enabledChanged = enabled != lastEnabled;
+            if (demonChanged)
+            {
+                ReleaseIconHandle();
+                boundDemonHash = demon.KeyHash;
+                SetText(name, demon.SkillName ?? string.Empty);
+                SetText(description, demon.SkillDescription ?? string.Empty);
+                if (Root != null)
+                {
+                    Root.tooltip = demon.SkillDescription ?? string.Empty;
+                }
+                if (!string.IsNullOrWhiteSpace(demon.IconKey))
+                {
+                    LoadIconAsync(demon.IconKey, bindVersion).Forget();
+                }
+            }
+
+            if (force || !stateInitialized || visible != lastVisible)
+            {
+                SetVisible(Root, visible);
+                lastVisible = visible;
+            }
+            if (force || !stateInitialized || enabled != lastEnabled)
+            {
+                Root?.SetEnabled(enabled);
+                Root?.EnableInClassList("is-disabled", !enabled);
+                lastEnabled = enabled;
+            }
+            if (force || !stateInitialized || enabledChanged || used != lastUsed || pending != lastPending)
+            {
+                string stateText = used
+                    ? "사용 완료"
+                    : pending
+                        ? "사용 요청 중"
+                        : enabled
+                            ? "사용 가능"
+                            : "대상 대기 중";
+                SetText(state, stateText);
+                lastUsed = used;
+                lastPending = pending;
+            }
+
+            stateInitialized = true;
+        }
+
+        public void ReleaseIconHandle()
+        {
+            bindVersion++;
+            iconLease?.Dispose();
+            iconLease = null;
+            boundDemonHash = 0;
+            if (icon != null)
+            {
+                icon.sprite = null;
+            }
+        }
+
+        private async UniTask LoadIconAsync(string key, int version)
+        {
             AddressableAssetLease<Sprite> loadedLease = await AssetLoader.AcquireAssetAsync<Sprite>(key);
             if (version != bindVersion || icon == null)
             {

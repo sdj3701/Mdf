@@ -38,6 +38,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     private readonly Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
     private readonly Dictionary<PlayerRef, string> _connectionTokensByPlayer = new Dictionary<PlayerRef, string>();
     private readonly LobbyKingSelectionSessionCache _lobbyKingSelections = new LobbyKingSelectionSessionCache();
+    private readonly LobbyDemonSelectionSessionCache _lobbyDemonSelections = new LobbyDemonSelectionSessionCache();
     private readonly LobbyMapThemeSessionCache _lobbyMapThemes = new LobbyMapThemeSessionCache();
     private readonly Dictionary<int, PendingDisconnectedAiTakeover> _pendingDisconnectedAiTakeovers = new Dictionary<int, PendingDisconnectedAiTakeover>();
     private int _disconnectedAiTakeoverGeneration;
@@ -156,6 +157,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         // PlayerRef values belong to one runner and can be reassigned after migration.
         // Keep durable token selections, but discard every runner-local shortcut.
         _lobbyKingSelections.ClearPlayerRefs();
+        _lobbyDemonSelections.ClearPlayerRefs();
         _lobbyMapThemes.ClearPlayerRefs();
         _runner = newRunner;
         
@@ -201,6 +203,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         _lobbyKingSelections.Clear();
+        _lobbyDemonSelections.Clear();
         _lobbyMapThemes.Clear();
         State = ConnectionState.Connecting; // 새 중간 상태
         SetNetworkUiBlock(NetworkUiBlockReason.LobbyBootstrap);
@@ -460,12 +463,14 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         // Clear stale runner-local values on every peer before the authority enriches
         // this connection from its durable token. PlayerRef values may be reused.
         _lobbyKingSelections.ForgetPlayerRef(player.PlayerId);
+        _lobbyDemonSelections.ForgetPlayerRef(player.PlayerId);
         _lobbyMapThemes.ForgetPlayerRef(player.PlayerId);
 
         if (runner.IsServer)
         {
             CachePlayerConnectionToken(runner, player);
             PrepareLobbyKingSelectionForJoinedPlayer(runner, player);
+            PrepareLobbyDemonSelectionForJoinedPlayer(runner, player);
             PrepareLobbyMapThemeForJoinedPlayer(runner, player);
 
             if (TryReassociateDisconnectedPlayer(runner, player))
@@ -522,6 +527,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _spawnedCharacters.TryGetValue(player, out NetworkObject networkObject);
 
         _lobbyKingSelections.ForgetPlayerRef(player.PlayerId);
+        _lobbyDemonSelections.ForgetPlayerRef(player.PlayerId);
         _lobbyMapThemes.ForgetPlayerRef(player.PlayerId);
         string disconnectedObjectScene = networkObject != null && networkObject.IsValid
             ? networkObject.gameObject.scene.name
@@ -652,6 +658,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         HostMigrationHandler.Instance?.ClearReconnectCacheForMatchEnd();
         _connectionTokensByPlayer.Clear();
         _lobbyKingSelections.Clear();
+        _lobbyDemonSelections.Clear();
         _lobbyMapThemes.Clear();
 
         State = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
@@ -1312,6 +1319,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _lobbyKingSelections.PrepareJoinedPlayer(player.PlayerId, tokenHash);
     }
 
+    private void PrepareLobbyDemonSelectionForJoinedPlayer(NetworkRunner runner, PlayerRef player)
+    {
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        _lobbyDemonSelections.PrepareJoinedPlayer(player.PlayerId, tokenHash);
+    }
+
     private void PrepareLobbyMapThemeForJoinedPlayer(NetworkRunner runner, PlayerRef player)
     {
         string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
@@ -1396,6 +1409,87 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
         return _lobbyKingSelections.TryResolve(player.PlayerId, tokenHash, out selectionHash);
+    }
+
+    /// <summary>
+    /// Records an owner-submitted demon choice only in State Authority memory. The choice is
+    /// deliberately absent from NetworkPlayer replicated state while the lobby is active.
+    /// </summary>
+    public bool TrySetLobbyDemonSelection(
+        NetworkPlayer networkPlayer,
+        int requestedSelectionHash,
+        out int canonicalSelectionHash)
+    {
+        canonicalSelectionHash = DemonSelectionCatalog.NormalizeOrDefaultHash(requestedSelectionHash);
+        if (!DemonSelectionCatalog.IsAllowedHash(requestedSelectionHash)
+            || networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner
+            || !networkPlayer.Runner.IsServer)
+        {
+            return false;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        if (player == PlayerRef.None || !IsActivePlayer(networkPlayer.Runner, player))
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        return _lobbyDemonSelections.Remember(player.PlayerId, tokenHash, canonicalSelectionHash);
+    }
+
+    public int ResolveInitialLobbyDemonSelection(NetworkPlayer networkPlayer, int requestedSelectionHash)
+    {
+        int canonicalSelectionHash = DemonSelectionCatalog.NormalizeOrDefaultHash(requestedSelectionHash);
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner
+            || !networkPlayer.Runner.IsServer)
+        {
+            return canonicalSelectionHash;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        if (player == PlayerRef.None || !IsActivePlayer(networkPlayer.Runner, player))
+        {
+            return canonicalSelectionHash;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        return _lobbyDemonSelections.ResolveInitialSelection(
+            player.PlayerId,
+            tokenHash,
+            canonicalSelectionHash);
+    }
+
+    public bool TryGetLobbyDemonSelectionForGameplay(
+        NetworkRunner runner,
+        PlayerRef player,
+        out int selectionHash)
+    {
+        selectionHash = 0;
+        if (runner == null
+            || runner != _runner
+            || !runner.IsServer
+            || player == PlayerRef.None)
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        return _lobbyDemonSelections.TryResolve(player.PlayerId, tokenHash, out selectionHash);
     }
 
     public bool RememberLobbyMapTheme(NetworkPlayer networkPlayer)

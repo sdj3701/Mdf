@@ -84,6 +84,8 @@ public sealed class PlayerCommandRequestValidator
                 return ValidateActivateSkillRequest(gm, intParams, out reason);
             case CommandType.ActivateKingSkill:
                 return ValidateActivateKingSkillRequest(gm, out reason);
+            case CommandType.ActivateDemonSkill:
+                return ValidateActivateDemonSkillRequest(gm, out reason);
             case CommandType.SetSkillActivationMode:
                 return ValidateSetSkillActivationModeRequest(gm, intParams, out reason);
             case CommandType.RequestSyncData:
@@ -730,6 +732,48 @@ public sealed class PlayerCommandRequestValidator
         if (!_player.CanUseKingSkill)
         {
             reason = "king_skill_not_ready";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool ValidateActivateDemonSkillRequest(GameManagers gm, out string reason)
+    {
+        if (!BattleCommandValidator.IsBattlePhase(gm))
+        {
+            reason = "demon_skill_requires_battle_phase";
+            return false;
+        }
+
+        if (!_player.IsActivelyFighting)
+        {
+            reason = "demon_skill_player_not_fighting";
+            return false;
+        }
+
+        if (!_player.IsAttackerInCurrentBattle)
+        {
+            reason = "demon_skill_requires_attacker";
+            return false;
+        }
+
+        if (!_player.DemonRuntimeDataReady)
+        {
+            reason = "demon_skill_data_not_ready";
+            return false;
+        }
+
+        if (_player.DemonSkillUsedThisAttack)
+        {
+            reason = "demon_skill_already_used_this_attack";
+            return false;
+        }
+
+        if (!_player.CanUseDemonSkill)
+        {
+            reason = "demon_skill_not_ready_or_no_targets";
             return false;
         }
 

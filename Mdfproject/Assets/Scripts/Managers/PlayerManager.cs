@@ -1441,6 +1441,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
 
         InitializeKingRuntimeOnSpawn();
+        InitializeDemonRuntimeOnSpawn();
         InitializeMapThemeOnSpawn();
 
         InitializePermanentWallStateOnSpawn(isHostMigration);

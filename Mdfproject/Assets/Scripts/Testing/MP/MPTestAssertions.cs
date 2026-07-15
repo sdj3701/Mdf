@@ -106,6 +106,12 @@ public static class MPTestAssertions
                     $"player.{player.PlayerId}.king_selection_invalid hash={player.SelectedKingUnitKeyHash}");
             }
 
+            if (snapshot.Version >= 4 && !DemonSelectionCatalog.IsAllowedHash(player.SelectedDemonKeyHash))
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.demon_selection_invalid hash={player.SelectedDemonKeyHash}");
+            }
+
             if (snapshot.Version >= 3 && !MapThemeCatalog.IsAllowed(player.SelectedMapThemeId))
             {
                 result.AddError(
@@ -119,6 +125,10 @@ public static class MPTestAssertions
             if (snapshot.Version >= 2 && kingDataRequired && !player.KingDataReady)
             {
                 result.AddError($"player.{player.PlayerId}.king_data_not_ready");
+            }
+            if (snapshot.Version >= 4 && kingDataRequired && !player.DemonDataReady)
+            {
+                result.AddError($"player.{player.PlayerId}.demon_data_not_ready");
             }
             if (snapshot.Version >= 3 && kingDataRequired && !player.MapThemePresentationReady)
             {
@@ -268,6 +278,9 @@ public static class MPTestAssertions
             CompareEqual(result, $"player.{left.PlayerId}.kingAttackDamageBonusPermille", left.KingAttackDamageBonusPermille, right.KingAttackDamageBonusPermille);
             CompareEqual(result, $"player.{left.PlayerId}.kingAttackSpeedBonusPermille", left.KingAttackSpeedBonusPermille, right.KingAttackSpeedBonusPermille);
             CompareEqual(result, $"player.{left.PlayerId}.kingSkillPowerBonusPermille", left.KingSkillPowerBonusPermille, right.KingSkillPowerBonusPermille);
+            CompareEqual(result, $"player.{left.PlayerId}.selectedDemonKeyHash", left.SelectedDemonKeyHash, right.SelectedDemonKeyHash);
+            CompareEqual(result, $"player.{left.PlayerId}.demonSkillUsedThisAttack", left.DemonSkillUsedThisAttack, right.DemonSkillUsedThisAttack);
+            CompareEqual(result, $"player.{left.PlayerId}.demonAttackSequenceId", left.DemonAttackSequenceId, right.DemonAttackSequenceId);
             CompareKnownOrMissing(result, $"player.{left.PlayerId}.attackMonsterPoolHash", left.AttackMonsterPoolHash, right.AttackMonsterPoolHash);
             CompareKnownOrMissing(result, $"player.{left.PlayerId}.ownedScrollsHash", left.OwnedScrollsHash, right.OwnedScrollsHash);
             CompareEqual(result, $"player.{left.PlayerId}.ownedScrollRevision", left.OwnedScrollRevision, right.OwnedScrollRevision);

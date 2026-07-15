@@ -791,6 +791,20 @@ public class RankingUIController : MonoBehaviour
             name = playerId >= 0 ? $"Player {playerId}" : "Player";
         }
 
+        try
+        {
+            if (DemonSelectionCatalog.TryGetByHash(
+                    player.SelectedDemonKeyHash,
+                    out DemonSelectionCatalog.Entry demon))
+            {
+                name = $"{name} · {demon.DisplayName}";
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // The next replicated refresh will bind the public in-game demon selection.
+        }
+
         int hp = TryGetHealthSafe(player, out int health) ? health : 0;
         int maxHp = TryGetMaxHealthSafe(player, out int maxHealth) ? maxHealth : FallbackPlayerMaxHealth;
         int displayHp = Mathf.Max(0, hp);

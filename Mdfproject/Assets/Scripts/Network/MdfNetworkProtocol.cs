@@ -8,7 +8,7 @@ using UnityEngine;
 /// </summary>
 public static class MdfNetworkProtocol
 {
-    public const string AppVersion = "mdf-p3-player-map-theme";
+    public const string AppVersion = "mdf-p4-demon-selection";
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void ApplyBeforeSceneLoad()

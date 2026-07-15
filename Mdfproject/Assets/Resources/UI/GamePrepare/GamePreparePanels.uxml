@@ -312,6 +312,12 @@
                         <ui:Label name="game-king-skill-description" class="king-skill-description" />
                         <ui:Label name="game-king-skill-state" class="king-skill-state" />
                     </ui:VisualElement>
+                    <ui:VisualElement name="game-demon-skill-button" class="hud-button king-skill-button demon-skill-button hidden">
+                        <ui:Image name="game-demon-skill-icon" class="king-skill-icon" />
+                        <ui:Label name="game-demon-skill-name" class="king-skill-name demon-skill-name" />
+                        <ui:Label name="game-demon-skill-description" class="king-skill-description" />
+                        <ui:Label name="game-demon-skill-state" class="king-skill-state demon-skill-state" />
+                    </ui:VisualElement>
                 </ui:VisualElement>
             </ui:VisualElement>
         </ui:VisualElement>

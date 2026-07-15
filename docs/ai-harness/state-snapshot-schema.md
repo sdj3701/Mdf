@@ -13,7 +13,7 @@ compared across peers and across host migration.
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "role": "host|client|editor-host|editor-client",
   "caseName": "game_smoke",
   "session": "mp-...",
@@ -79,6 +79,12 @@ compared across peers and across host migration.
       "kingAttackDamageBonusPermille": 0,
       "kingAttackSpeedBonusPermille": 0,
       "kingSkillPowerBonusPermille": 0,
+      "selectedDemonKeyHash": 123456789,
+      "demonDataReady": true,
+      "demonSkillUsedThisAttack": false,
+      "demonCanUseSkill": true,
+      "demonAttackSequenceId": 5,
+      "demonSkillPresentationSequence": 0,
       "kingPresentationReady": true,
       "kingPresentationGoalDistance": 0.0,
       "kingPresentationScaleMultiplier": 1.3,

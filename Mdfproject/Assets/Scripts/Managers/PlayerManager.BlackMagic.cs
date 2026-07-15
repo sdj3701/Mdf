@@ -126,6 +126,7 @@ public partial class PlayerManager
         int maximum = GetProjectedBlackMagicMaximumForRound(round);
 
         BlackMagicSequenceId = sequenceId;
+        BeginDemonAttackSequenceAuthoritative(sequenceId);
         BlackMagicMaximum = maximum;
         BlackMagicCurrent = maximum;
         BlackMagicRevision++;

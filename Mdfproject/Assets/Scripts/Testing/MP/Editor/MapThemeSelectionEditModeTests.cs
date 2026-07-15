@@ -94,7 +94,7 @@ public sealed class MapThemeSelectionEditModeTests
     [Test]
     public void ProtocolVersion_IsolatesTheNewFusionStateLayout()
     {
-        Assert.That(MdfNetworkProtocol.AppVersion, Is.EqualTo("mdf-p3-player-map-theme"));
+        Assert.That(MdfNetworkProtocol.AppVersion, Is.EqualTo("mdf-p4-demon-selection"));
     }
 
     [Test]

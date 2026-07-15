@@ -671,6 +671,12 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecuteSelectKingCommand(body, commandName);
         }
 
+        if (string.Equals(commandName, "select_demon", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "SelectDemon", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteSelectDemonCommand(body, commandName);
+        }
+
         if (string.Equals(commandName, "select_map_theme", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(commandName, "SelectMapTheme", StringComparison.OrdinalIgnoreCase))
         {
@@ -681,6 +687,12 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             string.Equals(commandName, "ActivateKingSkill", StringComparison.OrdinalIgnoreCase))
         {
             return ExecuteActivateKingSkillCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "activate_demon_skill", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "ActivateDemonSkill", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteActivateDemonSkillCommand(body, commandName);
         }
 
         if (string.Equals(commandName, "view_player_field", StringComparison.OrdinalIgnoreCase) ||
@@ -694,7 +706,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecutePrepareVisualCaptureCommand(commandName);
         }
 
-        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, upgrade_wall, remove_wall, grant_permanent_walls, select_king, select_map_theme, activate_king_skill, view_player_field, and prepare_visual_capture are currently supported by the runtime command harness.", new
+        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, upgrade_wall, remove_wall, grant_permanent_walls, select_king, select_demon, select_map_theme, activate_king_skill, activate_demon_skill, view_player_field, and prepare_visual_capture are currently supported by the runtime command harness.", new
         {
             command = commandName
         });
@@ -804,6 +816,102 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             playerRef = targetAuthority.ToString(),
             kingKey = selectedEntry.KingUnitKey,
             kingKeyHash = selectedEntry.KeyHash
+        });
+    }
+
+    private AutomationResponse ExecuteSelectDemonCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        string requestedKey = GetString(
+            body,
+            "demonKey",
+            GetString(body, "demon_key", GetString(body, "contentId", GetString(body, "content_id", null))));
+        if (playerId < 0)
+        {
+            return AutomationResponse.Fail(
+                "invalid_player_id",
+                "playerId must be >= 0.",
+                new { command = commandName, playerId, demonKey = requestedKey });
+        }
+
+        DemonSelectionCatalog.Entry selectedEntry = DemonSelectionCatalog.Entries
+            .FirstOrDefault(entry => string.Equals(
+                entry.ContentId,
+                requestedKey,
+                StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(selectedEntry.ContentId))
+        {
+            return AutomationResponse.Fail(
+                "invalid_demon_key",
+                "demonKey must be an allow-listed demon content id.",
+                new { command = commandName, playerId, demonKey = requestedKey });
+        }
+
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning || SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return AutomationResponse.Fail(
+                "select_demon_requires_join_lobby",
+                "select_demon is only available in the ready lobby.",
+                new { command = commandName, playerId, demonKey = selectedEntry.ContentId });
+        }
+
+        List<PlayerRef> activePlayers = runner.ActivePlayers.OrderBy(playerRef => playerRef.PlayerId).ToList();
+        if (playerId >= activePlayers.Count)
+        {
+            return AutomationResponse.Fail(
+                "lobby_player_unavailable",
+                "The requested gameplay player slot is not active in the lobby.",
+                new { command = commandName, playerId, activePlayers = activePlayers.Count });
+        }
+
+        PlayerRef targetAuthority = activePlayers[playerId];
+        List<NetworkPlayer> ownedPlayers = FindObjectsOfType<NetworkPlayer>()
+            .Where(candidate => candidate != null
+                && candidate.Runner == runner
+                && candidate.Object != null
+                && candidate.Object.IsValid
+                && candidate.Object.InputAuthority == targetAuthority
+                && candidate.HasInputAuthority)
+            .ToList();
+        if (ownedPlayers.Count != 1)
+        {
+            return AutomationResponse.Fail(
+                "select_demon_requires_owning_peer",
+                "Issue select_demon to the peer that owns input authority for the requested player.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    playerRef = targetAuthority.ToString(),
+                    ownedPlayerObjects = ownedPlayers.Count
+                });
+        }
+
+        NetworkPlayer networkPlayer = ownedPlayers[0];
+
+        if (!networkPlayer.RequestDemonSelection(selectedEntry.KeyHash))
+        {
+            return AutomationResponse.Fail(
+                "select_demon_request_rejected",
+                "The owned NetworkPlayer rejected the demon selection request.",
+                new { command = commandName, playerId, demonKey = selectedEntry.ContentId });
+        }
+
+        MPTestLogger.Log("automation_command", "complete", "select_demon", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "playerRef", targetAuthority.ToString() },
+            { "demonKey", selectedEntry.ContentId },
+            { "demonKeyHash", selectedEntry.KeyHash }
+        });
+        return AutomationResponse.Ok("private demon selection requested through owning input authority", new
+        {
+            command = "select_demon",
+            playerId,
+            playerRef = targetAuthority.ToString(),
+            demonKey = selectedEntry.ContentId,
+            demonKeyHash = selectedEntry.KeyHash
         });
     }
 
@@ -991,6 +1099,91 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             localInputAuthority,
             stateAuthority,
             defenseSequenceId = before.DefenseSequenceId,
+            skillPresentationSequenceBefore = before.SkillPresentationSequence
+        });
+    }
+
+    private AutomationResponse ExecuteActivateDemonSkillCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail(
+                "game_managers_unavailable",
+                "GameManagers runner is not available.",
+                new { command = commandName, playerId });
+        }
+
+        if (playerId < 0 && gameManagers.localPlayer != null)
+        {
+            playerId = gameManagers.localPlayer.playerId;
+        }
+
+        PlayerManager player = gameManagers.GetPlayer(playerId);
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return AutomationResponse.Fail(
+                "demon_player_unavailable",
+                "The requested gameplay player is unavailable.",
+                new { command = commandName, playerId });
+        }
+
+        if (gameManagers.CommandProcessor == null)
+        {
+            return AutomationResponse.Fail(
+                "command_processor_missing",
+                "GameManagers.CommandProcessor is not available.",
+                new { command = commandName, playerId });
+        }
+
+        bool localInputAuthority = player.Object.HasInputAuthority;
+        bool stateAuthority = player.Object.HasStateAuthority;
+        if (!localInputAuthority && !stateAuthority)
+        {
+            return AutomationResponse.Fail(
+                "demon_command_authority_missing",
+                "The peer must own input authority or state authority for the requested player.",
+                new { command = commandName, playerId, localInputAuthority, stateAuthority });
+        }
+
+        if (!player.CanUseDemonSkill)
+        {
+            return AutomationResponse.Fail(
+                "demon_skill_not_ready",
+                "The demon skill is not available for this player in the current attack sequence.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    state = gameManagers.GetGameState().ToString(),
+                    player.IsActivelyFighting,
+                    player.IsAttackerInCurrentBattle,
+                    player.DemonSkillUsedThisAttack,
+                    selectedDemonHash = player.SelectedDemonKeyHash,
+                    demonDataReady = player.DemonRuntimeDataReady,
+                    hasTargets = player.HasLivingDemonSkillTargets()
+                });
+        }
+
+        DemonRuntimeMigrationState before = player.CaptureDemonRuntimeMigrationState();
+        gameManagers.CommandProcessor.RequestCommandExecution(new ActivateDemonSkillCommand(playerId));
+        MPTestLogger.Log("automation_command", "begin", "activate_demon_skill", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "localInputAuthority", localInputAuthority },
+            { "stateAuthority", stateAuthority },
+            { "attackSequenceId", before.AttackSequenceId },
+            { "skillPresentationSequence", before.SkillPresentationSequence }
+        });
+
+        return AutomationResponse.Ok("demon skill command queued", new
+        {
+            command = "activate_demon_skill",
+            playerId,
+            localInputAuthority,
+            stateAuthority,
+            attackSequenceId = before.AttackSequenceId,
             skillPresentationSequenceBefore = before.SkillPresentationSequence
         });
     }

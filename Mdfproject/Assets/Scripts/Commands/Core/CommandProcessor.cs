@@ -152,6 +152,8 @@ public class CommandProcessor
                 return (CommandType.ActivateSkill, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkId }, Array.Empty<string>(), Array.Empty<Vector3>());
             case ActivateKingSkillCommand cmd:
                 return (CommandType.ActivateKingSkill, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
+            case ActivateDemonSkillCommand cmd:
+                return (CommandType.ActivateDemonSkill, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
             case SetSkillActivationModeCommand cmd:
                 return (CommandType.SetSkillActivationMode, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkId, (int)cmd.Mode }, Array.Empty<string>(), Array.Empty<Vector3>());
             case RearrangeUnitsCommand cmd:
@@ -286,6 +288,8 @@ public class CommandProcessor
                 return new ActivateSkillCommand(ints[0], (uint)ints[1]);
             case CommandType.ActivateKingSkill:
                 return new ActivateKingSkillCommand(ints[0]);
+            case CommandType.ActivateDemonSkill:
+                return new ActivateDemonSkillCommand(ints[0]);
             case CommandType.SetSkillActivationMode:
                 return new SetSkillActivationModeCommand(ints[0], (uint)ints[1], (SkillActivationType)ints[2]);
             case CommandType.RearrangeUnits:

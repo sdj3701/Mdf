@@ -23,7 +23,7 @@ public static class MPTestStateSnapshot
 
         var snapshot = new Snapshot
         {
-            Version = 3,
+            Version = 4,
             Role = string.IsNullOrWhiteSpace(role) ? options.SafeRole : role,
             CaseName = string.IsNullOrWhiteSpace(caseName) ? options.CaseName : caseName,
             Session = ResolveSession(session, options, networkManager, runner),
@@ -297,6 +297,9 @@ public static class MPTestStateSnapshot
         KingRuntimeMigrationState kingState = SafeRef(
             player.CaptureKingRuntimeMigrationState,
             default(KingRuntimeMigrationState));
+        DemonRuntimeMigrationState demonState = SafeRef(
+            player.CaptureDemonRuntimeMigrationState,
+            default(DemonRuntimeMigrationState));
         bool kingPresentationReady = false;
         float kingGoalDistance = -1f;
         float kingConfiguredScaleMultiplier = -1f;
@@ -381,6 +384,12 @@ public static class MPTestStateSnapshot
             KingAttackDamageBonusPermille = kingState.AttackDamageBonusPermille,
             KingAttackSpeedBonusPermille = kingState.AttackSpeedBonusPermille,
             KingSkillPowerBonusPermille = kingState.SkillPowerBonusPermille,
+            SelectedDemonKeyHash = SafeInt(() => player.SelectedDemonKeyHash, 0),
+            DemonDataReady = SafeBool(() => player.DemonRuntimeDataReady, false),
+            DemonSkillUsedThisAttack = SafeBool(() => player.DemonSkillUsedThisAttack, false),
+            DemonCanUseSkill = SafeBool(() => player.CanUseDemonSkill, false),
+            DemonAttackSequenceId = demonState.AttackSequenceId,
+            DemonSkillPresentationSequence = demonState.SkillPresentationSequence,
             KingPresentationReady = kingPresentationReady,
             KingPresentationGoalDistance = kingPresentationReady ? kingGoalDistance : (float?)null,
             KingPresentationScaleMultiplier = kingConfiguredScaleMultiplier >= 0f ? kingConfiguredScaleMultiplier : (float?)null,
@@ -1372,7 +1381,7 @@ public static class MPTestStateSnapshot
 
     private static string BuildMonsterBossPoolIdentityPart(Monster monster)
     {
-        return $"type={BuildMonsterDataKey(monster)};bossId={SafeInt(() => monster.SnapshotBossUniqueId, -1)};bossOrigin={SafeInt(() => monster.SnapshotBossOriginPlayerId, -1)};owner={SafeInt(() => monster.SnapshotOwnerPlayerId, -1)}";
+        return $"type={BuildMonsterDataKey(monster)};bossId={SafeInt(() => monster.SnapshotBossUniqueId, -1)};bossOrigin={SafeInt(() => monster.SnapshotBossOriginPlayerId, -1)};owner={SafeInt(() => monster.SnapshotOwnerPlayerId, -1)};attacker={SafeInt(() => monster.SnapshotSpawnAttackerPlayerId, -1)}";
     }
 
     private static int BuildHpBucket(float currentHp, float maxHp)
@@ -1974,6 +1983,12 @@ public static class MPTestStateSnapshot
         [JsonProperty("kingAttackDamageBonusPermille")] public int KingAttackDamageBonusPermille;
         [JsonProperty("kingAttackSpeedBonusPermille")] public int KingAttackSpeedBonusPermille;
         [JsonProperty("kingSkillPowerBonusPermille")] public int KingSkillPowerBonusPermille;
+        [JsonProperty("selectedDemonKeyHash")] public int SelectedDemonKeyHash;
+        [JsonProperty("demonDataReady")] public bool DemonDataReady;
+        [JsonProperty("demonSkillUsedThisAttack")] public bool DemonSkillUsedThisAttack;
+        [JsonProperty("demonCanUseSkill")] public bool DemonCanUseSkill;
+        [JsonProperty("demonAttackSequenceId")] public int DemonAttackSequenceId;
+        [JsonProperty("demonSkillPresentationSequence")] public int DemonSkillPresentationSequence;
         [JsonProperty("kingPresentationReady")] public bool KingPresentationReady;
         [JsonProperty("kingPresentationGoalDistance")] public float? KingPresentationGoalDistance;
         [JsonProperty("kingPresentationScaleMultiplier")] public float? KingPresentationScaleMultiplier;

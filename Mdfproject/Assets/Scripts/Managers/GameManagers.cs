@@ -1307,6 +1307,8 @@ public partial class GameManagers : NetworkBehaviour
             if (newPlayer != null)
             {
                 int selectedKingHash = KingSelectionCatalog.DefaultKeyHash;
+                int selectedDemonHash = DemonSelectionCatalog.Entries[
+                    i % DemonSelectionCatalog.Entries.Count].KeyHash;
                 int selectedMapThemeId = MapThemeCatalog.DefaultId;
                 if (inputAuthority != PlayerRef.None
                     && NetworkManager.Instance != null
@@ -1320,6 +1322,16 @@ public partial class GameManagers : NetworkBehaviour
                 }
                 if (inputAuthority != PlayerRef.None
                     && NetworkManager.Instance != null
+                    && NetworkManager.Instance.TryGetLobbyDemonSelectionForGameplay(
+                        Runner,
+                        inputAuthority,
+                        out int lobbySelectedDemonHash)
+                    && DemonSelectionCatalog.IsAllowedHash(lobbySelectedDemonHash))
+                {
+                    selectedDemonHash = lobbySelectedDemonHash;
+                }
+                if (inputAuthority != PlayerRef.None
+                    && NetworkManager.Instance != null
                     && NetworkManager.Instance.TryGetLobbyMapThemeForGameplay(
                         Runner,
                         inputAuthority,
@@ -1329,6 +1341,7 @@ public partial class GameManagers : NetworkBehaviour
                     selectedMapThemeId = lobbyMapThemeId;
                 }
                 newPlayer.SetSelectedKingKeyHashAuthoritative(selectedKingHash);
+                newPlayer.SetSelectedDemonKeyHashAuthoritative(selectedDemonHash);
                 newPlayer.SetSelectedMapThemeIdAuthoritative(selectedMapThemeId);
                 newPlayer.SetAiControlled(isAI);
                 newPlayer.Rpc_InitializePlayer(i, gridNO);

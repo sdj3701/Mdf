@@ -856,6 +856,29 @@
     border-bottom-right-radius: 5px;
 }
 
+.demon-skill-button {
+    border-left-color: rgb(158, 61, 75);
+    border-right-color: rgb(158, 61, 75);
+    border-top-color: rgb(238, 134, 126);
+    border-bottom-color: rgb(92, 29, 44);
+}
+
+.demon-skill-button:hover {
+    background-color: rgba(75, 26, 43, 0.98);
+    border-left-color: rgb(245, 145, 132);
+    border-right-color: rgb(245, 145, 132);
+    border-top-color: rgb(255, 190, 166);
+    border-bottom-color: rgb(151, 54, 70);
+}
+
+.demon-skill-name {
+    color: rgb(255, 174, 157);
+}
+
+.demon-skill-state {
+    color: rgb(255, 207, 190);
+}
+
 .resource-permanent-wall-icon {
     background-image: url("project://database/Assets/Resource/Image/UI/PermanentBricks.png?fileID=2800000&guid=f8519aedf84fef04b847dcb140a83b24&type=3#PermanentBricks");
 }

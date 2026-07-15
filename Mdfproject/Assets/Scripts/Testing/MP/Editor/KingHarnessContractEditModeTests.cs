@@ -38,13 +38,13 @@ public sealed class KingHarnessContractEditModeTests
     }
 
     [Test]
-    public void LiveSnapshotUsesSchemaV3AndSerializesEveryKingContractField()
+    public void LiveSnapshotUsesSchemaV4AndSerializesEveryKingContractField()
     {
         MPTestStateSnapshot.Snapshot live = MPTestStateSnapshot.Capture(
             "editor-test",
             "king-schema-contract",
             "king-schema-session");
-        NUnitAssert.That(live.Version, Is.EqualTo(3));
+        NUnitAssert.That(live.Version, Is.EqualTo(4));
 
         var expectedPlayer = new MPTestStateSnapshot.PlayerSnapshot
         {
@@ -118,7 +118,7 @@ public sealed class KingHarnessContractEditModeTests
         JObject document = JObject.Parse(json);
         JToken player = document["players"]?[0];
 
-        NUnitAssert.That((int)document["version"], Is.EqualTo(3));
+        NUnitAssert.That((int)document["version"], Is.EqualTo(4));
         NUnitAssert.That((int)player?["selectedMapThemeId"], Is.EqualTo((int)MapThemeId.Classic));
         NUnitAssert.That((int)player?["appliedMapThemeId"], Is.EqualTo((int)MapThemeId.Classic));
         NUnitAssert.That((bool)player?["mapThemePresentationReady"], Is.True);

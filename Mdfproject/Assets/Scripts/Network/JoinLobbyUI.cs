@@ -17,6 +17,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private const float DesignHeight = 941f;
     private const int SlotCount = 4;
     private const int KingCount = 7;
+    private const int DemonCount = 5;
     private const float MatchContentLoadTimeoutSeconds = 90f;
 
     public static JoinLobbyUI Instance { get; private set; }
@@ -33,11 +34,15 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
     private readonly SlotView[] slots = new SlotView[SlotCount];
     private readonly KingCardView[] kingCards = new KingCardView[KingCount];
+    private readonly DemonCardView[] demonCards = new DemonCardView[DemonCount];
     private readonly MapThemeCardView[] mapThemeCards =
         new MapThemeCardView[MapThemeCatalog.Entries.Count];
     private readonly AddressableAssetLease<Sprite>[] kingIconLeases =
         new AddressableAssetLease<Sprite>[KingCount];
+    private readonly AddressableAssetLease<Sprite>[] demonIconLeases =
+        new AddressableAssetLease<Sprite>[DemonCount];
     private readonly Dictionary<int, Sprite> kingSprites = new Dictionary<int, Sprite>();
+    private readonly Dictionary<int, Sprite> demonSprites = new Dictionary<int, Sprite>();
 
     private VisualElement root;
     private VisualElement designSpace;
@@ -45,6 +50,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private VisualElement readyButton;
     private VisualElement leaveRoomButton;
     private VisualElement networkBlockOverlay;
+    private VisualElement kingSelectionPanel;
+    private VisualElement demonSelectionPanel;
     private Label networkBlockLabel;
 
     private Label roomNameLabel;
@@ -56,6 +63,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private NetworkPlayer localPlayer;
     private bool callbacksRegistered;
     private int kingIconLoadVersion;
+    private int demonIconLoadVersion;
+    private bool showingDemonSelection;
     private bool matchStartInProgress;
     private int activeMatchLoadRevision;
     private CancellationTokenSource matchStartCancellation;
@@ -72,6 +81,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         public readonly int VisualIndex;
         public readonly int KingKeyHash;
         public readonly int MapThemeId;
+        public readonly bool IsLocal;
         public readonly bool IsEmpty;
 
         public PlayerViewData(
@@ -81,6 +91,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
             int visualIndex,
             int kingKeyHash,
             int mapThemeId,
+            bool isLocal,
             bool isEmpty = false)
         {
             Name = name;
@@ -89,6 +100,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
             VisualIndex = visualIndex;
             KingKeyHash = kingKeyHash;
             MapThemeId = mapThemeId;
+            IsLocal = isLocal;
             IsEmpty = isEmpty;
         }
     }
@@ -102,6 +114,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
         public Label King;
         public Label Theme;
         public Label Ready;
+        public VisualElement DemonButton;
+        public Label DemonButtonLabel;
     }
 
     private sealed class KingCardView
@@ -109,6 +123,16 @@ public sealed class JoinLobbyUI : MonoBehaviour
         public VisualElement Root;
         public VisualElement Portrait;
         public Label Name;
+        public Label Selection;
+    }
+
+    private sealed class DemonCardView
+    {
+        public VisualElement Root;
+        public VisualElement Portrait;
+        public Label Name;
+        public Label Passive;
+        public Label Skill;
         public Label Selection;
     }
 
@@ -162,6 +186,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         ResolveNetworkManager();
         UpdatePlayerList();
         BeginLoadKingIcons();
+        BeginLoadDemonIcons();
         RefreshNetworkBlockOverlay();
         UpdateDesignScale();
     }
@@ -192,6 +217,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         UnregisterCallbacks();
         UnsubscribeNetworkEvents();
         ReleaseKingIcons();
+        ReleaseDemonIcons();
     }
 
     private void OnDestroy()
@@ -209,6 +235,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
         readyButton = Query<VisualElement>("readyButton");
         leaveRoomButton = Query<VisualElement>("leaveRoomButton");
         networkBlockOverlay = Query<VisualElement>("networkBlockOverlay");
+        kingSelectionPanel = Query<VisualElement>("kingSelectionPanel");
+        demonSelectionPanel = Query<VisualElement>("demonSelectionPanel");
         networkBlockLabel = networkBlockOverlay?.Q<Label>(className: "jl-network-block-label");
 
         roomNameLabel = Query<Label>("roomNameLabel");
@@ -226,8 +254,37 @@ public sealed class JoinLobbyUI : MonoBehaviour
                 Level = Query<Label>($"slotLevel{i}"),
                 King = Query<Label>($"slotKing{i}"),
                 Theme = Query<Label>($"slotTheme{i}"),
-                Ready = Query<Label>($"slotReady{i}")
+                Ready = Query<Label>($"slotReady{i}"),
+                DemonButton = Query<VisualElement>($"demonSelectButton{i}"),
+                DemonButtonLabel = Query<Label>($"demonSelectButtonLabel{i}")
             };
+
+            if (slots[i].Portrait != null)
+            {
+                slots[i].Portrait.userData = i;
+            }
+            if (slots[i].DemonButton != null)
+            {
+                slots[i].DemonButton.userData = i;
+            }
+        }
+
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            demonCards[i] = new DemonCardView
+            {
+                Root = Query<VisualElement>($"demonCard{i}"),
+                Portrait = Query<VisualElement>($"demonPortrait{i}"),
+                Name = Query<Label>($"demonName{i}"),
+                Passive = Query<Label>($"demonPassive{i}"),
+                Skill = Query<Label>($"demonSkill{i}"),
+                Selection = Query<Label>($"demonSelection{i}")
+            };
+
+            if (demonCards[i].Root != null)
+            {
+                demonCards[i].Root.userData = i;
+            }
         }
 
         for (int i = 0; i < kingCards.Length; i++)
@@ -244,6 +301,15 @@ public sealed class JoinLobbyUI : MonoBehaviour
             {
                 kingCards[i].Root.userData = i;
             }
+        }
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            SetPickingMode(demonCards[i]?.Root, PickingMode.Position);
+        }
+        for (int i = 0; i < slots.Length; i++)
+        {
+            SetPickingMode(slots[i]?.Portrait, PickingMode.Position);
+            SetPickingMode(slots[i]?.DemonButton, PickingMode.Position);
         }
 
         for (int i = 0; i < mapThemeCards.Length; i++)
@@ -303,6 +369,15 @@ public sealed class JoinLobbyUI : MonoBehaviour
         {
             kingCards[i]?.Root?.RegisterCallback<PointerUpEvent>(OnKingCardPointerUp);
         }
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            demonCards[i]?.Root?.RegisterCallback<PointerUpEvent>(OnDemonCardPointerUp);
+        }
+        for (int i = 0; i < slots.Length; i++)
+        {
+            slots[i]?.Portrait?.RegisterCallback<PointerUpEvent>(OnSlotPortraitPointerUp);
+            slots[i]?.DemonButton?.RegisterCallback<PointerUpEvent>(OnDemonSelectButtonPointerUp);
+        }
         for (int i = 0; i < mapThemeCards.Length; i++)
         {
             mapThemeCards[i]?.Root?.RegisterCallback<PointerUpEvent>(OnMapThemeCardPointerUp);
@@ -325,6 +400,15 @@ public sealed class JoinLobbyUI : MonoBehaviour
         for (int i = 0; i < kingCards.Length; i++)
         {
             kingCards[i]?.Root?.UnregisterCallback<PointerUpEvent>(OnKingCardPointerUp);
+        }
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            demonCards[i]?.Root?.UnregisterCallback<PointerUpEvent>(OnDemonCardPointerUp);
+        }
+        for (int i = 0; i < slots.Length; i++)
+        {
+            slots[i]?.Portrait?.UnregisterCallback<PointerUpEvent>(OnSlotPortraitPointerUp);
+            slots[i]?.DemonButton?.UnregisterCallback<PointerUpEvent>(OnDemonSelectButtonPointerUp);
         }
         for (int i = 0; i < mapThemeCards.Length; i++)
         {
@@ -464,6 +548,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
                       && IsLobbyRosterComplete(activePlayerCount, players.Count, hasDuplicateAuthorities)
                       && players.Count > 0
                       && players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash))
+                      && AllPlayersHaveAuthoritativeDemonSelection(players)
                       && players.All(player => player.IsReady)
                      && SceneUtility.GetBuildIndexByScenePath(gameScenePath) >= 0;
         if (!valid)
@@ -522,6 +607,48 @@ public sealed class JoinLobbyUI : MonoBehaviour
         evt.StopPropagation();
     }
 
+    private void OnDemonCardPointerUp(PointerUpEvent evt)
+    {
+        if (!IsPrimaryPointer(evt)
+            || !(evt.currentTarget is VisualElement card)
+            || !(card.userData is int catalogIndex)
+            || catalogIndex < 0
+            || catalogIndex >= DemonSelectionCatalog.Entries.Count)
+        {
+            return;
+        }
+
+        SelectDemon(DemonSelectionCatalog.Entries[catalogIndex].KeyHash);
+        evt.StopPropagation();
+    }
+
+    private void OnSlotPortraitPointerUp(PointerUpEvent evt)
+    {
+        if (!IsPrimaryPointer(evt))
+        {
+            return;
+        }
+
+        ShowSelectionPanel(showDemon: false);
+        evt.StopPropagation();
+    }
+
+    private void OnDemonSelectButtonPointerUp(PointerUpEvent evt)
+    {
+        if (!IsPrimaryPointer(evt)
+            || !(evt.currentTarget is VisualElement button)
+            || !(button.userData is int slotIndex)
+            || slotIndex < 0
+            || slotIndex >= slots.Length
+            || localPlayer == null)
+        {
+            return;
+        }
+
+        ShowSelectionPanel(showDemon: true);
+        evt.StopPropagation();
+    }
+
     private void OnMapThemeCardPointerUp(PointerUpEvent evt)
     {
         if (!IsPrimaryPointer(evt)
@@ -559,6 +686,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
         RenderSlots(viewData);
         RenderKingSelection();
+        RenderDemonSelection();
+        ShowSelectionPanel(showingDemonSelection);
         RenderMapThemeSelection();
         UpdateRoomInfo(activePlayerCount, usingMockPlayers);
         UpdateButtons(players, activePlayerCount, hasDuplicateAuthorities, usingMockPlayers);
@@ -629,9 +758,9 @@ public sealed class JoinLobbyUI : MonoBehaviour
     {
         return new List<PlayerViewData>
         {
-            new PlayerViewData("루나", 42, true, 0, KingSelectionCatalog.Entries[0].KeyHash, (int)MapThemeId.Arena),
-            new PlayerViewData("카인", 45, true, 1, KingSelectionCatalog.Entries[3].KeyHash, (int)MapThemeId.Classic),
-            new PlayerViewData("미르", 40, true, 2, KingSelectionCatalog.Entries[4].KeyHash, (int)MapThemeId.Arena)
+            new PlayerViewData("루나", 42, true, 0, KingSelectionCatalog.Entries[0].KeyHash, (int)MapThemeId.Arena, true),
+            new PlayerViewData("카인", 45, true, 1, KingSelectionCatalog.Entries[3].KeyHash, (int)MapThemeId.Classic, false),
+            new PlayerViewData("미르", 40, true, 2, KingSelectionCatalog.Entries[4].KeyHash, (int)MapThemeId.Arena, false)
         };
     }
 
@@ -653,7 +782,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
                 player.IsReady,
                 i,
                 player.SelectedKingUnitKeyHash,
-                player.SelectedMapThemeId));
+                player.SelectedMapThemeId,
+                player.HasInputAuthority));
         }
 
         return viewData;
@@ -687,7 +817,13 @@ public sealed class JoinLobbyUI : MonoBehaviour
         slot.Root.AddToClassList(player.IsReady ? "jl-slot--ready" : "jl-slot--waiting");
 
         SetDisplay(slot.Portrait, true);
+        SetDisplay(slot.DemonButton, player.IsLocal);
         SetKingPortrait(slot.Portrait, player.KingKeyHash, player.VisualIndex);
+
+        if (slot.DemonButtonLabel != null)
+        {
+            slot.DemonButtonLabel.text = "악마 선택";
+        }
 
         if (slot.Name != null)
         {
@@ -732,6 +868,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         slot.Root.AddToClassList("jl-slot--empty");
 
         SetDisplay(slot.Portrait, false);
+        SetDisplay(slot.DemonButton, false);
 
         if (slot.Name != null)
         {
@@ -788,13 +925,16 @@ public sealed class JoinLobbyUI : MonoBehaviour
         bool hasRealPlayers = rosterComplete && players.Count > 0;
         bool allKingsSelected = hasRealPlayers
             && players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash));
-        bool allReady = allKingsSelected && players.All(player => player.IsReady);
+        bool allDemonsSelected = !isHost || AllPlayersHaveAuthoritativeDemonSelection(players);
+        bool allReady = allKingsSelected && allDemonsSelected && players.All(player => player.IsReady);
         bool canStart = isHost && allReady && !matchStartInProgress && !IsMatchLoadingActive(players);
         bool localKingSelected = localPlayer != null
             && KingSelectionCatalog.IsAllowedHash(localPlayer.SelectedKingUnitKeyHash);
+        bool localDemonSelected = localPlayer != null
+            && DemonSelectionCatalog.IsAllowedHash(localPlayer.LocalSelectedDemonKeyHash);
 
         gameStartButton?.EnableInClassList("jl-button--disabled", !canStart);
-        readyButton?.EnableInClassList("jl-button--disabled", !localKingSelected);
+        readyButton?.EnableInClassList("jl-button--disabled", !localKingSelected || !localDemonSelected);
 
         if (readyButtonLabel != null)
         {
@@ -812,9 +952,9 @@ public sealed class JoinLobbyUI : MonoBehaviour
         }
         else if (!isHost)
         {
-            statusLabel.text = localKingSelected
+            statusLabel.text = localKingSelected && localDemonSelected
                 ? "ⓘ 방장이 게임을 시작할 수 있습니다."
-                : "ⓘ 국왕을 선택해야 준비할 수 있습니다.";
+                : "ⓘ 국왕과 악마를 선택해야 준비할 수 있습니다.";
         }
         else if (!rosterComplete)
         {
@@ -823,6 +963,10 @@ public sealed class JoinLobbyUI : MonoBehaviour
         else if (!allKingsSelected)
         {
             statusLabel.text = "ⓘ 모든 인원이 국왕을 선택해야 준비할 수 있습니다.";
+        }
+        else if (!allDemonsSelected)
+        {
+            statusLabel.text = "ⓘ 모든 인원이 악마를 선택해야 준비할 수 있습니다.";
         }
         else if (!allReady)
         {
@@ -868,6 +1012,12 @@ public sealed class JoinLobbyUI : MonoBehaviour
             || !players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash)))
         {
             ShowStatus("ⓘ 모든 인원이 국왕을 선택해야 게임을 시작할 수 있습니다.");
+            return;
+        }
+
+        if (!AllPlayersHaveAuthoritativeDemonSelection(players))
+        {
+            ShowStatus("ⓘ 모든 인원이 악마를 선택해야 게임을 시작할 수 있습니다.");
             return;
         }
 
@@ -1104,6 +1254,12 @@ public sealed class JoinLobbyUI : MonoBehaviour
             return;
         }
 
+        if (!DemonSelectionCatalog.IsAllowedHash(localPlayer.LocalSelectedDemonKeyHash))
+        {
+            ShowStatus("ⓘ 악마를 먼저 선택해야 준비할 수 있습니다.");
+            return;
+        }
+
         localPlayer.RPC_ToggleReady();
     }
 
@@ -1167,6 +1323,110 @@ public sealed class JoinLobbyUI : MonoBehaviour
             SetBackgroundSprite(card.Portrait,
                 kingSprites.TryGetValue(entry.KeyHash, out Sprite sprite) ? sprite : null);
         }
+    }
+
+    private void SelectDemon(int selectedDemonHash)
+    {
+        if (localPlayer == null)
+        {
+            UpdatePlayerList();
+        }
+
+        if (localPlayer == null)
+        {
+            ShowStatus("ⓘ 로컬 플레이어 정보를 아직 찾을 수 없습니다.");
+            return;
+        }
+
+        if (localPlayer.LocalSelectedDemonKeyHash == selectedDemonHash)
+        {
+            return;
+        }
+
+        if (!localPlayer.RequestDemonSelection(selectedDemonHash))
+        {
+            ShowStatus("ⓘ 선택할 수 없는 악마입니다.");
+            return;
+        }
+
+        RenderDemonSelection(selectedDemonHash);
+        ShowStatus(localPlayer.IsReady
+            ? "ⓘ 악마를 변경했습니다. 준비 상태가 해제됩니다."
+            : "ⓘ 악마를 선택했습니다. 이 선택은 게임 시작 전까지 다른 플레이어에게 공개되지 않습니다.");
+    }
+
+    private void RenderDemonSelection(int? optimisticSelectionHash = null)
+    {
+        int selectedHash = DemonSelectionCatalog.NormalizeOrDefaultHash(
+            optimisticSelectionHash
+            ?? (localPlayer != null
+                ? localPlayer.LocalSelectedDemonKeyHash
+                : DemonSelectionCatalog.DefaultKeyHash));
+
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            DemonCardView card = demonCards[i];
+            if (card == null || i >= DemonSelectionCatalog.Entries.Count)
+            {
+                continue;
+            }
+
+            DemonSelectionCatalog.Entry entry = DemonSelectionCatalog.Entries[i];
+            bool selected = entry.KeyHash == selectedHash;
+            card.Root?.EnableInClassList("jl-king-card--selected", selected);
+            if (card.Name != null)
+            {
+                card.Name.text = entry.DisplayName;
+            }
+            if (card.Passive != null)
+            {
+                card.Passive.text = entry.PassiveDescription;
+            }
+            if (card.Skill != null)
+            {
+                card.Skill.text = $"{entry.SkillName}: {entry.SkillDescription}";
+            }
+            if (card.Selection != null)
+            {
+                card.Selection.text = selected ? "선택됨" : "선택";
+            }
+
+            SetBackgroundSprite(
+                card.Portrait,
+                demonSprites.TryGetValue(entry.KeyHash, out Sprite sprite) ? sprite : null);
+        }
+    }
+
+    private void ShowSelectionPanel(bool showDemon)
+    {
+        showingDemonSelection = showDemon;
+        SetDisplay(kingSelectionPanel, !showDemon);
+        SetDisplay(demonSelectionPanel, showDemon);
+    }
+
+    private bool AllPlayersHaveAuthoritativeDemonSelection(IEnumerable<NetworkPlayer> players)
+    {
+        if (networkManager == null || networkManager._runner == null || !networkManager._runner.IsServer)
+        {
+            return false;
+        }
+
+        foreach (NetworkPlayer player in players)
+        {
+            if (player == null
+                || player.Object == null
+                || !player.Object.IsValid
+                || !networkManager.TryGetLobbyDemonSelectionForGameplay(
+                    networkManager._runner,
+                    player.Object.InputAuthority,
+                    out int selectionHash)
+                || !DemonSelectionCatalog.IsAllowedHash(selectionHash))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private void SelectMapTheme(int selectedThemeId)
@@ -1280,6 +1540,46 @@ public sealed class JoinLobbyUI : MonoBehaviour
         {
             kingIconLeases[i]?.Dispose();
             kingIconLeases[i] = null;
+        }
+    }
+
+    private void BeginLoadDemonIcons()
+    {
+        int version = ++demonIconLoadVersion;
+        for (int i = 0; i < demonCards.Length && i < DemonSelectionCatalog.Entries.Count; i++)
+        {
+            LoadDemonIconAsync(i, version).Forget();
+        }
+    }
+
+    private async UniTask LoadDemonIconAsync(int catalogIndex, int version)
+    {
+        DemonSelectionCatalog.Entry entry = DemonSelectionCatalog.Entries[catalogIndex];
+        AddressableAssetLease<Sprite> lease = await AssetLoader.AcquireAssetAsync<Sprite>(entry.IconKey);
+        if (this == null || !isActiveAndEnabled || version != demonIconLoadVersion)
+        {
+            lease?.Dispose();
+            return;
+        }
+
+        demonIconLeases[catalogIndex]?.Dispose();
+        demonIconLeases[catalogIndex] = lease;
+        if (lease?.Asset != null)
+        {
+            demonSprites[entry.KeyHash] = lease.Asset;
+        }
+
+        RenderDemonSelection();
+    }
+
+    private void ReleaseDemonIcons()
+    {
+        demonIconLoadVersion++;
+        demonSprites.Clear();
+        for (int i = 0; i < demonIconLeases.Length; i++)
+        {
+            demonIconLeases[i]?.Dispose();
+            demonIconLeases[i] = null;
         }
     }
 

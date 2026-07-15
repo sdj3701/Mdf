@@ -22,11 +22,18 @@ public class NetworkPlayer : NetworkBehaviour
     private bool _cachedKingSelectionWithDurableIdentity;
     private int _lastCachedMapThemeId;
     private bool _cachedMapThemeWithDurableIdentity;
+    private int _localSelectedDemonKeyHash;
+    private float _nextLobbyDemonSyncTime;
     private int _localMatchContentLoadRevision = -1;
     private CancellationTokenSource _localMatchContentLoadCancellation;
 
     public LobbyMatchLoadingState MatchContentLoadState =>
         (LobbyMatchLoadingState)MatchContentLoadStateValue;
+
+    /// <summary>
+    /// Owner-only lobby presentation state. This value is intentionally not Networked.
+    /// </summary>
+    public int LocalSelectedDemonKeyHash => HasInputAuthority ? _localSelectedDemonKeyHash : 0;
 
     public override void Spawned()
     {
@@ -43,14 +50,18 @@ public class NetworkPlayer : NetworkBehaviour
                 PlayerPrefs.GetInt(KingSelectionCatalog.PlayerPrefsKey, KingSelectionCatalog.DefaultKeyHash));
             int selectedMapThemeId = MapThemeCatalog.NormalizeOrDefault(
                 PlayerPrefs.GetInt(MapThemeCatalog.PlayerPrefsKey, MapThemeCatalog.DefaultId));
+            int selectedDemonHash = DemonSelectionCatalog.NormalizeOrDefaultHash(
+                PlayerPrefs.GetInt(DemonSelectionCatalog.PlayerPrefsKey, DemonSelectionCatalog.DefaultKeyHash));
+            _localSelectedDemonKeyHash = selectedDemonHash;
 
             // 서버에 닉네임 설정을 요청하는 RPC를 호출합니다.
-            RPC_SetInitialData(nickname, selectedKingHash, selectedMapThemeId);
+            RPC_SetInitialData(nickname, selectedKingHash, selectedMapThemeId, selectedDemonHash);
         }
 
         TryRememberKingSelectionForSession();
         TryRememberMapThemeForSession();
         TryStartLocalMatchContentLoad();
+        TrySyncOwnerPrivateDemonSelection();
     }
 
     public override void Render()
@@ -79,6 +90,7 @@ public class NetworkPlayer : NetworkBehaviour
         TryRememberKingSelectionForSession();
         TryRememberMapThemeForSession();
         TryStartLocalMatchContentLoad();
+        TrySyncOwnerPrivateDemonSelection();
     }
 
     public override void Despawned(NetworkRunner runner, bool hasState)
@@ -93,7 +105,11 @@ public class NetworkPlayer : NetworkBehaviour
     }
 
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
-    private void RPC_SetInitialData(string nickname, int requestedKingHash, int requestedMapThemeId)
+    private void RPC_SetInitialData(
+        string nickname,
+        int requestedKingHash,
+        int requestedMapThemeId,
+        int requestedDemonHash)
     {
         this.Nickname = nickname;
         this.IsReady = false;
@@ -103,8 +119,12 @@ public class NetworkPlayer : NetworkBehaviour
         this.SelectedMapThemeId = NetworkManager.Instance != null
             ? NetworkManager.Instance.ResolveInitialLobbyMapTheme(this, requestedMapThemeId)
             : MapThemeCatalog.NormalizeOrDefault(requestedMapThemeId);
+        int selectedDemonHash = NetworkManager.Instance != null
+            ? NetworkManager.Instance.ResolveInitialLobbyDemonSelection(this, requestedDemonHash)
+            : DemonSelectionCatalog.NormalizeOrDefaultHash(requestedDemonHash);
         TryRememberKingSelectionForSession();
         TryRememberMapThemeForSession();
+        RPC_ConfirmDemonSelection(selectedDemonHash);
     }
 
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
@@ -116,6 +136,21 @@ public class NetworkPlayer : NetworkBehaviour
             Debug.LogWarning(
                 $"[NetworkPlayer] Ready rejected because the king selection is invalid. " +
                 $"king={SelectedKingUnitKeyHash}");
+            return;
+        }
+
+        if (NetworkManager.Instance == null
+            || Runner == null
+            || Object == null
+            || !Object.IsValid
+            || !NetworkManager.Instance.TryGetLobbyDemonSelectionForGameplay(
+                Runner,
+                Object.InputAuthority,
+                out int selectedDemonHash)
+            || !DemonSelectionCatalog.IsAllowedHash(selectedDemonHash))
+        {
+            IsReady = false;
+            Debug.LogWarning("[NetworkPlayer] Ready rejected because the private demon selection is missing or invalid.");
             return;
         }
 
@@ -147,6 +182,23 @@ public class NetworkPlayer : NetworkBehaviour
         PlayerPrefs.SetInt(MapThemeCatalog.PlayerPrefsKey, canonicalThemeId);
         PlayerPrefs.Save();
         RPC_SetMapThemeSelection(canonicalThemeId);
+        return true;
+    }
+
+    public bool RequestDemonSelection(int requestedDemonHash)
+    {
+        if (!HasInputAuthority || !DemonSelectionCatalog.IsAllowedHash(requestedDemonHash))
+        {
+            return false;
+        }
+
+        int canonicalHash = DemonSelectionCatalog.NormalizeOrDefaultHash(requestedDemonHash);
+        _localSelectedDemonKeyHash = canonicalHash;
+        _nextLobbyDemonSyncTime = Time.unscaledTime + 2f;
+        PlayerPrefs.SetInt(DemonSelectionCatalog.PlayerPrefsKey, canonicalHash);
+        PlayerPrefs.Save();
+        RPC_SetDemonSelection(canonicalHash);
+        JoinLobbyUI.Instance?.UpdatePlayerList();
         return true;
     }
 
@@ -400,6 +452,73 @@ public class NetworkPlayer : NetworkBehaviour
         SelectedMapThemeId = canonicalThemeId;
         IsReady = false;
         TryRememberMapThemeForSession();
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    private void RPC_SetDemonSelection(int requestedDemonHash)
+    {
+        if (!DemonSelectionCatalog.IsAllowedHash(requestedDemonHash)
+            || NetworkManager.Instance == null
+            || Runner == null
+            || Object == null
+            || !Object.IsValid)
+        {
+            IsReady = false;
+            return;
+        }
+
+        int canonicalHash = DemonSelectionCatalog.NormalizeOrDefaultHash(requestedDemonHash);
+        bool changed = !NetworkManager.Instance.TryGetLobbyDemonSelectionForGameplay(
+                Runner,
+                Object.InputAuthority,
+                out int previousHash)
+            || previousHash != canonicalHash;
+        if (!NetworkManager.Instance.TrySetLobbyDemonSelection(this, canonicalHash, out canonicalHash))
+        {
+            IsReady = false;
+            return;
+        }
+
+        if (changed)
+        {
+            IsReady = false;
+        }
+
+        RPC_ConfirmDemonSelection(canonicalHash);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.InputAuthority)]
+    private void RPC_ConfirmDemonSelection(int canonicalDemonHash)
+    {
+        if (!HasInputAuthority || !DemonSelectionCatalog.IsAllowedHash(canonicalDemonHash))
+        {
+            return;
+        }
+
+        _localSelectedDemonKeyHash = DemonSelectionCatalog.NormalizeOrDefaultHash(canonicalDemonHash);
+        JoinLobbyUI.Instance?.UpdatePlayerList();
+    }
+
+    private void TrySyncOwnerPrivateDemonSelection()
+    {
+        if (!HasInputAuthority
+            || Runner == null
+            || !Runner.IsRunning
+            || Time.unscaledTime < _nextLobbyDemonSyncTime)
+        {
+            return;
+        }
+
+        if (!DemonSelectionCatalog.IsAllowedHash(_localSelectedDemonKeyHash))
+        {
+            _localSelectedDemonKeyHash = DemonSelectionCatalog.NormalizeOrDefaultHash(
+                PlayerPrefs.GetInt(DemonSelectionCatalog.PlayerPrefsKey, DemonSelectionCatalog.DefaultKeyHash));
+        }
+
+        // Periodic owner resubmission repairs the authority-only cache after lobby host migration
+        // without ever exposing the choice to other clients.
+        _nextLobbyDemonSyncTime = Time.unscaledTime + 2f;
+        RPC_SetDemonSelection(_localSelectedDemonKeyHash);
     }
 
     private void TryRememberKingSelectionForSession()

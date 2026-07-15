@@ -1041,6 +1041,15 @@ public class MonsterSpawner : MonoBehaviour
             }
         }
 
+        if (DemonSelectionCatalog.TryGetByHash(
+                _playerManager.SelectedDemonKeyHash,
+                out DemonSelectionCatalog.Entry demon))
+        {
+            healthMultiplier *= demon.PassiveHealthMultiplier;
+            speedMultiplier *= demon.PassiveMoveSpeedMultiplier;
+            damageMultiplier *= demon.PassiveDamageMultiplier;
+        }
+
         if (healthMultiplier > 1f || speedMultiplier > 1f || damageMultiplier > 1f)
         {
             monster.ApplyAugmentBuffs(healthMultiplier, speedMultiplier, damageMultiplier);
@@ -2015,7 +2024,9 @@ public class MonsterSpawner : MonoBehaviour
         // 몬스터 초기화 (상대 필드 목표 사용)
         monster.Initialize(targetFieldManager.playerManager, targetGoal, monsterData, targetGrid);
         
-        // 공격팀(소환자)의 몬스터 버프 증강체 효과 적용
+        monster.SetSpawnAttackerPlayerIdAuthoritative(_playerManager.playerId);
+
+        // 공격팀(소환자)의 몬스터 버프 증강체/악마 효과 적용
         ApplyAttackerAugmentBuffs(monster);
         
         // 보스 플래그 설정

@@ -123,6 +123,7 @@ public class HostMigrationHandler : MonoBehaviour
         public int BattleSpawnCadenceSequenceId;
         public int SelectedMapThemeId;
         public KingRuntimeMigrationState KingState;
+        public DemonRuntimeMigrationState DemonState;
         public bool HasAttackPoolSnapshot;
         public MonsterData[] AttackPoolMonsterDataRefs;
         public string[] AttackPoolMonsterDataNames;
@@ -3227,6 +3228,7 @@ public class HostMigrationHandler : MonoBehaviour
                 BattleSpawnCadenceSequenceId = player.BattleSpawnCadenceSequenceId,
                 SelectedMapThemeId = player.SelectedMapThemeId,
                 KingState = player.CaptureKingRuntimeMigrationState(),
+                DemonState = player.CaptureDemonRuntimeMigrationState(),
                 HasAttackPoolSnapshot = false,
                 AttackPoolMonsterDataRefs = Array.Empty<MonsterData>(),
                 AttackPoolMonsterDataNames = Array.Empty<string>(),
@@ -3700,6 +3702,11 @@ public class HostMigrationHandler : MonoBehaviour
             {
                 criticalStateFailures++;
                 Debug.LogError($"[HostMigrationHandler] king runtime restore failed P{snapshot.PlayerId} ({context})");
+            }
+            if (!player.RestoreDemonRuntimeAfterHostMigration(snapshot.DemonState, context))
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] demon runtime restore failed P{snapshot.PlayerId} ({context})");
             }
             if (ShouldRestoreFieldUnitsForContext(context))
             {

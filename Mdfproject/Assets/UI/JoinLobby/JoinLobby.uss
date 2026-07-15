@@ -235,6 +235,47 @@
     -unity-text-align: middle-center;
 }
 
+.jl-demon-panel-title {
+    color: #ef9d9d;
+}
+
+.jl-demon-card-name {
+    top: 10px;
+    height: 25px;
+    color: #ffb0a0;
+    font-size: 18px;
+}
+
+.jl-demon-card-passive,
+.jl-demon-card-skill {
+    position: absolute;
+    left: 136px;
+    width: 106px;
+    color: #d9e0e7;
+    font-size: 10px;
+    white-space: normal;
+    overflow: hidden;
+}
+
+.jl-demon-card-passive {
+    top: 37px;
+    height: 34px;
+}
+
+.jl-demon-card-skill {
+    top: 72px;
+    height: 39px;
+    color: #e7c9a6;
+}
+
+.jl-demon-card-selection {
+    left: 150px;
+    top: 112px;
+    width: 80px;
+    height: 24px;
+    font-size: 13px;
+}
+
 .jl-king-card {
     position: absolute;
     width: 252px;
@@ -469,7 +510,7 @@
     left: 12px;
     top: 8px;
     width: 152px;
-    height: 205px;
+    height: 176px;
     background-color: rgba(8, 21, 35, 0.35);
     -unity-background-scale-mode: scale-to-fit;
 }
@@ -514,6 +555,36 @@
     -unity-text-align: middle-center;
     /* -unity-text-outline-width: 1px; */
     /* -unity-text-outline-color: #15110b; */
+}
+
+.jl-demon-select-button {
+    position: absolute;
+    left: 18px;
+    top: 187px;
+    width: 140px;
+    height: 30px;
+    background-color: rgba(83, 22, 35, 0.94);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: #b85f69;
+    border-right-color: #b85f69;
+    border-top-color: #e9a0a0;
+    border-bottom-color: #6d2738;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+}
+
+.jl-demon-select-button-label {
+    width: 138px;
+    height: 28px;
+    color: #ffd3cb;
+    font-size: 15px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
 }
 
 .jl-slot-king {

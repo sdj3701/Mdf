@@ -22,6 +22,7 @@ public enum CommandType
     SetSkillActivationMode = 14,
     ActivateKingSkill = 15,
     UpgradeWall = 16,
+    ActivateDemonSkill = 17,
 
 
     // ===== Sync Commands (100-199) =====

@@ -45,7 +45,9 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
 
         if (context.IsCurrentBattleAttacker)
         {
-            if (TryChooseScroll(context, out decision) || TryChooseSpawn(context, out decision))
+            if (TryChooseDemonSkill(context, out decision)
+                || TryChooseScroll(context, out decision)
+                || TryChooseSpawn(context, out decision))
             {
                 Arm(context.PlayerId, decision.CommandType);
                 LogDecision(decision, "pass");
@@ -63,6 +65,31 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         decision = MdfDecision.Observe(context, "no_legal_battle_decision");
         LogDecision(decision, "info");
         return false;
+    }
+
+    private static bool TryChooseDemonSkill(MdfDecisionContext context, out MdfDecision decision)
+    {
+        decision = null;
+        PlayerManager actor = context.Actor;
+        if (actor == null || !actor.CanUseDemonSkill)
+        {
+            return false;
+        }
+
+        var command = new ActivateDemonSkillCommand(actor.playerId);
+        decision = MdfDecision.ForCommand(
+            context,
+            command,
+            CommandType.ActivateDemonSkill,
+            "demon_skill_attack_sequence",
+            $"demon={actor.SelectedDemonKeyHash}",
+            100f,
+            new Dictionary<string, object>
+            {
+                { "demonKeyHash", actor.SelectedDemonKeyHash },
+                { "attackSequenceId", actor.CurrentDemonAttackSequenceId }
+            });
+        return true;
     }
 
     private bool TryChooseScroll(MdfDecisionContext context, out MdfDecision decision)
