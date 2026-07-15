@@ -488,7 +488,6 @@ MonoBehaviour:
   defenseRotation: {x: 45, y: 0, z: 0}
   attackOffset: {x: 3.5, y: 28, z: -9.7}
   attackRotation: {x: 65, y: 0, z: 0}
-  fieldZOffset: -14
 --- !u!4 &975510998
 Transform:
   m_ObjectHideFlags: 0

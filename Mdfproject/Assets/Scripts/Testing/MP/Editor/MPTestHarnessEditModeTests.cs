@@ -292,6 +292,30 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void CameraFieldTranslationUsesActualWorldCentersWithoutDuplicatedSpacing()
+    {
+        const BindingFlags members = BindingFlags.Static | BindingFlags.NonPublic;
+        MethodInfo calculate = typeof(CameraManager).GetMethod(
+            "CalculateFieldTranslation",
+            members);
+        Assert.That(calculate, Is.Not.Null);
+
+        Vector3 sourceCenter = new Vector3(3.5f, 0f, 3.5f);
+        Vector3 targetCenter = new Vector3(3.5f, 0f, -16.5f);
+        Vector3 translation = (Vector3)calculate.Invoke(
+            null,
+            new object[] { sourceCenter, targetCenter });
+
+        Assert.That(translation, Is.EqualTo(new Vector3(0f, 0f, -20f)));
+
+        string cameraSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CameraManager.cs");
+        Assert.That(cameraSource, Does.Not.Contain("fieldZOffset"),
+            "Camera navigation must not duplicate GameManagers field spacing.");
+        Assert.That(cameraSource, Does.Contain("managers.GetPlayerFieldPosition(sourcePlayerId)"));
+        Assert.That(cameraSource, Does.Contain("GetFieldCenter(targetPlayer)"));
+    }
+
+    [Test]
     public void RankingUiHealthFillIsClampedToPlayerMax()
     {
         Assert.That(RankingUIController.GetHealthFillPercentForDisplay(-5, 80), Is.EqualTo(0f));

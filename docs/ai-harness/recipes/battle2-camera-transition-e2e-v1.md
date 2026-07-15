@@ -6,11 +6,11 @@ Category: multiplayer, camera, battle
 Created: 2026-07-14
 Last used: 2026-07-15
 Last verified: 2026-07-15
-Use count: 5
+Use count: 6
 Review after: 2026-08-11
 Triggers: Battle1 to Battle2 camera stays on own field, attack UI opens over defender field, overlapping camera transition drops a request
 Applies to: `CameraManager`, `GameManagers.StateTransition`, `MPTestAutomationServer`, `run_human_bot_3round_progression.py`, `long_progression_common.py`
-Verified by: `artifacts/mp/20260714-043422-human-bot-3round-progression/camera-checkpoints/003-r01-battle2.json`; E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression; artifacts/mp/20260715-monster-statusbar-camera-transition/20260715-045852-human-bot-3round-progression/camera-checkpoints/009-r03-battle2.json
+Verified by: `artifacts/mp/20260714-043422-human-bot-3round-progression/camera-checkpoints/003-r01-battle2.json`; E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression; artifacts/mp/20260715-monster-statusbar-camera-transition/20260715-045852-human-bot-3round-progression/camera-checkpoints/009-r03-battle2.json; artifacts/mp/20260715-camera-field-spacing-battle2/20260715-073837-human-bot-3round-progression/camera-checkpoints/003-r01-battle2.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active harness references it
 
@@ -41,3 +41,5 @@ Lifecycle notes:
 - 2026-07-14: verified artifact `E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression`
 - 2026-07-15: verified artifact `artifacts/mp/20260715-monster-statusbar-camera-transition/20260715-045852-human-bot-3round-progression/camera-checkpoints/009-r03-battle2.json`
 - 2026-07-15: Consulted for visual multiplayer checkpoint strategy; camera-specific verification remained disabled for this loading/field-layout fix.
+- 2026-07-15: Verified camera navigation after removing duplicated fieldZOffset: host attacker viewed player 1, client defender stayed on player 1, both transitions settled with the 20-unit field spacing.
+- 2026-07-15: verified artifact `artifacts/mp/20260715-camera-field-spacing-battle2/20260715-073837-human-bot-3round-progression/camera-checkpoints/003-r01-battle2.json`

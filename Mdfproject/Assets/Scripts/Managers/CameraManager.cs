@@ -59,14 +59,10 @@ public class CameraManager : MonoBehaviour
     private int _transitionRequestVersion;
     private Vector3 _originalPosition;  // 자신의 필드를 보는 수비 모드 카메라 위치
     private Quaternion _originalRotation;  // 자신의 필드를 보는 수비 모드 카메라 회전
-    private Vector3 _ownFieldCenter;  // 본인 필드 중심 위치
     private bool _hasSceneCameraPose;
     private Vector3 _sceneCameraPosition;  // 씬에 배치된 호스트 필드 기준 카메라 위치
     private Quaternion _sceneCameraRotation;  // 씬에 배치된 호스트 필드 기준 카메라 회전
     
-    [Header("필드 간격 설정")]
-    [Tooltip("플레이어 간 필드 Z 오프셋 (GameManagers의 Player Offset.z와 동일해야 함)")]
-    [SerializeField] private float fieldZOffset = -14f;
     #endregion
 
     #region 안전 유틸
@@ -210,6 +206,24 @@ public class CameraManager : MonoBehaviour
         _originalPosition = _sceneCameraPosition;
         _originalRotation = _sceneCameraRotation;
     }
+
+    private static Vector3 CalculateFieldTranslation(Vector3 sourceFieldCenter, Vector3 targetFieldCenter)
+    {
+        return targetFieldCenter - sourceFieldCenter;
+    }
+
+    private static Vector3 ResolveConfiguredFieldTranslation(int sourcePlayerId, int targetPlayerId)
+    {
+        GameManagers managers = GameManagers.Instance;
+        if (managers == null)
+        {
+            return Vector3.zero;
+        }
+
+        return CalculateFieldTranslation(
+            managers.GetPlayerFieldPosition(sourcePlayerId),
+            managers.GetPlayerFieldPosition(targetPlayerId));
+    }
     #endregion
 
     #region 초기화
@@ -230,7 +244,7 @@ public class CameraManager : MonoBehaviour
 
     /// <summary>
     /// 카메라 매니저 초기화. 본인 필드 설정.
-    /// 씬 카메라 위치(호스트 필드 기준)에서 playerId * fieldZOffset만큼 z값을 이동합니다.
+    /// 씬 카메라 위치(호스트 필드 기준)에 GameManagers가 사용하는 실제 필드 위치 차이를 적용합니다.
     /// </summary>
     public void Initialize(PlayerManager ownField)
     {
@@ -239,8 +253,6 @@ public class CameraManager : MonoBehaviour
         _ownPlayerId = TryGetPlayerId(ownField, out int initializedPlayerId) ? initializedPlayerId : -1;
         SetCurrentViewingField(ownField);
         
-        // 본인 필드 중심 위치 계산
-        _ownFieldCenter = GetFieldCenter(ownField);
         CaptureSceneCameraPoseIfNeeded();
         
         if (mainCamera != null && _hasSceneCameraPose)
@@ -249,26 +261,22 @@ public class CameraManager : MonoBehaviour
             Vector3 sceneCameraPos = _sceneCameraPosition;
             Quaternion sceneCameraRot = _sceneCameraRotation;
             
-            // playerId에 따라 z 오프셋 계산
-            // Player 0: z값 변화 없음
-            // Player 1: z값 -14
-            // Player 2: z값 -28
             int ownId = 0;
             if (!TryGetPlayerId(ownField, out ownId))
             {
                 ownId = 0;
             }
-            float zOffset = ownId * fieldZOffset;
+            Vector3 fieldTranslation = ResolveConfiguredFieldTranslation(0, ownId);
             
             // 자신의 필드로 카메라 이동
-            _originalPosition = sceneCameraPos + new Vector3(0f, 0f, zOffset);
+            _originalPosition = sceneCameraPos + fieldTranslation;
             _originalRotation = sceneCameraRot;
             
             mainCamera.transform.position = _originalPosition;
             mainCamera.transform.rotation = _originalRotation;
             
             // Debug.Log($"<color=cyan>[CameraManager] 초기화 완료. Player {ownId}, " +
-                // $"z오프셋: {zOffset}, 카메라 위치: {_originalPosition}</color>");
+                // $"필드 이동량: {fieldTranslation}, 카메라 위치: {_originalPosition}</color>");
         }
     }
     #endregion
@@ -311,27 +319,15 @@ public class CameraManager : MonoBehaviour
         Vector3 startPosition = mainCamera.transform.position;
         Quaternion startRotation = mainCamera.transform.rotation;
         
-        // playerId 차이로 z 오프셋 계산
-        // Player 1 → Player 0: (0 - 1) * -14 = +14 (위로)
-        // Player 3 → Player 1: (1 - 3) * -14 = +28 (위로)
-        float zOffset;
-        if (TryGetPlayerId(_ownField, out int ownPlayerId))
-        {
-            int playerIdDiff = durableTargetPlayerId - ownPlayerId;
-            zOffset = playerIdDiff * fieldZOffset;
-        }
-        else
-        {
-            // Host Migration 직후 Spawned 전 객체가 섞이는 구간에서는 월드 좌표 차이로 폴백한다.
-            zOffset = GetFieldCenter(targetPlayer).z - GetFieldCenter(_ownField).z;
-            // Debug.LogWarning($"[CameraManager] playerId 접근 불가로 월드 좌표 폴백 사용. zOffset={zOffset:F2}");
-        }
+        Vector3 fieldTranslation = CalculateFieldTranslation(
+            GetFieldCenter(_ownField),
+            GetFieldCenter(targetPlayer));
         
         Vector3 targetPosition;
         Quaternion targetRotation;
         
         // 수비 모드 위치 계산 (기본)
-        Vector3 defensePosition = _originalPosition + new Vector3(0f, 0f, zOffset);
+        Vector3 defensePosition = _originalPosition + fieldTranslation;
         
         if (isAttackMode)
         {
