@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: multiplayer, camera, battle
 Created: 2026-07-14
-Last used: 2026-07-14
-Last verified: 2026-07-14
-Use count: 3
+Last used: 2026-07-15
+Last verified: 2026-07-15
+Use count: 4
 Review after: 2026-08-11
 Triggers: Battle1 to Battle2 camera stays on own field, attack UI opens over defender field, overlapping camera transition drops a request
 Applies to: `CameraManager`, `GameManagers.StateTransition`, `MPTestAutomationServer`, `run_human_bot_3round_progression.py`, `long_progression_common.py`
-Verified by: `artifacts/mp/20260714-043422-human-bot-3round-progression/camera-checkpoints/003-r01-battle2.json`; E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression
+Verified by: `artifacts/mp/20260714-043422-human-bot-3round-progression/camera-checkpoints/003-r01-battle2.json`; E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression; artifacts/mp/20260715-monster-statusbar-camera-transition/20260715-045852-human-bot-3round-progression/camera-checkpoints/009-r03-battle2.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active harness references it
 
@@ -39,3 +39,4 @@ Lifecycle notes:
 - 2026-07-14: Added opt-in read-only Battle2 camera assertions and verified the exact host defender-to-attacker race.
 - 2026-07-14: verified artifact `artifacts/mp/20260714-043422-human-bot-3round-progression/camera-checkpoints/003-r01-battle2.json`
 - 2026-07-14: verified artifact `E:/UnityProjects/mdf/artifacts/mp/20260714-151104-final-lobby-cadence/20260714-061104-human-bot-3round-progression`
+- 2026-07-15: verified artifact `artifacts/mp/20260715-monster-statusbar-camera-transition/20260715-045852-human-bot-3round-progression/camera-checkpoints/009-r03-battle2.json`

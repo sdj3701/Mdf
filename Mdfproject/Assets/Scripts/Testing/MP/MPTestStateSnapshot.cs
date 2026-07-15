@@ -1330,8 +1330,10 @@ public static class MPTestStateSnapshot
         float maxHp = SafeFloat(() => monster.NetworkedMaxHP, 0f);
         int hpPermille = maxHp > 0f ? Mathf.RoundToInt(Mathf.Clamp01(hp / maxHp) * 1000f) : -1;
         var statusBar = SafeRef(() => monster.GetComponentInChildren<StatusBarUI>(true), null);
-        bool healthBarVisible = statusBar != null && SafeBool(() => statusBar.healthBarImage != null && statusBar.healthBarImage.gameObject.activeSelf, false);
-        bool healthBarBackgroundVisible = statusBar != null && SafeBool(() => statusBar.healthBarBackgroundImage != null && statusBar.healthBarBackgroundImage.gameObject.activeSelf, false);
+        bool statusBarRootActive = statusBar != null && SafeBool(() => statusBar.gameObject.activeInHierarchy, false);
+        bool statusBarCameraHidden = statusBar != null && SafeBool(() => statusBar.IsHiddenByCameraField, false);
+        bool healthBarVisible = statusBarRootActive && SafeBool(() => statusBar.healthBarImage != null && statusBar.healthBarImage.gameObject.activeInHierarchy, false);
+        bool healthBarBackgroundVisible = statusBarRootActive && SafeBool(() => statusBar.healthBarBackgroundImage != null && statusBar.healthBarBackgroundImage.gameObject.activeInHierarchy, false);
         float fillAmount = statusBar != null ? SafeFloat(() => statusBar.healthBarImage != null ? statusBar.healthBarImage.fillAmount : -1f, -1f) : -1f;
         int fillPermille = fillAmount >= 0f ? Mathf.RoundToInt(Mathf.Clamp01(fillAmount) * 1000f) : -1;
         int ownerId = SafeInt(() => monster.SnapshotOwnerPlayerId, -1);
@@ -1340,7 +1342,7 @@ public static class MPTestStateSnapshot
         int bossOriginId = isBoss ? SafeInt(() => monster.SnapshotBossOriginPlayerId, -1) : -1;
         string networkId = SafeString(() => monster.Object.Id.ToString(), "no-network");
         bool active = SafeBool(() => monster.gameObject.activeInHierarchy, false);
-        return $"type={BuildMonsterDataKey(monster)};owner={ownerId};net={networkId};boss={isBoss};bossId={bossUniqueId};bossOrigin={bossOriginId};hp={Mathf.RoundToInt(hp)};max={Mathf.RoundToInt(maxHp)};hpPermille={hpPermille};healthBarVisible={healthBarVisible};healthBarBgVisible={healthBarBackgroundVisible};healthBarFillPermille={fillPermille};active={active}";
+        return $"type={BuildMonsterDataKey(monster)};owner={ownerId};net={networkId};boss={isBoss};bossId={bossUniqueId};bossOrigin={bossOriginId};hp={Mathf.RoundToInt(hp)};max={Mathf.RoundToInt(maxHp)};hpPermille={hpPermille};statusBarRootActive={statusBarRootActive};statusBarCameraHidden={statusBarCameraHidden};healthBarVisible={healthBarVisible};healthBarBgVisible={healthBarBackgroundVisible};healthBarFillPermille={fillPermille};active={active}";
     }
 
     private static string BuildMonsterOwnerOriginPart(PlayerManager fieldOwner, Monster monster)

@@ -1,6 +1,8 @@
 #if UNITY_EDITOR
 using System.IO;
+using System.Reflection;
 using NUnit.Framework;
+using UnityEngine;
 
 public sealed class LocalVfxVisibilityEditModeTests
 {
@@ -17,6 +19,61 @@ public sealed class LocalVfxVisibilityEditModeTests
         Assert.That(LocalVfxVisibility.ShouldPlayFieldOwner(-1, 2), Is.True);
         Assert.That(LocalVfxVisibility.ShouldPlayFieldOwner(2, -1), Is.True);
         Assert.That(LocalVfxVisibility.ShouldPlayFieldOwner(-1, -1), Is.True);
+    }
+
+    [Test]
+    public void MonsterStatusBarVisibilityAllowsOnlyViewedFieldAndFailsOpen()
+    {
+        Assert.That(StatusBarUI.ShouldShowMonsterStatusBar(1, 1), Is.True);
+        Assert.That(StatusBarUI.ShouldShowMonsterStatusBar(1, 2), Is.False);
+        Assert.That(StatusBarUI.ShouldShowMonsterStatusBar(-1, 2), Is.True);
+        Assert.That(StatusBarUI.ShouldShowMonsterStatusBar(2, -1), Is.True);
+    }
+
+    [Test]
+    public void MonsterStatusBarKeepsCameraSubscriptionWhileInactive()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo awake = typeof(StatusBarUI).GetMethod("Awake", members);
+        MethodInfo onDisable = typeof(StatusBarUI).GetMethod("OnDisable", members);
+        MethodInfo onDestroy = typeof(StatusBarUI).GetMethod("OnDestroy", members);
+        MethodInfo refresh = typeof(StatusBarUI).GetMethod(nameof(StatusBarUI.RefreshCameraFieldVisibility), members);
+        MethodInfo reset = typeof(StatusBarUI).GetMethod(nameof(StatusBarUI.ResetForReuse), members);
+
+        Assert.That(awake, Is.Not.Null);
+        Assert.That(onDisable, Is.Not.Null);
+        Assert.That(onDestroy, Is.Not.Null);
+        Assert.That(refresh, Is.Not.Null);
+        Assert.That(reset, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            awake,
+            typeof(CameraManager),
+            "add_OnCurrentViewingFieldChanged"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            onDestroy,
+            typeof(CameraManager),
+            "remove_OnCurrentViewingFieldChanged"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            onDisable,
+            typeof(CameraManager),
+            "remove_OnCurrentViewingFieldChanged"), Is.False,
+            "Camera-hidden status bars must stay subscribed so a later field switch can reactivate them.");
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            refresh,
+            typeof(CameraManager),
+            "get_CurrentViewingPlayerId"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            refresh,
+            typeof(Monster),
+            "get_SnapshotOwnerPlayerId"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            refresh,
+            typeof(GameObject),
+            nameof(GameObject.SetActive)), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            reset,
+            typeof(StatusBarUI),
+            nameof(StatusBarUI.RefreshCameraFieldVisibility)), Is.True);
     }
 
     [Test]

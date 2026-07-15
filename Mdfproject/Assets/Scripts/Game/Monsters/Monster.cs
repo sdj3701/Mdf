@@ -269,6 +269,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             newField.RegisterCombatMonster(this);
             _registeredCombatTargetField = newField;
         }
+
+        statusBarUI?.RefreshCameraFieldVisibility();
     }
 
     private void UnregisterCombatTarget()
@@ -1178,6 +1180,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     public void SetStatusBar(StatusBarUI ui)
     {
         this.statusBarUI = ui;
+        this.statusBarUI?.RefreshCameraFieldVisibility();
     }
 
     public void Initialize(PlayerManager owner, Transform goal, MonsterData data, AstarGrid pathfinder)

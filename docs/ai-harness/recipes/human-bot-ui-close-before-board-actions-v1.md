@@ -6,11 +6,11 @@ Category: AI/HumanBot
 Created: 2026-05-08
 Last used: 2026-07-15
 Last verified: 2026-07-15
-Use count: 4
+Use count: 9
 Review after: 2026-08-06
 Triggers: HumanBot commands are accepted while shop or augment UI remains visually stale or blocks field monitoring
 Applies to: `MPTestHumanBotDriver`, prepare UI Toolkit/legacy adapters, shop/augment synchronization, HumanBot prepare progression
-Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260715-034414-human-bot-prepare
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260715-034414-human-bot-prepare; artifacts/mp/20260715-035255-human-bot-prepare/human-bot-ui-evidence.json; artifacts/mp/20260715-035915-two-humanbot-two-ai-smoke/two-humanbot-two-ai-assertions.json; artifacts/mp/20260715-040340-two-humanbot-two-ai-smoke/two-humanbot-two-ai-assertions.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -37,3 +37,11 @@ Lifecycle notes:
 - 2026-07-15: Accepted HumanBot commands now mirror shop/augment UI state; graphical two-peer progression passed with 8 UI events and zero failures.
 - 2026-07-15: verified artifact `artifacts/mp/20260715-034414-human-bot-prepare`
 - 2026-07-15: Launching a visible graphical HumanBot prepare run for live user observation.
+- 2026-07-15: Visible run: 7 shop presentations, 1 augment close, 4 panel dismissals, 0 UI failures.
+- 2026-07-15: verified artifact `artifacts/mp/20260715-035255-human-bot-prepare/human-bot-ui-evidence.json`
+- 2026-07-15: Validating accepted-command UI presentation simultaneously on host and client HumanBots.
+- 2026-07-15: Host and client HumanBots each closed augment UI, presented three disabled purchase slots, and reported zero UI failures.
+- 2026-07-15: verified artifact `artifacts/mp/20260715-035915-two-humanbot-two-ai-smoke/two-humanbot-two-ai-assertions.json`
+- 2026-07-15: Repeating simultaneous host/client HumanBot UI presentation validation.
+- 2026-07-15: Both Host and Client logged 1 augment close, 5 purchase presentations, and zero UI failures.
+- 2026-07-15: verified artifact `artifacts/mp/20260715-040340-two-humanbot-two-ai-smoke/two-humanbot-two-ai-assertions.json`

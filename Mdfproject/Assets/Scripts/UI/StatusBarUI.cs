@@ -57,9 +57,12 @@ public class StatusBarUI : MonoBehaviour
     private bool isUnit = false;
     private bool isCombatPhase = false;
     private bool isInitialized = false;
+    private bool isHiddenByCameraField;
 
     private IHealth healthComponent;
     private IMana manaComponent;
+
+    public bool IsHiddenByCameraField => isHiddenByCameraField;
     
     public void ResetForReuse(bool initializeImmediately = true)
     {
@@ -68,6 +71,7 @@ public class StatusBarUI : MonoBehaviour
         _addressableAssets = new AddressableAssetOwner();
         UnbindVitalComponents();
         unitComponent = GetComponentInParent<Unit>();
+        monsterComponent = GetComponentInParent<Monster>(includeInactive: true);
         isUnit = unitComponent != null;
         isInitialized = false;
         isCombatPhase = false;
@@ -89,6 +93,11 @@ public class StatusBarUI : MonoBehaviour
         {
             graphicRaycaster.enabled = false;
         }
+
+        if (!RefreshCameraFieldVisibility())
+        {
+            return;
+        }
         
         if (initializeImmediately && GameManagers.Instance != null)
         {
@@ -100,6 +109,7 @@ public class StatusBarUI : MonoBehaviour
         }
     }
     private Unit unitComponent;
+    private Monster monsterComponent;
     private GraphicRaycaster graphicRaycaster;
     private Canvas cachedCanvas;
     private Camera cachedCamera;
@@ -109,9 +119,12 @@ public class StatusBarUI : MonoBehaviour
     private void Awake()
     {
         unitComponent = GetComponentInParent<Unit>();
+        monsterComponent = GetComponentInParent<Monster>(includeInactive: true);
         isUnit = unitComponent != null;
         graphicRaycaster = GetComponent<GraphicRaycaster>();
         cachedCanvas = GetComponent<Canvas>();
+        CameraManager.OnCurrentViewingFieldChanged -= HandleCurrentViewingFieldChanged;
+        CameraManager.OnCurrentViewingFieldChanged += HandleCurrentViewingFieldChanged;
     }
 
     private void Start()
@@ -124,6 +137,11 @@ public class StatusBarUI : MonoBehaviour
 
     private void OnEnable()
     {
+        if (!RefreshCameraFieldVisibility())
+        {
+            return;
+        }
+
         if (_addressableAssets == null || _addressableAssets.IsDisposed)
         {
             _addressableAssets = new AddressableAssetOwner();
@@ -153,6 +171,12 @@ public class StatusBarUI : MonoBehaviour
 
         UnbindVitalComponents();
         isInitialized = false;
+        ActiveStatusBars.Remove(this);
+    }
+
+    private void OnDestroy()
+    {
+        CameraManager.OnCurrentViewingFieldChanged -= HandleCurrentViewingFieldChanged;
         ActiveStatusBars.Remove(this);
     }
 
@@ -255,6 +279,68 @@ public class StatusBarUI : MonoBehaviour
     {
         isCombatPhase = (newState == GameManagers.GameState.Battle1 || newState == GameManagers.GameState.Battle2);
         UpdateAllUIVisibility();
+    }
+
+    private void HandleCurrentViewingFieldChanged(PlayerManager viewingField)
+    {
+        RefreshCameraFieldVisibility();
+    }
+
+    public bool RefreshCameraFieldVisibility()
+    {
+        monsterComponent = GetComponentInParent<Monster>(includeInactive: true);
+        if (monsterComponent == null)
+        {
+            isHiddenByCameraField = false;
+            return true;
+        }
+
+        int monsterFieldOwnerPlayerId = -1;
+        try
+        {
+            monsterFieldOwnerPlayerId = monsterComponent.SnapshotOwnerPlayerId;
+        }
+        catch (System.InvalidOperationException)
+        {
+            // An unspawned pooled object has no readable Networked backing yet. Fail open until
+            // its owner snapshot is available so lifecycle initialization cannot strand the UI.
+        }
+
+        CameraManager cameraManager = CameraManager.Instance;
+        int viewedPlayerId = cameraManager != null ? cameraManager.CurrentViewingPlayerId : -1;
+        if (isHiddenByCameraField && (viewedPlayerId < 0 || monsterFieldOwnerPlayerId < 0))
+        {
+            // A despawn/rebind can temporarily clear the field owner. Preserve the previous
+            // camera-hidden state until both durable ids are readable instead of flashing the
+            // pooled status bar back on during that gap.
+            return false;
+        }
+
+        bool shouldShow = ShouldShowMonsterStatusBar(viewedPlayerId, monsterFieldOwnerPlayerId);
+        if (!shouldShow)
+        {
+            isHiddenByCameraField = true;
+            if (gameObject.activeSelf)
+            {
+                gameObject.SetActive(false);
+            }
+            return false;
+        }
+
+        bool shouldReactivate = isHiddenByCameraField && !gameObject.activeSelf;
+        isHiddenByCameraField = false;
+        if (shouldReactivate)
+        {
+            gameObject.SetActive(true);
+        }
+        return true;
+    }
+
+    public static bool ShouldShowMonsterStatusBar(int viewedPlayerId, int monsterFieldOwnerPlayerId)
+    {
+        return viewedPlayerId < 0 ||
+               monsterFieldOwnerPlayerId < 0 ||
+               viewedPlayerId == monsterFieldOwnerPlayerId;
     }
 
     private void UpdateAllUIVisibility()
