@@ -13,12 +13,15 @@ public class NetworkPlayer : NetworkBehaviour
     [Networked] public NetworkString<_16> Nickname { get; set; }
     [Networked] public NetworkBool IsReady { get; set; }
     [Networked] public int SelectedKingUnitKeyHash { get; set; }
+    [Networked] public int SelectedMapThemeId { get; set; }
     [Networked] public int MatchContentLoadRevision { get; set; }
     [Networked] public int MatchContentLoadStateValue { get; set; }
 
     private ChangeDetector _changeDetector;
     private int _lastCachedKingSelectionHash;
     private bool _cachedKingSelectionWithDurableIdentity;
+    private int _lastCachedMapThemeId;
+    private bool _cachedMapThemeWithDurableIdentity;
     private int _localMatchContentLoadRevision = -1;
     private CancellationTokenSource _localMatchContentLoadCancellation;
 
@@ -38,12 +41,15 @@ public class NetworkPlayer : NetworkBehaviour
             string nickname = PlayerPrefs.GetString(PlayerPrefsDefine.NicknameKey, NetworkDefine.DefaultNickname);
             int selectedKingHash = KingSelectionCatalog.NormalizeOrDefaultHash(
                 PlayerPrefs.GetInt(KingSelectionCatalog.PlayerPrefsKey, KingSelectionCatalog.DefaultKeyHash));
+            int selectedMapThemeId = MapThemeCatalog.NormalizeOrDefault(
+                PlayerPrefs.GetInt(MapThemeCatalog.PlayerPrefsKey, MapThemeCatalog.DefaultId));
 
             // 서버에 닉네임 설정을 요청하는 RPC를 호출합니다.
-            RPC_SetInitialData(nickname, selectedKingHash);
+            RPC_SetInitialData(nickname, selectedKingHash, selectedMapThemeId);
         }
 
         TryRememberKingSelectionForSession();
+        TryRememberMapThemeForSession();
         TryStartLocalMatchContentLoad();
     }
 
@@ -57,6 +63,7 @@ public class NetworkPlayer : NetworkBehaviour
                 case nameof(Nickname):
                 case nameof(IsReady):
                 case nameof(SelectedKingUnitKeyHash):
+                case nameof(SelectedMapThemeId):
                 case nameof(MatchContentLoadRevision):
                 case nameof(MatchContentLoadStateValue):
                     if (JoinLobbyUI.Instance != null)
@@ -70,6 +77,7 @@ public class NetworkPlayer : NetworkBehaviour
         // A remote peer can receive the selection before the replicated durable token
         // fingerprint. Retry only until both values have been cached for host migration.
         TryRememberKingSelectionForSession();
+        TryRememberMapThemeForSession();
         TryStartLocalMatchContentLoad();
     }
 
@@ -85,14 +93,18 @@ public class NetworkPlayer : NetworkBehaviour
     }
 
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
-    private void RPC_SetInitialData(string nickname, int requestedKingHash)
+    private void RPC_SetInitialData(string nickname, int requestedKingHash, int requestedMapThemeId)
     {
         this.Nickname = nickname;
         this.IsReady = false;
         this.SelectedKingUnitKeyHash = NetworkManager.Instance != null
             ? NetworkManager.Instance.ResolveInitialLobbyKingSelection(this, requestedKingHash)
             : KingSelectionCatalog.NormalizeOrDefaultHash(requestedKingHash);
+        this.SelectedMapThemeId = NetworkManager.Instance != null
+            ? NetworkManager.Instance.ResolveInitialLobbyMapTheme(this, requestedMapThemeId)
+            : MapThemeCatalog.NormalizeOrDefault(requestedMapThemeId);
         TryRememberKingSelectionForSession();
+        TryRememberMapThemeForSession();
     }
 
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
@@ -101,7 +113,9 @@ public class NetworkPlayer : NetworkBehaviour
         if (!KingSelectionCatalog.IsAllowedHash(SelectedKingUnitKeyHash))
         {
             IsReady = false;
-            Debug.LogWarning($"[NetworkPlayer] Ready rejected because the king selection is missing or invalid: {SelectedKingUnitKeyHash}");
+            Debug.LogWarning(
+                $"[NetworkPlayer] Ready rejected because the king selection is invalid. " +
+                $"king={SelectedKingUnitKeyHash}");
             return;
         }
 
@@ -119,6 +133,20 @@ public class NetworkPlayer : NetworkBehaviour
         PlayerPrefs.SetInt(KingSelectionCatalog.PlayerPrefsKey, canonicalHash);
         PlayerPrefs.Save();
         RPC_SetKingSelection(canonicalHash);
+        return true;
+    }
+
+    public bool RequestMapThemeSelection(int requestedMapThemeId)
+    {
+        if (!HasInputAuthority || !MapThemeCatalog.IsAllowed(requestedMapThemeId))
+        {
+            return false;
+        }
+
+        int canonicalThemeId = MapThemeCatalog.NormalizeOrDefault(requestedMapThemeId);
+        PlayerPrefs.SetInt(MapThemeCatalog.PlayerPrefsKey, canonicalThemeId);
+        PlayerPrefs.Save();
+        RPC_SetMapThemeSelection(canonicalThemeId);
         return true;
     }
 
@@ -353,6 +381,27 @@ public class NetworkPlayer : NetworkBehaviour
         TryRememberKingSelectionForSession();
     }
 
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    private void RPC_SetMapThemeSelection(int requestedMapThemeId)
+    {
+        if (!MapThemeCatalog.IsAllowed(requestedMapThemeId))
+        {
+            IsReady = false;
+            Debug.LogWarning($"[NetworkPlayer] Map theme rejected by the server allow-list: {requestedMapThemeId}");
+            return;
+        }
+
+        int canonicalThemeId = MapThemeCatalog.NormalizeOrDefault(requestedMapThemeId);
+        if (SelectedMapThemeId == canonicalThemeId)
+        {
+            return;
+        }
+
+        SelectedMapThemeId = canonicalThemeId;
+        IsReady = false;
+        TryRememberMapThemeForSession();
+    }
+
     private void TryRememberKingSelectionForSession()
     {
         int selectionHash = SelectedKingUnitKeyHash;
@@ -371,5 +420,25 @@ public class NetworkPlayer : NetworkBehaviour
 
         _cachedKingSelectionWithDurableIdentity =
             NetworkManager.Instance.RememberLobbyKingSelection(this);
+    }
+
+    private void TryRememberMapThemeForSession()
+    {
+        int themeId = SelectedMapThemeId;
+        if (_lastCachedMapThemeId != themeId)
+        {
+            _lastCachedMapThemeId = themeId;
+            _cachedMapThemeWithDurableIdentity = false;
+        }
+
+        if (_cachedMapThemeWithDurableIdentity
+            || !MapThemeCatalog.IsAllowed(themeId)
+            || NetworkManager.Instance == null)
+        {
+            return;
+        }
+
+        _cachedMapThemeWithDurableIdentity =
+            NetworkManager.Instance.RememberLobbyMapTheme(this);
     }
 }

@@ -121,6 +121,7 @@ public class HostMigrationHandler : MonoBehaviour
         public int BlackMagicSequenceId;
         public float BattleSpawnCadenceRemainingSeconds;
         public int BattleSpawnCadenceSequenceId;
+        public int SelectedMapThemeId;
         public KingRuntimeMigrationState KingState;
         public bool HasAttackPoolSnapshot;
         public MonsterData[] AttackPoolMonsterDataRefs;
@@ -870,8 +871,7 @@ public class HostMigrationHandler : MonoBehaviour
                 SceneManager = sceneManager,
                 ObjectProvider = objectProvider,
                 HostMigrationResume = HostMigrationResume,  // 오브젝트 복원 콜백
-                ConnectionToken = System.Text.Encoding.UTF8.GetBytes(
-                    PlayerPrefs.GetString("PlayerUUID", System.Guid.NewGuid().ToString())),
+                ConnectionToken = NetworkManager.GetLocalConnectionTokenBytes(),
             };
             if (migrationSceneIndex >= 0)
             {
@@ -3225,6 +3225,7 @@ public class HostMigrationHandler : MonoBehaviour
                 BlackMagicSequenceId = player.BlackMagicSequenceId,
                 BattleSpawnCadenceRemainingSeconds = player.CaptureBattleSpawnCadenceRemainingForMigration(),
                 BattleSpawnCadenceSequenceId = player.BattleSpawnCadenceSequenceId,
+                SelectedMapThemeId = player.SelectedMapThemeId,
                 KingState = player.CaptureKingRuntimeMigrationState(),
                 HasAttackPoolSnapshot = false,
                 AttackPoolMonsterDataRefs = Array.Empty<MonsterData>(),
@@ -3689,6 +3690,11 @@ public class HostMigrationHandler : MonoBehaviour
             {
                 criticalStateFailures++;
                 Debug.LogError($"[HostMigrationHandler] battle spawn cadence restore failed P{snapshot.PlayerId} ({context})");
+            }
+            if (!player.RestoreMapThemeAfterHostMigration(snapshot.SelectedMapThemeId, context))
+            {
+                criticalStateFailures++;
+                Debug.LogError($"[HostMigrationHandler] map theme restore failed P{snapshot.PlayerId} ({context})");
             }
             if (!player.RestoreKingRuntimeAfterHostMigration(snapshot.KingState, context))
             {

@@ -150,6 +150,9 @@ public static class MPCommandTool
 
         [ToolParameter("Allow-listed canonical king key, for example UnitData_King_Mage.")]
         public string KingKey { get; set; }
+
+        [ToolParameter("Map theme alias or content id, for example classic or map.theme.arena.")]
+        public string MapTheme { get; set; }
     }
 
     public static object HandleCommand(JObject parameters)
@@ -223,10 +226,33 @@ internal static class MPTestUnityCliTools
         int maxPlayers = Math.Max(2, p.GetInt("max_players", 2).Value);
         int timeoutMs = Math.Max(1000, p.GetInt("timeout_ms", 15000).Value);
 
+        if (!EditorApplication.isPlaying)
+        {
+            return new ErrorResponse("Editor must be in Play Mode before starting a multiplayer peer.");
+        }
+
         var nm = NetworkManager.Instance;
         if (nm == null)
         {
-            return NotImplemented("network_manager_missing", "NetworkManager.Instance is not available. Enter Play Mode on Title/MatchingLobby first.");
+            // EditMode/PlayMode tests can leave an arbitrary scene open. Bootstrap the same
+            // production NetworkManager used by a normal launch instead of requiring a
+            // machine-local Editor scene layout.
+            if (!string.Equals(SceneManager.GetActiveScene().name, SceneDefine.Title, StringComparison.Ordinal))
+            {
+                SceneManager.LoadScene(SceneDefine.Title);
+            }
+
+            bool networkManagerReady = await WaitUntil(
+                () => NetworkManager.Instance != null,
+                Math.Min(timeoutMs, 15000));
+            if (!networkManagerReady)
+            {
+                return new ErrorResponse(
+                    "Timed out bootstrapping NetworkManager from the title scene.",
+                    BuildState(mode.ToString().ToLowerInvariant(), "network_manager_bootstrap_timeout"));
+            }
+
+            nm = NetworkManager.Instance;
         }
 
         SetMaxPlayers(nm, maxPlayers);
@@ -297,7 +323,13 @@ internal static class MPTestUnityCliTools
             return ExecuteSelectKingCommand(parameters, commandName);
         }
 
-        return CommandFail("unsupported_command", "Only reroll_shop and select_king are currently supported by the Editor command harness.", new
+        if (string.Equals(commandName, "select_map_theme", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "SelectMapTheme", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteSelectMapThemeCommand(parameters, commandName);
+        }
+
+        return CommandFail("unsupported_command", "Only reroll_shop, select_king, and select_map_theme are currently supported by the Editor command harness.", new
         {
             command = commandName
         });
@@ -416,6 +448,128 @@ internal static class MPTestUnityCliTools
             playerRef = targetAuthority.ToString(),
             kingKey = selectedEntry.KingUnitKey,
             kingKeyHash = selectedEntry.KeyHash
+        });
+    }
+
+    private static object ExecuteSelectMapThemeCommand(JObject parameters, string commandName)
+    {
+        int playerId = GetInt(parameters, "player_id", GetInt(parameters, "playerId", -1));
+        int requestedThemeId = GetInt(parameters, "map_theme_id", GetInt(parameters, "mapThemeId", 0));
+        string requestedTheme = GetString(
+            parameters,
+            "map_theme",
+            GetString(parameters, "mapTheme", GetString(parameters, "theme", null)));
+        if (playerId < 0)
+        {
+            return CommandFail(
+                "invalid_player_id",
+                "playerId must be >= 0.",
+                new { command = commandName, playerId, mapTheme = requestedTheme, mapThemeId = requestedThemeId });
+        }
+
+        MapThemeCatalog.Entry selectedEntry = MapThemeCatalog.Entries
+            .FirstOrDefault(entry => requestedThemeId == (int)entry.Id
+                || string.Equals(entry.ContentId, requestedTheme, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(entry.Id.ToString(), requestedTheme, StringComparison.OrdinalIgnoreCase));
+        if ((int)selectedEntry.Id <= 0)
+        {
+            return CommandFail(
+                "invalid_map_theme",
+                "mapTheme must be classic, arena, or an allow-listed map.theme.* content id.",
+                new { command = commandName, playerId, mapTheme = requestedTheme, mapThemeId = requestedThemeId });
+        }
+
+        if (!EditorApplication.isPlaying)
+        {
+            return CommandFail(
+                "editor_not_in_play_mode",
+                "mp_command requires the Editor to be in Play Mode.",
+                new { command = commandName, playerId, mapTheme = selectedEntry.ContentId, mapThemeId = (int)selectedEntry.Id });
+        }
+
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning)
+        {
+            return CommandFail(
+                "lobby_runner_unavailable",
+                "The lobby NetworkRunner is unavailable.",
+                new { command = commandName, playerId, mapTheme = selectedEntry.ContentId, mapThemeId = (int)selectedEntry.Id });
+        }
+
+        if (SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return CommandFail(
+                "select_map_theme_requires_join_lobby",
+                "select_map_theme is only available in the ready lobby.",
+                new { command = commandName, playerId, mapTheme = selectedEntry.ContentId, mapThemeId = (int)selectedEntry.Id });
+        }
+
+        List<PlayerRef> activePlayers = runner.ActivePlayers
+            .OrderBy(playerRef => playerRef.PlayerId)
+            .ToList();
+        if (playerId >= activePlayers.Count)
+        {
+            return CommandFail(
+                "lobby_player_unavailable",
+                "The requested gameplay player slot is not active in the lobby.",
+                new { command = commandName, playerId, activePlayers = activePlayers.Count });
+        }
+
+        PlayerRef targetAuthority = activePlayers[playerId];
+        List<NetworkPlayer> ownedPlayers = UnityEngine.Object.FindObjectsOfType<NetworkPlayer>()
+            .Where(candidate => candidate != null
+                && candidate.Runner == runner
+                && candidate.Object != null
+                && candidate.Object.IsValid
+                && candidate.Object.InputAuthority == targetAuthority
+                && candidate.HasInputAuthority)
+            .ToList();
+        if (ownedPlayers.Count != 1)
+        {
+            return CommandFail(
+                "select_map_theme_requires_owning_peer",
+                "Issue select_map_theme to the peer that owns input authority for the requested player.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    playerRef = targetAuthority.ToString(),
+                    mapTheme = selectedEntry.ContentId,
+                    mapThemeId = (int)selectedEntry.Id,
+                    ownedPlayerObjects = ownedPlayers.Count
+                });
+        }
+
+        NetworkPlayer networkPlayer = ownedPlayers[0];
+        if (!networkPlayer.RequestMapThemeSelection((int)selectedEntry.Id))
+        {
+            return CommandFail(
+                "select_map_theme_request_rejected",
+                "The owned NetworkPlayer rejected the map theme selection request.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    mapTheme = selectedEntry.ContentId,
+                    mapThemeId = (int)selectedEntry.Id
+                });
+        }
+
+        MPTestLogger.Log("automation_command", "complete", "select_map_theme", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "playerRef", targetAuthority.ToString() },
+            { "mapTheme", selectedEntry.ContentId },
+            { "mapThemeId", (int)selectedEntry.Id },
+            { "source", "unity_cli" }
+        });
+        return CommandOk("map theme selection requested through owning input authority", new
+        {
+            command = "select_map_theme",
+            playerId,
+            playerRef = targetAuthority.ToString(),
+            mapTheme = selectedEntry.ContentId,
+            mapThemeId = (int)selectedEntry.Id
         });
     }
 

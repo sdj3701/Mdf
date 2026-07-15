@@ -55,11 +55,23 @@
             <ui:VisualElement name="roomPanel" class="jl-room-panel">
                 <ui:Label name="roomNameLabel" text="빛의 성채 원정대" class="jl-room-title" />
                 <ui:Label name="playerCountLabel" text="방 인원 3 / 4" class="jl-room-count" />
+                <ui:VisualElement name="mapThemePanel" class="jl-map-theme-panel">
+                    <ui:Label text="내 수비 필드 테마" class="jl-map-theme-title" />
+                    <ui:VisualElement name="mapThemeCard0" class="jl-clickable jl-map-theme-card jl-map-theme-card--classic">
+                        <ui:VisualElement class="jl-map-theme-preview jl-map-theme-preview--classic" />
+                        <ui:Label name="mapThemeName0" text="클래식" class="jl-map-theme-name" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="mapThemeCard1" class="jl-clickable jl-map-theme-card jl-map-theme-card--arena jl-map-theme-card--selected">
+                        <ui:VisualElement class="jl-map-theme-preview jl-map-theme-preview--arena" />
+                        <ui:Label name="mapThemeName1" text="아레나 · 선택됨" class="jl-map-theme-name" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
                 <ui:VisualElement name="slot0" class="jl-player-slot jl-player-slot--0">
                     <ui:VisualElement name="portrait0" class="jl-player-portrait" />
                     <ui:Label name="slotName0" class="jl-slot-name" />
                     <ui:Label name="slotLevel0" text="Lv. 42" class="jl-slot-level" />
                     <ui:Label name="slotKing0" text="국왕 궁수" class="jl-slot-king" />
+                    <ui:Label name="slotTheme0" text="맵 아레나" class="jl-slot-theme" />
                     <ui:Label name="slotReady0" text="READY" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot1" class="jl-player-slot jl-player-slot--1">
@@ -67,6 +79,7 @@
                     <ui:Label name="slotName1" class="jl-slot-name" />
                     <ui:Label name="slotLevel1" text="Lv. 45" class="jl-slot-level" />
                     <ui:Label name="slotKing1" text="국왕 수호자" class="jl-slot-king" />
+                    <ui:Label name="slotTheme1" text="맵 클래식" class="jl-slot-theme" />
                     <ui:Label name="slotReady1" text="READY" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot2" class="jl-player-slot jl-player-slot--2">
@@ -74,6 +87,7 @@
                     <ui:Label name="slotName2" class="jl-slot-name" />
                     <ui:Label name="slotLevel2" text="Lv. 40" class="jl-slot-level" />
                     <ui:Label name="slotKing2" text="국왕 마법사" class="jl-slot-king" />
+                    <ui:Label name="slotTheme2" text="맵 아레나" class="jl-slot-theme" />
                     <ui:Label name="slotReady2" text="READY" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot3" class="jl-player-slot jl-player-slot--3">
@@ -81,6 +95,7 @@
                     <ui:Label name="slotName3" class="jl-slot-name" />
                     <ui:Label name="slotLevel3" class="jl-slot-level" />
                     <ui:Label name="slotKing3" class="jl-slot-king" />
+                    <ui:Label name="slotTheme3" class="jl-slot-theme" />
                     <ui:Label name="slotReady3" text="대기" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="gameStartButton" class="jl-clickable jl-game-start-button">

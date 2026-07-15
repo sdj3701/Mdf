@@ -38,6 +38,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     private readonly Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
     private readonly Dictionary<PlayerRef, string> _connectionTokensByPlayer = new Dictionary<PlayerRef, string>();
     private readonly LobbyKingSelectionSessionCache _lobbyKingSelections = new LobbyKingSelectionSessionCache();
+    private readonly LobbyMapThemeSessionCache _lobbyMapThemes = new LobbyMapThemeSessionCache();
     private readonly Dictionary<int, PendingDisconnectedAiTakeover> _pendingDisconnectedAiTakeovers = new Dictionary<int, PendingDisconnectedAiTakeover>();
     private int _disconnectedAiTakeoverGeneration;
 
@@ -152,6 +153,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void SetRunnerAfterMigration(NetworkRunner newRunner)
     {
         Debug.Log($"<color=cyan>[NetworkManager] SetRunnerAfterMigration - 새 Runner 설정</color>");
+        // PlayerRef values belong to one runner and can be reassigned after migration.
+        // Keep durable token selections, but discard every runner-local shortcut.
+        _lobbyKingSelections.ClearPlayerRefs();
+        _lobbyMapThemes.ClearPlayerRefs();
         _runner = newRunner;
         
         // 콜백 다시 등록
@@ -196,6 +201,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         _lobbyKingSelections.Clear();
+        _lobbyMapThemes.Clear();
         State = ConnectionState.Connecting; // 새 중간 상태
         SetNetworkUiBlock(NetworkUiBlockReason.LobbyBootstrap);
 
@@ -451,10 +457,16 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         State = ConnectionState.InGame; // 상태를 '게임 중'으로 변경
         SetNetworkUiBlock(NetworkUiBlockReason.None);
 
+        // Clear stale runner-local values on every peer before the authority enriches
+        // this connection from its durable token. PlayerRef values may be reused.
+        _lobbyKingSelections.ForgetPlayerRef(player.PlayerId);
+        _lobbyMapThemes.ForgetPlayerRef(player.PlayerId);
+
         if (runner.IsServer)
         {
             CachePlayerConnectionToken(runner, player);
             PrepareLobbyKingSelectionForJoinedPlayer(runner, player);
+            PrepareLobbyMapThemeForJoinedPlayer(runner, player);
 
             if (TryReassociateDisconnectedPlayer(runner, player))
             {
@@ -510,6 +522,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _spawnedCharacters.TryGetValue(player, out NetworkObject networkObject);
 
         _lobbyKingSelections.ForgetPlayerRef(player.PlayerId);
+        _lobbyMapThemes.ForgetPlayerRef(player.PlayerId);
         string disconnectedObjectScene = networkObject != null && networkObject.IsValid
             ? networkObject.gameObject.scene.name
             : SceneManager.GetActiveScene().name;
@@ -639,6 +652,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         HostMigrationHandler.Instance?.ClearReconnectCacheForMatchEnd();
         _connectionTokensByPlayer.Clear();
         _lobbyKingSelections.Clear();
+        _lobbyMapThemes.Clear();
 
         State = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
         _startGameInProgress = false;
@@ -1291,6 +1305,12 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         _lobbyKingSelections.PrepareJoinedPlayer(player.PlayerId, tokenHash);
     }
 
+    private void PrepareLobbyMapThemeForJoinedPlayer(NetworkRunner runner, PlayerRef player)
+    {
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        _lobbyMapThemes.PrepareJoinedPlayer(player.PlayerId, tokenHash);
+    }
+
     /// <summary>
     /// Mirrors an allow-listed replicated lobby choice into the scene-independent session cache.
     /// The durable token hash is used when available so every peer can retain the mapping if it
@@ -1369,6 +1389,81 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
         string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
         return _lobbyKingSelections.TryResolve(player.PlayerId, tokenHash, out selectionHash);
+    }
+
+    public bool RememberLobbyMapTheme(NetworkPlayer networkPlayer)
+    {
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner)
+        {
+            return false;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        int themeId = networkPlayer.SelectedMapThemeId;
+        if (player == PlayerRef.None
+            || !IsActivePlayer(networkPlayer.Runner, player)
+            || !MapThemeCatalog.IsAllowed(themeId))
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        _lobbyMapThemes.Remember(player.PlayerId, tokenHash, themeId);
+        return PlayerManager.IsValidDurableConnectionTokenHash(tokenHash);
+    }
+
+    public int ResolveInitialLobbyMapTheme(NetworkPlayer networkPlayer, int requestedThemeId)
+    {
+        int normalizedThemeId = MapThemeCatalog.NormalizeOrDefault(requestedThemeId);
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner
+            || !networkPlayer.Runner.IsServer)
+        {
+            return normalizedThemeId;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        if (player == PlayerRef.None || !IsActivePlayer(networkPlayer.Runner, player))
+        {
+            return normalizedThemeId;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        return _lobbyMapThemes.ResolveInitialSelection(
+            player.PlayerId,
+            tokenHash,
+            normalizedThemeId);
+    }
+
+    public bool TryGetLobbyMapThemeForGameplay(
+        NetworkRunner runner,
+        PlayerRef player,
+        out int themeId)
+    {
+        themeId = MapThemeCatalog.DefaultId;
+        if (runner == null
+            || runner != _runner
+            || !runner.IsServer
+            || player == PlayerRef.None)
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        return _lobbyMapThemes.TryResolve(player.PlayerId, tokenHash, out themeId);
     }
 
     public static bool ShouldCleanupDisconnectedLobbyObject(string sceneName, bool isMigrating)
@@ -1827,15 +1922,36 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     /// </summary>
     private byte[] GetConnectionToken()
     {
-        // 유저 고유 ID 생성 또는 기존 ID 사용
-        string uniqueId = PlayerPrefs.GetString("PlayerUUID", "");
+        return GetLocalConnectionTokenBytes();
+    }
+
+    internal static byte[] GetLocalConnectionTokenBytes()
+    {
+        string runtimeOverride = null;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestCommandLine.Options options = MPTestCommandLine.GetOptions();
+        if (options.Enabled)
+        {
+            runtimeOverride = options.ConnectionToken;
+        }
+#endif
+        return ResolveLocalConnectionTokenBytes(runtimeOverride);
+    }
+
+    private static byte[] ResolveLocalConnectionTokenBytes(string runtimeOverride)
+    {
+        // Multiplayer test peers are separate processes but share the same PlayerPrefs store.
+        // Their explicit command-line token must therefore remain process-local and take priority.
+        string uniqueId = string.IsNullOrWhiteSpace(runtimeOverride)
+            ? PlayerPrefs.GetString("PlayerUUID", "")
+            : runtimeOverride;
         if (string.IsNullOrEmpty(uniqueId))
         {
             uniqueId = Guid.NewGuid().ToString();
             PlayerPrefs.SetString("PlayerUUID", uniqueId);
             PlayerPrefs.Save();
         }
-        
+
         return Encoding.UTF8.GetBytes(uniqueId);
     }
 

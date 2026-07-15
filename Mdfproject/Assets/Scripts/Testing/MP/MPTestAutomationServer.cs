@@ -671,6 +671,12 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecuteSelectKingCommand(body, commandName);
         }
 
+        if (string.Equals(commandName, "select_map_theme", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "SelectMapTheme", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteSelectMapThemeCommand(body, commandName);
+        }
+
         if (string.Equals(commandName, "activate_king_skill", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(commandName, "ActivateKingSkill", StringComparison.OrdinalIgnoreCase))
         {
@@ -688,7 +694,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecutePrepareVisualCaptureCommand(commandName);
         }
 
-        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, upgrade_wall, remove_wall, grant_permanent_walls, select_king, activate_king_skill, view_player_field, and prepare_visual_capture are currently supported by the runtime command harness.", new
+        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, upgrade_wall, remove_wall, grant_permanent_walls, select_king, select_map_theme, activate_king_skill, view_player_field, and prepare_visual_capture are currently supported by the runtime command harness.", new
         {
             command = commandName
         });
@@ -798,6 +804,119 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             playerRef = targetAuthority.ToString(),
             kingKey = selectedEntry.KingUnitKey,
             kingKeyHash = selectedEntry.KeyHash
+        });
+    }
+
+    private AutomationResponse ExecuteSelectMapThemeCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        int requestedThemeId = GetInt(body, "mapThemeId", GetInt(body, "map_theme_id", 0));
+        string requestedTheme = GetString(
+            body,
+            "mapTheme",
+            GetString(body, "map_theme", GetString(body, "theme", null)));
+        if (playerId < 0)
+        {
+            return AutomationResponse.Fail(
+                "invalid_player_id",
+                "playerId must be >= 0.",
+                new { command = commandName, playerId, mapTheme = requestedTheme, mapThemeId = requestedThemeId });
+        }
+
+        MapThemeCatalog.Entry selectedEntry = MapThemeCatalog.Entries
+            .FirstOrDefault(entry => requestedThemeId == (int)entry.Id
+                || string.Equals(entry.ContentId, requestedTheme, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(entry.Id.ToString(), requestedTheme, StringComparison.OrdinalIgnoreCase));
+        if ((int)selectedEntry.Id <= 0)
+        {
+            return AutomationResponse.Fail(
+                "invalid_map_theme",
+                "mapTheme must be classic, arena, or an allow-listed map.theme.* content id.",
+                new { command = commandName, playerId, mapTheme = requestedTheme, mapThemeId = requestedThemeId });
+        }
+
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning)
+        {
+            return AutomationResponse.Fail(
+                "lobby_runner_unavailable",
+                "The lobby NetworkRunner is unavailable.",
+                new { command = commandName, playerId, mapTheme = selectedEntry.ContentId, mapThemeId = (int)selectedEntry.Id });
+        }
+
+        if (SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return AutomationResponse.Fail(
+                "select_map_theme_requires_join_lobby",
+                "select_map_theme is only available in the ready lobby.",
+                new { command = commandName, playerId, mapTheme = selectedEntry.ContentId, mapThemeId = (int)selectedEntry.Id });
+        }
+
+        List<PlayerRef> activePlayers = runner.ActivePlayers
+            .OrderBy(playerRef => playerRef.PlayerId)
+            .ToList();
+        if (playerId >= activePlayers.Count)
+        {
+            return AutomationResponse.Fail(
+                "lobby_player_unavailable",
+                "The requested gameplay player slot is not active in the lobby.",
+                new { command = commandName, playerId, activePlayers = activePlayers.Count });
+        }
+
+        PlayerRef targetAuthority = activePlayers[playerId];
+        List<NetworkPlayer> ownedPlayers = FindObjectsOfType<NetworkPlayer>()
+            .Where(candidate => candidate != null
+                && candidate.Runner == runner
+                && candidate.Object != null
+                && candidate.Object.IsValid
+                && candidate.Object.InputAuthority == targetAuthority
+                && candidate.HasInputAuthority)
+            .ToList();
+        if (ownedPlayers.Count != 1)
+        {
+            return AutomationResponse.Fail(
+                "select_map_theme_requires_owning_peer",
+                "Issue select_map_theme to the peer that owns input authority for the requested player.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    playerRef = targetAuthority.ToString(),
+                    mapTheme = selectedEntry.ContentId,
+                    mapThemeId = (int)selectedEntry.Id,
+                    ownedPlayerObjects = ownedPlayers.Count
+                });
+        }
+
+        NetworkPlayer networkPlayer = ownedPlayers[0];
+        if (!networkPlayer.RequestMapThemeSelection((int)selectedEntry.Id))
+        {
+            return AutomationResponse.Fail(
+                "select_map_theme_request_rejected",
+                "The owned NetworkPlayer rejected the map theme selection request.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    mapTheme = selectedEntry.ContentId,
+                    mapThemeId = (int)selectedEntry.Id
+                });
+        }
+
+        MPTestLogger.Log("automation_command", "complete", "select_map_theme", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "playerRef", targetAuthority.ToString() },
+            { "mapTheme", selectedEntry.ContentId },
+            { "mapThemeId", (int)selectedEntry.Id }
+        });
+        return AutomationResponse.Ok("map theme selection requested through owning input authority", new
+        {
+            command = "select_map_theme",
+            playerId,
+            playerRef = targetAuthority.ToString(),
+            mapTheme = selectedEntry.ContentId,
+            mapThemeId = (int)selectedEntry.Id
         });
     }
 

@@ -68,6 +68,10 @@ def compare_snapshots(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
         compare_equal(errors, f"player.{player_id}.blackMagicMaxBonus", lp.get("blackMagicMaxBonus"), rp.get("blackMagicMaxBonus"))
         compare_equal(errors, f"player.{player_id}.blackMagicRevision", lp.get("blackMagicRevision"), rp.get("blackMagicRevision"))
         compare_equal(errors, f"player.{player_id}.blackMagicSequenceId", lp.get("blackMagicSequenceId"), rp.get("blackMagicSequenceId"))
+        compare_equal(errors, f"player.{player_id}.selectedMapThemeId", lp.get("selectedMapThemeId"), rp.get("selectedMapThemeId"))
+        compare_equal(errors, f"player.{player_id}.mapThemePresentationReady", lp.get("mapThemePresentationReady"), rp.get("mapThemePresentationReady"))
+        if lp.get("mapThemePresentationReady") and rp.get("mapThemePresentationReady"):
+            compare_equal(errors, f"player.{player_id}.appliedMapThemeId", lp.get("appliedMapThemeId"), rp.get("appliedMapThemeId"))
         compare_known_or_missing(errors, f"player.{player_id}.attackMonsterPoolHash", lp.get("attackMonsterPoolHash"), rp.get("attackMonsterPoolHash"))
         compare_known_or_missing(errors, f"player.{player_id}.ownedScrollsHash", lp.get("ownedScrollsHash"), rp.get("ownedScrollsHash"))
         compare_equal(errors, f"player.{player_id}.ownedScrollRevision", lp.get("ownedScrollRevision"), rp.get("ownedScrollRevision"))

@@ -38,17 +38,20 @@ public sealed class KingHarnessContractEditModeTests
     }
 
     [Test]
-    public void LiveSnapshotUsesSchemaV2AndSerializesEveryKingContractField()
+    public void LiveSnapshotUsesSchemaV3AndSerializesEveryKingContractField()
     {
         MPTestStateSnapshot.Snapshot live = MPTestStateSnapshot.Capture(
             "editor-test",
             "king-schema-contract",
             "king-schema-session");
-        NUnitAssert.That(live.Version, Is.EqualTo(2));
+        NUnitAssert.That(live.Version, Is.EqualTo(3));
 
         var expectedPlayer = new MPTestStateSnapshot.PlayerSnapshot
         {
             PlayerId = 7,
+            SelectedMapThemeId = (int)MapThemeId.Classic,
+            AppliedMapThemeId = (int)MapThemeId.Classic,
+            MapThemePresentationReady = true,
             SelectedKingUnitKeyHash = 101,
             KingDataReady = true,
             KingSkillUsedThisDefense = true,
@@ -115,7 +118,10 @@ public sealed class KingHarnessContractEditModeTests
         JObject document = JObject.Parse(json);
         JToken player = document["players"]?[0];
 
-        NUnitAssert.That((int)document["version"], Is.EqualTo(2));
+        NUnitAssert.That((int)document["version"], Is.EqualTo(3));
+        NUnitAssert.That((int)player?["selectedMapThemeId"], Is.EqualTo((int)MapThemeId.Classic));
+        NUnitAssert.That((int)player?["appliedMapThemeId"], Is.EqualTo((int)MapThemeId.Classic));
+        NUnitAssert.That((bool)player?["mapThemePresentationReady"], Is.True);
         NUnitAssert.That((int)player?["selectedKingUnitKeyHash"], Is.EqualTo(101));
         NUnitAssert.That((bool)player?["kingDataReady"], Is.True);
         NUnitAssert.That((bool)player?["kingSkillUsedThisDefense"], Is.True);
@@ -157,6 +163,9 @@ public sealed class KingHarnessContractEditModeTests
             JsonConvert.DeserializeObject<MPTestStateSnapshot.Snapshot>(json);
         NUnitAssert.That(restored, Is.Not.Null);
         NUnitAssert.That(restored.Players, Has.Length.EqualTo(1));
+        NUnitAssert.That(restored.Players[0].SelectedMapThemeId, Is.EqualTo((int)MapThemeId.Classic));
+        NUnitAssert.That(restored.Players[0].AppliedMapThemeId, Is.EqualTo((int)MapThemeId.Classic));
+        NUnitAssert.That(restored.Players[0].MapThemePresentationReady, Is.True);
         NUnitAssert.That(restored.Players[0].SelectedKingUnitKeyHash, Is.EqualTo(101));
         NUnitAssert.That(restored.Players[0].KingSkillPresentationSequence, Is.EqualTo(105));
         NUnitAssert.That(restored.Players[0].KingSkillPowerBonusPermille, Is.EqualTo(108));

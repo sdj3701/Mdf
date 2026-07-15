@@ -109,6 +109,7 @@ GameObject:
   - component: {fileID: 4893606957262395074}
   - component: {fileID: 2936156834987186259}
   - component: {fileID: -1491296794065745126}
+  - component: {fileID: 3492973393403649629}
   m_Layer: 0
   m_Name: User_Grid3D
   m_TagString: Untagged
@@ -209,6 +210,23 @@ MonoBehaviour:
   SyncParent: 0
   _autoAOIOverride: 1
   DisableSharedModeInterpolation: 0
+--- !u!114 &3492973393403649629
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4893606957262395073}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7648f419147bf1d448329901d925a798, type: 3}
+  m_Name: ''
+  m_EditorClassIdentifier: ''
+  classicRenderers:
+  - {fileID: 4893606958218645383}
+  - {fileID: 5690873385521529678}
+  arenaRenderers:
+  - {fileID: 1140308124432455761}
 --- !u!1 &4893606957280737574
 GameObject:
   m_ObjectHideFlags: 0

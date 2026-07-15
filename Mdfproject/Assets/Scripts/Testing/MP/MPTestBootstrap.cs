@@ -42,12 +42,6 @@ public sealed class MPTestBootstrap : MonoBehaviour
         Application.SetStackTraceLogType(UnityEngine.LogType.Warning, StackTraceLogType.None);
         UnityEngine.Random.InitState(_options.Seed);
 
-        if (!string.IsNullOrEmpty(_options.ConnectionToken))
-        {
-            PlayerPrefs.SetString("PlayerUUID", _options.ConnectionToken);
-            PlayerPrefs.Save();
-        }
-
         MPTestLogger.Log("bootstrap", "begin", null, null, new Dictionary<string, object>
         {
             { "autoStart", _options.AutoStart },

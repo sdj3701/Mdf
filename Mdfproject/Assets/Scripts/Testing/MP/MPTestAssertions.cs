@@ -106,6 +106,12 @@ public static class MPTestAssertions
                     $"player.{player.PlayerId}.king_selection_invalid hash={player.SelectedKingUnitKeyHash}");
             }
 
+            if (snapshot.Version >= 3 && !MapThemeCatalog.IsAllowed(player.SelectedMapThemeId))
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.map_theme_invalid id={player.SelectedMapThemeId}");
+            }
+
             string gameState = snapshot.Game != null ? snapshot.Game.CurrentState : null;
             bool kingDataRequired = string.Equals(gameState, GameManagers.GameState.Prepare.ToString(), StringComparison.OrdinalIgnoreCase)
                                     || string.Equals(gameState, GameManagers.GameState.Battle1.ToString(), StringComparison.OrdinalIgnoreCase)
@@ -113,6 +119,17 @@ public static class MPTestAssertions
             if (snapshot.Version >= 2 && kingDataRequired && !player.KingDataReady)
             {
                 result.AddError($"player.{player.PlayerId}.king_data_not_ready");
+            }
+            if (snapshot.Version >= 3 && kingDataRequired && !player.MapThemePresentationReady)
+            {
+                result.AddError($"player.{player.PlayerId}.map_theme_presentation_not_ready");
+            }
+            if (snapshot.Version >= 3
+                && player.MapThemePresentationReady
+                && player.AppliedMapThemeId != player.SelectedMapThemeId)
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.map_theme_mismatch selected={player.SelectedMapThemeId} applied={player.AppliedMapThemeId}");
             }
         }
 
@@ -239,6 +256,12 @@ public static class MPTestAssertions
             CompareEqual(result, $"player.{left.PlayerId}.blackMagicMaxBonus", left.BlackMagicMaxBonus, right.BlackMagicMaxBonus);
             CompareEqual(result, $"player.{left.PlayerId}.blackMagicRevision", left.BlackMagicRevision, right.BlackMagicRevision);
             CompareEqual(result, $"player.{left.PlayerId}.blackMagicSequenceId", left.BlackMagicSequenceId, right.BlackMagicSequenceId);
+            CompareEqual(result, $"player.{left.PlayerId}.selectedMapThemeId", left.SelectedMapThemeId, right.SelectedMapThemeId);
+            CompareEqual(result, $"player.{left.PlayerId}.mapThemePresentationReady", left.MapThemePresentationReady, right.MapThemePresentationReady);
+            if (left.MapThemePresentationReady && right.MapThemePresentationReady)
+            {
+                CompareEqual(result, $"player.{left.PlayerId}.appliedMapThemeId", left.AppliedMapThemeId, right.AppliedMapThemeId);
+            }
             CompareEqual(result, $"player.{left.PlayerId}.selectedKingUnitKeyHash", left.SelectedKingUnitKeyHash, right.SelectedKingUnitKeyHash);
             CompareEqual(result, $"player.{left.PlayerId}.kingSkillUsedThisDefense", left.KingSkillUsedThisDefense, right.KingSkillUsedThisDefense);
             CompareEqual(result, $"player.{left.PlayerId}.kingDefenseSequenceId", left.KingDefenseSequenceId, right.KingDefenseSequenceId);

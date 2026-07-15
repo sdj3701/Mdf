@@ -1,4 +1,5 @@
 using System.Collections;
+using MDF.Runtime.Grid;
 using MDF.Runtime.UI;
 using NUnit.Framework;
 using TMPro;
@@ -183,6 +184,40 @@ namespace MDF.Tests.PlayMode
             Assert.That(resolved, Is.SameAs(occupant));
             Assert.That(index.Remove(cell), Is.True);
             Assert.That(index.ContainsKey(cell), Is.False);
+        }
+
+        [UnityTest]
+        public IEnumerator PersonalMapThemeSwitchChangesRenderersWithoutTouchingFieldCollider()
+        {
+            var root = new GameObject("map-theme-presenter-test");
+            GameObject classic = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            GameObject arena = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            classic.transform.SetParent(root.transform, false);
+            arena.transform.SetParent(root.transform, false);
+            Collider fieldCollider = classic.GetComponent<Collider>();
+            Vector3 colliderScale = classic.transform.localScale;
+
+            FieldMapThemePresenter presenter = root.AddComponent<FieldMapThemePresenter>();
+            presenter.Configure(
+                new[] { classic.GetComponent<Renderer>() },
+                new[] { arena.GetComponent<Renderer>() });
+
+            presenter.ApplyTheme((int)MapThemeId.Classic);
+            yield return null;
+            Assert.That(classic.GetComponent<Renderer>().enabled, Is.True);
+            Assert.That(arena.GetComponent<Renderer>().enabled, Is.False);
+            Assert.That(fieldCollider.enabled, Is.True);
+
+            presenter.ApplyTheme((int)MapThemeId.Arena);
+            yield return null;
+            Assert.That(classic.GetComponent<Renderer>().enabled, Is.False);
+            Assert.That(arena.GetComponent<Renderer>().enabled, Is.True);
+            Assert.That(fieldCollider.enabled, Is.True);
+            Assert.That(classic.activeSelf, Is.True);
+            Assert.That(classic.transform.localScale, Is.EqualTo(colliderScale));
+
+            Object.Destroy(root);
+            yield return null;
         }
 
         [UnityTest]

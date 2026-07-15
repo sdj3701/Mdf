@@ -23,7 +23,7 @@ public static class MPTestStateSnapshot
 
         var snapshot = new Snapshot
         {
-            Version = 2,
+            Version = 3,
             Role = string.IsNullOrWhiteSpace(role) ? options.SafeRole : role,
             CaseName = string.IsNullOrWhiteSpace(caseName) ? options.CaseName : caseName,
             Session = ResolveSession(session, options, networkManager, runner),
@@ -312,6 +312,10 @@ public static class MPTestStateSnapshot
         bool kingHeadLookApplied = false;
         bool kingBaseHeadPoseComparable = false;
         KingBaseHeadPoseDiagnostics kingBaseHeadPose = default;
+        int appliedMapThemeId = 0;
+        bool mapThemePresentationReady = SafeBool(
+            () => player.TryCaptureMapThemePresentation(out appliedMapThemeId),
+            false);
         try
         {
             kingPresentationReady = player.TryCaptureKingPresentationDiagnostics(
@@ -363,6 +367,9 @@ public static class MPTestStateSnapshot
             BlackMagicMaxBonus = SafeInt(() => player.BlackMagicMaxBonus, 0),
             BlackMagicRevision = SafeInt(() => player.BlackMagicRevision, 0),
             BlackMagicSequenceId = SafeInt(() => player.BlackMagicSequenceId, 0),
+            SelectedMapThemeId = SafeInt(() => player.SelectedMapThemeId, MapThemeCatalog.DefaultId),
+            AppliedMapThemeId = appliedMapThemeId,
+            MapThemePresentationReady = mapThemePresentationReady,
             SelectedKingUnitKeyHash = SafeInt(() => player.SelectedKingUnitKeyHash, 0),
             KingDataReady = SafeBool(() => player.KingRuntimeDataReady, false),
             KingSkillUsedThisDefense = SafeBool(() => player.KingSkillUsedThisDefense, false),
@@ -1951,6 +1958,9 @@ public static class MPTestStateSnapshot
         [JsonProperty("blackMagicMaxBonus")] public int BlackMagicMaxBonus;
         [JsonProperty("blackMagicRevision")] public int BlackMagicRevision;
         [JsonProperty("blackMagicSequenceId")] public int BlackMagicSequenceId;
+        [JsonProperty("selectedMapThemeId")] public int SelectedMapThemeId;
+        [JsonProperty("appliedMapThemeId")] public int AppliedMapThemeId;
+        [JsonProperty("mapThemePresentationReady")] public bool MapThemePresentationReady;
         [JsonProperty("selectedKingUnitKeyHash")] public int SelectedKingUnitKeyHash;
         [JsonProperty("kingDataReady")] public bool KingDataReady;
         [JsonProperty("kingSkillUsedThisDefense")] public bool KingSkillUsedThisDefense;

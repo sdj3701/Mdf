@@ -33,6 +33,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
     private readonly SlotView[] slots = new SlotView[SlotCount];
     private readonly KingCardView[] kingCards = new KingCardView[KingCount];
+    private readonly MapThemeCardView[] mapThemeCards =
+        new MapThemeCardView[MapThemeCatalog.Entries.Count];
     private readonly AddressableAssetLease<Sprite>[] kingIconLeases =
         new AddressableAssetLease<Sprite>[KingCount];
     private readonly Dictionary<int, Sprite> kingSprites = new Dictionary<int, Sprite>();
@@ -69,6 +71,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         public readonly bool IsReady;
         public readonly int VisualIndex;
         public readonly int KingKeyHash;
+        public readonly int MapThemeId;
         public readonly bool IsEmpty;
 
         public PlayerViewData(
@@ -77,6 +80,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
             bool isReady,
             int visualIndex,
             int kingKeyHash,
+            int mapThemeId,
             bool isEmpty = false)
         {
             Name = name;
@@ -84,6 +88,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
             IsReady = isReady;
             VisualIndex = visualIndex;
             KingKeyHash = kingKeyHash;
+            MapThemeId = mapThemeId;
             IsEmpty = isEmpty;
         }
     }
@@ -95,6 +100,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         public Label Name;
         public Label Level;
         public Label King;
+        public Label Theme;
         public Label Ready;
     }
 
@@ -104,6 +110,12 @@ public sealed class JoinLobbyUI : MonoBehaviour
         public VisualElement Portrait;
         public Label Name;
         public Label Selection;
+    }
+
+    private sealed class MapThemeCardView
+    {
+        public VisualElement Root;
+        public Label Name;
     }
 
     private void Reset()
@@ -213,6 +225,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
                 Name = Query<Label>($"slotName{i}"),
                 Level = Query<Label>($"slotLevel{i}"),
                 King = Query<Label>($"slotKing{i}"),
+                Theme = Query<Label>($"slotTheme{i}"),
                 Ready = Query<Label>($"slotReady{i}")
             };
         }
@@ -230,6 +243,20 @@ public sealed class JoinLobbyUI : MonoBehaviour
             if (kingCards[i].Root != null)
             {
                 kingCards[i].Root.userData = i;
+            }
+        }
+
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            mapThemeCards[i] = new MapThemeCardView
+            {
+                Root = Query<VisualElement>($"mapThemeCard{i}"),
+                Name = Query<Label>($"mapThemeName{i}")
+            };
+
+            if (mapThemeCards[i].Root != null)
+            {
+                mapThemeCards[i].Root.userData = i;
             }
         }
     }
@@ -255,6 +282,10 @@ public sealed class JoinLobbyUI : MonoBehaviour
         {
             SetPickingMode(kingCards[i]?.Root, PickingMode.Position);
         }
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            SetPickingMode(mapThemeCards[i]?.Root, PickingMode.Position);
+        }
     }
 
     private void RegisterCallbacks()
@@ -271,6 +302,10 @@ public sealed class JoinLobbyUI : MonoBehaviour
         for (int i = 0; i < kingCards.Length; i++)
         {
             kingCards[i]?.Root?.RegisterCallback<PointerUpEvent>(OnKingCardPointerUp);
+        }
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            mapThemeCards[i]?.Root?.RegisterCallback<PointerUpEvent>(OnMapThemeCardPointerUp);
         }
 
         callbacksRegistered = true;
@@ -290,6 +325,10 @@ public sealed class JoinLobbyUI : MonoBehaviour
         for (int i = 0; i < kingCards.Length; i++)
         {
             kingCards[i]?.Root?.UnregisterCallback<PointerUpEvent>(OnKingCardPointerUp);
+        }
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            mapThemeCards[i]?.Root?.UnregisterCallback<PointerUpEvent>(OnMapThemeCardPointerUp);
         }
 
         callbacksRegistered = false;
@@ -422,10 +461,10 @@ public sealed class JoinLobbyUI : MonoBehaviour
                      && networkManager._runner != null
                      && networkManager._runner.IsRunning
                      && networkManager._runner.IsServer
-                     && IsLobbyRosterComplete(activePlayerCount, players.Count, hasDuplicateAuthorities)
-                     && players.Count > 0
-                     && players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash))
-                     && players.All(player => player.IsReady)
+                      && IsLobbyRosterComplete(activePlayerCount, players.Count, hasDuplicateAuthorities)
+                      && players.Count > 0
+                      && players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash))
+                      && players.All(player => player.IsReady)
                      && SceneUtility.GetBuildIndexByScenePath(gameScenePath) >= 0;
         if (!valid)
         {
@@ -483,6 +522,21 @@ public sealed class JoinLobbyUI : MonoBehaviour
         evt.StopPropagation();
     }
 
+    private void OnMapThemeCardPointerUp(PointerUpEvent evt)
+    {
+        if (!IsPrimaryPointer(evt)
+            || !(evt.currentTarget is VisualElement card)
+            || !(card.userData is int catalogIndex)
+            || catalogIndex < 0
+            || catalogIndex >= MapThemeCatalog.Entries.Count)
+        {
+            return;
+        }
+
+        SelectMapTheme((int)MapThemeCatalog.Entries[catalogIndex].Id);
+        evt.StopPropagation();
+    }
+
     public void UpdatePlayerList()
     {
         if (this == null)
@@ -505,6 +559,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
         RenderSlots(viewData);
         RenderKingSelection();
+        RenderMapThemeSelection();
         UpdateRoomInfo(activePlayerCount, usingMockPlayers);
         UpdateButtons(players, activePlayerCount, hasDuplicateAuthorities, usingMockPlayers);
         RefreshNetworkBlockOverlay();
@@ -574,9 +629,9 @@ public sealed class JoinLobbyUI : MonoBehaviour
     {
         return new List<PlayerViewData>
         {
-            new PlayerViewData("루나", 42, true, 0, KingSelectionCatalog.Entries[0].KeyHash),
-            new PlayerViewData("카인", 45, true, 1, KingSelectionCatalog.Entries[3].KeyHash),
-            new PlayerViewData("미르", 40, true, 2, KingSelectionCatalog.Entries[4].KeyHash)
+            new PlayerViewData("루나", 42, true, 0, KingSelectionCatalog.Entries[0].KeyHash, (int)MapThemeId.Arena),
+            new PlayerViewData("카인", 45, true, 1, KingSelectionCatalog.Entries[3].KeyHash, (int)MapThemeId.Classic),
+            new PlayerViewData("미르", 40, true, 2, KingSelectionCatalog.Entries[4].KeyHash, (int)MapThemeId.Arena)
         };
     }
 
@@ -597,7 +652,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
                 GetDisplayLevel(i),
                 player.IsReady,
                 i,
-                player.SelectedKingUnitKeyHash));
+                player.SelectedKingUnitKeyHash,
+                player.SelectedMapThemeId));
         }
 
         return viewData;
@@ -650,6 +706,14 @@ public sealed class JoinLobbyUI : MonoBehaviour
                 : "국왕 미선택";
         }
 
+        if (slot.Theme != null)
+        {
+            int themeId = MapThemeCatalog.NormalizeOrDefault(player.MapThemeId);
+            slot.Theme.text = MapThemeCatalog.TryGet(themeId, out MapThemeCatalog.Entry theme)
+                ? $"맵 {theme.DisplayName}"
+                : string.Empty;
+        }
+
         if (slot.Ready != null)
         {
             slot.Ready.text = player.IsReady ? "READY" : "대기";
@@ -682,6 +746,11 @@ public sealed class JoinLobbyUI : MonoBehaviour
         if (slot.King != null)
         {
             slot.King.text = string.Empty;
+        }
+
+        if (slot.Theme != null)
+        {
+            slot.Theme.text = string.Empty;
         }
 
         if (slot.Ready != null)
@@ -897,6 +966,17 @@ public sealed class JoinLobbyUI : MonoBehaviour
                     return;
                 }
 
+                if (currentPlayers.Any(player =>
+                        !player.IsReady
+                        || !KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash)))
+                {
+                    FailMatchStart(
+                        currentPlayers,
+                        revision,
+                        "준비 중 선택 정보가 변경되어 게임 시작을 중단했습니다.");
+                    return;
+                }
+
                 LobbyMatchPeerLoadState[] peerLoadStates = currentPlayers
                     .OrderBy(player => player.Object.InputAuthority.PlayerId)
                     .Select(player => new LobbyMatchPeerLoadState(
@@ -1085,6 +1165,62 @@ public sealed class JoinLobbyUI : MonoBehaviour
         }
     }
 
+    private void SelectMapTheme(int selectedThemeId)
+    {
+        if (localPlayer == null)
+        {
+            UpdatePlayerList();
+        }
+
+        if (localPlayer == null)
+        {
+            ShowStatus("로컬 플레이어 정보를 아직 찾을 수 없습니다.");
+            return;
+        }
+
+        int themeId = MapThemeCatalog.NormalizeOrDefault(selectedThemeId);
+        if (localPlayer.SelectedMapThemeId == themeId)
+        {
+            return;
+        }
+
+        if (!localPlayer.RequestMapThemeSelection(themeId))
+        {
+            ShowStatus("선택할 수 없는 맵 테마입니다.");
+            return;
+        }
+
+        RenderMapThemeSelection(themeId);
+        ShowStatus(localPlayer.IsReady
+            ? "내 필드 테마를 변경했습니다. 준비 상태가 해제됩니다."
+            : "내 필드 테마를 선택했습니다.");
+    }
+
+    private void RenderMapThemeSelection(int? optimisticThemeId = null)
+    {
+        int selectedThemeId = MapThemeCatalog.NormalizeOrDefault(
+            optimisticThemeId ?? (localPlayer != null
+                ? localPlayer.SelectedMapThemeId
+                : MapThemeCatalog.DefaultId));
+
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            MapThemeCardView card = mapThemeCards[i];
+            if (card == null || i >= MapThemeCatalog.Entries.Count)
+            {
+                continue;
+            }
+
+            MapThemeCatalog.Entry entry = MapThemeCatalog.Entries[i];
+            bool selected = (int)entry.Id == selectedThemeId;
+            card.Root?.EnableInClassList("jl-map-theme-card--selected", selected);
+            if (card.Name != null)
+            {
+                card.Name.text = selected ? $"{entry.DisplayName} · 선택됨" : entry.DisplayName;
+            }
+        }
+    }
+
     private void SetKingPortrait(VisualElement portrait, int kingKeyHash, int fallbackVisualIndex)
     {
         if (portrait == null)
@@ -1197,6 +1333,10 @@ public sealed class JoinLobbyUI : MonoBehaviour
         for (int i = 0; i < kingCards.Length; i++)
         {
             kingCards[i]?.Root?.SetEnabled(enabled);
+        }
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            mapThemeCards[i]?.Root?.SetEnabled(enabled);
         }
     }
 

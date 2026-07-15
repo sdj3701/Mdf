@@ -150,6 +150,16 @@ public sealed class KingLobbySelectionEditModeTests
         cache.PrepareJoinedPlayer(0, tokenB);
         NUnitAssert.That(cache.TryResolve(0, tokenB, out _), Is.False,
             "A reused PlayerRef must not inherit another connection's king.");
+
+        cache.Remember(0, tokenA, mage);
+        NUnitAssert.That(cache.TryResolve(0, tokenB, out _), Is.False,
+            "An unknown valid token must not fall back to a stale runner-local PlayerRef.");
+
+        cache.ClearPlayerRefs();
+        NUnitAssert.That(cache.TryResolve(0, string.Empty, out _), Is.False);
+        NUnitAssert.That(cache.TryResolve(0, tokenA, out reconnectedSelection), Is.True,
+            "Clearing runner-local refs must preserve durable token selections.");
+        NUnitAssert.That(reconnectedSelection, Is.EqualTo(mage));
         NUnitAssert.That(cache.Remember(0, tokenB, int.MinValue), Is.False);
     }
 

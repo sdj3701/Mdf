@@ -1441,6 +1441,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
 
         InitializeKingRuntimeOnSpawn();
+        InitializeMapThemeOnSpawn();
 
         InitializePermanentWallStateOnSpawn(isHostMigration);
 
@@ -1492,6 +1493,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
         PublishBlackMagicChangedFromRenderIfNeeded();
         RenderKingRuntime();
+        RenderMapTheme();
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -1527,6 +1529,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         //Debug.Log($"[Player {playerId}]: gridNetworkObject를 성공적으로 받았습니다. (ID: {gridNetworkObject.Id})");
 
         var gridInstance = gridNO.gameObject;
+        BindMapThemePresenter(gridInstance);
 
         // 3D Ground 오브젝트 찾기
         GameObject ground3D = null;
@@ -1717,6 +1720,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         {
             gridRoot = ResolveGridRootObject(context, verboseFailure);
         }
+
+        BindMapThemePresenter(gridRoot);
 
         bool fieldReinitialized = false;
         GameObject ground3D = fieldManager != null ? fieldManager.ground3D : null;

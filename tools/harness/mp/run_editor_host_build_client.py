@@ -134,6 +134,36 @@ def failed_king_command(reason: str) -> dict:
     }
 
 
+def map_theme_command_payload(response: object) -> dict | None:
+    if not isinstance(response, dict):
+        return None
+    wrapped = response.get("data")
+    if response.get("success") is True and isinstance(wrapped, dict):
+        return wrapped
+    if response.get("command") == "select_map_theme":
+        return response
+    return None
+
+
+def map_theme_command_response_ok(response: object, expected_player_id: int) -> bool:
+    data = map_theme_command_payload(response)
+    return (
+        isinstance(data, dict)
+        and data.get("command") == "select_map_theme"
+        and data.get("playerId") == expected_player_id
+        and isinstance(data.get("mapThemeId"), int)
+        and data.get("mapThemeId") > 0
+    )
+
+
+def failed_map_theme_command(reason: str) -> dict:
+    return {
+        "success": False,
+        "message": reason,
+        "error": {"code": "map_theme_selection_not_executed", "details": reason},
+    }
+
+
 def execute_king_selection_commands(
     client: AutomationClient,
     artifact_dir: pathlib.Path,
@@ -187,6 +217,59 @@ def execute_king_selection_commands(
     return results
 
 
+def execute_map_theme_selection_commands(
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    editor_map_theme: str | None,
+    build_map_theme: str | None,
+) -> dict[str, dict]:
+    results: dict[str, dict] = {}
+    if editor_map_theme:
+        try:
+            response = unity_cli_json([
+                "mp_command",
+                "--command",
+                "select_map_theme",
+                "--player_id",
+                str(EDITOR_PLAYER_ID),
+                "--map_theme",
+                editor_map_theme,
+            ], artifact_dir, timeout=60)
+        except Exception as exc:
+            response = {
+                "success": False,
+                "message": "Editor select_map_theme request failed",
+                "error": {"code": type(exc).__name__, "details": str(exc)},
+            }
+        results["editor"] = {
+            "playerId": EDITOR_PLAYER_ID,
+            "requestedMapTheme": editor_map_theme,
+            "response": response,
+        }
+
+    if build_map_theme:
+        try:
+            response = client.command(
+                name="select_map_theme",
+                playerId=BUILD_PLAYER_ID,
+                mapTheme=build_map_theme,
+            )
+        except Exception as exc:
+            response = {
+                "success": False,
+                "message": "Build select_map_theme request failed",
+                "error": {"code": type(exc).__name__, "details": str(exc)},
+            }
+        results["build"] = {
+            "playerId": BUILD_PLAYER_ID,
+            "requestedMapTheme": build_map_theme,
+            "response": response,
+        }
+
+    write_json(artifact_dir / "map-theme-selection-commands.json", results)
+    return results
+
+
 def load_king_selection_lobby(artifact_dir: pathlib.Path, current_lobby_scene: str) -> dict:
     if scene_matches(current_lobby_scene, KING_SELECTION_SCENE):
         result = {
@@ -222,6 +305,27 @@ def skipped_king_selection_commands(editor_king: str | None, build_king: str | N
             "playerId": BUILD_PLAYER_ID,
             "requestedKing": build_king,
             "response": failed_king_command(reason),
+        }
+    return results
+
+
+def skipped_map_theme_selection_commands(
+    editor_map_theme: str | None,
+    build_map_theme: str | None,
+    reason: str,
+) -> dict[str, dict]:
+    results: dict[str, dict] = {}
+    if editor_map_theme:
+        results["editor"] = {
+            "playerId": EDITOR_PLAYER_ID,
+            "requestedMapTheme": editor_map_theme,
+            "response": failed_map_theme_command(reason),
+        }
+    if build_map_theme:
+        results["build"] = {
+            "playerId": BUILD_PLAYER_ID,
+            "requestedMapTheme": build_map_theme,
+            "response": failed_map_theme_command(reason),
         }
     return results
 
@@ -303,12 +407,136 @@ def verify_king_selection_snapshots(
     }
 
 
+def verify_map_theme_selection_snapshots(
+    editor_snapshot: object,
+    build_snapshot: object,
+    commands: dict[str, dict],
+) -> dict:
+    checks: dict[str, dict] = {}
+    errors: list[str] = []
+    for owner, command in commands.items():
+        player_id = command.get("playerId")
+        response = command.get("response")
+        response_data = map_theme_command_payload(response)
+        expected_theme_id = response_data.get("mapThemeId") if isinstance(response_data, dict) else None
+        expected_content_id = response_data.get("mapTheme") if isinstance(response_data, dict) else None
+        response_ok = (
+            isinstance(player_id, int)
+            and map_theme_command_response_ok(response, player_id)
+        )
+        editor_player = snapshot_player(editor_snapshot, player_id) if isinstance(player_id, int) else None
+        build_player = snapshot_player(build_snapshot, player_id) if isinstance(player_id, int) else None
+        editor_selected = editor_player.get("selectedMapThemeId") if isinstance(editor_player, dict) else None
+        build_selected = build_player.get("selectedMapThemeId") if isinstance(build_player, dict) else None
+        editor_applied = editor_player.get("appliedMapThemeId") if isinstance(editor_player, dict) else None
+        build_applied = build_player.get("appliedMapThemeId") if isinstance(build_player, dict) else None
+        editor_ready = editor_player.get("mapThemePresentationReady") is True if isinstance(editor_player, dict) else False
+        build_ready = build_player.get("mapThemePresentationReady") is True if isinstance(build_player, dict) else False
+        selection_replicated = (
+            response_ok
+            and editor_selected == build_selected == expected_theme_id
+        )
+        presentation_replicated = (
+            selection_replicated
+            and editor_ready
+            and build_ready
+            and editor_applied == build_applied == expected_theme_id
+        )
+        owner_errors: list[str] = []
+        if not response_ok:
+            owner_errors.append("select_map_theme_command_response_invalid")
+        if not selection_replicated:
+            owner_errors.append("same_player_selected_map_theme_not_replicated")
+        if not editor_ready:
+            owner_errors.append("editor_map_theme_presentation_not_ready")
+        if not build_ready:
+            owner_errors.append("build_map_theme_presentation_not_ready")
+        if editor_applied != expected_theme_id:
+            owner_errors.append("editor_applied_map_theme_mismatch")
+        if build_applied != expected_theme_id:
+            owner_errors.append("build_applied_map_theme_mismatch")
+        if not presentation_replicated:
+            owner_errors.append("same_player_applied_map_theme_not_replicated")
+        errors.extend(f"{owner}:{error}" for error in owner_errors)
+        checks[owner] = {
+            "playerId": player_id,
+            "requestedMapTheme": command.get("requestedMapTheme"),
+            "resolvedContentId": expected_content_id,
+            "expectedThemeIdFromResponse": expected_theme_id,
+            "responseAccepted": response_ok,
+            "editorSelectedMapThemeId": editor_selected,
+            "buildSelectedMapThemeId": build_selected,
+            "editorAppliedMapThemeId": editor_applied,
+            "buildAppliedMapThemeId": build_applied,
+            "editorPresentationReady": editor_ready,
+            "buildPresentationReady": build_ready,
+            "samePlayerSelectionOnBothPeers": selection_replicated,
+            "samePlayerPresentationOnBothPeers": presentation_replicated,
+            "errors": owner_errors,
+        }
+
+    return {
+        "enabled": True,
+        "success": bool(checks) and not errors,
+        "joinLobbyScene": KING_SELECTION_SCENE,
+        "perPlayerIndependentSelection": True,
+        "checks": checks,
+        "errors": errors,
+        "artifacts": {
+            "commands": "map-theme-selection-commands.json",
+            "editorJoinLobby": "snapshots/editor-map-theme-lobby.json",
+            "buildJoinLobby": "snapshots/build-client-map-theme-lobby.json",
+            "editorGame": "snapshots/editor-pre.json",
+            "buildGame": "snapshots/build-client-pre.json",
+        },
+    }
+
+
+def wait_map_theme_selection_snapshots(
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    commands: dict[str, dict],
+    timeout: int,
+) -> tuple[dict, dict, dict, bool]:
+    deadline = time.time() + timeout
+    editor_state: dict = {}
+    build_state: dict = {}
+    verification: dict = {
+        "enabled": True,
+        "success": False,
+        "errors": ["map_theme_snapshot_not_sampled"],
+    }
+    stable_matches = 0
+    while time.time() < deadline:
+        editor_state = dump_editor_state(artifact_dir, "map-theme-latest")
+        build_state = dump_build_state(client, artifact_dir, "map-theme-latest")
+        verification = verify_map_theme_selection_snapshots(editor_state, build_state, commands)
+        write_json(artifact_dir / "map-theme-selection-wait-latest.json", {
+            "verification": verification,
+            "stableMatches": stable_matches,
+        })
+        if verification.get("success") is True:
+            stable_matches += 1
+            if stable_matches >= 2:
+                return editor_state, build_state, verification, True
+        else:
+            stable_matches = 0
+        time.sleep(1)
+    return editor_state, build_state, verification, False
+
+
 def run(args: argparse.Namespace) -> int:
     artifact_dir = make_artifact_dir(CASE_NAME, pathlib.Path(args.artifact_root) if args.artifact_root else None)
     editor_king = getattr(args, "editor_king", None)
     build_king = getattr(args, "build_king", None)
+    editor_map_theme = getattr(args, "editor_map_theme", None)
+    build_map_theme = getattr(args, "build_map_theme", None)
     verify_king_selection = bool(editor_king or build_king)
+    verify_map_theme_selection = bool(editor_map_theme or build_map_theme)
+    verify_lobby_selection = verify_king_selection or verify_map_theme_selection
     effective_lobby_scene = KING_SELECTION_SCENE if verify_king_selection else args.lobby_scene
+    if verify_map_theme_selection:
+        effective_lobby_scene = KING_SELECTION_SCENE
     if args.dry_run:
         dry_run = {
             "case": CASE_NAME,
@@ -321,6 +549,13 @@ def run(args: argparse.Namespace) -> int:
                 "editorKing": editor_king,
                 "buildKing": build_king,
                 "joinLobbyScene": KING_SELECTION_SCENE,
+            }
+        if verify_map_theme_selection:
+            dry_run["mapThemeSelection"] = {
+                "editorMapTheme": editor_map_theme,
+                "buildMapTheme": build_map_theme,
+                "joinLobbyScene": KING_SELECTION_SCENE,
+                "perPlayerIndependentSelection": True,
             }
         write_json(artifact_dir / "run.json", dry_run)
         print(json.dumps({"artifactDir": str(artifact_dir), "case": CASE_NAME, "dryRun": True}, indent=2))
@@ -337,6 +572,8 @@ def run(args: argparse.Namespace) -> int:
     build_proc: PlayerProcess | None = None
     king_selection_commands: dict[str, dict] = {}
     king_selection_verification: dict | None = None
+    map_theme_selection_commands: dict[str, dict] = {}
+    map_theme_selection_verification: dict | None = None
     failures: list[str] = []
     cleanup_baseline_pids = mdf_player_pids()
     cleanup_report: dict = {
@@ -362,6 +599,13 @@ def run(args: argparse.Namespace) -> int:
             "editorKing": editor_king,
             "buildKing": build_king,
             "joinLobbyScene": KING_SELECTION_SCENE,
+        }
+    if verify_map_theme_selection:
+        run_config["mapThemeSelection"] = {
+            "editorMapTheme": editor_map_theme,
+            "buildMapTheme": build_map_theme,
+            "joinLobbyScene": KING_SELECTION_SCENE,
+            "perPlayerIndependentSelection": True,
         }
     write_json(artifact_dir / "run.json", run_config)
 
@@ -422,40 +666,63 @@ def run(args: argparse.Namespace) -> int:
         if not lobby_ready:
             failures.append("session_join_timeout")
 
-        if verify_king_selection:
-            king_lobby_load = load_king_selection_lobby(artifact_dir, effective_lobby_scene)
-            if not isinstance(king_lobby_load, dict) or king_lobby_load.get("success") is not True:
-                failures.append("king_selection_join_lobby_load_failed")
+        if verify_lobby_selection:
+            lobby_selection_load = load_king_selection_lobby(artifact_dir, effective_lobby_scene)
+            if not isinstance(lobby_selection_load, dict) or lobby_selection_load.get("success") is not True:
+                failures.append("lobby_selection_join_lobby_load_failed")
 
-            editor_king_lobby, build_king_lobby, king_lobby_ready = wait_session_states(
+            editor_selection_lobby, build_selection_lobby, selection_lobby_ready = wait_session_states(
                 client,
                 artifact_dir,
                 2,
                 KING_SELECTION_SCENE,
                 args.lobby_timeout,
             )
-            write_json(artifact_dir / "snapshots" / "editor-king-lobby.json", editor_king_lobby)
-            write_json(artifact_dir / "snapshots" / "build-client-king-lobby.json", build_king_lobby)
-            if not king_lobby_ready:
-                failures.append("king_selection_join_lobby_timeout")
-                king_selection_commands = skipped_king_selection_commands(
-                    editor_king,
-                    build_king,
-                    "JoinLobby did not become ready on both peers.",
-                )
-                write_json(artifact_dir / "king-selection-commands.json", king_selection_commands)
+            if verify_king_selection:
+                write_json(artifact_dir / "snapshots" / "editor-king-lobby.json", editor_selection_lobby)
+                write_json(artifact_dir / "snapshots" / "build-client-king-lobby.json", build_selection_lobby)
+            if verify_map_theme_selection:
+                write_json(artifact_dir / "snapshots" / "editor-map-theme-lobby.json", editor_selection_lobby)
+                write_json(artifact_dir / "snapshots" / "build-client-map-theme-lobby.json", build_selection_lobby)
+            if not selection_lobby_ready:
+                failures.append("lobby_selection_join_lobby_timeout")
+                if verify_king_selection:
+                    king_selection_commands = skipped_king_selection_commands(
+                        editor_king,
+                        build_king,
+                        "JoinLobby did not become ready on both peers.",
+                    )
+                    write_json(artifact_dir / "king-selection-commands.json", king_selection_commands)
+                if verify_map_theme_selection:
+                    map_theme_selection_commands = skipped_map_theme_selection_commands(
+                        editor_map_theme,
+                        build_map_theme,
+                        "JoinLobby did not become ready on both peers.",
+                    )
+                    write_json(artifact_dir / "map-theme-selection-commands.json", map_theme_selection_commands)
             else:
-                king_selection_commands = execute_king_selection_commands(
-                    client,
-                    artifact_dir,
-                    editor_king,
-                    build_king,
-                )
-                for owner, command in king_selection_commands.items():
-                    if not king_command_response_ok(command.get("response"), command.get("playerId")):
-                        failures.append(f"{owner}_king_selection_command_failed")
-                # RequestKingSelection uses the production InputAuthority -> StateAuthority RPC.
-                # Give Fusion time to commit the lobby value before unloading JoinLobby.
+                if verify_king_selection:
+                    king_selection_commands = execute_king_selection_commands(
+                        client,
+                        artifact_dir,
+                        editor_king,
+                        build_king,
+                    )
+                    for owner, command in king_selection_commands.items():
+                        if not king_command_response_ok(command.get("response"), command.get("playerId")):
+                            failures.append(f"{owner}_king_selection_command_failed")
+                if verify_map_theme_selection:
+                    map_theme_selection_commands = execute_map_theme_selection_commands(
+                        client,
+                        artifact_dir,
+                        editor_map_theme,
+                        build_map_theme,
+                    )
+                    for owner, command in map_theme_selection_commands.items():
+                        if not map_theme_command_response_ok(command.get("response"), command.get("playerId")):
+                            failures.append(f"{owner}_map_theme_selection_command_failed")
+                # Both selection requests use the production InputAuthority -> StateAuthority RPC.
+                # Give Fusion time to commit lobby values before unloading JoinLobby.
                 time.sleep(1.0)
 
         load_result = unity_cli_json(["mp_load_game", "--scene", args.scene], artifact_dir, timeout=60)
@@ -469,6 +736,27 @@ def run(args: argparse.Namespace) -> int:
         if not ready:
             failures.append("state_ready_timeout")
 
+        theme_command_responses_ready = (
+            bool(map_theme_selection_commands)
+            and all(
+                map_theme_command_response_ok(command.get("response"), command.get("playerId"))
+                for command in map_theme_selection_commands.values()
+            )
+        )
+        if verify_map_theme_selection and theme_command_responses_ready:
+            editor_pre, build_pre, map_theme_selection_verification, theme_presentation_ready = (
+                wait_map_theme_selection_snapshots(
+                    client,
+                    artifact_dir,
+                    map_theme_selection_commands,
+                    args.state_timeout,
+                )
+            )
+            write_json(artifact_dir / "snapshots" / "editor-pre.json", editor_pre)
+            write_json(artifact_dir / "snapshots" / "build-client-pre.json", build_pre)
+            if not theme_presentation_ready:
+                failures.append("map_theme_presentation_ready_timeout")
+
         if verify_king_selection:
             king_selection_verification = verify_king_selection_snapshots(
                 editor_pre,
@@ -478,11 +766,61 @@ def run(args: argparse.Namespace) -> int:
             write_json(artifact_dir / "king-selection-verification.json", king_selection_verification)
             if king_selection_verification.get("success") is not True:
                 failures.append("king_selection_snapshot_mismatch")
+        if verify_map_theme_selection:
+            if map_theme_selection_verification is None:
+                map_theme_selection_verification = verify_map_theme_selection_snapshots(
+                    editor_pre,
+                    build_pre,
+                    map_theme_selection_commands,
+                )
+            write_json(artifact_dir / "map-theme-selection-verification.json", map_theme_selection_verification)
+            if map_theme_selection_verification.get("success") is not True:
+                failures.append("map_theme_selection_snapshot_mismatch")
+
+        if verify_king_selection and not verify_map_theme_selection:
             command_result = {
-                "success": king_selection_verification.get("success") is True,
+                "success": (
+                    isinstance(king_selection_verification, dict)
+                    and king_selection_verification.get("success") is True
+                ),
                 "kind": "king_selection",
                 "commands": "king-selection-commands.json",
                 "verification": "king-selection-verification.json",
+            }
+        elif verify_map_theme_selection and not verify_king_selection:
+            command_result = {
+                "success": (
+                    isinstance(map_theme_selection_verification, dict)
+                    and map_theme_selection_verification.get("success") is True
+                ),
+                "kind": "map_theme_selection",
+                "commands": "map-theme-selection-commands.json",
+                "verification": "map-theme-selection-verification.json",
+            }
+        elif verify_lobby_selection:
+            verification_success = (
+                (not verify_king_selection or (
+                    isinstance(king_selection_verification, dict)
+                    and king_selection_verification.get("success") is True
+                ))
+                and (not verify_map_theme_selection or (
+                    isinstance(map_theme_selection_verification, dict)
+                    and map_theme_selection_verification.get("success") is True
+                ))
+            )
+            command_result = {
+                "success": verification_success,
+                "kind": "lobby_selections",
+                "kingSelection": {
+                    "enabled": verify_king_selection,
+                    "commands": "king-selection-commands.json" if verify_king_selection else None,
+                    "verification": "king-selection-verification.json" if verify_king_selection else None,
+                },
+                "mapThemeSelection": {
+                    "enabled": verify_map_theme_selection,
+                    "commands": "map-theme-selection-commands.json" if verify_map_theme_selection else None,
+                    "verification": "map-theme-selection-verification.json" if verify_map_theme_selection else None,
+                },
             }
         else:
             command_result = {"success": False, "skipped": True, "reason": "no safe durable command before Phase 17"}
@@ -555,6 +893,8 @@ def run(args: argparse.Namespace) -> int:
     }
     if verify_king_selection:
         result["kingSelectionVerification"] = king_selection_verification
+    if verify_map_theme_selection:
+        result["mapThemeSelectionVerification"] = map_theme_selection_verification
     write_json(artifact_dir / "result.json", result)
     print(json.dumps({"artifactDir": str(artifact_dir), "failures": failures}, indent=2))
     return 0 if not failures else 1
@@ -582,6 +922,14 @@ def main() -> int:
     parser.add_argument(
         "--build-king",
         help="Select this canonical UnitData_King_* key for the Build client in JoinLobby and verify it after Game load.",
+    )
+    parser.add_argument(
+        "--editor-map-theme",
+        help="Select classic, arena, or a map.theme.* content id for the Editor host's personal field and verify it after Game load.",
+    )
+    parser.add_argument(
+        "--build-map-theme",
+        help="Select classic, arena, or a map.theme.* content id for the Build client's personal field and verify it after Game load.",
     )
     args = parser.parse_args()
     return run(args)

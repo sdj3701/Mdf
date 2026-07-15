@@ -1302,6 +1302,7 @@ public partial class GameManagers : NetworkBehaviour
             if (newPlayer != null)
             {
                 int selectedKingHash = KingSelectionCatalog.DefaultKeyHash;
+                int selectedMapThemeId = MapThemeCatalog.DefaultId;
                 if (inputAuthority != PlayerRef.None
                     && NetworkManager.Instance != null
                     && NetworkManager.Instance.TryGetLobbyKingSelectionForGameplay(
@@ -1312,7 +1313,18 @@ public partial class GameManagers : NetworkBehaviour
                 {
                     selectedKingHash = lobbySelectedKingHash;
                 }
+                if (inputAuthority != PlayerRef.None
+                    && NetworkManager.Instance != null
+                    && NetworkManager.Instance.TryGetLobbyMapThemeForGameplay(
+                        Runner,
+                        inputAuthority,
+                        out int lobbyMapThemeId)
+                    && MapThemeCatalog.IsAllowed(lobbyMapThemeId))
+                {
+                    selectedMapThemeId = lobbyMapThemeId;
+                }
                 newPlayer.SetSelectedKingKeyHashAuthoritative(selectedKingHash);
+                newPlayer.SetSelectedMapThemeIdAuthoritative(selectedMapThemeId);
                 newPlayer.SetAiControlled(isAI);
                 newPlayer.Rpc_InitializePlayer(i, gridNO);
             }

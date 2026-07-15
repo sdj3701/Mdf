@@ -13,7 +13,7 @@ compared across peers and across host migration.
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "role": "host|client|editor-host|editor-client",
   "caseName": "game_smoke",
   "session": "mp-...",
@@ -65,6 +65,9 @@ compared across peers and across host migration.
       "blackMagicMaxBonus": 0,
       "blackMagicRevision": 1,
       "blackMagicSequenceId": 5,
+      "selectedMapThemeId": 2,
+      "appliedMapThemeId": 2,
+      "mapThemePresentationReady": true,
       "selectedKingUnitKeyHash": 123456789,
       "kingDataReady": true,
       "kingSkillUsedThisDefense": false,
@@ -239,6 +242,7 @@ Exact or hash-equal after stable wait:
 - player ids and player count
 - player HP/gold/wall counts
 - player Black Magic current/maximum/personal maximum bonus/revision/attack-sequence identity
+- player cosmetic map theme selection and applied presentation id; schema v3 requires a valid per-player selection and a bound field presenter during Prepare/Battle
 - player King selection, data readiness, once-per-defense skill consumption/sequence, presentation sequences, and cumulative augment bonuses; schema v2 requires a valid selection hash and loaded King data during Prepare/Battle
 - shop snapshot hashes
 - augment presented/selected counts, active effect/target counts, and active effect/target hashes when available
@@ -319,6 +323,7 @@ Host migration:
 - migration callback/resume events exist in logs
 - post-migration GameManagers exists on active runner
 - player/field/wall/shop/AI state restored
+- every player's selected/applied cosmetic map theme restored exactly; a host change must not collapse all fields to the new host's local preference
 - Black Magic current/maximum/bonus/revision/sequence id restored exactly; host migration never starts a new attack-sequence refill by itself
 - no duplicate `playerId`
 - stale `PlayerRef` not used as durable identity

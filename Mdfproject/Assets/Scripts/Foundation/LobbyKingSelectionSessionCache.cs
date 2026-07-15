@@ -60,17 +60,29 @@ public sealed class LobbyKingSelectionSessionCache
         }
     }
 
+    public void ClearPlayerRefs()
+    {
+        _selectionByPlayerRefId.Clear();
+    }
+
     public bool TryResolve(int playerRefId, string tokenHash, out int selectionHash)
     {
-        if (playerRefId >= 0
-            && _selectionByPlayerRefId.TryGetValue(playerRefId, out selectionHash)
-            && KingSelectionCatalog.IsAllowedHash(selectionHash))
+        bool hasDurableToken = PlayerSnapshotCodec.IsSha256Hex(tokenHash);
+        if (hasDurableToken)
         {
-            return true;
+            if (_selectionByTokenHash.TryGetValue(tokenHash, out selectionHash)
+                && KingSelectionCatalog.IsAllowedHash(selectionHash))
+            {
+                return true;
+            }
+
+            // A valid durable identity must never fall back to a runner-local PlayerRef.
+            selectionHash = 0;
+            return false;
         }
 
-        if (PlayerSnapshotCodec.IsSha256Hex(tokenHash)
-            && _selectionByTokenHash.TryGetValue(tokenHash, out selectionHash)
+        if (playerRefId >= 0
+            && _selectionByPlayerRefId.TryGetValue(playerRefId, out selectionHash)
             && KingSelectionCatalog.IsAllowedHash(selectionHash))
         {
             return true;

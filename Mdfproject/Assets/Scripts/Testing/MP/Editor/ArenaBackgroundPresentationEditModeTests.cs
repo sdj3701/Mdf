@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System.Linq;
+using MDF.Runtime.Grid;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -50,6 +51,48 @@ public sealed class ArenaBackgroundPresentationEditModeTests
         Assert.That(inputBackground.localScale, Is.EqualTo(new Vector3(15f, 0.01f, 13f)));
         Assert.That(inputBackground.GetComponent<MeshRenderer>().enabled, Is.False);
         Assert.That(inputBackground.GetComponent<BoxCollider>().enabled, Is.True);
+
+        FieldMapThemePresenter presenter = prefab.GetComponent<FieldMapThemePresenter>();
+        Assert.That(presenter, Is.Not.Null);
+        Assert.That(presenter.ClassicRenderers.Length, Is.EqualTo(2));
+        Assert.That(presenter.ArenaRenderers.Length, Is.EqualTo(1));
+        Assert.That(presenter.ClassicRenderers, Does.Contain(inputBackground.GetComponent<MeshRenderer>()));
+        Assert.That(presenter.ClassicRenderers, Does.Contain(activeLegacyGround.GetComponent<MeshRenderer>()));
+        Assert.That(presenter.ArenaRenderers, Does.Contain(visualRenderer));
+    }
+
+    [Test]
+    public void FieldPrefab_ThemeSwitchChangesOnlyCosmeticRenderers()
+    {
+        GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
+        GameObject instance = Object.Instantiate(prefab);
+        try
+        {
+            FieldMapThemePresenter presenter = instance.GetComponent<FieldMapThemePresenter>();
+            Transform inputBackground = instance.transform.Find("BackGround");
+            BoxCollider inputCollider = inputBackground.GetComponent<BoxCollider>();
+            int inputLayer = inputBackground.gameObject.layer;
+            Vector3 inputPosition = inputBackground.localPosition;
+            Vector3 inputScale = inputBackground.localScale;
+
+            presenter.ApplyTheme((int)MapThemeId.Classic);
+            Assert.That(presenter.ClassicRenderers.All(renderer => renderer.enabled), Is.True);
+            Assert.That(presenter.ArenaRenderers.All(renderer => !renderer.enabled), Is.True);
+
+            presenter.ApplyTheme((int)MapThemeId.Arena);
+            Assert.That(presenter.ClassicRenderers.All(renderer => !renderer.enabled), Is.True);
+            Assert.That(presenter.ArenaRenderers.All(renderer => renderer.enabled), Is.True);
+
+            Assert.That(inputBackground.gameObject.activeSelf, Is.True);
+            Assert.That(inputCollider.enabled, Is.True);
+            Assert.That(inputBackground.gameObject.layer, Is.EqualTo(inputLayer));
+            Assert.That(inputBackground.localPosition, Is.EqualTo(inputPosition));
+            Assert.That(inputBackground.localScale, Is.EqualTo(inputScale));
+        }
+        finally
+        {
+            Object.DestroyImmediate(instance);
+        }
     }
 }
 #endif
