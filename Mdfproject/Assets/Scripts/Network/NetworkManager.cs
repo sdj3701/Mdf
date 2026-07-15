@@ -743,9 +743,16 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (runner != null && runner == _runner)
         {
             LastFusionSceneName = SceneManager.GetActiveScene().name;
+            MatchLoadingScreenController.NotifySceneLoadDone();
         }
     }
-    public void OnSceneLoadStart(NetworkRunner runner) { }
+    public void OnSceneLoadStart(NetworkRunner runner)
+    {
+        if (runner != null && runner == _runner)
+        {
+            MatchLoadingScreenController.NotifySceneLoadStart();
+        }
+    }
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
 
     private PlayerManager FindPlayerManagerForInputAuthority(NetworkRunner runner, PlayerRef player)

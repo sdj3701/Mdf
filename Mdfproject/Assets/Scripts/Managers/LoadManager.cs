@@ -110,6 +110,9 @@ public class LoadManager : MonoBehaviour
     public bool IsReady => _isReady;
     public bool UnitPresentationPrewarmComplete => _unitPresentationPrewarmComplete;
     public bool MatchContentPrewarmComplete => _matchContentPrewarmComplete;
+    public float MatchContentPrewarmProgress { get; private set; }
+    public string MatchContentPrewarmStage { get; private set; } = "전장 자원을 확인하는 중";
+    public event Action<float, string> MatchContentPrewarmProgressChanged;
     public int RetainedUnitPrefabCount => _prewarmedUnitPrefabs.Count;
     public int RetainedUnitSkillCount => _prewarmedUnitSkills.Count;
     public int RetainedUnitVfxPrefabCount => _prewarmedUnitVfxPrefabs.Count;
@@ -415,11 +418,14 @@ public class LoadManager : MonoBehaviour
                 throw new InvalidOperationException("AddressablesManager is unavailable.");
             }
 
+            ReportMatchContentPrewarmProgress(0.03f, "전장 자원을 확인하는 중");
             Debug.Log("[MatchPrewarm] Local match content preparation started.");
             await AddressablesManager.Instance.InitializeAsync();
             cancellationToken.ThrowIfCancellationRequested();
+            ReportMatchContentPrewarmProgress(0.10f, "콘텐츠 카탈로그를 확인하는 중");
             await InitializeAsync();
             cancellationToken.ThrowIfCancellationRequested();
+            ReportMatchContentPrewarmProgress(0.18f, "유닛 데이터를 불러오는 중");
 
             bool requiredPrefabsReady = await AddressablesManager.Instance.LoadGamePrefabsAsync();
             cancellationToken.ThrowIfCancellationRequested();
@@ -427,15 +433,20 @@ public class LoadManager : MonoBehaviour
             {
                 throw new InvalidOperationException("Required game prefabs did not finish loading.");
             }
+            ReportMatchContentPrewarmProgress(0.30f, "필수 게임 오브젝트를 준비하는 중");
 
             await PrewarmUnitPresentationsAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            ReportMatchContentPrewarmProgress(0.52f, "유닛과 스킬 연출을 준비하는 중");
             await EnsureMatchDataHandlesAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            ReportMatchContentPrewarmProgress(0.64f, "몬스터와 증강 데이터를 불러오는 중");
             await PrewarmAdditionalCombatPresentationsAsync(cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            ReportMatchContentPrewarmProgress(0.72f, "스크롤 연출을 준비하는 중");
             int monsterPoolCreations = await PrewarmMonsterPresentationsAsync(runner, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            ReportMatchContentPrewarmProgress(0.84f, "몬스터 전투 자원을 준비하는 중");
 
             int unitPoolTarget = ResolveUnitNetworkPoolTarget(runner);
             int unitPoolCreations = await PrewarmUnitNetworkPoolAsync(
@@ -443,6 +454,9 @@ public class LoadManager : MonoBehaviour
                 unitPoolTarget,
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            ReportMatchContentPrewarmProgress(
+                MatchLoadingProgressPolicy.LocalContentCeiling,
+                "로컬 전장 준비 완료");
 
             _matchContentPrewarmComplete = true;
             completion.TrySetResult(true);
@@ -455,10 +469,16 @@ public class LoadManager : MonoBehaviour
         }
         catch (OperationCanceledException)
         {
+            ReportMatchContentPrewarmProgress(
+                MatchContentPrewarmProgress,
+                "전장 준비가 취소되었습니다");
             completion.TrySetCanceled(cancellationToken);
         }
         catch (Exception exception)
         {
+            ReportMatchContentPrewarmProgress(
+                MatchContentPrewarmProgress,
+                "전장 준비 중 문제가 발생했습니다");
             ReleaseFailedMatchDataHandles();
             completion.TrySetException(exception);
             Debug.LogError($"[MatchPrewarm] Local match content preparation failed: {exception.Message}");
@@ -472,6 +492,30 @@ public class LoadManager : MonoBehaviour
                 _matchContentPrewarmCancellation?.Dispose();
                 _matchContentPrewarmCancellation = null;
             }
+        }
+    }
+
+    private void ReportMatchContentPrewarmProgress(float progress, string stage)
+    {
+        MatchContentPrewarmProgress = MatchLoadingProgressPolicy.ClampLocalProgress(progress);
+        if (!string.IsNullOrWhiteSpace(stage))
+        {
+            MatchContentPrewarmStage = stage;
+        }
+
+        Action<float, string> handler = MatchContentPrewarmProgressChanged;
+        if (handler == null)
+        {
+            return;
+        }
+
+        try
+        {
+            handler.Invoke(MatchContentPrewarmProgress, MatchContentPrewarmStage);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception);
         }
     }
 

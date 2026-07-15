@@ -894,6 +894,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
         matchStartInProgress = true;
         activeMatchLoadRevision = revision;
+        MatchLoadingScreenController.Show(document?.panelSettings);
+        MatchLoadingScreenController.SetPeerReadiness(0, players.Count);
         matchStartCancellation?.Cancel();
         matchStartCancellation?.Dispose();
         var attemptCancellation = new CancellationTokenSource();
@@ -1000,6 +1002,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
                             { "revision", revision },
                             { "readyPeers", currentPlayers.Count }
                         });
+                    MatchLoadingScreenController.BeginSceneTransition();
                     runner.LoadScene(SceneRef.FromIndex(sceneIndex), LoadSceneMode.Single);
                     return;
                 }
@@ -1062,6 +1065,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
         matchStartInProgress = false;
         activeMatchLoadRevision = 0;
+        MatchLoadingScreenController.CancelFromLobby();
         MPTestLogger.Fail(
             "match_prewarm_gate",
             "match_content_not_ready",
@@ -1286,6 +1290,18 @@ public sealed class JoinLobbyUI : MonoBehaviour
         int matchLoadRevision = ResolveActiveMatchLoadingRevision(players);
         bool matchLoading = matchStartInProgress || matchLoadRevision > 0;
         bool shouldBlock = (networkManager != null && networkManager.IsNetworkUiBlocked) || matchLoading;
+        if (matchLoading)
+        {
+            MatchLoadingScreenController.Show(document?.panelSettings);
+            int revision = activeMatchLoadRevision > 0 ? activeMatchLoadRevision : matchLoadRevision;
+            int readyCount = players.Count(player => player.IsMatchContentReadyFor(revision));
+            MatchLoadingScreenController.SetPeerReadiness(readyCount, players.Count);
+        }
+        else
+        {
+            MatchLoadingScreenController.CancelFromLobby();
+        }
+
         if (networkBlockLabel != null)
         {
             if (matchLoading)
@@ -1300,7 +1316,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
             }
         }
 
-        SetDisplay(networkBlockOverlay, shouldBlock);
+        SetDisplay(networkBlockOverlay, shouldBlock && !matchLoading);
         SetControlsEnabled(!shouldBlock);
     }
 

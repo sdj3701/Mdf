@@ -64,13 +64,17 @@ def wait_session_states(
     while time.time() < deadline:
         host_state = dump_state(host, artifact_dir, "build-host", "lobby-latest")
         client_state = dump_state(client, artifact_dir, "build-client", "lobby-latest")
-        host_ready = session_ready(host_state, EXPECTED_PLAYERS, scene)
-        client_ready = session_ready(client_state, EXPECTED_PLAYERS, scene)
+        host_players_ready = len(players(host_state)) == EXPECTED_PLAYERS
+        client_players_ready = len(players(client_state)) == EXPECTED_PLAYERS
+        host_ready = session_ready(host_state, EXPECTED_PLAYERS, scene) and host_players_ready
+        client_ready = session_ready(client_state, EXPECTED_PLAYERS, scene) and client_players_ready
         write_json(artifact_dir / "session-wait-latest.json", {
             "hostReady": host_ready,
             "clientReady": client_ready,
             "hostReasons": session_not_ready_reasons(host_state, EXPECTED_PLAYERS, scene),
             "clientReasons": session_not_ready_reasons(client_state, EXPECTED_PLAYERS, scene),
+            "hostPlayersReady": host_players_ready,
+            "clientPlayersReady": client_players_ready,
             "stableMatches": stable_matches,
         })
         if host_ready and client_ready:
