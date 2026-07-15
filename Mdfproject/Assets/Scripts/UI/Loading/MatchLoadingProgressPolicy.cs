@@ -7,6 +7,25 @@ public static class MatchLoadingProgressPolicy
     public const float SceneTransitionTarget = 0.985f;
     public const float SceneLoadedTarget = 0.995f;
 
+    public static bool IsGameScene(string sceneName)
+    {
+        return string.Equals(sceneName, SceneDefine.Game, System.StringComparison.Ordinal);
+    }
+
+    public static bool ShouldBeginCompletionFade(
+        bool completionRequested,
+        float completeAt,
+        float currentTime,
+        float displayedProgress,
+        float fadeStartedAt)
+    {
+        return completionRequested
+               && completeAt >= 0f
+               && currentTime >= completeAt
+               && displayedProgress >= 0.999f
+               && fadeStartedAt < 0f;
+    }
+
     public static float ClampLocalProgress(float progress)
     {
         if (float.IsNaN(progress) || float.IsInfinity(progress))

@@ -46,6 +46,15 @@ public sealed class MatchLoadingScreenEditModeTests
                 2),
             Is.EqualTo(MatchLoadingProgressPolicy.PeerReadyCeiling).Within(0.0001f));
         Assert.That(MatchLoadingProgressPolicy.SceneLoadedTarget, Is.LessThan(1f));
+        Assert.That(MatchLoadingProgressPolicy.IsGameScene(SceneDefine.Game), Is.True);
+        Assert.That(MatchLoadingProgressPolicy.IsGameScene(SceneDefine.JoinLobby), Is.False);
+        Assert.That(
+            MatchLoadingProgressPolicy.ShouldBeginCompletionFade(true, 1f, 2f, 1f, -1f),
+            Is.True);
+        Assert.That(
+            MatchLoadingProgressPolicy.ShouldBeginCompletionFade(true, 1f, 2f, 1f, 1.5f),
+            Is.False,
+            "Once fading starts, its start time must not be reset every frame.");
     }
 
     [Test]
@@ -54,6 +63,8 @@ public sealed class MatchLoadingScreenEditModeTests
         string lobbySource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Network/JoinLobbyUI.cs");
         string loadSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/LoadManager.cs");
         string networkSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Network/NetworkManager.cs");
+        string controllerSource = MdfSourcePolicy.ReadStaticContract(
+            "Assets/Scripts/UI/Loading/MatchLoadingScreenController.cs");
 
         Assert.That(lobbySource, Does.Contain("MatchLoadingScreenController.Show("));
         Assert.That(lobbySource, Does.Contain("MatchLoadingScreenController.SetPeerReadiness("));
@@ -61,5 +72,7 @@ public sealed class MatchLoadingScreenEditModeTests
         Assert.That(loadSource, Does.Contain("ReportMatchContentPrewarmProgress("));
         Assert.That(networkSource, Does.Contain("MatchLoadingScreenController.NotifySceneLoadStart();"));
         Assert.That(networkSource, Does.Contain("MatchLoadingScreenController.NotifySceneLoadDone();"));
+        Assert.That(controllerSource, Does.Contain("GameEvents.OnGameManagersReady += HandleGameManagersReady;"));
+        Assert.That(controllerSource, Does.Contain("ObserveActiveScene();"));
     }
 }

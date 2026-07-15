@@ -82,7 +82,7 @@ public partial class GameManagers : NetworkBehaviour
 
     [Header("자동 생성 위치 설정")]
     public Vector3 player1BasePosition = new Vector3(0, 0, 0);
-    public Vector3 playerOffset = new Vector3(0, 10, 0);
+    public Vector3 playerOffset = new Vector3(0, 0, -20);
     private bool _loggedOffsetNormalization;
 
     public Vector3 GetResolvedPlayerOffset()
@@ -102,6 +102,11 @@ public partial class GameManagers : NetworkBehaviour
         }
 
         return normalized;
+    }
+
+    public Vector3 GetPlayerFieldPosition(int playerId)
+    {
+        return player1BasePosition + GetResolvedPlayerOffset() * Mathf.Max(0, playerId);
     }
 
     #region 단계별 시간 및 보상
@@ -1275,7 +1280,7 @@ public partial class GameManagers : NetworkBehaviour
 
         for (int i = 0; i < playersToCreate; i++)
         {
-            Vector3 playerPosition = player1BasePosition + playerOffset * i;
+            Vector3 playerPosition = GetPlayerFieldPosition(i);
             bool isAI = isSinglePlayer ? (i > 0) : (i >= playerRefs.Count);
             PlayerRef inputAuthority = (!isAI && i < playerRefs.Count) ? playerRefs[i] : PlayerRef.None;
 

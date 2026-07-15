@@ -8,6 +8,7 @@ using UnityEngine;
 public sealed class ArenaBackgroundPresentationEditModeTests
 {
     private const string PrefabPath = "Assets/Prefabs/User_Grid3D.prefab";
+    private const string GameManagersPrefabPath = "Assets/Prefabs/GameManagers.prefab";
     private const string MaterialPath = "Assets/Resource/Materials/Mat_ArenaBackground.mat";
     private const string TexturePath = "Assets/Resource/Image/UI/Game/arena_background.png";
 
@@ -35,6 +36,8 @@ public sealed class ArenaBackgroundPresentationEditModeTests
 
         Vector3 worldNormal = visual.TransformDirection(visualMesh.sharedMesh.normals[0]).normalized;
         Assert.That(Vector3.Dot(worldNormal, Vector3.up), Is.GreaterThan(0.99f));
+        Vector3 imageUp = visual.TransformDirection(Vector3.up).normalized;
+        Assert.That(Vector3.Dot(imageUp, Vector3.back), Is.GreaterThan(0.99f));
 
         Transform activeLegacyGround = prefab.transform
             .Cast<Transform>()
@@ -59,6 +62,28 @@ public sealed class ArenaBackgroundPresentationEditModeTests
         Assert.That(presenter.ClassicRenderers, Does.Contain(inputBackground.GetComponent<MeshRenderer>()));
         Assert.That(presenter.ClassicRenderers, Does.Contain(activeLegacyGround.GetComponent<MeshRenderer>()));
         Assert.That(presenter.ArenaRenderers, Does.Contain(visualRenderer));
+    }
+
+    [Test]
+    public void PlayerFieldsLeaveAVisibleGapBetweenArenaBackgrounds()
+    {
+        GameObject fieldPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
+        GameObject managersPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(GameManagersPrefabPath);
+        Assert.That(fieldPrefab, Is.Not.Null);
+        Assert.That(managersPrefab, Is.Not.Null);
+
+        Transform arenaVisual = fieldPrefab.transform.Find("ArenaBackgroundVisual");
+        GameManagers managers = managersPrefab.GetComponent<GameManagers>();
+        Assert.That(arenaVisual, Is.Not.Null);
+        Assert.That(managers, Is.Not.Null);
+
+        Vector3 offset = managers.GetResolvedPlayerOffset();
+        float arenaDepth = Mathf.Abs(arenaVisual.localScale.y);
+        Assert.That(offset.y, Is.EqualTo(0f).Within(0.0001f));
+        Assert.That(Mathf.Abs(offset.z), Is.GreaterThanOrEqualTo(arenaDepth + 4f));
+        Assert.That(
+            managers.GetPlayerFieldPosition(1),
+            Is.EqualTo(managers.player1BasePosition + offset));
     }
 
     [Test]

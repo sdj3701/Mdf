@@ -2069,7 +2069,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return false;
         }
 
-        expectedPosition = gm.player1BasePosition + gm.GetResolvedPlayerOffset() * playerId;
+        expectedPosition = gm.GetPlayerFieldPosition(playerId);
         return true;
     }
 

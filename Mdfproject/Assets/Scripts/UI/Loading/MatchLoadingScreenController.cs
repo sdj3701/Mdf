@@ -44,6 +44,7 @@ public sealed class MatchLoadingScreenController : MonoBehaviour
     private int _tipIndex;
     private bool _sceneTransitionStarted;
     private bool _gameSceneLoaded;
+    private bool _gameManagersReady;
     private bool _cancelRequested;
     private bool _completionRequested;
 
@@ -127,7 +128,12 @@ public sealed class MatchLoadingScreenController : MonoBehaviour
             return;
         }
 
-        Instance._gameSceneLoaded = true;
+        if (!MatchLoadingProgressPolicy.IsGameScene(SceneManager.GetActiveScene().name))
+        {
+            return;
+        }
+
+        Instance.MarkGameSceneLoaded();
         Instance.SetTargetProgress(
             MatchLoadingProgressPolicy.SceneLoadedTarget,
             "지휘관과 전장을 배치하는 중");
@@ -147,11 +153,14 @@ public sealed class MatchLoadingScreenController : MonoBehaviour
     private void OnEnable()
     {
         SceneManager.sceneLoaded += OnSceneLoaded;
+        GameEvents.OnGameManagersReady += HandleGameManagersReady;
+        ObserveActiveScene();
     }
 
     private void OnDisable()
     {
         SceneManager.sceneLoaded -= OnSceneLoaded;
+        GameEvents.OnGameManagersReady -= HandleGameManagersReady;
     }
 
     private void OnDestroy()
@@ -165,21 +174,18 @@ public sealed class MatchLoadingScreenController : MonoBehaviour
 
     private void Update()
     {
+        ObserveActiveScene();
+
+        if (_gameSceneLoaded
+            && !_completionRequested
+            && (_gameManagersReady || IsGameRuntimeReady()))
+        {
+            RequestCompletion();
+        }
+
         if (_root == null)
         {
             BindVisualTree();
-            if (_root == null)
-            {
-                return;
-            }
-        }
-
-        if (_gameSceneLoaded && !_completionRequested && IsGameRuntimeReady())
-        {
-            _completionRequested = true;
-            _targetProgress = 1f;
-            _completeAt = Time.unscaledTime + CompletionHoldSeconds;
-            SetStage("전장 준비 완료");
         }
 
         float progressSpeed = Mathf.Max(0.16f, Mathf.Abs(_targetProgress - _displayedProgress) * 2.6f);
@@ -193,10 +199,12 @@ public sealed class MatchLoadingScreenController : MonoBehaviour
             _opacity = Mathf.MoveTowards(_opacity, 1f, Time.unscaledDeltaTime / FadeDurationSeconds);
         }
 
-        if (_completionRequested
-            && _completeAt >= 0f
-            && Time.unscaledTime >= _completeAt
-            && _displayedProgress >= 0.999f)
+        if (MatchLoadingProgressPolicy.ShouldBeginCompletionFade(
+                _completionRequested,
+                _completeAt,
+                Time.unscaledTime,
+                _displayedProgress,
+                _fadeStartedAt))
         {
             _fadeStartedAt = Time.unscaledTime;
         }
@@ -379,9 +387,9 @@ public sealed class MatchLoadingScreenController : MonoBehaviour
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
-        if (scene.name == SceneDefine.Game)
+        if (MatchLoadingProgressPolicy.IsGameScene(scene.name))
         {
-            _gameSceneLoaded = true;
+            MarkGameSceneLoaded();
             SetTargetProgress(
                 MatchLoadingProgressPolicy.SceneLoadedTarget,
                 "전장 동기화를 마무리하는 중");
@@ -395,11 +403,42 @@ public sealed class MatchLoadingScreenController : MonoBehaviour
         }
     }
 
+    private void ObserveActiveScene()
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+        if (activeScene.IsValid() && MatchLoadingProgressPolicy.IsGameScene(activeScene.name))
+        {
+            MarkGameSceneLoaded();
+        }
+    }
+
+    private void MarkGameSceneLoaded()
+    {
+        _gameSceneLoaded = true;
+    }
+
+    private void HandleGameManagersReady()
+    {
+        _gameManagersReady = true;
+        ObserveActiveScene();
+    }
+
+    private void RequestCompletion()
+    {
+        _completionRequested = true;
+        _targetProgress = 1f;
+        _completeAt = Time.unscaledTime + CompletionHoldSeconds;
+        SetStage("전장 준비 완료");
+    }
+
     private static bool IsGameRuntimeReady()
     {
         GameManagers managers = GameManagers.Instance;
         return managers != null
                && managers.Object != null
-               && managers.Object.IsValid;
+               && managers.Object.IsValid
+               && managers.IsReadyForNetworkAccess
+               && managers.currentState != GameManagers.GameState.Setup
+               && managers.currentState != GameManagers.GameState.DataLoading;
     }
 }
